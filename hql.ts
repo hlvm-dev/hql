@@ -5,10 +5,6 @@
  * HQL Interpreter – Final Version with defsync producing truly synchronous
  * JavaScript functions + module import fix + type annotations for "map" callbacks.
  *
- * The only changes from your last code:
- *   - Added `(p: HQLValue)` or `(a: HQLValue)` in the few `.map()` calls
- *     that caused TS7006 errors.
- *
  * Usage:
  *   • Run a HQL file (async evaluation):
  *         deno run --allow-read --allow-write --allow-net --allow-env hql.ts yourfile.hql
@@ -237,21 +233,21 @@ function formatValue(val: HQLValue): string {
 }
 
 const builtIns: Record<string, HQLValue> = {
-  println: hostFunc((args) => {
+  println: hostFunc((args: HQLValue[]) => {
     console.log(...args.map(formatValue));
     return makeNil();
   }),
-  log: hostFunc((args) => {
+  log: hostFunc((args: HQLValue[]) => {
     console.log(...args.map(hqlToJs));
     return makeNil();
   }),
-  keyword: hostFunc((args) => {
+  keyword: hostFunc((args: HQLValue[]) => {
     if (args.length !== 1 || args[0].type !== "string") {
       throw new Error("(keyword) expects exactly one string argument");
     }
     return makeSymbol(":" + args[0].value);
   }),
-  "+": hostFunc((args) => {
+  "+": hostFunc((args: HQLValue[]) => {
     let sum = 0;
     for (const a of args) {
       if (a.type !== "number") {
@@ -261,7 +257,7 @@ const builtIns: Record<string, HQLValue> = {
     }
     return makeNumber(sum);
   }),
-  "-": hostFunc((args) => {
+  "-": hostFunc((args: HQLValue[]) => {
     if (args.length === 0) throw new Error("'-' expects at least one argument");
     for (const a of args) {
       if (a.type !== "number") throw new Error("Expected number in -");
@@ -273,7 +269,7 @@ const builtIns: Record<string, HQLValue> = {
     }
     return makeNumber(result);
   }),
-  "*": hostFunc((args) => {
+  "*": hostFunc((args: HQLValue[]) => {
     let product = 1;
     for (const a of args) {
       if (a.type !== "number") throw new Error("Expected number in *");
@@ -281,7 +277,7 @@ const builtIns: Record<string, HQLValue> = {
     }
     return makeNumber(product);
   }),
-  "/": hostFunc((args) => {
+  "/": hostFunc((args: HQLValue[]) => {
     if (args.length === 0) throw new Error("'/' expects at least one argument");
     for (const a of args) {
       if (a.type !== "number") throw new Error("Expected number in /");
@@ -293,21 +289,34 @@ const builtIns: Record<string, HQLValue> = {
     }
     return makeNumber(result);
   }),
-  "string-append": hostFunc((args) => {
-    const out = args.map((v) => v.type === "string" ? v.value : formatValue(v)).join("");
+  "string-append": hostFunc((args: HQLValue[]) => {
+    const out = args.map((v: HQLValue) => v.type === "string" ? v.value : formatValue(v)).join("");
     return makeString(out);
   }),
-  list: hostFunc((args) => makeList(args)),
-  vector: hostFunc((args) => makeList([makeSymbol("vector"), ...args])),
-  "hash-map": hostFunc((args) => makeList([makeSymbol("hash-map"), ...args])),
-  set: hostFunc((args) => makeList([makeSymbol("set"), ...args])),
+  list: hostFunc((args: HQLValue[]) => makeList(args)),
+  vector: hostFunc((args: HQLValue[]) => makeList([makeSymbol("vector"), ...args])),
+  "hash-map": hostFunc((args: HQLValue[]) => makeList([makeSymbol("hash-map"), ...args])),
+  set: hostFunc((args: HQLValue[]) => makeList([makeSymbol("set"), ...args])),
 
-  // Provide a "get" built-in to access JS properties (for chalk/lodash usage)
-  get: hostFunc((args) => {
-    const obj = hqlToJs(args[0]);
-    // second arg as property name
+  // Fixed built-in "get"
+  get: hostFunc((args: HQLValue[]) => {
+    // Unwrap if opaque; otherwise convert to JS.
+    let jsObj = args[0].type === "opaque" ? args[0].value : hqlToJs(args[0]);
     const prop = (args[1].type === "string") ? args[1].value : formatValue(args[1]);
-    return wrapJsValue(obj[prop]);
+    const propValue = jsObj[prop];
+    if (typeof propValue === "function") {
+      return hostFunc((innerArgs: HQLValue[]) => {
+        const jsArgs = innerArgs.map(hqlToJs);
+        const result = propValue(...jsArgs);
+        if (result instanceof Promise) {
+          return result.then(jsToHql);
+        }
+        return jsToHql(result);
+      });
+    } else {
+      // Instead of wrapping, convert the value.
+      return jsToHql(propValue);
+    }
   }),
 };
 
@@ -321,12 +330,12 @@ for (const k in builtIns) {
 
 function hqlToJs(val: HQLValue): any {
   if (!val) return null;
-  if (val.type === "nil")    return null;
-  if (val.type === "boolean")return val.value;
+  if (val.type === "nil") return null;
+  if (val.type === "boolean") return val.value;
   if (val.type === "number") return val.value;
   if (val.type === "string") return val.value;
   if (val.type === "symbol") return val.name;
-  if (val.type === "list")   return val.value.map(hqlToJs);
+  if (val.type === "list") return val.value.map(hqlToJs);
   if (val.type === "function") {
     if (val.isSync) {
       return function (...args: any[]) {
@@ -340,6 +349,7 @@ function hqlToJs(val: HQLValue): any {
       };
     }
   }
+  if (val.type === "opaque") return val.value; // <--- Unwrapping opaque values
   return val;
 }
 
@@ -458,7 +468,6 @@ async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
           if (!paramsAst || paramsAst.type !== "list") {
             throw new Error("(fn) expects a list of parameters");
           }
-          // *** Add type here so we don't get TS7006 ***
           const paramNames: string[] = paramsAst.value.map((p: HQLValue) => {
             if (p.type === "symbol") return p.name;
             if (p.type === "list" && p.value.length >= 1 && p.value[0].type === "symbol") {
@@ -528,15 +537,12 @@ async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
             throw new Error("import expects a string URL");
           }
           const url = urlVal.value;
-
-          // If starts with "npm:", do not append ?bundle. Otherwise append if missing.
           let modUrl: string;
           if (url.startsWith("npm:")) {
             modUrl = url;
           } else {
             modUrl = url.includes("?bundle") ? url : url + "?bundle";
           }
-
           const modObj = await import(modUrl);
           let modCandidate = modObj.default ?? modObj;
           if (
@@ -553,7 +559,6 @@ async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
         }
       }
     }
-    // If not recognized special form => function call
     const fnVal = await evaluateAsync(head, env);
     if (fnVal.type === "function") {
       if (fnVal.isMacro) {
@@ -645,7 +650,6 @@ function evaluateSync(ast: HQLValue, env: Env): HQLValue {
           if (!paramsAst || paramsAst.type !== "list") {
             throw new Error("(fn) expects a list of parameters");
           }
-          // *** Add type here so we don't get TS7006 ***
           const paramNames = paramsAst.value.map((p: HQLValue) => {
             if (p.type === "symbol") return p.name;
             if (p.type === "list" && p.value.length >= 1 && p.value[0].type === "symbol") {
@@ -692,7 +696,7 @@ function evaluateSync(ast: HQLValue, env: Env): HQLValue {
             if (fnVal.isMacro) {
               throw new Error("Macros not supported in sync mode.");
             } else {
-              const argVals = list.slice(1).map((a: HQLValue) => evaluateSync(a, env)); // typed 'a'
+              const argVals = list.slice(1).map((a: HQLValue) => evaluateSync(a, env));
               return applyFnSync(fnVal, argVals);
             }
           }
@@ -705,7 +709,7 @@ function evaluateSync(ast: HQLValue, env: Env): HQLValue {
         if (fnVal.isMacro) {
           throw new Error("Macros not supported in sync mode.");
         } else {
-          const argVals = list.slice(1).map((a: HQLValue) => evaluateSync(a, env)); // typed 'a'
+          const argVals = list.slice(1).map((a: HQLValue) => evaluateSync(a, env));
           return applyFnSync(fnVal, argVals);
         }
       }
@@ -866,7 +870,7 @@ async function repl(env: Env) {
 }
 
 /** wrapJsValue:
- *   - Wraps a native JS value as an opaque HQL value. (Used in the import logic.)
+ *   - Wraps a native JS value as an opaque HQL value.
  */
 function wrapJsValue(obj: any): HQLValue {
   return { type: "opaque", value: obj };
