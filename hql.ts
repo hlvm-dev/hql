@@ -1,135 +1,16 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write --allow-net
 /**
  * =============================================================================
- * HQL Interpreter – A Lisp-like Interpreter for Deno
+ * HQL Interpreter – A 100% Pure S-expression Lisp-like Interpreter for Deno
  * =============================================================================
  *
- * Overview:
- * ---------
- * This is a full-featured HQL interpreter implemented in TypeScript that runs on Deno.
- * It supports:
- *   - Parsing Lisp syntax (with support for comments using ";")
- *   - Asynchronous evaluation (supporting the special form (await ...))
- *   - Integration with JavaScript/Deno APIs (via built-ins like println, read-file,
- *     fetch, etc.)
- *   - Importing external modules with (import "url")
- *   - Opaque wrapping of non-primitive JS objects to preserve their behavior
- *   - Property access using (get object "propertyName")
- *   - Macros via defmacro for code transformation
- *   - A Read–Eval–Print Loop (REPL) when no script file is provided.
+ * Highlights:
+ *  - Includes a built-in "keyword" function that produces a symbol named ":a",
+ *    thus no "Symbol 'keyword' not found" error.
+ *  - We log the builtIns keys to confirm "keyword" is actually there.
  *
- * =============================================================================
- * Code Structure:
- * =============================================================================
- *
- * 1. AST Definitions & Factory Helpers:
- *    - Defines the various node types (symbols, lists, numbers, strings, booleans,
- *      nil, functions, macros, and opaque values) that form the abstract syntax tree.
- *
- * 2. Tokenizer:
- *    - Splits an input string into tokens, ignoring whitespace and comments (anything
- *      from ";" to the end of the line).
- *
- * 3. Parser:
- *    - Converts the token stream into an AST by recognizing lists, atoms, and literals.
- *
- * 4. Environment:
- *    - Implements lexical scoping using nested environments. An Env maps symbol names
- *      to HQL values.
- *
- * 5. Evaluation:
- *    - Evaluates AST nodes in a given environment.
- *    - Handles special forms including:
- *         • (quote ...)
- *         • (if condition then-form else-form)
- *         • (def symbol value)
- *         • (fn (params) ...body...)
- *         • (defmacro name (params) ...body...)
- *         • (await expr)
- *         • (import "url") – automatically appends "?bundle" when needed.
- *    - Function calls, macro expansion, and asynchronous evaluation are managed here.
- *
- * 6. Standard Library / Built-ins:
- *    - Provides a set of built-in functions that wrap common operations (arithmetic,
- *      file I/O, HTTP fetching, property access, etc.).
- *    - These functions are stored in the base environment.
- *
- * 7. JavaScript Integration:
- *    - Uses conversion functions (hqlToJs and jsToHql) to translate between HQL
- *      values and native JavaScript values.
- *    - Supports direct access to global JS objects via the "js/" prefix.
- *
- * 8. REPL and File Execution:
- *    - If a filename is provided as a command-line argument, the interpreter will read
- *      and execute that file.
- *    - Otherwise, it starts an interactive REPL.
- *
- * =============================================================================
- * Example HQL Code (Usage Examples):
- * =============================================================================
- *
- * --- Simple Expressions ---
- * ; Print a greeting
- * (println "Hello, HQL!")
- *
- * ; Arithmetic operations
- * (println (+ 2 3))           ; prints 5
- * (println (* 4 5))           ; prints 20
- *
- * --- Variables and Functions ---
- * (def x 10)
- * (def add (fn (a b)
- *     (+ a b)))
- * (println (add x 15))        ; prints 25
- *
- * --- Conditionals ---
- * (if true
- *     (println "It is true")
- *     (println "It is false"))
- *
- * --- Asynchronous Operations ---
- * (await (sleep 1000))
- * (println "Slept for 1 second")
- *
- * --- File I/O ---
- * (write-file "test.txt" "HQL file I/O works!")
- * (println (read-file "test.txt"))
- *
- * --- Importing External Modules ---
- * (def chalk (import "https://deno.land/x/chalk_deno@v4.1.1-deno/source/index.js"))
- * (log ((get chalk "blue") "This text is blue"))
- *
- * --- Macros ---
- * (defmacro unless (condition body)
- *     (list 'if (list 'not condition) body))
- * (unless false (println "Printed because condition is false"))
- *
- * --- Higher-Order Functions ---
- * (def apply-twice (fn (f x)
- *     (f (f x))))
- * (def increment (fn (n)
- *     (+ n 1)))
- * (println (apply-twice increment 5))  ; prints 7
- *
- * --- Async Function Example ---
- * (def async-add (fn (a b)
- *     (await (sleep 500))
- *     (+ a b)))
- * (println (async-add 10 15))  ; prints 25 after a delay
- *
- * =============================================================================
- * Running the Interpreter:
- * =============================================================================
- *
- * To run the interpreter with a file:
- *
- *     deno run --allow-read --allow-write --allow-net hql.ts your_script.hql
- *
- * To start the interactive REPL:
- *
- *     deno run --allow-read --allow-write --allow-net hql.ts
- *
- * =============================================================================
+ * Usage:
+ *  deno run --allow-read --allow-write --allow-net hql.ts hello.hql
  */
 
 //////////////////////////////////////////////////////////////////////////////
@@ -151,7 +32,7 @@ export type HQLValue =
 
 export interface HQLSymbol {
   type: "symbol";
-  name: string;
+  name: string;  // e.g. "x", "->", or ":a"
 }
 
 export interface HQLList {
@@ -185,6 +66,7 @@ export interface HQLFn {
   closure: Env;
   isMacro?: false;
   hostFn?: (args: HQLValue[]) => Promise<HQLValue> | HQLValue;
+  retType?: HQLValue; 
 }
 
 export interface HQLMacro {
@@ -195,16 +77,9 @@ export interface HQLMacro {
   isMacro: true;
 }
 
-/** Opaque values wrap arbitrary JS objects so that their properties (like toString)
- *  are not accidentally modified by HQL formatting.
- */
 export interface HQLOpaque {
   type: "opaque";
   value: any;
-}
-
-function makeOpaque(obj: any): HQLOpaque {
-  return { type: "opaque", value: obj };
 }
 
 function makeSymbol(name: string): HQLSymbol {
@@ -232,36 +107,26 @@ function makeNil(): HQLNil {
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// 2. Tokenizer (handles comments starting with ';')
+// 2. Tokenizer (Pure S-expression)
 //////////////////////////////////////////////////////////////////////////////
 
-/**
- * Tokenizes the input string into a list of tokens.
- * It skips whitespace, handles parentheses, string literals, and ignores comments.
- */
 function tokenize(input: string): string[] {
   const tokens: string[] = [];
   let i = 0;
   while (i < input.length) {
     const c = input[i];
-
-    // Skip whitespace
     if (/\s/.test(c)) {
       i++;
       continue;
     }
-
-    // Skip comments (from ";" until newline)
     if (c === ";") {
+      // Skip comment until newline
       while (i < input.length && input[i] !== "\n") {
         i++;
       }
       continue;
     }
-
-    // Handle parentheses and square brackets:
-    // Treat '(' and '[' as an opening parenthesis.
-    // Treat ')' and ']' as a closing parenthesis.
+    // '(' '[' => "(" and ')' ']' => ")"
     if (c === "(" || c === "[") {
       tokens.push("(");
       i++;
@@ -272,29 +137,23 @@ function tokenize(input: string): string[] {
       i++;
       continue;
     }
-
-    // Handle string literals (enclosed in double quotes)
+    // String literal
     if (c === '"') {
+      i++;
       let str = "";
-      i++; // Skip the opening quote
       while (i < input.length && input[i] !== '"') {
         str += input[i++];
       }
-      i++; // Skip the closing quote
+      i++; // skip closing quote
       tokens.push(`"${str}"`);
       continue;
     }
-
-    // Otherwise, read a symbol/number until a delimiter is reached
+    // Otherwise read a symbol/number until whitespace or delimiter
     let sym = "";
     while (
       i < input.length &&
       !/\s/.test(input[i]) &&
-      input[i] !== "(" &&
-      input[i] !== ")" &&
-      input[i] !== "[" &&
-      input[i] !== "]" &&
-      input[i] !== ";"
+      !["(", ")", "[", "]", ";"].includes(input[i])
     ) {
       sym += input[i++];
     }
@@ -303,14 +162,23 @@ function tokenize(input: string): string[] {
   return tokens;
 }
 
-
 //////////////////////////////////////////////////////////////////////////////
 // 3. Parser
 //////////////////////////////////////////////////////////////////////////////
 
-/**
- * Recursively converts a token list into an AST (Abstract Syntax Tree).
- */
+function parseAtom(token: string): HQLValue {
+  if (/^[+-]?\d+(\.\d+)?$/.test(token)) {
+    return makeNumber(parseFloat(token));
+  }
+  if (token.startsWith('"') && token.endsWith('"')) {
+    return makeString(token.slice(1, -1));
+  }
+  if (token === "true") return makeBoolean(true);
+  if (token === "false") return makeBoolean(false);
+  if (token === "nil") return makeNil();
+  return makeSymbol(token);
+}
+
 function readFromTokens(tokens: string[]): HQLValue {
   if (tokens.length === 0) throw new Error("Unexpected EOF");
   const token = tokens.shift()!;
@@ -320,7 +188,7 @@ function readFromTokens(tokens: string[]): HQLValue {
       if (tokens.length === 0) throw new Error("Missing )");
       listItems.push(readFromTokens(tokens));
     }
-    tokens.shift(); // Remove the closing ')'
+    tokens.shift(); // remove ")"
     return makeList(listItems);
   } else if (token === ")") {
     throw new Error("Unexpected )");
@@ -329,29 +197,6 @@ function readFromTokens(tokens: string[]): HQLValue {
   }
 }
 
-/**
- * Converts an individual token to an HQL atom (number, string, boolean, nil, or symbol).
- */
-function parseAtom(token: string): HQLValue {
-  // Check if token is a number
-  if (/^[+-]?\d+(\.\d+)?$/.test(token)) {
-    return makeNumber(parseFloat(token));
-  }
-  // Check if token is a string literal (enclosed in quotes)
-  if (token.startsWith('"') && token.endsWith('"')) {
-    return makeString(token.slice(1, -1));
-  }
-  // Check for booleans or nil
-  if (token === "true") return makeBoolean(true);
-  if (token === "false") return makeBoolean(false);
-  if (token === "nil") return makeNil();
-  // Otherwise, treat it as a symbol
-  return makeSymbol(token);
-}
-
-/**
- * Parses a complete HQL program into a list of AST forms.
- */
 function parseHQL(input: string): HQLValue[] {
   const tokens = tokenize(input);
   const forms: HQLValue[] = [];
@@ -365,10 +210,6 @@ function parseHQL(input: string): HQLValue[] {
 // 4. Environment
 //////////////////////////////////////////////////////////////////////////////
 
-/**
- * Env implements an environment mapping symbols to HQL values.
- * It supports lexical scoping via the "outer" reference.
- */
 export class Env {
   bindings: Map<string, HQLValue>;
   outer: Env | null;
@@ -378,13 +219,11 @@ export class Env {
     this.outer = outer;
   }
 
-  // Bind a new symbol to a value in the current environment.
   set(name: string, value: HQLValue) {
     this.bindings.set(name, value);
     return value;
   }
 
-  // Recursively searches for the environment containing a symbol.
   find(name: string): Env | null {
     if (this.bindings.has(name)) {
       return this;
@@ -395,7 +234,6 @@ export class Env {
     return null;
   }
 
-  // Retrieve the value bound to a symbol.
   get(name: string): HQLValue {
     const env = this.find(name);
     if (!env) throw new Error(`Symbol '${name}' not found`);
@@ -407,26 +245,14 @@ export class Env {
 // 5. Evaluation
 //////////////////////////////////////////////////////////////////////////////
 
-/**
- * Asynchronously evaluates an AST node within the given environment.
- * Supports special forms like quote, if, def, fn, defmacro, await, and import.
- */
 async function evaluate(ast: HQLValue, env: Env): Promise<HQLValue> {
-  // If the AST is a Promise, await its resolution.
-  if (ast instanceof Promise) {
-    return ast;
-  }
-
-  // If the AST is a symbol, look it up in the environment.
+  if (ast instanceof Promise) return ast;
   if (ast.type === "symbol") {
-    // Support access to global JS objects via "js/" prefix.
     if (ast.name.startsWith("js/")) {
       return wrapJsValue(resolveGlobalObject(ast.name.slice(3)));
     }
     return env.get(ast.name);
   }
-
-  // Literals (number, string, boolean, nil) evaluate to themselves.
   if (
     ast.type === "number" ||
     ast.type === "string" ||
@@ -435,21 +261,15 @@ async function evaluate(ast: HQLValue, env: Env): Promise<HQLValue> {
   ) {
     return ast;
   }
-
-  // If the AST is a list, treat it as a function call or special form.
   if (ast.type === "list") {
     const list = ast.value;
-    if (list.length === 0) return ast; // Empty list returns itself.
+    if (list.length === 0) return ast;
     const head = list[0];
-
-    // Special forms are identified by the head symbol.
     if (head.type === "symbol") {
       switch (head.name) {
-        // (quote expr) returns expr without evaluating it.
         case "quote": {
           return list[1] ?? makeNil();
         }
-        // (if condition then-form else-form) evaluates condition and selects a branch.
         case "if": {
           const condVal = await evaluate(list[1], env);
           if (truthy(condVal)) {
@@ -458,7 +278,6 @@ async function evaluate(ast: HQLValue, env: Env): Promise<HQLValue> {
             return list[3] ? await evaluate(list[3], env) : makeNil();
           }
         }
-        // (def symbol value) binds a symbol to a value in the current environment.
         case "def": {
           const sym = list[1];
           if (!sym || sym.type !== "symbol") {
@@ -467,29 +286,48 @@ async function evaluate(ast: HQLValue, env: Env): Promise<HQLValue> {
           const val = list[2] ? await evaluate(list[2], env) : makeNil();
           return env.set(sym.name, val);
         }
-        // (fn (params) ...body...) defines an anonymous function (closure).
         case "fn": {
           const paramsAst = list[1];
           if (!paramsAst || paramsAst.type !== "list") {
             throw new Error("fn expects (list of params) ...body...");
           }
+          // gather param names
           const paramNames = paramsAst.value.map((p) => {
-            if (p.type !== "symbol") {
-              throw new Error("Function parameters must be symbols");
+            if (p.type === "list" && p.value.length >= 1) {
+              const namePart = p.value[0];
+              if (namePart.type !== "symbol") {
+                throw new Error("param name must be symbol");
+              }
+              return namePart.name;
+            } else if (p.type === "symbol") {
+              return p.name;
+            } else {
+              throw new Error("invalid param specification");
             }
-            return p.name;
           });
-          const bodyForms = list.slice(2);
+          let bodyForms = list.slice(2);
+          let retType: HQLValue | undefined = undefined;
+          // check if first form is (-> Int) or (ret Int)
+          if (
+            bodyForms.length > 0 &&
+            bodyForms[0].type === "list" &&
+            bodyForms[0].value.length >= 2 &&
+            bodyForms[0].value[0].type === "symbol" &&
+            (bodyForms[0].value[0].name === "->" || bodyForms[0].value[0].name === "ret")
+          ) {
+            retType = bodyForms[0].value[1];
+            bodyForms = bodyForms.slice(1);
+          }
           const fnVal: HQLFn = {
             type: "function",
             params: paramNames,
             body: bodyForms,
             closure: env,
             isMacro: false,
+            retType,
           };
           return fnVal;
         }
-        // (defmacro name (params) ...body...) defines a macro.
         case "defmacro": {
           const sym = list[1];
           if (!sym || sym.type !== "symbol") {
@@ -501,7 +339,7 @@ async function evaluate(ast: HQLValue, env: Env): Promise<HQLValue> {
           }
           const paramNames = paramsAst.value.map((p) => {
             if (p.type !== "symbol") {
-              throw new Error("Macro parameters must be symbols");
+              throw new Error("Macro params must be symbols");
             }
             return p.name;
           });
@@ -516,15 +354,11 @@ async function evaluate(ast: HQLValue, env: Env): Promise<HQLValue> {
           env.set(sym.name, macroVal);
           return makeSymbol(sym.name);
         }
-        // (await expr) awaits an asynchronous expression.
         case "await": {
           const exprVal = await evaluate(list[1], env);
-          if (exprVal instanceof Promise) {
-            return await exprVal;
-          }
+          if (exprVal instanceof Promise) return await exprVal;
           return exprVal;
         }
-        // (import "url") imports an external JavaScript module.
         case "import": {
           const urlVal = await evaluate(list[1], env);
           if (urlVal.type !== "string") {
@@ -532,14 +366,12 @@ async function evaluate(ast: HQLValue, env: Env): Promise<HQLValue> {
           }
           const url = urlVal.value;
           let modUrl: string;
-          // If the URL starts with "npm:", do not append ?bundle.
           if (url.startsWith("npm:")) {
             modUrl = url;
           } else {
             modUrl = url.includes("?bundle") ? url : url + "?bundle";
           }
           const modObj = await import(modUrl);
-          // Some bundled modules (like chalk) may have a default export that lacks the attached properties.
           let modCandidate = modObj.default ?? modObj;
           if (
             typeof modCandidate === "function" &&
@@ -548,25 +380,20 @@ async function evaluate(ast: HQLValue, env: Env): Promise<HQLValue> {
           ) {
             modCandidate = modObj;
           }
-          // Force color if the module supports it.
           if (typeof modCandidate === "function" && "level" in modCandidate) {
             modCandidate.level = 1;
           }
           return wrapJsValue(modCandidate);
         }
-        
       }
     }
-
-    // If not a special form, then treat as a function or macro call.
+    // Evaluate function call
     const fnVal = await evaluate(head, env);
     if (fnVal.type === "function") {
-      // Handle macro calls (arguments are passed without evaluation).
       if (fnVal.isMacro) {
         const expanded = await macroExpand(fnVal, list.slice(1), env);
         return await evaluate(expanded, env);
       } else {
-        // Evaluate all arguments before calling the function.
         const argsEvaluated: HQLValue[] = [];
         for (const arg of list.slice(1)) {
           argsEvaluated.push(await evaluate(arg, env));
@@ -577,21 +404,13 @@ async function evaluate(ast: HQLValue, env: Env): Promise<HQLValue> {
       throw new Error("Attempt to call a non-function");
     }
   }
-
   throw new Error("Unrecognized AST node in evaluate");
 }
 
-/**
- * Expands a macro by binding its raw (unevaluated) arguments and evaluating its body.
- */
-async function macroExpand(
-  macroFn: HQLMacro,
-  rawArgs: HQLValue[],
-  env: Env,
-): Promise<HQLValue> {
+async function macroExpand(macroFn: HQLMacro, rawArgs: HQLValue[], env: Env): Promise<HQLValue> {
   const newEnv = new Env({}, macroFn.closure);
   if (rawArgs.length < macroFn.params.length) {
-    throw new Error(`Not enough arguments for macro. Expected ${macroFn.params.length}`);
+    throw new Error(`Not enough args to macro. Expected ${macroFn.params.length}`);
   }
   for (let i = 0; i < macroFn.params.length; i++) {
     newEnv.set(macroFn.params[i], rawArgs[i]);
@@ -603,10 +422,6 @@ async function macroExpand(
   return result;
 }
 
-/**
- * Applies a function to evaluated argument values.
- * Supports both host (native JS) functions and user-defined functions.
- */
 async function applyFn(fnVal: HQLFn, argVals: HQLValue[]): Promise<HQLValue> {
   const anyFnVal = fnVal as any;
   if (typeof anyFnVal.hostFn === "function") {
@@ -626,10 +441,6 @@ async function applyFn(fnVal: HQLFn, argVals: HQLValue[]): Promise<HQLValue> {
   return result;
 }
 
-/**
- * Determines the "truthiness" of a value.
- * In HQL, nil and false are false; everything else is true.
- */
 function truthy(val: HQLValue): boolean {
   if (val.type === "nil") return false;
   if (val.type === "boolean") return val.value;
@@ -640,13 +451,8 @@ function truthy(val: HQLValue): boolean {
 // 6. Standard Library / Built-ins
 //////////////////////////////////////////////////////////////////////////////
 
-// Create the base environment in which built-in functions are defined.
 const baseEnv = new Env({}, null);
 
-/**
- * hostFunc creates an HQL function that wraps a native JavaScript function.
- * The native function can be asynchronous.
- */
 function hostFunc(fn: (args: HQLValue[]) => Promise<HQLValue> | HQLValue): HQLFn {
   return {
     type: "function",
@@ -658,22 +464,6 @@ function hostFunc(fn: (args: HQLValue[]) => Promise<HQLValue> | HQLValue): HQLFn
   } as HQLFn;
 }
 
-/**
- * Utility functions to convert HQL values to native types.
- */
-function toNumber(val: HQLValue): number {
-  if (val.type === "number") return val.value;
-  throw new Error(`Expected number, got: ${formatValue(val)}`);
-}
-
-function toString(val: HQLValue): string {
-  if (val.type === "string") return val.value;
-  return formatValue(val);
-}
-
-/**
- * Formats an HQL value as a string for display.
- */
 function formatValue(val: HQLValue): string {
   if (!val) return "nil?";
   if (val instanceof Promise) return "<promise>";
@@ -685,14 +475,10 @@ function formatValue(val: HQLValue): string {
     case "symbol": return val.name;
     case "list": return "(" + val.value.map(formatValue).join(" ") + ")";
     case "function": return val.isMacro ? "<macro>" : "<fn>";
-    case "opaque": return "<opaque>";
     default: return String(val);
   }
 }
 
-/**
- * Converts an HQL value to its corresponding native JavaScript value.
- */
 function hqlToJs(val: HQLValue): any {
   if (val.type === "nil") return null;
   if (val.type === "boolean") return val.value;
@@ -700,9 +486,7 @@ function hqlToJs(val: HQLValue): any {
   if (val.type === "string") return val.value;
   if (val.type === "list") return val.value.map(hqlToJs);
   if (val.type === "function") {
-    if ((val as any).__isWrapped) {
-      return val;
-    }
+    if ((val as any).__isWrapped) return val;
     return async (...args: any[]) => {
       const wrapped = args.map(jsToHql);
       return hqlToJs(await applyFn(val, wrapped));
@@ -712,25 +496,17 @@ function hqlToJs(val: HQLValue): any {
   return val;
 }
 
-/**
- * Converts a native JavaScript value to an HQL value.
- */
 function jsToHql(obj: any): HQLValue {
   if (obj === null || obj === undefined) return makeNil();
   if (typeof obj === "boolean") return makeBoolean(obj);
   if (typeof obj === "number") return makeNumber(obj);
   if (typeof obj === "string") return makeString(obj);
   if (Array.isArray(obj)) return makeList(obj.map(jsToHql));
-  return makeOpaque(obj);
+  return { type: "opaque", value: obj };
 }
 
-/**
- * Wraps a JavaScript function to preserve its properties and make it callable from HQL.
- */
 function wrapJsFunction(fn: Function): HQLValue {
-  const f = async (...args: any[]): Promise<any> => {
-    return await fn(...args);
-  };
+  const f = async (...args: any[]) => fn(...args);
   Object.defineProperties(f, Object.getOwnPropertyDescriptors(fn));
   Object.setPrototypeOf(f, fn);
   (f as any).type = "function";
@@ -744,98 +520,93 @@ function wrapJsFunction(fn: Function): HQLValue {
   return f as any;
 }
 
-/**
- * Wraps a JavaScript value as an HQL value.
- * Functions are wrapped specially to preserve their behavior.
- */
 function wrapJsValue(obj: any): HQLValue {
-  if (typeof obj === "function") {
-    return wrapJsFunction(obj);
-  } else {
-    return jsToHql(obj);
-  }
+  if (typeof obj === "function") return wrapJsFunction(obj);
+  return jsToHql(obj);
 }
 
-/**
- * Resolves a global JavaScript object from a dot-separated path (e.g., "Math.max").
- */
 function resolveGlobalObject(path: string): any {
   let obj: any = globalThis;
   const parts = path.split(".");
   for (const part of parts) {
-    if (part in obj) {
-      obj = obj[part];
-    } else {
-      throw new Error(`Global object not found: ${path}`);
-    }
+    if (part in obj) obj = obj[part];
+    else throw new Error(`Global object not found: ${path}`);
   }
   return obj;
 }
 
-/**
- * Define the built-in functions available in HQL.
- */
 const builtIns: Record<string, HQLValue> = {
-  // (println ...args) pretty-prints values.
   println: hostFunc((args) => {
     console.log(...args.map(formatValue));
     return makeNil();
   }),
-
-  // (log ...args) logs raw JavaScript values.
   log: hostFunc((args) => {
     console.log(...args.map(a => hqlToJs(a)));
     return makeNil();
   }),
 
-  // (+ ...nums) returns the sum of the numbers.
+  // KEY FIX: The "keyword" built-in 
+  keyword: hostFunc((args) => {
+    // e.g. (keyword "a") => symbol named ":a"
+    if (args.length !== 1 || args[0].type !== "string") {
+      throw new Error("(keyword) expects exactly one string");
+    }
+    const s = args[0].value;
+    return makeSymbol(":" + s);  // => :a
+  }),
+
   "+": hostFunc((args) => {
     let sum = 0;
     for (const a of args) {
-      sum += toNumber(a);
+      if (a.type !== "number") throw new Error("Expected number in +");
+      sum += a.value;
     }
     return makeNumber(sum);
   }),
-
-  // (* ...nums) returns the product of the numbers.
   "*": hostFunc((args) => {
     let product = 1;
     for (const a of args) {
-      product *= toNumber(a);
+      if (a.type !== "number") throw new Error("Expected number in *");
+      product *= a.value;
     }
     return makeNumber(product);
   }),
-
-  // (string-append ...strings) concatenates strings.
   "string-append": hostFunc((args) => {
-    const out = args.map(toString).join("");
+    const out = args.map((v) => v.type === "string" ? v.value : formatValue(v)).join("");
     return makeString(out);
   }),
+  list: hostFunc((args) => makeList(args)),
 
-  // (list ...args) constructs a list of its arguments.
-  "list": hostFunc((args) => {
-    return makeList(args);
+  // Data structures
+  vector: hostFunc((args) => {
+    return makeList([makeSymbol("vector"), ...args]);
+  }),
+  "hash-map": hostFunc((args) => {
+    return makeList([makeSymbol("hash-map"), ...args]);
+  }),
+  set: hostFunc((args) => {
+    return makeList([makeSymbol("set"), ...args]);
   }),
 
-  // (read-file "path") reads file content.
   "read-file": hostFunc(async (args) => {
-    const pathStr = toString(args[0]);
-    const content = await Deno.readTextFile(pathStr);
+    if (args.length < 1 || args[0].type !== "string") {
+      throw new Error("read-file expects a string path");
+    }
+    const content = await Deno.readTextFile(args[0].value);
     return makeString(content);
   }),
-
-  // (write-file "path" "data") writes data to a file.
   "write-file": hostFunc(async (args) => {
-    const pathStr = toString(args[0]);
-    const dataStr = toString(args[1]);
-    await Deno.writeTextFile(pathStr, dataStr);
+    if (args.length < 2 || args[0].type !== "string" || args[1].type !== "string") {
+      throw new Error("write-file expects (string path, string content)");
+    }
+    await Deno.writeTextFile(args[0].value, args[1].value);
     return makeNil();
   }),
-
-  // (fetch "url") performs an HTTP fetch and wraps the response.
   fetch: hostFunc(async (args) => {
-    const url = toString(args[0]);
-    const resp = await fetch(url);
+    if (args.length < 1 || args[0].type !== "string") {
+      throw new Error("fetch expects a string URL");
+    }
+    const resp = await fetch(args[0].value);
     const respObj = {
       status: resp.status,
       text: async () => jsToHql(await resp.text()),
@@ -843,35 +614,35 @@ const builtIns: Record<string, HQLValue> = {
     };
     return wrapJsValue(respObj);
   }),
-
-  // (sleep ms) pauses execution for the given milliseconds.
   sleep: hostFunc(async (args) => {
-    const ms = toNumber(args[0]);
-    await new Promise((r) => setTimeout(r, ms));
+    if (args.length < 1 || args[0].type !== "number") {
+      throw new Error("sleep expects a number");
+    }
+    await new Promise((r) => setTimeout(r, args[0].value));
     return makeNil();
   }),
-
-  // (get obj "propertyName") accesses a property on a JavaScript object.
   get: hostFunc((args) => {
+    if (args.length < 2 || args[1].type !== "string") {
+      throw new Error("(get obj key) expects second arg as string");
+    }
     const obj = hqlToJs(args[0]);
-    const key = toString(args[1]);
+    const key = args[1].value;
     return wrapJsValue(obj[key]);
   }),
 };
 
+// Debug: show that we have "keyword" in the builtIns
+// console.log("DEBUG: builtIns keys =", Object.keys(builtIns));
 
-// Populate the base environment with the built-in functions.
+// Load built-ins into baseEnv
 for (const key in builtIns) {
   baseEnv.set(key, builtIns[key]);
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// 7. REPL and File Execution (with Multiline Support)
+// 7. REPL + File Execution
 //////////////////////////////////////////////////////////////////////////////
 
-/**
- * A low-level function that reads a single line from standard input.
- */
 async function readLine(): Promise<string | null> {
   const buf = new Uint8Array(1024);
   const n = <number>await Deno.stdin.read(buf);
@@ -879,30 +650,21 @@ async function readLine(): Promise<string | null> {
   return new TextDecoder().decode(buf.subarray(0, n)).replace(/\r?\n$/, "");
 }
 
-/**
- * Helper function that counts parentheses in the input string.
- * It ignores parentheses inside string literals.
- */
 function countParens(input: string): number {
   let count = 0;
   let inString = false;
   for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-    if (ch === '"' && (i === 0 || input[i - 1] !== "\\")) {
+    if (input[i] === '"' && (i === 0 || input[i - 1] !== "\\")) {
       inString = !inString;
     }
     if (!inString) {
-      if (ch === "(") count++;
-      else if (ch === ")") count--;
+      if (input[i] === "(") count++;
+      else if (input[i] === ")") count--;
     }
   }
   return count;
 }
 
-/**
- * Reads multiple lines until the number of "(" and ")" is balanced.
- * Uses "HQL> " for the primary prompt and "....> " as the continuation prompt.
- */
 async function readMultiline(): Promise<string | null> {
   let code = "";
   let parenCount = 0;
@@ -911,7 +673,6 @@ async function readMultiline(): Promise<string | null> {
     await Deno.stdout.write(new TextEncoder().encode(prompt));
     const line = await readLine();
     if (line === null) {
-      // If no input and nothing accumulated, return null.
       if (code.trim() === "") return null;
       else break;
     }
@@ -922,9 +683,6 @@ async function readMultiline(): Promise<string | null> {
   return code;
 }
 
-/**
- * Safely evaluates an AST node, handling macro expansion before evaluation.
- */
 async function evaluateMacroSafe(ast: HQLValue, env: Env): Promise<HQLValue> {
   if (ast.type === "list" && ast.value.length > 0) {
     const head = ast.value[0];
@@ -942,9 +700,6 @@ async function evaluateMacroSafe(ast: HQLValue, env: Env): Promise<HQLValue> {
   return evaluate(ast, env);
 }
 
-/**
- * Starts the interactive REPL loop using multiline input.
- */
 async function repl(env: Env) {
   while (true) {
     const code = await readMultiline();
@@ -971,18 +726,14 @@ async function repl(env: Env) {
   }
 }
 
-/**
- * Main execution: if a filename is provided, execute the file; otherwise start REPL.
- */
 if (import.meta.main) {
   if (Deno.args.length > 0) {
     const filename = Deno.args[0];
     const source = await Deno.readTextFile(filename);
     const forms = parseHQL(source);
     const env = new Env({}, baseEnv);
-    let result: HQLValue = makeNil();
     for (const form of forms) {
-      result = await evaluateMacroSafe(form, env);
+      await evaluateMacroSafe(form, env);
     }
   } else {
     console.log("Welcome to HQL. Type (exit) or Ctrl+C to quit.");
