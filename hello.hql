@@ -1,10 +1,7 @@
-; hello.hql - Showcases the "keyword" function that yields a symbol like :a
+; hello.hql - Showcases various HQL features with clear log markers
 
-; We no longer define (def keyword...) ourselves. Instead, we rely on the
-; built-in "keyword" function that returns a symbol named :something.
-
-; Functions with type annotations:
-
+; ====== Arithmetic Operations ======
+(println "====== Arithmetic Operations ======")
 (def add
   (fn ((x Int) (y Int))
       (-> Int)
@@ -23,29 +20,40 @@
       (* a b)))
 (println (mult 5 6))  ; should print 30
 
-; Data structure constructors:
-
+; ====== Data Structure Constructors ======
+(println "====== Data Structures ======")
 (def myvec (vector 10 20 30 40))
-(println myvec)  ; => (vector 10 20 30 40)
+(println myvec)  ; expected: (vector 10 20 30 40)
 
-; Use the new built-in (keyword) to produce symbols like :a
 (def mymap (hash-map (keyword "a") 100 (keyword "b") 200))
 (println mymap)
-; => (hash-map :a 100 :b 200)
+; expected: (hash-map :a 100 :b 200)
 
 (def myset (set 1 2 3 4 5))
 (println myset)
-; => (set 1 2 3 4 5)
+; expected: (set 1 2 3 4 5)
 
+; ====== Sync/Async Exports ======
+(println "====== Sync/Async Exports ======")
+; defsync guarantees synchronous behavior (if no async sneaks in)
+(defsync add
+  (fn ((x Number) (y Number))
+      (-> Number)
+      (+ x y)))
+; def yields an async function (to be awaited when called)
+(def minus
+  (fn ((x Number) (y Number))
+      (-> Number)
+      (- x y)))
+(export "add" add)
+(export "minus" minus)
 
-;; (def add
-;;   (fn ((x Number) (y Number))
-;;     (+ x y)))
-
-;; (def minus
-;;   (fn ((x Number) (y Number))
-;;     (+ x (* -1 y))))
-
-;; ; Export them so JS can import
-;; (export "add" add)
-;; (export "minus" minus)
+; Additional functions (async style)
+(def add2
+  (fn ((x) (y))
+    (+ x y)))
+(def minus2
+  (fn ((x) (y))
+    (- x y)))
+(export "add2" add2)
+(export "minus2" minus2)

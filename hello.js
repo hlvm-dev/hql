@@ -7,29 +7,26 @@ const arr = [1, 2, 3, 4, 5, 6];
 const chunked = lodash.chunk(arr, 2);
 console.log(chunked);
 
-import { runHQLFile, getExport } from "./hql.ts";
+console.log("hey!")
 
-await runHQLFile("hello.hql");
+import { add, minus, add2, minus2 } from "./hello.hql.js";
+console.log(add(2,1));          // 3 
+console.log(await minus(2,1));  //1
 
-export const add = getExport("add");
-export const minus = getExport("minus");
+async function asyncFunction() {
+    console.log(await add2(20,10));   // 3 
+    console.log(await minus2(20,10)); //1
+}
+  
+asyncFunction()
 
-console.log(await add(4, 1));
-console.log(await minus(10, 1));
+// import { runHQLFile, getExport } from "./hql.ts";
 
-// import { add, minus } from "./hello.hql.js";
+// await runHQLFile("hello.hql");
+// export const add = getExport("add");
+// export const minus = getExport("minus");
 
-// async function main() {
-//   console.log(await add(4, 1));
-//   console.log(await minus(4, 1));
-// }
-
-// main();
+// console.log(add(100, 1));
+// console.log(await minus(100, 1));
 
 
-// import{ add, minus } from "./hello.hql"
-
-// let res1 = add(2,1)
-// let res2 = minus(2, 1)
-// console.log(res1)
-// console.log(res2)
