@@ -1,20 +1,16 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-net
+#!/usr/bin/env -S deno run --allow-read --allow-write --allow-net --allow-env
 
 /**
- * ============================================================================
- * HQL Interpreter – Final Version with defsync producing truly synchronous
- * JavaScript functions + module import fix + type annotations for "map" callbacks.
+ * HQL Interpreter – Version with:
+ *  • Isolated exports.
+ *  • A generic special form “new” that uses Reflect.construct.
+ *  • Environment lookup that falls back to globalThis for missing symbols.
  *
  * Usage:
- *   • Run a HQL file (async evaluation):
- *         deno run --allow-read --allow-write --allow-net --allow-env hql.ts yourfile.hql
- *
- *   • Transpile a HQL file to a JS module:
- *         deno run --allow-read --allow-write --allow-net --allow-env hql.ts --transpile yourfile.hql
- *
- * The transpiled file exports defsync functions as plain JS functions
- * (that throw if any async operation is used) and def functions as async.
- * ============================================================================
+ *  - To run a HQL file:
+ *       deno run --allow-read --allow-write --allow-net --allow-env hql.ts yourfile.hql
+ *  - To transpile a HQL file to a JS module:
+ *       deno run --allow-read --allow-write --allow-net --allow-env hql.ts --transpile yourfile.hql
  */
 
 //////////////////////////////////////////////////////////////////////////////
@@ -33,12 +29,12 @@ export type HQLValue =
   | HQLOpaque
   | any;
 
-export interface HQLSymbol  { type: "symbol";  name: string; }
-export interface HQLList    { type: "list";    value: HQLValue[]; }
-export interface HQLNumber  { type: "number";  value: number; }
-export interface HQLString  { type: "string";  value: string; }
+export interface HQLSymbol { type: "symbol"; name: string; }
+export interface HQLList { type: "list"; value: HQLValue[]; }
+export interface HQLNumber { type: "number"; value: number; }
+export interface HQLString { type: "string"; value: string; }
 export interface HQLBoolean { type: "boolean"; value: boolean; }
-export interface HQLNil     { type: "nil"; }
+export interface HQLNil { type: "nil"; }
 export interface HQLFn {
   type: "function";
   params: string[];
@@ -46,7 +42,7 @@ export interface HQLFn {
   closure: Env;
   isMacro?: false;
   hostFn?: (args: HQLValue[]) => Promise<HQLValue> | HQLValue;
-  isSync?: boolean;  // <-- marker for defsync functions
+  isSync?: boolean;
 }
 export interface HQLMacro {
   type: "function";
@@ -77,15 +73,17 @@ function makeNil(): HQLNil {
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// 2. ENVIRONMENT
+// 2. ENVIRONMENT (with Exports Map)
 //////////////////////////////////////////////////////////////////////////////
 
 export class Env {
   bindings: Map<string, HQLValue>;
   outer: Env | null;
+  exports?: Map<string, HQLValue>;
   constructor(bindings: Record<string, HQLValue> = {}, outer: Env | null = null) {
     this.bindings = new Map(Object.entries(bindings));
     this.outer = outer;
+    this.exports = undefined;
   }
   set(name: string, val: HQLValue) {
     this.bindings.set(name, val);
@@ -96,10 +94,14 @@ export class Env {
     if (this.outer) return this.outer.find(name);
     return null;
   }
+  // Modified: If symbol is not found in HQL, fall back to globalThis.
   get(name: string): HQLValue {
     const env = this.find(name);
-    if (!env) throw new Error(`Symbol '${name}' not found`);
-    return env.bindings.get(name)!;
+    if (env) return env.bindings.get(name)!;
+    if (name in globalThis) {
+      return wrapJsValue((globalThis as any)[name]);
+    }
+    throw new Error(`Symbol '${name}' not found`);
   }
 }
 
@@ -123,16 +125,14 @@ function tokenize(input: string): string[] {
       i++;
       let str = "";
       while (i < input.length && input[i] !== '"') { str += input[i++]; }
-      i++; // skip the closing quote
+      i++;
       tokens.push(`"${str}"`);
       continue;
     }
     let sym = "";
-    while (
-      i < input.length &&
-      !/\s/.test(input[i]) &&
-      !["(", ")", "[", "]", ";"].includes(input[i])
-    ) { sym += input[i++]; }
+    while (i < input.length && !/\s/.test(input[i]) && !["(", ")", "[", "]", ";"].includes(input[i])) {
+      sym += input[i++];
+    }
     tokens.push(sym);
   }
   return tokens;
@@ -141,9 +141,9 @@ function tokenize(input: string): string[] {
 function parseAtom(token: string): HQLValue {
   if (/^[+-]?\d+(\.\d+)?$/.test(token)) return makeNumber(parseFloat(token));
   if (token.startsWith('"') && token.endsWith('"')) return makeString(token.slice(1, -1));
-  if (token === "true")  return makeBoolean(true);
+  if (token === "true") return makeBoolean(true);
   if (token === "false") return makeBoolean(false);
-  if (token === "nil")   return makeNil();
+  if (token === "nil") return makeNil();
   return makeSymbol(token);
 }
 
@@ -156,7 +156,7 @@ function readFromTokens(tokens: string[]): HQLValue {
       if (tokens.length === 0) throw new Error("Missing )");
       items.push(readFromTokens(tokens));
     }
-    tokens.shift(); // remove ")"
+    tokens.shift();
     return makeList(items);
   } else if (token === ")") {
     throw new Error("Unexpected )");
@@ -175,20 +175,15 @@ function parseHQL(input: string): HQLValue[] {
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// 4. EXPORTS MAP
+// 4. EXPORTS MANAGEMENT
 //////////////////////////////////////////////////////////////////////////////
 
-const exportsMap = new Map<string, HQLValue>();
-
-export function getExport(name: string): any {
-  if (!exportsMap.has(name)) {
+export function getExport(name: string, targetExports: Map<string, HQLValue>): any {
+  if (!targetExports.has(name)) {
     throw new Error(`HQL export '${name}' not found`);
   }
-  return hqlToJs(exportsMap.get(name)!);
+  return hqlToJs(targetExports.get(name)!);
 }
-
-function clearExports() { exportsMap.clear(); }
-export function listExports(): string[] { return [...exportsMap.keys()]; }
 
 //////////////////////////////////////////////////////////////////////////////
 // 5. BUILT-IN FUNCTIONS & BASE ENVIRONMENT
@@ -221,20 +216,21 @@ function truthy(val: HQLValue): boolean {
 function formatValue(val: HQLValue): string {
   if (!val) return "nil";
   switch (val.type) {
-    case "number":  return String(val.value);
-    case "string":  return JSON.stringify(val.value);
+    case "number": return String(val.value);
+    case "string": return JSON.stringify(val.value);
     case "boolean": return val.value ? "true" : "false";
-    case "nil":     return "nil";
-    case "symbol":  return val.name;
-    case "list":    return "(" + val.value.map(formatValue).join(" ") + ")";
-    case "function":return val.isMacro ? "<macro>" : "<fn>";
-    default:        return String(val);
+    case "nil": return "nil";
+    case "symbol": return val.name;
+    case "list": return "(" + val.value.map(formatValue).join(" ") + ")";
+    case "function": return val.isMacro ? "<macro>" : "<fn>";
+    default: return String(val);
   }
 }
 
+// Built-ins are defined here. In a full system these could be split into separate modules.
 const builtIns: Record<string, HQLValue> = {
-  println: hostFunc((args: HQLValue[]) => {
-    console.log(...args.map(formatValue));
+  print: hostFunc((args: HQLValue[]) => {
+    console.log(...args.map(hqlToJs));
     return makeNil();
   }),
   log: hostFunc((args: HQLValue[]) => {
@@ -250,9 +246,7 @@ const builtIns: Record<string, HQLValue> = {
   "+": hostFunc((args: HQLValue[]) => {
     let sum = 0;
     for (const a of args) {
-      if (a.type !== "number") {
-        throw new Error("Expected number in +");
-      }
+      if (a.type !== "number") throw new Error("Expected number in +");
       sum += a.value;
     }
     return makeNumber(sum);
@@ -290,17 +284,17 @@ const builtIns: Record<string, HQLValue> = {
     return makeNumber(result);
   }),
   "string-append": hostFunc((args: HQLValue[]) => {
-    const out = args.map((v: HQLValue) => v.type === "string" ? v.value : formatValue(v)).join("");
+    const out = args.map((v: HQLValue) =>
+      v.type === "string" ? v.value : formatValue(v)
+    ).join("");
     return makeString(out);
   }),
   list: hostFunc((args: HQLValue[]) => makeList(args)),
   vector: hostFunc((args: HQLValue[]) => makeList([makeSymbol("vector"), ...args])),
   "hash-map": hostFunc((args: HQLValue[]) => makeList([makeSymbol("hash-map"), ...args])),
   set: hostFunc((args: HQLValue[]) => makeList([makeSymbol("set"), ...args])),
-
-  // Fixed built-in "get"
+  // Built-in "get" returns the converted JS value.
   get: hostFunc((args: HQLValue[]) => {
-    // Unwrap if opaque; otherwise convert to JS.
     let jsObj = args[0].type === "opaque" ? args[0].value : hqlToJs(args[0]);
     const prop = (args[1].type === "string") ? args[1].value : formatValue(args[1]);
     const propValue = jsObj[prop];
@@ -314,10 +308,13 @@ const builtIns: Record<string, HQLValue> = {
         return jsToHql(result);
       });
     } else {
-      // Instead of wrapping, convert the value.
       return jsToHql(propValue);
     }
   }),
+  // Built-in "now" returns a new JavaScript Date.
+  now: hostFunc((args: HQLValue[]) => wrapJsValue(new Date()))
+  // Note: With the fallback in Env.get, any JS constructor (e.g. Date, RegExp, etc.)
+  // will be available via globalThis.
 };
 
 for (const k in builtIns) {
@@ -349,16 +346,16 @@ function hqlToJs(val: HQLValue): any {
       };
     }
   }
-  if (val.type === "opaque") return val.value; // <--- Unwrapping opaque values
+  if (val.type === "opaque") return val.value;
   return val;
 }
 
 function jsToHql(obj: any): HQLValue {
   if (obj === null || obj === undefined) return makeNil();
   if (typeof obj === "boolean") return makeBoolean(obj);
-  if (typeof obj === "number")  return makeNumber(obj);
-  if (typeof obj === "string")  return makeString(obj);
-  if (Array.isArray(obj))       return makeList(obj.map(jsToHql));
+  if (typeof obj === "number") return makeNumber(obj);
+  if (typeof obj === "string") return makeString(obj);
+  if (Array.isArray(obj)) return makeList(obj.map(jsToHql));
   return { type: "opaque", value: obj };
 }
 
@@ -422,6 +419,25 @@ function getBuiltinNameByValue(fnVal: HQLFn): string | undefined {
 //////////////////////////////////////////////////////////////////////////////
 
 async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
+  // Special handling for the "new" special form: (new Constructor arg1 arg2 ...)
+  if (ast.type === "list") {
+    const list = ast.value;
+    if (list.length > 0 && list[0].type === "symbol" && list[0].name === "new") {
+      if (list.length < 2) {
+        throw new Error("(new) expects at least one argument (the constructor)");
+      }
+      const ctorVal = await evaluateAsync(list[1], env);
+      const jsCtor = hqlToJs(ctorVal);
+      const jsArgs = [];
+      for (let i = 2; i < list.length; i++) {
+        const argVal = await evaluateAsync(list[i], env);
+        jsArgs.push(hqlToJs(argVal));
+      }
+      const instance = Reflect.construct(jsCtor, jsArgs);
+      return wrapJsValue(instance);
+    }
+  }
+  
   if (ast.type === "symbol") return env.get(ast.name);
   if (
     ast.type === "number" ||
@@ -437,7 +453,7 @@ async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
     const head = list[0];
     if (head.type === "symbol") {
       switch (head.name) {
-        case "quote":  return list[1] ?? makeNil();
+        case "quote": return list[1] ?? makeNil();
         case "if": {
           const cond = await evaluateAsync(list[1], env);
           return truthy(cond)
@@ -476,12 +492,13 @@ async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
             throw new Error("Invalid parameter spec in (fn)");
           });
           let bodyForms = list.slice(2);
+          // Skip an optional leading annotation list starting with "return".
           if (
             bodyForms.length > 0 &&
             bodyForms[0].type === "list" &&
             bodyForms[0].value.length >= 2 &&
             bodyForms[0].value[0].type === "symbol" &&
-            (bodyForms[0].value[0].name === "->" || bodyForms[0].value[0].name === "ret")
+            bodyForms[0].value[0].name === "return"
           ) {
             bodyForms = bodyForms.slice(1);
           }
@@ -525,7 +542,8 @@ async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
             throw new Error("(export) expects a string name");
           }
           const ev = await evaluateAsync(list[2], env);
-          exportsMap.set(nameVal.value, ev);
+          if (!env.exports) throw new Error("No exports map found in environment");
+          env.exports.set(nameVal.value, ev);
           return ev;
         }
         case "import": {
@@ -545,6 +563,9 @@ async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
           }
           const modObj = await import(modUrl);
           let modCandidate = modObj.default ?? modObj;
+          if (modCandidate && modCandidate.__hql_module) {
+            return modCandidate.__hql_module;
+          }
           if (
             typeof modCandidate === "function" &&
             modCandidate.green === undefined &&
@@ -595,14 +616,26 @@ async function macroExpandAsync(fnVal: HQLMacro, rawArgs: HQLValue[], env: Env):
 
 // Synchronous Evaluate (for defsync)
 function evaluateSync(ast: HQLValue, env: Env): HQLValue {
-  if (ast.type === "symbol") {
-    const val = env.get(ast.name);
-    const builtinName = getBuiltinNameByValue(val as HQLFn);
-    if (builtinName && asyncBuiltInKeys.has(builtinName)) {
-      throw new Error(`Sync code tried to call async built-in '${ast.name}'!`);
+  // Special case for (new ...) in sync mode.
+  if (ast.type === "list") {
+    const list = ast.value;
+    if (list.length > 0 && list[0].type === "symbol" && list[0].name === "new") {
+      if (list.length < 2) {
+        throw new Error("(new) expects at least one argument (the constructor)");
+      }
+      const ctorVal = evaluateSync(list[1], env);
+      const jsCtor = hqlToJs(ctorVal);
+      const jsArgs = [];
+      for (let i = 2; i < list.length; i++) {
+        const argVal = evaluateSync(list[i], env);
+        jsArgs.push(hqlToJs(argVal));
+      }
+      const instance = Reflect.construct(jsCtor, jsArgs);
+      return wrapJsValue(instance);
     }
-    return val;
   }
+  
+  if (ast.type === "symbol") return env.get(ast.name);
   if (
     ast.type === "number" ||
     ast.type === "string" ||
@@ -663,7 +696,7 @@ function evaluateSync(ast: HQLValue, env: Env): HQLValue {
             bodyForms[0].type === "list" &&
             bodyForms[0].value.length >= 2 &&
             bodyForms[0].value[0].type === "symbol" &&
-            (bodyForms[0].value[0].name === "->" || bodyForms[0].value[0].name === "ret")
+            bodyForms[0].value[0].name === "return"
           ) {
             bodyForms = bodyForms.slice(1);
           }
@@ -687,7 +720,8 @@ function evaluateSync(ast: HQLValue, env: Env): HQLValue {
           const nameVal = list[1];
           if (nameVal.type !== "string") throw new Error("(export) expects a string name");
           const ev = evaluateSync(list[2], env);
-          exportsMap.set(nameVal.value, ev);
+          if (!env.exports) throw new Error("No exports map found in environment");
+          env.exports.set(nameVal.value, ev);
           return ev;
         }
         default: {
@@ -723,21 +757,24 @@ function evaluateSync(ast: HQLValue, env: Env): HQLValue {
 // 9. RUN AND TRANSPILER
 //////////////////////////////////////////////////////////////////////////////
 
-export async function runHQLFile(path: string) {
-  clearExports();
+export async function runHQLFile(path: string, targetExports?: Map<string, HQLValue>): Promise<Map<string, HQLValue>> {
+  const exportsMap = targetExports || new Map<string, HQLValue>();
   const source = await Deno.readTextFile(path);
   const forms = parseHQL(source);
   const env = new Env({}, baseEnv);
+  env.exports = exportsMap;
   for (const form of forms) {
     await evaluateAsync(form, env);
   }
+  return exportsMap;
 }
 
-export async function transpileHQLFile(inputPath: string, outputPath?: string) {
-  clearExports();
+export async function transpileHQLFile(inputPath: string, outputPath?: string): Promise<void> {
+  const exportsMap = new Map<string, HQLValue>();
   const source = await Deno.readTextFile(inputPath);
   const forms = parseHQL(source);
   const env = new Env({}, baseEnv);
+  env.exports = exportsMap;
   for (const form of forms) {
     await evaluateAsync(form, env);
   }
@@ -746,7 +783,7 @@ export async function transpileHQLFile(inputPath: string, outputPath?: string) {
     outputPath = inputPath.endsWith(".hql") ? inputPath + ".js" : inputPath + ".js";
   }
   let code = `import { runHQLFile, getExport } from "./hql.ts";\n\n`;
-  code += `await runHQLFile("${inputPath}");\n\n`;
+  code += `const _exports = await runHQLFile("${inputPath}");\n\n`;
   for (const name of exportedNames) {
     const val = exportsMap.get(name);
     const isFn = val && val.type === "function";
@@ -755,21 +792,21 @@ export async function transpileHQLFile(inputPath: string, outputPath?: string) {
       if (isSync) {
         code += `
 export function ${name}(...args) {
-  const fn = getExport("${name}");
+  const fn = getExport("${name}", _exports);
   return fn(...args);
 }
 `;
       } else {
         code += `
 export async function ${name}(...args) {
-  const fn = getExport("${name}");
+  const fn = getExport("${name}", _exports);
   return await fn(...args);
 }
 `;
       }
     } else {
       code += `
-export const ${name} = getExport("${name}");
+export const ${name} = getExport("${name}", _exports);
 `;
     }
   }
@@ -870,7 +907,7 @@ async function repl(env: Env) {
 }
 
 /** wrapJsValue:
- *   - Wraps a native JS value as an opaque HQL value.
+ *   Wraps a native JS value as an opaque HQL value.
  */
 function wrapJsValue(obj: any): HQLValue {
   return { type: "opaque", value: obj };
