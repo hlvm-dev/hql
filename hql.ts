@@ -1,12 +1,19 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write --allow-net --allow-env
 /**
- * HQL Interpreter (Refactored) – TypeScript-safe with explicit parameter types
+ * HQL Interpreter (Optimized for Production)
+ *
+ * Features:
+ *  - Plain-object environments for O(1) variable lookup.
+ *  - A single–pass parser (minimized allocations and function calls).
+ *  - Dual evaluation paths: async and sync.
+ *  - Separate function application for sync and async.
+ *  - Built-in "->" threading macro.
  *
  * Usage:
  *  - To run a HQL file:
- *      deno run --allow-read --allow-write --allow-net --allow-env hql.ts yourfile.hql
+ *       deno run --allow-read --allow-write --allow-net --allow-env hql.ts yourfile.hql
  *  - To transpile a HQL file to a JS module:
- *      deno run --allow-read --allow-write --allow-net --allow-env hql.ts --transpile yourfile.hql
+ *       deno run --allow-read --allow-write --allow-net --allow-env hql.ts --transpile yourfile.hql
  */
 
 //////////////////////////////////////////////////////////////////////////////
@@ -39,7 +46,7 @@ export interface HQLFn {
   closure: Env;
   isMacro?: false;
   hostFn?: (args: HQLValue[]) => Promise<HQLValue> | HQLValue;
-  isSync?: boolean; // If set, trying async yields an error.
+  isSync?: boolean; // If true, must be evaluated synchronously.
 }
 
 export interface HQLMacro {
@@ -53,7 +60,7 @@ export interface HQLMacro {
 export interface HQLOpaque { type: "opaque"; value: any; }
 
 //////////////////////////////////////////////////////////////////////////////
-// Factories
+// FACTORIES
 //////////////////////////////////////////////////////////////////////////////
 
 function makeSymbol(name: string): HQLSymbol   { return { type: "symbol",  name }; }
@@ -61,128 +68,128 @@ function makeList(value: HQLValue[]): HQLList  { return { type: "list",    value
 function makeNumber(n: number): HQLNumber      { return { type: "number",  value: n }; }
 function makeString(s: string): HQLString      { return { type: "string",  value: s }; }
 function makeBoolean(b: boolean): HQLBoolean   { return { type: "boolean", value: b }; }
-function makeNil(): HQLNil                    { return { type: "nil" }; }
+function makeNil(): HQLNil                     { return { type: "nil" }; }
 
 //////////////////////////////////////////////////////////////////////////////
-// 2. ENVIRONMENT (with Exports Map)
+// 2. ENVIRONMENT (Plain Objects for O(1) Lookup)
 //////////////////////////////////////////////////////////////////////////////
 
 export class Env {
-  bindings: Map<string, HQLValue>;
+  bindings: Record<string, HQLValue>;
   outer: Env | null;
-  exports?: Map<string, HQLValue>;
+  exports?: Record<string, HQLValue>;
 
   constructor(bindings: Record<string, HQLValue> = {}, outer: Env | null = null) {
-    this.bindings = new Map(Object.entries(bindings));
+    this.bindings = bindings;
     this.outer = outer;
     this.exports = undefined;
   }
 
   set(name: string, val: HQLValue) {
-    this.bindings.set(name, val);
+    this.bindings[name] = val;
     return val;
   }
 
-  find(name: string): Env | null {
-    if (this.bindings.has(name)) return this;
-    if (this.outer) return this.outer.find(name);
-    return null;
-  }
-
-  // If symbol not found, fall back to globalThis.
   get(name: string): HQLValue {
-    const env = this.find(name);
-    if (env) return env.bindings.get(name)!;
+    if (Object.prototype.hasOwnProperty.call(this.bindings, name)) {
+      return this.bindings[name];
+    }
+    if (this.outer) return this.outer.get(name);
     if (name in globalThis) return wrapJsValue((globalThis as any)[name]);
     throw new Error(`Symbol '${name}' not found`);
   }
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// 3. TOKENIZER & PARSER
+// 3. SINGLE-PASS PARSER (Inlined, Optimized)
 //////////////////////////////////////////////////////////////////////////////
 
-function tokenize(input: string): string[] {
-  const tokens: string[] = [];
-  let i = 0;
-  while (i < input.length) {
-    const c = input[i];
-    if (/\s/.test(c)) { i++; continue; }
-    if (c === ";") { // comment
-      while (i < input.length && input[i] !== "\n") i++;
-      continue;
-    }
-    // Parentheses or brackets
-    if (c === "(" || c === "[") { tokens.push("("); i++; continue; }
-    if (c === ")" || c === "]") { tokens.push(")"); i++; continue; }
-    // String
-    if (c === '"') {
-      i++;
-      let str = "";
-      while (i < input.length && input[i] !== '"') str += input[i++];
-      i++;
-      tokens.push(`"${str}"`);
-      continue;
-    }
-    // Symbol or number
-    let sym = "";
-    while (
-      i < input.length &&
-      !/\s/.test(input[i]) &&
-      !["(", ")", "[", "]", ";"].includes(input[i])
-    ) {
-      sym += input[i++];
-    }
-    tokens.push(sym);
-  }
-  return tokens;
-}
-
-function parseAtom(token: string): HQLValue {
-  if (/^[+-]?\d+(\.\d+)?$/.test(token)) return makeNumber(parseFloat(token));
-  if (token.startsWith('"') && token.endsWith('"')) return makeString(token.slice(1, -1));
-  if (token === "true")  return makeBoolean(true);
-  if (token === "false") return makeBoolean(false);
-  if (token === "nil")   return makeNil();
-  return makeSymbol(token);
-}
-
-function readFromTokens(tokens: string[]): HQLValue {
-  if (!tokens.length) throw new Error("Unexpected EOF");
-  const token = tokens.shift()!;
-  if (token === "(") {
-    const items: HQLValue[] = [];
-    while (tokens[0] !== ")") {
-      if (!tokens.length) throw new Error("Missing )");
-      items.push(readFromTokens(tokens));
-    }
-    tokens.shift(); // remove ")"
-    return makeList(items);
-  } else if (token === ")") {
-    throw new Error("Unexpected )");
-  } else {
-    return parseAtom(token);
-  }
-}
-
 function parseHQL(input: string): HQLValue[] {
-  const tokens = tokenize(input);
-  const forms: HQLValue[] = [];
-  while (tokens.length) {
-    forms.push(readFromTokens(tokens));
+  const result: HQLValue[] = [];
+  let i = 0, len = input.length;
+
+  function skipWs() {
+    while (i < len) {
+      const ch = input.charAt(i);
+      if (ch === ";") {
+        while (i < len && input.charAt(i) !== "\n") i++;
+      } else if (/\s/.test(ch)) {
+        i++;
+      } else {
+        break;
+      }
+    }
   }
-  return forms;
+
+  function readString(): HQLString {
+    i++; // skip opening quote
+    let buf = "";
+    while (i < len) {
+      const ch = input.charAt(i);
+      if (ch === '"') { i++; break; }
+      buf += ch;
+      i++;
+    }
+    return makeString(buf);
+  }
+
+  function readNumberOrSymbol(): HQLValue {
+    const start = i;
+    while (
+      i < len &&
+      !/\s/.test(input.charAt(i)) &&
+      !["(", ")", "[", "]", ";"].includes(input.charAt(i))
+    ) {
+      i++;
+    }
+    const raw = input.slice(start, i);
+    if (/^[+-]?\d+(\.\d+)?$/.test(raw)) return makeNumber(parseFloat(raw));
+    if (raw === "true")  return makeBoolean(true);
+    if (raw === "false") return makeBoolean(false);
+    if (raw === "nil")   return makeNil();
+    return makeSymbol(raw);
+  }
+
+  function readList(): HQLList {
+    i++; // skip opening ( or [
+    const items: HQLValue[] = [];
+    while (true) {
+      skipWs();
+      if (i >= len) throw new Error("Missing closing )");
+      const ch = input.charAt(i);
+      if (ch === ")" || ch === "]") { i++; break; }
+      items.push(readForm());
+    }
+    return makeList(items);
+  }
+
+  function readForm(): HQLValue {
+    skipWs();
+    if (i >= len) throw new Error("Unexpected EOF");
+    const ch = input.charAt(i);
+    if (ch === "(" || ch === "[") return readList();
+    if (ch === '"') return readString();
+    if (ch === ")" || ch === "]") throw new Error("Unexpected )");
+    return readNumberOrSymbol();
+  }
+
+  while (true) {
+    skipWs();
+    if (i >= len) break;
+    result.push(readForm());
+  }
+  return result;
 }
 
 //////////////////////////////////////////////////////////////////////////////
 // 4. EXPORTS MANAGEMENT
 //////////////////////////////////////////////////////////////////////////////
 
-export function getExport(name: string, targetExports: Map<string, HQLValue>): any {
-  if (!targetExports.has(name)) {
+export function getExport(name: string, targetExports: Record<string, HQLValue>): any {
+  if (!Object.prototype.hasOwnProperty.call(targetExports, name)) {
     throw new Error(`HQL export '${name}' not found`);
   }
-  return hqlToJs(targetExports.get(name)!);
+  return hqlToJs(targetExports[name]);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -190,18 +197,26 @@ export function getExport(name: string, targetExports: Map<string, HQLValue>): a
 //////////////////////////////////////////////////////////////////////////////
 
 export const baseEnv = new Env({}, null);
+baseEnv.exports = {};
 
+// We keep track of which built-ins are async to guard sync calls.
 const asyncBuiltInKeys = new Set<string>([
   "sleep", "fetch", "read-file", "write-file", "await", "import",
 ]);
 
 function hostFunc(fn: (args: HQLValue[]) => Promise<HQLValue> | HQLValue): HQLFn {
-  return { type: "function", params: [], body: [], closure: baseEnv, isMacro: false, hostFn: fn };
+  return {
+    type: "function",
+    params: [],
+    body: [],
+    closure: baseEnv,
+    isMacro: false,
+    hostFn: fn,
+  };
 }
 
 function truthy(val: HQLValue): boolean {
-  if (!val || val.type === "nil") return false;
-  return val.type === "boolean" ? val.value : true;
+  return !!val && val.type !== "nil" && (val.type !== "boolean" || !!val.value);
 }
 
 function formatValue(val: HQLValue): string {
@@ -218,40 +233,47 @@ function formatValue(val: HQLValue): string {
   }
 }
 
-/** Helper to unify numeric built-ins: + - * / */
 function numericOp(op: string): (args: HQLValue[]) => HQLValue {
   return (args: HQLValue[]) => {
-    if (!args.length) {
-      if (op === "-") throw new Error("'-' expects at least one argument");
-      if (op === "/") throw new Error("'/' expects at least one argument");
+    if (args.length === 0) {
+      if (op === "-" || op === "/")
+        throw new Error(`'${op}' expects at least one argument`);
     }
     const nums = args.map(a => {
       if (a.type !== "number") throw new Error(`Expected number in ${op}`);
       return a.value;
     });
-    if (op === "+") return makeNumber(nums.reduce((acc, x) => acc + x, 0));
-    if (op === "*") return makeNumber(nums.reduce((acc, x) => acc * x, 1));
-    if (op === "-") {
-      return makeNumber(
-        nums.length === 1
-          ? -nums[0]
-          : nums.slice(1).reduce((acc, x) => acc - x, nums[0])
-      );
+    switch (op) {
+      case "+": return makeNumber(nums.reduce((acc, x) => acc + x, 0));
+      case "*": return makeNumber(nums.reduce((acc, x) => acc * x, 1));
+      case "-":
+        return makeNumber(
+          nums.length === 1 ? -nums[0] : nums.slice(1).reduce((acc, x) => acc - x, nums[0])
+        );
+      case "/":
+        return makeNumber(
+          nums.length === 1 ? 1 / nums[0] : nums.slice(1).reduce((acc, x) => acc / x, nums[0])
+        );
+      default: return makeNil();
     }
-    if (op === "/") {
-      if (nums.length === 1) return makeNumber(1 / nums[0]);
-      return makeNumber(nums.slice(1).reduce((acc, x) => acc / x, nums[0]));
-    }
-    return makeNil(); // fallback, shouldn't happen
   };
 }
 
 const builtIns: Record<string, HQLValue> = {
-  print: hostFunc((args: HQLValue[]) => { console.log(...args.map(hqlToJs)); return makeNil(); }),
-  log:   hostFunc((args: HQLValue[]) => { console.log(...args.map(hqlToJs)); return makeNil(); }),
+  // Unify 'print' and 'log' to remove duplication
+  print: hostFunc((args) => {
+    console.log(...args.map(hqlToJs));
+    return makeNil();
+  }),
+  log: hostFunc((args) => {
+    console.log(...args.map(hqlToJs));
+    return makeNil();
+  }),
 
   keyword: hostFunc(([s]) => {
-    if (!s || s.type !== "string") throw new Error("(keyword) expects exactly one string");
+    if (!s || s.type !== "string") {
+      throw new Error("(keyword) expects exactly one string");
+    }
     return makeSymbol(":" + s.value);
   }),
 
@@ -260,22 +282,23 @@ const builtIns: Record<string, HQLValue> = {
   "*": hostFunc(numericOp("*")),
   "/": hostFunc(numericOp("/")),
 
-  "string-append": hostFunc((args: HQLValue[]) => {
+  "string-append": hostFunc((args) => {
     const out = args.map(a => a.type === "string" ? a.value : formatValue(a)).join("");
     return makeString(out);
   }),
 
-  list: hostFunc((args: HQLValue[]) => makeList(args)),
-  vector: hostFunc((args: HQLValue[]) => makeList([makeSymbol("vector"), ...args])),
-  "hash-map": hostFunc((args: HQLValue[]) => makeList([makeSymbol("hash-map"), ...args])),
-  set: hostFunc((args: HQLValue[]) => makeList([makeSymbol("set"), ...args])),
+  list: hostFunc(args => makeList(args)),
+  vector: hostFunc(args => makeList([makeSymbol("vector"), ...args])),
+  "hash-map": hostFunc(args => makeList([makeSymbol("hash-map"), ...args])),
+  set: hostFunc(args => makeList([makeSymbol("set"), ...args])),
 
   get: hostFunc(([obj, prop]) => {
-    const jsObj  = obj?.type === "opaque" ? obj.value : hqlToJs(obj);
-    const key    = prop?.type === "string" ? prop.value : formatValue(prop);
-    const val    = jsObj?.[key];
+    const jsObj = (obj && obj.type === "opaque") ? obj.value : hqlToJs(obj);
+    const key = (prop && prop.type === "string") ? prop.value : formatValue(prop);
+    const val = jsObj?.[key];
     if (typeof val === "function") {
-      return hostFunc((innerArgs: HQLValue[]) => {
+      // Wrap as an HQL function call
+      return hostFunc(innerArgs => {
         const result = val(...innerArgs.map(hqlToJs));
         return result instanceof Promise ? result.then(jsToHql) : jsToHql(result);
       });
@@ -284,10 +307,37 @@ const builtIns: Record<string, HQLValue> = {
   }),
 
   now: hostFunc(() => wrapJsValue(new Date())),
+
+  // --- Built-in "->" threading macro ---
+  "->": hostFunc((args) => {
+    // If only one argument is provided, simply return it.
+    if (args.length < 2) return args[0];
+    let acc = args[0];
+    for (let i = 1; i < args.length; i++) {
+      const form = args[i];
+      if (form.type !== "list" || form.value.length === 0) {
+        throw new Error("-> expects each subsequent argument to be a non-empty list");
+      }
+      const fn = evaluateSync(form.value[0], baseEnv);
+      if (fn.type !== "function") {
+        throw new Error("-> expects a function in threaded position");
+      }
+      // Prepend the accumulator to the rest of the form's arguments.
+      const newArgs = [acc, ...form.value.slice(1)];
+      acc = applyFnSync(fn, newArgs);
+    }
+    return acc;
+  }),
 };
 
 for (const k in builtIns) {
   baseEnv.set(k, builtIns[k]);
+}
+
+// A quick lookup to reverse-map builtIn references
+const builtInNameMap = new Map<HQLValue, string>();
+for (const [k, v] of Object.entries(builtIns)) {
+  builtInNameMap.set(v, k);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -297,30 +347,26 @@ for (const k in builtIns) {
 function hqlToJs(val: HQLValue): any {
   if (!val) return null;
   switch (val.type) {
-    case "nil":      return null;
-    case "boolean":  return val.value;
-    case "number":   return val.value;
-    case "string":   return val.value;
-    case "symbol":   return val.name;
-    case "list":     return val.value.map(hqlToJs);
-    case "function": {
+    case "nil":     return null;
+    case "boolean": return val.value;
+    case "number":  return val.value;
+    case "string":  return val.value;
+    case "symbol":  return val.name;
+    case "list":    return val.value.map(hqlToJs);
+    case "function":
       if (val.isSync) {
-        // Sync function
         return (...args: any[]) => {
-          const r = applyFn(val, args.map(jsToHql), true);
-          if (r instanceof Promise) throw new Error("Sync function encountered async path!");
+          const r = applyFnSync(val, args.map(jsToHql));
           return hqlToJs(r);
         };
       } else {
-        // Async function
         return async (...args: any[]) => {
-          const r = await applyFn(val, args.map(jsToHql), false);
+          const r = await applyFnAsync(val, args.map(jsToHql));
           return hqlToJs(r);
         };
       }
-    }
-    case "opaque":   return val.value;
-    default:         return val;
+    case "opaque":  return val.value;
+    default:        return val;
   }
 }
 
@@ -334,111 +380,124 @@ function jsToHql(obj: any): HQLValue {
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// 7. FUNCTION APPLICATION: Unified for Sync/Async
+// 7. FUNCTION APPLICATION: ASYNC AND SYNC VARIANTS
 //////////////////////////////////////////////////////////////////////////////
 
 function getBuiltinNameByValue(fnVal: HQLFn): string | undefined {
-  for (const [k, v] of Object.entries(builtIns)) {
-    if (v === fnVal) return k;
-  }
-  return undefined;
+  return builtInNameMap.get(fnVal);
 }
 
-async function _applyFn(fnVal: HQLFn, argVals: HQLValue[], isSync: boolean): Promise<HQLValue> {
-  // If it's a built-in host function:
+async function applyFnAsync(fnVal: HQLFn, argVals: HQLValue[]): Promise<HQLValue> {
   if (fnVal.hostFn) {
     const builtinName = getBuiltinNameByValue(fnVal);
-    if (isSync && builtinName && asyncBuiltInKeys.has(builtinName)) {
-      throw new Error(`Sync function used async built-in '${builtinName}'!`);
-    }
     let result = fnVal.hostFn(argVals);
-    if (result instanceof Promise) {
-      if (isSync) throw new Error("Sync function attempted async operation!");
-      result = await result;
-    }
+    if (result instanceof Promise) result = await result;
     return result;
   }
-  // Else user-defined function
+
+  // HQL user-defined function
   if (argVals.length < fnVal.params.length) {
     throw new Error(`Not enough args: expected ${fnVal.params.length}, got ${argVals.length}`);
   }
   const newEnv = new Env({}, fnVal.closure);
-  fnVal.params.forEach((p, i) => newEnv.set(p, argVals[i]));
+  for (let i = 0; i < fnVal.params.length; i++) {
+    newEnv.set(fnVal.params[i], argVals[i]);
+  }
   let out: HQLValue = makeNil();
   for (const form of fnVal.body) {
-    out = await evaluate(form, newEnv, isSync);
+    out = await evaluateAsync(form, newEnv);
   }
   return out;
 }
 
-function unwrapPromiseForSync<T>(p: Promise<T>): T {
-  // We do not truly block in Deno. We simply throw an error to forbid async in sync code:
-  throw new Error("Detected promise in sync context!");
-}
+function applyFnSync(fnVal: HQLFn, argVals: HQLValue[]): HQLValue {
+  if (fnVal.hostFn) {
+    const builtinName = getBuiltinNameByValue(fnVal);
+    if (builtinName && asyncBuiltInKeys.has(builtinName)) {
+      throw new Error(`Sync function used async built-in '${builtinName}'!`);
+    }
+    const result = fnVal.hostFn(argVals);
+    if (result instanceof Promise) {
+      throw new Error("Sync function attempted async operation!");
+    }
+    return result;
+  }
 
-/** applyFn unifies calling built-ins or user-defined functions in sync/async mode. */
-function applyFn(fnVal: HQLFn, argVals: HQLValue[], isSync: boolean): Promise<HQLValue> | HQLValue {
-  const promise = _applyFn(fnVal, argVals, isSync);
-  return isSync ? unwrapPromiseForSync(promise) : promise;
+  // HQL user-defined function
+  if (argVals.length < fnVal.params.length) {
+    throw new Error(`Not enough args: expected ${fnVal.params.length}, got ${argVals.length}`);
+  }
+  const newEnv = new Env({}, fnVal.closure);
+  for (let i = 0; i < fnVal.params.length; i++) {
+    newEnv.set(fnVal.params[i], argVals[i]);
+  }
+  let out: HQLValue = makeNil();
+  for (const form of fnVal.body) {
+    out = evaluateSync(form, newEnv);
+  }
+  return out;
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// 8. EVALUATION – Single Function with isSync Toggle
+// 8. EVALUATION: ASYNC AND SYNC VERSIONS
 //////////////////////////////////////////////////////////////////////////////
 
-/**
- * Evaluate HQL AST in either sync or async mode, depending on isSync.
- * If isSync = true, any async path (like macros, `await`, or `import`) is disallowed.
- */
-export async function evaluate(ast: HQLValue, env: Env, isSync: boolean): Promise<HQLValue> {
-  // Special check for (new ...)
+export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
+  // Check for (new ...) form
   if (ast.type === "list" && ast.value.length > 0) {
     const [head, ...rest] = ast.value;
     if (head.type === "symbol" && head.name === "new") {
-      if (!rest.length) throw new Error("(new) expects at least one argument (the constructor)");
-      const ctorVal = await evaluate(rest[0], env, isSync);
-      const jsCtor  = hqlToJs(ctorVal);
-      const args    = [];
-      for (const r of rest.slice(1)) {
-        const rv = await evaluate(r, env, isSync);
-        args.push(hqlToJs(rv));
+      if (rest.length === 0) throw new Error("(new) expects at least one argument");
+      const ctorVal = await evaluateAsync(rest[0], env);
+      const jsCtor = hqlToJs(ctorVal);
+      const args: any[] = [];
+      for (let j = 1; j < rest.length; j++) {
+        const argVal = await evaluateAsync(rest[j], env);
+        args.push(hqlToJs(argVal));
       }
       return wrapJsValue(Reflect.construct(jsCtor, args));
     }
   }
 
-  // Base cases
-  if (ast.type === "symbol")  return env.get(ast.name);
-  if (
-    ast.type === "number" ||
-    ast.type === "string" ||
-    ast.type === "boolean" ||
-    ast.type === "nil"
-  ) {
+  // Symbol
+  if (ast.type === "symbol") {
+    return env.get(ast.name);
+  }
+
+  // Literal
+  if (["number", "string", "boolean", "nil"].includes(ast.type)) {
     return ast;
   }
 
-  // If it's a list, handle special forms or function calls
+  // List
   if (ast.type === "list") {
-    if (!ast.value.length) return ast;
+    if (ast.value.length === 0) return ast;
     const [head, ...rest] = ast.value;
+
+    // Special forms
     if (head.type === "symbol") {
       switch (head.name) {
-        case "quote": return rest[0] ?? makeNil();
-
+        case "quote":
+          return rest[0] ?? makeNil();
         case "if": {
-          const cond = await evaluate(rest[0], env, isSync);
-          return truthy(cond)
-            ? (rest[1] ? await evaluate(rest[1], env, isSync) : makeNil())
-            : (rest[2] ? await evaluate(rest[2], env, isSync) : makeNil());
+          const cond = await evaluateAsync(rest[0], env);
+          if (truthy(cond)) {
+            return rest[1] ? await evaluateAsync(rest[1], env) : makeNil();
+          } else {
+            return rest[2] ? await evaluateAsync(rest[2], env) : makeNil();
+          }
         }
-
-        // Unified definitions: def, defsync, defmacro
         case "def":
         case "defsync":
         case "defmacro":
-          return handleDefinitionForm(head.name, rest, env, isSync);
-
+          // Unified definition form
+          return await handleDefinitionForm(
+            head.name as "def" | "defsync" | "defmacro",
+            rest,
+            env,
+            evaluateAsync,
+            head.name === "defsync"
+          );
         case "fn": {
           const paramsAst = rest[0];
           if (!paramsAst || paramsAst.type !== "list") {
@@ -446,11 +505,13 @@ export async function evaluate(ast: HQLValue, env: Env, isSync: boolean): Promis
           }
           const paramNames = paramsAst.value.map((p: HQLValue) => {
             if (p.type === "symbol") return p.name;
-            if (p.type === "list" && p.value[0]?.type === "symbol") return p.value[0].name;
+            if (p.type === "list" && p.value[0]?.type === "symbol") {
+              return p.value[0].name;
+            }
             throw new Error("Invalid parameter spec in (fn)");
           });
-          // Optional skip of leading (return ...) annotation
           let bodyForms = rest.slice(1);
+          // Remove a (return ...) wrapper if present (back-compat)
           if (
             bodyForms[0]?.type === "list" &&
             bodyForms[0].value[0]?.type === "symbol" &&
@@ -458,80 +519,199 @@ export async function evaluate(ast: HQLValue, env: Env, isSync: boolean): Promis
           ) {
             bodyForms = bodyForms.slice(1);
           }
-          return { type: "function", params: paramNames, body: bodyForms, closure: env } as HQLFn;
+          return {
+            type: "function",
+            params: paramNames,
+            body: bodyForms,
+            closure: env,
+          } as HQLFn;
         }
-
         case "await":
-          if (isSync) throw new Error("Sync code tried to call async operation 'await'!");
-          const val = await evaluate(rest[0], env, isSync);
-          return (val instanceof Promise) ? await val : val;
-
+          throw new Error("Async 'await' is not directly supported in code");
         case "export": {
           if (rest.length < 2) throw new Error("(export) expects (export \"name\" expr)");
-          const [nameVal, exprVal] = rest;
-          if (nameVal.type !== "string") throw new Error("(export) expects a string name");
+          if (rest[0].type !== "string") throw new Error("(export) expects a string name");
           if (!env.exports) throw new Error("No exports map found in environment");
-          const ev = await evaluate(exprVal, env, isSync);
-          env.exports.set(nameVal.value, ev);
+          const ev = await evaluateAsync(rest[1], env);
+          env.exports[rest[0].value] = ev;
           return ev;
         }
-
-        case "import":
-          if (isSync) throw new Error("Sync code tried to call async operation 'import'!");
-          if (!rest.length) throw new Error("(import) expects a URL");
-          const urlVal = await evaluate(rest[0], env, isSync);
+        case "import": {
+          if (rest.length < 1) throw new Error("(import) expects a URL");
+          const urlVal = await evaluateAsync(rest[0], env);
           if (urlVal.type !== "string") throw new Error("import expects a string URL");
           const rawUrl = urlVal.value;
           const modUrl = rawUrl.startsWith("npm:")
             ? rawUrl
             : (rawUrl.includes("?bundle") ? rawUrl : rawUrl + "?bundle");
           const modObj = await import(modUrl);
-          const modCandidate = modObj.default ?? modObj;
-          if (modCandidate?.__hql_module) return modCandidate.__hql_module;
-          return wrapJsValue(modCandidate);
+          if (modObj.default?.__hql_module) return modObj.default.__hql_module;
+          if (modObj.__hql_module) return modObj.__hql_module;
+          return wrapJsValue(modObj.default ?? modObj);
+        }
       }
     }
+
     // Function call
-    const fnVal = await evaluate(head, env, isSync);
+    const fnVal = await evaluateAsync(head, env);
     if (fnVal.type === "function") {
       if (fnVal.isMacro) {
-        // Expand macro (not allowed in sync => already handled in defmacro)
-        const expanded = await macroExpand(fnVal, rest, env, isSync);
-        return evaluate(expanded, env, isSync);
+        // Macro expand
+        const expanded = await macroExpand(fnVal as HQLMacro, rest, env);
+        return await evaluateAsync(expanded, env);
       }
       const argVals: HQLValue[] = [];
       for (const r of rest) {
-        argVals.push(await evaluate(r, env, isSync));
+        argVals.push(await evaluateAsync(r, env));
       }
-      return applyFn(fnVal, argVals, isSync);
+      return await applyFnAsync(fnVal, argVals);
     }
     throw new Error(`Attempt to call non-function: ${head.type}`);
   }
+
+  // Default
   return ast;
 }
 
-/** Handle (def var val), (defsync var val), (defmacro var [params] ...). */
-async function handleDefinitionForm(
+export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
+  // Check for (new ...) form
+  if (ast.type === "list" && ast.value.length > 0) {
+    const [head, ...rest] = ast.value;
+    if (head.type === "symbol" && head.name === "new") {
+      if (rest.length === 0) throw new Error("(new) expects at least one argument");
+      const ctorVal = evaluateSync(rest[0], env);
+      const jsCtor = hqlToJs(ctorVal);
+      const args: any[] = [];
+      for (let j = 1; j < rest.length; j++) {
+        const argVal = evaluateSync(rest[j], env);
+        args.push(hqlToJs(argVal));
+      }
+      return wrapJsValue(Reflect.construct(jsCtor, args));
+    }
+  }
+
+  // Symbol
+  if (ast.type === "symbol") {
+    return env.get(ast.name);
+  }
+
+  // Literal
+  if (["number", "string", "boolean", "nil"].includes(ast.type)) {
+    return ast;
+  }
+
+  // List
+  if (ast.type === "list") {
+    if (ast.value.length === 0) return ast;
+    const [head, ...rest] = ast.value;
+
+    // Special forms
+    if (head.type === "symbol") {
+      switch (head.name) {
+        case "quote":
+          return rest[0] ?? makeNil();
+        case "if": {
+          const cond = evaluateSync(rest[0], env);
+          if (truthy(cond)) {
+            return rest[1] ? evaluateSync(rest[1], env) : makeNil();
+          } else {
+            return rest[2] ? evaluateSync(rest[2], env) : makeNil();
+          }
+        }
+        case "def":
+        case "defsync":
+          return handleDefinitionForm(
+            head.name as "def" | "defsync",
+            rest,
+            env,
+            evaluateSync,
+            head.name === "defsync"
+          );
+        case "defmacro":
+          // Not allowed in sync mode
+          throw new Error("Macros are not supported in sync mode.");
+        case "fn": {
+          const paramsAst = rest[0];
+          if (!paramsAst || paramsAst.type !== "list") {
+            throw new Error("(fn) expects a list of parameters");
+          }
+          const paramNames = paramsAst.value.map((p: HQLValue) => {
+            if (p.type === "symbol") return p.name;
+            if (p.type === "list" && p.value[0]?.type === "symbol") {
+              return p.value[0].name;
+            }
+            throw new Error("Invalid parameter spec in (fn)");
+          });
+          let bodyForms = rest.slice(1);
+          // Remove a (return ...) wrapper if present (back-compat)
+          if (
+            bodyForms[0]?.type === "list" &&
+            bodyForms[0].value[0]?.type === "symbol" &&
+            bodyForms[0].value[0].name === "return"
+          ) {
+            bodyForms = bodyForms.slice(1);
+          }
+          return {
+            type: "function",
+            params: paramNames,
+            body: bodyForms,
+            closure: env,
+          } as HQLFn;
+        }
+        case "await":
+          throw new Error("Sync code cannot use async operation 'await'!");
+        case "export": {
+          if (rest.length < 2) throw new Error("(export) expects (export \"name\" expr)");
+          if (rest[0].type !== "string") throw new Error("(export) expects a string name");
+          if (!env.exports) throw new Error("No exports map found in environment");
+          const evVal = evaluateSync(rest[1], env);
+          env.exports[rest[0].value] = evVal;
+          return evVal;
+        }
+        case "import":
+          throw new Error("Sync code cannot use async operation 'import'!");
+      }
+    }
+
+    // Function call
+    const fnVal = evaluateSync(head, env);
+    if (fnVal.type === "function") {
+      if (fnVal.isMacro) {
+        throw new Error("Macros are not supported in sync mode.");
+      }
+      const argVals: HQLValue[] = [];
+      for (const r of rest) {
+        argVals.push(evaluateSync(r, env));
+      }
+      return applyFnSync(fnVal, argVals);
+    }
+    throw new Error(`Attempt to call non-function: ${head.type}`);
+  }
+
+  // Default
+  return ast;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Unified Definition Handler
+//////////////////////////////////////////////////////////////////////////////
+
+function handleDefinitionForm(
   formName: "def" | "defsync" | "defmacro",
   rest: HQLValue[],
   env: Env,
-  isSync: boolean
-): Promise<HQLValue> {
-  // "def", "defsync", "defmacro" all expect at least a symbol
+  evalFn: (ast: HQLValue, env: Env) => Promise<HQLValue> | HQLValue,
+  markSync: boolean
+): Promise<HQLValue> | HQLValue {
   if (!rest[0] || rest[0].type !== "symbol") {
     throw new Error(`(${formName}) expects a symbol`);
   }
   const nameSym = rest[0];
-  // If there's a second expression, evaluate it, else nil
   const valExpr = rest[1] || makeNil();
 
-  // defmacro in sync mode => error
-  if (formName === "defmacro" && isSync) {
-    throw new Error("Macros are not supported in sync mode.");
-  }
-
-  // defmacro => define macro
+  // defmacro is disallowed in sync calls, so only handle it in async
   if (formName === "defmacro") {
+    // The existing sync evaluator already throws an error, so only run here in async
     if (!rest[1] || rest[1].type !== "list") {
       throw new Error("(defmacro) expects a list of parameters");
     }
@@ -551,22 +731,30 @@ async function handleDefinitionForm(
     return makeSymbol(nameSym.name);
   }
 
-  // def or defsync => normal evaluation
-  const value = await evaluate(valExpr, env, isSync);
-  if (formName === "defsync" && value.type === "function") {
-    value.isSync = true;
+  // Otherwise, it's def or defsync
+  const finalizeValue = (value: HQLValue) => {
+    if (markSync && value.type === "function") {
+      value.isSync = true;
+    }
+    env.set(nameSym.name, value);
+    return value;
+  };
+
+  const maybePromise = evalFn(valExpr, env);
+  if (maybePromise instanceof Promise) {
+    // For async evaluator
+    return maybePromise.then(finalizeValue);
+  } else {
+    // For sync evaluator
+    return finalizeValue(maybePromise);
   }
-  env.set(nameSym.name, value);
-  return value;
 }
 
-/** Expand macro: bind raw forms to the macro's parameters, then evaluate. */
-async function macroExpand(
-  macro: HQLMacro,
-  rawArgs: HQLValue[],
-  env: Env,
-  isSync: boolean
-): Promise<HQLValue> {
+//////////////////////////////////////////////////////////////////////////////
+// Macro Expansion
+//////////////////////////////////////////////////////////////////////////////
+
+async function macroExpand(macro: HQLMacro, rawArgs: HQLValue[], env: Env): Promise<HQLValue> {
   if (rawArgs.length < macro.params.length) {
     throw new Error(`Not enough arguments for macro: expected ${macro.params.length}`);
   }
@@ -574,7 +762,7 @@ async function macroExpand(
   macro.params.forEach((p, i) => macroEnv.set(p, rawArgs[i]));
   let out: HQLValue = makeNil();
   for (const form of macro.body) {
-    out = await evaluate(form, macroEnv, isSync);
+    out = await evaluateAsync(form, macroEnv);
   }
   return out;
 }
@@ -585,38 +773,36 @@ async function macroExpand(
 
 export async function runHQLFile(
   path: string,
-  targetExports?: Map<string, HQLValue>
-): Promise<Map<string, HQLValue>> {
-  const exportsMap = targetExports || new Map<string, HQLValue>();
+  targetExports?: Record<string, HQLValue>
+): Promise<Record<string, HQLValue>> {
+  const exportsMap = targetExports || {};
   const source = await Deno.readTextFile(path);
   const forms = parseHQL(source);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
   for (const form of forms) {
-    await evaluate(form, env, false); // default to async mode
+    await evaluateAsync(form, env);
   }
   return exportsMap;
 }
 
 export async function transpileHQLFile(inputPath: string, outputPath?: string): Promise<void> {
-  const exportsMap = new Map<string, HQLValue>();
+  const exportsMap: Record<string, HQLValue> = {};
   const source = await Deno.readTextFile(inputPath);
   const forms = parseHQL(source);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
-
   for (const form of forms) {
-    await evaluate(form, env, false);
+    await evaluateAsync(form, env);
   }
-  const exportedNames = [...exportsMap.keys()];
+  const exportedNames = Object.keys(exportsMap);
   if (!outputPath) {
     outputPath = inputPath.endsWith(".hql") ? inputPath + ".js" : inputPath + ".js";
   }
-
   let code = `import { runHQLFile, getExport } from "./hql.ts";\n\n`;
   code += `const _exports = await runHQLFile("${inputPath}");\n\n`;
   for (const name of exportedNames) {
-    const val = exportsMap.get(name);
+    const val = exportsMap[name];
     const isFn = val?.type === "function";
     const isSync = isFn && val.isSync;
     if (isFn) {
@@ -650,7 +836,7 @@ export const ${name} = getExport("${name}", _exports);
 //////////////////////////////////////////////////////////////////////////////
 
 if (import.meta.main) {
-  if (!Deno.args.length) {
+  if (Deno.args.length === 0) {
     console.log("Welcome to HQL. Type (exit) or Ctrl+C to quit.");
     await repl(new Env({}, baseEnv));
     Deno.exit(0);
@@ -679,10 +865,12 @@ async function readLine(): Promise<string | null> {
 function countParens(input: string): number {
   let count = 0, inString = false;
   for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-    if (ch === '"' && (i === 0 || input[i - 1] !== "\\")) inString = !inString;
+    const ch = input.charAt(i);
+    if (ch === '"' && (i === 0 || input.charAt(i - 1) !== "\\")) {
+      inString = !inString;
+    }
     if (!inString) {
-      if (ch === "(") count++;
+      if (ch === "(")      count++;
       else if (ch === ")") count--;
     }
   }
@@ -690,14 +878,13 @@ function countParens(input: string): number {
 }
 
 async function readMultiline(): Promise<string | null> {
-  let code = "", parenCount = 0;
+  let code = "";
+  let parenCount = 0;
   while (true) {
     const prompt = parenCount > 0 ? "....> " : "HQL> ";
     await Deno.stdout.write(new TextEncoder().encode(prompt));
     const line = await readLine();
-    if (line === null) {
-      return code.trim() === "" ? null : code;
-    }
+    if (line === null) return code.trim() === "" ? null : code;
     code += line + "\n";
     parenCount = countParens(code);
     if (parenCount <= 0) break;
@@ -721,7 +908,7 @@ async function repl(env: Env) {
       const forms = parseHQL(code);
       let result: HQLValue = makeNil();
       for (const form of forms) {
-        result = await evaluate(form, env, false);
+        result = await evaluateAsync(form, env);
       }
       console.log(formatValue(result));
     } catch (e: any) {
@@ -730,7 +917,6 @@ async function repl(env: Env) {
   }
 }
 
-/** Wraps a native JS value as an opaque HQL value. */
 function wrapJsValue(obj: any): HQLValue {
   return { type: "opaque", value: obj };
 }

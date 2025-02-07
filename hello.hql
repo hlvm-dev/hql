@@ -8,26 +8,6 @@
 (def lodash (import "npm:lodash"))
 (log ((get lodash "chunk") (list 1 2 3 4 5 6) 2))
 
-; ====== Arithmetic Operations ======
-(print "====== Arithmetic Operations ======")
-(def add
-  (fn ((x Int) (y Int))
-      (return Int)
-      (+ x y)))
-(print (add 3 4))   ; should print 7
-
-(def inc
-  (fn ((n Int))
-      (return Int)
-      (+ n 1)))
-(print (inc 10))    ; should print 11
-
-(def mult
-  (fn ((a Int) (b Int))
-      (return Int)
-      (* a b)))
-(print (mult 5 6))  ; should print 30
-
 ; ====== Data Structure Constructors ======
 (print "====== Data Structures ======")
 (def myvec (vector 10 20 30 40))
@@ -68,23 +48,50 @@
 (def m (new Map))
 (print (get m "size"))  ; Expected: 0
 
+; ====== Arithmetic Operations ======
+(print "====== Arithmetic Operations ======")
+(def add
+  (fn ((x Int) (y Int))
+      (return Int)
+      (+ x y)))
+
+(print (add 3 4))   ; should print 7
+
+(def inc
+  (fn ((n Int))
+      (return Int)
+      (+ n 1)))
+
+(print (inc 10))    ; should print 11
+
+(def mult
+  (fn ((a Int) (b Int))
+      (return Int)
+      (* a b)))
+
+(print (mult 50 60))  ; should print 30
+
 ; ====== Sync/Async Exports ======
 (print "====== Sync/Async Exports ======")
+
 (defsync add
-  (fn ((x Number) (y Number))
-      (return Number)
+  (fn ((x Number) (y Number)) (return Number)
       (+ x y)))
+
 (def minus
-  (fn ((x Number) (y Number))
-      (return Number)
+  (fn ((x Number) (y Number)) (-> Number)
       (- x y)))
+
 (export "add" add)
 (export "minus" minus)
+
 (def add2
   (fn ((x) (y))
     (+ x y)))
+
 (def minus2
   (fn ((x) (y))
     (- x y)))
+
 (export "add2" add2)
 (export "minus2" minus2)
