@@ -104,7 +104,7 @@ export class Env {
 // 3. SINGLE-PASS PARSER (Inlined, Optimized)
 //////////////////////////////////////////////////////////////////////////////
 
-function parseHQL(input: string): HQLValue[] {
+export function parseHQL(input: string): HQLValue[] {
   const result: HQLValue[] = [];
   let i = 0, len = input.length;
 
@@ -199,9 +199,9 @@ export function getExport(name: string, targetExports: Record<string, HQLValue>)
 export const baseEnv = new Env({}, null);
 baseEnv.exports = {};
 
-// We keep track of which built-ins are async to guard sync calls.
+// Built-ins that are async
 const asyncBuiltInKeys = new Set<string>([
-  "sleep", "fetch", "read-file", "write-file", "await", "import",
+  "sleep", "fetch", "read-file", "write-file", "await", "import"
 ]);
 
 function hostFunc(fn: (args: HQLValue[]) => Promise<HQLValue> | HQLValue): HQLFn {
@@ -219,7 +219,7 @@ function truthy(val: HQLValue): boolean {
   return !!val && val.type !== "nil" && (val.type !== "boolean" || !!val.value);
 }
 
-function formatValue(val: HQLValue): string {
+export function formatValue(val: HQLValue): string {
   if (!val) return "nil";
   switch (val.type) {
     case "number":   return String(val.value);
@@ -260,7 +260,6 @@ function numericOp(op: string): (args: HQLValue[]) => HQLValue {
 }
 
 const builtIns: Record<string, HQLValue> = {
-  // Unify 'print' and 'log' to remove duplication
   print: hostFunc((args) => {
     console.log(...args.map(hqlToJs));
     return makeNil();
@@ -269,35 +268,29 @@ const builtIns: Record<string, HQLValue> = {
     console.log(...args.map(hqlToJs));
     return makeNil();
   }),
-
   keyword: hostFunc(([s]) => {
     if (!s || s.type !== "string") {
       throw new Error("(keyword) expects exactly one string");
     }
     return makeSymbol(":" + s.value);
   }),
-
   "+": hostFunc(numericOp("+")),
   "-": hostFunc(numericOp("-")),
   "*": hostFunc(numericOp("*")),
   "/": hostFunc(numericOp("/")),
-
   "string-append": hostFunc((args) => {
     const out = args.map(a => a.type === "string" ? a.value : formatValue(a)).join("");
     return makeString(out);
   }),
-
   list: hostFunc(args => makeList(args)),
   vector: hostFunc(args => makeList([makeSymbol("vector"), ...args])),
   "hash-map": hostFunc(args => makeList([makeSymbol("hash-map"), ...args])),
   set: hostFunc(args => makeList([makeSymbol("set"), ...args])),
-
   get: hostFunc(([obj, prop]) => {
     const jsObj = (obj && obj.type === "opaque") ? obj.value : hqlToJs(obj);
     const key = (prop && prop.type === "string") ? prop.value : formatValue(prop);
     const val = jsObj?.[key];
     if (typeof val === "function") {
-      // Wrap as an HQL function call
       return hostFunc(innerArgs => {
         const result = val(...innerArgs.map(hqlToJs));
         return result instanceof Promise ? result.then(jsToHql) : jsToHql(result);
@@ -305,12 +298,8 @@ const builtIns: Record<string, HQLValue> = {
     }
     return jsToHql(val);
   }),
-
   now: hostFunc(() => wrapJsValue(new Date())),
-
-  // --- Built-in "->" threading macro ---
   "->": hostFunc((args) => {
-    // If only one argument is provided, simply return it.
     if (args.length < 2) return args[0];
     let acc = args[0];
     for (let i = 1; i < args.length; i++) {
@@ -322,7 +311,6 @@ const builtIns: Record<string, HQLValue> = {
       if (fn.type !== "function") {
         throw new Error("-> expects a function in threaded position");
       }
-      // Prepend the accumulator to the rest of the form's arguments.
       const newArgs = [acc, ...form.value.slice(1)];
       acc = applyFnSync(fn, newArgs);
     }
@@ -334,7 +322,6 @@ for (const k in builtIns) {
   baseEnv.set(k, builtIns[k]);
 }
 
-// A quick lookup to reverse-map builtIn references
 const builtInNameMap = new Map<HQLValue, string>();
 for (const [k, v] of Object.entries(builtIns)) {
   builtInNameMap.set(v, k);
@@ -394,8 +381,6 @@ async function applyFnAsync(fnVal: HQLFn, argVals: HQLValue[]): Promise<HQLValue
     if (result instanceof Promise) result = await result;
     return result;
   }
-
-  // HQL user-defined function
   if (argVals.length < fnVal.params.length) {
     throw new Error(`Not enough args: expected ${fnVal.params.length}, got ${argVals.length}`);
   }
@@ -422,8 +407,6 @@ function applyFnSync(fnVal: HQLFn, argVals: HQLValue[]): HQLValue {
     }
     return result;
   }
-
-  // HQL user-defined function
   if (argVals.length < fnVal.params.length) {
     throw new Error(`Not enough args: expected ${fnVal.params.length}, got ${argVals.length}`);
   }
@@ -443,7 +426,6 @@ function applyFnSync(fnVal: HQLFn, argVals: HQLValue[]): HQLValue {
 //////////////////////////////////////////////////////////////////////////////
 
 export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
-  // Check for (new ...) form
   if (ast.type === "list" && ast.value.length > 0) {
     const [head, ...rest] = ast.value;
     if (head.type === "symbol" && head.name === "new") {
@@ -458,23 +440,15 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
       return wrapJsValue(Reflect.construct(jsCtor, args));
     }
   }
-
-  // Symbol
   if (ast.type === "symbol") {
     return env.get(ast.name);
   }
-
-  // Literal
   if (["number", "string", "boolean", "nil"].includes(ast.type)) {
     return ast;
   }
-
-  // List
   if (ast.type === "list") {
     if (ast.value.length === 0) return ast;
     const [head, ...rest] = ast.value;
-
-    // Special forms
     if (head.type === "symbol") {
       switch (head.name) {
         case "quote":
@@ -490,7 +464,6 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
         case "def":
         case "defsync":
         case "defmacro":
-          // Unified definition form
           return await handleDefinitionForm(
             head.name as "def" | "defsync" | "defmacro",
             rest,
@@ -505,13 +478,10 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
           }
           const paramNames = paramsAst.value.map((p: HQLValue) => {
             if (p.type === "symbol") return p.name;
-            if (p.type === "list" && p.value[0]?.type === "symbol") {
-              return p.value[0].name;
-            }
+            if (p.type === "list" && p.value[0]?.type === "symbol") return p.value[0].name;
             throw new Error("Invalid parameter spec in (fn)");
           });
           let bodyForms = rest.slice(1);
-          // Remove a (return ...) wrapper if present (back-compat)
           if (
             bodyForms[0]?.type === "list" &&
             bodyForms[0].value[0]?.type === "symbol" &&
@@ -551,12 +521,9 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
         }
       }
     }
-
-    // Function call
     const fnVal = await evaluateAsync(head, env);
     if (fnVal.type === "function") {
       if (fnVal.isMacro) {
-        // Macro expand
         const expanded = await macroExpand(fnVal as HQLMacro, rest, env);
         return await evaluateAsync(expanded, env);
       }
@@ -568,13 +535,10 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
     }
     throw new Error(`Attempt to call non-function: ${head.type}`);
   }
-
-  // Default
   return ast;
 }
 
 export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
-  // Check for (new ...) form
   if (ast.type === "list" && ast.value.length > 0) {
     const [head, ...rest] = ast.value;
     if (head.type === "symbol" && head.name === "new") {
@@ -589,23 +553,15 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
       return wrapJsValue(Reflect.construct(jsCtor, args));
     }
   }
-
-  // Symbol
   if (ast.type === "symbol") {
     return env.get(ast.name);
   }
-
-  // Literal
   if (["number", "string", "boolean", "nil"].includes(ast.type)) {
     return ast;
   }
-
-  // List
   if (ast.type === "list") {
     if (ast.value.length === 0) return ast;
     const [head, ...rest] = ast.value;
-
-    // Special forms
     if (head.type === "symbol") {
       switch (head.name) {
         case "quote":
@@ -628,7 +584,6 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
             head.name === "defsync"
           );
         case "defmacro":
-          // Not allowed in sync mode
           throw new Error("Macros are not supported in sync mode.");
         case "fn": {
           const paramsAst = rest[0];
@@ -637,13 +592,10 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
           }
           const paramNames = paramsAst.value.map((p: HQLValue) => {
             if (p.type === "symbol") return p.name;
-            if (p.type === "list" && p.value[0]?.type === "symbol") {
-              return p.value[0].name;
-            }
+            if (p.type === "list" && p.value[0]?.type === "symbol") return p.value[0].name;
             throw new Error("Invalid parameter spec in (fn)");
           });
           let bodyForms = rest.slice(1);
-          // Remove a (return ...) wrapper if present (back-compat)
           if (
             bodyForms[0]?.type === "list" &&
             bodyForms[0].value[0]?.type === "symbol" &&
@@ -672,13 +624,9 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
           throw new Error("Sync code cannot use async operation 'import'!");
       }
     }
-
-    // Function call
     const fnVal = evaluateSync(head, env);
     if (fnVal.type === "function") {
-      if (fnVal.isMacro) {
-        throw new Error("Macros are not supported in sync mode.");
-      }
+      if (fnVal.isMacro) throw new Error("Macros are not supported in sync mode.");
       const argVals: HQLValue[] = [];
       for (const r of rest) {
         argVals.push(evaluateSync(r, env));
@@ -687,14 +635,8 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
     }
     throw new Error(`Attempt to call non-function: ${head.type}`);
   }
-
-  // Default
   return ast;
 }
-
-//////////////////////////////////////////////////////////////////////////////
-// Unified Definition Handler
-//////////////////////////////////////////////////////////////////////////////
 
 function handleDefinitionForm(
   formName: "def" | "defsync" | "defmacro",
@@ -709,9 +651,7 @@ function handleDefinitionForm(
   const nameSym = rest[0];
   const valExpr = rest[1] || makeNil();
 
-  // defmacro is disallowed in sync calls, so only handle it in async
   if (formName === "defmacro") {
-    // The existing sync evaluator already throws an error, so only run here in async
     if (!rest[1] || rest[1].type !== "list") {
       throw new Error("(defmacro) expects a list of parameters");
     }
@@ -731,7 +671,6 @@ function handleDefinitionForm(
     return makeSymbol(nameSym.name);
   }
 
-  // Otherwise, it's def or defsync
   const finalizeValue = (value: HQLValue) => {
     if (markSync && value.type === "function") {
       value.isSync = true;
@@ -742,17 +681,11 @@ function handleDefinitionForm(
 
   const maybePromise = evalFn(valExpr, env);
   if (maybePromise instanceof Promise) {
-    // For async evaluator
     return maybePromise.then(finalizeValue);
   } else {
-    // For sync evaluator
     return finalizeValue(maybePromise);
   }
 }
-
-//////////////////////////////////////////////////////////////////////////////
-// Macro Expansion
-//////////////////////////////////////////////////////////////////////////////
 
 async function macroExpand(macro: HQLMacro, rawArgs: HQLValue[], env: Env): Promise<HQLValue> {
   if (rawArgs.length < macro.params.length) {
