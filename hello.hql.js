@@ -3,22 +3,22 @@ import { runHQLFile, getExport } from "./hql.ts";
 const _exports = await runHQLFile("hello.hql");
 
 
-export async function addSync(...args) {
-  const fn = getExport("addSync", _exports);
+export async function add(...args) {
+  const fn = getExport("add", _exports);
   return await fn(...args);
 }
 
-export async function minusSync(...args) {
-  const fn = getExport("minusSync", _exports);
+export async function minus(...args) {
+  const fn = getExport("minus", _exports);
   return await fn(...args);
 }
 
-export async function addDynamic(...args) {
-  const fn = getExport("addDynamic", _exports);
+export async function add2(...args) {
+  const fn = getExport("add2", _exports);
   return await fn(...args);
 }
 
-export async function minusDynamic(...args) {
-  const fn = getExport("minusDynamic", _exports);
+export async function minus2(...args) {
+  const fn = getExport("minus2", _exports);
   return await fn(...args);
 }

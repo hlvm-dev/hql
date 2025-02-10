@@ -78,24 +78,24 @@
 ; ====== Sync/Async Exports ======
 (print "====== Sync/Async Exports ======")
 
-(defsync addSync
+(defsync add
   (fn (x: Number y: Number) (-> Number)
     (+ x y)))
 
-(def minusSync
+(def minus
   (fn (x: Number y: Number) (-> Number)
     (- x y)))
 
-(export "addSync" addSync)
-(export "minusSync" minusSync)
+(export "add" add)
+(export "minus" minus)
 
-(def addDynamic
+(def add2
   (fn (x y)
     (+ x y)))
 
-(def minusDynamic
+(def minus2
   (fn (x y)
     (- x y)))
 
-(export "addDynamic" addDynamic)
-(export "minusDynamic" minusDynamic)
+(export "add2" add2)
+(export "minus2" minus2)

@@ -534,13 +534,36 @@ function makeFunctionLiteral(parts: HQLValue[], env: Env, isPure: boolean): HQLF
 //////////////////////////////////////////////////////////////////////////////
 
 // --- Updated processLabeledArgs ---
-// For typed functions, if the labels provided do not match the declared parameter names,
-// but the number of label/value pairs equals the number of declared parameters,
-// then assign the values in order.
+// For typed functions, if the call uses a single opaque object (with a mapping),
+// process it; otherwise if it uses labeled pairs, process them;
+// otherwise, if the number of arguments exactly matches the declared parameters,
+// assume a positional call (for JS interoperability).
 function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
   if (fnVal.typed) {
-    // Check if the call uses labeled arguments (first argument is a symbol ending with ":")
-    if (argVals.length > 0 && argVals[0].type === "symbol" && argVals[0].name.endsWith(":")) {
+    if (argVals.length === 1 &&
+        argVals[0].type === "opaque" &&
+        typeof argVals[0].value === "object" &&
+        !Array.isArray(argVals[0].value)) {
+      // Process an object mapping
+      const obj = argVals[0].value as Record<string, any>;
+      const labelMap: Record<string, HQLValue> = {};
+      for (const k in obj) {
+        if (k.endsWith(":")) {
+          labelMap[k.slice(0, -1)] = obj[k];
+        } else {
+          labelMap[k] = obj[k];
+        }
+      }
+      const declared = fnVal.params;
+      const out: HQLValue[] = [];
+      for (const p of declared) {
+        if (!(p in labelMap)) {
+          throw new Error(`Missing argument for parameter '${p}'`);
+        }
+        out.push(jsToHql(labelMap[p]));
+      }
+      return out;
+    } else if (argVals.length > 0 && argVals[0].type === "symbol" && argVals[0].name.endsWith(":")) {
       if (argVals.length % 2 !== 0) {
         throw new Error("Labeled function call must have an even number of arguments (label-value pairs)");
       }
@@ -567,6 +590,12 @@ function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
          return orderedValues;
       }
       throw new Error(`Missing argument for parameter; expected labels matching [${declared.join(", ")}]`);
+    } else {
+      // NEW: Allow positional arguments for JS interoperability if count matches
+      if (argVals.length === fnVal.params.length) {
+        return argVals;
+      }
+      throw new Error("Call to a typed function must use labeled arguments (e.g. x: 1 y: 2), an object mapping, or provide positional arguments matching the declared parameters");
     }
   } else {
     if (argVals.length > 0 && argVals[0].type === "symbol" && argVals[0].name.endsWith(":")) {
