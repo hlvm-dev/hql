@@ -73,6 +73,7 @@
 ; Using fx to define a pure function (typed, labeled call)
 (def pureMultiply (fx (a: Number b: Number) (-> Number)
   (* a b)))
+
 (print (pureMultiply x: 4 y: 5))  ; Expected: 20
 
 ; ====== Sync/Async Exports ======
@@ -99,3 +100,16 @@
 
 (export "add2" add2)
 (export "minus2" minus2)
+
+
+(defx multiply (x: Int y: Int) (-> Int)
+  (* x y))
+
+(print (multiply 100 200))
+(print (multiply x: 100 y: 200))
+
+(defx multiply2 (x y)
+  (* x y))
+
+(print (multiply2 1000 2000))
+(print (multiply2 x: 1000 y: 2000))

@@ -5,10 +5,9 @@
  * Features:
  *  - Single–pass parser with minimal allocations.
  *  - Separate async and sync evaluation paths.
- *  - Optional typed function definitions:
- *      • Untyped functions use a simple parameter list and are called positionally.
- *      • Typed functions (using a signature like (fn (x: Number y: Number) (-> Number) ...))
- *        are marked with `typed: true` and must be called using labeled arguments.
+ *  - Functions (declared via defn or defx) now support both positional and fully labeled calls.
+ *    In a labeled call, label names are ignored and arguments are bound by position.
+ *    (Mixed labeled and positional arguments are still rejected.)
  *  - In transpile mode, typed functions are always exported as async.
  *
  * Usage:
@@ -496,14 +495,25 @@ function extractBodyForms(forms: HQLValue[]): HQLValue[] {
 
 //
 // Helper to build a function literal from a parameter list and body forms.
-// The syntax is:
-//   (fn (params) body...)
-//   (fx (params) (-> TYPE) body...)
-// and similarly for defn/defx (with an initial symbol naming the function).
+// The syntax is one of the following:
+//
+//   Primary form (no extra parentheses):
+//     (fn (params) body...)
+//     (fx (params) (-> TYPE) body...)
+//
+//   Or with an extra wrapping for parameters and return type:
+//     (fn ((params) (-> TYPE)) body...)
+//
+// Similarly for defn/defx (with an initial symbol naming the function).
 //
 function makeFunctionLiteral(parts: HQLValue[], env: Env, isPure: boolean): HQLFn {
   if (parts.length === 0) {
     throw new Error("Function literal expects a parameter list");
+  }
+  // If the parameters (and optional return type) are wrapped in extra parentheses,
+  // flatten one level.
+  if (parts[0].type === "list" && parts[0].value.length > 0 && parts[0].value[0].type === "list") {
+    parts = (parts[0] as HQLList).value.concat(parts.slice(1));
   }
   const paramList = parts[0];
   const { paramNames, typed } = parseParamList(paramList);
@@ -533,80 +543,80 @@ function makeFunctionLiteral(parts: HQLValue[], env: Env, isPure: boolean): HQLF
 // FUNCTION APPLICATION (SYNC & ASYNC)
 //////////////////////////////////////////////////////////////////////////////
 
+// --- Helper: isLabel ---
+// A value is considered a label if it is an HQL symbol ending with ":" 
+// or an HQL string whose value ends with ":".
+function isLabel(arg: HQLValue): boolean {
+  if (arg.type === "symbol") return arg.name.endsWith(":");
+  if (arg.type === "string") return (arg.value as string).endsWith(":");
+  return false;
+}
+
 // --- Updated processLabeledArgs ---
-// For typed functions, if the call uses a single opaque object (with a mapping),
-// process it; otherwise if it uses labeled pairs, process them;
-// otherwise, if the number of arguments exactly matches the declared parameters,
-// assume a positional call (for JS interoperability).
+// Now both typed and untyped functions support either positional calls,
+// fully labeled calls (i.e. label/value pairs), or a single opaque object mapping.
+// In a labeled call the label names are ignored and arguments are bound by position.
+// Mixed labeled and positional calls are rejected.
 function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
-  if (fnVal.typed) {
-    if (argVals.length === 1 &&
-        argVals[0].type === "opaque" &&
-        typeof argVals[0].value === "object" &&
-        !Array.isArray(argVals[0].value)) {
-      // Process an object mapping
-      const obj = argVals[0].value as Record<string, any>;
-      const labelMap: Record<string, HQLValue> = {};
-      for (const k in obj) {
-        if (k.endsWith(":")) {
-          labelMap[k.slice(0, -1)] = obj[k];
-        } else {
-          labelMap[k] = obj[k];
-        }
+  const declared = fnVal.params;
+  
+  // If a single opaque object mapping is provided, use it.
+  if (argVals.length === 1 &&
+      argVals[0].type === "opaque" &&
+      typeof argVals[0].value === "object" &&
+      !Array.isArray(argVals[0].value)) {
+    const obj = argVals[0].value as Record<string, any>;
+    const labelMap: Record<string, HQLValue> = {};
+    for (const k in obj) {
+      let key = k;
+      if (key.endsWith(":")) {
+        key = key.slice(0, -1);
       }
-      const declared = fnVal.params;
-      const out: HQLValue[] = [];
-      for (const p of declared) {
-        if (!(p in labelMap)) {
-          throw new Error(`Missing argument for parameter '${p}'`);
-        }
-        out.push(jsToHql(labelMap[p]));
-      }
-      return out;
-    } else if (argVals.length > 0 && argVals[0].type === "symbol" && argVals[0].name.endsWith(":")) {
-      if (argVals.length % 2 !== 0) {
-        throw new Error("Labeled function call must have an even number of arguments (label-value pairs)");
-      }
-      const declared = fnVal.params;
-      const labelMap: Record<string, HQLValue> = {};
-      const orderedValues: HQLValue[] = [];
-      for (let i = 0; i < argVals.length; i += 2) {
-         const lab = argVals[i];
-         if (lab.type !== "symbol" || !lab.name.endsWith(":")) {
-            throw new Error("Expected label symbol ending with ':'");
-         }
-         const labelName = lab.name.slice(0, -1);
-         labelMap[labelName] = argVals[i+1];
-         orderedValues.push(argVals[i+1]);
-      }
-      // If every declared parameter is found in labelMap, use the mapping
-      const allMatch = declared.every(p => p in labelMap);
-      if (allMatch) {
-         return declared.map(p => labelMap[p]);
-      }
-      // Otherwise, if the number of label pairs equals the number of declared parameters,
-      // then assign in order (ignoring the label names)
-      if (orderedValues.length === declared.length) {
-         return orderedValues;
-      }
-      throw new Error(`Missing argument for parameter; expected labels matching [${declared.join(", ")}]`);
-    } else {
-      // NEW: Allow positional arguments for JS interoperability if count matches
-      if (argVals.length === fnVal.params.length) {
-        return argVals;
-      }
-      throw new Error("Call to a typed function must use labeled arguments (e.g. x: 1 y: 2), an object mapping, or provide positional arguments matching the declared parameters");
+      labelMap[key] = jsToHql(obj[k]);
     }
-  } else {
-    if (argVals.length > 0 && argVals[0].type === "symbol" && argVals[0].name.endsWith(":")) {
-      throw new Error("Call to an untyped function must use positional arguments, not labeled ones");
+    const out: HQLValue[] = [];
+    for (const p of declared) {
+      if (!(p in labelMap)) {
+        throw new Error(`Missing argument for parameter '${p}'`);
+      }
+      out.push(labelMap[p]);
     }
-    if (argVals.length === 1 &&
-        argVals[0].type === "opaque" &&
-        typeof argVals[0].value === "object" &&
-        !Array.isArray(argVals[0].value)) {
-      throw new Error("Call to an untyped function must use positional arguments, not an object with labels");
+    return out;
+  }
+  
+  // If more than one argument is passed and the first argument is an opaque mapping,
+  // then we consider this a mix of labeled and positional arguments.
+  if (argVals.length > 1 &&
+      argVals[0].type === "opaque" &&
+      typeof argVals[0].value === "object" &&
+      !Array.isArray(argVals[0].value)) {
+    throw new Error("Mixed labeled and positional arguments are not allowed");
+  }
+  
+  // If any argument is a label (either as an HQL symbol or an HQL string), assume a labeled call.
+  const hasLabel = argVals.some(isLabel);
+  if (hasLabel) {
+    if (argVals.length % 2 !== 0) {
+      throw new Error("Labeled function call must have an even number of arguments (label-value pairs)");
     }
+    const values: HQLValue[] = [];
+    for (let i = 0; i < argVals.length; i += 2) {
+      const lab = argVals[i];
+      if (!isLabel(lab)) {
+        throw new Error("Expected label (string or symbol) ending with ':'");
+      }
+      // Extract label name (we ignore it) and use the corresponding value.
+      values.push(argVals[i + 1]);
+    }
+    if (values.length !== declared.length) {
+      throw new Error(`Expected ${declared.length} arguments, but got ${values.length} from labeled call`);
+    }
+    return values;
+  }
+  
+  // Otherwise, treat as positional.
+  if (argVals.length !== declared.length) {
+    throw new Error(`Expected ${declared.length} arguments, but got ${argVals.length}`);
   }
   return argVals;
 }
