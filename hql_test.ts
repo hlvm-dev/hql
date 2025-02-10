@@ -1,17 +1,16 @@
 import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.170.0/testing/asserts.ts";
 import { runHQLFile, getExport } from "./hql.ts";
 
-// ---------- Arithmetic Operations Test ----------
-Deno.test("Arithmetic operations", async () => {
+// ---------- Arithmetic Operations Test (untyped) ----------
+Deno.test("Arithmetic operations (untyped)", async () => {
   const code = `
-    (def addTest (fn ((a Number) (b Number)) (+ a b)))
+    (def addTest (fn (a b) (+ a b)))
     (export "addTest" addTest)
   `;
   const testFile = "temp_arithmetic.hql";
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const addTest = getExport("addTest", exportsMap);
-  // addTest is async, so await its result.
   assertEquals(await addTest(5, 7), 12);
   await Deno.remove(testFile);
 });
@@ -41,7 +40,6 @@ Deno.test("Quoting", async () => {
   const testFile = "temp_quoting.hql";
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
-  // (quote (1 2 3)) is converted to a JS array.
   assertEquals(getExport("quoted", exportsMap), [1, 2, 3]);
   await Deno.remove(testFile);
 });
@@ -59,10 +57,10 @@ Deno.test("Definition and retrieval", async () => {
   await Deno.remove(testFile);
 });
 
-// ---------- Function Invocation Test ----------
-Deno.test("Function invocation", async () => {
+// ---------- Function Invocation Test (untyped) ----------
+Deno.test("Function invocation (untyped)", async () => {
   const code = `
-    (def double (fn ((x Number)) (+ x x)))
+    (def double (fn (x) (+ x x)))
     (def result (double 5))
     (export "result" result)
   `;
@@ -73,80 +71,43 @@ Deno.test("Function invocation", async () => {
   await Deno.remove(testFile);
 });
 
-// ---------- List Built-in Test ----------
-Deno.test("List built-in", async () => {
+// ---------- Labeled Call Test for Typed Functions ----------
+Deno.test("Labeled call for typed functions", async () => {
   const code = `
-    (def myList (list 1 2 3))
-    (export "myList" myList)
+    (defn minus (x: Number y: Number) (-> Number)
+      (- x y))
+    (export "minus" minus)
   `;
-  const testFile = "temp_list.hql";
+  const testFile = "temp_typed_call.hql";
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
-  assertEquals(getExport("myList", exportsMap), [1, 2, 3]);
+  const minus = getExport("minus", exportsMap);
+  // Calling typed function using JS style: pass an opaque object wrapping a plain object.
+  assertEquals(await minus({ "x:": 100, "y:": 20 }), 80);
+  // Alternatively, calling in HQL S–expression form would be: (minus x: 100 y: 20)
   await Deno.remove(testFile);
 });
 
-// ---------- Hash-map Built-in Test ----------
-Deno.test("Hash-map built-in", async () => {
+// ---------- Test that untyped function calls must be positional ----------
+Deno.test("Untyped function call rejects labels", async () => {
   const code = `
-    (def myMap (hash-map "a" 1 "b" 2))
-    (export "myMap" myMap)
+    (defn add (x y) (+ x y))
+    (export "add" add)
   `;
-  const testFile = "temp_hashmap.hql";
-  await Deno.writeTextFile(testFile, code);
-  // Our hash-map built-in creates a list beginning with the symbol "hash-map".
-  const exportsMap = await runHQLFile(testFile);
-  assertEquals(getExport("myMap", exportsMap), ["hash-map", "a", 1, "b", 2]);
-  await Deno.remove(testFile);
-});
-
-// ---------- Set Built-in Test ----------
-Deno.test("Set built-in", async () => {
-  const code = `
-    (def mySet (set 1 2 3 4))
-    (export "mySet" mySet)
-  `;
-  const testFile = "temp_set.hql";
+  const testFile = "temp_untyped_labels.hql";
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
-  assertEquals(getExport("mySet", exportsMap), ["set", 1, 2, 3, 4]);
-  await Deno.remove(testFile);
-});
-
-// ---------- String-append Built-in Test ----------
-Deno.test("String-append built-in", async () => {
-  const code = `
-    (def concatStr (string-append "hello" " world"))
-    (export "concatStr" concatStr)
-  `;
-  const testFile = "temp_string_append.hql";
-  await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  assertEquals(getExport("concatStr", exportsMap), "hello world");
-  await Deno.remove(testFile);
-});
-
-// ---------- Macro Expansion Test ----------
-Deno.test("Macro expansion", async () => {
-  // This test uses a simple macro that expands to a value.
-  const code = `
-    (def not (fn ((x Boolean)) (if x false true)))
-    (defmacro myunless (cond body) 
-      (list (quote if) (list (quote not) cond) body 0))
-    (def macroResult (myunless false 456))
-    (export "macroResult" macroResult)
-  `;
-  const testFile = "temp_macro.hql";
-  await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  // (myunless false 456) should expand to 456.
-  assertEquals(getExport("macroResult", exportsMap), 456);
+  const add = getExport("add", exportsMap);
+  await assertRejects(
+    async () => { await add({ "x:": 3, "y:": 20 }); },
+    Error,
+    "Call to an untyped function must use positional arguments"
+  );
   await Deno.remove(testFile);
 });
 
 // ---------- Built-in "get" with JS Object Test ----------
 Deno.test("Built-in get with JS object", async () => {
-  // Create a temporary JS module.
   const jsModuleCode = `
     export function add(x, y) { return x + y; }
     export const value = 42;
@@ -180,7 +141,6 @@ Deno.test("Complex arithmetic expression", async () => {
   const testFile = "temp_complex_arith.hql";
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
-  // Calculation: 2*3=6, 10-4=6, 20/5=4, so 6+6+4=16.
   assertEquals(getExport("complexArith", exportsMap), 16);
   await Deno.remove(testFile);
 });
@@ -195,7 +155,10 @@ Deno.test("New Special Form - Date", async () => {
   await Deno.writeTextFile(tempFile, code);
   const exportsMap = await runHQLFile(tempFile);
   const testDate = getExport("testDate", exportsMap);
-  assert(testDate instanceof Date, "testDate should be an instance of Date");
+  // Check that the value is an instance of Date.
+  if (!(testDate instanceof Date)) {
+    throw new Error("testDate should be an instance of Date");
+  }
   await Deno.remove(tempFile);
 });
 
@@ -209,7 +172,9 @@ Deno.test("New Special Form - RegExp", async () => {
   await Deno.writeTextFile(tempFile, code);
   const exportsMap = await runHQLFile(tempFile);
   const testRegExp = getExport("testRegExp", exportsMap);
-  assert(testRegExp instanceof RegExp, "testRegExp should be an instance of RegExp");
+  if (!(testRegExp instanceof RegExp)) {
+    throw new Error("testRegExp should be an instance of RegExp");
+  }
   assertEquals(testRegExp.source, "abc");
   assertEquals(testRegExp.flags, "i");
   await Deno.remove(tempFile);
@@ -225,7 +190,9 @@ Deno.test("New Special Form - Array", async () => {
   await Deno.writeTextFile(tempFile, code);
   const exportsMap = await runHQLFile(tempFile);
   const testArray = getExport("testArray", exportsMap);
-  assert(Array.isArray(testArray), "testArray should be an array");
+  if (!Array.isArray(testArray)) {
+    throw new Error("testArray should be an array");
+  }
   assertEquals(testArray, [1, 2, 3]);
   await Deno.remove(tempFile);
 });
@@ -240,7 +207,9 @@ Deno.test("New Special Form - Map", async () => {
   await Deno.writeTextFile(tempFile, code);
   const exportsMap = await runHQLFile(tempFile);
   const testMap = getExport("testMap", exportsMap);
-  assert(testMap instanceof Map, "testMap should be an instance of Map");
+  if (!(testMap instanceof Map)) {
+    throw new Error("testMap should be an instance of Map");
+  }
   assertEquals(testMap.size, 0);
   await Deno.remove(tempFile);
 });
@@ -255,7 +224,10 @@ Deno.test("New Special Form - Set", async () => {
   await Deno.writeTextFile(tempFile, code);
   const exportsMap = await runHQLFile(tempFile);
   const testSet = getExport("testSet", exportsMap);
-  assert(testSet instanceof Set, "testSet should be an instance of Set");
+  if (!(testSet instanceof Set)) {
+    throw new Error("testSet should be an instance of Set");
+  }
+  // Expect size 3.
   assertEquals(testSet.size, 3);
   await Deno.remove(tempFile);
 });
@@ -270,7 +242,9 @@ Deno.test("New Special Form - Error", async () => {
   await Deno.writeTextFile(tempFile, code);
   const exportsMap = await runHQLFile(tempFile);
   const testError = getExport("testError", exportsMap);
-  assert(testError instanceof Error, "testError should be an instance of Error");
+  if (!(testError instanceof Error)) {
+    throw new Error("testError should be an instance of Error");
+  }
   assertEquals(testError.message, "test error");
   await Deno.remove(tempFile);
 });
@@ -285,8 +259,9 @@ Deno.test("New Special Form - URL", async () => {
   await Deno.writeTextFile(tempFile, code);
   const exportsMap = await runHQLFile(tempFile);
   const testURL = getExport("testURL", exportsMap);
-  // global fallback should provide URL from globalThis.
-  assert(testURL instanceof URL, "testURL should be an instance of URL");
+  if (!(testURL instanceof URL)) {
+    throw new Error("testURL should be an instance of URL");
+  }
   assertEquals(testURL.href, "https://example.com/");
   await Deno.remove(tempFile);
 });

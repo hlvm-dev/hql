@@ -1,4 +1,4 @@
-; hello.hql - Demo: Using deno_std modules and JS-friendly "new"
+; hello.hql - Demo: Using deno_std modules, JS-friendly "new", and new caller syntax
 
 ;; Import and log using chalk.
 (def chalk (import "https://deno.land/x/chalk_deno@v4.1.1-deno/source/index.js"))
@@ -17,9 +17,8 @@
 (print mymap)
 ; expected: (hash-map :a 100 :b 200)
 
-(def myset (set 1 2 3 4 5))
-(print myset)
-; expected: (set 1 2 3 4 5)
+(def myset (new Set (list 1 2 3)))
+(print (get myset "size"))  ; expected: 3
 
 ; ====== Standard Library Demo ======
 (print "====== Standard Library Demo ======")
@@ -45,53 +44,58 @@
 (print "====== New Special Form Test ======")
 (def arr (new Array 1 2 3))
 (print arr)  ; Expected: [1,2,3]
-(def m (new Map))
-(print (get m "size"))  ; Expected: 0
 
 ; ====== Arithmetic Operations ======
 (print "====== Arithmetic Operations ======")
 (def add
-  (fn ((x Int) (y Int))
-      (return Int)
-      (+ x y)))
-
+  (fn (a b)
+    (+ a b)))
 (print (add 3 4))   ; should print 7
 
 (def inc
-  (fn ((n Int))
-      (return Int)
-      (+ n 1)))
-
+  (fn (n)
+    (+ n 1)))
 (print (inc 10))    ; should print 11
 
-(def mult
-  (fn ((a Int) (b Int))
-      (return Int)
-      (* a b)))
+; ====== New Syntax Demonstrations ======
+(print "====== New Syntax (fx, defn, defx) Demo ======")
 
-(print (mult 50 60))  ; should print 30
+; Untyped function using defn (positional call)
+(defn addN (x y)
+  (+ x y))
+(print (addN 2 3))  ; Expected: 5
+
+; Typed function using defn (labeled call)
+(defn minus (x: Number y: Number) (-> Number)
+  (- x y))
+(print (minus x: 100 y: 20))  ; Expected: 80
+
+; Using fx to define a pure function (typed, labeled call)
+(def pureMultiply (fx (a: Number b: Number) (-> Number)
+  (* a b)))
+(print (pureMultiply x: 4 y: 5))  ; Expected: 20
 
 ; ====== Sync/Async Exports ======
 (print "====== Sync/Async Exports ======")
 
-(defsync add
-  (fn ((x Number) (y Number)) (return Number)
-      (+ x y)))
-
-(def minus
-  (fn ((x Number) (y Number)) (-> Number)
-      (- x y)))
-
-(export "add" add)
-(export "minus" minus)
-
-(def add2
-  (fn ((x) (y))
+(defsync addSync
+  (fn (x: Number y: Number) (-> Number)
     (+ x y)))
 
-(def minus2
-  (fn ((x) (y))
+(def minusSync
+  (fn (x: Number y: Number) (-> Number)
     (- x y)))
 
-(export "add2" add2)
-(export "minus2" minus2)
+(export "addSync" addSync)
+(export "minusSync" minusSync)
+
+(def addDynamic
+  (fn (x y)
+    (+ x y)))
+
+(def minusDynamic
+  (fn (x y)
+    (- x y)))
+
+(export "addDynamic" addDynamic)
+(export "minusDynamic" minusDynamic)
