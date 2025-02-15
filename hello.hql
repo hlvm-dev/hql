@@ -5,8 +5,8 @@
 (log ((get chalk "blue") "hello hql!"))
 
 ;; Import lodash and use its chunk function.
-(def lodash (import "npm:lodash"))
-(log ((get lodash "chunk") (list 1 2 3 4 5 6) 2))
+;; (def lodash (import "npm:lodash"))
+;; (log ((get lodash "chunk") (list 1 2 3 4 5 6) 2))
 
 ; ====== Data Structure Constructors ======
 (print "====== Data Structures ======")
@@ -113,3 +113,15 @@
 
 (print (multiply2 1000 2000))
 (print (multiply2 x: 1000 y: 2000))
+
+(defenum Destination hlvm macos ios)
+(defn send (message: String to: Destination) message)
+(defn send2 (message: String to: Destination) (-> Void) message)
+
+(print (send message: "hello1" to: .hlvm))
+(print (send2 message: "hello2" to: Destination.hlvm))
+
+
+(def name "Alice")
+(def otherValue "Bob")
+(print (string-append "hello my name is " name " and " otherValue))

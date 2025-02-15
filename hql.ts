@@ -29,6 +29,7 @@ export type HQLValue =
   | HQLFn
   | HQLMacro
   | HQLOpaque
+  | HQLEnumCase
   | any;
 
 export interface HQLSymbol  { type: "symbol";  name: string; }
@@ -60,6 +61,9 @@ export interface HQLMacro {
 
 export interface HQLOpaque { type: "opaque"; value: any; }
 
+// NEW: Enum–case AST node (for tokens like .hlvm)
+export interface HQLEnumCase { type: "enum-case"; name: string; }
+
 //////////////////////////////////////////////////////////////////////////////
 // FACTORIES
 //////////////////////////////////////////////////////////////////////////////
@@ -70,6 +74,9 @@ function makeNumber(n: number): HQLNumber { return { type: "number", value: n };
 function makeString(s: string): HQLString { return { type: "string", value: s }; }
 function makeBoolean(b: boolean): HQLBoolean { return { type: "boolean", value: b }; }
 function makeNil(): HQLNil { return { type: "nil" }; }
+
+// NEW: Factory for enum-case nodes.
+function makeEnumCase(name: string): HQLEnumCase { return { type: "enum-case", name }; }
 
 //////////////////////////////////////////////////////////////////////////////
 // ENVIRONMENT
@@ -146,6 +153,10 @@ export function parseHQL(input: string): HQLValue[] {
       i++;
     }
     const raw = input.slice(start, i);
+    // NEW: if token starts with a dot, it is an enum-case.
+    if (raw.startsWith(".")) {
+      return makeEnumCase(raw.substring(1));
+    }
     if (/^[+-]?\d+(\.\d+)?$/.test(raw)) return makeNumber(parseFloat(raw));
     if (raw === "true") return makeBoolean(true);
     if (raw === "false") return makeBoolean(false);
@@ -211,7 +222,6 @@ const asyncBuiltInKeys = new Set<string>([
   "sleep", "fetch", "read-file", "write-file", "await", "import"
 ]);
 
-// Note: Our built–in print now calls formatValue so that opaque (JS native) objects print nicely.
 function hostFunc(fn: (args: HQLValue[]) => Promise<HQLValue> | HQLValue): HQLFn {
   return {
     type: "function",
@@ -315,7 +325,6 @@ const builtIns: Record<string, HQLValue> = {
   list: hostFunc(args => makeList(args)),
   vector: hostFunc(args => makeList([makeSymbol("vector"), ...args])),
   "hash-map": hostFunc(args => makeList([makeSymbol("hash-map"), ...args])),
-  // Built–in “set” now creates a native JavaScript Set.
   set: hostFunc(args => wrapJsValue(new Set(args.map(a => hqlToJs(a))))),
   get: hostFunc(([obj, prop]) => {
     const jsObj = (obj && obj.type === "opaque") ? obj.value : hqlToJs(obj);
@@ -360,8 +369,6 @@ const builtIns: Record<string, HQLValue> = {
     }
     return acc;
   }),
-  // Special "import" built-in: This is used as a special form.
-  // (import URL) returns a wrapped JS module.
   import: hostFunc(async (args) => {
     if (args.length < 1) throw new Error("(import) expects a URL");
     const urlVal = await evaluateAsync(args[0], baseEnv);
@@ -397,7 +404,22 @@ function hqlToJs(val: HQLValue): any {
     case "boolean": return val.value;
     case "number":  return val.value;
     case "string":  return val.value;
-    case "symbol":  return val.name;
+    case "symbol":  // NEW: If a symbol contains a dot, try to resolve it as an enum case.
+      if (val.name.includes(".")) {
+        const parts = val.name.split(".");
+        if (parts.length === 2) {
+          const [enumName, caseName] = parts;
+          const enumVal = baseEnv.get(enumName);
+          if (enumVal && enumVal.type === "opaque" && enumVal.value && typeof enumVal.value === "object" && (enumVal.value as any).isEnum) {
+            if (caseName in enumVal.value) {
+              return enumVal.value[caseName].value;
+            } else {
+              throw new Error(`Enum '${enumName}' does not have a case '${caseName}'`);
+            }
+          }
+        }
+      }
+      return val.name;
     case "list":
       return Array.isArray(val.value) ? val.value.map(hqlToJs) : [];
     case "function":
@@ -466,64 +488,35 @@ function parseParamList(paramsAst: HQLValue): { paramNames: string[], typed: boo
   }
 }
 
-function parseReturnType(retAst: HQLValue): { returnType: string } {
-  if (!retAst || retAst.type !== "list" || retAst.value.length !== 2) {
-    throw new Error("Return type must be (-> TYPE)");
-  }
-  const arrow = retAst.value[0];
-  const ret = retAst.value[1];
-  if (arrow.type !== "symbol" || arrow.name !== "->") {
-    throw new Error("Return type annotation must begin with '->'");
-  }
-  if (ret.type !== "symbol") {
-    throw new Error("Return type must be a symbol");
-  }
-  return { returnType: ret.name };
-}
-
-function extractBodyForms(forms: HQLValue[]): HQLValue[] {
-  if (
-    forms.length > 0 &&
-    forms[0].type === "list" &&
-    forms[0].value[0]?.type === "symbol" &&
-    forms[0].value[0].name === "return"
-  ) {
-    return forms.slice(1);
-  }
-  return forms;
-}
-
-//
-// Helper to build a function literal from a parameter list and body forms.
-// The syntax is one of the following:
-//
-//   Primary form (no extra parentheses):
-//     (fn (params) body...)
-//     (fx (params) (-> TYPE) body...)
-//
-//   Or with an extra wrapping for parameters and return type:
-//     (fn ((params) (-> TYPE)) body...)
-//
-// Similarly for defn/defx (with an initial symbol naming the function).
-//
+// NEW: Modified makeFunctionLiteral to allow omitting the return type if it is Void.
 function makeFunctionLiteral(parts: HQLValue[], env: Env, isPure: boolean): HQLFn {
   if (parts.length === 0) {
     throw new Error("Function literal expects a parameter list");
   }
-  // If the parameters (and optional return type) are wrapped in extra parentheses,
-  // flatten one level.
+  // If the parameters (and optional return type) are wrapped in extra parentheses, flatten one level.
   if (parts[0].type === "list" && parts[0].value.length > 0 && parts[0].value[0].type === "list") {
     parts = (parts[0] as HQLList).value.concat(parts.slice(1));
   }
   const paramList = parts[0];
   const { paramNames, typed } = parseParamList(paramList);
   let bodyForms: HQLValue[];
+  // If a return type annotation exists (i.e. a list starting with "->")
   if (parts.length > 1 &&
       parts[1].type === "list" &&
       parts[1].value.length > 0 &&
       parts[1].value[0].type === "symbol" &&
       parts[1].value[0].name === "->") {
-    bodyForms = parts.slice(2);
+    if (parts[1].value.length === 2) {
+      const retTypeToken = parts[1].value[1];
+      // If the return type is Void, ignore the annotation.
+      if (retTypeToken.type === "symbol" && retTypeToken.name === "Void") {
+        bodyForms = parts.slice(2);
+      } else {
+        bodyForms = parts.slice(2);
+      }
+    } else {
+      throw new Error("Invalid return type annotation");
+    }
   } else {
     bodyForms = parts.slice(1);
   }
@@ -539,28 +532,35 @@ function makeFunctionLiteral(parts: HQLValue[], env: Env, isPure: boolean): HQLF
   };
 }
 
+function extractBodyForms(forms: HQLValue[]): HQLValue[] {
+  if (
+    forms.length > 0 &&
+    forms[0].type === "list" &&
+    forms[0].value[0]?.type === "symbol" &&
+    forms[0].value[0].name === "return"
+  ) {
+    return forms.slice(1);
+  }
+  return forms;
+}
+
+function makeFunctionLiteralWrapper(parts: HQLValue[], env: Env, isPure: boolean): HQLFn {
+  return makeFunctionLiteral(parts, env, isPure);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // FUNCTION APPLICATION (SYNC & ASYNC)
 //////////////////////////////////////////////////////////////////////////////
 
-// --- Helper: isLabel ---
-// A value is considered a label if it is an HQL symbol ending with ":" 
-// or an HQL string whose value ends with ":".
 function isLabel(arg: HQLValue): boolean {
   if (arg.type === "symbol") return arg.name.endsWith(":");
   if (arg.type === "string") return (arg.value as string).endsWith(":");
   return false;
 }
 
-// --- Updated processLabeledArgs ---
-// Now both typed and untyped functions support either positional calls,
-// fully labeled calls (i.e. label/value pairs), or a single opaque object mapping.
-// In a labeled call the label names are ignored and arguments are bound by position.
-// Mixed labeled and positional calls are rejected.
 function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
   const declared = fnVal.params;
   
-  // If a single opaque object mapping is provided, use it.
   if (argVals.length === 1 &&
       argVals[0].type === "opaque" &&
       typeof argVals[0].value === "object" &&
@@ -584,8 +584,6 @@ function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
     return out;
   }
   
-  // If more than one argument is passed and the first argument is an opaque mapping,
-  // then we consider this a mix of labeled and positional arguments.
   if (argVals.length > 1 &&
       argVals[0].type === "opaque" &&
       typeof argVals[0].value === "object" &&
@@ -593,7 +591,6 @@ function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
     throw new Error("Mixed labeled and positional arguments are not allowed");
   }
   
-  // If any argument is a label (either as an HQL symbol or an HQL string), assume a labeled call.
   const hasLabel = argVals.some(isLabel);
   if (hasLabel) {
     if (argVals.length % 2 !== 0) {
@@ -605,7 +602,6 @@ function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
       if (!isLabel(lab)) {
         throw new Error("Expected label (string or symbol) ending with ':'");
       }
-      // Extract label name (we ignore it) and use the corresponding value.
       values.push(argVals[i + 1]);
     }
     if (values.length !== declared.length) {
@@ -614,7 +610,6 @@ function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
     return values;
   }
   
-  // Otherwise, treat as positional.
   if (argVals.length !== declared.length) {
     throw new Error(`Expected ${declared.length} arguments, but got ${argVals.length}`);
   }
@@ -661,6 +656,67 @@ function applyFnSync(fnVal: HQLFn, argVals: HQLValue[]): HQLValue {
     out = evaluateSync(form, newEnv);
   }
   return out;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// NEW: Enum and defenum Support
+//////////////////////////////////////////////////////////////////////////////
+
+// Special form: defenum
+function handleDefenum(rest: HQLValue[], env: Env): HQLValue {
+  if (rest.length < 2) {
+    throw new Error("defenum expects at least an enum name and one case");
+  }
+  const enumNameToken = rest[0];
+  if (enumNameToken.type !== "symbol") {
+    throw new Error("defenum expects the enum name to be a symbol");
+  }
+  const enumName = enumNameToken.name;
+  const cases = rest.slice(1);
+  const enumObj: Record<string, HQLValue> = {};
+  for (const c of cases) {
+    if (c.type !== "symbol") {
+      throw new Error("Enum cases must be symbols");
+    }
+    const caseName = c.name;
+    // Create a unique value for each enum case (using a JS Symbol wrapped in an opaque)
+    enumObj[caseName] = { type: "opaque", value: Symbol(enumName + "." + caseName) };
+  }
+  // Mark this object as an enum and freeze it.
+  (enumObj as any).isEnum = true;
+  Object.freeze(enumObj);
+  const enumHQL = wrapJsValue(enumObj);
+  env.set(enumName, enumHQL);
+  return enumHQL;
+}
+
+// Helper: resolve an enum-case node.
+function resolveEnumCase(enumCase: HQLEnumCase, env: Env): HQLValue {
+  let result: HQLValue | null = null;
+  let currentEnv: Env | null = env;
+  while (currentEnv) {
+    for (const key in currentEnv.bindings) {
+      const binding = currentEnv.bindings[key];
+      if (
+        binding.type === "opaque" &&
+        binding.value &&
+        typeof binding.value === "object" &&
+        (binding.value as any).isEnum
+      ) {
+        if (enumCase.name in binding.value) {
+          if (result !== null) {
+            throw new Error(`Ambiguous enum case '.${enumCase.name}' found in multiple enums`);
+          }
+          result = binding.value[enumCase.name];
+        }
+      }
+    }
+    currentEnv = currentEnv.outer;
+  }
+  if (result === null) {
+    throw new Error(`Enum case '.${enumCase.name}' not found`);
+  }
+  return result;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -717,16 +773,18 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
         }
         case "fn":
         case "fx":
-          return makeFunctionLiteral(rest, env, head.name === "fx");
+          return makeFunctionLiteralWrapper(rest, env, head.name === "fx");
         case "defn":
         case "defx": {
           if (rest.length < 2) throw new Error("defn expects a name and a function definition");
           const nameSym = rest[0];
           if (nameSym.type !== "symbol") throw new Error("defn expects a symbol as function name");
-          const fnVal = makeFunctionLiteral(rest.slice(1), env, head.name === "defx");
+          const fnVal = makeFunctionLiteralWrapper(rest.slice(1), env, head.name === "defx");
           env.set(nameSym.name, fnVal);
           return nameSym;
         }
+        case "defenum":
+          return handleDefenum(rest, env);
         case "import": {
           if (rest.length < 1) throw new Error("(import) expects a URL");
           const urlVal = await evaluateAsync(rest[0], env);
@@ -757,7 +815,26 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
     }
     throw new Error(`Attempt to call non-function: ${head.type}`);
   }
+  // NEW: Resolve enum–case nodes
+  if (ast.type === "enum-case") {
+    return resolveEnumCase(ast, env);
+  }
+  // NEW: For symbol nodes, support fully qualified enum cases (e.g. Destination.hlvm)
   if (ast.type === "symbol") {
+    if (ast.name.includes(".")) {
+      const parts = ast.name.split(".");
+      if (parts.length === 2) {
+        const [enumName, caseName] = parts;
+        const enumVal = env.get(enumName);
+        if (enumVal && enumVal.type === "opaque" && enumVal.value && typeof enumVal.value === "object" && (enumVal.value as any).isEnum) {
+          if (caseName in enumVal.value) {
+            return enumVal.value[caseName];
+          } else {
+            throw new Error(`Enum '${enumName}' does not have a case '${caseName}'`);
+          }
+        }
+      }
+    }
     return env.get(ast.name);
   }
   if (["number", "string", "boolean", "nil"].includes(ast.type)) {
@@ -818,16 +895,18 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
         }
         case "fn":
         case "fx":
-          return makeFunctionLiteral(rest, env, head.name === "fx");
+          return makeFunctionLiteralWrapper(rest, env, head.name === "fx");
         case "defn":
         case "defx": {
           if (rest.length < 2) throw new Error("defn expects a name and a function definition");
           const nameSym = rest[0];
           if (nameSym.type !== "symbol") throw new Error("defn expects a symbol as function name");
-          const fnVal = makeFunctionLiteral(rest.slice(1), env, head.name === "defx");
+          const fnVal = makeFunctionLiteralWrapper(rest.slice(1), env, head.name === "defx");
           env.set(nameSym.name, fnVal);
           return nameSym;
         }
+        case "defenum":
+          return handleDefenum(rest, env);
       }
     }
     // Function call
@@ -845,7 +924,26 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
     }
     throw new Error(`Attempt to call non-function: ${head.type}`);
   }
+  // NEW: Resolve enum–case nodes
+  if (ast.type === "enum-case") {
+    return resolveEnumCase(ast, env);
+  }
+  // NEW: For symbol nodes, support fully qualified enum cases (e.g. Destination.hlvm)
   if (ast.type === "symbol") {
+    if (ast.name.includes(".")) {
+      const parts = ast.name.split(".");
+      if (parts.length === 2) {
+        const [enumName, caseName] = parts;
+        const enumVal = env.get(enumName);
+        if (enumVal && enumVal.type === "opaque" && enumVal.value && typeof enumVal.value === "object" && (enumVal.value as any).isEnum) {
+          if (caseName in enumVal.value) {
+            return enumVal.value[caseName];
+          } else {
+            throw new Error(`Enum '${enumName}' does not have a case '${caseName}'`);
+          }
+        }
+      }
+    }
     return env.get(ast.name);
   }
   if (["number", "string", "boolean", "nil"].includes(ast.type)) {
@@ -950,7 +1048,6 @@ export async function transpileHQLFile(inputPath: string, outputPath?: string): 
     const val = exportsMap[name];
     const isFn = val?.type === "function";
     if (isFn && val.typed) {
-      // Always export typed functions as async.
       code += `
 export async function ${name}(...args) {
   const fn = getExport("${name}", _exports);

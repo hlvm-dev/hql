@@ -6,3 +6,5 @@ temp_keyword.hql
 temp_lodash.hql
 temp_sync.hql
 temp_vector.hql
+.lsp/.cache/db.transit.json
+temp_enum.hql
