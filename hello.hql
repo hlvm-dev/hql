@@ -73,7 +73,6 @@
 ; Using fx to define a pure function (typed, labeled call)
 (def pureMultiply (fx (a: Number b: Number) (-> Number)
   (* a b)))
-
 (print (pureMultiply x: 4 y: 5))  ; Expected: 20
 
 ; ====== Sync/Async Exports ======
@@ -101,16 +100,13 @@
 (export "add2" add2)
 (export "minus2" minus2)
 
-
 (defx multiply (x: Int y: Int) (-> Int)
   (* x y))
-
 (print (multiply 100 200))
 (print (multiply x: 100 y: 200))
 
 (defx multiply2 (x y)
   (* x y))
-
 (print (multiply2 1000 2000))
 (print (multiply2 x: 1000 y: 2000))
 
@@ -121,7 +117,8 @@
 (print (send message: "hello1" to: .hlvm))
 (print (send2 message: "hello2" to: Destination.hlvm))
 
-
-(def name "Alice")
-(def otherValue "Bob")
-(print (string-append "hello my name is " name " and " otherValue))
+; ====== String Interpolation Demo ======
+; This demo shows our new interpolation reader macro.
+(def name "Charlie")
+(def greeting "hello my name is \\(name) and welcome!")
+(print greeting)

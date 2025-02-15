@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.170.0/testing/asserts.ts";
 import { runHQLFile, getExport } from "./hql.ts";
 
-// ---------- New Test: Enum and Fully Qualified Enum Case ----------
+// ---------- Enum and Fully Qualified Enum Case ----------
 Deno.test("Enum and fully qualified enum case", async () => {
   const code = `
     (defenum Destination hlvm macos ios)
@@ -17,6 +17,21 @@ Deno.test("Enum and fully qualified enum case", async () => {
   const result2 = getExport("result2", exportsMap);
   assertEquals(result1, "hello1");
   assertEquals(result2, "hello2");
+  await Deno.remove(testFile);
+});
+
+// ---------- String Interpolation Test using the new reader macro  ----------
+Deno.test("String interpolation", async () => {
+  const code = `
+    (def name "Alice")
+    (def otherValue "Bob")
+    (export "interp" "hello my name is \\(name) and nice to meet you - \\(otherValue)")
+  `;
+  const testFile = "temp_interp.hql";
+  await Deno.writeTextFile(testFile, code);
+  const exportsMap = await runHQLFile(testFile);
+  const interp = getExport("interp", exportsMap);
+  assertEquals(interp, "hello my name is Alice and nice to meet you - Bob");
   await Deno.remove(testFile);
 });
 
@@ -101,7 +116,6 @@ Deno.test("Labeled call for typed functions", async () => {
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const minus = getExport("minus", exportsMap);
-  // Calling a typed function using an opaque object mapping.
   assertEquals(await minus({ "x:": 100, "y:": 20 }), 80);
   await Deno.remove(testFile);
 });
@@ -116,11 +130,8 @@ Deno.test("Untyped function call supports labeled arguments", async () => {
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const add = getExport("add", exportsMap);
-  // Calling with an object mapping.
   assertEquals(await add({ "x:": 3, "y:": 20 }), 23);
-  // Calling with fully labeled arguments.
   assertEquals(await add("x:", 3, "y:", 20), 23);
-  // And positional calls should still work.
   assertEquals(await add(3, 20), 23);
   await Deno.remove(testFile);
 });
@@ -133,7 +144,6 @@ Deno.test("Built-in get with JS object", async () => {
   `;
   const jsModuleFile = "temp_obj.js";
   await Deno.writeTextFile(jsModuleFile, jsModuleCode);
-
   const code = `
     (def myObj (import "./temp_obj.js"))
     (def addFunc (get myObj "add"))
@@ -295,7 +305,6 @@ Deno.test("Typed function call using positional arguments", async () => {
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const multiply = getExport("multiply", exportsMap);
-  // Call using positional arguments.
   assertEquals(await multiply(10, 20), 200);
   await Deno.remove(testFile);
 });
@@ -310,7 +319,6 @@ Deno.test("Typed function call using labeled arguments", async () => {
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const multiply = getExport("multiply", exportsMap);
-  // Call using labeled arguments via an object mapping.
   assertEquals(await multiply({ "x:": 10, "y:": 20 }), 200);
   await Deno.remove(testFile);
 });
@@ -325,7 +333,6 @@ Deno.test("Typed function call using opaque object mapping", async () => {
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const multiply = getExport("multiply", exportsMap);
-  // Calling with an object mapping.
   assertEquals(await multiply({ "x:": 10, "y:": 20 }), 200);
   await Deno.remove(testFile);
 });
@@ -340,7 +347,6 @@ Deno.test("Typed function call with mixed labeled and positional arguments shoul
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const multiply = getExport("multiply", exportsMap);
-  // Attempt to mix labeled and positional arguments.
   await assertRejects(
     async () => { await multiply({ "x:": 10 }, 20); },
     Error,
@@ -359,9 +365,7 @@ Deno.test("Extra parentheses in typed function definition", async () => {
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const extraMultiply = getExport("extraMultiply", exportsMap);
-  // Call using positional arguments.
   assertEquals(await extraMultiply(3, 4), 12);
-  // Call using an object mapping.
   assertEquals(await extraMultiply({ "x:": 3, "y:": 4 }), 12);
   await Deno.remove(testFile);
 });
@@ -376,7 +380,6 @@ Deno.test("Typed function call with missing labeled argument", async () => {
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const multiply = getExport("multiply", exportsMap);
-  // Missing the 'y' argument.
   await assertRejects(
     async () => { await multiply({ "x:": 10 }); },
     Error,
@@ -395,7 +398,6 @@ Deno.test("Typed function call with extra arguments should reject", async () => 
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const multiply = getExport("multiply", exportsMap);
-  // Providing three arguments instead of two.
   await assertRejects(
     async () => { await multiply(10, 20, 30); },
     Error,

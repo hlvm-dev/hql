@@ -19,64 +19,21 @@
 // 1. AST DEFINITIONS
 //////////////////////////////////////////////////////////////////////////////
 
-export type HQLValue =
-  | HQLSymbol
-  | HQLList
-  | HQLNumber
-  | HQLString
-  | HQLBoolean
-  | HQLNil
-  | HQLFn
-  | HQLMacro
-  | HQLOpaque
-  | HQLEnumCase
-  | any;
-
-export interface HQLSymbol  { type: "symbol";  name: string; }
-export interface HQLList    { type: "list";    value: HQLValue[]; }
-export interface HQLNumber  { type: "number";  value: number; }
-export interface HQLString  { type: "string";  value: string; }
-export interface HQLBoolean { type: "boolean"; value: boolean; }
-export interface HQLNil     { type: "nil"; }
-
-export interface HQLFn {
-  type: "function";
-  params: string[];
-  body: HQLValue[];
-  closure: Env;
-  isMacro?: false;
-  isPure?: boolean;
-  hostFn?: (args: HQLValue[]) => Promise<HQLValue> | HQLValue;
-  isSync?: boolean;
-  typed?: boolean;
-}
-
-export interface HQLMacro {
-  type: "function";
-  params: string[];
-  body: HQLValue[];
-  closure: Env;
-  isMacro: true;
-}
-
-export interface HQLOpaque { type: "opaque"; value: any; }
-
-// NEW: Enum–case AST node (for tokens like .hlvm)
-export interface HQLEnumCase { type: "enum-case"; name: string; }
-
-//////////////////////////////////////////////////////////////////////////////
-// FACTORIES
-//////////////////////////////////////////////////////////////////////////////
-
-function makeSymbol(name: string): HQLSymbol { return { type: "symbol", name }; }
-function makeList(value: HQLValue[]): HQLList { return { type: "list", value }; }
-function makeNumber(n: number): HQLNumber { return { type: "number", value: n }; }
-function makeString(s: string): HQLString { return { type: "string", value: s }; }
-function makeBoolean(b: boolean): HQLBoolean { return { type: "boolean", value: b }; }
-function makeNil(): HQLNil { return { type: "nil" }; }
-
-// NEW: Factory for enum-case nodes.
-function makeEnumCase(name: string): HQLEnumCase { return { type: "enum-case", name }; }
+import { 
+  parse,
+  makeSymbol,
+  makeList,
+  makeNumber,
+  makeString,
+  makeBoolean,
+  makeNil, 
+  HQLValue,
+  HQLSymbol,
+  HQLList,
+  HQLFn,
+  HQLMacro,
+  HQLEnumCase,
+} from "./parser.ts";
 
 //////////////////////////////////////////////////////////////////////////////
 // ENVIRONMENT
@@ -109,98 +66,6 @@ export class Env {
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// PARSER
-//////////////////////////////////////////////////////////////////////////////
-
-export function parseHQL(input: string): HQLValue[] {
-  const result: HQLValue[] = [];
-  let i = 0, len = input.length;
-
-  function skipWs() {
-    while (i < len) {
-      const ch = input.charAt(i);
-      if (ch === ";") {
-        while (i < len && input.charAt(i) !== "\n") i++;
-      } else if (/\s/.test(ch)) {
-        i++;
-      } else {
-        break;
-      }
-    }
-  }
-
-  function readString(): HQLString {
-    i++; // skip opening quote
-    let buf = "";
-    while (i < len) {
-      if (input.charAt(i) === '"') {
-        i++;
-        break;
-      }
-      buf += input.charAt(i);
-      i++;
-    }
-    return makeString(buf);
-  }
-
-  function readNumberOrSymbol(): HQLValue {
-    const start = i;
-    while (
-      i < len &&
-      !/\s/.test(input.charAt(i)) &&
-      !["(", ")", "[", "]", ";"].includes(input.charAt(i))
-    ) {
-      i++;
-    }
-    const raw = input.slice(start, i);
-    // NEW: if token starts with a dot, it is an enum-case.
-    if (raw.startsWith(".")) {
-      return makeEnumCase(raw.substring(1));
-    }
-    if (/^[+-]?\d+(\.\d+)?$/.test(raw)) return makeNumber(parseFloat(raw));
-    if (raw === "true") return makeBoolean(true);
-    if (raw === "false") return makeBoolean(false);
-    if (raw === "nil") return makeNil();
-    return makeSymbol(raw);
-  }
-
-  function readList(): HQLList {
-    i++; // skip opening ( or [
-    const items: HQLValue[] = [];
-    while (true) {
-      skipWs();
-      if (i >= len) throw new Error("Missing closing )");
-      const ch = input.charAt(i);
-      if (ch === ")" || ch === "]") {
-        i++;
-        break;
-      }
-      items.push(readForm());
-    }
-    return makeList(items);
-  }
-
-  function readForm(): HQLValue {
-    skipWs();
-    if (i >= len) {
-      throw new Error("Unexpected EOF");
-    }
-    const ch = input.charAt(i);
-    if (ch === "(" || ch === "[") return readList();
-    if (ch === '"') return readString();
-    if (ch === ")" || ch === "]") throw new Error("Unexpected )");
-    return readNumberOrSymbol();
-  }
-
-  while (true) {
-    skipWs();
-    if (i >= len) break;
-    result.push(readForm());
-  }
-  return result;
-}
-
-//////////////////////////////////////////////////////////////////////////////
 // EXPORTS MANAGEMENT
 //////////////////////////////////////////////////////////////////////////////
 
@@ -222,6 +87,7 @@ const asyncBuiltInKeys = new Set<string>([
   "sleep", "fetch", "read-file", "write-file", "await", "import"
 ]);
 
+// Built-in host functions.
 function hostFunc(fn: (args: HQLValue[]) => Promise<HQLValue> | HQLValue): HQLFn {
   return {
     type: "function",
@@ -388,6 +254,9 @@ for (const k in builtIns) {
   baseEnv.set(k, builtIns[k]);
 }
 
+// NEW: Create a shorthand alias for string-append as "str"
+baseEnv.set("str", builtIns["string-append"]);
+
 const builtInNameMap = new Map<HQLValue, string>();
 for (const [k, v] of Object.entries(builtIns)) {
   builtInNameMap.set(v, k);
@@ -404,7 +273,8 @@ function hqlToJs(val: HQLValue): any {
     case "boolean": return val.value;
     case "number":  return val.value;
     case "string":  return val.value;
-    case "symbol":  // NEW: If a symbol contains a dot, try to resolve it as an enum case.
+    case "symbol":
+      // NEW: if a symbol contains a dot, try to resolve it as a fully qualified enum case.
       if (val.name.includes(".")) {
         const parts = val.name.split(".");
         if (parts.length === 2) {
@@ -493,14 +363,12 @@ function makeFunctionLiteral(parts: HQLValue[], env: Env, isPure: boolean): HQLF
   if (parts.length === 0) {
     throw new Error("Function literal expects a parameter list");
   }
-  // If the parameters (and optional return type) are wrapped in extra parentheses, flatten one level.
   if (parts[0].type === "list" && parts[0].value.length > 0 && parts[0].value[0].type === "list") {
     parts = (parts[0] as HQLList).value.concat(parts.slice(1));
   }
   const paramList = parts[0];
   const { paramNames, typed } = parseParamList(paramList);
   let bodyForms: HQLValue[];
-  // If a return type annotation exists (i.e. a list starting with "->")
   if (parts.length > 1 &&
       parts[1].type === "list" &&
       parts[1].value.length > 0 &&
@@ -508,7 +376,6 @@ function makeFunctionLiteral(parts: HQLValue[], env: Env, isPure: boolean): HQLF
       parts[1].value[0].name === "->") {
     if (parts[1].value.length === 2) {
       const retTypeToken = parts[1].value[1];
-      // If the return type is Void, ignore the annotation.
       if (retTypeToken.type === "symbol" && retTypeToken.name === "Void") {
         bodyForms = parts.slice(2);
       } else {
@@ -560,7 +427,6 @@ function isLabel(arg: HQLValue): boolean {
 
 function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
   const declared = fnVal.params;
-  
   if (argVals.length === 1 &&
       argVals[0].type === "opaque" &&
       typeof argVals[0].value === "object" &&
@@ -583,14 +449,12 @@ function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
     }
     return out;
   }
-  
   if (argVals.length > 1 &&
       argVals[0].type === "opaque" &&
       typeof argVals[0].value === "object" &&
       !Array.isArray(argVals[0].value)) {
     throw new Error("Mixed labeled and positional arguments are not allowed");
   }
-  
   const hasLabel = argVals.some(isLabel);
   if (hasLabel) {
     if (argVals.length % 2 !== 0) {
@@ -609,7 +473,6 @@ function processLabeledArgs(fnVal: HQLFn, argVals: HQLValue[]): HQLValue[] {
     }
     return values;
   }
-  
   if (argVals.length !== declared.length) {
     throw new Error(`Expected ${declared.length} arguments, but got ${argVals.length}`);
   }
@@ -679,10 +542,8 @@ function handleDefenum(rest: HQLValue[], env: Env): HQLValue {
       throw new Error("Enum cases must be symbols");
     }
     const caseName = c.name;
-    // Create a unique value for each enum case (using a JS Symbol wrapped in an opaque)
     enumObj[caseName] = { type: "opaque", value: Symbol(enumName + "." + caseName) };
   }
-  // Mark this object as an enum and freeze it.
   (enumObj as any).isEnum = true;
   Object.freeze(enumObj);
   const enumHQL = wrapJsValue(enumObj);
@@ -800,7 +661,6 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
         }
       }
     }
-    // Function call
     const fnVal = await evaluateAsync(head, env);
     if (fnVal.type === "function") {
       let argVals: HQLValue[] = [];
@@ -815,11 +675,9 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
     }
     throw new Error(`Attempt to call non-function: ${head.type}`);
   }
-  // NEW: Resolve enum–case nodes
   if (ast.type === "enum-case") {
     return resolveEnumCase(ast, env);
   }
-  // NEW: For symbol nodes, support fully qualified enum cases (e.g. Destination.hlvm)
   if (ast.type === "symbol") {
     if (ast.name.includes(".")) {
       const parts = ast.name.split(".");
@@ -909,7 +767,6 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
           return handleDefenum(rest, env);
       }
     }
-    // Function call
     const fnVal = evaluateSync(head, env);
     if (fnVal.type === "function") {
       let argVals: HQLValue[] = [];
@@ -924,11 +781,9 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
     }
     throw new Error(`Attempt to call non-function: ${head.type}`);
   }
-  // NEW: Resolve enum–case nodes
   if (ast.type === "enum-case") {
     return resolveEnumCase(ast, env);
   }
-  // NEW: For symbol nodes, support fully qualified enum cases (e.g. Destination.hlvm)
   if (ast.type === "symbol") {
     if (ast.name.includes(".")) {
       const parts = ast.name.split(".");
@@ -1019,8 +874,8 @@ async function macroExpand(macro: HQLMacro, rawArgs: HQLValue[], env: Env): Prom
 
 export async function runHQLFile(path: string, targetExports?: Record<string, HQLValue>): Promise<Record<string, HQLValue>> {
   const exportsMap = targetExports || {};
-  const source = await Deno.readTextFile(path);
-  const forms = parseHQL(source);
+  const hql = await Deno.readTextFile(path);
+  const forms = parse(hql);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
   for (const f of forms) {
@@ -1031,8 +886,8 @@ export async function runHQLFile(path: string, targetExports?: Record<string, HQ
 
 export async function transpileHQLFile(inputPath: string, outputPath?: string): Promise<void> {
   const exportsMap: Record<string, HQLValue> = {};
-  const source = await Deno.readTextFile(inputPath);
-  const forms = parseHQL(source);
+  const hql = await Deno.readTextFile(inputPath);
+  const forms = parse(hql);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
   for (const form of forms) {
@@ -1153,7 +1008,7 @@ async function repl(env: Env) {
       return;
     }
     try {
-      const forms = parseHQL(code);
+      const forms = parse(code);
       let result: HQLValue = makeNil();
       for (const f of forms) {
         result = await evaluateAsync(f, env);
