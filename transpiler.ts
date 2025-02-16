@@ -28,7 +28,7 @@ export async function transpileHQLFile(inputPath: string, outputPath?: string): 
   if (!outputPath) {
     outputPath = inputPath.endsWith(".hql") ? inputPath + ".js" : inputPath + ".js";
   }
-  let code = `import { runHQLFile, getExport } from "./main.ts";\n\n`;
+  let code = `import { runHQLFile, getExport } from "./hql.ts";\n\n`;
   code += `const _exports = await runHQLFile("${inputPath}");\n\n`;
   for (const name of names) {
     const val = exportsMap[name];
