@@ -15,7 +15,7 @@ export async function runHQLFile(path: string, targetExports?: Record<string, HQ
   return exportsMap;
 }
 
-export async function transpileHQLFile(inputPath: string, outputPath?: string): Promise<void> {
+export async function transpile(inputPath: string, outputPath?: string): Promise<void> {
   const exportsMap: Record<string, HQLValue> = {};
   const hql = await Deno.readTextFile(inputPath);
   const forms = parse(hql);
@@ -28,7 +28,7 @@ export async function transpileHQLFile(inputPath: string, outputPath?: string): 
   if (!outputPath) {
     outputPath = inputPath.endsWith(".hql") ? inputPath + ".js" : inputPath + ".js";
   }
-  let code = `import { runHQLFile, getExport } from "./hql.ts";\n\n`;
+  let code = `import { runHQLFile, getExport } from "../hql.ts";\n\n`;
   code += `const _exports = await runHQLFile("${inputPath}");\n\n`;
   for (const name of names) {
     const val = exportsMap[name];

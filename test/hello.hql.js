@@ -1,6 +1,6 @@
-import { runHQLFile, getExport } from "./hql.ts";
+import { runHQLFile, getExport } from "../hql.ts";
 
-const _exports = await runHQLFile("hello.hql");
+const _exports = await runHQLFile("./test/hello.hql");
 
 
 export async function add(...args) {

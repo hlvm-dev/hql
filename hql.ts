@@ -1,22 +1,12 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write --allow-net --allow-env
 /**
- * HQL Interpreter (Production)
- *
- * Features:
- *  - Single–pass parser with minimal allocations.
- *  - Separate async and sync evaluation paths.
- *  - Functions (declared via defn or defx) now support both positional and fully labeled calls.
- *    In a labeled call, label names are ignored and arguments are bound by position.
- *    (Mixed labeled and positional arguments are still rejected.)
- *  - In transpile mode, typed functions are always exported as async.
- *
+ * HQL: Higher level Query Language
  * Usage:
  *   deno run --allow-read --allow-write --allow-net --allow-env hql.ts file.hql
  *   deno run --allow-read --allow-write --allow-net --allow-env hql.ts --transpile file.hql
  */
 
-import { runHQLFile, transpileHQLFile } from "./modules/transpiler.ts";
-import { getExport } from "./modules/exports.ts";
+import { runHQLFile, transpile } from "./modules/transpiler.ts";
 import { repl } from "./modules/repl.ts";
 import { Env, baseEnv } from "./modules/env.ts";
 
@@ -28,7 +18,7 @@ if (import.meta.main) {
     }
     const inputFile = Deno.args[1];
     const outFile = Deno.args[2] || undefined;
-    await transpileHQLFile(inputFile, outFile);
+    await transpile(inputFile, outFile);
   } else if (Deno.args.length > 0) {
     const file = Deno.args[0];
     await runHQLFile(file);
@@ -38,4 +28,5 @@ if (import.meta.main) {
   }
 }
 
-export { runHQLFile, transpileHQLFile, getExport };
+export { runHQLFile }
+export { getExport } from "./modules/exports.ts";
