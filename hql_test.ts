@@ -1,5 +1,7 @@
-import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.170.0/testing/asserts.ts";
-import { runHQLFile, getExport } from "./hql.ts";
+import { assertEquals, assertRejects } from "https://deno.land/std@0.170.0/testing/asserts.ts";
+import { getExport } from "./exports.ts";
+import { runHQLFile } from "./transpiler.ts";
+import "./stdlib.ts";
 
 // ---------- Enum and Fully Qualified Enum Case ----------
 Deno.test("Enum and fully qualified enum case", async () => {
