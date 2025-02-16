@@ -15,10 +15,10 @@
  *   deno run --allow-read --allow-write --allow-net --allow-env hql.ts --transpile file.hql
  */
 
-import { runHQLFile, transpileHQLFile } from "./transpiler.ts";
-import { getExport } from "./exports.ts";
-import { repl } from "./repl.ts";
-import { Env, baseEnv } from "./env.ts";
+import { runHQLFile, transpileHQLFile } from "./modules/transpiler.ts";
+import { getExport } from "./modules/exports.ts";
+import { repl } from "./modules/repl.ts";
+import { Env, baseEnv } from "./modules/env.ts";
 
 if (import.meta.main) {
   if (Deno.args[0] === "--transpile") {

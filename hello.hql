@@ -5,8 +5,8 @@
 (log ((get chalk "blue") "hello hql!"))
 
 ;; Import lodash and use its chunk function.
-;; (def lodash (import "npm:lodash"))
-;; (log ((get lodash "chunk") (list 1 2 3 4 5 6) 2))
+(def lodash (import "npm:lodash"))
+(log ((get lodash "chunk") (list 1 2 3 4 5 6) 2))
 
 ; ====== Data Structure Constructors ======
 (print "====== Data Structures ======")

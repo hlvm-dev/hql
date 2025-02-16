@@ -571,14 +571,47 @@ import {
     if (urlVal.type !== "string") throw new Error("import expects a string URL");
     return await doImport(urlVal.value);
   }
+
+  const cdnCandidates = [
+    "https://esm.sh/",
+    "https://jspm.dev/",
+    "https://cdn.skypack.dev/"
+  ];
   
-  export async function doImport(rawUrl: string): Promise<HQLValue> {
-    const modUrl = rawUrl.startsWith("npm:")
-      ? rawUrl
-      : (rawUrl.includes("?bundle") ? rawUrl : rawUrl + "?bundle");
-    const modObj = await import(modUrl);
-    if (modObj.default?.__hql_module) return modObj.default.__hql_module;
-    if (modObj.__hql_module) return modObj.__hql_module;
-    return wrapJsValue(modObj.default ?? modObj);
+  export async function doImport(url: string): Promise<HQLValue> {
+    if (url.startsWith("npm:")) {
+      async function recurImport(npmUrl: string, cdns: string[]): Promise<HQLValue> {
+        if (cdns.length === 0) {
+          throw new Error(`All CDN candidates failed for module ${npmUrl}`);
+        }
+        const candidate = cdns[0];
+        const modUrl = npmUrl.replace(/^npm:/, candidate);
+        try {
+          const modObj = await import(modUrl);
+          if (modObj.default?.__hql_module) return modObj.default.__hql_module;
+          if (modObj.__hql_module) return modObj.__hql_module;
+          return wrapJsValue(modObj.default ?? modObj);
+        } catch (e) {
+          return await recurImport(npmUrl, cdns.slice(1));
+        }
+      }
+  
+      return await recurImport(url, cdnCandidates);
+    } else {
+      let modUrl: string;
+      try {
+        new URL(url);
+        modUrl = url;
+      } catch (e) {
+        modUrl = new URL(url, `file://${Deno.cwd()}/`).toString();
+      }
+      if (!modUrl.includes("?bundle")) {
+        modUrl += "?bundle";
+      }
+      const modObj = await import(modUrl);
+      if (modObj.default?.__hql_module) return modObj.default.__hql_module;
+      if (modObj.__hql_module) return modObj.__hql_module;
+      return wrapJsValue(modObj.default ?? modObj);
+    }
   }
   
