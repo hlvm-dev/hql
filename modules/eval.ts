@@ -427,8 +427,9 @@ export function handleDefinitionForm(
   formName: "def" | "defsync" | "defmacro",
   rest: HQLValue[],
   env: Env,
-  evalFn: (ast: HQLValue, env: Env) => Promise<HQLValue> | HQLValue,
-  markSync: boolean
+  evalFn: (ast: HQLValue, env: Env, realInput?: string) => Promise<HQLValue> | HQLValue,
+  markSync: boolean,
+  realInput?: string
 ): Promise<HQLValue> | HQLValue {
   if (!rest[0] || rest[0].type !== "symbol") {
     throw new Error(`(${formName}) expects a symbol`);
@@ -460,7 +461,7 @@ export function handleDefinitionForm(
     env.set(nameSym.name, v);
     return v;
   };
-  const maybePromise = evalFn(valExpr, env);
+  const maybePromise = evalFn(valExpr, env, realInput);
   if (maybePromise instanceof Promise) {
     return maybePromise.then(finalize);
   } else {
@@ -483,7 +484,10 @@ export async function macroExpand(macro: HQLMacro, rawArgs: HQLValue[], env: Env
 
 // ─── EVALUATION FUNCTIONS ─────────────────────────────────────────
 
-export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> {
+export async function evaluateAsync(ast: HQLValue, env: Env, realInput?: string): Promise<HQLValue> {
+  // console.log("realInput : ", realInput);
+  // console.log("ast.value : ", ast.value);
+  
   if (ast.type === "list" && ast.value.length > 0) {
     const [head, ...rest] = ast.value;
     if (head.type === "symbol") {
@@ -497,12 +501,19 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
         case "def":
         case "defsync":
         case "defmacro":
-          return await handleDefinitionForm(head.name as "def" | "defsync" | "defmacro", rest, env, evaluateAsync, head.name === "defsync");
+          return await handleDefinitionForm(
+            head.name as "def" | "defsync" | "defmacro",
+            rest,
+            env,
+            evaluateAsync,
+            head.name === "defsync",
+            realInput
+          );
         case "export": {
           if (rest.length !== 2) throw new Error("(export) expects exactly two arguments: string and value");
           const exportNameAst = rest[0];
           if (exportNameAst.type !== "string") throw new Error("(export) expects first argument to be a string");
-          const exportValue = await evaluateAsync(rest[1], env);
+          const exportValue = await evaluateAsync(rest[1], env, realInput);
           if (!env.exports) env.exports = {};
           env.exports[exportNameAst.value] = exportValue;
           return exportValue;
@@ -516,10 +527,11 @@ export async function evaluateAsync(ast: HQLValue, env: Env): Promise<HQLValue> 
         case "defenum":
           return handleDefenum(rest, env);
         case "import":
-          return await handleImportSpecialForm(rest, env);
+          // console.log("realInput222 : ", realInput);
+          return await handleImportSpecialForm(rest, env, realInput);
       }
     }
-    const fnVal = await evaluateAsync(head, env);
+    const fnVal = await evaluateAsync(head, env, realInput);
     if (fnVal.type === "function") {
       return await handleFunctionCallAsync(fnVal, rest, env);
     }
@@ -541,7 +553,13 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
           return handleIfSync(rest, env);
         case "def":
         case "defsync":
-          return handleDefinitionForm(head.name as "def" | "defsync", rest, env, evaluateSync, head.name === "defsync");
+          return handleDefinitionForm(
+            head.name as "def" | "defsync",
+            rest,
+            env,
+            evaluateSync,
+            head.name === "defsync"
+          );
         case "export": {
           if (rest.length !== 2) throw new Error("(export) expects exactly two arguments: string and value");
           const exportNameAst = rest[0];
@@ -597,12 +615,15 @@ function handleDefenum(rest: HQLValue[], env: Env): HQLValue {
   return enumHQL;
 }
 
-async function handleImportSpecialForm(rest: HQLValue[], env: Env): Promise<HQLValue> {
+async function handleImportSpecialForm(rest: HQLValue[], env: Env, realInput?: string): Promise<HQLValue> {
   if (rest.length < 1) throw new Error("(import) expects a URL");
-  const urlVal = await evaluateAsync(rest[0], env);
+  const urlVal = await evaluateAsync(rest[0], env, realInput);
   if (urlVal.type !== "string") throw new Error("import expects a string URL");
-  // Use fileBase from the environment if available (set by compileHQL.ts)
-  const baseUrl = (env as any).fileBase || `file://${Deno.cwd()}/`;
+  // Use the caller's path (realInput or fileBase) to compute a proper base URL.
+  const callerPath = realInput || (env as any).fileBase;
+  const baseUrl = callerPath ? `file://${dirname(callerPath)}/` : `file://${Deno.cwd()}/`;
+  // console.log("yo realInput : ", realInput);
+  // console.log("yo baseUrl : ", baseUrl);
   return await doImport(urlVal.value, baseUrl);
 }
 
@@ -638,20 +659,19 @@ export async function doImport(url: string, baseUrl?: string): Promise<HQLValue>
     } catch (e) {
       modUrl = new URL(url, baseUrl ? baseUrl : `file://${Deno.cwd()}/`).toString();
     }
-    // For local files, remove any query parameters.
     if (modUrl.startsWith("file://")) {
       const qIdx = modUrl.indexOf("?");
       if (qIdx !== -1) {
         modUrl = modUrl.substring(0, qIdx);
       }
     } else {
-      // For remote modules, append "?bundle" if not already present.
       if (!modUrl.includes("?bundle")) {
         modUrl += "?bundle";
       }
     }
-    console.log("url: ", url);
-    console.log("modUrl: ", modUrl);
+    // console.log("url: ", url);
+    // console.log("modUrl: ", modUrl);
+
     const modObj = await import(modUrl);
     if (modObj.default?.__hql_module) return modObj.default.__hql_module;
     if (modObj.__hql_module) return modObj.__hql_module;

@@ -1,4 +1,4 @@
-// compileHQL.ts
+// compiler.ts
 import "../stdlib.ts"
 import { parse } from "../parser.ts";
 import { Env, baseEnv } from "../env.ts";
@@ -22,9 +22,11 @@ export async function compileHQL(source: string, inputPath: string): Promise<str
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
 
+  const realInput = Deno.realPathSync(inputPath);
   // Evaluate forms so that exported symbols are populated.
   for (const form of forms) {
-    await evaluateAsync(form, env);
+    console.log("Real Input Path:", realInput);
+    await evaluateAsync(form, env, realInput);
   }
 
   const names = Object.keys(exportsMap);

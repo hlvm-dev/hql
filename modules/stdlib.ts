@@ -1,48 +1,59 @@
+// stdlib.ts
 import { HQLValue, makeNil, makeNumber, makeString, makeSymbol, makeList } from "./type.ts";
 import { evaluateSync, evaluateAsync, applyFnSync, doImport, jsToHql, hqlToJs } from "./eval.ts";
 import { wrapJsValue } from "./interop.ts";
 import { baseEnv } from "./env.ts";
 
 export function formatValue(val: HQLValue): string {
-    if (!val) return "nil";
-    switch (val.type) {
-      case "number":   return String(val.value);
-      case "string":   return JSON.stringify(val.value);
-      case "boolean":  return val.value ? "true" : "false";
-      case "nil":      return "nil";
-      case "symbol":   return val.name;
-      case "list":
-        return "(" + val.value.map(formatValue).join(" ") + ")";
-      case "function": return val.isMacro ? "<macro>" : "<fn>";
-      case "opaque": {
-        const obj = val.value;
-        if (obj instanceof Set) {
-           return `Set { ${Array.from(obj).map(x => formatValue(jsToHql(x))).join(", ")} }`;
-        } else if (obj instanceof Map) {
-           return `Map { ${Array.from(obj.entries()).map(([k, v]) => `${formatValue(jsToHql(k))} => ${formatValue(jsToHql(v))}`).join(", ")} }`;
-        } else if (obj instanceof Date) {
-           return obj.toISOString();
-        } else if (obj instanceof RegExp) {
-           return obj.toString();
-        } else if (obj instanceof Error) {
-           return `Error: ${obj.message}`;
-        } else if (obj instanceof URL) {
-           return obj.toString();
-        } else if (Array.isArray(obj)) {
-           return `[ ${obj.map(x => formatValue(jsToHql(x))).join(", ")} ]`;
-        } else if (typeof obj === "object" && obj !== null) {
-           try {
-             return JSON.stringify(obj);
-           } catch(e) {
-             return String(obj);
-           }
-        } else {
-           return String(obj);
+  if (!val) return "nil";
+  switch (val.type) {
+    case "number":
+      return String(val.value);
+    case "string":
+      return JSON.stringify(val.value);
+    case "boolean":
+      return val.value ? "true" : "false";
+    case "nil":
+      return "nil";
+    case "symbol":
+      return val.name;
+    case "list":
+      return "(" + val.value.map(formatValue).join(" ") + ")";
+    case "function":
+      return val.isMacro ? "<macro>" : "<fn>";
+    case "opaque": {
+      const obj = val.value;
+      if (obj instanceof Set) {
+        return `Set { ${Array.from(obj).map(x => formatValue(jsToHql(x))).join(", ")} }`;
+      } else if (obj instanceof Map) {
+        // Updated to avoid nested backticks:
+        return `Map { ${Array.from(obj.entries())
+          .map(([k, v]) => `${formatValue(jsToHql(k))} => ${formatValue(jsToHql(v))}`)
+          .join(", ")} }`;
+      } else if (obj instanceof Date) {
+        return obj.toISOString();
+      } else if (obj instanceof RegExp) {
+        return obj.toString();
+      } else if (obj instanceof Error) {
+        return `Error: ${obj.message}`;
+      } else if (obj instanceof URL) {
+        return obj.toString();
+      } else if (Array.isArray(obj)) {
+        return `[ ${obj.map(x => formatValue(jsToHql(x))).join(", ")} ]`;
+      } else if (typeof obj === "object" && obj !== null) {
+        try {
+          return JSON.stringify(obj);
+        } catch (e) {
+          return String(obj);
         }
+      } else {
+        return String(obj);
       }
-      default: return String(val);
     }
+    default:
+      return String(val);
   }
+}
 
 // Host function wrapper.
 function hostFunc(fn: (args: HQLValue[]) => Promise<HQLValue> | HQLValue): HQLValue {
@@ -68,13 +79,24 @@ function numericOp(op: string): (args: HQLValue[]) => HQLValue {
       return a.value;
     });
     switch (op) {
-      case "+": return makeNumber(nums.reduce((acc, x) => acc + x, 0));
-      case "*": return makeNumber(nums.reduce((acc, x) => acc * x, 1));
+      case "+":
+        return makeNumber(nums.reduce((acc, x) => acc + x, 0));
+      case "*":
+        return makeNumber(nums.reduce((acc, x) => acc * x, 1));
       case "-":
-        return makeNumber(nums.length === 1 ? -nums[0] : nums.slice(1).reduce((acc, x) => acc - x, nums[0]));
+        return makeNumber(
+          nums.length === 1
+            ? -nums[0]
+            : nums.slice(1).reduce((acc, x) => acc - x, nums[0])
+        );
       case "/":
-        return makeNumber(nums.length === 1 ? 1 / nums[0] : nums.slice(1).reduce((acc, x) => acc / x, nums[0]));
-      default: return makeNil();
+        return makeNumber(
+          nums.length === 1
+            ? 1 / nums[0]
+            : nums.slice(1).reduce((acc, x) => acc / x, nums[0])
+        );
+      default:
+        return makeNil();
     }
   };
 }
@@ -155,6 +177,7 @@ export const stdlibs: Record<string, HQLValue> = {
   })
 };
 
+// Register some standard JS constructors in the base environment:
 baseEnv.set("Set", wrapJsValue(Set));
 baseEnv.set("Array", wrapJsValue(Array));
 baseEnv.set("Map", wrapJsValue(Map));
@@ -162,8 +185,11 @@ baseEnv.set("Date", wrapJsValue(Date));
 baseEnv.set("RegExp", wrapJsValue(RegExp));
 baseEnv.set("Error", wrapJsValue(Error));
 baseEnv.set("URL", wrapJsValue(URL));
+
+// Provide a convenient "str" alias for "string-append":
 baseEnv.set("str", stdlibs["string-append"]);
 
+// Finally, attach all the standard libs:
 for (const lib in stdlibs) {
   baseEnv.set(lib, stdlibs[lib]);
 }

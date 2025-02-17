@@ -1,3 +1,4 @@
+// interop.ts
 import { HQLValue } from "../modules/type.ts";
 
 export function wrapJsValue(obj: any): HQLValue {

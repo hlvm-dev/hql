@@ -1,4 +1,4 @@
-// precompileHQL.ts
+// precompile.ts (originally named "precompileHQL.ts" in your snippet)
 import { compileHQL } from "./compiler.ts";
 import { walk } from "https://deno.land/std@0.170.0/fs/walk.ts";
 import { join, dirname } from "https://deno.land/std@0.170.0/path/mod.ts";

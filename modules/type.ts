@@ -1,3 +1,4 @@
+// type.ts
 export interface HQLSymbol  { type: "symbol";  name: string; start?: number; end?: number; }
 export interface HQLList    { type: "list";    value: HQLValue[]; start?: number; end?: number; }
 export interface HQLNumber  { type: "number";  value: number;     start?: number; end?: number; }
