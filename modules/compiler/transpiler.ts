@@ -1,7 +1,7 @@
-import { parse } from "./parser.ts";
-import { Env, baseEnv } from "./env.ts";
-import { evaluateAsync } from "./eval.ts";
-import { HQLValue } from "./type.ts";
+import { parse } from "../parser.ts";
+import { Env, baseEnv } from "../env.ts";
+import { evaluateAsync } from "../eval.ts";
+import { HQLValue } from "../type.ts";
 
 export async function runHQLFile(path: string, targetExports?: Record<string, HQLValue>): Promise<Record<string, HQLValue>> {
   const exportsMap = targetExports || {};

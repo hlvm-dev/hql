@@ -6,7 +6,7 @@
  *   deno run --allow-read --allow-write --allow-net --allow-env hql.ts --transpile file.hql
  */
 
-import { runHQLFile, transpile } from "./modules/transpiler.ts";
+import { runHQLFile, transpile } from "./modules/compiler/transpiler.ts";
 import { repl } from "./modules/repl.ts";
 import { Env, baseEnv } from "./modules/env.ts";
 

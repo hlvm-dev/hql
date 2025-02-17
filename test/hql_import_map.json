@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "file:///Users/seoksoonjang/dev/hql/test/hello.hql": "file:///Users/seoksoonjang/dev/hql/test/.hqlcache/hello.hql.js",
+    "file:///Users/seoksoonjang/dev/hql/test/app.hql": "file:///Users/seoksoonjang/dev/hql/test/.hqlcache/app.hql.js"
+  }
+}
