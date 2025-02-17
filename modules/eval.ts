@@ -485,9 +485,6 @@ export async function macroExpand(macro: HQLMacro, rawArgs: HQLValue[], env: Env
 // ─── EVALUATION FUNCTIONS ─────────────────────────────────────────
 
 export async function evaluateAsync(ast: HQLValue, env: Env, realPath?: string): Promise<HQLValue> {
-  // console.log("realPath : ", realPath);
-  // console.log("ast.value : ", ast.value);
-  
   if (ast.type === "list" && ast.value.length > 0) {
     const [head, ...rest] = ast.value;
     if (head.type === "symbol") {
@@ -527,7 +524,6 @@ export async function evaluateAsync(ast: HQLValue, env: Env, realPath?: string):
         case "defenum":
           return handleDefenum(rest, env);
         case "import":
-          // console.log("realPath222 : ", realPath);
           return await handleImportSpecialForm(rest, env, realPath);
       }
     }
@@ -622,8 +618,6 @@ async function handleImportSpecialForm(rest: HQLValue[], env: Env, realPath?: st
   // Use the caller's path (realPath or fileBase) to compute a proper base URL.
   const callerPath = realPath || (env as any).fileBase;
   const baseUrl = callerPath ? `file://${dirname(callerPath)}/` : `file://${Deno.cwd()}/`;
-  // console.log("yo realPath : ", realPath);
-  // console.log("yo baseUrl : ", baseUrl);
   return await doImport(urlVal.value, baseUrl);
 }
 
@@ -681,9 +675,6 @@ export async function doImport(url: string, baseUrl?: string): Promise<HQLValue>
       modUrl += "?bundle";
     }
   }
-  
-  // console.log("url: ", url);
-  // console.log("modUrl: ", modUrl);
 
   const modObj = await import(modUrl);
   if (modObj.default?.__hql_module) return modObj.default.__hql_module;

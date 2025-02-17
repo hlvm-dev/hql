@@ -1,7 +1,0 @@
-{
-  "imports": {
-    "file:///Users/seoksoonjang/dev/hql/test/hello.hql": "file:///Users/seoksoonjang/dev/hql/.hqlcache/test/hello.hql.js",
-    "file:///Users/seoksoonjang/dev/hql/test/app.hql": "file:///Users/seoksoonjang/dev/hql/.hqlcache/test/app.hql.js",
-    "file:///Users/seoksoonjang/dev/hql/test/add.hql": "file:///Users/seoksoonjang/dev/hql/.hqlcache/test/add.hql.js"
-  }
-}

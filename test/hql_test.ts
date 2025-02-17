@@ -1,3 +1,5 @@
+// test/hql_test.ts
+
 import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.170.0/testing/asserts.ts";
 import { runHQLFile, getExport } from "../hql.ts";
 
@@ -20,7 +22,7 @@ Deno.test("Enum and fully qualified enum case", async () => {
   await Deno.remove(testFile);
 });
 
-// ---------- String Interpolation Test using the new reader macro  ----------
+// ---------- String Interpolation Test using the new reader macro ----------
 Deno.test("String interpolation", async () => {
   const code = `
     (def name "Alice")
@@ -74,6 +76,7 @@ Deno.test("Quoting", async () => {
   const testFile = "temp_quoting.hql";
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
+  // Expect that the quoted list is converted to a JavaScript array.
   assertEquals(getExport("quoted", exportsMap), [1, 2, 3]);
   await Deno.remove(testFile);
 });
@@ -130,6 +133,7 @@ Deno.test("Untyped function call supports labeled arguments", async () => {
   await Deno.writeTextFile(testFile, code);
   const exportsMap = await runHQLFile(testFile);
   const add = getExport("add", exportsMap);
+  // Three ways of calling should all work.
   assertEquals(await add({ "x:": 3, "y:": 20 }), 23);
   assertEquals(await add("x:", 3, "y:", 20), 23);
   assertEquals(await add(3, 20), 23);

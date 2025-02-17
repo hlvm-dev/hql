@@ -1,6 +1,9 @@
 {
   "tasks": {
-    "test": "deno run --allow-read --allow-write --allow-net --allow-env hql.ts --transpile ./test/hello.hql && deno run --allow-read --allow-write --allow-net --allow-env ./test/hello.js && deno test --allow-read --allow-write --allow-net --allow-env test/hql_test.ts"
-    }
+    "clean": "rm -rf .hqlcache hql_import_map.json",
+    "unit-test": "deno test --allow-read --allow-write --allow-net --allow-env test/hql_test.ts",
+    "deno-run-test": "deno run --allow-read --allow-write --allow-net --allow-env hql.ts ./test/hello.hql && deno run --allow-read --allow-write --allow-net --allow-env hql.ts ./test/add.hql && deno run --allow-read --allow-write --allow-net --allow-env ./test/hello.js && deno run --allow-read --allow-write --allow-net --allow-env ./test/add.js",
+    "hql-run-test": "hql run ./test/hello.hql && hql run ./test/add.hql && hql run ./test/hello.js && hql run ./test/add.js",
+    "test": "deno task clean && deno task unit-test && deno task deno-run-test && deno task hql-run-test"
+  }
 }
-
