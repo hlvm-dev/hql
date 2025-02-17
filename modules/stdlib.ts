@@ -1,9 +1,24 @@
 // stdlib.ts
-import { HQLValue, makeNil, makeNumber, makeString, makeSymbol, makeList } from "./type.ts";
-import { evaluateSync, evaluateAsync, applyFnSync, doImport, jsToHql, hqlToJs } from "./eval.ts";
+import {
+  HQLValue,
+  makeNil,
+  makeNumber,
+  makeString,
+  makeSymbol,
+  makeList
+} from "./type.ts";
+import {
+  evaluateSync,
+  evaluateAsync,
+  applyFnSync,
+  doImport,
+  jsToHql,
+  hqlToJs
+} from "./eval.ts";
 import { wrapJsValue } from "./interop.ts";
 import { baseEnv } from "./env.ts";
 
+// Convert an HQL value to a formatted string.
 export function formatValue(val: HQLValue): string {
   if (!val) return "nil";
   switch (val.type) {
@@ -26,7 +41,6 @@ export function formatValue(val: HQLValue): string {
       if (obj instanceof Set) {
         return `Set { ${Array.from(obj).map(x => formatValue(jsToHql(x))).join(", ")} }`;
       } else if (obj instanceof Map) {
-        // Updated to avoid nested backticks:
         return `Map { ${Array.from(obj.entries())
           .map(([k, v]) => `${formatValue(jsToHql(k))} => ${formatValue(jsToHql(v))}`)
           .join(", ")} }`;
@@ -68,6 +82,7 @@ function hostFunc(fn: (args: HQLValue[]) => Promise<HQLValue> | HQLValue): HQLVa
   };
 }
 
+// Numeric operation helper.
 function numericOp(op: string): (args: HQLValue[]) => HQLValue {
   return (args: HQLValue[]) => {
     if (args.length === 0) {
@@ -85,15 +100,11 @@ function numericOp(op: string): (args: HQLValue[]) => HQLValue {
         return makeNumber(nums.reduce((acc, x) => acc * x, 1));
       case "-":
         return makeNumber(
-          nums.length === 1
-            ? -nums[0]
-            : nums.slice(1).reduce((acc, x) => acc - x, nums[0])
+          nums.length === 1 ? -nums[0] : nums.slice(1).reduce((acc, x) => acc - x, nums[0])
         );
       case "/":
         return makeNumber(
-          nums.length === 1
-            ? 1 / nums[0]
-            : nums.slice(1).reduce((acc, x) => acc / x, nums[0])
+          nums.length === 1 ? 1 / nums[0] : nums.slice(1).reduce((acc, x) => acc / x, nums[0])
         );
       default:
         return makeNil();
@@ -101,7 +112,9 @@ function numericOp(op: string): (args: HQLValue[]) => HQLValue {
   };
 }
 
+// Standard library functions.
 export const stdlibs: Record<string, HQLValue> = {
+  // Updated print: logs output and returns nil so that the REPL doesn't echo a duplicate.
   print: hostFunc((args) => {
     console.log(...args.map(a => formatValue(a)));
     return makeNil();
@@ -174,10 +187,10 @@ export const stdlibs: Record<string, HQLValue> = {
     const urlVal = await evaluateAsync(args[0], baseEnv);
     if (urlVal.type !== "string") throw new Error("import expects a string URL");
     return await doImport(urlVal.value);
-  })
+  }),
 };
 
-// Register some standard JS constructors in the base environment:
+// Register standard JavaScript constructors in the base environment.
 baseEnv.set("Set", wrapJsValue(Set));
 baseEnv.set("Array", wrapJsValue(Array));
 baseEnv.set("Map", wrapJsValue(Map));
@@ -186,10 +199,10 @@ baseEnv.set("RegExp", wrapJsValue(RegExp));
 baseEnv.set("Error", wrapJsValue(Error));
 baseEnv.set("URL", wrapJsValue(URL));
 
-// Provide a convenient "str" alias for "string-append":
+// Provide an alias: "str" for "string-append".
 baseEnv.set("str", stdlibs["string-append"]);
 
-// Finally, attach all the standard libs:
+// Attach all standard libraries to the base environment.
 for (const lib in stdlibs) {
   baseEnv.set(lib, stdlibs[lib]);
 }

@@ -1,32 +1,41 @@
 // cli.ts
-import { precompile } from "./compiler/precompiler.ts";
-import { join } from "https://deno.land/std@0.170.0/path/mod.ts";
+import { compileHQL } from "./compiler/compiler.ts";
 
 async function main() {
   const args = Deno.args;
-  if (args.length < 2 || args[0] !== "run") {
-    console.log("Usage: hql run <entry_file>");
+  let entryFile: string;
+
+  if (args.length === 0) {
+    console.log("Usage: hql run <entry_file> or hql <entry_file>");
     Deno.exit(1);
   }
-  const entryFile = args[1];
+  
+  // If the first argument is "run", then use the second argument as the entry file.
+  if (args[0] === "run") {
+    if (args.length < 2) {
+      console.log("Usage: hql run <entry_file>");
+      Deno.exit(1);
+    }
+    entryFile = args[1];
+  } else {
+    entryFile = args[0];
+  }
 
-  // Use Deno.cwd() as the project root.
-  const rootDir = Deno.cwd();
-  const cacheDir = join(rootDir, ".hqlcache");
+  // If the entry file has a .hql extension, transpile it on demand.
+  // We pass skipEvaluation=true so that the file's side effects are not executed during compilation.
+  if (entryFile.endsWith(".hql")) {
+    const source = await Deno.readTextFile(entryFile);
+    const compiled = await compileHQL(source, entryFile, true);
+    // Write the compiled JavaScript to a temporary file.
+    const tempFile = await Deno.makeTempFile({ suffix: ".js" });
+    await Deno.writeTextFile(tempFile, compiled);
+    entryFile = tempFile;
+  }
 
-  // Precompile all .hql files under the project root.
-  const mappings = await precompile(rootDir, cacheDir);
-
-  // Generate an import map that maps original HQL file URLs to their compiled JS URLs.
-  const importMap = { imports: mappings };
-  const importMapPath = join(rootDir, "hql_import_map.json");
-  await Deno.writeTextFile(importMapPath, JSON.stringify(importMap, null, 2));
-
-  // Spawn a new Deno process using the generated import map.
+  // Spawn a new Deno process to run the (possibly transpiled) entry file.
   const cmd = [
     Deno.execPath(),
     "run",
-    `--import-map=${importMapPath}`,
     "--allow-read",
     "--allow-write",
     "--allow-net",

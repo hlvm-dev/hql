@@ -7,3 +7,5 @@
 
 ;; Call the add function with arguments 3 and 4.
 (print (add 3 4))
+
+(print (+ 1 2))

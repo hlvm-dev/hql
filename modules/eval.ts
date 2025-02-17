@@ -16,7 +16,7 @@ import {
 import { Env, baseEnv } from "./env.ts";
 import { wrapJsValue } from "./interop.ts";
 import { compileHQL } from "./compiler/compiler.ts";
-import { join, dirname } from "https://deno.land/std@0.170.0/path/mod.ts";
+import { join, dirname, relative } from "https://deno.land/std@0.170.0/path/mod.ts";
 
 // ─── CONVERSIONS BETWEEN HQL AND JS ─────────────────────────────
 
@@ -427,9 +427,9 @@ export function handleDefinitionForm(
   formName: "def" | "defsync" | "defmacro",
   rest: HQLValue[],
   env: Env,
-  evalFn: (ast: HQLValue, env: Env, realInput?: string) => Promise<HQLValue> | HQLValue,
+  evalFn: (ast: HQLValue, env: Env, realPath?: string) => Promise<HQLValue> | HQLValue,
   markSync: boolean,
-  realInput?: string
+  realPath?: string
 ): Promise<HQLValue> | HQLValue {
   if (!rest[0] || rest[0].type !== "symbol") {
     throw new Error(`(${formName}) expects a symbol`);
@@ -461,7 +461,7 @@ export function handleDefinitionForm(
     env.set(nameSym.name, v);
     return v;
   };
-  const maybePromise = evalFn(valExpr, env, realInput);
+  const maybePromise = evalFn(valExpr, env, realPath);
   if (maybePromise instanceof Promise) {
     return maybePromise.then(finalize);
   } else {
@@ -484,8 +484,8 @@ export async function macroExpand(macro: HQLMacro, rawArgs: HQLValue[], env: Env
 
 // ─── EVALUATION FUNCTIONS ─────────────────────────────────────────
 
-export async function evaluateAsync(ast: HQLValue, env: Env, realInput?: string): Promise<HQLValue> {
-  // console.log("realInput : ", realInput);
+export async function evaluateAsync(ast: HQLValue, env: Env, realPath?: string): Promise<HQLValue> {
+  // console.log("realPath : ", realPath);
   // console.log("ast.value : ", ast.value);
   
   if (ast.type === "list" && ast.value.length > 0) {
@@ -507,13 +507,13 @@ export async function evaluateAsync(ast: HQLValue, env: Env, realInput?: string)
             env,
             evaluateAsync,
             head.name === "defsync",
-            realInput
+            realPath
           );
         case "export": {
           if (rest.length !== 2) throw new Error("(export) expects exactly two arguments: string and value");
           const exportNameAst = rest[0];
           if (exportNameAst.type !== "string") throw new Error("(export) expects first argument to be a string");
-          const exportValue = await evaluateAsync(rest[1], env, realInput);
+          const exportValue = await evaluateAsync(rest[1], env, realPath);
           if (!env.exports) env.exports = {};
           env.exports[exportNameAst.value] = exportValue;
           return exportValue;
@@ -527,11 +527,11 @@ export async function evaluateAsync(ast: HQLValue, env: Env, realInput?: string)
         case "defenum":
           return handleDefenum(rest, env);
         case "import":
-          // console.log("realInput222 : ", realInput);
-          return await handleImportSpecialForm(rest, env, realInput);
+          // console.log("realPath222 : ", realPath);
+          return await handleImportSpecialForm(rest, env, realPath);
       }
     }
-    const fnVal = await evaluateAsync(head, env, realInput);
+    const fnVal = await evaluateAsync(head, env, realPath);
     if (fnVal.type === "function") {
       return await handleFunctionCallAsync(fnVal, rest, env);
     }
@@ -615,14 +615,14 @@ function handleDefenum(rest: HQLValue[], env: Env): HQLValue {
   return enumHQL;
 }
 
-async function handleImportSpecialForm(rest: HQLValue[], env: Env, realInput?: string): Promise<HQLValue> {
+async function handleImportSpecialForm(rest: HQLValue[], env: Env, realPath?: string): Promise<HQLValue> {
   if (rest.length < 1) throw new Error("(import) expects a URL");
-  const urlVal = await evaluateAsync(rest[0], env, realInput);
+  const urlVal = await evaluateAsync(rest[0], env, realPath);
   if (urlVal.type !== "string") throw new Error("import expects a string URL");
-  // Use the caller's path (realInput or fileBase) to compute a proper base URL.
-  const callerPath = realInput || (env as any).fileBase;
+  // Use the caller's path (realPath or fileBase) to compute a proper base URL.
+  const callerPath = realPath || (env as any).fileBase;
   const baseUrl = callerPath ? `file://${dirname(callerPath)}/` : `file://${Deno.cwd()}/`;
-  // console.log("yo realInput : ", realInput);
+  // console.log("yo realPath : ", realPath);
   // console.log("yo baseUrl : ", baseUrl);
   return await doImport(urlVal.value, baseUrl);
 }
@@ -635,46 +635,74 @@ const cdnCandidates = [
 
 export async function doImport(url: string, baseUrl?: string): Promise<HQLValue> {
   let modUrl: string;
-  if (url.startsWith("npm:")) {
-    async function recurImport(npmUrl: string, cdns: string[]): Promise<HQLValue> {
-      if (cdns.length === 0) {
-        throw new Error(`All CDN candidates failed for module ${npmUrl}`);
-      }
-      const candidate = cdns[0];
-      const replaced = npmUrl.replace(/^npm:/, candidate);
-      try {
-        const modObj = await import(replaced);
-        if (modObj.default?.__hql_module) return modObj.default.__hql_module;
-        if (modObj.__hql_module) return modObj.__hql_module;
-        return wrapJsValue(modObj.default ?? modObj);
-      } catch (e) {
-        return await recurImport(npmUrl, cdns.slice(1));
-      }
-    }
-    return await recurImport(url, cdnCandidates);
-  } else {
-    try {
-      new URL(url);
-      modUrl = url;
-    } catch (e) {
-      modUrl = new URL(url, baseUrl ? baseUrl : `file://${Deno.cwd()}/`).toString();
-    }
-    if (modUrl.startsWith("file://")) {
-      const qIdx = modUrl.indexOf("?");
-      if (qIdx !== -1) {
-        modUrl = modUrl.substring(0, qIdx);
-      }
-    } else {
-      if (!modUrl.includes("?bundle")) {
-        modUrl += "?bundle";
-      }
-    }
-    // console.log("url: ", url);
-    // console.log("modUrl: ", modUrl);
 
-    const modObj = await import(modUrl);
+  // --- Handle npm packages separately ---
+  if (url.startsWith("npm:")) {
+    return await recurImport(url, cdnCandidates);
+  }
+  // --- End npm branch ---
+
+  // Resolve modUrl relative to baseUrl if needed.
+  try {
+    new URL(url);
+    modUrl = url;
+  } catch (e) {
+    modUrl = new URL(url, baseUrl ? baseUrl : `file://${Deno.cwd()}/`).toString();
+  }
+
+  // If the module is a local file URL and ends with ".hql", compile it lazily.
+  if (modUrl.startsWith("file://")) {
+    const filePath = modUrl.slice(7); // remove "file://"
+    if (filePath.endsWith(".hql")) {
+      const cacheDir = join(Deno.cwd(), ".hqlcache");
+      const relPath = relative(Deno.cwd(), filePath);
+      const cacheFile = join(cacheDir, relPath + ".js");
+      let needCompile = true;
+      try {
+        const srcStat = await Deno.stat(filePath);
+        const cacheStat = await Deno.stat(cacheFile);
+        if (cacheStat.mtime && srcStat.mtime && cacheStat.mtime >= srcStat.mtime) {
+          needCompile = false;
+        }
+      } catch (_e) {
+        needCompile = true;
+      }
+      if (needCompile) {
+        const source = await Deno.readTextFile(filePath);
+        const compiled = await compileHQL(source, filePath);
+        await Deno.mkdir(dirname(cacheFile), { recursive: true });
+        await Deno.writeTextFile(cacheFile, compiled);
+      }
+      modUrl = new URL(cacheFile, `file://${Deno.cwd()}/`).toString();
+    }
+  } else {
+    // For remote modules that are not npm packages, append "?bundle" if not already present.
+    if (!modUrl.includes("?bundle")) {
+      modUrl += "?bundle";
+    }
+  }
+  
+  // console.log("url: ", url);
+  // console.log("modUrl: ", modUrl);
+
+  const modObj = await import(modUrl);
+  if (modObj.default?.__hql_module) return modObj.default.__hql_module;
+  if (modObj.__hql_module) return modObj.__hql_module;
+  return wrapJsValue(modObj.default ?? modObj);
+}
+
+async function recurImport(npmUrl: string, cdns: string[]): Promise<HQLValue> {
+  if (cdns.length === 0) {
+    throw new Error(`All CDN candidates failed for module ${npmUrl}`);
+  }
+  const candidate = cdns[0];
+  const replaced = npmUrl.replace(/^npm:/, candidate);
+  try {
+    const modObj = await import(replaced);
     if (modObj.default?.__hql_module) return modObj.default.__hql_module;
     if (modObj.__hql_module) return modObj.__hql_module;
     return wrapJsValue(modObj.default ?? modObj);
+  } catch (e) {
+    return await recurImport(npmUrl, cdns.slice(1));
   }
 }

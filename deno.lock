@@ -29,6 +29,8 @@
     "https://deno.land/std@0.170.0/datetime/to_imf.ts": "bdb0704a986a9bb48fba220722b3d4681e4b8c9c162562ee545ef2eb90b6edcd",
     "https://deno.land/std@0.170.0/datetime/week_of_year.ts": "09b2b11ec36d45cb825f1d93cc95c555b28f7334546e2ecb914dabfb2f2653f5",
     "https://deno.land/std@0.170.0/fmt/colors.ts": "03ad95e543d2808bc43c17a3dd29d25b43d0f16287fe562a0be89bf632454a12",
+    "https://deno.land/std@0.170.0/fs/_util.ts": "fdc156f897197f261a1c096dcf8ff9267ed0ff42bd5b31f55053a4763a4bae3b",
+    "https://deno.land/std@0.170.0/fs/walk.ts": "677eac2e5386217a7a4e7526769ae28b41ff4ae7a3cd0389f3aa4eb662545edd",
     "https://deno.land/std@0.170.0/path/_constants.ts": "df1db3ffa6dd6d1252cc9617e5d72165cd2483df90e93833e13580687b6083c3",
     "https://deno.land/std@0.170.0/path/_interface.ts": "ee3b431a336b80cf445441109d089b70d87d5e248f4f90ff906820889ecf8d09",
     "https://deno.land/std@0.170.0/path/_util.ts": "d16be2a16e1204b65f9d0dfc54a9bc472cafe5f4a190b3c8471ec2016ccd1677",
