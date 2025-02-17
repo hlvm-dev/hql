@@ -13,7 +13,7 @@ console.log("hey!");
 
 // --- Part 2: Using the transpiled HQL module ---
 // The transpiled module (hello.hql.js) has its own isolated exports.
-import { add, minus, add2, minus2 } from "./hello.hql.js";
+import { add, minus, add2, minus2 } from "./hello.hql";
 
 (async () => {
   console.log("=== Transpiled Module Results ===");
