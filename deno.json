@@ -1,9 +1,10 @@
 {
   "tasks": {
-    "clean": "rm -rf .hqlcache hql_import_map.json",
+    "clean": "rm -rf .hqlcache hql_import_map.json test/transpiled ../hello2.hql.js",
     "unit-test": "deno test --allow-read --allow-write --allow-net --allow-env test/hql_test.ts",
-    "deno-run-test": "deno run --allow-read --allow-write --allow-net --allow-env hql.ts ./test/hello.hql && deno run --allow-read --allow-write --allow-net --allow-env hql.ts ./test/add.hql && deno run --allow-read --allow-write --allow-net --allow-env ./test/hello.js && deno run --allow-read --allow-write --allow-net --allow-env ./test/add.js",
+    "deno-run-test": "deno run --allow-read --allow-write --allow-net --allow-env --allow-run hql.ts run ./test/hello.hql && deno run --allow-read --allow-write --allow-net --allow-env --allow-run ./test/hello.js && deno run --allow-read --allow-write --allow-net --allow-env --allow-run hql.ts run ./test/add.hql && deno run --allow-read --allow-write --allow-net --allow-env --allow-run ./test/add.js",
     "hql-run-test": "hql run ./test/hello.hql && hql run ./test/add.hql && hql run ./test/hello.js && hql run ./test/add.js",
-    "test": "deno task clean && deno task unit-test && deno task deno-run-test && deno task hql-run-test"
+    "transpile-test": "hql transpile ./test/hello.hql ./test/transpiled/random_name.js && deno run --allow-read --allow-write --allow-net --allow-env ./test/transpiled/random_name.js && hql transpile ./test/hello.hql ../hello2.hql.js && deno run --allow-read --allow-write --allow-net --allow-env ../hello2.hql.js && hql transpile ./test/hello.hql ./test/transpiled/hello.hql.js && deno run --allow-read --allow-write --allow-net --allow-env ./test/transpiled/hello.hql.js",
+    "test": "deno task clean && deno task unit-test && deno task deno-run-test && deno task hql-run-test && deno task transpile-test"
   }
 }

@@ -3,8 +3,12 @@ import { parse } from "../parser.ts";
 import { Env, baseEnv } from "../env.ts";
 import { evaluateAsync } from "../eval.ts";
 import { HQLValue } from "../type.ts";
+import { join, dirname, extname, basename } from "https://deno.land/std@0.170.0/path/mod.ts";
 
-// When running an HQL file, set the environment's fileBase property.
+// Compute the absolute URL for "hql.ts" so that our generated JS
+// always imports from an absolute path.
+const absoluteHqlRuntime = "file://" + Deno.realPathSync("hql.ts");
+
 export async function runHQLFile(
   path: string,
   targetExports?: Record<string, HQLValue>
@@ -14,7 +18,7 @@ export async function runHQLFile(
   const forms = parse(hql);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
-  // Set fileBase so that subsequent evaluations know the caller's absolute path.
+  // Mark the environment with the real path so that nested imports can resolve relative paths.
   (env as any).fileBase = Deno.realPathSync(path);
   for (const f of forms) {
     await evaluateAsync(f, env, Deno.realPathSync(path));
@@ -28,43 +32,66 @@ export async function transpile(inputPath: string, outputPath?: string): Promise
   const forms = parse(hql);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
-  // Also store the fileBase in the environment here.
   (env as any).fileBase = Deno.realPathSync(inputPath);
+
+  // Evaluate forms so that we can gather exports
   for (const form of forms) {
     await evaluateAsync(form, env, Deno.realPathSync(inputPath));
   }
-  const names = Object.keys(exportsMap);
+
+  // If no outputPath specified, default to "<input>.js"
   if (!outputPath) {
     outputPath = inputPath.endsWith(".hql") ? inputPath + ".js" : inputPath + ".js";
   }
-  // Build output code using standard string concatenation (to avoid template escape issues)
-  let code = 'import { runHQLFile, getExport } from "../hql.ts";\n\n';
-  code += 'const _exports = await runHQLFile("' + inputPath + '");\n\n';
+
+  const names = Object.keys(exportsMap);
+
+  // Generate code that uses the absolute import of "hql.ts"
+  let code = `import { runHQLFile, getExport } from "${absoluteHqlRuntime}";\n\n`;
+  code += `const _exports = await runHQLFile("${inputPath}");\n\n`;
+
   for (const name of names) {
     const val = exportsMap[name];
     const isFn = val?.type === "function";
-    if (isFn && val.typed) {
-      code += 'export async function ' + name + '(...args) {\n' +
-              '  const fn = getExport("' + name + '", _exports);\n' +
-              '  return await fn(...args);\n' +
-              '}\n\n';
-    } else if (isFn) {
-      const isSync = val.isSync;
-      if (isSync) {
-        code += 'export function ' + name + '(...args) {\n' +
-                '  const fn = getExport("' + name + '", _exports);\n' +
-                '  return fn(...args);\n' +
-                '}\n\n';
+    if (isFn) {
+      const typed = (val as any).typed;
+      const isSync = (val as any).isSync;
+      if (typed) {
+        code += `
+export async function ${name}(...args) {
+  const fn = getExport("${name}", _exports);
+  return await fn(...args);
+}
+`;
       } else {
-        code += 'export async function ' + name + '(...args) {\n' +
-                '  const fn = getExport("' + name + '", _exports);\n' +
-                '  return await fn(...args);\n' +
-                '}\n\n';
+        if (isSync) {
+          code += `
+export function ${name}(...args) {
+  const fn = getExport("${name}", _exports);
+  return fn(...args);
+}
+`;
+        } else {
+          code += `
+export async function ${name}(...args) {
+  const fn = getExport("${name}", _exports);
+  return await fn(...args);
+}
+`;
+        }
       }
     } else {
-      code += 'export const ' + name + ' = getExport("' + name + '", _exports);\n\n';
+      // Exporting a non-function
+      code += `
+export const ${name} = getExport("${name}", _exports);
+`;
     }
   }
+
+  await Deno.mkdir(dirname(outputPath), { recursive: true });
   await Deno.writeTextFile(outputPath, code);
-  console.log("Transpiled " + inputPath + " -> " + outputPath + ". Exports: " + names.join(", "));
+
+  console.log(
+    `Transpiled ${inputPath} -> ${outputPath}. Exports: ${names.join(", ")}`
+  );
 }

@@ -1,5 +1,5 @@
 // compiler.ts
-import "../stdlib.ts"
+import "../stdlib.ts";
 import { parse } from "../parser.ts";
 import { Env, baseEnv } from "../env.ts";
 import { evaluateAsync } from "../eval.ts";
@@ -8,30 +8,40 @@ import { walk } from "https://deno.land/std@0.170.0/fs/walk.ts";
 import { join, dirname } from "https://deno.land/std@0.170.0/path/mod.ts";
 
 // Compute the absolute URL for your HQL runtime.
-// This assumes "hql.ts" is in the project root.
+// This ensures that no matter where the transpiled file is placed,
+// it can correctly import from "hql.ts".
 const absoluteHqlRuntime = "file://" + Deno.realPathSync("hql.ts");
 
 /**
  * Compiles HQL source code into a JS module string.
  *
- * @param source    The HQL source code.
- * @param inputPath The original path of the HQL file.
+ * @param source       The HQL source code.
+ * @param inputPath    The original path of the HQL file.
+ * @param skipEvaluation  If true, skip evaluating top-level forms (no side effects).
  * @returns A Promise that resolves to a JavaScript module string.
  */
-export async function compileHQL(source: string, inputPath: string, skipEvaluation = false): Promise<string> {
+export async function compileHQL(
+  source: string,
+  inputPath: string,
+  skipEvaluation = false
+): Promise<string> {
   const realPath = Deno.realPathSync(inputPath);
   const exportsMap: Record<string, HQLValue> = {};
   const forms = parse(source);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
 
+  // If skipEvaluation is false, evaluate the forms to populate exports.
   if (!skipEvaluation) {
     for (const form of forms) {
       await evaluateAsync(form, env, realPath);
     }
   }
-  
+
+  // Gather exported names.
   const names = Object.keys(exportsMap);
+
+  // Generate code with an absolute import of "hql.ts"
   let code = `import { runHQLFile, getExport } from "${absoluteHqlRuntime}";\n\n`;
   code += `const _exports = await runHQLFile("${inputPath}");\n\n`;
 
@@ -39,14 +49,16 @@ export async function compileHQL(source: string, inputPath: string, skipEvaluati
     const val = exportsMap[name];
     const isFn = val && val.type === "function";
     if (isFn) {
-      if (val.typed) {
+      const typed = (val as any).typed;
+      const isSync = (val as any).isSync;
+      if (typed) {
         code += `
 export async function ${name}(...args) {
   const fn = getExport("${name}", _exports);
   return await fn(...args);
 }\n`;
       } else {
-        if (val.isSync) {
+        if (isSync) {
           code += `
 export function ${name}(...args) {
   const fn = getExport("${name}", _exports);
@@ -61,6 +73,7 @@ export async function ${name}(...args) {
         }
       }
     } else {
+      // Exporting a non-function
       code += `
 export const ${name} = getExport("${name}", _exports);\n`;
     }
@@ -73,6 +86,7 @@ export const ${name} = getExport("${name}", _exports);\n`;
  */
 async function compileFile(filePath: string, outPath: string): Promise<void> {
   const source = await Deno.readTextFile(filePath);
+  // We do not skip evaluation here, so side effects are performed.
   const compiled = await compileHQL(source, filePath);
   await Deno.mkdir(dirname(outPath), { recursive: true });
   await Deno.writeTextFile(outPath, compiled);
