@@ -1,20 +1,21 @@
-// lazy_import_map.ts
-import { compileHQL } from "./compiler/compiler.ts";
+// modules/lazy_import_map.ts
+import { compileHQL } from "../modules/compiler/compiler.ts";
 import { dirname, join, resolve } from "https://deno.land/std@0.170.0/path/mod.ts";
 
 /**
- * A simple regex to capture static import statements for HQL files.
- * It looks for lines like: import ... from "something.hql"
+ * A regex to match static import statements for HQL files.
+ * (This example only handles double-quoted import paths.)
  */
 const importRegex = /import\s+.*?from\s+["'](.+?\.hql)["']/g;
 
 /**
- * Recursively builds an import map for HQL modules starting at entryFile.
+ * Recursively builds an import map for HQL modules starting from entryFile.
+ * Only files ending in ".hql" are processed.
  *
- * @param entryFile  The entry HQL file path.
- * @param cacheDir   The directory where compiled JS files are stored.
- * @param visited    A set to track already-visited files.
- * @returns A mapping from absolute HQL file URLs to compiled JS file URLs.
+ * @param entryFile - The entry HQL file path.
+ * @param cacheDir  - The directory where compiled JS files are stored.
+ * @param visited   - A set to track already-visited file paths.
+ * @returns A mapping from absolute HQL file URLs to their compiled JS file URLs.
  */
 export async function buildImportMap(
   entryFile: string,
@@ -22,40 +23,62 @@ export async function buildImportMap(
   visited = new Set<string>()
 ): Promise<Record<string, string>> {
   const mappings: Record<string, string> = {};
-  // Resolve the absolute path of the entry file.
   const absEntry = resolve(entryFile);
+  
+  // Only process if the file ends with ".hql"
+  if (!absEntry.endsWith(".hql")) return mappings;
   if (visited.has(absEntry)) return mappings;
   visited.add(absEntry);
 
-  // Read the file content.
   const content = await Deno.readTextFile(absEntry);
 
-  // Determine the output path in the cache.
-  // Here we assume the project root is Deno.cwd().
+  // Determine output path in cache (preserving relative path)
   const relPath = absEntry.substring(Deno.cwd().length);
   const outPath = join(cacheDir, relPath) + ".js";
 
-  // Ensure the output directory exists.
   await Deno.mkdir(dirname(outPath), { recursive: true });
 
-  // Compile the HQL file.
-  const compiled = await compileHQL(content, absEntry);
+  // Compile the HQL file using skipEvaluation=true (to avoid side effects)
+  const compiled = await compileHQL(content, absEntry, true);
   await Deno.writeTextFile(outPath, compiled);
 
-  // Map the absolute HQL file URL to the compiled file URL.
+  // Map the absolute URL of the HQL file to the compiled JS file URL.
   const absEntryUrl = new URL("file://" + absEntry).href;
   const absOutUrl = new URL("file://" + resolve(outPath)).href;
   mappings[absEntryUrl] = absOutUrl;
 
-  // Now search for any static import statements referring to ".hql" files.
-  let match;
+  // Recursively scan for static imports of .hql files.
+  let match: RegExpExecArray | null;
   while ((match = importRegex.exec(content)) !== null) {
     const importPath = match[1];
-    // Resolve the imported file relative to the current file.
     const importedAbs = resolve(dirname(absEntry), importPath);
     const subMap = await buildImportMap(importedAbs, cacheDir, visited);
     Object.assign(mappings, subMap);
   }
+  return mappings;
+}
 
+/**
+ * Scans a JS file for static imports ending in ".hql" and builds an import map.
+ *
+ * @param entryJs - The entry JS file.
+ * @param cacheDir - The cache directory.
+ * @returns A mapping from absolute HQL file URLs to their compiled JS file URLs.
+ */
+export async function buildImportMapForJS(
+  entryJs: string,
+  cacheDir: string
+): Promise<Record<string, string>> {
+  const mappings: Record<string, string> = {};
+  const absEntryJs = resolve(entryJs);
+  const content = await Deno.readTextFile(absEntryJs);
+  const regex = /import\s+.*?from\s+["'](.+?\.hql)["']/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    const hqlPath = match[1];
+    const importedAbs = resolve(dirname(absEntryJs), hqlPath);
+    const subMap = await buildImportMap(importedAbs, cacheDir);
+    Object.assign(mappings, subMap);
+  }
   return mappings;
 }

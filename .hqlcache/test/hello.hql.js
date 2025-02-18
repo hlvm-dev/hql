@@ -15,17 +15,11 @@ export const myset = getExport("myset", _exports);
 
 export const pathModule = getExport("pathModule", _exports);
 
-export async function join(...args) {
-  const fn = getExport("join", _exports);
-  return await fn(...args);
-}
+export const join = getExport("join", _exports);
 
 export const datetime = getExport("datetime", _exports);
 
-export async function format(...args) {
-  const fn = getExport("format", _exports);
-  return await fn(...args);
-}
+export const format = getExport("format", _exports);
 
 export const uuidModule = getExport("uuidModule", _exports);
 
@@ -33,60 +27,29 @@ export const generate = getExport("generate", _exports);
 
 export const arr = getExport("arr", _exports);
 
-export async function add(...args) {
-  const fn = getExport("add", _exports);
-  return await fn(...args);
-}
+export const add = getExport("add", _exports);
 
-export async function inc(...args) {
-  const fn = getExport("inc", _exports);
-  return await fn(...args);
-}
+export const inc = getExport("inc", _exports);
 
-export async function addN(...args) {
-  const fn = getExport("addN", _exports);
-  return await fn(...args);
-}
+export const addN = getExport("addN", _exports);
 
-export async function minus(...args) {
-  const fn = getExport("minus", _exports);
-  return await fn(...args);
-}
+export const minus = getExport("minus", _exports);
 
-export async function pureMultiply(...args) {
-  const fn = getExport("pureMultiply", _exports);
-  return await fn(...args);
-}
+export const pureMultiply = getExport("pureMultiply", _exports);
 
-export async function add2(...args) {
-  const fn = getExport("add2", _exports);
-  return await fn(...args);
-}
+export const add2 = getExport("add2", _exports);
 
-export async function minus2(...args) {
-  const fn = getExport("minus2", _exports);
-  return await fn(...args);
-}
+export const minus2 = getExport("minus2", _exports);
 
-export async function multiply(...args) {
-  const fn = getExport("multiply", _exports);
-  return await fn(...args);
-}
+export const multiply = getExport("multiply", _exports);
 
-export async function multiply2(...args) {
-  const fn = getExport("multiply2", _exports);
-  return await fn(...args);
-}
+export const multiply2 = getExport("multiply2", _exports);
 
-export async function send(...args) {
-  const fn = getExport("send", _exports);
-  return await fn(...args);
-}
+export const Destination = getExport("Destination", _exports);
 
-export async function send2(...args) {
-  const fn = getExport("send2", _exports);
-  return await fn(...args);
-}
+export const send = getExport("send", _exports);
+
+export const send2 = getExport("send2", _exports);
 
 export const name = getExport("name", _exports);
 

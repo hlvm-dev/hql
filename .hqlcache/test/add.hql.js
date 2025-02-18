@@ -5,7 +5,4 @@ const _exports = await runHQLFile("/Users/seoksoonjang/dev/hql/test/add.hql");
 
 export const addModule = getExport("addModule", _exports);
 
-export async function add(...args) {
-  const fn = getExport("add", _exports);
-  return await fn(...args);
-}
+export const add = getExport("add", _exports);
