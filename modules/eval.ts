@@ -11,7 +11,7 @@ import {
   makeBoolean,
   makeSymbol,
   HQLEnumCase,
-  makeList,
+  makeList
 } from "./type.ts";
 import { Env, baseEnv } from "./env.ts";
 import { wrapJsValue } from "./interop.ts";
@@ -213,7 +213,7 @@ function truthy(val: HQLValue): boolean {
   return !!val && val.type !== "nil" && (val.type !== "boolean" || !!val.value);
 }
 
-// ─── FUNCTION APPLICATION HELPERS ───────────────────────────────
+// ─── FUNCTION APPLICATION HELPERS ─────────────────────────────
 
 function isLabel(arg: HQLValue): boolean {
   if (arg.type === "symbol") return arg.name.endsWith(":");
@@ -321,7 +321,7 @@ export function applyFnSync(fnVal: HQLFn, argVals: HQLValue[]): HQLValue {
   return out;
 }
 
-// ─── FUNCTION DEFINITION HELPERS ────────────────────────────────
+// ─── FUNCTION DEFINITION HELPERS ─────────────────────────────
 
 export function parseParamList(paramsAst: HQLValue): { paramNames: string[], typed: boolean } {
   if (!paramsAst || paramsAst.type !== "list") {
@@ -412,7 +412,7 @@ export function makeFunctionLiteralWrapper(parts: HQLValue[], env: Env, isPure: 
   return makeFunctionLiteral(parts, env, isPure);
 }
 
-// ─── DEFINITION FORMS ────────────────────────────────────────────
+// ─── DEFINITION FORMS ───────────────────────────────────────────
 
 export function handleDefn(formName: string, rest: HQLValue[], env: Env): HQLValue {
   if (rest.length < 2) throw new Error("defn expects a name and a function definition");
@@ -420,6 +420,10 @@ export function handleDefn(formName: string, rest: HQLValue[], env: Env): HQLVal
   if (nameSym.type !== "symbol") throw new Error("defn expects a symbol as function name");
   const fnVal = makeFunctionLiteralWrapper(rest.slice(1), env, formName === "defx");
   env.set(nameSym.name, fnVal);
+  // Also export the definition.
+  if (env.exports) {
+    env.exports[nameSym.name] = fnVal;
+  }
   return nameSym;
 }
 
@@ -452,6 +456,9 @@ export function handleDefinitionForm(
       isMacro: true,
     };
     env.set(nameSym.name, macroVal);
+    if (env.exports) {
+      env.exports[nameSym.name] = macroVal;
+    }
     return makeSymbol(nameSym.name);
   }
   const finalize = (v: HQLValue) => {
@@ -459,6 +466,10 @@ export function handleDefinitionForm(
       v.isSync = true;
     }
     env.set(nameSym.name, v);
+    // Also update the exports map.
+    if (env.exports) {
+      env.exports[nameSym.name] = v;
+    }
     return v;
   };
   const maybePromise = evalFn(valExpr, env, realPath);
@@ -468,6 +479,8 @@ export function handleDefinitionForm(
     return finalize(maybePromise);
   }
 }
+
+// ─── MACRO EXPANSION ───────────────────────────────────────────
 
 export async function macroExpand(macro: HQLMacro, rawArgs: HQLValue[], env: Env): Promise<HQLValue> {
   if (rawArgs.length < macro.params.length) {
@@ -482,7 +495,7 @@ export async function macroExpand(macro: HQLMacro, rawArgs: HQLValue[], env: Env
   return out;
 }
 
-// ─── EVALUATION FUNCTIONS ─────────────────────────────────────────
+// ─── EVALUATION FUNCTIONS ──────────────────────────────────────
 
 export async function evaluateAsync(ast: HQLValue, env: Env, realPath?: string): Promise<HQLValue> {
   if (ast.type === "list" && ast.value.length > 0) {
@@ -584,7 +597,7 @@ export function evaluateSync(ast: HQLValue, env: Env): HQLValue {
   return evaluateAtom(ast, env);
 }
 
-// ─── SPECIAL FORMS: defenum and import ───────────────────────────
+// ─── SPECIAL FORMS: defenum and import ─────────────────────────
 
 function handleDefenum(rest: HQLValue[], env: Env): HQLValue {
   if (rest.length < 2) {
@@ -615,7 +628,6 @@ async function handleImportSpecialForm(rest: HQLValue[], env: Env, realPath?: st
   if (rest.length < 1) throw new Error("(import) expects a URL");
   const urlVal = await evaluateAsync(rest[0], env, realPath);
   if (urlVal.type !== "string") throw new Error("import expects a string URL");
-  // Use the caller's path (realPath or fileBase) to compute a proper base URL.
   const callerPath = realPath || (env as any).fileBase;
   const baseUrl = callerPath ? `file://${dirname(callerPath)}/` : `file://${Deno.cwd()}/`;
   return await doImport(urlVal.value, baseUrl);
@@ -629,24 +641,17 @@ const cdnCandidates = [
 
 export async function doImport(url: string, baseUrl?: string): Promise<HQLValue> {
   let modUrl: string;
-
-  // --- Handle npm packages separately ---
   if (url.startsWith("npm:")) {
     return await recurImport(url, cdnCandidates);
   }
-  // --- End npm branch ---
-
-  // Resolve modUrl relative to baseUrl if needed.
   try {
     new URL(url);
     modUrl = url;
   } catch (e) {
     modUrl = new URL(url, baseUrl ? baseUrl : `file://${Deno.cwd()}/`).toString();
   }
-
-  // If the module is a local file URL and ends with ".hql", compile it lazily.
   if (modUrl.startsWith("file://")) {
-    const filePath = modUrl.slice(7); // remove "file://"
+    const filePath = modUrl.slice(7);
     if (filePath.endsWith(".hql")) {
       const cacheDir = join(Deno.cwd(), ".hqlcache");
       const relPath = relative(Deno.cwd(), filePath);
@@ -670,12 +675,10 @@ export async function doImport(url: string, baseUrl?: string): Promise<HQLValue>
       modUrl = new URL(cacheFile, `file://${Deno.cwd()}/`).toString();
     }
   } else {
-    // For remote modules that are not npm packages, append "?bundle" if not already present.
     if (!modUrl.includes("?bundle")) {
       modUrl += "?bundle";
     }
   }
-
   const modObj = await import(modUrl);
   if (modObj.default?.__hql_module) return modObj.default.__hql_module;
   if (modObj.__hql_module) return modObj.__hql_module;
@@ -696,4 +699,13 @@ async function recurImport(npmUrl: string, cdns: string[]): Promise<HQLValue> {
   } catch (e) {
     return await recurImport(npmUrl, cdns.slice(1));
   }
+}
+
+// ─── EXPORTS (helpers) ─────────────────────────────────────────
+
+export function getExport(name: string, targetExports: Record<string, HQLValue>): any {
+  if (!Object.prototype.hasOwnProperty.call(targetExports, name)) {
+    throw new Error(`HQL export '${name}' not found`);
+  }
+  return hqlToJs(targetExports[name]);
 }

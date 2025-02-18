@@ -1,14 +1,14 @@
-// transpiler.ts
+// modules/compiler/transpiler.ts
 import { parse } from "../parser.ts";
 import { Env, baseEnv } from "../env.ts";
 import { evaluateAsync } from "../eval.ts";
 import { HQLValue } from "../type.ts";
-import { join, dirname, extname, basename } from "https://deno.land/std@0.170.0/path/mod.ts";
+import { join, dirname, extname, basename, relative } from "https://deno.land/std@0.170.0/path/mod.ts";
+import { compileHQL } from "./compiler.ts";
 
-// Compute the absolute URL for "hql.ts" so that our generated JS
-// always imports from an absolute path.
-const absoluteHqlRuntime = "file://" + Deno.realPathSync("hql.ts");
-
+/**
+ * Runs an HQL file and returns its exports as a record.
+ */
 export async function runHQLFile(
   path: string,
   targetExports?: Record<string, HQLValue>
@@ -18,14 +18,23 @@ export async function runHQLFile(
   const forms = parse(hql);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
-  // Mark the environment with the real path so that nested imports can resolve relative paths.
+  // Mark the environment with the real path so that nested imports resolve properly.
   (env as any).fileBase = Deno.realPathSync(path);
   for (const f of forms) {
     await evaluateAsync(f, env, Deno.realPathSync(path));
   }
+  // NEW: Copy any binding from env.bindings into exportsMap if not already exported.
+  for (const key in env.bindings) {
+    if (!exportsMap.hasOwnProperty(key)) {
+      exportsMap[key] = env.bindings[key];
+    }
+  }
   return exportsMap;
 }
 
+/**
+ * Transpiles an HQL file into a JS module file.
+ */
 export async function transpile(inputPath: string, outputPath?: string): Promise<void> {
   const exportsMap: Record<string, HQLValue> = {};
   const hql = await Deno.readTextFile(inputPath);
@@ -34,20 +43,18 @@ export async function transpile(inputPath: string, outputPath?: string): Promise
   env.exports = exportsMap;
   (env as any).fileBase = Deno.realPathSync(inputPath);
 
-  // Evaluate forms so that we can gather exports
+  // Evaluate all forms to populate exports.
   for (const form of forms) {
     await evaluateAsync(form, env, Deno.realPathSync(inputPath));
   }
 
-  // If no outputPath specified, default to "<input>.js"
   if (!outputPath) {
     outputPath = inputPath.endsWith(".hql") ? inputPath + ".js" : inputPath + ".js";
   }
 
   const names = Object.keys(exportsMap);
 
-  // Generate code that uses the absolute import of "hql.ts"
-  let code = `import { runHQLFile, getExport } from "${absoluteHqlRuntime}";\n\n`;
+  let code = `import { runHQLFile, getExport } from "file://${Deno.realPathSync("hql.ts")}";\n\n`;
   code += `const _exports = await runHQLFile("${inputPath}");\n\n`;
 
   for (const name of names) {
@@ -81,7 +88,6 @@ export async function ${name}(...args) {
         }
       }
     } else {
-      // Exporting a non-function
       code += `
 export const ${name} = getExport("${name}", _exports);
 `;
@@ -90,8 +96,5 @@ export const ${name} = getExport("${name}", _exports);
 
   await Deno.mkdir(dirname(outputPath), { recursive: true });
   await Deno.writeTextFile(outputPath, code);
-
-  console.log(
-    `Transpiled ${inputPath} -> ${outputPath}. Exports: ${names.join(", ")}`
-  );
+  console.log(`Transpiled ${inputPath} -> ${outputPath}. Exports: ${names.join(", ")}`);
 }

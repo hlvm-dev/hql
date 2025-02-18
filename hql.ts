@@ -28,10 +28,12 @@ async function main() {
     if (file.endsWith(".hql")) {
       const absoluteInput = resolve(file);
       const source = await Deno.readTextFile(absoluteInput);
-      // Use skipEvaluation=true so that evaluation is deferred to runtime.
+
+      // Use skipEvaluation=true so that definition initializers (which may have side effects)
+      // are not executed during compilation. At runtime, runHQLFile will fully evaluate the file.
       const compiled = await compileHQL(source, absoluteInput, true);
-      // Determine output folder:
-      // If the input file is under "./test/", place output into "./test/transpiled"
+
+      // Determine the output folder.
       let outputFolder: string;
       if (absoluteInput.includes("/test/")) {
         outputFolder = join(dirname(absoluteInput), "transpiled");
@@ -52,18 +54,19 @@ async function main() {
       "--allow-write",
       "--allow-net",
       "--allow-env",
+      "--allow-run",
       entryFile,
     ];
     const proc = Deno.run({ cmd: cmdRun });
     const status = await proc.status();
     Deno.exit(status.code);
+
   } else if (command === "transpile") {
     const inputFile = file;
     const absoluteInput = resolve(inputFile);
     let outputFile = "";
     if (args.length >= 3) {
       outputFile = args[2];
-      // If outputFile is not absolute, resolve it relative to the current working directory.
       if (!isAbsolute(outputFile)) {
         outputFile = resolve(join(Deno.cwd(), outputFile));
       }
@@ -72,7 +75,7 @@ async function main() {
       outputFile = join(dirname(absoluteInput), `${base}.hql.js`);
     }
     const source = await Deno.readTextFile(absoluteInput);
-    // For transpile, we want to evaluate the forms (if needed); set skipEvaluation=false.
+    // In transpile mode, we perform full evaluation.
     const compiled = await compileHQL(source, absoluteInput, false);
     await Deno.mkdir(dirname(outputFile), { recursive: true });
     await Deno.writeTextFile(outputFile, compiled);
@@ -90,5 +93,5 @@ if (import.meta.main) {
   main();
 }
 
-export { runHQLFile }
+export { runHQLFile };
 export { getExport } from "./modules/exports.ts";
