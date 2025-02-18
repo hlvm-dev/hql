@@ -1,5 +1,5 @@
-// modules/lazy_import_map.ts
-import { compileHQL } from "../modules/compiler/compiler.ts";
+// modules/import_map.ts
+import { compileHQL } from "./compiler/compiler.ts";
 import { dirname, join, resolve } from "https://deno.land/std@0.170.0/path/mod.ts";
 
 /**

@@ -9,7 +9,7 @@ import {
   isAbsolute,
   resolve,
 } from "https://deno.land/std@0.170.0/path/mod.ts";
-import { buildImportMap, buildImportMapForJS } from "./modules/lazy_import_map.ts";
+import { buildImportMap, buildImportMapForJS } from "./modules/import_map.ts";
 
 async function main() {
   const args = Deno.args;
