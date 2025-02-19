@@ -1,12 +1,26 @@
-// modules/import_map.ts
+// modules/importMap.ts
 import { compileHQL } from "./compiler/compiler.ts";
 import { dirname, join, resolve } from "https://deno.land/std@0.170.0/path/mod.ts";
 
-/**
- * A regex to match static import statements for HQL files.
- * (This example only handles double-quoted import paths.)
- */
 const importRegex = /import\s+.*?from\s+["'](.+?\.hql)["']/g;
+
+async function collectHqlImports(
+  content: string,
+  baseFile: string,
+  cacheDir: string,
+  visited: Set<string>
+): Promise<Record<string, string>> {
+  const mappings: Record<string, string> = {};
+  let match: RegExpExecArray | null;
+  const regex = new RegExp(importRegex);
+  while ((match = regex.exec(content)) !== null) {
+    const importPath = match[1];
+    const importedAbs = resolve(dirname(baseFile), importPath);
+    const subMap = await buildImportMap(importedAbs, cacheDir, visited);
+    Object.assign(mappings, subMap);
+  }
+  return mappings;
+}
 
 /**
  * Recursively builds an import map for HQL modules starting from entryFile.
@@ -23,38 +37,34 @@ export async function buildImportMap(
   visited = new Set<string>()
 ): Promise<Record<string, string>> {
   const mappings: Record<string, string> = {};
-  const absEntry = resolve(entryFile);
-  
-  // Only process if the file ends with ".hql"
-  if (!absEntry.endsWith(".hql")) return mappings;
-  if (visited.has(absEntry)) return mappings;
-  visited.add(absEntry);
+  const absoluteFilePath = resolve(entryFile);
 
-  const content = await Deno.readTextFile(absEntry);
+  // Only process if the file ends with ".hql"
+  if (!absoluteFilePath.endsWith(".hql")) return mappings;
+  if (visited.has(absoluteFilePath)) return mappings;
+  visited.add(absoluteFilePath);
+
+  const content = await Deno.readTextFile(absoluteFilePath);
 
   // Determine output path in cache (preserving relative path)
-  const relPath = absEntry.substring(Deno.cwd().length);
+  const relPath = absoluteFilePath.substring(Deno.cwd().length);
   const outPath = join(cacheDir, relPath) + ".js";
 
   await Deno.mkdir(dirname(outPath), { recursive: true });
 
   // Compile the HQL file using skipEvaluation=true (to avoid side effects)
-  const compiled = await compileHQL(content, absEntry, true);
+  const compiled = await compileHQL(content, absoluteFilePath, true);
   await Deno.writeTextFile(outPath, compiled);
 
   // Map the absolute URL of the HQL file to the compiled JS file URL.
-  const absEntryUrl = new URL("file://" + absEntry).href;
+  const absEntryUrl = new URL("file://" + absoluteFilePath).href;
   const absOutUrl = new URL("file://" + resolve(outPath)).href;
   mappings[absEntryUrl] = absOutUrl;
 
-  // Recursively scan for static imports of .hql files.
-  let match: RegExpExecArray | null;
-  while ((match = importRegex.exec(content)) !== null) {
-    const importPath = match[1];
-    const importedAbs = resolve(dirname(absEntry), importPath);
-    const subMap = await buildImportMap(importedAbs, cacheDir, visited);
-    Object.assign(mappings, subMap);
-  }
+  // Process nested imports using the helper function.
+  const subMappings = await collectHqlImports(content, absoluteFilePath, cacheDir, visited);
+  Object.assign(mappings, subMappings);
+
   return mappings;
 }
 
@@ -72,13 +82,10 @@ export async function buildImportMapForJS(
   const mappings: Record<string, string> = {};
   const absEntryJs = resolve(entryJs);
   const content = await Deno.readTextFile(absEntryJs);
-  const regex = /import\s+.*?from\s+["'](.+?\.hql)["']/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    const hqlPath = match[1];
-    const importedAbs = resolve(dirname(absEntryJs), hqlPath);
-    const subMap = await buildImportMap(importedAbs, cacheDir);
-    Object.assign(mappings, subMap);
-  }
+
+  // Use a separate visited set for JS files
+  const subMappings = await collectHqlImports(content, absEntryJs, cacheDir, new Set());
+  Object.assign(mappings, subMappings);
+
   return mappings;
 }

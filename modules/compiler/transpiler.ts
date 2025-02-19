@@ -3,8 +3,7 @@ import { parse } from "../parser.ts";
 import { Env, baseEnv } from "../env.ts";
 import { evaluateAsync } from "../eval.ts";
 import { HQLValue } from "../type.ts";
-import { join, dirname, extname, basename, relative } from "https://deno.land/std@0.170.0/path/mod.ts";
-import { compileHQL } from "./compiler.ts";
+import { dirname } from "https://deno.land/std@0.170.0/path/mod.ts";
 
 /**
  * Runs an HQL file and returns its exports as a record.
