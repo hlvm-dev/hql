@@ -554,9 +554,7 @@ export async function doImport(url: string, baseUrl?: string): Promise<HQLValue>
       modUrl = new URL(cacheFile, `file://${Deno.cwd()}/`).toString();
     }
   } else {
-    if (!modUrl.includes("?bundle") && !modUrl.includes("unpkg.com")) {
-      modUrl += "?bundle";
-    }    
+    if (!modUrl.includes("?bundle")) modUrl += "?bundle";
   }
   const modObj = await import(modUrl);
   if (modObj.default?.__hql_module) return modObj.default.__hql_module;

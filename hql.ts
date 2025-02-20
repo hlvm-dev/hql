@@ -1,18 +1,8 @@
-// hql.ts
 import { Env } from "./modules/env.ts";
 import { repl } from "./modules/repl.ts";
 import { compileHQL } from "./modules/compiler/compiler.ts";
 import { buildImportMap, buildImportMapForJS } from "./modules/importMap.ts";
-import {
-  join,
-  dirname,
-  basename,
-  extname,
-  isAbsolute,
-  resolve,
-} from "https://deno.land/std@0.170.0/path/mod.ts";
-import { publishNpm } from "./modules/publish_npm.ts";
-import { parse } from "https://deno.land/std@0.170.0/flags/mod.ts";
+import { join, dirname, basename, extname, isAbsolute, resolve } from "https://deno.land/std@0.170.0/path/mod.ts";
 
 async function startRepl() {
   const env = new Env();
@@ -79,6 +69,12 @@ async function start(args: string[]) {
   }
 }
 
+async function execute(cmd: string[]) {
+  const proc = Deno.run({ cmd });
+  const status = await proc.status();
+  Deno.exit(status.code);
+}
+
 async function transpile(args: string[]) {
   if (args.length < 2) {
     console.log("Usage:");
@@ -105,93 +101,30 @@ async function transpile(args: string[]) {
   console.log(`Transpiled ${absoluteInput} -> ${outputFile}`);
 }
 
-async function execute(cmd: string[]) {
-  const proc = Deno.run({ cmd });
-  const status = await proc.status();
-  proc.close();
-  Deno.exit(status.code);
-}
-
 async function main() {
-  const parsed = parse(Deno.args);
-  const command = parsed._[0];
-
+  const args = Deno.args;
+  if (args.length === 0) {
+    await startRepl();
+    return;
+  }
+  const command = args[0];
   switch (command) {
     case "repl":
       await startRepl();
       break;
     case "run":
-      await start(Deno.args);
+      await start(args);
       break;
     case "transpile":
-      await transpile(Deno.args);
+      await transpile(args);
       break;
-    case "publish": {
-      // Minimal usage: "hql publish <outputDir> [packageName] [version]"
-      let what: string;
-      let pkgName: string | undefined;
-      let version: string | undefined;
-
-      if (parsed.what) {
-        what = String(parsed.what);
-      } else if (parsed._.length >= 2) {
-        what = String(parsed._[1]);
-      } else {
-        console.log("Usage: hql publish <outputDir> [packageName] [version]");
-        Deno.exit(1);
-      }
-
-      if (parsed.name) {
-        pkgName = String(parsed.name);
-      } else if (parsed._.length >= 3) {
-        pkgName = String(parsed._[2]);
-      }
-      // If not provided, default to @NPM_USERNAME/basename(of what) if available.
-      if (!pkgName) {
-        const npmUser = await getNpmUsername();
-        const dirName = what.split("/").pop() || "hql-package";
-        pkgName = npmUser ? `@${npmUser}/${dirName}` : dirName;
-      }
-
-      if (parsed.version) {
-        version = String(parsed.version);
-      } else if (parsed._.length >= 4) {
-        version = String(parsed._[3]);
-      } else {
-        version = undefined; // Auto-generated from VERSION file in outDir.
-      }
-
-      await publishNpm({ what, name: pkgName, version });
-      break;
-    }
     default:
       console.log("Unknown command.");
       console.log("Usage:");
       console.log("  hql repl");
       console.log("  hql run <file>");
       console.log("  hql transpile <inputFile> [outputFile]");
-      console.log("  Minimal publish: deno run -A hql.ts publish <outputDir> [packageName] [version]");
-      console.log("  Named flags: deno run -A hql.ts publish --what <outputDir> [--name <packageName>] [--version <version>]");
       Deno.exit(1);
-  }
-}
-
-async function getNpmUsername(): Promise<string | undefined> {
-  let npmUser = Deno.env.get("NPM_USERNAME");
-  if (npmUser) return npmUser.trim();
-  try {
-    const proc = Deno.run({
-      cmd: ["npm", "whoami"],
-      stdout: "piped",
-      stderr: "null",
-    });
-    const output = await proc.output();
-    proc.close();
-    npmUser = new TextDecoder().decode(output).trim();
-    return npmUser || undefined;
-  } catch (e) {
-    console.error("Failed to auto-detect npm username:", e);
-    return undefined;
   }
 }
 

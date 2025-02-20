@@ -8,7 +8,6 @@
     "interop-hql-import-js": "deno run --allow-read --allow-write --allow-net --allow-env --allow-run hql.ts run ./test/interop/app.js",
     "interop-hql-run": "deno run --allow-read --allow-write --allow-net --allow-env --allow-run hql.ts run ./test/interop/app.hql",
     "complex-interop-test": "deno run --allow-read --allow-write --allow-net --allow-env --allow-run hql.ts run ./test/interop/complex.js",
-    "test": "deno task clean && deno task unit-test && deno task deno-run-test && deno task hql-run-test && deno task transpile-test && deno task interop-hql-import-js && deno task interop-hql-run && deno task complex-interop-test",
-    "publish-test": "deno test --allow-read --allow-write --allow-net --allow-env --allow-run test/publish_test.ts",
+    "test": "deno task clean && deno task unit-test && deno task deno-run-test && deno task hql-run-test && deno task transpile-test && deno task interop-hql-import-js && deno task interop-hql-run && deno task complex-interop-test"
   }
 }
