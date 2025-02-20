@@ -1,7 +1,8 @@
 {
   "name": "@boraseoksoon/npm_dist",
-  "version": "1.0.1",
+  "version": "1.0.9",
   "main": "add.hql.js",
+  "module": "add.hql.js",
   "license": "MIT",
   "description": "HQL module published to npm"
 }

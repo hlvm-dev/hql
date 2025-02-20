@@ -1,16 +1,8 @@
-// hql.ts
 import { Env } from "./modules/env.ts";
 import { repl } from "./modules/repl.ts";
-import { compileHQL } from "./modules/compiler/compiler.ts";
+import { compileHQL } from "./modules/compiler/transpiler.ts";
 import { buildImportMap, buildImportMapForJS } from "./modules/importMap.ts";
-import {
-  join,
-  dirname,
-  basename,
-  extname,
-  isAbsolute,
-  resolve,
-} from "https://deno.land/std@0.170.0/path/mod.ts";
+import { join, dirname, basename, extname, isAbsolute, resolve } from "https://deno.land/std@0.170.0/path/mod.ts";
 import { publishNpm } from "./modules/publish_npm.ts";
 import { parse } from "https://deno.land/std@0.170.0/flags/mod.ts";
 
@@ -21,8 +13,7 @@ async function startRepl() {
 
 async function start(args: string[]) {
   if (args.length < 2) {
-    console.log("Usage:");
-    console.log("  hql run <file>");
+    console.log("Usage: hql run <file>");
     Deno.exit(1);
   }
   const file = args[1];
@@ -30,7 +21,6 @@ async function start(args: string[]) {
   const cacheDir = join(projectRoot, ".hqlcache");
   const importMap: Record<string, any> = { imports: {} };
   let entryFile = file;
-
   if (file.endsWith(".hql")) {
     const absoluteInput = resolve(file);
     const source = await Deno.readTextFile(absoluteInput);
@@ -48,7 +38,6 @@ async function start(args: string[]) {
     entryFile = resolve(file);
     importMap.imports = await buildImportMapForJS(entryFile, cacheDir);
   }
-
   if (Object.keys(importMap.imports).length > 0) {
     const importMapPath = join(projectRoot, "hql_import_map.json");
     await Deno.writeTextFile(importMapPath, JSON.stringify(importMap, null, 2));
@@ -81,8 +70,7 @@ async function start(args: string[]) {
 
 async function transpile(args: string[]) {
   if (args.length < 2) {
-    console.log("Usage:");
-    console.log("  hql transpile <inputFile> [outputFile]");
+    console.log("Usage: hql transpile <inputFile> [outputFile]");
     Deno.exit(1);
   }
   const inputFile = args[1];
@@ -115,7 +103,6 @@ async function execute(cmd: string[]) {
 async function main() {
   const parsed = parse(Deno.args);
   const command = parsed._[0];
-
   switch (command) {
     case "repl":
       await startRepl();
@@ -127,11 +114,9 @@ async function main() {
       await transpile(Deno.args);
       break;
     case "publish": {
-      // Minimal usage: "hql publish <outputDir> [packageName] [version]"
       let what: string;
       let pkgName: string | undefined;
       let version: string | undefined;
-
       if (parsed.what) {
         what = String(parsed.what);
       } else if (parsed._.length >= 2) {
@@ -140,27 +125,23 @@ async function main() {
         console.log("Usage: hql publish <outputDir> [packageName] [version]");
         Deno.exit(1);
       }
-
       if (parsed.name) {
         pkgName = String(parsed.name);
       } else if (parsed._.length >= 3) {
         pkgName = String(parsed._[2]);
       }
-      // If not provided, default to @NPM_USERNAME/basename(of what) if available.
       if (!pkgName) {
         const npmUser = await getNpmUsername();
         const dirName = what.split("/").pop() || "hql-package";
         pkgName = npmUser ? `@${npmUser}/${dirName}` : dirName;
       }
-
       if (parsed.version) {
         version = String(parsed.version);
       } else if (parsed._.length >= 4) {
         version = String(parsed._[3]);
       } else {
-        version = undefined; // Auto-generated from VERSION file in outDir.
+        version = undefined;
       }
-
       await publishNpm({ what, name: pkgName, version });
       break;
     }

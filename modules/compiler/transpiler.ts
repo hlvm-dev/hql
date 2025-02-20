@@ -1,12 +1,14 @@
-// modules/compiler/transpiler.ts
 import { parse } from "../parser.ts";
 import { Env, baseEnv } from "../env.ts";
 import { evaluateAsync } from "../eval.ts";
-import { HQLValue } from "../type.ts";
+import { HQLValue, makeNil } from "../type.ts";
 import { dirname } from "https://deno.land/std@0.170.0/path/mod.ts";
 
+// Use a relative import for the runtime.
+const runtimeImportPath = "./hql_runtime.js";
+
 /**
- * Runs an HQL file and returns its exports as a record.
+ * Legacy function to run an HQL file and return its exports.
  */
 export async function runHQLFile(
   path: string,
@@ -17,12 +19,11 @@ export async function runHQLFile(
   const forms = parse(hql);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
-  // Mark the environment with the real path so that nested imports resolve properly.
-  (env as any).fileBase = Deno.realPathSync(path);
+  // Use the provided path as fileBase.
+  (env as any).fileBase = path;
   for (const f of forms) {
-    await evaluateAsync(f, env, Deno.realPathSync(path));
+    await evaluateAsync(f, env, path);
   }
-  // NEW: Copy any binding from env.bindings into exportsMap if not already exported.
   for (const key in env.bindings) {
     if (!exportsMap.hasOwnProperty(key)) {
       exportsMap[key] = env.bindings[key];
@@ -32,33 +33,64 @@ export async function runHQLFile(
 }
 
 /**
- * Transpiles an HQL file into a JS module file.
+ * Compiles HQL source into a self-contained JS module string.
+ * It embeds the source and calls runHQLFromSource from our runtime (via a relative import).
  */
-export async function transpile(inputPath: string, outputPath?: string): Promise<void> {
+export async function compileHQL(
+  source: string,
+  inputPath: string,
+  skipEvaluation: boolean = false
+): Promise<string> {
   const exportsMap: Record<string, HQLValue> = {};
-  const hql = await Deno.readTextFile(inputPath);
-  const forms = parse(hql);
+  const forms = parse(source);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
-  (env as any).fileBase = Deno.realPathSync(inputPath);
-
-  // Evaluate all forms to populate exports.
-  for (const form of forms) {
-    await evaluateAsync(form, env, Deno.realPathSync(inputPath));
+  const fileIdentifier = inputPath;
+  
+  if (!skipEvaluation) {
+    for (const form of forms) {
+      await evaluateAsync(form, env, fileIdentifier);
+    }
+  } else {
+    for (const form of forms) {
+      if (form.type === "list" && form.value.length > 0) {
+        const head = form.value[0];
+        if (head.type === "symbol") {
+          let exportName: string | undefined;
+          if (
+            head.name === "def" ||
+            head.name === "defsync" ||
+            head.name === "defmacro" ||
+            head.name === "defn" ||
+            head.name === "defx" ||
+            head.name === "defenum"
+          ) {
+            const nameSym = form.value[1];
+            if (nameSym && nameSym.type === "symbol") {
+              exportName = nameSym.name;
+            }
+          } else if (head.name === "export") {
+            const exportNameAst = form.value[1];
+            if (exportNameAst && exportNameAst.type === "string") {
+              exportName = exportNameAst.value;
+            }
+          }
+          if (exportName) {
+            exportsMap[exportName] = makeNil();
+          }
+        }
+      }
+    }
   }
-
-  if (!outputPath) {
-    outputPath = inputPath.endsWith(".hql") ? inputPath + ".js" : inputPath + ".js";
-  }
-
+  
   const names = Object.keys(exportsMap);
-
-  let code = `import { runHQLFile, getExport } from "file://${Deno.realPathSync("hql.ts")}";\n\n`;
-  code += `const _exports = await runHQLFile("${inputPath}");\n\n`;
-
+  let code = `import { runHQLFromSource, getExport } from "${runtimeImportPath}";\n\n`;
+  code += `const source = ${JSON.stringify(source)};\n`;
+  code += `const _exports = await runHQLFromSource(source);\n\n`;
+  
   for (const name of names) {
     const val = exportsMap[name];
-    const isFn = val?.type === "function";
+    const isFn = val && val.type === "function";
     if (isFn) {
       const typed = (val as any).typed;
       const isSync = (val as any).isSync;
@@ -67,33 +99,26 @@ export async function transpile(inputPath: string, outputPath?: string): Promise
 export async function ${name}(...args) {
   const fn = getExport("${name}", _exports);
   return await fn(...args);
-}
-`;
+}\n`;
       } else {
         if (isSync) {
           code += `
 export function ${name}(...args) {
   const fn = getExport("${name}", _exports);
   return fn(...args);
-}
-`;
+}\n`;
         } else {
           code += `
 export async function ${name}(...args) {
   const fn = getExport("${name}", _exports);
   return await fn(...args);
-}
-`;
+}\n`;
         }
       }
     } else {
       code += `
-export const ${name} = getExport("${name}", _exports);
-`;
+export const ${name} = getExport("${name}", _exports);\n`;
     }
   }
-
-  await Deno.mkdir(dirname(outputPath), { recursive: true });
-  await Deno.writeTextFile(outputPath, code);
-  console.log(`Transpiled ${inputPath} -> ${outputPath}. Exports: ${names.join(", ")}`);
+  return code;
 }

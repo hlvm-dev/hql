@@ -1,15 +1,11 @@
-// modules/publish_npm.ts
-import { join, resolve } from "https://deno.land/std@0.170.0/path/mod.ts";
-import { exists } from "https://deno.land/std@0.170.0/fs/mod.ts";
+import { join, resolve, basename, extname } from "https://deno.land/std@0.170.0/path/mod.ts";
+import { exists, copy } from "https://deno.land/std@0.170.0/fs/mod.ts";
+import { compileHQL } from "./compiler/transpiler.ts";
 
 /**
- * Reads (or creates/bumps) a VERSION file inside outDir.
- * If a version is provided, that value is used.
+ * Reads or creates a VERSION file and bumps its version.
  */
-export async function getNextVersionInDir(
-  outDir: string,
-  provided?: string,
-): Promise<string> {
+export async function getNextVersionInDir(outDir: string, provided?: string): Promise<string> {
   if (provided) return provided;
   const versionFile = join(outDir, "VERSION");
   if (!(await exists(versionFile))) {
@@ -31,14 +27,7 @@ export async function getNextVersionInDir(
 }
 
 /**
- * (Optional) You could extend the version bump strategy here.
- * For now, the code simply bumps the patch.
- */
-
-/**
  * Auto-detects the npm username.
- * First, checks the NPM_USERNAME environment variable.
- * If not set, attempts to run "npm whoami".
  */
 export async function getNpmUsername(): Promise<string | undefined> {
   let npmUser = Deno.env.get("NPM_USERNAME");
@@ -60,36 +49,15 @@ export async function getNpmUsername(): Promise<string | undefined> {
 }
 
 /**
- * Publishes your HQL module to npm.
- *
- * Options:
- *   - what: The output directory (package root) where your .hql file resides.
- *   - name: (Optional) The desired package name.
- *           • If provided as a simple name (e.g. "add") and if NPM_USERNAME is set,
- *             it becomes "@<NPM_USERNAME>/add".
- *           • If it starts with "@", it’s used as-is.
- *           • If not provided, it defaults to "@<NPM_USERNAME>/<basename(outDir)>"
- *             if NPM_USERNAME is available, or just the directory's basename.
- *   - version: (Optional) The version string; if omitted, a VERSION file in outDir is used and bumped.
- *
- * If the environment variable DRY_RUN_PUBLISH is set, then npm publish is run in dry-run mode.
- *
- * The tool:
- *   1. Locates a single .hql file in outDir.
- *   2. Compiles it using compileHQL.
- *   3. Writes the compiled JavaScript (as <filename>.hql.js) in outDir.
- *   4. Creates a minimal package.json and README.md in outDir.
- *   5. Publishes the package to npm (with --access public or --dry-run if requested).
- *   6. Prints the final npm URL.
+ * Publishes the HQL module to npm.
+ * It transpiles the HQL file, bundles it using deno bundle,
+ * copies the runtime file to the output directory,
+ * creates package.json and README.md, and publishes via npm.
  */
-export async function publishNpm(options: {
-  what: string;
-  name?: string;
-  version?: string;
-}) {
+export async function publishNpm(options: { what: string; name?: string; version?: string; }): Promise<void> {
   const outDir = resolve(options.what);
   await Deno.mkdir(outDir, { recursive: true });
-
+  
   // Determine package name.
   let pkgName: string;
   if (options.name) {
@@ -105,13 +73,10 @@ export async function publishNpm(options: {
     pkgName = npmUser ? `@${npmUser}/${dirName}` : dirName;
   }
   console.log(`Using package name: ${pkgName}`);
-
-  // Determine version.
-  let version = await getNextVersionInDir(outDir, options.version);
-
-  // (Optional) Here you could add more sophisticated version bumping logic.
-
-  // Locate a .hql file in outDir.
+  
+  const version = await getNextVersionInDir(outDir, options.version);
+  
+  // Find a .hql file in the output directory.
   let hqlFile: string | null = null;
   for await (const entry of Deno.readDir(outDir)) {
     if (entry.isFile && entry.name.endsWith(".hql")) {
@@ -123,56 +88,72 @@ export async function publishNpm(options: {
     console.error(`No .hql file found in ${outDir}. Please place your HQL source (e.g., add.hql) there.`);
     Deno.exit(1);
   }
-
-  // Compile the HQL file.
-  const { compileHQL } = await import("./compiler/compiler.ts");
+  
+  // Transpile the HQL source to an intermediate JS file.
   const source = await Deno.readTextFile(hqlFile);
-  const compiledJS = await compileHQL(source, hqlFile, false);
-  const outJS = hqlFile + ".js";
-  await Deno.writeTextFile(outJS, compiledJS);
-  console.log(`Compiled ${hqlFile} -> ${outJS}`);
-
-  // Create a minimal package.json.
+  const jsCode = await compileHQL(source, hqlFile, false);
+  const intermediateJS = join(outDir, basename(hqlFile, extname(hqlFile)) + ".temp.js");
+  await Deno.writeTextFile(intermediateJS, jsCode);
+  console.log(`Transpiled ${hqlFile} -> ${intermediateJS}`);
+  
+  // Copy the runtime file from modules/ to outDir so the bundler can find it.
+  const runtimeSrc = resolve("modules/hql_runtime.js");
+  const runtimeDst = join(outDir, "hql_runtime.js");
+  await copy(runtimeSrc, runtimeDst, { overwrite: true });
+  console.log(`Copied runtime to ${runtimeDst}`);
+  
+  // Bundle the intermediate file into a self-contained bundle.
+  const bundleJS = join(outDir, basename(hqlFile, extname(hqlFile)) + ".bundle.js");
+  const bundleProc = Deno.run({
+    cmd: [
+      Deno.execPath(),
+      "bundle",
+      intermediateJS,
+      bundleJS
+    ],
+    stdout: "inherit",
+    stderr: "inherit"
+  });
+  const bundleStatus = await bundleProc.status();
+  bundleProc.close();
+  if (!bundleStatus.success) {
+    console.error("Failed to bundle the transpiled output.");
+    Deno.exit(bundleStatus.code);
+  }
+  console.log(`Bundled output written to ${bundleJS}`);
+  
+  // Create package.json
   const pkg = {
     name: pkgName,
     version,
-    main: (hqlFile.split("/").pop() || "module.hql") + ".js",
+    main: basename(bundleJS),
+    module: basename(bundleJS),
     license: "MIT",
     description: "HQL module published to npm",
   };
   const pkgPath = join(outDir, "package.json");
   await Deno.writeTextFile(pkgPath, JSON.stringify(pkg, null, 2));
   console.log(`Created package.json at ${pkgPath}`);
-
-  // Create a minimal README.md if missing.
+  
+  // Create README.md if missing.
   const readmePath = join(outDir, "README.md");
   if (!(await exists(readmePath))) {
-    await Deno.writeTextFile(
-      readmePath,
-      `# ${pkgName}\n\nAutogenerated README. Please update this with details.`,
-    );
+    await Deno.writeTextFile(readmePath, `# ${pkgName}\n\nAutogenerated README. Please update this with details.`);
     console.log(`Generated README.md at ${readmePath}`);
   }
-
-  // Determine if dry-run mode is enabled.
-  const dryRun = Deno.env.get("DRY_RUN_PUBLISH");
-
-  // Publish to npm.
-  const publishCmd = dryRun
-    ? ["npm", "publish", "--dry-run", "--access", "public"]
-    : ["npm", "publish", "--access", "public"];
+  
   console.log(`Publishing package "${pkgName}" to npm from ${outDir}...`);
-  const proc = Deno.run({
-    cmd: publishCmd,
+  const publishProc = Deno.run({
+    cmd: ["npm", "publish", "--access", "public"],
     cwd: outDir,
     stdout: "inherit",
-    stderr: "inherit",
+    stderr: "inherit"
   });
-  const status = await proc.status();
-  proc.close();
-  if (!status.success) {
+  const publishStatus = await publishProc.status();
+  publishProc.close();
+  if (!publishStatus.success) {
     console.error("npm publish failed. Ensure you're logged in and have permission to publish the package:", pkgName);
-    Deno.exit(status.code);
+    Deno.exit(publishStatus.code);
   }
   console.log("Package published successfully!");
   console.log(`Published URL: https://www.npmjs.com/package/${pkgName}`);
