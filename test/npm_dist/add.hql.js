@@ -1,7 +1,6 @@
-import { runHQLFromSource, getExport } from "./hql_runtime.js";
+import { runHQLFile, getExport } from "file:///Users/seoksoonjang/dev/hql/hql.ts";
 
-const source = "; add.hql\n(defn add [a b]\n  (+ a b))\n\n(export \"add\" add)\n";
-const _exports = await runHQLFromSource(source);
+const _exports = await runHQLFile("/Users/seoksoonjang/dev/hql/test/npm_dist/add.hql");
 
 
 export async function add(...args) {
