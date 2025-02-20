@@ -1,6 +1,6 @@
 // test/hql_test.ts
 
-import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.170.0/testing/asserts.ts";
+import { assertEquals, assertRejects } from "https://deno.land/std@0.170.0/testing/asserts.ts";
 import { runHQLFile, getExport } from "../hql.ts";
 
 // ---------- Enum and Fully Qualified Enum Case ----------
