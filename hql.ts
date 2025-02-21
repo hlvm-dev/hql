@@ -3,8 +3,6 @@ import { repl } from "./modules/repl.ts";
 import { compileHQL } from "./modules/compiler/compiler.ts";
 import { buildImportMap, buildImportMapForJS } from "./modules/importMap.ts";
 import { join, dirname, basename, extname, isAbsolute, resolve } from "https://deno.land/std@0.170.0/path/mod.ts";
-import { parse } from "https://deno.land/std@0.170.0/flags/mod.ts";
-import { publishJSR } from "./modules/publish_jsr.ts";
 
 async function startRepl() {
   const env = new Env();
@@ -13,7 +11,8 @@ async function startRepl() {
 
 async function start(args: string[]) {
   if (args.length < 2) {
-    console.log("Usage: hql run <file>");
+    console.log("Usage:");
+    console.log("  hql run <file>");
     Deno.exit(1);
   }
   const file = args[1];
@@ -70,9 +69,16 @@ async function start(args: string[]) {
   }
 }
 
+async function execute(cmd: string[]) {
+  const proc = Deno.run({ cmd });
+  const status = await proc.status();
+  Deno.exit(status.code);
+}
+
 async function transpile(args: string[]) {
   if (args.length < 2) {
-    console.log("Usage: hql transpile <inputFile> [outputFile]");
+    console.log("Usage:");
+    console.log("  hql transpile <inputFile> [outputFile]");
     Deno.exit(1);
   }
   const inputFile = args[1];
@@ -95,57 +101,29 @@ async function transpile(args: string[]) {
   console.log(`Transpiled ${absoluteInput} -> ${outputFile}`);
 }
 
-async function execute(cmd: string[]) {
-  const proc = Deno.run({ cmd });
-  const status = await proc.status();
-  proc.close();
-  Deno.exit(status.code);
-}
-
 async function main() {
-  const parsed = parse(Deno.args);
-  const command = parsed._[0];
-
+  const args = Deno.args;
+  if (args.length === 0) {
+    await startRepl();
+    return;
+  }
+  const command = args[0];
   switch (command) {
     case "repl":
       await startRepl();
       break;
     case "run":
-      await start(Deno.args);
+      await start(args);
       break;
     case "transpile":
-      await transpile(Deno.args);
+      await transpile(args);
       break;
-    case "publish": {
-      const outDir = String(parsed._[1] || ".");
-      const pkgNameArg = parsed.name || parsed._[2];
-      const pkgVersion = parsed.version || parsed._[3];
-
-      let finalName: string;
-      if (pkgNameArg) {
-        finalName = String(pkgNameArg);
-      } else {
-        finalName = `@boraseoksoon/${basename(outDir)}`;
-      }
-
-      console.log(`Publishing JSR package with:
-  Directory: ${outDir}
-  Name: ${finalName}
-  Version: ${pkgVersion ?? "(auto-incremented)"}`);
-      await publishJSR({
-        what: outDir,
-        name: finalName,
-        version: pkgVersion,
-      });
-      break;
-    }
     default:
       console.log("Unknown command.");
       console.log("Usage:");
       console.log("  hql repl");
       console.log("  hql run <file>");
       console.log("  hql transpile <inputFile> [outputFile]");
-      console.log("  hql publish <outputDir> [moduleName] [version]");
       Deno.exit(1);
   }
 }
