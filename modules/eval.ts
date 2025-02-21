@@ -15,7 +15,7 @@ import {
 } from "./type.ts";
 import { Env, baseEnv } from "./env.ts";
 import { wrapJsValue } from "./interop.ts";
-import { compileHQL } from "./compiler/compiler.ts";
+import { compileHQL } from "./compiler.ts";
 import {
   cwd,
   stat,

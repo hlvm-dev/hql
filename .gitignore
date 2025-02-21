@@ -8,3 +8,4 @@ temp_sync.hql
 temp_vector.hql
 .lsp/.cache/db.transit.json
 temp_enum.hql
+.hqlcache

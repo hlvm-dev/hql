@@ -1,6 +1,6 @@
 import { Env } from "./modules/env.ts";
 import { repl } from "./modules/repl.ts";
-import { compileHQL } from "./modules/compiler/compiler.ts";
+import { compileHQL } from "./modules/compiler.ts";
 import { buildImportMap, buildImportMapForJS } from "./modules/importMap.ts";
 import {
   join,
@@ -145,5 +145,4 @@ if (import.meta.main) {
   main();
 }
 
-export { getExport } from "./modules/exports.ts";
-export { runHQLFile } from "./modules/compiler/transpiler.ts";
+export { exportHqlModules, getHqlModule } from "./modules/export.ts";

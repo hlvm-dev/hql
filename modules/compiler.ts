@@ -1,10 +1,10 @@
 // modules/compiler/compiler.ts
-import "../stdlib.ts";
-import { parse } from "../parser.ts";
-import { Env, baseEnv } from "../env.ts";
-import { evaluateAsync } from "../eval.ts";
-import { HQLValue, makeNil } from "../type.ts";
-import { realPathSync, dirname, relative } from "../../platform/platform.ts";
+import "./stdlib.ts";
+import { parse } from "./parser.ts";
+import { Env, baseEnv } from "./env.ts";
+import { evaluateAsync } from "./eval.ts";
+import { HQLValue, makeNil } from "./type.ts";
+import { realPathSync, dirname, relative } from "../platform/platform.ts";
 
 export async function compileHQL(
   source: string,
@@ -100,8 +100,8 @@ async function compile(
   
   const names = Object.keys(exportsMap);
   
-  let code = `import { runHQLFile, getExport } from "${runtimeImport}";\n\n`;
-  code += `const _exports = await runHQLFile("${inputRel}");\n\n`;
+  let code = `import { exportHqlModules, getHqlModule } from "${runtimeImport}";\n\n`;
+  code += `const _exports = await exportHqlModules("${inputRel}");\n\n`;
   
   for (const name of names) {
     const val = exportsMap[name];
@@ -112,27 +112,27 @@ async function compile(
       if (typed) {
         code += `
 export async function ${name}(...args) {
-  const fn = getExport("${name}", _exports);
+  const fn = getHqlModule("${name}", _exports);
   return await fn(...args);
 }\n`;
       } else {
         if (isSync) {
           code += `
 export function ${name}(...args) {
-  const fn = getExport("${name}", _exports);
+  const fn = getHqlModule("${name}", _exports);
   return fn(...args);
 }\n`;
         } else {
           code += `
 export async function ${name}(...args) {
-  const fn = getExport("${name}", _exports);
+  const fn = getHqlModule("${name}", _exports);
   return await fn(...args);
 }\n`;
         }
       }
     } else {
       code += `
-export const ${name} = getExport("${name}", _exports);\n`;
+export const ${name} = getHqlModule("${name}", _exports);\n`;
     }
   }
   

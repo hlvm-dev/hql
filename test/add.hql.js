@@ -1,4 +1,4 @@
-import { runHQLFile, getExport } from "file:///Users/seoksoonjang/dev/hql/hql.ts";
+import { exportHqlModules, getHqlModule } from "file:///Users/seoksoonjang/dev/hql/hql.ts";
 
-const _exports = await runHQLFile("./test/add.hql");
+const _exports = await exportHqlModules("./test/add.hql");
 

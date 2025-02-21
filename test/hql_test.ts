@@ -1,7 +1,7 @@
 // test/hql_test.ts
 
 import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.170.0/testing/asserts.ts";
-import { runHQLFile, getExport } from "../hql.ts";
+import { exportHqlModules, getHqlModule } from "../hql.ts";
 
 // ---------- Enum and Fully Qualified Enum Case ----------
 Deno.test("Enum and fully qualified enum case", async () => {
@@ -14,9 +14,9 @@ Deno.test("Enum and fully qualified enum case", async () => {
   `;
   const testFile = "temp_enum.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const result1 = getExport("result1", exportsMap);
-  const result2 = getExport("result2", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const result1 = getHqlModule("result1", exportsMap);
+  const result2 = getHqlModule("result2", exportsMap);
   assertEquals(result1, "hello1");
   assertEquals(result2, "hello2");
   await Deno.remove(testFile);
@@ -31,8 +31,8 @@ Deno.test("String interpolation", async () => {
   `;
   const testFile = "temp_interp.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const interp = getExport("interp", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const interp = getHqlModule("interp", exportsMap);
   assertEquals(interp, "hello my name is Alice and nice to meet you - Bob");
   await Deno.remove(testFile);
 });
@@ -45,8 +45,8 @@ Deno.test("Arithmetic operations (untyped)", async () => {
   `;
   const testFile = "temp_arithmetic.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const addTest = getExport("addTest", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const addTest = getHqlModule("addTest", exportsMap);
   assertEquals(await addTest(5, 7), 12);
   await Deno.remove(testFile);
 });
@@ -61,9 +61,9 @@ Deno.test("Conditionals", async () => {
   `;
   const testFile = "temp_conditionals.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  assertEquals(getExport("condTrue", exportsMap), 100);
-  assertEquals(getExport("condFalse", exportsMap), 200);
+  const exportsMap = await exportHqlModules(testFile);
+  assertEquals(getHqlModule("condTrue", exportsMap), 100);
+  assertEquals(getHqlModule("condFalse", exportsMap), 200);
   await Deno.remove(testFile);
 });
 
@@ -75,9 +75,9 @@ Deno.test("Quoting", async () => {
   `;
   const testFile = "temp_quoting.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
+  const exportsMap = await exportHqlModules(testFile);
   // Expect that the quoted list is converted to a JavaScript array.
-  assertEquals(getExport("quoted", exportsMap), [1, 2, 3]);
+  assertEquals(getHqlModule("quoted", exportsMap), [1, 2, 3]);
   await Deno.remove(testFile);
 });
 
@@ -89,8 +89,8 @@ Deno.test("Definition and retrieval", async () => {
   `;
   const testFile = "temp_definition.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  assertEquals(getExport("myVar", exportsMap), 42);
+  const exportsMap = await exportHqlModules(testFile);
+  assertEquals(getHqlModule("myVar", exportsMap), 42);
   await Deno.remove(testFile);
 });
 
@@ -103,8 +103,8 @@ Deno.test("Function invocation (untyped)", async () => {
   `;
   const testFile = "temp_function.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  assertEquals(getExport("result", exportsMap), 10);
+  const exportsMap = await exportHqlModules(testFile);
+  assertEquals(getHqlModule("result", exportsMap), 10);
   await Deno.remove(testFile);
 });
 
@@ -117,8 +117,8 @@ Deno.test("Labeled call for typed functions", async () => {
   `;
   const testFile = "temp_typed_call.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const minus = getExport("minus", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const minus = getHqlModule("minus", exportsMap);
   assertEquals(await minus({ "x:": 100, "y:": 20 }), 80);
   await Deno.remove(testFile);
 });
@@ -131,8 +131,8 @@ Deno.test("Untyped function call supports labeled arguments", async () => {
   `;
   const testFile = "temp_untyped_labels.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const add = getExport("add", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const add = getHqlModule("add", exportsMap);
   // Three ways of calling should all work.
   assertEquals(await add({ "x:": 3, "y:": 20 }), 23);
   assertEquals(await add("x:", 3, "y:", 20), 23);
@@ -158,9 +158,9 @@ Deno.test("Built-in get with JS object", async () => {
   `;
   const testFile = "temp_get.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  assertEquals(getExport("sum", exportsMap), 7);
-  assertEquals(getExport("getValue", exportsMap), 42);
+  const exportsMap = await exportHqlModules(testFile);
+  assertEquals(getHqlModule("sum", exportsMap), 7);
+  assertEquals(getHqlModule("getValue", exportsMap), 42);
   await Deno.remove(testFile);
   await Deno.remove(jsModuleFile);
 });
@@ -173,8 +173,8 @@ Deno.test("Complex arithmetic expression", async () => {
   `;
   const testFile = "temp_complex_arith.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  assertEquals(getExport("complexArith", exportsMap), 16);
+  const exportsMap = await exportHqlModules(testFile);
+  assertEquals(getHqlModule("complexArith", exportsMap), 16);
   await Deno.remove(testFile);
 });
 
@@ -186,8 +186,8 @@ Deno.test("New Special Form - Date", async () => {
   `;
   const tempFile = "temp_new_date.hql";
   await Deno.writeTextFile(tempFile, code);
-  const exportsMap = await runHQLFile(tempFile);
-  const testDate = getExport("testDate", exportsMap);
+  const exportsMap = await exportHqlModules(tempFile);
+  const testDate = getHqlModule("testDate", exportsMap);
   if (!(testDate instanceof Date)) {
     throw new Error("testDate should be an instance of Date");
   }
@@ -202,8 +202,8 @@ Deno.test("New Special Form - RegExp", async () => {
   `;
   const tempFile = "temp_new_regexp.hql";
   await Deno.writeTextFile(tempFile, code);
-  const exportsMap = await runHQLFile(tempFile);
-  const testRegExp = getExport("testRegExp", exportsMap);
+  const exportsMap = await exportHqlModules(tempFile);
+  const testRegExp = getHqlModule("testRegExp", exportsMap);
   if (!(testRegExp instanceof RegExp)) {
     throw new Error("testRegExp should be an instance of RegExp");
   }
@@ -220,8 +220,8 @@ Deno.test("New Special Form - Array", async () => {
   `;
   const tempFile = "temp_new_array.hql";
   await Deno.writeTextFile(tempFile, code);
-  const exportsMap = await runHQLFile(tempFile);
-  const testArray = getExport("testArray", exportsMap);
+  const exportsMap = await exportHqlModules(tempFile);
+  const testArray = getHqlModule("testArray", exportsMap);
   if (!Array.isArray(testArray)) {
     throw new Error("testArray should be an array");
   }
@@ -237,8 +237,8 @@ Deno.test("New Special Form - Map", async () => {
   `;
   const tempFile = "temp_new_map.hql";
   await Deno.writeTextFile(tempFile, code);
-  const exportsMap = await runHQLFile(tempFile);
-  const testMap = getExport("testMap", exportsMap);
+  const exportsMap = await exportHqlModules(tempFile);
+  const testMap = getHqlModule("testMap", exportsMap);
   if (!(testMap instanceof Map)) {
     throw new Error("testMap should be an instance of Map");
   }
@@ -254,8 +254,8 @@ Deno.test("New Special Form - Set", async () => {
   `;
   const tempFile = "temp_new_set.hql";
   await Deno.writeTextFile(tempFile, code);
-  const exportsMap = await runHQLFile(tempFile);
-  const testSet = getExport("testSet", exportsMap);
+  const exportsMap = await exportHqlModules(tempFile);
+  const testSet = getHqlModule("testSet", exportsMap);
   if (!(testSet instanceof Set)) {
     throw new Error("testSet should be an instance of Set");
   }
@@ -271,8 +271,8 @@ Deno.test("New Special Form - Error", async () => {
   `;
   const tempFile = "temp_new_error.hql";
   await Deno.writeTextFile(tempFile, code);
-  const exportsMap = await runHQLFile(tempFile);
-  const testError = getExport("testError", exportsMap);
+  const exportsMap = await exportHqlModules(tempFile);
+  const testError = getHqlModule("testError", exportsMap);
   if (!(testError instanceof Error)) {
     throw new Error("testError should be an instance of Error");
   }
@@ -288,8 +288,8 @@ Deno.test("New Special Form - URL", async () => {
   `;
   const tempFile = "temp_new_url.hql";
   await Deno.writeTextFile(tempFile, code);
-  const exportsMap = await runHQLFile(tempFile);
-  const testURL = getExport("testURL", exportsMap);
+  const exportsMap = await exportHqlModules(tempFile);
+  const testURL = getHqlModule("testURL", exportsMap);
   if (!(testURL instanceof URL)) {
     throw new Error("testURL should be an instance of URL");
   }
@@ -307,8 +307,8 @@ Deno.test("Typed function call using positional arguments", async () => {
   `;
   const testFile = "temp_typed_positional.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const multiply = getExport("multiply", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const multiply = getHqlModule("multiply", exportsMap);
   assertEquals(await multiply(10, 20), 200);
   await Deno.remove(testFile);
 });
@@ -321,8 +321,8 @@ Deno.test("Typed function call using labeled arguments", async () => {
   `;
   const testFile = "temp_typed_labeled.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const multiply = getExport("multiply", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const multiply = getHqlModule("multiply", exportsMap);
   assertEquals(await multiply({ "x:": 10, "y:": 20 }), 200);
   await Deno.remove(testFile);
 });
@@ -335,8 +335,8 @@ Deno.test("Typed function call using opaque object mapping", async () => {
   `;
   const testFile = "temp_typed_object.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const multiply = getExport("multiply", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const multiply = getHqlModule("multiply", exportsMap);
   assertEquals(await multiply({ "x:": 10, "y:": 20 }), 200);
   await Deno.remove(testFile);
 });
@@ -349,8 +349,8 @@ Deno.test("Typed function call with mixed labeled and positional arguments shoul
   `;
   const testFile = "temp_typed_mixed.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const multiply = getExport("multiply", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const multiply = getHqlModule("multiply", exportsMap);
   await assertRejects(
     async () => { await multiply({ "x:": 10 }, 20); },
     Error,
@@ -367,8 +367,8 @@ Deno.test("Extra parentheses in typed function definition", async () => {
   `;
   const testFile = "temp_extra_parentheses.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const extraMultiply = getExport("extraMultiply", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const extraMultiply = getHqlModule("extraMultiply", exportsMap);
   assertEquals(await extraMultiply(3, 4), 12);
   assertEquals(await extraMultiply({ "x:": 3, "y:": 4 }), 12);
   await Deno.remove(testFile);
@@ -382,8 +382,8 @@ Deno.test("Typed function call with missing labeled argument", async () => {
   `;
   const testFile = "temp_typed_missing.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const multiply = getExport("multiply", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const multiply = getHqlModule("multiply", exportsMap);
   await assertRejects(
     async () => { await multiply({ "x:": 10 }); },
     Error,
@@ -400,8 +400,8 @@ Deno.test("Typed function call with extra arguments should reject", async () => 
   `;
   const testFile = "temp_typed_extra.hql";
   await Deno.writeTextFile(testFile, code);
-  const exportsMap = await runHQLFile(testFile);
-  const multiply = getExport("multiply", exportsMap);
+  const exportsMap = await exportHqlModules(testFile);
+  const multiply = getHqlModule("multiply", exportsMap);
   await assertRejects(
     async () => { await multiply(10, 20, 30); },
     Error,

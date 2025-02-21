@@ -1,4 +1,4 @@
-import { compileHQL } from "./compiler/compiler.ts";
+import { compileHQL } from "./compiler.ts";
 import { dirname, join, resolve, cwd, readTextFile, writeTextFile, mkdir } from "../platform/platform.ts";
 
 const importRegex = /import\s+.*?from\s+["'](.+?\.hql)["']/g;

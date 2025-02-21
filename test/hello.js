@@ -33,20 +33,20 @@ import { add, minus, add2, minus2 } from "./transpiled/hello.hql.js";
 })();
 
   // --- Part 3: Dynamic Evaluation in a Separate Context ---
-  // Each call to runHQLFile creates an independent exports map.
-  import { runHQLFile, getExport } from "../hql.ts";
-  const dynExports1 = await runHQLFile("./test/hello.hql");
-  const add3 = getExport("add", dynExports1);
-  const minus3 = getExport("minus", dynExports1);
+  // Each call to exportHqlModules creates an independent exports map.
+  import { exportHqlModules, getHqlModule } from "../hql.ts";
+  const dynExports1 = await exportHqlModules("./test/hello.hql");
+  const add3 = getHqlModule("add", dynExports1);
+  const minus3 = getHqlModule("minus", dynExports1);
 
   console.log("=== First Dynamic Evaluation Results ===");
   console.log("add3(100, 1):", add3(100, 1));
   console.log("minus3(100, 1):", await minus3(100, 1));
 
   // --- Part 4: Repeated Dynamic Evaluation ---
-  const dynExports2 = await runHQLFile("./test/hello.hql");
-  const add4 = getExport("add", dynExports2);
-  const minus4 = getExport("minus", dynExports2);
+  const dynExports2 = await exportHqlModules("./test/hello.hql");
+  const add4 = getHqlModule("add", dynExports2);
+  const minus4 = getHqlModule("minus", dynExports2);
 
   console.log("=== Second Dynamic Evaluation Results ===");
   console.log("add4(200, 2):", add4(200, 2));

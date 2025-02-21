@@ -1,13 +1,11 @@
-import { parse } from "../parser.ts";
-import { Env, baseEnv } from "../env.ts";
-import { evaluateAsync } from "../eval.ts";
-import { HQLValue } from "../type.ts";
-import { readTextFile, realPathSync } from "../../platform/platform.ts";
+import { parse } from "./parser.ts";
+import { Env, baseEnv } from "./env.ts";
+import { evaluateAsync } from "./eval.ts";
+import { HQLValue } from "./type.ts";
+import { readTextFile, realPathSync } from "../platform/platform.ts";
+import { hqlToJs } from "./eval.ts";
 
-/**
- * Runs an HQL file and returns its exports as a record.
- */
-export async function runHQLFile(
+export async function exportHqlModules(
   path: string,
   targetExports?: Record<string, HQLValue>
 ): Promise<Record<string, HQLValue>> {
@@ -28,4 +26,11 @@ export async function runHQLFile(
     }
   }
   return exportsMap;
+}
+
+export function getHqlModule(name: string, targetExports: Record<string, HQLValue>): any {
+  if (!Object.prototype.hasOwnProperty.call(targetExports, name)) {
+    throw new Error(`HQL export '${name}' not found`);
+  }
+  return hqlToJs(targetExports[name]);
 }
