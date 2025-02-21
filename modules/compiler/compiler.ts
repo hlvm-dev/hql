@@ -4,41 +4,69 @@ import { parse } from "../parser.ts";
 import { Env, baseEnv } from "../env.ts";
 import { evaluateAsync } from "../eval.ts";
 import { HQLValue, makeNil } from "../type.ts";
+import { realPathSync, dirname, relative } from "../../platform/platform.ts";
 
-// Compute the absolute URL for your HQL runtime.
-// This assumes "hql.ts" is in the project root.
-const absoluteHqlRuntime = "file://" + Deno.realPathSync("hql.ts");
-
-/**
- * Compiles HQL source code into a JS module string.
- *
- * @param source         The HQL source code.
- * @param inputPath      The original path of the HQL file.
- * @param skipEvaluation If true, do not execute any non-definition code. Instead,
- *                       scan the AST for top-level export definitions and record their
- *                       names in the exports map. (This prevents side effects from running.)
- * @returns A Promise that resolves to a JavaScript module string.
- */
 export async function compileHQL(
   source: string,
   inputPath: string,
   skipEvaluation: boolean = false
+): Promise<string> {
+  return await compile(source, inputPath, undefined, skipEvaluation);
+}
+
+/**
+ * Core function to compile HQL source into a JS module string.
+ * If outputPath is provided, relative paths are computed from its directory.
+ *
+ * @param source         The HQL source code.
+ * @param inputPath      The original path of the HQL file.
+ * @param outputPath     (Optional) The target output file path.
+ * @param skipEvaluation If true, do not execute non-definition code.
+ * @returns A Promise that resolves to a JS module string.
+ */
+async function compile(
+  source: string,
+  inputPath: string,
+  outputPath: string | undefined,
+  skipEvaluation: boolean
 ): Promise<string> {
   const exportsMap: Record<string, HQLValue> = {};
   const forms = parse(source);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
 
-  const realInput = Deno.realPathSync(inputPath);
-
+  // Get the absolute real path for the input.
+  const realInput = realPathSync(inputPath);
+  
+  let runtimeImport: string;
+  let inputRel: string;
+  
+  if (outputPath !== undefined) {
+    // Compute paths relative to the output directory.
+    const outDir = dirname(outputPath);
+    // Assume the HQL runtime is compiled to "hql.js" at the project root.
+    const runtimeAbsolute = realPathSync("hql.js");
+    runtimeImport = relative(outDir, runtimeAbsolute);
+    if (!runtimeImport.startsWith(".")) {
+      runtimeImport = "./" + runtimeImport;
+    }
+    inputRel = relative(outDir, realInput);
+    if (!inputRel.startsWith(".")) {
+      inputRel = "./" + inputRel;
+    }
+  } else {
+    // Legacy behavior: use absolute runtime URL.
+    runtimeImport = "file://" + realPathSync("hql.ts");
+    inputRel = inputPath;
+  }
+  
+  // Evaluate all forms if not skipping evaluation.
   if (!skipEvaluation) {
-    // Full evaluation: run every form so that exports are set and side effects occur.
     for (const form of forms) {
       await evaluateAsync(form, env, realInput);
     }
   } else {
-    // Partial evaluation: do NOT evaluate any form.
-    // Instead, scan the AST for forms that define/export symbols and record them.
+    // Partial evaluation: scan only for definitions.
     for (const form of forms) {
       if (form.type === "list" && form.value.length > 0) {
         const head = form.value[0];
@@ -69,14 +97,12 @@ export async function compileHQL(
       }
     }
   }
-
+  
   const names = Object.keys(exportsMap);
-
-  // Generate JS module code that will, at runtime, fully evaluate the HQL file.
-  // (That is, it imports the runtime and calls runHQLFile on the original file.)
-  let code = `import { runHQLFile, getExport } from "${absoluteHqlRuntime}";\n\n`;
-  code += `const _exports = await runHQLFile("${inputPath}");\n\n`;
-
+  
+  let code = `import { runHQLFile, getExport } from "${runtimeImport}";\n\n`;
+  code += `const _exports = await runHQLFile("${inputRel}");\n\n`;
+  
   for (const name of names) {
     const val = exportsMap[name];
     const isFn = val && val.type === "function";
@@ -109,5 +135,6 @@ export async function ${name}(...args) {
 export const ${name} = getExport("${name}", _exports);\n`;
     }
   }
+  
   return code;
 }

@@ -1,3 +1,5 @@
+// parser.ts
+
 import {
   HQLValue,
   HQLList,
@@ -11,8 +13,8 @@ import {
 } from "../modules/type.ts";
 
 /**
- * Parse the HQL source `input` into an array of HQLValue AST nodes.
- * Each node now includes `.start` and `.end` offsets.
+ * Parse the HQL source input into an array of HQLValue AST nodes.
+ * Each node now includes .start and .end offsets.
  */
 export function parse(input: string): HQLValue[] {
   const result: HQLValue[] = [];
@@ -20,7 +22,7 @@ export function parse(input: string): HQLValue[] {
   const len = input.length;
 
   /**
-   * Skip whitespace and line comments (starting with `;`)
+   * Skip whitespace and line comments (starting with ;)
    */
   function skipWs() {
     while (i < len) {
@@ -39,7 +41,7 @@ export function parse(input: string): HQLValue[] {
   }
 
   /**
-   * Read a double-quoted string. Also handles `\( ... )` interpolation.
+   * Read a double-quoted string. Also handles \( ... ) interpolation.
    */
   function readString(): HQLValue {
     // Remember the position of the opening quote
@@ -60,7 +62,6 @@ export function parse(input: string): HQLValue[] {
         if (buf !== "") {
           // push the accumulated text so far as a string node
           const strNode = makeString(buf);
-          // (Optionally assign start/end for partial segments, if you want)
           parts.push(strNode);
         }
         buf = "";
@@ -133,7 +134,6 @@ export function parse(input: string): HQLValue[] {
 
     // If it starts with ".", treat it as an enum case
     if (token.startsWith(".")) {
-      // e.g. ".hlvm" => name = "hlvm"
       const node = makeEnumCase(token.slice(1));
       node.start = startPos;
       node.end = endPos;
@@ -179,28 +179,23 @@ export function parse(input: string): HQLValue[] {
    */
   function readList(): HQLList {
     const startPos = i;
-    const openChar = input[i]; // "(" or "["
+    const openChar = input[i];
     i++; // skip the '(' or '['
     const items: HQLValue[] = [];
 
     while (true) {
       skipWs();
-      if (i >= len) {
-        // reached end of input with no closing
-        break;
-      }
+      if (i >= len) break;
       const ch = input[i];
-      // check matching closing
       if ((openChar === "(" && ch === ")") || (openChar === "[" && ch === "]")) {
         i++; // consume the closing char
         const listNode = makeList(items);
         listNode.start = startPos;
-        listNode.end = i; // position after closing paren/bracket
+        listNode.end = i;
         return listNode;
       }
       items.push(readForm());
     }
-    // If we exit loop, we never found a matching closing paren/bracket
     const listNode = makeList(items);
     listNode.start = startPos;
     listNode.end = i;
@@ -212,10 +207,7 @@ export function parse(input: string): HQLValue[] {
    */
   function readForm(): HQLValue {
     skipWs();
-    if (i >= len) {
-      // No more input => return nil
-      return makeNil();
-    }
+    if (i >= len) return makeNil();
     const ch = input[i];
     if (ch === "(" || ch === "[") {
       return readList();
@@ -230,12 +222,9 @@ export function parse(input: string): HQLValue[] {
     return readSymbolOrNumber();
   }
 
-  // Main parse loop
   while (true) {
     skipWs();
-    if (i >= len) {
-      break;
-    }
+    if (i >= len) break;
     result.push(readForm());
   }
 

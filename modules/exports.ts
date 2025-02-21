@@ -1,4 +1,4 @@
-// modules/exports.ts
+// exports.ts
 import { HQLValue } from "./type.ts";
 import { hqlToJs } from "./eval.ts";
 

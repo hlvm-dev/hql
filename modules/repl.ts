@@ -1,15 +1,13 @@
-// repl.ts
+// modules/repl.ts
 import { parse } from "./parser.ts";
 import { evaluateAsync } from "./eval.ts";
 import { Env } from "./env.ts";
 import { HQLValue, makeNil } from "./type.ts";
 import { formatValue } from "./stdlib.ts";
+import { readLineFromStdin, writeToStdout } from "../platform/stdio.ts";
 
 async function readLine(): Promise<string | null> {
-  const buf = new Uint8Array(1024);
-  const n = await Deno.stdin.read(buf);
-  if (n === null) return null;
-  return new TextDecoder().decode(buf.subarray(0, n)).replace(/\r?\n$/, "");
+  return await readLineFromStdin();
 }
 
 function countParens(input: string): number {
@@ -32,7 +30,7 @@ async function readMultiline(): Promise<string | null> {
   let pc = 0;
   while (true) {
     const prompt = pc > 0 ? "...> " : "HQL> ";
-    await Deno.stdout.write(new TextEncoder().encode(prompt));
+    await writeToStdout(prompt);
     const line = await readLine();
     if (line === null) return code.trim() === "" ? null : code;
     code += line + "\n";

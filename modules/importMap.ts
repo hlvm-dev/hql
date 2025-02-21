@@ -1,6 +1,5 @@
-// modules/importMap.ts
 import { compileHQL } from "./compiler/compiler.ts";
-import { dirname, join, resolve } from "https://deno.land/std@0.170.0/path/mod.ts";
+import { dirname, join, resolve, cwd, readTextFile, writeTextFile, mkdir } from "../platform/platform.ts";
 
 const importRegex = /import\s+.*?from\s+["'](.+?\.hql)["']/g;
 
@@ -44,17 +43,17 @@ export async function buildImportMap(
   if (visited.has(absoluteFilePath)) return mappings;
   visited.add(absoluteFilePath);
 
-  const content = await Deno.readTextFile(absoluteFilePath);
+  const content = await readTextFile(absoluteFilePath);
 
   // Determine output path in cache (preserving relative path)
-  const relPath = absoluteFilePath.substring(Deno.cwd().length);
+  const relPath = absoluteFilePath.substring(cwd().length);
   const outPath = join(cacheDir, relPath) + ".js";
 
-  await Deno.mkdir(dirname(outPath), { recursive: true });
+  await mkdir(dirname(outPath), { recursive: true });
 
   // Compile the HQL file using skipEvaluation=true (to avoid side effects)
   const compiled = await compileHQL(content, absoluteFilePath, true);
-  await Deno.writeTextFile(outPath, compiled);
+  await writeTextFile(outPath, compiled);
 
   // Map the absolute URL of the HQL file to the compiled JS file URL.
   const absEntryUrl = new URL("file://" + absoluteFilePath).href;
@@ -81,7 +80,7 @@ export async function buildImportMapForJS(
 ): Promise<Record<string, string>> {
   const mappings: Record<string, string> = {};
   const absEntryJs = resolve(entryJs);
-  const content = await Deno.readTextFile(absEntryJs);
+  const content = await readTextFile(absEntryJs);
 
   // Use a separate visited set for JS files
   const subMappings = await collectHqlImports(content, absEntryJs, cacheDir, new Set());

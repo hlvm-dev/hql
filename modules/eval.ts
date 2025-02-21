@@ -11,12 +11,21 @@ import {
   makeBoolean,
   makeSymbol,
   HQLEnumCase,
-  makeList
+  makeList,
 } from "./type.ts";
 import { Env, baseEnv } from "./env.ts";
 import { wrapJsValue } from "./interop.ts";
 import { compileHQL } from "./compiler/compiler.ts";
-import { join, dirname, relative } from "https://deno.land/std@0.170.0/path/mod.ts";
+import {
+  cwd,
+  stat,
+  readTextFile,
+  writeTextFile,
+  mkdir,
+  join,
+  dirname,
+  relative,
+} from "../platform/platform.ts";
 
 /*────────────────────────────────────────────────────────────
   CONVERSIONS BETWEEN HQL AND JS
@@ -25,10 +34,14 @@ import { join, dirname, relative } from "https://deno.land/std@0.170.0/path/mod.
 export function hqlToJs(val: HQLValue): any {
   if (!val) return null;
   switch (val.type) {
-    case "nil": return null;
-    case "boolean": return val.value;
-    case "number": return val.value;
-    case "string": return val.value;
+    case "nil":
+      return null;
+    case "boolean":
+      return val.value;
+    case "number":
+      return val.value;
+    case "string":
+      return val.value;
     case "symbol": {
       if (val.name.includes(".")) {
         const [enumName, caseName] = val.name.split(".");
@@ -64,8 +77,10 @@ export function hqlToJs(val: HQLValue): any {
         };
       }
     }
-    case "opaque": return val.value;
-    default: return val;
+    case "opaque":
+      return val.value;
+    default:
+      return val;
   }
 }
 
@@ -287,11 +302,13 @@ export function makeFunctionLiteral(parts: HQLValue[], env: Env, isPure: boolean
     parts = (parts[0] as HQLList).value.concat(parts.slice(1));
   const { paramNames, typed } = parseParamList(parts[0]);
   let bodyForms: HQLValue[];
-  if (parts.length > 1 &&
-      parts[1].type === "list" &&
-      parts[1].value.length > 0 &&
-      parts[1].value[0].type === "symbol" &&
-      parts[1].value[0].name === "->") {
+  if (
+    parts.length > 1 &&
+    parts[1].type === "list" &&
+    parts[1].value.length > 0 &&
+    parts[1].value[0].type === "symbol" &&
+    parts[1].value[0].name === "->"
+  ) {
     if (parts[1].value.length === 2) {
       bodyForms = parts.slice(2);
     } else {
@@ -510,7 +527,7 @@ async function handleImportSpecialForm(rest: HQLValue[], env: Env, realPath?: st
   if (urlVal.type !== "string")
     throw new Error("import expects a string URL");
   const callerPath = realPath || (env as any).fileBase;
-  const baseUrl = callerPath ? `file://${dirname(callerPath)}/` : `file://${Deno.cwd()}/`;
+  const baseUrl = callerPath ? `file://${dirname(callerPath)}/` : `file://${cwd()}/`;
   return await doImport(urlVal.value, baseUrl);
 }
 
@@ -528,30 +545,30 @@ export async function doImport(url: string, baseUrl?: string): Promise<HQLValue>
     new URL(url);
     modUrl = url;
   } catch (_e) {
-    modUrl = new URL(url, baseUrl || `file://${Deno.cwd()}/`).toString();
+    modUrl = new URL(url, baseUrl || `file://${cwd()}/`).toString();
   }
   if (modUrl.startsWith("file://")) {
     const filePath = modUrl.slice(7);
     if (filePath.endsWith(".hql")) {
-      const cacheDir = join(Deno.cwd(), ".hqlcache");
-      const relPath = relative(Deno.cwd(), filePath);
+      const cacheDir = join(cwd(), ".hqlcache");
+      const relPath = relative(cwd(), filePath);
       const cacheFile = join(cacheDir, relPath + ".js");
       let needCompile = true;
       try {
-        const srcStat = await Deno.stat(filePath);
-        const cacheStat = await Deno.stat(cacheFile);
+        const srcStat = await stat(filePath);
+        const cacheStat = await stat(cacheFile);
         if (cacheStat.mtime && srcStat.mtime && cacheStat.mtime >= srcStat.mtime)
           needCompile = false;
       } catch (_e) {
         needCompile = true;
       }
       if (needCompile) {
-        const source = await Deno.readTextFile(filePath);
+        const source = await readTextFile(filePath);
         const compiled = await compileHQL(source, filePath);
-        await Deno.mkdir(dirname(cacheFile), { recursive: true });
-        await Deno.writeTextFile(cacheFile, compiled);
+        await mkdir(dirname(cacheFile), { recursive: true });
+        await writeTextFile(cacheFile, compiled);
       }
-      modUrl = new URL(cacheFile, `file://${Deno.cwd()}/`).toString();
+      modUrl = new URL(cacheFile, `file://${cwd()}/`).toString();
     }
   } else {
     if (!modUrl.includes("?bundle")) modUrl += "?bundle";

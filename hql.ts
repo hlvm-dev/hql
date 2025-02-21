@@ -2,7 +2,20 @@ import { Env } from "./modules/env.ts";
 import { repl } from "./modules/repl.ts";
 import { compileHQL } from "./modules/compiler/compiler.ts";
 import { buildImportMap, buildImportMapForJS } from "./modules/importMap.ts";
-import { join, dirname, basename, extname, isAbsolute, resolve } from "https://deno.land/std@0.170.0/path/mod.ts";
+import {
+  join,
+  dirname,
+  basename,
+  extname,
+  isAbsolute,
+  resolve,
+  cwd,
+  readTextFile,
+  mkdir,
+  writeTextFile,
+  execPath,
+  run
+} from "./platform/platform.ts";
 
 async function startRepl() {
   const env = new Env();
@@ -16,22 +29,22 @@ async function start(args: string[]) {
     Deno.exit(1);
   }
   const file = args[1];
-  const projectRoot = Deno.cwd();
+  const projectRoot = cwd();
   const cacheDir = join(projectRoot, ".hqlcache");
   const importMap: Record<string, any> = { imports: {} };
   let entryFile = file;
 
   if (file.endsWith(".hql")) {
     const absoluteInput = resolve(file);
-    const source = await Deno.readTextFile(absoluteInput);
+    const source = await readTextFile(absoluteInput);
     const compiled = await compileHQL(source, absoluteInput, true);
     const outputFolder = absoluteInput.includes("/test/")
       ? join(dirname(absoluteInput), "transpiled")
       : dirname(absoluteInput);
-    await Deno.mkdir(outputFolder, { recursive: true });
+    await mkdir(outputFolder, { recursive: true });
     const baseName = basename(absoluteInput, extname(absoluteInput));
     const outputFile = join(outputFolder, `${baseName}.hql.js`);
-    await Deno.writeTextFile(outputFile, compiled);
+    await writeTextFile(outputFile, compiled);
     entryFile = outputFile;
     importMap.imports = await buildImportMap(absoluteInput, cacheDir);
   } else {
@@ -41,9 +54,9 @@ async function start(args: string[]) {
 
   if (Object.keys(importMap.imports).length > 0) {
     const importMapPath = join(projectRoot, "hql_import_map.json");
-    await Deno.writeTextFile(importMapPath, JSON.stringify(importMap, null, 2));
+    await writeTextFile(importMapPath, JSON.stringify(importMap, null, 2));
     const command = [
-      Deno.execPath(),
+      execPath(),
       "run",
       `--import-map=${importMapPath}`,
       "--allow-read",
@@ -56,7 +69,7 @@ async function start(args: string[]) {
     await execute(command);
   } else {
     const command = [
-      Deno.execPath(),
+      execPath(),
       "run",
       "--allow-read",
       "--allow-write",
@@ -70,7 +83,7 @@ async function start(args: string[]) {
 }
 
 async function execute(cmd: string[]) {
-  const proc = Deno.run({ cmd });
+  const proc = run(cmd);
   const status = await proc.status();
   Deno.exit(status.code);
 }
@@ -83,7 +96,7 @@ async function transpile(args: string[]) {
   }
   const inputFile = args[1];
   const absoluteInput = resolve(inputFile);
-  const projectRoot = Deno.cwd();
+  const projectRoot = cwd();
   let outputFile: string;
   if (args.length >= 3) {
     outputFile = args[2];
@@ -94,10 +107,10 @@ async function transpile(args: string[]) {
     const baseName = basename(absoluteInput, extname(absoluteInput));
     outputFile = join(dirname(absoluteInput), `${baseName}.hql.js`);
   }
-  const source = await Deno.readTextFile(absoluteInput);
+  const source = await readTextFile(absoluteInput);
   const compiled = await compileHQL(source, absoluteInput, false);
-  await Deno.mkdir(dirname(outputFile), { recursive: true });
-  await Deno.writeTextFile(outputFile, compiled);
+  await mkdir(dirname(outputFile), { recursive: true });
+  await writeTextFile(outputFile, compiled);
   console.log(`Transpiled ${absoluteInput} -> ${outputFile}`);
 }
 
