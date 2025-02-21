@@ -522,24 +522,14 @@ const cdnCandidates = [
 
 export async function doImport(url: string, baseUrl?: string): Promise<HQLValue> {
   let modUrl: string;
-  // If the URL starts with "jsr:", immediately strip any query part.
-  if (url.startsWith("jsr:")) {
-    modUrl = url.split("?")[0];
-  } else if (url.startsWith("npm:")) {
+  if (url.startsWith("npm:"))
     return await recurImport(url, cdnCandidates);
-  } else {
-    try {
-      new URL(url);
-      modUrl = url;
-    } catch (_e) {
-      modUrl = new URL(url, baseUrl || `file://${Deno.cwd()}/`).toString();
-    }
-    // For non-file and non-jsr URLs, append "?bundle" if not present.
-    if (!modUrl.startsWith("file://") && !modUrl.startsWith("jsr:")) {
-      if (!modUrl.includes("?bundle")) modUrl += "?bundle";
-    }
+  try {
+    new URL(url);
+    modUrl = url;
+  } catch (_e) {
+    modUrl = new URL(url, baseUrl || `file://${Deno.cwd()}/`).toString();
   }
-
   if (modUrl.startsWith("file://")) {
     const filePath = modUrl.slice(7);
     if (filePath.endsWith(".hql")) {
@@ -563,19 +553,14 @@ export async function doImport(url: string, baseUrl?: string): Promise<HQLValue>
       }
       modUrl = new URL(cacheFile, `file://${Deno.cwd()}/`).toString();
     }
+  } else {
+    if (!modUrl.includes("?bundle")) modUrl += "?bundle";
   }
-  
-  // For jsr: URLs, ensure no query string is appended.
-  if (modUrl.startsWith("jsr:")) {
-    modUrl = modUrl.split("?")[0];
-  }
-  
   const modObj = await import(modUrl);
   if (modObj.default?.__hql_module) return modObj.default.__hql_module;
   if (modObj.__hql_module) return modObj.__hql_module;
   return wrapJsValue(modObj.default ?? modObj);
 }
-
 
 async function recurImport(npmUrl: string, cdns: string[]): Promise<HQLValue> {
   if (cdns.length === 0)
