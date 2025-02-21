@@ -1,23 +1,23 @@
-import { runHQLFile, getExport } from "file:///Users/seoksoonjang/dev/hql/hql.ts";
+import { exportHqlModules, getHqlModule } from "file:///Users/seoksoonjang/dev/hql/hql.ts";
 
-const _exports = await runHQLFile("/Users/seoksoonjang/dev/hql/test/interop/module2.hql");
+const _exports = await exportHqlModules("/Users/seoksoonjang/dev/hql/test/interop/module2.hql");
 
 
-export const mod1 = getExport("mod1", _exports);
+export const mod1 = getHqlModule("mod1", _exports);
 
-export const jsMod = getExport("jsMod", _exports);
+export const jsMod = getHqlModule("jsMod", _exports);
 
 export async function doubleAndAdd(...args) {
-  const fn = getExport("doubleAndAdd", _exports);
+  const fn = getHqlModule("doubleAndAdd", _exports);
   return await fn(...args);
 }
 
 export async function multiply(...args) {
-  const fn = getExport("multiply", _exports);
+  const fn = getHqlModule("multiply", _exports);
   return await fn(...args);
 }
 
 export async function combine(...args) {
-  const fn = getExport("combine", _exports);
+  const fn = getHqlModule("combine", _exports);
   return await fn(...args);
 }

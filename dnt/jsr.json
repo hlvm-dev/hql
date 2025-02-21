@@ -1,0 +1,7 @@
+{
+    "name": "@boraseoksoon/multiply",
+    "version": "2.0.1",
+    "license": "MIT", 
+    "type": "module",
+    "exports": "./entry.ts"
+  }

@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "is-42": "file:../npm/is-42-1.0.0.tgz",
+    "multiply": "file:../npm/multiply-1.0.0.tgz"
+  },
+  "type": "module"
+}

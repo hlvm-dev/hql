@@ -141,7 +141,7 @@ async function main() {
   }
 }
 
-if (import.meta.main) {
+if ((import.meta as { main?: boolean }).main) {
   main();
 }
 
