@@ -1,4 +1,4 @@
-import { join, resolve, readTextFile, writeTextFile, mkdir, runCmd } from "../platform/platform.ts";
+import { join, resolve, basename, readTextFile, writeTextFile, mkdir, runCmd } from "../platform/platform.ts";
 import { exists } from "https://deno.land/std@0.170.0/fs/mod.ts";
 import { getNextVersionInDir, getNpmUsername } from "./publish_common.ts";
 
@@ -40,7 +40,7 @@ export async function publishNpm(options: {
   }
   console.log(`Using package name: ${pkgName}`);
 
-  let version = await getNextVersionInDir(outDir, options.version);
+  const version = await getNextVersionInDir(outDir, options.version);
 
   // Locate a .hql file in outDir.
   let hqlFile: string | null = null;

@@ -1,12 +1,4 @@
-import { 
-  join, 
-  resolve, 
-  basename, 
-  readTextFile, 
-  writeTextFile, 
-  mkdir, 
-  runCmd, 
-} from "../platform/platform.ts";
+import { join, resolve, basename, readTextFile, writeTextFile, mkdir, runCmd } from "../platform/platform.ts";
 import { exists, copy } from "https://deno.land/std@0.170.0/fs/mod.ts";
 import { compileHQL } from "./compiler.ts";
 import { getNextVersionInDir } from "./publish_common.ts";
