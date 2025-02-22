@@ -1,6 +1,15 @@
-import { join, resolve, basename, readTextFile, writeTextFile, mkdir, runCmd } from "../platform/platform.ts";
+import { 
+  join, 
+  resolve, 
+  basename, 
+  readTextFile, 
+  writeTextFile, 
+  mkdir, 
+  runCmd, 
+} from "../platform/platform.ts";
 import { exists, copy } from "https://deno.land/std@0.170.0/fs/mod.ts";
 import { compileHQL } from "./compiler.ts";
+import { getNextVersionInDir } from "./publish_common.ts";
 
 async function generateModFiles(outDir: string): Promise<void> {
   const files: string[] = [];
@@ -25,32 +34,6 @@ export default _default;
   const modDtsPath = join(outDir, "mod.d.ts");
   await writeTextFile(modDtsPath, modDtsContent);
   console.log(`Generated mod.d.ts.`);
-}
-
-async function getNextVersionInDir(
-  outDir: string,
-  providedVersion?: string,
-): Promise<string> {
-  if (providedVersion) return providedVersion;
-  const versionFile = join(outDir, "VERSION");
-  if (!(await exists(versionFile))) {
-    const defaultVersion = "0.0.1";
-    await writeTextFile(versionFile, defaultVersion);
-    console.log(`No VERSION file found in ${outDir}. Setting version to ${defaultVersion}`);
-    return defaultVersion;
-  }
-  const current = (await readTextFile(versionFile)).trim();
-  const parts = current.split(".");
-  if (parts.length !== 3) {
-    throw new Error(`Invalid version format in ${versionFile}: "${current}"`);
-  }
-  const [major, minor] = parts;
-  let patch = parseInt(parts[2], 10);
-  patch++;
-  const newVersion = `${major}.${minor}.${patch}`;
-  await writeTextFile(versionFile, newVersion);
-  console.log(`Bumped version from ${current} to ${newVersion} in ${outDir}`);
-  return newVersion;
 }
 
 /**

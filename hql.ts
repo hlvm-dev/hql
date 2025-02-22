@@ -55,38 +55,32 @@ async function startCmd(args: string[]) {
     importMap.imports = await buildImportMapForJS(entryFile, cacheDir);
   }
 
+  // If any imports were remapped, write an import map file.
   if (Object.keys(importMap.imports).length > 0) {
     const importMapPath = join(projectRoot, "hql_import_map.json");
     await writeTextFile(importMapPath, JSON.stringify(importMap, null, 2));
-    const command = [
-      execPath(),
-      "run",
-      `--import-map=${importMapPath}`,
-      "--allow-read",
-      "--allow-write",
-      "--allow-net",
-      "--allow-env",
-      "--allow-run",
-      entryFile,
-    ];
-    await execute(command);
-  } else {
-    const command = [
-      execPath(),
-      "run",
-      "--allow-read",
-      "--allow-write",
-      "--allow-net",
-      "--allow-env",
-      "--allow-run",
-      entryFile,
-    ];
-    await execute(command);
   }
+
+  const command = [
+    execPath(),
+    "run",
+    ...(Object.keys(importMap.imports).length > 0
+       ? [`--import-map=${join(projectRoot, "hql_import_map.json")}`]
+       : []),
+    "--allow-read",
+    "--allow-write",
+    "--allow-net",
+    "--allow-env",
+    "--allow-run",
+    entryFile,
+  ];
+
+  await execute(command);
 }
 
 async function execute(cmd: string[]) {
-  const proc = run(cmd);
+  // Note: run expects a Deno.RunOptions object with a "cmd" property.
+  const proc = run({ cmd });
   const status = await proc.status();
   Deno.exit(status.code);
 }
@@ -117,59 +111,38 @@ async function transpile(args: string[]) {
   console.log(`Transpiled ${absoluteInput} -> ${outputFile}`);
 }
 
+interface PublishOptions {
+  platform: "jsr" | "npm";
+  targetDir: string;
+  pkgName?: string;
+  pkgVersion?: string;
+}
+
 /**
- * Implements the publish command.
- *
- * Accepts positional and named flags with a single dash:
- *   - Target directory: either as the first positional parameter or via -what.
- *   - Package/module name: positional (second parameter) or via -name.
- *   - Version: positional (third parameter) or via -version.
- *   - Platform: default is "jsr" but can be overridden with -where or by
- *     specifying "npm" or "jsr" as the first positional argument.
- *
- * Examples:
- *   hql publish target_module_directory
- *   hql publish -name "ayo" -version 1.0.0
- *   hql publish npm target_module_directory
- *   hql publish -where jsr
+ * Helper to parse publish command arguments.
+ * Accepts positional and single-dash named flags (-what, -name, -version, -where)
+ * and returns an object with platform, target directory, package name, and version.
  */
-async function publish(args: string[]) {
-  // Parse provided flags (using single-dash names)
+function parsePublishOptions(args: string[]): PublishOptions {
   const parsed = parse(args, {
     string: ["what", "name", "version", "where"],
   });
-
-  // Determine target platform; default is "jsr"
-  let targetPlatform: "jsr" | "npm" = "jsr";
+  let platform: "jsr" | "npm" = "jsr";
   if (parsed.where) {
     const whereVal = String(parsed.where).toLowerCase();
     if (whereVal === "npm" || whereVal === "jsr") {
-      targetPlatform = whereVal as "npm" | "jsr";
+      platform = whereVal as "npm" | "jsr";
     } else {
       console.error("Invalid value for -where flag. Must be either 'npm' or 'jsr'.");
       Deno.exit(1);
     }
   }
-
-  // Process positional parameters (if any)
   const pos = parsed._;
-  let targetDir: string = "";
-  if (pos.length > 0) {
-    const first = String(pos[0]).toLowerCase();
-    if (first === "npm" || first === "jsr") {
-      targetPlatform = first as "npm" | "jsr";
-      if (pos.length > 1) {
-        targetDir = String(pos[1]);
-      } else {
-        targetDir = cwd();
-      }
-    } else {
-      targetDir = String(pos[0]);
-    }
-  } else {
-    targetDir = cwd();
+  let targetDir = pos.length > 0 ? String(pos[0]) : cwd();
+  if (pos.length > 0 && ["npm", "jsr"].includes(String(pos[0]).toLowerCase())) {
+    platform = String(pos[0]).toLowerCase() as "npm" | "jsr";
+    targetDir = pos.length > 1 ? String(pos[1]) : cwd();
   }
-  // Override with -what flag if provided
   if (parsed.what) {
     targetDir = String(parsed.what);
   }
@@ -177,19 +150,17 @@ async function publish(args: string[]) {
     targetDir = cwd();
   }
 
-  // Determine package (module) name
   let pkgName: string | undefined;
   if (parsed.name) {
     pkgName = String(parsed.name);
   } else {
-    if (targetPlatform === "npm") {
-      if (pos.length >= 2 && (String(pos[0]).toLowerCase() !== "npm" && String(pos[0]).toLowerCase() !== "jsr")) {
+    if (platform === "npm") {
+      if (pos.length >= 2 && !["npm", "jsr"].includes(String(pos[0]).toLowerCase())) {
         pkgName = String(pos[1]);
       } else if (pos.length >= 3) {
         pkgName = String(pos[2]);
       }
-      // If still undefined, publishNpm will auto-generate a name.
-    } else { // for jsr
+    } else {
       if (pos.length >= 2) {
         pkgName = String(pos[1]);
       }
@@ -199,38 +170,47 @@ async function publish(args: string[]) {
     }
   }
 
-  // Determine version (if provided)
   let pkgVersion: string | undefined;
   if (parsed.version) {
     pkgVersion = String(parsed.version);
   } else {
-    if (targetPlatform === "npm") {
-      if (pos.length >= 3 && (String(pos[0]).toLowerCase() !== "npm" && String(pos[0]).toLowerCase() !== "jsr")) {
+    if (platform === "npm") {
+      if (pos.length >= 3 && !["npm", "jsr"].includes(String(pos[0]).toLowerCase())) {
         pkgVersion = String(pos[2]);
       } else if (pos.length >= 4) {
         pkgVersion = String(pos[3]);
       }
-      // Otherwise, leave undefined to trigger auto versioning.
-    } else { // for jsr
+    } else {
       if (pos.length >= 3) {
         pkgVersion = String(pos[2]);
       }
-      // Otherwise, leave undefined.
     }
   }
+  return { platform, targetDir, pkgName, pkgVersion };
+}
 
-  if (targetPlatform === "npm") {
+/**
+ * Implements the publish command.
+ * Supports both positional parameters and named flags:
+ *   - Target directory: as first positional parameter or via -what.
+ *   - Package/module name: as second positional parameter or via -name.
+ *   - Version: as third positional parameter or via -version.
+ *   - Platform: defaults to "jsr" but can be set via -where or by specifying "npm"/"jsr" as the first positional parameter.
+ */
+async function publish(args: string[]) {
+  const options = parsePublishOptions(args);
+  if (options.platform === "npm") {
     console.log(`Publishing npm package with:
-  Directory: ${targetDir}
-  Package Name: ${pkgName ?? "(auto-generated)"}
-  Version: ${pkgVersion ?? "(auto-incremented)"}`);
-    await publishNpm({ what: targetDir, name: pkgName, version: pkgVersion });
+  Directory: ${options.targetDir}
+  Package Name: ${options.pkgName ?? "(auto-generated)"}
+  Version: ${options.pkgVersion ?? "(auto-incremented)"}`);
+    await publishNpm({ what: options.targetDir, name: options.pkgName, version: options.pkgVersion });
   } else {
     console.log(`Publishing JSR package with:
-  Directory: ${targetDir}
-  Package Name: ${pkgName}
-  Version: ${pkgVersion ?? "(auto-incremented)"}`);
-    await publishJSR({ what: targetDir, name: pkgName, version: pkgVersion });
+  Directory: ${options.targetDir}
+  Package Name: ${options.pkgName}
+  Version: ${options.pkgVersion ?? "(auto-incremented)"}`);
+    await publishJSR({ what: options.targetDir, name: options.pkgName, version: options.pkgVersion });
   }
 }
 
