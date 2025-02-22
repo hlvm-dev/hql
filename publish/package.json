@@ -1,0 +1,7 @@
+{
+  "name": "@boraseoksoon/publish",
+  "version": "0.0.1",
+  "main": "bundle.js",
+  "license": "MIT",
+  "description": "Sample test HQL module built as a JS package."
+}
