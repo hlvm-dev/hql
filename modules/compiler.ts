@@ -6,6 +6,14 @@ import { evaluateAsync } from "./eval.ts";
 import { HQLValue, makeNil } from "./type.ts";
 import { realPathSync, dirname, relative } from "../platform/platform.ts";
 
+export async function compileHQL(
+  source: string,
+  inputPath: string,
+  skipEvaluation: boolean = false
+): Promise<string> {
+  return await compile(source, inputPath, undefined, skipEvaluation);
+}
+
 /**
  * Core function to compile HQL source into a JS module string.
  * If outputPath is provided, relative paths are computed from its directory.
@@ -16,11 +24,11 @@ import { realPathSync, dirname, relative } from "../platform/platform.ts";
  * @param skipEvaluation If true, do not execute non-definition code.
  * @returns A Promise that resolves to a JS module string.
  */
-export async function compile(
+async function compile(
   source: string,
   inputPath: string,
-  skipEvaluation: boolean = false, 
-  outputPath: string | undefined = undefined,
+  outputPath: string | undefined,
+  skipEvaluation: boolean
 ): Promise<string> {
   const exportsMap: Record<string, HQLValue> = {};
   const forms = parse(source);

@@ -1,4 +1,4 @@
-import { compile } from "./compiler.ts";
+import { compileHQL } from "./compiler.ts";
 import { dirname, join, resolve, cwd, readTextFile, writeTextFile, mkdir } from "../platform/platform.ts";
 
 const importRegex = /import\s+.*?from\s+["'](.+?\.hql)["']/g;
@@ -52,7 +52,7 @@ export async function buildImportMap(
   await mkdir(dirname(outPath), { recursive: true });
 
   // Compile the HQL file using skipEvaluation=true (to avoid side effects)
-  const compiled = await compile(content, absoluteFilePath, true);
+  const compiled = await compileHQL(content, absoluteFilePath, true);
   await writeTextFile(outPath, compiled);
 
   // Map the absolute URL of the HQL file to the compiled JS file URL.
