@@ -1,5 +1,0 @@
-{
-  "name": "@boraseoksoon/publish",
-  "version": "0.0.21",
-  "exports": "./mod.ts"
-}
