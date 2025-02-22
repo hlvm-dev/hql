@@ -14,7 +14,7 @@ import {
   mkdir,
   writeTextFile,
   execPath,
-  run
+  runCmd as run
 } from "./platform/platform.ts";
 import { publishNpm } from "./modules/publish_npm.ts";
 import { publishJSR } from "./modules/publish_jsr.ts";
@@ -25,7 +25,7 @@ async function startRepl() {
   await repl(env);
 }
 
-async function start(args: string[]) {
+async function startCmd(args: string[]) {
   if (args.length < 2) {
     console.log("Usage:");
     console.log("  hql run <file>");
@@ -246,7 +246,7 @@ async function main() {
       await startRepl();
       break;
     case "run":
-      await start(args);
+      await startCmd(args);
       break;
     case "transpile":
       await transpile(args);
