@@ -15,7 +15,7 @@ import {
 } from "./type.ts";
 import { Env, baseEnv } from "./env.ts";
 import { wrapJsValue } from "./interop.ts";
-import { compileHQL } from "./compiler.ts";
+import { compile } from "./compiler.ts";
 import {
   cwd,
   stat,
@@ -564,7 +564,7 @@ export async function doImport(url: string, baseUrl?: string): Promise<HQLValue>
       }
       if (needCompile) {
         const source = await readTextFile(filePath);
-        const compiled = await compileHQL(source, filePath);
+        const compiled = await compile(source, filePath);
         await mkdir(dirname(cacheFile), { recursive: true });
         await writeTextFile(cacheFile, compiled);
       }

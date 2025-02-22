@@ -1,6 +1,7 @@
 import { Env } from "./modules/env.ts";
 import { repl } from "./modules/repl.ts";
-import { compileHQL } from "./modules/compiler.ts";
+import { publish } from "./modules/publish/publish.ts";
+import { compile } from "./modules/compiler.ts";
 import { buildImportMap, buildImportMapForJS } from "./modules/importMap.ts";
 import {
   join,
@@ -13,10 +14,9 @@ import {
   readTextFile,
   mkdir,
   writeTextFile,
-  execPath,
-  runCmd as run
+  execPath, 
+  runCmd
 } from "./platform/platform.ts";
-import { publish } from "./modules/publish.ts"; // Mediator for publish
 
 async function startRepl() {
   const env = new Env();
@@ -38,7 +38,7 @@ async function startCmd(args: string[]) {
   if (file.endsWith(".hql")) {
     const absoluteInput = resolve(file);
     const source = await readTextFile(absoluteInput);
-    const compiled = await compileHQL(source, absoluteInput, true);
+    const compiled = await compile(source, absoluteInput, true);
     const outputFolder = absoluteInput.includes("/test/")
       ? join(dirname(absoluteInput), "transpiled")
       : dirname(absoluteInput);
@@ -54,17 +54,16 @@ async function startCmd(args: string[]) {
   }
 
   // If any imports were remapped, write an import map file.
+  let importMapPath: string | undefined;
   if (Object.keys(importMap.imports).length > 0) {
-    const importMapPath = join(projectRoot, "hql_import_map.json");
+    importMapPath = join(projectRoot, "hql_import_map.json");
     await writeTextFile(importMapPath, JSON.stringify(importMap, null, 2));
   }
 
   const command = [
     execPath(),
     "run",
-    ...(Object.keys(importMap.imports).length > 0
-       ? [`--import-map=${join(projectRoot, "hql_import_map.json")}`]
-       : []),
+    ...(importMapPath ? [`--import-map=${importMapPath}`] : []),
     "--allow-read",
     "--allow-write",
     "--allow-net",
@@ -73,12 +72,13 @@ async function startCmd(args: string[]) {
     entryFile,
   ];
 
-  await execute(command);
-}
+  const process = runCmd({ cmd: command });
+  const status = await process.status();
 
-async function execute(cmd: string[]) {
-  const proc = run({ cmd });
-  const status = await proc.status();
+  if (importMapPath) {
+    await Deno.remove(importMapPath);
+  }
+  
   Deno.exit(status.code);
 }
 
@@ -102,7 +102,7 @@ async function transpile(args: string[]) {
     outputFile = join(dirname(absoluteInput), `${baseName}.hql.js`);
   }
   const source = await readTextFile(absoluteInput);
-  const compiled = await compileHQL(source, absoluteInput, false);
+  const compiled = await compile(source, absoluteInput, false);
   await mkdir(dirname(outputFile), { recursive: true });
   await writeTextFile(outputFile, compiled);
   console.log(`Transpiled ${absoluteInput} -> ${outputFile}`);
@@ -110,10 +110,12 @@ async function transpile(args: string[]) {
 
 async function main() {
   const args = Deno.args;
+  
   if (args.length === 0) {
     await startRepl();
     return;
   }
+
   const command = args[0];
   switch (command) {
     case "repl":
