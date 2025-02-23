@@ -7,7 +7,7 @@ import {
   runCmd,
   exit,
 } from "../../platform/platform.ts";
-import { exists, copy } from "https://deno.land/std@0.170.0/fs/mod.ts";
+import { exists, copy } from "jsr:@std/fs@1.0.13";
 import { makeTempDir } from "../../platform/platform.ts";
 import { buildJsModule } from "./build_js_module.ts";
 

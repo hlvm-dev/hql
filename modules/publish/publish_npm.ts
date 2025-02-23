@@ -10,7 +10,8 @@ import {
   exit,
   getEnv,
 } from "../../platform/platform.ts";
-import { exists } from "https://deno.land/std@0.170.0/fs/mod.ts";
+
+import { exists } from "jsr:@std/fs@1.0.13";
 import { buildJsModule } from "./build_js_module.ts";
 import { getNpmUsername } from "./publish_common.ts";
 

@@ -1,10 +1,9 @@
 // modules/publish/publish.ts
 
-import { parse } from "https://deno.land/std@0.170.0/flags/mod.ts";
+import { parseArgs } from "jsr:@std/cli@1.0.13/parse-args";
 import { basename, cwd, exit } from "../../platform/platform.ts";
 import { publishNpm } from "./publish_npm.ts";
 import { publishJSR } from "./publish_jsr.ts";
-
 export interface PublishOptions {
   platform: "jsr" | "npm";
   what: string;
@@ -38,7 +37,7 @@ function normalizeArgs(args: string[]): string[] {
  */
 function parsePublishArgs(args: string[]): PublishOptions {
   const normalizedArgs = normalizeArgs(args);
-  const parsed = parse(normalizedArgs, {
+  const parsed = parseArgs(normalizedArgs, {
     string: ["what", "name", "version", "where"],
   });
 

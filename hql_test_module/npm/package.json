@@ -1,7 +1,7 @@
 {
   "module": "./esm/bundle.js",
-  "name": "",
-  "version": "0.0.0",
+  "name": "@boraseoksoon/hql-test-module",
+  "version": "0.0.1",
   "exports": {
     ".": {
       "import": "./esm/bundle.js"

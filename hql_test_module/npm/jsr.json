@@ -1,0 +1,6 @@
+{
+  "name": "@boraseoksoon/hql-test-module",
+  "version": "0.0.1",
+  "exports": "./esm/bundle.js",
+  "license": "MIT"
+}

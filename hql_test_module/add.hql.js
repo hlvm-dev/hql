@@ -1,6 +1,6 @@
-import { exportHqlModules, getHqlModule } from "file:///Users/seoksoonjang/dev/hql/hql.ts";
+import { exportHqlModules, getHqlModule } from "../hql.ts";
 
-const _exports = await exportHqlModules("/Users/seoksoonjang/dev/hql/hql_test_module/add.hql");
+const _exports = await exportHqlModules("./add.hql");
 
 
 export async function add(...args) {

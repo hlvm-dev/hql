@@ -1,64 +1,65 @@
-// modules/compiler/compiler.ts
+// modules/compiler.ts
+
 import "./stdlib.ts";
 import { parse } from "./parser.ts";
 import { Env, baseEnv } from "./env.ts";
 import { evaluateAsync } from "./eval.ts";
 import { HQLValue, makeNil } from "./type.ts";
-import { realPathSync, dirname, relative } from "../platform/platform.ts";
+import {
+  join,
+  dirname,
+  basename,
+  extname,
+  isAbsolute,
+  resolve,
+  cwd,
+  relative,
+} from "../platform/platform.ts";
 
 /**
- * Core function to compile HQL source into a JS module string.
- * If outputPath is provided, relative paths are computed from its directory.
+ * Compiles HQL source code into a JS module string.
+ * The generated module uses relative paths computed from the output file’s directory.
  *
  * @param source         The HQL source code.
- * @param inputPath      The original path of the HQL file.
- * @param outputPath     (Optional) The target output file path.
- * @param skipEvaluation If true, do not execute non-definition code.
- * @returns A Promise that resolves to a JS module string.
+ * @param inputPath      The absolute path of the input HQL file.
+ * @param skipEvaluation If true, non-definition code is not evaluated.
+ * @param outputPath     The absolute path of the output JS module.
+ * @returns A Promise resolving to the generated JS module code.
  */
 export async function compile(
   source: string,
   inputPath: string,
   skipEvaluation: boolean = false,
-  outputPath: string | undefined = undefined
+  outputPath?: string
 ): Promise<string> {
+  // inputPath is expected to be absolute.
+  const inputAbs = resolve(inputPath);
+  // outputPath is expected to be absolute.
+  if (!outputPath) {
+    const baseName = basename(inputAbs, extname(inputAbs));
+    outputPath = join(dirname(inputAbs), `${baseName}.hql.js`);
+  }
+  const outputAbs = resolve(outputPath);
+  // The output directory.
+  const outDir = dirname(outputAbs);
+  // Compute the runtime file import.
+  // Assume "hql.ts" lives at the project root (cwd).
+  const runtimeAbs = resolve(join(cwd(), "hql.ts"));
+  const runtimeImport = makeRelativePath(outDir, runtimeAbs);
+  // Compute the module identifier for the HQL source.
+  const inputRel = makeRelativePath(outDir, inputAbs);
+
+  // Evaluate HQL forms.
   const exportsMap: Record<string, HQLValue> = {};
   const forms = parse(source);
   const env = new Env({}, baseEnv);
   env.exports = exportsMap;
-
-  // Get the absolute real path for the input.
-  const realInput = realPathSync(inputPath);
-  
-  let runtimeImport: string;
-  let inputRel: string;
-  
-  if (outputPath !== undefined) {
-    // Compute paths relative to the output directory.
-    const outDir = dirname(outputPath);
-    // Assume the HQL runtime is compiled to "hql.js" at the project root.
-    const runtimeAbsolute = realPathSync("hql.js");
-    runtimeImport = relative(outDir, runtimeAbsolute);
-    if (!runtimeImport.startsWith(".")) {
-      runtimeImport = "./" + runtimeImport;
-    }
-    inputRel = relative(outDir, realInput);
-    if (!inputRel.startsWith(".")) {
-      inputRel = "./" + inputRel;
-    }
-  } else {
-    // Legacy behavior: use absolute runtime URL.
-    runtimeImport = "file://" + realPathSync("hql.ts");
-    inputRel = inputPath;
-  }
-  
-  // Evaluate all forms if not skipping evaluation.
   if (!skipEvaluation) {
     for (const form of forms) {
-      await evaluateAsync(form, env, realInput);
+      await evaluateAsync(form, env, inputAbs);
     }
   } else {
-    // Partial evaluation: scan only for definitions.
+    // Partial evaluation: scan for definitions only.
     for (const form of forms) {
       if (form.type === "list" && form.value.length > 0) {
         const head = form.value[0];
@@ -89,16 +90,14 @@ export async function compile(
       }
     }
   }
-  
+
   const names = Object.keys(exportsMap);
-  
   let code = `import { exportHqlModules, getHqlModule } from "${runtimeImport}";\n\n`;
   code += `const _exports = await exportHqlModules("${inputRel}");\n\n`;
-  
+
   for (const name of names) {
     const val = exportsMap[name];
-    const isFn = val && val.type === "function";
-    if (isFn) {
+    if (val && val.type === "function") {
       const typed = (val as any).typed;
       const isSync = (val as any).isSync;
       if (typed) {
@@ -127,6 +126,18 @@ export async function ${name}(...args) {
 export const ${name} = getHqlModule("${name}", _exports);\n`;
     }
   }
-  
+
   return code;
+}
+
+/**
+ * Computes a relative path from one directory to a target.
+ * Ensures that the returned path starts with "./" or "../" as needed.
+ */
+function makeRelativePath(fromDir: string, toPath: string): string {
+  let rel = relative(fromDir, toPath);
+  if (!rel.startsWith(".") && !rel.startsWith("/")) {
+    rel = "./" + rel;
+  }
+  return rel;
 }

@@ -9,7 +9,6 @@ import {
   readDir,
 } from "../../platform/platform.ts";
 import { compile } from "../compiler.ts";
-import { exists } from "https://deno.land/std@0.170.0/fs/mod.ts";
 
 /**
  * Build process:

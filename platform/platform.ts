@@ -6,7 +6,7 @@ import {
   isAbsolute as stdIsAbsolute,
   resolve as stdResolve,
   relative as stdRelative,
-} from "https://deno.land/std@0.170.0/path/mod.ts";
+} from "jsr:@std/path@1.0.8";
 
 export function cwd(): string {
   return Deno.cwd();

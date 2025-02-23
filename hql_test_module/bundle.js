@@ -1434,32 +1434,24 @@ function hqlToJs(val) {
             return val;
     }
 }
-async function compile(source, inputPath, skipEvaluation = false, outputPath = undefined) {
+async function compile(source, inputPath, skipEvaluation = false, outputPath) {
+    const inputAbs = resolve3(inputPath);
+    if (!outputPath) {
+        const baseName = basename3(inputAbs, extname3(inputAbs));
+        outputPath = join4(dirname3(inputAbs), `${baseName}.hql.js`);
+    }
+    const outputAbs = resolve3(outputPath);
+    const outDir = dirname3(outputAbs);
+    const runtimeAbs = resolve3(join4(cwd(), "hql.ts"));
+    const runtimeImport = makeRelativePath(outDir, runtimeAbs);
+    const inputRel = makeRelativePath(outDir, inputAbs);
     const exportsMap = {};
     const forms = parse(source);
     const env = new Env({}, baseEnv);
     env.exports = exportsMap;
-    const realInput = realPathSync(inputPath);
-    let runtimeImport;
-    let inputRel;
-    if (outputPath !== undefined) {
-        const outDir = dirname3(outputPath);
-        const runtimeAbsolute = realPathSync("hql.js");
-        runtimeImport = relative3(outDir, runtimeAbsolute);
-        if (!runtimeImport.startsWith(".")) {
-            runtimeImport = "./" + runtimeImport;
-        }
-        inputRel = relative3(outDir, realInput);
-        if (!inputRel.startsWith(".")) {
-            inputRel = "./" + inputRel;
-        }
-    } else {
-        runtimeImport = "file://" + realPathSync("hql.ts");
-        inputRel = inputPath;
-    }
     if (!skipEvaluation) {
         for (const form of forms){
-            await evaluateAsync(form, env, realInput);
+            await evaluateAsync(form, env, inputAbs);
         }
     } else {
         for (const form of forms){
@@ -1490,8 +1482,7 @@ async function compile(source, inputPath, skipEvaluation = false, outputPath = u
     code += `const _exports = await exportHqlModules("${inputRel}");\n\n`;
     for (const name of names){
         const val = exportsMap[name];
-        const isFn = val && val.type === "function";
-        if (isFn) {
+        if (val && val.type === "function") {
             const typed = val.typed;
             const isSync = val.isSync;
             if (typed) {
@@ -2027,6 +2018,13 @@ function handleIfSync(rest, env) {
     const cond = evaluateSync(rest[0], env);
     return truthy(cond) ? rest[1] ? evaluateSync(rest[1], env) : makeNil() : rest[2] ? evaluateSync(rest[2], env) : makeNil();
 }
+function makeRelativePath(fromDir, toPath) {
+    let rel = relative3(fromDir, toPath);
+    if (!rel.startsWith(".") && !rel.startsWith("/")) {
+        rel = "./" + rel;
+    }
+    return rel;
+}
 function hostFunc(fn) {
     return {
         type: "function",
@@ -2262,6 +2260,19 @@ async function buildImportMapForJS(entryJs, cacheDir) {
     Object.assign(mappings, subMappings);
     return mappings;
 }
+class AssertionError extends Error {
+    constructor(message){
+        super(message);
+        this.name = "AssertionError";
+    }
+}
+function assertExists(actual, msg) {
+    if (actual === undefined || actual === null) {
+        const msgSuffix = msg ? `: ${msg}` : ".";
+        msg = `Expected actual: "${actual}" to not be null or undefined${msgSuffix}`;
+        throw new AssertionError(msg);
+    }
+}
 const { hasOwn } = Object;
 function get(obj, key) {
     if (hasOwn(obj, key)) {
@@ -2270,7 +2281,7 @@ function get(obj, key) {
 }
 function getForce(obj, key) {
     const v = get(obj, key);
-    assert(v != null);
+    assertExists(v);
     return v;
 }
 function isNumber(x) {
@@ -2283,8 +2294,8 @@ function hasKey(obj, keys) {
     keys.slice(0, -1).forEach((key)=>{
         o = get(o, key) ?? {};
     });
-    const key = keys[keys.length - 1];
-    return hasOwn(o, key);
+    const key = keys.at(-1);
+    return key !== undefined && hasOwn(o, key);
 }
 function parse4(args, { "--": doubleDash = false, alias = {}, boolean: __boolean = false, default: defaults = {}, stopEarly = false, string = [], collect = [], negatable = [], unknown = (i)=>i } = {}) {
     const aliases = {};
@@ -2306,10 +2317,11 @@ function parse4(args, { "--": doubleDash = false, alias = {}, boolean: __boolean
             } else {
                 aliases[key] = val;
             }
-            for (const alias of getForce(aliases, key)){
+            const aliasesForKey = getForce(aliases, key);
+            for (const alias of aliasesForKey){
                 aliases[alias] = [
                     key
-                ].concat(aliases[key].filter((y)=>alias !== y));
+                ].concat(aliasesForKey.filter((y)=>alias !== y));
             }
         }
     }
@@ -2388,7 +2400,7 @@ function parse4(args, { "--": doubleDash = false, alias = {}, boolean: __boolean
             }
             o = get(o, key);
         });
-        const key = keys[keys.length - 1];
+        const key = keys.at(-1);
         const collectable = collect && !!get(flags.collect, name);
         if (!collectable) {
             o[key] = value;
@@ -2428,10 +2440,12 @@ function parse4(args, { "--": doubleDash = false, alias = {}, boolean: __boolean
     }
     for(let i = 0; i < args.length; i++){
         const arg = args[i];
+        assertExists(arg);
         if (/^--.+=/.test(arg)) {
             const m = arg.match(/^--([^=]+)=(.*)$/s);
-            assert(m != null);
+            assertExists(m);
             const [, key, value] = m;
+            assertExists(key);
             if (flags.bools[key]) {
                 const booleanValue = value !== "false";
                 setArg(key, booleanValue, arg);
@@ -2440,17 +2454,19 @@ function parse4(args, { "--": doubleDash = false, alias = {}, boolean: __boolean
             }
         } else if (/^--no-.+/.test(arg) && get(flags.negatable, arg.replace(/^--no-/, ""))) {
             const m = arg.match(/^--no-(.+)/);
-            assert(m != null);
+            assertExists(m);
+            assertExists(m[1]);
             setArg(m[1], false, arg, false);
         } else if (/^--.+/.test(arg)) {
             const m = arg.match(/^--(.+)/);
-            assert(m != null);
+            assertExists(m);
+            assertExists(m[1]);
             const [, key] = m;
             const next = args[i + 1];
             if (next !== undefined && !/^-/.test(next) && !get(flags.bools, key) && !flags.allBools && (get(aliases, key) ? !aliasIsBoolean(key) : true)) {
                 setArg(key, next, arg);
                 i++;
-            } else if (/^(true|false)$/.test(next)) {
+            } else if (next !== undefined && (next === "true" || next === "false")) {
                 setArg(key, next === "true", arg);
                 i++;
             } else {
@@ -2459,37 +2475,38 @@ function parse4(args, { "--": doubleDash = false, alias = {}, boolean: __boolean
         } else if (/^-[^-]+/.test(arg)) {
             const letters = arg.slice(1, -1).split("");
             let broken = false;
-            for(let j = 0; j < letters.length; j++){
+            for (const [j, letter] of letters.entries()){
                 const next = arg.slice(j + 2);
                 if (next === "-") {
-                    setArg(letters[j], next, arg);
+                    setArg(letter, next, arg);
                     continue;
                 }
-                if (/[A-Za-z]/.test(letters[j]) && /=/.test(next)) {
-                    setArg(letters[j], next.split(/=(.+)/)[1], arg);
+                if (/[A-Za-z]/.test(letter) && next.includes("=")) {
+                    setArg(letter, next.split(/=(.+)/)[1], arg);
                     broken = true;
                     break;
                 }
-                if (/[A-Za-z]/.test(letters[j]) && /-?\d+(\.\d*)?(e-?\d+)?$/.test(next)) {
-                    setArg(letters[j], next, arg);
+                if (/[A-Za-z]/.test(letter) && /-?\d+(\.\d*)?(e-?\d+)?$/.test(next)) {
+                    setArg(letter, next, arg);
                     broken = true;
                     break;
                 }
-                if (letters[j + 1] && letters[j + 1].match(/\W/)) {
-                    setArg(letters[j], arg.slice(j + 2), arg);
+                if (letters[j + 1]?.match(/\W/)) {
+                    setArg(letter, arg.slice(j + 2), arg);
                     broken = true;
                     break;
                 } else {
-                    setArg(letters[j], get(flags.strings, letters[j]) ? "" : true, arg);
+                    setArg(letter, get(flags.strings, letter) ? "" : true, arg);
                 }
             }
-            const [key] = arg.slice(-1);
+            const key = arg.at(-1);
             if (!broken && key !== "-") {
-                if (args[i + 1] && !/^(-|--)[^-]/.test(args[i + 1]) && !get(flags.bools, key) && (get(aliases, key) ? !aliasIsBoolean(key) : true)) {
-                    setArg(key, args[i + 1], arg);
+                const nextArg = args[i + 1];
+                if (nextArg && !/^(-|--)[^-]/.test(nextArg) && !get(flags.bools, key) && (get(aliases, key) ? !aliasIsBoolean(key) : true)) {
+                    setArg(key, nextArg, arg);
                     i++;
-                } else if (args[i + 1] && /^(true|false)$/.test(args[i + 1])) {
-                    setArg(key, args[i + 1] === "true", arg);
+                } else if (nextArg && (nextArg === "true" || nextArg === "false")) {
+                    setArg(key, nextArg === "true", arg);
                     i++;
                 } else {
                     setArg(key, get(flags.strings, key) ? "" : true, arg);
@@ -2507,10 +2524,11 @@ function parse4(args, { "--": doubleDash = false, alias = {}, boolean: __boolean
     }
     for (const [key, value] of Object.entries(defaults)){
         if (!hasKey(argv, key.split("."))) {
-            setKey(argv, key, value);
-            if (aliases[key]) {
-                for (const x of aliases[key]){
-                    setKey(argv, x, value);
+            setKey(argv, key, value, false);
+            const alias = aliases[key];
+            if (alias !== undefined) {
+                for (const x of alias){
+                    setKey(argv, x, value, false);
                 }
             }
         }
@@ -3176,13 +3194,15 @@ async function transpile(args) {
         outputFile = args[2];
         if (!isAbsolute3(outputFile)) {
             outputFile = resolve3(join4(projectRoot, outputFile));
+        } else {
+            outputFile = resolve3(outputFile);
         }
     } else {
         const baseName = basename3(absoluteInput, extname3(absoluteInput));
         outputFile = join4(dirname3(absoluteInput), `${baseName}.hql.js`);
     }
     const source = await readTextFile(absoluteInput);
-    const compiled = await compile(source, absoluteInput, false);
+    const compiled = await compile(source, absoluteInput, false, outputFile);
     await mkdir(dirname3(outputFile), {
         recursive: true
     });
@@ -3222,7 +3242,7 @@ async function main() {
 if (importMeta.main) {
     main();
 }
-const _exports = await exportHqlModules("/Users/seoksoonjang/dev/hql/hql_test_module/add.hql");
+const _exports = await exportHqlModules("./add.hql");
 async function add(...args) {
     const fn = getHqlModule("add", _exports);
     return await fn(...args);

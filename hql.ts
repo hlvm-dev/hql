@@ -96,15 +96,19 @@ async function transpile(args: string[]) {
   let outputFile: string;
   if (args.length >= 3) {
     outputFile = args[2];
+    // Here a relative output file is interpreted relative to the project root.
     if (!isAbsolute(outputFile)) {
       outputFile = resolve(join(projectRoot, outputFile));
+    } else {
+      outputFile = resolve(outputFile);
     }
   } else {
     const baseName = basename(absoluteInput, extname(absoluteInput));
     outputFile = join(dirname(absoluteInput), `${baseName}.hql.js`);
   }
   const source = await readTextFile(absoluteInput);
-  const compiled = await compile(source, absoluteInput, false);
+  // Pass the resolved outputFile to compile so it can compute relative paths.
+  const compiled = await compile(source, absoluteInput, false, outputFile);
   await mkdir(dirname(outputFile), { recursive: true });
   await writeTextFile(outputFile, compiled);
   console.log(`Transpiled ${absoluteInput} -> ${outputFile}`);
