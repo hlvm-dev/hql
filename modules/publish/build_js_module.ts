@@ -1,130 +1,115 @@
 import {
-    join,
-    resolve,
-    basename,
-    dirname,
-    mkdir,
-    readTextFile,
-    writeTextFile,
-    exit
-  } from "../../platform/platform.ts";
-  
-  import { exists } from "https://deno.land/std@0.170.0/fs/mod.ts";
-  import { compile } from "../compiler.ts";
-  import * as esbuild from "https://deno.land/x/esbuild@v0.17.11/mod.js";
-  
-  /**
-  
-  /**
-   * Builds a finalized JavaScript module package from HQL source files.
-   *
-   * Options:
-   *   - source: directory containing your .hql files.
-   *   - out: output directory for the final JS module package.
-   *   - name: (optional) package name; defaults to "@boraseoksoon/<basename(source)>".
-   *   - version: (optional) package version; defaults to "0.0.1".
-   *
-   * The function:
-   *   1. Compiles each .hql file into a .js file.
-   *   2. Generates a mod.ts re‑export file and a minimal mod.d.ts.
-   *   3. Creates sample package.json and README.md.
-   *   4. Uses esbuild to bundle mod.ts and its dependencies into bundle.js.
-   *
-   * Returns the output directory path.
-   */
-  export async function buildJsModule(options: {
-    source: string;
-    out: string;
-    name?: string;
-    version?: string;
-  }): Promise<string> {
-    const sourceDir = resolve(options.source);
-    const outDir = resolve(options.out);
-  
-    // Ensure the output directory exists.
-    await mkdir(outDir, { recursive: true });
-  
-    // Compile all .hql files from the source directory.
-    const compiledFiles: { fileName: string; outFile: string }[] = [];
-    for await (const entry of Deno.readDir(sourceDir)) {
-      if (entry.isFile && entry.name.endsWith(".hql")) {
-        const filePath = join(sourceDir, entry.name);
-        const sourceCode = await readTextFile(filePath);
-        // Compile the HQL file.
-        const compiled = await compile(sourceCode, filePath, false);
-        // Write compiled output as "<filename>.hql.js" in the output directory.
-        const outFile = join(outDir, entry.name + ".js");
-        await writeTextFile(outFile, compiled);
-        compiledFiles.push({ fileName: entry.name, outFile });
-        console.log(`Compiled ${filePath} -> ${outFile}`);
-      }
+  join,
+  resolve,
+  readTextFile,
+  writeTextFile,
+  mkdir,
+  runCmd,
+  exit,
+  readDir,
+} from "../../platform/platform.ts";
+import { compile } from "../compiler.ts";
+import { exists } from "https://deno.land/std@0.170.0/fs/mod.ts";
+
+/**
+ * Build process:
+ * 1. Find all .hql files in `inputDir` and transpile them to .hql.js.
+ * 2. Create an aggregator file (all_hql_modules.ts) that re-exports all transpiled files.
+ *    (Note: We now use `export * from "./file.js"` instead of `export * as name from "./file.js"` so that named exports come through directly.)
+ * 3. Use `deno bundle` on the aggregator to create bundle.js.
+ * 4. Generate a dnt build script (build.ts) with options that force the shimmed ESM file to be output
+ *    as per your manual process.
+ * 5. Run dnt (via build.ts) to produce the final npm/ folder.
+ */
+export async function buildJsModule(inputDir: string): Promise<void> {
+  const outDir = resolve(inputDir);
+  await mkdir(outDir, { recursive: true });
+
+  // Step 1: Transpile each .hql file to .hql.js.
+  const hqlFiles: string[] = [];
+  for await (const entry of readDir(outDir)) {
+    if (entry.isFile && entry.name.endsWith(".hql")) {
+      hqlFiles.push(entry.name);
     }
-  
-    if (compiledFiles.length === 0) {
-      console.error("No .hql files found in source directory:", sourceDir);
-      exit(1);
-    }
-  
-    // Generate mod.ts that re-exports all compiled modules.
-    let modTsContent = "";
-    for (const { outFile } of compiledFiles) {
-      const base = basename(outFile);
-      modTsContent += `export * from "./${base}";\n`;
-    }
-    const modTsPath = join(outDir, "mod.ts");
-    await writeTextFile(modTsPath, modTsContent);
-    console.log(`Generated mod.ts:\n${modTsContent}`);
-  
-    // Generate a minimal mod.d.ts.
-    const modDtsContent = `// Auto-generated declaration file. All exports are typed as any.
-  declare const _default: any;
-  export default _default;
-  `;
-    const modDtsPath = join(outDir, "mod.d.ts");
-    await writeTextFile(modDtsPath, modDtsContent);
-    console.log("Generated mod.d.ts");
-  
-    // Create sample package.json.
-    const pkgName = options.name || `@boraseoksoon/${basename(sourceDir)}`;
-    const pkgVersion = options.version || "0.0.1";
-    const pkg = {
-      name: pkgName,
-      version: pkgVersion,
-      main: "bundle.js",  // We will update this after bundling.
-      license: "MIT",
-      description: "Sample test HQL module built as a JS package.",
-    };
-    const pkgPath = join(outDir, "package.json");
-    await writeTextFile(pkgPath, JSON.stringify(pkg, null, 2));
-    console.log("Created package.json at", pkgPath);
-  
-    // Create README.md if not exists.
-    const readmePath = join(outDir, "README.md");
-    if (!(await exists(readmePath))) {
-      const readmeContent = `# ${pkgName}\n\nThis is a sample test package built from HQL sources.\n`;
-      await writeTextFile(readmePath, readmeContent);
-      console.log("Generated README.md at", readmePath);
-    }
-  
-    // Bundle the module using esbuild.
-    const bundleOutFile = join(outDir, "bundle.js");
-    console.log("Bundling final JS module using esbuild...");
-    await esbuild.build({
-      entryPoints: [modTsPath],
-      bundle: true,
-      outfile: bundleOutFile,
-      platform: "neutral",
-      format: "esm",
-      minify: false,
-    });
-    esbuild.stop();
-    console.log(`Bundled final module to ${bundleOutFile}`);
-  
-    // Update package.json to point to the bundle.
-    pkg.main = "bundle.js";
-    await writeTextFile(pkgPath, JSON.stringify(pkg, null, 2));
-    console.log("Updated package.json to point to bundle.js");
-  
-    return outDir;
   }
-  
+  if (hqlFiles.length === 0) {
+    console.error(`No .hql files found in ${outDir}`);
+    exit(1);
+  }
+  for (const file of hqlFiles) {
+    const filePath = join(outDir, file);
+    const source = await readTextFile(filePath);
+    const compiled = await compile(source, filePath, false);
+    const outJS = filePath + ".js";
+    await writeTextFile(outJS, compiled);
+    console.log(`Transpiled ${filePath} -> ${outJS}`);
+  }
+
+  // Step 2: Create aggregator file that re-exports everything.
+  // Instead of "export * as name from ..." we use "export * from ..." so that named exports remain at top level.
+  const aggregatorPath = join(outDir, "all_hql_modules.ts");
+  const lines = hqlFiles.map((file) => {
+    return `export * from "./${file}.js";`;
+  });
+  await writeTextFile(aggregatorPath, lines.join("\n"));
+  console.log(`Created aggregator file at ${aggregatorPath}`);
+
+  // Step 3: Bundle the aggregator into bundle.js.
+  const bundlePath = join(outDir, "bundle.js");
+  console.log(`Bundling aggregator into ${bundlePath}...`);
+  const bundleProc = runCmd({
+    cmd: ["deno", "bundle", aggregatorPath, bundlePath],
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const bundleStatus = await bundleProc.status();
+  bundleProc.close();
+  if (!bundleStatus.success) {
+    console.error("deno bundle failed.");
+    exit(bundleStatus.code);
+  }
+  console.log(`Created bundle at ${bundlePath}`);
+
+  // Step 4: Generate dnt build script (build.ts) with your dnt config.
+  // Note: We do not modify the npm folder after dnt runs.
+  const dntConfigContent = `
+import { build, emptyDir } from "https://deno.land/x/dnt@0.37.0/mod.ts";
+
+await emptyDir("./npm");
+
+await build({
+  entryPoints: ["./bundle.js"],
+  outDir: "./npm",
+  // By default, dnt emits the final ESM package into npm/esm.
+  // We leave that as is—your jsr.json will reference "./esm/bundle.js".
+  shims: {
+    deno: true,
+  },
+  scriptModule: false,
+  test: false,
+  package: {
+    name: "",
+    version: "0.0.0"
+  },
+});
+`.trim();
+  const buildTsPath = join(outDir, "build.ts");
+  await writeTextFile(buildTsPath, dntConfigContent);
+  console.log(`Created build.ts at ${buildTsPath}`);
+
+  // Step 5: Run dnt build script.
+  console.log("Running dnt build via build.ts...");
+  const dntProc = runCmd({
+    cmd: ["deno", "run", "-A", "build.ts"],
+    cwd: outDir,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const dntStatus = await dntProc.status();
+  dntProc.close();
+  if (!dntStatus.success) {
+    console.error("dnt build failed.");
+    exit(dntStatus.code);
+  }
+  console.log(`dnt build succeeded. npm directory created at ${join(outDir, "npm")}`);
+}

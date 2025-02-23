@@ -1,3 +1,5 @@
+// hql.ts
+
 import { Env } from "./modules/env.ts";
 import { repl } from "./modules/repl.ts";
 import { compile } from "./modules/compiler.ts";

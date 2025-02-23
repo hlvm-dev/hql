@@ -1,54 +1,16 @@
 import {
   join,
   resolve,
-  basename,
   readTextFile,
   writeTextFile,
   mkdir,
   runCmd,
-  realPathSync,
-  readDir,
-  makeTempDir,
   exit,
-  setEnv
 } from "../../platform/platform.ts";
 import { exists, copy } from "https://deno.land/std@0.170.0/fs/mod.ts";
-import { compile } from "../compiler.ts";
-import { getNextVersionInDir } from "./publish_common.ts";
+import { makeTempDir } from "../../platform/platform.ts";
+import { buildJsModule } from "./build_js_module.ts";
 
-async function generateModFiles(outDir: string): Promise<void> {
-  const files: string[] = [];
-  for await (const entry of readDir(outDir)) {
-    if (entry.isFile && entry.name.endsWith(".hql.js")) {
-      files.push(entry.name);
-    }
-  }
-  if (files.length === 0) {
-    console.error("No compiled .hql.js files found in " + outDir);
-    exit(1);
-  }
-  const modTsContent = files.map((file) => `export * from "./${file}";`).join("\n");
-  const modTsPath = join(outDir, "mod.ts");
-  await writeTextFile(modTsPath, modTsContent);
-  console.log(`Generated mod.ts with the following exports:\n${modTsContent}`);
-
-  const modDtsContent = `// Auto-generated declaration file. All exports are typed as any.
-declare const _default: any;
-export default _default;
-`;
-  const modDtsPath = join(outDir, "mod.d.ts");
-  await writeTextFile(modDtsPath, modDtsContent);
-  console.log(`Generated mod.d.ts.`);
-}
-
-/**
- * Publishes your HQL module as a JSR package and builds a Node-compatible npm package using dnt.
- *
- * Options:
- *   - what: the package root directory containing your .hql files.
- *   - name: the JSR package name (e.g. "@boraseoksoon/dist"). If omitted, defaults to that.
- *   - version: version string; if omitted, auto-increment logic is used.
- */
 export async function publishJSR(options: {
   what: string;
   name?: string;
@@ -56,99 +18,77 @@ export async function publishJSR(options: {
 }) {
   const outDir = resolve(options.what);
   await mkdir(outDir, { recursive: true });
+  // Build the npm folder using our build process.
+  await buildJsModule(outDir);
 
-  const hqlFiles: string[] = [];
-  for await (const entry of readDir(outDir)) {
-    if (entry.isFile && entry.name.endsWith(".hql")) {
-      hqlFiles.push(join(outDir, entry.name));
-    }
-  }
-  if (hqlFiles.length === 0) {
-    console.error(`No .hql files found in ${outDir}. Cannot publish to JSR.`);
+  const npmDistDir = join(outDir, "npm");
+  if (!(await exists(npmDistDir))) {
+    console.error("npm/ folder not found. Did dnt build fail?");
     exit(1);
   }
-  for (const file of hqlFiles) {
-    const source = await readTextFile(file);
-    const compiled = await compile(source, file, false);
-    const outJS = file + ".js";
-    // Rewrite runtime import to point to the bundled runtime.
-    const fixed = compiled.replace(/file:\/\/.*\/hql\.ts/, "./hql_runtime.bundle.js");
-    await writeTextFile(outJS, fixed);
-    console.log(`Compiled ${file} -> ${outJS}`);
+
+  // Step 2: Read & update version from npm/package.json.
+  const pkgJsonPath = join(npmDistDir, "package.json");
+  if (!(await exists(pkgJsonPath))) {
+    console.error("package.json not found in npm/.");
+    exit(1);
   }
+  let pkg = JSON.parse(await readTextFile(pkgJsonPath));
+  let currentVersion = pkg.version || "0.0.1";
+  let newVersion: string;
+  if (options.version) {
+    newVersion = options.version;
+  } else {
+    const [major, minor, patch] = currentVersion.split(".");
+    newVersion = `${major}.${minor}.${Number(patch) + 1}`;
+  }
+  pkg.version = newVersion;
 
-  await generateModFiles(outDir);
+  // Step 3: Determine final package name.
+  const dirName = outDir.split("/").pop() || "hql-package";
+  const defaultScopedName = `@boraseoksoon/${dirName.toLowerCase().replace(/_/g, "-")}`;
+  let finalName = (options.name || defaultScopedName)
+    .toLowerCase()
+    .replace(/_/g, "-");
+  pkg.name = finalName;
 
-  const pkgVersion = await getNextVersionInDir(outDir, options.version);
-  const finalName = options.name || `@boraseoksoon/${basename(outDir)}`;
+  await writeTextFile(pkgJsonPath, JSON.stringify(pkg, null, 2));
 
-  const jsrConfigPath = join(outDir, "jsr.json");
+  // Step 4: Create jsr.json inside npm/ referencing the ESM output.
+  // dnt emits the shimmed bundle in npm/esm/bundle.js.
+  const jsrPath = join(npmDistDir, "jsr.json");
   const jsrConfig = {
     name: finalName,
-    version: pkgVersion,
-    exports: "./mod.ts",
+    version: newVersion,
+    exports: "./esm/bundle.js",
+    license: "MIT",
   };
-  await writeTextFile(jsrConfigPath, JSON.stringify(jsrConfig, null, 2));
-  console.log(`Created jsr.json at ${jsrConfigPath}`);
+  await writeTextFile(jsrPath, JSON.stringify(jsrConfig, null, 2));
+  console.log(`Created jsr.json in npm/: ${jsrPath}`);
+  console.log(`jsr.json content: ${JSON.stringify(jsrConfig, null, 2)}`);
 
-  const readmePath = join(outDir, "README.md");
+  // Step 5: Ensure a README exists.
+  const readmePath = join(npmDistDir, "README.md");
   if (!(await exists(readmePath))) {
-    await writeTextFile(readmePath, `# ${finalName}\n\nAutogenerated README for ${finalName}.\n`);
-    console.log(`Generated README.md at ${readmePath}`);
+    await writeTextFile(readmePath, `# ${finalName}\n\nAuto-generated README for JSR publish.`);
   }
 
-  const runtimeSource = realPathSync("hql.ts");
-  const runtimeBundleTarget = join(outDir, "hql_runtime.bundle.js");
-  console.log(`Bundling HQL runtime from ${runtimeSource} into ${runtimeBundleTarget}...`);
-  const bundleProcess = runCmd({
-    cmd: ["deno", "bundle", runtimeSource, runtimeBundleTarget],
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const bundleStatus = await bundleProcess.status();
-  bundleProcess.close();
-  if (!bundleStatus.success) {
-    console.error("Failed to bundle HQL runtime.");
-    exit(bundleStatus.code);
-  }
-  console.log(`Bundled HQL runtime to ${runtimeBundleTarget}`);
-
+  // Step 6: Copy the entire npm/ folder to a temporary directory and run "deno publish" from there.
   const tempDir = await makeTempDir();
-  console.log(`Copying package contents from ${outDir} to temporary directory ${tempDir}...`);
-  await copy(outDir, tempDir, { overwrite: true });
-  console.log(`Package copied to ${tempDir}`);
+  await copy(npmDistDir, tempDir, { overwrite: true });
 
-  console.log(`Publishing ${finalName}@${pkgVersion} to JSR from ${tempDir}...`);
-  const publishProcess = runCmd({
+  console.log(`Publishing ${finalName}@${newVersion} to JSR from npm/ folder...`);
+  const publishProc = runCmd({
     cmd: ["deno", "publish", "--allow-dirty", "--allow-slow-types"],
     cwd: tempDir,
     stdout: "inherit",
     stderr: "inherit",
   });
-  const publishStatus = await publishProcess.status();
-  publishProcess.close();
-  if (!publishStatus.success) {
-    console.error("deno publish failed. Please fix any errors and try again.");
-    exit(publishStatus.code);
+  const status = await publishProc.status();
+  publishProc.close();
+  if (!status.success) {
+    console.error("deno publish failed. Please fix errors and try again.");
+    exit(status.code);
   }
-  console.log(`JSR publish succeeded! Visit: https://jsr.io/packages/${encodeURIComponent(finalName)}`);
-
-  setEnv("DNT_ENTRYPOINT", "./mod.ts");
-  setEnv("DNT_PACKAGE_NAME", finalName);
-  setEnv("DNT_PACKAGE_VERSION", pkgVersion);
-
-  console.log("Building Node-compatible npm package with dnt...");
-  const dntProcess = runCmd({
-    cmd: ["deno", "run", "-A", "dnt.config.ts"],
-    cwd: outDir,
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const dntStatus = await dntProcess.status();
-  dntProcess.close();
-  if (!dntStatus.success) {
-    console.error("dnt build failed. Check your dnt.config.ts.");
-    exit(dntStatus.code);
-  }
-  console.log("npm package built successfully in ./npm.");
+  console.log(`JSR publish succeeded! See https://jsr.io/packages/${encodeURIComponent(finalName)}`);
 }

@@ -64,15 +64,9 @@ export function execPath(): string {
   return Deno.execPath();
 }
 
-/**
- * A simple wrapper for running commands.
- * For more control, use this function instead of Deno.run directly.
- */
 export function runCmd(options: Deno.RunOptions): Deno.Process {
   return Deno.run(options);
 }
-
-/* --- NEW HELPER FUNCTIONS --- */
 
 /** Wrapper for reading a directory. */
 export function readDir(path: string): AsyncIterable<Deno.DirEntry> {

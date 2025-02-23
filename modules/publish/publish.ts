@@ -1,3 +1,5 @@
+// modules/publish/publish.ts
+
 import { parse } from "https://deno.land/std@0.170.0/flags/mod.ts";
 import { basename, cwd, exit } from "../../platform/platform.ts";
 import { publishNpm } from "./publish_npm.ts";
@@ -10,12 +12,10 @@ export interface PublishOptions {
   version?: string;
 }
 
-// Normalize one-dash long flags (e.g. "-version") into two-dash flags.
+// Normalize one-dash flags to two-dash.
 function normalizeArgs(args: string[]): string[] {
   const allowed = new Set(["what", "name", "version", "where"]);
-  return args.map((arg) => {
-    // If the argument starts with a single dash and its remainder matches one of our flag names,
-    // prepend an extra dash.
+  return args.map(arg => {
     if (arg.startsWith("-") && !arg.startsWith("--")) {
       const key = arg.slice(1);
       if (allowed.has(key)) {
@@ -27,9 +27,14 @@ function normalizeArgs(args: string[]): string[] {
 }
 
 /**
- * Parses publish arguments from positional parameters and named flags.
- * Supported flags: -what, -name, -version, -where.
- * Also performs validation on unknown flags and flag formats.
+ * Parses publish arguments.
+ *
+ * For JSR:
+ *    If the positional parameters are ["jsr", <targetDir>] then package name is undefined
+ *    and will default to `@boraseoksoon/<basename(targetDir)>`.
+ *    If they are ["jsr", <targetDir>, <packageName>], then <packageName> is used.
+ *
+ * For npm, similar logic applies.
  */
 function parsePublishArgs(args: string[]): PublishOptions {
   const normalizedArgs = normalizeArgs(args);
@@ -37,18 +42,17 @@ function parsePublishArgs(args: string[]): PublishOptions {
     string: ["what", "name", "version", "where"],
   });
 
-  // Check for unknown flags.
+  // Validate unknown flags.
   const allowedFlags = new Set(["what", "name", "version", "where", "_"]);
   for (const key of Object.keys(parsed)) {
     if (!allowedFlags.has(key)) {
-      console.error(`Unknown flag: --${key}. Allowed flags are: -what, -name, -version, -where.`);
+      console.error(`Unknown flag: --${key}. Allowed flags: -what, -name, -version, -where.`);
       exit(1);
     }
   }
 
-  // Validate version format if provided.
   if (parsed.version && !/^\d+\.\d+\.\d+$/.test(parsed.version)) {
-    console.error(`Invalid version format: ${parsed.version}. Expected format: X.Y.Z (e.g. 1.0.0).`);
+    console.error(`Invalid version format: ${parsed.version}. Expected format: X.Y.Z`);
     exit(1);
   }
 
@@ -58,14 +62,15 @@ function parsePublishArgs(args: string[]): PublishOptions {
     if (whereVal === "npm" || whereVal === "jsr") {
       platform = whereVal as "jsr" | "npm";
     } else {
-      console.error("Invalid value for -where flag. Must be either 'npm' or 'jsr'.");
+      console.error("Invalid value for -where flag. Must be 'npm' or 'jsr'.");
       exit(1);
     }
   }
   const pos = parsed._;
   let what = pos.length > 0 ? String(pos[0]) : cwd();
+  // If the first positional argument is a platform flag, adjust accordingly.
   if (pos.length > 0 && ["npm", "jsr"].includes(String(pos[0]).toLowerCase())) {
-    platform = String(pos[0]).toLowerCase() as "npm" | "jsr";
+    platform = String(pos[0]).toLowerCase() as "jsr" | "npm";
     what = pos.length > 1 ? String(pos[1]) : cwd();
   }
   if (parsed.what) {
@@ -80,17 +85,18 @@ function parsePublishArgs(args: string[]): PublishOptions {
     name = String(parsed.name);
   } else {
     if (platform === "jsr") {
-      if (pos.length >= 2) {
-        name = String(pos[1]);
+      // Only use a positional package name if explicitly provided as the third parameter.
+      if (pos.length >= 3) {
+        name = String(pos[2]);
       }
       if (!name) {
         name = `@boraseoksoon/${basename(what)}`;
       }
     } else if (platform === "npm") {
-      if (pos.length >= 2 && !["npm", "jsr"].includes(String(pos[0]).toLowerCase())) {
-        name = String(pos[1]);
-      } else if (pos.length >= 3) {
+      if (pos.length >= 3 && !["npm", "jsr"].includes(String(pos[0]).toLowerCase())) {
         name = String(pos[2]);
+      } else if (pos.length >= 4) {
+        name = String(pos[3]);
       }
     }
   }
@@ -100,14 +106,14 @@ function parsePublishArgs(args: string[]): PublishOptions {
     version = String(parsed.version);
   } else {
     if (platform === "jsr") {
-      if (pos.length >= 3) {
-        version = String(pos[2]);
+      if (pos.length >= 4) {
+        version = String(pos[3]);
       }
     } else if (platform === "npm") {
       if (pos.length >= 3 && !["npm", "jsr"].includes(String(pos[0]).toLowerCase())) {
-        version = String(pos[2]);
-      } else if (pos.length >= 4) {
         version = String(pos[3]);
+      } else if (pos.length >= 4) {
+        version = String(pos[4]);
       }
     }
   }
@@ -115,10 +121,7 @@ function parsePublishArgs(args: string[]): PublishOptions {
 }
 
 /**
- * Mediator for publishing an HQL module.
- * This function hides all internal details. The caller only needs to
- * call publish(args) (where args are the CLI parameters for publish),
- * and this module dispatches the task to either publishNpm or publishJSR.
+ * Main publish mediator.
  */
 export async function publish(args: string[]): Promise<void> {
   const options = parsePublishArgs(args);
@@ -131,7 +134,7 @@ export async function publish(args: string[]): Promise<void> {
   } else {
     console.log(`Publishing JSR package with:
   Directory: ${options.what}
-  Package Name: ${options.name}
+  Package Name: ${options.name ?? "(auto-generated)"}
   Version: ${options.version ?? "(auto-incremented)"}`);
     await publishJSR({ what: options.what, name: options.name, version: options.version });
   }
