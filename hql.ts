@@ -2,7 +2,7 @@
 
 import { Env } from "./modules/env.ts";
 import { repl } from "./modules/repl.ts";
-import { compile } from "./modules/compiler.ts";
+import { compile, compileBundle } from "./modules/compiler.ts";
 import { buildImportMap, buildImportMapForJS } from "./modules/importMap.ts";
 import {
   join,
@@ -40,6 +40,7 @@ async function startCmd(args: string[]) {
   if (file.endsWith(".hql")) {
     const absoluteInput = resolve(file);
     const source = await readTextFile(absoluteInput);
+    // In run mode, skip evaluation.
     const compiled = await compile(source, absoluteInput, true);
     const outputFolder = absoluteInput.includes("/test/")
       ? join(dirname(absoluteInput), "transpiled")
@@ -55,7 +56,6 @@ async function startCmd(args: string[]) {
     importMap.imports = await buildImportMapForJS(entryFile, cacheDir);
   }
 
-  // If any imports were remapped, write an import map file.
   if (Object.keys(importMap.imports).length > 0) {
     const importMapPath = join(projectRoot, "hql_import_map.json");
     await writeTextFile(importMapPath, JSON.stringify(importMap, null, 2));
@@ -85,6 +85,7 @@ async function execute(cmd: string[]) {
 }
 
 async function transpile(args: string[]) {
+  // File-based transpile using compile()
   if (args.length < 2) {
     console.log("Usage:");
     console.log("  hql transpile <inputFile> [outputFile]");
@@ -92,13 +93,13 @@ async function transpile(args: string[]) {
   }
   const inputFile = args[1];
   const absoluteInput = resolve(inputFile);
-  const projectRoot = cwd();
+  const currentDir = cwd();
   let outputFile: string;
   if (args.length >= 3) {
     outputFile = args[2];
-    // Here a relative output file is interpreted relative to the project root.
+    // Resolve relative to currentDir.
     if (!isAbsolute(outputFile)) {
-      outputFile = resolve(join(projectRoot, outputFile));
+      outputFile = resolve(join(currentDir, outputFile));
     } else {
       outputFile = resolve(outputFile);
     }
@@ -107,11 +108,39 @@ async function transpile(args: string[]) {
     outputFile = join(dirname(absoluteInput), `${baseName}.hql.js`);
   }
   const source = await readTextFile(absoluteInput);
-  // Pass the resolved outputFile to compile so it can compute relative paths.
   const compiled = await compile(source, absoluteInput, false, outputFile);
   await mkdir(dirname(outputFile), { recursive: true });
   await writeTextFile(outputFile, compiled);
   console.log(`Transpiled ${absoluteInput} -> ${outputFile}`);
+}
+
+async function bundleTranspile(args: string[]) {
+  // Bundled transpile using compileBundle()
+  if (args.length < 2) {
+    console.log("Usage:");
+    console.log("  hql bundle <entryFile> [outputFile]");
+    Deno.exit(1);
+  }
+  const entryFile = args[1];
+  const absoluteEntry = resolve(entryFile);
+  const currentDir = cwd();
+  let outputFile: string;
+  if (args.length >= 3) {
+    outputFile = args[2];
+    if (!isAbsolute(outputFile)) {
+      outputFile = resolve(join(currentDir, outputFile));
+    } else {
+      outputFile = resolve(outputFile);
+    }
+  } else {
+    const baseName = basename(absoluteEntry, extname(absoluteEntry));
+    outputFile = join(dirname(absoluteEntry), `${baseName}.bundle.hql.js`);
+  }
+  // compileBundle handles the bundling process internally.
+  const compiled = await compileBundle(absoluteEntry, outputFile);
+  await mkdir(dirname(outputFile), { recursive: true });
+  await writeTextFile(outputFile, compiled);
+  console.log(`Bundled ${absoluteEntry} -> ${outputFile}`);
 }
 
 async function main() {
@@ -131,6 +160,9 @@ async function main() {
     case "transpile":
       await transpile(args);
       break;
+    case "bundle":
+      await bundleTranspile(args);
+      break;
     case "publish":
       await publish(args.slice(1));
       break;
@@ -140,6 +172,7 @@ async function main() {
       console.log("  hql repl");
       console.log("  hql run <file>");
       console.log("  hql transpile <inputFile> [outputFile]");
+      console.log("  hql bundle <entryFile> [outputFile]");
       console.log("  hql publish [targetDir] [-name <packageName>] [-version <version>] [-where <npm|jsr>]");
       Deno.exit(1);
   }
@@ -149,4 +182,4 @@ if ((import.meta as { main?: boolean }).main) {
   main();
 }
 
-export { exportHqlModules, getHqlModule } from "./modules/export.ts";
+export { exportHql, exportHqlModules, getHqlModule } from "./modules/export.ts";
