@@ -6,16 +6,10 @@ import { Env, baseEnv } from "./env.ts";
 import { evaluateAsync } from "./eval.ts";
 import { HQLValue, makeNil } from "./type.ts";
 import {
-  join,
   dirname,
-  basename,
-  extname,
-  resolve,
   relative,
   realPathSync
 } from "../platform/platform.ts";
-import { bundleHql } from "./bundler.ts";
-import { exportHql, getHqlModule } from "./export.ts";
 
 /**
  * Determine the project root.
@@ -147,71 +141,4 @@ export const ${name} = getHqlModule("${name}", _exports);\n`;
   }
   
   return code;
-}
-
-/**
- * New compileBundle function – compiles an entry HQL file into a self-contained JS module.
- * It bundles the entire HQL code (with dependencies) inline so that no file I/O is needed at runtime.
- *
- * @param entryPath The entry HQL file path (or already bundled code).
- * @param outputPath (Optional) The absolute path of the output JS module.
- * @returns A Promise that resolves to the generated JS module code.
- */
-export async function compileBundle(entryPath: string, outputPath?: string): Promise<string> {
-  // Check if entryPath is a file.
-  let isFile = true;
-  try {
-    await Deno.stat(entryPath);
-  } catch {
-    isFile = false;
-  }
-  // If it is a file, bundle it; otherwise assume entryPath is already bundled code.
-  const bundled = isFile ? await bundleHql(entryPath) : entryPath;
-
-  // For bundled code, we don’t need to compute a relative input identifier;
-  // we use a fixed virtual file name.
-  const inputRel = "bundle.hql.js";
-
-  // Evaluate the bundled code at compile time to obtain exports.
-  const exportsMap = await exportHql(bundled, "bundle.hql");
-  const names = Object.keys(exportsMap);
-
-  // Use the fixed runtime URL.
-  const runtimeImport = "jsr:@boraseoksoon/hql@0.0.2";
-
-  // Generate the final JS module.
-  let code = `import { exportHql, getHqlModule } from "${runtimeImport}";\n\n`;
-  // Inline the bundled HQL code as a JSON string literal.
-  code += `const bundled_hql = ${JSON.stringify(bundled)};\n`;
-  // At runtime, evaluate the bundled code.
-  code += `const _exports = await exportHql(bundled_hql, "bundle.hql");\n\n`;
-
-  // Generate wrappers for each export.
-  for (const name of names) {
-    const mod = exportsMap[name];
-    if (mod && mod.type === "function") {
-      const isSync = (mod as any).isSync;
-      if (isSync) {
-        code += `export function ${name}(...args) {\n  const fn = getHqlModule("${name}", _exports);\n  return fn(...args);\n}\n\n`;
-      } else {
-        code += `export async function ${name}(...args) {\n  const fn = getHqlModule("${name}", _exports);\n  return await fn(...args);\n}\n\n`;
-      }
-    } else {
-      code += `export const ${name} = getHqlModule("${name}", _exports);\n\n`;
-    }
-  }
-
-  return code;
-}
-
-/**
- * Helper to compute a relative path from one directory to a target.
- * Ensures that the returned path starts with "./" or "../" as needed.
- */
-function makeRelativePath(fromDir: string, toPath: string): string {
-  let rel = relative(fromDir, toPath);
-  if (!rel.startsWith(".") && !rel.startsWith("/")) {
-    rel = "./" + rel;
-  }
-  return rel;
 }
