@@ -1,18 +1,31 @@
-import { join, resolve, basename, readTextFile, writeTextFile, mkdir, runCmd } from "../platform/platform.ts";
+import {
+  join,
+  resolve,
+  basename,
+  readTextFile,
+  writeTextFile,
+  mkdir,
+  runCmd,
+  realPathSync,
+  readDir,
+  makeTempDir,
+  exit,
+  setEnv
+} from "../../platform/platform.ts";
 import { exists, copy } from "https://deno.land/std@0.170.0/fs/mod.ts";
-import { compileHQL } from "./compiler.ts";
+import { compileHQL } from "../compiler.ts";
 import { getNextVersionInDir } from "./publish_common.ts";
 
 async function generateModFiles(outDir: string): Promise<void> {
   const files: string[] = [];
-  for await (const entry of Deno.readDir(outDir)) {
+  for await (const entry of readDir(outDir)) {
     if (entry.isFile && entry.name.endsWith(".hql.js")) {
       files.push(entry.name);
     }
   }
   if (files.length === 0) {
     console.error("No compiled .hql.js files found in " + outDir);
-    Deno.exit(1);
+    exit(1);
   }
   const modTsContent = files.map((file) => `export * from "./${file}";`).join("\n");
   const modTsPath = join(outDir, "mod.ts");
@@ -45,14 +58,14 @@ export async function publishJSR(options: {
   await mkdir(outDir, { recursive: true });
 
   const hqlFiles: string[] = [];
-  for await (const entry of Deno.readDir(outDir)) {
+  for await (const entry of readDir(outDir)) {
     if (entry.isFile && entry.name.endsWith(".hql")) {
       hqlFiles.push(join(outDir, entry.name));
     }
   }
   if (hqlFiles.length === 0) {
     console.error(`No .hql files found in ${outDir}. Cannot publish to JSR.`);
-    Deno.exit(1);
+    exit(1);
   }
   for (const file of hqlFiles) {
     const source = await readTextFile(file);
@@ -84,58 +97,58 @@ export async function publishJSR(options: {
     console.log(`Generated README.md at ${readmePath}`);
   }
 
-  const runtimeSource = new URL("../hql.ts", import.meta.url).pathname;
+  const runtimeSource = realPathSync("hql.ts");
   const runtimeBundleTarget = join(outDir, "hql_runtime.bundle.js");
   console.log(`Bundling HQL runtime from ${runtimeSource} into ${runtimeBundleTarget}...`);
-  const bundleProc = runCmd({
+  const bundleProcess = runCmd({
     cmd: ["deno", "bundle", runtimeSource, runtimeBundleTarget],
     stdout: "inherit",
     stderr: "inherit",
   });
-  const bundleStatus = await bundleProc.status();
-  bundleProc.close();
+  const bundleStatus = await bundleProcess.status();
+  bundleProcess.close();
   if (!bundleStatus.success) {
     console.error("Failed to bundle HQL runtime.");
-    Deno.exit(bundleStatus.code);
+    exit(bundleStatus.code);
   }
   console.log(`Bundled HQL runtime to ${runtimeBundleTarget}`);
 
-  const tempDir = await Deno.makeTempDir();
+  const tempDir = await makeTempDir();
   console.log(`Copying package contents from ${outDir} to temporary directory ${tempDir}...`);
   await copy(outDir, tempDir, { overwrite: true });
   console.log(`Package copied to ${tempDir}`);
 
   console.log(`Publishing ${finalName}@${pkgVersion} to JSR from ${tempDir}...`);
-  const publishProc = runCmd({
+  const publishProcess = runCmd({
     cmd: ["deno", "publish", "--allow-dirty", "--allow-slow-types"],
     cwd: tempDir,
     stdout: "inherit",
     stderr: "inherit",
   });
-  const publishStatus = await publishProc.status();
-  publishProc.close();
+  const publishStatus = await publishProcess.status();
+  publishProcess.close();
   if (!publishStatus.success) {
     console.error("deno publish failed. Please fix any errors and try again.");
-    Deno.exit(publishStatus.code);
+    exit(publishStatus.code);
   }
   console.log(`JSR publish succeeded! Visit: https://jsr.io/packages/${encodeURIComponent(finalName)}`);
 
-  Deno.env.set("DNT_ENTRYPOINT", "./mod.ts");
-  Deno.env.set("DNT_PACKAGE_NAME", finalName);
-  Deno.env.set("DNT_PACKAGE_VERSION", pkgVersion);
+  setEnv("DNT_ENTRYPOINT", "./mod.ts");
+  setEnv("DNT_PACKAGE_NAME", finalName);
+  setEnv("DNT_PACKAGE_VERSION", pkgVersion);
 
   console.log("Building Node-compatible npm package with dnt...");
-  const dntProc = runCmd({
+  const dntProcess = runCmd({
     cmd: ["deno", "run", "-A", "dnt.config.ts"],
     cwd: outDir,
     stdout: "inherit",
     stderr: "inherit",
   });
-  const dntStatus = await dntProc.status();
-  dntProc.close();
+  const dntStatus = await dntProcess.status();
+  dntProcess.close();
   if (!dntStatus.success) {
     console.error("dnt build failed. Check your dnt.config.ts.");
-    Deno.exit(dntStatus.code);
+    exit(dntStatus.code);
   }
   console.log("npm package built successfully in ./npm.");
 }

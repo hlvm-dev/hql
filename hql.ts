@@ -16,7 +16,7 @@ import {
   execPath,
   runCmd as run
 } from "./platform/platform.ts";
-import { publish } from "./modules/publish.ts"; // Mediator for publish
+import { publish } from "./modules/publish/publish.ts";
 
 async function startRepl() {
   const env = new Env();

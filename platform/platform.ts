@@ -71,3 +71,30 @@ export function execPath(): string {
 export function runCmd(options: Deno.RunOptions): Deno.Process {
   return Deno.run(options);
 }
+
+/* --- NEW HELPER FUNCTIONS --- */
+
+/** Wrapper for reading a directory. */
+export function readDir(path: string): AsyncIterable<Deno.DirEntry> {
+  return Deno.readDir(path);
+}
+
+/** Wrapper for creating a temporary directory. */
+export async function makeTempDir(): Promise<string> {
+  return await Deno.makeTempDir();
+}
+
+/** Wrapper for exiting the process. */
+export function exit(code: number): never {
+  Deno.exit(code);
+}
+
+/** Get an environment variable. */
+export function getEnv(key: string): string | undefined {
+  return Deno.env.get(key);
+}
+
+/** Set an environment variable. */
+export function setEnv(key: string, value: string): void {
+  Deno.env.set(key, value);
+}

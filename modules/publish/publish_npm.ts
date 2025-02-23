@@ -1,4 +1,16 @@
-import { join, resolve, basename, readTextFile, writeTextFile, mkdir, runCmd } from "../platform/platform.ts";
+import {
+  join,
+  resolve,
+  basename,
+  readTextFile,
+  writeTextFile,
+  mkdir,
+  runCmd,
+  readDir,
+  cwd,
+  exit,
+  getEnv
+} from "../../platform/platform.ts";
 import { exists } from "https://deno.land/std@0.170.0/fs/mod.ts";
 import { getNextVersionInDir, getNpmUsername } from "./publish_common.ts";
 
@@ -30,7 +42,7 @@ export async function publishNpm(options: {
     pkgName = options.name.startsWith("@")
       ? options.name
       : (() => {
-          const npmUser = Deno.env.get("NPM_USERNAME") || "";
+          const npmUser = getEnv("NPM_USERNAME") || "";
           return npmUser ? `@${npmUser.trim()}/${options.name}` : options.name;
         })();
   } else {
@@ -44,7 +56,7 @@ export async function publishNpm(options: {
 
   // Locate a .hql file in outDir.
   let hqlFile: string | null = null;
-  for await (const entry of Deno.readDir(outDir)) {
+  for await (const entry of readDir(outDir)) {
     if (entry.isFile && entry.name.endsWith(".hql")) {
       hqlFile = join(outDir, entry.name);
       break;
@@ -52,7 +64,7 @@ export async function publishNpm(options: {
   }
   if (!hqlFile) {
     console.error(`No .hql file found in ${outDir}. Please place your HQL source (e.g., add.hql) there.`);
-    Deno.exit(1);
+    exit(1);
   }
 
   const { compileHQL } = await import("./compiler.ts");
@@ -82,7 +94,7 @@ export async function publishNpm(options: {
     console.log(`Generated README.md at ${readmePath}`);
   }
 
-  const dryRun = Deno.env.get("DRY_RUN_PUBLISH");
+  const dryRun = getEnv("DRY_RUN_PUBLISH");
 
   const publishCmd = dryRun
     ? ["npm", "publish", "--dry-run", "--access", "public"]
@@ -98,7 +110,7 @@ export async function publishNpm(options: {
   proc.close();
   if (!status.success) {
     console.error("npm publish failed. Ensure you're logged in and have permission to publish the package:", pkgName);
-    Deno.exit(status.code);
+    exit(status.code);
   }
   console.log("Package published successfully!");
   console.log(`Published URL: https://www.npmjs.com/package/${pkgName}`);

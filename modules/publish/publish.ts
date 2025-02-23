@@ -1,5 +1,5 @@
 import { parse } from "https://deno.land/std@0.170.0/flags/mod.ts";
-import { basename, cwd } from "../platform/platform.ts";
+import { basename, cwd, exit } from "../../platform/platform.ts";
 import { publishNpm } from "./publish_npm.ts";
 import { publishJSR } from "./publish_jsr.ts";
 
@@ -25,7 +25,7 @@ function parsePublishArgs(args: string[]): PublishOptions {
       platform = whereVal as "jsr" | "npm";
     } else {
       console.error("Invalid value for -where flag. Must be either 'npm' or 'jsr'.");
-      Deno.exit(1);
+      exit(1);
     }
   }
   const pos = parsed._;

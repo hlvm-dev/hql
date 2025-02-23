@@ -1,4 +1,4 @@
-import { join, readTextFile, writeTextFile } from "../platform/platform.ts";
+import { join, readTextFile, writeTextFile, runCmd, getEnv } from "../../platform/platform.ts";
 import { exists } from "https://deno.land/std@0.170.0/fs/mod.ts";
 
 /**
@@ -39,10 +39,10 @@ export async function getNextVersionInDir(
  * if not set, runs "npm whoami".
  */
 export async function getNpmUsername(): Promise<string | undefined> {
-  let npmUser = Deno.env.get("NPM_USERNAME");
+  let npmUser = getEnv("NPM_USERNAME");
   if (npmUser) return npmUser.trim();
   try {
-    const proc = Deno.run({
+    const proc = runCmd({
       cmd: ["npm", "whoami"],
       stdout: "piped",
       stderr: "null",
