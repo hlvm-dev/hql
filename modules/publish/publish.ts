@@ -10,14 +10,48 @@ export interface PublishOptions {
   version?: string;
 }
 
+// Normalize one-dash long flags (e.g. "-version") into two-dash flags.
+function normalizeArgs(args: string[]): string[] {
+  const allowed = new Set(["what", "name", "version", "where"]);
+  return args.map((arg) => {
+    // If the argument starts with a single dash and its remainder matches one of our flag names,
+    // prepend an extra dash.
+    if (arg.startsWith("-") && !arg.startsWith("--")) {
+      const key = arg.slice(1);
+      if (allowed.has(key)) {
+        return `--${key}`;
+      }
+    }
+    return arg;
+  });
+}
+
 /**
  * Parses publish arguments from positional parameters and named flags.
  * Supported flags: -what, -name, -version, -where.
+ * Also performs validation on unknown flags and flag formats.
  */
 function parsePublishArgs(args: string[]): PublishOptions {
-  const parsed = parse(args, {
+  const normalizedArgs = normalizeArgs(args);
+  const parsed = parse(normalizedArgs, {
     string: ["what", "name", "version", "where"],
   });
+
+  // Check for unknown flags.
+  const allowedFlags = new Set(["what", "name", "version", "where", "_"]);
+  for (const key of Object.keys(parsed)) {
+    if (!allowedFlags.has(key)) {
+      console.error(`Unknown flag: --${key}. Allowed flags are: -what, -name, -version, -where.`);
+      exit(1);
+    }
+  }
+
+  // Validate version format if provided.
+  if (parsed.version && !/^\d+\.\d+\.\d+$/.test(parsed.version)) {
+    console.error(`Invalid version format: ${parsed.version}. Expected format: X.Y.Z (e.g. 1.0.0).`);
+    exit(1);
+  }
+
   let platform: "jsr" | "npm" = "jsr";
   if (parsed.where) {
     const whereVal = String(parsed.where).toLowerCase();

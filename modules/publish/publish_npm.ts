@@ -13,6 +13,7 @@ import {
 } from "../../platform/platform.ts";
 import { exists } from "https://deno.land/std@0.170.0/fs/mod.ts";
 import { getNextVersionInDir, getNpmUsername } from "./publish_common.ts";
+import { compile } from "../compiler.ts"
 
 /**
  * Publishes your HQL module to npm.
@@ -67,9 +68,8 @@ export async function publishNpm(options: {
     exit(1);
   }
 
-  const { compileHQL } = await import("./compiler.ts");
   const source = await readTextFile(hqlFile);
-  const compiledJS = await compileHQL(source, hqlFile, false);
+  const compiledJS = await compile(source, hqlFile, false);
   const outJS = hqlFile + ".js";
   await writeTextFile(outJS, compiledJS);
   console.log(`Compiled ${hqlFile} -> ${outJS}`);

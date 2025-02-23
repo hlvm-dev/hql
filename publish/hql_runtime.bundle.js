@@ -1437,7 +1437,7 @@ function hqlToJs(val) {
             return val;
     }
 }
-async function compileHQL(source, inputPath, skipEvaluation = false) {
+async function compile(source, inputPath, skipEvaluation = false) {
     return await compile(source, inputPath, undefined, skipEvaluation);
 }
 function jsToHql(obj) {
@@ -1864,7 +1864,7 @@ async function doImport(url, baseUrl) {
             }
             if (needCompile) {
                 const source = await readTextFile(filePath);
-                const compiled = await compileHQL(source, filePath);
+                const compiled = await compile(source, filePath);
                 await mkdir(dirname3(cacheFile), {
                     recursive: true
                 });
@@ -2251,7 +2251,7 @@ async function buildImportMap(entryFile, cacheDir, visited = new Set()) {
     await mkdir(dirname3(outPath), {
         recursive: true
     });
-    const compiled = await compileHQL(content, absoluteFilePath, true);
+    const compiled = await compile(content, absoluteFilePath, true);
     await writeTextFile(outPath, compiled);
     const absEntryUrl = new URL("file://" + absoluteFilePath).href;
     const absOutUrl = new URL("file://" + resolve3(outPath)).href;
@@ -2686,8 +2686,12 @@ var EOL;
     EOL["CRLF"] = "\r\n";
 })(EOL || (EOL = {}));
 async function getNextVersionInDir(outDir, provided) {
-    if (provided) return provided;
     const versionFile = join4(outDir, "VERSION");
+    if (provided) {
+        await writeTextFile(versionFile, provided);
+        console.log(`Forcing version to ${provided} in ${outDir}`);
+        return provided;
+    }
     if (!await exists(versionFile)) {
         const defaultVersion = "0.0.1";
         await writeTextFile(versionFile, defaultVersion);
@@ -2757,9 +2761,9 @@ async function publishNpm(options) {
         console.error(`No .hql file found in ${outDir}. Please place your HQL source (e.g., add.hql) there.`);
         exit(1);
     }
-    const { compileHQL } = await import("./compiler.ts");
+    const { compile } = await import("./compiler.ts");
     const source = await readTextFile(hqlFile);
-    const compiledJS = await compileHQL(source, hqlFile, false);
+    const compiledJS = await compile(source, hqlFile, false);
     const outJS = hqlFile + ".js";
     await writeTextFile(outJS, compiledJS);
     console.log(`Compiled ${hqlFile} -> ${outJS}`);
@@ -2847,7 +2851,7 @@ async function publishJSR(options) {
     }
     for (const file of hqlFiles){
         const source = await readTextFile(file);
-        const compiled = await compileHQL(source, file, false);
+        const compiled = await compile(source, file, false);
         const outJS = file + ".js";
         const fixed = compiled.replace(/file:\/\/.*\/hql\.ts/, "./hql_runtime.bundle.js");
         await writeTextFile(outJS, fixed);
@@ -2937,8 +2941,26 @@ async function publishJSR(options) {
     }
     console.log("npm package built successfully in ./npm.");
 }
+function normalizeArgs(args) {
+    const allowed = new Set([
+        "what",
+        "name",
+        "version",
+        "where"
+    ]);
+    return args.map((arg)=>{
+        if (arg.startsWith("-") && !arg.startsWith("--")) {
+            const key = arg.slice(1);
+            if (allowed.has(key)) {
+                return `--${key}`;
+            }
+        }
+        return arg;
+    });
+}
 function parsePublishArgs(args) {
-    const parsed = parse4(args, {
+    const normalizedArgs = normalizeArgs(args);
+    const parsed = parse4(normalizedArgs, {
         string: [
             "what",
             "name",
@@ -2946,6 +2968,23 @@ function parsePublishArgs(args) {
             "where"
         ]
     });
+    const allowedFlags = new Set([
+        "what",
+        "name",
+        "version",
+        "where",
+        "_"
+    ]);
+    for (const key of Object.keys(parsed)){
+        if (!allowedFlags.has(key)) {
+            console.error(`Unknown flag: --${key}. Allowed flags are: -what, -name, -version, -where.`);
+            exit(1);
+        }
+    }
+    if (parsed.version && !/^\d+\.\d+\.\d+$/.test(parsed.version)) {
+        console.error(`Invalid version format: ${parsed.version}. Expected format: X.Y.Z (e.g. 1.0.0).`);
+        exit(1);
+    }
     let platform = "jsr";
     if (parsed.where) {
         const whereVal = String(parsed.where).toLowerCase();
@@ -3090,7 +3129,7 @@ async function startCmd(args) {
     if (file.endsWith(".hql")) {
         const absoluteInput = resolve3(file);
         const source = await readTextFile(absoluteInput);
-        const compiled = await compileHQL(source, absoluteInput, true);
+        const compiled = await compile(source, absoluteInput, true);
         const outputFolder = absoluteInput.includes("/test/") ? join4(dirname3(absoluteInput), "transpiled") : dirname3(absoluteInput);
         await mkdir(outputFolder, {
             recursive: true
@@ -3150,7 +3189,7 @@ async function transpile(args) {
         outputFile = join4(dirname3(absoluteInput), `${baseName}.hql.js`);
     }
     const source = await readTextFile(absoluteInput);
-    const compiled = await compileHQL(source, absoluteInput, false);
+    const compiled = await compile(source, absoluteInput, false);
     await mkdir(dirname3(outputFile), {
         recursive: true
     });

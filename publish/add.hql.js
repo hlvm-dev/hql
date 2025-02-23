@@ -1,4 +1,4 @@
-import { exportHqlModules, getHqlModule } from "./hql_runtime.bundle.js";
+import { exportHqlModules, getHqlModule } from "file:///Users/seoksoonjang/dev/hql/hql.ts";
 
 const _exports = await exportHqlModules("/Users/seoksoonjang/dev/hql/publish/add.hql");
 

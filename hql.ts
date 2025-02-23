@@ -1,6 +1,6 @@
 import { Env } from "./modules/env.ts";
 import { repl } from "./modules/repl.ts";
-import { compileHQL } from "./modules/compiler.ts";
+import { compile } from "./modules/compiler.ts";
 import { buildImportMap, buildImportMapForJS } from "./modules/importMap.ts";
 import {
   join,
@@ -38,7 +38,7 @@ async function startCmd(args: string[]) {
   if (file.endsWith(".hql")) {
     const absoluteInput = resolve(file);
     const source = await readTextFile(absoluteInput);
-    const compiled = await compileHQL(source, absoluteInput, true);
+    const compiled = await compile(source, absoluteInput, true);
     const outputFolder = absoluteInput.includes("/test/")
       ? join(dirname(absoluteInput), "transpiled")
       : dirname(absoluteInput);
@@ -102,7 +102,7 @@ async function transpile(args: string[]) {
     outputFile = join(dirname(absoluteInput), `${baseName}.hql.js`);
   }
   const source = await readTextFile(absoluteInput);
-  const compiled = await compileHQL(source, absoluteInput, false);
+  const compiled = await compile(source, absoluteInput, false);
   await mkdir(dirname(outputFile), { recursive: true });
   await writeTextFile(outputFile, compiled);
   console.log(`Transpiled ${absoluteInput} -> ${outputFile}`);

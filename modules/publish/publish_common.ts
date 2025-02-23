@@ -3,7 +3,7 @@ import { exists } from "https://deno.land/std@0.170.0/fs/mod.ts";
 
 /**
  * Returns the next version string for the given directory.
- * If a version is provided, that version is returned.
+ * If a version is provided, that version is written to the VERSION file and returned.
  * Otherwise, if no VERSION file exists, it creates one with "0.0.1".
  * If the file exists, it bumps the patch number.
  */
@@ -11,8 +11,12 @@ export async function getNextVersionInDir(
   outDir: string,
   provided?: string,
 ): Promise<string> {
-  if (provided) return provided;
   const versionFile = join(outDir, "VERSION");
+  if (provided) {
+    await writeTextFile(versionFile, provided);
+    console.log(`Forcing version to ${provided} in ${outDir}`);
+    return provided;
+  }
   if (!(await exists(versionFile))) {
     const defaultVersion = "0.0.1";
     await writeTextFile(versionFile, defaultVersion);

@@ -13,7 +13,7 @@ import {
   setEnv
 } from "../../platform/platform.ts";
 import { exists, copy } from "https://deno.land/std@0.170.0/fs/mod.ts";
-import { compileHQL } from "../compiler.ts";
+import { compile } from "../compiler.ts";
 import { getNextVersionInDir } from "./publish_common.ts";
 
 async function generateModFiles(outDir: string): Promise<void> {
@@ -69,7 +69,7 @@ export async function publishJSR(options: {
   }
   for (const file of hqlFiles) {
     const source = await readTextFile(file);
-    const compiled = await compileHQL(source, file, false);
+    const compiled = await compile(source, file, false);
     const outJS = file + ".js";
     // Rewrite runtime import to point to the bundled runtime.
     const fixed = compiled.replace(/file:\/\/.*\/hql\.ts/, "./hql_runtime.bundle.js");
