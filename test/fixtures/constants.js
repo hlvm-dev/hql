@@ -1,0 +1,10 @@
+// .hql-cache/1/test/fixtures/constants.ts
+var PI = typeof __hql_callFn === "function"
+  ? __hql_callFn.call(void 0, __hql_deepFreeze, void 0, 3.14159)
+  : __hql_deepFreeze(3.14159);
+var E = typeof __hql_callFn === "function"
+  ? __hql_callFn.call(void 0, __hql_deepFreeze, void 0, 2.71828)
+  : __hql_deepFreeze(2.71828);
+var counter = 0;
+export { counter, E, PI };
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiLi4vLi4vLmhxbC1jYWNoZS8xL3Rlc3QvZml4dHVyZXMvY29uc3RhbnRzLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyJcInVzZSBzdHJpY3RcIjtcbmNvbnN0IFBJID0gdHlwZW9mIF9faHFsX2NhbGxGbiA9PT0gXCJmdW5jdGlvblwiID8gX19ocWxfY2FsbEZuLmNhbGwodGhpcywgX19ocWxfZGVlcEZyZWV6ZSwgdW5kZWZpbmVkLCAzLjE0MTU5KSA6IF9faHFsX2RlZXBGcmVlemUoMy4xNDE1OSk7XG5jb25zdCBFID0gdHlwZW9mIF9faHFsX2NhbGxGbiA9PT0gXCJmdW5jdGlvblwiID8gX19ocWxfY2FsbEZuLmNhbGwodGhpcywgX19ocWxfZGVlcEZyZWV6ZSwgdW5kZWZpbmVkLCAyLjcxODI4KSA6IF9faHFsX2RlZXBGcmVlemUoMi43MTgyOCk7XG5sZXQgY291bnRlciA9IDA7XG5leHBvcnQgeyBQSSwgRSwgY291bnRlciB9O1xuIl0sCiAgIm1hcHBpbmdzIjogIjtBQUNBLElBQU0sS0FBSyxPQUFPLGlCQUFpQixhQUFhLGFBQWEsS0FBSyxRQUFNLGtCQUFrQixRQUFXLE9BQU8sSUFBSSxpQkFBaUIsT0FBTztBQUN4SSxJQUFNLElBQUksT0FBTyxpQkFBaUIsYUFBYSxhQUFhLEtBQUssUUFBTSxrQkFBa0IsUUFBVyxPQUFPLElBQUksaUJBQWlCLE9BQU87QUFDdkksSUFBSSxVQUFVOyIsCiAgIm5hbWVzIjogW10KfQo=

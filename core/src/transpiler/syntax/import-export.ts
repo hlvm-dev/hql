@@ -1,0 +1,341 @@
+// src/transpiler/syntax/import-export.ts
+
+import * as IR from "../type/hql_ir.ts";
+import { ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import {
+  perform,
+  TransformError,
+  ValidationError,
+} from "../../common/error.ts";
+import { sanitizeIdentifier } from "../../common/utils.ts";
+import { globalLogger as logger } from "../../logger.ts";
+import { processVectorElements } from "./data-structure.ts";
+import { globalSymbolTable } from "../symbol_table.ts";
+import { globalMacroRegistry } from "../../imports.ts";
+
+/**
+ * Check if a list is a vector import
+ */
+export function isVectorImport(list: ListNode): boolean {
+  return (
+    list.elements.length > 3 &&
+    list.elements[0].type === "symbol" &&
+    (list.elements[0] as SymbolNode).name === "import" &&
+    list.elements[1].type === "list" &&
+    list.elements[2].type === "symbol" &&
+    (list.elements[2] as SymbolNode).name === "from"
+  );
+}
+
+/**
+ * Check if a list is a vector export
+ */
+export function isVectorExport(list: ListNode): boolean {
+  return (
+    list.elements.length > 1 &&
+    list.elements[0].type === "symbol" &&
+    (list.elements[0] as SymbolNode).name === "export" &&
+    list.elements[1].type === "list"
+  );
+}
+
+/**
+ * Check if a list is a namespace import
+ */
+export function isNamespaceImport(list: ListNode): boolean {
+  return (
+    list.elements.length > 3 &&
+    list.elements[0].type === "symbol" &&
+    (list.elements[0] as SymbolNode).name === "import" &&
+    list.elements[1].type === "symbol" &&
+    list.elements[2].type === "symbol" &&
+    (list.elements[2] as SymbolNode).name === "from"
+  );
+}
+
+/**
+ * Check if a position in a list of nodes has an 'as' alias following it
+ */
+function hasAliasFollowing(
+  elements: (SymbolNode | LiteralNode | ListNode)[],
+  position: number,
+): boolean {
+  return (
+    position + 2 < elements.length &&
+    elements[position + 1].type === "symbol" &&
+    (elements[position + 1] as SymbolNode).name === "as" &&
+    elements[position + 2].type === "symbol"
+  );
+}
+
+/**
+ * Create an import specifier for the IR
+ */
+function createImportSpecifier(
+  imported: string,
+  local: string,
+): IR.IRImportSpecifier {
+  return perform(
+    () => {
+      return {
+        type: IR.IRNodeType.ImportSpecifier,
+        imported: {
+          type: IR.IRNodeType.Identifier,
+          // Sanitize imported name, but preserve "default" for default imports
+          name: imported === "default"
+            ? imported
+            : sanitizeIdentifier(imported),
+        } as IR.IRIdentifier,
+        local: {
+          type: IR.IRNodeType.Identifier,
+          name: sanitizeIdentifier(local),
+        } as IR.IRIdentifier,
+      };
+    },
+    `createImportSpecifier '${imported} as ${local}'`,
+    TransformError,
+    [imported, local],
+  );
+}
+
+/**
+ * Transform namespace import with "from" syntax
+ */
+export function transformNamespaceImport(
+  list: ListNode,
+  _currentDir: string,
+): IR.IRNode | null {
+  return perform(
+    () => {
+      const nameNode = list.elements[1];
+      const pathNode = list.elements[3];
+
+      if (nameNode.type !== "symbol") {
+        throw new ValidationError(
+          "Import name must be a symbol",
+          "namespace import",
+          "symbol",
+          nameNode.type,
+        );
+      }
+
+      if (pathNode.type !== "literal") {
+        throw new ValidationError(
+          "Import path must be a string literal",
+          "namespace import",
+          "string literal",
+          pathNode.type,
+        );
+      }
+
+      const name = (nameNode as SymbolNode).name;
+      const pathVal = String((pathNode as LiteralNode).value);
+
+      return {
+        type: IR.IRNodeType.ImportDeclaration,
+        source: pathVal,
+        specifiers: [{
+          type: IR.IRNodeType.ImportNamespaceSpecifier,
+          local: {
+            type: IR.IRNodeType.Identifier,
+            name: sanitizeIdentifier(name),
+          } as IR.IRIdentifier,
+        } as IR.IRImportNamespaceSpecifier],
+      } as IR.IRImportDeclaration;
+    },
+    "transformNamespaceImport",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform a vector-based export statement
+ */
+export function transformVectorExport(
+  list: ListNode,
+  _currentDir: string,
+): IR.IRNode | null {
+  return perform(
+    () => {
+      const vectorNode = list.elements[1];
+      if (vectorNode.type !== "list") {
+        throw new ValidationError(
+          "Export argument must be a vector (list)",
+          "vector export",
+          "vector (list)",
+          vectorNode.type,
+        );
+      }
+
+      const symbols = processVectorElements((vectorNode as ListNode).elements);
+      const exportSpecifiers: IR.IRExportSpecifier[] = [];
+
+      let i = 0;
+      while (i < symbols.length) {
+        const elem = symbols[i];
+        if (elem.type !== "symbol") {
+          logger.warn(`Skipping non-symbol export element: ${elem.type}`);
+          i++;
+          continue;
+        }
+        const localName = (elem as SymbolNode).name;
+
+        // Check if this is a macro - macros should not be exported as runtime values
+        const symbolInfo = globalSymbolTable.get(localName);
+        const isSymbolTableMacro = symbolInfo?.kind === "macro";
+        const isRegistryMacro = globalMacroRegistry.has(localName);
+        const isMacro = isSymbolTableMacro || isRegistryMacro;
+
+        if (isMacro) {
+          logger.debug(`Filtering macro '${localName}' from export declaration (macros are compile-time only)`);
+          // Skip the macro and its alias if present
+          if (hasAliasFollowing(symbols, i)) {
+            i += 3; // Skip name, 'as', and alias
+          } else {
+            i++; // Skip just the name
+          }
+          continue;
+        }
+
+        // Check for alias: [foo as bar]
+        if (hasAliasFollowing(symbols, i)) {
+          const exportedName = (symbols[i + 2] as SymbolNode).name;
+          exportSpecifiers.push(createExportSpecifier(localName, exportedName));
+          i += 3;
+        } else {
+          exportSpecifiers.push(createExportSpecifier(localName, localName));
+          i++;
+        }
+      }
+
+      if (exportSpecifiers.length === 0) {
+        logger.debug("No valid exports found (all were macros), skipping export declaration");
+        return null;
+      }
+
+      return {
+        type: IR.IRNodeType.ExportNamedDeclaration,
+        specifiers: exportSpecifiers,
+      } as IR.IRExportNamedDeclaration;
+    },
+    "transformVectorExport",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Create an export specifier
+ */
+function createExportSpecifier(
+  local: string,
+  exported: string,
+): IR.IRExportSpecifier {
+  return perform(
+    () => {
+      return {
+        type: IR.IRNodeType.ExportSpecifier,
+        local: {
+          type: IR.IRNodeType.Identifier,
+          name: sanitizeIdentifier(local),
+        } as IR.IRIdentifier,
+        exported: {
+          type: IR.IRNodeType.Identifier,
+          name: sanitizeIdentifier(exported), // Sanitize exported name too!
+        } as IR.IRIdentifier,
+      };
+    },
+    `createExportSpecifier '${local} as ${exported}'`,
+    TransformError,
+    [local, exported],
+  );
+}
+
+/**
+ * Transform a vector-based import statement
+ */
+export function transformVectorImport(
+  list: ListNode,
+): IR.IRNode | null {
+  return perform(
+    () => {
+      const vectorNode = list.elements[1] as ListNode;
+      if (list.elements[3].type !== "literal") {
+        throw new ValidationError(
+          "Import path must be a string literal",
+          "vector import",
+          "string literal",
+        );
+      }
+
+      const modulePath = (list.elements[3] as LiteralNode).value as string;
+      if (typeof modulePath !== "string") {
+        throw new ValidationError(
+          "Import path must be a string",
+          "vector import",
+          "string",
+        );
+      }
+
+      const elements = processVectorElements(vectorNode.elements);
+      const importSpecifiers: IR.IRImportSpecifier[] = [];
+      let i = 0;
+      while (i < elements.length) {
+        const elem = elements[i];
+        if (elem.type === "symbol") {
+          const symbolName = (elem as SymbolNode).name;
+
+          // Check if this symbol is a macro - macros should not be in JS imports
+          const symbolInfo = globalSymbolTable.get(symbolName);
+          const isMacro = symbolInfo?.kind === "macro";
+
+          if (isMacro) {
+            logger.debug(
+              `Skipping macro '${symbolName}' from import statement`,
+            );
+            // Skip this symbol - check if it has an alias and skip that too
+            const hasAlias = hasAliasFollowing(elements, i);
+            i += hasAlias ? 3 : 1;
+            continue;
+          }
+
+          const hasAlias = hasAliasFollowing(elements, i);
+          const aliasName = hasAlias
+            ? (elements[i + 2] as SymbolNode).name
+            : null;
+
+          if (hasAlias) {
+            importSpecifiers.push(
+              createImportSpecifier(symbolName, aliasName!),
+            );
+
+            i += 3;
+          } else {
+            importSpecifiers.push(
+              createImportSpecifier(symbolName, symbolName),
+            );
+
+            i += 1;
+          }
+        } else {
+          i += 1;
+        }
+      }
+
+      if (importSpecifiers.length === 0) {
+        logger.debug("All imports were macros, skipping import declaration");
+        return null;
+      }
+
+      return {
+        type: IR.IRNodeType.ImportDeclaration,
+        source: modulePath,
+        specifiers: importSpecifiers,
+      } as IR.IRImportDeclaration;
+    },
+    "transformVectorImport",
+    TransformError,
+    [list],
+  );
+}

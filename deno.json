@@ -1,0 +1,32 @@
+{
+  "name": "@hlvm/hql",
+  "version": "1.0.0",
+  "exports": "./mod.ts",
+  "license": "MIT",
+  "imports": {
+    "source-map": "npm:source-map@0.6.1"
+  },
+  "publish": {
+    "exclude": [
+      ".hql-cache/",
+      ".build/",
+      "dist/",
+      "hql",
+      "hql-*",
+      "*.log",
+      ".DS_Store",
+      ".github/",
+      ".claude/",
+      "!**/*.ts",
+      "!**/*.js"
+    ]
+  },
+  "tasks": {
+    "test": "deno test --allow-all test/*.test.ts test/organized/syntax/*/*.test.ts",
+    "test:watch": "deno test --allow-all --watch test/*.test.ts test/organized/syntax/*/*.test.ts",
+    "test:stdlib": "deno test --allow-all test/stdlib*.test.ts",
+    "test:syntax": "deno test --allow-all test/organized/syntax/*/*.test.ts",
+    "verify": "./verify-codebase.sh",
+    "check:platform": "deno run -A scripts/check-platform.ts"
+  }
+}
