@@ -134,8 +134,8 @@ export function transformClass(
 
       const elementType = (firstElement as SymbolNode).name;
 
-      // Process field declarations (var and let)
-      if (elementType === "var" || elementType === "let") {
+      // Process field declarations (const, let, and var)
+      if (elementType === "const" || elementType === "let" || elementType === "var") {
         const field = processClassField(
           elementList,
           currentDir,
@@ -490,7 +490,7 @@ function processClassField(
     return {
       type: IR.IRNodeType.ClassField,
       name: fieldName,
-      mutable: elementType === "var",
+      mutable: elementType === "var" || elementType === "let",
       initialValue,
     };
   } catch (error) {

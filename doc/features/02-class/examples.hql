@@ -6,7 +6,7 @@
   ;; Constructor
   (constructor [baseValue]
     (do
-      (set! this.baseValue baseValue)))
+      (= this.baseValue baseValue)))
 
   ;; fn method with JSON map parameters (defaults)
   (fn multiply {"x": 100, "y": 2}
@@ -14,7 +14,7 @@
 )
 
 ;; Create an instance
-(let calc (new Calculator 10))
+(const calc (new Calculator 10))
 
 ;; Test with no arguments - should use both defaults (100 * 2 = 200)
 (print "fn method with both defaults: calc.multiply() =>" (calc.multiply))

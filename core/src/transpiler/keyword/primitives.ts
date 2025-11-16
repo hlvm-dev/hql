@@ -7,7 +7,7 @@
  *
  * Why these MUST stay in kernel:
  * - quote/quasiquote/unquote: Core metaprogramming (needed for macros themselves)
- * - if, fn, let, var, set!: Core language primitives
+ * - if, fn, const, let, var: Core language primitives
  * - loop/recur: Fundamental control flow (TCO)
  * - do: Needs IIFE with BlockStatement to handle both statements AND expressions
  *       (macro version using nested let can only handle expressions, fails with var/statements)
@@ -30,14 +30,33 @@ export const PRIMITIVE_OPS = new Set([
   "*",
   "/",
   "%",
-  "=",
-  "==",
-  "!=",
+  "=",    // Assignment
+  "===",  // Strict equality
+  "==",   // Loose equality
+  "!==",  // Strict inequality
+  "!=",   // Loose inequality
   "<",
   ">",
   "<=",
   ">=",
-  "eq?",
+  "eq?",  // Lisp-style equality (maps to ===)
+  "&&",   // Logical AND
+  "||",   // Logical OR
+  "!",    // Logical NOT
+  "&",    // Bitwise AND
+  "|",    // Bitwise OR
+  "^",    // Bitwise XOR
+  "~",    // Bitwise NOT
+  "<<",   // Left shift
+  ">>",   // Sign-propagating right shift
+  ">>>",  // Zero-fill right shift
+  "**",   // Exponentiation
+  "??",   // Nullish coalescing
+  "typeof",    // Type check
+  "instanceof", // Instance check
+  "in",        // Property check
+  "delete",    // Property deletion
+  "void",      // Void operator
 
   "js-get",
   "js-call",
@@ -47,9 +66,9 @@ export const PRIMITIVE_OPS = new Set([
 export const KERNEL_PRIMITIVES = new Set([
   "quote",
   "if",
+  "const",
   "let",
   "var",
-  "set!",
   "quasiquote",
   "unquote",
   "unquote-splicing",

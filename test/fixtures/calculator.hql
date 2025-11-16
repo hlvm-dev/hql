@@ -5,14 +5,14 @@
   (var value 0)
 
   (constructor (initial)
-    (set! this.value initial))
+    (= this.value initial))
 
   (fn add (x)
-    (set! this.value (+ this.value x))
+    (= this.value (+ this.value x))
     this.value)
 
   (fn multiply (x)
-    (set! this.value (* this.value x))
+    (= this.value (* this.value x))
     this.value))
 
 (export [Calculator])

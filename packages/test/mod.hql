@@ -16,7 +16,7 @@
     Error if condition is falsy
 
   Example:
-    (assert (= 1 1) \"1 should equal 1\")
+    (assert (=== 1 1) \"1 should equal 1\")
     (assert (> 5 3) \"5 should be greater than 3\")"
   (if condition
     true
@@ -38,7 +38,7 @@
     (assert-eq {\"a\" 1} {\"a\" 1} \"objects should be equal\")"
   (var actualStr (js/JSON.stringify actual))
   (var expectedStr (js/JSON.stringify expected))
-  (var isEqual (= actualStr expectedStr))
+  (var isEqual (=== actualStr expectedStr))
   (if isEqual
     true
     (do
@@ -67,7 +67,7 @@
   (var didThrow false)
   (try
     (testFn)
-    (catch err (set! didThrow true)))
+    (catch err (= didThrow true)))
   (if didThrow
     true
     (throw (new js/Error "Expected function to throw an error, but it didn't"))))

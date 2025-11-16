@@ -42,12 +42,12 @@ These behaviors apply uniformly to both named and anonymous `fn` functions.
 ```lisp
 ;; Implicit return: the last expression is automatically returned.
 (fn implicit-return-fn [x]
-  (let doubled (* x 2))
+  (const doubled (* x 2))
   doubled)
 
 ;; Explicit return: using `return` to provide a value.
 (fn explicit-return-fn [x]
-  (let doubled (* x 2))
+  (const doubled (* x 2))
   (return doubled))
 
 ;; Early return with conditional: exits early when x is negative.
@@ -70,10 +70,10 @@ Anonymous `fn` functions follow the same return rules as named functions:
 
 ```lisp
 ;; Implicit return in anonymous function
-(let add-two (fn [x] (+ x 2)))
+(const add-two (fn [x] (+ x 2)))
 
 ;; Explicit return in anonymous function
-(let check-positive
+(const check-positive
   (fn [x]
     (if (< x 0)
         (return false)
@@ -91,7 +91,7 @@ Anonymous `fn` functions follow the same return rules as named functions:
         (return "negative")  ; Returns from inner-function only
         "positive"))
 
-  (let result (inner-function x))
+  (const result (inner-function x))
   (+ "Result: " result))  ; This still executes
 ```
 
@@ -139,9 +139,9 @@ When composing functions, return values flow through the composition:
   (fn [x]
     (f (g x))))
 
-(let double (fn [x] (* x 2)))
-(let add-one (fn [x] (+ x 1)))
-(let double-then-add (compose add-one double))
+(const double (fn [x] (* x 2)))
+(const add-one (fn [x] (+ x 1)))
+(const double-then-add (compose add-one double))
 
 (double-then-add 5)  ; => 11
 ```

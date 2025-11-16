@@ -54,7 +54,7 @@ Deno.test("Conditional: nested if", async () => {
 
 Deno.test("Conditional: if as expression in let", async () => {
   const code = `
-(let result (if (< 3 5) "less" "greater"))
+(const result (if (< 3 5) "less" "greater"))
 result
 `;
   const result = await run(code);
@@ -94,7 +94,7 @@ Deno.test("Conditional: cond with else clause", async () => {
 
 Deno.test("Conditional: cond with expressions", async () => {
   const code = `
-(let x 10)
+(const x 10)
 (cond
   ((< x 5) "small")
   ((< x 15) "medium")
@@ -106,7 +106,7 @@ Deno.test("Conditional: cond with expressions", async () => {
 
 Deno.test("Conditional: if with comparison operators", async () => {
   const code = `
-(if (= 5 5) "equal" "not equal")
+(if (=== 5 5) "equal" "not equal")
 `;
   const result = await run(code);
   assertEquals(result, "equal");

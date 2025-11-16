@@ -14,7 +14,7 @@ async function run(code: string): Promise<any> {
 
 Deno.test("Array Destructuring: Single default [x (= 10)]", async () => {
   const code = `
-(let [x (= 10)] [])
+(const [x (= 10)] [])
 x
 `;
   const result = await run(code);
@@ -23,7 +23,7 @@ x
 
 Deno.test("Array Destructuring: Default with value [x (= 10)]", async () => {
   const code = `
-(let [x (= 10)] [5])
+(const [x (= 10)] [5])
 x
 `;
   const result = await run(code);
@@ -32,7 +32,7 @@ x
 
 Deno.test("Array Destructuring: Multiple defaults", async () => {
   const code = `
-(let [x (= 1) y (= 2)] [])
+(const [x (= 1) y (= 2)] [])
 (+ x y)
 `;
   const result = await run(code);
@@ -41,7 +41,7 @@ Deno.test("Array Destructuring: Multiple defaults", async () => {
 
 Deno.test("Array Destructuring: Partial defaults", async () => {
   const code = `
-(let [x (= 1) y (= 2)] [10])
+(const [x (= 1) y (= 2)] [10])
 (+ x y)
 `;
   const result = await run(code);
@@ -50,7 +50,7 @@ Deno.test("Array Destructuring: Partial defaults", async () => {
 
 Deno.test("Array Destructuring: Mix with and without defaults", async () => {
   const code = `
-(let [a b (= 20) c] [1 undefined 3])
+(const [a b (= 20) c] [1 undefined 3])
 (+ a (+ b c))
 `;
   const result = await run(code);
@@ -59,7 +59,7 @@ Deno.test("Array Destructuring: Mix with and without defaults", async () => {
 
 Deno.test("Array Destructuring: Default with expression", async () => {
   const code = `
-(let [x (= (+ 5 5))] [])
+(const [x (= (+ 5 5))] [])
 x
 `;
   const result = await run(code);
@@ -68,7 +68,7 @@ x
 
 Deno.test("Array Destructuring: Nested pattern with default", async () => {
   const code = `
-(let [[a b] (= [1 2])] [])
+(const [[a b] (= [1 2])] [])
 (+ a b)
 `;
   const result = await run(code);
@@ -77,7 +77,7 @@ Deno.test("Array Destructuring: Nested pattern with default", async () => {
 
 Deno.test("Array Destructuring: Nested pattern with default provided", async () => {
   const code = `
-(let [[a b] (= [1 2])] [[10 20]])
+(const [[a b] (= [1 2])] [[10 20]])
 (+ a b)
 `;
   const result = await run(code);
@@ -90,7 +90,7 @@ Deno.test("Array Destructuring: Nested pattern with default provided", async () 
 
 Deno.test("Array Destructuring: Deep nested with defaults", async () => {
   const code = `
-(let [[a (= 1)] (= [undefined])] [])
+(const [[a (= 1)] (= [undefined])] [])
 a
 `;
   const result = await run(code);
@@ -99,7 +99,7 @@ a
 
 Deno.test("Array Destructuring: Multiple nested levels", async () => {
   const code = `
-(let [x [[y (= 5)]]] [10 [[undefined]]])
+(const [x [[y (= 5)]]] [10 [[undefined]]])
 (+ x y)
 `;
   const result = await run(code);
@@ -113,7 +113,7 @@ Deno.test("Array Destructuring: Multiple nested levels", async () => {
 Deno.test("Array Destructuring: var with defaults", async () => {
   const code = `
 (var [x (= 5) y (= 10)] [])
-(set! x 20)
+(= x 20)
 (+ x y)
 `;
   const result = await run(code);

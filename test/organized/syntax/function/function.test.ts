@@ -53,7 +53,7 @@ Deno.test("Function: fn with multiple parameters", async () => {
 
 Deno.test("Function: anonymous fn expression", async () => {
   const code = `
-(let square (fn (x) (* x x)))
+(const square (fn (x) (* x x)))
 (square 6)
 `;
   const result = await run(code);
@@ -62,7 +62,7 @@ Deno.test("Function: anonymous fn expression", async () => {
 
 Deno.test("Function: anonymous fn with parameters", async () => {
   const code = `
-(let add (fn (a b) (+ a b)))
+(const add (fn (a b) (+ a b)))
 (add 7 8)
 `;
   const result = await run(code);
@@ -83,7 +83,7 @@ Deno.test("Function: function returning function", async () => {
   const code = `
 (fn make-adder [n]
   (fn (x) (+ x n)))
-(let add5 (make-adder 5))
+(const add5 (make-adder 5))
 (add5 10)
 `;
   const result = await run(code);
@@ -106,7 +106,7 @@ Deno.test("Function: function with multiple expressions", async () => {
   const code = `
 (fn process [x]
   (var result (* x 2))
-  (set! result (+ result 1))
+  (= result (+ result 1))
   result)
 (process 5)
 `;
@@ -154,7 +154,7 @@ Deno.test("Function: immediately invoked function", async () => {
 
 Deno.test("Function: closure capturing variable", async () => {
   const code = `
-(let x 10)
+(const x 10)
 (fn add-x [n]
   (+ n x))
 (add-x 5)
@@ -405,7 +405,7 @@ Deno.test("Function: comprehensive - defaults + rest", async () => {
 Deno.test("Return: implicit return from function", async () => {
   const code = `
 (fn implicit-return [x]
-  (let doubled (* x 2))
+  (const doubled (* x 2))
   doubled)
 (implicit-return 5)
 `;
@@ -415,7 +415,7 @@ Deno.test("Return: implicit return from function", async () => {
 
 Deno.test("Return: implicit return from anonymous fn", async () => {
   const code = `
-(let add-two (fn (x) (+ x 2)))
+(const add-two (fn (x) (+ x 2)))
 (add-two 10)
 `;
   const result = await run(code);
@@ -425,7 +425,7 @@ Deno.test("Return: implicit return from anonymous fn", async () => {
 Deno.test("Return: explicit return with value", async () => {
   const code = `
 (fn explicit-return [x]
-  (let doubled (* x 2))
+  (const doubled (* x 2))
   (return doubled))
 (explicit-return 7)
 `;
@@ -458,7 +458,7 @@ Deno.test("Return: return in conditional branch", async () => {
 
 Deno.test("Return: explicit return in anonymous fn", async () => {
   const code = `
-(let check-positive
+(const check-positive
   (fn (x)
     (if (< x 0)
       (return false)
@@ -471,9 +471,9 @@ Deno.test("Return: explicit return in anonymous fn", async () => {
 
 Deno.test("Return: anonymous fn with early return", async () => {
   const code = `
-(let process
+(const process
   (fn (x)
-    (if (= x 0)
+    (if (=== x 0)
       (return "zero")
       (+ "number: " x))))
 (process 0)
@@ -487,7 +487,7 @@ Deno.test("Return: multiple return paths with cond", async () => {
 (fn classify [x]
   (cond
     ((< x 0) (return "negative"))
-    ((= x 0) (return "zero"))
+    ((=== x 0) (return "zero"))
     ((> x 0) (return "positive"))
     (else (return "unknown"))))
 (classify 5)
@@ -519,7 +519,7 @@ Deno.test("Return: return only affects inner function", async () => {
     (if (< y 0)
       (return "negative")
       "positive"))
-  (let result (inner x))
+  (const result (inner x))
   (+ "Result: " result))
 (outer -5)
 `;
@@ -532,7 +532,7 @@ Deno.test("Return: outer function continues after inner return", async () => {
 (fn outer [x]
   (fn inner [y]
     (return (* y 2)))
-  (let doubled (inner x))
+  (const doubled (inner x))
   (+ doubled 10))
 (outer 5)
 `;
@@ -543,7 +543,7 @@ Deno.test("Return: outer function continues after inner return", async () => {
 Deno.test("Return: function without return yields last expression", async () => {
   const code = `
 (fn side-effect [x]
-  (let temp x)
+  (const temp x)
   temp)
 (side-effect 42)
 `;
@@ -553,7 +553,7 @@ Deno.test("Return: function without return yields last expression", async () => 
 
 Deno.test("Return: return inside do block", async () => {
   const code = `
-(let process-list
+(const process-list
   (fn (nums)
     (do
       (if (< (get nums 0) 0)
@@ -568,7 +568,7 @@ Deno.test("Return: return inside do block", async () => {
 Deno.test("Return: return with complex expression", async () => {
   const code = `
 (fn calculate [a b c]
-  (if (= b 0)
+  (if (=== b 0)
     (return "division by zero")
     (return (/ (+ a c) b))))
 (calculate 10 2 6)
@@ -580,7 +580,7 @@ Deno.test("Return: return with complex expression", async () => {
 Deno.test("Return: consistent return types in all branches", async () => {
   const code = `
 (fn safe-divide [a b]
-  (if (= b 0)
+  (if (=== b 0)
     (return 0)
     (/ a b)))
 (safe-divide 10 0)
@@ -723,7 +723,7 @@ Deno.test("Syntax Flexibility: Array literal without commas [1 2 3]", async () =
 
 Deno.test("Syntax Flexibility: Hash-map Lisp style {name: \"Alice\" age: 25}", async () => {
   const code = `
-(let user {name: "Alice" age: 25 city: "NYC"})
+(const user {name: "Alice" age: 25 city: "NYC"})
 (+ user.name " is " user.age " years old")
 `;
   const result = await run(code);
@@ -732,7 +732,7 @@ Deno.test("Syntax Flexibility: Hash-map Lisp style {name: \"Alice\" age: 25}", a
 
 Deno.test("Syntax Flexibility: Hash-map JSON style {\"name\": \"Alice\", \"age\": 25}", async () => {
   const code = `
-(let user {"name": "Alice", "age": 25, "city": "NYC"})
+(const user {"name": "Alice", "age": 25, "city": "NYC"})
 (+ user.name " is " user.age " years old")
 `;
   const result = await run(code);
@@ -741,7 +741,7 @@ Deno.test("Syntax Flexibility: Hash-map JSON style {\"name\": \"Alice\", \"age\"
 
 Deno.test("Syntax Flexibility: Hash-map mixed style {name: \"Alice\", \"age\": 25}", async () => {
   const code = `
-(let user {name: "Alice", "age": 25, city: "NYC"})
+(const user {name: "Alice", "age": 25, city: "NYC"})
 (+ user.name " is " user.age " years old")
 `;
   const result = await run(code);
@@ -750,7 +750,7 @@ Deno.test("Syntax Flexibility: Hash-map mixed style {name: \"Alice\", \"age\": 2
 
 Deno.test("Syntax Flexibility: Copy-paste JSON works directly", async () => {
   const code = `
-(let response {
+(const response {
   "status": 200,
   "message": "Success",
   "data": {

@@ -74,7 +74,7 @@ TypeError: Cannot read property 'value' of undefined
 Error in app.hql:15:22
 
    13 | (fn getUserData [userId]
-   14 |   (let (user (findUserById userId)
+   14 |   (const (user (findUserById userId)
  -> 15 |        name user.value.name)
       |                     ^
    16 |     name))
@@ -156,7 +156,7 @@ Develop a consolidated API for error handling with:
 SyntaxError: Unexpected token in app.hql:23:8
 
    21 | (fn calculate [x y]
-   22 |   (let (result (+ x y))
+   22 |   (const (result (+ x y))
 -> 23 |     (if result = 0
       |           ^
    24 |       "Zero"
@@ -265,7 +265,7 @@ TypeError in user-service.hql:25:18
 Cannot call function 'calculate' with a string argument
 
    23 | (fn process-user [user]
-   24 |   (let (score (get user "score")
+   24 |   (const (score (get user "score")
 -> 25 |         total (calculate score "bonus"))
        |                  ^^^^^^^^^^^^^^^^^^^^^
    26 |     total))

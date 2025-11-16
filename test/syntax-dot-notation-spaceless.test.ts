@@ -194,7 +194,7 @@ Deno.test("Regression: Multiline spaced notation", async () => {
   const code = `
     (var arr [1 2 3 4 5 6 7 8 9 10])
     (arr
-      .filter (fn (x) (= (% x 2) 0))
+      .filter (fn (x) (=== (% x 2) 0))
       .map (fn (x) (* x 2))
       .slice 0 3)
   `;

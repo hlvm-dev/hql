@@ -5,7 +5,7 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import hql from "../mod.ts";
 
 Deno.test("For loop in expression: Variable initializer", async () => {
-  const code = `(let x (for (i 5) i)) x`;
+  const code = `(const x (for (i 5) i)) x`;
   const transpiled = await hql.transpile(code);
   const js = typeof transpiled === 'string' ? transpiled : transpiled.code;
   const result = await hql.run(code);
@@ -112,7 +112,7 @@ Deno.test("For loop in expression: Conditional alternate", async () => {
 Deno.test("For loop in expression: Assignment right side", async () => {
   const code = `
     (var x 0)
-    (set! x (for (i 3) i))
+    (= x (for (i 3) i))
     x
   `;
   const result = await hql.run(code);
@@ -124,7 +124,7 @@ Deno.test("For loop in expression: Assignment right side", async () => {
 Deno.test("For loop in expression: With side effects in variable init", async () => {
   const code = `
     (var result [])
-    (let x (for (i 5) (.push result i)))
+    (const x (for (i 5) (.push result i)))
     result
   `;
   const result = await hql.run(code);
@@ -150,7 +150,7 @@ Deno.test("For loop in expression: Multiple in array", async () => {
 Deno.test("For loop in expression: Nested for loops", async () => {
   const code = `
     (var result [])
-    (let x (for (i 3) (for (j 2) (.push result [i j]))))
+    (const x (for (i 3) (for (j 2) (.push result [i j]))))
     result
   `;
   const result = await hql.run(code);
@@ -162,7 +162,7 @@ Deno.test("For loop in expression: Nested for loops", async () => {
 Deno.test("For loop in expression: Performance check - IIFE overhead acceptable", async () => {
   const code = `
     (var sum 0)
-    (let x (for (i 1000) (set! sum (+ sum i))))
+    (const x (for (i 1000) (= sum (+ sum i))))
     sum
   `;
 

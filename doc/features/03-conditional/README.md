@@ -42,7 +42,7 @@ All conditionals are **expressions** that return values (not statements).
   result3)
 
 ; If as expression
-(let result (if (< 3 5) "less" "greater"))
+(const result (if (< 3 5) "less" "greater"))
 
 ; If as return value
 (fn check [n]
@@ -71,7 +71,7 @@ All conditionals are **expressions** that return values (not statements).
   (true "default"))
 
 ; Cond with expressions
-(let x 10)
+(const x 10)
 (cond
   ((< x 5) "small")
   ((< x 15) "medium")
@@ -170,7 +170,7 @@ return value in functions ✅ Cond with multiple clauses ✅ Cond with else clau
 
 ```lisp
 (fn processInput [value]
-  (if (= value null)
+  (if (=== value null)
     "no input"
     (doSomething value)))
 ```
@@ -190,7 +190,7 @@ return value in functions ✅ Cond with multiple clauses ✅ Cond with else clau
 ### Ternary-Style
 
 ```lisp
-(let status (if isActive "active" "inactive"))
+(const status (if isActive "active" "inactive"))
 ```
 
 ## Comparison with Other Languages
@@ -216,7 +216,7 @@ if (x > 5) {
 const result = x > 5 ? "yes" : "no";
 
 // HQL if (same concept)
-(let result (if (> x 5) "yes" "no"))
+(const result (if (> x 5) "yes" "no"))
 ```
 
 ### JavaScript Switch
@@ -267,13 +267,13 @@ JavaScript
 
 ```lisp
 ; ✅ Good: Expression style
-(let result (if condition "yes" "no"))
+(const result (if condition "yes" "no"))
 
 ; ❌ Avoid: Statement style (not idiomatic in HQL)
 (var result)
 (if condition
-  (set! result "yes")
-  (set! result "no"))
+  (= result "yes")
+  (= result "no"))
 ```
 
 ### Use Cond for Multiple Conditions

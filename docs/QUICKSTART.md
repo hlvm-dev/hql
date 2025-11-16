@@ -48,17 +48,17 @@ Create `math.hql`:
 
 ```lisp
 ;; Immutable variables
-(let x 10)
-(let y 20)
-(let sum (+ x y))
+(const x 10)
+(const y 20)
+(const sum (+ x y))
 
 (print "x =" x)
 (print "y =" y)
 (print "x + y =" sum)
 
 ;; Mutable variables
-(var counter 0)
-(set! counter 100)
+(let counter 0)
+(= counter 100)
 (print "Counter:" counter)
 ```
 
@@ -369,9 +369,9 @@ Now that you've got the basics, explore more:
 ;; Comments start with semicolons
 
 ;; Variables
-(let x 10)              ;; Immutable
-(var y 20)              ;; Mutable
-(set! y 30)             ;; Mutation
+(const x 10)            ;; Immutable
+(let y 20)              ;; Mutable
+(= y 30)                ;; Mutation
 
 ;; Functions
 (fn add (a b) (+ a b))

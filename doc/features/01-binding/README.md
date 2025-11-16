@@ -5,94 +5,113 @@
 
 ## Overview
 
-HQL provides two types of variable bindings:
+HQL provides three kinds of bindings to match JavaScript semantics:
 
-1. **`let`** - Immutable bindings (compiles to `const`, values are frozen)
-2. **`var`** - Mutable bindings (compiles to `let`, can be updated with `set!`)
+1. **`const`** - Immutable bindings (compiles to `const`, values are deep frozen)
+2. **`let`** - Mutable block-scoped bindings (compiles to JavaScript `let`)
+3. **`var`** - Mutable function-scoped bindings (compiles to JavaScript `var`)
+
+Assignment is handled with the `=` operator for all mutable bindings.
 
 The binding model ensures **true immutability** for `let` bindings by
 automatically freezing reference types (objects, arrays) using deep freeze.
 
 ## Syntax
 
-### Immutable Bindings (`let`)
+### Immutable Bindings (`const`)
 
 ```lisp
 ; Simple immutable binding
-(let x 10)
+(const x 10)
 x  ; => 10
 
 ; Immutable binding with expression
-(let result (+ 5 5))
+(const result (+ 5 5))
 result  ; => 10
 
-; Multiple bindings in one let
-(let (x 10 y 20 z 30)
+; Multiple bindings in one const
+(const (x 10 y 20 z 30)
   (+ x y z))  ; => 60
 
-; Let with object (automatically frozen)
-(let person {"name": "Alice", "age": 30})
+; Const with object (automatically frozen)
+(const person {"name": "Alice", "age": 30})
 person.name  ; => "Alice"
-; (set! person.age 31)  ; ERROR: Cannot mutate frozen object
+; (= person.age 31)  ; ERROR: Cannot mutate frozen object
 
-; Let with array (automatically frozen)
-(let nums [1, 2, 3])
+; Const with array (automatically frozen)
+(const nums [1, 2, 3])
 ; (nums.push 4)  ; ERROR: Cannot mutate frozen array
 ```
 
-### Mutable Bindings (`var`)
+### Block-Scoped Mutable Bindings (`let`)
 
 ```lisp
 ; Simple mutable binding
-(var x 10)
-(set! x 20)
+(let x 10)
+(= x 20)
 x  ; => 20
 
 ; Mutable binding with expression
-(var counter 0)
-(set! counter (+ counter 1))
+(let counter 0)
+(= counter (+ counter 1))
 counter  ; => 1
 
 ; Multiple bindings in one var
-(var (x 10 y 20)
-  (set! x 100)
+(let (x 10 y 20)
+  (= x 100)
   (+ x y))  ; => 120
 
-; Var with object (mutable)
-(var person {"name": "Alice"})
-(set! person.age 30)
+; Let with object (mutable)
+(let person {"name": "Alice"})
+(= person.age 30)
 person.age  ; => 30
 
-; Var with array (mutable)
-(var nums [1, 2, 3])
+; Let with array (mutable)
+(let nums [1, 2, 3])
 (nums.push 4)
 nums.length  ; => 4
 ```
 
-### Assignment (`set!`)
+### Function-Scoped Mutable Bindings (`var`)
+
+Use `var` when you need hoisted, function-scoped bindings (e.g., to mirror legacy JavaScript patterns or when targeting runtime helpers that rely on hoisting).
+
+```lisp
+; Function-scoped mutable binding
+(var total 0)
+
+(fn add (value)
+  (= total (+ total value)))
+
+(add 2)
+(add 3)
+total  ; => 5
+```
+
+### Assignment (`=`)
 
 ```lisp
 ; Update existing var binding
 (var x 10)
-(set! x 20)
+(= x 20)
 x  ; => 20
 
 ; Update object property
 (var obj {"count": 0})
-(set! obj.count 42)
+(= obj.count 42)
 obj.count  ; => 42
 
 ; Multiple assignments
 (var x 1)
 (var y 2)
-(set! x 10)
-(set! y 20)
+(= x 10)
+(= y 20)
 (+ x y)  ; => 30
 
 ; Assignment with expression
 (var counter 0)
-(set! counter (+ counter 1))
-(set! counter (+ counter 1))
+(= counter (+ counter 1))
+(= counter (+ counter 1))
 counter  ; => 2
 ```
 
@@ -103,7 +122,7 @@ counter  ; => 2
 #### `let` → `const` + Freeze
 
 ```lisp
-(let x [1, 2, 3])
+(const x [1, 2, 3])
 
 ; Compiles to:
 const x = Object.freeze([1, 2, 3]);
@@ -118,10 +137,10 @@ const x = Object.freeze([1, 2, 3]);
 let x = [1, 2, 3];
 ```
 
-#### `set!` → Assignment
+#### `=` → Assignment
 
 ```lisp
-(set! x 20)
+(= x 20)
 
 ; Compiles to:
 x = 20;
@@ -132,39 +151,39 @@ x = 20;
 HQL implements **deep freeze** for `let` bindings:
 
 ```lisp
-(let data {"user": {"name": "Bob"}})
+(const data {"user": {"name": "Bob"}})
 
 ; Both outer and inner objects are frozen:
 ; Object.freeze(data)
 ; Object.freeze(data.user)
 
 ; Mutation attempts throw in strict mode:
-; (set! data.user.name "Charlie")  ; ERROR
+; (= data.user.name "Charlie")  ; ERROR
 ```
 
 ### Binding Scopes
 
 ```lisp
 ; Top-level bindings (global scope)
-(let global 10)
+(const global 10)
 
 ; Local bindings (block scope)
-(let x 10)
-(let y 20)
+(const x 10)
+(const y 20)
 (+ x y)
 
 ; Nested bindings
-(let outer 10)
-(let (inner 20)
+(const outer 10)
+(const (inner 20)
   (+ outer inner))
 ```
 
 ## Features Covered
 
-✅ Immutable bindings with `let` ✅ Mutable bindings with `var` ✅ Assignment
-with `set!` ✅ Multiple bindings in single form ✅ Expression evaluation in
-bindings ✅ Object bindings (frozen for `let`, mutable for `var`) ✅ Array
-bindings (frozen for `let`, mutable for `var`) ✅ Property access and mutation
+✅ Immutable bindings with `const` ✅ Mutable bindings with `let` and `var` ✅ Assignment
+with `=` ✅ Multiple bindings in single form ✅ Expression evaluation in
+bindings ✅ Object bindings (frozen for `const`, mutable for `let`/`var`) ✅ Array
+bindings (frozen for `const`, mutable for `let`/`var`) ✅ Property access and mutation
 ✅ Deep freeze for nested objects ✅ Multiple assignments ✅ Nested bindings ✅
 Top-level and local scopes
 
@@ -174,19 +193,19 @@ Top-level and local scopes
 
 ### Section 1: Basic Bindings (7 tests)
 
-- `let` creates immutable binding
-- `var` creates mutable binding
+- `const` creates immutable binding
+- `let` creates mutable binding
+- `const` with multiple values
 - `let` with multiple values
-- `var` with multiple values
-- `set!` updates existing var
+- `=` updates existing binding
+- `const` with expression
 - `let` with expression
-- `var` with expression
 
 ### Section 2: Nested and Scoped Bindings (3 tests)
 
-- Nested `let` bindings
-- `set!` with property access
-- Multiple `set!` operations
+- Nested bindings
+- Assignment with property access
+- Multiple assignment operations
 
 ### Section 3: Reference Type Bindings (4 tests)
 
@@ -251,7 +270,7 @@ JavaScript
 
 1. ✅ **Compile-time:** Compiles to JavaScript `let`
 2. ✅ **Runtime:** No freezing, full mutability
-3. ✅ **Updates:** Can be changed with `set!`
+3. ✅ **Updates:** Can be changed with `=`
 4. ✅ **Property access:** Allows property mutation
 
 ## Edge Cases Tested

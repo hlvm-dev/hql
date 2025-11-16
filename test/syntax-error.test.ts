@@ -91,7 +91,7 @@ Deno.test("Error: try/finally executes finally block", async () => {
 (try
   42
   (finally
-    (set! cleanup true)))
+    (= cleanup true)))
 cleanup
 `;
   const result = await run(code);
@@ -121,7 +121,7 @@ Deno.test("Error: try/catch/finally all execute on error", async () => {
   (catch e
     (+ "Caught: " e))
   (finally
-    (set! cleanup true)))
+    (= cleanup true)))
 `;
   const result = await run(code);
   assertEquals(result, "Caught: error");
@@ -130,13 +130,13 @@ Deno.test("Error: try/catch/finally all execute on error", async () => {
 Deno.test("Error: try/catch/finally executes finally on success", async () => {
   const code = `
 (var executed false)
-(let result
+(const result
   (try
     100
     (catch e
       0)
     (finally
-      (set! executed true))))
+      (= executed true))))
 [result, executed]
 `;
   const result = await run(code);
@@ -214,7 +214,7 @@ Deno.test("Error: throw from function caught outside", async () => {
 
 Deno.test("Error: try block returns successful value", async () => {
   const code = `
-(let result
+(const result
   (try
     (+ 10 20)
     (catch e

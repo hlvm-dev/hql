@@ -116,7 +116,7 @@ Deno.test("Macro behavior: Variable capture (manual hygiene)", async () => {
 Deno.test("Macro behavior: Manual hygiene with unique names works", async () => {
   const code = `
 (macro with-temp (value & body)
-  \`(let (temp_generated_1234 ~value)
+  \`(const (temp_generated_1234 ~value)
      ~@body))
 
 (var temp 999)

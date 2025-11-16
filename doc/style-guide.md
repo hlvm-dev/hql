@@ -32,8 +32,8 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 (connect {host: "api.example.com" ssl: true})
 
 ;; Destructuring - unquoted
-(let {x y z} point)
-(let {x: newX y: newY} point)
+(const {x y z} point)
+(const {x: newX y: newY} point)
 ```
 
 **Why Lisp style?**
@@ -116,7 +116,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 
 ```lisp
 ;; Copy-paste JSON response directly
-(let response {
+(const response {
   "status": 200,
   "data": {
     "users": [
@@ -127,7 +127,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 })
 
 ;; Or convert to Lisp style if you prefer
-(let response {
+(const response {
   status: 200
   data: {
     users: [
@@ -159,21 +159,21 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 
 ```lisp
 ;; Use kebab-case (Lisp tradition)
-(let user-name "Alice")
+(const user-name "Alice")
 (fn get-user-data [] ...)
 (fn parse-json-response [] ...)
 
 ;; Not camelCase
-(let userName "Alice")      ;; Works but not idiomatic
+(const userName "Alice")      ;; Works but not idiomatic
 ```
 
 ### Constants
 
 ```lisp
 ;; Use SCREAMING-KEBAB-CASE
-(let MAX-RETRIES 3)
-(let API-TIMEOUT 30)
-(let DEFAULT-HOST "localhost")
+(const MAX-RETRIES 3)
+(const API-TIMEOUT 30)
+(const DEFAULT-HOST "localhost")
 ```
 
 ### Predicates (Boolean functions)
@@ -196,8 +196,8 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 (import [helper1 helper2] from "./utils")
 
 ;; 2. Constants
-(let API-BASE "https://api.example.com")
-(let MAX-RETRIES 3)
+(const API-BASE "https://api.example.com")
+(const MAX-RETRIES 3)
 
 ;; 3. Helper functions
 (fn validate-input [data] ...)
@@ -287,8 +287,8 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ```lisp
 ;; 2 spaces per level
 (fn process-data [data]
-  (let cleaned (clean data))
-  (let validated (validate cleaned))
+  (const cleaned (clean data))
+  (const validated (validate cleaned))
   validated)
 
 ;; Align closing parens with opening line
@@ -330,11 +330,11 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ; This is a comment
 
 ;; Prefer comments above code, not inline
-(let result (+ x y))  ; Add numbers <- avoid
+(const result (+ x y))  ; Add numbers <- avoid
 
 ;; Better:
 ; Calculate sum of x and y
-(let result (+ x y))
+(const result (+ x y))
 ```
 
 ### Function Documentation
@@ -360,7 +360,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 
 ```lisp
 (fn divide [a b]
-  (if (= b 0)
+  (if (=== b 0)
     (throw (Error "Division by zero"))
     (/ a b)))
 ```

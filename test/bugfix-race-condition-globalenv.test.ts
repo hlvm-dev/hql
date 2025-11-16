@@ -155,7 +155,7 @@ Deno.test("Bugfix #2: Complex code under concurrent load", async () => {
 (fn add [x y]
   (+ x y))
 
-(let result (add 10 20))
+(const result (add 10 20))
 result
 `;
 

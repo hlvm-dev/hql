@@ -65,8 +65,8 @@ All operators use prefix notation (Lisp-style).
 (>= 15 10)          ; => true
 
 ; Equality
-(= 42 42)           ; => true
-(= "hello" "hello") ; => true
+(=== 42 42)           ; => true
+(=== "hello" "hello") ; => true
 
 ; Inequality
 (!= 10 20)          ; => true
@@ -301,7 +301,7 @@ JavaScript
 | `>`      | `(> a b)`  | `a > b`    | Greater than        |
 | `<=`     | `(<= a b)` | `a <= b`   | Less or equal       |
 | `>=`     | `(>= a b)` | `a >= b`   | Greater or equal    |
-| `=`      | `(= a b)`  | `a === b`  | Equality (strict)   |
+| `=`      | `(=== a b)`  | `a === b`  | Equality (strict)   |
 | `!=`     | `(!= a b)` | `a !== b`  | Inequality (strict) |
 
 ### Logical Operators

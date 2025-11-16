@@ -288,7 +288,7 @@ unquote
 ```lisp
 ; Environment-based config
 (macro config (env settings)
-  `(if (= process.env.NODE_ENV ~env)
+  `(if (=== process.env.NODE_ENV ~env)
      ~settings
      null))
 ```

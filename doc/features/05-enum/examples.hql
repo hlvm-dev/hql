@@ -15,16 +15,16 @@
 (var heading Direction.north)
 
 ;; Value equality
-(if (= heading Direction.west)
+(if (=== heading Direction.west)
   (print "Heading west!")
   (print "Not heading west"))
 
 ;; Pattern matching with cond
 (cond
-  ((= heading Direction.north) (print "Going north"))
-  ((= heading Direction.south) (print "Going south"))
-  ((= heading Direction.east) (print "Going east"))
-  ((= heading Direction.west) (print "Going west"))
+  ((=== heading Direction.north) (print "Going north"))
+  ((=== heading Direction.south) (print "Going south"))
+  ((=== heading Direction.east) (print "Going east"))
+  ((=== heading Direction.west) (print "Going west"))
 )
 
 ;; ------------------------------
@@ -39,7 +39,7 @@
 )
 
 ;; Using raw values for comparison
-(let statusCode HttpStatus.notFound)
+(const statusCode HttpStatus.notFound)
 
 ;; Numeric comparisons work with raw values
 (if (>= statusCode 400)
@@ -56,8 +56,8 @@
 )
 
 ;; Creating instances with associated values
-(let payment1 (Payment.cash 100))
-(let payment2 (Payment.creditCard
+(const payment1 (Payment.cash 100))
+(const payment2 (Payment.creditCard
   "4111-1111-1111-1111"
   "12/25"
   "123"))
@@ -73,21 +73,21 @@
   (if (js-call payment "is" "cash")
     ;; Handle cash payment
     (do
-      (let amount (get (get payment "values") "amount"))
+      (const amount (get (get payment "values") "amount"))
       (print "Processing cash payment of $" amount))
 
     ;; Handle other payment types
     (if (js-call payment "is" "creditCard")
       (do
-        (let values (get payment "values"))
-        (let cardNum (get values "number"))
-        (let expiry (get values "expiry"))
+        (const values (get payment "values"))
+        (const cardNum (get values "number"))
+        (const expiry (get values "expiry"))
         (print "Processing credit card " cardNum " expiring " expiry))
 
       ;; Check payment type
       (if (js-call payment "is" "check")
         (do
-          (let values (get payment "values"))
+          (const values (get payment "values"))
           (print "Processing check from account " (get values "accountNumber")))
 
         ;; Default case
@@ -135,9 +135,9 @@
 ;; A function that "installs" based on the OS
 (fn install [os]
   (cond
-    ((= os OS.macOS) "Installing on macOS")
-    ((= os OS.iOS)   "Installing on iOS")
-    ((= os OS.linux) "Installing on Linux")
+    ((=== os OS.macOS) "Installing on macOS")
+    ((=== os OS.iOS)   "Installing on iOS")
+    ((=== os OS.linux) "Installing on Linux")
     (else            "Unsupported OS")
   )
 )
@@ -145,18 +145,18 @@
 ;; A function with dot notation in equality comparisons
 (fn install2 [os]
   (cond
-    ((= os .macOS) "Installing on macOS")
-    ((= os .iOS)   "Installing on iOS")
-    ((= os .linux) "Installing on Linux")
+    ((=== os .macOS) "Installing on macOS")
+    ((=== os .iOS)   "Installing on iOS")
+    ((=== os .linux) "Installing on Linux")
     (else          "Unsupported OS")
   )
 )
 
 ;; A function demonstrating if statements with enum dot notation
 (fn check-status [code]
-  (if (= code .ok)
+  (if (=== code .ok)
     "Everything is ok!"
-    (if (= code .notFound)
+    (if (=== code .notFound)
       "Not found!"
       "Server error!"
     )
@@ -165,7 +165,7 @@
 
 ;; A function demonstrating when with enum dot notation
 (fn process-status [code]
-  (when (= code .serverError)
+  (when (=== code .serverError)
     (print "Critical error detected!")
     "Server error needs attention"
   )
@@ -173,26 +173,26 @@
 
 ;; Test reversed comparison order
 (fn reverse-check [code]
-  (if (= .ok code)
+  (if (=== .ok code)
     "Status is ok!"
     "Status is not ok!"
   )
 )
 
 ;; Examples of calling with positional arguments
-(let mac-result (install OS.macOS))
-(let ios-result (install OS.iOS))
-(let linux-result (install OS.linux))
+(const mac-result (install OS.macOS))
+(const ios-result (install OS.iOS))
+(const linux-result (install OS.linux))
 
 ;; Using explicit enum references
-(let mac-result2 (install OS.macOS))
+(const mac-result2 (install OS.macOS))
 
 ;; Status code check
-(let status (check-status StatusCode.ok))
-(let error-status (check-status StatusCode.serverError))
+(const status (check-status StatusCode.ok))
+(const error-status (check-status StatusCode.serverError))
 
 ;; Test the second install function with dot notation
-(let mac-result3 (install2 OS.macOS))
+(const mac-result3 (install2 OS.macOS))
 
 ;; Return the status to test
 (print status)
@@ -208,7 +208,7 @@
 )
 
 ;; Missing closing parenthesis below - deliberate syntax error
-(let x 10)
+(const x 10)
 
 ;; This code should not execute
 (print "Value is" x)

@@ -930,7 +930,7 @@ This fix completes the runtime helper architecture:
 | Function typed       | 3     | syntax-function-params.test.ts | ✅ Type-safe |
 | Function placeholder | 2     | syntax-function-params.test.ts | ✅ Type-safe |
 | Function mixed args  | 20    | syntax-mixed-args.test.ts      | ✅ Type-safe |
-| let/var/set!         | 17    | syntax-binding.test.ts         | ✅ Type-safe |
+| const/let/var        | 17    | syntax-binding.test.ts         | ✅ Type-safe |
 | Shallow freeze       | 3     | syntax-binding.test.ts         | ✅ Type-safe |
 | Deep freeze          | 10    | syntax-deep-freeze.test.ts     | ✅ Type-safe |
 | Infinity value       | 5     | syntax-infinity.test.ts        | ✅ Type-safe |

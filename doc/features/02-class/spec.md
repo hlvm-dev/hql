@@ -12,13 +12,13 @@ features such as inheritance.
   (var name)         ;; mutable field (set in constructor)
   (var age)          ;; mutable field (set in constructor)
   (var score 0)      ;; mutable field with default value
-  (let role "user")  ;; immutable field with default value
+  (const role "user")  ;; immutable field with default value
 
   ;; Constructor: initializes required fields, can override defaults
   (constructor [name age]
     (do
-      (set! this.name name)
-      (set! this.age age)
+      (= this.name name)
+      (= this.age age)
       ;; score and role use their default values (0 and "user")
       this))
 
@@ -28,7 +28,7 @@ features such as inheritance.
 
   (fn celebrateBirthday [newAge]
     (do
-      (set! this.age newAge)
+      (= this.age newAge)
       this))
 )
 ```
@@ -37,7 +37,7 @@ features such as inheritance.
 
 ```lisp
 ;; Instantiate a Person class
-(let person (new Person "Alice" 30))
+(const person (new Person "Alice" 30))
 
 ;; Field access:
 (print (person.name))    ;; Output: "Alice"
@@ -56,12 +56,12 @@ features such as inheritance.
 - **Field Defaults:** Fields can have default values that are used when not set
   by the constructor.
 - **Constructor Priority:** Constructor can override field defaults by
-  explicitly setting fields with `set!`.
+  explicitly setting fields with `=`.
 - **Interoperability:** Classes can reference external values or variables (if
   desired) in their constructor or methods.
 - **Inheritance & Polymorphism:** While not shown in this example, classes are
   designed to support subclassing and method overriding.
-- **Unified Declaration:** The same `(var …)` and `(let …)` syntax is used for
+- **Unified Declaration:** The same `(var …)` and `(const …)` syntax is used for
   fields, keeping the language consistent.
 
 ---
@@ -84,7 +84,7 @@ features such as inheritance.
   (person.celebrateBirthday 31)  ;; Calls a method with arguments
   ```
 
-- **Unified Field Declaration:** Using `(var ...)` for mutable and `(let ...)`
+- **Unified Field Declaration:** Using `(var ...)` for mutable and `(const ...)`
   for immutable fields keeps the syntax consistent and easy to learn.
 
 ---
@@ -120,7 +120,7 @@ automatic boxing of primitive values, allowing method calls on any value.
 ```lisp
 ;; Array methods
 (print ([1, 2, 3, 4, 5]
-  .filter (fn [n] (= (% n 2) 0))
+  .filter (fn [n] (=== (% n 2) 0))
   .map (fn [n] (* n 2))))
 ;; => [4, 8]
 
@@ -180,11 +180,11 @@ functionality:
   (constructor [initialX initialY]
     (do
       ;; Constructor overrides the default values
-      (set! this.x initialX)
-      (set! this.y initialY)))
+      (= this.x initialX)
+      (= this.y initialY)))
 
   (fn distanceTo [otherPoint]
-    (let (dx (- otherPoint.x this.x)
+    (const (dx (- otherPoint.x this.x)
           dy (- otherPoint.y this.y))
       (Math.sqrt (+ (* dx dx) (* dy dy)))))
 
@@ -213,8 +213,8 @@ initialization:
   (constructor [serverHost serverPort]
     (do
       ;; Constructor overrides the defaults
-      (set! this.host serverHost)
-      (set! this.port serverPort)
+      (= this.host serverHost)
+      (= this.port serverPort)
       ;; debug keeps its default value (false)
       )))
 
@@ -228,7 +228,7 @@ initialization:
 
 1. **Field defaults are set first**: All fields with default values are
    initialized
-2. **Constructor runs second**: Can override any field using `set!`
+2. **Constructor runs second**: Can override any field using `=`
 3. **Constructor has priority**: Any field set by the constructor overrides its
    default value
 

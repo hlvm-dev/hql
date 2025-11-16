@@ -29,9 +29,9 @@ Deno.test("Bugfix #1: Built-in macros compile correctly after fix", async () => 
 
 Deno.test("Bugfix #1: Multiple macro uses work correctly", async () => {
   const code = `
-(let a (when true 1))
-(let b (unless false 2))
-(let c (when true 3))
+(const a (when true 1))
+(const b (unless false 2))
+(const c (when true 3))
 (+ a (+ b c))
 `;
 
@@ -137,9 +137,9 @@ Deno.test("Bugfix #1: when with multiple expressions", async () => {
   const code = `
 (var result 0)
 (when true
-  (set! result (+ result 1))
-  (set! result (+ result 2))
-  (set! result (+ result 3)))
+  (= result (+ result 1))
+  (= result (+ result 2))
+  (= result (+ result 3)))
 result
 `;
 

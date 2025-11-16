@@ -143,7 +143,7 @@ tracking Logging and diagnostics
 Overall Process Flow with Example Let's trace through an end-to-end example:
 CopyHQL Input: (fn greet [name] (str "Hello, " name "!"))
 
-(let message (greet "World"))
+(const message (greet "World"))
 
 Parsing: Create S-expression tree Import Processing: Load any imports (none in
 this example) Macro Expansion: Expand user-defined macros (fn is a kernel

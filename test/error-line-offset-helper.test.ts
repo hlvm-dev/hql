@@ -15,9 +15,9 @@ import { makeTempDir, writeTextFile, remove } from "../core/src/platform/platfor
 Deno.test("Line offset: Error location with array access helper injection", async () => {
   // This code will trigger __hql_get helper injection
   // The error is on line 3
-  const code = `(let data [1 2 3])
-(let result (map (fn (x) (* x 2)) data))
-(let bad (/ 10 undefined_var))`;
+  const code = `(const data [1 2 3])
+(const result (map (fn (x) (* x 2)) data))
+(const bad (/ 10 undefined_var))`;
 
   const tempDir = await makeTempDir({
     prefix: "hql-offset-",
@@ -57,10 +57,10 @@ Deno.test("Line offset: Error location with array access helper injection", asyn
 
 Deno.test("Line offset: Error location with get/range/map helpers", async () => {
   // This code uses multiple features that inject helpers
-  const code = `(let nums [1 2 3 4 5])
-(let doubled (map (fn (n) (* n 2)) nums))
-(let first (get nums 0))
-(let bad_var undefined_thing)`;
+  const code = `(const nums [1 2 3 4 5])
+(const doubled (map (fn (n) (* n 2)) nums))
+(const first (get nums 0))
+(const bad_var undefined_thing)`;
 
   const tempDir = await makeTempDir({
     prefix: "hql-offset-",
@@ -100,8 +100,8 @@ Deno.test("Line offset: Error location with get/range/map helpers", async () => 
 
 Deno.test("Line offset: Verify no helpers = no offset issues", async () => {
   // Simple code without helpers - this should already work
-  const code = `(let x 10)
-(let y 20)
+  const code = `(const x 10)
+(const y 20)
 (+ x undefined_var)`;
 
   const tempDir = await makeTempDir({

@@ -14,7 +14,7 @@
 
 ;; Macro versions for user code (generate efficient inline code)
 (macro length (coll)
-  `(if (= ~coll null)
+  `(if (=== ~coll null)
        0
        (js-get ~coll "length")))
 
@@ -33,12 +33,12 @@
   `[~@items])
 
 (macro nil? (x)
-  `(= ~x null))
+  `(=== ~x null))
 
 (macro empty? (coll)
   `(if (nil? ~coll)
        true
-       (= (length ~coll) 0)))
+       (=== (length ~coll) 0)))
 
 (macro or (& args)
   (cond
@@ -96,7 +96,7 @@
   (js-call arr1 "concat" arr2))
 
 (macro set (target value)
-  `(set! ~target ~value))
+  `(= ~target ~value))
 
 (macro str (& args)
   (cond
@@ -128,13 +128,13 @@
   `(> (length ~coll) 0))
 
 (macro empty-list? (coll)
-  `(= (length ~coll) 0))
+  `(=== (length ~coll) 0))
 
 (macro rest-list (coll)
   `(js-call ~coll "slice" 1))
 
 (macro seq (coll)
-  `(if (= (js-get ~coll "length") 0)
+  `(if (=== (js-get ~coll "length") 0)
        null
        ~coll))
 

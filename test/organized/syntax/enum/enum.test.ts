@@ -45,7 +45,7 @@ Deno.test("Enum: compare enum values with equality", async () => {
   (case south))
 
 (var heading Direction.north)
-(= heading Direction.north)
+(=== heading Direction.north)
 `;
   const result = await run(code);
   assertEquals(result, true);
@@ -62,10 +62,10 @@ Deno.test("Enum: use enum in conditional (cond)", async () => {
 (var heading Direction.east)
 
 (cond
-  ((= heading Direction.north) "going-north")
-  ((= heading Direction.south) "going-south")
-  ((= heading Direction.east) "going-east")
-  ((= heading Direction.west) "going-west")
+  ((=== heading Direction.north) "going-north")
+  ((=== heading Direction.south) "going-south")
+  ((=== heading Direction.east) "going-east")
+  ((=== heading Direction.west) "going-west")
   (else "unknown"))
 `;
   const result = await run(code);
@@ -187,9 +187,9 @@ Deno.test("Enum: dot notation in function parameters", async () => {
 
 (fn install [os]
   (cond
-    ((= os OS.macOS) "Installing on macOS")
-    ((= os OS.iOS) "Installing on iOS")
-    ((= os OS.linux) "Installing on Linux")
+    ((=== os OS.macOS) "Installing on macOS")
+    ((=== os OS.iOS) "Installing on iOS")
+    ((=== os OS.linux) "Installing on Linux")
     (else "Unsupported OS")))
 
 (install OS.macOS)
@@ -208,7 +208,7 @@ Deno.test("Enum: dot notation in equality", async () => {
   (case serverError 500))
 
 (fn checkStatus (code)
-  (if (= code StatusCode.ok)
+  (if (=== code StatusCode.ok)
     "Everything is ok!"
     "Not ok!"))
 

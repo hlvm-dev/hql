@@ -9,44 +9,44 @@
 ; ============================================================================
 
 ; Addition with integers
-(assert (= (+ 10 20) 30) "Integer addition")
-(assert (= (+ 5 7) 12) "Addition should work")
+(assert (=== (+ 10 20) 30) "Integer addition")
+(assert (=== (+ 5 7) 12) "Addition should work")
 
 ; Addition with floats
-(assert (= (+ 10.5 20.3) 30.8) "Float addition")
-(assert (= (+ 1.1 2.2) 3.3) "Float precision")
+(assert (=== (+ 10.5 20.3) 30.8) "Float addition")
+(assert (=== (+ 1.1 2.2) 3.3) "Float precision")
 
 ; Addition with multiple operands
-(assert (= (+ 1 2 3 4 5) 15) "Multi-operand addition")
-(assert (= (+ 10 20 30) 60) "Three operand addition")
+(assert (=== (+ 1 2 3 4 5) 15) "Multi-operand addition")
+(assert (=== (+ 10 20 30) 60) "Three operand addition")
 
 ; Subtraction
-(assert (= (- 50 30) 20) "Integer subtraction")
-(assert (= (- 100.5 50.25) 50.25) "Float subtraction")
-(assert (= (- 0 10) -10) "Subtraction to negative")
+(assert (=== (- 50 30) 20) "Integer subtraction")
+(assert (=== (- 100.5 50.25) 50.25) "Float subtraction")
+(assert (=== (- 0 10) -10) "Subtraction to negative")
 
 ; Multiplication
-(assert (= (* 6 7) 42) "Integer multiplication")
-(assert (= (* 2.5 4.0) 10.0) "Float multiplication")
-(assert (= (* 3 3) 9) "Squaring")
+(assert (=== (* 6 7) 42) "Integer multiplication")
+(assert (=== (* 2.5 4.0) 10.0) "Float multiplication")
+(assert (=== (* 3 3) 9) "Squaring")
 
 ; Division
-(assert (= (/ 100 5) 20) "Integer division")
-(assert (= (/ 10.0 4.0) 2.5) "Float division")
-(assert (= (/ 20 4) 5) "Exact division")
+(assert (=== (/ 100 5) 20) "Integer division")
+(assert (=== (/ 10.0 4.0) 2.5) "Float division")
+(assert (=== (/ 20 4) 5) "Exact division")
 
 ; Modulo
-(assert (= (% 17 5) 2) "Modulo operation")
-(assert (= (% 10 3) 1) "Remainder")
-(assert (= (% 20 5) 0) "No remainder")
+(assert (=== (% 17 5) 2) "Modulo operation")
+(assert (=== (% 10 3) 1) "Remainder")
+(assert (=== (% 20 5) 0) "No remainder")
 
 ; Nested arithmetic
-(let nested (+ (* 2 3) (- 10 5)))
-(assert (= nested 11) "Nested arithmetic: (2*3) + (10-5)")
+(const nested (+ (* 2 3) (- 10 5)))
+(assert (=== nested 11) "Nested arithmetic: (2*3) + (10-5)")
 
 ; Complex expression
-(let complex (+ (* 2 (+ 3 4)) (/ 20 4)))
-(assert (= complex 19) "Complex: 2*(3+4) + 20/4 = 14 + 5")
+(const complex (+ (* 2 (+ 3 4)) (/ 20 4)))
+(assert (=== complex 19) "Complex: 2*(3+4) + 20/4 = 14 + 5")
 
 ; ============================================================================
 ; SECTION 2: COMPARISON OPERATORS
@@ -73,10 +73,10 @@
 (assert (not (>= 5 10)) "Not greater or equal")
 
 ; Equality
-(assert (= 42 42) "Number equality")
-(assert (= "hello" "hello") "String equality")
-(assert (= true true) "Boolean equality")
-(assert (= null null) "Null equality")
+(assert (=== 42 42) "Number equality")
+(assert (=== "hello" "hello") "String equality")
+(assert (=== true true) "Boolean equality")
+(assert (=== null null) "Null equality")
 
 ; Inequality
 (assert (!= 10 20) "Numbers are not equal")
@@ -110,47 +110,47 @@
 (assert (or (and false true) (not false)) "Combined logic 2")
 
 ; Short-circuit evaluation (implicitly tested)
-(let condition (or true (/ 1 0)))  ; Second arg not evaluated
+(const condition (or true (/ 1 0)))  ; Second arg not evaluated
 (assert condition "OR short-circuits")
 
 ; Complex logical expression
-(assert (and (> 10 5) (or (= 10 10) (< 10 5))) "Complex boolean logic")
+(assert (and (> 10 5) (or (=== 10 10) (< 10 5))) "Complex boolean logic")
 
 ; ============================================================================
 ; SECTION 4: PRIMITIVE TYPES
 ; ============================================================================
 
 ; Integer numbers
-(assert (= 42 42) "Integer 42")
-(assert (= 0 0) "Zero")
-(assert (= -42 -42) "Negative integer")
+(assert (=== 42 42) "Integer 42")
+(assert (=== 0 0) "Zero")
+(assert (=== -42 -42) "Negative integer")
 
 ; Floating-point numbers
-(assert (= 3.14159 3.14159) "Pi approximation")
-(assert (= 0.5 0.5) "Half")
-(assert (= -1.5 -1.5) "Negative float")
+(assert (=== 3.14159 3.14159) "Pi approximation")
+(assert (=== 0.5 0.5) "Half")
+(assert (=== -1.5 -1.5) "Negative float")
 
 ; Strings
-(assert (= "Hello, HQL!" "Hello, HQL!") "String literal")
-(assert (= "" "") "Empty string")
-(assert (= "123" "123") "Numeric string")
+(assert (=== "Hello, HQL!" "Hello, HQL!") "String literal")
+(assert (=== "" "") "Empty string")
+(assert (=== "123" "123") "Numeric string")
 
 ; Booleans
-(assert (= true true) "Boolean true")
-(assert (= false false) "Boolean false")
+(assert (=== true true) "Boolean true")
+(assert (=== false false) "Boolean false")
 (assert (!= true false) "True is not false")
 
 ; Null and undefined
-(assert (= null null) "Null value")
-(assert (= undefined undefined) "Undefined value")
+(assert (=== null null) "Null value")
+(assert (=== undefined undefined) "Undefined value")
 (assert (!= null undefined) "Null is not undefined")
 
 ; Type consistency
 (var num 42)
-(assert (= num 42) "Variable holds integer")
+(assert (=== num 42) "Variable holds integer")
 
 (var str "test")
-(assert (= str "test") "Variable holds string")
+(assert (=== str "test") "Variable holds string")
 
 (var bool true)
 (assert bool "Variable holds boolean")
@@ -160,28 +160,28 @@
 ; ============================================================================
 
 ; String concatenation with +
-(let greeting (+ "Hello, " "World!"))
-(assert (= greeting "Hello, World!") "String concatenation")
+(const greeting (+ "Hello, " "World!"))
+(assert (=== greeting "Hello, World!") "String concatenation")
 
-(let fullName (+ "John" " " "Doe"))
-(assert (= fullName "John Doe") "Multiple string concat")
+(const fullName (+ "John" " " "Doe"))
+(assert (=== fullName "John Doe") "Multiple string concat")
 
 ; String length property
 (var message "Hello")
-(assert (= message.length 5) "String length property")
+(assert (=== message.length 5) "String length property")
 
 (var empty "")
-(assert (= empty.length 0) "Empty string length")
+(assert (=== empty.length 0) "Empty string length")
 
 ; String charAt method
 (var word "Hello")
-(assert (= (word.charAt 0) "H") "First character")
-(assert (= (word.charAt 1) "e") "Second character")
-(assert (= (word.charAt 4) "o") "Last character")
+(assert (=== (word.charAt 0) "H") "First character")
+(assert (=== (word.charAt 1) "e") "Second character")
+(assert (=== (word.charAt 4) "o") "Last character")
 
 ; String concatenation with numbers (type coercion)
-(let mixed (+ "Count: " 42))
-(assert (= mixed "Count: 42") "String + number concatenation")
+(const mixed (+ "Count: " 42))
+(assert (=== mixed "Count: 42") "String + number concatenation")
 
 ; ============================================================================
 ; SECTION 6: COMBINED EXPRESSIONS
@@ -190,7 +190,7 @@
 ; Arithmetic with comparison
 (assert (> (+ 10 20) 25) "30 is greater than 25")
 (assert (< (- 10 5) 10) "5 is less than 10")
-(assert (= (* 5 4) 20) "5 times 4 equals 20")
+(assert (=== (* 5 4) 20) "5 times 4 equals 20")
 
 ; Comparison with logical operators
 (assert (and (> 10 5) (< 3 7)) "Both comparisons true")
@@ -200,20 +200,20 @@
 ; Complex nested expression with variables
 (var x 10)
 (var y 20)
-(assert (and (> x 5) (or (= y 20) (< y 10))) "Complex with vars")
+(assert (and (> x 5) (or (=== y 20) (< y 10))) "Complex with vars")
 
 ; Arithmetic in variable assignment
 (var a 5)
 (var b 10)
 (var c (+ (* a 2) b))
-(assert (= c 20) "Computed value: (5*2) + 10")
+(assert (=== c 20) "Computed value: (5*2) + 10")
 
 ; Chained operations
 (var start 0)
 (var step1 (+ start 10))
 (var step2 (* step1 2))
 (var result (- step2 5))
-(assert (= result 15) "Chained: ((0+10)*2)-5 = 15")
+(assert (=== result 15) "Chained: ((0+10)*2)-5 = 15")
 
 ; Conditional logic with operators
 (fn isPositive [n]
@@ -247,10 +247,10 @@
   (/ a b))
 
 ; Test calculator
-(assert (= (add 10 20) 30) "Calculator add")
-(assert (= (subtract 50 30) 20) "Calculator subtract")
-(assert (= (multiply 6 7) 42) "Calculator multiply")
-(assert (= (divide 100 5) 20) "Calculator divide")
+(assert (=== (add 10 20) 30) "Calculator add")
+(assert (=== (subtract 50 30) 20) "Calculator subtract")
+(assert (=== (multiply 6 7) 42) "Calculator multiply")
+(assert (=== (divide 100 5) 20) "Calculator divide")
 
 ; ============================================================================
 ; REAL-WORLD EXAMPLE: VALIDATION
@@ -288,11 +288,11 @@
 (fn average [a b c]
   (/ (+ a b c) 3))
 
-(assert (= (average 10 20 30) 20) "Average of 10,20,30")
+(assert (=== (average 10 20 30) 20) "Average of 10,20,30")
 
 ; Check if even
 (fn isEven [n]
-  (= (% n 2) 0))
+  (=== (% n 2) 0))
 
 (assert (isEven 10) "10 is even")
 (assert (not (isEven 11)) "11 is odd")
@@ -305,9 +305,9 @@
       max
       value)))
 
-(assert (= (clamp 5 0 100) 5) "5 within range")
-(assert (= (clamp -5 0 100) 0) "-5 clamped to 0")
-(assert (= (clamp 150 0 100) 100) "150 clamped to 100")
+(assert (=== (clamp 5 0 100) 5) "5 within range")
+(assert (=== (clamp -5 0 100) 0) "-5 clamped to 0")
+(assert (=== (clamp 150 0 100) 100) "150 clamped to 100")
 
 ; ============================================================================
 ; SUMMARY

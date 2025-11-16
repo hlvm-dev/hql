@@ -14,7 +14,7 @@ async function run(code: string): Promise<any> {
 
 Deno.test("Object Destructuring: Simple {x y}", async () => {
   const code = `
-(let {x y} {x: 1 y: 2})
+(const {x y} {x: 1 y: 2})
 (+ x y)
 `;
   const result = await run(code);
@@ -23,7 +23,7 @@ Deno.test("Object Destructuring: Simple {x y}", async () => {
 
 Deno.test("Object Destructuring: Three properties {a b c}", async () => {
   const code = `
-(let {a b c} {a: 10 b: 20 c: 30})
+(const {a b c} {a: 10 b: 20 c: 30})
 (+ a (+ b c))
 `;
   const result = await run(code);
@@ -32,7 +32,7 @@ Deno.test("Object Destructuring: Three properties {a b c}", async () => {
 
 Deno.test("Object Destructuring: Single property {x}", async () => {
   const code = `
-(let {x} {x: 42})
+(const {x} {x: 42})
 x
 `;
   const result = await run(code);
@@ -41,7 +41,7 @@ x
 
 Deno.test("Object Destructuring: Order independence", async () => {
   const code = `
-(let {b a} {a: 1 b: 2})
+(const {b a} {a: 1 b: 2})
 (+ a b)
 `;
   const result = await run(code);
@@ -50,7 +50,7 @@ Deno.test("Object Destructuring: Order independence", async () => {
 
 Deno.test("Object Destructuring: Extra properties in object", async () => {
   const code = `
-(let {x y} {x: 1 y: 2 z: 3 w: 4})
+(const {x y} {x: 1 y: 2 z: 3 w: 4})
 (+ x y)
 `;
   const result = await run(code);
@@ -59,8 +59,8 @@ Deno.test("Object Destructuring: Extra properties in object", async () => {
 
 Deno.test("Object Destructuring: Missing property (undefined)", async () => {
   const code = `
-(let {x y z} {x: 1 y: 2})
-(if (= z undefined) "ok" "fail")
+(const {x y z} {x: 1 y: 2})
+(if (=== z undefined) "ok" "fail")
 `;
   const result = await run(code);
   assertEquals(result, "ok");
@@ -72,7 +72,7 @@ Deno.test("Object Destructuring: Missing property (undefined)", async () => {
 
 Deno.test("Object Destructuring: Rename {x: newX}", async () => {
   const code = `
-(let {x: newX} {x: 42})
+(const {x: newX} {x: 42})
 newX
 `;
   const result = await run(code);
@@ -81,7 +81,7 @@ newX
 
 Deno.test("Object Destructuring: Multiple renames", async () => {
   const code = `
-(let {a: x b: y} {a: 1 b: 2})
+(const {a: x b: y} {a: 1 b: 2})
 (+ x y)
 `;
   const result = await run(code);
@@ -90,7 +90,7 @@ Deno.test("Object Destructuring: Multiple renames", async () => {
 
 Deno.test("Object Destructuring: Mixed rename and direct", async () => {
   const code = `
-(let {a x: y} {a: 10 x: 20})
+(const {a x: y} {a: 10 x: 20})
 (+ a y)
 `;
   const result = await run(code);
@@ -106,7 +106,7 @@ Deno.test("Object Destructuring: Mixed rename and direct", async () => {
 // Creates variables: b, c (NOT a - it's the path, not a variable)
 Deno.test("Object Destructuring: Nested {a {b c}}", async () => {
   const code = `
-(let {data: {x y}} {data: {x: 10 y: 20}})
+(const {data: {x y}} {data: {x: 10 y: 20}})
 (+ x y)
 `;
   const result = await run(code);
@@ -118,7 +118,7 @@ Deno.test("Object Destructuring: Nested {a {b c}}", async () => {
 // Extracts 'inner' from obj.outer.middle.inner
 Deno.test("Object Destructuring: Deep nesting", async () => {
   const code = `
-(let {outer: {middle: {inner}}} {outer: {middle: {inner: 42}}})
+(const {outer: {middle: {inner}}} {outer: {middle: {inner: 42}}})
 inner
 `;
   const result = await run(code);
@@ -131,7 +131,7 @@ inner
 
 Deno.test("Object Destructuring: Object containing array", async () => {
   const code = `
-(let {nums: [a b]} {nums: [1 2]})
+(const {nums: [a b]} {nums: [1 2]})
 (+ a b)
 `;
   const result = await run(code);
@@ -140,7 +140,7 @@ Deno.test("Object Destructuring: Object containing array", async () => {
 
 Deno.test("Object Destructuring: Array containing object", async () => {
   const code = `
-(let [{x y}] [{x: 1 y: 2}])
+(const [{x y}] [{x: 1 y: 2}])
 (+ x y)
 `;
   const result = await run(code);
@@ -154,7 +154,7 @@ Deno.test("Object Destructuring: Array containing object", async () => {
 Deno.test("Object Destructuring: var {x y}", async () => {
   const code = `
 (var {x y} {x: 1 y: 2})
-(set! x 10)
+(= x 10)
 (+ x y)
 `;
   const result = await run(code);
@@ -170,7 +170,7 @@ Deno.test("Object Destructuring: Function call result", async () => {
 (fn make-point [a b]
   {x: a y: b})
 
-(let {x y} (make-point 10 20))
+(const {x y} (make-point 10 20))
 (+ x y)
 `;
   const result = await run(code);
@@ -179,7 +179,7 @@ Deno.test("Object Destructuring: Function call result", async () => {
 
 Deno.test("Object Destructuring: Object with expressions", async () => {
   const code = `
-(let {x y} {x: (+ 1 2) y: (* 3 4)})
+(const {x y} {x: (+ 1 2) y: (* 3 4)})
 (+ x y)
 `;
   const result = await run(code);

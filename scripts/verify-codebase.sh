@@ -17,9 +17,8 @@ NC='\033[0m' # No Color
 
 FAILED=0
 
-# Expected values (updated after recent test additions - now 1174 tests)
-# Includes 10 new tests for @hql/string package (stdlib-string.test.ts)
-EXPECTED_TESTS=1174
+# Expected values (updated for HQL v2.0 migration)
+EXPECTED_TESTS=1285
 EXPECTED_FAILURES=0
 EXPECTED_IGNORED=0
 
@@ -72,7 +71,7 @@ fi
 
 # Test 2: Mixed args
 echo -n "Testing mixed args... "
-RESULT=$(deno eval "import hql from './mod.ts'; console.log(await hql.run('(fn subtract (x y) (- x y)) (subtract 10 y: 3)'))" 2>&1 | grep -v "Download" | tail -1)
+RESULT=$(deno eval "import hql from './mod.ts'; console.log(await hql.run('(do (fn subtract {x: 0 y: 0} (- x y)) (subtract {x: 10 y: 3}))'))" 2>&1 | grep -v "Download" | tail -1)
 if [ "$RESULT" = "7" ]; then
     echo -e "${GREEN}✅ PASS${NC} (got: $RESULT)"
 else
@@ -107,10 +106,10 @@ fi
 # Classes
 echo -n "Testing class.test.ts... "
 CLASSES=$(deno test --allow-all test/organized/syntax/class/class.test.ts 2>&1 | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')
-if [ "$CLASSES" = "32" ]; then
-    echo -e "${GREEN}✅ 32/32${NC}"
+if [ "$CLASSES" = "31" ]; then
+    echo -e "${GREEN}✅ 31/31${NC}"
 else
-    echo -e "${RED}❌ $CLASSES/32${NC}"
+    echo -e "${RED}❌ $CLASSES/31${NC}"
     FAILED=1
 fi
 
@@ -127,10 +126,10 @@ fi
 # Functions (includes mixed args)
 echo -n "Testing function.test.ts... "
 FUNCS=$(deno test --allow-all test/organized/syntax/function/function.test.ts 2>&1 | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')
-if [ "$FUNCS" = "70" ]; then
-    echo -e "${GREEN}✅ 70/70${NC}"
+if [ "$FUNCS" = "67" ]; then
+    echo -e "${GREEN}✅ 67/67${NC}"
 else
-    echo -e "${RED}❌ $FUNCS/70${NC}"
+    echo -e "${RED}❌ $FUNCS/67${NC}"
     FAILED=1
 fi
 

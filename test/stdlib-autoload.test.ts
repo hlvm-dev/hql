@@ -7,7 +7,7 @@ import { run } from "./helpers.ts";
 
 Deno.test("Stdlib: take auto-loaded (no import needed)", async () => {
   const code = `
-(let nums [1, 2, 3, 4, 5])
+(const nums [1, 2, 3, 4, 5])
 (take 3 nums)
 `;
   const result = await run(code);
@@ -18,7 +18,7 @@ Deno.test("Stdlib: take auto-loaded (no import needed)", async () => {
 
 Deno.test("Stdlib: range auto-loaded (lazy infinite generator)", async () => {
   const code = `
-(let lazy-range (range 10))
+(const lazy-range (range 10))
 (take 5 lazy-range)
 `;
   const result = await run(code);
@@ -28,7 +28,7 @@ Deno.test("Stdlib: range auto-loaded (lazy infinite generator)", async () => {
 
 Deno.test("Stdlib: map auto-loaded", async () => {
   const code = `
-(let nums [1, 2, 3])
+(const nums [1, 2, 3])
 (doall (map (fn (x) (* x 2)) nums))
 `;
   const result = await run(code);
@@ -37,8 +37,8 @@ Deno.test("Stdlib: map auto-loaded", async () => {
 
 Deno.test("Stdlib: filter auto-loaded", async () => {
   const code = `
-(let nums [1, 2, 3, 4, 5, 6])
-(doall (filter (fn (x) (= (% x 2) 0)) nums))
+(const nums [1, 2, 3, 4, 5, 6])
+(doall (filter (fn (x) (=== (% x 2) 0)) nums))
 `;
   const result = await run(code);
   assertEquals(result, [2, 4, 6]);
@@ -46,7 +46,7 @@ Deno.test("Stdlib: filter auto-loaded", async () => {
 
 Deno.test("Stdlib: reduce auto-loaded", async () => {
   const code = `
-(let nums [1, 2, 3, 4, 5])
+(const nums [1, 2, 3, 4, 5])
 (reduce (fn (acc x) (+ acc x)) 0 nums)
 `;
   const result = await run(code);
@@ -55,7 +55,7 @@ Deno.test("Stdlib: reduce auto-loaded", async () => {
 
 Deno.test("Stdlib: keys auto-loaded", async () => {
   const code = `
-(let obj {"a": 1, "b": 2, "c": 3})
+(const obj {"a": 1, "b": 2, "c": 3})
 (keys obj)
 `;
   const result = await run(code);
@@ -64,7 +64,7 @@ Deno.test("Stdlib: keys auto-loaded", async () => {
 
 Deno.test("Stdlib: groupBy auto-loaded", async () => {
   const code = `
-(let users [
+(const users [
   {"name": "Alice", "age": 28},
   {"name": "Bob", "age": 32},
   {"name": "Charlie", "age": 28}
@@ -79,8 +79,8 @@ Deno.test("Stdlib: groupBy auto-loaded", async () => {
 
 Deno.test("Stdlib: lazy chaining works", async () => {
   const code = `
-(let nums [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-(let result (take 3 (filter (fn (x) (= (% x 2) 0)) nums)))
+(const nums [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+(const result (take 3 (filter (fn (x) (=== (% x 2) 0)) nums)))
 result
 `;
   const result = await run(code);
@@ -94,7 +94,7 @@ result
 
 Deno.test("Stdlib: first auto-loaded", async () => {
   const code = `
-(let nums [1 2 3])
+(const nums [1 2 3])
 (first nums)
 `;
   const result = await run(code);
@@ -103,7 +103,7 @@ Deno.test("Stdlib: first auto-loaded", async () => {
 
 Deno.test("Stdlib: first with empty array", async () => {
   const code = `
-(let nums [])
+(const nums [])
 (first nums)
 `;
   const result = await run(code);
@@ -112,7 +112,7 @@ Deno.test("Stdlib: first with empty array", async () => {
 
 Deno.test("Stdlib: rest auto-loaded", async () => {
   const code = `
-(let nums [1 2 3])
+(const nums [1 2 3])
 (doall (rest nums))
 `;
   const result = await run(code);
@@ -121,7 +121,7 @@ Deno.test("Stdlib: rest auto-loaded", async () => {
 
 Deno.test("Stdlib: cons auto-loaded", async () => {
   const code = `
-(let nums [1 2 3])
+(const nums [1 2 3])
 (doall (cons 0 nums))
 `;
   const result = await run(code);
@@ -130,7 +130,7 @@ Deno.test("Stdlib: cons auto-loaded", async () => {
 
 Deno.test("Stdlib: isEmpty auto-loaded", async () => {
   const code = `
-(let nums [])
+(const nums [])
 (isEmpty nums)
 `;
   const result = await run(code);
@@ -139,7 +139,7 @@ Deno.test("Stdlib: isEmpty auto-loaded", async () => {
 
 Deno.test("Stdlib: isEmpty with non-empty", async () => {
   const code = `
-(let nums [1])
+(const nums [1])
 (isEmpty nums)
 `;
   const result = await run(code);
@@ -168,7 +168,7 @@ Deno.test("Stdlib: comp auto-loaded (function composition)", async () => {
   const code = `
 (fn double [x] (* x 2))
 (fn add1 (x) (+ x 1))
-(let composed (comp add1 double))
+(const composed (comp add1 double))
 (composed 5)
 `;
   const result = await run(code);
@@ -178,7 +178,7 @@ Deno.test("Stdlib: comp auto-loaded (function composition)", async () => {
 Deno.test("Stdlib: partial auto-loaded (partial application)", async () => {
   const code = `
 (fn add [a b] (+ a b))
-(let add5 (partial add 5))
+(const add5 (partial add 5))
 (add5 10)
 `;
   const result = await run(code);
@@ -205,9 +205,9 @@ Deno.test("Stdlib: iterate auto-loaded (infinite sequence)", async () => {
 
 Deno.test("Stdlib: integration - Lisp trinity (first + rest + cons)", async () => {
   const code = `
-(let list [1 2 3 4 5])
-(let head (first list))
-(let tail (rest list))
+(const list [1 2 3 4 5])
+(const head (first list))
+(const tail (rest list))
 (doall (cons 0 (cons head tail)))
 `;
   const result = await run(code);
@@ -218,7 +218,7 @@ Deno.test("Stdlib: integration - comp with partial", async () => {
   const code = `
 (fn add [a b] (+ a b))
 (fn double [x] (* x 2))
-(let add5ThenDouble (comp double (partial add 5)))
+(const add5ThenDouble (comp double (partial add 5)))
 (add5ThenDouble 10)
 `;
   const result = await run(code);
@@ -227,9 +227,9 @@ Deno.test("Stdlib: integration - comp with partial", async () => {
 
 Deno.test("Stdlib: integration - chaining with new functions", async () => {
   const code = `
-(fn isEven (x) (= (% x 2) 0))
+(fn isEven (x) (=== (% x 2) 0))
 (fn double [x] (* x 2))
-(let nums (iterate (fn (x) (+ x 1)) 0))
+(const nums (iterate (fn (x) (+ x 1)) 0))
 (doall (take 5 (filter isEven (map double nums))))
 `;
   const result = await run(code);
@@ -238,8 +238,8 @@ Deno.test("Stdlib: integration - chaining with new functions", async () => {
 
 Deno.test("Stdlib: isEmpty handles LazySeq with undefined element", async () => {
   const code = `
-(let seq (iterate (fn (x) (if (= x 0) undefined (- x 1))) 2))
-(let taken (take 3 seq))
+(const seq (iterate (fn (x) (if (=== x 0) undefined (- x 1))) 2))
+(const taken (take 3 seq))
 (isEmpty taken)
 `;
   const result = await run(code);
@@ -248,7 +248,7 @@ Deno.test("Stdlib: isEmpty handles LazySeq with undefined element", async () => 
 
 Deno.test("Stdlib: groupBy preserves key types (Map-based)", async () => {
   const code = `
-(let nums [1 2 3 4 5 6])
+(const nums [1 2 3 4 5 6])
 (groupBy (fn (x) (% x 3)) nums)
 `;
   const result = await run(code);
@@ -262,7 +262,7 @@ Deno.test("Stdlib: groupBy preserves key types (Map-based)", async () => {
 
 Deno.test("Stdlib: flatten handles Set", async () => {
   const code = `
-(let data [[1 2] (new Set [3 4]) [5]])
+(const data [[1 2] (new Set [3 4]) [5]])
 (doall (flatten data))
 `;
   const result = await run(code);
@@ -271,7 +271,7 @@ Deno.test("Stdlib: flatten handles Set", async () => {
 
 Deno.test("Stdlib: flatten handles Map (iterates entries)", async () => {
   const code = `
-(let data [[1 2] (new Map [["a" 3] ["b" 4]])])
+(const data [[1 2] (new Map [["a" 3] ["b" 4]])])
 (doall (flatten data))
 `;
   const result = await run(code);
@@ -281,7 +281,7 @@ Deno.test("Stdlib: flatten handles Map (iterates entries)", async () => {
 
 Deno.test("Stdlib: flatten does NOT flatten strings", async () => {
   const code = `
-(let data [[1 2] "hello" [3 4]])
+(const data [[1 2] "hello" [3 4]])
 (doall (flatten data))
 `;
   const result = await run(code);

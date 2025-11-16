@@ -83,7 +83,7 @@ HQL supports shorthand enum access with type inference:
 
 ```lisp
 (fn install [os]
-  (if (= os .macOS)  ; .macOS inferred as OS.macOS
+  (if (=== os .macOS)  ; .macOS inferred as OS.macOS
     "Installing on macOS"))
 
 (install OS.macOS)  ; Explicit enum value

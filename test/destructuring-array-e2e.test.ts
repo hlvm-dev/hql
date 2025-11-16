@@ -14,7 +14,7 @@ async function run(code: string): Promise<any> {
 
 Deno.test("Array Destructuring E2E: Simple [x y]", async () => {
   const code = `
-(let [x y] [1 2])
+(const [x y] [1 2])
 (+ x y)
 `;
   const result = await run(code);
@@ -23,7 +23,7 @@ Deno.test("Array Destructuring E2E: Simple [x y]", async () => {
 
 Deno.test("Array Destructuring E2E: Three elements [x y z]", async () => {
   const code = `
-(let [x y z] [10 20 30])
+(const [x y z] [10 20 30])
 (+ x (+ y z))
 `;
   const result = await run(code);
@@ -32,7 +32,7 @@ Deno.test("Array Destructuring E2E: Three elements [x y z]", async () => {
 
 Deno.test("Array Destructuring E2E: Empty pattern []", async () => {
   const code = `
-(let [] [1 2 3])
+(const [] [1 2 3])
 42
 `;
   const result = await run(code);
@@ -41,7 +41,7 @@ Deno.test("Array Destructuring E2E: Empty pattern []", async () => {
 
 Deno.test("Array Destructuring E2E: Single element [x]", async () => {
   const code = `
-(let [x] [100])
+(const [x] [100])
 x
 `;
   const result = await run(code);
@@ -50,7 +50,7 @@ x
 
 Deno.test("Array Destructuring E2E: More values than bindings", async () => {
   const code = `
-(let [x y] [1 2 3 4 5])
+(const [x y] [1 2 3 4 5])
 (+ x y)
 `;
   const result = await run(code);
@@ -59,8 +59,8 @@ Deno.test("Array Destructuring E2E: More values than bindings", async () => {
 
 Deno.test("Array Destructuring E2E: Fewer values than bindings (undefined)", async () => {
   const code = `
-(let [x y z] [1 2])
-(if (= z undefined) "ok" "fail")
+(const [x y z] [1 2])
+(if (=== z undefined) "ok" "fail")
 `;
   const result = await run(code);
   assertEquals(result, "ok");
@@ -72,7 +72,7 @@ Deno.test("Array Destructuring E2E: Fewer values than bindings (undefined)", asy
 
 Deno.test("Array Destructuring E2E: Skip first [_ y]", async () => {
   const code = `
-(let [_ y] [1 2])
+(const [_ y] [1 2])
 y
 `;
   const result = await run(code);
@@ -81,7 +81,7 @@ y
 
 Deno.test("Array Destructuring E2E: Skip middle [x _ z]", async () => {
   const code = `
-(let [x _ z] [1 2 3])
+(const [x _ z] [1 2 3])
 (+ x z)
 `;
   const result = await run(code);
@@ -90,7 +90,7 @@ Deno.test("Array Destructuring E2E: Skip middle [x _ z]", async () => {
 
 Deno.test("Array Destructuring E2E: Skip last [x _]", async () => {
   const code = `
-(let [x _] [1 2])
+(const [x _] [1 2])
 x
 `;
   const result = await run(code);
@@ -99,7 +99,7 @@ x
 
 Deno.test("Array Destructuring E2E: Multiple skips [_ _ x]", async () => {
   const code = `
-(let [_ _ x] [1 2 3])
+(const [_ _ x] [1 2 3])
 x
 `;
   const result = await run(code);
@@ -108,7 +108,7 @@ x
 
 Deno.test("Array Destructuring E2E: All skips [_ _]", async () => {
   const code = `
-(let [_ _] [1 2])
+(const [_ _] [1 2])
 "ok"
 `;
   const result = await run(code);
@@ -121,7 +121,7 @@ Deno.test("Array Destructuring E2E: All skips [_ _]", async () => {
 
 Deno.test("Array Destructuring E2E: Rest pattern [x & rest]", async () => {
   const code = `
-(let [x & rest] [1 2 3 4])
+(const [x & rest] [1 2 3 4])
 rest
 `;
   const result = await run(code);
@@ -130,7 +130,7 @@ rest
 
 Deno.test("Array Destructuring E2E: Rest at beginning [& all]", async () => {
   const code = `
-(let [& all] [1 2 3])
+(const [& all] [1 2 3])
 all
 `;
   const result = await run(code);
@@ -139,7 +139,7 @@ all
 
 Deno.test("Array Destructuring E2E: Rest with two preceding [x y & rest]", async () => {
   const code = `
-(let [x y & rest] [1 2 3 4 5])
+(const [x y & rest] [1 2 3 4 5])
 rest
 `;
   const result = await run(code);
@@ -148,7 +148,7 @@ rest
 
 Deno.test("Array Destructuring E2E: Rest with empty remainder [x y & rest]", async () => {
   const code = `
-(let [x y & rest] [1 2])
+(const [x y & rest] [1 2])
 rest
 `;
   const result = await run(code);
@@ -157,7 +157,7 @@ rest
 
 Deno.test("Array Destructuring E2E: Rest with underscore [x & _]", async () => {
   const code = `
-(let [x & _] [1 2 3])
+(const [x & _] [1 2 3])
 x
 `;
   const result = await run(code);
@@ -170,7 +170,7 @@ x
 
 Deno.test("Array Destructuring E2E: Nested simple [[x y]]", async () => {
   const code = `
-(let [[x y]] [[1 2]])
+(const [[x y]] [[1 2]])
 (+ x y)
 `;
   const result = await run(code);
@@ -179,7 +179,7 @@ Deno.test("Array Destructuring E2E: Nested simple [[x y]]", async () => {
 
 Deno.test("Array Destructuring E2E: Two nested [[a b] [c d]]", async () => {
   const code = `
-(let [[a b] [c d]] [[1 2] [3 4]])
+(const [[a b] [c d]] [[1 2] [3 4]])
 (+ a (+ b (+ c d)))
 `;
   const result = await run(code);
@@ -188,7 +188,7 @@ Deno.test("Array Destructuring E2E: Two nested [[a b] [c d]]", async () => {
 
 Deno.test("Array Destructuring E2E: Mixed flat and nested [x [y z]]", async () => {
   const code = `
-(let [x [y z]] [1 [2 3]])
+(const [x [y z]] [1 [2 3]])
 (+ x (+ y z))
 `;
   const result = await run(code);
@@ -197,7 +197,7 @@ Deno.test("Array Destructuring E2E: Mixed flat and nested [x [y z]]", async () =
 
 Deno.test("Array Destructuring E2E: Deep nesting [x [y [z]]]", async () => {
   const code = `
-(let [x [y [z]]] [1 [2 [3]]])
+(const [x [y [z]]] [1 [2 [3]]])
 (+ x (+ y z))
 `;
   const result = await run(code);
@@ -206,7 +206,7 @@ Deno.test("Array Destructuring E2E: Deep nesting [x [y [z]]]", async () => {
 
 Deno.test("Array Destructuring E2E: Nested with skip [[_ x] [y _]]", async () => {
   const code = `
-(let [[_ x] [y _]] [[1 2] [3 4]])
+(const [[_ x] [y _]] [[1 2] [3 4]])
 (+ x y)
 `;
   const result = await run(code);
@@ -215,7 +215,7 @@ Deno.test("Array Destructuring E2E: Nested with skip [[_ x] [y _]]", async () =>
 
 Deno.test("Array Destructuring E2E: Nested with rest [[x & xs] [y & ys]]", async () => {
   const code = `
-(let [[x & xs] [y & ys]] [[1 2 3] [4 5 6]])
+(const [[x & xs] [y & ys]] [[1 2 3] [4 5 6]])
 (+ x y)
 `;
   const result = await run(code);
@@ -229,7 +229,7 @@ Deno.test("Array Destructuring E2E: Nested with rest [[x & xs] [y & ys]]", async
 Deno.test("Array Destructuring E2E: var [x y]", async () => {
   const code = `
 (var [x y] [1 2])
-(set! x 10)
+(= x 10)
 (+ x y)
 `;
   const result = await run(code);
@@ -239,7 +239,7 @@ Deno.test("Array Destructuring E2E: var [x y]", async () => {
 Deno.test("Array Destructuring E2E: var with rest [x & rest]", async () => {
   const code = `
 (var [x & rest] [1 2 3])
-(set! x 100)
+(= x 100)
 x
 `;
   const result = await run(code);
@@ -255,7 +255,7 @@ Deno.test("Array Destructuring E2E: Function call result", async () => {
 (fn make-pair [a b]
   [a b])
 
-(let [x y] (make-pair 10 20))
+(const [x y] (make-pair 10 20))
 (+ x y)
 `;
   const result = await run(code);
@@ -264,7 +264,7 @@ Deno.test("Array Destructuring E2E: Function call result", async () => {
 
 Deno.test("Array Destructuring E2E: Array literal with expressions", async () => {
   const code = `
-(let [x y] [(+ 1 2) (* 3 4)])
+(const [x y] [(+ 1 2) (* 3 4)])
 (+ x y)
 `;
   const result = await run(code);
@@ -273,7 +273,7 @@ Deno.test("Array Destructuring E2E: Array literal with expressions", async () =>
 
 Deno.test("Array Destructuring E2E: Destructure result of if", async () => {
   const code = `
-(let [x y] (if true [1 2] [3 4]))
+(const [x y] (if true [1 2] [3 4]))
 (+ x y)
 `;
   const result = await run(code);
@@ -286,7 +286,7 @@ Deno.test("Array Destructuring E2E: Destructure result of if", async () => {
 
 Deno.test("Array Destructuring E2E: Strings in array", async () => {
   const code = `
-(let [a b] ["hello" "world"])
+(const [a b] ["hello" "world"])
 a
 `;
   const result = await run(code);
@@ -295,7 +295,7 @@ a
 
 Deno.test("Array Destructuring E2E: Mixed types", async () => {
   const code = `
-(let [num str bool] [42 "test" true])
+(const [num str bool] [42 "test" true])
 (if bool num str)
 `;
   const result = await run(code);

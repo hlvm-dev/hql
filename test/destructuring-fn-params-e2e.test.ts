@@ -181,7 +181,7 @@ Deno.test("Fn Param Destructuring: Two arrays ([a b] [c d])", async () => {
 
 Deno.test("Fn Param Destructuring: Anonymous fn", async () => {
   const code = `
-(let f (fn ([x y]) (+ x y)))
+(const f (fn ([x y]) (+ x y)))
 (f [5 10])
 `;
   const result = await run(code);

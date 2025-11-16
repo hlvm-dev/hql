@@ -128,13 +128,13 @@ Deno.test("Operator: greater than or equal (>=) greater case", async () => {
 });
 
 Deno.test("Operator: equality (=) with numbers", async () => {
-  const code = `(= 42 42)`;
+  const code = `(=== 42 42)`;
   const result = await run(code);
   assertEquals(result, true);
 });
 
 Deno.test("Operator: equality (=) with strings", async () => {
-  const code = `(= "hello" "hello")`;
+  const code = `(=== "hello" "hello")`;
   const result = await run(code);
   assertEquals(result, true);
 });
@@ -309,7 +309,7 @@ Deno.test("Combined: complex nested expression", async () => {
   const code = `
 (var x 10)
 (var y 20)
-(and (> x 5) (or (= y 20) (< y 10)))
+(and (> x 5) (or (=== y 20) (< y 10)))
 `;
   const result = await run(code);
   assertEquals(result, true);

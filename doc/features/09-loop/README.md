@@ -40,7 +40,7 @@ All loops support breaking early and manipulating state during iteration.
 
 ; Fibonacci
 (loop (n 7 a 0 b 1)
-  (if (= n 0)
+  (if (=== n 0)
     a
     (recur (- n 1) b (+ a b))))
 ; => 13 (7th fibonacci)
@@ -57,8 +57,8 @@ All loops support breaking early and manipulating state during iteration.
 (var count 0)
 (var sum 0)
 (while (< count 5)
-  (set! sum (+ sum count))
-  (set! count (+ count 1)))
+  (= sum (+ sum count))
+  (= count (+ count 1)))
 sum
 ; => 10
 
@@ -67,9 +67,9 @@ sum
 (var found false)
 (while (and (< i nums.length) (not found))
   (if (isMatch (get nums i))
-    (set! found true)
+    (= found true)
     nil)
-  (set! i (+ i 1)))
+  (= i (+ i 1)))
 ```
 
 ### Repeat Loop - Fixed Iterations
@@ -90,8 +90,8 @@ result
 (var sum 0)
 (var counter 0)
 (repeat 5
-  (set! sum (+ sum counter))
-  (set! counter (+ counter 1)))
+  (= sum (+ sum counter))
+  (= counter (+ counter 1)))
 sum
 ; => 10 (0+1+2+3+4)
 ```
@@ -202,7 +202,7 @@ while (condition) {
 (repeat times body)
 
 ; Compiles to:
-for (let i = 0; i < times; i++) {
+for (const i = 0; i < times; i++) {
   body;
 }
 ```
@@ -221,7 +221,7 @@ for (let i = 0; i < times; i++) {
 
 ```lisp
 ; Range: (for (i 0 10 2) body)
-for (let i = 0; i < 10; i += 2) {
+for (const i = 0; i < 10; i += 2) {
   body;
 }
 
@@ -314,7 +314,7 @@ For with named from: to: by: syntax ✅ For collection iteration
 (var sum 0)
 (while (> queue.length 0)
   (var item (.shift queue))
-  (set! sum (+ sum item)))
+  (= sum (+ sum item)))
 sum
 ```
 
@@ -327,8 +327,8 @@ sum
 (repeat 3
   (if (not succeeded)
     (do
-      (set! attempts (+ attempts 1))
-      (set! succeeded (tryOperation)))
+      (= attempts (+ attempts 1))
+      (= succeeded (tryOperation)))
     nil))
 ```
 
@@ -361,7 +361,7 @@ names
 
 ```javascript
 // JavaScript
-for (let i = 0; i < 10; i += 2) {
+for (const i = 0; i < 10; i += 2) {
   console.log(i);
 }
 
@@ -384,7 +384,7 @@ while (count < 5) {
 (var count 0)
 (while (< count 5)
   (print count)
-  (set! count (+ count 1)))
+  (= count (+ count 1)))
 ```
 
 ### JavaScript For-Of
@@ -404,7 +404,7 @@ for (const item of items) {
 
 ```scheme
 ; Scheme (named let)
-(let loop ((i 0) (acc 0))
+(const loop ((i 0) (acc 0))
   (if (< i 10)
       (loop (+ i 1) (+ acc i))
       acc))
@@ -472,7 +472,7 @@ JavaScript (while, for, for-of)
 (var i 0)
 (while (< i 10)
   (print i)
-  (set! i (+ i 1)))
+  (= i (+ i 1)))
 ```
 
 ### Use While for Complex Conditions
@@ -525,7 +525,7 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
 ```lisp
 (fn fib [n]
   (loop (i n a 0 b 1)
-    (if (= i 0)
+    (if (=== i 0)
       a
       (recur (- i 1) b (+ a b)))))
 ```
@@ -538,7 +538,7 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
   (loop (i 0)
     (if (< i nums.length)
       (do
-        (if (= (% (get nums i) 2) 0)
+        (if (=== (% (get nums i) 2) 0)
           (.push result (get nums i))
           nil)
         (recur (+ i 1)))
@@ -551,7 +551,7 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
 (fn sum [nums]
   (var total 0)
   (for (n nums)
-    (set! total (+ total n)))
+    (= total (+ total n)))
   total)
 ```
 
@@ -564,11 +564,11 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
   (repeat max-attempts
     (if (not succeeded)
       (do
-        (set! attempts (+ attempts 1))
+        (= attempts (+ attempts 1))
         (try
           (do
             (op)
-            (set! succeeded true))
+            (= succeeded true))
           (catch (e)
             (print "Attempt" attempts "failed"))))
       nil))
@@ -617,7 +617,7 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
 ; ❌ Bad: Forgot to increment
 (var i 0)
 (while (< i 10)
-  (print i))  ; Infinite! Missing (set! i (+ i 1))
+  (print i))  ; Infinite! Missing (= i (+ i 1))
 ```
 
 **2. Recur Not in Tail Position**

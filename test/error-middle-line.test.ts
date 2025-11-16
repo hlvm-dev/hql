@@ -10,10 +10,10 @@ import { RuntimeError } from "../core/src/common/error.ts";
 import { makeTempDir, writeTextFile, remove } from "../core/src/platform/platform.ts";
 
 Deno.test("CRITICAL: Error on line 2 of 4-line file", async () => {
-  const code = `(let x 10)
-(let bad undefined_var)
-(let y 20)
-(let z 30)`;
+  const code = `(const x 10)
+(const bad undefined_var)
+(const y 20)
+(const z 30)`;
 
   const tempDir = await makeTempDir({
     prefix: "hql-middle-",

@@ -136,13 +136,13 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
 
 ; Multiple awaits
 (async fn add-async (a b)
-  (let x (await (js-call Promise "resolve" a)))
-  (let y (await (js-call Promise "resolve" b)))
+  (const x (await (js-call Promise "resolve" a)))
+  (const y (await (js-call Promise "resolve" b)))
   (+ x y))
 
 ; Promise.all
 (async fn fetch-all ()
-  (let promises [
+  (const promises [
     (js-call Promise "resolve" 1)
     (js-call Promise "resolve" 2)])
   (await (js-call Promise "all" promises)))
@@ -421,7 +421,7 @@ classes ✅ Circular imports - HQL ↔ JS
 
 ```lisp
 (async fn fetch-user (id)
-  (let response (await (js-call fetch (+ "/api/users/" id))))
+  (const response (await (js-call fetch (+ "/api/users/" id))))
   (await (js-call response "json")))
 
 (fetch-user 123)
@@ -433,7 +433,7 @@ classes ✅ Circular imports - HQL ↔ JS
 (async fn retry-fetch (url max-attempts)
   (var attempts 0)
   (loop ()
-    (set! attempts (+ attempts 1))
+    (= attempts (+ attempts 1))
     (try
       (return (await (js-call fetch url)))
       (catch e
@@ -462,7 +462,7 @@ classes ✅ Circular imports - HQL ↔ JS
 
 ```lisp
 (async fn parallel-fetch (urls)
-  (let promises (urls .map (fn (url) (js-call fetch url))))
+  (const promises (urls .map (fn (url) (js-call fetch url))))
   (await (js-call Promise "all" promises)))
 ```
 
@@ -502,7 +502,7 @@ async function getData() {
 (var doubled (arr .map (fn (x) (* x 2))))
 
 (async fn getData ()
-  (let response (await (js-call fetch url)))
+  (const response (await (js-call fetch url)))
   (await (js-call response "json")))
 ```
 
@@ -592,7 +592,7 @@ mutation on frozen objects ✅ Async function return values
 ```lisp
 (async fn api-get (endpoint)
   (try
-    (let response (await (js-call fetch (+ API_URL endpoint))))
+    (const response (await (js-call fetch (+ API_URL endpoint))))
     (if (js-get response "ok")
       (await (js-call response "json"))
       (throw (+ "HTTP error: " (js-get response "status"))))

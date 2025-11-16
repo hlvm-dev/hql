@@ -69,7 +69,7 @@ Deno.test("gensym: prevents variable capture in macros", async () => {
   const code = `
 (macro with-temp (value & body)
   (var tmp (gensym "temp"))
-  \`(let (~tmp ~value)
+  \`(const (~tmp ~value)
      ~@body))
 
 (var temp 999)
@@ -85,7 +85,7 @@ Deno.test("gensym: allows macro to use unique bindings", async () => {
   const code = `
 (macro with-unique (value & body)
   (var unique_var (gensym "temp"))
-  \`(let (~unique_var ~value)
+  \`(const (~unique_var ~value)
      ~@body))
 
 (with-unique 42
@@ -106,9 +106,9 @@ Deno.test("gensym: swap macro with proper hygiene", async () => {
   const code = `
 (macro swap (a b)
   (var tmp (gensym "swap_tmp"))
-  \`(let (~tmp ~a)
-     (set! ~a ~b)
-     (set! ~b ~tmp)))
+  \`(const (~tmp ~a)
+     (= ~a ~b)
+     (= ~b ~tmp)))
 
 (var x 10)
 (var y 20)
@@ -128,9 +128,9 @@ Deno.test("gensym: when-let macro with gensym binding", async () => {
 (macro when-let (binding & body)
   (var tmp (gensym "tmp"))
   (var value_sym (gensym "val"))
-  \`(let (~value_sym ~(%nth binding 1))
+  \`(const (~value_sym ~(%nth binding 1))
      (if ~value_sym
-       (let (~(%nth binding 0) ~value_sym)
+       (const (~(%nth binding 0) ~value_sym)
          ~@body)
        nil)))
 
@@ -145,12 +145,12 @@ Deno.test("gensym: nested macros each get unique symbols", async () => {
   const code = `
 (macro outer (x)
   (var tmp1 (gensym "outer"))
-  \`(let (~tmp1 ~x)
+  \`(const (~tmp1 ~x)
      ~tmp1))
 
 (macro inner (y)
   (var tmp2 (gensym "inner"))
-  \`(let (~tmp2 ~y)
+  \`(const (~tmp2 ~y)
      ~tmp2))
 
 (outer (inner 42))
@@ -171,7 +171,7 @@ Deno.test("gensym: compare manual vs gensym hygiene", async () => {
   // Manual hygiene - fragile, can break if user picks same name
   const manualCode = `
 (macro manual_double (n)
-  \`(let (temp_12345_manual ~n)
+  \`(const (temp_12345_manual ~n)
      (+ temp_12345_manual temp_12345_manual)))
 
 (manual_double 5)
@@ -183,7 +183,7 @@ Deno.test("gensym: compare manual vs gensym hygiene", async () => {
   const gensymCode = `
 (macro gensym_double (n)
   (var tmp (gensym "temp"))
-  \`(let (~tmp ~n)
+  \`(const (~tmp ~n)
      (+ ~tmp ~tmp)))
 
 (gensym_double 5)
@@ -202,7 +202,7 @@ Deno.test("gensym: works across multiple macro invocations", async () => {
   const code = `
 (macro add_one (n)
   (var tmp (gensym "x"))
-  \`(let (~tmp ~n)
+  \`(const (~tmp ~n)
      (+ ~tmp 1)))
 
 [
@@ -224,8 +224,8 @@ Deno.test("gensym: multiple gensyms in same macro", async () => {
 (macro complex (a b)
   (var tmp1 (gensym "x"))
   (var tmp2 (gensym "y"))
-  \`(let (~tmp1 ~a)
-     (let (~tmp2 ~b)
+  \`(const (~tmp1 ~a)
+     (const (~tmp2 ~b)
        (+ ~tmp1 ~tmp2))))
 
 (complex 5 7)

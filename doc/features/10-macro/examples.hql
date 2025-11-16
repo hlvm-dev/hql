@@ -17,12 +17,12 @@
 (print (str "hello" " " "world"))
 
 
-(let my-set #[1, 2, 3, 4, 5])
+(const my-set #[1, 2, 3, 4, 5])
 (print "Should be true:" (contains? my-set 3))
 (print "Should be false:" (contains? my-set 42))
 
 ;; Create a vector for testing
-(let my-vector [10, 20, 30, 40, 50])
+(const my-vector [10, 20, 30, 40, 50])
 
 ;; Retrieve elements using nth
 (print "Element at index 0 (should be 10):" (nth my-vector 0))
@@ -36,7 +36,7 @@
 (fn test-cond (x)
   (cond
     ((< x 0) "negative")
-    ((= x 0) "zero")
+    ((=== x 0) "zero")
     ((< x 10) "small positive")
     ((< x 100) "medium positive")
     (true "large positive")))
@@ -58,9 +58,9 @@
 (fn test-nested-cond (x y)
   (cond
     ((< x 0) "x is negative")
-    ((= x 0) (cond
+    ((=== x 0) (cond
                ((< y 0) "x is zero, y is negative")
-               ((= y 0) "x and y are both zero")
+               ((=== y 0) "x and y are both zero")
                (true "x is zero, y is positive")))
     (true "x is positive")))
 
@@ -88,12 +88,12 @@
 (print "\n=== Testing 'let' macro ===")
 
 (fn test-let-simple ()
-  (let (x 10)
+  (const (x 10)
     (print "Simple let test:")
     (print "x =" x)))
 
 (fn test-let-multiple ()
-  (let (x 10
+  (const (x 10
         y 20
         z (+ x y))
     (print "Multiple bindings test:")
@@ -103,8 +103,8 @@
     (print "x + y + z =" (+ x (+ y z)))))
 
 (fn test-let-nested ()
-  (let (outer 5)
-    (let (inner (+ outer 2))
+  (const (outer 5)
+    (const (inner (+ outer 2))
       (print "Nested let test:")
       (print "outer =" outer)
       (print "inner =" inner)
@@ -135,7 +135,7 @@
 
 ;; Run with all three macros together
 (print "\n=== Combined test ===")
-(let (x 100)
+(const (x 100)
   (when (> x 50)
     (if-let (result (- x 50))
       (print "x - 50 =" result)
@@ -153,7 +153,7 @@
 
 ;; Test with multiple body forms
 (fn calculate-area (radius)
-  (let square (* radius radius))
+  (const square (* radius radius))
   (* 3.14 square))
 
 (print "Area of circle with radius 5:" (calculate-area 5))

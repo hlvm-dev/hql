@@ -13,13 +13,13 @@
 
 ; Import single function
 ; (import [add] from "./math.hql")
-; (assert (= (add 5 10) 15) "Import single function")
+; (assert (=== (add 5 10) 15) "Import single function")
 
 ; Import multiple functions
 ; (import [add, subtract, multiply] from "./math.hql")
-; (assert (= (add 5 3) 8) "Import multiple - add")
-; (assert (= (subtract 10 2) 8) "Import multiple - subtract")
-; (assert (= (multiply 2 4) 8) "Import multiple - multiply")
+; (assert (=== (add 5 3) 8) "Import multiple - add")
+; (assert (=== (subtract 10 2) 8) "Import multiple - subtract")
+; (assert (=== (multiply 2 4) 8) "Import multiple - multiply")
 
 ; Import constants
 ; (import [PI, E] from "./constants.hql")
@@ -32,8 +32,8 @@
 
 ; Rename imports to avoid conflicts
 ; (import [add as sum, multiply as times] from "./math.hql")
-; (assert (= (sum 5 3) 8) "Aliased import - sum")
-; (assert (= (times 2 4) 8) "Aliased import - times")
+; (assert (=== (sum 5 3) 8) "Aliased import - sum")
+; (assert (=== (times 2 4) 8) "Aliased import - times")
 
 ; Multiple aliases from same module
 ; (import [longFunctionName as short, anotherLongName as another] from "./utils.hql")
@@ -46,8 +46,8 @@
 
 ; Import entire module as namespace
 ; (import math from "./math.hql")
-; (assert (= (math.add 10 20) 30) "Namespace import")
-; (assert (= (math.multiply 5 6) 30) "Namespace method access")
+; (assert (=== (math.add 10 20) 30) "Namespace import")
+; (assert (=== (math.multiply 5 6) 30) "Namespace method access")
 
 ; Namespace prevents naming conflicts
 ; (import array from "./array-utils.hql")
@@ -66,14 +66,14 @@
 
 ; Consumer imports from middleware:
 ; (import [greet] from "./middleware.hql")
-; (assert (= (greet "World") "Hello, World!") "Re-export function")
+; (assert (=== (greet "World") "Hello, World!") "Re-export function")
 
 ; Re-export multiple items
 ; (import [func1, func2, const1] from "./middleware.hql")
 
 ; Re-export values
 ; (import [secretValue] from "./middleware.hql")
-; (assert (= secretValue 42) "Re-export value")
+; (assert (=== secretValue 42) "Re-export value")
 
 ; ============================================================================
 ; SECTION 5: TYPESCRIPT FILE IMPORTS
@@ -81,13 +81,13 @@
 
 ; Import from .ts file
 ; (import [tsFunction, tsConstant] from "./module.ts")
-; (assert (= (tsFunction 5) 15) "TypeScript function import")
-; (assert (= tsConstant "TypeScript works!") "TypeScript constant import")
+; (assert (=== (tsFunction 5) 15) "TypeScript function import")
+; (assert (=== tsConstant "TypeScript works!") "TypeScript constant import")
 
 ; Import multiple from .ts
 ; (import [tsAdd, tsMultiply, TS_CONSTANT] from "./ts-module.ts")
 ; (var result (+ (tsAdd 10 20) (tsMultiply 2 3)))
-; (assert (= result 36) "Multiple TS imports")
+; (assert (=== result 36) "Multiple TS imports")
 
 ; ============================================================================
 ; SECTION 6: REMOTE IMPORTS (JSR)
@@ -153,8 +153,8 @@
 (export (fn divide [a b]
   (/ a b)))
 
-(export (let PI 3.14159))
-(export (let E 2.71828))
+(export (const PI 3.14159))
+(export (const E 2.71828))
 
 ; Usage:
 ; (import [add, multiply, PI] from "./math-utils.hql")
@@ -209,13 +209,13 @@
 ; ============================================================================
 
 ; config/database.hql
-(export (let DB_HOST "localhost"))
-(export (let DB_PORT 5432))
-(export (let DB_NAME "myapp"))
+(export (const DB_HOST "localhost"))
+(export (const DB_PORT 5432))
+(export (const DB_NAME "myapp"))
 
 ; config/api.hql
-(export (let API_URL "https://api.example.com"))
-(export (let API_TIMEOUT 5000))
+(export (const API_URL "https://api.example.com"))
+(export (const API_TIMEOUT 5000))
 
 ; config/index.hql (aggregate config)
 (import [DB_HOST, DB_PORT, DB_NAME] from "./database.hql")
@@ -308,7 +308,7 @@
   (do
     (var result {})
     (for (key (Object.keys obj))
-      (set! result[key] (fn obj[key])))
+      (= result[key] (fn obj[key])))
     result)))
 
 ; main.hql (use aliases to avoid conflict)

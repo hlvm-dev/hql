@@ -129,8 +129,8 @@ Deno.test({
   async fn() {
     const code = `
 (async fn add-async (a b)
-  (let x (await (js-call Promise "resolve" a)))
-  (let y (await (js-call Promise "resolve" b)))
+  (const x (await (js-call Promise "resolve" a)))
+  (const y (await (js-call Promise "resolve" b)))
   (+ x y))
 
 (add-async 10 20)
@@ -161,7 +161,7 @@ Deno.test({
   async fn() {
     const code = `
 (async fn fetch-all ()
-  (let promises [
+  (const promises [
     (js-call Promise "resolve" 1)
     (js-call Promise "resolve" 2)
     (js-call Promise "resolve" 3)])
@@ -180,7 +180,7 @@ Deno.test({
   async fn() {
     const code = `
 (async fn race-promises ()
-  (let promises [
+  (const promises [
     (js-call Promise "resolve" "slow")
     (js-call Promise "resolve" "fast")])
   (await (js-call Promise "race" promises)))
@@ -202,7 +202,7 @@ Deno.test({
   (await (js-call Promise "resolve" 5)))
 
 (async fn step2 (x)
-  (let result (await (step1)))
+  (const result (await (step1)))
   (* x result))
 
 (step2 10)
@@ -218,8 +218,8 @@ Deno.test({
   async fn() {
     const code = `
 (async fn get-user-data ()
-  (let name (await (js-call Promise "resolve" "Alice")))
-  (let age (await (js-call Promise "resolve" 30)))
+  (const name (await (js-call Promise "resolve" "Alice")))
+  (const age (await (js-call Promise "resolve" 30)))
   [name age])
 
 (get-user-data)
@@ -235,7 +235,7 @@ Deno.test({
   async fn() {
     const code = `
 (async fn process-array ()
-  (let arr (await (js-call Promise "resolve" [1 2 3 4 5])))
+  (const arr (await (js-call Promise "resolve" [1 2 3 4 5])))
   (arr .map (fn (x) (* x 2))))
 
 (process-array)
@@ -271,11 +271,11 @@ Deno.test({
   (await (js-call Promise "resolve" 100)))
 
 (async fn middle ()
-  (let x (await (inner)))
+  (const x (await (inner)))
   (+ x 50))
 
 (async fn outer ()
-  (let y (await (middle)))
+  (const y (await (middle)))
   (+ y 25))
 
 (outer)
@@ -463,7 +463,7 @@ Deno.test({
     const code = `
 (fn safe-divide [a b]
   (try
-    (if (= b 0)
+    (if (=== b 0)
       (throw "division-by-zero")
       (/ a b))
     (catch e
@@ -563,8 +563,8 @@ Deno.test({
       (cleanup .push "cleanup-done"))))
 
 (async fn test ()
-  (let result (await (with-cleanup true)))
-  (let cleanupValue cleanup)
+  (const result (await (with-cleanup true)))
+  (const cleanupValue cleanup)
   [result cleanupValue])
 
 (test)
@@ -854,7 +854,7 @@ Deno.test({
     1
     (* n (factorial (- n 1)))))
 
-(let PI 3.14159)
+(const PI 3.14159)
 
 (export [factorial PI])
 `;
@@ -916,7 +916,7 @@ Deno.test({
   (var count 0)
 
   (fn increment []
-    (set! this.count (+ this.count 1))
+    (= this.count (+ this.count 1))
     this.count)
 
   (fn getValue ()

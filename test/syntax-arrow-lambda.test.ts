@@ -10,7 +10,7 @@ import { run } from "./helpers.ts";
 
 Deno.test("Arrow Lambda: single implicit param $0", async () => {
   const code = `
-    (let double (=> (* $0 2)))
+    (const double (=> (* $0 2)))
     (double 5)
   `;
   const result = await run(code);
@@ -19,7 +19,7 @@ Deno.test("Arrow Lambda: single implicit param $0", async () => {
 
 Deno.test("Arrow Lambda: two implicit params $0 $1", async () => {
   const code = `
-    (let add (=> (+ $0 $1)))
+    (const add (=> (+ $0 $1)))
     (add 3 7)
   `;
   const result = await run(code);
@@ -28,7 +28,7 @@ Deno.test("Arrow Lambda: two implicit params $0 $1", async () => {
 
 Deno.test("Arrow Lambda: three implicit params", async () => {
   const code = `
-    (let sum3 (=> (+ $0 (+ $1 $2))))
+    (const sum3 (=> (+ $0 (+ $1 $2))))
     (sum3 10 20 30)
   `;
   const result = await run(code);
@@ -38,7 +38,7 @@ Deno.test("Arrow Lambda: three implicit params", async () => {
 Deno.test("Arrow Lambda: gap in param usage ($0 and $2)", async () => {
   // Should generate $0, $1, $2 even though $1 is not used
   const code = `
-    (let myFn (=> (+ $0 $2)))
+    (const myFn (=> (+ $0 $2)))
     (myFn 10 999 20)
   `;
   const result = await run(code);
@@ -56,7 +56,7 @@ Deno.test("Arrow Lambda: inline call with implicit params", async () => {
 
 Deno.test("Arrow Lambda: explicit single param", async () => {
   const code = `
-    (let square (=> (x) (* x x)))
+    (const square (=> (x) (* x x)))
     (square 7)
   `;
   const result = await run(code);
@@ -65,7 +65,7 @@ Deno.test("Arrow Lambda: explicit single param", async () => {
 
 Deno.test("Arrow Lambda: explicit two params", async () => {
   const code = `
-    (let multiply (=> (x y) (* x y)))
+    (const multiply (=> (x y) (* x y)))
     (multiply 6 7)
   `;
   const result = await run(code);
@@ -74,7 +74,7 @@ Deno.test("Arrow Lambda: explicit two params", async () => {
 
 Deno.test("Arrow Lambda: explicit zero params", async () => {
   const code = `
-    (let get-value (=> () 42))
+    (const get-value (=> () 42))
     (get-value)
   `;
   const result = await run(code);
@@ -87,8 +87,8 @@ Deno.test("Arrow Lambda: explicit zero params", async () => {
 
 Deno.test("Arrow Lambda: with map", async () => {
   const code = `
-    (let nums [1 2 3 4 5])
-    (let doubled (map (=> (* $0 2)) nums))
+    (const nums [1 2 3 4 5])
+    (const doubled (map (=> (* $0 2)) nums))
     (doall doubled)
   `;
   const result = await run(code);
@@ -97,8 +97,8 @@ Deno.test("Arrow Lambda: with map", async () => {
 
 Deno.test("Arrow Lambda: with filter", async () => {
   const code = `
-    (let nums [1 3 6 8 2 9])
-    (let filtered (filter (=> (> $0 5)) nums))
+    (const nums [1 3 6 8 2 9])
+    (const filtered (filter (=> (> $0 5)) nums))
     (doall filtered)
   `;
   const result = await run(code);
@@ -107,7 +107,7 @@ Deno.test("Arrow Lambda: with filter", async () => {
 
 Deno.test("Arrow Lambda: with reduce", async () => {
   const code = `
-    (let nums [1 2 3 4 5])
+    (const nums [1 2 3 4 5])
     (reduce (=> (+ $0 $1)) 0 nums)
   `;
   const result = await run(code);
@@ -116,8 +116,8 @@ Deno.test("Arrow Lambda: with reduce", async () => {
 
 Deno.test("Arrow Lambda: chained map and filter", async () => {
   const code = `
-    (let nums [1 2 3 4 5 6 7 8 9 10])
-    (let result
+    (const nums [1 2 3 4 5 6 7 8 9 10])
+    (const result
       (take 3
         (filter (=> (> $0 0))
           (map (=> (* $0 2))
@@ -134,8 +134,8 @@ Deno.test("Arrow Lambda: chained map and filter", async () => {
 
 Deno.test("Arrow Lambda: nested in map", async () => {
   const code = `
-    (let matrix [[1 2] [3 4] [5 6]])
-    (let doubled (map (=> (map (=> (* $0 2)) $0)) matrix))
+    (const matrix [[1 2] [3 4] [5 6]])
+    (const doubled (map (=> (map (=> (* $0 2)) $0)) matrix))
     (doall (map doall doubled))
   `;
   const result = await run(code);
@@ -144,7 +144,7 @@ Deno.test("Arrow Lambda: nested in map", async () => {
 
 Deno.test("Arrow Lambda: nested explicit and implicit", async () => {
   const code = `
-    (let myFn (=> (x) (map (=> (* $0 x)) [1 2 3])))
+    (const myFn (=> (x) (map (=> (* $0 x)) [1 2 3])))
     (doall (myFn 10))
   `;
   const result = await run(code);
@@ -157,10 +157,10 @@ Deno.test("Arrow Lambda: nested explicit and implicit", async () => {
 
 Deno.test("Arrow Lambda: multi-line body (using do)", async () => {
   const code = `
-    (let myFn (=> (x)
+    (const myFn (=> (x)
       (do
         (var temp (* x 2))
-        (set! temp (+ temp 1))
+        (= temp (+ temp 1))
         temp)))
     (myFn 5)
   `;
@@ -170,7 +170,7 @@ Deno.test("Arrow Lambda: multi-line body (using do)", async () => {
 
 Deno.test("Arrow Lambda: with conditional", async () => {
   const code = `
-    (let abs (=> (if (< $0 0) (- $0) $0)))
+    (const abs (=> (if (< $0 0) (- $0) $0)))
     [(abs -5) (abs 5)]
   `;
   const result = await run(code);
@@ -179,7 +179,7 @@ Deno.test("Arrow Lambda: with conditional", async () => {
 
 Deno.test("Arrow Lambda: accessing object properties", async () => {
   const code = `
-    (let get-name (=> ($0.name)))
+    (const get-name (=> ($0.name)))
     (get-name {name: "Alice"})
   `;
   const result = await run(code);
@@ -225,7 +225,7 @@ Deno.test("Arrow Lambda: error on too many implicit params", async () => {
 
 Deno.test("Arrow Lambda: sort array", async () => {
   const code = `
-    (let nums [5 2 8 1 9 3])
+    (const nums [5 2 8 1 9 3])
     ((nums.slice 0).sort (=> (- $0 $1)))
   `;
   const result = await run(code);
@@ -234,12 +234,12 @@ Deno.test("Arrow Lambda: sort array", async () => {
 
 Deno.test("Arrow Lambda: find in array", async () => {
   const code = `
-    (let users [
+    (const users [
       {name: "Alice", age: 30}
       {name: "Bob", age: 25}
       {name: "Carol", age: 35}
     ])
-    (let found (users.find (=> (= $0.name "Bob"))))
+    (const found (users.find (=> (=== $0.name "Bob"))))
     (found.age)
   `;
   const result = await run(code);
@@ -248,11 +248,11 @@ Deno.test("Arrow Lambda: find in array", async () => {
 
 Deno.test("Arrow Lambda: transform data", async () => {
   const code = `
-    (let data [
+    (const data [
       {x: 1, y: 2}
       {x: 3, y: 4}
     ])
-    (let summed (map (=> (+ $0.x $0.y)) data))
+    (const summed (map (=> (+ $0.x $0.y)) data))
     (doall summed)
   `;
   const result = await run(code);
@@ -261,8 +261,8 @@ Deno.test("Arrow Lambda: transform data", async () => {
 
 Deno.test("Arrow Lambda: compose operations", async () => {
   const code = `
-    (let nums [1 2 3 4 5])
-    (let result
+    (const nums [1 2 3 4 5])
+    (const result
       (reduce (=> (+ $0 $1)) 0
         (map (=> (* $0 $0))
           (filter (=> (> $0 2))
@@ -279,7 +279,7 @@ Deno.test("Arrow Lambda: compose operations", async () => {
 
 Deno.test("Arrow Lambda: empty parameter list", async () => {
   const code = `
-    (let myFn (=> () 100))
+    (const myFn (=> () 100))
     (myFn)
   `;
   const result = await run(code);
@@ -288,7 +288,7 @@ Deno.test("Arrow Lambda: empty parameter list", async () => {
 
 Deno.test("Arrow Lambda: $0 in nested structure", async () => {
   const code = `
-    (let myFn (=> [(* $0 2) (+ $0 1)]))
+    (const myFn (=> [(* $0 2) (+ $0 1)]))
     (myFn 5)
   `;
   const result = await run(code);
@@ -298,7 +298,7 @@ Deno.test("Arrow Lambda: $0 in nested structure", async () => {
 // NOTE: Rest parameters currently have a runtime issue in HQL (pre-existing limitation)
 // Deno.test("Arrow Lambda: with rest parameters", async () => {
 //   const code = `
-//     (let myFn (=> (x & rest) (+ x (reduce + 0 rest))))
+//     (const myFn (=> (x & rest) (+ x (reduce + 0 rest))))
 //     (myFn 10 20 30)
 //   `;
 //   const result = await run(code);

@@ -57,7 +57,7 @@ Offer a familiar `while` loop construct that internally expands to `loop/recur`.
 
 (while (< count 3)
   (print "While iteration:" count)
-  (set! count (+ count 1)))
+  (= count (+ count 1)))
 
 (print "Final count:" count)
 ```
@@ -66,7 +66,7 @@ Offer a familiar `while` loop construct that internally expands to `loop/recur`.
 
 - `(var count 0)` declares a mutable variable `count`.
 - The `while` loop repeatedly checks if `count` is less than `3`.
-- `set!` updates the mutable binding, and after the loop, the final value is
+- `=` updates the mutable binding, and after the loop, the final value is
   printed.
 
 **Expected Output:**

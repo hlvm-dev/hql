@@ -157,7 +157,7 @@ construct remains expression‑oriented. This gives you a consistent and uniform
 syntax that is easy to reason about and extend. Unified JavaScript Interop:
 Composite Member Access: You want to support natural expressions like
 (obj.member) which at runtime check if member is callable and, if so, invoke it
-with the proper binding. Example: (let upper (message.toUpperCase)) expands to
+with the proper binding. Example: (const upper (message.toUpperCase)) expands to
 an expression that returns the result of calling toUpperCase on message (if it’s
 a function) or its property value otherwise. Self-Contained Output: Transpiler
 Pipeline: The pipeline must parse HQL source, expand macros, transform the AST
@@ -208,7 +208,7 @@ handles: quote: (quote exp) returns the expression unevaluated. if: (if cond
 then else) returns a value based on the condition. fn: (fn [params] body...)
 returns an anonymous function, or (fn name [params] body...) defines a named
 function, where the last expression in the body is automatically returned. let:
-(let name value) binds a value globally. Primitive Functions: Provide basic
+(const name value) binds a value globally. Primitive Functions: Provide basic
 operations (arithmetic, list manipulation, equality). Example (simplified
 pseudocode):
 
@@ -275,7 +275,7 @@ parsed into an abstract syntax tree (AST) composed of basic nodes: Literals
 (numbers, strings, booleans, nil) Symbols (identifiers) Lists (S‑expressions)
 Example: HQL source:
 
-(let greeting "Hello, HQL!") might parse into an AST like:
+(const greeting "Hello, HQL!") might parse into an AST like:
 
 { "type": "list", "elements": [ { "type": "symbol", "name": "def" }, { "type":
 "symbol", "name": "greeting" }, { "type": "literal", "value": "Hello, HQL!" } ]

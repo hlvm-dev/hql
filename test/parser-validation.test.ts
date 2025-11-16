@@ -75,20 +75,20 @@ Deno.test("Parser: unbalanced braces - extra closing", () => {
 });
 
 Deno.test("Parser: nested balanced structures", () => {
-  const result = parse('(let x [1, 2, {"a": 3}])');
+  const result = parse('(const x [1, 2, {"a": 3}])');
   assertEquals(result.length, 1);
 });
 
 Deno.test("Parser: nested unbalanced - inner missing close", () => {
   assertThrows(
-    () => parse('(let x [1, 2, {"a": 3})'),
+    () => parse('(const x [1, 2, {"a": 3})'),
     ParseError,
   );
 });
 
 Deno.test("Parser: mismatched brackets", () => {
   assertThrows(
-    () => parse("(let x [1, 2, 3)"),
+    () => parse("(const x [1, 2, 3)"),
     Error, // Will fail during parsing
   );
 });

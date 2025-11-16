@@ -124,7 +124,7 @@ flexibility for building applications.
 (var counter 0)
 
 (fn increment-counter {amount: 1}
-  (set! counter (+ counter amount))
+  (= counter (+ counter amount))
   counter)
 
 (increment-counter)           ;; => 1
@@ -350,7 +350,7 @@ Traditional parameter list with named parameters.
 
 ; Regular fn (better for complex logic)
 (fn calculate-tax {amount: 0 rate: 0.1}
-  (let base (* amount rate))
+  (const base (* amount rate))
   (if (> amount 1000)
     (* base 1.1)
     base))

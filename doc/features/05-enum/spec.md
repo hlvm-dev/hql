@@ -69,17 +69,17 @@ Access involves dot notation; shorthand may be possible with type inference.
 
 ```hql
 ;; Assign simple case
-(let currentOS OsType.macOS)
+(const currentOS OsType.macOS)
 
 ;; Compare simple case
-(if (= currentOS OsType.linux) (print "Linux!"))
+(if (=== currentOS OsType.linux) (print "Linux!"))
 
 ;; Use raw value enum
-(let status StatusCodes.notFound)
+(const status StatusCodes.notFound)
 ; (status.rawValue) ; Hypothetical access to raw value => 404
 
 ;; Create associated value case
-(let code (Barcode.qrCode "hql-data"))
+(const code (Barcode.qrCode "hql-data"))
 
 ;; Use with enum values
 (fn processStatus [code] (print code))
@@ -99,9 +99,9 @@ Access involves dot notation; shorthand may be possible with type inference.
 ;; A function that “installs” based on the OS.
 (fn install [os]
   (cond
-    ((= os OS.macOS) (print "Installing on macOS"))
-    ((= os OS.iOS)   (print "Installing on iOS"))
-    ((= os OS.linux) (print "Installing on Linux"))
+    ((=== os OS.macOS) (print "Installing on macOS"))
+    ((=== os OS.iOS)   (print "Installing on iOS"))
+    ((=== os OS.linux) (print "Installing on Linux"))
     (else            (print "Unsupported OS"))
   )
 )

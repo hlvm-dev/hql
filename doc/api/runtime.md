@@ -32,8 +32,8 @@ value of the last expression in the snippet.
 import { run } from "./mod.ts";
 
 const result = await run(`
-  (let greeting "Hello")
-  (let subject "World")
+  (const greeting "Hello")
+  (const subject "World")
   (+ greeting ", " subject "!")
 `);
 console.log(result); // "Hello, World!"
@@ -101,7 +101,7 @@ Expands all macros inside `source` and returns the resulting forms as strings.
 import { macroexpand } from "./mod.ts";
 
 const [expanded] = await macroexpand(`
-  (let x 3)
+  (const x 3)
   (when (> x 0)
     (print x))
 `);
@@ -140,7 +140,7 @@ source.
 
 ```ts
 try {
-  await run("(let x 0) (/ 10 x)");
+  await run("(const x 0) (/ 10 x)");
 } catch (err) {
   console.error(err.message); // "Division by zero"
   console.error(err.sourceLocation); // { filePath: ..., line: ..., column: ... }

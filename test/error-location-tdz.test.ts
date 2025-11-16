@@ -7,11 +7,11 @@ import { run } from "../mod.ts";
 
 Deno.test("TDZ error reports correct line number with source maps", async () => {
   // This HQL code has shadowed variables that trigger TDZ errors
-  // The second (let x ...) shadows the first one
+  // The second (const x ...) shadows the first one
   // When we try to use the shadowed x, it should report the correct line
   const hqlCode = `
-(let x 10)
-(let x 20)
+(const x 10)
+(const x 20)
 (+ x 5)
 `.trim();
 
@@ -40,9 +40,9 @@ Deno.test("TDZ error reports correct line number with source maps", async () => 
 
 Deno.test("Reference error reports correct location with source maps", async () => {
   const hqlCode = `
-(let a 1)
-(let b 2)
-(let c (+ a b))
+(const a 1)
+(const b 2)
+(const c (+ a b))
 (+ c undefined_variable)
 `.trim();
 

@@ -86,7 +86,7 @@ Following **Clojure's proven approach** (15+ years production use):
 (add 3 5)  ; → 8
 
 ; Anonymous function
-(let square (fn [x] (* x x)))
+(const square (fn [x] (* x x)))
 (square 5)  ; → 25
 
 ; No parameters
@@ -104,10 +104,10 @@ HQL provides concise arrow lambda syntax with Swift-style `$N` parameters:
 
 ```lisp
 ; Implicit parameters ($0, $1, $2...)
-(let double (=> (* $0 2)))
+(const double (=> (* $0 2)))
 (double 5)  ; → 10
 
-(let add (=> (+ $0 $1)))
+(const add (=> (+ $0 $1)))
 (add 3 7)   ; → 10
 
 ; With map/filter/reduce
@@ -116,18 +116,18 @@ HQL provides concise arrow lambda syntax with Swift-style `$N` parameters:
 (reduce (=> (+ $0 $1)) 0 [1 2 3 4 5])  ; → 15
 
 ; Member access
-(let users [{name: "Alice"}, {name: "Bob"}])
+(const users [{name: "Alice"}, {name: "Bob"}])
 (map (=> ($0.name)) users)  ; → ["Alice", "Bob"]
 
 ; Explicit parameters (traditional style)
-(let square (=> [x] (* x x)))
+(const square (=> [x] (* x x)))
 (square 7)  ; → 49
 
-(let multiply (=> [x y] (* x y)))
+(const multiply (=> [x y] (* x y)))
 (multiply 6 7)  ; → 42
 
 ; Zero parameters
-(let get-value (=> [] 42))
+(const get-value (=> [] 42))
 (get-value)  ; → 42
 ```
 
@@ -231,7 +231,7 @@ For config-style functions with many parameters, use map syntax:
 
 ; Early return
 (fn safe-divide [a b]
-  (if (= b 0)
+  (if (=== b 0)
     (return 0)
     (/ a b)))
 
@@ -239,7 +239,7 @@ For config-style functions with many parameters, use map syntax:
 (fn classify [x]
   (cond
     ((< x 0) (return "negative"))
-    ((= x 0) (return "zero"))
+    ((=== x 0) (return "zero"))
     ((> x 0) (return "positive"))))
 ```
 
@@ -247,7 +247,7 @@ For config-style functions with many parameters, use map syntax:
 
 ```lisp
 ; Capturing outer variable
-(let x 10)
+(const x 10)
 (fn add-x [n]
   (+ n x))
 
@@ -257,7 +257,7 @@ For config-style functions with many parameters, use map syntax:
 (fn make-counter []
   (var count 0)
   (fn []
-    (set! count (+ count 1))
+    (= count (+ count 1))
     count))
 
 (var counter (make-counter))
@@ -272,7 +272,7 @@ For config-style functions with many parameters, use map syntax:
 (fn make-adder [n]
   (fn [x] (+ x n)))
 
-(let add5 (make-adder 5))
+(const add5 (make-adder 5))
 (add5 10)  ; → 15
 
 ; Function as argument
@@ -319,7 +319,7 @@ function add(a, b) {
 **HQL:**
 
 ```lisp
-(let square (fn [x] (* x x)))
+(const square (fn [x] (* x x)))
 ```
 
 **Compiled:**
@@ -524,8 +524,8 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 (fn make-multiplier [factor]
   (fn [x] (* x factor)))
 
-(let double (make-multiplier 2))
-(let triple (make-multiplier 3))
+(const double (make-multiplier 2))
+(const triple (make-multiplier 3))
 
 (double 5)  ; → 10
 (triple 5)  ; → 15
@@ -569,7 +569,7 @@ function sum(...numbers) {
 
 // HQL (same concepts)
 (fn add [a b] (+ a b))
-(let square (fn [x] (* x x)))
+(const square (fn [x] (* x x)))
 (fn greet {"name": "World"} (+ "Hello, " name "!"))
 (fn sum [& numbers] (.reduce numbers (fn [a b] (+ a b)) 0))
 ```
@@ -700,7 +700,7 @@ functions ✅ Returns in loops/do blocks
 
 ```lisp
 (fn is-even? [n]
-  (= (% n 2) 0))
+  (=== (% n 2) 0))
 
 (fn is-positive? [n]
   (> n 0))
@@ -724,7 +724,7 @@ functions ✅ Returns in loops/do blocks
 (fn make-adder [n]
   (fn [x] (add n x)))
 
-(let add10 (make-adder 10))
+(const add10 (make-adder 10))
 ```
 
 ## Performance Considerations

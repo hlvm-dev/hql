@@ -5,15 +5,15 @@
 ;; ============================================================================
 
 ;; Single parameter
-(let double (=> (* $0 2)))
+(const double (=> (* $0 2)))
 (print "double 5 =" (double 5))  ;; → 10
 
 ;; Multiple parameters
-(let add (=> (+ $0 $1)))
+(const add (=> (+ $0 $1)))
 (print "add 3 7 =" (add 3 7))    ;; → 10
 
 ;; With map
-(let nums [1 2 3 4 5])
+(const nums [1 2 3 4 5])
 (print "doubled:" (doall (map (=> (* $0 2)) nums)))  ;; → [2 4 6 8 10]
 
 ;; With filter
@@ -27,15 +27,15 @@
 ;; ============================================================================
 
 ;; Named parameter
-(let square (=> (x) (* x x)))
+(const square (=> (x) (* x x)))
 (print "square 7 =" (square 7))  ;; → 49
 
 ;; Multiple named parameters
-(let multiply (=> (x y) (* x y)))
+(const multiply (=> (x y) (* x y)))
 (print "multiply 6 7 =" (multiply 6 7))  ;; → 42
 
 ;; Zero parameters
-(let get-constant (=> () 42))
+(const get-constant (=> () 42))
 (print "constant =" (get-constant))  ;; → 42
 
 ;; ============================================================================
@@ -43,7 +43,7 @@
 ;; ============================================================================
 
 ;; Simple property access
-(let users [{name: "Alice", age: 30}, {name: "Bob", age: 25}])
+(const users [{name: "Alice", age: 30}, {name: "Bob", age: 25}])
 (print "names:" (doall (map (=> ($0.name)) users)))  ;; → ["Alice", "Bob"]
 
 ;; ============================================================================
@@ -51,7 +51,7 @@
 ;; ============================================================================
 
 ;; Complex pipeline
-(let result
+(const result
   (take 3
     (filter (=> (> $0 0))
       (map (=> (* $0 2))
@@ -63,15 +63,15 @@
 ;; ============================================================================
 
 ;; Sort array
-(let nums [5 2 8 1 9 3])
+(const nums [5 2 8 1 9 3])
 (print "sorted:" ((nums.slice 0).sort (=> (- $0 $1))))  ;; → [1 2 3 5 8 9]
 
 ;; Transform data
-(let data [{x: 1, y: 2}, {x: 3, y: 4}])
+(const data [{x: 1, y: 2}, {x: 3, y: 4}])
 (print "sums:" (doall (map (=> (+ $0.x $0.y)) data)))  ;; → [3 7]
 
 ;; Find in array
-(let found (users.find (=> (= $0.name "Bob"))))
+(const found (users.find (=> (=== $0.name "Bob"))))
 (print "found age:" (found.age))  ;; → 25
 
 print "All arrow lambda examples completed!"

@@ -6,9 +6,9 @@ import hql from "../mod.ts";
 import { SourceMapConsumer } from "npm:source-map@0.6.1";
 
 Deno.test("Decode actual source map mappings", async () => {
-  const code = `(let data [1 2 3])
-(let result (map (fn (x) (* x 2)) data))
-(let bad (/ 10 undefined_var))`;
+  const code = `(const data [1 2 3])
+(const result (map (fn (x) (* x 2)) data))
+(const bad (/ 10 undefined_var))`;
 
   console.log("=== HQL CODE (3 lines) ===");
   code.split('\n').forEach((line, i) => {

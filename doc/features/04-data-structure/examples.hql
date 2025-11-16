@@ -16,8 +16,8 @@
   (str "Finding hobby: " key))
 
 ;; Add properties to the function itself
-(set! get-hobby.version "1.0")
-(set! get-hobby.author "HQL Team")
+(= get-hobby.version "1.0")
+(= get-hobby.author "HQL Team")
 
 ;; === CASE 1: String property access ===
 (print "\n=== CASE 1: String property access ===")
@@ -49,7 +49,7 @@
   (* n 2))
 
 ;; Define a function that has a numeric property
-(set! multiply-by-two.0 "zero-property")
+(= multiply-by-two.0 "zero-property")
 
 ;; === CASE 5: Numeric array indexing ===
 (print "\n=== CASE 5: Numeric array indexing ===")

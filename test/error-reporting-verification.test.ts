@@ -29,8 +29,8 @@ async function transpile(code: string): Promise<string> {
 
 Deno.test("Error Reporting: Parse error - unclosed parenthesis", async () => {
   const code = `
-(let x 10)
-(let y (+ x 5
+(const x 10)
+(const y (+ x 5
 `;
 
   await assertRejects(
@@ -42,7 +42,7 @@ Deno.test("Error Reporting: Parse error - unclosed parenthesis", async () => {
 
 Deno.test("Error Reporting: Parse error - unbalanced delimiters", async () => {
   const code = `
-(let data [1 2 3))
+(const data [1 2 3))
 `;
 
   await assertRejects(
@@ -79,7 +79,7 @@ Deno.test("Error Reporting: Invalid function definition", async () => {
 
 Deno.test("Error Reporting: Runtime - undefined variable reference", async () => {
   const code = `
-(let x 10)
+(const x 10)
 (+ x undefinedVariable)
 `;
 
@@ -115,7 +115,7 @@ Deno.test("Error Reporting: Runtime - wrong number of arguments", async () => {
 
 Deno.test("Error Reporting: Runtime - property access on undefined", async () => {
   const code = `
-(let obj null)
+(const obj null)
 (. obj someProperty)
 `;
 
@@ -127,11 +127,11 @@ Deno.test("Error Reporting: Runtime - property access on undefined", async () =>
 
 Deno.test("Error Reporting: Runtime - accurate location for shadowed binding", async () => {
   const code = `
-(let foo "abc")
+(const foo "abc")
 
 (fn broken []
   (console.log "outer foo" foo)
-  (let foo 42)
+  (const foo 42)
   (console.log "inner foo" foo)
   (foo 1))
 
@@ -170,7 +170,7 @@ Deno.test("Error Reporting: Runtime - accurate location for shadowed binding", a
 
 Deno.test("Error Reporting: Runtime - type error in operation", async () => {
   const code = `
-(let x "string")
+(const x "string")
 (+ x 5)
 `;
 
@@ -190,7 +190,7 @@ Deno.test("Error Reporting: Runtime - division by zero", async () => {
 
 Deno.test("Error Reporting: Runtime - array access out of bounds", async () => {
   const code = `
-(let arr [1 2 3])
+(const arr [1 2 3])
 (get arr 10)
 `;
 
@@ -204,8 +204,8 @@ Deno.test("Error Reporting: Runtime - array access out of bounds", async () => {
 
 Deno.test("Error Reporting: Error contains source location info", async () => {
   const code = `
-(let x 10)
-(let y 20)
+(const x 10)
+(const y 20)
 (+ x y z)
 `;
 
@@ -224,10 +224,10 @@ Deno.test("Error Reporting: Error contains source location info", async () => {
 
 Deno.test("Error Reporting: Parse error shows context lines", async () => {
   const code = `
-(let valid1 10)
-(let valid2 20)
-(let broken (+ 1 2
-(let valid3 30)
+(const valid1 10)
+(const valid2 20)
+(const broken (+ 1 2
+(const valid3 30)
 `;
 
   try {
@@ -289,8 +289,8 @@ Deno.test("Error Reporting: Stack trace with actual error in nested calls", asyn
 
 Deno.test("Error Reporting: Transpiled code contains metadata comments", async () => {
   const code = `
-(let x 10)
-(let y 20)
+(const x 10)
+(const y 20)
 (+ x y)
 `;
 

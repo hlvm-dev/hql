@@ -43,7 +43,7 @@ examples.
 | `>=`     | `(number number)` | Greater-or-equal.        |
 
 ```lisp
-(= 3 3)          ;; → true
+(=== 3 3)          ;; → true
 (!= 3 4)         ;; → true
 (< 1 2)          ;; → true
 (>= 10 5)        ;; → true

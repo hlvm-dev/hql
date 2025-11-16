@@ -9,9 +9,9 @@ import { RuntimeError } from "../core/src/common/error.ts";
 import { makeTempDir, writeTextFile, remove } from "../core/src/platform/platform.ts";
 
 Deno.test("Error on line 1 of multi-line file", async () => {
-  const code = `(let bad undefined_var)
-(let x 10)
-(let y 20)`;
+  const code = `(const bad undefined_var)
+(const x 10)
+(const y 20)`;
 
   const tempDir = await makeTempDir({
     prefix: "hql-first-",
