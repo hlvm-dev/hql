@@ -47,7 +47,20 @@ export interface REPLContext {
 /** Command handler metadata that plugins can register. */
 export interface REPLCommand {
   description?: string;
-  handler(context: REPLContext): Promise<void> | void;
+  handler(context: REPLContext, input: string): Promise<void> | void;
+}
+
+export interface CompletionItem {
+  label: string;
+  detail?: string;
+  doc?: string;
+  snippet?: string;
+}
+
+export interface CompletionRequest {
+  line: string;
+  cursor: number;
+  prefix: string;
 }
 
 /** Plugin definition used by the Pure REPL core. */
@@ -70,6 +83,9 @@ export interface REPLPlugin {
   cleanup?(context: REPLContext): Promise<void> | void;
   /** Optional plugin-specific commands (e.g., .hql, .ts, etc.). */
   commands?: Record<string, REPLCommand>;
+  /** Optional completion provider for this plugin. */
+  getCompletions?(request: CompletionRequest, context: REPLContext):
+    Promise<CompletionItem[]> | CompletionItem[];
 }
 
 /** Optional configuration parameters for the REPL core. */
@@ -79,6 +95,16 @@ export interface REPLConfig {
   debug?: boolean;
   /** Custom commands shared across all plugins. */
   commands?: Record<string, REPLCommand>;
+  /** Custom continuation prompt (default: "... "). */
+  continuationPrompt?: string;
+  /** Indentation unit used for multiline continuation (default: two spaces). */
+  indentUnit?: string;
+  /** Keywords highlighted by the readline implementation. */
+  keywords?: string[];
+  /** Prefix used when creating the temporary REPL directory. */
+  tempDirPrefix?: string;
+  /** Optional custom editor launcher used by .editor (for testing/custom integration). */
+  editorLauncher?(tempFile: string): Promise<void>;
   /** Hook that runs after the temporary module is created. */
   onInit?(context: REPLContext): Promise<void> | void;
 }

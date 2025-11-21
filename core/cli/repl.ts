@@ -5,6 +5,7 @@ import type { REPLConfig } from "../../vendor/repl/mod.ts";
 import { initializeRuntime } from "../src/common/runtime-initializer.ts";
 import { getArgs as platformGetArgs, exit as platformExit } from "../src/platform/platform.ts";
 import { hqlPlugin } from "./hql-plugin.ts";
+import { HQL_REPL_KEYWORDS } from "./repl-keywords.ts";
 
 const VERSION = "0.1.0";
 
@@ -32,6 +33,8 @@ async function createREPL(): Promise<REPL> {
   const config: REPLConfig = {
     prompt: "hql>",
     banner: getBanner(),
+    keywords: HQL_REPL_KEYWORDS,
+    tempDirPrefix: "hql-repl-",
   };
   return new REPL([hqlPlugin], config);
 }

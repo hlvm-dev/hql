@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(deno eval:*)",
+      "Bash(find:*)",
+      "Bash(md5sum:*)",
+      "Bash(md5:*)",
+      "Bash(deno run:*)",
+      "Bash(deno test:*)",
+      "Bash(git -C /Users/seoksoonjang/Desktop/hlvm/hql diff --stat core/cli/hql-plugin.ts)",
+      "Bash(git -C /Users/seoksoonjang/Desktop/hlvm/hql status)",
+      "Bash(git -C /Users/seoksoonjang/Desktop/hlvm/hql status core/cli/hql-plugin.ts)",
+      "Bash(git -C /Users/seoksoonjang/Desktop/hlvm/hql log --oneline -5 -- core/cli/hql-plugin.ts)",
+      "Bash(make build:*)",
+      "Bash(./dist/hlvm:*)",
+      "Bash(timeout 5:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
