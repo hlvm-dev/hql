@@ -14,7 +14,7 @@
 
 ;; Macro versions for user code (generate efficient inline code)
 (macro length (coll)
-  `(if (= ~coll null)
+  `(if (=== ~coll null)
        0
        (js-get ~coll "length")))
 
@@ -33,17 +33,17 @@
   `[~@items])
 
 (macro nil? (x)
-  `(= ~x null))
+  `(=== ~x null))
 
 (macro empty? (coll)
   `(if (nil? ~coll)
        true
-       (= (length ~coll) 0)))
+       (=== (length ~coll) 0)))
 
 (macro or (& args)
   (cond
     ((%empty? args) false)
-    ((= (%length args) 1) (%first args))
+    ((=== (%length args) 1) (%first args))
     (true
       `((fn (value)
           (if value
@@ -54,7 +54,7 @@
 (macro and (& args)
   (cond
     ((%empty? args) true)
-    ((= (%length args) 1) (%first args))
+    ((=== (%length args) 1) (%first args))
     (true
       `((fn (value)
           (if value
@@ -96,12 +96,12 @@
   (js-call arr1 "concat" arr2))
 
 (macro set (target value)
-  `(set! ~target ~value))
+  `(= ~target ~value))
 
 (macro str (& args)
   (cond
     ((%empty? args) `"")
-    ((= (%length args) 1) `(+ "" ~(%first args)))
+    ((=== (%length args) 1) `(+ "" ~(%first args)))
     (true `(+ ~@args))))
 
 (macro contains? (coll key)
@@ -128,13 +128,13 @@
   `(> (length ~coll) 0))
 
 (macro empty-list? (coll)
-  `(= (length ~coll) 0))
+  `(=== (length ~coll) 0))
 
 (macro rest-list (coll)
   `(js-call ~coll "slice" 1))
 
 (macro seq (coll)
-  `(if (= (js-get ~coll "length") 0)
+  `(if (=== (js-get ~coll "length") 0)
        null
        ~coll))
 
@@ -169,13 +169,13 @@
             first-el (%first first-clause))
         ;; Check if first clause is a list (e.g., (else expr))
         ;; If we can extract a first element, it's a list
-        (if (not (= first-el nil))
+        (if (not (=== first-el nil))
             ;; List clause syntax: ((test) result)
             (let (test first-el
                   result (%first (%rest first-clause)))
               ;; Check if test is the symbol 'else' - if so, return result directly
               (if (symbol? test)
-                  (if (= (name test) "else")
+                  (if (=== (name test) "else")
                       result
                       ;; Otherwise generate if expression
                       (if (%empty? rest-clauses)

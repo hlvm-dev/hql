@@ -67,6 +67,12 @@ Deno.test("v2.0: bitwise AND", async () => {
   assertEquals(result, 1);
 });
 
+Deno.test("v2.0: bitwise NOT", async () => {
+  const code = `(~ 5)`;
+  const result = await run(code);
+  assertEquals(result, -6);
+});
+
 Deno.test("v2.0: typeof operator", async () => {
   const code = `(typeof 123)`;
   const result = await run(code);

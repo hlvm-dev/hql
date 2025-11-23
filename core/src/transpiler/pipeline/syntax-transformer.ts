@@ -140,7 +140,7 @@ export function transformSyntax(ast: SExp[]): SExp[] {
               ) {
                 const mName = (el.elements[1] as SSymbol).name;
                 let params: { name: string; type?: string }[] = [];
-                let returnType: string | undefined = undefined;
+                const returnType: string | undefined = undefined;
                 if (el.elements.length > 2 && isList(el.elements[2])) {
                   params = (el.elements[2] as SList).elements.map((p) => {
                     if (isSymbol(p)) {
@@ -195,7 +195,7 @@ export function transformSyntax(ast: SExp[]): SExp[] {
           const name = (list.elements[1] as SSymbol).name;
           const kind = head === "fn" ? "function" : "macro";
           let params: { name: string; type?: string }[] | undefined = undefined;
-          let returnType: string | undefined = undefined;
+          const returnType: string | undefined = undefined;
           if (list.elements.length > 2 && isList(list.elements[2])) {
             params = (list.elements[2] as SList).elements.map((p) => {
               if (isSymbol(p)) {

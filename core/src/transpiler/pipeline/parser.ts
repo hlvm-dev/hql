@@ -265,7 +265,7 @@ function getTokenTypeForSpecial(value: string): TokenType {
 }
 
 function parseTokens(tokens: Token[], input: string, filePath: string): SExp[] {
-  const state: ParserState = { tokens, currentPos: 0, input, filePath };
+  const state: ParserState = { tokens, currentPos: 0, input, filePath, quasiquoteDepth: 0 };
   const nodes: SExp[] = [];
 
   while (state.currentPos < state.tokens.length) {
@@ -280,6 +280,7 @@ interface ParserState {
   currentPos: number;
   input: string;
   filePath: string;
+  quasiquoteDepth: number; // Track nesting depth inside quasiquotes
 }
 
 /**
@@ -349,17 +350,35 @@ function parseExpressionByTokenType(token: Token, state: ParserState): SExp {
       break;
     }
     case TokenType.Backtick: {
+      state.quasiquoteDepth++;
       const expr = parseExpression(state);
+      state.quasiquoteDepth--;
       result = createList(createSymbol("quasiquote"), expr);
       break;
     }
     case TokenType.Unquote: {
-      const expr = parseExpression(state);
-      result = createList(createSymbol("unquote"), expr);
+      // If we're NOT inside a quasiquote, treat ~ as a regular symbol (bitwise NOT operator)
+      if (state.quasiquoteDepth === 0) {
+        result = createSymbol("~");
+      } else {
+        state.quasiquoteDepth--;
+        const expr = parseExpression(state);
+        state.quasiquoteDepth++;
+        result = createList(createSymbol("unquote"), expr);
+      }
       break;
     }
     case TokenType.UnquoteSplicing: {
+      // UnquoteSplicing (~@) should only work inside quasiquotes
+      if (state.quasiquoteDepth === 0) {
+        throw new ParseError(
+          "Unquote-splicing (~@) can only be used inside a quasiquote (backtick `)",
+          errorOptions(token.position, state),
+        );
+      }
+      state.quasiquoteDepth--;
       const expr = parseExpression(state);
+      state.quasiquoteDepth++;
       result = createList(createSymbol("unquote-splicing"), expr);
       break;
     }

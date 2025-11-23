@@ -781,7 +781,7 @@ async function processModuleCode(
 
   const joinedImports = updatedImports.join("\n");
   // Remove 'use strict'; directive if present - it will be re-added by the generated IIFE if needed
-  let cleanBody = bodyWithoutImports.trim().replace(/^['"]use strict['"];?\s*\n?/, "");
+  const cleanBody = bodyWithoutImports.trim().replace(/^['"]use strict['"];?\s*\n?/, "");
   const trimmedBody = cleanBody.trim().replace(/;+\s*$/, "");
 
   if (context.isEntry) {

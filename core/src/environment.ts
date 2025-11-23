@@ -189,6 +189,9 @@ export class Environment {
       });
       this.define("=", (a: unknown, b: unknown) => a === b);
       this.define("eq?", (a: unknown, b: unknown) => a === b);
+      // v2.0: Add strict/loose equality for use in macro expansion
+      this.define("===", (a: unknown, b: unknown) => a === b);
+      this.define("==", (a: unknown, b: unknown) => a == b);
       this.define("!=", (a: unknown, b: unknown) => a !== b);
       this.define(
         "<",

@@ -872,7 +872,7 @@ function filterMacroDefinitions(exprs: SExp[], logger: Logger): SExp[] {
 }
 
 /* Visualize the macro expansion process with ASCII graphics */
-export function visualizeMacroExpansion(
+function visualizeMacroExpansion(
   original: SExp,
   expanded: SExp,
   macroName: string,

@@ -266,10 +266,26 @@ export function transformTypeOp(
             `${args.length} arguments`,
           );
         }
+
+        let argument = args[0];
+
+        // CRITICAL: delete operator needs raw member expression, not safe-access wrapper
+        // Convert InteropIIFE (safe property access) to MemberExpression for delete
+        if (op === "delete" && argument.type === IR.IRNodeType.InteropIIFE) {
+          const interopNode = argument as IR.IRInteropIIFE;
+          const memberExpr: IR.IRMemberExpression = {
+            type: IR.IRNodeType.MemberExpression,
+            object: interopNode.object,
+            property: interopNode.property,
+            computed: true, // obj["x"] format
+          };
+          argument = memberExpr;
+        }
+
         return {
           type: IR.IRNodeType.UnaryExpression,
           operator: op as "typeof" | "delete" | "void",
-          argument: args[0],
+          argument: argument,
         } as IR.IRUnaryExpression;
       }
 
@@ -372,8 +388,6 @@ export function transformAssignment(
 ): IR.IRNode {
   return perform(
     () => {
-      const op = (list.elements[0] as SymbolNode).name;
-
       if (list.elements.length !== 3) {
         throw new ValidationError(
           `= requires exactly 2 arguments: target and value, got ${
