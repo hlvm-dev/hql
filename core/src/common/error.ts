@@ -131,10 +131,12 @@ function formatContextLines(
       // Add column pointer if available
       if (column && column > 0) {
         // Calculate effective column accounting for tabs
+        // Tabs display as 4 spaces but occupy 1 char, so add (TAB_WIDTH - 1) extra per tab
+        const TAB_WIDTH = 4;
         let effectiveColumn = column;
         const textBefore = text.substring(0, column - 1);
         const tabCount = (textBefore.match(/\t/g) || []).length;
-        effectiveColumn += tabCount * 3; // Tab width = 4 spaces, so +3 extra
+        effectiveColumn += tabCount * (TAB_WIDTH - 1);
 
         // Create arrow pointer
         const pointer = " ".repeat(lineNumPadding + 3) +
@@ -551,24 +553,38 @@ type ErrorPattern = {
  * @param context - Optional context string for additional matching
  * @returns Inferred error code
  */
-function inferErrorCodeFromPatterns(
+// Optimized pattern matching using pre-compiled lowercase patterns
+function inferErrorCodeFromCompiledPatterns(
   msg: string,
-  patterns: ErrorPattern[],
+  compiledPatterns: CompiledErrorPattern[],
   fallback: HQLErrorCode,
   context?: string,
 ): HQLErrorCode {
   const lower = msg.toLowerCase();
   const lowerContext = context?.toLowerCase();
 
-  for (const { test, code } of patterns) {
-    const tests = Array.isArray(test) ? test : [test];
-    const allMatch = tests.every((t) => lower.includes(t));
+  // Use for loop instead of .every() for early exit and better performance
+  for (const { tests, code } of compiledPatterns) {
+    let allMatch = true;
+    for (let i = 0; i < tests.length; i++) {
+      if (!lower.includes(tests[i])) {
+        allMatch = false;
+        break;
+      }
+    }
     if (allMatch) {
       return code;
     }
+
     // Also check context if provided
     if (lowerContext) {
-      const allMatchContext = tests.every((t) => lowerContext.includes(t));
+      let allMatchContext = true;
+      for (let i = 0; i < tests.length; i++) {
+        if (!lowerContext.includes(tests[i])) {
+          allMatchContext = false;
+          break;
+        }
+      }
       if (allMatchContext) {
         return code;
       }
@@ -579,6 +595,12 @@ function inferErrorCodeFromPatterns(
 }
 
 // Pattern mappings for each error type
+// Pre-compiled versions with lowercase strings for O(1) matching instead of O(n²)
+
+interface CompiledErrorPattern {
+  tests: string[]; // Pre-normalized lowercase strings
+  code: HQLErrorCode;
+}
 
 const PARSE_ERROR_PATTERNS: ErrorPattern[] = [
   { test: "unclosed list", code: HQLErrorCode.UNCLOSED_LIST },
@@ -656,13 +678,29 @@ const RUNTIME_ERROR_PATTERNS: ErrorPattern[] = [
   { test: "undefined", code: HQLErrorCode.NULL_REFERENCE },
 ];
 
+// Pre-compile patterns at module init for performance (avoid repeated toLowerCase() calls)
+function compilePatterns(patterns: ErrorPattern[]): CompiledErrorPattern[] {
+  return patterns.map(p => ({
+    tests: Array.isArray(p.test) ? p.test.map(t => t.toLowerCase()) : [p.test.toLowerCase()],
+    code: p.code
+  }));
+}
+
+const COMPILED_PARSE_ERROR_PATTERNS = compilePatterns(PARSE_ERROR_PATTERNS);
+const COMPILED_IMPORT_ERROR_PATTERNS = compilePatterns(IMPORT_ERROR_PATTERNS);
+const COMPILED_VALIDATION_ERROR_PATTERNS = compilePatterns(VALIDATION_ERROR_PATTERNS);
+const COMPILED_MACRO_ERROR_PATTERNS = compilePatterns(MACRO_ERROR_PATTERNS);
+const COMPILED_TRANSFORM_ERROR_PATTERNS = compilePatterns(TRANSFORM_ERROR_PATTERNS);
+const COMPILED_CODEGEN_ERROR_PATTERNS = compilePatterns(CODEGEN_ERROR_PATTERNS);
+const COMPILED_RUNTIME_ERROR_PATTERNS = compilePatterns(RUNTIME_ERROR_PATTERNS);
+
 /**
  * Infer error code from parse error message
  */
 function inferParseErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromPatterns(
+  return inferErrorCodeFromCompiledPatterns(
     msg,
-    PARSE_ERROR_PATTERNS,
+    COMPILED_PARSE_ERROR_PATTERNS,
     HQLErrorCode.INVALID_SYNTAX,
   );
 }
@@ -671,9 +709,9 @@ function inferParseErrorCode(msg: string): HQLErrorCode {
  * Infer error code from import error message
  */
 function inferImportErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromPatterns(
+  return inferErrorCodeFromCompiledPatterns(
     msg,
-    IMPORT_ERROR_PATTERNS,
+    COMPILED_IMPORT_ERROR_PATTERNS,
     HQLErrorCode.INVALID_IMPORT_SYNTAX,
   );
 }
@@ -682,9 +720,9 @@ function inferImportErrorCode(msg: string): HQLErrorCode {
  * Infer error code from validation error message
  */
 function inferValidationErrorCode(msg: string, context: string): HQLErrorCode {
-  return inferErrorCodeFromPatterns(
+  return inferErrorCodeFromCompiledPatterns(
     msg,
-    VALIDATION_ERROR_PATTERNS,
+    COMPILED_VALIDATION_ERROR_PATTERNS,
     HQLErrorCode.INVALID_EXPRESSION,
     context,
   );
@@ -694,9 +732,9 @@ function inferValidationErrorCode(msg: string, context: string): HQLErrorCode {
  * Infer error code from macro error message
  */
 function inferMacroErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromPatterns(
+  return inferErrorCodeFromCompiledPatterns(
     msg,
-    MACRO_ERROR_PATTERNS,
+    COMPILED_MACRO_ERROR_PATTERNS,
     HQLErrorCode.MACRO_EXPANSION_FAILED,
   );
 }
@@ -705,9 +743,9 @@ function inferMacroErrorCode(msg: string): HQLErrorCode {
  * Infer error code from transform error message
  */
 function inferTransformErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromPatterns(
+  return inferErrorCodeFromCompiledPatterns(
     msg,
-    TRANSFORM_ERROR_PATTERNS,
+    COMPILED_TRANSFORM_ERROR_PATTERNS,
     HQLErrorCode.TRANSFORMATION_FAILED,
   );
 }
@@ -716,9 +754,9 @@ function inferTransformErrorCode(msg: string): HQLErrorCode {
  * Infer error code from code generation error message
  */
 function inferCodeGenErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromPatterns(
+  return inferErrorCodeFromCompiledPatterns(
     msg,
-    CODEGEN_ERROR_PATTERNS,
+    COMPILED_CODEGEN_ERROR_PATTERNS,
     HQLErrorCode.CODEGEN_FAILED,
   );
 }
@@ -727,9 +765,9 @@ function inferCodeGenErrorCode(msg: string): HQLErrorCode {
  * Infer error code from runtime error message
  */
 function inferRuntimeErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromPatterns(
+  return inferErrorCodeFromCompiledPatterns(
     msg,
-    RUNTIME_ERROR_PATTERNS,
+    COMPILED_RUNTIME_ERROR_PATTERNS,
     HQLErrorCode.TYPE_MISMATCH,
   );
 }
