@@ -8,6 +8,7 @@ import {
   TransformError,
   ValidationError,
 } from "../../common/error.ts";
+import { sanitizeIdentifier } from "../../common/utils.ts";
 import { transformElements } from "../utils/validation-helpers.ts";
 import {
   KERNEL_PRIMITIVES,
@@ -27,6 +28,12 @@ export function transformPrimitiveOp(
   return perform(
     () => {
       const op = (list.elements[0] as SymbolNode).name;
+
+      // Handle assignment operator separately (needs list, not args)
+      if (op === "=") {
+        return transformAssignment(list, currentDir, transformNode);
+      }
+
       const args = transformElements(
         list.elements.slice(1),
         currentDir,
@@ -35,14 +42,15 @@ export function transformPrimitiveOp(
         "Primitive op argument",
       );
 
-      if (op === "+" || op === "-" || op === "*" || op === "/" || op === "%") {
+      if (op === "+" || op === "-" || op === "*" || op === "/" || op === "%" || op === "**") {
         return transformArithmeticOp(op, args);
       }
 
       if (
-        op === "=" ||
+        op === "===" ||
         op === "==" ||
         op === "eq?" ||
+        op === "!==" ||
         op === "!=" ||
         op === ">" ||
         op === "<" ||
@@ -50,6 +58,18 @@ export function transformPrimitiveOp(
         op === "<="
       ) {
         return transformComparisonOp(op, args);
+      }
+
+      if (op === "&&" || op === "||" || op === "!" || op === "??") {
+        return transformLogicalOp(op, args);
+      }
+
+      if (op === "&" || op === "|" || op === "^" || op === "~" || op === "<<" || op === ">>" || op === ">>>") {
+        return transformBitwiseOp(op, args);
+      }
+
+      if (op === "typeof" || op === "delete" || op === "void" || op === "instanceof" || op === "in") {
+        return transformTypeOp(op, args);
       }
 
       return {
@@ -121,7 +141,7 @@ export function transformArithmeticOp(
 }
 
 /**
- * Transform comparison operations (=, !=, <, >, <=, >=)
+ * Transform comparison operations (===, ==, !==, !=, <, >, <=, >=)
  */
 export function transformComparisonOp(
   op: string,
@@ -140,13 +160,20 @@ export function transformComparisonOp(
 
       let jsOp: string;
       switch (op) {
-        case "=":
+        case "===":
+          jsOp = "===";  // Strict equality (v2.0)
+          break;
         case "==":
+          jsOp = "==";   // Loose equality (v2.0)
+          break;
         case "eq?":
-          jsOp = "===";
+          jsOp = "===";  // Compatibility: maps to strict equality
+          break;
+        case "!==":
+          jsOp = "!==";  // Strict inequality (v2.0)
           break;
         case "!=":
-          jsOp = "!==";
+          jsOp = "!=";   // Loose inequality (v2.0)
           break;
         case ">":
         case "<":
@@ -168,6 +195,295 @@ export function transformComparisonOp(
     `transformComparisonOp '${op}'`,
     TransformError,
     [op, args],
+  );
+}
+
+/**
+ * Transform bitwise operations (&, |, ^, ~, <<, >>, >>>).
+ */
+export function transformBitwiseOp(
+  op: string,
+  args: IR.IRNode[],
+): IR.IRNode {
+  return perform(
+    () => {
+      // Bitwise NOT is unary
+      if (op === "~") {
+        if (args.length !== 1) {
+          throw new ValidationError(
+            `~ requires exactly 1 argument, got ${args.length}`,
+            "bitwise NOT operation",
+            "1 argument",
+            `${args.length} arguments`,
+          );
+        }
+        return {
+          type: IR.IRNodeType.UnaryExpression,
+          operator: "~",
+          argument: args[0],
+        } as IR.IRUnaryExpression;
+      }
+
+      // Other bitwise operators are binary
+      if (args.length !== 2) {
+        throw new ValidationError(
+          `${op} requires exactly 2 arguments, got ${args.length}`,
+          `${op} operation`,
+          "2 arguments",
+          `${args.length} arguments`,
+        );
+      }
+
+      return {
+        type: IR.IRNodeType.BinaryExpression,
+        operator: op,
+        left: args[0],
+        right: args[1],
+      } as IR.IRBinaryExpression;
+    },
+    `transformBitwiseOp '${op}'`,
+    TransformError,
+    [op, args],
+  );
+}
+
+/**
+ * Transform type operations (typeof, instanceof, in, delete, void).
+ */
+export function transformTypeOp(
+  op: string,
+  args: IR.IRNode[],
+): IR.IRNode {
+  return perform(
+    () => {
+      // typeof, delete, void are unary
+      if (op === "typeof" || op === "delete" || op === "void") {
+        if (args.length !== 1) {
+          throw new ValidationError(
+            `${op} requires exactly 1 argument, got ${args.length}`,
+            `${op} operation`,
+            "1 argument",
+            `${args.length} arguments`,
+          );
+        }
+        return {
+          type: IR.IRNodeType.UnaryExpression,
+          operator: op as "typeof" | "delete" | "void",
+          argument: args[0],
+        } as IR.IRUnaryExpression;
+      }
+
+      // instanceof, in are binary
+      if (op === "instanceof" || op === "in") {
+        if (args.length !== 2) {
+          throw new ValidationError(
+            `${op} requires exactly 2 arguments, got ${args.length}`,
+            `${op} operation`,
+            "2 arguments",
+            `${args.length} arguments`,
+          );
+        }
+        return {
+          type: IR.IRNodeType.BinaryExpression,
+          operator: op as "instanceof" | "in",
+          left: args[0],
+          right: args[1],
+        } as IR.IRBinaryExpression;
+      }
+
+      throw new ValidationError(
+        `Unknown type operator: ${op}`,
+        "type operator",
+        "one of: typeof, instanceof, in, delete, void",
+        op,
+      );
+    },
+    `transformTypeOp '${op}'`,
+    TransformError,
+    [op, args],
+  );
+}
+
+/**
+ * Transform logical operations (&&, ||, !, ??).
+ * These operators use short-circuit evaluation.
+ */
+export function transformLogicalOp(
+  op: string,
+  args: IR.IRNode[],
+): IR.IRNode {
+  return perform(
+    () => {
+      // Logical NOT is unary
+      if (op === "!") {
+        if (args.length !== 1) {
+          throw new ValidationError(
+            `! requires exactly 1 argument, got ${args.length}`,
+            "logical NOT operation",
+            "1 argument",
+            `${args.length} arguments`,
+          );
+        }
+        return {
+          type: IR.IRNodeType.UnaryExpression,
+          operator: "!",
+          argument: args[0],
+        } as IR.IRUnaryExpression;
+      }
+
+      // &&, ||, ?? are binary operators (can chain multiple)
+      if (args.length < 2) {
+        throw new ValidationError(
+          `${op} requires at least 2 arguments, got ${args.length}`,
+          `${op} operation`,
+          "at least 2 arguments",
+          `${args.length} arguments`,
+        );
+      }
+
+      // Chain multiple arguments: (&& a b c) => a && b && c
+      let result = args[0];
+      for (let i = 1; i < args.length; i++) {
+        result = {
+          type: IR.IRNodeType.LogicalExpression,
+          operator: op as "&&" | "||" | "??",
+          left: result,
+          right: args[i],
+        } as IR.IRLogicalExpression;
+      }
+
+      return result;
+    },
+    `transformLogicalOp '${op}'`,
+    TransformError,
+    [op, args],
+  );
+}
+
+/**
+ * Transform assignment operation (=).
+ * Handles: (= target value)
+ * Compiles to: target = value
+ */
+export function transformAssignment(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  return perform(
+    () => {
+      const op = (list.elements[0] as SymbolNode).name;
+
+      if (list.elements.length !== 3) {
+        throw new ValidationError(
+          `= requires exactly 2 arguments: target and value, got ${
+            list.elements.length - 1
+          }`,
+          "assignment expression",
+          "2 arguments",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      const targetNode = list.elements[1];
+      const valueNode = list.elements[2];
+
+      // Handle both simple symbols and member expressions (like this.x)
+      let target: IR.IRNode;
+
+      if (targetNode.type === "symbol") {
+        const symbolName = (targetNode as SymbolNode).name;
+
+        // Check if it's a dot-notation symbol like "this.x" or "obj.prop"
+        if (symbolName.includes(".") && !symbolName.startsWith(".")) {
+          const parts = symbolName.split(".");
+          const baseObjectName = parts[0];
+          // Sanitize base object: "self" -> "this", reserved keywords -> _keyword
+          const sanitizedBase = baseObjectName === "self" ? "this" : sanitizeIdentifier(baseObjectName);
+
+          let memberExpr: IR.IRMemberExpression = {
+            type: IR.IRNodeType.MemberExpression,
+            object: {
+              type: IR.IRNodeType.Identifier,
+              name: sanitizedBase,
+            } as IR.IRIdentifier,
+            property: {
+              type: IR.IRNodeType.Identifier,
+              name: parts[1],
+            } as IR.IRIdentifier,
+            computed: false,
+          };
+
+          // Handle nested properties like obj.a.b.c
+          for (let i = 2; i < parts.length; i++) {
+            memberExpr = {
+              type: IR.IRNodeType.MemberExpression,
+              object: memberExpr,
+              property: {
+                type: IR.IRNodeType.Identifier,
+                name: parts[i],
+              } as IR.IRIdentifier,
+              computed: false,
+            };
+          }
+
+          target = memberExpr;
+        } else {
+          // Simple variable assignment: (= x 10)
+          target = {
+            type: IR.IRNodeType.Identifier,
+            name: sanitizeIdentifier(symbolName),
+          } as IR.IRIdentifier;
+        }
+      } else if (targetNode.type === "list") {
+        // Could be a member expression like (. this x) or transformed member expression
+        const transformedTarget = transformNode(targetNode, currentDir);
+        if (!transformedTarget) {
+          throw new ValidationError(
+            "Invalid assignment target",
+            "assignment target",
+            "symbol or member expression",
+            targetNode.type,
+          );
+        }
+        target = transformedTarget;
+      } else {
+        throw new ValidationError(
+          "Assignment target must be a symbol or member expression",
+          "assignment target",
+          "symbol or member expression",
+          targetNode.type,
+        );
+      }
+
+      const args = transformElements(
+        [valueNode],
+        currentDir,
+        transformNode,
+        "assignment value",
+        "Assignment value",
+      );
+
+      if (args.length === 0 || !args[0]) {
+        throw new ValidationError(
+          "Assignment value is required",
+          "assignment value",
+          "valid expression",
+          "null",
+        );
+      }
+
+      // Create an assignment expression
+      return {
+        type: IR.IRNodeType.AssignmentExpression,
+        operator: "=",
+        left: target,
+        right: args[0],
+      } as IR.IRAssignmentExpression;
+    },
+    "transformAssignment",
+    TransformError,
+    [list],
   );
 }
 
