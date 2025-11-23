@@ -518,6 +518,7 @@ const irToESTreeConverters = new Map<IR.IRNodeType, (node: any) => Node>([
   // Expressions
   [IR.IRNodeType.BinaryExpression, convertBinaryExpression],
   [IR.IRNodeType.UnaryExpression, convertUnaryExpression],
+  [IR.IRNodeType.LogicalExpression, convertLogicalExpression],
   [IR.IRNodeType.ConditionalExpression, convertConditionalExpression],
   [IR.IRNodeType.CallExpression, convertCallExpression],
   [IR.IRNodeType.CallMemberExpression, convertCallMemberExpression],
@@ -704,6 +705,16 @@ function convertUnaryExpression(node: IR.IRUnaryExpression): UnaryExpression | U
     operator: node.operator,
     prefix: true,
     argument: convertIRToESTree(node.argument) as Expression,
+    loc: createLoc(node.position)
+  };
+}
+
+function convertLogicalExpression(node: IR.IRLogicalExpression): LogicalExpression {
+  return {
+    type: "LogicalExpression",
+    operator: node.operator as "||" | "&&" | "??",
+    left: convertIRToESTree(node.left) as Expression,
+    right: convertIRToESTree(node.right) as Expression,
     loc: createLoc(node.position)
   };
 }
