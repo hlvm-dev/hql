@@ -88,7 +88,7 @@ EXAMPLES:
       "+", "-", "*", "/", "%", "**", "==", "!=", "<", ">", "<=", ">=",
       "and", "or", "not", "&&", "||", "!",
     ],
-    async onInit(context) {
+    onInit(_context) {
       const startTime = Date.now();
       const initTime = Date.now() - startTime;
       console.log(`${DIM_GRAY}⚡ Ready in ${initTime}ms${RESET}\n`);

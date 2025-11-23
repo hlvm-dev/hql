@@ -22,12 +22,6 @@ Deno.test("Dot Notation Audit - Group 1: Simple Property Access", async () => {
     testCase("3. obj.name.length (chained, bare)", "obj.name.length"),
     testCase("4. (obj.name.length) (chained, in parens)", "(obj.name.length)"),
   ]);
-  
-  results.forEach(r => {
-    if (r.js) {
-    } else {
-    }
-  });
 });
 
 Deno.test("Dot Notation Audit - Group 2: Single Method Call", async () => {
@@ -37,12 +31,6 @@ Deno.test("Dot Notation Audit - Group 2: Single Method Call", async () => {
     testCase("7. (str.toUpperCase) (spaceless, no args)", "(str.toUpperCase)"),
     testCase("8. (str .toUpperCase) (spaced, no args)", "(str .toUpperCase)"),
   ]);
-  
-  results.forEach(r => {
-    if (r.js) {
-    } else {
-    }
-  });
 });
 
 Deno.test("Dot Notation Audit - Group 3: Method Chaining - Spaced", async () => {
@@ -51,12 +39,6 @@ Deno.test("Dot Notation Audit - Group 3: Method Chaining - Spaced", async () => 
     testCase("10. (arr .map fn .filter pred) (spaced chain with args)", "(arr .map fn .filter pred)"),
     testCase("11. (arr .push 1 .push 2 .push 3) (spaced chain, multiple args)", "(arr .push 1 .push 2 .push 3)"),
   ]);
-  
-  results.forEach(r => {
-    if (r.js) {
-    } else {
-    }
-  });
 });
 
 Deno.test("Dot Notation Audit - Group 4: Method Chaining - Spaceless", async () => {
@@ -65,12 +47,6 @@ Deno.test("Dot Notation Audit - Group 4: Method Chaining - Spaceless", async () 
     testCase("13. (arr.map fn.filter pred) (spaceless chain with args)", "(arr.map fn.filter pred)"),
     testCase("14. (arr.push.map.filter) (spaceless chain, no args)", "(arr.push.map.filter)"),
   ]);
-  
-  results.forEach(r => {
-    if (r.js) {
-    } else {
-    }
-  });
 });
 
 Deno.test("Dot Notation Audit - Group 5: Edge Cases", async () => {
@@ -80,12 +56,6 @@ Deno.test("Dot Notation Audit - Group 5: Edge Cases", async () => {
     testCase("17. Math.PI (bare module property)", "Math.PI"),
     testCase("18. (Math.PI) (module property in parens)", "(Math.PI)"),
   ]);
-  
-  results.forEach(r => {
-    if (r.js) {
-    } else {
-    }
-  });
 });
 
 // Summary test that creates a table
