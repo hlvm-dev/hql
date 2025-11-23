@@ -17,6 +17,7 @@ export enum IRNodeType {
   UnaryExpression = 11,
   ConditionalExpression = 12,
   ArrayExpression = 13,
+  LogicalExpression = 14,
   FunctionExpression = 15,
   ObjectExpression = 16,
   ObjectProperty = 17,
@@ -165,6 +166,13 @@ export interface IRUnaryExpression extends IRNode {
   operator: string;
   argument: IRNode;
   prefix?: boolean; // true for ++i, false for i++
+}
+
+export interface IRLogicalExpression extends IRNode {
+  type: IRNodeType.LogicalExpression;
+  operator: "&&" | "||" | "??";
+  left: IRNode;
+  right: IRNode;
 }
 
 export interface IRConditionalExpression extends IRNode {
