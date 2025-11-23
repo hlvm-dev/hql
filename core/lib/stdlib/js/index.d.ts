@@ -1,0 +1,374 @@
+// deno-lint-ignore-file no-explicit-any
+
+/**
+ * TypeScript type definitions for HQL stdlib
+ *
+ * This file provides proper type definitions to fix union type property access errors.
+ * The JSDoc types in core.js now correctly reflect null-safe behavior (|null|undefined).
+ */
+
+// ============================================================================
+// COLLECTION FUNCTIONS (Iterable handling)
+// ============================================================================
+
+/**
+ * Returns the first element of a collection
+ */
+export function first<T>(coll: Iterable<T> | null | undefined): T | undefined;
+
+/**
+ * Returns all elements except the first
+ */
+export function rest<T>(coll: Iterable<T> | null | undefined): Iterable<T>;
+
+/**
+ * Constructs a new collection with item prepended
+ */
+export function cons<T>(
+  item: T,
+  coll: Iterable<T> | null | undefined,
+): Iterable<T>;
+
+/**
+ * Returns the nth element (0-indexed)
+ */
+export function nth<T>(
+  coll: Iterable<T> | null | undefined,
+  index: number,
+  notFound?: T,
+): T | undefined;
+
+/**
+ * Counts elements in a collection
+ */
+export function count(coll: Iterable<any> | null | undefined): number;
+
+/**
+ * Returns the second element
+ */
+export function second<T>(coll: Iterable<T> | null | undefined): T | undefined;
+
+/**
+ * Returns the last element
+ */
+export function last<T>(coll: Iterable<T> | null | undefined): T | undefined;
+
+/**
+ * Checks if collection is empty
+ */
+export function isEmpty(coll: Iterable<any> | null | undefined): boolean;
+
+/**
+ * Tests if any element satisfies predicate
+ */
+export function some<T>(
+  pred: (item: T) => boolean,
+  coll: Iterable<T> | null | undefined,
+): boolean;
+
+/**
+ * Tests if all elements satisfy predicate
+ */
+export function every<T>(
+  pred: (item: T) => boolean,
+  coll: Iterable<T> | null | undefined,
+): boolean;
+
+/**
+ * Tests if no elements satisfy predicate
+ */
+export function notAny<T>(
+  pred: (item: T) => boolean,
+  coll: Iterable<T> | null | undefined,
+): boolean;
+
+/**
+ * Tests if not all elements satisfy predicate
+ */
+export function notEvery<T>(
+  pred: (item: T) => boolean,
+  coll: Iterable<T> | null | undefined,
+): boolean;
+
+/**
+ * Takes first n elements
+ */
+export function take<T>(
+  n: number,
+  coll: Iterable<T> | null | undefined,
+): Iterable<T>;
+
+/**
+ * Drops first n elements
+ */
+export function drop<T>(
+  n: number,
+  coll: Iterable<T> | null | undefined,
+): Iterable<T>;
+
+/**
+ * Maps function over collection
+ */
+export function map<T, R>(
+  fn: (item: T) => R,
+  coll: Iterable<T> | null | undefined,
+): Iterable<R>;
+
+/**
+ * Filters collection by predicate
+ */
+export function filter<T>(
+  pred: (item: T) => boolean,
+  coll: Iterable<T> | null | undefined,
+): Iterable<T>;
+
+/**
+ * Reduces collection to single value
+ */
+export function reduce<T, R>(
+  fn: (acc: R, item: T) => R,
+  init: R,
+  coll: Iterable<T> | null | undefined,
+): R;
+
+/**
+ * Concatenates collections
+ */
+export function concat<T>(
+  ...colls: (Iterable<T> | null | undefined)[]
+): Iterable<T>;
+
+/**
+ * Flattens nested collections
+ */
+export function flatten<T>(coll: Iterable<any> | null | undefined): Iterable<T>;
+
+/**
+ * Returns distinct elements
+ */
+export function distinct<T>(coll: Iterable<T> | null | undefined): Iterable<T>;
+
+/**
+ * Maps function with index
+ */
+export function mapIndexed<T, R>(
+  fn: (item: T, index: number) => R,
+  coll: Iterable<T> | null | undefined,
+): Iterable<R>;
+
+/**
+ * Maps and filters non-nil results
+ */
+export function keep<T, R>(
+  fn: (item: T) => R | null | undefined,
+  coll: Iterable<T> | null | undefined,
+): Iterable<R>;
+
+/**
+ * Keeps elements with non-nil indexed results
+ */
+export function keepIndexed<T, R>(
+  fn: (item: T, index: number) => R | null | undefined,
+  coll: Iterable<T> | null | undefined,
+): Iterable<R>;
+
+/**
+ * Maps and concatenates results
+ */
+export function mapcat<T, R>(
+  fn: (item: T) => Iterable<R>,
+  coll: Iterable<T> | null | undefined,
+): Iterable<R>;
+
+/**
+ * Creates a range of numbers
+ */
+export function range(
+  start: number,
+  end?: number,
+  step?: number,
+): Iterable<number>;
+
+/**
+ * Groups elements by key function
+ */
+export function groupBy<T, K extends string | number | symbol>(
+  keyFn: (item: T) => K,
+  coll: Iterable<T> | null | undefined,
+): Record<K, T[]>;
+
+/**
+ * Forces realization of lazy sequence
+ */
+export function realize<T>(coll: Iterable<T> | null | undefined): T[];
+
+/**
+ * Converts to array
+ */
+export function toArray<T>(coll: Iterable<T> | null | undefined): T[];
+
+/**
+ * Converts to set
+ */
+export function toSet<T>(coll: Iterable<T> | null | undefined): Set<T>;
+
+/**
+ * Creates lazy sequence
+ */
+export function seq<T>(
+  coll: Iterable<T> | null | undefined,
+): Iterable<T> | null;
+
+/**
+ * Conjoins value into collection
+ */
+export function conj<T>(
+  coll: Iterable<T> | null | undefined,
+  ...items: T[]
+): T[];
+
+/**
+ * Transforms collection into target
+ */
+export function into<T>(target: any, from: Iterable<T> | null | undefined): any;
+
+/**
+ * Pours collection into target collection type
+ */
+export function pour<T>(
+  targetType: any,
+  coll: Iterable<T> | null | undefined,
+): any;
+
+/**
+ * Cycles through collection infinitely
+ */
+export function cycle<T>(coll: Iterable<T> | null | undefined): Iterable<T>;
+
+// ============================================================================
+// MAP/OBJECT FUNCTIONS (with overloads for proper type inference)
+// ============================================================================
+
+/**
+ * Gets value from map/object by key
+ */
+export function get<V>(
+  map: Record<string, V> | null | undefined,
+  key: string,
+  notFound?: V,
+): V | undefined;
+export function get<K, V>(
+  map: Map<K, V> | null | undefined,
+  key: K,
+  notFound?: V,
+): V | undefined;
+
+/**
+ * Gets nested value from map/object by path
+ */
+export function getIn<T = any>(
+  map: any | null | undefined,
+  path: Iterable<any>,
+  notFound?: T,
+): T | undefined;
+
+/**
+ * Associates key with value in map/object
+ * Returns same type as input
+ */
+export function assoc(map: any | null | undefined, key: any, value: any): any;
+
+/**
+ * Associates nested key with value
+ */
+export function assocIn(
+  map: any | null | undefined,
+  path: Iterable<any>,
+  value: any,
+): any;
+
+/**
+ * Dissociates keys from map/object
+ */
+export function dissoc(map: any | null | undefined, ...keys: any[]): any;
+
+/**
+ * Updates value at key with function
+ */
+export function update(
+  map: any | null | undefined,
+  key: any,
+  fn: (value: any) => any,
+): any;
+
+/**
+ * Updates nested value with function
+ */
+export function updateIn(
+  map: any | null | undefined,
+  path: Iterable<any>,
+  fn: (value: any) => any,
+): any;
+
+/**
+ * Merges multiple maps/objects
+ */
+export function merge(...maps: (any | null | undefined)[]): any;
+
+/**
+ * Returns keys of map/object
+ */
+export function keys<K extends string>(
+  map: Record<K, any> | null | undefined,
+): K[];
+export function keys<K>(map: Map<K, any> | null | undefined): K[];
+
+/**
+ * Returns values of map/object
+ */
+export function vals<V>(
+  map: Record<any, V> | Map<any, V> | null | undefined,
+): V[];
+
+/**
+ * Zips arrays into tuples
+ */
+export function zip<T>(...arrays: Iterable<T>[]): Iterable<T[]>;
+
+/**
+ * Zips with custom function
+ */
+export function zipWith<T, R>(
+  fn: (...items: T[]) => R,
+  ...arrays: Iterable<T>[]
+): Iterable<R>;
+
+// ============================================================================
+// FUNCTION UTILITIES
+// ============================================================================
+
+/**
+ * Composes functions right to left
+ */
+export function comp<T>(...fns: Array<(arg: any) => any>): (arg: T) => any;
+
+/**
+ * Partially applies function
+ */
+export function partial<T extends (...args: any[]) => any>(
+  fn: T,
+  ...partialArgs: any[]
+): (...remainingArgs: any[]) => ReturnType<T>;
+
+/**
+ * Applies function to argument list
+ */
+export function apply<T>(
+  fn: (...args: any[]) => T,
+  args: Iterable<any> | null | undefined,
+): T;
+
+/**
+ * Creates infinite sequence by repeatedly applying function
+ */
+export function iterate<T>(fn: (value: T) => T, init: T): Iterable<T>;

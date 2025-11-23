@@ -1,0 +1,53 @@
+# Build outputs
+dist/
+
+# HQL compiled binaries
+hql
+hql-*
+
+# Generated files
+*.js
+*.js.map
+!core/**/*.js
+!test/**/*.js
+!packages/**/*.js  # Allow .js files in stdlib packages (if any)
+
+# Deno cache
+.deno/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code
+.claude/settings.local.json
+
+# Logs
+*.log
+verify-output.log
+
+# HQL transpiler cache (auto-generated, versioned by content hash)
+.hql-cache/
+
+# Build intermediate directory (auto-deleted after hql build completes)
+.build/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Test outputs
+test-simple.js
+!test/fixtures/*.js  # Keep test fixtures (these are intentional)
+
+# Documentation examples - ignore compiled files
+doc/examples/**/*.js
+mod.js

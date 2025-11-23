@@ -1,0 +1,28 @@
+# Node modules (installed by npm)
+node_modules/
+npm/
+
+# Build output directories (if you generate bundles or compiled files)
+dist/
+build/
+npm/        # if you output an npm package folder via dnt
+bin/
+
+# Log files
+*.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Environment files (if not meant for version control)
+.env
+.env.local
+
+# IDE or editor directories
+.vscode/
+.idea/
+
+# Deno lock file (if not needed in the Node project)
+deno.lock
+
