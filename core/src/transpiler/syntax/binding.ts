@@ -29,11 +29,11 @@ import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
  */
 interface BindingOptions {
   /** Variable declaration kind */
-  kind: "const" | "let";
+  kind: "const" | "let" | "var";
   /** Whether to wrap values with Object.freeze() */
   freeze: boolean;
   /** Binding keyword name for error messages */
-  keyword: "let" | "var";
+  keyword: "const" | "let" | "var";
 }
 
 /**
@@ -111,7 +111,7 @@ function transformBinding(
       // Validate for var: cannot use for property assignment
       if (keyword === "var" && name.includes(".") && !name.startsWith(".")) {
         throw new ValidationError(
-          `Cannot use 'var' for property assignment. Use 'set!' instead.\nHint: Change (var ${name} ...) to (set! ${name} ...)`,
+          `Cannot use 'var' for property assignment. Use '=' instead.\nHint: Change (var ${name} ...) to (= ${name} ...)`,
           "var declaration",
           "new variable name (without dots)",
           `property access '${name}'`,
@@ -277,12 +277,12 @@ function transformIfOrValue(
 }
 
 /**
- * Transform a 'let' expression (immutable binding).
+ * Transform a 'const' expression (immutable binding) - v2.0
  * Handles both forms:
- * 1. (let name value) - Global immutable binding
- * 2. (let (name1 value1 name2 value2...) body...) - Local immutable binding block
+ * 1. (const name value) - Global immutable binding
+ * 2. (const (name1 value1 name2 value2...) body...) - Local immutable binding block
  */
-export function transformLet(
+export function transformConst(
   list: ListNode,
   currentDir: string,
   transformNode: (
@@ -293,12 +293,34 @@ export function transformLet(
   return transformBinding(list, currentDir, transformNode, {
     kind: "const",
     freeze: true,
+    keyword: "const",
+  });
+}
+
+/**
+ * Transform a 'let' expression (mutable, block-scoped binding) - v2.0
+ * Changed in v2.0: Now creates mutable bindings (was immutable in v1.x)
+ * Handles both forms:
+ * 1. (let name value) - Global mutable block-scoped binding
+ * 2. (let (name1 value1 name2 value2...) body...) - Local mutable binding block
+ */
+export function transformLet(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (
+    node: ListNode | SymbolNode | LiteralNode,
+    dir: string,
+  ) => IR.IRNode | null,
+): IR.IRNode {
+  return transformBinding(list, currentDir, transformNode, {
+    kind: "let",
+    freeze: false,
     keyword: "let",
   });
 }
 
 /**
- * Transform a 'var' expression (mutable binding).
+ * Transform a 'var' expression (mutable, function-scoped binding).
  * Handles both forms:
  * 1. (var name value) - Global mutable binding
  * 2. (var (name1 value1 name2 value2...) body...) - Local mutable binding block
@@ -312,7 +334,7 @@ export function transformVar(
   ) => IR.IRNode | null,
 ): IR.IRNode {
   return transformBinding(list, currentDir, transformNode, {
-    kind: "let",
+    kind: "var",
     freeze: false,
     keyword: "var",
   });
@@ -329,7 +351,7 @@ function processBindings(
     node: ListNode | SymbolNode | LiteralNode,
     dir: string,
   ) => IR.IRNode | null,
-  kind: "const" | "let",
+  kind: "const" | "let" | "var",
 ): IR.IRNode {
   // Process bindings as pairs
   const bindings: Array<{ name: string; value: IR.IRNode; nameNode: SymbolNode }> = [];
@@ -435,118 +457,6 @@ function processBindings(
     } as IR.IRFunctionExpression,
     arguments: [],
   } as IR.IRCallExpression;
-}
-
-/**
- * Transform a 'set!' expression (assignment)
- */
-export function transformSet(
-  list: ListNode,
-  currentDir: string,
-  transformNode: (
-    node: ListNode | SymbolNode | LiteralNode,
-    dir: string,
-  ) => IR.IRNode | null,
-): IR.IRNode {
-  return perform(
-    () => {
-      if (list.elements.length !== 3) {
-        throw new ValidationError(
-          `set! requires exactly 2 arguments: target and value, got ${
-            list.elements.length - 1
-          }`,
-          "set! expression",
-          "2 arguments",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
-
-      const targetNode = list.elements[1];
-      const valueNode = list.elements[2];
-
-      // Handle both simple symbols and member expressions (like this.x)
-      let target: IR.IRNode;
-
-      if (targetNode.type === "symbol") {
-        const symbolName = (targetNode as SymbolNode).name;
-
-        // Check if it's a dot-notation symbol like "this.x" or "obj.prop"
-        if (symbolName.includes(".") && !symbolName.startsWith(".")) {
-          const parts = symbolName.split(".");
-          const baseObjectName = sanitizeIdentifier(parts[0]);
-          let memberExpr: IR.IRMemberExpression = {
-            type: IR.IRNodeType.MemberExpression,
-            object: {
-              type: IR.IRNodeType.Identifier,
-              name: baseObjectName === "self" ? "this" : baseObjectName,
-            } as IR.IRIdentifier,
-            property: {
-              type: IR.IRNodeType.Identifier,
-              name: sanitizeIdentifier(parts[1]),
-            } as IR.IRIdentifier,
-            computed: false,
-          };
-
-          // Handle nested properties like obj.a.b.c
-          for (let i = 2; i < parts.length; i++) {
-            memberExpr = {
-              type: IR.IRNodeType.MemberExpression,
-              object: memberExpr,
-              property: {
-                type: IR.IRNodeType.Identifier,
-                name: sanitizeIdentifier(parts[i]),
-              } as IR.IRIdentifier,
-              computed: false,
-            };
-          }
-
-          target = memberExpr;
-        } else {
-          // Simple variable assignment: (set! x 10)
-          target = {
-            type: IR.IRNodeType.Identifier,
-            name: sanitizeIdentifier(symbolName),
-          } as IR.IRIdentifier;
-        }
-      } else if (targetNode.type === "list") {
-        // Could be a member expression like (. this x) or transformed member expression
-        const transformedTarget = transformNode(targetNode, currentDir);
-        if (!transformedTarget) {
-          throw new ValidationError(
-            "Invalid assignment target",
-            "set! target",
-            "symbol or member expression",
-            targetNode.type,
-          );
-        }
-        target = transformedTarget;
-      } else {
-        throw new ValidationError(
-          "Assignment target must be a symbol or member expression",
-          "set! target",
-          "symbol or member expression",
-          targetNode.type,
-        );
-      }
-
-      const value = validateTransformed(
-        transformNode(valueNode, currentDir),
-        "set! value",
-        "Assignment value",
-      );
-
-      // Create an assignment expression
-      return {
-        type: IR.IRNodeType.AssignmentExpression,
-        operator: "=",
-        left: target,
-        right: value,
-      } as IR.IRAssignmentExpression;
-    },
-    "transformSet",
-    TransformError,
-    [list],
-  );
 }
 
 /**
