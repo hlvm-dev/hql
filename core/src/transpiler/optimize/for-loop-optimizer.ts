@@ -421,7 +421,7 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
  *
  * This preserves the semantics: HQL for loops return null.
  */
-function wrapForStatementInIIFE(forStmt: IR.IRForStatement, position?: any): IR.IRCallExpression {
+function wrapForStatementInIIFE(forStmt: IR.IRForStatement, position?: IR.SourcePosition): IR.IRCallExpression {
   // Create: return null;
   const returnNull: IR.IRReturnStatement = {
     type: IR.IRNodeType.ReturnStatement,

@@ -20,10 +20,8 @@ import { globalLogger as logger } from "../../logger.ts";
 interface Scope {
   /** Parent scope (null for global scope) */
   parent: Scope | null;
-  /** Variables declared in this scope, mapped to their declaration position */
-  declarations: Map<string, IR.SourcePosition>;
-  /** Order of declarations (for TDZ checking) */
-  declarationOrder: Array<{ name: string; statementIndex: number }>;
+  /** Variables declared in this scope, mapped to their declaration info */
+  declarations: Map<string, { position: IR.SourcePosition; statementIndex: number }>;
   /** Current statement index (for tracking declaration order) */
   currentStatementIndex: number;
 }
@@ -35,7 +33,6 @@ function createScope(parent: Scope | null = null): Scope {
   return {
     parent,
     declarations: new Map(),
-    declarationOrder: [],
     currentStatementIndex: 0,
   };
 }
@@ -50,9 +47,10 @@ function isDeclaredInScope(scope: Scope, name: string): boolean {
 /**
  * Get the statement index where a variable was declared in the current scope
  * Returns undefined if not declared in current scope
+ * PERFORMANCE: O(1) Map lookup instead of O(n) array search
  */
 function getDeclarationIndex(scope: Scope, name: string): number | undefined {
-  const entry = scope.declarationOrder.find(e => e.name === name);
+  const entry = scope.declarations.get(name);
   return entry?.statementIndex;
 }
 
@@ -69,7 +67,7 @@ function declareVariable(
   if (isDeclaredInScope(scope, name)) {
     const firstDecl = scope.declarations.get(name)!;
     const currentLine = position?.line || 1;
-    const firstDeclLine = firstDecl.line || 1;
+    const firstDeclLine = firstDecl.position.line || 1;
 
     // Include line number in format :line: that tests expect
     const errorMsg = `Identifier '${name}' has already been declared at :${currentLine}: (first at :${firstDeclLine}:)`;
@@ -85,10 +83,9 @@ function declareVariable(
     );
   }
 
-  // Register declaration
-  scope.declarations.set(name, position || {});
-  scope.declarationOrder.push({
-    name,
+  // Register declaration with both position and statement index for O(1) TDZ checking
+  scope.declarations.set(name, {
+    position: position || {},
     statementIndex: scope.currentStatementIndex,
   });
 

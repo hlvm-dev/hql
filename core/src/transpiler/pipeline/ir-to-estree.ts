@@ -504,8 +504,14 @@ function createStringLiteral(value: string): Literal {
  * This is the main entry point for IR → ESTree conversion.
  * Handles all IR node types and preserves source positions via .loc property.
  */
+// Converter function signature
+// Note: Each converter expects a specific IR node type (e.g., IRNumericLiteral),
+// but the Map stores them generically. We use 'as' cast to satisfy TypeScript.
+type IRConverter = (node: IR.IRNode) => Node;
+
 // IR to ESTree converter registry - maps node types to converter functions
-const irToESTreeConverters = new Map<IR.IRNodeType, (node: any) => Node>([
+// @ts-ignore: Type cast necessary - converters have specific node types
+const irToESTreeConverters = new Map<IR.IRNodeType, IRConverter>([
   // Literals
   [IR.IRNodeType.NumericLiteral, convertNumericLiteral],
   [IR.IRNodeType.StringLiteral, convertStringLiteral],
@@ -1215,8 +1221,13 @@ function convertClassDeclaration(node: IR.IRClassDeclaration): ClassDeclaration 
 // Pattern Converters
 // ============================================================================
 
+// Pattern converter function signature
+// Note: Each pattern converter expects a specific type (IRIdentifier, IRArrayPattern, etc.)
+type PatternConverter = (node: IR.IRNode) => Pattern;
+
 // Pattern converter registry - maps pattern node types to converter functions
-const patternConverters = new Map<IR.IRNodeType, (node: any) => Pattern>([
+// @ts-ignore: Type cast necessary - converters have specific node types
+const patternConverters = new Map<IR.IRNodeType, PatternConverter>([
   [IR.IRNodeType.Identifier, convertIdentifier],
   [IR.IRNodeType.ArrayPattern, convertArrayPattern],
   [IR.IRNodeType.ObjectPattern, convertObjectPattern],
@@ -1817,19 +1828,23 @@ function detectUsedHelpers(program: Program): Set<string> {
   const used = new Set<string>();
   const helperNames = ['__hql_get', '__hql_getNumeric', '__hql_range', '__hql_toSequence', '__hql_for_each', '__hql_hash_map', '__hql_throw', '__hql_deepFreeze'];
 
-  function walk(node: any) {
+  // Walk AST tree to find identifier references
+  // @ts-ignore: Generic tree traversal - node type varies
+  function walk(node: Node | null | undefined): void {
     if (!node || typeof node !== 'object') return;
 
-    if (node.type === 'Identifier' && helperNames.includes(node.name)) {
+    if (node.type === 'Identifier' && 'name' in node && helperNames.includes(node.name)) {
       used.add(node.name);
     }
 
+    // Traverse all properties of the node
     for (const key in node) {
+      // @ts-ignore: Dynamic property access for generic tree traversal
       const value = node[key];
       if (Array.isArray(value)) {
-        value.forEach(walk);
+        value.forEach((item) => walk(item as Node));
       } else if (value && typeof value === 'object') {
-        walk(value);
+        walk(value as Node);
       }
     }
   }

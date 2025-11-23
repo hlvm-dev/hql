@@ -104,7 +104,8 @@ export async function generateJavaScript(
   const sourceFileName = options.sourceFilePath || options.currentFilePath || "unknown.hql";
 
   // Configure escodegen generator
-  const escodegenOptions: any = {
+  // Using Record instead of any for type safety (escodegen options object)
+  const escodegenOptions: Record<string, unknown> = {
     format: {
       indent: {
         style: '  ',      // 2-space indentation
