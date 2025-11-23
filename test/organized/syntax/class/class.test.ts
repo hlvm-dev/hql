@@ -22,7 +22,7 @@ Deno.test("Class: define class with constructor", async () => {
   const code = `
 (class Person
   (constructor (name)
-    (set! this.name name)))
+    (= this.name name)))
 Person
 `;
   const result = await run(code);
@@ -33,7 +33,7 @@ Deno.test("Class: create instance with new", async () => {
   const code = `
 (class Person
   (constructor (name)
-    (set! this.name name)))
+    (= this.name name)))
 
 (var p (new Person "Alice"))
 p
@@ -51,7 +51,7 @@ Deno.test("Class: constructor with single parameter", async () => {
   const code = `
 (class Person
   (constructor (name)
-    (set! this.name name)))
+    (= this.name name)))
 
 (var p (new Person "Bob"))
 p.name
@@ -65,8 +65,8 @@ Deno.test("Class: constructor with multiple parameters", async () => {
 (class Person
   (constructor (name age)
     (do
-      (set! this.name name)
-      (set! this.age age))))
+      (= this.name name)
+      (= this.age age))))
 
 (var p (new Person "Alice" 30))
 p.age
@@ -80,8 +80,8 @@ Deno.test("Class: constructor initializes multiple properties", async () => {
 (class Point
   (constructor (x y)
     (do
-      (set! this.x x)
-      (set! this.y y))))
+      (= this.x x)
+      (= this.y y))))
 
 (var p (new Point 10 20))
 (+ p.x p.y)
@@ -98,7 +98,7 @@ Deno.test("Class: method with no parameters", async () => {
   const code = `
 (class Person
   (constructor (name)
-    (set! this.name name))
+    (= this.name name))
 
   (fn greet []
     (+ "Hello, " this.name)))
@@ -114,7 +114,7 @@ Deno.test("Class: method with parameters", async () => {
   const code = `
 (class Calculator
   (constructor (base)
-    (set! this.base base))
+    (= this.base base))
 
   (fn add [x]
     (+ this.base x)))
@@ -143,10 +143,10 @@ Deno.test("Class: method accesses instance properties", async () => {
   const code = `
 (class Counter
   (constructor ()
-    (set! this.count 0))
+    (= this.count 0))
 
   (fn increment []
-    (set! this.count (+ this.count 1))
+    (= this.count (+ this.count 1))
     this.count))
 
 (var c (new Counter))
@@ -162,7 +162,7 @@ Deno.test("Class: method calls another method", async () => {
   const code = `
 (class Person
   (constructor (name)
-    (set! this.name name))
+    (= this.name name))
 
   (fn getName ()
     this.name)
@@ -187,7 +187,7 @@ Deno.test("Class: mutable field with var", async () => {
   (var setting)
 
   (constructor (val)
-    (set! this.setting val)))
+    (= this.setting val)))
 
 (var cfg (new Config "production"))
 cfg.setting
@@ -203,8 +203,8 @@ Deno.test("Class: field with default value", async () => {
 
   (constructor (name)
     (do
-      (set! this.name name)
-      (set! this.count (+ this.count 1)))))
+      (= this.name name)
+      (= this.count (+ this.count 1)))))
 
 (var p (new Person "Alice"))
 p.count
@@ -220,7 +220,7 @@ Deno.test("Class: immutable field with let", async () => {
 
   (constructor (key)
     (do
-      (set! this.activeKey key))))
+      (= this.activeKey key))))
 
 (var cfg (new Config "secret123"))
 cfg.defaultKey
@@ -236,7 +236,7 @@ Deno.test("Class: immutable field with default value", async () => {
   (let E 2.71828)
 
   (constructor ()
-    (set! this.timestamp (js-call Date "now"))))
+    (= this.timestamp (js-call Date "now"))))
 
 (var c (new Constants))
 c.PI
@@ -253,8 +253,8 @@ Deno.test("Class: multiple immutable and mutable fields", async () => {
 
   (constructor (accNum initialBalance)
     (do
-      (set! this.accountNumber accNum)
-      (set! this.balance initialBalance))))
+      (= this.accountNumber accNum)
+      (= this.balance initialBalance))))
 
 (var acc (new Account "ACC123" 100))
 (+ acc.bankName "-" acc.accountNumber "-" acc.balance)
@@ -271,8 +271,8 @@ Deno.test("Class: access property via dot notation", async () => {
   const code = `
 (class Person
   (constructor (name age)
-    (set! this.name name)
-    (set! this.age age)))
+    (= this.name name)
+    (= this.age age)))
 
 (var p (new Person "Alice" 25))
 p.name
@@ -285,10 +285,10 @@ Deno.test("Class: modify property after creation", async () => {
   const code = `
 (class Person
   (constructor (name)
-    (set! this.name name)))
+    (= this.name name)))
 
 (var p (new Person "Alice"))
-(set! p.name "Bob")
+(= p.name "Bob")
 p.name
 `;
   const result = await run(code);
@@ -299,10 +299,10 @@ Deno.test("Class: add new property after creation", async () => {
   const code = `
 (class Person
   (constructor (name)
-    (set! this.name name)))
+    (= this.name name)))
 
 (var p (new Person "Alice"))
-(set! p.age 30)
+(= p.age 30)
 p.age
 `;
   const result = await run(code);
@@ -317,10 +317,10 @@ Deno.test("Class: multiple instances are independent", async () => {
   const code = `
 (class Counter
   (constructor ()
-    (set! this.count 0))
+    (= this.count 0))
 
   (fn increment []
-    (set! this.count (+ this.count 1))
+    (= this.count (+ this.count 1))
     this.count))
 
 (var c1 (new Counter))
@@ -338,10 +338,10 @@ Deno.test("Class: second instance independent from first", async () => {
   const code = `
 (class Counter
   (constructor ()
-    (set! this.count 0))
+    (= this.count 0))
 
   (fn increment []
-    (set! this.count (+ this.count 1))
+    (= this.count (+ this.count 1))
     this.count))
 
 (var c1 (new Counter))
@@ -363,7 +363,7 @@ Deno.test("Class: method with default parameter values", async () => {
   const code = `
 (class Calculator
   (constructor (baseValue)
-    (set! this.baseValue baseValue))
+    (= this.baseValue baseValue))
 
   (fn multiply [x = 10 y = 2]
     (* x y)))
@@ -379,7 +379,7 @@ Deno.test("Class: method with one default parameter used", async () => {
   const code = `
 (class Calculator
   (constructor (baseValue)
-    (set! this.baseValue baseValue))
+    (= this.baseValue baseValue))
 
   (fn multiply [x = 10 y = 2]
     (* x y)))
@@ -395,7 +395,7 @@ Deno.test("Class: method with no defaults used", async () => {
   const code = `
 (class Calculator
   (constructor (baseValue)
-    (set! this.baseValue baseValue))
+    (= this.baseValue baseValue))
 
   (fn multiply [x = 10 y = 2]
     (* x y)))
@@ -416,12 +416,12 @@ Deno.test("Class: method modifies instance state and returns self", async () => 
 (class Person
   (constructor (name age)
     (do
-      (set! this.name name)
-      (set! this.age age)))
+      (= this.name name)
+      (= this.age age)))
 
   (fn celebrateBirthday (newAge)
     (do
-      (set! this.age newAge)
+      (= this.age newAge)
       this)))
 
 (var p (new Person "Alice" 30))
@@ -437,8 +437,8 @@ Deno.test("Class: complex method using multiple instance properties", async () =
 (class Rectangle
   (constructor (width height)
     (do
-      (set! this.width width)
-      (set! this.height height)))
+      (= this.width width)
+      (= this.height height)))
 
   (fn area []
     (* this.width this.height))
@@ -458,8 +458,8 @@ Deno.test("Class: constructor with computation", async () => {
 (class Circle
   (constructor (radius)
     (do
-      (set! this.radius radius)
-      (set! this.diameter (* 2 radius)))))
+      (= this.radius radius)
+      (= this.diameter (* 2 radius)))))
 
 (var c (new Circle 5))
 c.diameter
@@ -472,7 +472,7 @@ Deno.test("Class: method accessing computed property", async () => {
   const code = `
 (class Circle
   (constructor (radius)
-    (set! this.radius radius))
+    (= this.radius radius))
 
   (fn diameter []
     (* 2 this.radius))
@@ -491,7 +491,7 @@ Deno.test("Class: top-level class with helper-producing call returns final value
   const code = `
 (class Example
   (constructor ()
-    (set! this.value 1)))
+    (= this.value 1)))
 
 (doall (range 3))
 `;
@@ -504,8 +504,8 @@ Deno.test("Class: using this/self in nested expressions", async () => {
 (class Calculator
   (constructor (x y)
     (do
-      (set! this.x x)
-      (set! this.y y)))
+      (= this.x x)
+      (= this.y y)))
 
   (fn compute []
     (+ (* this.x 2) (* this.y 3))))
@@ -522,8 +522,8 @@ Deno.test("Class: method returns object literal", async () => {
 (class Person
   (constructor (name age)
     (do
-      (set! this.name name)
-      (set! this.age age)))
+      (= this.name name)
+      (= this.age age)))
 
   (fn toObject ()
     {"name": this.name, "age": this.age}))

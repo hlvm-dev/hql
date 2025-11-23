@@ -10,7 +10,7 @@ Deno.test("Loop: basic loop with recur", async () => {
 (loop (i 0)
   (if (< i 5)
     (do
-      (set! sum (+ sum i))
+      (= sum (+ sum i))
       (recur (+ i 1)))
     sum))
 `;
@@ -43,7 +43,7 @@ Deno.test("Loop: factorial using loop/recur", async () => {
 Deno.test("Loop: fibonacci using loop/recur", async () => {
   const code = `
 (loop (n 7 a 0 b 1)
-  (if (= n 0)
+  (if (=== n 0)
     a
     (recur (- n 1) b (+ a b))))
 `;
@@ -83,7 +83,7 @@ Deno.test("Loop: collect even numbers", async () => {
 (loop (i 0)
   (if (< i 10)
     (do
-      (if (= (% i 2) 0)
+      (if (=== (% i 2) 0)
         (.push result i)
         nil)
       (recur (+ i 1)))
@@ -102,7 +102,7 @@ Deno.test("Loop: find first element matching condition", async () => {
 (var nums [1, 3, 5, 8, 9, 12])
 (loop (i 0)
   (if (< i nums.length)
-    (if (= (% (get nums i) 2) 0)
+    (if (=== (% (get nums i) 2) 0)
       (get nums i)
       (recur (+ i 1)))
     nil))
@@ -133,7 +133,7 @@ Deno.test("Loop: nested loop simulation", async () => {
       (loop (j 1)
         (if (<= j 3)
           (do
-            (set! result (+ result (* i j)))
+            (= result (+ result (* i j)))
             (recur (+ j 1)))
           nil))
       (recur (+ i 1)))
@@ -152,8 +152,8 @@ Deno.test("While: basic while loop", async () => {
 (var count 0)
 (var sum 0)
 (while (< count 5)
-  (set! sum (+ sum count))
-  (set! count (+ count 1)))
+  (= sum (+ sum count))
+  (= count (+ count 1)))
 sum
 `;
   const result = await run(code);
@@ -166,7 +166,7 @@ Deno.test("While: while loop with array operations", async () => {
 (var i 0)
 (while (< i 3)
   (.push result i)
-  (set! i (+ i 1)))
+  (= i (+ i 1)))
 result
 `;
   const result = await run(code);
@@ -179,10 +179,10 @@ Deno.test("While: while loop early termination", async () => {
 (var found false)
 (var nums [1, 3, 5, 7, 8, 9])
 (while (and (< i nums.length) (not found))
-  (if (= (% (get nums i) 2) 0)
-    (set! found true)
+  (if (=== (% (get nums i) 2) 0)
+    (= found true)
     nil)
-  (set! i (+ i 1)))
+  (= i (+ i 1)))
 i
 `;
   const result = await run(code);
@@ -221,8 +221,8 @@ Deno.test("Repeat: repeat with counter accumulation", async () => {
 (var sum 0)
 (var counter 0)
 (repeat 5
-  (set! sum (+ sum counter))
-  (set! counter (+ counter 1)))
+  (= sum (+ sum counter))
+  (= counter (+ counter 1)))
 sum
 `;
   const result = await run(code);

@@ -116,7 +116,7 @@ Deno.test("DataStructure: nested maps", async () => {
 Deno.test("DataStructure: add property to mutable map", async () => {
   const code = `
 (var m {"count": 10})
-(set! m.newProp "added")
+(= m.newProp "added")
 (get m "newProp")
 `;
   const result = await run(code);

@@ -160,7 +160,7 @@ Deno.test("Arrow Lambda: multi-line body (using do)", async () => {
     (let myFn (=> (x)
       (do
         (var temp (* x 2))
-        (set! temp (+ temp 1))
+        (= temp (+ temp 1))
         temp)))
     (myFn 5)
   `;
@@ -239,7 +239,7 @@ Deno.test("Arrow Lambda: find in array", async () => {
       {name: "Bob", age: 25}
       {name: "Carol", age: 35}
     ])
-    (let found (users.find (=> (= $0.name "Bob"))))
+    (let found (users.find (=> (=== $0.name "Bob"))))
     (found.age)
   `;
   const result = await run(code);

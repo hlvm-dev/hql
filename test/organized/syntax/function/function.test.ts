@@ -106,7 +106,7 @@ Deno.test("Function: function with multiple expressions", async () => {
   const code = `
 (fn process [x]
   (var result (* x 2))
-  (set! result (+ result 1))
+  (= result (+ result 1))
   result)
 (process 5)
 `;
@@ -473,7 +473,7 @@ Deno.test("Return: anonymous fn with early return", async () => {
   const code = `
 (let process
   (fn (x)
-    (if (= x 0)
+    (if (=== x 0)
       (return "zero")
       (+ "number: " x))))
 (process 0)
@@ -487,7 +487,7 @@ Deno.test("Return: multiple return paths with cond", async () => {
 (fn classify [x]
   (cond
     ((< x 0) (return "negative"))
-    ((= x 0) (return "zero"))
+    ((=== x 0) (return "zero"))
     ((> x 0) (return "positive"))
     (else (return "unknown"))))
 (classify 5)
@@ -568,7 +568,7 @@ Deno.test("Return: return inside do block", async () => {
 Deno.test("Return: return with complex expression", async () => {
   const code = `
 (fn calculate [a b c]
-  (if (= b 0)
+  (if (=== b 0)
     (return "division by zero")
     (return (/ (+ a c) b))))
 (calculate 10 2 6)
@@ -580,7 +580,7 @@ Deno.test("Return: return with complex expression", async () => {
 Deno.test("Return: consistent return types in all branches", async () => {
   const code = `
 (fn safe-divide [a b]
-  (if (= b 0)
+  (if (=== b 0)
     (return 0)
     (/ a b)))
 (safe-divide 10 0)

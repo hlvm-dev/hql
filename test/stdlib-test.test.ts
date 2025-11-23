@@ -29,7 +29,7 @@ Deno.test("@hql/test - assert fails with falsy values", async () => {
 Deno.test("@hql/test - assert passes with truthy condition", async () => {
   const code = `
     (import [assert] from "@hql/test")
-    (assert (= 1 1) "1 equals 1")
+    (assert (=== 1 1) "1 equals 1")
   `;
   const result = await run(code);
   assertEquals(result, true);
@@ -38,7 +38,7 @@ Deno.test("@hql/test - assert passes with truthy condition", async () => {
 Deno.test("@hql/test - assert fails with falsy condition", async () => {
   const code = `
     (import [assert] from "@hql/test")
-    (assert (= 1 2) "1 does not equal 2")
+    (assert (=== 1 2) "1 does not equal 2")
   `;
 
   await assertRejects(

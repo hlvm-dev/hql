@@ -107,8 +107,8 @@ Deno.test("gensym: swap macro with proper hygiene", async () => {
 (macro swap (a b)
   (var tmp (gensym "swap_tmp"))
   \`(let (~tmp ~a)
-     (set! ~a ~b)
-     (set! ~b ~tmp)))
+     (= ~a ~b)
+     (= ~b ~tmp)))
 
 (var x 10)
 (var y 20)

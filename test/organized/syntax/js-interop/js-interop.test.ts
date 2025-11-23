@@ -463,7 +463,7 @@ Deno.test({
     const code = `
 (fn safe-divide [a b]
   (try
-    (if (= b 0)
+    (if (=== b 0)
       (throw "division-by-zero")
       (/ a b))
     (catch e
@@ -916,7 +916,7 @@ Deno.test({
   (var count 0)
 
   (fn increment []
-    (set! this.count (+ this.count 1))
+    (= this.count (+ this.count 1))
     this.count)
 
   (fn getValue ()

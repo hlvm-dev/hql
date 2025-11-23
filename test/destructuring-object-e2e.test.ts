@@ -60,7 +60,7 @@ Deno.test("Object Destructuring: Extra properties in object", async () => {
 Deno.test("Object Destructuring: Missing property (undefined)", async () => {
   const code = `
 (let {x y z} {x: 1 y: 2})
-(if (= z undefined) "ok" "fail")
+(if (=== z undefined) "ok" "fail")
 `;
   const result = await run(code);
   assertEquals(result, "ok");
@@ -154,7 +154,7 @@ Deno.test("Object Destructuring: Array containing object", async () => {
 Deno.test("Object Destructuring: var {x y}", async () => {
   const code = `
 (var {x y} {x: 1 y: 2})
-(set! x 10)
+(= x 10)
 (+ x y)
 `;
   const result = await run(code);

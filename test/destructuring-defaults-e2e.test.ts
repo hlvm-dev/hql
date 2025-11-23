@@ -113,7 +113,7 @@ Deno.test("Array Destructuring: Multiple nested levels", async () => {
 Deno.test("Array Destructuring: var with defaults", async () => {
   const code = `
 (var [x (= 5) y (= 10)] [])
-(set! x 20)
+(= x 20)
 (+ x y)
 `;
   const result = await run(code);

@@ -10,8 +10,8 @@
 import { transpile } from "../mod.ts";
 import { assertEquals } from "jsr:@std/assert";
 
-Deno.test("Helper Embedding: __hql_deepFreeze is embedded when let is used", async () => {
-  const hqlCode = `(let x 42)`;
+Deno.test("Helper Embedding: __hql_deepFreeze is embedded when const is used", async () => {
+  const hqlCode = `(const x 42)`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
@@ -19,7 +19,7 @@ Deno.test("Helper Embedding: __hql_deepFreeze is embedded when let is used", asy
   assertEquals(
     code.includes("__hql_deepFreeze"),
     true,
-    "Transpiled code must include __hql_deepFreeze when let is used"
+    "Transpiled code must include __hql_deepFreeze when const is used"
   );
 
   // Verify the function definition is present (not just a call)
@@ -41,7 +41,7 @@ Deno.test("Helper Embedding: __hql_deepFreeze is embedded when let is used", asy
 });
 
 Deno.test("Helper Embedding: __hql_deepFreeze is embedded with exports", async () => {
-  const hqlCode = `(let PI 3.14) (export [PI])`;
+  const hqlCode = `(const PI 3.14) (export [PI])`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
@@ -68,8 +68,8 @@ Deno.test("Helper Embedding: __hql_deepFreeze is embedded with exports", async (
   );
 });
 
-Deno.test("Helper Embedding: __hql_deepFreeze handles multiple let bindings", async () => {
-  const hqlCode = `(let a 1) (let b 2) (let c 3)`;
+Deno.test("Helper Embedding: __hql_deepFreeze handles multiple const bindings", async () => {
+  const hqlCode = `(const a 1) (const b 2) (const c 3)`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
@@ -77,10 +77,10 @@ Deno.test("Helper Embedding: __hql_deepFreeze handles multiple let bindings", as
   assertEquals(
     code.includes("__hql_deepFreeze"),
     true,
-    "Transpiled code must include __hql_deepFreeze for multiple let bindings"
+    "Transpiled code must include __hql_deepFreeze for multiple const bindings"
   );
 
-  // Verify all let bindings use __hql_deepFreeze
+  // Verify all const bindings use __hql_deepFreeze
   const deepFreezeCallCount = (code.match(/__hql_deepFreeze\(/g) || []).length;
   assertEquals(
     deepFreezeCallCount >= 3,
@@ -146,7 +146,7 @@ Deno.test("Helper Embedding: __hql_get is embedded when property access is used"
 });
 
 Deno.test("Helper Embedding: Multiple helpers embedded when needed", async () => {
-  const hqlCode = `(let nums (into [] (range 5)))`;
+  const hqlCode = `(const nums (into [] (range 5)))`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
@@ -163,7 +163,7 @@ Deno.test("Helper Embedding: Multiple helpers embedded when needed", async () =>
 });
 
 Deno.test("Helper Embedding: Verify single source of truth via function.toString()", async () => {
-  const hqlCode = `(let x 1)`;
+  const hqlCode = `(const x 1)`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 

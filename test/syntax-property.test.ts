@@ -159,8 +159,8 @@ Deno.test("Property: access class instance property", async () => {
 (class Person
   (constructor (name age)
     (do
-      (set! this.name name)
-      (set! this.age age))))
+      (= this.name name)
+      (= this.age age))))
 
 (var p (new Person \"Alice\" 30))
 p.name
@@ -173,7 +173,7 @@ Deno.test("Property: call class instance method", async () => {
   const code = `
 (class Calculator
   (constructor (base)
-    (set! this.base base))
+    (= this.base base))
 
   (fn add [x]
     (+ this.base x)))
@@ -213,20 +213,20 @@ Deno.test("Property: access array element with variable index", async () => {
 // SECTION 7: PROPERTY MODIFICATION
 // ============================================================================
 
-Deno.test("Property: modify object property via set!", async () => {
+Deno.test("Property: modify object property via =", async () => {
   const code = `
 (var obj {\"count\": 0})
-(set! obj.count 42)
+(= obj.count 42)
 obj.count
 `;
   const result = await run(code);
   assertEquals(result, 42);
 });
 
-Deno.test("Property: add new property via set!", async () => {
+Deno.test("Property: add new property via =", async () => {
   const code = `
 (var obj {\"name\": \"Test\"})
-(set! obj.newProp \"added\")
+(= obj.newProp \"added\")
 obj.newProp
 `;
   const result = await run(code);

@@ -127,14 +127,14 @@ Deno.test("Operator: greater than or equal (>=) greater case", async () => {
   assertEquals(result, true);
 });
 
-Deno.test("Operator: equality (=) with numbers", async () => {
-  const code = `(= 42 42)`;
+Deno.test("Operator: strict equality (===) with numbers", async () => {
+  const code = `(=== 42 42)`;
   const result = await run(code);
   assertEquals(result, true);
 });
 
-Deno.test("Operator: equality (=) with strings", async () => {
-  const code = `(= "hello" "hello")`;
+Deno.test("Operator: strict equality (===) with strings", async () => {
+  const code = `(=== "hello" "hello")`;
   const result = await run(code);
   assertEquals(result, true);
 });

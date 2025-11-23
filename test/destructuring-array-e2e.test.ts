@@ -60,7 +60,7 @@ Deno.test("Array Destructuring E2E: More values than bindings", async () => {
 Deno.test("Array Destructuring E2E: Fewer values than bindings (undefined)", async () => {
   const code = `
 (let [x y z] [1 2])
-(if (= z undefined) "ok" "fail")
+(if (=== z undefined) "ok" "fail")
 `;
   const result = await run(code);
   assertEquals(result, "ok");
@@ -229,7 +229,7 @@ Deno.test("Array Destructuring E2E: Nested with rest [[x & xs] [y & ys]]", async
 Deno.test("Array Destructuring E2E: var [x y]", async () => {
   const code = `
 (var [x y] [1 2])
-(set! x 10)
+(= x 10)
 (+ x y)
 `;
   const result = await run(code);
@@ -239,7 +239,7 @@ Deno.test("Array Destructuring E2E: var [x y]", async () => {
 Deno.test("Array Destructuring E2E: var with rest [x & rest]", async () => {
   const code = `
 (var [x & rest] [1 2 3])
-(set! x 100)
+(= x 100)
 x
 `;
   const result = await run(code);

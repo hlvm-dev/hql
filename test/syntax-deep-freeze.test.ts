@@ -1,6 +1,6 @@
 /**
  * Test: Deep Freeze
- * Verifies that let bindings deeply freeze nested objects/arrays
+ * Verifies that const bindings deeply freeze nested objects/arrays (v2.0)
  */
 
 import { assertEquals } from "jsr:@std/assert";
@@ -12,11 +12,11 @@ import { run } from "./helpers.ts";
 
 Deno.test("Deep Freeze: nested object is frozen", async () => {
   const code = `
-(let nested {"outer": {"inner": 42}})
+(const nested {"outer": {"inner": 42}})
 (var outer (get nested "outer"))
 (try
   (do
-    (set! outer.inner 100)
+    (= outer.inner 100)
     false)
   (catch e
     true))
@@ -28,7 +28,7 @@ Deno.test("Deep Freeze: nested object is frozen", async () => {
 
 Deno.test("Deep Freeze: nested array is frozen", async () => {
   const code = `
-(let arr [[1 2] [3 4]])
+(const arr [[1 2] [3 4]])
 (try
   (do
     (.push (get arr 0) 999)
@@ -43,11 +43,11 @@ Deno.test("Deep Freeze: nested array is frozen", async () => {
 
 Deno.test("Deep Freeze: deeply nested object is frozen", async () => {
   const code = `
-(let deep {"a": {"b": {"c": {"d": 1}}}})
+(const deep {"a": {"b": {"c": {"d": 1}}}})
 (var c (get (get (get deep "a") "b") "c"))
 (try
   (do
-    (set! c.d 999)
+    (= c.d 999)
     false)
   (catch e
     true))
@@ -59,11 +59,11 @@ Deno.test("Deep Freeze: deeply nested object is frozen", async () => {
 
 Deno.test("Deep Freeze: mixed nested structures are frozen", async () => {
   const code = `
-(let mixed {"arr": [1 2 {"nested": "value"}]})
+(const mixed {"arr": [1 2 {"nested": "value"}]})
 (var obj (get mixed.arr 2))
 (try
   (do
-    (set! obj.nested "changed")
+    (= obj.nested "changed")
     false)
   (catch e
     true))
@@ -75,7 +75,7 @@ Deno.test("Deep Freeze: mixed nested structures are frozen", async () => {
 
 Deno.test("Deep Freeze: reading nested values still works", async () => {
   const code = `
-(let data {"level1": {"level2": {"level3": "deep value"}}})
+(const data {"level1": {"level2": {"level3": "deep value"}}})
 (get (get (get data "level1") "level2") "level3")
 `;
   const result = await run(code);
@@ -85,7 +85,7 @@ Deno.test("Deep Freeze: reading nested values still works", async () => {
 
 Deno.test("Deep Freeze: Object.isFrozen confirms deep freeze", async () => {
   const code = `
-(let obj {"nested": {"inner": 42}})
+(const obj {"nested": {"inner": 42}})
 (js-call Object "isFrozen" obj.nested)
 `;
   const result = await run(code);
@@ -95,7 +95,7 @@ Deno.test("Deep Freeze: Object.isFrozen confirms deep freeze", async () => {
 
 Deno.test("Deep Freeze: array elements are frozen", async () => {
   const code = `
-(let arr [{"a": 1} {"b": 2}])
+(const arr [{"a": 1} {"b": 2}])
 (js-call Object "isFrozen" (get arr 0))
 `;
   const result = await run(code);
@@ -103,9 +103,9 @@ Deno.test("Deep Freeze: array elements are frozen", async () => {
   assertEquals(result, true);
 });
 
-Deno.test("Deep Freeze: primitives in let bindings work", async () => {
+Deno.test("Deep Freeze: primitives in const bindings work", async () => {
   const code = `
-(let x 42)
+(const x 42)
 x
 `;
   const result = await run(code);
@@ -119,7 +119,7 @@ Deno.test("Deep Freeze: comparing with var (mutable)", async () => {
 (var nested (get mutable "nested"))
 (try
   (do
-    (set! nested.value 20)
+    (= nested.value 20)
     nested.value)
   (catch e
     "error"))
@@ -129,9 +129,9 @@ Deno.test("Deep Freeze: comparing with var (mutable)", async () => {
   assertEquals(result, 20);
 });
 
-Deno.test("Deep Freeze: let prevents array mutation", async () => {
+Deno.test("Deep Freeze: const prevents array mutation", async () => {
   const code = `
-(let arr [1 2 3])
+(const arr [1 2 3])
 (try
   (do
     (.push arr 4)

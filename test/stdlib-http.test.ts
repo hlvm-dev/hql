@@ -8,7 +8,7 @@ import { run } from "./helpers.ts";
 Deno.test("@hql/http - request is exported as function", async () => {
   const code = `
     (import [request] from "@hql/http")
-    (= (typeof request) "function")
+    (=== (typeof request) "function")
   `;
   const result = await run(code);
   assertEquals(result, true);
@@ -17,7 +17,7 @@ Deno.test("@hql/http - request is exported as function", async () => {
 Deno.test("@hql/http - get is exported as function", async () => {
   const code = `
     (import [get] from "@hql/http")
-    (= (typeof get) "function")
+    (=== (typeof get) "function")
   `;
   const result = await run(code);
   assertEquals(result, true);
@@ -26,7 +26,7 @@ Deno.test("@hql/http - get is exported as function", async () => {
 Deno.test("@hql/http - post is exported as function", async () => {
   const code = `
     (import [post] from "@hql/http")
-    (= (typeof post) "function")
+    (=== (typeof post) "function")
   `;
   const result = await run(code);
   assertEquals(result, true);
@@ -35,9 +35,9 @@ Deno.test("@hql/http - post is exported as function", async () => {
 Deno.test("@hql/http - all functions exported together", async () => {
   const code = `
     (import [request, get, post] from "@hql/http")
-    (and (= (typeof request) "function")
-         (= (typeof get) "function")
-         (= (typeof post) "function"))
+    (and (=== (typeof request) "function")
+         (=== (typeof get) "function")
+         (=== (typeof post) "function"))
   `;
   const result = await run(code);
   assertEquals(result, true);

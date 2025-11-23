@@ -159,8 +159,8 @@ Deno.test("Bugfix #3: Validation with loops", async () => {
 (var sum 0)
 (var i 0)
 (while (< i 5)
-  (set! sum (+ sum i))
-  (set! i (+ i 1)))
+  (= sum (+ sum i))
+  (= i (+ i 1)))
 sum
 `;
 
@@ -173,10 +173,10 @@ Deno.test("Bugfix #3: Class method validation", async () => {
   const code = `
 (class Counter
   (constructor []
-    (set! this.count 0))
+    (= this.count 0))
 
   (fn increment []
-    (set! this.count (+ this.count 1)))
+    (= this.count (+ this.count 1)))
 
   (fn getCount []
     this.count))

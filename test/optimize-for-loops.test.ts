@@ -57,7 +57,7 @@ Deno.test("For loop optimization: Multiple statements in body", async () => {
     (var sum 0)
     (var result [])
     (for (i 5)
-      (set! sum (+ sum i))
+      (= sum (+ sum i))
       (.push result i))
     result
   `;
@@ -125,7 +125,7 @@ Deno.test("For loop optimization: Empty loop body", async () => {
 Deno.test("For loop optimization: Accumulator pattern", async () => {
   const code = `
     (var sum 0)
-    (for (i 1 11) (set! sum (+ sum i)))
+    (for (i 1 11) (= sum (+ sum i)))
     sum
   `;
   const transpiled = await hql.transpile(code);

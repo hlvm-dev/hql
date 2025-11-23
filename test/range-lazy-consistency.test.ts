@@ -129,7 +129,7 @@ Deno.test("Range Lazy Consistency", async (t) => {
     const result = await hql.run(`
       (doall
         (take 5
-          (filter (=> (= (% $0 2) 0))
+          (filter (=> (=== (% $0 2) 0))
             (map (=> (* $0 3))
               (range 20)))))
     `) as any;

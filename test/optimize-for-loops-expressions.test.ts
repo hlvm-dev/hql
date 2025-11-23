@@ -112,7 +112,7 @@ Deno.test("For loop in expression: Conditional alternate", async () => {
 Deno.test("For loop in expression: Assignment right side", async () => {
   const code = `
     (var x 0)
-    (set! x (for (i 3) i))
+    (= x (for (i 3) i))
     x
   `;
   const result = await hql.run(code);
@@ -162,7 +162,7 @@ Deno.test("For loop in expression: Nested for loops", async () => {
 Deno.test("For loop in expression: Performance check - IIFE overhead acceptable", async () => {
   const code = `
     (var sum 0)
-    (let x (for (i 1000) (set! sum (+ sum i))))
+    (let x (for (i 1000) (= sum (+ sum i))))
     sum
   `;
 

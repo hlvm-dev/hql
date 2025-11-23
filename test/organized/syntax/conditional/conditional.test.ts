@@ -106,7 +106,7 @@ Deno.test("Conditional: cond with expressions", async () => {
 
 Deno.test("Conditional: if with comparison operators", async () => {
   const code = `
-(if (= 5 5) "equal" "not equal")
+(if (=== 5 5) "equal" "not equal")
 `;
   const result = await run(code);
   assertEquals(result, "equal");

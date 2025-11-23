@@ -38,7 +38,7 @@ Deno.test("Stdlib: map auto-loaded", async () => {
 Deno.test("Stdlib: filter auto-loaded", async () => {
   const code = `
 (let nums [1, 2, 3, 4, 5, 6])
-(doall (filter (fn (x) (= (% x 2) 0)) nums))
+(doall (filter (fn (x) (=== (% x 2) 0)) nums))
 `;
   const result = await run(code);
   assertEquals(result, [2, 4, 6]);
@@ -80,7 +80,7 @@ Deno.test("Stdlib: groupBy auto-loaded", async () => {
 Deno.test("Stdlib: lazy chaining works", async () => {
   const code = `
 (let nums [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-(let result (take 3 (filter (fn (x) (= (% x 2) 0)) nums)))
+(let result (take 3 (filter (fn (x) (=== (% x 2) 0)) nums)))
 result
 `;
   const result = await run(code);
@@ -227,7 +227,7 @@ Deno.test("Stdlib: integration - comp with partial", async () => {
 
 Deno.test("Stdlib: integration - chaining with new functions", async () => {
   const code = `
-(fn isEven (x) (= (% x 2) 0))
+(fn isEven (x) (=== (% x 2) 0))
 (fn double [x] (* x 2))
 (let nums (iterate (fn (x) (+ x 1)) 0))
 (doall (take 5 (filter isEven (map double nums))))
@@ -238,7 +238,7 @@ Deno.test("Stdlib: integration - chaining with new functions", async () => {
 
 Deno.test("Stdlib: isEmpty handles LazySeq with undefined element", async () => {
   const code = `
-(let seq (iterate (fn (x) (if (= x 0) undefined (- x 1))) 2))
+(let seq (iterate (fn (x) (if (=== x 0) undefined (- x 1))) 2))
 (let taken (take 3 seq))
 (isEmpty taken)
 `;
