@@ -25,20 +25,51 @@
  * - import, export: Module system
  */
 export const PRIMITIVE_OPS = new Set([
+  // Arithmetic operators
   "+",
   "-",
   "*",
   "/",
   "%",
+  "**",  // Exponentiation (v2.0)
+
+  // Assignment operator (v2.0 - now assignment, not equality!)
   "=",
-  "==",
-  "!=",
+
+  // Comparison operators (v2.0)
+  "===",  // Strict equality
+  "==",   // Loose equality
+  "!==",  // Strict inequality
+  "!=",   // Loose inequality
   "<",
   ">",
   "<=",
   ">=",
-  "eq?",
+  "eq?",  // Compatibility: maps to ===
 
+  // Logical operators (v2.0)
+  "&&",   // Logical AND
+  "||",   // Logical OR
+  "!",    // Logical NOT
+  "??",   // Nullish coalescing
+
+  // Bitwise operators (v2.0)
+  "&",    // Bitwise AND
+  "|",    // Bitwise OR
+  "^",    // Bitwise XOR
+  "~",    // Bitwise NOT
+  "<<",   // Left shift
+  ">>",   // Sign-propagating right shift
+  ">>>",  // Zero-fill right shift
+
+  // Type and special operators (v2.0)
+  "typeof",
+  "instanceof",
+  "in",
+  "delete",
+  "void",
+
+  // JS Interop
   "js-get",
   "js-call",
   "return",
@@ -47,9 +78,10 @@ export const PRIMITIVE_OPS = new Set([
 export const KERNEL_PRIMITIVES = new Set([
   "quote",
   "if",
-  "let",
-  "var",
-  "set!",
+  "const",  // v2.0: Immutable binding
+  "let",    // v2.0: Mutable block-scoped binding (changed from immutable)
+  "var",    // Function-scoped binding (unchanged)
+  // "set!" removed - now the "=" operator in PRIMITIVE_OPS
   "quasiquote",
   "unquote",
   "unquote-splicing",
