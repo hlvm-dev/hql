@@ -12,7 +12,7 @@ build:
 	@echo "📦 Embedding HQL packages..."
 	@./scripts/embed-packages.ts
 	@echo "🔨 Building HQL binary..."
-	@deno compile --allow-all --no-check --output $(BINARY) core/cli/cli.ts
+	@deno compile --allow-all --no-check --config deno.json --output $(BINARY) core/cli/cli.ts
 	@echo "✅ Done! Binary: ./$(BINARY)"
 	@ls -lh $(BINARY)
 
