@@ -69,6 +69,7 @@ export interface GenerateJavaScriptOptions {
  * console.log(output.code);        // Generated JavaScript
  * console.log(output.sourceMap);   // Source Map v3 JSON
  */
+// deno-lint-ignore require-await -- Function is async for API consistency and future extensibility
 export async function generateJavaScript(
   ir: IR.IRProgram,
   options: GenerateJavaScriptOptions = {},

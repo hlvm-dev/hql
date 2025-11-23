@@ -699,7 +699,7 @@ export function transformSimpleLoop(
   // This ensures dependent variables (like sum += i) use OLD values before i is modified.
   //
   // Skip this step for zero-parameter loops (while macro)
-  const tempVars: IR.IRIdentifier[] = [];
+  const tempVars: (IR.IRIdentifier | null)[] = [];
   const optimizedUpdates: IR.IRExpressionStatement[] = [];
 
   if (params.length > 0) {
@@ -721,7 +721,7 @@ export function transformSimpleLoop(
         // Store optimized update for later (will be added LAST)
         optimizedUpdates.push(optimized);
         // Push null to tempVars to keep indices aligned
-        tempVars.push(null as any);
+        tempVars.push(null);
       } else {
         // Fall back to temp variable approach
         const newValue = validateTransformed(

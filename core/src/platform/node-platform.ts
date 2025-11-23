@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-process-global -- This file provides Node.js compatibility and requires the process global
 import * as fs from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import * as nodePath from "node:path";

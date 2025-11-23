@@ -32,6 +32,17 @@ const fnFunctionRegistry = new Map<string, IR.IRFnFunctionDeclaration>();
 type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 
 /**
+ * Helper function to check if a node is already a control flow statement
+ * Control flow statements are: ReturnStatement, ThrowStatement, or IfStatement
+ * These don't need to be wrapped in a return statement
+ */
+function isControlFlowStatement(node: IR.IRNode): boolean {
+  return node.type === IR.IRNodeType.ReturnStatement ||
+    node.type === IR.IRNodeType.ThrowStatement ||
+    node.type === IR.IRNodeType.IfStatement;
+}
+
+/**
  * Detect and report usage of removed named argument syntax (x: value)
  * Throws a helpful error message guiding users to new syntax
  */
@@ -90,49 +101,41 @@ export function processFunctionBody(
         );
 
         if (lastExpr) {
-          // If it's already a return/throw statement, use it as is
+          // If it's already a control flow statement, use it as is
           // ThrowStatement can appear here if the last expression is a return inside do/try block
-          if (
-            lastExpr.type === IR.IRNodeType.ReturnStatement ||
-            lastExpr.type === IR.IRNodeType.ThrowStatement
-          ) {
-            bodyNodes.push(lastExpr);
-          } else if (lastExpr.type === IR.IRNodeType.IfStatement) {
-            // IfStatement appears when it contains control flow (return/throw)
-            // Need to ensure both branches return a value
-            const ifStmt = lastExpr as IR.IRIfStatement;
+          if (isControlFlowStatement(lastExpr)) {
+            if (lastExpr.type === IR.IRNodeType.IfStatement) {
+              // IfStatement appears when it contains control flow (return/throw)
+              // Need to ensure both branches return a value
+              const ifStmt = lastExpr as IR.IRIfStatement;
 
-            // Wrap consequent in return if it's not already a control flow statement
-            const finalConsequent =
-              ifStmt.consequent.type === IR.IRNodeType.ReturnStatement ||
-                ifStmt.consequent.type === IR.IRNodeType.ThrowStatement ||
-                ifStmt.consequent.type === IR.IRNodeType.IfStatement
+              // Wrap consequent in return if it's not already a control flow statement
+              const finalConsequent = isControlFlowStatement(ifStmt.consequent)
                 ? ifStmt.consequent
                 : {
                   type: IR.IRNodeType.ReturnStatement,
                   argument: ifStmt.consequent,
                 } as IR.IRReturnStatement;
 
-            // Wrap alternate in return if it's not already a control flow statement
-            let finalAlternate = ifStmt.alternate;
-            if (
-              finalAlternate &&
-              finalAlternate.type !== IR.IRNodeType.ReturnStatement &&
-              finalAlternate.type !== IR.IRNodeType.ThrowStatement &&
-              finalAlternate.type !== IR.IRNodeType.IfStatement
-            ) {
-              finalAlternate = {
-                type: IR.IRNodeType.ReturnStatement,
-                argument: finalAlternate,
-              } as IR.IRReturnStatement;
-            }
+              // Wrap alternate in return if it's not already a control flow statement
+              let finalAlternate = ifStmt.alternate;
+              if (finalAlternate && !isControlFlowStatement(finalAlternate)) {
+                finalAlternate = {
+                  type: IR.IRNodeType.ReturnStatement,
+                  argument: finalAlternate,
+                } as IR.IRReturnStatement;
+              }
 
-            bodyNodes.push({
-              type: IR.IRNodeType.IfStatement,
-              test: ifStmt.test,
-              consequent: finalConsequent,
-              alternate: finalAlternate,
-            } as IR.IRIfStatement);
+              bodyNodes.push({
+                type: IR.IRNodeType.IfStatement,
+                test: ifStmt.test,
+                consequent: finalConsequent,
+                alternate: finalAlternate,
+              } as IR.IRIfStatement);
+            } else {
+              // ReturnStatement or ThrowStatement
+              bodyNodes.push(lastExpr);
+            }
           } else {
             // Wrap in a return statement to ensure the value is returned
             bodyNodes.push({
@@ -491,6 +494,215 @@ function transformAnonymousFn(
  * Handles positional arguments and JSON map parameters.
  * Enhanced error reporting for removed named argument syntax.
  */
+/**
+ * Process JSON map parameters for a function call
+ * Handles functions that use JSON object syntax for parameters
+ */
+function processJsonMapArgs(
+  funcName: string,
+  funcDef: IR.IRFnFunctionDeclaration,
+  args: HQLNode[],
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRCallExpression {
+  // JSON map parameter functions accept a single object argument or no arguments
+  if (args.length === 0) {
+    // No arguments provided, use defaults (pass empty object)
+    const emptyObject: IR.IRObjectExpression = {
+      type: IR.IRNodeType.ObjectExpression,
+      properties: [],
+    };
+    return {
+      type: IR.IRNodeType.CallExpression,
+      callee: {
+        type: IR.IRNodeType.Identifier,
+        name: funcDef.id.name,
+      } as IR.IRIdentifier,
+      arguments: [emptyObject],
+    } as IR.IRCallExpression;
+  } else if (args.length === 1) {
+    // Check if the argument is a hash-map
+    const arg = args[0];
+    if (arg.type === "list") {
+      const listArg = arg as ListNode;
+      if (
+        listArg.elements.length > 0 &&
+        listArg.elements[0].type === "symbol" &&
+        ((listArg.elements[0] as SymbolNode).name === "hash-map" ||
+          (listArg.elements[0] as SymbolNode).name === "__hql_hash_map")
+      ) {
+        // Transform the hash-map argument
+        const transformedArg = validateTransformed(
+          transformNode(arg, currentDir),
+          "function call",
+          "JSON map argument",
+        );
+        return {
+          type: IR.IRNodeType.CallExpression,
+          callee: {
+            type: IR.IRNodeType.Identifier,
+            name: funcDef.id.name,
+          } as IR.IRIdentifier,
+          arguments: [transformedArg],
+        } as IR.IRCallExpression;
+      }
+    }
+    // Not a hash-map, error
+    throw new ValidationError(
+      `Function '${funcName}' expects a JSON map argument, but received ${arg.type}`,
+      "function call",
+      "JSON map object (e.g., {\"key\": value})",
+      arg.type,
+    );
+  } else {
+    // Too many arguments
+    throw new ValidationError(
+      `Function '${funcName}' with JSON map parameters accepts at most one argument (a JSON map)`,
+      "function call",
+      "0 or 1 argument",
+      `${args.length} arguments`,
+    );
+  }
+}
+
+/**
+ * Process positional arguments for a function call
+ * Handles regular parameters, pattern parameters, defaults, and rest parameters
+ */
+function processPositionalArgs(
+  funcName: string,
+  funcDef: IR.IRFnFunctionDeclaration,
+  args: HQLNode[],
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRNode[] {
+  // Extract parameter names from identifiers only (patterns have no names)
+  const paramNames: (string | null)[] = funcDef.params.map((p) =>
+    p.type === IR.IRNodeType.Identifier ? p.name : null
+  );
+  const defaultValues = new Map(
+    funcDef.defaults.map((d) => [d.name, d.value]),
+  );
+
+  // Check if we have a rest parameter (name starts with "...")
+  const hasRestParam = paramNames.length > 0 &&
+    paramNames[paramNames.length - 1] !== null &&
+    paramNames[paramNames.length - 1]!.startsWith("...");
+
+  // Get the regular parameters (all except the last one if it's a rest parameter)
+  const regularParamNames = hasRestParam
+    ? paramNames.slice(0, -1)
+    : paramNames;
+
+  // Process normal positional arguments
+  const finalArgs: IR.IRNode[] = [];
+
+  // Process each parameter in the function definition
+  for (let i = 0; i < regularParamNames.length; i++) {
+    const paramName = regularParamNames[i];
+
+    // If paramName is null, it's a pattern parameter (positional only, no defaults)
+    if (paramName === null) {
+      if (i < args.length) {
+        // Pattern parameters must have a positional argument
+        const transformedArg = validateTransformed(
+          transformNode(args[i], currentDir),
+          "function call",
+          `Argument for pattern parameter at position ${i}`,
+        );
+        finalArgs.push(transformedArg);
+      } else {
+        throw new ValidationError(
+          `Missing required argument for pattern parameter at position ${i} in call to function '${funcName}'`,
+          "function call",
+          `pattern parameter at position ${i}`,
+          "missing argument",
+        );
+      }
+      continue;
+    }
+
+    // It's a named parameter (identifier)
+    if (i < args.length) {
+      const arg = args[i];
+
+      // If this argument is a placeholder (_), use default
+      if (arg.type === "symbol" && (arg as SymbolNode).name === "_") {
+        if (defaultValues.has(paramName)) {
+          finalArgs.push(defaultValues.get(paramName)!);
+        } else {
+          // Enhanced error message with more context
+          throw new ValidationError(
+            `Placeholder used for parameter '${paramName}' but no default value is defined`,
+            "function call with placeholder",
+            "parameter with default value",
+            "parameter without default",
+            extractMetaSourceLocation(arg),
+          );
+        }
+      } else {
+        // Normal argument, transform it
+        const transformedArg = validateTransformed(
+          transformNode(arg, currentDir),
+          "function call",
+          `Argument for parameter '${paramName}'`,
+        );
+        finalArgs.push(transformedArg);
+      }
+    } else if (defaultValues.has(paramName)) {
+      // Use default value for missing arguments
+      finalArgs.push(defaultValues.get(paramName)!);
+    } else {
+      // Enhanced error message with the actual function name and parameter
+      throw new ValidationError(
+        `Missing required argument for parameter '${paramName}' in call to function '${funcName}'`,
+        "function call",
+        `required parameter '${paramName}'`,
+        "missing argument",
+        extractMetaSourceLocation(args),
+      );
+    }
+  }
+
+  // If we have a rest parameter, add all remaining arguments
+  if (hasRestParam) {
+    const restArgStartIndex = regularParamNames.length;
+    for (let i = restArgStartIndex; i < args.length; i++) {
+      const arg = args[i];
+      const transformedArg = transformNode(arg, currentDir);
+      if (transformedArg) {
+        finalArgs.push(transformedArg);
+      }
+    }
+  } else if (args.length > paramNames.length) {
+    // Too many arguments without a rest parameter
+    const extraArgs = args.slice(paramNames.length);
+    const extraArgStr = extraArgs.map((arg) => {
+      if (arg.type === "symbol") return `'${(arg as SymbolNode).name}'`;
+      if (arg.type === "literal") return `'${arg.value}'`;
+      return `[${arg.type}]`;
+    }).join(", ");
+
+    throw new ValidationError(
+      `Too many arguments in call to function '${funcName}'. Expected ${paramNames.length} ${
+        paramNames.length === 1 ? "argument" : "arguments"
+      }, but got ${args.length}. Extra arguments: ${extraArgStr}`,
+      "function call",
+      `${paramNames.length} ${
+        paramNames.length === 1 ? "argument" : "arguments"
+      }`,
+      `${args.length} arguments`,
+      extractMetaSourceLocation(args, { index: paramNames.length }),
+    );
+  }
+
+  return finalArgs;
+}
+
+/**
+ * Process a function call to a function defined with the fn syntax
+ * Orchestrates validation and argument processing
+ */
 export function processFnFunctionCall(
   funcName: string,
   funcDef: IR.IRFnFunctionDeclaration,
@@ -504,194 +716,11 @@ export function processFnFunctionCall(
 
     // Handle JSON map parameters specially
     if (funcDef.usesJsonMapParams) {
-      // JSON map parameter functions accept a single object argument or no arguments
-      if (args.length === 0) {
-        // No arguments provided, use defaults (pass empty object)
-        const emptyObject: IR.IRObjectExpression = {
-          type: IR.IRNodeType.ObjectExpression,
-          properties: [],
-        };
-        return {
-          type: IR.IRNodeType.CallExpression,
-          callee: {
-            type: IR.IRNodeType.Identifier,
-            name: funcDef.id.name,
-          } as IR.IRIdentifier,
-          arguments: [emptyObject],
-        } as IR.IRCallExpression;
-      } else if (args.length === 1) {
-        // Check if the argument is a hash-map
-        const arg = args[0];
-        if (arg.type === "list") {
-          const listArg = arg as ListNode;
-          if (
-            listArg.elements.length > 0 &&
-            listArg.elements[0].type === "symbol" &&
-            ((listArg.elements[0] as SymbolNode).name === "hash-map" ||
-              (listArg.elements[0] as SymbolNode).name === "__hql_hash_map")
-          ) {
-            // Transform the hash-map argument
-            const transformedArg = validateTransformed(
-              transformNode(arg, currentDir),
-              "function call",
-              "JSON map argument",
-            );
-            return {
-              type: IR.IRNodeType.CallExpression,
-              callee: {
-                type: IR.IRNodeType.Identifier,
-                name: funcDef.id.name,
-              } as IR.IRIdentifier,
-              arguments: [transformedArg],
-            } as IR.IRCallExpression;
-          }
-        }
-        // Not a hash-map, error
-        throw new ValidationError(
-          `Function '${funcName}' expects a JSON map argument, but received ${arg.type}`,
-          "function call",
-          "JSON map object (e.g., {\"key\": value})",
-          arg.type,
-        );
-      } else {
-        // Too many arguments
-        throw new ValidationError(
-          `Function '${funcName}' with JSON map parameters accepts at most one argument (a JSON map)`,
-          "function call",
-          "0 or 1 argument",
-          `${args.length} arguments`,
-        );
-      }
+      return processJsonMapArgs(funcName, funcDef, args, currentDir, transformNode);
     }
-
-    // Extract parameter names from identifiers only (patterns have no names)
-    const paramNames: (string | null)[] = funcDef.params.map((p) =>
-      p.type === IR.IRNodeType.Identifier ? p.name : null
-    );
-    const paramIndex = new Map<string, number>();
-    for (let idx = 0; idx < paramNames.length; idx++) {
-      const name = paramNames[idx];
-      if (name !== null) {
-        paramIndex.set(name, idx);
-      }
-    }
-    const defaultValues = new Map(
-      funcDef.defaults.map((d) => [d.name, d.value]),
-    );
-
-    // Check if we have a rest parameter (name starts with "...")
-    const hasRestParam = paramNames.length > 0 &&
-      paramNames[paramNames.length - 1] !== null &&
-      paramNames[paramNames.length - 1]!.startsWith("...");
-
-    // Get the regular parameters (all except the last one if it's a rest parameter)
-    const regularParamNames = hasRestParam
-      ? paramNames.slice(0, -1)
-      : paramNames;
 
     // Process normal positional arguments
-    const finalArgs: IR.IRNode[] = [];
-
-    // Process each parameter in the function definition
-    for (let i = 0; i < regularParamNames.length; i++) {
-      const paramName = regularParamNames[i];
-
-      // If paramName is null, it's a pattern parameter (positional only, no defaults)
-      if (paramName === null) {
-        if (i < args.length) {
-          // Pattern parameters must have a positional argument
-          const transformedArg = validateTransformed(
-            transformNode(args[i], currentDir),
-            "function call",
-            `Argument for pattern parameter at position ${i}`,
-          );
-          finalArgs.push(transformedArg);
-        } else {
-          throw new ValidationError(
-            `Missing required argument for pattern parameter at position ${i} in call to function '${funcName}'`,
-            "function call",
-            `pattern parameter at position ${i}`,
-            "missing argument",
-          );
-        }
-        continue;
-      }
-
-      // It's a named parameter (identifier)
-      if (i < args.length) {
-        const arg = args[i];
-
-        // If this argument is a placeholder (_), use default
-        if (arg.type === "symbol" && (arg as SymbolNode).name === "_") {
-          if (defaultValues.has(paramName)) {
-            finalArgs.push(defaultValues.get(paramName)!);
-          } else {
-            // Enhanced error message with more context
-            throw new ValidationError(
-              `Placeholder used for parameter '${paramName}' but no default value is defined`,
-              "function call with placeholder",
-              "parameter with default value",
-              "parameter without default",
-              extractMetaSourceLocation(arg), // Extract source location from the argument
-            );
-          }
-        } else {
-          // Normal argument, transform it
-          const transformedArg = validateTransformed(
-            transformNode(arg, currentDir),
-            "function call",
-            `Argument for parameter '${paramName}'`,
-          );
-          finalArgs.push(transformedArg);
-        }
-      } else if (defaultValues.has(paramName)) {
-        // Use default value for missing arguments
-        finalArgs.push(defaultValues.get(paramName)!);
-      } else {
-        // Enhanced error message with the actual function name and parameter
-        throw new ValidationError(
-          `Missing required argument for parameter '${paramName}' in call to function '${funcName}'`,
-          "function call",
-          `required parameter '${paramName}'`,
-          "missing argument",
-          extractMetaSourceLocation(args), // Get the call location from the arguments list
-        );
-      }
-    }
-
-    // If we have a rest parameter, add all remaining arguments
-    if (hasRestParam) {
-      const restArgStartIndex = regularParamNames.length;
-      for (let i = restArgStartIndex; i < args.length; i++) {
-        const arg = args[i];
-        const transformedArg = transformNode(arg, currentDir);
-        if (transformedArg) {
-          finalArgs.push(transformedArg);
-        }
-      }
-    } else if (args.length > paramNames.length) {
-      // Too many arguments without a rest parameter - Enhanced error with more context
-      // Get the extra arguments to show in the error message
-      const extraArgs = args.slice(paramNames.length);
-      const extraArgStr = extraArgs.map((arg) => {
-        if (arg.type === "symbol") return `'${(arg as SymbolNode).name}'`;
-        if (arg.type === "literal") return `'${arg.value}'`;
-        return `[${arg.type}]`;
-      }).join(", ");
-
-      // Create an improved error with detailed information
-      throw new ValidationError(
-        `Too many arguments in call to function '${funcName}'. Expected ${paramNames.length} ${
-          paramNames.length === 1 ? "argument" : "arguments"
-        }, but got ${args.length}. Extra arguments: ${extraArgStr}`,
-        "function call",
-        `${paramNames.length} ${
-          paramNames.length === 1 ? "argument" : "arguments"
-        }`,
-        `${args.length} arguments`,
-        extractMetaSourceLocation(args, { index: paramNames.length }), // Get the location of the first extra argument
-      );
-    }
+    const finalArgs = processPositionalArgs(funcName, funcDef, args, currentDir, transformNode);
 
     // Create the final call expression
     return {
@@ -717,7 +746,7 @@ export function processFnFunctionCall(
         error instanceof Error ? error.message : String(error)
       }`,
       "function call processing",
-      extractMetaSourceLocation(args), // Get the call location
+      extractMetaSourceLocation(args),
     );
   }
 }
@@ -987,7 +1016,11 @@ const NO_DOLLAR_PARAMS = -1;
 
 /**
  * Maximum allowed implicit parameters in arrow lambda
- * Prevents pathological cases like (=> $99999)
+ * Set to 255 to match V8's maximum function parameter limit
+ * V8 enforces a hard limit of 65535 arguments, but 255 is a practical limit
+ * that prevents pathological cases like (=> $99999) while allowing reasonable usage
+ *
+ * See: https://bugs.chromium.org/p/v8/issues/detail?id=5516
  */
 const MAX_ARROW_PARAMS = 255;
 

@@ -1117,37 +1117,62 @@ export async function transpileHqlInJs(
     });
 
     // Sanitize identifiers with hyphens
-    let processedContent = jsContent;
+    // PERFORMANCE: Use single-pass approach instead of nested replacements
+    // Old approach: O(n×m) - for each identifier, scan entire file
+    // New approach: O(m) - collect identifiers, then one replacement pass
 
-    // Sanitize exported identifiers with hyphens
-    processedContent = processedContent.replace(
+    // Step 1: Collect all identifiers that need sanitization
+    const identifiersToSanitize = new Map<string, string>(); // old -> new mapping
+
+    // Find exported identifiers with hyphens
+    const exportMatches = jsContent.matchAll(
       /export\s+(const|let|var|function)\s+([a-zA-Z0-9_-]+)/g,
-      (match, exportType, exportName) => {
-        if (exportName.includes("-")) {
-          const sanitized = sanitizeIdentifier(exportName);
-          // Replace all occurrences of this identifier
-          const idRegex = new RegExp(`\\b${exportName}\\b`, "g");
-          processedContent = processedContent.replace(idRegex, sanitized);
-          return `export ${exportType} ${sanitized}`;
-        }
-        return match;
-      },
     );
+    for (const match of exportMatches) {
+      const exportName = match[2];
+      if (exportName.includes("-")) {
+        identifiersToSanitize.set(exportName, sanitizeIdentifier(exportName));
+      }
+    }
 
-    // Sanitize namespace import identifiers with hyphens
-    processedContent = processedContent.replace(
+    // Find namespace import identifiers with hyphens
+    const importMatches = jsContent.matchAll(
       /import\s+\*\s+as\s+([a-zA-Z0-9_-]+)\s+from/g,
-      (match, importName) => {
-        if (importName.includes("-")) {
-          const sanitized = sanitizeIdentifier(importName);
-          // Replace all references to this namespace
-          const namespaceRegex = new RegExp(`\\b${importName}\\.`, "g");
-          processedContent = processedContent.replace(namespaceRegex, `${sanitized}.`);
-          return `* as ${sanitized} from`;
-        }
-        return match;
-      },
     );
+    for (const match of importMatches) {
+      const importName = match[1];
+      if (importName.includes("-")) {
+        identifiersToSanitize.set(importName, sanitizeIdentifier(importName));
+      }
+    }
+
+    // Step 2: If we have identifiers to sanitize, do a single replacement pass
+    let processedContent = jsContent;
+    if (identifiersToSanitize.size > 0) {
+      // Build a regex that matches any of the identifiers (longest first to avoid partial matches)
+      const sortedIdentifiers = Array.from(identifiersToSanitize.keys())
+        .sort((a, b) => b.length - a.length); // Longest first
+
+      // Escape special regex characters in identifiers
+      const escapedIdentifiers = sortedIdentifiers.map(id =>
+        id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      );
+
+      // Create pattern that matches identifiers as whole words or before dots (for namespaces)
+      const identifierPattern = new RegExp(
+        `\\b(${escapedIdentifiers.join('|')})(\\b|\\.)`,
+        'g'
+      );
+
+      // Single pass replacement
+      processedContent = processedContent.replace(
+        identifierPattern,
+        (match, identifier, suffix) => {
+          const sanitized = identifiersToSanitize.get(identifier);
+          return sanitized ? sanitized + suffix : match;
+        }
+      );
+    }
 
     // Prepend runtime get snippet
     return RUNTIME_GET_SNIPPET + processedContent;
@@ -1160,14 +1185,26 @@ export async function transpileHqlInJs(
 
 /**
  * Check if adding this dependency would create a circular reference
+ * PERFORMANCE: Uses memoization to avoid re-checking the same paths
+ * Old approach: O(n×m²) - can re-traverse same paths multiple times
+ * New approach: O(n×m) - each path checked once, results cached
  */
+const circularCheckCache = new Map<string, boolean>();
+
 function checkForCircularDependency(
   source: string,
   target: string,
   deps: Map<string, Set<string>>,
   visited: Set<string> = new Set(),
 ): boolean {
-  // If we've already checked this path, avoid infinite recursion
+  // Check memoization cache first
+  const cacheKey = `${source}|${target}`;
+  const cachedResult = circularCheckCache.get(cacheKey);
+  if (cachedResult !== undefined) {
+    return cachedResult;
+  }
+
+  // If we've already checked this path in current traversal, avoid infinite recursion
   if (visited.has(source)) {
     return false;
   }
@@ -1176,6 +1213,7 @@ function checkForCircularDependency(
   if (deps.has(target)) {
     const targetDeps = deps.get(target)!;
     if (targetDeps.has(source)) {
+      circularCheckCache.set(cacheKey, true);
       return true;
     }
 
@@ -1183,11 +1221,14 @@ function checkForCircularDependency(
     visited.add(source);
     for (const dep of targetDeps) {
       if (checkForCircularDependency(source, dep, deps, visited)) {
+        circularCheckCache.set(cacheKey, true);
         return true;
       }
     }
   }
 
+  // Cache negative result
+  circularCheckCache.set(cacheKey, false);
   return false;
 }
 
