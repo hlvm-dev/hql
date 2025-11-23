@@ -4,7 +4,8 @@
   "exports": "./mod.ts",
   "license": "MIT",
   "imports": {
-    "source-map": "npm:source-map@0.6.1"
+    "source-map": "npm:source-map@0.6.1",
+    "@hlvm/repl": "../repl/mod.ts"
   },
   "publish": {
     "exclude": [
