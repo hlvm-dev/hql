@@ -310,6 +310,71 @@
 (assert (= (clamp 150 0 100) 100) "150 clamped to 100")
 
 ; ============================================================================
+; SECTION 7: TERNARY OPERATOR (v2.0)
+; ============================================================================
+
+; Basic ternary usage
+(assert (= (? true "yes" "no") "yes") "Ternary with true")
+(assert (= (? false "yes" "no") "no") "Ternary with false")
+
+; With comparison
+(assert (= (? (> 10 5) "greater" "lesser") "greater") "Ternary with comparison")
+(assert (= (? (< 3 7) "less" "more") "less") "Comparison less than")
+
+; In arithmetic expressions
+(assert (= (+ 10 (? true 5 3)) 15) "Ternary in addition")
+(assert (= (* 2 (? false 10 20)) 40) "Ternary in multiplication")
+
+; Falsy values
+(assert (= (? 0 "then" "else") "else") "0 is falsy")
+(assert (= (? "" "then" "else") "else") "Empty string is falsy")
+(assert (= (? null "then" "else") "else") "null is falsy")
+(assert (= (? undefined "then" "else") "else") "undefined is falsy")
+(assert (= (? false "then" "else") "else") "false is falsy")
+
+; Truthy values
+(assert (= (? 1 "then" "else") "then") "1 is truthy")
+(assert (= (? "text" "then" "else") "then") "String is truthy")
+(assert (= (? [] "then" "else") "then") "Empty array is truthy")
+
+; Nested ternaries
+(let score 85)
+(let grade (? (< score 60) "F"
+              (? (< score 70) "D"
+                (? (< score 80) "C"
+                  (? (< score 90) "B" "A")))))
+(assert (= grade "B") "Nested ternary grade calculation")
+
+; In function returns
+(fn classify [n]
+  (? (> n 0) "positive" "non-positive"))
+
+(assert (= (classify 10) "positive") "Positive number classification")
+(assert (= (classify -5) "non-positive") "Negative number classification")
+
+; With function calls
+(fn double [x] (* x 2))
+(fn triple [x] (* x 3))
+
+(assert (= (? true (double 5) (triple 5)) 10) "Ternary with function calls")
+(assert (= (? false (double 5) (triple 5)) 15) "False branch function call")
+
+; In let bindings
+(let x 15)
+(let message (? (> x 10) "big" "small"))
+(assert (= message "big") "Ternary in let binding")
+
+; Complex real-world example: discount calculator
+(fn calculatePrice [basePrice isPremium quantity]
+  (let discount (? isPremium 0.2 0.1))
+  (let priceAfterDiscount (* basePrice (- 1 discount)))
+  (* priceAfterDiscount quantity))
+
+(assert (= (calculatePrice 100 true 1) 80) "Premium discount: 100 * 0.8")
+(assert (= (calculatePrice 100 false 1) 90) "Regular discount: 100 * 0.9")
+(assert (= (calculatePrice 50 true 3) 120) "Premium bulk: 50 * 0.8 * 3")
+
+; ============================================================================
 ; SUMMARY
 ; ============================================================================
 
@@ -317,6 +382,7 @@
 (print "   - Arithmetic operators: ✓")
 (print "   - Comparison operators: ✓")
 (print "   - Logical operators: ✓")
+(print "   - Ternary operator (v2.0): ✓")
 (print "   - Primitive types: ✓")
 (print "   - String operations: ✓")
 (print "   - Combined expressions: ✓")

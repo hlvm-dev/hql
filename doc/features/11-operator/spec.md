@@ -1,7 +1,7 @@
 # Operator Feature Documentation
 
-**Implementation:** Built-in operators (transpiler core) **Test Count:** 47
-tests **Coverage:** ✅ 100%
+**Implementation:** Built-in operators (transpiler core) **Test Count:** 73
+tests (47 basic + 26 ternary) **Coverage:** ✅ 100%
 
 ## Overview
 
@@ -10,9 +10,10 @@ HQL provides a complete set of operators for:
 1. **Arithmetic** - Math operations (`+`, `-`, `*`, `/`, `%`)
 2. **Comparison** - Relational tests (`<`, `>`, `<=`, `>=`, `=`, `!=`)
 3. **Logical** - Boolean logic (`and`, `or`, `not`)
-4. **Primitive Types** - Numbers, strings, booleans, null, undefined
-5. **String Operations** - Concatenation and string methods
-6. **Combined Expressions** - Nested operator usage
+4. **Ternary** - Conditional expressions (`?`) - **v2.0 feature**
+5. **Primitive Types** - Numbers, strings, booleans, null, undefined
+6. **String Operations** - Concatenation and string methods
+7. **Combined Expressions** - Nested operator usage
 
 All operators use prefix notation (Lisp-style).
 
@@ -92,6 +93,51 @@ All operators use prefix notation (Lisp-style).
 
 ; Combined
 (and (> 10 5) (< 3 7))  ; => true
+```
+
+### Ternary Operator (v2.0)
+
+The ternary operator `?` provides JavaScript-style conditional expressions:
+
+```lisp
+; Syntax: (? condition then-value else-value)
+
+; Basic usage
+(? true "yes" "no")              ; => "yes"
+(? false "yes" "no")             ; => "no"
+
+; With comparison
+(? (> 5 3) "greater" "lesser")   ; => "greater"
+
+; In expressions
+(+ 10 (? true 5 3))              ; => 15
+
+; In let binding
+(let result (? (> x 5) "big" "small"))
+
+; Nested ternaries
+(? (< x 0) "negative"
+  (? (== x 0) "zero" "positive"))
+
+; With function calls
+(? true (double 5) (triple 5))
+```
+
+#### Falsy Values
+
+The ternary operator follows JavaScript truthiness:
+
+```lisp
+(? 0 "then" "else")          ; => "else" (0 is falsy)
+(? "" "then" "else")         ; => "else" (empty string is falsy)
+(? null "then" "else")       ; => "else" (null is falsy)
+(? undefined "then" "else")  ; => "else" (undefined is falsy)
+(? false "then" "else")      ; => "else" (false is falsy)
+
+; Truthy values
+(? 1 "then" "else")          ; => "then"
+(? "text" "then" "else")     ; => "then"
+(? [] "then" "else")         ; => "then" (empty array is truthy)
 ```
 
 ### Primitive Types
@@ -179,15 +225,15 @@ HQL follows JavaScript semantics for type coercion:
 ## Features Covered
 
 ✅ Arithmetic operators (+, -, *, /, %) ✅ Comparison operators (<, >, <=, >=,
-=, !=) ✅ Logical operators (and, or, not) ✅ Integer arithmetic ✅
+=, !=) ✅ Logical operators (and, or, not) ✅ **Ternary operator (?) - v2.0** ✅ Integer arithmetic ✅
 Floating-point arithmetic ✅ Multi-operand operations ✅ Nested expressions ✅
 Primitive types (number, string, boolean, null, undefined) ✅ String
 concatenation ✅ String properties and methods ✅ Combined expressions
-(arithmetic + comparison + logic)
+(arithmetic + comparison + logic + ternary)
 
 ## Test Coverage
 
-**Total Tests:** 47
+**Total Tests:** 73 (47 basic operators + 26 ternary)
 
 ### Section 1: Arithmetic Operators (11 tests)
 
@@ -218,6 +264,16 @@ concatenation ✅ String properties and methods ✅ Combined expressions
 - Logical AND (all combinations)
 - Logical OR (all combinations)
 - Logical NOT (true and false)
+
+### Section 3.5: Ternary Operator (26 tests) - v2.0
+
+- Error validation (3 tests): too few/many/no arguments
+- Basic operations (5 tests): true/false conditions, comparisons, function calls, arithmetic
+- Falsy values (5 tests): false, 0, empty string, null, undefined
+- Nested ternaries (4 tests): nested in then/else branches, 3-level nesting, multiple in expression
+- Different contexts (4 tests): let binding, function return, array/object values
+- Return values (3 tests): null and undefined from branches
+- Side effect evaluation (2 tests): only then-branch or else-branch executes
 
 ### Section 4: Primitive Types (9 tests)
 
@@ -312,12 +368,27 @@ JavaScript
 | `or`     | `(or a b)`  | `a \|\| b` | Logical OR  |
 | `not`    | `(not a)`   | `!a`       | Logical NOT |
 
+### Ternary Operator (v2.0)
+
+| Operator | HQL                   | JavaScript       | Description           | Arity |
+| -------- | --------------------- | ---------------- | --------------------- | ----- |
+| `?`      | `(? cond then else)` | `cond ? then : else` | Conditional expression | 3     |
+
+**Features:**
+- JavaScript-style conditional expressions
+- Short-circuit evaluation (only one branch executes)
+- Follows JavaScript truthiness rules
+- Can be nested and composed
+- Works in any expression context
+
 ## Edge Cases Tested
 
 ✅ Multiple operands for addition ✅ Floating-point precision ✅ Negative
 numbers ✅ Empty strings ✅ Null and undefined values ✅ String concatenation vs
 numeric addition ✅ Nested expressions with multiple operator types ✅
-Comparison with equality ✅ Short-circuit evaluation (and, or)
+Comparison with equality ✅ Short-circuit evaluation (and, or, ternary) ✅
+**Ternary with all falsy values (0, "", null, undefined, false)** ✅
+**Nested ternaries (3+ levels)** ✅ **Ternary side-effect evaluation**
 
 ## Best Practices
 
@@ -347,6 +418,36 @@ Comparison with equality ✅ Short-circuit evaluation (and, or)
 ; Multiple comparisons need explicit and
 (and (> x 0) (< x 100))  ; x is between 0 and 100
 ```
+
+### Ternary Operator Usage
+
+```lisp
+; Good: Simple, clear conditions
+(? (> score 90) "A" "B")
+
+; Good: Nested for multiple conditions
+(? (< score 0) "invalid"
+  (? (< score 60) "F"
+    (? (< score 70) "D"
+      (? (< score 80) "C"
+        (? (< score 90) "B" "A")))))
+
+; Consider: Use cond for complex multi-way branches
+(cond
+  ((< score 0) "invalid")
+  ((< score 60) "F")
+  ((< score 70) "D")
+  ((< score 80) "C")
+  ((< score 90) "B")
+  (else "A"))
+
+; Good: Ternary in expressions
+(* quantity (? premium 1.5 1.0))
+```
+
+## Implemented in v2.0
+
+✅ **Ternary operator (`?`)** - JavaScript-style conditional expressions
 
 ## Future Enhancements
 

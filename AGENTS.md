@@ -12,8 +12,8 @@ HQL/HLVM codebase. Use it as a quick orientation before touching any code.
 ## PROJECT SNAPSHOT
 
 - Production readiness: 100% and verified end to end
-- Language features implemented: 88/88 from the public spec
-- Test suite: 962 passing tests across 43 files (`deno test --allow-all`)
+- Language features implemented: 89/89 from the public spec
+- Test suite: 1457 passing tests across 68 files (`deno test --allow-all`)
 - Type checking: 0 errors with full type checking enabled
 - Mixed positional + named arguments: complete with 20 regression tests
 - Documentation: Core runtime and high-priority APIs covered (≈52% of total
@@ -23,7 +23,7 @@ HQL/HLVM codebase. Use it as a quick orientation before touching any code.
 
 - 7-step stabilization vision: ✅ 7/7 complete ("Production-Ready Achieved"
   badge)
-- Verified facts: 962 total tests, 55 working features audited, expanded lazy
+- Verified facts: 1457 total tests, 89 working features audited, expanded lazy
   stdlib regression suite
 - DRY cleanup removed 460 duplicate lines and consolidated 5 major helpers
 - Circular import support landed; all prior skipped tests now active

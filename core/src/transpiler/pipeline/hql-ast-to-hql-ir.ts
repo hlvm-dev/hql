@@ -314,6 +314,16 @@ function initializeTransformFactory(): void {
           dataStructureModule.transformHashSet(list, currentDir, transformNode),
       );
       transformFactory.set(
+        "hash-map",
+        (list, currentDir) =>
+          dataStructureModule.transformHashMap(list, currentDir, transformNode),
+      );
+      transformFactory.set(
+        "__hql_hash_map",
+        (list, currentDir) =>
+          dataStructureModule.transformHashMap(list, currentDir, transformNode),
+      );
+      transformFactory.set(
         "new",
         (list, currentDir) =>
           dataStructureModule.transformNew(list, currentDir, transformNode),
@@ -405,6 +415,16 @@ function initializeTransformFactory(): void {
             transformNode,
             loopRecurModule.hasLoopContext,
           ),
+      );
+      transformFactory.set(
+        "?",
+        (list, currentDir) =>
+          conditionalModule.transformTernary(list, currentDir, transformNode),
+      );
+      transformFactory.set(
+        "template-literal",
+        (list, currentDir) =>
+          transformTemplateLiteral(list, currentDir),
       );
       transformFactory.set(
         "do",
@@ -1472,6 +1492,63 @@ function transformLiteral(lit: LiteralNode): IR.IRNode {
 }
 
 /**
+ * Transform a template literal (template-literal "str1" expr1 "str2" ...)
+ * Parser produces: (template-literal <string-parts-and-expressions>)
+ */
+function transformTemplateLiteral(
+  list: ListNode,
+  currentDir: string,
+): IR.IRNode {
+  return perform(
+    () => {
+      // list.elements[0] is the "template-literal" symbol
+      // Rest are alternating string literals and expressions
+      const parts = list.elements.slice(1);
+
+      if (parts.length === 0) {
+        // Empty template literal
+        return { type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral;
+      }
+
+      const quasis: IR.IRNode[] = [];
+      const expressions: IR.IRNode[] = [];
+
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const transformed = transformNode(part, currentDir);
+        if (!transformed) continue;
+
+        // Strings go to quasis, everything else is an expression
+        if (part.type === "literal" && typeof (part as LiteralNode).value === "string") {
+          quasis.push(transformed);
+        } else {
+          // Before adding an expression, ensure we have a quasi
+          if (quasis.length === expressions.length) {
+            // Add empty string quasi
+            quasis.push({ type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral);
+          }
+          expressions.push(transformed);
+        }
+      }
+
+      // Ensure we have one more quasi than expressions (JS template literal requirement)
+      if (quasis.length === expressions.length) {
+        quasis.push({ type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral);
+      }
+
+      return {
+        type: IR.IRNodeType.TemplateLiteral,
+        quasis,
+        expressions,
+      } as IR.IRTemplateLiteral;
+    },
+    "transformTemplateLiteral",
+    TransformError,
+    [list],
+  );
+}
+
+/**
  * Transform a symbol node to its IR representation.
  */
 function transformSymbol(sym: SymbolNode): IR.IRNode {
@@ -1489,7 +1566,8 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
         } as IR.IRStringLiteral;
       }
 
-      if (name.includes(".") && !name.startsWith("js/")) {
+      // Exclude spread operators (...identifier) from dot notation handling
+      if (name.includes(".") && !name.startsWith("js/") && !name.startsWith("...")) {
         const parts = name.split(".");
         const baseObjectName = sanitizeIdentifier(parts[0]);
         const objectName = baseObjectName === "self" ? "this" : baseObjectName;

@@ -377,3 +377,56 @@ export function transformThrow(
     [list],
   );
 }
+
+/**
+ * Transform a ternary operator expression (? cond then else)
+ * This is a simpler, expression-only version of if
+ */
+export function transformTernary(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  return perform(
+    () => {
+      // Verify we have exactly three arguments
+      if (list.elements.length !== 4) {
+        throw new ValidationError(
+          "ternary operator (?) requires exactly 3 arguments (condition, true-value, false-value)",
+          "ternary expression",
+          "3 arguments",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      const test = validateTransformed(
+        transformNode(list.elements[1], currentDir),
+        "ternary test",
+        "Condition expression",
+      );
+
+      const consequent = validateTransformed(
+        transformNode(list.elements[2], currentDir),
+        "ternary consequent",
+        "True branch value",
+      );
+
+      const alternate = validateTransformed(
+        transformNode(list.elements[3], currentDir),
+        "ternary alternate",
+        "False branch value",
+      );
+
+      // Ternary is always a ConditionalExpression (never a statement)
+      return {
+        type: IR.IRNodeType.ConditionalExpression,
+        test,
+        consequent,
+        alternate,
+      } as IR.IRConditionalExpression;
+    },
+    "transformTernary",
+    TransformError,
+    [list],
+  );
+}

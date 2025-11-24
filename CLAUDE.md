@@ -12,7 +12,7 @@ jump into pair work without rereading the full archive each time.
 ## MISSION OVERVIEW
 
 - Status: Production-ready, 100% feature-complete (89/89 language features)
-- Quality gates: 1129/1129 tests passing with `deno test --allow-all`
+- Quality gates: 1457/1457 tests passing with `deno test --allow-all`
 - Type safety: Zero type errors (using Deno's built-in type checking)
 - Critical features to guard: mixed positional+named args, macro reader,
   bundler, runtime helpers, storage IO

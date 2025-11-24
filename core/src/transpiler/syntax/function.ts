@@ -16,8 +16,9 @@ import {
   transformNode,
 } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
-  transformElements,
   validateTransformed,
+  isSpreadOperator,
+  transformSpreadOperator,
 } from "../utils/validation-helpers.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
 import {
@@ -171,6 +172,25 @@ export function processFunctionBody(
   );
 }
 
+/**
+ * Transform arguments with spread operator detection (DRY helper).
+ */
+function transformArgsWithSpread(
+  args: HQLNode[],
+  currentDir: string,
+): IR.IRNode[] {
+  return args.map((arg) => {
+    if (isSpreadOperator(arg)) {
+      return transformSpreadOperator(arg, currentDir, transformNode, "spread in function call");
+    }
+    return validateTransformed(
+      transformNode(arg, currentDir),
+      "function argument",
+      "Function argument",
+    );
+  });
+}
+
 export function transformStandardFunctionCall(
   list: ListNode,
   currentDir: string,
@@ -178,22 +198,14 @@ export function transformStandardFunctionCall(
   return perform(
     () => {
       const first = list.elements[0];
+      const argNodes = list.elements.slice(1);
+
+      // Validate that removed named argument syntax is not used
+      detectRemovedNamedArgumentSyntax(argNodes);
 
       if (first.type === "symbol") {
         const op = (first as SymbolNode).name;
-
-        // Validate that removed named argument syntax is not used
-        detectRemovedNamedArgumentSyntax(list.elements.slice(1));
-
-        // Handle regular positional args call
         logger.debug(`Processing standard function call to ${op}`);
-        const args = transformElements(
-          list.elements.slice(1),
-          currentDir,
-          transformNode,
-          "function argument",
-          "Function argument",
-        );
 
         return {
           type: IR.IRNodeType.CallExpression,
@@ -201,29 +213,21 @@ export function transformStandardFunctionCall(
             type: IR.IRNodeType.Identifier,
             name: sanitizeIdentifier(op),
           } as IR.IRIdentifier,
-          arguments: args,
+          arguments: transformArgsWithSpread(argNodes, currentDir),
         } as IR.IRCallExpression;
       }
 
       // Handle function expression calls
       const callee = validateTransformed(
-        transformNode(list.elements[0], currentDir),
+        transformNode(first, currentDir),
         "function call",
         "Function callee",
-      );
-
-      const args = transformElements(
-        list.elements.slice(1),
-        currentDir,
-        transformNode,
-        "function argument",
-        "Function argument",
       );
 
       return {
         type: IR.IRNodeType.CallExpression,
         callee,
-        arguments: args,
+        arguments: transformArgsWithSpread(argNodes, currentDir),
       } as IR.IRCallExpression;
     },
     "transformStandardFunctionCall",
@@ -576,6 +580,26 @@ function processPositionalArgs(
   currentDir: string,
   transformNode: TransformNodeFn,
 ): IR.IRNode[] {
+  // Check if any arguments are spread operators
+  const hasSpreadArgs = args.some(isSpreadOperator);
+
+  // If spread arguments are present, skip arity validation and transform all args as-is
+  // (arity checking must happen at runtime for spread)
+  if (hasSpreadArgs) {
+    return args.map((arg) => {
+      if (isSpreadOperator(arg)) {
+        // Spread argument: (func ...args)
+        return transformSpreadOperator(arg, currentDir, transformNode, "spread in function call");
+      }
+      // Regular argument
+      return validateTransformed(
+        transformNode(arg, currentDir),
+        "function argument",
+        "Function argument",
+      );
+    });
+  }
+
   // Extract parameter names from identifiers only (patterns have no names)
   const paramNames: (string | null)[] = funcDef.params.map((p) =>
     p.type === IR.IRNodeType.Identifier ? p.name : null
@@ -831,18 +855,22 @@ function parseParameters(
     if (elem.type === "symbol") {
       const symbolName = (elem as SymbolNode).name;
 
-      // Check for rest parameter indicator
+      // Check for rest parameter indicator (both old & and new ... syntax)
       if (supportRest && symbolName === "&") {
         restMode = true;
         continue;
       }
 
+      // Check if this parameter itself starts with ... (new JS-style rest syntax)
+      const isRestParam = supportRest && symbolName.startsWith("...");
+      const actualParamName = isRestParam ? symbolName.slice(3) : symbolName;
+
       // Handle regular parameter (with optional rest and default)
-      const param: IR.IRIdentifier = restMode
+      const param: IR.IRIdentifier = (restMode || isRestParam)
         ? {
             type: IR.IRNodeType.Identifier,
-            name: `...${sanitizeIdentifier(symbolName)}`,
-            originalName: symbolName,
+            name: `...${sanitizeIdentifier(actualParamName)}`,
+            originalName: actualParamName,
           }
         : {
             type: IR.IRNodeType.Identifier,
@@ -854,7 +882,7 @@ function parseParameters(
 
       // Check for default value (=)
       if (
-        !restMode && // Rest parameters can't have defaults
+        !restMode && !isRestParam && // Rest parameters can't have defaults
         i + 1 < paramList.elements.length &&
         paramList.elements[i + 1].type === "symbol" &&
         (paramList.elements[i + 1] as SymbolNode).name === "="

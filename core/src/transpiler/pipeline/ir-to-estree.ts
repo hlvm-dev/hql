@@ -147,7 +147,8 @@ export type Expression =
   | CallExpression
   | NewExpression
   | AwaitExpression
-  | SequenceExpression;
+  | SequenceExpression
+  | TemplateLiteral;
 
 export interface Identifier extends BaseNode {
   type: "Identifier";
@@ -270,6 +271,21 @@ export interface AwaitExpression extends BaseNode {
 export interface SequenceExpression extends BaseNode {
   type: "SequenceExpression";
   expressions: Expression[];
+}
+
+export interface TemplateLiteral extends BaseNode {
+  type: "TemplateLiteral";
+  quasis: TemplateElement[];
+  expressions: Expression[];
+}
+
+export interface TemplateElement extends BaseNode {
+  type: "TemplateElement";
+  value: {
+    raw: string;
+    cooked: string;
+  };
+  tail: boolean;
 }
 
 export interface SpreadElement extends BaseNode {
@@ -517,6 +533,7 @@ const irToESTreeConverters = new Map<IR.IRNodeType, IRConverter>([
   [IR.IRNodeType.StringLiteral, convertStringLiteral],
   [IR.IRNodeType.BooleanLiteral, convertBooleanLiteral],
   [IR.IRNodeType.NullLiteral, convertNullLiteral],
+  [IR.IRNodeType.TemplateLiteral, convertTemplateLiteral],
 
   // Identifiers
   [IR.IRNodeType.Identifier, convertIdentifier],
@@ -564,6 +581,9 @@ const irToESTreeConverters = new Map<IR.IRNodeType, IRConverter>([
 
   // Enums
   [IR.IRNodeType.EnumDeclaration, convertEnumDeclaration],
+
+  // Spread operator
+  [IR.IRNodeType.SpreadElement, convertSpreadElement],
 
   // Program
   [IR.IRNodeType.Program, convertProgram],
@@ -650,6 +670,36 @@ function convertNullLiteral(node: IR.IRNullLiteral): Literal {
     value: null,
     raw: "null",
     loc: createLocWithLength(node.position, 4)
+  };
+}
+
+function convertTemplateLiteral(node: IR.IRTemplateLiteral): TemplateLiteral {
+  // Convert IR quasis (string literals) to ESTree TemplateElement nodes
+  const quasis: TemplateElement[] = node.quasis.map((quasi, index) => {
+    const stringNode = quasi as IR.IRStringLiteral;
+    const isLast = index === node.quasis.length - 1;
+
+    return {
+      type: "TemplateElement",
+      value: {
+        raw: stringNode.value,
+        cooked: stringNode.value
+      },
+      tail: isLast,
+      loc: createLoc(quasi.position)
+    };
+  });
+
+  // Convert IR expressions to ESTree expressions
+  const expressions: Expression[] = node.expressions.map(expr =>
+    convertIRToESTree(expr) as Expression
+  );
+
+  return {
+    type: "TemplateLiteral",
+    quasis,
+    expressions,
+    loc: createLoc(node.position)
   };
 }
 
@@ -816,7 +866,7 @@ function convertNewExpression(node: IR.IRNewExpression): NewExpression {
 function convertArrayExpression(node: IR.IRArrayExpression): ArrayExpression {
   return {
     type: "ArrayExpression",
-    elements: node.elements.map(elem => convertIRToESTree(elem) as Expression),
+    elements: node.elements.map(elem => convertIRToESTree(elem) as (Expression | SpreadElement)),
     loc: createLoc(node.position)
   };
 }
@@ -1288,6 +1338,14 @@ function convertRestElement(node: IR.IRRestElement): RestElement {
   return {
     type: "RestElement",
     argument: convertIdentifier(node.argument),
+    loc: createLoc(node.position)
+  };
+}
+
+function convertSpreadElement(node: IR.IRSpreadElement): SpreadElement {
+  return {
+    type: "SpreadElement",
+    argument: convertIRToESTree(node.argument) as Expression,
     loc: createLoc(node.position)
   };
 }

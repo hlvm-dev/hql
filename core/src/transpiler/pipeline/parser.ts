@@ -25,6 +25,7 @@ enum TokenType {
   RightBrace,
   HashLeftBracket,
   String,
+  TemplateLiteral,
   Number,
   Symbol,
   Quote,
@@ -52,6 +53,9 @@ interface SourcePosition {
 }
 
 const TOKEN_PATTERNS = {
+  TEMPLATE_LITERAL: /^`(?!\(|\[)(?:[^`\\$]|\\[\s\S]|\$(?!\{)|\$\{(?:[^}\\]|\\[\s\S])*\})*`/,
+  SPREAD_OPERATOR: /^\.\.\.(?![a-zA-Z_$])/,  // ... not followed by identifier (for inline expressions)
+  REST_PARAM: /^\.\.\.([a-zA-Z_$][a-zA-Z0-9_$-]*)/,  // ...identifier for rest parameters
   SPECIAL_TOKENS: /^(#\[|\(|\)|\[|\]|\{|\}|\.|\:|,|'|`|~@|~)/,
   STRING: /^"(?:\\.|[^\\"])*"/,
   COMMENT: /^(;.*|\/\/.*|\/\*[\s\S]*?\*\/)/,
@@ -391,6 +395,9 @@ function parseExpressionByTokenType(token: Token, state: ParserState): SExp {
     case TokenType.String:
       result = parseStringLiteral(token.value);
       break;
+    case TokenType.TemplateLiteral:
+      result = parseTemplateLiteral(token.value, state, token.position);
+      break;
     case TokenType.Number:
       result = createLiteral(Number(token.value));
       break;
@@ -532,6 +539,111 @@ function parseStringLiteral(tokenValue: string): SExp {
     "\\",
   );
   return createLiteral(str);
+}
+
+function parseTemplateLiteral(
+  tokenValue: string,
+  _state: ParserState,
+  position: SourcePosition,
+): SExp {
+  // Remove surrounding backticks
+  const content = tokenValue.slice(1, -1);
+
+  // Parse template literal into parts and expressions
+  const parts: SExp[] = [createSymbol("template-literal")];
+  let currentStr = "";
+  let i = 0;
+
+  while (i < content.length) {
+    if (content[i] === "$" && content[i + 1] === "{") {
+      // Found interpolation start
+      // Save any accumulated string
+      if (currentStr.length > 0) {
+        parts.push(createLiteral(currentStr));
+        currentStr = "";
+      }
+
+      // Find the matching closing brace
+      i += 2; // Skip ${
+      let braceDepth = 1;
+      let exprStr = "";
+
+      while (i < content.length && braceDepth > 0) {
+        if (content[i] === "{") braceDepth++;
+        else if (content[i] === "}") braceDepth--;
+
+        if (braceDepth > 0) {
+          exprStr += content[i];
+        }
+        i++;
+      }
+
+      // Parse the expression
+      if (exprStr.trim().length > 0) {
+        try {
+          const exprTokens = tokenize(exprStr, position.filePath);
+          const exprState: ParserState = {
+            tokens: exprTokens,
+            currentPos: 0,
+            input: exprStr,
+            filePath: position.filePath,
+            quasiquoteDepth: 0,
+          };
+          const expr = parseExpression(exprState);
+          parts.push(expr);
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          throw new ParseError(
+            `Invalid expression in template literal interpolation: ${exprStr}\nError: ${errorMsg}`,
+            position,
+          );
+        }
+      }
+    } else if (content[i] === "\\") {
+      // Handle escape sequences
+      i++;
+      if (i < content.length) {
+        switch (content[i]) {
+          case "n":
+            currentStr += "\n";
+            break;
+          case "t":
+            currentStr += "\t";
+            break;
+          case "r":
+            currentStr += "\r";
+            break;
+          case "\\":
+            currentStr += "\\";
+            break;
+          case "`":
+            currentStr += "`";
+            break;
+          case "$":
+            currentStr += "$";
+            break;
+          default:
+            currentStr += content[i];
+        }
+        i++;
+      }
+    } else {
+      currentStr += content[i];
+      i++;
+    }
+  }
+
+  // Add any remaining string
+  if (currentStr.length > 0) {
+    parts.push(createLiteral(currentStr));
+  }
+
+  // If there's only the symbol and one string part, just return a string literal
+  if (parts.length === 2 && parts[1].type === "literal" && typeof parts[1].value === "string") {
+    return parts[1];
+  }
+
+  return createList(...parts);
 }
 
 function parseSymbol(tokenValue: string): SExp {
@@ -780,7 +892,19 @@ function matchNextToken(
   // Define patterns to match
   let match;
 
-  // First check for special tokens
+  // First check for template literals (must come before special tokens to catch backticks)
+  match = input.match(TOKEN_PATTERNS.TEMPLATE_LITERAL);
+  if (match) return { type: TokenType.TemplateLiteral, value: match[0], position };
+
+  // Check for spread operator (...) before rest parameters (for inline expressions)
+  match = input.match(TOKEN_PATTERNS.SPREAD_OPERATOR);
+  if (match) return { type: TokenType.Symbol, value: match[0], position };
+
+  // Check for rest parameters (...identifier) before special tokens (to prevent ... being split into dots)
+  match = input.match(TOKEN_PATTERNS.REST_PARAM);
+  if (match) return { type: TokenType.Symbol, value: match[0], position };
+
+  // Then check for special tokens
   match = input.match(TOKEN_PATTERNS.SPECIAL_TOKENS);
   if (match) {
     return {

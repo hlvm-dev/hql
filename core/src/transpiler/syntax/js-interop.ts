@@ -11,9 +11,38 @@ import {
 import {
   transformElements,
   validateTransformed,
+  isSpreadOperator,
+  transformSpreadOperator,
 } from "../utils/validation-helpers.ts";
 
 const IDENTIFIER_REGEX = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+
+/**
+ * Transform arguments, handling spread operators.
+ * Similar to array/function spread handling but for method calls.
+ */
+function transformArgumentsWithSpread(
+  args: HQLNode[],
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode[] {
+  const result: IR.IRNode[] = [];
+
+  for (const arg of args) {
+    if (isSpreadOperator(arg)) {
+      result.push(transformSpreadOperator(arg, currentDir, transformNode, "spread in method call"));
+    } else {
+      const transformed = validateTransformed(
+        transformNode(arg, currentDir),
+        "method argument",
+        "Method argument",
+      );
+      result.push(transformed);
+    }
+  }
+
+  return result;
+}
 
 function getLiteralString(node: HQLNode): string | null {
   if (node.type === "literal") {
@@ -232,12 +261,10 @@ export function transformJsCall(
 
       if (literalMethod !== null) {
         // Method call: (js-call obj "method" args...)
-        const args = transformElements(
+        const args = transformArgumentsWithSpread(
           list.elements.slice(3),
           currentDir,
           transformNode,
-          "js-call argument",
-          "Argument",
         );
 
         const literalNode = {
@@ -258,12 +285,10 @@ export function transformJsCall(
       }
 
       // Direct function call: (js-call func args...)
-      const args = transformElements(
+      const args = transformArgumentsWithSpread(
         list.elements.slice(2),
         currentDir,
         transformNode,
-        "js-call argument",
-        "Argument",
       );
 
       return {
@@ -432,7 +457,8 @@ export function transformJsGetInvokeSpecialCase(
  * Check if a string represents dot notation (obj.prop)
  */
 export function isDotNotation(op: string): boolean {
-  return op.includes(".") && !op.startsWith("js/");
+  // Exclude spread operators (...identifier) from dot notation
+  return op.includes(".") && !op.startsWith("js/") && !op.startsWith("...");
 }
 
 /**

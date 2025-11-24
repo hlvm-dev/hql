@@ -1201,8 +1201,9 @@ function isDotChainForm(list: SList): boolean {
     !(list.elements[0] as SSymbol).name.startsWith(".");
 
   // Check for at least one method in the rest of the list
+  // Exclude spread operators (...identifier) from being treated as methods
   const hasMethodInRest = list.elements.slice(1).some((elem) =>
-    isSymbol(elem) && (elem as SSymbol).name.startsWith(".")
+    isSymbol(elem) && (elem as SSymbol).name.startsWith(".") && !(elem as SSymbol).name.startsWith("...")
   );
 
   return firstIsNotMethod && hasMethodInRest;
@@ -1232,8 +1233,9 @@ function transformDotChainForm(
       for (let i = 1; i < list.elements.length; i++) {
         const element = list.elements[i];
 
-        // Check if this is a method/property indicator (symbol starting with '.')
-        if (isSymbol(element) && (element as SymbolNode).name.startsWith(".")) {
+        // Check if this is a method/property indicator (symbol starting with '.' but NOT '...')
+        // Exclude spread operators (...identifier)
+        if (isSymbol(element) && (element as SymbolNode).name.startsWith(".") && !(element as SymbolNode).name.startsWith("...")) {
           // If we have a previous method, store it
           if (currentMethod !== null) {
             methodGroups.push({

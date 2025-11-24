@@ -74,6 +74,12 @@ export enum IRNodeType {
   // Loop Statements
   WhileStatement = 54,
   ForStatement = 55,
+
+  // Template Literals
+  TemplateLiteral = 56,
+
+  // Spread operator
+  SpreadElement = 57,
 }
 
 export interface SourcePosition {
@@ -96,6 +102,12 @@ export interface IRProgram extends IRNode {
 export interface IRStringLiteral extends IRNode {
   type: IRNodeType.StringLiteral;
   value: string;
+}
+
+export interface IRTemplateLiteral extends IRNode {
+  type: IRNodeType.TemplateLiteral;
+  quasis: IRNode[]; // Array of string literals
+  expressions: IRNode[]; // Array of expressions to interpolate
 }
 
 export interface IRNumericLiteral extends IRNode {
@@ -262,6 +274,11 @@ export interface IRObjectPatternProperty extends IRNode {
 export interface IRRestElement extends IRNode {
   type: IRNodeType.RestElement;
   argument: IRIdentifier;
+}
+
+export interface IRSpreadElement extends IRNode {
+  type: IRNodeType.SpreadElement;
+  argument: IRNode;
 }
 
 export interface IRAssignmentPattern extends IRNode {
