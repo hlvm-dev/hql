@@ -4,7 +4,7 @@
 #   make install  - Install system-wide
 #   make all      - Build for Mac/Linux/Windows
 
-VERSION := 0.1.0
+VERSION := 0.0.1
 BINARY := hql
 
 # Quick build for current computer

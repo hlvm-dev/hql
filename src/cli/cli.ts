@@ -6,7 +6,7 @@ import {
 import { hasHelpFlag } from "./utils/common-helpers.ts";
 
 // Constants
-const VERSION = "0.1.0";
+const VERSION = "0.0.1";
 const VALID_COMMANDS = ["repl", "init", "publish", "run", "transpile"] as const;
 const COMMANDS_REQUIRING_TARGET = new Set<Command>(["run", "transpile"]);
 
