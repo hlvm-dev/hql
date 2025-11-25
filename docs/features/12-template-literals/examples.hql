@@ -1,7 +1,7 @@
 ; ============================================================================
 ; Template Literals Examples (v2.0) - Executable Demonstrations
 ; ============================================================================
-; Run with: deno run -A core/cli/run.ts doc/features/12-template-literals/examples.hql
+; Run with: deno run -A src/cli/run.ts docs/features/12-template-literals/examples.hql
 
 (print "=== TEMPLATE LITERALS EXAMPLES ===")
 (print "")

@@ -1,7 +1,7 @@
 ; ============================================================================
 ; Spread Operator Examples (v2.0) - Executable Demonstrations
 ; ============================================================================
-; Run with: deno run -A core/cli/run.ts doc/features/14-spread-operator/examples.hql
+; Run with: deno run -A src/cli/run.ts docs/features/14-spread-operator/examples.hql
 
 (print "=== SPREAD OPERATOR EXAMPLES ===")
 (print "")

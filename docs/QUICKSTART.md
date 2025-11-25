@@ -108,6 +108,6 @@ hql> (map square [1 2 3 4])
 
 ## Next Steps
 
-- Read the [Manual](./docs/MANUAL.md)
-- Explore [Language Features](./doc/features/)
-- Check [API Reference](./doc/api/)
+- Read the [Manual](./MANUAL.md)
+- Explore [Language Features](./features/)
+- Check [API Reference](./api/)

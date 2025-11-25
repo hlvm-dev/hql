@@ -487,9 +487,9 @@ See [Build Guide](./BUILD.md) for details.
 
 ## Next Steps
 
-- [API Reference](../doc/api/) - Complete API documentation
-- [Standard Library](../doc/api/stdlib.md) - Built-in functions
-- [Feature Examples](../doc/features/) - Detailed feature examples
+- [API Reference](./api/) - Complete API documentation
+- [Standard Library](./api/stdlib.md) - Built-in functions
+- [Feature Examples](./features/) - Detailed feature examples
 - [Advanced Topics](./ADVANCED.md) - Performance, debugging, patterns
 
 ## Getting Help

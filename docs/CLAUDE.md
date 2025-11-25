@@ -69,7 +69,7 @@ deno test --allow-all
 
 ## KEY FILES AND DIRECTORIES
 
-- `core/src/` — compiler pipeline, macro system, runtime error handling
+- `src/` — compiler pipeline, macro system, runtime error handling
 - `runtime/` — host bindings exposed to the REPL
 - `doc/` — published API guides (update alongside any public API change)
 - `HQL_PROJECT_STATUS_AND_ROADMAP.md` — long-form roadmap with milestone history
@@ -89,7 +89,7 @@ deno test --allow-all
   blocker
 - REPL APIs must expose rich JSDoc so `hlvm.<module>.<fn>` inspection prints
   complete docs
-- Do not introduce duplicate logic—revisit DRY helpers in `core/src/common/`
+- Do not introduce duplicate logic—revisit DRY helpers in `src/common/`
   before adding new utilities
 - Keep examples in documentation executable; run them if they are new or
   modified
@@ -126,7 +126,7 @@ deno test --allow-all
 - **5.3 Documentation Expansion:** Added runtime, built-ins, build tool, module
   system guides with runnable examples
 - **5.4 Mixed Positional+Named Args:** Two-pass algorithm in
-  `core/src/transpiler/syntax/function.ts`, 20 dedicated tests
+  `src/transpiler/syntax/function.ts`, 20 dedicated tests
 - **5.5 Circular Import Support:** `mod.ts` now pre-registers outputs; circular
   graphs compile without deadlocks
 - **5.6 Performance Tuning:** Argument handling uses precomputed maps; circular

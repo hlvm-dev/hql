@@ -264,7 +264,7 @@ Define custom syntax:
 
 ## Standard Library
 
-See [Standard Library Reference](../doc/api/stdlib.md) for complete documentation.
+See [Standard Library Reference](./api/stdlib.md) for complete documentation.
 
 ### Sequence Operations
 
@@ -327,7 +327,7 @@ hql publish           # Publish module
 
 ## Further Reading
 
-- [Language Features](../doc/features/) - Detailed feature documentation
-- [API Reference](../doc/api/) - Complete API documentation
-- [Standard Library](../doc/api/stdlib.md) - Built-in functions
-- [Examples](../doc/features/) - Code examples
+- [Language Features](./features/) - Detailed feature documentation
+- [API Reference](./api/) - Complete API documentation
+- [Standard Library](./api/stdlib.md) - Built-in functions
+- [Examples](./features/) - Code examples

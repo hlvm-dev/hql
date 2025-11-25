@@ -2,7 +2,7 @@
 
 **A Lisp that compiles to JavaScript.**
 
-[![Tests](https://img.shields.io/badge/tests-1457%20passing-success)](./test)
+[![Tests](https://img.shields.io/badge/tests-1403%20passing-success)](./tests)
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
@@ -60,7 +60,7 @@ hql repl
 **Learning:**
 
 - [Learning Guide](./docs/GUIDE.md) - Complete guide from beginner to advanced
-- [Quick Start](./QUICKSTART.md) - 5-minute introduction
+- [Quick Start](./docs/QUICKSTART.md) - 5-minute introduction
 - [Manual](./docs/MANUAL.md) - Language reference
 
 **Development:**
@@ -71,9 +71,9 @@ hql repl
 
 **Reference:**
 
-- [Standard Library](./doc/api/stdlib.md) - Built-in functions
-- [Language Features](./doc/features/) - Feature documentation
-- [API Reference](./doc/api/) - Complete API
+- [Standard Library](./docs/api/stdlib.md) - Built-in functions
+- [Language Features](./docs/features/) - Feature documentation
+- [API Reference](./docs/api/) - Complete API
 
 ---
 

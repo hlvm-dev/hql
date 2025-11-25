@@ -1,7 +1,7 @@
 ; ============================================================================
 ; Rest Parameters Examples (v2.0) - Executable Demonstrations
 ; ============================================================================
-; Run with: deno run -A core/cli/run.ts doc/features/13-rest-parameters/examples.hql
+; Run with: deno run -A src/cli/run.ts docs/features/13-rest-parameters/examples.hql
 
 (print "=== REST PARAMETERS EXAMPLES ===")
 (print "")

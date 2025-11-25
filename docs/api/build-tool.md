@@ -9,7 +9,7 @@ den o run --allow-all core/build.ts --all
 ```
 
 > Requires Deno 1.40+ because it uses the `Deno.Command` APIs exposed by the
-> runtime wrapper in `core/src/platform/platform.ts`.
+> runtime wrapper in `src/platform/platform.ts`.
 
 ---
 

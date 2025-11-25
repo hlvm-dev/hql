@@ -162,8 +162,8 @@ HQL now has a **full Clojure-compatible lazy sequence standard library** that is
 **Files Modified:**
 
 - `core/lib/stdlib/js/stdlib.js` - Lazy sequence implementations
-- `core/src/common/runtime-helpers.ts` - Runtime auto-loading
-- `core/src/environment.ts` - Compile-time auto-loading
+- `src/common/runtime-helpers.ts` - Runtime auto-loading
+- `src/environment.ts` - Compile-time auto-loading
 - `test/syntax-lazy-sequences.test.ts` - Comprehensive test suite
 - `test/stdlib-autoload.test.ts` - Integration tests
 
@@ -249,19 +249,19 @@ ERRORS FIXED!**
 
 #### Files Modified (14 total):
 
-1. core/src/common/error.ts - Constructor overloading
-2. core/src/common/error-system.ts - Logger fixes
-3. core/src/common/runtime-error-handler.ts - Optional number handling
-4. core/src/common/hql-cache-tracker.ts - Interface declaration
-5. core/src/environment.ts - ValidationError calls
-6. core/src/imports.ts - Error factory pattern
-7. core/src/s-exp/macro-reader.ts - MetaCarrier type
-8. core/src/s-exp/macro.ts - MacroError fixes
-9. core/src/transpiler/pipeline/parser.ts - ParseError fixes
-10. core/src/transpiler/syntax/class.ts - Return type widening
-11. core/src/transpiler/syntax/get.ts - Logger + export fixes
-12. core/src/transpiler/utils/symbol_info_utils.ts - Dead code removal
-13. core/src/bundler.ts - Loader types, options
+1. src/common/error.ts - Constructor overloading
+2. src/common/error-system.ts - Logger fixes
+3. src/common/runtime-error-handler.ts - Optional number handling
+4. src/common/hql-cache-tracker.ts - Interface declaration
+5. src/environment.ts - ValidationError calls
+6. src/imports.ts - Error factory pattern
+7. src/s-exp/macro-reader.ts - MetaCarrier type
+8. src/s-exp/macro.ts - MacroError fixes
+9. src/transpiler/pipeline/parser.ts - ParseError fixes
+10. src/transpiler/syntax/class.ts - Return type widening
+11. src/transpiler/syntax/get.ts - Logger + export fixes
+12. src/transpiler/utils/symbol_info_utils.ts - Dead code removal
+13. src/bundler.ts - Loader types, options
 14. runtime/index.ts - setDoc helper
 
 #### Verification Results:
@@ -269,7 +269,7 @@ ERRORS FIXED!**
 **TypeScript Compilation:** ✅ **PASS**
 
 ```bash
-deno check core/src/transpiler/index.ts
+deno check src/transpiler/index.ts
 # → 0 errors (was 247)
 ```
 
@@ -384,7 +384,7 @@ end-user documentation.
 
 **Files Modified:**
 
-1. `core/src/transpiler/syntax/function.ts`
+1. `src/transpiler/syntax/function.ts`
    - Updated `processNamedArgumentsUnified()` - Two-pass algorithm for mixed
      args
    - Updated `transformGenericNamedArguments()` - Generic function mixed args
@@ -437,7 +437,7 @@ end-user documentation.
 
 - `mod.ts` – Added `moduleOutputs` cache and improved `compileHqlModule` to
   break promise deadlocks.
-- `core/src/imports.ts` – No behaviour change required; existing
+- `src/imports.ts` – No behaviour change required; existing
   pre-registration logic integrates with the new compiler cache.
 - `test/syntax-circular.test.ts` – Enabled all three tests (previously ignored).
 
@@ -590,7 +590,7 @@ export function __hql_range(...args: number[]) {
 
 #### Changes Made
 
-**File:** `core/src/common/runtime-helper-impl.ts`
+**File:** `src/common/runtime-helper-impl.ts`
 
 1. Added import: `import { lazySeq } from "../../lib/stdlib/js/stdlib.js";`
 2. Replaced `__hql_range` with lazy generator-based implementation
@@ -710,7 +710,7 @@ This violated HQL's architecture principle: **transpiled code must run standalon
 
 The `__hql_deepFreeze` helper existed in two places:
 
-1. **REPL runtime** (`core/src/common/runtime-helpers.ts`): Custom 44-line implementation
+1. **REPL runtime** (`src/common/runtime-helpers.ts`): Custom 44-line implementation
 2. **Transpiler**: Used the helper but never embedded it
 
 Unlike other helpers (`__hql_get`, `__hql_range`, etc.), `__hql_deepFreeze`:
@@ -723,7 +723,7 @@ Unlike other helpers (`__hql_get`, `__hql_range`, etc.), `__hql_deepFreeze`:
 Established `__hql_deepFreeze` as a properly shared helper following the exact same pattern as all other helpers:
 
 **1. Single Source of Truth**
-Moved implementation to `core/src/common/runtime-helper-impl.ts`:
+Moved implementation to `src/common/runtime-helper-impl.ts`:
 
 ```typescript
 export function __hql_deepFreeze<T>(obj: T): T {
@@ -778,7 +778,7 @@ export const runtimeHelperImplementations = {
 ```
 
 **2. REPL Uses Shared Version**
-Updated `core/src/common/runtime-helpers.ts`:
+Updated `src/common/runtime-helpers.ts`:
 
 ```typescript
 import {
@@ -822,8 +822,8 @@ else if (hasExports && (needsGet || needsRange || ... || needsDeepFreeze)) {
 #### Changes Made
 
 **Files Modified:**
-1. `core/src/common/runtime-helper-impl.ts` (+45 lines): Added shared implementation
-2. `core/src/common/runtime-helpers.ts` (-39 lines): Removed custom version, import shared
+1. `src/common/runtime-helper-impl.ts` (+45 lines): Added shared implementation
+2. `src/common/runtime-helpers.ts` (-39 lines): Removed custom version, import shared
 3. `mod.ts` (+36 lines): Added embedding in all 3 modes
 
 **Key Features:**
@@ -1270,7 +1270,7 @@ deno eval "import hql from './mod.ts'; console.log('Named:', await hql.run('(fn 
 # Expected: "Named: Hello, World"
 
 # Test 6: TypeScript Compilation
-deno check core/src/transpiler/index.ts
+deno check src/transpiler/index.ts
 # Expected: No errors, outputs "Check file:///.../index.ts"
 ```
 
@@ -1395,7 +1395,7 @@ deno test --allow-all test/*.test.ts
 # Must show: 962 passed | 0 failed
 
 # 2. TypeScript check
-deno check core/src/transpiler/index.ts
+deno check src/transpiler/index.ts
 # Must show: No errors
 
 # 3. One feature check

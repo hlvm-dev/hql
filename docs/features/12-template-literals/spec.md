@@ -312,6 +312,6 @@ See `examples.hql` for executable examples demonstrating all template literal fe
 
 ## Implementation Location
 
-- Parser: `core/src/transpiler/pipeline/parser.ts`
+- Parser: `src/transpiler/pipeline/parser.ts`
 - Template literal parsing: Line 537-600
 - Test suite: `test/syntax-template-literals.test.ts`

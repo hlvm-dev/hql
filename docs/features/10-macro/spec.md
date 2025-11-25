@@ -60,8 +60,8 @@ if (macroCache.has(symbolName)) {
 
 **Files Changed:**
 
-- `core/src/s-exp/macro.ts:28-29` - Simplified declaration
-- `core/src/s-exp/macro.ts:270-298` - Simplified isMacro function
+- `src/s-exp/macro.ts:28-29` - Simplified declaration
+- `src/s-exp/macro.ts:270-298` - Simplified isMacro function
 
 **Test Results:** ✅ All 975 tests pass
 
@@ -182,7 +182,7 @@ if (!logger.isNamespaceEnabled("macro")) return;
 **Verification:**
 
 ```bash
-$ deno check --config=core/deno.json core/src/transpiler/index.ts
+$ deno check --config=core/deno.json src/transpiler/index.ts
 Check file:///.../index.ts
 # Result: PASSES ✅
 ```
@@ -210,7 +210,7 @@ Check file:///.../index.ts
 
 ### Modified Files
 
-**`core/src/s-exp/macro.ts`**
+**`src/s-exp/macro.ts`**
 
 1. **Line 28-30**: Simplified cache declaration
 

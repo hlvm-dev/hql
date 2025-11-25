@@ -105,7 +105,7 @@ changes:
 - **5.3 Documentation Expansion:** New references for runtime, built-ins, build
   tool, module system; examples validated against tests
 - **5.4 Mixed Positional+Named Args:** Two-pass algorithm in
-  `core/src/transpiler/syntax/function.ts`; 20 new tests covering defaults,
+  `src/transpiler/syntax/function.ts`; 20 new tests covering defaults,
   nested calls, and error cases
 - **5.5 Circular Imports:** Pre-register module outputs in `mod.ts`; all
   circular tests unskipped; build tool inherits fix

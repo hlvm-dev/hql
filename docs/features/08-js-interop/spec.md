@@ -207,7 +207,7 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
 // Compile HQL to JS first
 const hql = await transpile(code);
 // Using platform abstraction
-import { writeTextFile } from "hql/core/src/platform/platform.ts";
+import { writeTextFile } from "hql/src/platform/platform.ts";
 await writeTextFile("module.mjs", hql);
 
 // Import in JavaScript

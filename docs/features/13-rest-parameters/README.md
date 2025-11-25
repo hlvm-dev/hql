@@ -400,6 +400,6 @@ See `examples.hql` for executable examples demonstrating all rest parameter patt
 
 ## Implementation Location
 
-- Parser: `core/src/transpiler/syntax/function.ts`
+- Parser: `src/transpiler/syntax/function.ts`
 - Rest parameter handling: Lines handling `...` prefix in parameters
 - Test suite: `test/syntax-rest-params.test.ts`
