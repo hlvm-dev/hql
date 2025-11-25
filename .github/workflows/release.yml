@@ -48,6 +48,7 @@ jobs:
         run: deno run --allow-read --allow-write scripts/embed-packages.ts
 
       - name: Build binary
+        shell: bash
         run: |
           deno compile \
             --allow-all \
