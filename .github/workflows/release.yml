@@ -45,7 +45,7 @@ jobs:
           deno-version: v1.x
 
       - name: Embed HQL packages
-        run: ./scripts/embed-packages.ts
+        run: deno run --allow-read --allow-write scripts/embed-packages.ts
 
       - name: Build binary
         run: |
