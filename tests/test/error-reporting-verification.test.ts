@@ -9,10 +9,10 @@
  */
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { join } from "../core/src/platform/platform.ts";
+import { join } from "../../src/platform/platform.ts";
 import hql from "../../mod.ts";
-import { ParseError, RuntimeError } from "../core/src/common/error.ts";
-import { makeTempDir, writeTextFile, remove } from "../core/src/platform/platform.ts";
+import { ParseError, RuntimeError } from "../../src/common/error.ts";
+import { makeTempDir, writeTextFile, remove } from "../../src/platform/platform.ts";
 
 async function run(code: string): Promise<unknown> {
   return await hql.run(code);

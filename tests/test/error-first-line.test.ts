@@ -3,10 +3,10 @@
  */
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { join } from "../core/src/platform/platform.ts";
+import { join } from "../../src/platform/platform.ts";
 import hql from "../../mod.ts";
-import { RuntimeError } from "../core/src/common/error.ts";
-import { makeTempDir, writeTextFile, remove } from "../core/src/platform/platform.ts";
+import { RuntimeError } from "../../src/common/error.ts";
+import { makeTempDir, writeTextFile, remove } from "../../src/platform/platform.ts";
 
 Deno.test("Error on line 1 of multi-line file", async () => {
   const code = `(let bad undefined_var)

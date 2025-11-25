@@ -21,7 +21,7 @@
 //                  ↑ Now correct!
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { transpileToJavascript } from "../core/src/transpiler/hql-transpiler.ts";
+import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
 import { run } from "./helpers.ts";
 
 Deno.test("Bugfix #3: Duplicate variable declarations detected", async () => {

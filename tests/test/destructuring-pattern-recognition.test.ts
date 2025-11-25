@@ -7,7 +7,7 @@ import {
   createList,
   createLiteral,
   createSymbol,
-} from "../core/src/s-exp/types.ts";
+} from "../../src/s-exp/types.ts";
 
 Deno.test("Pattern Recognition: Simple symbols are patterns", () => {
   const symbol = createSymbol("x");

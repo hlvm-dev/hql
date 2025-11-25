@@ -7,10 +7,10 @@
  */
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { join } from "../core/src/platform/platform.ts";
+import { join } from "../../src/platform/platform.ts";
 import hql from "../../mod.ts";
-import { RuntimeError } from "../core/src/common/error.ts";
-import { makeTempDir, writeTextFile, remove } from "../core/src/platform/platform.ts";
+import { RuntimeError } from "../../src/common/error.ts";
+import { makeTempDir, writeTextFile, remove } from "../../src/platform/platform.ts";
 
 Deno.test("Line offset: Error location with array access helper injection", async () => {
   // This code will trigger __hql_get helper injection

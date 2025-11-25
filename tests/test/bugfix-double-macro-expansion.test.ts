@@ -12,7 +12,7 @@
 
 import { assertEquals, assertExists } from "jsr:@std/assert@1";
 import { run } from "./helpers.ts";
-import { transpileToJavascript } from "../core/src/transpiler/hql-transpiler.ts";
+import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
 
 Deno.test("Bugfix #1: Built-in macros compile correctly after fix", async () => {
   // Test that built-in macros (when, unless, cond) work correctly
