@@ -1,32 +1,38 @@
 # HQL
 
-A Lisp that compiles to JavaScript.
+**A Lisp that compiles to JavaScript.**
 
 [![Tests](https://img.shields.io/badge/tests-1457%20passing-success)](./test)
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
-HQL is a modern Lisp dialect that transpiles to JavaScript. It features full JavaScript interoperability, a powerful macro system, and runs on any JavaScript runtime.
+Modern Lisp dialect with full JavaScript interoperability, powerful macros, and zero runtime dependencies.
+
+---
 
 ## Installation
 
-**macOS / Linux**
+**macOS / Linux:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
 ```
 
-**Windows**
+**Windows:**
 
-Download the latest release from the [releases page](https://github.com/hlvm-dev/hql/releases).
+Download from [releases](https://github.com/hlvm-dev/hql/releases).
 
-**Build from source**
+**From source:**
 
-See [contributing guidelines](./CONTRIBUTING.md).
+```bash
+make build
+```
+
+See [build guide](./docs/BUILD.md) for details.
+
+---
 
 ## Quick Start
-
-Create `hello.hql`:
 
 ```lisp
 (fn greet [name]
@@ -35,28 +41,42 @@ Create `hello.hql`:
 (greet "World")
 ```
 
-Run it:
+Run:
 
 ```bash
 hql run hello.hql
 ```
 
-Try the REPL:
+REPL:
 
 ```bash
 hql repl
 ```
 
-See the [manual](./docs/MANUAL.md) for more examples.
+---
 
 ## Documentation
 
-- [Manual](./docs/MANUAL.md)
-- [Quick Start](./QUICKSTART.md)
-- [Standard Library](./doc/api/stdlib.md)
-- [Language Features](./doc/features/)
-- [API Reference](./doc/api/)
+**Learning:**
+
+- [Learning Guide](./docs/GUIDE.md) - Complete guide from beginner to advanced
+- [Quick Start](./QUICKSTART.md) - 5-minute introduction
+- [Manual](./docs/MANUAL.md) - Language reference
+
+**Development:**
+
+- [Build Guide](./docs/BUILD.md) - Building from source
+- [Testing Guide](./docs/TESTING.md) - Running and writing tests
+- [Contributing](./CONTRIBUTING.md) - Contribution guidelines
+
+**Reference:**
+
+- [Standard Library](./doc/api/stdlib.md) - Built-in functions
+- [Language Features](./doc/features/) - Feature documentation
+- [API Reference](./doc/api/) - Complete API
+
+---
 
 ## Contributing
 
-We welcome contributions. See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+Contributions welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
