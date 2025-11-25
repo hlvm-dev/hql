@@ -1,7 +1,6 @@
 #!/bin/sh
 # HQL Language Installer
-# Usage: curl -fsSL https://hql-lang.org/install.sh | sh
-# Or: curl -fsSL https://raw.githubusercontent.com/yourusername/hql/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
 
 set -e
 
@@ -10,7 +9,10 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
 
 # Configuration
@@ -18,6 +20,27 @@ REPO="hlvm-dev/hql"
 VERSION="latest"
 INSTALL_DIR="${HQL_INSTALL_DIR:-$HOME/.hql}"
 BIN_DIR="$INSTALL_DIR/bin"
+
+# Print functions
+print_step() {
+    echo "${BOLD}${BLUE}==>${NC}${BOLD} $1${NC}"
+}
+
+print_success() {
+    echo "${GREEN}✓${NC} $1"
+}
+
+print_error() {
+    echo "${RED}✗${NC} $1"
+}
+
+print_warning() {
+    echo "${YELLOW}⚠${NC} $1"
+}
+
+print_info() {
+    echo "${CYAN}ℹ${NC} $1"
+}
 
 # Detect platform
 detect_platform() {
@@ -36,7 +59,7 @@ detect_platform() {
             platform="windows"
             ;;
         *)
-            echo "${RED}Error: Unsupported operating system$(uname -s)${NC}"
+            print_error "Unsupported operating system: $(uname -s)"
             exit 1
             ;;
     esac
@@ -50,7 +73,7 @@ detect_platform() {
             arch="arm"
             ;;
         *)
-            echo "${RED}Error: Unsupported architecture $(uname -m)${NC}"
+            print_error "Unsupported architecture: $(uname -m)"
             exit 1
             ;;
     esac
@@ -69,100 +92,182 @@ detect_platform() {
     fi
 }
 
-# Download binary from GitHub releases
+# Download binary from GitHub releases with progress
 download_binary() {
     local binary_name="$1"
     local download_url="https://github.com/$REPO/releases/latest/download/$binary_name"
 
-    echo "${BLUE}→ Downloading HQL from $download_url${NC}"
+    print_step "Downloading HQL binary..."
+    print_info "Source: $download_url"
+    print_info "Target: $BIN_DIR/hql"
+    echo ""
 
     # Create installation directory
     mkdir -p "$BIN_DIR"
 
-    # Download binary
+    # Download binary with progress bar
     if command -v curl > /dev/null 2>&1; then
-        curl -fsSL "$download_url" -o "$BIN_DIR/hql"
+        # Use -# for progress bar instead of silent mode
+        echo "${DIM}Download progress:${NC}"
+        if ! curl -#fL "$download_url" -o "$BIN_DIR/hql"; then
+            print_error "Download failed"
+            print_info "Please check your internet connection and try again"
+            exit 1
+        fi
     elif command -v wget > /dev/null 2>&1; then
-        wget -q "$download_url" -O "$BIN_DIR/hql"
+        # wget shows progress by default
+        if ! wget --show-progress -q "$download_url" -O "$BIN_DIR/hql"; then
+            print_error "Download failed"
+            print_info "Please check your internet connection and try again"
+            exit 1
+        fi
     else
-        echo "${RED}Error: curl or wget is required${NC}"
+        print_error "Neither curl nor wget is installed"
+        print_info "Please install curl or wget and try again"
         exit 1
     fi
 
+    echo ""
+    print_success "Download complete!"
+
     # Make binary executable
     chmod +x "$BIN_DIR/hql"
+    print_success "Binary made executable"
 }
 
-# Add to PATH
+# Detect user's actual shell and add to PATH
 setup_path() {
-    local shell_config=""
-
-    # Detect shell configuration file
-    if [ -n "$ZSH_VERSION" ]; then
-        shell_config="$HOME/.zshrc"
-    elif [ -n "$BASH_VERSION" ]; then
-        if [ -f "$HOME/.bash_profile" ]; then
-            shell_config="$HOME/.bash_profile"
-        else
-            shell_config="$HOME/.bashrc"
-        fi
-    elif [ -f "$HOME/.profile" ]; then
-        shell_config="$HOME/.profile"
-    fi
+    print_step "Configuring PATH..."
 
     # Check if already in PATH
     if echo "$PATH" | grep -q "$BIN_DIR"; then
-        echo "${GREEN}✓ $BIN_DIR already in PATH${NC}"
-        return
+        print_success "$BIN_DIR already in PATH"
+        return 0
     fi
+
+    # Detect user's shell from $SHELL environment variable (more reliable)
+    local user_shell=$(basename "$SHELL")
+    local shell_config=""
+    local shell_configs=""
+
+    case "$user_shell" in
+        zsh)
+            shell_config="$HOME/.zshrc"
+            shell_configs=".zshrc"
+            ;;
+        bash)
+            # Check which bash config exists
+            if [ -f "$HOME/.bash_profile" ]; then
+                shell_config="$HOME/.bash_profile"
+                shell_configs=".bash_profile"
+            elif [ -f "$HOME/.bashrc" ]; then
+                shell_config="$HOME/.bashrc"
+                shell_configs=".bashrc"
+            else
+                shell_config="$HOME/.bash_profile"
+                shell_configs=".bash_profile"
+            fi
+            ;;
+        fish)
+            shell_config="$HOME/.config/fish/config.fish"
+            shell_configs="config.fish"
+            ;;
+        *)
+            # Fallback to .profile for unknown shells
+            shell_config="$HOME/.profile"
+            shell_configs=".profile"
+            ;;
+    esac
+
+    print_info "Detected shell: $user_shell"
+    print_info "Config file: $shell_configs"
 
     # Add to shell config
     if [ -n "$shell_config" ]; then
+        # Create config file if it doesn't exist
+        mkdir -p "$(dirname "$shell_config")"
+        touch "$shell_config"
+
         echo "" >> "$shell_config"
-        echo "# HQL Language" >> "$shell_config"
+        echo "# HQL Language - Added by installer" >> "$shell_config"
         echo "export PATH=\"\$PATH:$BIN_DIR\"" >> "$shell_config"
-        echo "${GREEN}✓ Added $BIN_DIR to $shell_config${NC}"
-        echo "${YELLOW}⚠ Please restart your shell or run: source $shell_config${NC}"
+
+        print_success "Added $BIN_DIR to $shell_configs"
     else
-        echo "${YELLOW}⚠ Could not detect shell configuration file${NC}"
-        echo "${YELLOW}⚠ Please manually add $BIN_DIR to your PATH${NC}"
+        print_warning "Could not detect shell configuration file"
+        print_info "Please manually add $BIN_DIR to your PATH"
     fi
+}
+
+# Verify installation
+verify_installation() {
+    print_step "Verifying installation..."
+
+    if [ ! -x "$BIN_DIR/hql" ]; then
+        print_error "Binary not found or not executable"
+        return 1
+    fi
+
+    local file_size=$(du -h "$BIN_DIR/hql" | cut -f1)
+    print_success "Binary installed: $file_size"
+
+    # Try to get version (in a new shell with updated PATH)
+    local version=$(export PATH="$PATH:$BIN_DIR" && "$BIN_DIR/hql" --version 2>/dev/null || echo "unknown")
+    print_success "Version: $version"
+
+    return 0
 }
 
 # Main installation
 main() {
-    echo "${BOLD}${BLUE}"
-    echo "╔═══════════════════════════════════════╗"
-    echo "║   HQL Language Installer              ║"
-    echo "╚═══════════════════════════════════════╝"
-    echo "${NC}"
+    # Print banner
+    echo ""
+    echo "${BOLD}${MAGENTA}╔═══════════════════════════════════════╗${NC}"
+    echo "${BOLD}${MAGENTA}║                                       ║${NC}"
+    echo "${BOLD}${MAGENTA}║      ${CYAN}HQL Language Installer${MAGENTA}         ║${NC}"
+    echo "${BOLD}${MAGENTA}║                                       ║${NC}"
+    echo "${BOLD}${MAGENTA}╚═══════════════════════════════════════╝${NC}"
+    echo ""
 
     # Detect platform
+    print_step "Detecting platform..."
     local binary_name=$(detect_platform)
-    echo "${BLUE}→ Detected platform: $binary_name${NC}"
+    print_success "Platform: $binary_name"
+    echo ""
 
     # Download binary
     download_binary "$binary_name"
+    echo ""
 
     # Setup PATH
     setup_path
+    echo ""
 
     # Verify installation
-    if [ -x "$BIN_DIR/hql" ]; then
-        local version=$("$BIN_DIR/hql" --version 2>&1 || echo "unknown")
+    if verify_installation; then
         echo ""
-        echo "${GREEN}${BOLD}✅ HQL installed successfully!${NC}"
-        echo "${GREEN}   Version: $version${NC}"
+        echo "${GREEN}${BOLD}╔═══════════════════════════════════════╗${NC}"
+        echo "${GREEN}${BOLD}║   ✓ Installation Successful!          ║${NC}"
+        echo "${GREEN}${BOLD}╚═══════════════════════════════════════╝${NC}"
         echo ""
-        echo "${BLUE}Quick start:${NC}"
-        echo "  ${BOLD}hql repl${NC}        - Start interactive REPL"
-        echo "  ${BOLD}hql run file.hql${NC} - Run a HQL file"
-        echo "  ${BOLD}hql --help${NC}       - Show all commands"
+        echo "${BOLD}Quick Start:${NC}"
+        echo "  ${CYAN}hql repl${NC}          ${DIM}# Start interactive REPL${NC}"
+        echo "  ${CYAN}hql run file.hql${NC}  ${DIM}# Run a HQL file${NC}"
+        echo "  ${CYAN}hql --help${NC}        ${DIM}# Show all commands${NC}"
         echo ""
-        echo "${YELLOW}Note: You may need to restart your shell or run:${NC}"
-        echo "  ${BOLD}export PATH=\"\$PATH:$BIN_DIR\"${NC}"
+        echo "${BOLD}${YELLOW}⚡ Action Required:${NC}"
+        echo "  ${BOLD}Restart your terminal${NC} or run:"
+        echo "  ${CYAN}source ~/.zshrc${NC}  ${DIM}# If using zsh${NC}"
+        echo "  ${CYAN}source ~/.bashrc${NC} ${DIM}# If using bash${NC}"
+        echo ""
+        echo "${DIM}Or simply open a new terminal window.${NC}"
+        echo ""
+        echo "${BOLD}Installed to:${NC} ${GREEN}$BIN_DIR/hql${NC}"
+        echo ""
     else
-        echo "${RED}Error: Installation failed${NC}"
+        echo ""
+        print_error "Installation verification failed"
+        print_info "Please report this issue at: https://github.com/$REPO/issues"
         exit 1
     fi
 }
