@@ -5,13 +5,13 @@
  * Similar to HLVM's embed-stdlib.ts
  */
 
-import { relative } from "https://deno.land/std@0.220.0/path/mod.ts";
+import { relative, fromFileUrl } from "https://deno.land/std@0.220.0/path/mod.ts";
 import { walk } from "https://deno.land/std@0.220.0/fs/walk.ts";
 
 console.log("🔨 Embedding HQL packages...\n");
 
 // Discover all .hql files in packages directory
-const packagesPath = new URL("../packages", import.meta.url).pathname;
+const packagesPath = fromFileUrl(new URL("../packages", import.meta.url));
 const embeddedPackages: Record<string, string> = {};
 
 for await (const entry of walk(packagesPath, {
@@ -40,7 +40,7 @@ for await (const entry of walk(packagesPath, {
 }
 
 // Also embed core stdlib files (macro/core.hql, macro/loop.hql, etc)
-const coreLibPath = new URL("../src/lib", import.meta.url).pathname;
+const coreLibPath = fromFileUrl(new URL("../src/lib", import.meta.url));
 
 for await (const entry of walk(coreLibPath, {
   exts: [".hql"],
@@ -75,7 +75,7 @@ export const EMBEDDED_PACKAGE_COUNT = ${Object.keys(embeddedPackages).length};
 `;
 
 // Write output
-const outputPath = new URL("../src/embedded-packages.ts", import.meta.url);
+const outputPath = fromFileUrl(new URL("../src/embedded-packages.ts", import.meta.url));
 await Deno.writeTextFile(outputPath, output);
 
 console.log(`\n✅ Generated src/embedded-packages.ts`);
