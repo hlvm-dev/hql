@@ -11,6 +11,7 @@ dist/
 !core/**/*.js
 !test/**/*.js
 !packages/**/*.js  # Allow .js files in stdlib packages (if any)
+!src/lib/**/*.js  # Allow stdlib JS files
 
 # Deno cache
 .deno/
