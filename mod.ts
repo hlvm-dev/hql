@@ -4,17 +4,17 @@
 import {
   expandHql,
   transpileToJavascript,
-} from "./core/src/transpiler/hql-transpiler.ts";
-import { transpileCLI } from "./core/src/bundler.ts";
-import { initializeRuntime } from "./core/src/common/runtime-initializer.ts";
+} from "./src/transpiler/hql-transpiler.ts";
+import { transpileCLI } from "./src/bundler.ts";
+import { initializeRuntime } from "./src/common/runtime-initializer.ts";
 import {
   getRangeHelperWithDependency,
   getRuntimeHelperSource,
-} from "./core/src/common/runtime-helper-impl.ts";
+} from "./src/common/runtime-helper-impl.ts";
 import {
   getCachedPath,
   getRuntimeCacheDir,
-} from "./core/src/common/hql-cache-tracker.ts";
+} from "./src/common/hql-cache-tracker.ts";
 import {
   basename,
   cwd as platformCwd,
@@ -31,26 +31,26 @@ import {
   toFileUrl as platformToFileUrl,
   useNodePlatform,
   writeTextFile as platformWriteTextFile,
-} from "./core/src/platform/platform.ts";
+} from "./src/platform/platform.ts";
 import * as acorn from "npm:acorn@8.11.3";
-import { sexpToString } from "./core/src/s-exp/types.ts";
-import { installSourceMapSupport } from "./core/src/transpiler/pipeline/source-map-support.ts";
+import { sexpToString } from "./src/s-exp/types.ts";
+import { installSourceMapSupport } from "./src/transpiler/pipeline/source-map-support.ts";
 import {
   transformStackTrace,
   withTransformedStackTraces,
-} from "./core/src/transpiler/pipeline/transform-stack-trace.ts";
+} from "./src/transpiler/pipeline/transform-stack-trace.ts";
 import {
   handleRuntimeError,
   setRuntimeContext,
-} from "./core/src/common/runtime-error-handler.ts";
-import { getErrorConfig } from "./core/src/common/error-system.ts";
+} from "./src/common/runtime-error-handler.ts";
+import { getErrorConfig } from "./src/common/error-system.ts";
 import type { RawSourceMap } from "npm:source-map@0.6.1";
 import process from "node:process";
 
 // Import embedded packages for binary compilation
 let EMBEDDED_PACKAGES: Record<string, string> = {};
 try {
-  const embeddedModule = await import("./core/src/embedded-packages.ts");
+  const embeddedModule = await import("./src/embedded-packages.ts");
   EMBEDDED_PACKAGES = embeddedModule.EMBEDDED_PACKAGES || {};
 } catch {
   // No embedded packages (development mode, using file system)
@@ -741,7 +741,7 @@ export {
   type Platform,
   setPlatform,
   useNodePlatform,
-} from "./core/src/platform/platform.ts";
+} from "./src/platform/platform.ts";
 
 interface ModuleProcessingContext {
   importerDir: string;
@@ -1035,7 +1035,7 @@ export {
   macroexpand as macroexpandRuntime,
   macroexpand1 as macroexpand1Runtime,
   resetRuntime,
-} from "./runtime/index.ts";
+} from "./src/runtime/index.ts";
 
 export const version = "7.8.22";
 

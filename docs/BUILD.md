@@ -132,7 +132,7 @@ If you don't have `make`:
 ### Step 2: Compile Binary
 
 ```bash
-deno compile --allow-all --no-check --output hql core/cli/cli.ts
+deno compile --allow-all --no-check --output hql src/cli/cli.ts
 ```
 
 ### Step 3: Test
@@ -149,7 +149,7 @@ deno compile --allow-all --no-check --output hql core/cli/cli.ts
 Include source maps:
 
 ```bash
-deno compile --allow-all --output hql core/cli/cli.ts
+deno compile --allow-all --output hql src/cli/cli.ts
 ```
 
 Note: Larger binary, better error messages.
@@ -159,7 +159,7 @@ Note: Larger binary, better error messages.
 Fastest compilation (production):
 
 ```bash
-deno compile --allow-all --no-check --output hql core/cli/cli.ts
+deno compile --allow-all --no-check --output hql src/cli/cli.ts
 ```
 
 Note: Default, skips type checking.
@@ -176,7 +176,7 @@ Available targets:
 Specify with `--target`:
 
 ```bash
-deno compile --allow-all --target x86_64-apple-darwin --output hql core/cli/cli.ts
+deno compile --allow-all --target x86_64-apple-darwin --output hql src/cli/cli.ts
 ```
 
 ## Binary Size
@@ -237,7 +237,7 @@ deno upgrade
 Rebuild on changes:
 
 ```bash
-deno run --allow-all --watch core/cli/cli.ts repl
+deno run --allow-all --watch src/cli/cli.ts repl
 ```
 
 ### Test Changes
@@ -245,7 +245,7 @@ deno run --allow-all --watch core/cli/cli.ts repl
 Without building binary:
 
 ```bash
-deno run --allow-all core/cli/cli.ts run test.hql
+deno run --allow-all src/cli/cli.ts run test.hql
 ```
 
 ## CI/CD Builds

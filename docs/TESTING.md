@@ -31,8 +31,8 @@ ok | 1457 passed | 0 failed (6s)
 ### Run Specific Test Files
 
 ```bash
-hql test test/syntax-ternary.test.ts
-hql test test/stdlib.test.ts
+hql test tests/syntax-ternary.test.ts
+hql test tests/stdlib.test.ts
 ```
 
 ### Watch Mode
@@ -56,7 +56,7 @@ hql test --coverage
 ### Test Organization
 
 ```
-test/
+tests/
 ├── syntax-*.test.ts       # Syntax tests
 ├── stdlib.test.ts         # Standard library tests
 ├── macro.test.ts          # Macro tests
@@ -170,7 +170,7 @@ const ast = await hql.parse("(+ 1 2)");
 Test individual functions:
 
 ```lisp
-; test/unit/math.test.hql
+; tests/unit/math.test.hql
 (fn test-addition []
   (assert (= (+ 1 2) 3))
   (assert (= (+ 10 20 30) 60)))
@@ -183,7 +183,7 @@ Test individual functions:
 Test feature combinations:
 
 ```lisp
-; test/integration/pipeline.test.hql
+; tests/integration/pipeline.test.hql
 (fn test-pipeline []
   (let numbers [1 2 3 4 5])
   (let result
@@ -201,7 +201,7 @@ Test feature combinations:
 Test bug fixes:
 
 ```lisp
-; test/regression/issue-123.test.hql
+; tests/regression/issue-123.test.hql
 (fn test-macro-expansion []
   ; Ensure macro expands correctly
   (macro when [test & body]
@@ -334,7 +334,7 @@ hql test --verbose
 ### Single Test
 
 ```bash
-hql test test/specific.test.ts
+hql test tests/specific.test.ts
 ```
 
 ### Debug Mode

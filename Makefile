@@ -12,7 +12,7 @@ build:
 	@echo "📦 Embedding HQL packages..."
 	@./scripts/embed-packages.ts
 	@echo "🔨 Building HQL binary..."
-	@deno compile --allow-all --no-check --config deno.json --output $(BINARY) core/cli/cli.ts
+	@deno compile --allow-all --no-check --config deno.json --output $(BINARY) src/cli/cli.ts
 	@echo "✅ Done! Binary: ./$(BINARY)"
 	@ls -lh $(BINARY)
 
@@ -41,7 +41,7 @@ build-mac-intel:
 	@echo "📦 Embedding HQL packages..."
 	@./scripts/embed-packages.ts
 	@echo "🍎 Building for Mac Intel..."
-	@deno compile --allow-all --no-check --target x86_64-apple-darwin --output hql-mac-intel core/cli/cli.ts
+	@deno compile --allow-all --no-check --target x86_64-apple-darwin --output hql-mac-intel src/cli/cli.ts
 	@echo "✅ Created: hql-mac-intel"
 
 # Build for Mac (Apple Silicon)
@@ -49,7 +49,7 @@ build-mac-arm:
 	@echo "📦 Embedding HQL packages..."
 	@./scripts/embed-packages.ts
 	@echo "🍎 Building for Mac ARM..."
-	@deno compile --allow-all --no-check --target aarch64-apple-darwin --output hql-mac-arm core/cli/cli.ts
+	@deno compile --allow-all --no-check --target aarch64-apple-darwin --output hql-mac-arm src/cli/cli.ts
 	@echo "✅ Created: hql-mac-arm"
 
 # Build for Linux
@@ -57,7 +57,7 @@ build-linux:
 	@echo "📦 Embedding HQL packages..."
 	@./scripts/embed-packages.ts
 	@echo "🐧 Building for Linux..."
-	@deno compile --allow-all --no-check --target x86_64-unknown-linux-gnu --output hql-linux core/cli/cli.ts
+	@deno compile --allow-all --no-check --target x86_64-unknown-linux-gnu --output hql-linux src/cli/cli.ts
 	@echo "✅ Created: hql-linux"
 
 # Build for Windows
@@ -65,7 +65,7 @@ build-windows:
 	@echo "📦 Embedding HQL packages..."
 	@./scripts/embed-packages.ts
 	@echo "🪟 Building for Windows..."
-	@deno compile --allow-all --no-check --target x86_64-pc-windows-msvc --output hql-windows.exe core/cli/cli.ts
+	@deno compile --allow-all --no-check --target x86_64-pc-windows-msvc --output hql-windows.exe src/cli/cli.ts
 	@echo "✅ Created: hql-windows.exe"
 
 # Build for ALL platforms (for distribution)

@@ -40,7 +40,7 @@ for await (const entry of walk(packagesPath, {
 }
 
 // Also embed core stdlib files (macro/core.hql, macro/loop.hql, etc)
-const coreLibPath = new URL("../core/lib", import.meta.url).pathname;
+const coreLibPath = new URL("../src/lib", import.meta.url).pathname;
 
 for await (const entry of walk(coreLibPath, {
   exts: [".hql"],
@@ -75,9 +75,9 @@ export const EMBEDDED_PACKAGE_COUNT = ${Object.keys(embeddedPackages).length};
 `;
 
 // Write output
-const outputPath = new URL("../core/src/embedded-packages.ts", import.meta.url);
+const outputPath = new URL("../src/embedded-packages.ts", import.meta.url);
 await Deno.writeTextFile(outputPath, output);
 
-console.log(`\n✅ Generated core/src/embedded-packages.ts`);
+console.log(`\n✅ Generated src/embedded-packages.ts`);
 console.log(`📦 Total packages embedded: ${Object.keys(embeddedPackages).length}`);
 console.log(`💾 Output size: ${(output.length / 1024).toFixed(2)} KB`);
