@@ -13,7 +13,7 @@ import {
   merge,
   update,
   updateIn,
-} from "../core/lib/stdlib/js/index.js";
+} from "../../src/lib/stdlib/js/index.js";
 
 // =============================================================================
 // get(map, key, notFound) - 10 tests

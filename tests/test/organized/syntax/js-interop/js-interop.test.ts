@@ -6,8 +6,8 @@
 
 import { assertEquals } from "jsr:@std/assert";
 import { run } from "../../../helpers.ts";
-import { transpile } from "../../../../mod.ts";
-import { writeTextFile, remove } from "../../../../core/src/platform/platform.ts";
+import { transpile } from "../../../../../mod.ts";
+import { writeTextFile, remove } from "../../../../../src/platform/platform.ts";
 
 // ============================================================================
 // SECTION 1: BASIC JS INTEROP (10 tests)

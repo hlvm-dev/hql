@@ -151,7 +151,7 @@ Deno.test("Bugfix #1: Verify expandMacros not called in transformer", async () =
   // This is a meta-test that verifies the fix by checking the code
   // Read transformer.ts and ensure expandMacros is not called
 
-  const transformerPath = new URL("../core/src/transformer.ts", import.meta.url);
+  const transformerPath = new URL("../../src/transformer.ts", import.meta.url);
   const transformerCode = await Deno.readTextFile(transformerPath);
 
   // Check that expandMacros is not imported

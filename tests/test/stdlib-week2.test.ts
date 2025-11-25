@@ -12,7 +12,7 @@ import {
   mapcat,
   mapIndexed,
   take,
-} from "../core/lib/stdlib/js/index.js";
+} from "../../src/lib/stdlib/js/index.js";
 
 // =============================================================================
 // mapIndexed(f, coll) - 10 tests

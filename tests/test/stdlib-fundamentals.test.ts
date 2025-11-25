@@ -5,7 +5,7 @@
 import { assertEquals, assertThrows } from "jsr:@std/assert@1";
 
 const stdlibPath =
-  new URL("../core/lib/stdlib/js/stdlib.js", import.meta.url).pathname;
+  new URL("../../src/lib/stdlib/js/stdlib.js", import.meta.url).pathname;
 const {
   first,
   rest,

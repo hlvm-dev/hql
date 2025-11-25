@@ -12,7 +12,7 @@ import {
   nth,
   second,
   take,
-} from "../core/lib/stdlib/js/index.js";
+} from "../../src/lib/stdlib/js/index.js";
 
 // =============================================================================
 // nth(coll, index, notFound) - 15 tests

@@ -11,7 +11,7 @@ import { assertEquals, assertExists } from "jsr:@std/assert@1";
 
 // Import LazySeq and stdlib functions from compiled JS
 const stdlibPath =
-  new URL("../core/lib/stdlib/js/stdlib.js", import.meta.url).pathname;
+  new URL("../../src/lib/stdlib/js/stdlib.js", import.meta.url).pathname;
 const {
   LazySeq,
   lazySeq,

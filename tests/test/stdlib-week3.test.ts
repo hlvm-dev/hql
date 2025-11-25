@@ -12,7 +12,7 @@ import {
   into,
   LazySeq,
   seq,
-} from "../core/lib/stdlib/js/index.js";
+} from "../../src/lib/stdlib/js/index.js";
 
 // =============================================================================
 // seq(coll) - 12 tests
