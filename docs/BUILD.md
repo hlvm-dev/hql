@@ -280,4 +280,3 @@ Removes:
 
 - [Testing Guide](./TESTING.md) - Run tests
 - [Contributing](../CONTRIBUTING.md) - Contribute code
-- [Development Guide](./DEVELOPMENT.md) - Development workflow

@@ -365,4 +365,3 @@ All features must have tests.
 
 - [Build Guide](./BUILD.md) - Build from source
 - [Contributing](../CONTRIBUTING.md) - Contribute tests
-- [Development Guide](./DEVELOPMENT.md) - Development workflow

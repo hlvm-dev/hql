@@ -490,12 +490,10 @@ See [Build Guide](./BUILD.md) for details.
 - [API Reference](./api/) - Complete API documentation
 - [Standard Library](./api/stdlib.md) - Built-in functions
 - [Feature Examples](./features/) - Detailed feature examples
-- [Advanced Topics](./ADVANCED.md) - Performance, debugging, patterns
 
 ## Getting Help
 
 - Read the [Manual](./MANUAL.md)
-- Check [FAQ](./FAQ.md)
 - Ask in [GitHub Discussions](https://github.com/hlvm-dev/hql/discussions)
 - Report bugs in [Issues](https://github.com/hlvm-dev/hql/issues)
 
