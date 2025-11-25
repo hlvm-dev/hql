@@ -1,38 +1,39 @@
-name: Build and Release HQL
+name: Release
 
 on:
   push:
     tags:
-      - 'v*'  # Trigger on version tags like v0.1.0, v1.0.0, etc.
-  workflow_dispatch:  # Allow manual trigger
+      - 'v*'  # Triggers on version tags like v0.1.0, v1.0.0, etc.
+
+permissions:
+  contents: write  # Required to create releases and upload assets
 
 jobs:
   build:
-    name: Build HQL for ${{ matrix.config.name }}
-    runs-on: ${{ matrix.config.os }}
-
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        config:
-          - name: Mac ARM
-            os: macos-latest
+        include:
+          # macOS ARM (Apple Silicon M1/M2/M3)
+          - os: macos-latest
             target: aarch64-apple-darwin
-            output: hql-mac-arm
+            binary: hql-mac-arm
 
-          - name: Mac Intel
-            os: macos-latest
+          # macOS Intel
+          - os: macos-latest
             target: x86_64-apple-darwin
-            output: hql-mac-intel
+            binary: hql-mac-intel
 
-          - name: Linux
-            os: ubuntu-latest
+          # Linux
+          - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            output: hql-linux
+            binary: hql-linux
 
-          - name: Windows
-            os: windows-latest
+          # Windows
+          - os: windows-latest
             target: x86_64-pc-windows-msvc
-            output: hql-windows.exe
+            binary: hql-windows.exe
 
     steps:
       - name: Checkout code
@@ -43,43 +44,28 @@ jobs:
         with:
           deno-version: v1.x
 
-      - name: Embed packages
+      - name: Embed HQL packages
         run: ./scripts/embed-packages.ts
 
-      - name: Build HQL binary
+      - name: Build binary
         run: |
           deno compile \
             --allow-all \
             --no-check \
-            --target ${{ matrix.config.target }} \
-            --output ${{ matrix.config.output }} \
-            core/cli/cli.ts
+            --target ${{ matrix.target }} \
+            --output ${{ matrix.binary }} \
+            src/cli/cli.ts
 
-      - name: Test binary (non-Windows)
-        if: matrix.config.os != 'windows-latest'
-        run: |
-          chmod +x ${{ matrix.config.output }}
-          ./${{ matrix.config.output }} --version
-
-      - name: Test binary (Windows)
-        if: matrix.config.os == 'windows-latest'
-        run: |
-          .\${{ matrix.config.output }} --version
-
-      - name: Upload binary artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.config.output }}
-          path: ${{ matrix.config.output }}
-          retention-days: 1
+          name: ${{ matrix.binary }}
+          path: ${{ matrix.binary }}
 
   release:
-    name: Create GitHub Release
+    name: Create Release
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -87,78 +73,68 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
+          path: artifacts
 
-      - name: Display structure
-        run: ls -R artifacts/
+      - name: Move binaries to root
+        run: |
+          mv artifacts/hql-mac-arm/hql-mac-arm .
+          mv artifacts/hql-mac-intel/hql-mac-intel .
+          mv artifacts/hql-linux/hql-linux .
+          mv artifacts/hql-windows.exe/hql-windows.exe .
+          chmod +x hql-mac-arm hql-mac-intel hql-linux
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            artifacts/hql-mac-arm/hql-mac-arm
-            artifacts/hql-mac-intel/hql-mac-intel
-            artifacts/hql-linux/hql-linux
-            artifacts/hql-windows.exe/hql-windows.exe
           draft: false
           prerelease: false
           generate_release_notes: true
           body: |
+            # HQL ${{ github.ref_name }}
+
+            A Lisp that compiles to JavaScript.
+
             ## Installation
 
-            ### One-line install (Mac/Linux)
+            **macOS / Linux:**
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
+            curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
             ```
 
-            ### Homebrew (Coming soon)
+            **Windows:**
+            Download `hql-windows.exe` below and add to PATH.
+
+            ## What's Included
+
+            - Full HQL language compiler and runtime
+            - Interactive REPL
+            - Complete standard library
+            - Macro system
+            - JavaScript interop
+
+            ## Binaries
+
+            - `hql-mac-arm` - macOS Apple Silicon (M1/M2/M3)
+            - `hql-mac-intel` - macOS Intel
+            - `hql-linux` - Linux x86_64
+            - `hql-windows.exe` - Windows x86_64
+
+            ## Quick Start
+
             ```bash
-            brew install hql
+            # Start REPL
+            hql repl
+
+            # Run a file
+            hql run hello.hql
+
+            # Show help
+            hql --help
             ```
-
-            ### Manual Download
-            Download the appropriate binary for your platform:
-            - **Mac ARM (M1/M2/M3)**: `hql-mac-arm`
-            - **Mac Intel**: `hql-mac-intel`
-            - **Linux**: `hql-linux`
-            - **Windows**: `hql-windows.exe`
-
-            After downloading:
-            ```bash
-            chmod +x hql-*        # Make executable (Mac/Linux)
-            mv hql-* /usr/local/bin/hql  # Move to PATH
-            hql --version         # Verify installation
-            ```
-
-            ## What's Changed
-            See below for automatic changelog.
+          files: |
+            hql-mac-arm
+            hql-mac-intel
+            hql-linux
+            hql-windows.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  update-formula:
-    name: Update Homebrew Formula
-    needs: release
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Calculate SHA256 checksums
-        id: checksums
-        run: |
-          curl -sL https://github.com/${{ github.repository }}/releases/latest/download/hql-mac-arm -o hql-mac-arm
-          curl -sL https://github.com/${{ github.repository }}/releases/latest/download/hql-mac-intel -o hql-mac-intel
-          curl -sL https://github.com/${{ github.repository }}/releases/latest/download/hql-linux -o hql-linux
-
-          echo "mac_arm=$(sha256sum hql-mac-arm | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          echo "mac_intel=$(sha256sum hql-mac-intel | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          echo "linux=$(sha256sum hql-linux | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-
-      - name: Display checksums
-        run: |
-          echo "Mac ARM SHA256: ${{ steps.checksums.outputs.mac_arm }}"
-          echo "Mac Intel SHA256: ${{ steps.checksums.outputs.mac_intel }}"
-          echo "Linux SHA256: ${{ steps.checksums.outputs.linux }}"
-          echo ""
-          echo "Update hql.rb with these values!"
