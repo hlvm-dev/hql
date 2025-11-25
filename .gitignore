@@ -1,9 +1,9 @@
 # Build outputs
 dist/
 
-# HQL compiled binaries
-hql
-hql-*
+# HQL compiled binaries (only in root, not source files in subdirs)
+/hql
+/hql-*
 
 # Generated files
 *.js
