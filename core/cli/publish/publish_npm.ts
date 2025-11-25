@@ -17,9 +17,9 @@ import {
   deriveModuleBaseName,
   findMetadataSourcePath,
   mergeConfigWithDefaults,
-  PublishOptions,
+  type PublishOptions,
   publishPackage,
-  RegistryPublisher,
+  type RegistryPublisher,
 } from "./publish_common.ts";
 
 const npmPublisher: RegistryPublisher = {

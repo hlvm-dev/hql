@@ -8,15 +8,15 @@ import {
   isList,
   isLiteral,
   isSymbol,
-  SExp,
+  type SExp,
   sexpToString,
-  SList,
-  SLiteral,
-  SSymbol,
+  type SList,
+  type SLiteral,
+  type SSymbol,
 } from "./types.ts";
 import { Environment } from "../environment.ts";
-import { Logger } from "../logger.ts";
-import { MacroFn } from "../environment.ts";
+import type { Logger } from "../logger.ts";
+import type { MacroFn } from "../environment.ts";
 import { MacroError, TransformError } from "../common/error.ts";
 import { perform } from "../common/error.ts";
 import { isGensymSymbol } from "../gensym.ts";

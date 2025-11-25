@@ -1,7 +1,7 @@
 // src/transpiler/syntax/function.ts
 
 import * as IR from "../type/hql_ir.ts";
-import { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import {
   perform,
   TransformError,
@@ -339,49 +339,23 @@ function transformNamedFn(
       paramListNode.type,
     );
   }
-  let paramList = paramListNode as ListNode;
+  const paramList = paramListNode as ListNode;
 
   // Detect parameter style: [], {}, or ()
-  let paramsInfo: {
-    params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[];
-    defaults: Map<string, IR.IRNode>;
-  };
-  let usesJsonMapParams = false;
-
-  // Check for hash-map (JSON map parameters): {"key": value}
-  // Note: macros expand "hash-map" to "__hql_hash_map", so check for both
-  if (
-    paramList.elements.length > 0 &&
-    paramList.elements[0].type === "symbol" &&
-    ((paramList.elements[0] as SymbolNode).name === "hash-map" ||
-      (paramList.elements[0] as SymbolNode).name === "__hql_hash_map")
-  ) {
-    // JSON map parameters: (fn name {"x": 10, "y": 20} body)
-    paramsInfo = parseJsonMapParameters(paramList, currentDir, transformNode);
-    usesJsonMapParams = true;
-  } else if (
-    paramList.elements.length > 0 &&
-    paramList.elements[0].type === "symbol" &&
-    (paramList.elements[0] as SymbolNode).name === "vector"
-  ) {
-    // Vector notation for parameters: [x y] is parsed as (vector x y)
-    // Strip the "vector" symbol and parse as positional
-    paramList = {
-      ...paramList,
-      elements: paramList.elements.slice(1),
-    } as ListNode;
-    paramsInfo = parseParametersWithDefaults(paramList, currentDir, transformNode);
-  } else {
-    // Regular list parameters: (x y) or (x = 10)
-    paramsInfo = parseParametersWithDefaults(paramList, currentDir, transformNode);
-  }
+  // Unified parameter parsing
+  const { params, defaults, usesJsonMapParams } = parseFunctionParameters(
+    paramList,
+    currentDir,
+    transformNode,
+  );
 
   // Body expressions start after the parameter list (index 3)
   const bodyExpressions = list.elements.slice(3);
 
   // Extract params and defaults
-  const params = paramsInfo.params;
-  const defaultValues = paramsInfo.defaults;
+  // Extract params and defaults
+  // const params = paramsInfo.params;
+  // const defaultValues = paramsInfo.defaults;
 
   // Process the body expressions
   const bodyNodes = processFunctionBody(bodyExpressions, currentDir);
@@ -397,7 +371,7 @@ function transformNamedFn(
     type: IR.IRNodeType.FnFunctionDeclaration,
     id: funcId,
     params,
-    defaults: Array.from(defaultValues.entries()).map(([name, value]) => ({
+    defaults: Array.from(defaults.entries()).map(([name, value]) => ({
       name,
       value,
     })),
@@ -441,40 +415,17 @@ function transformAnonymousFn(
       paramListNode.type,
     );
   }
-  let paramList = paramListNode as ListNode;
+  const paramList = paramListNode as ListNode;
 
   // Detect parameter style: [], {}, or ()
-  let paramsInfo: {
-    params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[];
-    defaults: Map<string, IR.IRNode>;
-  };
+  // Unified parameter parsing
+  const { params } = parseFunctionParameters(
+    paramList,
+    currentDir,
+    transformNode,
+  );
 
-  // Check for hash-map (JSON map parameters): {"key": value}
-  if (
-    paramList.elements.length > 0 &&
-    paramList.elements[0].type === "symbol" &&
-    (paramList.elements[0] as SymbolNode).name === "hash-map"
-  ) {
-    // JSON map parameters: (fn {"x": 10, "y": 20} body)
-    paramsInfo = parseJsonMapParameters(paramList, currentDir, transformNode);
-  } else if (
-    paramList.elements.length > 0 &&
-    paramList.elements[0].type === "symbol" &&
-    (paramList.elements[0] as SymbolNode).name === "vector"
-  ) {
-    // Vector notation for parameters: [x y] is parsed as (vector x y)
-    // Strip the "vector" symbol and parse as positional
-    paramList = {
-      ...paramList,
-      elements: paramList.elements.slice(1),
-    } as ListNode;
-    paramsInfo = parseParametersWithDefaults(paramList, currentDir, transformNode);
-  } else {
-    // Regular list parameters: (x y) or (x = 10)
-    paramsInfo = parseParametersWithDefaults(paramList, currentDir, transformNode);
-  }
-
-  const params = paramsInfo.params;
+  // const params = paramsInfo.params;
 
   // Process the body expressions (start at index 2 after params)
   const bodyNodes = processFunctionBody(
@@ -937,6 +888,61 @@ export function parseParametersWithDefaults(
  * @param transformNode - Function to transform HQL nodes to IR
  * @returns Object with params array and defaults map
  */
+/**
+ * Unified helper to parse function parameters from any format (Vector, Map, List)
+ * Reduces cyclomatic complexity in transformNamedFn and transformAnonymousFn
+ */
+function parseFunctionParameters(
+  paramList: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): {
+  params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[];
+  defaults: Map<string, IR.IRNode>;
+  usesJsonMapParams: boolean;
+} {
+  // Check for hash-map (JSON map parameters)
+  if (
+    paramList.elements.length > 0 &&
+    paramList.elements[0].type === "symbol" &&
+    ((paramList.elements[0] as SymbolNode).name === "hash-map" ||
+      (paramList.elements[0] as SymbolNode).name === "__hql_hash_map")
+  ) {
+    const { params, defaults } = parseJsonMapParameters(
+      paramList,
+      currentDir,
+      transformNode,
+    );
+    return { params, defaults, usesJsonMapParams: true };
+  }
+
+  // Check for vector notation
+  if (
+    paramList.elements.length > 0 &&
+    paramList.elements[0].type === "symbol" &&
+    (paramList.elements[0] as SymbolNode).name === "vector"
+  ) {
+    const vectorList = {
+      ...paramList,
+      elements: paramList.elements.slice(1),
+    } as ListNode;
+    const { params, defaults } = parseParametersWithDefaults(
+      vectorList,
+      currentDir,
+      transformNode,
+    );
+    return { params, defaults, usesJsonMapParams: false };
+  }
+
+  // Regular list parameters
+  const { params, defaults } = parseParametersWithDefaults(
+    paramList,
+    currentDir,
+    transformNode,
+  );
+  return { params, defaults, usesJsonMapParams: false };
+}
+
 export function parseJsonMapParameters(
   mapNode: ListNode,
   currentDir: string,

@@ -1,8 +1,8 @@
 // core/src/transpiler/utils/ast-to-sexp.ts
 // Convert AST nodes to S-expressions for pattern parsing
 
-import {
-  type HQLNode,
+import type {
+  HQLNode,
 } from "../type/hql_ast.ts";
 import {
   createList,

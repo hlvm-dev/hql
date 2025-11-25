@@ -2,7 +2,7 @@
 // Module for handling variable binding expressions (let and var)
 
 import * as IR from "../type/hql_ir.ts";
-import { ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import type { ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import {
   ValidationError,
 } from "../../common/error.ts";
@@ -15,7 +15,7 @@ import {
 import { astToSExp } from "../utils/ast-to-sexp.ts";
 import { couldBePattern, parsePattern } from "../../s-exp/pattern-parser.ts";
 import { patternToIR } from "../utils/pattern-to-ir.ts";
-import { SList } from "../../s-exp/types.ts";
+import type { SList } from "../../s-exp/types.ts";
 import {
   hasHashMapPrefix,
   hasVectorPrefix,

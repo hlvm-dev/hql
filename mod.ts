@@ -45,6 +45,7 @@ import {
 } from "./core/src/common/runtime-error-handler.ts";
 import { getErrorConfig } from "./core/src/common/error-system.ts";
 import type { RawSourceMap } from "npm:source-map@0.6.1";
+import process from "node:process";
 
 // Import embedded packages for binary compilation
 let EMBEDDED_PACKAGES: Record<string, string> = {};
@@ -242,7 +243,16 @@ export async function transpile(
       const { SourceMapConsumer } = await import("npm:source-map@0.6.1");
       const consumer = await new SourceMapConsumer(mapJson);
 
-      consumer.eachMapping((mapping: any) => {
+      interface MappingItem {
+        source: string | null;
+        originalLine: number | null;
+        originalColumn: number | null;
+        generatedLine: number;
+        generatedColumn: number;
+        name: string | null;
+      }
+
+      consumer.eachMapping((mapping: MappingItem) => {
         // Only add mappings that have valid original positions
         // Source maps can have generated-only mappings (no original source)
         // Skip those since we can't shift them properly

@@ -1,7 +1,7 @@
 // index.ts - Public API for HQL runtime features
 
 import { getHQLRuntime, HQLRuntime, resetHQLRuntime } from "./hql-runtime.ts";
-import { isList, isLiteral, isSymbol, SExp } from "../core/src/s-exp/types.ts";
+import { isList, isLiteral, isSymbol, type SExp } from "../core/src/s-exp/types.ts";
 import { gensym as gensymImpl } from "../core/src/gensym.ts";
 
 function setDoc<T>(fn: T, doc: string): void {

@@ -2,7 +2,7 @@
 // Module for handling data structure operations (vector, hash-map, etc.)
 
 import * as IR from "../type/hql_ir.ts";
-import { HQLNode, ListNode } from "../type/hql_ast.ts";
+import type { HQLNode, ListNode } from "../type/hql_ast.ts";
 import {
   perform,
   TransformError,
@@ -18,7 +18,7 @@ import {
 } from "../utils/validation-helpers.ts";
 import {
   normalizeVectorElements,
-  NormalizeVectorOptions,
+  type NormalizeVectorOptions,
 } from "../../common/sexp-utils.ts";
 
 // Export the get function to make it available through the module

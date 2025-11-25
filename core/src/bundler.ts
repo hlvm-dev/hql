@@ -48,7 +48,7 @@ import {
   registerImportMapping,
   writeToCachedPath,
 } from "./common/hql-cache-tracker.ts";
-import { transpile, TranspileOptions } from "./transpiler/index.ts";
+import { transpile, type TranspileOptions } from "./transpiler/index.ts";
 
 const REPORTED_ERROR_SYMBOL = Symbol.for("__hql_error_reported__");
 

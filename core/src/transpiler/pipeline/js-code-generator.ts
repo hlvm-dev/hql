@@ -12,7 +12,7 @@
  * escodegen is the correct tool for ESTree (unlike @babel/generator which requires Babel AST).
  */
 
-import * as IR from "../type/hql_ir.ts";
+import type * as IR from "../type/hql_ir.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import {
   convertIRToESTree,

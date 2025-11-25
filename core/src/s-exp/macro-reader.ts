@@ -4,19 +4,19 @@ import {
   isList,
   isLiteral,
   isSymbol,
-  SExp,
-  SList,
-  SLiteral,
-  SSymbol,
+  type SExp,
+  type SList,
+  type SLiteral,
+  type SSymbol,
 } from "./types.ts";
-import {
+import type {
   HQLNode,
   ListNode,
   LiteralNode,
   SymbolNode,
 } from "../transpiler/type/hql_ast.ts";
 import { globalLogger as logger } from "../logger.ts";
-import { Logger } from "../logger.ts";
+import type { Logger } from "../logger.ts";
 
 type MetaCarrier = { _meta?: Record<string, unknown> };
 

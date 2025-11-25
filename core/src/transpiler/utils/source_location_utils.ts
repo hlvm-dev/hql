@@ -1,5 +1,5 @@
 // Utility helpers to resolve source locations from HQL AST nodes
-import { SourceLocation } from "../../common/error.ts";
+import type { SourceLocation } from "../../common/error.ts";
 
 export interface SourceLocationOptions {
   index?: number;

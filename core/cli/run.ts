@@ -6,7 +6,7 @@ import { initializeRuntime } from "../src/common/runtime-initializer.ts";
 import { createTempDir } from "../src/common/hql-cache-tracker.ts";
 import {
   applyCliOptions,
-  CliOptions,
+  type CliOptions,
   parseCliOptions,
   parseLogNamespaces,
   parseNonOptionArgs,

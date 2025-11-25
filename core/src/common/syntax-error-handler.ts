@@ -5,7 +5,7 @@ import { exists, readTextFile } from "../platform/platform.ts";
 import {
   HQLError,
   RuntimeError,
-  SourceLocation,
+  type SourceLocation,
   ValidationError,
 } from "./error.ts";
 import { globalLogger as logger } from "../logger.ts";

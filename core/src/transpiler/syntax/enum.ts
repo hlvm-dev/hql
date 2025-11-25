@@ -1,13 +1,13 @@
 // src/transpiler/syntax/enum.ts
 
 import * as IR from "../type/hql_ir.ts";
-import { ListNode, SymbolNode } from "../type/hql_ast.ts";
+import type { ListNode, SymbolNode } from "../type/hql_ast.ts";
 import { TransformError, ValidationError } from "../../common/error.ts";
 import { perform } from "../../common/error.ts";
 import { sanitizeIdentifier } from "../../common/utils.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
-import { HQLNode } from "../type/hql_ast.ts";
+import type { HQLNode } from "../type/hql_ast.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 
 export function parseEnumCase(

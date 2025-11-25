@@ -4,7 +4,7 @@ import { transpileCLI } from "../src/bundler.ts";
 import { globalLogger as logger } from "../src/logger.ts";
 import {
   applyCliOptions,
-  CliOptions,
+  type CliOptions,
   parseCliOptions,
   parseNonOptionArgs,
 } from "./utils/cli-options.ts";

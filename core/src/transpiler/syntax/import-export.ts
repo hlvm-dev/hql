@@ -1,7 +1,7 @@
 // src/transpiler/syntax/import-export.ts
 
 import * as IR from "../type/hql_ir.ts";
-import { ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import type { ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import {
   perform,
   TransformError,

@@ -1,4 +1,4 @@
-import { Logger } from "../logger.ts";
+import type { Logger } from "../logger.ts";
 
 /**
  * Timer helper to measure and log transformation phases.

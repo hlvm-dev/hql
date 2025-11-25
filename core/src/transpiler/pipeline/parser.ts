@@ -6,10 +6,10 @@ import {
   createNilLiteral,
   createSymbol,
   isSymbol,
-  SExp,
-  SList,
-  SLiteral,
-  SSymbol,
+  type SExp,
+  type SList,
+  type SLiteral,
+  type SSymbol,
 } from "../../s-exp/types.ts";
 import { ParseError } from "../../common/error.ts";
 import { HQLErrorCode } from "../../common/error-codes.ts";

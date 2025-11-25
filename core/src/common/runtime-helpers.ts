@@ -18,8 +18,8 @@ type HqlMeta = {
 };
 
 type GlobalHqlHelpers = {
-  __hql_get?: (target: unknown, property: unknown, meta?: HqlMeta) => unknown;
-  __hql_call?: (
+  __hql_get: (target: unknown, property: unknown, meta?: HqlMeta) => unknown;
+  __hql_call: (
     target: unknown,
     property: unknown,
     meta: HqlMeta | undefined,
@@ -31,9 +31,25 @@ type GlobalHqlHelpers = {
     value: unknown,
     meta?: HqlMeta,
   ) => unknown;
+  __hql_callFn: (
+    fn: unknown,
+    meta: HqlMeta | undefined,
+    ...args: unknown[]
+  ) => unknown;
+  __hql_getNumeric?: (
+    target: unknown,
+    property: unknown,
+    meta?: HqlMeta,
+  ) => unknown;
+  __hql_range?: typeof __hql_range;
+  __hql_toSequence?: typeof __hql_toSequence;
+  __hql_for_each?: typeof __hql_for_each;
+  __hql_hash_map?: typeof __hql_hash_map;
+  __hql_throw?: typeof __hql_throw;
+  __hql_deepFreeze?: typeof __hql_deepFreeze;
+  gensym?: (prefix?: string) => string;
   _?: unknown;
-  [key: string]: unknown;
-};
+} & Omit<typeof globalThis, "__hql_get" | "__hql_call" | "__hql_callFn">;
 
 const HQL_META_KEY = "__hqlMeta";
 
@@ -87,7 +103,8 @@ function valueDescription(value: unknown): string {
 }
 
 function ensureHelpers(): void {
-  const globalAny = globalThis as GlobalHqlHelpers;
+  // Cast to our strict interface - we will ensure these exist
+  const globalAny = globalThis as unknown as GlobalHqlHelpers;
   if (typeof globalAny.__hql_get === "function") {
     return;
   }
@@ -178,7 +195,7 @@ function ensureHelpers(): void {
     meta: HqlMeta | undefined,
     ...args: unknown[]
   ) {
-    const fn = (globalAny.__hql_get as typeof globalAny.__hql_get)(
+    const fn = globalAny.__hql_get(
       target,
       property,
       meta,
@@ -193,7 +210,7 @@ function ensureHelpers(): void {
       }
 
       const [key, defaultValue] = args;
-      const value = (globalAny.__hql_get as typeof globalAny.__hql_get)(
+      const value = globalAny.__hql_get(
         target,
         key,
         meta,
@@ -295,8 +312,9 @@ function ensureHelpers(): void {
   // Auto-load stdlib functions - inject into global runtime
   // This loop automatically injects all functions from STDLIB_PUBLIC_API
   for (const [name, func] of Object.entries(STDLIB_PUBLIC_API)) {
-    if (typeof globalAny[name] !== "function") {
-      globalAny[name] = func;
+    // We need a safe way to check/set properties on globalAny without index signature
+    if (typeof (globalAny as unknown as Record<string, unknown>)[name] !== "function") {
+      (globalAny as unknown as Record<string, unknown>)[name] = func;
     }
   }
 }

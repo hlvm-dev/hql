@@ -2,7 +2,7 @@
 // Module for handling primitive operations (+, -, *, /, etc.)
 
 import * as IR from "../type/hql_ir.ts";
-import { HQLNode, ListNode, SymbolNode } from "../type/hql_ast.ts";
+import type { HQLNode, ListNode, SymbolNode } from "../type/hql_ast.ts";
 import {
   perform,
   TransformError,

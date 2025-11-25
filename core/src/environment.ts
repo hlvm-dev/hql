@@ -5,7 +5,7 @@ import {
   createNilLiteral,
   isList,
   isSymbol,
-  SExp,
+  type SExp,
 } from "./s-exp/types.ts";
 import { Logger } from "./logger.ts";
 import { MacroRegistry } from "./s-exp/macro-registry.ts";

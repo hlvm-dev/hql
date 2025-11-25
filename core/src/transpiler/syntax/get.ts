@@ -2,7 +2,7 @@
 // Module for handling get operations that replace the runtime get function
 
 import * as IR from "../type/hql_ir.ts";
-import { HQLNode, ListNode } from "../type/hql_ast.ts";
+import type { HQLNode, ListNode } from "../type/hql_ast.ts";
 import {
   perform,
   TransformError,

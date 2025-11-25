@@ -13,7 +13,7 @@ import {
   ensureReadmeExists,
   getCachedBuild,
   incrementPatchVersion,
-  MetadataFileType,
+  type MetadataFileType,
   promptUser,
   readJSONFile,
   visualizeTree,

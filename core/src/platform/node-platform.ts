@@ -6,7 +6,7 @@ import * as os from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import {
+import type {
   Platform,
   PlatformCommandProcess,
   PlatformCommandResult,

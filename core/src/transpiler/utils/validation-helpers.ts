@@ -3,7 +3,7 @@
 
 import { ValidationError } from "../../common/error.ts";
 import * as IR from "../type/hql_ir.ts";
-import { HQLNode, SymbolNode, ListNode } from "../type/hql_ast.ts";
+import type { HQLNode, SymbolNode, ListNode } from "../type/hql_ast.ts";
 
 /**
  * Validate that a syntax transformation produced a non-null IR node

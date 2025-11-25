@@ -8,15 +8,15 @@ import {
   createSymbol,
   isList,
   isSymbol,
-  SExp,
-  SExpMeta,
-  SList,
-  SSymbol,
+  type SExp,
+  type SExpMeta,
+  type SList,
+  type SSymbol,
 } from "../../s-exp/types.ts";
-import { globalLogger as logger, Logger } from "../../logger.ts";
+import { globalLogger as logger, type Logger } from "../../logger.ts";
 import { perform, TransformError } from "../../common/error.ts";
 import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
-import { ListNode, SymbolNode } from "../type/hql_ast.ts";
+import type { ListNode, SymbolNode } from "../type/hql_ast.ts";
 import { globalSymbolTable } from "../symbol_table.ts";
 import type { SymbolKind } from "../symbol_table.ts";
 

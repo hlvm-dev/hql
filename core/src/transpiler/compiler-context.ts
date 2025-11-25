@@ -1,9 +1,9 @@
 // compiler-context.ts - Dependency injection context for HQL compiler
 // This allows runtime to inject state while keeping compiler pure
 
-import { Environment } from "../environment.ts";
-import { SExp } from "../s-exp/types.ts";
-import { MacroFn } from "../environment.ts";
+import type { Environment } from "../environment.ts";
+import type { SExp } from "../s-exp/types.ts";
+import type { MacroFn } from "../environment.ts";
 
 /**
  * Macro definition stored in runtime

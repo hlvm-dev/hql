@@ -1,6 +1,6 @@
 // .hql-cache/1/core/lib/stdlib/js/internal/lazy-seq.js
-var PREVIEW_SIZE = 20;
-var LazySeq = class {
+const PREVIEW_SIZE = 20;
+const LazySeq = class {
   constructor(producer) {
     this._producer = producer;
     this._iterator = null;
@@ -100,7 +100,7 @@ var LazySeq = class {
 function lazySeq(generatorFn) {
   return new LazySeq(generatorFn);
 }
-var EMPTY_LAZY_SEQ = lazySeq(function* () {
+const EMPTY_LAZY_SEQ = lazySeq(function* () {
 });
 
 // .hql-cache/1/core/lib/stdlib/js/internal/normalize.js
@@ -141,8 +141,7 @@ function validateFiniteNumber(n, functionName, paramName) {
 function validateNonZeroNumber(n, functionName, paramName) {
   if (typeof n !== "number" || n === 0 || !Number.isFinite(n)) {
     throw new TypeError(
-      `${functionName}: ${paramName} must be a non-zero finite number, got ${
-        typeof n === "number" ? n : typeof n
+      `${functionName}: ${paramName} must be a non-zero finite number, got ${typeof n === "number" ? n : typeof n
       }`,
     );
   }
@@ -893,10 +892,10 @@ function vec(coll) {
 }
 
 // .hql-cache/1/core/lib/stdlib/js/index.js
-var rangeGenerator = range;
+const rangeGenerator = range;
 
 // .hql-cache/1/core/lib/stdlib/stdlib.ts
-var range2 = typeof __hql_callFn === "function"
+const range2 = typeof __hql_callFn === "function"
   ? __hql_callFn.call(void 0, __hql_deepFreeze, void 0, rangeGenerator)
   : __hql_deepFreeze(rangeGenerator);
 export {

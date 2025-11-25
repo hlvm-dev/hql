@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import hql, { RunOptions } from "../mod.ts";
+import hql, { type RunOptions } from "../mod.ts";
 import { dirname, fromFileUrl, join } from "../core/src/platform/platform.ts";
 
 // Get the directory containing the test files

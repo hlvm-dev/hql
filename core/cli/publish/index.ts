@@ -8,13 +8,13 @@ import {
 } from "../../src/platform/platform.ts";
 import { publishNpm } from "./publish_npm.ts";
 import { publishJSR } from "./publish_jsr.ts";
-import { printPublishSummary, PublishSummary } from "./publish_summary.ts";
+import { printPublishSummary, type PublishSummary } from "./publish_summary.ts";
 import { globalLogger as logger } from "../../src/logger.ts";
 import {
   detectMetadataFiles,
   getPlatformsFromArgs,
-  MetadataFileType,
-  MetadataStatus,
+  type MetadataFileType,
+  type MetadataStatus,
 } from "./utils.ts";
 
 export interface PublishOptions {

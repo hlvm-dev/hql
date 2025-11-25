@@ -1,7 +1,7 @@
 // core/src/imports.ts - Enhanced error handling for imports
 
 import { globalLogger as logger } from "./logger.ts";
-import { Environment, Value } from "./environment.ts";
+import type { Environment, Value } from "./environment.ts";
 import type { MacroFn } from "./environment.ts";
 import { evaluateForMacro, expandMacros } from "./s-exp/macro.ts";
 import { parse } from "./transpiler/pipeline/parser.ts";
@@ -30,10 +30,10 @@ import {
   isSExpNamespaceImport,
   isSExpVectorImport,
   isSymbol,
-  SExp,
-  SList,
-  SLiteral,
-  SSymbol,
+  type SExp,
+  type SList,
+  type SLiteral,
+  type SSymbol,
 } from "./s-exp/types.ts";
 import {
   isHqlFile,

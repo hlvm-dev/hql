@@ -2,7 +2,7 @@
 // Module for handling quoting and unquoting operations
 
 import * as IR from "../type/hql_ir.ts";
-import { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import { TransformError, ValidationError } from "../../common/error.ts";
 import { perform } from "../../common/error.ts";
 import { validateTransformed } from "../utils/validation-helpers.ts";

@@ -2,7 +2,7 @@
 // Unit tests for ...rest parameters (JS-style rest syntax)
 // Part of HQL v2.0 - JS syntax alignment
 
-import { assertEquals, assertRejects } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals, type assertRejects } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { run } from "./helpers.ts";
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -1,7 +1,7 @@
 // src/utils/import-utils.ts - Centralized import utilities to improve code organization
-import { HQLNode, isImportNode } from "../transpiler/type/hql_ast.ts";
-import { Environment } from "../environment.ts";
-import { globalLogger, Logger } from "../logger.ts";
+import { type HQLNode, isImportNode } from "../transpiler/type/hql_ast.ts";
+import type { Environment } from "../environment.ts";
+import { globalLogger, type Logger } from "../logger.ts";
 
 export const importSourceRegistry = new Map<string, string>();
 
