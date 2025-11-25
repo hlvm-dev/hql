@@ -14,7 +14,7 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO="hlvm-dev/hlvm"
+REPO="hlvm-dev/hql"
 VERSION="latest"
 INSTALL_DIR="${HQL_INSTALL_DIR:-$HOME/.hql}"
 BIN_DIR="$INSTALL_DIR/bin"
