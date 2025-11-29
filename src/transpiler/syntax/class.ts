@@ -535,7 +535,20 @@ function processClassConstructor(
     }
 
     // Extract parameter names
-    const paramsList = paramsNode as ListNode;
+    let paramsList = paramsNode as ListNode;
+    
+    // Handle vector literal syntax [x y] which parses as (vector x y)
+    if (
+      paramsList.elements.length > 0 &&
+      paramsList.elements[0].type === "symbol" &&
+      (paramsList.elements[0] as SymbolNode).name === "vector"
+    ) {
+      paramsList = {
+        ...paramsList,
+        elements: paramsList.elements.slice(1),
+      } as ListNode;
+    }
+
     const params: IR.IRIdentifier[] = [];
 
     for (const param of paramsList.elements) {

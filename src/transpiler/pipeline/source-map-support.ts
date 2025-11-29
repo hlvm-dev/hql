@@ -215,6 +215,8 @@ export async function mapPosition(
 function loadSourceMapSync(
   jsFilePath: string,
 ): SourceMapConsumer | null {
+  const DEBUG = Deno.env.get("HQL_DEBUG_ERROR") === "1";
+
   // Normalize file path - convert file:// URLs to regular paths
   let normalizedPath = jsFilePath;
   if (jsFilePath.startsWith("file://")) {
@@ -227,14 +229,25 @@ function loadSourceMapSync(
     }
   }
 
+  if (DEBUG) {
+    console.log("[loadSourceMapSync] Normalized path:", normalizedPath);
+  }
+
   // Check cache first
   if (sourceMapCache.has(normalizedPath)) {
     logger.debug(`Source map cache hit (sync): ${normalizedPath}`);
+    if (DEBUG) {
+      console.log("[loadSourceMapSync] Cache hit!");
+    }
     return sourceMapCache.get(normalizedPath)!;
   }
 
   // Attempt to load .js.map file synchronously
   const mapFilePath = normalizedPath + ".map";
+
+  if (DEBUG) {
+    console.log("[loadSourceMapSync] Trying external map:", mapFilePath);
+  }
 
   try {
     logger.debug(`Loading source map (sync) from ${mapFilePath}`);
@@ -242,6 +255,10 @@ function loadSourceMapSync(
     // Use synchronous file read
     const mapContent = platformReadTextFileSync(mapFilePath);
     const mapJson = JSON.parse(mapContent);
+
+    if (DEBUG) {
+      console.log("[loadSourceMapSync] Loaded external map, sources:", mapJson.sources);
+    }
 
     // Create SourceMapConsumer synchronously
     // In source-map@0.6.1, the constructor is synchronous and returns the instance directly
@@ -254,6 +271,9 @@ function loadSourceMapSync(
 
     return consumer;
   } catch (error) {
+    if (DEBUG) {
+      console.log("[loadSourceMapSync] External map failed:", error instanceof Error ? error.message : String(error));
+    }
     logger.debug(
       `Failed to load external source map for ${normalizedPath}: ${
         error instanceof Error ? error.message : String(error)
@@ -262,10 +282,19 @@ function loadSourceMapSync(
   }
 
   // If external .map file not found, try to extract inline source map from JS file
+  if (DEBUG) {
+    console.log("[loadSourceMapSync] Trying inline source map from:", normalizedPath);
+  }
+
   try {
     logger.debug(`Checking for inline source map in ${normalizedPath}`);
 
     const jsContent = platformReadTextFileSync(normalizedPath);
+
+    if (DEBUG) {
+      console.log("[loadSourceMapSync] File read, length:", jsContent.length);
+    }
+
     const sourceMapMatch = jsContent.match(
       /\/\/# sourceMappingURL=data:application\/json;base64,([A-Za-z0-9+/=]+)/
     );
@@ -273,10 +302,18 @@ function loadSourceMapSync(
     if (sourceMapMatch && sourceMapMatch[1]) {
       logger.debug(`Found inline source map in ${normalizedPath}`);
 
+      if (DEBUG) {
+        console.log("[loadSourceMapSync] Found inline source map!");
+      }
+
       // Decode base64 source map
       const base64 = sourceMapMatch[1];
       const decoded = atob(base64);
       const mapJson = JSON.parse(decoded);
+
+      if (DEBUG) {
+        console.log("[loadSourceMapSync] Inline map sources:", mapJson.sources);
+      }
 
       const consumer = new SourceMapConsumer(mapJson);
       sourceMapCache.set(normalizedPath, consumer);
@@ -284,8 +321,15 @@ function loadSourceMapSync(
       logger.debug(`Inline source map loaded and cached (sync): ${normalizedPath}`);
 
       return consumer;
+    } else {
+      if (DEBUG) {
+        console.log("[loadSourceMapSync] No inline source map found in file");
+      }
     }
   } catch (error) {
+    if (DEBUG) {
+      console.log("[loadSourceMapSync] Inline map failed:", error instanceof Error ? error.message : String(error));
+    }
     logger.debug(
       `Failed to load inline source map for ${normalizedPath}: ${
         error instanceof Error ? error.message : String(error)
@@ -318,10 +362,22 @@ export function mapPositionSync(
   line: number,
   column: number,
 ): Position | null {
+  const DEBUG = Deno.env.get("HQL_DEBUG_ERROR") === "1";
+  if (DEBUG) {
+    console.log("[mapPositionSync] Looking up:", jsFilePath, line, column);
+  }
+
   const consumer = loadSourceMapSync(jsFilePath);
 
   if (!consumer) {
+    if (DEBUG) {
+      console.log("[mapPositionSync] No consumer found for:", jsFilePath);
+    }
     return null;
+  }
+
+  if (DEBUG) {
+    console.log("[mapPositionSync] Consumer found, looking up position...");
   }
 
   try {
@@ -331,16 +387,79 @@ export function mapPositionSync(
       bias: SourceMapConsumer.GREATEST_LOWER_BOUND,
     });
 
-    if (!original.source || original.line === null) {
-      return null;
+    if (original.source && original.line !== null) {
+      if (DEBUG) {
+        console.log("[mapPositionSync] Direct mapping found:", original);
+      }
+      return {
+        source: original.source,
+        line: original.line,
+        column: original.column ?? 0,
+        name: original.name ?? undefined,
+      };
     }
 
-    return {
-      source: original.source,
-      line: original.line,
-      column: original.column ?? 0,
-      name: original.name ?? undefined,
-    };
+    // No direct mapping found. This can happen when Deno/V8 partially applies source maps:
+    // It transforms the line number using the source map but keeps the original filename.
+    // In this case, the line number we receive is already the source line number,
+    // so we need to look up in the source file's source map instead.
+    if (DEBUG) {
+      console.log("[mapPositionSync] No direct mapping, checking source map chain...");
+    }
+
+    // Get the sources from this source map
+    const sources = (consumer as unknown as { sources: string[] }).sources;
+    if (sources && sources.length > 0) {
+      // The source file might have its own source map
+      const sourceFile = sources[0];
+      if (DEBUG) {
+        console.log("[mapPositionSync] Source file from map:", sourceFile);
+      }
+
+      // Resolve the source file path relative to the JS file
+      const jsDir = jsFilePath.substring(0, jsFilePath.lastIndexOf('/'));
+      const resolvedSource = sourceFile.startsWith('/')
+        ? sourceFile
+        : jsDir + '/' + sourceFile;
+
+      if (DEBUG) {
+        console.log("[mapPositionSync] Resolved source path:", resolvedSource);
+      }
+
+      // Try to load the source file's source map
+      // The source file should have a .map file with the same name
+      const sourceConsumer = loadSourceMapSync(resolvedSource);
+      if (sourceConsumer) {
+        if (DEBUG) {
+          console.log("[mapPositionSync] Found source map for:", resolvedSource);
+        }
+
+        // Look up in the source file's source map using the line/column we received
+        // (which is already the source line number due to V8's partial source map application)
+        const chained = sourceConsumer.originalPositionFor({
+          line,
+          column,
+          bias: SourceMapConsumer.GREATEST_LOWER_BOUND,
+        });
+
+        if (chained.source && chained.line !== null) {
+          if (DEBUG) {
+            console.log("[mapPositionSync] Chained mapping found:", chained);
+          }
+          return {
+            source: chained.source,
+            line: chained.line,
+            column: chained.column ?? 0,
+            name: chained.name ?? undefined,
+          };
+        }
+      }
+    }
+
+    if (DEBUG) {
+      console.log("[mapPositionSync] No mapping found after chain lookup");
+    }
+    return null;
   } catch (error) {
     logger.warn(
       `Failed to map position (sync) ${line}:${column} in ${jsFilePath}: ${

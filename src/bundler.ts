@@ -414,6 +414,23 @@ async function processHqlEntryFile(
   jsCode = stdlibImport + jsCode;
   logger.debug("Injected stdlib import for bundling");
 
+  // Update source map to account for the prepended stdlib import line
+  // Each `;` in VLQ mappings represents a new line in generated code
+  // Prepending 1 line means prepending 1 `;` to shift all mappings down
+  if (sourceMap) {
+    try {
+      const mapJson = JSON.parse(sourceMap);
+      // Count how many lines we prepended (stdlib import is 1 line)
+      const prependedLines = 1;
+      // Prepend semicolons to shift all line numbers
+      mapJson.mappings = ";".repeat(prependedLines) + mapJson.mappings;
+      sourceMap = JSON.stringify(mapJson);
+      logger.debug(`Adjusted source map for ${prependedLines} prepended line(s)`);
+    } catch (e) {
+      logger.debug(`Failed to adjust source map: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   if (checkForHqlImports(jsCode)) {
     logger.log({
       text:

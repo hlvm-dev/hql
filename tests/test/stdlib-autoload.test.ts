@@ -275,8 +275,8 @@ Deno.test("Stdlib: flatten handles Map (iterates entries)", async () => {
 (doall (flatten data))
 `;
   const result = await run(code);
-  // Map iterates as [key, value] entries
-  assertEquals(result, [1, 2, ["a", 3], ["b", 4]]);
+  // Map iterates as [key, value] entries, which are arrays, so they get flattened too
+  assertEquals(result, [1, 2, "a", 3, "b", 4]);
 });
 
 Deno.test("Stdlib: flatten does NOT flatten strings", async () => {

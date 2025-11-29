@@ -665,18 +665,17 @@ export function flatten(coll) {
     return EMPTY_LAZY_SEQ;
   }
 
-  return lazySeq(function* () {
-    for (const item of coll) {
-      // ✅ Flatten any iterable (Array, LazySeq, Set, Map, etc.)
+  return lazySeq(function* flattenGenerator(currentColl = coll) {
+    for (const item of currentColl) {
+      // ✅ Recursively flatten any iterable (Array, LazySeq, Set, Map, etc.)
       // BUT exclude strings (strings are iterable but shouldn't be flattened)
       if (
         item != null &&
         typeof item !== "string" &&
         typeof item[Symbol.iterator] === "function"
       ) {
-        for (const nested of item) {
-          yield nested;
-        }
+        // Recursive delegation to the same generator logic
+        yield* flattenGenerator(item);
       } else {
         yield item;
       }
