@@ -6,7 +6,7 @@ import { macroexpand, macroexpand1 } from "../../mod.ts";
 
 Deno.test("macroexpand expands nested macro definition", async () => {
   const source = `(do
-    (macro double (x)
+    (macro double [x]
       \`(* 2 ~x))
     (double 5))`;
 

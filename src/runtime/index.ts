@@ -31,7 +31,7 @@ function toJs(sexp: SExp): unknown {
  * await hqlEval("(+ 1 2)")
  * // → "1 + 2"
  * @example
- * await hqlEval("(defmacro unless [cond & body] `(if (not ~cond) (do ~@body)))")
+ * await hqlEval("(macro unless [cond & body] `(if (not ~cond) (do ~@body)))")
  * // Macro defined and available for future evaluations
  */
 export async function hqlEval(
@@ -47,8 +47,8 @@ export async function hqlEval(
  * @param {string|object} form - Macro form to expand
  * @returns {Promise<any>} Expanded form as JavaScript object
  * @example
- * await macroexpand1("(unless false (println 'ok'))")
- * // → "(if (not false) (do (println 'ok')))"
+ * await macroexpand1("(unless false (print 'ok'))")
+ * // → "(if (not false) (do (print 'ok')))"
  */
 export async function macroexpand1(form: string | SExp): Promise<unknown> {
   const runtime = await getHQLRuntime();
@@ -61,11 +61,11 @@ export async function macroexpand1(form: string | SExp): Promise<unknown> {
  * @param {string|object} form - Form to expand
  * @returns {Promise<any>} Fully expanded form as JavaScript object
  * @example
- * await macroexpand("(unless false (println 'ok'))")
- * // → "(if (not false) (do (println 'ok')))"
+ * await macroexpand("(unless false (print 'ok'))")
+ * // → "(if (not false) (do (print 'ok')))"
  * @example
- * await macroexpand("(-> x (inc) (double))")
- * // → "(double (inc x))"
+ * await macroexpand("(when (> x 5) (print x))")
+ * // → "(if (> x 5) (do (print x)) nil)"
  */
 export async function macroexpand(form: string | SExp): Promise<unknown> {
   const runtime = await getHQLRuntime();
@@ -138,7 +138,7 @@ export async function resetRuntime(): Promise<void> {
  * @param {string} source - Macro definition source
  * @returns {Promise<void>}
  * @example
- * await defineMacro("(defmacro when [test & body] `(if ~test (do ~@body)))")
+ * await defineMacro("(macro when [test & body] `(if ~test (do ~@body)))")
  * // Macro 'when' now available
  */
 export async function defineMacro(source: string): Promise<void> {
@@ -166,7 +166,7 @@ export async function defineMacro(source: string): Promise<void> {
  * // → "temp_1"
  * @example
  * // Use in macros to avoid variable capture:
- * // (macro with-temp (value & body)
+ * // (macro with-temp [value & body]
  * //   (var tmp (gensym "temp"))
  * //   `(let (~tmp ~value)
  * //      ~@body))

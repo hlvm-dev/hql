@@ -60,7 +60,7 @@
 ; ============================================================================
 
 ; Basic async function
-(async fn get-value ()
+(async fn get-value []
   (await (js-call Promise "resolve" 42)))
 
 (var promise (get-value))
@@ -68,7 +68,7 @@
 (assert (= value 42) "Async: basic await")
 
 ; Multiple awaits in sequence
-(async fn add-async (a b)
+(async fn add-async [a b]
   (let x (await (js-call Promise "resolve" a)))
   (let y (await (js-call Promise "resolve" b)))
   (+ x y))
@@ -78,7 +78,7 @@
 (assert (= sum 30) "Async: multiple awaits")
 
 ; Promise.all
-(async fn fetch-all ()
+(async fn fetch-all []
   (let promises [
     (js-call Promise "resolve" 1)
     (js-call Promise "resolve" 2)
@@ -93,7 +93,7 @@
 ; ============================================================================
 
 ; Basic try/catch
-(fn safe-divide (a b)
+(fn safe-divide [a b]
   (try
     (if (= b 0)
       (throw "division-by-zero")
@@ -106,20 +106,20 @@
 
 ; Try/catch/finally
 (var cleanup-called false)
-(fn with-cleanup ()
+(fn with-cleanup []
   (try
     (throw "error")
     (catch e
       "caught")
     (finally
-      (set! cleanup-called true))))
+      (= cleanup-called true))))
 
 (var result (with-cleanup))
 (assert (= result "caught") "Error: catch executes")
 (assert cleanup-called "Error: finally executes")
 
 ; Catching JS errors
-(fn parse-json (json-str)
+(fn parse-json [json-str]
   (try
     (js-call JSON "parse" json-str)
     (catch e
@@ -139,13 +139,13 @@
 
 ; Filter active users
 (var active-users 
-  (users .filter (fn (u) (js-get u "active"))))
+  (users .filter (fn [u] (js-get u "active"))))
 
 (assert (= (active-users .length) 2) "Filter: active users count")
 
 ; Map to names
 (var names 
-  (active-users .map (fn (u) (js-get u "name"))))
+  (active-users .map (fn [u] (js-get u "name"))))
 
 (assert (= (get names 0) "Alice") "Map: first name")
 (assert (= (get names 1) "Charlie") "Map: second name")
@@ -154,11 +154,11 @@
 ; REAL-WORLD EXAMPLE 2: JSON MANIPULATION
 ; ============================================================================
 
-(fn serialize-user (user)
+(fn serialize-user [user]
   (let json (js-call JSON "stringify" user))
   json)
 
-(fn deserialize-user (json-str)
+(fn deserialize-user [json-str]
   (js-call JSON "parse" json-str))
 
 (var user {"name": "Alice", "email": "alice@example.com"})
@@ -172,7 +172,7 @@
 ; REAL-WORLD EXAMPLE 3: STRING UTILITIES
 ; ============================================================================
 
-(fn slugify (text)
+(fn slugify [text]
   (text .toLowerCase
         .trim
         .split " "
@@ -182,7 +182,7 @@
 (var slug (slugify title))
 (assert (= slug "hello-world-example") "String: slugify")
 
-(fn truncate (text max-length)
+(fn truncate [text max-length]
   (if (> (text .length) max-length)
     (+ (js-call text "substring" 0 max-length) "...")
     text))
@@ -195,10 +195,10 @@
 ; REAL-WORLD EXAMPLE 4: ARRAY AGGREGATION
 ; ============================================================================
 
-(fn sum-array (arr)
-  (arr .reduce (fn (acc val) (+ acc val)) 0))
+(fn sum-array [arr]
+  (arr .reduce (fn [acc val] (+ acc val)) 0))
 
-(fn average-array (arr)
+(fn average-array [arr]
   (/ (sum-array arr) (arr .length)))
 
 (var scores [85, 90, 78, 92, 88])
@@ -212,13 +212,13 @@
 ; REAL-WORLD EXAMPLE 5: OBJECT UTILITIES
 ; ============================================================================
 
-(fn get-keys (obj)
+(fn get-keys [obj]
   (js-call Object "keys" obj))
 
-(fn get-values (obj)
+(fn get-values [obj]
   (js-call Object "values" obj))
 
-(fn has-key? (obj key)
+(fn has-key? [obj key]
   (js-call obj "hasOwnProperty" key))
 
 (var config {"host": "localhost", "port": 8080, "ssl": true})
@@ -233,7 +233,7 @@
 ; REAL-WORLD EXAMPLE 6: ASYNC API CLIENT
 ; ============================================================================
 
-(async fn fetch-user-safe (id)
+(async fn fetch-user-safe [id]
   (try
     (let url (+ "https://api.example.com/users/" id))
     (let response (await (js-call fetch url)))
@@ -250,16 +250,16 @@
 ; REAL-WORLD EXAMPLE 7: DATA VALIDATION
 ; ============================================================================
 
-(fn validate-email (email)
+(fn validate-email [email]
   (and (>= (email .length) 5)
        (js-call email "includes" "@")
        (js-call email "includes" ".")))
 
-(fn validate-password (password)
+(fn validate-password [password]
   (and (>= (password .length) 8)
        (> (password .length) 0)))
 
-(fn validate-user (user)
+(fn validate-user [user]
   (let email (js-get user "email"))
   (let password (js-get user "password"))
   (and (validate-email email)
@@ -272,7 +272,7 @@
 ; REAL-WORLD EXAMPLE 8: DATE FORMATTING
 ; ============================================================================
 
-(fn format-date (date)
+(fn format-date [date]
   (let year (js-call date "getFullYear"))
   (let month (+ (js-call date "getMonth") 1))
   (let day (js-call date "getDate"))
@@ -288,10 +288,10 @@
 ; REAL-WORLD EXAMPLE 9: PROMISE UTILITIES
 ; ============================================================================
 
-(async fn with-timeout (promise timeout-ms)
+(async fn with-timeout [promise timeout-ms]
   (let timeout-promise 
-    (js-new Promise ((fn (resolve reject)
-      (js-call setTimeout (fn () (reject "timeout")) timeout-ms)))))
+    (js-new Promise ((fn [resolve reject]
+      (js-call setTimeout (fn [] (reject "timeout")) timeout-ms)))))
   (await (js-call Promise "race" [promise timeout-promise])))
 
 ; Simulated usage
@@ -316,12 +316,12 @@
 ; REAL-WORLD EXAMPLE 11: ARRAY UTILITIES
 ; ============================================================================
 
-(fn find-by (arr predicate)
+(fn find-by [arr predicate]
   (var result null)
   (for (item arr)
     (if (predicate item)
       (do
-        (set! result item)
+        (= result item)
         (return result))))
   result)
 
@@ -331,17 +331,17 @@
   {"id": 3, "name": "Orange", "price": 2.0}
 ])
 
-(var banana (find-by products (fn (p) (= (js-get p "name") "Banana"))))
+(var banana (find-by products (fn [p] (= (js-get p "name") "Banana"))))
 (assert (= (js-get banana "price") 0.5) "Find: by predicate")
 
 ; ============================================================================
 ; REAL-WORLD EXAMPLE 12: ERROR RECOVERY
 ; ============================================================================
 
-(async fn retry (action max-attempts)
+(async fn retry [action max-attempts]
   (var attempts 0)
   (loop ()
-    (set! attempts (+ attempts 1))
+    (= attempts (+ attempts 1))
     (try
       (return (await (action)))
       (catch e
@@ -351,8 +351,8 @@
 
 ; Simulated unreliable action
 (var attempt-count 0)
-(async fn unreliable-action ()
-  (set! attempt-count (+ attempt-count 1))
+(async fn unreliable-action []
+  (= attempt-count (+ attempt-count 1))
   (if (< attempt-count 3)
     (throw "temporary-error")
     "success"))

@@ -4,7 +4,7 @@
 (var aBase 1)
 (import [bFunc] from "./multihop-b.hql")
 
-(fn aFunc ()
+(fn aFunc []
   (+ aBase (bFunc)))
 
 (export [aBase])

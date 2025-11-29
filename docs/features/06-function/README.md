@@ -3,6 +3,8 @@
 **Implementation:** Transpiler function syntax transformers **Test Count:** 95
 tests **Coverage:** ✅ 100%
 
+> **📋 Source of Truth:** See [`spec.md`](./spec.md) for the definitive THESIS on function parameter syntax (two styles: `[]` positional and `{}` JSON map).
+
 ## Overview
 
 HQL provides comprehensive function support with modern features:
@@ -257,7 +259,7 @@ For config-style functions with many parameters, use map syntax:
 (fn make-counter []
   (var count 0)
   (fn []
-    (set! count (+ count 1))
+    (= count (+ count 1))
     count))
 
 (var counter (make-counter))

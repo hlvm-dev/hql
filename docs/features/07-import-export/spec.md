@@ -178,11 +178,11 @@ The import system employs content-based caching to avoid redundant processing:
 
 ;; For example, in a.hql we have:
 
-(macro print (& args)
+(macro print [& args]
 
 `(console.log ~@args))
 
-(macro log (& args)
+(macro log [& args]
 
 `(console.log "LOG:" ~@args))
 
@@ -267,15 +267,15 @@ cognitive load:
 
 ;; All macros are defined with macro (global)
 
-(macro print (& args)
+(macro print [& args]
 
 `(console.log ~@args))
 
-(macro log (& args)
+(macro log [& args]
 
 `(console.log "LOG:" ~@args))
 
-(macro user-log (& args)
+(macro user-log [& args]
 
 `(console.log "LOG:" ~@args))
 

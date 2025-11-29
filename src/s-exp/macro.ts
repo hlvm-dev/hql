@@ -1,14 +1,18 @@
 // core/src/s-exp/macro.ts - Refactored to remove user-level macro support
 
 import {
+  copyMeta,
   createList,
+  createListFrom,
   createLiteral,
   createNilLiteral,
+  getMeta,
   isDefMacro,
   isList,
   isLiteral,
   isSymbol,
   type SExp,
+  type SExpMeta,
   sexpToString,
   type SList,
   type SLiteral,
@@ -17,7 +21,7 @@ import {
 import { Environment } from "../environment.ts";
 import type { Logger } from "../logger.ts";
 import type { MacroFn } from "../environment.ts";
-import { MacroError, TransformError } from "../common/error.ts";
+import { HQLError, MacroError, TransformError } from "../common/error.ts";
 import { perform } from "../common/error.ts";
 import { isGensymSymbol } from "../gensym.ts";
 import { LRUCache } from "../common/lru-cache.ts";
@@ -37,6 +41,40 @@ export interface MacroExpanderOptions {
   currentFile?: string;
   useCache?: boolean;
   iterationLimit?: number;
+}
+
+/**
+ * Recursively update _meta for all elements in an S-expression tree.
+ * This fixes source location tracking for macro-expanded code.
+ *
+ * Elements that have _meta from a different file (macro definition file)
+ * are updated to use the call site's _meta. Elements from the same file
+ * (user code passed to the macro) keep their original _meta.
+ *
+ * This ensures error messages point to the original source location,
+ * not the macro definition file.
+ */
+function updateMetaRecursively(expr: SExp, callSiteMeta: SExpMeta): void {
+  // Skip primitive values - they can't have _meta set on them
+  // (e.g., raw boolean false, numbers, strings that aren't wrapped in SLiteral)
+  if (typeof expr !== "object" || expr === null) {
+    return;
+  }
+
+  const exprMeta = getMeta(expr);
+
+  // If this element has no _meta or has _meta from a different file,
+  // use the call site's _meta (but preserve the call site's file path)
+  if (!exprMeta || (exprMeta.filePath !== callSiteMeta.filePath)) {
+    (expr as { _meta?: SExpMeta })._meta = { ...callSiteMeta };
+  }
+
+  // Recursively update children
+  if (isList(expr)) {
+    for (const element of (expr as SList).elements) {
+      updateMetaRecursively(element, callSiteMeta);
+    }
+  }
 }
 
 /* Helper: Checks truthiness for S-expression values */
@@ -110,20 +148,31 @@ function processMacroDefinition(
   restParam: string | null;
   body: SExp[];
 } {
+  const loc = getMeta(macroForm) || {};
+
   if (macroForm.elements.length < 4) {
     throw new MacroError(
-      "Macro definition requires a name, parameter list, and body",
+      "Macro definition requires a name, parameter list, and body. Syntax: (macro name [params] body)",
       "unknown",
+      loc,
     );
   }
   const macroNameExp = macroForm.elements[1];
   if (!isSymbol(macroNameExp)) {
-    throw new MacroError("Macro name must be a symbol", "unknown");
+    throw new MacroError(
+      "Macro name must be a symbol",
+      "unknown",
+      getMeta(macroNameExp) || loc,
+    );
   }
   const macroName = macroNameExp.name;
   const paramsExp = macroForm.elements[2];
   if (!isList(paramsExp)) {
-    throw new MacroError("Macro parameters must be a list", macroName);
+    throw new MacroError(
+      "Macro parameters must be a list",
+      macroName,
+      getMeta(paramsExp) || loc,
+    );
   }
   const { params, restParam } = processParamList(paramsExp);
   const body = macroForm.elements.slice(3);
@@ -133,6 +182,16 @@ function processMacroDefinition(
 /* Helper: Process a parameter list (including rest parameters) */
 const isRestMarker = (symbol: SSymbol): boolean => symbol.name === "&";
 
+/**
+ * Check if a list is a vector form (starts with 'vector' symbol)
+ * Vectors are created when parsing [...] syntax
+ */
+function isVectorForm(list: SList): boolean {
+  return list.elements.length > 0 &&
+    isSymbol(list.elements[0]) &&
+    (list.elements[0] as SSymbol).name === "vector";
+}
+
 function processParamList(
   paramsExp: SList,
 ): { params: string[]; restParam: string | null } {
@@ -140,7 +199,13 @@ function processParamList(
   let restParam: string | null = null;
   let restMode = false;
 
-  paramsExp.elements.forEach((param, index) => {
+  // Handle vector form: [a b c] parses as (vector a b c)
+  // We need to skip the 'vector' symbol at the start
+  const elements = isVectorForm(paramsExp)
+    ? paramsExp.elements.slice(1)
+    : paramsExp.elements;
+
+  elements.forEach((param, index) => {
     if (!isSymbol(param)) {
       throw new Error(
         `Macro parameter at position ${index + 1} must be a symbol, got: ${
@@ -196,6 +261,10 @@ export function defineMacro(
     macroExpansionCache.clear();
     logger.debug(`Registered global macro ${macroName} (caches cleared)`);
   } catch (error) {
+    // Preserve HQLError instances (MacroError, ValidationError, etc.)
+    if (error instanceof HQLError) {
+      throw error;
+    }
     const macroName = macroForm.elements[1] && isSymbol(macroForm.elements[1])
       ? (macroForm.elements[1] as SSymbol).name
       : "unknown";
@@ -422,8 +491,9 @@ function evaluateList(expr: SList, env: Environment, logger: Logger): SExp {
       );
     }
   }
-  return createList(
-    ...expr.elements.map((elem) => evaluateForMacro(elem, env, logger)),
+  return createListFrom(
+    expr,
+    expr.elements.map((elem) => evaluateForMacro(elem, env, logger)),
   );
 }
 
@@ -517,7 +587,7 @@ function evaluateLet(list: SList, env: Environment, logger: Logger): SExp {
  *
  * (var name value) creates a binding in the CURRENT environment (not a new scope like let)
  * This is CRITICAL for gensym to work in macros:
- *   (macro with-temp (value & body)
+ *   (macro with-temp [value & body]
  *     (var tmp (gensym "temp"))    ; ← Creates binding in macro's environment
  *     `(let (~tmp ~value) ~@body)) ; ← Uses the bound value
  *
@@ -637,8 +707,9 @@ function evaluateFunctionCall(
       logger.debug(`Function '${op}' not found during macro expansion`);
     }
   }
-  return createList(
-    ...list.elements.map((elem) => evaluateForMacro(elem, env, logger)),
+  return createListFrom(
+    list,
+    list.elements.map((elem) => evaluateForMacro(elem, env, logger)),
   );
 }
 
@@ -696,7 +767,7 @@ function processQuasiquotedExpr(
     if (depth === 0) {
       return innerProcessed;
     } else {
-      return createList({ type: "symbol", name: "quasiquote" }, innerProcessed);
+      return createListFrom(list, [{ type: "symbol", name: "quasiquote" }, innerProcessed]);
     }
   }
 
@@ -721,7 +792,7 @@ function processQuasiquotedExpr(
         env,
         logger,
       );
-      return createList({ type: "symbol", name: "unquote" }, innerProcessed);
+      return createListFrom(list, [{ type: "symbol", name: "unquote" }, innerProcessed]);
     }
   }
 
@@ -740,10 +811,10 @@ function processQuasiquotedExpr(
         env,
         logger,
       );
-      return createList(
+      return createListFrom(list, [
         { type: "symbol", name: "unquote-splicing" },
         innerProcessed,
-      );
+      ]);
     }
     throw new MacroError(
       "unquote-splicing not in list context",
@@ -790,7 +861,8 @@ function processQuasiquotedExpr(
       );
     }
   }
-  return createList(...processedElements);
+  // Preserve _meta from original list for source location tracking
+  return createListFrom(list, processedElements);
 }
 
 /* Modified expandMacroExpression with visualization support */
@@ -844,6 +916,19 @@ function expandMacroExpression(
       logger.debug(`Expanding macro ${op} at depth ${depth}`, "macro");
 
       const expanded = macroFn(args, env);
+
+      // CRITICAL: Copy _meta from original call site to expanded expression
+      // This ensures error messages point to the original source location,
+      // not the macro definition file. Without this, errors would show
+      // line numbers from the macro definition (e.g., core.hql:185)
+      // instead of the actual call site (e.g., user.hql:2).
+      const callSiteMeta = getMeta(originalExpr);
+      if (callSiteMeta) {
+        // Recursively update _meta for all elements in the expanded expression
+        // that have a different filePath (i.e., from the macro definition file)
+        updateMetaRecursively(expanded, callSiteMeta);
+      }
+
       visualizeMacroExpansion(originalExpr, expanded, op, logger);
       return expandMacroExpression(expanded, env, options, depth + 1);
     }
@@ -857,7 +942,8 @@ function expandMacroExpression(
     !isMacroPlaceholder(elem)
   );
 
-  return createList(...cleanedElements);
+  // Use createListFrom to preserve source location through transformation
+  return createListFrom(list, cleanedElements);
 }
 
 /* Filter out macro definitions from the final S-expression list */

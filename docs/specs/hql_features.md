@@ -39,7 +39,7 @@ environment. Macro Expander: Write a function that recursively traverses your
 AST. When it encounters a list whose first element corresponds to a macro
 definition, it substitutes the macro’s parameters with the unevaluated arguments
 and replaces that form with its expansion. Key Outcome: After expansion, the AST
-consists entirely of core forms (quote, if, fn, def, etc.), ensuring every
+consists entirely of core forms (quote, if, fn, let, etc.), ensuring every
 construct is an expression. Hygiene Considerations: Aim for a system that
 minimizes accidental variable capture. You can start simple, then add mechanisms
 (like gensyms) to ensure macro hygiene. Outcome: You’ll be able to define
@@ -94,7 +94,7 @@ migration.
 
 5. Step-by-Step Roadmap Define the Minimal Core: Create AST types for literals,
    symbols, and lists. Implement a minimal evaluator for core forms (quote, if,
-   fn, def, fn). Build a standard environment with arithmetic, list operations,
+   let, fn). Build a standard environment with arithmetic, list operations,
    and equality primitives. Implement the Macro System: Implement macro to
    register macro definitions. Write a recursive macro expander that processes
    the AST and expands all macros into core forms. Refactor Built‑Ins as Macros:
@@ -174,9 +174,9 @@ even if in the near term you only target Deno. Where You Are Now
 Unified JS Interop Achieved: Your transpiler already transforms expressions like
 (message.toUpperCase) into an IIFE that checks and calls the member with the
 correct this binding. Basic Evaluator and Built‑Ins: You have a working
-evaluator that implements constructs like def, fn, and basic arithmetic directly
-in the evaluator. However, these built‑ins are not yet implemented as macros
-over a minimal core. Platform Abstraction in Place: You have a platform
+evaluator that implements constructs like let, fn, and basic arithmetic directly
+in the evaluator. Higher-level constructs are now implemented as macros
+over a minimal kernel. Platform Abstraction in Place: You have a platform
 abstraction layer that currently wraps Deno’s APIs, ensuring that the caller’s
 API remains unchanged. Where You Want to Go
 
@@ -213,7 +213,7 @@ operations (arithmetic, list manipulation, equality). Example (simplified
 pseudocode):
 
 ;; AST: literal, symbol, list ;; Evaluator: every expression returns a value ;;
-Core built-ins: quote, if, fn, def, fn, +, -, *, /, cons, car, cdr, eq? Step 2:
+Core built-ins: quote, if, fn, let, +, -, *, /, cons, first, rest, === Step 2:
 Implement the Macro System macro: Define a special form that lets you write
 macros, e.g.: (macro macro [name params & body] ;; Register macro definition in
 the macro environment ) Macro Expander: Create a function that walks the AST and
@@ -246,7 +246,7 @@ everywhere” approach. Now: You have unified JS interop, a basic evaluator, and
 platform abstraction. However, your built‑ins are still directly implemented,
 not as macros. Goal: You want to refactor HQL so that everything outside of a
 tiny, minimal kernel (consisting of only essential forms like quote, if, fn,
-def, and basic primitives) is defined via macros. This gives you a uniform,
+let, and basic primitives) is defined via macros. This gives you a uniform,
 expression‑oriented language that produces a single, self-contained JS output.
 The transpiler pipeline will be structured into: Parsing → Macro Expansion
 (yielding only core forms) → IR Generation → ESTree AST Generation → Code
@@ -277,7 +277,7 @@ Example: HQL source:
 
 (let greeting "Hello, HQL!") might parse into an AST like:
 
-{ "type": "list", "elements": [ { "type": "symbol", "name": "def" }, { "type":
+{ "type": "list", "elements": [ { "type": "symbol", "name": "let" }, { "type":
 "symbol", "name": "greeting" }, { "type": "literal", "value": "Hello, HQL!" } ]
 } HQL AST → Macro-Expanded HQL AST Macro Expansion: A macro expander walks the
 AST recursively. It looks for lists where the first element is a macro (as

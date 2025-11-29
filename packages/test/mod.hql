@@ -62,8 +62,8 @@
     true if assertion passes
 
   Example:
-    (assert-throws (fn () (throw (new js/Error \"oops\"))) nil)
-    (assert-throws (fn () (/ 1 0)) nil)"
+    (assert-throws (fn [] (throw (new js/Error \"oops\"))) nil)
+    (assert-throws (fn [] (/ 1 0)) nil)"
   (var didThrow false)
   (try
     (testFn)

@@ -20,7 +20,7 @@ import hql from "../../mod.ts";
 
 Deno.test("Runtime Macros - Basic Definition", async () => {
   await resetRuntime();
-  await defineMacro("(defmacro test1 [] 42)");
+  await defineMacro("(macro test1 [] 42)");
 
   const hasMacroTest = await hasMacro("test1");
   assertEquals(hasMacroTest, true, "Macro should be defined");
@@ -31,7 +31,7 @@ Deno.test("Runtime Macros - Basic Definition", async () => {
 
 Deno.test("Runtime Macros - Parameter Substitution", async () => {
   await resetRuntime();
-  await defineMacro("(defmacro add-one [x] `(+ 1 ~x))");
+  await defineMacro("(macro add-one [x] `(+ 1 ~x))");
 
   const expanded = await macroexpandRuntime("(add-one 5)") as unknown[];
   assertEquals(expanded[0], "+");
@@ -48,7 +48,7 @@ Deno.test("Runtime Macros - Parameter Substitution", async () => {
 
 Deno.test("Runtime Macros - Rest Parameters", async () => {
   await resetRuntime();
-  await defineMacro("(defmacro mylist [& args] `(list ~@args))");
+  await defineMacro("(macro mylist [& args] `(list ~@args))");
 
   const macros = await getMacros();
   assertEquals(macros.mylist.params.length, 0, "Should have no regular params");
@@ -62,7 +62,7 @@ Deno.test("Runtime Macros - Rest Parameters", async () => {
 Deno.test("Runtime Macros - Mixed Parameters", async () => {
   await resetRuntime();
   await defineMacro(
-    "(defmacro unless [test & body] `(if (not ~test) (do ~@body)))",
+    "(macro unless [test & body] `(if (not ~test) (do ~@body)))",
   );
 
   const macros = await getMacros();
@@ -79,7 +79,7 @@ Deno.test("Runtime Macros - Mixed Parameters", async () => {
 
 Deno.test("Runtime Macros - Empty Parameters", async () => {
   await resetRuntime();
-  await defineMacro("(defmacro constant [] 999)");
+  await defineMacro("(macro constant [] 999)");
 
   const macros = await getMacros();
   assertEquals(macros.constant.params.length, 0);
@@ -92,8 +92,8 @@ Deno.test("Runtime Macros - Empty Parameters", async () => {
 Deno.test("Runtime Macros - Persistence Across Evaluations", async () => {
   await resetRuntime();
 
-  await defineMacro("(defmacro m1 [] 1)");
-  await defineMacro("(defmacro m2 [] 2)");
+  await defineMacro("(macro m1 [] 1)");
+  await defineMacro("(macro m2 [] 2)");
 
   assertEquals(await hasMacro("m1"), true);
   assertEquals(await hasMacro("m2"), true);
@@ -107,7 +107,7 @@ Deno.test("Runtime Macros - Persistence Across Evaluations", async () => {
 
 Deno.test("Runtime Macros - Reset Functionality", async () => {
   await resetRuntime();
-  await defineMacro("(defmacro before-reset [] 100)");
+  await defineMacro("(macro before-reset [] 100)");
   assertEquals(await hasMacro("before-reset"), true);
 
   await resetRuntime();
@@ -117,13 +117,13 @@ Deno.test("Runtime Macros - Reset Functionality", async () => {
     "Should be cleared after reset",
   );
 
-  await defineMacro("(defmacro after-reset [] 200)");
+  await defineMacro("(macro after-reset [] 200)");
   assertEquals(await hasMacro("after-reset"), true);
 });
 
 Deno.test("Runtime Macros - Isolation from Stateless Compiler", async () => {
   await resetRuntime();
-  await defineMacro("(defmacro runtime-only [] 777)");
+  await defineMacro("(macro runtime-only [] 777)");
 
   // Stateless compiler should not see runtime macros
   const transpileResult = await hql.transpile("(runtime-only)");
@@ -149,8 +149,8 @@ Deno.test("Runtime Macros - Isolation from Stateless Compiler", async () => {
 
 Deno.test("Runtime Macros - Complex Nested Expansion", async () => {
   await resetRuntime();
-  await defineMacro("(defmacro m1 [x] `(+ 1 ~x))");
-  await defineMacro("(defmacro m2 [x] `(* 2 ~x))");
+  await defineMacro("(macro m1 [x] `(+ 1 ~x))");
+  await defineMacro("(macro m2 [x] `(* 2 ~x))");
 
   const js = await hqlEval("(m2 (m1 5))");
   assertEquals(
@@ -162,7 +162,7 @@ Deno.test("Runtime Macros - Complex Nested Expansion", async () => {
 
 Deno.test("Runtime Macros - Macroexpand vs Macroexpand1", async () => {
   await resetRuntime();
-  await defineMacro("(defmacro twice [x] `(+ ~x ~x))");
+  await defineMacro("(macro twice [x] `(+ ~x ~x))");
 
   const expanded1 = await macroexpand1Runtime("(twice 7)") as unknown;
   assertEquals(Array.isArray(expanded1), true);
@@ -177,7 +177,7 @@ Deno.test("Runtime Macros - Macroexpand vs Macroexpand1", async () => {
 
 Deno.test("Runtime Macros - No Re-tagging Warnings", async () => {
   await resetRuntime();
-  await defineMacro("(defmacro test [] 42)");
+  await defineMacro("(macro test [] 42)");
 
   // Multiple evaluations should not produce warnings
   await hqlEval("(test)");
@@ -191,7 +191,7 @@ Deno.test("Runtime Macros - Cache Invalidation", async () => {
   await resetRuntime();
 
   // Define macro after potential caching
-  await defineMacro("(defmacro cache-test [] 888)");
+  await defineMacro("(macro cache-test [] 888)");
   const js = await hqlEval("(cache-test)");
 
   assertEquals(js.includes("888"), true, "Should expand despite any caching");

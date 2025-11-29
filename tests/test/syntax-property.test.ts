@@ -112,7 +112,7 @@ nums
 Deno.test("Property: call array map method with anonymous fn", async () => {
   const code = `
 (var nums [1, 2, 3])
-(nums.map (fn (n) (* n 2)))
+(nums.map (fn [n] (* n 2)))
 `;
   const result = await run(code);
   assertEquals(result, [2, 4, 6]);
@@ -121,7 +121,7 @@ Deno.test("Property: call array map method with anonymous fn", async () => {
 Deno.test("Property: call array filter method with anonymous fn", async () => {
   const code = `
 (var nums [1, 2, 3, 4, 5])
-(nums.filter (fn (n) (> n 2)))
+(nums.filter (fn [n] (> n 2)))
 `;
   const result = await run(code);
   assertEquals(result, [3, 4, 5]);
@@ -143,8 +143,8 @@ Deno.test("Property: chain multiple method calls", async () => {
 Deno.test("Property: chain map and filter operations", async () => {
   const code = `
 (var nums [1, 2, 3, 4, 5])
-(var doubled (nums.map (fn (n) (* n 2))))
-(doubled.filter (fn (n) (> n 5)))
+(var doubled (nums.map (fn [n] (* n 2))))
+(doubled.filter (fn [n] (> n 5)))
 `;
   const result = await run(code);
   assertEquals(result, [6, 8, 10]);

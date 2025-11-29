@@ -34,7 +34,7 @@ Deno.test("JS Interop: js-call with arguments", async () => {
 Deno.test("JS Interop: js-call on array with filter", async () => {
   const code = `
 (var nums [1, 2, 3, 4, 5])
-(js-call nums "filter" (fn (x) (> x 2)))
+(js-call nums "filter" (fn [x] (> x 2)))
 `;
   const result = await run(code);
   assertEquals(result, [3, 4, 5]);
@@ -113,7 +113,7 @@ Deno.test({
   name: "Async: Basic async function with await",
   async fn() {
     const code = `
-(async fn get-value ()
+(async fn get-value []
   (await (js-call Promise "resolve" 42)))
 
 (get-value)
@@ -128,7 +128,7 @@ Deno.test({
   name: "Async: Multiple awaits in sequence",
   async fn() {
     const code = `
-(async fn add-async (a b)
+(async fn add-async [a b]
   (let x (await (js-call Promise "resolve" a)))
   (let y (await (js-call Promise "resolve" b)))
   (+ x y))
@@ -145,7 +145,7 @@ Deno.test({
   name: "Async: Await with actual delay",
   async fn() {
     const code = `
-(async fn delayed-value ()
+(async fn delayed-value []
   (await (js-call Promise "resolve" "success")))
 
 (delayed-value)
@@ -160,7 +160,7 @@ Deno.test({
   name: "Async: Promise.all with multiple promises",
   async fn() {
     const code = `
-(async fn fetch-all ()
+(async fn fetch-all []
   (let promises [
     (js-call Promise "resolve" 1)
     (js-call Promise "resolve" 2)
@@ -179,7 +179,7 @@ Deno.test({
   name: "Async: Promise.race",
   async fn() {
     const code = `
-(async fn race-promises ()
+(async fn race-promises []
   (let promises [
     (js-call Promise "resolve" "slow")
     (js-call Promise "resolve" "fast")])
@@ -198,10 +198,10 @@ Deno.test({
   name: "Async: Chained async operations",
   async fn() {
     const code = `
-(async fn step1 ()
+(async fn step1 []
   (await (js-call Promise "resolve" 5)))
 
-(async fn step2 (x)
+(async fn step2 [x]
   (let result (await (step1)))
   (* x result))
 
@@ -217,7 +217,7 @@ Deno.test({
   name: "Async: Async function returning computed values",
   async fn() {
     const code = `
-(async fn get-user-data ()
+(async fn get-user-data []
   (let name (await (js-call Promise "resolve" "Alice")))
   (let age (await (js-call Promise "resolve" 30)))
   [name age])
@@ -234,9 +234,9 @@ Deno.test({
   name: "Async: Async with array operations",
   async fn() {
     const code = `
-(async fn process-array ()
+(async fn process-array []
   (let arr (await (js-call Promise "resolve" [1 2 3 4 5])))
-  (arr .map (fn (x) (* x 2))))
+  (arr .map (fn [x] (* x 2))))
 
 (process-array)
 `;
@@ -250,7 +250,7 @@ Deno.test({
   name: "Async: Promise rejection with catch",
   async fn() {
     const code = `
-(async fn safe-call (shouldFail)
+(async fn safe-call [shouldFail]
   (if shouldFail
     (await (js-call Promise "reject" "intentional-error"))
     (await (js-call Promise "resolve" "success"))))
@@ -267,14 +267,14 @@ Deno.test({
   name: "Async: Nested async calls",
   async fn() {
     const code = `
-(async fn inner ()
+(async fn inner []
   (await (js-call Promise "resolve" 100)))
 
-(async fn middle ()
+(async fn middle []
   (let x (await (inner)))
   (+ x 50))
 
-(async fn outer ()
+(async fn outer []
   (let y (await (middle)))
   (+ y 25))
 
@@ -290,8 +290,8 @@ Deno.test({
   name: "Regression: js-new Promise with setTimeout (Bug #1)",
   async fn() {
     const code = `
-(js-new Promise ((fn (resolve)
-  (js-call setTimeout (fn () (resolve "delayed")) 50))))
+(js-new Promise ((fn [resolve]
+  (js-call setTimeout (fn [] (resolve "delayed")) 50))))
 `;
     const result = await run(code);
     assertEquals(result, "delayed");
@@ -302,7 +302,7 @@ Deno.test({
   name: "Regression: js-new Promise with immediate resolve",
   async fn() {
     const code = `
-(js-new Promise ((fn (resolve)
+(js-new Promise ((fn [resolve]
   (resolve "immediate"))))
 `;
     const result = await run(code);
@@ -441,7 +441,7 @@ Deno.test({
   name: "Error: HQL function throws, catches internally",
   async fn() {
     const code = `
-(async fn may-fail (shouldFail)
+(async fn may-fail [shouldFail]
   (try
     (if shouldFail
       (throw "hql-error")
@@ -530,7 +530,7 @@ Deno.test({
   name: "Error: Async function with try/catch",
   async fn() {
     const code = `
-(async fn safe-operation (shouldFail)
+(async fn safe-operation [shouldFail]
   (try
     (if shouldFail
       (throw "operation-failed")
@@ -552,7 +552,7 @@ Deno.test({
     const code = `
 (var cleanup [])
 
-(async fn with-cleanup (shouldFail)
+(async fn with-cleanup [shouldFail]
   (try
     (if shouldFail
       (throw "failed")
@@ -562,7 +562,7 @@ Deno.test({
     (finally
       (cleanup .push "cleanup-done"))))
 
-(async fn test ()
+(async fn test []
   (let result (await (with-cleanup true)))
   (let cleanupValue cleanup)
   [result cleanupValue])
@@ -702,7 +702,7 @@ Deno.test({
   async fn() {
     const code = `
 (var arr [1 2 3 4 5])
-(js-call arr "map" (fn (x) (* x 2)))
+(js-call arr "map" (fn [x] (* x 2)))
 `;
     const result = await run(code);
     assertEquals(result, [2, 4, 6, 8, 10]);
@@ -727,7 +727,7 @@ Deno.test({
   async fn() {
     const code = `
 (fn multiplier [factor]
-  (fn (x) (* x factor)))
+  (fn [x] (* x factor)))
 
 (var times3 (multiplier 3))
 (times3 7)
@@ -742,7 +742,7 @@ Deno.test({
   async fn() {
     const code = `
 (fn make-adder [x]
-  (fn (y) (+ x y)))
+  (fn [y] (+ x y)))
 
 (var add5 (make-adder 5))
 (add5 10)
@@ -809,7 +809,7 @@ Deno.test({
     const code = `
 (var arr [1 2 3 4 5])
 (var len (arr .length))
-(var doubled (arr .map (fn (x) (* x 2))))
+(var doubled (arr .map (fn [x] (* x 2))))
 (js-get doubled "length")
 `;
     const result = await run(code);
@@ -833,7 +833,7 @@ Deno.test({
   name: "Interop Deep Dive: this binding in methods",
   async fn() {
     const code = `
-(var obj {"value": 100, "getValue": (fn () (js-get this "value"))})
+(var obj {"value": 100, "getValue": (fn [] (js-get this "value"))})
 (js-call obj "getValue")
 `;
     const result = await run(code);
@@ -919,7 +919,7 @@ Deno.test({
     (= this.count (+ this.count 1))
     this.count)
 
-  (fn getValue ()
+  (fn getValue []
     this.count))
 
 (export [Counter])

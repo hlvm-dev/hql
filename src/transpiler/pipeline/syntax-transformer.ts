@@ -4,6 +4,7 @@
 import {
   couldBePattern,
   createList,
+  createListFrom,
   createLiteral,
   createSymbol,
   isList,
@@ -14,7 +15,7 @@ import {
   type SSymbol,
 } from "../../s-exp/types.ts";
 import { globalLogger as logger, type Logger } from "../../logger.ts";
-import { perform, TransformError } from "../../common/error.ts";
+import { HQLError, perform, TransformError } from "../../common/error.ts";
 import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import type { ListNode, SymbolNode } from "../type/hql_ast.ts";
 import { globalSymbolTable } from "../symbol_table.ts";
@@ -349,17 +350,18 @@ export function transformSyntax(ast: SExp[]): SExp[] {
               );
             }
           } catch (error) {
-            if (!(error instanceof TransformError)) {
-              const errorLoc = getLocationFromNode(list);
-              throw new TransformError(
-                `Invalid let form: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-                "let form validation",
-                withSourceLocationOpts(errorLoc, list),
-              );
+            // Preserve HQLError instances (ValidationError, ParseError, etc.)
+            if (error instanceof HQLError) {
+              throw error;
             }
-            throw error;
+            const errorLoc = getLocationFromNode(list);
+            throw new TransformError(
+              `Invalid let form: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              "let form validation",
+              withSourceLocationOpts(errorLoc, list),
+            );
           }
         }
       }
@@ -423,21 +425,19 @@ export function transformSyntax(ast: SExp[]): SExp[] {
     try {
       transformed.push(transformNode(node, enumDefinitions, logger));
     } catch (error) {
-      // Enhance error with better source location information
-      if (error instanceof TransformError) {
-        // Error already has good info, just re-throw
+      // Preserve HQLError instances (ValidationError, ParseError, TransformError, etc.)
+      if (error instanceof HQLError) {
         throw error;
-      } else {
-        // Convert regular error to TransformError with source location
-        const errorLoc = getLocationFromNode(node);
-        throw new TransformError(
-          `Transformation error: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-          "node transformation",
-          withSourceLocationOpts(errorLoc, node),
-        );
       }
+      // Convert regular error to TransformError with source location
+      const errorLoc = getLocationFromNode(node);
+      throw new TransformError(
+        `Transformation error: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        "node transformation",
+        withSourceLocationOpts(errorLoc, node),
+      );
     }
   }
   logger.debug(
@@ -630,8 +630,7 @@ export function transformNode(
       if (
         list.elements.length >= 3 &&
         isSymbol(list.elements[0]) &&
-        ((list.elements[0] as SSymbol).name === "=" ||
-          (list.elements[0] as SSymbol).name === "eq?")
+        (list.elements[0] as SSymbol).name === "="
       ) {
         return transformEqualityExpression(list, enumDefinitions, logger);
       }
@@ -664,9 +663,9 @@ export function transformNode(
       switch (op) {
         case "fn":
           return transformFnSyntax(normalizedList, enumDefinitions, logger);
-        // Handle defmacro specially to fix parameter list parsing
-        case "defmacro":
-          return transformDefmacro(normalizedList, enumDefinitions, logger);
+        // Handle macro specially to fix parameter list parsing
+        case "macro":
+          return transformMacro(normalizedList, enumDefinitions, logger);
         // Handle special forms that might contain enum comparisons
         case "if":
         case "cond":
@@ -694,20 +693,20 @@ export function transformNode(
 }
 
 /**
- * Transform a let expression with enhanced error checking
+ * Transform a macro expression with enhanced error checking
  */
-function transformDefmacro(
+function transformMacro(
   list: SList,
   enumDefinitions: Map<string, SList>,
   logger: Logger,
 ): SExp {
-  // defmacro needs at least: (defmacro name params body)
+  // macro needs at least: (macro name params body)
   if (list.elements.length < 4) {
     return list; // Let macro.ts handle the error
   }
 
   const transformedElements: SExp[] = [
-    list.elements[0], // defmacro keyword
+    list.elements[0], // macro keyword
     list.elements[1], // macro name
   ];
 
@@ -1048,7 +1047,6 @@ function transformSpecialForm(
   switch (op) {
     case "=":
     case "==":
-    case "eq?":
       // Special handling for equality expressions
       return transformEqualityExpression(list, enumDefinitions, logger);
 
@@ -1133,7 +1131,8 @@ function transformSpecialForm(
       });
   }
 
-  return createList(...transformed);
+  // Use createListFrom to preserve source location through transformation
+  return createListFrom(list, transformed);
 }
 
 /**
@@ -1177,13 +1176,23 @@ function normalizeSpacelessDotChain(list: SList): SList {
   }
 
   // Build new element list: [obj, .method1, .method2, ...original args]
+  // Copy _meta from the original symbol to preserve source location for error mapping
+  const originalMeta = (first as SSymbol)._meta;
+  const copyMetaToSymbol = (sym: SSymbol): SSymbol => {
+    if (originalMeta) {
+      return { ...sym, _meta: { ...originalMeta } };
+    }
+    return sym;
+  };
+
   const newElements: SExp[] = [
-    createSymbol(parts[0]),                             // "text"
-    ...parts.slice(1).map(p => createSymbol('.' + p)),  // ".trim", ".toUpperCase"
-    ...list.elements.slice(1)                           // Keep all arguments unchanged
+    copyMetaToSymbol(createSymbol(parts[0])),                             // "text"
+    ...parts.slice(1).map(p => copyMetaToSymbol(createSymbol('.' + p))),  // ".trim", ".toUpperCase"
+    ...list.elements.slice(1)                                              // Keep all arguments unchanged
   ];
 
-  return createList(...newElements);
+  // Use createListFrom to preserve source location through transformation
+  return createListFrom(list, newElements);
 }
 
 /**
@@ -1269,6 +1278,7 @@ function transformDotChainForm(
       }
 
       // Build the nested method calls from inside out
+      // Preserve _meta from method symbols for accurate error source mapping
       for (let i = 0; i < methodGroups.length; i++) {
         const { method, args } = methodGroups[i];
         const methodName = (method as SymbolNode).name;
@@ -1277,27 +1287,28 @@ function transformDotChainForm(
         // Determine how to handle this dot-chain element
         if (args.length > 0) {
           // Has arguments - definitely a method call
-          result = createList(
+          // Use createListFrom with method as source to preserve _meta
+          result = createListFrom(method as SExp, [
             createSymbol("method-call"),
             result,
             createLiteral(methodNameWithoutDot),
             ...args,
-          );
+          ]);
         } else if (i < methodGroups.length - 1) {
           // No arguments but not the last in chain - treat as a JS method with runtime check
-          result = createList(
+          result = createListFrom(method as SExp, [
             createSymbol("js-method"),
             result,
             createLiteral(methodNameWithoutDot),
-          );
+          ]);
         } else {
           // No arguments and last in chain - could be property or no-arg method
           // Use js-method to dynamically check at runtime
-          result = createList(
+          result = createListFrom(method as SExp, [
             createSymbol("js-method"),
             result,
             createLiteral(methodNameWithoutDot),
-          );
+          ]);
         }
       }
 
@@ -1335,10 +1346,10 @@ function transformFnSyntax(
 
       // Dispatch based on whether this is named or anonymous
       if (isSymbol(secondElement)) {
-        // Named function: (fn name (params) body...)
+        // Named function: (fn name [params] body...)
         return transformNamedFnSyntax(list, enumDefinitions, logger);
       } else if (isList(secondElement)) {
-        // Anonymous function: (fn (params) body...)
+        // Anonymous function: (fn [params] body...)
         return transformAnonymousFnSyntax(list, enumDefinitions, logger);
       } else {
         throw new TransformError(
@@ -1355,7 +1366,7 @@ function transformFnSyntax(
 }
 
 /**
- * Transform named fn syntax: (fn name (params) body...)
+ * Transform named fn syntax: (fn name [params] body...)
  */
 function transformNamedFnSyntax(
   list: SList,
@@ -1414,7 +1425,7 @@ function transformNamedFnSyntax(
 }
 
 /**
- * Transform anonymous fn syntax: (fn (params) body...)
+ * Transform anonymous fn syntax: (fn [params] body...)
  */
 function transformAnonymousFnSyntax(
   list: SList,

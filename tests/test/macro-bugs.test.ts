@@ -15,13 +15,13 @@ Deno.test("Macro Bug Fix: Cache invalidation on redefinition (runtime API)", asy
   await resetRuntime();
 
   // Define macro that adds 1
-  await defineMacro("(defmacro cache-test [n] `(+ 1 ~n))");
+  await defineMacro("(macro cache-test [n] `(+ 1 ~n))");
   const js1 = await hqlEval("(cache-test 5)");
   const result1 = eval(js1); // Execute the generated JS
   assertEquals(result1, 6, "First definition should return 6");
 
   // Redefine macro to add 2
-  await defineMacro("(defmacro cache-test [n] `(+ 2 ~n))");
+  await defineMacro("(macro cache-test [n] `(+ 2 ~n))");
   const js2 = await hqlEval("(cache-test 5)");
   const result2 = eval(js2); // Execute the generated JS
   assertEquals(result2, 7, "After redefinition should return 7 (not cached 6)");
@@ -29,10 +29,10 @@ Deno.test("Macro Bug Fix: Cache invalidation on redefinition (runtime API)", asy
 
 Deno.test("Macro Bug Fix: Cache invalidation within same compilation", async () => {
   const code = `
-(macro redef (x) \`(+ 1 ~x))
+(macro redef [x] \`(+ 1 ~x))
 (var r1 (redef 5))
 
-(macro redef (x) \`(+ 2 ~x))
+(macro redef [x] \`(+ 2 ~x))
 (var r2 (redef 5))
 
 [r1 r2]
@@ -97,10 +97,10 @@ Deno.test("Macro Bug Fix: Triple nested quasiquote", async () => {
 Deno.test("Macro behavior: Variable capture (manual hygiene)", async () => {
   const code = `
 (var x 100)
-(macro use-x ()
+(macro use-x []
   \`(+ x 5))
 
-(fn test-scope ()
+(fn test-scope []
   (var x 200)
   (use-x))
 
@@ -115,7 +115,7 @@ Deno.test("Macro behavior: Variable capture (manual hygiene)", async () => {
 
 Deno.test("Macro behavior: Manual hygiene with unique names works", async () => {
   const code = `
-(macro with-temp (value & body)
+(macro with-temp [value & body]
   \`(let (temp_generated_1234 ~value)
      ~@body))
 
@@ -133,7 +133,7 @@ Deno.test("Macro behavior: Basic macros work correctly", async () => {
   // Users must manually ensure variable names don't collide
   // This is similar to Common Lisp's approach
   const code = `
-(macro simple (x)
+(macro simple [x]
   \`(* 2 ~x))
 (simple 5)
 `;
@@ -144,7 +144,7 @@ Deno.test("Macro behavior: Basic macros work correctly", async () => {
 Deno.test("Macro behavior: Free variables capture from outer scope", async () => {
   const code = `
 (var scale 10)
-(macro multiply-by-scale (n)
+(macro multiply-by-scale [n]
   \`(* scale ~n))
 
 (multiply-by-scale 5)
@@ -162,7 +162,7 @@ Deno.test("Macro behavior: Free variables capture from outer scope", async () =>
 
 Deno.test("Macro behavior: Explicitly unquoted variables capture correctly", async () => {
   const code = `
-(macro use-var (var-name value)
+(macro use-var [var-name value]
   \`(+ ~var-name ~value))
 
 (var x 100)

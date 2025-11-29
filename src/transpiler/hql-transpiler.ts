@@ -128,7 +128,7 @@ export async function transpileToJavascript(
  *
  * @example
  * // Expand a simple macro
- * const expanded = await expandHql('(when true (println "yes"))');
+ * const expanded = await expandHql('(when true (print "yes"))');
  * // → Expands 'when' macro to 'if' form
  *
  * @example

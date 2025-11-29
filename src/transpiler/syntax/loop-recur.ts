@@ -3,11 +3,12 @@
 
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
-import { TransformError, ValidationError } from "../../common/error.ts";
+import { HQLError, TransformError, ValidationError } from "../../common/error.ts";
 import { sanitizeIdentifier } from "../../common/utils.ts";
 import { validateTransformed } from "../utils/validation-helpers.ts";
 import { ensureReturnStatement } from "../utils/ir-helpers.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
+import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
 
 // Stack to track the current loop context for recur targeting
 const loopContextStack: string[] = [];
@@ -67,7 +68,7 @@ export function transformLoop(
         "loop requires bindings and at least one body expression",
         "loop statement",
         "bindings and body",
-        `${list.elements.length - 1} elements`,
+        { actualType: `${list.elements.length - 1} elements`, ...extractMetaSourceLocation(list) },
       );
     }
 
@@ -77,7 +78,7 @@ export function transformLoop(
         "loop bindings must be a list",
         "loop bindings",
         "list",
-        bindingsNode.type,
+        { actualType: bindingsNode.type, ...extractMetaSourceLocation(bindingsNode) },
       );
     }
 
@@ -87,7 +88,7 @@ export function transformLoop(
         "loop bindings require an even number of forms",
         "loop bindings",
         "even number",
-        String(bindings.elements.length), // Convert to string to fix type error
+        { actualType: String(bindings.elements.length), ...extractMetaSourceLocation(bindings) },
       );
     }
 
@@ -107,7 +108,7 @@ export function transformLoop(
             "loop binding names must be symbols",
             "loop binding name",
             "symbol",
-            nameNode.type,
+            { actualType: nameNode.type, ...extractMetaSourceLocation(nameNode) },
           );
         }
 
@@ -247,6 +248,10 @@ export function transformLoop(
       popLoopContext();
     }
   } catch (error) {
+    // Preserve HQLError instances (ValidationError, ParseError, etc.)
+    if (error instanceof HQLError) {
+      throw error;
+    }
     throw new TransformError(
       `Failed to transform loop: ${
         error instanceof Error ? error.message : String(error)
@@ -274,7 +279,7 @@ export function transformIfForLoop(
         "if requires test and then clause",
         "if statement",
         "test and then clause",
-        `${ifExpr.elements.length - 1} elements`,
+        { actualType: `${ifExpr.elements.length - 1} elements`, ...extractMetaSourceLocation(ifExpr) },
       );
     }
 
@@ -333,6 +338,10 @@ export function transformIfForLoop(
       alternate,
     } as IR.IRIfStatement;
   } catch (error) {
+    // Preserve HQLError instances (ValidationError, ParseError, etc.)
+    if (error instanceof HQLError) {
+      throw error;
+    }
     throw new TransformError(
       `Failed to transform if for loop: ${
         error instanceof Error ? error.message : String(error)
@@ -853,7 +862,7 @@ export function transformRecur(
         "Invalid recur form",
         "recur statement",
         "recur with arguments",
-        "incomplete recur form",
+        { actualType: "incomplete recur form", ...extractMetaSourceLocation(list) },
       );
     }
 
@@ -863,7 +872,7 @@ export function transformRecur(
         "recur must be used inside a loop",
         "recur statement",
         "inside loop context",
-        "outside loop context",
+        { actualType: "outside loop context", ...extractMetaSourceLocation(list) },
       );
     }
 
@@ -897,6 +906,10 @@ export function transformRecur(
       argument: loopCall,
     } as IR.IRReturnStatement;
   } catch (error) {
+    // Preserve HQLError instances (ValidationError, ParseError, etc.)
+    if (error instanceof HQLError) {
+      throw error;
+    }
     throw new TransformError(
       `Failed to transform recur: ${
         error instanceof Error ? error.message : String(error)

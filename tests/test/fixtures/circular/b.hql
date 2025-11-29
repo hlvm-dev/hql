@@ -3,7 +3,7 @@
 
 (import [circularValue] from "./a.hql")
 
-(fn incrementCircular (value)
+(fn incrementCircular [value]
   (+ value circularValue))
 
 (export [incrementCircular])

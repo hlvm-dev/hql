@@ -53,7 +53,7 @@ Deno.test("Function: fn with multiple parameters", async () => {
 
 Deno.test("Function: anonymous fn expression", async () => {
   const code = `
-(let square (fn (x) (* x x)))
+(let square (fn [x] (* x x)))
 (square 6)
 `;
   const result = await run(code);
@@ -62,7 +62,7 @@ Deno.test("Function: anonymous fn expression", async () => {
 
 Deno.test("Function: anonymous fn with parameters", async () => {
   const code = `
-(let add (fn (a b) (+ a b)))
+(let add (fn [a b] (+ a b)))
 (add 7 8)
 `;
   const result = await run(code);
@@ -82,7 +82,7 @@ Deno.test("Function: nested function calls", async () => {
 Deno.test("Function: function returning function", async () => {
   const code = `
 (fn make-adder [n]
-  (fn (x) (+ x n)))
+  (fn [x] (+ x n)))
 (let add5 (make-adder 5))
 (add5 10)
 `;
@@ -128,7 +128,7 @@ Deno.test("Function: function as argument", async () => {
 Deno.test("Function: arrow function syntax", async () => {
   const code = `
 (var nums [1, 2, 3, 4, 5])
-(nums.map (fn (n) (* n 2)))
+(nums.map (fn [n] (* n 2)))
 `;
   const result = await run(code);
   assertEquals(result, [2, 4, 6, 8, 10]);
@@ -146,7 +146,7 @@ Deno.test("Function: function with default behavior", async () => {
 
 Deno.test("Function: immediately invoked function", async () => {
   const code = `
-((fn (x) (* x x)) 7)
+((fn [x] (* x x)) 7)
 `;
   const result = await run(code);
   assertEquals(result, 49);
@@ -240,7 +240,7 @@ Deno.test("Function: default params - single param override", async () => {
 Deno.test("Function: rest params - basic rest only", async () => {
   const code = `
 (fn sum [& rest]
-  (.reduce rest (fn (acc val) (+ acc val)) 0))
+  (.reduce rest (fn [acc val] (+ acc val)) 0))
 
 (sum 1 2 3 4 5)
 `;
@@ -251,7 +251,7 @@ Deno.test("Function: rest params - basic rest only", async () => {
 Deno.test("Function: rest params - with regular params", async () => {
   const code = `
 (fn sum [x y & rest]
-  (+ x y (.reduce rest (fn (acc val) (+ acc val)) 0)))
+  (+ x y (.reduce rest (fn [acc val] (+ acc val)) 0)))
 
 (sum 10 20 1 2 3)
 `;
@@ -262,7 +262,7 @@ Deno.test("Function: rest params - with regular params", async () => {
 Deno.test("Function: rest params - empty rest array", async () => {
   const code = `
 (fn sum [x y & rest]
-  (+ x y (.reduce rest (fn (acc val) (+ acc val)) 0)))
+  (+ x y (.reduce rest (fn [acc val] (+ acc val)) 0)))
 
 (sum 10 20)
 `;
@@ -389,7 +389,7 @@ Deno.test("Function: placeholder - all placeholders", async () => {
 Deno.test("Function: comprehensive - defaults + rest", async () => {
   const code = `
 (fn calculate [base = 100 multiplier = 2 & rest]
-  (+ (* base multiplier) (.reduce rest (fn (acc val) (+ acc val)) 0)))
+  (+ (* base multiplier) (.reduce rest (fn [acc val] (+ acc val)) 0)))
 
 (calculate 10 5 1 2 3)
 `;
@@ -415,7 +415,7 @@ Deno.test("Return: implicit return from function", async () => {
 
 Deno.test("Return: implicit return from anonymous fn", async () => {
   const code = `
-(let add-two (fn (x) (+ x 2)))
+(let add-two (fn [x] (+ x 2)))
 (add-two 10)
 `;
   const result = await run(code);
@@ -459,7 +459,7 @@ Deno.test("Return: return in conditional branch", async () => {
 Deno.test("Return: explicit return in anonymous fn", async () => {
   const code = `
 (let check-positive
-  (fn (x)
+  (fn [x]
     (if (< x 0)
       (return false)
       true)))
@@ -472,7 +472,7 @@ Deno.test("Return: explicit return in anonymous fn", async () => {
 Deno.test("Return: anonymous fn with early return", async () => {
   const code = `
 (let process
-  (fn (x)
+  (fn [x]
     (if (=== x 0)
       (return "zero")
       (+ "number: " x))))
@@ -554,7 +554,7 @@ Deno.test("Return: function without return yields last expression", async () => 
 Deno.test("Return: return inside do block", async () => {
   const code = `
 (let process-list
-  (fn (nums)
+  (fn [nums]
     (do
       (if (< (get nums 0) 0)
         (return "negative")
@@ -601,7 +601,7 @@ Deno.test("Validation: named arguments are rejected with helpful error", async (
   await assertRejects(
     async () => await run(code),
     Error,
-    "HQL1001",
+    "HQL1005",
   );
 });
 

@@ -7,161 +7,197 @@
 ;; to regenerate core/src/lib/embedded-macros.ts
 ;; ====================================================
 
-(macro not (value)
+(macro not [value]
   `(if ~value false true))
 
 ;; Note: list?, symbol?, and name are built-in functions defined in environment.ts
 
 ;; Macro versions for user code (generate efficient inline code)
-(macro length (coll)
+;; NOTE: first, rest, cons, nth, second, seq are in STDLIB (core.js)
+;; They handle LazySeq properly - DO NOT shadow them with macros!
+
+(macro length [coll]
   `(if (=== ~coll null)
        0
        (js-get ~coll "length")))
 
-(macro first (coll)
-  `(get ~coll 0))
-
-(macro rest (coll)
-  `(js-call ~coll "slice" 1))
-
-(macro next (coll)
-  `(if (< (js-get ~coll "length") 2)
-       null
-       (js-call ~coll "slice" 1)))
-
-(macro list (& items)
+(macro list [& items]
   `[~@items])
 
-(macro nil? (x)
+(macro nil? [x]
   `(=== ~x null))
 
-(macro empty? (coll)
+(macro empty? [coll]
   `(if (nil? ~coll)
        true
        (=== (length ~coll) 0)))
 
-(macro or (& args)
+;; ----------------------------------------
+;; JavaScript-Style Type Predicates
+;; ----------------------------------------
+;; These compile to OPTIMAL inline JS - no IIFEs, no function calls.
+;; Uses JS loose equality (==) for nullish checks: x == null is true for both null AND undefined.
+
+;; Null/Undefined checks - use JS loose equality for efficiency
+(macro isNull [x]
+  `(=== ~x null))
+
+(macro isUndefined [x]
+  `(=== ~x undefined))
+
+(macro isNil [x]
+  `(== ~x null))              ;; JS: x == null catches both null and undefined
+
+(macro isDefined [x]
+  `(!== ~x undefined))        ;; Direct !== check
+
+(macro notNil [x]
+  `(!= ~x null))              ;; JS: x != null is true when x is neither null nor undefined
+
+;; Type checks - compile to inline typeof checks
+(macro isString [x]
+  `(=== (typeof ~x) "string"))
+
+(macro isNumber [x]
+  `(=== (typeof ~x) "number"))
+
+(macro isBoolean [x]
+  `(=== (typeof ~x) "boolean"))
+
+(macro isFunction [x]
+  `(=== (typeof ~x) "function"))
+
+(macro isSymbol [x]
+  `(=== (typeof ~x) "symbol"))
+
+;; Object/Array checks - use && for direct JS output
+(macro isArray [x]
+  `(Array.isArray ~x))
+
+(macro isObject [x]
+  `(&& (&& (=== (typeof ~x) "object")
+           (!== ~x null))
+       (! (Array.isArray ~x))))
+
+;; ----------------------------------------
+;; camelCase Aliases for Lisp-Style Macros
+;; ----------------------------------------
+;; Pure aliases - expand to the kebab-case versions.
+
+(macro ifLet [binding then-expr else-expr]
+  `(if-let ~binding ~then-expr ~else-expr))
+
+(macro whenLet [binding & body]
+  `(when-let ~binding ~@body))
+
+(macro or [& args]
   (cond
     ((%empty? args) false)
     ((=== (%length args) 1) (%first args))
     (true
-      `((fn (value)
+      `((fn [value]
           (if value
               value
               (or ~@(%rest args))))
         ~(%first args)))))
 
-(macro and (& args)
+(macro and [& args]
   (cond
     ((%empty? args) true)
     ((=== (%length args) 1) (%first args))
     (true
-      `((fn (value)
+      `((fn [value]
           (if value
               (and ~@(%rest args))
               value))
         ~(%first args)))))
 
-(macro when (test & body)
+(macro when [test & body]
   `(if ~test
        (do ~@body)
        nil))
 
-(macro when-let (binding & body)
+(macro when-let [binding & body]
   (let (var-name (%first binding)
         var-value (%nth binding 1))
-    `((fn (~var-name)
+    `((fn [~var-name]
          (when ~var-name
              ~@body))
        ~var-value)))
 
-(macro unless (test & body)
+(macro unless [test & body]
   `(if ~test
        nil
        (do ~@body)))
 
-(macro inc (x)
+(macro inc [x]
   `(+ ~x 1))
 
-(macro dec (x)
+(macro dec [x]
   `(- ~x 1))
 
-(macro print (& args)
+(macro print [& args]
   `(console.log ~@args))
 
-(macro cons (item lst)
-  `(concat (list ~item) ~lst))
+;; NOTE: cons is in STDLIB - handles LazySeq properly
 
-(fn concat (arr1 arr2)
-  (js-call arr1 "concat" arr2))
-
-(macro set (target value)
+(macro set [target value]
   `(= ~target ~value))
 
-(macro str (& args)
+(macro str [& args]
   (cond
     ((%empty? args) `"")
     ((=== (%length args) 1) `(+ "" ~(%first args)))
     (true `(+ ~@args))))
 
-(macro contains? (coll key)
+(macro contains? [coll key]
   `(js-call ~coll "has" ~key))
 
-(macro nth (coll index)
-  `(get ~coll ~index))
+;; NOTE: nth is in STDLIB - handles LazySeq properly
 
-(macro if-let (binding then-expr else-expr)
+(macro if-let [binding then-expr else-expr]
   (let (var-name (%first binding)
         var-value (%nth binding 1))
-    `((fn (~var-name)
+    `((fn [~var-name]
          (if ~var-name
              ~then-expr
              ~else-expr))
        ~var-value)))
 
-(macro second (coll)
-  `(if (and (not (nil? ~coll)) (> (length ~coll) 1))
-      (nth ~coll 1)
-      nil))
+;; NOTE: second is in STDLIB - handles LazySeq properly
 
-(macro rest? (coll)
+(macro rest? [coll]
   `(> (length ~coll) 0))
 
-(macro empty-list? (coll)
+(macro empty-list? [coll]
   `(=== (length ~coll) 0))
 
-(macro rest-list (coll)
-  `(js-call ~coll "slice" 1))
+;; NOTE: seq is in STDLIB - handles LazySeq properly
 
-(macro seq (coll)
-  `(if (=== (js-get ~coll "length") 0)
-       null
-       ~coll))
-
-(macro empty-array ()
+(macro empty-array []
   `(vector))
 
 ;; NOTE: `throw` is a kernel primitive, not a macro
 ;; It needs to create ThrowStatement IR node for exception handling
 
 ;; method-call is syntactic sugar over js-call
-(macro method-call (obj method & args)
+(macro method-call [obj method & args]
   `(js-call ~obj ~method ~@args))
 
-(macro hash-map (& items)
+(macro hash-map [& items]
   `(__hql_hash_map ~@items))
 
-(macro empty-map ()
+(macro empty-map []
   `(hash-map))
 
-(macro empty-set ()
+(macro empty-set []
   `(hash-set))
 
 ;; ----------------------------------------
 ;; Core control flow
 ;; ----------------------------------------
 
-(macro cond (& clauses)
+(macro cond [& clauses]
   (if (%empty? clauses)
       nil
       (let (first-clause (%first clauses)

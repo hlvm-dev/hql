@@ -6,7 +6,7 @@ JavaScript’s const. • For reference types (e.g. arrays, objects), the value 
 automatically frozen (using an internal helper such as freeze), ensuring its
 internal state cannot be changed. Usage: Use let when you want the binding to
 remain constant throughout its scope. var: Purpose: Declare mutable bindings.
-Semantics: • Compiles to JavaScript’s let. • Permits updates via set! within its
+Semantics: • Compiles to JavaScript’s let. • Permits updates via = within its
 scope. Usage: Use var when you need the binding’s value to be updated over time.
 Showcase Examples Global Bindings
 
@@ -17,7 +17,7 @@ Showcase Examples Global Bindings
 immutable value:" globalValue) ;; → Compiles to: const globalValue = 10;
 
 ;; Mutable global binding with var: (var globalCounter 0) (print "Global mutable
-counter (initial):" globalCounter) (set! globalCounter (+ globalCounter 1))
+counter (initial):" globalCounter) (= globalCounter (+ globalCounter 1))
 (print "Global mutable counter (after mutation):" globalCounter) ;; → Compiles
 to: let globalCounter = 0; then updated. Local Bindings
 
@@ -25,11 +25,11 @@ to: let globalCounter = 0; then updated. Local Bindings
 vs. Mutable ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; Using let for an immutable local binding: (let (x 10) (print "Local immutable
-x:" x) ;; (set! x 20) ; ERROR: Cannot mutate x because let creates an immutable
+x:" x) ;; (= x 20) ; ERROR: Cannot mutate x because let creates an immutable
 binding. )
 
 ;; Using var for a mutable local binding: (var (y 10) (print "Local mutable y
-(initial):" y) (set! y (+ y 10)) ; Allowed mutation. (print "Local mutable y
+(initial):" y) (= y (+ y 10)) ; Allowed mutation. (print "Local mutable y
 (after mutation):" y) ) JavaScript Interop
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; ;; JavaScript Interop:

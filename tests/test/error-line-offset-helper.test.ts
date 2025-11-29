@@ -16,7 +16,7 @@ Deno.test("Line offset: Error location with array access helper injection", asyn
   // This code will trigger __hql_get helper injection
   // The error is on line 3
   const code = `(let data [1 2 3])
-(let result (map (fn (x) (* x 2)) data))
+(let result (map (fn [x] (* x 2)) data))
 (let bad (/ 10 undefined_var))`;
 
   const tempDir = await makeTempDir({
@@ -58,7 +58,7 @@ Deno.test("Line offset: Error location with array access helper injection", asyn
 Deno.test("Line offset: Error location with get/range/map helpers", async () => {
   // This code uses multiple features that inject helpers
   const code = `(let nums [1 2 3 4 5])
-(let doubled (map (fn (n) (* n 2)) nums))
+(let doubled (map (fn [n] (* n 2)) nums))
 (let first (get nums 0))
 (let bad_var undefined_thing)`;
 

@@ -3,7 +3,7 @@
 
 (import [aBase] from "./multihop-a.hql")
 
-(fn cFunc ()
+(fn cFunc []
   (+ 3 aBase))
 
 (export [cFunc])

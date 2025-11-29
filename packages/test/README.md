@@ -17,7 +17,7 @@ Testing utilities for HQL.
 (assert-eq (+ 2 2) 4 "2 + 2 should equal 4")
 
 ;; Assert that function throws
-(assert-throws (fn () (throw (js/Error. "error"))) "error")
+(assert-throws (fn [] (throw (js/Error. "error"))) "error")
 ```
 
 ## API
@@ -102,15 +102,15 @@ Assert that a function throws an error.
 (import [assert-throws] from "@hql/test")
 
 ;; Assert any error is thrown
-(assert-throws (fn () (throw (js/Error. "boom"))))
+(assert-throws (fn [] (throw (js/Error. "boom"))))
 
 ;; Assert specific error message
 (assert-throws
-  (fn () (throw (js/Error. "file not found")))
+  (fn [] (throw (js/Error. "file not found")))
   "file not found")
 
 ;; Assert error from division by zero
-(assert-throws (fn () (/ 1 0)))
+(assert-throws (fn [] (/ 1 0)))
 ```
 
 ### Complete Test Example
@@ -119,7 +119,7 @@ Assert that a function throws an error.
 (import [assert, assert-eq, assert-throws] from "@hql/test")
 
 ;; Define function to test
-(fn add (a b)
+(fn add [a b]
   (if (or (not (number? a)) (not (number? b)))
     (throw (js/Error. "arguments must be numbers"))
     (+ a b)))
@@ -130,8 +130,8 @@ Assert that a function throws an error.
 (assert-eq (add -1 1) 0 "should handle negative numbers")
 
 ;; Test error cases
-(assert-throws (fn () (add "1" 2)) "arguments must be numbers")
-(assert-throws (fn () (add nil 2)) "arguments must be numbers")
+(assert-throws (fn [] (add "1" 2)) "arguments must be numbers")
+(assert-throws (fn [] (add nil 2)) "arguments must be numbers")
 
 (console.log "All tests passed!")
 ```

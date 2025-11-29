@@ -26,16 +26,16 @@
 ;; Section 2: Explicit Parameters
 ;; ============================================================================
 
-;; Named parameter
-(let square (=> (x) (* x x)))
+;; Named parameter - uses [] for explicit params
+(let square (=> [x] (* x x)))
 (print "square 7 =" (square 7))  ;; → 49
 
 ;; Multiple named parameters
-(let multiply (=> (x y) (* x y)))
+(let multiply (=> [x y] (* x y)))
 (print "multiply 6 7 =" (multiply 6 7))  ;; → 42
 
 ;; Zero parameters
-(let get-constant (=> () 42))
+(let get-constant (=> [] 42))
 (print "constant =" (get-constant))  ;; → 42
 
 ;; ============================================================================

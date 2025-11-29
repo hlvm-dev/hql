@@ -29,8 +29,8 @@ All classes compile to JavaScript ES6 class syntax.
 (class Person
   (constructor [name age]
     (do
-      (set! this.name name)
-      (set! this.age age))))
+      (= this.name name)
+      (= this.age age))))
 
 ; Instantiate with 'new'
 (var p (new Person "Alice" 30))
@@ -42,14 +42,14 @@ All classes compile to JavaScript ES6 class syntax.
 ; Single parameter
 (class Counter
   (constructor [initial]
-    (set! this.count initial)))
+    (= this.count initial)))
 
 ; Multiple parameters
 (class Point
   (constructor [x y]
     (do
-      (set! this.x x)
-      (set! this.y y))))
+      (= this.x x)
+      (= this.y y))))
 
 ; Empty constructor
 (class Empty
@@ -59,8 +59,8 @@ All classes compile to JavaScript ES6 class syntax.
 (class Circle
   (constructor [radius]
     (do
-      (set! this.radius radius)
-      (set! this.diameter (* 2 radius)))))
+      (= this.radius radius)
+      (= this.diameter (* 2 radius)))))
 ```
 
 ### Methods
@@ -69,7 +69,7 @@ All classes compile to JavaScript ES6 class syntax.
 ; Method without parameters
 (class Counter
   (constructor [n]
-    (set! this.count n))
+    (= this.count n))
 
   (fn getValue []
     this.count))
@@ -77,7 +77,7 @@ All classes compile to JavaScript ES6 class syntax.
 ; Method with parameters
 (class Calculator
   (constructor []
-    (set! this.value 0))
+    (= this.value 0))
 
   (fn add [x y]
     (+ x y)))
@@ -85,7 +85,7 @@ All classes compile to JavaScript ES6 class syntax.
 ; Method accessing this properties
 (class Person
   (constructor [name]
-    (set! this.name name))
+    (= this.name name))
 
   (fn greet []
     (+ "Hello, " this.name)))
@@ -93,10 +93,10 @@ All classes compile to JavaScript ES6 class syntax.
 ; Method calling another method
 (class Counter
   (constructor []
-    (set! this.count 0))
+    (= this.count 0))
 
   (fn increment []
-    (set! this.count (+ this.count 1)))
+    (= this.count (+ this.count 1)))
 
   (fn incrementTwice []
     (do
@@ -112,7 +112,7 @@ All classes compile to JavaScript ES6 class syntax.
   (var count 0)
 
   (constructor []
-    (set! this.count 0)))
+    (= this.count 0)))
 
 ; Immutable field (let) - must have default value
 (class Config
@@ -127,8 +127,8 @@ All classes compile to JavaScript ES6 class syntax.
 
   (constructor [accNum initialBalance]
     (do
-      (set! this.accountNumber accNum)
-      (set! this.balance initialBalance))))
+      (= this.accountNumber accNum)
+      (= this.balance initialBalance))))
 ```
 
 ### Property Access and Modification
@@ -139,10 +139,10 @@ All classes compile to JavaScript ES6 class syntax.
 p.name  ; → "Alice"
 
 ; Modify property
-(set! p.name "Bob")
+(= p.name "Bob")
 
 ; Add new property dynamically
-(set! p.email "bob@example.com")
+(= p.email "bob@example.com")
 ```
 
 ### Default Parameters
@@ -151,7 +151,7 @@ p.name  ; → "Alice"
 ; Methods with JSON map parameters (defaults)
 (class Calculator
   (constructor [baseValue]
-    (set! this.baseValue baseValue))
+    (= this.baseValue baseValue))
 
   (fn multiply {"x": 10, "y": 2}
     (* x y)))
@@ -176,8 +176,8 @@ p.name  ; → "Alice"
 (class Person
   (constructor [name age]
     (do
-      (set! this.name name)
-      (set! this.age age)))
+      (= this.name name)
+      (= this.age age)))
 
   (fn greet []
     (+ "Hello, " this.name)))
@@ -239,7 +239,7 @@ class Counter {
 
 ```lisp
 (fn increment []
-  (set! this.count (+ this.count 1)))
+  (= this.count (+ this.count 1)))
 ```
 
 **Compiled:**
@@ -267,7 +267,7 @@ increment() {
 
 - ✅ Access instance properties (`this.prop`)
 - ✅ Call other methods (`this.method()`)
-- ✅ Modify instance state (`set! this.prop value`)
+- ✅ Modify instance state (`(= this.prop value)`)
 - ✅ Return computed values
 - ✅ Return self for chaining
 - ✅ Default parameter values
@@ -358,9 +358,9 @@ in nested expressions ✅ Method returns object literal
 (class User
   (constructor [id name email]
     (do
-      (set! this.id id)
-      (set! this.name name)
-      (set! this.email email)))
+      (= this.id id)
+      (= this.name name)
+      (= this.email email)))
 
   (fn getDisplayName []
     (+ this.name " (" this.email ")")))
@@ -375,16 +375,16 @@ in nested expressions ✅ Method returns object literal
 ; Counter with increment/decrement
 (class Counter
   (constructor [initial]
-    (set! this.count initial))
+    (= this.count initial))
 
   (fn increment []
-    (set! this.count (+ this.count 1)))
+    (= this.count (+ this.count 1)))
 
   (fn decrement []
-    (set! this.count (- this.count 1)))
+    (= this.count (- this.count 1)))
 
   (fn reset []
-    (set! this.count 0)))
+    (= this.count 0)))
 
 (var counter (new Counter 10))
 (counter.increment)
@@ -399,8 +399,8 @@ counter.count  ; → 12
 (class Rectangle
   (constructor [width height]
     (do
-      (set! this.width width)
-      (set! this.height height)))
+      (= this.width width)
+      (= this.height height)))
 
   (fn area []
     (* this.width this.height))
@@ -425,8 +425,8 @@ counter.count  ; → 12
 
   (constructor [customPort customHost]
     (do
-      (set! this.port customPort)
-      (set! this.host customHost)))
+      (= this.port customPort)
+      (= this.host customHost)))
 
   (fn getUrl []
     (+ "http://" this.host ":" this.port)))
@@ -442,16 +442,16 @@ counter.count  ; → 12
 (class UserBuilder
   (constructor []
     (do
-      (set! this.data {})))
+      (= this.data {})))
 
   (fn setName [name]
     (do
-      (set! this.data.name name)
+      (= this.data.name name)
       this))  ; return self for chaining
 
   (fn setAge [age]
     (do
-      (set! this.data.age age)
+      (= this.data.age age)
       this))
 
   (fn build []
@@ -472,17 +472,17 @@ counter.count  ; → 12
 
   (constructor [accountNumber initialBalance]
     (do
-      (set! this.accountNumber accountNumber)
-      (set! this.balance initialBalance)))
+      (= this.accountNumber accountNumber)
+      (= this.balance initialBalance)))
 
   (fn deposit [amount]
     (do
-      (set! this.balance (+ this.balance amount))
+      (= this.balance (+ this.balance amount))
       this.balance))
 
   (fn withdraw [amount]
     (do
-      (set! this.balance (- this.balance amount))
+      (= this.balance (- this.balance amount))
       this.balance))
 
   (fn getBalance []
@@ -499,7 +499,7 @@ counter.count  ; → 12
 ; Circle with computed properties
 (class Circle
   (constructor [radius]
-    (set! this.radius radius))
+    (= this.radius radius))
 
   (fn diameter []
     (* 2 this.radius))
@@ -527,13 +527,13 @@ counter.count  ; → 12
 
   (constructor [title description]
     (do
-      (set! this.title title)
-      (set! this.description description)
-      (set! this.status this.STATUS_PENDING)))
+      (= this.title title)
+      (= this.description description)
+      (= this.status this.STATUS_PENDING)))
 
   (fn markDone []
     (do
-      (set! this.status this.STATUS_DONE)
+      (= this.status this.STATUS_DONE)
       this))
 
   (fn isDone []
@@ -565,8 +565,8 @@ class Person {
 (class Person
   (constructor [name age]
     (do
-      (set! this.name name)
-      (set! this.age age)))
+      (= this.name name)
+      (= this.age age)))
 
   (fn greet []
     (+ "Hello, " this.name)))
@@ -588,8 +588,8 @@ class Person:
 (class Person
   (constructor [name age]
     (do
-      (set! this.name name)
-      (set! this.age age)))
+      (= this.name name)
+      (= this.age age)))
 
   (fn greet []
     (+ "Hello, " this.name)))
@@ -617,8 +617,8 @@ public class Person {
 (class Person
   (constructor [name age]
     (do
-      (set! this.name name)
-      (set! this.age age)))
+      (= this.name name)
+      (= this.age age)))
 
   (fn greet []
     (+ "Hello, " this.name)))
@@ -636,8 +636,8 @@ public class Person {
 (class Person
   (constructor [name age]
     (do
-      (set! this.name name)
-      (set! this.age age)))
+      (= this.name name)
+      (= this.age age)))
 
   (fn greet []
     (+ "Hello, " this.name)))
@@ -680,12 +680,12 @@ JavaScript ES6 Classes
 (class Person
   (constructor [name age]
     (do
-      (set! this.name name)
-      (set! this.age age))))
+      (= this.name name)
+      (= this.age age))))
 
 ; ❌ Avoid: Uninitialized state
 (class Person
-  (fn setName [n] (set! this.name n)))
+  (fn setName [n] (= this.name n)))
 ```
 
 ### Group Related Fields
@@ -699,8 +699,8 @@ JavaScript ES6 Classes
 
   (constructor [w h]
     (do
-      (set! this.width w)
-      (set! this.height h))))
+      (= this.width w)
+      (= this.height h))))
 
 ; ❌ Avoid: Scattered fields
 (class Rectangle
@@ -729,12 +729,12 @@ JavaScript ES6 Classes
 (class Builder
   (fn setName [n]
     (do
-      (set! this.name n)
+      (= this.name n)
       this))
 
   (fn setAge [a]
     (do
-      (set! this.age a)
+      (= this.age a)
       this)))
 
 ; Usage: chaining
@@ -768,8 +768,8 @@ immutable fields ✅ Nested expressions with this ✅ Computed properties
 (class Point
   (constructor [x y]
     (do
-      (set! this.x x)
-      (set! this.y y))))
+      (= this.x x)
+      (= this.y y))))
 ```
 
 ### 2. State Manager
@@ -777,10 +777,10 @@ immutable fields ✅ Nested expressions with this ✅ Computed properties
 ```lisp
 (class Store
   (constructor []
-    (set! this.state {}))
+    (= this.state {}))
 
   (fn setState [key value]
-    (set! this.state[key] value))
+    (= this.state[key] value))
 
   (fn getState [key]
     (get this.state key)))
@@ -791,7 +791,7 @@ immutable fields ✅ Nested expressions with this ✅ Computed properties
 ```lisp
 (class UserService
   (constructor [apiUrl]
-    (set! this.apiUrl apiUrl))
+    (= this.apiUrl apiUrl))
 
   (fn fetchUser [id]
     (fetch (+ this.apiUrl "/users/" id))))
@@ -804,10 +804,10 @@ immutable fields ✅ Nested expressions with this ✅ Computed properties
   (var count 0)
 
   (constructor []
-    (set! this.count 0))
+    (= this.count 0))
 
   (fn increment []
-    (set! this.count (+ this.count 1)))
+    (= this.count (+ this.count 1)))
 
   (fn getValue []
     this.count))

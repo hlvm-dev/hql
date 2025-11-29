@@ -113,7 +113,7 @@ Deno.test("@hql/test - assert-eq passes with equal arrays", async () => {
 Deno.test("@hql/test - assert-throws passes when function throws", async () => {
   const code = `
     (import [assert-throws] from "@hql/test")
-    (assert-throws (fn () (throw (new js/Error "boom"))) nil)
+    (assert-throws (fn [] (throw (new js/Error "boom"))) nil)
   `;
   const result = await run(code);
   assertEquals(result, true);
@@ -122,7 +122,7 @@ Deno.test("@hql/test - assert-throws passes when function throws", async () => {
 Deno.test("@hql/test - assert-throws fails when function doesn't throw", async () => {
   const code = `
     (import [assert-throws] from "@hql/test")
-    (assert-throws (fn () 42) nil)
+    (assert-throws (fn [] 42) nil)
   `;
 
   await assertRejects(
@@ -135,7 +135,7 @@ Deno.test("@hql/test - assert-throws fails when function doesn't throw", async (
 Deno.test("@hql/test - assert-throws passes with matching message", async () => {
   const code = `
     (import [assert-throws] from "@hql/test")
-    (assert-throws (fn () (throw (new js/Error "file not found"))) "file not found")
+    (assert-throws (fn [] (throw (new js/Error "file not found"))) "file not found")
   `;
   const result = await run(code);
   assertEquals(result, true);
@@ -145,7 +145,7 @@ Deno.test("@hql/test - assert-throws ignores message parameter", async () => {
   // Note: Message matching not yet implemented due to transpiler limitations
   const code = `
     (import [assert-throws] from "@hql/test")
-    (assert-throws (fn () (throw (new js/Error "boom"))) "any message")
+    (assert-throws (fn [] (throw (new js/Error "boom"))) "any message")
   `;
 
  const result = await run(code);
@@ -157,7 +157,7 @@ Deno.test("@hql/test - all functions work together", async () => {
     (import [assert, assert-eq, assert-throws] from "@hql/test")
     (var result1 (assert true "test 1"))
     (var result2 (assert-eq (+ 1 1) 2 "test 2"))
-    (var result3 (assert-throws (fn () (throw (new js/Error "test"))) "test"))
+    (var result3 (assert-throws (fn [] (throw (new js/Error "test"))) "test"))
     ;; Return result3 directly (all assertions passed if we get here)
     result3
   `;

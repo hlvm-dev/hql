@@ -395,6 +395,12 @@ function initializeTransformFactory(): void {
         (list, currentDir) =>
           bindingModule.transformConst(list, currentDir, transformNode),
       );
+      // def is an alias for const (Clojure-style immutable binding)
+      transformFactory.set(
+        "def",
+        (list, currentDir) =>
+          bindingModule.transformConst(list, currentDir, transformNode),
+      );
       transformFactory.set(
         "let",
         (list, currentDir) =>
@@ -585,11 +591,13 @@ export function transformJsMethod(
         "Method name must be a string literal or symbol",
       );
 
-      // Create a JsMethodAccess node
+      // Create a JsMethodAccess node with position for source map accuracy
+      const meta = extractMeta(list);
       return {
         type: IR.IRNodeType.JsMethodAccess,
         object,
         method: methodName,
+        position: meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined,
       } as IR.IRJsMethodAccess;
     },
     "transformJsMethod",
@@ -1572,6 +1580,8 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
         const baseObjectName = sanitizeIdentifier(parts[0]);
         const objectName = baseObjectName === "self" ? "this" : baseObjectName;
         const propertyName = parts.slice(1).join(".");
+        // Include position from the source symbol for accurate error mapping
+        const meta = extractMeta(sym);
         return {
           type: IR.IRNodeType.InteropIIFE,
           object: {
@@ -1582,6 +1592,7 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
             type: IR.IRNodeType.StringLiteral,
             value: propertyName,
           } as IR.IRStringLiteral,
+          position: meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined,
         } as IR.IRInteropIIFE;
       }
 

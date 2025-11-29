@@ -4,6 +4,7 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import {
+  HQLError,
   perform,
   TransformError,
   ValidationError,
@@ -16,7 +17,7 @@ import {
 } from "../utils/validation-helpers.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { globalLogger as logger } from "../../logger.ts";
-import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
+import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import {
   parseParametersWithDefaults,
 } from "./function.ts";
@@ -88,7 +89,7 @@ export function transformClass(
         "class requires a name and body elements",
         "class definition",
         "name and body",
-        `${list.elements.length - 1} arguments`,
+        { actualType: `${list.elements.length - 1} arguments`, ...extractMetaSourceLocation(list) },
       );
     }
 
@@ -99,7 +100,7 @@ export function transformClass(
         "Class name must be a symbol",
         "class name",
         "symbol",
-        nameNode.type,
+        { actualType: nameNode.type, ...extractMetaSourceLocation(nameNode) },
       );
     }
     const className = (nameNode as SymbolNode).name;
@@ -177,6 +178,10 @@ export function transformClass(
       methods,
     } as IR.IRClassDeclaration;
   } catch (error) {
+    // Preserve HQLError instances (ValidationError, ParseError, etc.)
+    if (error instanceof HQLError) {
+      throw error;
+    }
     throw new TransformError(
       `Failed to transform class declaration: ${
         error instanceof Error ? error.message : String(error)

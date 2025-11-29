@@ -1,6 +1,5 @@
-Below is the updated markdown document using the latest syntax. Note that the
-use of a `(range ...)` within a for loop is now a **TODO feature**—its example
-is left commented for future implementation.
+Below is the updated markdown document using the latest syntax. The `range`
+function is implemented in HQL's standard library and generates lazy sequences.
 
 ---
 
@@ -57,7 +56,7 @@ Offer a familiar `while` loop construct that internally expands to `loop/recur`.
 
 (while (< count 3)
   (print "While iteration:" count)
-  (set! count (+ count 1)))
+  (= count (+ count 1)))
 
 (print "Final count:" count)
 ```
@@ -66,7 +65,7 @@ Offer a familiar `while` loop construct that internally expands to `loop/recur`.
 
 - `(var count 0)` declares a mutable variable `count`.
 - The `while` loop repeatedly checks if `count` is less than `3`.
-- `set!` updates the mutable binding, and after the loop, the final value is
+- `=` updates the mutable binding, and after the loop, the final value is
   printed.
 
 **Expected Output:**
@@ -80,16 +79,19 @@ Final count: 3
 
 ---
 
-## 3. Repeat Loop
+## 3. Dotimes Loop (Clojure-style fixed iteration)
 
 **Goal:**\
 Provide a concise construct to execute a block of expressions a fixed number of
 times—without manually managing an index variable.
 
+> **Note:** Named `dotimes` after Clojure's convention to avoid conflicts with
+> user code and the stdlib `repeat` function.
+
 **Latest Syntax:**
 
 ```lisp
-(repeat 3
+(dotimes 3
   (print "Hello!"))
 ```
 
@@ -104,7 +106,7 @@ Hello!
 **Multiple Expressions Example:**
 
 ```lisp
-(repeat 2
+(dotimes 2
   (print "First")
   (print "Second"))
 ```
@@ -213,20 +215,24 @@ Named loop 4: 9
 
 ---
 
-## 5. For Loop with Range (TODO Feature)
+## 5. For Loop with Range
 
-Iterating over a collection using a `range` function is anticipated in future
-updates. For now, this feature is marked as **TODO**.
+HQL provides a lazy `range` function in the standard library for generating sequences:
 
 ```lisp
-;; TODO: Implement range function
-;; (for (i (range 10))
-;;   (print "For loop iteration, i:" i))
+;; Iterate over a range
+(for (i 10)
+  (print "Iteration:" i))
+
+;; Using range with doall for explicit sequence
+(doall (map (fn [i] (print "Value:" i)) (range 5)))
+
+;; Range with start, end, step
+(doall (range 0 10 2))  ;; => (0 2 4 6 8)
 ```
 
 **Note:**\
-The above snippet illustrates the planned support for iterating over a generated
-sequence without explicitly managing its creation.
+The `range` function generates lazy sequences that compute elements on demand.
 
 ---
 
@@ -246,8 +252,7 @@ sequence without explicitly managing its creation.
 
 - **Enhanced For Loop:**\
   Provides both traditional (positional) and named parameter forms for iterating
-  over sequences.\
-  The integration of a `(range n)` helper function remains a **TODO feature**.
+  over sequences. The `range` function from stdlib generates lazy sequences.
 
 This set of looping constructs demonstrates HQL's blend of minimalistic,
 explicit recursion with high-level imperative-style controls, offering both

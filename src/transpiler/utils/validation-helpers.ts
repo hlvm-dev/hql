@@ -6,6 +6,18 @@ import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, SymbolNode, ListNode } from "../type/hql_ast.ts";
 
 /**
+ * Extract SourcePosition from an HQL node's _meta field.
+ * Used to propagate source location through IR transformations for accurate error reporting.
+ */
+function extractPosition(node: HQLNode): IR.SourcePosition | undefined {
+  const meta = (node as unknown as { _meta?: { line: number; column: number; filePath?: string } })._meta;
+  if (meta) {
+    return { line: meta.line, column: meta.column, filePath: meta.filePath };
+  }
+  return undefined;
+}
+
+/**
  * Validate that a syntax transformation produced a non-null IR node
  *
  * Helper function to ensure HQL→IR transformations produce valid nodes.
@@ -160,10 +172,18 @@ function transformSpreadArgument(
     const symbolName = (node as SymbolNode).name;
     const argName = symbolName.slice(3); // Remove '...' prefix
 
-    argNode = transformNode(
-      { type: "symbol", name: argName } as SymbolNode,
-      currentDir,
-    );
+    // Create the argument symbol, preserving _meta from the original ...identifier symbol
+    // This ensures proper source location tracking for error messages
+    const argSymbol: SymbolNode = { type: "symbol", name: argName };
+    const originalMeta = (node as unknown as { _meta?: { line: number; column: number; filePath?: string } })._meta;
+    if (originalMeta) {
+      (argSymbol as unknown as { _meta: { line: number; column: number; filePath?: string } })._meta = {
+        ...originalMeta,
+        column: originalMeta.column + 3 // Adjust column for "..." prefix
+      };
+    }
+
+    argNode = transformNode(argSymbol, currentDir);
   }
   // Form 2: (... expression) (list form)
   else if (node.type === "list") {
@@ -234,6 +254,7 @@ export function transformSpreadOperator(
   return {
     type: IR.IRNodeType.SpreadElement,
     argument,
+    position: extractPosition(node),
   } as IR.IRSpreadElement;
 }
 
@@ -272,5 +293,6 @@ export function transformObjectSpreadOperator(
   return {
     type: IR.IRNodeType.SpreadAssignment,
     expression,
+    position: extractPosition(node),
   } as IR.IRSpreadAssignment;
 }

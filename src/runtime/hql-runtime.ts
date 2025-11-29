@@ -278,7 +278,7 @@ export class HQLRuntime {
             defineMacro(sexp as SList, this.environment, logger);
             // Clear both caches when a new macro is defined
             const { macroCache, macroExpansionCache } = await import(
-              "../core/src/s-exp/macro.ts"
+              "../s-exp/macro.ts"
             );
             macroCache.clear();
             macroExpansionCache.clear();
@@ -299,7 +299,7 @@ export class HQLRuntime {
     const list = sexp as SList;
     if (!list.elements || list.elements.length === 0) return false;
     const head = list.elements[0];
-    return isSymbol(head) && head.name === "defmacro";
+    return isSymbol(head) && head.name === "macro";
   }
 
   /**
@@ -323,7 +323,19 @@ export class HQLRuntime {
     const name = nameSymbol.name;
 
     // Extract parameter information
-    const paramList = isList(params) ? params.elements : [];
+    // Handle vector form: [a b c] parses as (vector a b c)
+    // Handle empty vector: [] parses as (empty-array)
+    // We need to skip the 'vector' or 'empty-array' symbol at the start
+    let paramElements = isList(params) ? params.elements : [];
+    if (paramElements.length > 0 && isSymbol(paramElements[0])) {
+      const firstElem = paramElements[0].name;
+      if (firstElem === "vector") {
+        paramElements = paramElements.slice(1);
+      } else if (firstElem === "empty-array") {
+        paramElements = []; // empty-array means no params
+      }
+    }
+    const paramList = paramElements;
     const paramNames: string[] = [];
     let restParam: string | null = null;
 

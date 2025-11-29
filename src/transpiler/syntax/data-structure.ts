@@ -25,6 +25,18 @@ import {
 export { createGetOperation, transformGet };
 
 /**
+ * Extract SourcePosition from an HQL node's _meta field.
+ * Used to propagate source location through IR transformations for accurate error reporting.
+ */
+function extractPosition(node: HQLNode): IR.SourcePosition | undefined {
+  const meta = (node as unknown as { _meta?: { line: number; column: number; filePath?: string } })._meta;
+  if (meta) {
+    return { line: meta.line, column: meta.column, filePath: meta.filePath };
+  }
+  return undefined;
+}
+
+/**
  * Process elements in a vector, handling vector keyword and commas
  */
 export function processVectorElements<T extends { type: string }>(
@@ -72,6 +84,7 @@ export function transformVector(
       return {
         type: IR.IRNodeType.ArrayExpression,
         elements,
+        position: extractPosition(list),
       } as IR.IRArrayExpression;
     },
     "transformVector",
@@ -116,6 +129,7 @@ export function transformHashMap(
             isJS: false,
           } as IR.IRIdentifier,
           arguments: transformedArgs,
+          position: extractPosition(list),
         } as IR.IRCallExpression;
       }
 
@@ -168,6 +182,7 @@ export function transformHashMap(
       return {
         type: IR.IRNodeType.ObjectExpression,
         properties,
+        position: extractPosition(list),
       } as IR.IRObjectExpression;
     },
     "transformHashMap",

@@ -17,8 +17,8 @@ features such as inheritance.
   ;; Constructor: initializes required fields, can override defaults
   (constructor [name age]
     (do
-      (set! this.name name)
-      (set! this.age age)
+      (= this.name name)
+      (= this.age age)
       ;; score and role use their default values (0 and "user")
       this))
 
@@ -28,7 +28,7 @@ features such as inheritance.
 
   (fn celebrateBirthday [newAge]
     (do
-      (set! this.age newAge)
+      (= this.age newAge)
       this))
 )
 ```
@@ -56,7 +56,7 @@ features such as inheritance.
 - **Field Defaults:** Fields can have default values that are used when not set
   by the constructor.
 - **Constructor Priority:** Constructor can override field defaults by
-  explicitly setting fields with `set!`.
+  explicitly setting fields with `=`.
 - **Interoperability:** Classes can reference external values or variables (if
   desired) in their constructor or methods.
 - **Inheritance & Polymorphism:** While not shown in this example, classes are
@@ -180,8 +180,8 @@ functionality:
   (constructor [initialX initialY]
     (do
       ;; Constructor overrides the default values
-      (set! this.x initialX)
-      (set! this.y initialY)))
+      (= this.x initialX)
+      (= this.y initialY)))
 
   (fn distanceTo [otherPoint]
     (let (dx (- otherPoint.x this.x)
@@ -213,8 +213,8 @@ initialization:
   (constructor [serverHost serverPort]
     (do
       ;; Constructor overrides the defaults
-      (set! this.host serverHost)
-      (set! this.port serverPort)
+      (= this.host serverHost)
+      (= this.port serverPort)
       ;; debug keeps its default value (false)
       )))
 
@@ -228,7 +228,7 @@ initialization:
 
 1. **Field defaults are set first**: All fields with default values are
    initialized
-2. **Constructor runs second**: Can override any field using `set!`
+2. **Constructor runs second**: Can override any field using `=`
 3. **Constructor has priority**: Any field set by the constructor overrides its
    default value
 

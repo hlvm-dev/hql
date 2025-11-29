@@ -272,8 +272,8 @@ JavaScript
 ; ❌ Avoid: Statement style (not idiomatic in HQL)
 (var result)
 (if condition
-  (set! result "yes")
-  (set! result "no"))
+  (= result "yes")
+  (= result "no"))
 ```
 
 ### Use Cond for Multiple Conditions

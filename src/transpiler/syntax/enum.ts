@@ -6,7 +6,7 @@ import { TransformError, ValidationError } from "../../common/error.ts";
 import { perform } from "../../common/error.ts";
 import { sanitizeIdentifier } from "../../common/utils.ts";
 import { globalLogger as logger } from "../../logger.ts";
-import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
+import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import type { HQLNode } from "../type/hql_ast.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 
@@ -107,7 +107,7 @@ export function transformEnumDeclaration(
           "enum requires a name and at least one case",
           "enum definition",
           "name and cases",
-          `${list.elements.length - 1} arguments`,
+          { actualType: `${list.elements.length - 1} arguments`, ...extractMetaSourceLocation(list) },
         );
       }
 

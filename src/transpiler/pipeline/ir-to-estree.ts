@@ -417,6 +417,28 @@ export type Declaration =
 // ============================================================================
 
 /**
+ * Module-level context for source file path fallback.
+ * This is set before conversion to provide a meaningful default when
+ * IR nodes don't have their own filePath (e.g., synthetic nodes).
+ */
+let currentSourceFilePath: string = "unknown.hql";
+
+/**
+ * Set the fallback source file path for ESTree conversion.
+ * Call this before convertIRToESTree to ensure proper source mapping.
+ */
+export function setSourceFilePath(filePath: string): void {
+  currentSourceFilePath = filePath || "unknown.hql";
+}
+
+/**
+ * Get the current fallback source file path.
+ */
+export function getSourceFilePath(): string {
+  return currentSourceFilePath;
+}
+
+/**
  * Creates ESTree SourceLocation from HQL SourcePosition
  */
 function createLoc(pos?: IR.SourcePosition): SourceLocation | null {
@@ -433,7 +455,7 @@ function createLoc(pos?: IR.SourcePosition): SourceLocation | null {
       line: pos.line,
       column: pos.column
     },
-    source: pos.filePath || "unknown.hql"  // Fallback to prevent empty sources array
+    source: pos.filePath || currentSourceFilePath
   };
 }
 
@@ -454,7 +476,7 @@ function createLocWithLength(pos: IR.SourcePosition | undefined, length: number)
       line: pos.line,
       column: pos.column + length
     },
-    source: pos.filePath || "unknown.hql"  // Fallback to prevent empty sources array
+    source: pos.filePath || currentSourceFilePath
   };
 }
 
@@ -471,42 +493,43 @@ function unsupportedNode(node: IR.IRNode, context: string): never {
 }
 
 /**
- * Creates a simple ESTree Identifier node without position info
+ * Creates a simple ESTree Identifier node with optional position info
  */
-function createSimpleIdentifier(name: string): Identifier {
+function createSimpleIdentifier(name: string, loc?: SourceLocation | null): Identifier {
   return {
     type: "Identifier",
     name,
-    loc: null
+    loc: loc ?? null
   };
 }
 
 /**
- * Creates an ESTree MemberExpression node without position info
+ * Creates an ESTree MemberExpression node with optional position info
  */
 function createMemberExpression(
   objName: string,
   propName: string,
-  computed: boolean = true
+  computed: boolean = true,
+  loc?: SourceLocation | null
 ): MemberExpression {
   return {
     type: "MemberExpression",
-    object: createSimpleIdentifier(objName),
-    property: createSimpleIdentifier(propName),
+    object: createSimpleIdentifier(objName, loc),
+    property: createSimpleIdentifier(propName, loc),
     computed,
-    loc: null
+    loc: loc ?? null
   };
 }
 
 /**
- * Creates an ESTree string Literal node without position info
+ * Creates an ESTree string Literal node with optional position info
  */
-function createStringLiteral(value: string): Literal {
+function createStringLiteral(value: string, loc?: SourceLocation | null): Literal {
   return {
     type: "Literal",
     value,
     raw: `'${value}'`,
-    loc: null
+    loc: loc ?? null
   };
 }
 
@@ -1428,8 +1451,11 @@ function convertInteropIIFE(node: IR.IRInteropIIFE): CallExpression {
   //   return typeof _member === "function" ? _member.call(_obj) : _member;
   // })(object);
 
-  const objParam: Identifier = { type: "Identifier", name: "_obj", loc: null };
-  const memberVar: Identifier = { type: "Identifier", name: "_member", loc: null };
+  // Get source location for all synthesized nodes (for accurate error mapping)
+  const loc = createLoc(node.position);
+
+  const objParam: Identifier = { type: "Identifier", name: "_obj", loc };
+  const memberVar: Identifier = { type: "Identifier", name: "_member", loc };
 
   const iifeBody: BlockStatement = {
     type: "BlockStatement",
@@ -1446,11 +1472,11 @@ function convertInteropIIFE(node: IR.IRInteropIIFE): CallExpression {
             object: objParam,
             property: convertStringLiteral(node.property),
             computed: true,
-            loc: null
+            loc
           },
-          loc: null
+          loc
         }],
-        loc: null
+        loc
       },
       // return typeof _member === "function" ? _member.call(_obj) : _member;
       {
@@ -1465,35 +1491,35 @@ function convertInteropIIFE(node: IR.IRInteropIIFE): CallExpression {
               operator: "typeof",
               prefix: true,
               argument: memberVar,
-              loc: null
+              loc
             },
             right: {
               type: "Literal",
               value: "function",
               raw: '"function"',
-              loc: null
+              loc
             },
-            loc: null
+            loc
           },
           consequent: {
             type: "CallExpression",
             callee: {
               type: "MemberExpression",
               object: memberVar,
-              property: { type: "Identifier", name: "call", loc: null },
+              property: { type: "Identifier", name: "call", loc },
               computed: false,
-              loc: null
+              loc
             },
             arguments: [objParam],
-            loc: null
+            loc
           },
           alternate: memberVar,
-          loc: null
+          loc
         },
-        loc: null
+        loc
       }
     ],
-    loc: null
+    loc
   };
 
   const iifeFn: FunctionExpression = {
@@ -1503,14 +1529,14 @@ function convertInteropIIFE(node: IR.IRInteropIIFE): CallExpression {
     body: iifeBody,
     async: false,
     generator: false,
-    loc: createLoc(node.position)
+    loc
   };
 
   return {
     type: "CallExpression",
     callee: iifeFn,
     arguments: [convertIRToESTree(node.object) as Expression],
-    loc: createLoc(node.position)
+    loc
   };
 }
 
@@ -1520,16 +1546,18 @@ function convertJsMethodAccess(node: IR.IRJsMethodAccess): CallExpression {
   // This preserves `this` binding for methods while allowing property access
 
   const objectExpr = convertIRToESTree(node.object) as Expression;
-  const memberExpr = createMemberExpression("o", "m");
+  const loc = createLoc(node.position);
+  const memberExpr = createMemberExpression("o", "m", true, loc);
 
   // Create IIFE: ((o, m) => typeof o[m] === 'function' ? o[m]() : o[m])(obj, 'method')
+  // All synthesized nodes get the same source location for accurate error mapping
   return {
     type: "CallExpression",
     callee: {
       type: "ArrowFunctionExpression",
       params: [
-        createSimpleIdentifier("o"),
-        createSimpleIdentifier("m")
+        createSimpleIdentifier("o", loc),
+        createSimpleIdentifier("m", loc)
       ],
       body: {
         type: "ConditionalExpression",
@@ -1541,29 +1569,29 @@ function convertJsMethodAccess(node: IR.IRJsMethodAccess): CallExpression {
             operator: "typeof",
             argument: memberExpr,
             prefix: true,
-            loc: null
+            loc
           },
-          right: createStringLiteral("function"),
-          loc: null
+          right: createStringLiteral("function", loc),
+          loc
         },
         consequent: {
           type: "CallExpression",
-          callee: createMemberExpression("o", "m"),
+          callee: createMemberExpression("o", "m", true, loc),
           arguments: [],
-          loc: null
+          loc
         },
-        alternate: createMemberExpression("o", "m"),
-        loc: null
+        alternate: createMemberExpression("o", "m", true, loc),
+        loc
       } as ConditionalExpression,
       async: false,
       expression: true,
-      loc: null
+      loc
     } as ArrowFunctionExpression,
     arguments: [
       objectExpr,
-      createStringLiteral(node.method)
+      createStringLiteral(node.method, loc)
     ],
-    loc: createLoc(node.position)
+    loc
   };
 }
 

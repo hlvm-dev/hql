@@ -2,7 +2,7 @@
 ;; This file tests various scenarios for the cond special form to ensure it works correctly
 
 ;; Test function 1: Number classification
-(fn classify-number (n)
+(fn classify-number [n]
   (cond
     ((> n 100) "large")     ;; Greater than 100: "large"
     ((> n 50) "medium")     ;; Between 51-100: "medium"
@@ -12,14 +12,14 @@
     (else "negative")))     ;; Less than 0: "negative"
 
 ;; Test function 2: Simple test with few clauses
-(fn check-value (val)
+(fn check-value [val]
   (cond
     ((> val 10) "greater")
     ((= val 10) "equal")
     (else "less")))
 
 ;; Test function 3: Testing nested conditions
-(fn check-point (x y)
+(fn check-point [x y]
   (cond
     ((< x 0) (cond
               ((< y 0) "third quadrant")
@@ -33,13 +33,13 @@
            (else "negative y-axis")))))
 
 ;; Test function 4: Test with boolean conditions and true-false values
-(fn check-boolean (val)
+(fn check-boolean [val]
   (cond
     (val "Value is true")
     (else "Value is false")))
 
 ;; Test function 5: Multiple predicates with same result
-(fn grade-score (score)
+(fn grade-score [score]
   (cond
     ((>= score 90) "A")
     ((>= score 80) "B")

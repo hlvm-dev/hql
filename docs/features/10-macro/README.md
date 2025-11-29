@@ -81,7 +81,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 
 ```lisp
 ; Define a macro
-(macro when (condition body)
+(macro when [condition body]
   `(if ~condition ~body null))
 
 ; Use the macro
@@ -89,7 +89,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 (when (> x 5) "x is greater than 5")  ; => "x is greater than 5"
 
 ; Macro with variadic arguments (using unquote-splicing)
-(macro log-all (items)
+(macro log-all [items]
   `(do ~@items))
 
 (log-all ((var a 1) (var b 2) (+ a b)))  ; => 3
@@ -163,7 +163,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 **Expansion:**
 
 ```lisp
-(macro name (params)
+(macro name [params]
   body)
 
 ; At compile time:
@@ -237,8 +237,8 @@ unquote
 
 ```lisp
 ; Generate repetitive code
-(macro defgetter (name field)
-  `(fn ~name () this.~field))
+(macro defgetter [name field]
+  `(fn ~name [] this.~field))
 
 ; Expands to:
 (fn getName [] this.name)
@@ -248,7 +248,7 @@ unquote
 
 ```lisp
 ; Custom control structures
-(macro unless (condition body)
+(macro unless [condition body]
   `(if (not ~condition) ~body null))
 
 (unless (< x 0)
@@ -259,7 +259,7 @@ unquote
 
 ```lisp
 ; Domain-specific language
-(macro route (method path handler)
+(macro route [method path handler]
   `(app.~method ~path ~handler))
 
 (route GET "/api/users" handleUsers)
@@ -269,7 +269,7 @@ unquote
 
 ```lisp
 ; Expressive test assertions
-(macro assert-equals (actual expected)
+(macro assert-equals [actual expected]
   `(if (!= ~actual ~expected)
      (throw (new Error (+ "Expected " ~expected " but got " ~actual)))
      null))
@@ -279,7 +279,7 @@ unquote
 
 ```lisp
 ; Auto-inject source location
-(macro log-debug (message data)
+(macro log-debug [message data]
   `(console.log "[DEBUG]" ~message ~data))
 ```
 
@@ -287,7 +287,7 @@ unquote
 
 ```lisp
 ; Environment-based config
-(macro config (env settings)
+(macro config [env settings]
   `(if (= process.env.NODE_ENV ~env)
      ~settings
      null))
@@ -325,7 +325,7 @@ const result = `The answer is ${x}`;  // String only
 class Service { }
 
 // HQL macro (arbitrary code transformation)
-(macro with-logging (fn-def)
+(macro with-logging [fn-def]
   `(do
     (var original ~fn-def)
     (fn wrapper [args]
@@ -371,7 +371,7 @@ JavaScript
   (if (not condition) body null))
 
 ; ⚠️ Overkill: Macro for simple function
-(macro unless (condition body)
+(macro unless [condition body]
   `(if (not ~condition) ~body null))
 ```
 
@@ -379,12 +379,12 @@ JavaScript
 
 ```lisp
 ; ✅ Good: Code generation
-(macro defgetter (name field)
-  `(fn ~name () this.~field))
+(macro defgetter [name field]
+  `(fn ~name [] this.~field))
 
 ; ❌ Wrong: Regular function (not code generation)
 (fn defgetter [name field]
-  (fn () this.field))  // Loses parameterization
+  (fn [] this.field))  // Loses parameterization
 ```
 
 ### Prefer Backtick Syntax
@@ -421,7 +421,7 @@ in unquote
 ### 1. Conditional Code Generation
 
 ```lisp
-(macro when (condition body)
+(macro when [condition body]
   `(if ~condition ~body null))
 
 (when (> x 5) (print "Large"))
@@ -430,7 +430,7 @@ in unquote
 ### 2. Variadic Wrapper
 
 ```lisp
-(macro with-timing (body)
+(macro with-timing [body]
   `(do
     (var start (Date.now))
     ~@body
@@ -441,7 +441,7 @@ in unquote
 ### 3. DSL for Configuration
 
 ```lisp
-(macro route (method path handler)
+(macro route [method path handler]
   `(app.~method ~path ~handler))
 
 (route GET "/users" getUsers)
@@ -451,7 +451,7 @@ in unquote
 ### 4. Assertion Helpers
 
 ```lisp
-(macro assert-type (value type)
+(macro assert-type [value type]
   `(if (!= (typeof ~value) ~type)
      (throw (new Error (+ "Expected " ~type)))
      null))
@@ -491,7 +491,7 @@ in unquote
 ; 3. Substitute unquoted expressions
 ; 4. Verify the result makes sense
 
-(macro when (condition body)
+(macro when [condition body]
   `(if ~condition ~body null))
 
 ; Call:

@@ -36,8 +36,11 @@ HQL/HLVM codebase. Use it as a quick orientation before touching any code.
    - HQL and Clojure are DIFFERENT languages with DIFFERENT syntax
    - ALWAYS read `doc/examples/`, `doc/specs/`, and `tests/` before writing HQL
      code
-   - HQL: `(let x 10)` `(var x 10)` `(fn name (params) body)`
-   - NOT Clojure: `(def x 10)` `(defn name [params] body)`
+   - HQL function syntax (two-style system):
+     - Positional: `(fn name [x y] body)` with square brackets `[]`
+     - Config/map: `(fn name {"host": "localhost", "port": 8080} body)` with JSON `{}`
+   - NOT Clojure: `(def x 10)` `(defn name [params] body)` - these are INVALID
+   - Bindings: `(let x 10)` `(var x 10)`
 2. Keep the master test suite green (`./test/test.sh` and
    `deno test --allow-all`)
 3. Preserve DRY, dead-code-free code quality established in the DRY cleanup pass

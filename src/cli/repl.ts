@@ -9,8 +9,7 @@ import { REPL } from "@hlvm/repl";
 import { hqlPlugin } from "./hql-plugin.ts";
 import { getArgs as platformGetArgs, exit as platformExit } from "../platform/platform.ts";
 import { ANSI_COLORS } from "./ansi.ts";
-
-const VERSION = "2.0.0";
+import { version as VERSION } from "../../mod.ts";
 
 const {
   BOLD,
@@ -79,14 +78,25 @@ EXAMPLES:
     prompt: "hql> ",
     tempDirPrefix: "hql-repl-",
     keywords: [
-      // Special forms
-      "fn", "function", "defn", "class", "let", "var", "if", "cond",
-      "for", "while", "do", "try", "catch", "throw",
-      // Common functions
-      "print", "println", "map", "filter", "reduce",
+      // Core forms (from thesis)
+      "fn", "const", "let", "var", "if", "cond", "else", "do",
+      "loop", "recur", "while", "for", "repeat",
+      "class", "enum", "case", "new", "macro",
+      "import", "export", "from",
+      "async", "await", "try", "catch", "finally", "throw",
+      // Stdlib (auto-loaded)
+      "cons", "first", "rest", "map", "filter", "reduce",
+      "take", "drop", "range", "print",
+      // Literals
+      "true", "false", "nil", "null", "undefined",
+      // Special
+      "constructor", "this", "when", "return",
       // Operators
-      "+", "-", "*", "/", "%", "**", "==", "!=", "<", ">", "<=", ">=",
-      "and", "or", "not", "&&", "||", "!",
+      "+", "-", "*", "/", "%", "**",
+      "===", "==", "!==", "!=", "<", ">", "<=", ">=",
+      "&&", "||", "!", "??",
+      // Macros
+      "and", "or", "not",
     ],
     onInit(_context) {
       const startTime = Date.now();

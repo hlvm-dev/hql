@@ -10,7 +10,7 @@ import type { SList } from "../s-exp/types.ts";
 import type { REPLPlugin, REPLContext, EvalResult } from "@hlvm/repl";
 
 // Special form operators
-const DECLARATION_OPS = new Set(["fn", "function", "defn", "class"] as const);
+const DECLARATION_OPS = new Set(["fn", "function", "class"] as const);
 const BINDING_OPS = new Set(["let", "var"] as const);
 
 // Type definitions

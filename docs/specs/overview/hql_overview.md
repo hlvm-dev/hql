@@ -54,10 +54,10 @@ modules
    body] │---->│ registered in │ │ `(if ~test (do │ │ Environment │ │ ~@body)
    nil)) │ └───────────────────────┘ └───────────────────────┘ │ v
    ┌───────────────────────┐ ┌───────────────────────┐ │ (when x > 0 │ │
-   Fixed-point iteration │ │ (println "Positive")│---->│ expands macros until │
+   Fixed-point iteration │ │ (print "Positive")│---->│ expands macros until │
    │ (process x)) │ │ no more changes │ └───────────────────────┘
    └───────────────────────┘ │ v ┌───────────────────────┐ │ (if (> x 0) │ │ (do
-   │ │ (println "Positive")│ │ (process x)) │ │ nil) │ └───────────────────────┘
+   │ │ (print "Positive")│ │ (process x)) │ │ nil) │ └───────────────────────┘
 
 Supports macros (macro) Uses manual hygiene (like Common Lisp; users must use
 unique names or gensym) Provides quasiquote and unquote for template-based
@@ -122,9 +122,9 @@ transpileToJavascript(source, options) {
 9. Return the final JavaScript } Handling Core.hql The system loads a core
    library (lib/core.hql) that contains standard macros and functions:
 
-(macro or (& args) `(if ~(%first args) ~(%first args) (or ~@(%rest args))))
+(macro or [& args] `(if ~(%first args) ~(%first args) (or ~@(%rest args))))
 
-(macro and (& args) `(if ~(%first args) (and ~@(%rest args)) ~(%first args)))
+(macro and [& args] `(if ~(%first args) (and ~@(%rest args)) ~(%first args)))
 
 These macros form the standard library and are available in all HQL programs.
 Environment Management The Environment class (src/environment.ts) is central to

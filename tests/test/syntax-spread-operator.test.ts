@@ -83,7 +83,7 @@ Deno.test("Spread: mixed positional and spread", async () => {
 Deno.test("Spread: multiple spreads in call", async () => {
   const result = await run(`
     (fn sum [...nums]
-      (.reduce nums (fn (a b) (+ a b)) 0))
+      (.reduce nums (fn [a b] (+ a b)) 0))
     (let a [1 2])
     (let b [3 4])
     (sum ...a ...b)
@@ -94,7 +94,7 @@ Deno.test("Spread: multiple spreads in call", async () => {
 Deno.test("Spread: spread with rest parameter", async () => {
   const result = await run(`
     (fn sum [first ...rest]
-      (+ first (.reduce rest (fn (a b) (+ a b)) 0)))
+      (+ first (.reduce rest (fn [a b] (+ a b)) 0)))
     (let nums [2 3 4])
     (sum 1 ...nums)
   `);
@@ -126,7 +126,7 @@ Deno.test("Spread: nested array creation", async () => {
 Deno.test("Spread: with map", async () => {
   const result = await run(`
     (let arr [1 2 3])
-    (let doubled (.map arr (fn (x) (* x 2))))
+    (let doubled (.map arr (fn [x] (* x 2))))
     [...doubled 7]
   `);
   assertEquals(result, [2, 4, 6, 7]);
@@ -135,7 +135,7 @@ Deno.test("Spread: with map", async () => {
 Deno.test("Spread: with filter", async () => {
   const result = await run(`
     (let arr [1 2 3 4 5])
-    (let evens (.filter arr (fn (x) (== (% x 2) 0))))
+    (let evens (.filter arr (fn [x] (== (% x 2) 0))))
     [0 ...evens 6]
   `);
   assertEquals(result, [0, 2, 4, 6]);

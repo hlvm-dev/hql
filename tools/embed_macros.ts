@@ -12,10 +12,10 @@ import { walk } from "https://deno.land/std@0.208.0/fs/walk.ts";
 import {
   readTextFile as platformReadTextFile,
   writeTextFile as platformWriteTextFile,
-} from "../core/src/platform/platform.ts";
+} from "../src/platform/platform.ts";
 
-const MACRO_DIR = "core/lib/macro";
-const OUTPUT_FILE = "core/src/lib/embedded-macros.ts";
+const MACRO_DIR = "src/lib/macro";
+const OUTPUT_FILE = "src/lib/embedded-macros.ts";
 
 interface MacroFile {
   path: string;

@@ -6,7 +6,7 @@
 import { transformToIR } from "./transpiler/pipeline/hql-ast-to-hql-ir.ts";
 import { globalLogger as logger } from "./logger.ts";
 import { Environment } from "./environment.ts";
-import { TransformError } from "./common/error.ts";
+import { HQLError, TransformError } from "./common/error.ts";
 import { Timer } from "./common/timer.ts";
 import type { HQLNode } from "./transpiler/type/hql_ast.ts";
 import {
@@ -142,13 +142,27 @@ export async function transformAST(
       sourceMap: javascript.sourceMap,
     };
   } catch (error) {
+    // If it's already an HQLError (ValidationError, ParseError, etc.), preserve it
+    // Don't wrap it in TransformError which would lose the original error code and info
+    if (error instanceof HQLError) {
+      // Ensure file path is set if not present
+      if (!error.sourceLocation.filePath && options.currentFile) {
+        error.sourceLocation.filePath = options.currentFile;
+      } else if (!error.sourceLocation.filePath && options.sourceFile) {
+        error.sourceLocation.filePath = options.sourceFile;
+      }
+      throw error;
+    }
+
+    // For non-HQL errors, wrap in TransformError
     throw new TransformError(
       `Transformation failed: ${
         error instanceof Error ? error.message : String(error)
       }`,
       "Transformation failed",
       {
-        filePath: options.sourceFile || currentDir,
+        filePath: options.currentFile || options.sourceFile || currentDir,
+        originalError: error instanceof Error ? error : undefined,
       },
     );
   }

@@ -57,8 +57,8 @@ All loops support breaking early and manipulating state during iteration.
 (var count 0)
 (var sum 0)
 (while (< count 5)
-  (set! sum (+ sum count))
-  (set! count (+ count 1)))
+  (= sum (+ sum count))
+  (= count (+ count 1)))
 sum
 ; => 10
 
@@ -67,21 +67,24 @@ sum
 (var found false)
 (while (and (< i nums.length) (not found))
   (if (isMatch (get nums i))
-    (set! found true)
+    (= found true)
     nil)
-  (set! i (+ i 1)))
+  (= i (+ i 1)))
 ```
 
-### Repeat Loop - Fixed Iterations
+### Dotimes Loop - Fixed Iterations (Clojure-style)
+
+> **Note:** Named `dotimes` after Clojure's convention to avoid conflicts with
+> user code and the stdlib `repeat` function.
 
 ```lisp
-; Basic repeat
-(repeat times
+; Basic dotimes
+(dotimes count
   body...)
 
-; Example: Repeat 3 times
+; Example: Dotimes 3 times
 (var result [])
-(repeat 3
+(dotimes 3
   (.push result "hello"))
 result
 ; => ["hello", "hello", "hello"]
@@ -89,9 +92,9 @@ result
 ; With counter
 (var sum 0)
 (var counter 0)
-(repeat 5
-  (set! sum (+ sum counter))
-  (set! counter (+ counter 1)))
+(dotimes 5
+  (= sum (+ sum counter))
+  (= counter (+ counter 1)))
 sum
 ; => 10 (0+1+2+3+4)
 ```
@@ -194,15 +197,15 @@ while (condition) {
 - ✅ Requires mutable state
 - ✅ No automatic counter
 
-### Repeat Loop
+### Dotimes Loop (Clojure-style)
 
 **Compilation:**
 
 ```lisp
-(repeat times body)
+(dotimes count body)
 
 ; Compiles to:
-for (let i = 0; i < times; i++) {
+for (let i = 0; i < count; i++) {
   body;
 }
 ```
@@ -314,21 +317,21 @@ For with named from: to: by: syntax ✅ For collection iteration
 (var sum 0)
 (while (> queue.length 0)
   (var item (.shift queue))
-  (set! sum (+ sum item)))
+  (= sum (+ sum item)))
 sum
 ```
 
-### 3. Fixed Repetition (Repeat)
+### 3. Fixed Repetition (Dotimes)
 
 ```lisp
 ; Retry logic
 (var attempts 0)
 (var succeeded false)
-(repeat 3
+(dotimes 3
   (if (not succeeded)
     (do
-      (set! attempts (+ attempts 1))
-      (set! succeeded (tryOperation)))
+      (= attempts (+ attempts 1))
+      (= succeeded (tryOperation)))
     nil))
 ```
 
@@ -384,7 +387,7 @@ while (count < 5) {
 (var count 0)
 (while (< count 5)
   (print count)
-  (set! count (+ count 1)))
+  (= count (+ count 1)))
 ```
 
 ### JavaScript For-Of
@@ -472,7 +475,7 @@ JavaScript (while, for, for-of)
 (var i 0)
 (while (< i 10)
   (print i)
-  (set! i (+ i 1)))
+  (= i (+ i 1)))
 ```
 
 ### Use While for Complex Conditions
@@ -488,11 +491,11 @@ JavaScript (while, for, for-of)
   (processItem))
 ```
 
-### Use Repeat for Fixed Count
+### Use Dotimes for Fixed Count
 
 ```lisp
-; ✅ Good: Repeat (clear intent)
-(repeat 5
+; ✅ Good: Dotimes (clear intent)
+(dotimes 5
   (print "Hello"))
 
 ; ❌ Unnecessary: For loop
@@ -551,24 +554,24 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
 (fn sum [nums]
   (var total 0)
   (for (n nums)
-    (set! total (+ total n)))
+    (= total (+ total n)))
   total)
 ```
 
-### 5. Retry with Limit (Repeat)
+### 5. Retry with Limit (Dotimes)
 
 ```lisp
 (fn retry-operation [op max-attempts]
   (var succeeded false)
   (var attempts 0)
-  (repeat max-attempts
+  (dotimes max-attempts
     (if (not succeeded)
       (do
-        (set! attempts (+ attempts 1))
+        (= attempts (+ attempts 1))
         (try
           (do
             (op)
-            (set! succeeded true))
+            (= succeeded true))
           (catch (e)
             (print "Attempt" attempts "failed"))))
       nil))
@@ -617,7 +620,7 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
 ; ❌ Bad: Forgot to increment
 (var i 0)
 (while (< i 10)
-  (print i))  ; Infinite! Missing (set! i (+ i 1))
+  (print i))  ; Infinite! Missing (= i (+ i 1))
 ```
 
 **2. Recur Not in Tail Position**
@@ -653,12 +656,12 @@ HQL's loop constructs provide:
 
 - ✅ **Tail-call optimization** (loop/recur, no stack overflow)
 - ✅ **Traditional loops** (while, for)
-- ✅ **Simple repetition** (repeat)
+- ✅ **Simple repetition** (dotimes)
 - ✅ **Range iteration** (for with numeric range)
 - ✅ **Collection iteration** (for with arrays)
 - ✅ **Named parameters** (for with from:/to:/by:)
 - ✅ **Functional style** (loop/recur mimics recursion)
-- ✅ **Imperative style** (while, for, repeat)
+- ✅ **Imperative style** (while, for, dotimes)
 
 Choose the right loop for the task:
 

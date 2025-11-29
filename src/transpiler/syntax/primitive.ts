@@ -49,7 +49,6 @@ export function transformPrimitiveOp(
       if (
         op === "===" ||
         op === "==" ||
-        op === "eq?" ||
         op === "!==" ||
         op === "!=" ||
         op === ">" ||
@@ -165,9 +164,6 @@ export function transformComparisonOp(
           break;
         case "==":
           jsOp = "==";   // Loose equality (v2.0)
-          break;
-        case "eq?":
-          jsOp = "===";  // Compatibility: maps to strict equality
           break;
         case "!==":
           jsOp = "!==";  // Strict inequality (v2.0)

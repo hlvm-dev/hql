@@ -56,7 +56,7 @@ Hello, World!
 
 ; Mutable variables
 (var counter 0)
-(set! counter 100)
+(= counter 100)
 (print counter)  ; → 100
 ```
 
@@ -243,7 +243,7 @@ While loop:
 (var i 0)
 (while (< i 5)
   (print i)
-  (set! i (+ i 1)))
+  (= i (+ i 1)))
 ```
 
 ### Practice Problems
@@ -368,7 +368,7 @@ Time macro:
 ### Practice Problems
 
 1. Write `debug` macro that prints expression and result
-2. Write `repeat` macro: `(repeat 3 (print "Hi"))`
+2. Write `dotimes` macro: `(dotimes 3 (print "Hi"))` (note: HQL already has this built-in)
 3. Write `assert` macro for testing
 
 ## Level 7: Building Projects (45 minutes)

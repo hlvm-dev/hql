@@ -1,7 +1,7 @@
 // core/src/common/runtime-error-handler.ts - Enhanced version
 // Maps JavaScript runtime errors back to HQL source locations with improved accuracy
 
-import { globalErrorReporter, RuntimeError } from "./error.ts";
+import { globalErrorReporter, HQLError, RuntimeError } from "./error.ts";
 import { globalLogger as logger } from "../logger.ts";
 import {
   createJsCallRegex,
@@ -24,6 +24,7 @@ import { extractContextLinesFromFile } from "./context-helpers.ts";
 // GREATEST_LOWER_BOUND = 1: When exact position not found, use closest position before
 // LEAST_UPPER_BOUND = 2: When exact position not found, use closest position after
 const GREATEST_LOWER_BOUND = 1;
+const LEAST_UPPER_BOUND = 2;
 
 /**
  * Runtime information about the current execution context
@@ -376,11 +377,22 @@ export async function resolveRuntimeLocation(
     const contextConsumer = await getContextSourceMapConsumer();
 
     if (contextConsumer) {
-      const mapped = contextConsumer.originalPositionFor({
+      // Try GREATEST_LOWER_BOUND first (closest mapping before the position)
+      let mapped = contextConsumer.originalPositionFor({
         line: frame.jsLine, // SourceMapConsumer expects 1-indexed line numbers
         column: frame.jsColumn ?? 0,
         bias: GREATEST_LOWER_BOUND,
       });
+
+      // If GREATEST_LOWER_BOUND returns null (can happen with escodegen's intermediate mappings),
+      // fall back to LEAST_UPPER_BOUND (closest mapping after the position)
+      if (!mapped.source || mapped.line === null) {
+        mapped = contextConsumer.originalPositionFor({
+          line: frame.jsLine,
+          column: frame.jsColumn ?? 0,
+          bias: LEAST_UPPER_BOUND,
+        });
+      }
 
       if (mapped.source && mapped.line !== null) {
         const filePath = resolveMappedSourcePath(mapped.source, frame) ??
@@ -478,6 +490,46 @@ export async function handleRuntimeError(
       });
     }
 
+    // If error is already an HQLError (ParseError, ImportError, etc.),
+    // preserve its error code and information
+    if (error instanceof HQLError) {
+      const targetFile = error.sourceLocation?.filePath || runtimeContext.currentHqlFile;
+
+      // Create RuntimeError that preserves the original error code
+      const hqlError = new RuntimeError(error.message, {
+        filePath: targetFile,
+        line: error.sourceLocation?.line,
+        column: error.sourceLocation?.column,
+        originalError: error,
+        code: error.code, // Preserve the original error code!
+      });
+
+      // Copy context lines if available, or load them if we have location info
+      if (error.contextLines && error.contextLines.length > 0) {
+        hqlError.contextLines = error.contextLines;
+      } else if (error.sourceLocation?.line && targetFile) {
+        // Try to load context lines from the source file
+        const contextLines = await readContextLines(targetFile, error.sourceLocation.line);
+        hqlError.contextLines = contextLines.map((line) => {
+          if (line.isError && error.sourceLocation?.column) {
+            return { ...line, column: error.sourceLocation.column };
+          }
+          return line;
+        });
+      }
+
+      // Report the error
+      await globalErrorReporter.reportError(hqlError, debugOutput);
+
+      // Mark as handled
+      Object.defineProperty(error, ERROR_REPORTED_SYMBOL, {
+        value: true,
+        enumerable: false,
+      });
+
+      return hqlError;
+    }
+
     // Try to get a meaningful error location
     const locationInfo = await resolveRuntimeLocation(error);
 
@@ -485,7 +537,7 @@ export async function handleRuntimeError(
     // This ensures the stack is formatted with source map support before wrapping
     const _stack = error.stack;
 
-    // Always create a RuntimeError with HQL error code, even without location
+    // Create a RuntimeError with HQL error code
     const targetFile = locationInfo?.filePath || runtimeContext.currentHqlFile;
     const hqlError = new RuntimeError(error.message, {
       filePath: targetFile,

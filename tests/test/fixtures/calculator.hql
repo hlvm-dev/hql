@@ -7,11 +7,11 @@
   (constructor (initial)
     (= this.value initial))
 
-  (fn add (x)
+  (fn add [x]
     (= this.value (+ this.value x))
     this.value)
 
-  (fn multiply (x)
+  (fn multiply [x]
     (= this.value (* this.value x))
     this.value))
 

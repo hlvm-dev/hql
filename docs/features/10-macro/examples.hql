@@ -6,7 +6,7 @@
 
 (import chalk from "jsr:@nothing628/chalk@1.0.0")
 
-(macro color-text (color text)
+(macro color-text [color text]
   `(console.log (js-call chalk ~color ~text)))
 
 (color-text "red" "This should be red!")
@@ -33,7 +33,7 @@
 ;; cond-test.hql - Test file specifically for cond macro
 
 ;; Test the cond macro with a simple function
-(fn test-cond (x)
+(fn test-cond [x]
   (cond
     ((< x 0) "negative")
     ((= x 0) "zero")
@@ -49,13 +49,13 @@
 (print "Testing cond with 500:" (test-cond 500))
 
 ;; Test empty cond (should return nil)
-(fn test-empty-cond ()
+(fn test-empty-cond []
   (cond))
 
 (print "Testing empty cond:" (test-empty-cond))
 
 ;; Test nested cond expressions
-(fn test-nested-cond (x y)
+(fn test-nested-cond [x y]
   (cond
     ((< x 0) "x is negative")
     ((= x 0) (cond
@@ -74,7 +74,7 @@
 ;; Test 'when' macro
 (print "\n=== Testing 'when' macro ===")
 
-(fn test-when (value)
+(fn test-when [value]
   (print "Testing when with value:" value)
   (when (> value 0)
     (print "Value is positive")
@@ -87,12 +87,12 @@
 ;; Test 'let' macro
 (print "\n=== Testing 'let' macro ===")
 
-(fn test-let-simple ()
+(fn test-let-simple []
   (let (x 10)
     (print "Simple let test:")
     (print "x =" x)))
 
-(fn test-let-multiple ()
+(fn test-let-multiple []
   (let (x 10
         y 20
         z (+ x y))
@@ -102,7 +102,7 @@
     (print "z =" z)
     (print "x + y + z =" (+ x (+ y z)))))
 
-(fn test-let-nested ()
+(fn test-let-nested []
   (let (outer 5)
     (let (inner (+ outer 2))
       (print "Nested let test:")
@@ -117,7 +117,7 @@
 ;; Test 'if-let' macro
 (print "\n=== Testing 'if-let' macro ===")
 
-(fn test-if-let (value)
+(fn test-if-let [value]
   (print "Testing if-let with value:" value)
   (if-let (x value)
     (print "Value is truthy, doubled:" (* x 2))
@@ -141,18 +141,18 @@
       (print "x - 50 =" result)
       (print "Result was falsy"))))
 
-;; Test defn macro
-(print "\n=== Testing 'defn' macro ===")
+;; Test fn function definition
+(print "\n=== Testing 'fn' function definition ===")
 
-;; Define a function using our defn macro
-(fn multiply (a b)
+;; Define a function using fn
+(fn multiply [a b]
   (* a b))
 
 ;; Test the function
 (print "multiply(3, 4) =" (multiply 3 4))
 
 ;; Test with multiple body forms
-(fn calculate-area (radius)
+(fn calculate-area [radius]
   (let square (* radius radius))
   (* 3.14 square))
 

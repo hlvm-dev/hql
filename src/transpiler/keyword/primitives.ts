@@ -7,7 +7,7 @@
  *
  * Why these MUST stay in kernel:
  * - quote/quasiquote/unquote: Core metaprogramming (needed for macros themselves)
- * - if, fn, let, var, set!: Core language primitives
+ * - if, fn, let, var, =: Core language primitives
  * - loop/recur: Fundamental control flow (TCO)
  * - do: Needs IIFE with BlockStatement to handle both statements AND expressions
  *       (macro version using nested let can only handle expressions, fails with var/statements)
@@ -45,7 +45,6 @@ export const PRIMITIVE_OPS = new Set([
   ">",
   "<=",
   ">=",
-  "eq?",  // Compatibility: maps to ===
 
   // Logical operators (v2.0)
   "&&",   // Logical AND
@@ -78,6 +77,7 @@ export const PRIMITIVE_OPS = new Set([
 export const KERNEL_PRIMITIVES = new Set([
   "quote",
   "if",
+  "def",    // Clojure-style definition (alias for const)
   "const",  // v2.0: Immutable binding
   "let",    // v2.0: Mutable block-scoped binding (changed from immutable)
   "var",    // Function-scoped binding (unchanged)

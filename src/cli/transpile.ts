@@ -121,12 +121,12 @@ async function transpile(
 
     try {
       // Use direct execution with error handling
-      // Skip bundling in compiled binary (esbuild doesn't work there)
+      // Bundle stdlib functions into output for self-contained JS
       const bundledPath = await transpileCLI(resolvedInputPath, outputPath, {
         verbose: opts.verbose,
         showTiming: opts.showTiming,
         force: force,
-        skipBundle: true, // Always skip bundling for transpile command
+        // Note: Bundling enabled to produce self-contained output with stdlib
       });
       // Update context with the actual JS bundle path once known
       setErrorContext(resolvedInputPath, bundledPath);

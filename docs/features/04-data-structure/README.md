@@ -59,7 +59,7 @@ v.length   ; => 3
 
 ; Mutation
 (var m {"count": 10})
-(set! m.newProp "added")
+(= m.newProp "added")
 ```
 
 ### Hash Sets
@@ -123,7 +123,7 @@ HQL's parser transforms literal syntax into S-expressions:
 ✅ Vector creation (empty and with elements) ✅ Vector element access by index
 ✅ Vector property access (`.length`) ✅ Vector mutation (`.push`) ✅ Map
 creation (empty and with pairs) ✅ Map value access by key ✅ Map property
-mutation (`set!`) ✅ Nested maps and vectors ✅ Set creation (empty and with
+mutation (`=`) ✅ Nested maps and vectors ✅ Set creation (empty and with
 elements) ✅ Set deduplication ✅ Set membership testing (`.has`) ✅ Get
 operations with defaults ✅ Chained get operations ✅ Collection operations
 (map, filter, reduce)

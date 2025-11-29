@@ -8,7 +8,7 @@
 HQL provides two types of variable bindings:
 
 1. **`let`** - Immutable bindings (compiles to `const`, values are frozen)
-2. **`var`** - Mutable bindings (compiles to `let`, can be updated with `set!`)
+2. **`var`** - Mutable bindings (compiles to `let`, can be updated with `=`)
 
 The binding model ensures **true immutability** for `let` bindings by
 automatically freezing reference types (objects, arrays) using deep freeze.
@@ -33,7 +33,7 @@ result  ; => 10
 ; Let with object (automatically frozen)
 (let person {"name": "Alice", "age": 30})
 person.name  ; => "Alice"
-; (set! person.age 31)  ; ERROR: Cannot mutate frozen object
+; (= person.age 31)  ; ERROR: Cannot mutate frozen object
 
 ; Let with array (automatically frozen)
 (let nums [1, 2, 3])
@@ -45,22 +45,22 @@ person.name  ; => "Alice"
 ```lisp
 ; Simple mutable binding
 (var x 10)
-(set! x 20)
+(= x 20)
 x  ; => 20
 
 ; Mutable binding with expression
 (var counter 0)
-(set! counter (+ counter 1))
+(= counter (+ counter 1))
 counter  ; => 1
 
 ; Multiple bindings in one var
 (var (x 10 y 20)
-  (set! x 100)
+  (= x 100)
   (+ x y))  ; => 120
 
 ; Var with object (mutable)
 (var person {"name": "Alice"})
-(set! person.age 30)
+(= person.age 30)
 person.age  ; => 30
 
 ; Var with array (mutable)
@@ -69,30 +69,30 @@ person.age  ; => 30
 nums.length  ; => 4
 ```
 
-### Assignment (`set!`)
+### Assignment (`=`)
 
 ```lisp
 ; Update existing var binding
 (var x 10)
-(set! x 20)
+(= x 20)
 x  ; => 20
 
 ; Update object property
 (var obj {"count": 0})
-(set! obj.count 42)
+(= obj.count 42)
 obj.count  ; => 42
 
 ; Multiple assignments
 (var x 1)
 (var y 2)
-(set! x 10)
-(set! y 20)
+(= x 10)
+(= y 20)
 (+ x y)  ; => 30
 
 ; Assignment with expression
 (var counter 0)
-(set! counter (+ counter 1))
-(set! counter (+ counter 1))
+(= counter (+ counter 1))
+(= counter (+ counter 1))
 counter  ; => 2
 ```
 
@@ -118,10 +118,10 @@ const x = Object.freeze([1, 2, 3]);
 let x = [1, 2, 3];
 ```
 
-#### `set!` → Assignment
+#### `=` → Assignment
 
 ```lisp
-(set! x 20)
+(= x 20)
 
 ; Compiles to:
 x = 20;
@@ -139,7 +139,7 @@ HQL implements **deep freeze** for `let` bindings:
 ; Object.freeze(data.user)
 
 ; Mutation attempts throw in strict mode:
-; (set! data.user.name "Charlie")  ; ERROR
+; (= data.user.name "Charlie")  ; ERROR
 ```
 
 ### Binding Scopes
@@ -162,7 +162,7 @@ HQL implements **deep freeze** for `let` bindings:
 ## Features Covered
 
 ✅ Immutable bindings with `let` ✅ Mutable bindings with `var` ✅ Assignment
-with `set!` ✅ Multiple bindings in single form ✅ Expression evaluation in
+with `=` ✅ Multiple bindings in single form ✅ Expression evaluation in
 bindings ✅ Object bindings (frozen for `let`, mutable for `var`) ✅ Array
 bindings (frozen for `let`, mutable for `var`) ✅ Property access and mutation
 ✅ Deep freeze for nested objects ✅ Multiple assignments ✅ Nested bindings ✅
@@ -178,15 +178,15 @@ Top-level and local scopes
 - `var` creates mutable binding
 - `let` with multiple values
 - `var` with multiple values
-- `set!` updates existing var
+- `=` updates existing var
 - `let` with expression
 - `var` with expression
 
 ### Section 2: Nested and Scoped Bindings (3 tests)
 
 - Nested `let` bindings
-- `set!` with property access
-- Multiple `set!` operations
+- `=` with property access
+- Multiple `=` operations
 
 ### Section 3: Reference Type Bindings (4 tests)
 
@@ -251,7 +251,7 @@ JavaScript
 
 1. ✅ **Compile-time:** Compiles to JavaScript `let`
 2. ✅ **Runtime:** No freezing, full mutability
-3. ✅ **Updates:** Can be changed with `set!`
+3. ✅ **Updates:** Can be changed with `=`
 4. ✅ **Property access:** Allows property mutation
 
 ## Edge Cases Tested

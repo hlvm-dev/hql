@@ -154,7 +154,7 @@ Generates a lazy sequence of numbers.
 Applies function to each element, returning lazy sequence.
 
 ```lisp
-(map (fn (x) (* x 2)) [1 2 3])     ;; → (2 4 6)
+(map (fn [x] (* x 2)) [1 2 3])     ;; → (2 4 6)
 (map str [1 2 3])                  ;; → ("1" "2" "3")
 ```
 
@@ -168,7 +168,7 @@ Returns lazy sequence of elements satisfying predicate.
 
 ```lisp
 (filter even? [1 2 3 4])           ;; → (2 4)
-(filter (fn (x) (> x 5)) [3 6 9])  ;; → (6 9)
+(filter (fn [x] (> x 5)) [3 6 9])  ;; → (6 9)
 ```
 
 **Lazy:** Yes **Tested:** Multiple tests
@@ -255,7 +255,7 @@ Checks if a sequence has been realized.
 Composes functions right-to-left.
 
 ```lisp
-(var addThenDouble (comp (fn (x) (* x 2)) (fn (x) (+ x 1))))
+(var addThenDouble (comp (fn [x] (* x 2)) (fn [x] (+ x 1))))
 (addThenDouble 5)                  ;; → 12  ; (5 + 1) * 2
 ```
 
@@ -379,7 +379,7 @@ Renames keys according to key-map.
 Groups collection by result of function.
 
 ```lisp
-(groupBy (fn (x) (% x 2)) [1 2 3 4 5])
+(groupBy (fn [x] (% x 2)) [1 2 3 4 5])
 ;; → {0: [2, 4], 1: [1, 3, 5]}
 
 (groupBy .length ["a" "bb" "ccc" "dd"])
@@ -397,8 +397,8 @@ Groups collection by result of function.
 Generates infinite lazy sequence by repeatedly applying function.
 
 ```lisp
-(take 5 (iterate (fn (x) (+ x 1)) 0))     ;; → (0 1 2 3 4)
-(take 4 (iterate (fn (x) (* x 2)) 1))     ;; → (1 2 4 8)
+(take 5 (iterate (fn [x] (+ x 1)) 0))     ;; → (0 1 2 3 4)
+(take 4 (iterate (fn [x] (* x 2)) 1))     ;; → (1 2 4 8)
 ```
 
 **Lazy:** Yes (infinite sequence!) **Tested:** Multiple tests
@@ -565,7 +565,7 @@ Most stdlib functions return lazy sequences that are only realized when needed:
 
 ```lisp
 ;; This doesn't compute anything yet
-(var lazyResult (map (fn (x) (* x 2)) (range 1000000)))
+(var lazyResult (map (fn [x] (* x 2)) (range 1000000)))
 
 ;; This realizes only first 5 elements
 (take 5 lazyResult)   ;; Efficient!

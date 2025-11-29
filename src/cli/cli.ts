@@ -4,9 +4,7 @@ import {
   getArgs as platformGetArgs,
 } from "../platform/platform.ts";
 import { hasHelpFlag } from "./utils/common-helpers.ts";
-
-// Constants
-const VERSION = "0.0.1";
+import { version as VERSION } from "../../mod.ts";
 const VALID_COMMANDS = ["repl", "init", "publish", "run", "transpile"] as const;
 const COMMANDS_REQUIRING_TARGET = new Set<Command>(["run", "transpile"]);
 

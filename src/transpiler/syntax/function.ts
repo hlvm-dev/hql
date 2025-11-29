@@ -3,6 +3,7 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import {
+  HQLError,
   perform,
   TransformError,
   ValidationError,
@@ -247,8 +248,8 @@ export function getFnFunction(
 
 /**
  * Transform an fn function - supports both named and anonymous functions.
- * Named: (fn name (params) body...)
- * Anonymous: (fn (params) body...)
+ * Named: (fn name [params] body...)
+ * Anonymous: (fn [params] body...)
  */
 export function transformFn(
   list: ListNode,
@@ -273,7 +274,7 @@ export function transformFn(
 
     // Dispatch based on second element type
     if (secondElement.type === "symbol") {
-      // Named function: (fn name (params) body...)
+      // Named function: (fn name [params] body...)
       return transformNamedFn(
         list,
         currentDir,
@@ -281,7 +282,7 @@ export function transformFn(
         processFunctionBody,
       );
     } else if (secondElement.type === "list") {
-      // Anonymous function: (fn (params) body...)
+      // Anonymous function: (fn [params] body...)
       return transformAnonymousFn(
         list,
         currentDir,
@@ -297,6 +298,10 @@ export function transformFn(
       );
     }
   } catch (error) {
+    // Preserve HQLError instances (ValidationError, ParseError, etc.)
+    if (error instanceof HQLError) {
+      throw error;
+    }
     throw new TransformError(
       `Failed to transform fn: ${
         error instanceof Error ? error.message : String(error)
@@ -341,7 +346,7 @@ function transformNamedFn(
   }
   const paramList = paramListNode as ListNode;
 
-  // Detect parameter style: [], {}, or ()
+  // Detect parameter style: [] (positional) or {} (JSON map)
   // Unified parameter parsing
   const { params, defaults, usesJsonMapParams } = parseFunctionParameters(
     paramList,
@@ -417,7 +422,7 @@ function transformAnonymousFn(
   }
   const paramList = paramListNode as ListNode;
 
-  // Detect parameter style: [], {}, or ()
+  // Detect parameter style: [] (positional) or {} (JSON map)
   // Unified parameter parsing
   const { params } = parseFunctionParameters(
     paramList,
@@ -1142,7 +1147,7 @@ function createFnListNode(
  *
  * Supports two forms:
  * 1. Implicit parameters: (=> body...) where body uses $0, $1, $2...
- * 2. Explicit parameters: (=> (params...) body...)
+ * 2. Explicit parameters: (=> [params...] body...) with square brackets
  *
  * Examples:
  * - (=> (* $0 2)) → (fn [$0] (* $0 2))
@@ -1173,15 +1178,15 @@ export function transformArrowLambda(
       throw new ValidationError(
         "Arrow lambda requires at least a body",
         "=> expression",
-        "body or (params) body",
+        "body or [params] body",
         `${list.elements.length - 1} arguments`,
       );
     }
 
     const secondElement = list.elements[1];
 
-    // Case 1: Explicit parameters - (=> (params...) body...)
-    // Detected when: second element is list AND there's a body after it
+    // Case 1: Explicit parameters - (=> [params...] body...)
+    // Detected when: second element is list (vector) AND there's a body after it
     if (isListNode(secondElement) && list.elements.length > 2) {
       const paramList = secondElement;
       const bodyElements = list.elements.slice(2);

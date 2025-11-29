@@ -20,7 +20,7 @@ Rest parameters provide JavaScript-style variadic function parameters using the 
 ```lisp
 ; Only rest parameter
 (fn sum [...nums]
-  (.reduce nums (fn (acc val) (+ acc val)) 0))
+  (.reduce nums (fn [acc val] (+ acc val)) 0))
 
 (sum 1 2 3 4 5)  ; => 15
 ```
@@ -30,13 +30,13 @@ Rest parameters provide JavaScript-style variadic function parameters using the 
 ```lisp
 ; Rest with single regular param
 (fn sum [x ...rest]
-  (+ x (.reduce rest (fn (acc val) (+ acc val)) 0)))
+  (+ x (.reduce rest (fn [acc val] (+ acc val)) 0)))
 
 (sum 10 1 2 3)  ; => 16
 
 ; Rest with multiple regular params
 (fn sum [x y ...rest]
-  (+ x y (.reduce rest (fn (acc val) (+ acc val)) 0)))
+  (+ x y (.reduce rest (fn [acc val] (+ acc val)) 0)))
 
 (sum 10 20 1 2 3)  ; => 36
 ```
@@ -79,7 +79,7 @@ Rest parameters are real JavaScript arrays with all array methods:
 
 ; Array methods
 (fn sumAll [...nums]
-  (.reduce nums (fn (a b) (+ a b)) 0))
+  (.reduce nums (fn [a b] (+ a b)) 0))
 
 (sumAll 1 2 3 4)  ; => 10
 ```
@@ -104,7 +104,7 @@ Rest parameters collect any type of argument:
 ```lisp
 ; HQL rest parameter
 (fn sum [...nums]
-  (.reduce nums (fn (a b) (+ a b)) 0))
+  (.reduce nums (fn [a b] (+ a b)) 0))
 
 ; Compiles to JavaScript
 function sum(...nums) {
@@ -184,7 +184,7 @@ function sum(...nums) {
 ```lisp
 ; Sum any number of values
 (fn sum [...numbers]
-  (.reduce numbers (fn (acc n) (+ acc n)) 0))
+  (.reduce numbers (fn [acc n] (+ acc n)) 0))
 
 (sum 1 2 3)     ; => 6
 (sum 10 20)     ; => 30
@@ -193,7 +193,7 @@ function sum(...nums) {
 ; Find maximum
 (fn max [...numbers]
   (.reduce numbers
-    (fn (acc n) (? (> n acc) n acc))
+    (fn [acc n] (? (> n acc) n acc))
     (get numbers 0)))
 
 (max 3 7 2 9 1)  ; => 9
@@ -244,10 +244,10 @@ function sum(...nums) {
 
 ```lisp
 (fn add [...nums]
-  (.reduce nums (fn (a b) (+ a b)) 0))
+  (.reduce nums (fn [a b] (+ a b)) 0))
 
 (fn multiply [...nums]
-  (.reduce nums (fn (a b) (* a b)) 1))
+  (.reduce nums (fn [a b] (* a b)) 1))
 
 (fn average [...nums]
   (/ (add ...nums) (get nums "length")))
@@ -274,12 +274,12 @@ function sum(...nums) {
 
 ```lisp
 (fn collectUsers [...userData]
-  (.map userData (fn (data)
-    {:id (get data 0)
-     :name (get data 1)})))
+  (.map userData (fn [data]
+    {id: (get data 0),
+     name: (get data 1)})))
 
 (collectUsers [1 "Alice"] [2 "Bob"] [3 "Charlie"])
-; => [{:id 1 :name "Alice"} {:id 2 :name "Bob"} {:id 3 :name "Charlie"}]
+; => [{id: 1, name: "Alice"}, {id: 2, name: "Bob"}, {id: 3, name: "Charlie"}]
 ```
 
 ## Best Practices

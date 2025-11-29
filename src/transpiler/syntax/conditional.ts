@@ -4,11 +4,12 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, SymbolNode } from "../type/hql_ast.ts";
 import {
+  HQLError,
   perform,
   TransformError,
   ValidationError,
 } from "../../common/error.ts";
-import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
+import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import { validateTransformed } from "../utils/validation-helpers.ts";
 import { ensureReturnStatement } from "../utils/ir-helpers.ts";
 import { isExpressionResult } from "../pipeline/hql-ast-to-hql-ir.ts";
@@ -84,7 +85,7 @@ export function transformIf(
         `if requires 2 or 3 arguments, got ${list.elements.length - 1}`,
         "if expression",
         "2 or 3 arguments",
-        `${list.elements.length - 1} arguments`,
+        { actualType: `${list.elements.length - 1} arguments`, ...extractMetaSourceLocation(list) },
       );
     }
 
@@ -176,6 +177,10 @@ export function transformIf(
       alternate,
     } as IR.IRConditionalExpression;
   } catch (error) {
+    // Preserve HQLError instances (ValidationError, ParseError, etc.)
+    if (error instanceof HQLError) {
+      throw error;
+    }
     throw new TransformError(
       `Failed to transform if: ${
         error instanceof Error ? error.message : String(error)

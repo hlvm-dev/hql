@@ -1,6 +1,6 @@
 ;; Circular B: defines macro-b, imports macro-a
-(macro macro-b (x) `(* ~x 2))
-(fn func-b (x) (* x 2))
+(macro macro-b [x] `(* ~x 2))
+(fn func-b [x] (* x 2))
 
 (export [macro-b, func-b])
 

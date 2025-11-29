@@ -76,7 +76,7 @@ Immutable bindings:
 Mutable bindings:
 ```lisp
 (var counter 0)
-(set! counter (+ counter 1))
+(= counter (+ counter 1))
 ```
 
 ### Comments
@@ -191,7 +191,7 @@ While loop:
 (var i 0)
 (while (< i 5)
   (print i)
-  (set! i (+ i 1)))
+  (= i (+ i 1)))
 ```
 
 ## Macros

@@ -164,7 +164,7 @@ Deno.test("Class: method calls another method", async () => {
   (constructor (name)
     (= this.name name))
 
-  (fn getName ()
+  (fn getName []
     this.name)
 
   (fn greet []
@@ -419,7 +419,7 @@ Deno.test("Class: method modifies instance state and returns self", async () => 
       (= this.name name)
       (= this.age age)))
 
-  (fn celebrateBirthday (newAge)
+  (fn celebrateBirthday [newAge]
     (do
       (= this.age newAge)
       this)))
@@ -525,7 +525,7 @@ Deno.test("Class: method returns object literal", async () => {
       (= this.name name)
       (= this.age age)))
 
-  (fn toObject ()
+  (fn toObject []
     {"name": this.name, "age": this.age}))
 
 (var p (new Person "Alice" 30))

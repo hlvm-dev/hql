@@ -34,7 +34,7 @@ hql run hello.hql
 
 ; Mutable
 (var counter 0)
-(set! counter 100)
+(= counter 100)
 ```
 
 ## Functions

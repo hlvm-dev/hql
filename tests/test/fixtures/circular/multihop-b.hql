@@ -3,7 +3,7 @@
 
 (import [cFunc] from "./multihop-c.hql")
 
-(fn bFunc ()
+(fn bFunc []
   (+ 2 (cFunc)))
 
 (export [bFunc])

@@ -207,7 +207,7 @@ Deno.test("Enum: dot notation in equality", async () => {
   (case notFound 404)
   (case serverError 500))
 
-(fn checkStatus (code)
+(fn checkStatus [code]
   (if (=== code StatusCode.ok)
     "Everything is ok!"
     "Not ok!"))

@@ -6,7 +6,7 @@
   ;; Constructor
   (constructor [baseValue]
     (do
-      (set! this.baseValue baseValue)))
+      (= this.baseValue baseValue)))
 
   ;; fn method with JSON map parameters (defaults)
   (fn multiply {"x": 100, "y": 2}

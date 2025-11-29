@@ -76,7 +76,7 @@ Useful for tooling, debugging, or snapshot tests.
 ```ts
 import { transpile } from "./mod.ts";
 
-const js = await transpile("(map (fn (x) (* x 2)) [1 2 3])");
+const js = await transpile("(map (fn [x] (* x 2)) [1 2 3])");
 console.log(js);
 ```
 
@@ -124,7 +124,7 @@ macros:
 ```ts
 import hql from "./mod.ts";
 
-await hql.run("(defmacro twice [x] `(+ ~x ~x))");
+await hql.run("(macro twice [x] `(+ ~x ~x))");
 console.log(await hql.hasMacro("twice")); // true
 console.log(await hql.getMacros()); // Map of runtime macros
 await hql.resetRuntime(); // Clear macros/state

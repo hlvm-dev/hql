@@ -190,13 +190,13 @@ i
 });
 
 // ========================================
-// Repeat Loop Tests
+// Dotimes Loop Tests (Clojure-style fixed iteration)
 // ========================================
 
-Deno.test("Repeat: basic repeat loop", async () => {
+Deno.test("Dotimes: basic dotimes loop", async () => {
   const code = `
 (var result [])
-(repeat 3
+(dotimes 3
   (.push result "hello"))
 result
 `;
@@ -204,10 +204,10 @@ result
   assertEquals(result, ["hello", "hello", "hello"]);
 });
 
-Deno.test("Repeat: repeat with multiple expressions", async () => {
+Deno.test("Dotimes: dotimes with multiple expressions", async () => {
   const code = `
 (var result [])
-(repeat 2
+(dotimes 2
   (.push result "first")
   (.push result "second"))
 result
@@ -216,11 +216,11 @@ result
   assertEquals(result, ["first", "second", "first", "second"]);
 });
 
-Deno.test("Repeat: repeat with counter accumulation", async () => {
+Deno.test("Dotimes: dotimes with counter accumulation", async () => {
   const code = `
 (var sum 0)
 (var counter 0)
-(repeat 5
+(dotimes 5
   (= sum (+ sum counter))
   (= counter (+ counter 1)))
 sum

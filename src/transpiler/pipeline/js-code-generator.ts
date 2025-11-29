@@ -16,6 +16,7 @@ import type * as IR from "../type/hql_ir.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import {
   convertIRToESTree,
+  setSourceFilePath,
   wrapWithRuntimeHelpers,
   type Program,
 } from "./ir-to-estree.ts";
@@ -86,6 +87,11 @@ export async function generateJavaScript(
   logger.debug("Converting HQL IR to ESTree AST");
   const conversionStartTime = performance.now();
 
+  // Set the source file path fallback for source map generation
+  // This ensures synthetic nodes (without their own filePath) map to the correct file
+  const sourceFileName = options.sourceFilePath || options.currentFilePath || "unknown.hql";
+  setSourceFilePath(sourceFileName);
+
   const estreeProgram = convertIRToESTree(ir) as Program;
 
   // Wrap with runtime helpers (if needed)
@@ -101,8 +107,6 @@ export async function generateJavaScript(
   // ============================================================================
   logger.debug("Generating JavaScript code with escodegen");
   const generateStartTime = performance.now();
-
-  const sourceFileName = options.sourceFilePath || options.currentFilePath || "unknown.hql";
 
   // Configure escodegen generator
   // Using Record instead of any for type safety (escodegen options object)

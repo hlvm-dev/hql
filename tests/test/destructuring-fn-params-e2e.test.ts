@@ -25,7 +25,7 @@ Deno.test("Fn Param Destructuring: Simple [a b]", async () => {
 
 Deno.test("Fn Param Destructuring: Three elements [x y z]", async () => {
   const code = `
-(fn sum3 ([x y z])
+(fn sum3 [[x y z]]
   (+ x (+ y z)))
 
 (sum3 [10 20 30])
@@ -140,7 +140,7 @@ Deno.test("Fn Param Destructuring: Mixed (x [y z])", async () => {
 
 Deno.test("Fn Param Destructuring: Mixed ([a b] c)", async () => {
   const code = `
-(fn mixed2 ([a b] c)
+(fn mixed2 [[a b] c]
   (+ a (+ b c)))
 
 (mixed2 [1 2] 3)
@@ -151,7 +151,7 @@ Deno.test("Fn Param Destructuring: Mixed ([a b] c)", async () => {
 
 Deno.test("Fn Param Destructuring: Three params (x [y z] w)", async () => {
   const code = `
-(fn mixed3 (x [y z] w)
+(fn mixed3 [x [y z] w]
   (+ x (+ y (+ z w))))
 
 (mixed3 1 [2 3] 4)
@@ -181,7 +181,7 @@ Deno.test("Fn Param Destructuring: Two arrays ([a b] [c d])", async () => {
 
 Deno.test("Fn Param Destructuring: Anonymous fn", async () => {
   const code = `
-(let f (fn ([x y]) (+ x y)))
+(let f (fn [[x y]] (+ x y)))
 (f [5 10])
 `;
   const result = await run(code);
@@ -190,7 +190,7 @@ Deno.test("Fn Param Destructuring: Anonymous fn", async () => {
 
 Deno.test("Fn Param Destructuring: Inline anonymous", async () => {
   const code = `
-((fn ([a b]) (* a b)) [3 4])
+((fn [[a b]] (* a b)) [3 4])
 `;
   const result = await run(code);
   assertEquals(result, 12);

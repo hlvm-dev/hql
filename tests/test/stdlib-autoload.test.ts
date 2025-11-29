@@ -29,7 +29,7 @@ Deno.test("Stdlib: range auto-loaded (lazy infinite generator)", async () => {
 Deno.test("Stdlib: map auto-loaded", async () => {
   const code = `
 (let nums [1, 2, 3])
-(doall (map (fn (x) (* x 2)) nums))
+(doall (map (fn [x] (* x 2)) nums))
 `;
   const result = await run(code);
   assertEquals(result, [2, 4, 6]);
@@ -38,7 +38,7 @@ Deno.test("Stdlib: map auto-loaded", async () => {
 Deno.test("Stdlib: filter auto-loaded", async () => {
   const code = `
 (let nums [1, 2, 3, 4, 5, 6])
-(doall (filter (fn (x) (=== (% x 2) 0)) nums))
+(doall (filter (fn [x] (=== (% x 2) 0)) nums))
 `;
   const result = await run(code);
   assertEquals(result, [2, 4, 6]);
@@ -47,7 +47,7 @@ Deno.test("Stdlib: filter auto-loaded", async () => {
 Deno.test("Stdlib: reduce auto-loaded", async () => {
   const code = `
 (let nums [1, 2, 3, 4, 5])
-(reduce (fn (acc x) (+ acc x)) 0 nums)
+(reduce (fn [acc x] (+ acc x)) 0 nums)
 `;
   const result = await run(code);
   assertEquals(result, 15);
@@ -69,7 +69,7 @@ Deno.test("Stdlib: groupBy auto-loaded", async () => {
   {"name": "Bob", "age": 32},
   {"name": "Charlie", "age": 28}
 ])
-(groupBy (fn (u) (get u "age")) users)
+(groupBy (fn [u] (get u "age")) users)
 `;
   const result = await run(code);
   // groupBy now returns Map, keys are preserved as numbers
@@ -80,7 +80,7 @@ Deno.test("Stdlib: groupBy auto-loaded", async () => {
 Deno.test("Stdlib: lazy chaining works", async () => {
   const code = `
 (let nums [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-(let result (take 3 (filter (fn (x) (=== (% x 2) 0)) nums)))
+(let result (take 3 (filter (fn [x] (=== (% x 2) 0)) nums)))
 result
 `;
   const result = await run(code);
@@ -148,7 +148,7 @@ Deno.test("Stdlib: isEmpty with non-empty", async () => {
 
 Deno.test("Stdlib: some auto-loaded", async () => {
   const code = `
-(fn greaterThan5 (x) (> x 5))
+(fn greaterThan5 [x] (> x 5))
 (some greaterThan5 [1 2 6 3])
 `;
   const result = await run(code);
@@ -157,7 +157,7 @@ Deno.test("Stdlib: some auto-loaded", async () => {
 
 Deno.test("Stdlib: some returns null when no match", async () => {
   const code = `
-(fn greaterThan10 (x) (> x 10))
+(fn greaterThan10 [x] (> x 10))
 (some greaterThan10 [1 2 3])
 `;
   const result = await run(code);
@@ -167,7 +167,7 @@ Deno.test("Stdlib: some returns null when no match", async () => {
 Deno.test("Stdlib: comp auto-loaded (function composition)", async () => {
   const code = `
 (fn double [x] (* x 2))
-(fn add1 (x) (+ x 1))
+(fn add1 [x] (+ x 1))
 (let composed (comp add1 double))
 (composed 5)
 `;
@@ -187,7 +187,7 @@ Deno.test("Stdlib: partial auto-loaded (partial application)", async () => {
 
 Deno.test("Stdlib: apply auto-loaded", async () => {
   const code = `
-(fn maximum [& args] (args.reduce (fn (a b) (if (> a b) a b))))
+(fn maximum [& args] (args.reduce (fn [a b] (if (> a b) a b))))
 (apply maximum [1 5 3 9 2])
 `;
   const result = await run(code);
@@ -227,9 +227,9 @@ Deno.test("Stdlib: integration - comp with partial", async () => {
 
 Deno.test("Stdlib: integration - chaining with new functions", async () => {
   const code = `
-(fn isEven (x) (=== (% x 2) 0))
+(fn isEven [x] (=== (% x 2) 0))
 (fn double [x] (* x 2))
-(let nums (iterate (fn (x) (+ x 1)) 0))
+(let nums (iterate (fn [x] (+ x 1)) 0))
 (doall (take 5 (filter isEven (map double nums))))
 `;
   const result = await run(code);
@@ -238,7 +238,7 @@ Deno.test("Stdlib: integration - chaining with new functions", async () => {
 
 Deno.test("Stdlib: isEmpty handles LazySeq with undefined element", async () => {
   const code = `
-(let seq (iterate (fn (x) (if (=== x 0) undefined (- x 1))) 2))
+(let seq (iterate (fn [x] (if (=== x 0) undefined (- x 1))) 2))
 (let taken (take 3 seq))
 (isEmpty taken)
 `;
@@ -249,7 +249,7 @@ Deno.test("Stdlib: isEmpty handles LazySeq with undefined element", async () => 
 Deno.test("Stdlib: groupBy preserves key types (Map-based)", async () => {
   const code = `
 (let nums [1 2 3 4 5 6])
-(groupBy (fn (x) (% x 3)) nums)
+(groupBy (fn [x] (% x 3)) nums)
 `;
   const result = await run(code);
   // groupBy now returns Map, not Object

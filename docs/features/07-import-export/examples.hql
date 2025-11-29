@@ -308,7 +308,7 @@
   (do
     (var result {})
     (for (key (Object.keys obj))
-      (set! result[key] (fn obj[key])))
+      (= result[key] (fn obj[key])))
     result)))
 
 ; main.hql (use aliases to avoid conflict)

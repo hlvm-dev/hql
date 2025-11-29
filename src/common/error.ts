@@ -49,6 +49,32 @@ export function formatErrorMessage(error: unknown): string {
 }
 
 /**
+ * Extract an existing HQL error code from a message string.
+ * Returns the error code if found, or null if not present.
+ *
+ * Matches patterns like: [HQL1001], [HQL3008], etc.
+ */
+function extractExistingErrorCode(msg: string): HQLErrorCode | null {
+  const match = msg.match(/\[HQL(\d{4})\]/);
+  if (match && match[1]) {
+    const code = parseInt(match[1], 10);
+    // Validate that the code is in a valid range (1000-7999)
+    if (code >= 1000 && code <= 7999) {
+      return code as HQLErrorCode;
+    }
+  }
+  return null;
+}
+
+/**
+ * Strip existing HQL error code prefix from a message.
+ * Returns the message without the [HQLxxxx] prefix.
+ */
+function stripErrorCodeFromMessage(msg: string): string {
+  return msg.replace(/^\[HQL\d{4}\]\s*/, "");
+}
+
+/**
  * Enhance error message with error code and location
  *
  * Extracted helper to eliminate duplication across all error constructors
@@ -64,7 +90,10 @@ function enhanceErrorMessage(
   opts: { filePath?: string; line?: number; column?: number },
 ): string {
   const codeStr = formatErrorCode(errorCode);
-  let enhancedMsg = `[${codeStr}] ${msg}`;
+
+  // Don't add duplicate error codes - strip any existing ones first
+  const cleanMsg = stripErrorCodeFromMessage(msg);
+  let enhancedMsg = `[${codeStr}] ${cleanMsg}`;
 
   if (opts.filePath && opts.line && opts.column) {
     enhancedMsg += ` at ${opts.filePath}:${opts.line}:${opts.column}`;
@@ -512,18 +541,24 @@ export class ParseError extends HQLError {
 
   override getSuggestion(): string {
     const m = this.message.toLowerCase();
-    if (
-      m.includes("unclosed") || (m.includes("missing") && m.includes("closing"))
-    ) return "Add a closing parenthesis ')' to complete the expression.";
+    // More specific checks first
+    if (m.includes("unclosed string") || m.includes("string literal not terminated")) {
+      return "Add the closing quote to complete the string literal.";
+    }
+    if (m.includes("unclosed comment")) {
+      return "Add the closing delimiter to complete the comment.";
+    }
     if (m.includes("unexpected ')'")) {
       return "Check for missing opening parenthesis '(' earlier in the code.";
     }
     if (m.includes("unexpected end of input")) {
       return "Your code ends unexpectedly. Check for unclosed blocks or incomplete expressions.";
     }
-    if (m.includes("unclosed string") || m.includes("unclosed comment")) {
-      return "Add the closing delimiter to complete the literal.";
-    }
+    // Generic unclosed (list) check last
+    if (
+      m.includes("unclosed list") || m.includes("unclosed") ||
+      (m.includes("missing") && m.includes("closing"))
+    ) return "Add a closing parenthesis ')' to complete the expression.";
     return "Check the syntax near this location.";
   }
 }
@@ -614,8 +649,14 @@ const PARSE_ERROR_PATTERNS: ErrorPattern[] = [
 
 const IMPORT_ERROR_PATTERNS: ErrorPattern[] = [
   { test: "circular", code: HQLErrorCode.CIRCULAR_IMPORT },
+  { test: "module not found", code: HQLErrorCode.MODULE_NOT_FOUND },
   { test: "cannot find", code: HQLErrorCode.MODULE_NOT_FOUND },
   { test: "does not exist", code: HQLErrorCode.MODULE_NOT_FOUND },
+  { test: "relative import path", code: HQLErrorCode.INVALID_IMPORT_PATH },
+  { test: "not prefixed with", code: HQLErrorCode.INVALID_IMPORT_PATH },
+  { test: "not in import map", code: HQLErrorCode.MODULE_NOT_FOUND },
+  { test: "does not provide an export", code: HQLErrorCode.EXPORT_NOT_FOUND },
+  { test: "unsupported import file type", code: HQLErrorCode.INVALID_IMPORT_PATH },
   { test: "invalid import syntax", code: HQLErrorCode.INVALID_IMPORT_SYNTAX },
   { test: "invalid import statement", code: HQLErrorCode.INVALID_IMPORT_SYNTAX },
   { test: "invalid import path", code: HQLErrorCode.INVALID_IMPORT_PATH },
@@ -632,6 +673,7 @@ const VALIDATION_ERROR_PATTERNS: ErrorPattern[] = [
   { test: ["too many", "argument"], code: HQLErrorCode.TOO_MANY_ARGUMENTS },
   { test: ["invalid", "parameter"], code: HQLErrorCode.INVALID_PARAMETER },
   { test: ["duplicate", "parameter"], code: HQLErrorCode.DUPLICATE_PARAMETER },
+  { test: "already been declared", code: HQLErrorCode.INVALID_EXPRESSION }, // Duplicate variable declaration
   { test: "function", code: HQLErrorCode.INVALID_FUNCTION_SYNTAX },
   { test: "class", code: HQLErrorCode.INVALID_CLASS_SYNTAX },
   { test: ["invalid", "variable"], code: HQLErrorCode.INVALID_VARIABLE_NAME },
@@ -762,9 +804,85 @@ function inferCodeGenErrorCode(msg: string): HQLErrorCode {
 }
 
 /**
- * Infer error code from runtime error message
+ * Infer error code from runtime error message.
+ * First checks if an existing HQL error code is embedded in the message.
+ * Then tries to match against known error patterns.
  */
 function inferRuntimeErrorCode(msg: string): HQLErrorCode {
+  // FIRST: Check if message already contains an HQL error code
+  // This handles cases where errors bubble up and get re-wrapped
+  const existingCode = extractExistingErrorCode(msg);
+  if (existingCode !== null) {
+    return existingCode;
+  }
+
+  // Also check for common patterns that indicate this is NOT a runtime error
+  // but rather a parse/import/validation error that bubbled up
+
+  // Parse error patterns
+  const lowerMsg = msg.toLowerCase();
+  if (
+    lowerMsg.includes("unclosed list") ||
+    lowerMsg.includes("unclosed string") ||
+    lowerMsg.includes("unclosed comment") ||
+    lowerMsg.includes("unexpected token") ||
+    lowerMsg.includes("unexpected end of input")
+  ) {
+    return inferErrorCodeFromCompiledPatterns(
+      msg,
+      COMPILED_PARSE_ERROR_PATTERNS,
+      HQLErrorCode.INVALID_SYNTAX,
+    );
+  }
+
+  // Import error patterns
+  if (
+    lowerMsg.includes("module not found") ||
+    lowerMsg.includes("cannot find module") ||
+    lowerMsg.includes("circular import") ||
+    lowerMsg.includes("failed to resolve") ||
+    lowerMsg.includes("not prefixed with") ||
+    lowerMsg.includes("not in import map") ||
+    lowerMsg.includes("relative import path") ||
+    lowerMsg.includes("does not provide an export") ||
+    (lowerMsg.includes("import") && lowerMsg.includes("invalid"))
+  ) {
+    return inferErrorCodeFromCompiledPatterns(
+      msg,
+      COMPILED_IMPORT_ERROR_PATTERNS,
+      HQLErrorCode.INVALID_IMPORT_SYNTAX,
+    );
+  }
+
+  // Validation error patterns
+  if (
+    lowerMsg.includes("already been declared") ||
+    lowerMsg.includes("duplicate") ||
+    lowerMsg.includes("invalid function") ||
+    lowerMsg.includes("invalid class") ||
+    lowerMsg.includes("too many arguments") ||
+    lowerMsg.includes("missing required")
+  ) {
+    return inferErrorCodeFromCompiledPatterns(
+      msg,
+      COMPILED_VALIDATION_ERROR_PATTERNS,
+      HQLErrorCode.INVALID_EXPRESSION,
+    );
+  }
+
+  // Transform error patterns
+  if (
+    lowerMsg.includes("transformation failed") ||
+    lowerMsg.includes("transform error")
+  ) {
+    return inferErrorCodeFromCompiledPatterns(
+      msg,
+      COMPILED_TRANSFORM_ERROR_PATTERNS,
+      HQLErrorCode.TRANSFORMATION_FAILED,
+    );
+  }
+
+  // Default to standard runtime error patterns
   return inferErrorCodeFromCompiledPatterns(
     msg,
     COMPILED_RUNTIME_ERROR_PATTERNS,
@@ -909,10 +1027,69 @@ export class ValidationError extends HQLError {
   }
 
   override getSuggestion(): string {
+    const m = this.message.toLowerCase();
+    const ctx = this.context.toLowerCase();
+
+    // Duplicate declaration
+    if (m.includes("already been declared") || m.includes("duplicate")) {
+      return "Choose a different variable name or remove the duplicate declaration.";
+    }
+
+    // TDZ violation
+    if (m.includes("before initialization") || m.includes("temporal dead zone")) {
+      return "Move the variable declaration before its first use.";
+    }
+
+    // Too many arguments
+    if (m.includes("too many") && m.includes("argument")) {
+      return "Check the number of arguments you're passing to the function.";
+    }
+
+    // Missing argument
+    if (m.includes("missing") && m.includes("argument")) {
+      return "Make sure you provide all required arguments to the function.";
+    }
+
+    // Class-specific suggestions
+    if (m.includes("class") || ctx.includes("class")) {
+      if (m.includes("requires a name")) {
+        return "Classes require: (class Name (field x) (fn method [self] body))";
+      }
+      return "Check class definition syntax: (class Name body...)";
+    }
+
+    // Enum-specific suggestions
+    if (m.includes("enum") || ctx.includes("enum")) {
+      if (m.includes("requires a name") || m.includes("at least one case")) {
+        return "Enums require: (enum Name (case A) (case B)). Example: (enum Color (case Red) (case Blue))";
+      }
+      return "Check enum definition syntax: (enum Name (case ...) ...)";
+    }
+
+    // Loop-specific suggestions
+    if (m.includes("loop") || ctx.includes("loop")) {
+      if (m.includes("bindings")) {
+        return "Loop requires: (loop (var init ...) body). Example: (loop (i 0) (if (< i 10) (recur (+ i 1)) i))";
+      }
+      return "Check loop syntax: (loop (bindings) body)";
+    }
+
+    // Recur-specific suggestions
+    if (m.includes("recur") || ctx.includes("recur")) {
+      return "The 'recur' form can only be used inside a 'loop' expression.";
+    }
+
+    // If-specific suggestions
+    if (m.includes("if") || ctx.includes("if")) {
+      return "If requires 2 or 3 arguments: (if condition then else?)";
+    }
+
+    // Type mismatch
     if (this.expectedType && this.actualType) {
       return `Expected ${this.expectedType} but got ${this.actualType}.`;
     }
-    return "Ensure the value conforms to the expected type.";
+
+    return "Check the code for validation errors.";
   }
 }
 
@@ -964,7 +1141,26 @@ export class MacroError extends HQLError {
   }
 
   override getSuggestion(): string {
-    return `Check usage and arguments of the macro \"${this.macroName}\".`;
+    const m = this.message.toLowerCase();
+
+    // Specific suggestions based on error type
+    if (m.includes("requires a name, parameter list, and body")) {
+      return "Macros require: (macro name [params] body). Example: (macro double [x] `(* ~x 2))";
+    }
+    if (m.includes("name must be a symbol")) {
+      return "The macro name must be a valid symbol, not a literal or expression.";
+    }
+    if (m.includes("parameters must be a list")) {
+      return "Macro parameters should be in brackets: (macro name [param1 param2] body)";
+    }
+    if (m.includes("too few arguments") || m.includes("too many arguments")) {
+      return `Check the number of arguments passed to macro '${this.macroName}'.`;
+    }
+    if (m.includes("unquote") || m.includes("splice")) {
+      return "Unquote (~) and splice (~@) can only be used inside quasiquote (`).";
+    }
+
+    return `Check usage and arguments of the macro '${this.macroName}'.`;
   }
 }
 
@@ -1069,17 +1265,62 @@ export class TransformError extends HQLError {
   override getSuggestion(): string {
     const msg = this.message.toLowerCase();
 
-    // Specific suggestion for missing function body
-    if (msg.includes("missing body expression")) {
-      return "Add a body expression after the parameters. Functions must have at least one expression in the body.";
+    // Function-specific suggestions
+    if (msg.includes("fn syntax") || msg.includes("function")) {
+      if (msg.includes("requires at least parameters and body")) {
+        return "Functions require: (fn name [params] body) or (fn [params] body). Example: (fn add [x y] (+ x y))";
+      }
+      if (msg.includes("missing body expression")) {
+        return "Add a body expression after the parameters. Example: (fn double [x] (* x 2))";
+      }
+      if (msg.includes("parameter list must be a list")) {
+        return "Parameters should be in brackets: (fn name [param1 param2] body)";
+      }
+      if (msg.includes("function name must be a symbol")) {
+        return "Function name must be a valid symbol, not a literal or expression.";
+      }
     }
 
+    // Class-specific suggestions
+    if (msg.includes("class") || this.phase.includes("class")) {
+      if (msg.includes("requires a name")) {
+        return "Classes require: (class Name (field x) (fn method [self] body))";
+      }
+      if (msg.includes("field")) {
+        return "Class fields should be: (field name) or (field name default-value)";
+      }
+    }
+
+    // Enum-specific suggestions
+    if (msg.includes("enum")) {
+      if (msg.includes("requires a name and at least one case")) {
+        return "Enums require: (enum Name (case A) (case B value)). Example: (enum Color (case Red) (case Blue))";
+      }
+    }
+
+    // Loop-specific suggestions
+    if (msg.includes("loop") || msg.includes("recur")) {
+      if (msg.includes("bindings")) {
+        return "Loop requires: (loop (var init ...) body). Example: (loop (i 0) (if (< i 10) (recur (+ i 1)) i))";
+      }
+      if (msg.includes("inside a loop")) {
+        return "The 'recur' form can only be used inside a 'loop' expression.";
+      }
+    }
+
+    // Conditional-specific suggestions
+    if (msg.includes("if") && msg.includes("requires")) {
+      return "If requires: (if condition then-expr else-expr). Example: (if (> x 0) \"positive\" \"non-positive\")";
+    }
+
+    // Generic phase-based suggestions
     if (this.phase.toLowerCase().includes("ast")) {
       return "Check AST structure around this construct.";
     }
     if (this.phase.toLowerCase().includes("ir")) {
       return "Check IR generation for unsupported constructs.";
     }
+
     return `Issue occurred during ${this.phase} phase.`;
   }
 }
@@ -1096,8 +1337,20 @@ export class RuntimeError extends HQLError {
       code?: HQLErrorCode;
     } = {},
   ) {
-    // Use provided code or infer from message
-    const errorCode = opts.code || inferRuntimeErrorCode(msg);
+    // Determine error code with priority:
+    // 1. Explicitly provided code
+    // 2. Code from originalError if it's an HQLError
+    // 3. Inferred from message
+    let errorCode = opts.code;
+
+    if (!errorCode && opts.originalError instanceof HQLError) {
+      // Preserve error code from wrapped HQLError
+      errorCode = opts.originalError.code;
+    }
+
+    if (!errorCode) {
+      errorCode = inferRuntimeErrorCode(msg);
+    }
 
     // Enhance message with error code and location (using helper)
     const enhancedMsg = enhanceErrorMessage(msg, errorCode, opts);
@@ -1119,21 +1372,76 @@ export class RuntimeError extends HQLError {
   override getSuggestion(): string {
     const m = this.message.toLowerCase();
 
+    // If wrapped error is an HQLError, delegate to its suggestion
+    if (this.originalError instanceof HQLError) {
+      const originalSuggestion = this.originalError.getSuggestion();
+      if (originalSuggestion && !originalSuggestion.includes("Check runtime type")) {
+        return originalSuggestion;
+      }
+    }
+
+    // Parse error suggestions
+    if (m.includes("unclosed list") || m.includes("missing closing parenthesis")) {
+      return "Add a closing parenthesis ')' to complete the expression.";
+    }
+    if (m.includes("unclosed string")) {
+      return "Add the closing quote to complete the string literal.";
+    }
+    if (m.includes("unclosed comment")) {
+      return "Add the closing delimiter to complete the comment.";
+    }
+    if (m.includes("unexpected token") || m.includes("unexpected ')'")) {
+      return "Check for mismatched parentheses or unexpected characters.";
+    }
+    if (m.includes("unexpected end of input")) {
+      return "Your code ends unexpectedly. Check for unclosed blocks or incomplete expressions.";
+    }
+
+    // Import error suggestions (more specific patterns first)
+    if (m.includes("relative import path") || m.includes("not prefixed with")) {
+      return "Use a relative path starting with './' or '../', or an absolute path starting with '/'.";
+    }
+    if (m.includes("module not found") || m.includes("does not exist") || m.includes("not in import map")) {
+      return "Check that the file exists and the path is correct.";
+    }
+    if (m.includes("circular import")) {
+      return "Restructure code to break the circular dependency chain.";
+    }
+    if (m.includes("unsupported import file type")) {
+      return "Check that you're importing a valid HQL, JS, or TS file with the correct extension.";
+    }
+    if (m.includes("does not provide an export")) {
+      return "Verify the export name exists in the imported module.";
+    }
+
+    // Validation error suggestions
+    if (m.includes("already been declared") || m.includes("duplicate")) {
+      return "Choose a different name or remove the duplicate declaration.";
+    }
+    if (m.includes("too many arguments")) {
+      return "Check the number of arguments you're passing to the function.";
+    }
+    if (m.includes("missing required") && m.includes("argument")) {
+      return "Make sure you provide all required arguments to the function.";
+    }
+
     // Specific suggestion for missing function body
     if (m.includes("missing body expression")) {
       return "Add a body expression after the parameters. Functions must have at least one expression in the body.";
     }
 
-    if (m.includes("undefined") && m.includes("not defined")) {
-      return "Ensure variables are defined before use.";
+    // Runtime error suggestions
+    if (m.includes("is not defined")) {
+      return "Ensure variables are defined before use. Check spelling and scope.";
     }
-    if (m.includes("null") || m.includes("undefined is not an object")) {
+    if (m.includes("cannot read properties of null") || m.includes("cannot read properties of undefined")) {
       return "Add checks before accessing properties on possibly null/undefined values.";
     }
     if (m.includes("is not a function")) {
       return "Verify the value is a function before invoking it.";
     }
-    return "Check runtime type mismatches or invalid operations.";
+
+    return "Check the code near this location for errors.";
   }
 }
 

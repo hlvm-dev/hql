@@ -14,7 +14,7 @@
 ;; ====================
 
 ;; Simple while loop - repeats body as long as condition is true
-(macro while (condition & body)
+(macro while [condition & body]
   `(loop ()
      (if ~condition
        (do
@@ -23,13 +23,14 @@
        nil)))
 
 ;; ====================
-;; 2. Repeat Loop
+;; 2. Dotimes Loop (Clojure-style fixed iteration)
 ;; ====================
 
-;; Simple repeat loop - repeats body a specific number of times
+;; Simple dotimes loop - executes body a specific number of times
+;; Named after Clojure's dotimes to avoid conflicts with user code
 ;; Example usage:
-;; (repeat 3 (print "hello"))
-(macro repeat (count & body)
+;; (dotimes 3 (print "hello"))
+(macro dotimes [count & body]
   `(loop (i 0)
      (if (< i ~count)
        (do
@@ -42,7 +43,7 @@
 ;; ====================
 
 ;; for loop - enhanced iteration with multiple syntaxes
-(macro for (binding & body)
+(macro for [binding & body]
   (let (var (%first binding)
         spec (%rest binding)
         spec-count (%length spec)
@@ -55,7 +56,7 @@
       ;; Collection iteration: (for (x coll) ...)
       ((= spec-count 1)
        `(__hql_for_each (__hql_toSequence ~first-elem)
-          (fn (~var)
+          (fn [~var]
             (do
               ~@body))))
 
@@ -67,21 +68,21 @@
                ;; Named form: (for (i to: end) ...)
                (let (end (%nth spec 1))
                  `(__hql_for_each (__hql_toSequence (__hql_range 0 ~end))
-                    (fn (~var)
+                    (fn [~var]
                       (do
                         ~@body))))
                ;; Positional form: (for (i start end) ...)
                (let (start first-elem
                      end (%nth spec 1))
                  `(__hql_for_each (__hql_toSequence (__hql_range ~start ~end))
-                    (fn (~var)
+                    (fn [~var]
                       (do
                         ~@body)))))
            ;; Positional form: (for (i start end) ...)
            (let (start first-elem
                  end (%nth spec 1))
              `(__hql_for_each (__hql_toSequence (__hql_range ~start ~end))
-                (fn (~var)
+                (fn [~var]
                   (do
                     ~@body))))))
 
@@ -92,7 +93,7 @@
              end (%nth spec 1)
              step (%nth spec 2))
          `(__hql_for_each (__hql_toSequence (__hql_range ~start ~end ~step))
-            (fn (~var)
+            (fn [~var]
               (do
                 ~@body)))))
 
@@ -106,7 +107,7 @@
                        (let (end (%nth spec 1)
                              step (%nth spec 3))
                          `(__hql_for_each (__hql_toSequence (__hql_range 0 ~end ~step))
-                            (fn (~var)
+                            (fn [~var]
                               (do
                                 ~@body))))
                        `(throw (str "Invalid 'for' loop binding: " '~binding)))
@@ -118,7 +119,7 @@
                            (let (start (%nth spec 1)
                                  end (%nth spec 3))
                              `(__hql_for_each (__hql_toSequence (__hql_range ~start ~end))
-                                (fn (~var)
+                                (fn [~var]
                                   (do
                                     ~@body))))
                            `(throw (str "Invalid 'for' loop binding: " '~binding)))
@@ -138,7 +139,7 @@
                                      end (%nth spec 3)
                                      step (%nth spec 5))
                                  `(__hql_for_each (__hql_toSequence (__hql_range ~start ~end ~step))
-                                    (fn (~var)
+                                    (fn [~var]
                                       (do
                                         ~@body))))
                                `(throw (str "Invalid 'for' loop binding: " '~binding)))

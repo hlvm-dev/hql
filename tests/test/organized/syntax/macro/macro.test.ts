@@ -134,14 +134,14 @@ Deno.test("Backtick: backtick with ~@ for unquote-splicing", async () => {
 // ============================================================================
 
 Deno.test("Quote: macro using quasiquote and unquote", async () => {
-  const code = "(macro when (condition body)\n  " + "`" +
+  const code = "(macro when [condition body]\n  " + "`" +
     '(if ~condition ~body null))\n(var x 10)\n(when (> x 5) "x is greater than 5")';
   const result = await run(code);
   assertEquals(result, "x is greater than 5");
 });
 
 Deno.test("Quote: macro with unquote-splicing for variadic arguments", async () => {
-  const code = "(macro log-all (items)\n  " + "`" +
+  const code = "(macro log-all [items]\n  " + "`" +
     "(do ~@items))\n(log-all ((var a 1) (var b 2) (+ a b)))";
   const result = await run(code);
   assertEquals(result, 3);

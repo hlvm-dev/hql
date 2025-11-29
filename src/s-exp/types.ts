@@ -84,6 +84,44 @@ export function createList(...elements: SExp[]): SList {
   return { type: "list", elements };
 }
 
+/**
+ * Safely extract _meta from any object that might have it.
+ * Returns the metadata object or undefined if not present.
+ * This is the single source of truth for _meta access.
+ */
+export function getMeta(node: unknown): SExpMeta | undefined {
+  if (node && typeof node === "object" && "_meta" in node) {
+    const meta = (node as { _meta?: SExpMeta })._meta;
+    return meta ?? undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Copy metadata from a source object to a target object.
+ * Works with any object that has a _meta property (SExp, HQLNode, etc.)
+ * Returns the target for chaining.
+ */
+export function copyMeta<T>(source: unknown, target: T): T {
+  const meta = getMeta(source);
+  if (meta) {
+    (target as { _meta?: SExpMeta })._meta = { ...meta };
+  }
+  return target;
+}
+
+/**
+ * Create a new list while preserving metadata from a source S-expression.
+ * This is essential for source location tracking through transformations.
+ *
+ * In a production compiler/transpiler, source location must flow through
+ * all AST transformations so error messages can point to the original source.
+ */
+export function createListFrom(source: SExp, elements: SExp[]): SList {
+  const list: SList = { type: "list", elements };
+  return copyMeta(source, list);
+}
+
 export function createLiteral(
   value: string | number | boolean | null,
 ): SLiteral {

@@ -227,7 +227,7 @@ Deno.test("DataStructure: chained get operations", async () => {
 Deno.test("DataStructure: map over vector", async () => {
   const code = `
 (var numbers [1, 2, 3, 4, 5])
-(numbers.map (fn (n) (* n 2)))
+(numbers.map (fn [n] (* n 2)))
 `;
   const result = await run(code);
   assertEquals(result, [2, 4, 6, 8, 10]);
@@ -236,7 +236,7 @@ Deno.test("DataStructure: map over vector", async () => {
 Deno.test("DataStructure: filter vector", async () => {
   const code = `
 (var numbers [1, 2, 3, 4, 5, 6])
-(numbers.filter (fn (n) (> n 3)))
+(numbers.filter (fn [n] (> n 3)))
 `;
   const result = await run(code);
   assertEquals(result, [4, 5, 6]);
@@ -245,7 +245,7 @@ Deno.test("DataStructure: filter vector", async () => {
 Deno.test("DataStructure: reduce vector to sum", async () => {
   const code = `
 (var numbers [1, 2, 3, 4, 5])
-(numbers.reduce (fn (acc n) (+ acc n)) 0)
+(numbers.reduce (fn [acc n] (+ acc n)) 0)
 `;
   const result = await run(code);
   assertEquals(result, 15);

@@ -92,8 +92,8 @@ const TOKEN_PATTERNS = {
  *
  * @example
  * // Parse a function definition
- * const ast = parse('(defn greet [name] (str "Hello " name))');
- * // → [List([Symbol("defn"), Symbol("greet"), List([Symbol("name")]), ...])]
+ * const ast = parse('(fn greet [name] (str "Hello " name))');
+ * // → [List([Symbol("fn"), Symbol("greet"), List([Symbol("name")]), ...])]
  *
  * @example
  * // Parse with file path for better error messages

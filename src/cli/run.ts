@@ -1,9 +1,10 @@
 #!/usr/bin/env deno run -A
 
 import { run as hqlRun, runFile } from "../../mod.ts";
+import { transpileCLI } from "../bundler.ts"; // Import bundler for hybrid execution
 import { globalLogger as logger, Logger } from "../logger.ts";
 import { initializeRuntime } from "../common/runtime-initializer.ts";
-import { createTempDir } from "../common/hql-cache-tracker.ts";
+import { createTempDir, getCachedPath } from "../common/hql-cache-tracker.ts";
 import {
   applyCliOptions,
   type CliOptions,
@@ -32,7 +33,6 @@ const FILE_EXTENSIONS = [".hql", ".js", ".ts"] as const;
 const PRINT_COMMAND_PREFIXES = new Set([
   "(print ",
   "(print(",
-  "(println ",
   "(console.log",
 ] as const);
 
@@ -189,9 +189,36 @@ async function executeHql(
         throw new Error(`File not found: ${input}`);
       }
 
-      result = await runFile(input, {
-        verbose: options.verbose,
-      });
+      // Smart Runner Logic: Check extension
+      const ext = input.toLowerCase();
+      const isJsOrTs = ext.endsWith(".ts") || ext.endsWith(".js") ||
+        ext.endsWith(".mjs") || ext.endsWith(".cjs");
+
+      if (isJsOrTs) {
+        logger.debug(`Detected JS/TS entry point: ${input} -> switching to bundler`);
+        // Bundle the entry file (handling any HQL imports recursively)
+        const cacheOutPath = await getCachedPath(input, ".bundle.js", {
+          createDir: true,
+          preserveRelative: true,
+        });
+
+        const outPath = await transpileCLI(input, cacheOutPath, {
+          verbose: options.verbose,
+          showTiming: options.time,
+          force: true, // Force re-bundle to ensure latest changes
+        });
+
+        // Execute the bundled result
+        logger.debug(`Executing bundled output: ${outPath}`);
+        const modUrl = "file://" + outPath;
+        const module = await import(modUrl);
+        result = module?.default ?? module;
+      } else {
+        // Standard HQL execution
+        result = await runFile(input, {
+          verbose: options.verbose,
+        });
+      }
     }
   } catch (error) {
     const enrichedError = await enrichErrorWithContext(error as Error, input);

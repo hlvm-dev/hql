@@ -58,10 +58,10 @@ Deno.test("Edge Case: Circular imports with macros should throw error", async ()
 Deno.test("Edge Case: Transitive macro dependencies", async () => {
   const code = `
 ;; Define base macro
-(macro base (x) \`(* ~x 3))
+(macro base [x] \`(* ~x 3))
 
 ;; Define macro that uses base
-(macro derived (x) \`(+ (base ~x) 1))
+(macro derived [x] \`(+ (base ~x) 1))
 
 ;; Use derived (which internally uses base)
 (derived 5)
@@ -74,7 +74,7 @@ Deno.test("Edge Case: Transitive macro dependencies", async () => {
 // Test 5: Import macro with rest parameters
 Deno.test("Edge Case: Macro with rest parameters", async () => {
   const code = `
-(macro sum-all (& nums)
+(macro sum-all [& nums]
   \`(+ ~@nums))
 
 (sum-all 1 2 3 4 5)

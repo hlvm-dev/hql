@@ -12,7 +12,7 @@ import { run } from "./helpers.ts";
 Deno.test("Rest: only rest parameter", async () => {
   const result = await run(`
     (fn sum [...nums]
-      (.reduce nums (fn (acc val) (+ acc val)) 0))
+      (.reduce nums (fn [acc val] (+ acc val)) 0))
     (sum 1 2 3 4 5)
   `);
   assertEquals(result, 15);
@@ -21,7 +21,7 @@ Deno.test("Rest: only rest parameter", async () => {
 Deno.test("Rest: rest with single regular param", async () => {
   const result = await run(`
     (fn sum [x ...rest]
-      (+ x (.reduce rest (fn (acc val) (+ acc val)) 0)))
+      (+ x (.reduce rest (fn [acc val] (+ acc val)) 0)))
     (sum 10 1 2 3)
   `);
   assertEquals(result, 16);
@@ -30,7 +30,7 @@ Deno.test("Rest: rest with single regular param", async () => {
 Deno.test("Rest: rest with multiple regular params", async () => {
   const result = await run(`
     (fn sum [x y ...rest]
-      (+ x y (.reduce rest (fn (acc val) (+ acc val)) 0)))
+      (+ x y (.reduce rest (fn [acc val] (+ acc val)) 0)))
     (sum 10 20 1 2 3)
   `);
   assertEquals(result, 36);
@@ -83,7 +83,7 @@ Deno.test("Rest: array length", async () => {
 Deno.test("Rest: array iteration with map", async () => {
   const result = await run(`
     (fn double [...nums]
-      (.map nums (fn (x) (* x 2))))
+      (.map nums (fn [x] (* x 2))))
     (double 1 2 3)
   `);
   assertEquals(result, [2, 4, 6]);
@@ -96,7 +96,7 @@ Deno.test("Rest: array iteration with map", async () => {
 Deno.test("Rest: with destructuring array pattern", async () => {
   const result = await run(`
     (fn process [[a b] ...rest]
-      (+ a b (.reduce rest (fn (acc x) (+ acc x)) 0)))
+      (+ a b (.reduce rest (fn [acc x] (+ acc x)) 0)))
     (process [5 10] 1 2 3)
   `);
   assertEquals(result, 21);
@@ -105,7 +105,7 @@ Deno.test("Rest: with destructuring array pattern", async () => {
 Deno.test("Rest: with destructuring object pattern", async () => {
   const result = await run(`
     (fn process [{"x": x} ...rest]
-      (+ x (.reduce rest (fn (acc val) (+ acc val)) 0)))
+      (+ x (.reduce rest (fn [acc val] (+ acc val)) 0)))
     (process {"x": 10} 1 2 3)
   `);
   assertEquals(result, 16);
@@ -114,7 +114,7 @@ Deno.test("Rest: with destructuring object pattern", async () => {
 Deno.test("Rest: with default parameters", async () => {
   const result = await run(`
     (fn process [x = 5 ...rest]
-      (+ x (.reduce rest (fn (acc val) (+ acc val)) 0)))
+      (+ x (.reduce rest (fn [acc val] (+ acc val)) 0)))
     (process 10 1 2 3)
   `);
   assertEquals(result, 16);
@@ -123,7 +123,7 @@ Deno.test("Rest: with default parameters", async () => {
 Deno.test("Rest: using placeholder with rest", async () => {
   const result = await run(`
     (fn process [x = 5 ...rest]
-      (+ x (.reduce rest (fn (acc val) (+ acc val)) 0)))
+      (+ x (.reduce rest (fn [acc val] (+ acc val)) 0)))
     (process _ 1 2 3)
   `);
   assertEquals(result, 11);
@@ -136,7 +136,7 @@ Deno.test("Rest: using placeholder with rest", async () => {
 Deno.test("Rest: arrow function with rest", async () => {
   const result = await run(`
     (let sum (=> (...nums)
-      (.reduce nums (fn (acc x) (+ acc x)) 0)))
+      (.reduce nums (fn [acc x] (+ acc x)) 0)))
     (sum 1 2 3 4)
   `);
   assertEquals(result, 10);
@@ -147,7 +147,7 @@ Deno.test("Rest: arrow function with rest", async () => {
 // Deno.test("Rest: arrow function with regular and rest params", async () => {
 //   const result = await run(`
 //     (let multiply (=> (factor ...nums)
-//       (.map nums (fn (x) (* factor x)))))
+//       (.map nums (fn [x] (* factor x)))))
 //     (multiply 3 1 2 3)
 //   `);
 //   assertEquals(result, [3, 6, 9]);
@@ -172,7 +172,7 @@ Deno.test("Rest: rest parameter in returned function", async () => {
   const result = await run(`
     (fn makeAdder [x]
       (fn [...nums]
-        (+ x (.reduce nums (fn (acc val) (+ acc val)) 0))))
+        (+ x (.reduce nums (fn [acc val] (+ acc val)) 0))))
     (let add5 (makeAdder 5))
     (add5 1 2 3)
   `);
@@ -183,7 +183,7 @@ Deno.test("Rest: rest parameter in returned function", async () => {
 // Deno.test("Rest: spread values to another rest function", async () => {
 //   const result = await run(`
 //     (fn sum [...nums]
-//       (.reduce nums (fn (acc x) (+ acc x)) 0))
+//       (.reduce nums (fn [acc x] (+ acc x)) 0))
 //     (fn average [...values]
 //       (/ (sum ...values) (get values "length")))
 //     (average 10 20 30)

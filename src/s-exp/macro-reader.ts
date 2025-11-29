@@ -1,6 +1,7 @@
 // src/s-exp/macro-reader.ts - Connects S-expression layer with existing HQL transpiler
 
 import {
+  copyMeta,
   isList,
   isLiteral,
   isSymbol,
@@ -17,17 +18,6 @@ import type {
 } from "../transpiler/type/hql_ast.ts";
 import { globalLogger as logger } from "../logger.ts";
 import type { Logger } from "../logger.ts";
-
-type MetaCarrier = { _meta?: Record<string, unknown> };
-
-function copyMeta(
-  source: MetaCarrier,
-  target: MetaCarrier,
-): void {
-  if (source && source._meta) {
-    target._meta = { ...source._meta };
-  }
-}
 
 /**
  * Options for converting S-expressions to HQL AST
@@ -75,7 +65,7 @@ function convertLiteral(literal: SLiteral, __logger: Logger): LiteralNode {
     type: "literal",
     value: literal.value,
   };
-  copyMeta(literal as MetaCarrier, node as unknown as MetaCarrier);
+  copyMeta(literal, node);
   return node;
 }
 
@@ -87,7 +77,7 @@ function convertSymbol(symbol: SSymbol, _logger: Logger): SymbolNode {
     type: "symbol",
     name: symbol.name,
   };
-  copyMeta(symbol as MetaCarrier, node as unknown as MetaCarrier);
+  copyMeta(symbol, node);
   return node;
 }
 
@@ -116,7 +106,7 @@ function convertList(list: SList, logger: Logger): ListNode {
         { type: "literal", value: propertyName },
       ],
     };
-    copyMeta(list as MetaCarrier, transformed as unknown as MetaCarrier);
+    copyMeta(list, transformed);
     return transformed;
   }
 
@@ -125,6 +115,6 @@ function convertList(list: SList, logger: Logger): ListNode {
     type: "list",
     elements: list.elements.map((elem) => convertExpr(elem, logger)),
   };
-  copyMeta(list as MetaCarrier, node as unknown as MetaCarrier);
+  copyMeta(list, node);
   return node;
 }

@@ -39,7 +39,7 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
 (js-call str "toUpperCase")  ; → "HELLO"
 
 (var arr [1, 2, 3, 4, 5])
-(js-call arr "filter" (fn (x) (> x 2)))  ; → [3, 4, 5]
+(js-call arr "filter" (fn [x] (> x 2)))  ; → [3, 4, 5]
 
 (js-call str "split" ",")  ; → ["hello"]
 ```
@@ -124,31 +124,31 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
 
 ```lisp
 ; Async function
-(async fn function-name (params)
+(async fn function-name [params]
   (await async-operation)
   result)
 
 ; Basic async
-(async fn get-value ()
+(async fn get-value []
   (await (js-call Promise "resolve" 42)))
 
 (get-value)  ; → Promise → 42
 
 ; Multiple awaits
-(async fn add-async (a b)
+(async fn add-async [a b]
   (let x (await (js-call Promise "resolve" a)))
   (let y (await (js-call Promise "resolve" b)))
   (+ x y))
 
 ; Promise.all
-(async fn fetch-all ()
+(async fn fetch-all []
   (let promises [
     (js-call Promise "resolve" 1)
     (js-call Promise "resolve" 2)])
   (await (js-call Promise "all" promises)))
 
 ; Promise.race
-(async fn race ()
+(async fn race []
   (await (js-call Promise "race" [p1 p2])))
 ```
 
@@ -185,7 +185,7 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
     "outer-caught"))
 
 ; Async error handling
-(async fn safe-operation ()
+(async fn safe-operation []
   (try
     (await risky-call)
     (catch e
@@ -291,7 +291,7 @@ obj.method(arg1, arg2);
 **HQL:**
 
 ```lisp
-(async fn getData ()
+(async fn getData []
   (await (js-call fetch url)))
 ```
 
@@ -420,7 +420,7 @@ classes ✅ Circular imports - HQL ↔ JS
 ### 3. Async API Calls
 
 ```lisp
-(async fn fetch-user (id)
+(async fn fetch-user [id]
   (let response (await (js-call fetch (+ "/api/users/" id))))
   (await (js-call response "json")))
 
@@ -430,10 +430,10 @@ classes ✅ Circular imports - HQL ↔ JS
 ### 4. Error Handling with Retry
 
 ```lisp
-(async fn retry-fetch (url max-attempts)
+(async fn retry-fetch [url max-attempts]
   (var attempts 0)
   (loop ()
-    (set! attempts (+ attempts 1))
+    (= attempts (+ attempts 1))
     (try
       (return (await (js-call fetch url)))
       (catch e
@@ -454,15 +454,15 @@ classes ✅ Circular imports - HQL ↔ JS
 
 ```lisp
 (var numbers [1, 2, 3, 4, 5])
-(var doubled (js-call numbers "map" (fn (x) (* x 2))))
-(var sum (js-call doubled "reduce" (fn (acc val) (+ acc val)) 0))
+(var doubled (js-call numbers "map" (fn [x] (* x 2))))
+(var sum (js-call doubled "reduce" (fn [acc val] (+ acc val)) 0))
 ```
 
 ### 7. Promise Utilities
 
 ```lisp
-(async fn parallel-fetch (urls)
-  (let promises (urls .map (fn (url) (js-call fetch url))))
+(async fn parallel-fetch [urls]
+  (let promises (urls .map (fn [url] (js-call fetch url))))
   (await (js-call Promise "all" promises)))
 ```
 
@@ -499,9 +499,9 @@ async function getData() {
 (var upper (text .toUpperCase))
 
 (var arr [1, 2, 3])
-(var doubled (arr .map (fn (x) (* x 2))))
+(var doubled (arr .map (fn [x] (* x 2))))
 
-(async fn getData ()
+(async fn getData []
   (let response (await (js-call fetch url)))
   (await (js-call response "json")))
 ```
@@ -515,11 +515,11 @@ async function getData() {
 
 ;; HQL
 (js-call "hello" "toUpperCase")
-(js-call [1 2 3] "map" (fn (x) (* x 2)))
+(js-call [1 2 3] "map" (fn [x] (* x 2)))
 
 ;; Or with dot notation
 ("hello" .toUpperCase)
-([1 2 3] .map (fn (x) (* x 2)))
+([1 2 3] .map (fn [x] (* x 2)))
 ```
 
 ## Best Practices
@@ -528,7 +528,7 @@ async function getData() {
 
 ```lisp
 ; ✅ Good: Clear and concise
-(arr .map (fn (x) (* x 2)))
+(arr .map (fn [x] (* x 2)))
 (text .trim .toUpperCase)
 
 ; ❌ Avoid: Verbose
@@ -539,7 +539,7 @@ async function getData() {
 
 ```lisp
 ; ✅ Good: Error handling
-(async fn safe-fetch (url)
+(async fn safe-fetch [url]
   (try
     (await (js-call fetch url))
     (catch e
@@ -547,7 +547,7 @@ async function getData() {
       null)))
 
 ; ❌ Avoid: No error handling
-(async fn unsafe-fetch (url)
+(async fn unsafe-fetch [url]
   (await (js-call fetch url)))
 ```
 
@@ -590,7 +590,7 @@ mutation on frozen objects ✅ Async function return values
 ### 1. API Client
 
 ```lisp
-(async fn api-get (endpoint)
+(async fn api-get [endpoint]
   (try
     (let response (await (js-call fetch (+ API_URL endpoint))))
     (if (js-get response "ok")
@@ -606,9 +606,9 @@ mutation on frozen objects ✅ Async function return values
 ```lisp
 (var users [{name: "Alice", age: 25}, {name: "Bob", age: 30}])
 (var names 
-  (users 
-    .filter (fn (u) (> (js-get u "age") 20))
-    .map (fn (u) (js-get u "name"))
+  (users
+    .filter (fn [u] (> (js-get u "age") 20))
+    .map (fn [u] (js-get u "name"))
     .join ", "))
 ```
 
@@ -616,7 +616,7 @@ mutation on frozen objects ✅ Async function return values
 
 ```lisp
 (var button (js-call document "getElementById" "btn"))
-(js-call button "addEventListener" "click" (fn (e)
+(js-call button "addEventListener" "click" (fn [e]
   (console.log "Button clicked!")
   (js-call e "preventDefault")))
 ```
@@ -624,7 +624,7 @@ mutation on frozen objects ✅ Async function return values
 ### 4. Lazy Loading
 
 ```lisp
-(async fn lazy-load (module-path)
+(async fn lazy-load [module-path]
   (try
     (await (js-call import module-path))
     (catch e

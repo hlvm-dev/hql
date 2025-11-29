@@ -97,11 +97,11 @@ HQL now has a **full Clojure-compatible lazy sequence standard library** that is
 ;; NO IMPORT NEEDED! ✅
 
 ;; Lazy chain - only computes 5 items
-(take 5 (map (fn (x) (* x 2)) (range 1000000)))
+(take 5 (map (fn [x] (* x 2)) (range 1000000)))
 ;; → [0, 2, 4, 6, 8]
 
 ;; Lazy filter + take - stops early
-(take 3 (filter (fn (x) (= (% x 2) 0)) (range 100)))
+(take 3 (filter (fn [x] (= (% x 2) 0)) (range 100)))
 ;; → [0, 2, 4]
 
 ;; Infinite sequences (Clojure-style)
@@ -117,7 +117,7 @@ HQL now has a **full Clojure-compatible lazy sequence standard library** that is
 ;; → [100, 101, 102, 103, 104]
 
 ;; Force evaluation with doall
-(doall (map (fn (x) (* x 2)) [1, 2, 3]))
+(doall (map (fn [x] (* x 2)) [1, 2, 3]))
 ;; → [2, 4, 6]
 
 ;; Complex lazy chains
@@ -377,7 +377,7 @@ end-user documentation.
 **What Changed:**
 
 - HQL now supports mixing positional and named arguments in function calls
-- Example: `(fn subtract (x y) (- x y)) (subtract 10 y: 3)` → Returns 7 ✅
+- Example: `(fn subtract [x y] (- x y)) (subtract 10 y: 3)` → Returns 7 ✅
 - Positional arguments must come first, then named arguments
 
 #### Implementation:
@@ -488,20 +488,20 @@ deno test --allow-all
 
 ```hql
 ; Basic mixed args
-(fn subtract (x y) (- x y))
+(fn subtract [x y] (- x y))
 (subtract 10 y: 3)  ; → 7
 
 ; With defaults
-(fn greet (name = "World" greeting = "Hello")
+(fn greet [name = "World" greeting = "Hello"]
   (+ greeting ", " name "!"))
 (greet "Alice" greeting: "Hi")  ; → "Hi, Alice!"
 
 ; Multiple named args (any order)
-(fn calc (a b c) (+ (* a b) c))
+(fn calc [a b c] (+ (* a b) c))
 (calc 5 c: 3 b: 2)  ; → 13
 
 ; Real-world API style
-(fn makeRequest (url method = "GET" timeout = 5000)
+(fn makeRequest [url method = "GET" timeout = 5000]
   [url method timeout])
 (makeRequest "https://api.com" method: "POST" timeout: 10000)
 ; → ["https://api.com", "POST", 10000]
@@ -675,7 +675,7 @@ This fix validates HQL's design principle:
 **✅ Lazy Everywhere = Lazy SEQUENCES, Eager ITERATION**
 
 - **Sequences (lazy):** `range`, `map`, `filter`, `take` → LazySeq
-- **Iteration (eager):** `for`, `while`, `doseq` → Immediate execution
+- **Iteration (eager):** `for`, `while`, `repeat` → Immediate execution
 
 Both behaviors are correct and complementary - no contradiction!
 
@@ -930,7 +930,7 @@ This fix completes the runtime helper architecture:
 | Function typed       | 3     | syntax-function-params.test.ts | ✅ Type-safe |
 | Function placeholder | 2     | syntax-function-params.test.ts | ✅ Type-safe |
 | Function mixed args  | 20    | syntax-mixed-args.test.ts      | ✅ Type-safe |
-| let/var/set!         | 17    | syntax-binding.test.ts         | ✅ Type-safe |
+| let/var/=         | 17    | syntax-binding.test.ts         | ✅ Type-safe |
 | Shallow freeze       | 3     | syntax-binding.test.ts         | ✅ Type-safe |
 | Deep freeze          | 10    | syntax-deep-freeze.test.ts     | ✅ Type-safe |
 | Infinity value       | 5     | syntax-infinity.test.ts        | ✅ Type-safe |
@@ -1254,7 +1254,7 @@ deno eval "import hql from './mod.ts'; console.log('Arithmetic:', await hql.run(
 # Expected: "Arithmetic: 33"
 
 # Test 2: Mixed Positional+Named Arguments
-deno eval "import hql from './mod.ts'; console.log('Mixed args:', await hql.run('(fn subtract (x y) (- x y)) (subtract 10 y: 3)'))"
+deno eval "import hql from './mod.ts'; console.log('Mixed args:', await hql.run('(fn subtract [x y] (- x y)) (subtract 10 y: 3)'))"
 # Expected: "Mixed args: 7"
 
 # Test 3: Circular Imports
@@ -1262,11 +1262,11 @@ deno eval "import hql from './mod.ts'; const code='(import [circularFunction] fr
 # Expected: "Circular: 20"
 
 # Test 4: Macros
-deno eval "import hql from './mod.ts'; console.log('Macro:', await hql.run('(defmacro square [x] \`(* ~x ~x)) (square 5)'))"
+deno eval "import hql from './mod.ts'; console.log('Macro:', await hql.run('(macro square [x] \`(* ~x ~x)) (square 5)'))"
 # Expected: Should return a number (macro expansion works)
 
 # Test 5: Named Arguments Only
-deno eval "import hql from './mod.ts'; console.log('Named:', await hql.run('(fn greet (name greeting) (+ greeting \", \" name)) (greet greeting: \"Hello\" name: \"World\")'))"
+deno eval "import hql from './mod.ts'; console.log('Named:', await hql.run('(fn greet [name greeting] (+ greeting \", \" name)) (greet greeting: \"Hello\" name: \"World\")'))"
 # Expected: "Named: Hello, World"
 
 # Test 6: TypeScript Compilation
@@ -1324,7 +1324,7 @@ After running the protocol above, confirm ALL of these:
 - [ ] **Basic arithmetic works** - `(+ (* 5 5) (- 10 2))` → 33
 - [ ] **Mixed args work** - `(subtract 10 y: 3)` → 7
 - [ ] **Circular imports work** - Test returns 20
-- [ ] **Macros work** - `(defmacro ...)` expands correctly
+- [ ] **Macros work** - `(macro ...)` expands correctly
 - [ ] **Named args work** - `(greet greeting: "Hello" name: "World")` → "Hello,
       World"
 - [ ] **All 25 test files pass** - Each individual file shows expected pass

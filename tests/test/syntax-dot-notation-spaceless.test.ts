@@ -50,8 +50,8 @@ Deno.test("Equivalence: Method chain - no args", async () => {
 
 Deno.test("Equivalence: Method chain - with args", async () => {
   await testEquivalence(
-    "(var arr [1 2 3 4 5]) (arr.map (fn (x) (* x 2)).filter (fn (x) (> x 5)))",
-    "(var arr [1 2 3 4 5]) (arr .map (fn (x) (* x 2)) .filter (fn (x) (> x 5)))",
+    "(var arr [1 2 3 4 5]) (arr.map (fn [x] (* x 2)).filter (fn [x] (> x 5)))",
+    "(var arr [1 2 3 4 5]) (arr .map (fn [x] (* x 2)) .filter (fn [x] (> x 5)))",
     "Method chaining with arguments",
   );
 });
@@ -74,8 +74,8 @@ Deno.test("Equivalence: Multiple args per method", async () => {
 
 Deno.test("Equivalence: Complex chain with multiple args", async () => {
   await testEquivalence(
-    "(var arr [1 2 3 4 5]) ((arr.slice 1 4).map (fn (x) (* x 10)))",
-    "(var arr [1 2 3 4 5]) ((arr .slice 1 4) .map (fn (x) (* x 10)))",
+    "(var arr [1 2 3 4 5]) ((arr.slice 1 4).map (fn [x] (* x 10)))",
+    "(var arr [1 2 3 4 5]) ((arr .slice 1 4) .map (fn [x] (* x 10)))",
     "Complex chain with multiple arguments",
   );
 });
@@ -92,7 +92,7 @@ Deno.test("Spaceless: Simple chain no args", async () => {
 
 Deno.test("Spaceless: Chain with arguments", async () => {
   const code =
-    "(var arr [1 2 3 4 5 6]) (arr.filter (fn (x) (> x 3)).map (fn (x) (* x 2)))";
+    "(var arr [1 2 3 4 5 6]) (arr.filter (fn [x] (> x 3)).map (fn [x] (* x 2)))";
   const result = await run(code);
   assertEquals(result, [8, 10, 12]);
 });
@@ -135,7 +135,7 @@ Deno.test("Edge Case: Numeric literal with decimal unchanged", async () => {
 
 Deno.test("Edge Case: Arguments with dots stay as property access", async () => {
   const code =
-    '(var users [{"name": "Alice"} {"name": "Bob"}]) (users.map (fn (u) u.name))';
+    '(var users [{"name": "Alice"} {"name": "Bob"}]) (users.map (fn [u] u.name))';
   const result = await run(code);
   assertEquals(result, ["Alice", "Bob"]);
 });
@@ -149,7 +149,7 @@ Deno.test("Edge Case: Consecutive dots normalized away", async () => {
 Deno.test("Edge Case: Property access in arguments", async () => {
   const code = `
     (var person {"profile": {"name": "Alice"}})
-    (var getName (fn (p) (js-get (js-get p "profile") "name")))
+    (var getName (fn [p] (js-get (js-get p "profile") "name")))
     (getName person)
   `;
   const result = await run(code);
@@ -177,8 +177,8 @@ Deno.test("Regression: Complex spaced chains with args still work", async () => 
   const code = `
     (var users [{"name": "Alice" "active": true} {"name": "Bob" "active": false}])
     (users
-      .filter (fn (u) u.active)
-      .map (fn (u) u.name))
+      .filter (fn [u] u.active)
+      .map (fn [u] u.name))
   `;
   const result = await run(code);
   assertEquals(result, ["Alice"]);
@@ -194,8 +194,8 @@ Deno.test("Regression: Multiline spaced notation", async () => {
   const code = `
     (var arr [1 2 3 4 5 6 7 8 9 10])
     (arr
-      .filter (fn (x) (=== (% x 2) 0))
-      .map (fn (x) (* x 2))
+      .filter (fn [x] (=== (% x 2) 0))
+      .map (fn [x] (* x 2))
       .slice 0 3)
   `;
   const result = await run(code);
@@ -210,10 +210,10 @@ Deno.test("Real-world: Data pipeline spaceless", async () => {
   const code = `
     (var data [1 2 3 4 5 6 7 8 9 10])
     (data
-      .filter (fn (x) (> x 3))
-      .map (fn (x) (* x 2))
+      .filter (fn [x] (> x 3))
+      .map (fn [x] (* x 2))
       .slice 0 5
-      .reduce (fn (acc val) (+ acc val)) 0)
+      .reduce (fn [acc val] (+ acc val)) 0)
   `;
   const result = await run(code);
   // filter > 3: [4,5,6,7,8,9,10]
@@ -235,8 +235,8 @@ Deno.test("Real-world: String manipulation", async () => {
 Deno.test("Real-world: Array operations", async () => {
   const code = `
     (var numbers [1 2 3 4 5])
-    (var doubled (numbers.map (fn (n) (* n 2))))
-    (var filtered (doubled.filter (fn (n) (> n 5))))
+    (var doubled (numbers.map (fn [n] (* n 2))))
+    (var filtered (doubled.filter (fn [n] (> n 5))))
     (filtered.length)
   `;
   const result = await run(code);

@@ -5,7 +5,7 @@
 
 (import [incrementCircular] from "./b.hql")
 
-(fn circularFunction ()
+(fn circularFunction []
   (var result (incrementCircular circularValue))
   result)
 

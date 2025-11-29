@@ -392,7 +392,7 @@ export async function handleVariableNotFoundError(
   const variablePatterns: PatternDescriptor[] = [
     new RegExp(`\\(\\s*${escapeRegExp(varName)}\\s`),
     new RegExp(`\\(\\s*${escapeRegExp(varName)}\\.`),
-    new RegExp(`\\(\\s*(let|set!)\\s+${escapeRegExp(varName)}\\b`),
+    new RegExp(`\\(\\s*(let|var|=)\\s+${escapeRegExp(varName)}\\b`),
     new RegExp(`[\\s\\(\\[{]${escapeRegExp(varName)}[\\s\\)\\]}]`),
   ].map((regex) => ({ regex }));
 

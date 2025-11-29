@@ -90,8 +90,8 @@
 (var whileCount 0)
 (var whileSum 0)
 (while (< whileCount 5)
-  (set! whileSum (+ whileSum whileCount))
-  (set! whileCount (+ whileCount 1)))
+  (= whileSum (+ whileSum whileCount))
+  (= whileCount (+ whileCount 1)))
 (assert (= whileSum 10) "While loop sum 0-4")
 
 ; While with array operations
@@ -99,7 +99,7 @@
 (var whileIdx 0)
 (while (< whileIdx 3)
   (.push whileResult whileIdx)
-  (set! whileIdx (+ whileIdx 1)))
+  (= whileIdx (+ whileIdx 1)))
 (assert (= whileResult [0, 1, 2]) "While with array push")
 
 ; While with early termination
@@ -108,35 +108,35 @@
 (var searchNums [1, 3, 5, 7, 8, 9])
 (while (and (< searchIdx searchNums.length) (not found))
   (if (= (% (get searchNums searchIdx) 2) 0)
-    (set! found true)
+    (= found true)
     nil)
-  (set! searchIdx (+ searchIdx 1)))
+  (= searchIdx (+ searchIdx 1)))
 (assert (= searchIdx 5) "While early exit at index 5")
 
 ; ============================================================================
-; SECTION 3: REPEAT LOOP - FIXED ITERATIONS
+; SECTION 3: DOTIMES LOOP - FIXED ITERATIONS (Clojure-style)
 ; ============================================================================
 
-; Basic repeat
-(var repeatResult [])
-(repeat 3
-  (.push repeatResult "hello"))
-(assert (= repeatResult ["hello", "hello", "hello"]) "Repeat 3 times")
+; Basic dotimes
+(var dotimesResult [])
+(dotimes 3
+  (.push dotimesResult "hello"))
+(assert (== dotimesResult ["hello", "hello", "hello"]) "Dotimes 3 times")
 
-; Repeat with multiple expressions
-(var repeatMulti [])
-(repeat 2
-  (.push repeatMulti "first")
-  (.push repeatMulti "second"))
-(assert (= repeatMulti ["first", "second", "first", "second"]) "Repeat with multiple expressions")
+; Dotimes with multiple expressions
+(var dotimesMulti [])
+(dotimes 2
+  (.push dotimesMulti "first")
+  (.push dotimesMulti "second"))
+(assert (== dotimesMulti ["first", "second", "first", "second"]) "Dotimes with multiple expressions")
 
-; Repeat with counter accumulation
-(var repeatSum 0)
-(var repeatCounter 0)
-(repeat 5
-  (set! repeatSum (+ repeatSum repeatCounter))
-  (set! repeatCounter (+ repeatCounter 1)))
-(assert (= repeatSum 10) "Repeat with counter (0+1+2+3+4)")
+; Dotimes with counter accumulation
+(var dotimesSum 0)
+(var dotimesCounter 0)
+(dotimes 5
+  (= dotimesSum (+ dotimesSum dotimesCounter))
+  (= dotimesCounter (+ dotimesCounter 1)))
+(assert (== dotimesSum 10) "Dotimes with counter (0+1+2+3+4)")
 
 ; ============================================================================
 ; SECTION 4: FOR LOOP - RANGE ITERATION
@@ -256,7 +256,7 @@
 (fn sumRange [start end]
   (var total 0)
   (for (i from: start to: end)
-    (set! total (+ total i)))
+    (= total (+ total i)))
   total)
 
 (assert (= (sumRange 1 11) 55) "Sum 1-10 = 55")
@@ -289,15 +289,15 @@
   (repeat maxAttempts
     (if (not succeeded)
       (do
-        (set! attempts (+ attempts 1))
+        (= attempts (+ attempts 1))
         (try
           (do
             ; Simulate operation (succeeds on 3rd attempt)
             (if (>= attempts 3)
-              (set! succeeded true)
+              (= succeeded true)
               (throw (new Error "Operation failed"))))
           (catch (e)
-            (set! lastError e))))
+            (= lastError e))))
       nil))
 
   { succeeded: succeeded, attempts: attempts })
@@ -314,7 +314,7 @@
   (var total 0)
   (while (> queue.length 0)
     (var item (.shift queue))
-    (set! total (+ total item)))
+    (= total (+ total item)))
   total)
 
 (var testQueue [10, 20, 30, 40])

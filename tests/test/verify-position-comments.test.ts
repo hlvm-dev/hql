@@ -6,7 +6,7 @@ import hql from "../../mod.ts";
 
 Deno.test("Check if source maps are generated correctly", async () => {
   const code = `(let data [1 2 3])
-(let result (map (fn (x) (* x 2)) data))
+(let result (map (fn [x] (* x 2)) data))
 (let value (first data))`;
 
   console.log("=== TESTING SOURCE MAP GENERATION ===\n");
