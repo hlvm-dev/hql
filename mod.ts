@@ -960,10 +960,14 @@ async function compileHqlModule(
     const transpileResult = await transpile(source, {
       baseDir: context.baseDir,
       currentFile: normalized,
+      generateSourceMap: true,
     });
     const moduleJs = typeof transpileResult === "string"
       ? transpileResult
       : transpileResult.code;
+    const sourceMap = typeof transpileResult === "string"
+      ? undefined
+      : transpileResult.sourceMap;
 
     const processed = await processModuleCode(moduleJs, {
       importerDir: dirname(normalized),
@@ -975,7 +979,19 @@ async function compileHqlModule(
     });
 
     await platformMkdir(dirname(outputPath), { recursive: true });
-    await platformWriteTextFile(outputPath, processed.code);
+
+    if (sourceMap) {
+      const mapPath = `${outputPath}.map`;
+      const mapJson = JSON.parse(sourceMap);
+      mapJson.file = outputPath;
+      await platformWriteTextFile(mapPath, JSON.stringify(mapJson));
+      
+      const codeWithMap = `${processed.code}\n//# sourceMappingURL=${basename(mapPath)}`;
+      await platformWriteTextFile(outputPath, codeWithMap);
+    } else {
+      await platformWriteTextFile(outputPath, processed.code);
+    }
+    
     return outputPath;
   })();
 

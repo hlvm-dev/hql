@@ -80,6 +80,9 @@ export enum IRNodeType {
 
   // Spread operator
   SpreadElement = 57,
+
+  // Export default
+  ExportDefaultDeclaration = 58,
 }
 
 export interface SourcePosition {
@@ -327,6 +330,11 @@ export interface IRExportVariableDeclaration extends IRNode {
   type: IRNodeType.ExportVariableDeclaration;
   declaration: IRVariableDeclaration;
   exportName: string;
+}
+
+export interface IRExportDefaultDeclaration extends IRNode {
+  type: IRNodeType.ExportDefaultDeclaration;
+  declaration: IRNode; // The expression or declaration being exported as default
 }
 
 // JS Interop

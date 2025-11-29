@@ -1,7 +1,9 @@
 // src/transpiler/syntax/import-export.ts
 
 import * as IR from "../type/hql_ir.ts";
-import type { ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+
+type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 import {
   perform,
   TransformError,
@@ -36,6 +38,19 @@ export function isVectorExport(list: ListNode): boolean {
     list.elements[0].type === "symbol" &&
     (list.elements[0] as SymbolNode).name === "export" &&
     list.elements[1].type === "list"
+  );
+}
+
+/**
+ * Check if a list is a default export: (export default expr)
+ */
+export function isDefaultExport(list: ListNode): boolean {
+  return (
+    list.elements.length >= 3 &&
+    list.elements[0].type === "symbol" &&
+    (list.elements[0] as SymbolNode).name === "export" &&
+    list.elements[1].type === "symbol" &&
+    (list.elements[1] as SymbolNode).name === "default"
   );
 }
 
@@ -335,6 +350,51 @@ export function transformVectorImport(
       } as IR.IRImportDeclaration;
     },
     "transformVectorImport",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform a default export statement: (export default expr)
+ * Syntax: (export default <expression>)
+ */
+export function transformDefaultExport(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRNode | null {
+  return perform(
+    () => {
+      // list.elements[0] = 'export'
+      // list.elements[1] = 'default'
+      // list.elements[2] = the expression to export
+      if (list.elements.length < 3) {
+        throw new ValidationError(
+          "export default requires an expression",
+          "export default",
+          "(export default <expression>)",
+          "missing expression",
+        );
+      }
+
+      const exprNode = list.elements[2];
+      const transformedExpr = transformNode(exprNode, currentDir);
+
+      if (!transformedExpr) {
+        throw new TransformError(
+          "Failed to transform export default expression",
+          "export default",
+          exprNode,
+        );
+      }
+
+      return {
+        type: IR.IRNodeType.ExportDefaultDeclaration,
+        declaration: transformedExpr,
+      } as IR.IRExportDefaultDeclaration;
+    },
+    "transformDefaultExport",
     TransformError,
     [list],
   );

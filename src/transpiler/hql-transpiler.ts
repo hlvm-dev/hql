@@ -14,7 +14,8 @@ import {
 } from "../common/error.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { reportError } from "../common/error.ts";
-import { TranspileResult } from "./index.ts";
+import type { TranspileResult } from "./index.ts";
+import type { IRProgram } from "./type/hql_ir.ts";
 import { globalSymbolTable } from "../transpiler/symbol_table.ts";
 import { HQLNode } from "../transpiler/type/hql_ast.ts";
 import { EMBEDDED_MACROS } from "../lib/embedded-macros.ts";
@@ -88,6 +89,72 @@ export async function transpileToJavascript(
   const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
   const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
   const javascript = await transpileHqlAstToJs(hqlAst, mergedOptions);
+
+  if (mergedOptions.baseDir) env.setCurrentFile(null);
+
+  if (mergedOptions.showTiming) {
+    logger.endTiming("hql-process", "Total");
+    logger.logPerformance("hql-process", sourceFilename);
+  }
+
+  return javascript;
+}
+
+/**
+ * Result type for transpileToJavascriptWithIR
+ */
+export interface TranspileWithIRResult extends TranspileResult {
+  ir: IRProgram;
+}
+
+/**
+ * Process HQL source code and return transpiled JavaScript with IR
+ * @param hqlSource - The HQL source code to compile
+ * @param options - Processing options
+ * @param context - Optional dependency injection context for runtime features
+ */
+export async function transpileToJavascriptWithIR(
+  hqlSource: string,
+  options: ProcessOptions = {},
+  context?: CompilerContext,
+): Promise<TranspileWithIRResult> {
+  logger.debug("Processing HQL source with S-expression layer (with IR)");
+
+  // Apply context options if provided
+  const mergedOptions = {
+    ...options,
+    ...(context?.options || {}),
+    verbose: options.verbose ?? context?.options?.verbose,
+    showTiming: options.showTiming ?? context?.options?.showTiming,
+    baseDir: options.baseDir ?? context?.baseDir,
+    currentFile: options.currentFile ?? context?.currentFile,
+  };
+
+  if (mergedOptions.verbose) {
+    logger.setEnabled(true);
+  }
+
+  if (mergedOptions.showTiming) {
+    logger.setTimingOptions({ showTiming: true });
+    logger.startTiming("hql-process", "Total");
+  }
+
+  const sourceFilename = basename(
+    mergedOptions.currentFile || mergedOptions.baseDir || "unknown",
+  );
+
+  // Pass context to environment setup
+  const env = await setupEnvironment(mergedOptions, context);
+  const sexps = parseSource(hqlSource, mergedOptions);
+  const canonicalSexps = transform(sexps, mergedOptions);
+
+  await handleImports(canonicalSexps, env, mergedOptions);
+
+  // Disable caching when runtime macros are present
+  const macroOptions = context?.macroRegistry ? { useCache: false } : {};
+  const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
+  const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
+  const javascript = await transpileHqlAstToJsWithIR(hqlAst, mergedOptions);
 
   if (mergedOptions.baseDir) env.setCurrentFile(null);
 
@@ -343,6 +410,50 @@ async function transpileHqlAstToJs(
       logger.endTiming("hql-process", "JS transformation");
     }
     return result;
+  } catch (error) {
+    if (options.showTiming) {
+      logger.endTiming("hql-process", "JS transformation");
+    }
+
+    // Handle transform errors
+    if (error instanceof TransformError) {
+      reportError(error);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Transform HQL AST to JavaScript and return IR
+ */
+async function transpileHqlAstToJsWithIR(
+  hqlAst: HQLNode[],
+  options: ProcessOptions,
+): Promise<TranspileWithIRResult> {
+  if (options.showTiming) {
+    logger.startTiming("hql-process", "JS transformation");
+  }
+
+  try {
+    const result = await transformAST(
+      hqlAst,
+      options.baseDir || platformCwd(),
+      {
+        verbose: options.verbose,
+        currentFile: options.currentFile,
+        generateSourceMap: options.generateSourceMap,
+        sourceContent: options.sourceContent,
+      },
+    );
+
+    if (options.showTiming) {
+      logger.endTiming("hql-process", "JS transformation");
+    }
+    return {
+      code: result.code,
+      sourceMap: result.sourceMap,
+      ir: result.ir as IRProgram,
+    };
   } catch (error) {
     if (options.showTiming) {
       logger.endTiming("hql-process", "JS transformation");

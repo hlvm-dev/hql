@@ -596,6 +596,7 @@ const irToESTreeConverters = new Map<IR.IRNodeType, IRConverter>([
   [IR.IRNodeType.ImportDeclaration, convertImportDeclaration],
   [IR.IRNodeType.ExportNamedDeclaration, convertExportNamedDeclaration],
   [IR.IRNodeType.ExportVariableDeclaration, convertExportVariableDeclaration],
+  [IR.IRNodeType.ExportDefaultDeclaration, convertExportDefaultDeclaration],
 
   // JS Interop
   [IR.IRNodeType.InteropIIFE, convertInteropIIFE],
@@ -1436,6 +1437,15 @@ function convertExportVariableDeclaration(node: IR.IRExportVariableDeclaration):
     declaration: convertVariableDeclaration(node.declaration),
     specifiers: [],
     source: null,
+    loc: createLoc(node.position)
+  };
+}
+
+function convertExportDefaultDeclaration(node: IR.IRExportDefaultDeclaration): ExportDefaultDeclaration {
+  const declaration = convertIRToESTree(node.declaration);
+  return {
+    type: "ExportDefaultDeclaration",
+    declaration: declaration as Expression,
     loc: createLoc(node.position)
   };
 }

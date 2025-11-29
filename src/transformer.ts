@@ -78,7 +78,7 @@ export async function transformAST(
   astNodes: HQLNode[],
   currentDir: string,
   options: TransformOptions = {},
-): Promise<{ code: string; sourceMap?: string }> {
+): Promise<{ code: string; sourceMap?: string; ir?: unknown }> {
   try {
     const timer = new Timer(logger);
 
@@ -140,6 +140,7 @@ export async function transformAST(
     return {
       code: javascript.code,
       sourceMap: javascript.sourceMap,
+      ir: optimizedIR,
     };
   } catch (error) {
     // If it's already an HQLError (ValidationError, ParseError, etc.), preserve it

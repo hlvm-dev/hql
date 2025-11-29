@@ -28,6 +28,7 @@ import {
   transformStandardFunctionCall,
 } from "../syntax/function.ts";
 import {
+  isDefaultExport,
   isNamespaceImport,
   isVectorExport,
   isVectorImport,
@@ -105,6 +106,7 @@ function isExpression(node: IR.IRNode): boolean {
     case IR.IRNodeType.ImportDeclaration:
     case IR.IRNodeType.ExportNamedDeclaration:
     case IR.IRNodeType.ExportVariableDeclaration:
+    case IR.IRNodeType.ExportDefaultDeclaration:
       return false;
 
     default:
@@ -535,10 +537,13 @@ function initializeTransformFactory(): void {
           if (importExportModule.isVectorExport(list)) {
             return importExportModule.transformVectorExport(list, currentDir);
           }
+          if (isDefaultExport(list)) {
+            return importExportModule.transformDefaultExport(list, currentDir, transformNode);
+          }
           throw new ValidationError(
             "Invalid export statement format",
             "export",
-            "(export [names])",
+            "(export [names]) or (export default <expr>)",
             "invalid format",
           );
         },

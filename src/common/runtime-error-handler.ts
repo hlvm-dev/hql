@@ -84,25 +84,12 @@ function parseStackForJsFrame(stack?: string): JsStackFrame | null {
   const pattern =
     /(?:at\s+)?(?:.*?\()?((?:file:\/\/)?[^\s)]+\.(?:m?js|hql)):(\d+):(\d+)\)?/;
 
-  // First pass: look for HQL files (source-mapped frames)
-  for (const line of lines) {
-    const match = line.match(pattern);
-    if (match && match[1].endsWith(".hql")) {
-      return {
-        jsFile: normalizeJsPath(match[1]),
-        jsLine: parseInt(match[2], 10),
-        jsColumn: parseInt(match[3], 10),
-      };
-    }
-  }
-
-  // Second pass: look for .js/.mjs files (including runtime cache files)
+  // Iterate through lines and pick the first valid user-code frame
   for (const line of lines) {
     const match = line.match(pattern);
     if (match) {
       const filePath = match[1];
-      // Accept runtime cache files - they contain transpiled HQL code with source maps
-      // We need to map their errors back to HQL source
+      // Filter out internal Deno/V8 frames if needed, but usually we want the top one
       return {
         jsFile: normalizeJsPath(filePath),
         jsLine: parseInt(match[2], 10),
@@ -331,20 +318,8 @@ export function initializeErrorHandling(): void {
 export async function resolveRuntimeLocation(
   error: Error,
 ): Promise<{ filePath?: string; line: number; column: number } | null> {
-  // DEBUG: Log entry point
-  const DEBUG_ERROR_RESOLUTION = Deno.env.get("HQL_DEBUG_ERROR") === "1";
-  if (DEBUG_ERROR_RESOLUTION) {
-    console.log("[DEBUG] resolveRuntimeLocation called");
-    console.log("[DEBUG] error.message:", error.message);
-    console.log("[DEBUG] runtimeContext.currentHqlFile:", runtimeContext.currentHqlFile);
-    console.log("[DEBUG] runtimeContext.sourceMap sources:", runtimeContext.sourceMap?.sources);
-  }
-
   const directMeta = extractMetaFromError(error);
   if (directMeta) {
-    if (DEBUG_ERROR_RESOLUTION) {
-      console.log("[DEBUG] Found directMeta:", directMeta);
-    }
     return {
       filePath: directMeta.filePath ?? runtimeContext.currentHqlFile,
       line: directMeta.line ?? 0,
@@ -359,14 +334,7 @@ export async function resolveRuntimeLocation(
   const originalError = errorWithOriginal.originalError;
   const stackToParse = originalError?.stack || error.stack;
 
-  if (DEBUG_ERROR_RESOLUTION) {
-    console.log("[DEBUG] stackToParse:\n", stackToParse);
-  }
-
   let frame = parseStackForJsFrame(stackToParse);
-  if (DEBUG_ERROR_RESOLUTION) {
-    console.log("[DEBUG] Parsed frame:", frame);
-  }
 
   // Fallback: For syntax errors, the location is in the error message, not the stack
   if (!frame && error.message) {
@@ -395,10 +363,6 @@ export async function resolveRuntimeLocation(
 
     const contextConsumer = await getContextSourceMapConsumer();
 
-    if (DEBUG_ERROR_RESOLUTION) {
-      console.log("[DEBUG] contextConsumer available:", !!contextConsumer);
-    }
-
     if (contextConsumer) {
       // Try GREATEST_LOWER_BOUND first (closest mapping before the position)
       let mapped = contextConsumer.originalPositionFor({
@@ -406,10 +370,6 @@ export async function resolveRuntimeLocation(
         column: frame.jsColumn ?? 0,
         bias: GREATEST_LOWER_BOUND,
       });
-
-      if (DEBUG_ERROR_RESOLUTION) {
-        console.log("[DEBUG] Initial mapping (GREATEST_LOWER_BOUND):", mapped);
-      }
 
       // If GREATEST_LOWER_BOUND returns null (can happen with escodegen's intermediate mappings),
       // fall back to LEAST_UPPER_BOUND (closest mapping after the position)
@@ -419,17 +379,11 @@ export async function resolveRuntimeLocation(
           column: frame.jsColumn ?? 0,
           bias: LEAST_UPPER_BOUND,
         });
-        if (DEBUG_ERROR_RESOLUTION) {
-          console.log("[DEBUG] Fallback mapping (LEAST_UPPER_BOUND):", mapped);
-        }
       }
 
       if (mapped.source && mapped.line !== null) {
         const filePath = resolveMappedSourcePath(mapped.source, frame) ??
           runtimeContext.currentHqlFile;
-        if (DEBUG_ERROR_RESOLUTION) {
-          console.log("[DEBUG] Resolved filePath:", filePath, "line:", mapped.line, "column:", mapped.column);
-        }
         if (filePath) {
           const column = mapped.column !== null && mapped.column !== undefined
             ? mapped.column + 1
@@ -443,19 +397,11 @@ export async function resolveRuntimeLocation(
       }
     }
 
-    if (DEBUG_ERROR_RESOLUTION) {
-      console.log("[DEBUG] Trying mapPositionSync fallback for:", frame.jsFile, frame.jsLine, frame.jsColumn);
-    }
-
     const mapped = mapPositionSync(
       frame.jsFile,
       frame.jsLine,
       frame.jsColumn ?? 0,
     );
-
-    if (DEBUG_ERROR_RESOLUTION) {
-      console.log("[DEBUG] mapPositionSync result:", mapped);
-    }
 
     if (mapped) {
       const filePath = resolveMappedSourcePath(mapped.source, frame);
@@ -463,10 +409,6 @@ export async function resolveRuntimeLocation(
       const column = mapped.column !== null && mapped.column !== undefined
         ? mapped.column + 1
         : 0;
-
-      if (DEBUG_ERROR_RESOLUTION) {
-        console.log("[DEBUG] Resolved filePath:", filePath, "line:", line, "column:", column);
-      }
 
       if (filePath) {
         return { filePath, line, column };
