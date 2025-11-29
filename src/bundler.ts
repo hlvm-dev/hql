@@ -1,7 +1,9 @@
 // bundler.ts
-// Use esbuild-wasm instead of esbuild for deno compile compatibility
-// esbuild-wasm works in compiled binaries unlike native esbuild
-import * as esbuild from "npm:esbuild-wasm@^0.17.0";
+// Use patched esbuild-wasm browser version for deno compile compatibility
+// The patched version removes 'self' usage which doesn't exist in Deno
+
+import * as esbuild from "./vendor/esbuild-browser.js";
+import { getEsbuildWasmModule } from "./esbuild-wasm-embedded.ts";
 import type {
   BuildOptions,
   LogLevel,
@@ -33,6 +35,7 @@ import {
   ensureDir,
   exists,
   extname,
+  isAbsolute,
   readTextFile,
   resolve,
   writeTextFile,
@@ -49,8 +52,25 @@ import {
   writeToCachedPath,
 } from "./common/hql-cache-tracker.ts";
 import { transpile, type TranspileOptions } from "./transpiler/index.ts";
+import { fromFileUrl, join } from "./platform/platform.ts";
 
 const REPORTED_ERROR_SYMBOL = Symbol.for("__hql_error_reported__");
+
+/**
+ * Get the path to the stdlib index.js file.
+ * In development mode, this is relative to the bundler.ts location.
+ * In a compiled binary, the stdlib content will be embedded and written to cache.
+ */
+function getStdlibPath(): string {
+  // Get the directory where this file (bundler.ts) is located
+  const thisFileUrl = import.meta.url;
+  const thisFilePath = thisFileUrl.startsWith("file://")
+    ? fromFileUrl(thisFileUrl)
+    : thisFileUrl;
+  const thisDir = dirname(thisFilePath);
+  // stdlib is at lib/stdlib/js/index.js relative to src/
+  return join(thisDir, "lib", "stdlib", "js", "index.js");
+}
 
 function propagateReportedFlag(source: unknown, target: object): void {
   if (source && typeof source === "object" && typeof target === "object") {
@@ -300,8 +320,8 @@ async function prebundleHqlImports(
           preserveRelative: true,
         });
 
-        // Bundle cached JavaScript
-        await bundleWithEsbuild(cachedJsPath, cachedJsPath, {
+        // Bundle cached JavaScript (cachedTsPath is the source, cachedJsPath is the destination)
+        await bundleWithEsbuild(cachedTsPath, cachedJsPath, {
           verbose: options.verbose,
           sourceDir: options.sourceDir || dirname(resolvedHqlPath),
           external: options.external,
@@ -388,6 +408,11 @@ async function processHqlEntryFile(
     currentFile: resolvedInputPath,
     sourceContent: source,
   });
+
+  // Inject stdlib import for bundling - esbuild will resolve and inline it
+  const stdlibImport = `import { first, rest, next, cons, nth, count, second, last, isEmpty, some, every, notAny, notEvery, isSome, take, drop, map, filter, reduce, concat, flatten, distinct, mapIndexed, keepIndexed, mapcat, keep, seq, empty, conj, into, repeat, repeatedly, cycle, iterate, lazySeq, get, getIn, assoc, assocIn, dissoc, update, updateIn, merge, vec, set, range, comp, partial, apply, groupBy, keys, doall, realized, add, sub, mul, div, mod, inc, dec, isNil, eq, neq, lt, gt, lte, gte, LazySeq, __hql_get, __hql_getNumeric, __hql_range, __hql_toSequence, __hql_for_each, __hql_hash_map, __hql_throw, __hql_deepFreeze } from "./hql-stdlib.js";\n`;
+  jsCode = stdlibImport + jsCode;
+  logger.debug("Injected stdlib import for bundling");
 
   if (checkForHqlImports(jsCode)) {
     logger.log({
@@ -480,6 +505,35 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
         { filter: /^(npm:|jsr:|https?:|node:)/ },
         (args: OnResolveArgs): OnResolveResult => {
           logger.debug(`External module: ${args.path}`);
+          return { path: args.path, external: true };
+        },
+      );
+
+      // Handle HQL stdlib import - resolve to actual stdlib location
+      build.onResolve(
+        { filter: /hql-stdlib\.js$/ },
+        async (args: OnResolveArgs): Promise<OnResolveResult> => {
+          const stdlibPath = getStdlibPath();
+          logger.debug(`Resolving HQL stdlib: ${args.path} → ${stdlibPath}`);
+
+          if (await exists(stdlibPath)) {
+            return { path: stdlibPath, namespace: "file" };
+          }
+
+          // Fallback: try to find stdlib in common locations
+          const fallbackPaths = [
+            join(cwd(), "src", "lib", "stdlib", "js", "index.js"),
+            join(cwd(), "lib", "stdlib", "js", "index.js"),
+          ];
+
+          for (const fallback of fallbackPaths) {
+            if (await exists(fallback)) {
+              logger.debug(`Found stdlib at fallback: ${fallback}`);
+              return { path: fallback, namespace: "file" };
+            }
+          }
+
+          logger.error(`HQL stdlib not found! Tried: ${stdlibPath}`);
           return { path: args.path, external: true };
         },
       );
@@ -677,21 +731,25 @@ let esbuildInitialized = false;
 
 /**
  * Initialize esbuild-wasm on first use
- * Handles both first-time init and already-initialized cases
+ * Uses embedded WASM module for compiled binary compatibility
  */
 async function initializeEsbuildWasm(): Promise<void> {
   try {
-    // For Deno/Node environments, initialize without wasmURL (auto-fetches)
+    // Get the embedded WASM module (decoded from base64 and compiled)
+    // This bypasses filesystem lookup, making it work in compiled binaries
+    const wasmModule = await getEsbuildWasmModule();
+
     await esbuild.initialize({
+      wasmModule,
       worker: false, // Disable worker threads for better compatibility
     });
     esbuildInitialized = true;
     logger.log({
-      text: "esbuild-wasm initialized",
+      text: "esbuild-wasm initialized with embedded WASM",
       namespace: "bundler",
     });
   } catch (error) {
-    // If already initialized or doesn't need initialization, that's fine
+    // If already initialized, that's fine
     const errorMsg = String(error);
     if (errorMsg.includes(ERROR_ALREADY_INITIALIZED) || errorMsg.includes(ERROR_INITIALIZE)) {
       esbuildInitialized = true;
@@ -755,7 +813,7 @@ async function bundleWithEsbuild(
       plugins: [bundlePlugin as Plugin],
       allowOverwrite: true,
       metafile: true,
-      write: true,
+      write: false, // Browser WASM version doesn't support write, we'll write manually
       absWorkingDir: cwd(),
       nodePaths: [cwd(), dirname(entryPath)],
       external,
@@ -795,6 +853,12 @@ async function bundleWithEsbuild(
 
     // esbuild.stop() doesn't exist in newer versions
     // await esbuild.stop();
+
+    // Write output manually (browser WASM version doesn't support write: true)
+    if (result.outputFiles && result.outputFiles.length > 0) {
+      const outputContent = result.outputFiles[0].text;
+      await writeTextFile(outputPath, outputContent);
+    }
 
     // Post-process the output to normalize any stray file:// URLs
     if (result.metafile) {
@@ -951,6 +1015,12 @@ async function resolveHqlImport(
   if (externalPatterns.some((pattern) => args.path.startsWith(pattern))) {
     logger.debug(`External import: ${args.path}`);
     return { path: args.path, external: true };
+  }
+
+  // Check if it is an absolute path that exists (e.g. entry point from cache)
+  if (isAbsolute(args.path) && await exists(args.path)) {
+    logger.debug(`Resolved absolute path: ${args.path}`);
+    return createResolveResult(args.path);
   }
 
   // Check import mapping cache

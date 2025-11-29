@@ -93,6 +93,57 @@ export function rest(coll) {
 }
 
 /**
+ * Returns a seq of the items after the first. Returns null if empty.
+ *
+ * Like rest, but returns null instead of empty sequence when coll has 0 or 1 items.
+ * This is useful for recursive patterns where null signals termination.
+ *
+ * @param {Iterable|null|undefined} coll - Any iterable collection
+ * @returns {LazySeq|null} Lazy sequence of remaining elements, or null if <= 1 element
+ *
+ * @example
+ * next([1, 2, 3])  // → [2, 3]
+ * next([1])        // → null
+ * next([])         // → null
+ * next(null)       // → null
+ */
+export function next(coll) {
+  if (coll == null) return null;
+
+  // Array fast path
+  if (Array.isArray(coll)) {
+    if (coll.length <= 1) return null;
+    return lazySeq(function* () {
+      for (let i = 1; i < coll.length; i++) {
+        yield coll[i];
+      }
+    });
+  }
+
+  // LazySeq path
+  if (coll instanceof LazySeq) {
+    const second = coll.get(1);
+    if (second === undefined) return null;
+    return lazySeq(function* () {
+      let i = 1;
+      let val;
+      while ((val = coll.get(i++)) !== undefined) {
+        yield val;
+      }
+    });
+  }
+
+  // Generic iterable path - check if has > 1 element
+  const arr = [...coll];
+  if (arr.length <= 1) return null;
+  return lazySeq(function* () {
+    for (let i = 1; i < arr.length; i++) {
+      yield arr[i];
+    }
+  });
+}
+
+/**
  * Returns a new sequence with element prepended
  *
  * DRY: Delegates to concat() for simplicity and consistency.
@@ -1944,6 +1995,397 @@ export function vec(coll) {
 export function set(coll) {
   if (coll == null) return new Set();
   return new Set(coll); // Works for Sets too, creates new copy
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PREDICATES
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Check if value is null or undefined
+ *
+ * @param {*} x - Value to check
+ * @returns {boolean} True if x is null or undefined
+ *
+ * @example
+ * isNil(null)      // => true
+ * isNil(undefined) // => true
+ * isNil(0)         // => false
+ * isNil("")        // => false
+ * isNil(false)     // => false
+ */
+export function isNil(x) {
+  return x == null;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// EQUALITY AND COMPARISON
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Clojure-style equality function
+ *
+ * Note: In HQL, the `=` operator is assignment (JS semantics).
+ * Use `eq` or `==` for equality comparison.
+ *
+ * @param {...*} vals - Values to compare for equality
+ * @returns {boolean} True if all values are equal, false otherwise
+ *
+ * @example
+ * eq(1, 1)              // => true
+ * eq(1, 2)              // => false
+ * eq(1, 1, 1)           // => true (variadic)
+ * eq([1, 2], [1, 2])    // => false (reference equality)
+ * eq("a", "a")          // => true
+ */
+export function eq(...vals) {
+  if (vals.length < 2) return true;
+  const first = vals[0];
+  for (let i = 1; i < vals.length; i++) {
+    if (vals[i] !== first) return false;
+  }
+  return true;
+}
+
+/**
+ * Not-equal comparison (opposite of eq)
+ *
+ * @param {*} a - First value
+ * @param {*} b - Second value
+ * @returns {boolean} True if values are not equal
+ *
+ * @example
+ * neq(1, 2)    // => true
+ * neq(1, 1)    // => false
+ */
+export function neq(a, b) {
+  return a !== b;
+}
+
+/**
+ * Less-than comparison (first-class version)
+ *
+ * @param {...number} nums - Numbers to compare
+ * @returns {boolean} True if each number is less than the next
+ *
+ * @example
+ * lt(1, 2)        // => true
+ * lt(1, 2, 3)     // => true
+ * lt(1, 3, 2)     // => false
+ */
+export function lt(...nums) {
+  if (nums.length < 2) return true;
+  for (let i = 0; i < nums.length - 1; i++) {
+    if (!(nums[i] < nums[i + 1])) return false;
+  }
+  return true;
+}
+
+/**
+ * Greater-than comparison (first-class version)
+ *
+ * @param {...number} nums - Numbers to compare
+ * @returns {boolean} True if each number is greater than the next
+ *
+ * @example
+ * gt(2, 1)        // => true
+ * gt(3, 2, 1)     // => true
+ * gt(2, 3, 1)     // => false
+ */
+export function gt(...nums) {
+  if (nums.length < 2) return true;
+  for (let i = 0; i < nums.length - 1; i++) {
+    if (!(nums[i] > nums[i + 1])) return false;
+  }
+  return true;
+}
+
+/**
+ * Less-than-or-equal comparison (first-class version)
+ *
+ * @param {...number} nums - Numbers to compare
+ * @returns {boolean} True if each number is less than or equal to the next
+ */
+export function lte(...nums) {
+  if (nums.length < 2) return true;
+  for (let i = 0; i < nums.length - 1; i++) {
+    if (!(nums[i] <= nums[i + 1])) return false;
+  }
+  return true;
+}
+
+/**
+ * Greater-than-or-equal comparison (first-class version)
+ *
+ * @param {...number} nums - Numbers to compare
+ * @returns {boolean} True if each number is greater than or equal to the next
+ */
+export function gte(...nums) {
+  if (nums.length < 2) return true;
+  for (let i = 0; i < nums.length - 1; i++) {
+    if (!(nums[i] >= nums[i + 1])) return false;
+  }
+  return true;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FIRST-CLASS ARITHMETIC OPERATORS
+// These allow operators to be used as values, e.g., (reduce add 0 [1 2 3])
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Variadic addition function (first-class version of + operator)
+ *
+ * @param {...number} nums - Numbers to add
+ * @returns {number} Sum of all arguments, or 0 if no arguments
+ *
+ * @example
+ * add()           // => 0
+ * add(1)          // => 1
+ * add(1, 2, 3)    // => 6
+ * reduce(add, 0, [1, 2, 3, 4])  // => 10
+ */
+export function add(...nums) {
+  if (nums.length === 0) return 0;
+  if (nums.length === 1) return nums[0];
+  return nums.reduce((a, b) => a + b, 0);
+}
+
+/**
+ * Variadic subtraction function (first-class version of - operator)
+ *
+ * @param {...number} nums - Numbers to subtract
+ * @returns {number} Result of subtraction, or 0 if no arguments
+ *
+ * @example
+ * sub()           // => 0
+ * sub(5)          // => -5 (negation)
+ * sub(10, 3)      // => 7
+ * sub(10, 3, 2)   // => 5
+ */
+export function sub(...nums) {
+  if (nums.length === 0) return 0;
+  if (nums.length === 1) return -nums[0];
+  return nums.slice(1).reduce((a, b) => a - b, nums[0]);
+}
+
+/**
+ * Variadic multiplication function (first-class version of * operator)
+ *
+ * @param {...number} nums - Numbers to multiply
+ * @returns {number} Product of all arguments, or 1 if no arguments
+ *
+ * @example
+ * mul()           // => 1
+ * mul(5)          // => 5
+ * mul(2, 3, 4)    // => 24
+ * reduce(mul, 1, [1, 2, 3, 4])  // => 24
+ */
+export function mul(...nums) {
+  if (nums.length === 0) return 1;
+  if (nums.length === 1) return nums[0];
+  return nums.reduce((a, b) => a * b, 1);
+}
+
+/**
+ * Variadic division function (first-class version of / operator)
+ *
+ * @param {...number} nums - Numbers to divide
+ * @returns {number} Result of division, or 1 if no arguments
+ *
+ * @example
+ * div()           // => 1
+ * div(5)          // => 0.2 (1/5)
+ * div(12, 3)      // => 4
+ * div(24, 2, 3)   // => 4
+ */
+export function div(...nums) {
+  if (nums.length === 0) return 1;
+  if (nums.length === 1) return 1 / nums[0];
+  return nums.slice(1).reduce((a, b) => a / b, nums[0]);
+}
+
+/**
+ * Modulo/remainder function (first-class version of % operator)
+ *
+ * @param {number} a - Dividend
+ * @param {number} b - Divisor
+ * @returns {number} Remainder of a / b
+ *
+ * @example
+ * mod(10, 3)  // => 1
+ * mod(7, 2)   // => 1
+ */
+export function mod(a, b) {
+  return a % b;
+}
+
+/**
+ * Increment by 1 (first-class function version)
+ *
+ * @param {number} x - Number to increment
+ * @returns {number} x + 1
+ *
+ * @example
+ * inc(5)      // => 6
+ * map(inc, [1, 2, 3])  // => [2, 3, 4]
+ */
+export function inc(x) {
+  return x + 1;
+}
+
+/**
+ * Decrement by 1 (first-class function version)
+ *
+ * @param {number} x - Number to decrement
+ * @returns {number} x - 1
+ *
+ * @example
+ * dec(5)      // => 4
+ * map(dec, [1, 2, 3])  // => [0, 1, 2]
+ */
+export function dec(x) {
+  return x - 1;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// RUNTIME HELPERS (used by transpiled code)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Get a property from an object, or call a function with the key.
+ * Used by transpiler for property access and function calls.
+ */
+export function __hql_get(obj, key, defaultValue) {
+  if (obj && typeof obj[key] !== "undefined") {
+    return obj[key];
+  }
+  if (typeof obj === "function") {
+    const fnResult = obj(key);
+    if (typeof fnResult !== "undefined") {
+      return fnResult;
+    }
+  }
+  return defaultValue;
+}
+
+// Alias for numeric property access
+export const __hql_getNumeric = __hql_get;
+
+/**
+ * Runtime helper for range generation (used by macros).
+ * More lenient than the public range() function.
+ */
+export function __hql_range(...args) {
+  let start;
+  let end;
+  let step = 1;
+
+  // Parse arguments
+  if (args.length === 0) {
+    // No arguments → infinite sequence from 0
+    start = 0;
+    end = undefined;
+  } else if (args.length === 1) {
+    // One argument → range from 0 to args[0]
+    start = 0;
+    end = args[0];
+  } else if (args.length === 2) {
+    // Two arguments → range from start to end
+    [start, end] = args;
+  } else {
+    // Three or more arguments → range from start to end with step
+    [start, end, step] = args;
+  }
+
+  // Validate step
+  if (typeof step !== "number" || step === 0) {
+    step = 1;
+  }
+
+  // Validate start and end
+  if (typeof start !== "number" || (end !== undefined && typeof end !== "number")) {
+    return lazySeq(function* () {
+      // Empty sequence
+    });
+  }
+
+  // Use shared core implementation
+  return rangeCore(start, end, step);
+}
+
+/**
+ * Convert a value to a sequence (array).
+ */
+export function __hql_toSequence(value) {
+  if (value === null || value === undefined) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "number") {
+    const result = [];
+    const step = value >= 0 ? 1 : -1;
+    for (let i = 0; step > 0 ? i < value : i > value; i += step) {
+      result.push(i);
+    }
+    return result;
+  }
+  if (typeof value === "string") return value.split("");
+  if (value && typeof value[Symbol.iterator] === "function") {
+    return [...value];
+  }
+  return [value];
+}
+
+/**
+ * For-each iteration helper.
+ */
+export function __hql_for_each(sequence, iteratee) {
+  const list = Array.isArray(sequence) ? sequence : __hql_toSequence(sequence);
+  for (let index = 0; index < list.length; index++) {
+    iteratee(list[index], index);
+  }
+  return null;
+}
+
+/**
+ * Create a hash map (plain object) from key-value pairs.
+ */
+export function __hql_hash_map(...entries) {
+  const result = Object.create(null);
+  const limit = entries.length - (entries.length % 2);
+  for (let i = 0; i < limit; i += 2) {
+    result[String(entries[i])] = entries[i + 1];
+  }
+  return result;
+}
+
+/**
+ * Throw an error with the given value.
+ */
+export function __hql_throw(value) {
+  throw value instanceof Error ? value : new Error(String(value));
+}
+
+/**
+ * Deep freeze an object to make it immutable.
+ */
+export function __hql_deepFreeze(obj) {
+  if (obj === null || typeof obj !== "object") {
+    return obj;
+  }
+  if (Object.isFrozen(obj)) {
+    return obj;
+  }
+  Object.freeze(obj);
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      __hql_deepFreeze(item);
+    }
+  } else {
+    for (const value of Object.values(obj)) {
+      __hql_deepFreeze(value);
+    }
+  }
+  return obj;
 }
 
 // Export lazySeq for creating custom lazy sequences
