@@ -117,6 +117,7 @@ export async function processImports(
   // Always resolve baseDir relative to this file if not explicitly provided
   const baseDir = options.baseDir ||
     resolve(dirname(fromFileUrl(import.meta.url)), "../../");
+
   const processedFiles = options.processedFiles || new Set<string>();
   const inProgressFiles = options.inProgressFiles || new Set<string>();
   const importMap = options.importMap || new Map<string, string>();
@@ -630,13 +631,21 @@ Expected one of:
 /**
  * Resolve @hql/* stdlib package paths to actual file paths
  * @hql/string -> packages/string/mod.hql
+ * Returns original path if it's an @hql/* path (handled specially by loadModule)
  */
 function resolveStdlibPath(modulePath: string): string {
+  // Keep @hql/* paths as-is - they will be handled by embedded packages
   if (modulePath.startsWith("@hql/")) {
-    const packageName = modulePath.replace("@hql/", "");
-    return `packages/${packageName}/mod.hql`;
+    return modulePath;
   }
   return modulePath;
+}
+
+/**
+ * Check if a module path is an @hql/* stdlib package
+ */
+function isStdlibPackage(modulePath: string): boolean {
+  return modulePath.startsWith("@hql/");
 }
 
 /**
@@ -649,7 +658,32 @@ async function processSimpleImport(
   options: ImportProcessorOptions,
 ): Promise<void> {
   let modulePath = (elements[1] as SLiteral).value as string;
-  modulePath = resolveStdlibPath(modulePath); // Resolve @hql/* to packages/*/mod.hql
+  
+  // Special handling for @hql/ packages
+  if (isStdlibPackage(modulePath)) {
+    // Register with original path, don't try to resolve to filesystem
+    registerModulePath(modulePath, modulePath);
+    
+    await loadHqlModule(
+      basename(modulePath),
+      modulePath,
+      modulePath, // Use modulePath as resolvedPath for embedded modules
+      env,
+      options
+    );
+    
+    // Register in symbol table
+    globalSymbolTable.set({
+      name: basename(modulePath, extname(modulePath)),
+      kind: "module",
+      scope: "global",
+      isImported: true,
+      sourceModule: modulePath,
+      meta: { importedInFile: options.currentFile },
+    });
+    return;
+  }
+
   const resolvedPath = resolve(baseDir, modulePath);
 
   logger.debug(
@@ -698,13 +732,44 @@ async function processNamespaceImport(
     }
 
     const moduleName = (elements[1] as SSymbol).name;
-    let modulePath = (elements[3] as SLiteral).value as string;
-    modulePath = resolveStdlibPath(modulePath); // Resolve @hql/* to packages/*/mod.hql
+    const modulePath = (elements[3] as SLiteral).value as string;
 
     registerModulePath(moduleName, modulePath);
     logger.debug(
       `Processing namespace import with "from": ${moduleName} from ${modulePath}`,
     );
+
+    // Special handling for @hql/ packages
+    if (isStdlibPackage(modulePath)) {
+      await loadHqlModule(
+        generateModuleId(modulePath), // Use internal ID
+        modulePath,
+        modulePath, // Use modulePath as resolvedPath
+        env,
+        options
+      );
+      
+      // Alias logic remains the same
+      const moduleId = generateModuleId(modulePath);
+      if (moduleId !== moduleName) {
+        if (env.moduleExports.has(moduleId)) {
+          const exports = env.moduleExports.get(moduleId)!;
+          env.importModule(moduleName, exports);
+          logger.debug(`Created module alias: ${moduleName} → ${moduleId}`);
+        }
+      }
+      
+      // Register in symbol table
+      globalSymbolTable.set({
+        name: moduleName,
+        kind: "module",
+        scope: "global",
+        isImported: true,
+        sourceModule: modulePath,
+        meta: { importedInFile: options.currentFile },
+      });
+      return;
+    }
 
     const resolvedPath = resolve(baseDir, modulePath);
     // First load the module with a consistent internal ID
@@ -793,13 +858,21 @@ async function processVectorBasedImport(
       );
     }
 
-    let modulePath = elements[3].value as string;
-    modulePath = resolveStdlibPath(modulePath); // Resolve @hql/* to packages/*/mod.hql
-    const resolvedPath = resolve(baseDir, modulePath);
-    // Use a consistent module ID for all import styles
-    const moduleId = generateModuleId(modulePath);
+    const modulePath = elements[3].value as string;
+    
+    let resolvedPath: string;
+    let moduleId: string;
 
-    await loadModule(moduleId, modulePath, resolvedPath, env, options);
+    if (isStdlibPackage(modulePath)) {
+      resolvedPath = modulePath;
+      moduleId = generateModuleId(modulePath);
+      await loadHqlModule(moduleId, modulePath, resolvedPath, env, options);
+    } else {
+      resolvedPath = resolve(baseDir, modulePath);
+      // Use a consistent module ID for all import styles
+      moduleId = generateModuleId(modulePath);
+      await loadModule(moduleId, modulePath, resolvedPath, env, options);
+    }
 
     const vectorElements = processVectorElements(symbolsVector.elements, {
       allowJsArrayWrapper: true,
@@ -822,6 +895,7 @@ async function processVectorBasedImport(
       env,
       options.currentFile || "",
       lineInfo,
+      resolvedPath,
     );
 
     // Register in symbol table for each imported symbol
@@ -1013,6 +1087,7 @@ function importSymbols(
   env: Environment,
   currentFile: string,
   lineInfo?: { line: number; column: number },
+  resolvedModulePath?: string,
 ): void {
   for (const [symbolName, aliasName] of requestedSymbols.entries()) {
     try {
@@ -1020,10 +1095,35 @@ function importSymbols(
       const moduleExports = env.moduleExports.get(tempModuleName);
       const exportedValue = moduleExports?.[symbolName];
 
+      logger.debug(`importSymbols: checking ${symbolName} in ${tempModuleName}`);
+      logger.debug(`  moduleExports exists: ${moduleExports !== undefined}`);
+      logger.debug(`  moduleExports keys: ${moduleExports ? Object.keys(moduleExports).join(', ') : 'none'}`);
+      logger.debug(`  exportedValue: ${exportedValue}`);
+      logger.debug(`  isMacroFunction: ${exportedValue ? isMacroFunction(exportedValue) : 'N/A'}`);
+
       if (exportedValue && isMacroFunction(exportedValue)) {
-        // This is a user-defined macro - import it as a macro
+        // This is a user-defined macro - import it properly
         const macroName = aliasName || symbolName;
-        env.defineMacro(macroName, exportedValue);
+
+        // Use the resolved module path for checking exports
+        const sourceFilePath = resolvedModulePath || modulePath;
+
+        // Import the user macro (this checks export list and marks as imported)
+        const imported = env.importUserMacro(symbolName, sourceFilePath);
+
+        if (!imported) {
+          // Macro exists but was not exported - throw error
+          throw new ImportError(
+            `Macro '${symbolName}' is not exported from '${modulePath}'`,
+            symbolName,
+            { filePath: currentFile, line: lineInfo?.line, column: lineInfo?.column },
+          );
+        }
+
+        // If alias, also mark the alias as imported
+        if (aliasName && aliasName !== symbolName) {
+          env.importUserMacro(aliasName, sourceFilePath);
+        }
 
         // Register in global macro registry for transpilation filtering
         globalMacroRegistry.add(macroName);
@@ -1194,7 +1294,9 @@ async function loadModule(
     }
 
     // Choose loading strategy based on module type
-    if (isRemoteModule(modulePath)) {
+    if (isStdlibPackage(modulePath)) {
+      await loadHqlModule(moduleName, modulePath, resolvedPath, env, options);
+    } else if (isRemoteModule(modulePath)) {
       await loadRemoteModule(moduleName, modulePath, env);
     } else if (isHqlFile(modulePath)) {
       await loadHqlModule(moduleName, modulePath, resolvedPath, env, options);
@@ -1322,6 +1424,9 @@ async function loadHqlModule(
         currentFile: resolvedPath,
       });
 
+      // Re-set current file since expandMacros clears it at the end
+      tempEnv.setCurrentFile(resolvedPath);
+
       for (const { name } of exportDefinitions) {
         if (tempEnv.hasMacro(name)) {
           throw new Error(
@@ -1374,12 +1479,37 @@ async function loadHqlModule(
       "./lib/embedded-macros.ts"
     );
 
-    if (isEmbeddedFile(resolvedPath)) {
+    // Also check embedded packages for @hql/* imports
+    const { EMBEDDED_PACKAGES } = await import("./embedded-packages.ts");
+
+    // Helper to check embedded packages by modulePath (e.g., "@hql/http")
+    const getEmbeddedPackageContent = (path: string): string | undefined => {
+      // Check direct match first (e.g., "@hql/http")
+      if (EMBEDDED_PACKAGES[path]) {
+        return EMBEDDED_PACKAGES[path];
+      }
+      // Check if path ends with a package path pattern
+      for (const key of Object.keys(EMBEDDED_PACKAGES)) {
+        if (path.endsWith(`packages/${key.replace("@hql/", "")}/mod.hql`)) {
+          return EMBEDDED_PACKAGES[key];
+        }
+      }
+      return undefined;
+    };
+
+    // First check embedded packages (for @hql/* imports in compiled binary)
+    const embeddedPkgContent = getEmbeddedPackageContent(modulePath) ||
+                               getEmbeddedPackageContent(resolvedPath);
+    if (embeddedPkgContent) {
+      fileContent = embeddedPkgContent;
+      importedExprs = parse(fileContent, resolvedPath);
+      logger.debug(`Using embedded package content for ${modulePath}`);
+    } else if (isEmbeddedFile(resolvedPath)) {
       const embeddedContent = getEmbeddedContent(resolvedPath);
       if (embeddedContent) {
         fileContent = embeddedContent;
         importedExprs = parse(fileContent, resolvedPath);
-        logger.debug(`Using embedded content for ${resolvedPath}`);
+        logger.debug(`Using embedded macro content for ${resolvedPath}`);
       } else {
         // Fallback to reading from disk
         fileContent = await readFile(resolvedPath, options.currentFile);
@@ -1415,8 +1545,11 @@ async function loadHqlModule(
     processFileDefinitions(importedExprs, env);
 
     // Create module exports object early for circular dependencies
-    const moduleExports = {};
-    env.importModule(moduleName, moduleExports);
+    // We pass an empty object to importModule, but it creates its own internal object
+    env.importModule(moduleName, {});
+
+    // IMPORTANT: Get the actual object that importModule stored, not our original empty object
+    const moduleExports = env.moduleExports.get(moduleName)!;
 
     // Process imports - allow circular references to find the pre-registered module
     await processImports(importedExprs, env, {
@@ -1435,6 +1568,9 @@ async function loadHqlModule(
       currentFile: resolvedPath,
     });
 
+    // Re-set current file since expandMacros clears it
+    env.setCurrentFile(resolvedPath);
+
     // Now process exports and fill in the module exports
     processFileExportsAndDefinitions(
       importedExprs,
@@ -1442,6 +1578,9 @@ async function loadHqlModule(
       moduleExports,
       resolvedPath,
     );
+
+    // Clear current file after processing
+    env.setCurrentFile(null);
 
     logger.debug(`Imported HQL module: ${moduleName}`);
   } catch (error) {
@@ -1762,8 +1901,13 @@ function processFileExportsAndDefinitions(
         // Check if this is a macro and export it directly
         if (env.hasMacro(name)) {
           const macroFn = env.getMacro(name);
+          logger.debug(`processFileExportsAndDefinitions: macroFn for ${name} is ${macroFn ? 'defined' : 'undefined'}`);
           if (macroFn) {
             moduleExports[name] = macroFn;
+            logger.debug(`processFileExportsAndDefinitions: added ${name} to moduleExports, keys now: ${Object.keys(moduleExports).join(', ')}`);
+
+            // Mark this macro as exported from the current file
+            env.markMacroExported(name);
 
             // Register in global macro registry
             globalMacroRegistry.add(name);

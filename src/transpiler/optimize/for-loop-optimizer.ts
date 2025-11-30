@@ -11,18 +11,19 @@ import * as IR from "../type/hql_ir.ts";
 export function optimizeForLoops(program: IR.IRProgram): IR.IRProgram {
   return {
     ...program,
-    body: program.body.map(optimizeForLoopsNode)
+    body: program.body.map(node => optimizeForLoopsNode(node))
   };
 }
 
 /**
  * Optimize a single IR node recursively.
  */
-function optimizeForLoopsNode(node: IR.IRNode): IR.IRNode {
+function optimizeForLoopsNode(node: IR.IRNode, isStatementContext: boolean = false): IR.IRNode {
   // Recursively optimize children first
   node = optimizeChildren(node);
 
-  // Check if this node is a __hql_for_each call
+  // Check if this node is a __hql_for_each call (wrapped in ExpressionStatement)
+  // Note: This handles cases where optimizeChildren didn't unwrap it (legacy/fallback)
   if (node.type === IR.IRNodeType.ExpressionStatement) {
     const exprStmt = node as IR.IRExpressionStatement;
     if (exprStmt.expression.type === IR.IRNodeType.CallExpression) {
@@ -35,10 +36,15 @@ function optimizeForLoopsNode(node: IR.IRNode): IR.IRNode {
   } else if (node.type === IR.IRNodeType.CallExpression) {
     const optimized = tryOptimizeForEachCall(node as IR.IRCallExpression);
     if (optimized) {
-      // Expression position: wrap ForStatement in IIFE that returns null
-      // This converts: __hql_for_each(...)
-      // Into: (() => { for(...) {...}; return null; })()
-      return wrapForStatementInIIFE(optimized, node.position);
+      if (isStatementContext) {
+        // Statement context: return ForStatement directly (parent will unwrap/handle it)
+        return optimized;
+      } else {
+        // Expression position: wrap ForStatement in IIFE that returns null
+        // This converts: __hql_for_each(...)
+        // Into: (() => { for(...) {...}; return null; })()
+        return wrapForStatementInIIFE(optimized, node.position);
+      }
     }
   }
 
@@ -54,7 +60,7 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
       const block = node as IR.IRBlockStatement;
       const optimizedBlock: IR.IRBlockStatement = {
         type: IR.IRNodeType.BlockStatement,
-        body: block.body.map(optimizeForLoopsNode),
+        body: block.body.map(stmt => optimizeForLoopsNode(stmt)),
         position: block.position
       };
       return optimizedBlock;
@@ -161,9 +167,17 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
 
     case IR.IRNodeType.ExpressionStatement: {
       const exprStmt = node as IR.IRExpressionStatement;
+      // Pass isStatementContext=true to allow optimization to return ForStatement directly
+      const optimizedExpr = optimizeForLoopsNode(exprStmt.expression, true);
+      
+      if (optimizedExpr.type === IR.IRNodeType.ForStatement) {
+        // Unwrap: If we got a ForStatement back, return it directly (replacing the ExpressionStatement)
+        return optimizedExpr;
+      }
+
       const optimizedExprStmt: IR.IRExpressionStatement = {
         type: IR.IRNodeType.ExpressionStatement,
-        expression: optimizeForLoopsNode(exprStmt.expression),
+        expression: optimizedExpr,
         position: exprStmt.position
       };
       return optimizedExprStmt;
@@ -174,7 +188,7 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
       const optimizedCall: IR.IRCallExpression = {
         type: IR.IRNodeType.CallExpression,
         callee: optimizeForLoopsNode(call.callee) as IR.IRIdentifier | IR.IRMemberExpression | IR.IRFunctionExpression,
-        arguments: call.arguments.map(optimizeForLoopsNode),
+        arguments: call.arguments.map(arg => optimizeForLoopsNode(arg)),
         position: call.position
       };
       return optimizedCall;
@@ -184,7 +198,7 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
       const arr = node as IR.IRArrayExpression;
       const optimizedArr: IR.IRArrayExpression = {
         type: IR.IRNodeType.ArrayExpression,
-        elements: arr.elements.map(optimizeForLoopsNode),
+        elements: arr.elements.map(el => optimizeForLoopsNode(el)),
         position: arr.position
       };
       return optimizedArr;
@@ -285,7 +299,7 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
         type: IR.IRNodeType.CallMemberExpression,
         object: optimizeForLoopsNode(callMember.object),
         property: callMember.property,
-        arguments: callMember.arguments.map(optimizeForLoopsNode),
+        arguments: callMember.arguments.map(arg => optimizeForLoopsNode(arg)),
         position: callMember.position
       };
       return optimizedCallMember;
@@ -296,7 +310,7 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
       const optimizedNew: IR.IRNewExpression = {
         type: IR.IRNodeType.NewExpression,
         callee: optimizeForLoopsNode(newExpr.callee),
-        arguments: newExpr.arguments.map(optimizeForLoopsNode),
+        arguments: newExpr.arguments.map(arg => optimizeForLoopsNode(arg)),
         position: newExpr.position
       };
       return optimizedNew;
@@ -483,6 +497,17 @@ function unwrapFunctionBody(body: IR.IRBlockStatement): IR.IRBlockStatement {
         // If return has no argument, skip it
         return null;
       }
+      
+      // Recurse into TryStatement blocks to unwrap returns inside them
+      // This is necessary when the body was wrapped with early return handler
+      if (stmt.type === IR.IRNodeType.TryStatement) {
+        const tryStmt = stmt as IR.IRTryStatement;
+        return {
+          ...tryStmt,
+          block: unwrapFunctionBody(tryStmt.block)
+        } as IR.IRTryStatement;
+      }
+
       return stmt;
     }).filter((stmt): stmt is IR.IRNode => stmt !== null),
     position: body.position

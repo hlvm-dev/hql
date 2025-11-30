@@ -89,6 +89,8 @@ function containsThrowStatements(node: IR.IRNode | null | undefined): boolean {
       const fn = call.callee as IR.IRFunctionExpression;
       return containsThrowStatements(fn.body);
     }
+    // Also check arguments
+    return call.arguments.some((arg) => containsThrowStatements(arg));
   }
 
   // Check in try statements
@@ -97,6 +99,58 @@ function containsThrowStatements(node: IR.IRNode | null | undefined): boolean {
     return containsThrowStatements(tryStmt.block) ||
       containsThrowStatements(tryStmt.handler?.body) ||
       containsThrowStatements(tryStmt.finalizer);
+  }
+
+  // Check in return statements
+  if (node.type === IR.IRNodeType.ReturnStatement) {
+    const ret = node as IR.IRReturnStatement;
+    return containsThrowStatements(ret.argument);
+  }
+
+  // Check in expression statements
+  if (node.type === IR.IRNodeType.ExpressionStatement) {
+    const expr = node as IR.IRExpressionStatement;
+    return containsThrowStatements(expr.expression);
+  }
+
+  // Check in conditional expressions (ternary)
+  if (node.type === IR.IRNodeType.ConditionalExpression) {
+    const cond = node as IR.IRConditionalExpression;
+    return containsThrowStatements(cond.test) ||
+      containsThrowStatements(cond.consequent) ||
+      containsThrowStatements(cond.alternate);
+  }
+
+  // Check in binary expressions
+  if (node.type === IR.IRNodeType.BinaryExpression) {
+    const bin = node as IR.IRBinaryExpression;
+    return containsThrowStatements(bin.left) ||
+      containsThrowStatements(bin.right);
+  }
+
+  // Check in unary expressions
+  if (node.type === IR.IRNodeType.UnaryExpression) {
+    const unary = node as IR.IRUnaryExpression;
+    return containsThrowStatements(unary.argument);
+  }
+
+  // Check in logical expressions
+  if (node.type === IR.IRNodeType.LogicalExpression) {
+    const logic = node as IR.IRLogicalExpression;
+    return containsThrowStatements(logic.left) ||
+      containsThrowStatements(logic.right);
+  }
+
+  // Check in assignment expressions
+  if (node.type === IR.IRNodeType.AssignmentExpression) {
+    const assign = node as IR.IRAssignmentExpression;
+    return containsThrowStatements(assign.right);
+  }
+
+  // Check in variable declarations
+  if (node.type === IR.IRNodeType.VariableDeclaration) {
+    const decl = node as IR.IRVariableDeclaration;
+    return decl.declarations.some((d) => containsThrowStatements(d.init));
   }
 
   return false;
@@ -118,23 +172,25 @@ export function containsNestedReturns(
     // Check IIFE (callee is a function expression)
     if (call.callee.type === IR.IRNodeType.FunctionExpression) {
       const fn = call.callee as IR.IRFunctionExpression;
-      // Check for BOTH return statements AND throw statements (transformed returns)
-      if (
-        containsReturnStatements(fn.body) || containsThrowStatements(fn.body)
-      ) {
+      // Check for throw statements (transformed early returns)
+      // IMPORTANT: Do NOT check for return statements here.
+      // IIFEs naturally have return statements for their expression value.
+      // These are local to the IIFE and should not trigger wrapping of the parent.
+      // Only explicit throws (from transformed user returns) indicate non-local returns.
+      if (containsThrowStatements(fn.body)) {
         return true;
       }
     }
 
     // Check callback function arguments (like __hql_for_each(seq, callback))
-    // This handles returns inside for loops where the callback contains early returns
+    // IMPORTANT: Only check for THROWS (transformed early returns), not returns.
+    // For-loop callbacks have generated returns for expression values, which are
+    // NOT user early returns. Only throws indicate actual user early returns.
     if (call.arguments) {
       for (const arg of call.arguments) {
         if (arg.type === IR.IRNodeType.FunctionExpression) {
           const fn = arg as IR.IRFunctionExpression;
-          if (
-            containsReturnStatements(fn.body) || containsThrowStatements(fn.body)
-          ) {
+          if (containsThrowStatements(fn.body)) {
             return true;
           }
         }
@@ -161,6 +217,26 @@ export function containsNestedReturns(
     return containsNestedReturns(tryStmt.block) ||
       containsNestedReturns(tryStmt.handler?.body) ||
       containsNestedReturns(tryStmt.finalizer);
+  }
+
+  // Check in return statements (the argument may be an IIFE from do blocks)
+  if (node.type === IR.IRNodeType.ReturnStatement) {
+    const retStmt = node as IR.IRReturnStatement;
+    return containsNestedReturns(retStmt.argument);
+  }
+
+  // Check in expression statements
+  if (node.type === IR.IRNodeType.ExpressionStatement) {
+    const exprStmt = node as IR.IRExpressionStatement;
+    return containsNestedReturns(exprStmt.expression);
+  }
+
+  // Check in variable declarations
+  if (node.type === IR.IRNodeType.VariableDeclaration) {
+    const varDecl = node as IR.IRVariableDeclaration;
+    return varDecl.declarations.some((decl) =>
+      containsNestedReturns(decl.init)
+    );
   }
 
   return false;

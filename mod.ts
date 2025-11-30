@@ -135,10 +135,13 @@ export async function transpile(
   source: string,
   options: TranspileOptions = {},
 ): Promise<string | TranspileResult> {
-  // Default baseDir to current working directory if not provided
+  // Default baseDir to directory of currentFile if provided, otherwise current working directory
+  const baseDir = options.baseDir ?? 
+    (options.currentFile ? dirname(options.currentFile) : platformCwd());
+
   const transpileOptions: TranspileOptions = {
     ...options,
-    baseDir: options.baseDir ?? platformCwd(),
+    baseDir,
     currentFile: options.currentFile,
   };
   const result = await transpileToJavascript(source, transpileOptions);
@@ -855,11 +858,28 @@ async function rewriteImportStatement(
     return statement;
   }
 
-  // Resolve @hql/* stdlib packages to actual paths (relative to HQL installation)
+  let replacement = specifier;
+
+  // Resolve @hql/* stdlib packages to embedded or actual paths
   if (specifier.startsWith("@hql/")) {
+    // For compiled binary or dev mode with embedded packages
+    if (EMBEDDED_PACKAGES[specifier]) {
+      const compiledPath = await compileHqlModule(specifier, context);
+      replacement = platformToFileUrl(compiledPath).href;
+      
+      if (fromMatch) {
+        return statement.replace(fromMatch[1], replacement);
+      }
+      if (bareMatch) {
+        return statement.replace(bareMatch[1], replacement);
+      }
+      return statement;
+    }
+    
+    // Fallback for dev mode if not in EMBEDDED_PACKAGES (should generally be there now)
     const packageName = specifier.replace("@hql/", "");
-    // Use HQL_MODULE_DIR (HQL installation directory) not context.baseDir (user code directory)
     specifier = platformResolve(HQL_MODULE_DIR, `packages/${packageName}/mod.hql`);
+    replacement = specifier;
   }
 
   if (
@@ -871,8 +891,6 @@ async function rewriteImportStatement(
 
   const resolvedPath = resolveSpecifierPath(context.importerDir, specifier);
   const hqlPath = await resolveHqlModulePath(resolvedPath);
-
-  let replacement = specifier;
 
   if (hqlPath) {
     const compiledPath = await compileHqlModule(hqlPath, context);
@@ -935,33 +953,48 @@ async function compileHqlModule(
     /\\/g,
     "/",
   );
-  const targetRel = relativePath.replace(/\.hql$/i, ".mjs");
+  
+  // For @hql/ packages, use the package name as the relative path base to ensure unique cache location
+  const isHqlPackage = modulePath.startsWith("@hql/");
+  const targetRel = isHqlPackage 
+    ? modulePath.replace("@hql/", "hql_packages/") + ".mjs"
+    : relativePath.replace(/\.hql$/i, ".mjs");
+    
   const outputPath = platformResolve(context.runtimeDir, targetRel);
   context.moduleOutputs.set(normalized, outputPath);
 
   const compilationPromise = (async () => {
     // Check if this is an embedded @hql/ package first
     let source: string;
-    const isEmbeddedPackage = Object.keys(EMBEDDED_PACKAGES).some(key =>
-      normalized.includes(key.replace("@hql/", "packages/"))
-    );
-
-    if (isEmbeddedPackage) {
-      // Find the matching embedded package
-      const packageKey = Object.keys(EMBEDDED_PACKAGES).find(key =>
+    
+    if (EMBEDDED_PACKAGES[modulePath]) {
+        source = EMBEDDED_PACKAGES[modulePath];
+    } else {
+      // Fallback logic for other embedded paths or file system
+      const isEmbeddedPackage = Object.keys(EMBEDDED_PACKAGES).some(key =>
         normalized.includes(key.replace("@hql/", "packages/"))
       );
-      if (packageKey) {
-        source = EMBEDDED_PACKAGES[packageKey];
+
+      if (isEmbeddedPackage) {
+        // Find the matching embedded package
+        const packageKey = Object.keys(EMBEDDED_PACKAGES).find(key =>
+          normalized.includes(key.replace("@hql/", "packages/"))
+        );
+        if (packageKey) {
+          source = EMBEDDED_PACKAGES[packageKey];
+        } else {
+          source = await platformReadTextFile(normalized);
+        }
       } else {
         source = await platformReadTextFile(normalized);
       }
-    } else {
-      source = await platformReadTextFile(normalized);
     }
 
+    // IMPORTANT: Use the module's directory as baseDir for resolving relative imports,
+    // not the entry point's baseDir. This ensures imports like "./foo.hql" resolve
+    // correctly relative to the importing file.
     const transpileResult = await transpile(source, {
-      baseDir: context.baseDir,
+      baseDir: dirname(normalized),
       currentFile: normalized,
       generateSourceMap: true,
     });
