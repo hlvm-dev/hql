@@ -10,36 +10,9 @@ import { walk } from "https://deno.land/std@0.220.0/fs/walk.ts";
 
 console.log("🔨 Embedding HQL packages...\n");
 
-// Discover all .hql files in packages directory
-const packagesPath = fromFileUrl(new URL("../packages", import.meta.url));
 const embeddedPackages: Record<string, string> = {};
 
-for await (const entry of walk(packagesPath, {
-  exts: [".hql"],
-  followSymlinks: false,
-})) {
-  if (entry.isFile) {
-    // Convert to @hql/packagename format
-    const relativePath = relative(packagesPath, entry.path);
-    const parts = relativePath.split("/");
-    const packageName = parts[0]; // e.g., "string", "math"
-    const fileName = parts[parts.length - 1]; // e.g., "mod.hql"
-
-    if (fileName === "mod.hql") {
-      const key = `@hql/${packageName}`;
-
-      try {
-        const content = await Deno.readTextFile(entry.path);
-        embeddedPackages[key] = content;
-        console.log(`✅ Embedded ${key} (${content.length} bytes)`);
-      } catch (error) {
-        console.error(`❌ Failed to embed ${key}:`, error.message);
-      }
-    }
-  }
-}
-
-// Also embed core stdlib files (macro/core.hql, macro/loop.hql, etc)
+// Embed core stdlib files (macro/core.hql, macro/loop.hql, stdlib/stdlib.hql)
 const coreLibPath = fromFileUrl(new URL("../src/lib", import.meta.url));
 
 for await (const entry of walk(coreLibPath, {
@@ -58,6 +31,42 @@ for await (const entry of walk(coreLibPath, {
       console.error(`❌ Failed to embed ${key}:`, error.message);
     }
   }
+}
+
+// Embed standard packages from packages/ directory
+const packagesPath = fromFileUrl(new URL("../packages", import.meta.url));
+
+// Only try to walk packages directory if it exists
+try {
+  const packagesInfo = await Deno.stat(packagesPath);
+  if (packagesInfo.isDirectory) {
+    for await (const entry of walk(packagesPath, {
+      exts: [".hql"],
+      followSymlinks: false,
+    })) {
+      if (entry.isFile) {
+        const relativePath = relative(packagesPath, entry.path).replace(/\\/g, "/");
+        const parts = relativePath.split("/");
+        const packageName = parts[0]; // e.g., "string", "math"
+        const fileName = parts[parts.length - 1]; // e.g., "mod.hql"
+
+        // Only embed mod.hql files as @hql/pkgname
+        if (fileName === "mod.hql") {
+          const key = `@hql/${packageName}`;
+
+          try {
+            const content = await Deno.readTextFile(entry.path);
+            embeddedPackages[key] = content;
+            console.log(`✅ Embedded ${key} (${content.length} bytes)`);
+          } catch (error) {
+            console.error(`❌ Failed to embed ${key}:`, error.message);
+          }
+        }
+      }
+    }
+  }
+} catch (e) {
+  console.log("⚠️  No packages/ directory found, skipping optional packages.");
 }
 
 // Generate embedded-packages.ts

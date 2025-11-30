@@ -1,4 +1,3 @@
-// publish_npm.ts
 import type { PublishSummary } from "./publish_summary.ts";
 import { getNpmLatestVersion } from "./remote_registry.ts";
 import { detectNpmError } from "./error_handlers.ts";
@@ -12,6 +11,7 @@ import {
   resolveNextPublishVersion,
   updateSourceMetadataFiles,
   writeJSONFile,
+  type HqlConfig, // Import HqlConfig
 } from "./utils.ts";
 import {
   deriveModuleBaseName,
@@ -25,8 +25,7 @@ import {
 const npmPublisher: RegistryPublisher = {
   registryName: "npm",
 
-  async determinePackageInfo(distDir: string, options: PublishOptions) {
-    let config: Record<string, unknown> = {};
+  async determinePackageInfo(distDir: string, options: PublishOptions, config: HqlConfig) { // Added config
     let packageName: string;
     let packageVersion: string;
 
@@ -37,7 +36,7 @@ const npmPublisher: RegistryPublisher = {
         "package.json",
       );
 
-      const existingConfig = await readJSONFile(metadataSourcePath);
+      const existingConfig = await readJSONFile(metadataSourcePath) as HqlConfig; // Cast to HqlConfig
       logger.debug &&
         logger.debug(`Loaded metadata from: ${metadataSourcePath}`);
 
@@ -75,8 +74,9 @@ const npmPublisher: RegistryPublisher = {
         console.log(`  → Using next available version: ${packageVersion}`);
       }
 
+      // Merge with the passed config, not an empty object
       config = mergeConfigWithDefaults(
-        existingConfig,
+        existingConfig, // existing config can be empty, so use this
         packageName,
         packageVersion,
         false,
@@ -104,7 +104,8 @@ const npmPublisher: RegistryPublisher = {
         packageVersion = await promptUser(`Enter version`, defaultVersion);
       }
 
-      config = mergeConfigWithDefaults({}, packageName, packageVersion, false);
+      // Merge with the passed config, not an empty object
+      config = mergeConfigWithDefaults(config, packageName, packageVersion, false); // Use passed config
       console.log(
         `  → Will create new package.json file after successful publish`,
       );
@@ -116,12 +117,16 @@ const npmPublisher: RegistryPublisher = {
     config.version = packageVersion;
 
     const packageJsonPath = join(distDir, "package.json");
-    await writeJSONFile(packageJsonPath, config);
+    await writeJSONFile(packageJsonPath, config as unknown as Record<string, unknown>); // Cast to Record
     console.log(
       `  → Updated dist/package.json file with version ${packageVersion}`,
     );
 
-    await updateSourceMetadataFiles(distDir, ["package.json"], packageVersion);
+    await updateSourceMetadataFiles(
+      distDir,
+      ["package.json"],
+      packageVersion,
+    );
   },
 
   async runPublish(
@@ -134,6 +139,7 @@ const npmPublisher: RegistryPublisher = {
     }
 
     const extraFlags = ["--access", "public"];
+    // @ts-ignore - allowDirty property exists on CLI options but maybe not in interface yet
     if (options.allowDirty) {
       extraFlags.push("--allow-dirty");
     }
@@ -161,6 +167,6 @@ const npmPublisher: RegistryPublisher = {
 };
 
 // Main export function for NPM publishing
-export function publishNpm(options: PublishOptions): Promise<PublishSummary> {
-  return publishPackage(options, npmPublisher);
+export function publishNpm(config: HqlConfig, options: PublishOptions): Promise<PublishSummary> {
+  return publishPackage(config, options, npmPublisher);
 }

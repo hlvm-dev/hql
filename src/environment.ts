@@ -23,6 +23,7 @@ import {
 } from "./transpiler/utils/symbol_info_utils.ts";
 import { STDLIB_PUBLIC_API } from "./lib/stdlib/js/stdlib.js";
 import { gensym } from "./gensym.ts";
+import { isEmbeddedFile } from "./lib/embedded-macros.ts";
 
 type CallableValue = (...args: unknown[]) => unknown;
 
@@ -64,6 +65,13 @@ export class Environment {
   private currentFilePath: string | null = null;
   private currentMacroContext: string | null = null;
   public logger: Logger;
+
+  // Track which file each user macro belongs to: macroName -> sourceFile
+  private macroSourceFiles = new Map<string, string>();
+  // Track which macros are exported from each file: sourceFile -> Set<macroName>
+  private exportedMacros = new Map<string, Set<string>>();
+  // Track which macros have been imported into the current file: macroName -> true
+  private importedMacros = new Set<string>();
 
   static initializeGlobalEnv(): Promise<Environment> {
     // If already initialized, return immediately
@@ -739,24 +747,46 @@ export class Environment {
     }
   }
 
-  defineMacro(key: string, macro: MacroFn): void {
+  defineMacro(key: string, macro: MacroFn, isSystemMacro: boolean = false): void {
     try {
-      this.logger.debug(`Defining macro: ${key}`);
+      const sourceFile = this.currentFilePath;
+
+      // Auto-detect system macros from embedded macro files
+      const isSystem = isSystemMacro || !sourceFile || isEmbeddedFile(sourceFile);
+
+      this.logger.debug(`Defining macro: ${key} (system: ${isSystem}, file: ${sourceFile || "none"})`);
       this.tagMacroFunction(macro, key);
-      this.macroRegistry.defineSystemMacro(key, macro);
+
+      if (isSystem) {
+        // System macro - add to registry for global access
+        this.macroRegistry.defineSystemMacro(key, macro);
+        globalSymbolTable.set({
+          name: key,
+          kind: "macro",
+          scope: "global",
+          meta: { isSystemMacro: true },
+        });
+      } else {
+        // User macro - track source file for proper scoping
+        this.macroSourceFiles.set(key, sourceFile);
+        const sanitizedKey = key.replace(/-/g, "_");
+        if (sanitizedKey !== key) {
+          this.macroSourceFiles.set(sanitizedKey, sourceFile);
+        }
+        globalSymbolTable.set({
+          name: key,
+          kind: "macro",
+          scope: "local",
+          meta: { isSystemMacro: false, sourceFile },
+        });
+      }
+
+      // Always store in local macros map for lookup
       this.macros.set(key, macro);
       const sanitizedKey = key.replace(/-/g, "_");
       if (sanitizedKey !== key) {
         this.macros.set(sanitizedKey, macro);
       }
-
-      // Register in symbol table
-      globalSymbolTable.set({
-        name: key,
-        kind: "macro",
-        scope: "global",
-        meta: { isSystemMacro: true },
-      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       throw new MacroError(
@@ -765,6 +795,111 @@ export class Environment {
         { filePath: this.currentFilePath ?? undefined },
       );
     }
+  }
+
+  /**
+   * Mark a macro as exported from the current file
+   */
+  markMacroExported(macroName: string): void {
+    const sourceFile = this.currentFilePath;
+    if (!sourceFile) {
+      this.logger.debug(`Cannot mark macro ${macroName} as exported: no current file`);
+      return;
+    }
+
+    let exports = this.exportedMacros.get(sourceFile);
+    if (!exports) {
+      exports = new Set();
+      this.exportedMacros.set(sourceFile, exports);
+    }
+    exports.add(macroName);
+
+    // Also add sanitized version
+    const sanitizedName = macroName.replace(/-/g, "_");
+    if (sanitizedName !== macroName) {
+      exports.add(sanitizedName);
+    }
+
+    this.logger.debug(`Marked macro ${macroName} as exported from ${sourceFile}`);
+  }
+
+  /**
+   * Import a user macro from another file into the current scope
+   */
+  importUserMacro(macroName: string, sourceFile: string): boolean {
+    // Check if the macro exists and is exported from the source file
+    let exports = this.exportedMacros.get(sourceFile);
+    
+    if (!exports) {
+      // Fallback: try to find a matching file path in exportedMacros
+      // This handles cases where paths might be resolved differently (e.g. in tests or with symlinks)
+      // We check if the requested sourceFile is a suffix of a known exported file or vice versa
+      // matching at least the filename and parent directory for safety
+      for (const [path, exportSet] of this.exportedMacros.entries()) {
+        if ((path.endsWith(sourceFile) || sourceFile.endsWith(path)) && 
+            path.split('/').pop() === sourceFile.split('/').pop()) {
+          exports = exportSet;
+          break;
+        }
+      }
+    }
+
+    if (!exports?.has(macroName)) {
+      // Also check sanitized name
+      const sanitizedName = macroName.replace(/-/g, "_");
+      if (!exports?.has(sanitizedName)) {
+        this.logger.debug(
+          `Cannot import macro ${macroName}: not exported from ${sourceFile}`
+        );
+        return false;
+      }
+    }
+
+    // Mark as imported in current scope
+    this.importedMacros.add(macroName);
+    const sanitizedName = macroName.replace(/-/g, "_");
+    if (sanitizedName !== macroName) {
+      this.importedMacros.add(sanitizedName);
+    }
+
+    this.logger.debug(`Imported macro ${macroName} from ${sourceFile}`);
+    return true;
+  }
+
+  /**
+   * Check if a macro is accessible in the current scope
+   */
+  isMacroAccessible(macroName: string): boolean {
+    // System macros are always accessible
+    if (this.macroRegistry.hasMacro(macroName)) {
+      return true;
+    }
+
+    // Check if macro exists at all
+    if (!this.macros.has(macroName)) {
+      return false;
+    }
+
+    // Get source file of the macro
+    const macroSourceFile = this.macroSourceFiles.get(macroName);
+
+    // If no source file tracked, it's accessible (legacy behavior for system macros)
+    if (!macroSourceFile) {
+      return true;
+    }
+
+    // Macro from current file is always accessible
+    if (macroSourceFile === this.currentFilePath) {
+      return true;
+    }
+
+    // Check if macro was explicitly imported
+    if (this.importedMacros.has(macroName)) {
+      return true;
+    }
+
+    // Not accessible - macro is from another file and not imported
+    return false;
   }
 
   importMacro(
@@ -805,11 +940,23 @@ export class Environment {
   }
 
   hasMacro(key: string): boolean {
-    return this.macroRegistry.hasMacro(key);
+    return this.isMacroAccessible(key);
   }
 
   getMacro(key: string): MacroFn | undefined {
-    return this.macroRegistry.getMacro(key);
+    // First check if accessible
+    if (!this.isMacroAccessible(key)) {
+      return undefined;
+    }
+
+    // Check system macros first
+    const systemMacro = this.macroRegistry.getMacro(key);
+    if (systemMacro) {
+      return systemMacro;
+    }
+
+    // Then check local macros
+    return this.macros.get(key);
   }
 
   isSystemMacro(symbolName: string): boolean {

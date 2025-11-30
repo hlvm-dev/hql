@@ -17,13 +17,14 @@ import {
   promptUser,
   readJSONFile,
   visualizeTree,
+  type HqlConfig,
 } from "./utils.ts";
 
 // Common interfaces for publishing options
 export interface PublishOptions {
   entryFile: string;
   version?: string;
-  hasMetadata: boolean;
+  hasMetadata?: boolean; // Changed to optional
   metadataType?: MetadataFileType;
   verbose?: boolean;
   dryRun?: boolean;
@@ -32,7 +33,7 @@ export interface PublishOptions {
 export interface PublishContext {
   distDir: string;
   packageName: string;
-  config: Record<string, unknown>;
+  config: HqlConfig; // Changed to HqlConfig
   metadataType?: MetadataFileType;
   dryRun?: boolean;
   verbose?: boolean;
@@ -41,15 +42,19 @@ export interface PublishContext {
 // Interface representing a registry-specific publishing system
 export interface RegistryPublisher {
   registryName: RegistryType;
-  determinePackageInfo: (distDir: string, options: PublishOptions) => Promise<{
+  determinePackageInfo: (
+    distDir: string,
+    options: PublishOptions,
+    config: HqlConfig, // Added config
+  ) => Promise<{
     packageName: string;
     packageVersion: string;
-    config: Record<string, unknown>;
+    config: HqlConfig; // Changed to HqlConfig
   }>;
   updateMetadata: (
     distDir: string,
     version: string,
-    config: Record<string, unknown>,
+    config: HqlConfig, // Changed to HqlConfig
   ) => Promise<void>;
   runPublish: (
     distDir: string,
@@ -114,24 +119,23 @@ export function createDefaultConfig(
   packageName: string,
   packageVersion: string,
   isJsr: boolean,
-): Record<string, unknown> {
+): HqlConfig { // Changed return type
   // Common properties
-  const config: Record<string, unknown> = {
+  const config: HqlConfig = { // Changed type
     name: packageName,
     version: packageVersion,
+    exports: isJsr ? "./esm/index.js" : "./mod.hql", // Default export
     description: `HQL module: ${packageName}`,
     license: "MIT",
   };
 
   if (isJsr) {
     // JSR-specific defaults
-    config.exports = "./esm/index.js";
     config.publish = {
       include: ["README.md", "esm/**/*", "types/**/*", "jsr.json"],
     };
   } else {
     // NPM-specific defaults
-    config.module = "./esm/index.js";
     config.main = "./esm/index.js";
     config.types = "./types/index.d.ts";
     config.files = ["esm", "types", "README.md"];
@@ -143,14 +147,14 @@ export function createDefaultConfig(
 }
 
 export function mergeConfigWithDefaults(
-  existingConfig: Record<string, unknown>,
+  existingConfig: HqlConfig, // Changed type
   packageName: string,
   packageVersion: string,
   isJsr: boolean,
-): Record<string, unknown> {
+): HqlConfig { // Changed return type
   return {
     ...createDefaultConfig(packageName, packageVersion, isJsr),
-    ...existingConfig,
+    ...(existingConfig as Record<string, unknown>), // Cast here for spread
     name: packageName,
     version: packageVersion,
   };
@@ -173,10 +177,8 @@ export async function attemptPublish(
     `\n🚀 Publishing ${packageName}@${currentVersion} to ${publisher.registryName}...`,
   );
 
-  if (publisher.registryName === "npm") {
-    // NPM requires metadata update before publishing
-    await publisher.updateMetadata(distDir, currentVersion, config);
-  }
+  // NPM requires metadata update before publishing
+  await publisher.updateMetadata(distDir, currentVersion, config);
 
   // Visualize the files to be published
   const highlightFiles = ["esm/index.js", "types/index.d.ts"];
@@ -263,6 +265,7 @@ export async function attemptPublish(
  * Generic publish function that orchestrates the whole publishing process
  */
 export async function publishPackage(
+  config: HqlConfig, // Added config
   options: PublishOptions,
   publisher: RegistryPublisher,
 ): Promise<PublishSummary> {
@@ -277,17 +280,17 @@ export async function publishPackage(
     console.log(
       `\n📝 Configuring ${publisher.registryName.toUpperCase()} package...`,
     );
-    const { packageName, packageVersion, config } = await publisher
-      .determinePackageInfo(distDir, options);
+    const { packageName, packageVersion, config: newConfig } = await publisher
+      .determinePackageInfo(distDir, options, config); // Pass config
 
-    await ensureReadmeExists(distDir, packageName);
+    await ensureReadmeExists(distDir, newConfig); // Pass newConfig
 
     if (options.dryRun) {
       console.log(
         `\n🔍 Dry run mode - package ${packageName}@${packageVersion} would be published to ${publisher.registryName.toUpperCase()}`,
       );
 
-      await publisher.updateMetadata(distDir, packageVersion, config);
+      await publisher.updateMetadata(distDir, packageVersion, newConfig);
 
       return {
         registry: publisher.registryName,
@@ -300,7 +303,7 @@ export async function publishPackage(
     const context: PublishContext = {
       distDir,
       packageName,
-      config,
+      config: newConfig, // Use newConfig
       metadataType: options.metadataType,
       dryRun: options.dryRun,
       verbose: options.verbose,

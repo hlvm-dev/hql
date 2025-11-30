@@ -1,15 +1,44 @@
-import { globalLogger as logger } from "@core/logger.ts";
-import { buildJsModule } from "./build_js_module.ts";
 import {
-  dirname,
+  cwd as platformCwd,
   exists,
+  readTextFile,
+  resolve,
+  writeTextFile,
   join,
   mkdir as platformMkdir,
   readDir,
-  readTextFile as platformReadTextFile,
   runCmd,
-  writeTextFile as platformWriteTextFile,
+  dirname, // Add this import
 } from "../../platform/platform.ts";
+import { parse } from "../../transpiler/pipeline/parser.ts";
+import { globalLogger as logger } from "../../logger.ts";
+import { buildJsModule } from "./build_js_module.ts";
+
+/**
+ * HQL Configuration interface
+ */
+export interface HqlConfig extends Record<string, unknown> { // Extend Record<string, unknown>
+  name: string;
+  version: string;
+  exports?: string;
+  description?: string;
+  author?: string;
+  license?: string;
+  repository?: string;
+  homepage?: string;
+  dependencies?: Record<string, string>;
+}
+
+export type MetadataFileType = "package.json" | "deno.json" | "jsr.json";
+
+/**
+ * Metadata file types for JSR/NPM
+ */
+export interface MetadataStatus {
+  npm: MetadataFileType | null;
+  jsr: MetadataFileType | null;
+}
+
 export interface RunCommandOptions {
   cmd: string[];
   cwd: string;
@@ -18,49 +47,213 @@ export interface RunCommandOptions {
   extraFlags?: string[];
 }
 
-export type MetadataFileType = "package.json" | "deno.json" | "jsr.json";
-export interface MetadataStatus {
-  npm: MetadataFileType | null;
-  jsr: MetadataFileType | null;
-}
-
 const buildCache = new Map<string, Promise<string>>();
 
-async function collectDirectoryEntries(
-  dir: string,
-  entries: Array<{ path: string; isFile: boolean }>,
+/**
+ * Read and parse JSON file
+ */
+export async function readJSONFile(path: string): Promise<Record<string, unknown>> {
+  try {
+    const content = await readTextFile(path);
+    return JSON.parse(content);
+  } catch (error) {
+    throw new Error(
+      `Failed to read JSON file ${path}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+/**
+ * Write object to JSON file
+ */
+export async function writeJSONFile(
+  path: string,
+  data: Record<string, unknown>,
 ): Promise<void> {
-  for await (const entry of readDir(dir)) {
-    const entryPath = join(dir, entry.name);
-    if (entry.isDirectory) {
-      entries.push({ path: entryPath, isFile: false });
-      await collectDirectoryEntries(entryPath, entries);
-    } else if (entry.isFile) {
-      entries.push({ path: entryPath, isFile: true });
+  try {
+    const content = JSON.stringify(data, null, 2);
+    await writeTextFile(path, content);
+  } catch (error) {
+    throw new Error(
+      `Failed to write JSON file ${path}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+/**
+ * Verify that the entry file is a valid HQL module
+ */
+export async function verifyEntryFile(entryPath: string): Promise<boolean> {
+  try {
+    if (!(await exists(entryPath))) {
+      console.error(`Entry file not found: ${entryPath}`);
+      return false;
     }
+
+    const content = await readTextFile(entryPath);
+    try {
+      // Try to parse to ensure valid HQL
+      parse(content, entryPath);
+      return true;
+    } catch (error) {
+      console.error(
+        `Entry file contains syntax errors: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return false;
+    }
+  } catch (error) {
+    console.error(
+      `Error verifying entry file: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return false;
   }
 }
 
-export function getCachedBuild(
-  entryFile: string,
-  options: { verbose?: boolean; dryRun?: boolean },
-): Promise<string> {
-  if (!buildCache.has(entryFile)) {
-    logger.debug && logger.debug(`Creating new build for ${entryFile}`);
-    const buildPromise = buildJsModule(entryFile, options);
-    buildCache.set(entryFile, buildPromise);
+/**
+ * Generate package metadata files (package.json, deno.json, etc.)
+ */
+export async function generatePackageMetadata(
+  config: HqlConfig,
+  outDir: string,
+): Promise<{
+  npm: { path: string; content: string } | null;
+  jsr: { path: string; content: string } | null;
+}> {
+  const metadata = {
+    npm: null,
+    jsr: null,
+  };
 
-    buildPromise.catch(() => {
-      buildCache.delete(entryFile);
-    });
+  // Generate package.json for NPM
+  const packageJson = {
+    name: config.name,
+    version: config.version,
+    description: config.description || `HQL module: ${config.name}`,
+    main: "mod.js",
+    types: "mod.d.ts",
+    license: config.license || "MIT",
+    author: config.author,
+    repository: config.repository,
+    homepage: config.homepage,
+    dependencies: config.dependencies,
+    scripts: {
+      test: "echo \"Error: no test specified\" && exit 1",
+    },
+  };
 
-    return buildPromise;
-  }
+  // @ts-ignore - Allow assigning to typed property
+  metadata.npm = {
+    path: resolve(outDir, "package.json"),
+    content: JSON.stringify(packageJson, null, 2),
+  };
 
-  logger.debug && logger.debug(`Reusing cached build for ${entryFile}`);
-  return buildCache.get(entryFile)!;
+  // Generate deno.json for JSR
+  const denoJson = {
+    name: config.name.startsWith("@") ? config.name : `@${config.author || "hql"}/${config.name}`,
+    version: config.version,
+    exports: "./mod.ts",
+    tasks: {
+      test: "deno test",
+    },
+    imports: config.dependencies,
+  };
+
+  // @ts-ignore - Allow assigning to typed property
+  metadata.jsr = {
+    path: resolve(outDir, "deno.json"),
+    content: JSON.stringify(denoJson, null, 2),
+  };
+
+  return metadata as {
+    npm: { path: string; content: string } | null;
+    jsr: { path: string; content: string } | null;
+  };
 }
 
+/**
+ * Create a README.md if it doesn't exist
+ */
+export async function ensureReadme(projectPath: string, config: HqlConfig): Promise<void> {
+  const readmePath = resolve(projectPath, "README.md");
+  
+  if (await exists(readmePath)) {
+    return;
+  }
+
+  const packageName = config.name;
+  
+  const template = `# ${packageName}
+
+> **This is a template README automatically generated by [HQL Publish](https://github.com/boraseoksoon/hql-dev).**
+> Please update this file with your own project details!
+
+---
+
+## 📦 About
+
+This is a module published with [HQL](https://github.com/boraseoksoon/hql-dev).
+Describe your project here!
+
+## 🚀 Getting Started
+
+Install via your preferred registry:
+
+- **JSR:**
+  \`\`\`sh
+  deno add ${packageName}
+  \`\`\`
+- **NPM:**
+  \`\`\`sh
+  npm install ${packageName}
+  \`\`\`
+
+## 🛠 Publishing with HQL
+
+To publish updates, run:
+
+\`\`\`sh
+hql publish <entry-file> [jsr|npm] [version] [--dry-run]
+\`\`\`
+See [HQL Publish Guide](https://github.com/boraseoksoon/hql-dev) for full details.
+
+## 📄 Customizing this README
+
+Edit this file (\`README.md\`) to add your own project description, usage examples, API docs, contribution guidelines, and more.
+
+## 📚 Resources
+
+- [HQL Documentation](https://github.com/boraseoksoon/hql-dev)
+- [Report Issues](https://github.com/boraseoksoon/hql-dev/issues)
+
+---
+
+## 📝 License
+
+[MIT](./LICENSE) (or your preferred license)
+`;
+
+  try {
+    await writeTextFile(readmePath, template);
+    console.log("Created README.md template.");
+  } catch (error) {
+    logger.warn(`Failed to create README.md: ${error}`);
+  }
+}
+
+// Alias for backward compatibility
+export const ensureReadmeExists = ensureReadme;
+
+/**
+ * Detect existing metadata files
+ */
 export async function detectMetadataFiles(
   dir: string,
 ): Promise<MetadataStatus> {
@@ -92,6 +285,90 @@ export async function detectMetadataFiles(
   return result;
 }
 
+/**
+ * Execute a command and handle its output
+ */
+export async function executeCommand(
+  options: RunCommandOptions,
+): Promise<{ success: boolean; error?: string }> {
+  const { cmd, cwd, extraFlags = [] } = options;
+
+  try {
+    const process = runCmd({
+      cmd: [...cmd, ...extraFlags],
+      cwd,
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+
+    const status = await process.status;
+
+    if (status.success) {
+      return { success: true };
+    } else {
+      return { success: false, error: "Command failed" };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function promptUser(
+  message: string,
+  defaultValue = "",
+): Promise<string> {
+  const promptMessage = defaultValue
+    ? `${message} (${defaultValue}):`
+    : `${message}:`;
+
+  console.log(promptMessage);
+
+  const input = prompt("> ") ?? "";
+  return Promise.resolve(input.trim() || defaultValue);
+}
+
+export function incrementPatchVersion(version: string): string {
+  const parts = version.split(".");
+  if (parts.length !== 3) {
+    return "0.0.1";
+  }
+
+  try {
+    const major = parseInt(parts[0], 10);
+    const minor = parseInt(parts[1], 10);
+    let patch = parseInt(parts[2], 10);
+    patch++;
+
+    return `${major}.${minor}.${patch}`;
+  } catch {
+    return "0.0.1";
+  }
+}
+
+export function getCachedBuild(
+  entryFile: string,
+  options: { verbose?: boolean; dryRun?: boolean },
+): Promise<string> {
+  if (!buildCache.has(entryFile)) {
+    logger.debug && logger.debug(`Creating new build for ${entryFile}`);
+    const buildPromise = buildJsModule(entryFile, options);
+    buildCache.set(entryFile, buildPromise);
+
+    buildPromise.catch(() => {
+      buildCache.delete(entryFile);
+    });
+
+    return buildPromise;
+  }
+
+  logger.debug && logger.debug(`Reusing cached build for ${entryFile}`);
+  return buildCache.get(entryFile)!;
+}
+
 export function getPlatformsFromArgs(args: string[]): ("jsr" | "npm")[] {
   const allForms = new Set(["all", "-all", "--all", "-a"]);
   const npmForms = new Set(["npm", "-npm", "--npm"]);
@@ -120,85 +397,16 @@ export function getPlatformsFromArgs(args: string[]): ("jsr" | "npm")[] {
   return platforms;
 }
 
-export async function readJSONFile(
-  path: string,
-): Promise<Record<string, unknown>> {
-  try {
-    logger.debug && logger.debug(`Reading JSON file: ${path}`);
-    const text = await platformReadTextFile(path);
-    return JSON.parse(text);
-  } catch (error) {
-    logger.debug && logger.debug(`Error reading JSON file ${path}: ${error}`);
-    return {};
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
   }
+  return 0;
 }
 
-export async function writeJSONFile(
-  path: string,
-  data: Record<string, unknown>,
-): Promise<void> {
-  try {
-    const dir = dirname(path);
-    try {
-      await platformMkdir(dir, { recursive: true });
-    } catch (_e) {
-      // Ignore if directory already exists
-    }
-
-    logger.debug && logger.debug(`Writing JSON file: ${path}`);
-    await platformWriteTextFile(path, JSON.stringify(data, null, 2));
-  } catch (error) {
-    logger.debug && logger.debug(`Error writing JSON file ${path}: ${error}`);
-    throw new Error(`Failed to write JSON file ${path}: ${error}`);
-  }
-}
-
-export function incrementPatchVersion(version: string): string {
-  const parts = version.split(".");
-  if (parts.length !== 3) {
-    return "0.0.1";
-  }
-
-  try {
-    const major = parseInt(parts[0], 10);
-    const minor = parseInt(parts[1], 10);
-    let patch = parseInt(parts[2], 10);
-    patch++;
-
-    return `${major}.${minor}.${patch}`;
-  } catch {
-    return "0.0.1";
-  }
-}
-
-export function promptUser(
-  message: string,
-  defaultValue = "",
-): Promise<string> {
-  const promptMessage = defaultValue
-    ? `${message} (${defaultValue}):`
-    : `${message}:`;
-
-  console.log(promptMessage);
-
-  const input = prompt("> ") ?? "";
-  return Promise.resolve(input.trim() || defaultValue);
-}
-
-/**
- * Compare two semver version strings (e.g., "1.2.3").
- * Returns -1 if a < b, 1 if a > b, 0 if equal.
- */
-/**
- * Resolves the next version to publish by comparing remote and local versions.
- * If the remote version is lower than local, prompts the user to confirm the next version.
- * @param remoteVersion Version string from the registry (may be null)
- * @param localVersion Version string from local metadata (may be null)
- * @param promptUserFn Function to prompt the user (message, defaultValue) => Promise<string>
- * @param incrementPatchVersionFn Function to increment a version string (semver)
- * @param registryName Name of the registry (for messages)
- * @returns The version string to use for publish
- */
 export async function resolveNextPublishVersion(
   remoteVersion: string | null,
   localVersion: string | null,
@@ -235,16 +443,6 @@ export async function resolveNextPublishVersion(
   return "0.0.1";
 }
 
-export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
-    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
-  }
-  return 0;
-}
-
 export async function updateSourceMetadataFiles(
   distDir: string,
   metaFiles: string[],
@@ -268,54 +466,18 @@ export async function updateSourceMetadataFiles(
   }
 }
 
-export async function ensureReadmeExists(
-  distDir: string,
-  packageName: string,
+async function collectDirectoryEntries(
+  dir: string,
+  entries: Array<{ path: string; isFile: boolean }>,
 ): Promise<void> {
-  const readmePath = join(distDir, "README.md");
-  if (!(await exists(readmePath))) {
-    console.log(`  → Creating default README.md`);
-    await writeTextFile(
-      readmePath,
-      `# ${packageName}\n\n> **This is a template README automatically generated by [HQL Publish](https://github.com/boraseoksoon/hql-dev).**\n> Please update this file with your own project details!\n\n---\n\n## 📦 About\n\nThis is a module published with [HQL](https://github.com/boraseoksoon/hql-dev).\nDescribe your project here!\n\n## 🚀 Getting Started\n\nInstall via your preferred registry:\n\n- **JSR:**\n  \`\`\`sh\n  deno add ${packageName}\n  \`\`\`\n- **NPM:**\n  \`\`\`sh\n  npm install ${packageName}\n  \`\`\`\n\n## 🛠 Publishing with HQL\n\nTo publish updates, run:\n\n\`\`\`sh\nhql publish <entry-file> [jsr|npm] [version] [--dry-run]\n\`\`\`\nSee [HQL Publish Guide](https://github.com/boraseoksoon/hql-dev) for full details.\n\n## 📄 Customizing this README\n\nEdit this file (\`README.md\`) to add your own project description, usage examples, API docs, contribution guidelines, and more.\n\n## 📚 Resources\n\n- [HQL Documentation](https://github.com/boraseoksoon/hql-dev)\n- [Report Issues](https://github.com/boraseoksoon/hql-dev/issues)\n\n---\n\n## 📝 License\n\n[MIT](./LICENSE) (or your preferred license)\n`,
-    );
-  }
-}
-
-/**
- * Executes a command and handles its output and errors in a standardized way
- *
- * @param options The command options
- * @returns A result object with success status and optional error output
- */
-export async function executeCommand(
-  options: RunCommandOptions,
-): Promise<{ success: boolean; error?: string }> {
-  const { cmd, cwd, extraFlags = [] } = options;
-
-  try {
-    // CRITICAL: All stdio must be "inherit" for interactive browser auth to work
-    // deno publish checks if it's running in a real TTY before showing auth URL
-    const process = runCmd({
-      cmd: [...cmd, ...extraFlags],
-      cwd,
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit", // Must inherit for interactive auth
-    });
-
-    const status = await process.status;
-
-    if (status.success) {
-      return { success: true };
-    } else {
-      return { success: false, error: "Command failed" };
+  for await (const entry of readDir(dir)) {
+    const entryPath = join(dir, entry.name);
+    if (entry.isDirectory) {
+      entries.push({ path: entryPath, isFile: false });
+      await collectDirectoryEntries(entryPath, entries);
+    } else if (entry.isFile) {
+      entries.push({ path: entryPath, isFile: true });
     }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
   }
 }
 

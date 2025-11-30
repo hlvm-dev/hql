@@ -22,7 +22,7 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HqlConfig> {
 
   // If hql.json exists, read and return it
   if (await exists(configPath)) {
-    const config = await readJSONFile(configPath) as HqlConfig;
+    const config = (await readJSONFile(configPath)) as unknown as HqlConfig;
 
     // Validate required fields
     if (!config.name || !config.version || !config.exports) {
@@ -86,7 +86,7 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HqlConfig> {
     exports: `./${entryPoint}`,
   };
 
-  await writeJSONFile(configPath, config);
+  await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
 
   console.log(`\n✨ Created hql.json`);
   console.log(`  → ${name} v${version}\n`);
@@ -104,10 +104,10 @@ async function updateConfigVersion(newVersion: string): Promise<void> {
     return; // No config to update
   }
 
-  const config = await readJSONFile(configPath) as HqlConfig;
+  const config = await readJSONFile(configPath) as unknown as HqlConfig;
   config.version = newVersion;
 
-  await writeJSONFile(configPath, config);
+  await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
   console.log(`\n  → Updated hql.json to version ${newVersion}`);
 }
 
@@ -179,7 +179,7 @@ async function ensureMetadataFiles(
       type: "module",
       // Don't set exports here - let core publish system handle it
     };
-    await writeJSONFile(packageJsonPath, packageJson);
+    await writeJSONFile(packageJsonPath, packageJson as Record<string, unknown>);
   }
 
   // Create deno.json for JSR
@@ -190,7 +190,7 @@ async function ensureMetadataFiles(
       version: version,
       // Don't set exports here - core publish will set it to "./esm/index.js"
     };
-    await writeJSONFile(denoJsonPath, denoJson);
+    await writeJSONFile(denoJsonPath, denoJson as Record<string, unknown>);
   }
 }
 

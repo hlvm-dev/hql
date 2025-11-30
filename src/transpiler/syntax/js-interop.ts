@@ -66,9 +66,12 @@ function getLiteralString(node: HQLNode): string | null {
 
 function resolveMemberProperty(
   property: IR.IRNode,
+  isLiteralKey = false,
 ): { property: IR.IRNode; computed: boolean } {
-  if (property.type === IR.IRNodeType.Identifier) {
-    return { property, computed: false };
+  // If the property is an Identifier from a variable reference (not a literal),
+  // we need computed access (obj[key]) to use the variable's value
+  if (property.type === IR.IRNodeType.Identifier && !isLiteralKey) {
+    return { property, computed: true };
   }
 
   if (property.type === IR.IRNodeType.StringLiteral) {
@@ -199,7 +202,7 @@ export function transformJsGet(
           type: IR.IRNodeType.StringLiteral,
           value: literalProperty,
         } as IR.IRStringLiteral;
-        const { property, computed } = resolveMemberProperty(literalNode);
+        const { property, computed } = resolveMemberProperty(literalNode, true);
         return {
           type: IR.IRNodeType.MemberExpression,
           object,
@@ -271,7 +274,7 @@ export function transformJsCall(
           type: IR.IRNodeType.StringLiteral,
           value: literalMethod,
         } as IR.IRStringLiteral;
-        const { property, computed } = resolveMemberProperty(literalNode);
+        const { property, computed } = resolveMemberProperty(literalNode, true);
         return {
           type: IR.IRNodeType.CallExpression,
           callee: {
@@ -505,6 +508,7 @@ export function transformDotNotation(
       } as IR.IRStringLiteral;
       const { property: memberProperty, computed } = resolveMemberProperty(
         literalNode,
+        true,
       );
 
       return {

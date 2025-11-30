@@ -33,12 +33,12 @@ async function createSampleModHql(entryPoint: string): Promise<void> {
 ;; Edit this file to implement your library or application
 
 ;; This is a sample HQL module.
-;;
+;; 
 ;; To get started:
 ;;   1. Edit this file and implement your functions
 ;;   2. Test with: hql run ${entryPoint}
 ;;   3. Publish with: hql publish
-;;
+;; 
 ;; For more info: https://github.com/boraseoksoon/hql-dev
 
 ;; Sample function - replace with your own code
@@ -75,7 +75,11 @@ async function createGitIgnore(): Promise<void> {
     // Append HQL entries
     await platformWriteTextFile(
       gitignorePath,
-      `\n# HQL\n.hql-cache/\ndist/\n`,
+      `
+# HQL
+.hql-cache/
+dist/
+`,
       { append: true },
     );
     console.log(`  ✓ .gitignore (updated with HQL entries)`);
@@ -158,7 +162,7 @@ export async function init(args: string[]): Promise<void> {
     const overwrite = hasYesFlag ||
       (await promptUser("Overwrite existing hql.json? (y/N)", "n"));
 
-    if (overwrite.toLowerCase() !== "y") {
+    if (typeof overwrite === 'string' && overwrite.toLowerCase() !== "y") {
       console.log("\n❌ Cancelled");
       platformExit(0);
     }
@@ -201,7 +205,7 @@ export async function init(args: string[]): Promise<void> {
     exports: `./${entryPoint}`,
   };
 
-  await writeJSONFile(configPath, config);
+  await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
 
   console.log(`\n📁 Created:`);
   console.log(`  ✓ hql.json (${name} v${version})`);
@@ -227,6 +231,7 @@ export async function init(args: string[]): Promise<void> {
  */
 export function showInitHelp(): void {
   console.log(`
+
 HQL Init - Initialize a new HQL project
 
 USAGE:

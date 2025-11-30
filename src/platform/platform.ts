@@ -62,12 +62,17 @@ export interface PlatformMakeTempDirOptions {
 
 /**
  * Platform interface defines all necessary platform-specific operations.
+ * (Touched to force cache invalidation)
  */
 export interface Platform {
   cwd(): string;
   stat(path: string): Promise<PlatformFileInfo>;
   readTextFile(path: string): Promise<string>;
-  writeTextFile(path: string, data: string): Promise<void>;
+  writeTextFile(
+    path: string,
+    data: string,
+    options?: { append?: boolean; create?: boolean; mode?: number },
+  ): Promise<void>;
   writeTextFileSync(path: string, data: string): void;
   mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>;
   ensureDir(path: string): Promise<void>;
@@ -120,8 +125,11 @@ export const DenoPlatform: Platform = {
   },
   readTextFile: async (path: string): Promise<string> =>
     await Deno.readTextFile(path),
-  writeTextFile: async (path: string, data: string): Promise<void> =>
-    await Deno.writeTextFile(path, data),
+  writeTextFile: async (
+    path: string,
+    data: string,
+    options?: { append?: boolean; create?: boolean; mode?: number },
+  ): Promise<void> => await Deno.writeTextFile(path, data, options),
   writeTextFileSync: (path: string, data: string): void =>
     Deno.writeTextFileSync(path, data),
   mkdir: async (path: string, opts?: { recursive?: boolean }): Promise<void> =>
@@ -213,8 +221,12 @@ export function readTextFile(path: string): Promise<string> {
   return activePlatform.readTextFile(path);
 }
 
-export function writeTextFile(path: string, data: string): Promise<void> {
-  return activePlatform.writeTextFile(path, data);
+export function writeTextFile(
+  path: string,
+  data: string,
+  options?: { append?: boolean; create?: boolean; mode?: number },
+): Promise<void> {
+  return activePlatform.writeTextFile(path, data, options);
 }
 
 export function writeTextFileSync(path: string, data: string): void {

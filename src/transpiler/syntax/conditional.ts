@@ -21,6 +21,45 @@ import {
 import { createEarlyReturnObject } from "../utils/return-helpers.ts";
 
 /**
+ * Check if an HQL AST node contains a return statement
+ * Used to determine if a do block needs an IIFE wrapper even with a single expression
+ */
+function containsReturn(node: HQLNode | null | undefined): boolean {
+  if (!node) return false;
+
+  if (node.type === "list") {
+    const listNode = node as ListNode;
+    if (listNode.elements.length > 0 && listNode.elements[0]?.type === "symbol") {
+      const sym = listNode.elements[0] as SymbolNode;
+
+      // Direct return found
+      if (sym.name === "return") return true;
+
+      // Recursively check do blocks
+      if (sym.name === "do") {
+        return listNode.elements.slice(1).some(containsReturn);
+      }
+
+      // Recursively check if branches
+      if (sym.name === "if") {
+        return containsReturn(listNode.elements[2]) ||
+          containsReturn(listNode.elements[3]);
+      }
+
+      // Check for loops - return inside for/while/loop
+      if (sym.name === "for" || sym.name === "while" || sym.name === "loop") {
+        return listNode.elements.slice(1).some(containsReturn);
+      }
+    }
+
+    // Check all children for nested returns
+    return listNode.elements.some(containsReturn);
+  }
+
+  return false;
+}
+
+/**
  * Check if an if expression contains recur in its branches
  * This helps determine if it should be a statement (for control flow) or expression (for values)
  */
@@ -263,8 +302,9 @@ export function transformDo(
         return { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
       }
 
-      // If only one expression, just transform it directly
-      if (bodyExprs.length === 1) {
+      // If only one expression AND it doesn't contain a return, transform directly
+      // If it contains a return, we still need the IIFE wrapper for proper early return handling
+      if (bodyExprs.length === 1 && !containsReturn(bodyExprs[0])) {
         const expr = transformNode(bodyExprs[0], currentDir);
         return expr ||
           ({ type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral);

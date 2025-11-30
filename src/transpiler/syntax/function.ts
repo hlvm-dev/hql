@@ -15,6 +15,7 @@ import {
   getIIFEDepth,
   setIIFEDepth,
   transformNode,
+  isExpressionResult,
 } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
   validateTransformed,
@@ -93,7 +94,16 @@ export function processFunctionBody(
         // Process all expressions except the last one
         for (let i = 0; i < bodyExprs.length - 1; i++) {
           const expr = transformNode(bodyExprs[i], currentDir);
-          if (expr) bodyNodes.push(expr);
+          if (expr) {
+            if (isExpressionResult(expr)) {
+              bodyNodes.push({
+                type: IR.IRNodeType.ExpressionStatement,
+                expression: expr,
+              } as IR.IRExpressionStatement);
+            } else {
+              bodyNodes.push(expr);
+            }
+          }
         }
 
         // Process the last expression specially - wrap it in a return statement

@@ -13,6 +13,8 @@ import { globalLogger as logger } from "../../logger.ts";
 import {
   detectMetadataFiles,
   getPlatformsFromArgs,
+  type HqlConfig,
+  readJSONFile, // Import readJSONFile
   type MetadataFileType,
   type MetadataStatus,
 } from "./utils.ts";
@@ -23,6 +25,7 @@ export interface PublishOptions {
   version?: string;
   verbose?: boolean;
   dryRun?: boolean;
+  hasMetadata?: boolean; // Add this line
 }
 
 function showHelp() {
@@ -176,6 +179,7 @@ function buildFailureSummary(
 }
 
 async function publishToRegistry(
+  config: HqlConfig, // Added config
   registry: "jsr" | "npm",
   options: PublishOptions,
   metadataType: MetadataFileType | null,
@@ -185,15 +189,12 @@ async function publishToRegistry(
   );
 
   try {
-    const publishOptions = buildRegistryPublishOptions(
-      registry,
-      options,
-      metadataType,
-    );
+    // publishOptions argument must be type PublishOptions, not a new object
+    const publishOptions = options;
 
     return registry === "jsr"
-      ? await publishJSR(publishOptions)
-      : await publishNpm(publishOptions);
+      ? await publishJSR(config, publishOptions) // Pass config here
+      : await publishNpm(config, publishOptions); // Pass config here
   } catch (error) {
     return buildFailureSummary(registry, metadataType, options.version, error);
   }
@@ -207,6 +208,16 @@ export async function publish(args: string[]): Promise<void> {
       logger.debug("Running with verbose logging enabled");
       logger.debug(`Parsed options: ${JSON.stringify(options, null, 2)}`);
     }
+
+    // Read config from hql.json
+    const configPath = `${dirname(options.entryFile)}/hql.json`;
+    if (!await exists(configPath)) {
+      console.error(
+        `\n❌ hql.json not found in entry file directory: ${dirname(options.entryFile)}`,
+      );
+      exit(1);
+    }
+    const config = (await readJSONFile(configPath)) as unknown as HqlConfig;
 
     if (!await exists(options.entryFile)) {
       console.error(`\n❌ Entry file not found: ${options.entryFile}`);
@@ -224,14 +235,13 @@ export async function publish(args: string[]): Promise<void> {
 
     printPublishInfo(options.entryFile, options, metadataStatus);
 
-    // Determine if all selected platforms have metadata
-    // Always run publishes sequentially, regardless of metadata state
     const summaries: PublishSummary[] = [];
     for (const platform of options.platforms) {
       const metadataType = platform === "jsr"
         ? metadataStatus.jsr
         : metadataStatus.npm;
-      const summary = await publishToRegistry(platform, options, metadataType);
+      // Pass config to publishToRegistry
+      const summary = await publishToRegistry(config, platform, options, metadataType);
       summaries.push(summary);
     }
 

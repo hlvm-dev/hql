@@ -92,14 +92,14 @@ function analyzeExpression(ast: SList): ExpressionType {
     return { kind: "import" };
   }
 
-  if (DECLARATION_OPS.has(op)) {
+  if (DECLARATION_OPS.has(op as any)) {
     return {
       kind: "declaration",
       name: extractDeclarationName(ast)
     };
   }
 
-  if (BINDING_OPS.has(op) && ast.elements.length >= 3) {
+  if (BINDING_OPS.has(op as any) && ast.elements.length >= 3) {
     const name = isSymbol(ast.elements[1]) ? ast.elements[1].name : undefined;
     return { kind: "binding", name };
   }
@@ -148,337 +148,675 @@ export const hqlPlugin: REPLPlugin = {
 
   
 
-        const exprType = analyzeExpression(ast[0] as SList);
-
-        const comment = makeComment(context.lineNumber, code);
+              const exprType = analyzeExpression(ast[0] as SList);
 
   
 
-        // Transpile helper
-
-        const transpileHql = (source: string) =>
-
-          transpile(source, {
-
-            baseDir: Deno.cwd(),
-
-            currentFile: `<repl>:${context.lineNumber}`,
-
-          });
+              const comment = makeComment(context.lineNumber, code);
 
   
 
-        // Generate code based on expression type
-
-        let jsCode: string;
-
-        let exportName = `__repl_line_${context.lineNumber}`;
-
-        let callExport = false;
+        
 
   
 
-        if (exprType.kind === "import") {
-
-          // Handle imports using dynamic import and globalThis for persistence
-
-          const list = ast[0] as SList;
-
-          let dynamicImportCode = "";
+              // Transpile helper
 
   
 
-          if (isVectorImport(list as any)) {
+              const transpileHql = async (source: string) => {
 
-            // (import [names] from "path")
+  
 
-            const pathNode = list.elements[3] as SLiteral;
+                const result = await transpile(source, {
 
-            const path = String(pathNode.value);
+  
 
-            const vector = list.elements[1] as SList;
+                  baseDir: Deno.cwd(),
 
-            const elements = vector.elements;
+  
 
-            
+                  currentFile: `<repl>:${context.lineNumber}`,
 
-            const assignments: string[] = [];
+  
 
-            
+                });
 
-            for (let i = 0; i < elements.length; i++) {
+  
 
-              const elem = elements[i] as SSymbol;
+                return typeof result === "string" ? result : result.code;
 
-              if (elem.name === ",") continue;
+  
 
-              
+              };
 
-              let localName = elem.name;
+  
 
-              let importedName = elem.name;
+        
 
-              
+  
 
-              // Check for alias: name as alias
+              // Generate code based on expression type
 
-              if (i + 2 < elements.length && 
+  
 
-                  isSymbol(elements[i+1]) && (elements[i+1] as SSymbol).name === "as" && 
+              let jsCode: string;
 
-                  isSymbol(elements[i+2])) {
+  
 
-                localName = (elements[i+2] as SSymbol).name;
+              let exportName = `__repl_line_${context.lineNumber}`;
 
-                i += 2;
+  
 
-              }
+              let callExport = false;
 
-              
+  
 
-              // Handle "default" import mapping
+        
 
-              if (importedName === "default") {
+  
 
-                importedName = "default";
+              if (exprType.kind === "import") {
 
-              }
+  
 
-              
+                // Handle imports using dynamic import and globalThis for persistence
 
-              localName = sanitizeIdentifier(localName);
+  
 
-              
+                const list = ast[0] as SList;
 
-              // Use globalThis for persistence
+  
 
-              assignments.push(`globalThis["${localName}"] = __mod["${importedName}"];`);
+                let dynamicImportCode = "";
 
-              declaredNames.add(localName);
+  
+
+        
+
+  
+
+                if (isVectorImport(list as any)) {
+
+  
+
+                  // (import [names] from "path")
+
+  
+
+                  const pathNode = list.elements[3] as SLiteral;
+
+  
+
+                  const path = String(pathNode.value);
+
+  
+
+                  const vector = list.elements[1] as SList;
+
+  
+
+                  const elements = vector.elements;
+
+  
+
+                  
+
+  
+
+                  const assignments: string[] = [];
+
+  
+
+                  
+
+  
+
+                  for (let i = 0; i < elements.length; i++) {
+
+  
+
+                    const elem = elements[i] as SSymbol;
+
+  
+
+                    if (elem.name === ",") continue;
+
+  
+
+                    
+
+  
+
+                    let localName = elem.name;
+
+  
+
+                    let importedName = elem.name;
+
+  
+
+                    
+
+  
+
+                    // Check for alias: name as alias
+
+  
+
+                    if (i + 2 < elements.length && 
+
+  
+
+                        isSymbol(elements[i+1]) && (elements[i+1] as SSymbol).name === "as" && 
+
+  
+
+                        isSymbol(elements[i+2])) {
+
+  
+
+                      localName = (elements[i+2] as SSymbol).name;
+
+  
+
+                      i += 2;
+
+  
+
+                    }
+
+  
+
+                    
+
+  
+
+                    // Handle "default" import mapping
+
+  
+
+                    if (importedName === "default") {
+
+  
+
+                      importedName = "default";
+
+  
+
+                    }
+
+  
+
+                    
+
+  
+
+                    localName = sanitizeIdentifier(localName);
+
+  
+
+                    
+
+  
+
+                    // Use globalThis for persistence
+
+  
+
+                    assignments.push(`globalThis["${localName}"] = __mod["${importedName}"];`);
+
+  
+
+                    declaredNames.add(localName);
+
+  
+
+                  }
+
+  
+
+                  
+
+  
+
+                  dynamicImportCode = `
+
+  
+
+            const __mod = await import("${path}");
+
+  
+
+            ${assignments.join("\n    ")}
+
+  
+
+            return { success: true, value: undefined };`;
+
+  
+
+                  
+
+  
+
+                } else if (isNamespaceImport(list as any)) {
+
+  
+
+                  // (import name from "path")
+
+  
+
+                  const nameNode = list.elements[1] as SSymbol;
+
+  
+
+                  const pathNode = list.elements[3] as SLiteral;
+
+  
+
+                  const localName = sanitizeIdentifier(nameNode.name);
+
+  
+
+                  const path = String(pathNode.value);
+
+  
+
+                  
+
+  
+
+                  dynamicImportCode = `
+
+  
+
+            const __mod = await import("${path}");
+
+  
+
+            globalThis["${localName}"] = __mod;
+
+  
+
+            return { success: true, value: undefined };`;
+
+  
+
+                  declaredNames.add(localName);
+
+  
+
+                  
+
+  
+
+                } else if (list.elements.length === 2 && list.elements[1].type === "literal") {
+
+  
+
+                  // (import "path") - side effect only
+
+  
+
+                  const path = String((list.elements[1] as SLiteral).value);
+
+  
+
+                  dynamicImportCode = `
+
+  
+
+            await import("${path}");
+
+  
+
+            return { success: true, value: undefined };`;
+
+  
+
+                } else {
+
+  
+
+                  // Fallback for complex imports
+
+  
+
+                  const transpiled = cleanJs(await transpileHql(code), true);
+
+  
+
+                  if (transpiled.includes("import ")) {
+
+  
+
+                     const match = transpiled.match(/import\s+['"]([^'"]+)['"]/);
+
+  
+
+                     if (match) {
+
+  
+
+                       dynamicImportCode = `await import("${match[1]}"); return { success: true, value: undefined };`;
+
+  
+
+                     } else {
+
+  
+
+                       throw new Error("Unsupported import syntax in REPL");
+
+  
+
+                     }
+
+  
+
+                  }
+
+  
+
+                }
+
+  
+
+        
+
+  
+
+                jsCode = `${comment}
+
+  
+
+        export function ${exportName}() {
+
+  
+
+          return (async () => {
+
+  
+
+            try {
+
+  
+
+              ${dynamicImportCode}
+
+  
+
+            } catch (__error) {
+
+  
+
+              return { success: false, error: __error };
+
+  
 
             }
 
-            
+  
 
-            dynamicImportCode = `
+          })();
 
-      const __mod = await import("${path}");
+  
 
-      ${assignments.join("\n    ")}
+        }\n`;
 
-      return { success: true, value: undefined };`;
+  
 
-            
+                
 
-          } else if (isNamespaceImport(list as any)) {
+  
 
-            // (import name from "path")
+                context.setState("declaredNames", declaredNames);
 
-            const nameNode = list.elements[1] as SSymbol;
+  
 
-            const pathNode = list.elements[3] as SLiteral;
+                callExport = true;
 
-            const localName = sanitizeIdentifier(nameNode.name);
+  
 
-            const path = String(pathNode.value);
+        
 
-            
+  
 
-            dynamicImportCode = `
+              } else if (exprType.kind === "binding" && exprType.name) {
 
-      const __mod = await import("${path}");
+  
 
-      globalThis["${localName}"] = __mod;
+                // Variable binding: (let x 10) or (var y 20)
 
-      return { success: true, value: undefined };`;
+  
 
-            declaredNames.add(localName);
+                const valueExpr = (ast[0] as SList).elements[2];
 
-            
+  
 
-          } else if (list.elements.length === 2 && list.elements[1].type === "literal") {
+                const valueSource = sexpToString(valueExpr);
 
-            // (import "path") - side effect only
+  
 
-            const path = String((list.elements[1] as SLiteral).value);
+                const jsValue = cleanJs(await transpileHql(valueSource), true);
 
-            dynamicImportCode = `
+  
 
-      await import("${path}");
+        
 
-      return { success: true, value: undefined };`;
+  
 
-          } else {
+                const initFlagName = `__init_${context.lineNumber}`;
 
-            // Fallback for complex imports
+  
 
-            const transpiled = cleanJs(await transpileHql(code), true);
+                // Use globalThis for variable persistence
 
-            if (transpiled.includes("import ")) {
+  
 
-               const match = transpiled.match(/import\s+['"]([^'"]+)['"]/);
+                jsCode = `${comment}let ${initFlagName} = false;
 
-               if (match) {
+  
 
-                 dynamicImportCode = `await import("${match[1]}"); return { success: true, value: undefined };`;
+        export function ${exportName}() {
 
-               } else {
+  
 
-                 throw new Error("Unsupported import syntax in REPL");
+          if (${initFlagName}) {
 
-               }
+  
 
-            }
+            return { success: true, value: globalThis["${exprType.name}"] };
+
+  
 
           }
 
   
 
-          jsCode = `${comment}
-
-  export function ${exportName}() {
-
-    return (async () => {
-
-      try {
-
-        ${dynamicImportCode}
-
-      } catch (__error) {
-
-        return { success: false, error: __error };
-
-      }
-
-    })();
-
-  }\n`;
-
-          
-
-          context.setState("declaredNames", declaredNames);
-
-          callExport = true;
+          ${initFlagName} = true;
 
   
 
-        } else if (exprType.kind === "binding" && exprType.name) {
-
-          // Variable binding: (let x 10) or (var y 20)
-
-          const valueExpr = (ast[0] as SList).elements[2];
-
-          const valueSource = sexpToString(valueExpr);
-
-          const jsValue = cleanJs(await transpileHql(valueSource), true);
+          try {
 
   
 
-          const initFlagName = `__init_${context.lineNumber}`;
-
-          // Use globalThis for variable persistence
-
-          jsCode = `${comment}let ${initFlagName} = false;
-
-  export function ${exportName}() {
-
-    if (${initFlagName}) {
-
-      return { success: true, value: globalThis["${exprType.name}"] };
-
-    }
-
-    ${initFlagName} = true;
-
-    try {
-
-      const __value = ${jsValue};
-
-      globalThis["${exprType.name}"] = __value;
-
-      return { success: true, value: __value };
-
-    } catch (__error) {
-
-      return { success: false, error: __error };
-
-    }
-
-  }\n`;
+            const __value = ${jsValue};
 
   
 
-          declaredNames.add(exprType.name);
-
-          context.setState("declaredNames", declaredNames);
-
-          callExport = true;
-
-        } else if (exprType.kind === "declaration") {
-
-          // Function/class declaration: (fn add [x y] ...) or (class Foo ...)
-
-          let transpiled = cleanJs(await transpileHql(code));
+            globalThis["${exprType.name}"] = __value;
 
   
 
-          if (exprType.name) {
+            return { success: true, value: __value };
 
-            // Convert to global assignment for persistence
+  
 
-            const isFunctionDecl = transpiled.startsWith("function ");
+          } catch (__error) {
 
-            const isClassDecl = transpiled.startsWith("class ");
+  
 
-            
+            return { success: false, error: __error };
 
-            if (isFunctionDecl) {
-
-              transpiled = transpiled.replace(/^function\s+\w+/, `globalThis["${exprType.name}"] = function`);
-
-            } else if (isClassDecl) {
-
-              transpiled = transpiled.replace(/^class\s+\w+/, `globalThis["${exprType.name}"] = class`);
-
-            }
-
-            
-
-            declaredNames.add(exprType.name);
-
-            context.setState("declaredNames", declaredNames);
+  
 
           }
 
   
 
-          jsCode = `${comment}${transpiled}\nexport const ${exportName} = undefined;\n`;
+        }\n`;
 
-        } else {
+  
 
-          // Expression: (+ 1 2), (print "Hello"), etc.
+        
 
-          const transpiled = cleanJs(await transpileHql(code), true);
+  
 
-          jsCode = `${comment}export function ${exportName}() {
+                declaredNames.add(exprType.name);
 
-    try {
+  
 
-      const __result = ${transpiled};
+                context.setState("declaredNames", declaredNames);
 
-      return { success: true, value: __result };
+  
 
-    } catch (__error) {
+                callExport = true;
 
-      return { success: false, error: __error };
+  
 
-    }
+              } else if (exprType.kind === "declaration") {
 
-  }\n`;
+  
 
-          callExport = true;
+                // Function/class declaration: (fn add [x y] ...) or (class Foo ...)
 
-        }
+  
+
+                let transpiled = cleanJs(await transpileHql(code));
+
+  
+
+        
+
+  
+
+                if (exprType.name) {
+
+  
+
+                  // Convert to global assignment for persistence
+
+  
+
+                  const isFunctionDecl = transpiled.startsWith("function ");
+
+  
+
+                  const isClassDecl = transpiled.startsWith("class ");
+
+  
+
+                  
+
+  
+
+                  if (isFunctionDecl) {
+
+  
+
+                    transpiled = transpiled.replace(/^function\s+\w+/, `globalThis["${exprType.name}"] = function`);
+
+  
+
+                  } else if (isClassDecl) {
+
+  
+
+                    transpiled = transpiled.replace(/^class\s+\w+/, `globalThis["${exprType.name}"] = class`);
+
+  
+
+                  }
+
+  
+
+                  
+
+  
+
+                  declaredNames.add(exprType.name);
+
+  
+
+                  context.setState("declaredNames", declaredNames);
+
+  
+
+                }
+
+  
+
+        
+
+  
+
+                jsCode = `${comment}${transpiled}\nexport const ${exportName} = undefined;\n`;
+
+  
+
+              } else {
+
+  
+
+                // Expression: (+ 1 2), (print "Hello"), etc.
+
+  
+
+                const transpiled = cleanJs(await transpileHql(code), true);
+
+  
+
+                jsCode = `${comment}export function ${exportName}() {
+
+  
+
+          try {
+
+  
+
+            const __result = ${transpiled};
+
+  
+
+            return { success: true, value: __result };
+
+  
+
+          } catch (__error) {
+
+  
+
+            return { success: false, error: __error };
+
+  
+
+          }
+
+  
+
+        }\n`;
+
+  
+
+                callExport = true;
+
+  
+
+              }
 
   
 

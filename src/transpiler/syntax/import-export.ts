@@ -375,12 +375,16 @@ export function transformVectorImport(
           const symbolName = (elem as SymbolNode).name;
 
           // Check if this symbol is a macro - macros should not be in JS imports
+          // Check both symbol table and global macro registry for consistency
           const symbolInfo = globalSymbolTable.get(symbolName);
-          const isMacro = symbolInfo?.kind === "macro";
+          const isSymbolTableMacro = symbolInfo?.kind === "macro";
+          const isRegistryMacro = globalMacroRegistry.has(symbolName) ||
+                                   globalMacroRegistry.has(sanitizeIdentifier(symbolName));
+          const isMacro = isSymbolTableMacro || isRegistryMacro;
 
           if (isMacro) {
             logger.debug(
-              `Skipping macro '${symbolName}' from import statement`,
+              `Skipping macro '${symbolName}' from import statement (symbolTable: ${isSymbolTableMacro}, registry: ${isRegistryMacro})`,
             );
             // Skip this symbol - check if it has an alias and skip that too
             const hasAlias = hasAliasFollowing(elements, i);

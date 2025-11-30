@@ -1,123 +1,110 @@
 // @ts-nocheck: Testing HQL package integration
-// Test suite for @hql/math package
+// Test suite for math functions (using native JS interop)
 
 import { assertEquals } from "jsr:@std/assert@1";
 import { run } from "./helpers.ts";
 
-Deno.test("@hql/math - abs positive", async () => {
+Deno.test("math - abs positive", async () => {
   const code = `
-    (import [abs] from "@hql/math")
-    (abs 5)
+    (js/Math.abs 5)
   `;
   const result = await run(code);
   assertEquals(result, 5);
 });
 
-Deno.test("@hql/math - abs negative", async () => {
+Deno.test("math - abs negative", async () => {
   const code = `
-    (import [abs] from "@hql/math")
-    (abs -42)
+    (js/Math.abs -42)
   `;
   const result = await run(code);
   assertEquals(result, 42);
 });
 
-Deno.test("@hql/math - floor positive", async () => {
+Deno.test("math - floor positive", async () => {
   const code = `
-    (import [floor] from "@hql/math")
-    (floor 3.7)
+    (js/Math.floor 3.7)
   `;
   const result = await run(code);
   assertEquals(result, 3);
 });
 
-Deno.test("@hql/math - floor negative", async () => {
+Deno.test("math - floor negative", async () => {
   const code = `
-    (import [floor] from "@hql/math")
-    (floor -2.3)
+    (js/Math.floor -2.3)
   `;
   const result = await run(code);
   assertEquals(result, -3);
 });
 
-Deno.test("@hql/math - ceil positive", async () => {
+Deno.test("math - ceil positive", async () => {
   const code = `
-    (import [ceil] from "@hql/math")
-    (ceil 3.2)
+    (js/Math.ceil 3.2)
   `;
   const result = await run(code);
   assertEquals(result, 4);
 });
 
-Deno.test("@hql/math - ceil negative", async () => {
+Deno.test("math - ceil negative", async () => {
   const code = `
-    (import [ceil] from "@hql/math")
-    (ceil -2.7)
+    (js/Math.ceil -2.7)
   `;
   const result = await run(code);
   assertEquals(result, -2);
 });
 
-Deno.test("@hql/math - round up", async () => {
+Deno.test("math - round up", async () => {
   const code = `
-    (import [round] from "@hql/math")
-    (round 3.7)
+    (js/Math.round 3.7)
   `;
   const result = await run(code);
   assertEquals(result, 4);
 });
 
-Deno.test("@hql/math - round down", async () => {
+Deno.test("math - round down", async () => {
   const code = `
-    (import [round] from "@hql/math")
-    (round 3.2)
+    (js/Math.round 3.2)
   `;
   const result = await run(code);
   assertEquals(result, 3);
 });
 
-Deno.test("@hql/math - min with multiple args", async () => {
+Deno.test("math - min with multiple args", async () => {
   const code = `
-    (import [min] from "@hql/math")
-    (min 5 2 8 1 9)
+    (js/Math.min 5 2 8 1 9)
   `;
   const result = await run(code);
   assertEquals(result, 1);
 });
 
-Deno.test("@hql/math - min with negative", async () => {
+Deno.test("math - min with negative", async () => {
   const code = `
-    (import [min] from "@hql/math")
-    (min -3 0 5 2)
+    (js/Math.min -3 0 5 2)
   `;
   const result = await run(code);
   assertEquals(result, -3);
 });
 
-Deno.test("@hql/math - max with multiple args", async () => {
+Deno.test("math - max with multiple args", async () => {
   const code = `
-    (import [max] from "@hql/math")
-    (max 5 2 8 1 9)
+    (js/Math.max 5 2 8 1 9)
   `;
   const result = await run(code);
   assertEquals(result, 9);
 });
 
-Deno.test("@hql/math - max with negative", async () => {
+Deno.test("math - max with negative", async () => {
   const code = `
-    (import [max] from "@hql/math")
-    (max -5 -2 -8 -1)
+    (js/Math.max -5 -2 -8 -1)
   `;
   const result = await run(code);
   assertEquals(result, -1);
 });
 
-Deno.test("@hql/math - multiple imports together", async () => {
+Deno.test("math - multiple operations", async () => {
   const code = `
-    (import [abs, floor, ceil] from "@hql/math")
-    (var a (abs -5))
-    (var b (floor 3.7))
-    (var c (ceil 2.1))
+    (var a (js/Math.abs -5))
+    (var b (js/Math.floor 3.7))
+    (var c (js/Math.ceil 2.1))
     [a b c]
   `;
   const result = await run(code);

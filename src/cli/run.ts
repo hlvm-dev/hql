@@ -204,7 +204,7 @@ async function executeHql(
 
         const outPath = await transpileCLI(input, cacheOutPath, {
           verbose: options.verbose,
-          showTiming: options.time,
+          showTiming: options.showTiming,
           force: true, // Force re-bundle to ensure latest changes
         });
 
