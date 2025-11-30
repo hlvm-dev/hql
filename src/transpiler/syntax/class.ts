@@ -19,6 +19,7 @@ import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import {
+  parseJsonMapParameters,
   parseParametersWithDefaults,
 } from "./function.ts";
 
@@ -267,8 +268,24 @@ function parseClassMethodParameters(
 ): {
   params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[];
   defaults: Map<string, IR.IRNode>;
+  hasJsonParams: boolean;
 } {
   let paramsList = paramsNode;
+
+  // Check for hash-map (JSON map parameters)
+  if (
+    paramsList.elements.length > 0 &&
+    paramsList.elements[0].type === "symbol" &&
+    ((paramsList.elements[0] as SymbolNode).name === "hash-map" ||
+      (paramsList.elements[0] as SymbolNode).name === "__hql_hash_map")
+  ) {
+    const { params, defaults } = parseJsonMapParameters(
+      paramsList,
+      currentDir,
+      transformNode,
+    );
+    return { params, defaults, hasJsonParams: true };
+  }
 
   if (
     paramsList.elements.length > 0 &&
@@ -286,7 +303,7 @@ function parseClassMethodParameters(
     currentDir,
     transformNode,
   );
-  return { params: parsed.params, defaults: parsed.defaults };
+  return { params: parsed.params, defaults: parsed.defaults, hasJsonParams: false };
 }
 
 function buildMethodDefaults(
@@ -398,11 +415,15 @@ function processClassMethodFn(
       );
     }
 
-    const { params, defaults } = parseClassMethodParameters(
+    const { params, defaults, hasJsonParams } = parseClassMethodParameters(
       paramsNode as ListNode,
       currentDir,
       transformNode,
     );
+
+    if (hasJsonParams) {
+      // logger.debug(`Method ${methodName} uses JSON map parameters`);
+    }
 
     const { bodyElements } = extractMethodBodyElements(elementList, 3);
 
@@ -433,6 +454,7 @@ function processClassMethodFn(
         type: IR.IRNodeType.BlockStatement,
         body: bodyStmts,
       },
+      hasJsonParams,
     };
 
     const defaultEntries = buildMethodDefaults(params, defaults);

@@ -173,10 +173,10 @@
   (fetch (+ "/api/posts/" id))))
 
 ; api/index.hql (barrel export)
-(import [getUser] from "./users.hql")
-(import [getPost] from "./posts.hql")
-(export getUser)
-(export getPost)
+; (import [getUser] from "./users.hql")
+; (import [getPost] from "./posts.hql")
+; (export getUser)
+; (export getPost)
 
 ; main.hql (clean import)
 ; (import [getUser, getPost] from "./api/index.hql")
@@ -188,11 +188,11 @@
 ; test-helpers.hql
 (import [assertEquals, assertExists] from "jsr:@std/assert")
 
-(export (fn runTest [name fn]
+(fn test-runner [name test-fn]
   (do
     (print (+ "Running: " name))
-    (fn)
-    (print "✓ Passed"))))
+    (test-fn)
+    (print "✓ Passed")))
 
 (export (fn assertBetween [value min max]
   (do
@@ -218,13 +218,13 @@
 (export (let API_TIMEOUT 5000))
 
 ; config/index.hql (aggregate config)
-(import [DB_HOST, DB_PORT, DB_NAME] from "./database.hql")
-(import [API_URL, API_TIMEOUT] from "./api.hql")
-(export DB_HOST)
-(export DB_PORT)
-(export DB_NAME)
-(export API_URL)
-(export API_TIMEOUT)
+; (import [DB_HOST, DB_PORT, DB_NAME] from "./database.hql")
+; (import [API_URL, API_TIMEOUT] from "./api.hql")
+; (export DB_HOST)
+; (export DB_PORT)
+; (export DB_NAME)
+; (export API_URL)
+; (export API_TIMEOUT)
 
 ; main.hql
 ; (import [DB_HOST, API_URL] from "./config/index.hql")
@@ -234,17 +234,17 @@
 ; ============================================================================
 
 ; logger.hql
-(import [default] from "npm:chalk@4.1.2")
-(var chalk default)
+; (import [default] from "npm:chalk@4.1.2")
+; (var chalk default)
 
-(export (fn logError [message]
-  (console.log (chalk.red (+ "[ERROR] " message)))))
+; (export (fn logError [message]
+;   (console.log (chalk.red (+ "[ERROR] " message)))))
 
-(export (fn logSuccess [message]
-  (console.log (chalk.green (+ "[SUCCESS] " message)))))
+; (export (fn logSuccess [message]
+;   (console.log (chalk.green (+ "[SUCCESS] " message)))))
 
-(export (fn logWarning [message]
-  (console.log (chalk.yellow (+ "[WARNING] " message)))))
+; (export (fn logWarning [message]
+;   (console.log (chalk.yellow (+ "[WARNING] " message)))))
 
 ; Usage:
 ; (import [logError, logSuccess] from "./logger.hql")
@@ -274,18 +274,18 @@
 ; ============================================================================
 
 ; http-client.hql
-(import [default] from "npm:node-fetch@3.0.0")
-(var fetch default)
+; (import [default] from "npm:node-fetch@3.0.0")
+; (var fetch default)
 
-(export (fn get [url]
-  (fetch url { method: "GET" })))
+; (export (fn get [url]
+;   (fetch url { method: "GET" })))
 
-(export (fn post [url data]
-  (fetch url {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: (JSON.stringify data)
-  })))
+; (export (fn post [url data]
+;   (fetch url {
+;     method: "POST",
+;     headers: { "Content-Type": "application/json" },
+;     body: (JSON.stringify data)
+;   })))
 
 ; Usage:
 ; (import [get, post] from "./http-client.hql")
@@ -296,20 +296,20 @@
 ; ============================================================================
 
 ; array-utils.hql
-(export (fn map [arr fn]
+(export (fn arrayMap [arr transform-fn]
   (do
     (var result [])
     (for (item arr)
-      (.push result (fn item)))
+      (.push result (transform-fn item)))
     result)))
 
 ; object-utils.hql
-(export (fn map [obj fn]
+(fn map-values [obj transform-fn]
   (do
     (var result {})
     (for (key (Object.keys obj))
-      (= result[key] (fn obj[key])))
-    result)))
+      (= result (assoc result key (transform-fn (get obj key)))))
+    result))
 
 ; main.hql (use aliases to avoid conflict)
 ; (import [map as arrayMap] from "./array-utils.hql")

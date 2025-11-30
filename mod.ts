@@ -794,8 +794,11 @@ async function processModuleCode(
   const cleanBody = bodyWithoutImports.trim().replace(/^['"]use strict['"];?\s*\n?/, "");
   const trimmedBody = cleanBody.trim().replace(/;+\s*$/, "");
 
-  if (context.isEntry) {
-    // For entry modules with imports, wrap the result in export default
+  // Check for existing exports in the body
+  const hasExports = cleanBody.includes("export ") && !!cleanBody.match(/^\s*export\s+/m);
+
+  if (context.isEntry && !hasExports) {
+    // For entry modules with imports but NO existing exports, wrap the result in export default
     let expressionBody: string;
     if (trimmedBody.length === 0) {
       expressionBody = "undefined";
@@ -1068,3 +1071,10 @@ export default hql;
 
 // Export source map utilities
 export { transformStackTrace, withTransformedStackTraces };
+
+// Export tooling API
+export {
+  mapPosition,
+  loadSourceMap,
+  invalidateSourceMapCache,
+} from "./src/transpiler/pipeline/source-map-support.ts";

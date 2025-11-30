@@ -55,6 +55,78 @@ export function isDefaultExport(list: ListNode): boolean {
 }
 
 /**
+ * Check if a list is a declaration export: (export (fn ...)) or (export (let ...)) or (export (const ...))
+ */
+export function isDeclarationExport(list: ListNode): boolean {
+  if (
+    list.elements.length < 2 ||
+    list.elements[0].type !== "symbol" ||
+    (list.elements[0] as SymbolNode).name !== "export"
+  ) {
+    return false;
+  }
+
+  const second = list.elements[1];
+
+  if (second.type !== "list" || (second as ListNode).elements.length === 0) {
+    return false;
+  }
+
+  const innerFirst = (second as ListNode).elements[0];
+  if (innerFirst.type !== "symbol") {
+    return false;
+  }
+
+  const keyword = (innerFirst as SymbolNode).name;
+  // Support fn, let, var, const, class, enum declarations
+  return ["fn", "let", "var", "const", "class", "enum"].includes(keyword);
+}
+
+/**
+ * Check if a list is a single export: (export name)
+ */
+export function isSingleExport(list: ListNode): boolean {
+  return (
+    list.elements.length === 2 &&
+    list.elements[0].type === "symbol" &&
+    (list.elements[0] as SymbolNode).name === "export" &&
+    list.elements[1].type === "symbol"
+  );
+}
+
+/**
+ * Transform a single export: (export name)
+ */
+export function transformSingleExport(
+  list: ListNode,
+): IR.IRNode | null {
+  return perform(
+    () => {
+      const nameNode = list.elements[1] as SymbolNode;
+      const name = sanitizeIdentifier(nameNode.name);
+
+      return {
+        type: IR.IRNodeType.ExportNamedDeclaration,
+        specifiers: [{
+          type: IR.IRNodeType.ExportSpecifier,
+          local: {
+            type: IR.IRNodeType.Identifier,
+            name: name,
+          } as IR.IRIdentifier,
+          exported: {
+            type: IR.IRNodeType.Identifier,
+            name: name,
+          } as IR.IRIdentifier,
+        } as IR.IRExportSpecifier],
+      } as IR.IRExportNamedDeclaration;
+    },
+    "transformSingleExport",
+    TransformError,
+    [list],
+  );
+}
+
+/**
  * Check if a list is a namespace import
  */
 export function isNamespaceImport(list: ListNode): boolean {
@@ -175,6 +247,7 @@ export function transformVectorExport(
     () => {
       const vectorNode = list.elements[1];
       if (vectorNode.type !== "list") {
+        console.error("DEBUG: transformVectorExport received non-list:", vectorNode.type, JSON.stringify(vectorNode, null, 2));
         throw new ValidationError(
           "Export argument must be a vector (list)",
           "vector export",
@@ -395,6 +468,60 @@ export function transformDefaultExport(
       } as IR.IRExportDefaultDeclaration;
     },
     "transformDefaultExport",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform a declaration export: (export (fn ...))
+ */
+export function transformDeclarationExport(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRNode | null {
+  return perform(
+    () => {
+      const declNode = list.elements[1];
+      const transformed = transformNode(declNode, currentDir);
+
+      if (!transformed) {
+        throw new TransformError(
+          "Failed to transform exported declaration",
+          "export declaration",
+          declNode,
+        );
+      }
+
+      // Validate that it IS a declaration or function that can be exported
+      if (
+        ![
+          IR.IRNodeType.FunctionDeclaration,
+          IR.IRNodeType.VariableDeclaration,
+          IR.IRNodeType.ClassDeclaration,
+          IR.IRNodeType.EnumDeclaration,
+          IR.IRNodeType.FnFunctionDeclaration,
+        ].includes(transformed.type)
+      ) {
+        // Allow exporting expressions if they are valid declarations in disguise?
+        // No, export named must be a declaration.
+        throw new ValidationError(
+          "Exported item must be a declaration (fn, let, var, class, enum)",
+          "export declaration",
+          "declaration",
+          IR.IRNodeType[transformed.type],
+        );
+      }
+
+      return {
+        type: IR.IRNodeType.ExportNamedDeclaration,
+        declaration: transformed,
+        specifiers: [],
+        source: null,
+      } as IR.IRExportNamedDeclaration;
+    },
+    "transformDeclarationExport",
     TransformError,
     [list],
   );

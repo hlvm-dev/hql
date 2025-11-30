@@ -1240,23 +1240,86 @@ function convertClassDeclaration(node: IR.IRClassDeclaration): ClassDeclaration 
 
   // Add methods
   for (const method of node.methods) {
-    const params: Pattern[] = method.params.map(param => convertPattern(param));
+    let params: Pattern[];
+    let methodBody: BlockStatement;
 
-    // Handle default parameters
-    if (method.defaults && method.defaults.length > 0) {
-      for (const defaultParam of method.defaults) {
-        const paramIndex = params.findIndex(
-          p => p.type === "Identifier" && p.name === defaultParam.name
-        );
-        if (paramIndex >= 0) {
-          params[paramIndex] = {
-            type: "AssignmentPattern",
-            left: params[paramIndex],
-            right: convertIRToESTree(defaultParam.value) as Expression,
-            loc: params[paramIndex].loc
+    if (method.hasJsonParams) {
+      // JSON Map Parameters Logic
+      // Create single parameter: __hql_params = {}
+      params = [{
+        type: "AssignmentPattern",
+        left: { type: "Identifier", name: "__hql_params", loc: null },
+        right: { type: "ObjectExpression", properties: [], loc: null },
+        loc: null
+      }];
+
+      // Generate destructuring statements at the start of function body
+      const destructuringStatements: VariableDeclaration[] = [];
+      for (const param of method.params) {
+        if (param.type === IR.IRNodeType.Identifier) {
+          const paramName = param.name;
+          let defaultValue: IR.IRNode | undefined;
+          if (method.defaults) {
+            defaultValue = method.defaults.find(d => d.name === paramName)?.value;
+          }
+
+          // Generate: const paramName = __hql_params.paramName ?? defaultValue;
+          const init: Expression = {
+            type: "LogicalExpression",
+            operator: "??",
+            left: {
+              type: "MemberExpression",
+              object: { type: "Identifier", name: "__hql_params", loc: null },
+              property: { type: "Identifier", name: paramName, loc: null },
+              computed: false,
+              loc: null
+            },
+            right: defaultValue ? convertIRToESTree(defaultValue) as Expression : { type: "Identifier", name: "undefined", loc: null },
+            loc: null
           };
+
+          destructuringStatements.push({
+            type: "VariableDeclaration",
+            kind: "const",
+            declarations: [{
+              type: "VariableDeclarator",
+              id: { type: "Identifier", name: paramName, loc: null },
+              init,
+              loc: null
+            }],
+            loc: null
+          });
         }
       }
+
+      // Prepend destructuring statements to function body
+      methodBody = {
+        type: "BlockStatement",
+        body: [...destructuringStatements, ...convertBlockStatement(method.body).body],
+        loc: createLoc(method.body.position)
+      };
+    } else {
+      // Regular Parameters Logic
+      params = method.params.map(param => convertPattern(param));
+
+      // Handle default parameters
+      if (method.defaults && method.defaults.length > 0) {
+        for (const defaultParam of method.defaults) {
+          const paramIndex = params.findIndex(
+            p => p.type === "Identifier" && p.name === defaultParam.name
+          );
+          if (paramIndex >= 0) {
+            params[paramIndex] = {
+              type: "AssignmentPattern",
+              left: params[paramIndex],
+              right: convertIRToESTree(defaultParam.value) as Expression,
+              loc: params[paramIndex].loc
+            };
+          }
+        }
+      }
+
+      methodBody = convertBlockStatement(method.body);
     }
 
     body.push({
@@ -1266,7 +1329,7 @@ function convertClassDeclaration(node: IR.IRClassDeclaration): ClassDeclaration 
         type: "FunctionExpression",
         id: null,
         params,
-        body: convertBlockStatement(method.body),
+        body: methodBody,
         async: false,
         generator: false,
         loc: createLoc(method.position)
@@ -1417,9 +1480,15 @@ function convertImportDeclaration(node: IR.IRImportDeclaration): ImportDeclarati
 }
 
 function convertExportNamedDeclaration(node: IR.IRExportNamedDeclaration): ExportNamedDeclaration {
+  // Handle declaration exports (export (fn add ...) or (export (let x ...)))
+  let declaration: Declaration | null = null;
+  if (node.declaration) {
+    declaration = convertToDeclaration(node.declaration);
+  }
+
   return {
     type: "ExportNamedDeclaration",
-    declaration: null,
+    declaration: declaration,
     specifiers: node.specifiers.map(spec => ({
       type: "ExportSpecifier",
       exported: convertIdentifier(spec.exported),
@@ -1429,6 +1498,26 @@ function convertExportNamedDeclaration(node: IR.IRExportNamedDeclaration): Expor
     source: null,
     loc: createLoc(node.position)
   };
+}
+
+/**
+ * Convert an IR node to a Declaration for export
+ */
+function convertToDeclaration(node: IR.IRNode): Declaration {
+  switch (node.type) {
+    case IR.IRNodeType.FnFunctionDeclaration:
+      return convertFnFunctionDeclaration(node as IR.IRFnFunctionDeclaration);
+    case IR.IRNodeType.FunctionDeclaration:
+      return convertFunctionDeclaration(node as IR.IRFunctionDeclaration);
+    case IR.IRNodeType.VariableDeclaration:
+      return convertVariableDeclaration(node as IR.IRVariableDeclaration);
+    case IR.IRNodeType.ClassDeclaration:
+      return convertClassDeclaration(node as IR.IRClassDeclaration);
+    case IR.IRNodeType.EnumDeclaration:
+      return convertEnumDeclaration(node as IR.IREnumDeclaration);
+    default:
+      throw new Error(`Cannot convert IR node type ${IR.IRNodeType[node.type]} to declaration for export`);
+  }
 }
 
 function convertExportVariableDeclaration(node: IR.IRExportVariableDeclaration): ExportNamedDeclaration {

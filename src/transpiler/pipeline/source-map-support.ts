@@ -43,6 +43,34 @@ export interface Position {
 const sourceMapCache = new Map<string, SourceMapConsumer>();
 
 /**
+ * Clear the source map cache for a specific file or all files
+ * 
+ * Use this when a file has been recompiled and its source map
+ * needs to be reloaded.
+ * 
+ * @param jsFilePath - Path to the JavaScript file to invalidate. If omitted, clears entire cache.
+ */
+export function invalidateSourceMapCache(jsFilePath?: string): void {
+  if (jsFilePath) {
+    // Normalize file path
+    let normalizedPath = jsFilePath;
+    if (jsFilePath.startsWith("file://")) {
+      try {
+        normalizedPath = platformFromFileUrl(jsFilePath);
+      } catch (error) {
+        // Ignore error
+      }
+    }
+    
+    sourceMapCache.delete(normalizedPath);
+    logger.debug(`Source map cache invalidated for: ${normalizedPath}`);
+  } else {
+    sourceMapCache.clear();
+    logger.debug("Source map cache cleared completely");
+  }
+}
+
+/**
  * Load a source map from a .js.map file
  *
  * Loads the source map for a given JavaScript file and caches it

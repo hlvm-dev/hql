@@ -28,8 +28,10 @@ import {
   transformStandardFunctionCall,
 } from "../syntax/function.ts";
 import {
+  isDeclarationExport,
   isDefaultExport,
   isNamespaceImport,
+  isSingleExport,
   isVectorExport,
   isVectorImport,
 } from "../syntax/import-export.ts";
@@ -534,6 +536,12 @@ function initializeTransformFactory(): void {
       transformFactory.set(
         "export",
         (list, currentDir) => {
+          if (importExportModule.isDeclarationExport(list)) {
+            return importExportModule.transformDeclarationExport(list, currentDir, transformNode);
+          }
+          if (importExportModule.isSingleExport(list)) {
+            return importExportModule.transformSingleExport(list);
+          }
           if (importExportModule.isVectorExport(list)) {
             return importExportModule.transformVectorExport(list, currentDir);
           }
@@ -543,7 +551,7 @@ function initializeTransformFactory(): void {
           throw new ValidationError(
             "Invalid export statement format",
             "export",
-            "(export [names]) or (export default <expr>)",
+            "(export [names]) or (export default <expr>) or (export (decl ...))",
             "invalid format",
           );
         },
@@ -1191,8 +1199,19 @@ function transformBasedOnOperator(
   }
 
   // Check for import/export forms which have special handling
+  // Declaration exports must be checked BEFORE vector exports
+  // because both have list as second element
+  if (isDeclarationExport(list)) {
+    return importExportModule.transformDeclarationExport(list, currentDir, transformNode);
+  }
+  if (isSingleExport(list)) {
+    return importExportModule.transformSingleExport(list);
+  }
   if (isVectorExport(list)) {
     return importExportModule.transformVectorExport(list, currentDir);
+  }
+  if (isDefaultExport(list)) {
+    return importExportModule.transformDefaultExport(list, currentDir, transformNode);
   }
 
   if (isVectorImport(list)) {

@@ -343,6 +343,7 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
         params: method.params,
         defaults: method.defaults,
         body: optimizeForLoopsNode(method.body) as IR.IRBlockStatement,
+        hasJsonParams: method.hasJsonParams,
         position: method.position
       };
       return optimizedMethod;

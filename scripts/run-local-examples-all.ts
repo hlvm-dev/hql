@@ -1,10 +1,10 @@
 // deno run -A scripts/run-local-examples-all.ts
 // Runs every .hql file under doc/examples using the LOCAL HQL CLI
 
-import { cwd, readDir, runCmd, exit, resolve, relative } from "../core/src/platform/platform.ts";
+import { cwd, readDir, runCmd, exit, resolve, relative } from "../src/platform/platform.ts";
 
 const root = cwd();
-const examplesDir = resolve(root, "doc/examples");
+const examplesDir = resolve(root, "docs/features");
 
 async function listHqlFiles(dir: string): Promise<string[]> {
   const out: string[] = [];
@@ -31,7 +31,7 @@ for (const file of files) {
   const rel = relative(root, file);
   try {
     const proc = runCmd({
-      cmd: ["deno", "run", "-A", resolve(root, "core/cli/run.ts"), file],
+      cmd: ["deno", "run", "-A", resolve(root, "src/cli/run.ts"), file],
       stdout: "piped",
       stderr: "piped",
     });

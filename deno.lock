@@ -1,6 +1,7 @@
 {
   "version": "4",
   "specifiers": {
+    "jsr:@nothing628/chalk@1.0.0": "1.0.0",
     "jsr:@std/assert@*": "1.0.15",
     "jsr:@std/assert@1": "1.0.15",
     "jsr:@std/cli@1.0.13": "1.0.13",
@@ -24,10 +25,14 @@
     "npm:esbuild@0.19.11": "0.19.11",
     "npm:escodegen@2.1.0": "2.1.0",
     "npm:ms@2.1.3": "2.1.3",
+    "npm:node-fetch@3.0.0": "3.0.0",
     "npm:source-map@0.6.1": "0.6.1",
     "npm:typescript@5.3.3": "5.3.3"
   },
   "jsr": {
+    "@nothing628/chalk@1.0.0": {
+      "integrity": "f9c2a67acd3034b263e23c5f21b2c08ebf97e3e5b795718161b102e0ff3648c0"
+    },
     "@std/assert@1.0.15": {
       "integrity": "d64018e951dbdfab9777335ecdb000c0b4e3df036984083be219ce5941e4703b",
       "dependencies": [
@@ -392,6 +397,9 @@
     "convert-source-map@2.0.0": {
       "integrity": "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="
     },
+    "data-uri-to-buffer@3.0.1": {
+      "integrity": "sha512-WboRycPNsVw3B3TL559F7kuBUM4d8CgMEvk6xEJlOp7OBPjt6G7z8WMWlD2rOFZLk6OYfFIUGsCOWzcQH9K2og=="
+    },
     "debug@4.4.1": {
       "integrity": "sha512-KcKCqiftBJcZr++7ykoDIEwSa3XWowTfNPo92BYxjXiyYEVrUQh2aLyhxBCwww+heortUFxEJYcRzosstTEBYQ==",
       "dependencies": [
@@ -480,6 +488,13 @@
     "esutils@2.0.3": {
       "integrity": "sha512-kVscqXk4OCp68SZ0dkgEKVi6/8ij300KBWTJq32P/dYeWTSwK41WyTxalN1eRmA5Z9UU/LX9D7FWSmV9SAYx6g=="
     },
+    "fetch-blob@3.2.0": {
+      "integrity": "sha512-7yAQpD2UMJzLi1Dqv7qFYnPbaPx7ZfFK6PiIxQ4PfkGPyNyl2Ugx+a/umUonmKqjhM4DnfbMvdX6otXq83soQQ==",
+      "dependencies": [
+        "node-domexception",
+        "web-streams-polyfill"
+      ]
+    },
     "gensync@1.0.0-beta.2": {
       "integrity": "sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg=="
     },
@@ -503,6 +518,16 @@
     },
     "ms@2.1.3": {
       "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="
+    },
+    "node-domexception@1.0.0": {
+      "integrity": "sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ=="
+    },
+    "node-fetch@3.0.0": {
+      "integrity": "sha512-bKMI+C7/T/SPU1lKnbQbwxptpCrG9ashG+VkytmXCPZyuM9jB6VU+hY0oi4lC8LxTtAeWdckNCTa3nrGsAdA3Q==",
+      "dependencies": [
+        "data-uri-to-buffer",
+        "fetch-blob"
+      ]
     },
     "node-releases@2.0.27": {
       "integrity": "sha512-nmh3lCkYZ3grZvqcCH+fjmQ7X+H0OeZgP40OierEaAptX4XofMh5kwNbWh7lBduUzCcV/8kZ+NDLCwm2iorIlA=="
@@ -536,6 +561,9 @@
         "picocolors"
       ]
     },
+    "web-streams-polyfill@3.3.3": {
+      "integrity": "sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw=="
+    },
     "yallist@3.1.1": {
       "integrity": "sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g=="
     }
@@ -547,8 +575,11 @@
     "https://esm.sh/ansi-styles@^4.1.0?target=denonext": "https://esm.sh/ansi-styles@4.3.0?target=denonext",
     "https://esm.sh/color-convert@^2.0.1?target=denonext": "https://esm.sh/color-convert@2.0.1?target=denonext",
     "https://esm.sh/color-name@~1.1.4?target=denonext": "https://esm.sh/color-name@1.1.4?target=denonext",
+    "https://esm.sh/data-uri-to-buffer@^3.0.1?target=denonext": "https://esm.sh/data-uri-to-buffer@3.0.1?target=denonext",
+    "https://esm.sh/fetch-blob@^3.1.2?target=denonext": "https://esm.sh/fetch-blob@3.2.0?target=denonext",
     "https://esm.sh/has-flag@^4.0.0?target=denonext": "https://esm.sh/has-flag@4.0.0?target=denonext",
-    "https://esm.sh/supports-color@^7.1.0?target=denonext": "https://esm.sh/supports-color@7.2.0?target=denonext"
+    "https://esm.sh/supports-color@^7.1.0?target=denonext": "https://esm.sh/supports-color@7.2.0?target=denonext",
+    "https://esm.sh/web-streams-polyfill@^3.0.3/dist/ponyfill.es2018?target=denonext": "https://esm.sh/web-streams-polyfill@3.3.3/dist/ponyfill.es2018?target=denonext"
   },
   "remote": {
     "https://cdn.skypack.dev/-/ansi-styles@v4.3.0-PMPQ6S2hj9z9fV8ZTPsF/dist=es2019,mode=imports/optimized/ansi-styles.js": "7f0b2f814df693cef0ed63d60fe2f04b06e0d1cb269f385933455914ab86ed6a",
@@ -556,9 +587,11 @@
     "https://cdn.skypack.dev/-/color-convert@v2.0.1-3jXW0f4KP6APRAKmUyrP/dist=es2019,mode=imports/optimized/color-convert.js": "5dead0837e9fd900645c36eec5f5a6340575de215e59b486b19f866660b93080",
     "https://cdn.skypack.dev/-/color-name@v1.1.4-EDWqNToII1nbwEyU8mYi/dist=es2019,mode=imports/optimized/color-name.js": "fb78b777eda74ae53e3be9d82ae54b0600d7c8b772776c7d441de35e005b7c93",
     "https://cdn.skypack.dev/-/ms@v2.1.3-dWyghJmVCt8Lp5D9h2ww/dist=es2019,mode=imports/optimized/ms.js": "fd88e2d51900437011f1ad232f3393ce97db1b87a7844b3c58dd6d65562c1276",
+    "https://cdn.skypack.dev/-/node-fetch@v3.0.0-oyKTc4TvzVEfZqKUU5mQ/dist=es2019,mode=imports/optimized/node-fetch.js": "f3f774c318ab79f41b84c6dbc2909dea7e2452c1e6665fcdb03a475dd0e36b61",
     "https://cdn.skypack.dev/-/supports-color@v7.2.0-yi8TfBy0eWDxSDlMruC0/dist=es2019,mode=imports/optimized/supports-color.js": "2c9c796bd70e0e41cf9dcfc4b5c52b0840d347ecff118b996b1eeaa3f41b4840",
     "https://cdn.skypack.dev/chalk@4.1.2": "50593a2417590caf6bba51ff5fc107f810054d7e3ed9637b37a2f6a4e8096178",
     "https://cdn.skypack.dev/ms@2.1.3": "b25ea14638586db05a6892c5683bbbbb08f03dacfefcf6a7ef452560fa2b333c",
+    "https://cdn.skypack.dev/node-fetch@3.0.0": "656b2094d75f3a6770ff8bcb8627180c0dd0e2483ef0dc0f542e479af08f2457",
     "https://deno.land/std@0.170.0/_util/asserts.ts": "d0844e9b62510f89ce1f9878b046f6a57bf88f208a10304aab50efcb48365272",
     "https://deno.land/std@0.170.0/flags/mod.ts": "4f50ec6383c02684db35de38b3ffb2cd5b9fcfcc0b1147055d1980c49e82521c",
     "https://deno.land/std@0.208.0/assert/_constants.ts": "8a9da298c26750b28b326b297316cdde860bc237533b07e1337c021379e6b2a9",
@@ -951,12 +984,20 @@
     "https://esm.sh/color-convert@2.0.1?target=denonext": "df6d07b59fbe52a096d8aea9e79fc32b693e9dd9666054b4566cbad4d48c62fe",
     "https://esm.sh/color-name@1.1.4/denonext/color-name.mjs": "3b5b10fc0cd9f96d56c81cc7559a2106ff64a401a8100cd33e1f4b68e677c562",
     "https://esm.sh/color-name@1.1.4?target=denonext": "55709266f414e5115ac52d6831ba4951f7c8b9ac663f0f79ddc8ed782b4fb735",
+    "https://esm.sh/data-uri-to-buffer@3.0.1/denonext/data-uri-to-buffer.mjs": "7811a7a9e46a72c837d78aa0d74ebb7b18294983490a6ec93d5c66f3192fe0ae",
+    "https://esm.sh/data-uri-to-buffer@3.0.1?target=denonext": "5c0482b25aa2e473a3e29e8ca613ca6cae1178725ed2a4b9ddc3f05208799757",
+    "https://esm.sh/fetch-blob@3.2.0/denonext/fetch-blob.mjs": "4bdcafe41b058056f2b042b0cb8e1f2bc2fc780b1222e37b6e5aeeb19c806687",
+    "https://esm.sh/fetch-blob@3.2.0?target=denonext": "dc7a4665105c3a6c06b8e85d81155202ba301ab69a92c764a656d41dfea672b0",
     "https://esm.sh/has-flag@4.0.0/denonext/has-flag.mjs": "f0b7a96d6f0fb511a4394b68e679a0c4ff6f2dd6762c178846ca117d29d0dbd3",
     "https://esm.sh/has-flag@4.0.0?target=denonext": "f0fce90fca2a5c1b7ef038d0426f5d0145938585dd061e5413d078747913d48b",
     "https://esm.sh/ms@2.1.3": "36f5aa7503ff0ff44ce9e3155a60362d8d3ae5db8db048be5764a3a515b6a263",
     "https://esm.sh/ms@2.1.3/denonext/ms.mjs": "9039464da1f4ae1c2042742d335c82556c048bbe49449b5d0cd5198193afa147",
+    "https://esm.sh/node-fetch@3.0.0": "a44ce137705f96c8d42fea8c675fd3807999df6490e4cec90f431462bee669bd",
+    "https://esm.sh/node-fetch@3.0.0/denonext/node-fetch.mjs": "4c3c2d8770bfd94de47ba4cc47cbccb9de95f4a6b4340d553cb64720636855a7",
     "https://esm.sh/supports-color@7.2.0/denonext/supports-color.mjs": "d8c81b9a742783a5dcecb2d6c301de5bed4459113bdcee41175aa7fdbe812443",
-    "https://esm.sh/supports-color@7.2.0?target=denonext": "e161939e3c5a2e8adc3edc8de038fa9e4c0d9df41e1ca1ee42e60d209c7a9b4a"
+    "https://esm.sh/supports-color@7.2.0?target=denonext": "e161939e3c5a2e8adc3edc8de038fa9e4c0d9df41e1ca1ee42e60d209c7a9b4a",
+    "https://esm.sh/web-streams-polyfill@3.3.3/denonext/dist/ponyfill.es2018.mjs": "473d1c07493a263e75fe0d863c2736e79b45d62d4828495dd808b798b0473ebf",
+    "https://esm.sh/web-streams-polyfill@3.3.3/dist/ponyfill.es2018?target=denonext": "0a8b106eacb8559e1c137ff0fa424892b10d211df95b215bf790377add7147d4"
   },
   "workspace": {
     "dependencies": [

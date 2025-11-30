@@ -23,10 +23,11 @@
     ]
   },
   "tasks": {
-    "test": "deno test --allow-all tests/*.test.ts tests/organized/syntax/*/*.test.ts",
-    "test:watch": "deno test --allow-all --watch tests/*.test.ts tests/organized/syntax/*/*.test.ts",
-    "test:stdlib": "deno test --allow-all tests/stdlib*.test.ts",
-    "test:syntax": "deno test --allow-all tests/organized/syntax/*/*.test.ts",
+    "test": "deno task test:unit",
+    "test:unit": "deno test --allow-all tests/test/**/*.test.ts",
+    "test:e2e": "deno run -A scripts/run-local-examples-all.ts",
+    "test:all": "deno task test:unit && deno task test:e2e",
+    "test:watch": "deno test --allow-all --watch tests/test/**/*.test.ts",
     "verify": "./verify-codebase.sh",
     "check:platform": "deno run -A scripts/check-platform.ts"
   }

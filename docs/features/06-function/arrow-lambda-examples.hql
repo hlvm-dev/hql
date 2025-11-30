@@ -63,8 +63,8 @@
 ;; ============================================================================
 
 ;; Sort array
-(let nums [5 2 8 1 9 3])
-(print "sorted:" ((nums.slice 0).sort (=> (- $0 $1))))  ;; → [1 2 3 5 8 9]
+(let nums-to-sort [5 2 8 1 9 3])
+(print "sorted:" ((nums-to-sort.slice 0).sort (=> (- $0 $1))))  ;; → [1 2 3 5 8 9]
 
 ;; Transform data
 (let data [{x: 1, y: 2}, {x: 3, y: 4}])
@@ -74,4 +74,4 @@
 (let found (users.find (=> (= $0.name "Bob"))))
 (print "found age:" (found.age))  ;; → 25
 
-print "All arrow lambda examples completed!"
+(print "All arrow lambda examples completed!")

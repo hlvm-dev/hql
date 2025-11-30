@@ -493,7 +493,7 @@ function inferDataType(node: SExp): string {
         return "Set";
       }
       if (op === "hash-map" || op === "empty-map") {
-        return "Map";
+        return "HashMap";
       }
 
       // Check for new expressions
@@ -586,6 +586,13 @@ export function transformNode(
               createSymbol("js-call"),
               list.elements[0],
               createLiteral("get"),
+              ...list.elements.slice(1),
+            );
+          } else if (collectionInfo.type === "HashMap") {
+            // For hash-maps (plain objects), use the HQL get primitive
+            return createList(
+              createSymbol("get"),
+              list.elements[0],
               ...list.elements.slice(1),
             );
           }

@@ -317,7 +317,9 @@ export interface IRImportDeclaration extends IRNode {
 
 export interface IRExportNamedDeclaration extends IRNode {
   type: IRNodeType.ExportNamedDeclaration;
+  declaration?: IRNode | null; // The declaration being exported (for declaration exports)
   specifiers: IRExportSpecifier[];
+  source?: string | null; // For re-exports from another module
 }
 
 export interface IRExportSpecifier extends IRNode {
@@ -440,6 +442,7 @@ export interface IRClassMethod extends IRNode {
   params: (IRIdentifier | IRArrayPattern | IRObjectPattern)[];
   defaults?: { name: string; value: IRNode }[];
   body: IRBlockStatement;
+  hasJsonParams?: boolean;
 }
 
 export interface IRClassConstructor extends IRNode {

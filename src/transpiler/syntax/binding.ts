@@ -20,7 +20,7 @@ import {
   hasHashMapPrefix,
   hasVectorPrefix,
 } from "../../common/sexp-utils.ts";
-import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
+import { copyPosition, isExpressionResult } from "../pipeline/hql-ast-to-hql-ir.ts";
 
 /**
  * Options for binding transformation
@@ -210,6 +210,13 @@ function transformBinding(
             type: IR.IRNodeType.ReturnStatement,
             argument: node,
           } as IR.IRReturnStatement;
+        }
+        // Wrap non-last expressions in ExpressionStatement
+        if (isExpressionResult(node)) {
+          return {
+            type: IR.IRNodeType.ExpressionStatement,
+            expression: node,
+          } as IR.IRExpressionStatement;
         }
         return node;
       });
@@ -437,6 +444,13 @@ function processBindings(
         type: IR.IRNodeType.ReturnStatement,
         argument: node,
       } as IR.IRReturnStatement;
+    }
+    // Wrap non-last expressions in ExpressionStatement
+    if (isExpressionResult(node)) {
+      return {
+        type: IR.IRNodeType.ExpressionStatement,
+        expression: node,
+      } as IR.IRExpressionStatement;
     }
     return node;
   });
