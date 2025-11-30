@@ -4,14 +4,7 @@
   (print "Executing step 2")
   (+ 1 2))
 
-(import chalk from "jsr:@nothing628/chalk@1.0.0")
-
-(macro color-text [color text]
-  `(console.log (js-call chalk ~color ~text)))
-
-(color-text "red" "This should be red!")
-(color-text "blue" "This should be blue!")
-(color-text "yellow" "This should be yellow!")
+; Macro examples - demonstrating core macro features
 (console.log (str "hello " "world"))
 
 (print (str "hello" " " "world"))
@@ -36,10 +29,10 @@
 (fn test-cond [x]
   (cond
     ((< x 0) "negative")
-    ((= x 0) "zero")
+    ((=== x 0) "zero")
     ((< x 10) "small positive")
     ((< x 100) "medium positive")
-    (true "large positive")))
+    (else "large positive")))
 
 ;; Test with various values
 (print "Testing cond with -5:" (test-cond -5))
@@ -58,11 +51,11 @@
 (fn test-nested-cond [x y]
   (cond
     ((< x 0) "x is negative")
-    ((= x 0) (cond
+    ((=== x 0) (cond
                ((< y 0) "x is zero, y is negative")
-               ((= y 0) "x and y are both zero")
-               (true "x is zero, y is positive")))
-    (true "x is positive")))
+               ((=== y 0) "x and y are both zero")
+               (else "x is zero, y is positive")))
+    (else "x is positive")))
 
 (print "Testing nested cond with (0, -5):" (test-nested-cond 0 -5))
 (print "Testing nested cond with (0, 0):" (test-nested-cond 0 0))

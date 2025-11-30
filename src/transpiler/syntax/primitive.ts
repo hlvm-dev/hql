@@ -29,9 +29,11 @@ export function transformPrimitiveOp(
     () => {
       const op = (list.elements[0] as SymbolNode).name;
 
-      // Handle assignment operator separately (needs list, not args)
+      // Handle "=" operator: can be assignment OR equality comparison
+      // - Assignment: (= x 10) where x is a symbol or member expression
+      // - Equality: (= 1 1) or (= (+ 1 2) 3) where first arg is a literal/expression
       if (op === "=") {
-        return transformAssignment(list, currentDir, transformNode);
+        return transformEqualsOperator(list, currentDir, transformNode);
       }
 
       const args = transformElements(
@@ -166,10 +168,10 @@ export function transformComparisonOp(
           jsOp = "==";   // Loose equality (v2.0)
           break;
         case "!==":
-          jsOp = "!==";  // Strict inequality (v2.0)
+          jsOp = "!==";  // Explicit strict inequality
           break;
         case "!=":
-          jsOp = "!=";   // Loose inequality (v2.0)
+          jsOp = "!=";   // Loose inequality (needed for notNil macro)
           break;
         case ">":
         case "<":
@@ -373,6 +375,167 @@ export function transformLogicalOp(
 }
 
 /**
+ * "=" is ALWAYS assignment (following JavaScript semantics).
+ *
+ * Valid assignment targets:
+ *   - Symbol (variable): (= x 10) → x = 10
+ *   - Member expression: (= (. obj prop) 10) → obj.prop = 10
+ *   - Dot notation symbol: (= obj.prop 10) → obj.prop = 10
+ *
+ * Invalid (error):
+ *   - Literal: (= 5 10) → Error (use === for comparison)
+ *   - Expression: (= (+ 1 2) 10) → Error (use === for comparison)
+ *
+ * For comparisons, use:
+ *   - (=== a b) for strict equality
+ *   - (== a b) for loose equality
+ */
+export function transformEqualsOperator(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  return perform(
+    () => {
+      if (list.elements.length < 3) {
+        throw new ValidationError(
+          `= requires at least 2 arguments`,
+          "equals operator",
+          "at least 2 arguments",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      const firstArg = list.elements[1];
+
+      // Literal as first arg - ERROR (can't assign to literal)
+      if (firstArg.type === "literal") {
+        throw new ValidationError(
+          `Cannot assign to a literal value. Use === for comparison.`,
+          "= operator",
+          "assignable target (variable or member expression)",
+          "literal value",
+        );
+      }
+
+      // Symbol as first arg - ASSIGNMENT
+      if (firstArg.type === "symbol") {
+        const symbolName = (firstArg as SymbolNode).name;
+
+        // Special literal symbols - ERROR (can't assign to null/undefined/true/false)
+        if (["null", "undefined", "true", "false"].includes(symbolName)) {
+          throw new ValidationError(
+            `Cannot assign to '${symbolName}'. Use === for comparison.`,
+            "= operator",
+            "assignable target (variable or member expression)",
+            `'${symbolName}' literal`,
+          );
+        }
+
+        // All other symbols (including dot notation like obj.prop) - ASSIGNMENT
+        return transformAssignment(list, currentDir, transformNode);
+      }
+
+      // List as first arg - could be member expression or expression
+      if (firstArg.type === "list") {
+        const innerList = firstArg as ListNode;
+
+        // Member expression pattern (. obj prop) - ASSIGNMENT
+        if (
+          innerList.elements.length >= 2 &&
+          innerList.elements[0].type === "symbol" &&
+          (innerList.elements[0] as SymbolNode).name === "."
+        ) {
+          return transformAssignment(list, currentDir, transformNode);
+        }
+
+        // Other expressions - ERROR (can't assign to expression result)
+        throw new ValidationError(
+          `Cannot assign to an expression result. Use === for comparison.`,
+          "= operator",
+          "assignable target (variable or member expression)",
+          "expression",
+        );
+      }
+
+      // Any other type - ERROR (should be unreachable, but handle defensively)
+      throw new ValidationError(
+        `Invalid assignment target. Use === for comparison.`,
+        "= operator",
+        "assignable target (variable or member expression)",
+        "unknown type",
+      );
+    },
+    "transformEqualsOperator",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform equality comparison (=).
+ * Handles: (= expr1 expr2)
+ * Compiles to: expr1 === expr2
+ */
+function transformEqualityComparison(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  const args = transformElements(
+    list.elements.slice(1),
+    currentDir,
+    transformNode,
+    "equality argument",
+    "Equality comparison argument",
+  );
+
+  if (args.length < 2) {
+    throw new ValidationError(
+      `= comparison requires at least 2 arguments`,
+      "equality comparison",
+      "at least 2 arguments",
+      `${args.length} arguments`,
+    );
+  }
+
+  // For 2 args, create simple binary expression
+  if (args.length === 2) {
+    return {
+      type: IR.IRNodeType.BinaryExpression,
+      operator: "===",
+      left: args[0],
+      right: args[1],
+    } as IR.IRBinaryExpression;
+  }
+
+  // For more than 2 args, chain comparisons with &&
+  // (= a b c) => (a === b) && (b === c)
+  let result: IR.IRNode = {
+    type: IR.IRNodeType.BinaryExpression,
+    operator: "===",
+    left: args[0],
+    right: args[1],
+  } as IR.IRBinaryExpression;
+
+  for (let i = 2; i < args.length; i++) {
+    result = {
+      type: IR.IRNodeType.LogicalExpression,
+      operator: "&&",
+      left: result,
+      right: {
+        type: IR.IRNodeType.BinaryExpression,
+        operator: "===",
+        left: args[i - 1],
+        right: args[i],
+      } as IR.IRBinaryExpression,
+    } as IR.IRLogicalExpression;
+  }
+
+  return result;
+}
+
+/**
  * Transform assignment operation (=).
  * Handles: (= target value)
  * Compiles to: target = value
@@ -411,30 +574,45 @@ export function transformAssignment(
           // Sanitize base object: "self" -> "this", reserved keywords -> _keyword
           const sanitizedBase = baseObjectName === "self" ? "this" : sanitizeIdentifier(baseObjectName);
 
-          let memberExpr: IR.IRMemberExpression = {
-            type: IR.IRNodeType.MemberExpression,
-            object: {
-              type: IR.IRNodeType.Identifier,
-              name: sanitizedBase,
-            } as IR.IRIdentifier,
-            property: {
-              type: IR.IRNodeType.Identifier,
-              name: parts[1],
-            } as IR.IRIdentifier,
-            computed: false,
+          // Helper to create member expression based on property type
+          const createMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
+             // Check for numeric index (e.g. array.0 or tuple.1)
+             if (/^\d+$/.test(propStr)) {
+                 return {
+                    type: IR.IRNodeType.MemberExpression,
+                    object,
+                    property: {
+                        type: IR.IRNodeType.NumericLiteral,
+                        value: parseInt(propStr, 10)
+                    } as IR.IRNumericLiteral,
+                    computed: true
+                 };
+             }
+             
+             // Standard identifier property
+             // We sanitize the property name to handle HQL identifiers (e.g. "my-prop" -> "my_prop")
+             return {
+                 type: IR.IRNodeType.MemberExpression,
+                 object,
+                 property: {
+                     type: IR.IRNodeType.Identifier,
+                     name: sanitizeIdentifier(propStr)
+                 } as IR.IRIdentifier,
+                 computed: false
+             };
           };
+
+          let memberExpr = createMember(
+              { 
+                type: IR.IRNodeType.Identifier, 
+                name: sanitizedBase 
+              } as IR.IRIdentifier,
+              parts[1]
+          );
 
           // Handle nested properties like obj.a.b.c
           for (let i = 2; i < parts.length; i++) {
-            memberExpr = {
-              type: IR.IRNodeType.MemberExpression,
-              object: memberExpr,
-              property: {
-                type: IR.IRNodeType.Identifier,
-                name: parts[i],
-              } as IR.IRIdentifier,
-              computed: false,
-            };
+            memberExpr = createMember(memberExpr, parts[i]);
           }
 
           target = memberExpr;

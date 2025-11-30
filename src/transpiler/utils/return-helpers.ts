@@ -111,9 +111,11 @@ export function containsNestedReturns(
 ): boolean {
   if (!node) return false;
 
-  // Check in call expressions (IIFEs)
+  // Check in call expressions (IIFEs and callback functions)
   if (node.type === IR.IRNodeType.CallExpression) {
     const call = node as IR.IRCallExpression;
+
+    // Check IIFE (callee is a function expression)
     if (call.callee.type === IR.IRNodeType.FunctionExpression) {
       const fn = call.callee as IR.IRFunctionExpression;
       // Check for BOTH return statements AND throw statements (transformed returns)
@@ -121,6 +123,21 @@ export function containsNestedReturns(
         containsReturnStatements(fn.body) || containsThrowStatements(fn.body)
       ) {
         return true;
+      }
+    }
+
+    // Check callback function arguments (like __hql_for_each(seq, callback))
+    // This handles returns inside for loops where the callback contains early returns
+    if (call.arguments) {
+      for (const arg of call.arguments) {
+        if (arg.type === IR.IRNodeType.FunctionExpression) {
+          const fn = arg as IR.IRFunctionExpression;
+          if (
+            containsReturnStatements(fn.body) || containsThrowStatements(fn.body)
+          ) {
+            return true;
+          }
+        }
       }
     }
   }
