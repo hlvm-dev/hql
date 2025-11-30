@@ -25,6 +25,7 @@
   "tasks": {
     "test": "deno task test:unit",
     "test:unit": "deno test --allow-all tests/test/**/*.test.ts",
+    "test:binary": "HQL_TEST_BINARY=1 deno test --allow-all tests/test/**/*.test.ts",
     "test:e2e": "deno run -A scripts/run-local-examples-all.ts",
     "test:all": "deno task test:unit && deno task test:e2e",
     "test:watch": "deno test --allow-all --watch tests/test/**/*.test.ts",

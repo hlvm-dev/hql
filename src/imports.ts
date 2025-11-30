@@ -1120,9 +1120,15 @@ function importSymbols(
           );
         }
 
-        // If alias, also mark the alias as imported
+        // If alias, mark the alias as imported and also store the macro under the alias name
         if (aliasName && aliasName !== symbolName) {
-          env.importUserMacro(aliasName, sourceFilePath);
+          env.markMacroImported(aliasName);
+          // Also store the macro function under the alias name so it can be looked up
+          env.macros.set(aliasName, exportedValue as MacroFn);
+          const sanitizedAlias = sanitizeIdentifier(aliasName);
+          if (sanitizedAlias !== aliasName) {
+            env.macros.set(sanitizedAlias, exportedValue as MacroFn);
+          }
         }
 
         // Register in global macro registry for transpilation filtering

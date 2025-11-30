@@ -1,5 +1,5 @@
 // bundler.ts
-// Use patched esbuild-wasm browser version (self → globalThis for Deno compatibility)
+// Use patched esbuild-wasm browser version
 // @ts-ignore: Local patched JS file
 import * as esbuild from "./vendor/esbuild-browser.js";
 import { getEsbuildWasmModule } from "./esbuild-wasm-embedded.ts";

@@ -824,6 +824,18 @@ export class Environment {
   }
 
   /**
+   * Mark a macro name as imported (for aliases where we've already verified the original)
+   */
+  markMacroImported(macroName: string): void {
+    this.importedMacros.add(macroName);
+    const sanitizedName = macroName.replace(/-/g, "_");
+    if (sanitizedName !== macroName) {
+      this.importedMacros.add(sanitizedName);
+    }
+    this.logger.debug(`Marked macro ${macroName} as imported (alias)`);
+  }
+
+  /**
    * Import a user macro from another file into the current scope
    */
   importUserMacro(macroName: string, sourceFile: string): boolean {

@@ -8,7 +8,74 @@
  */
 
 import { assertEquals, assertStringIncludes, assertMatch } from "https://deno.land/std@0.218.0/assert/mod.ts";
-import { transpileCLI } from "../../src/bundler.ts";
+
+// Path to CLI entry point
+const CLI_PATH = new URL("../../src/cli/cli.ts", import.meta.url).pathname;
+
+// Binary test mode: set HQL_TEST_BINARY=1 for genuine binary testing
+// Default: quick mode using deno run (same code path, faster)
+const USE_BINARY = Deno.env.get("HQL_TEST_BINARY") === "1";
+
+// Cross-platform binary path
+const IS_WINDOWS = Deno.build.os === "windows";
+const TEMP_DIR = (Deno.env.get(IS_WINDOWS ? "TEMP" : "TMPDIR") || (IS_WINDOWS ? "C:\\Temp" : "/tmp")).replace(/[\/\\]$/, "");
+const BINARY_NAME = IS_WINDOWS ? "hql-test-binary.exe" : "hql-test-binary";
+const BINARY_PATH = IS_WINDOWS ? `${TEMP_DIR}\\${BINARY_NAME}` : `${TEMP_DIR}/${BINARY_NAME}`;
+
+// Track if binary is compiled (only relevant when USE_BINARY=true)
+let binaryCompiled = false;
+
+/**
+ * Compile the HQL binary (only when USE_BINARY mode is enabled)
+ */
+async function ensureBinaryCompiled(): Promise<void> {
+  if (!USE_BINARY || binaryCompiled) return;
+
+  console.log("🔨 Compiling HQL binary for genuine binary testing...");
+  const cmd = new Deno.Command("deno", {
+    args: ["compile", "-A", "--output", BINARY_PATH, CLI_PATH],
+    stdout: "piped",
+    stderr: "piped",
+  });
+
+  const { success, stderr } = await cmd.output();
+  if (!success) {
+    throw new Error(`Failed to compile binary: ${new TextDecoder().decode(stderr)}`);
+  }
+
+  binaryCompiled = true;
+  console.log("✅ Binary compiled: " + BINARY_PATH);
+}
+
+/**
+ * Helper to transpile HQL
+ * - USE_BINARY=true: uses compiled binary (genuine production test)
+ * - USE_BINARY=false: uses deno run (quick test, same code path)
+ */
+async function runTranspileCLI(inputPath: string, outputPath: string): Promise<{ success: boolean; stderr: string }> {
+  await ensureBinaryCompiled();
+
+  let cmd: Deno.Command;
+  if (USE_BINARY) {
+    cmd = new Deno.Command(BINARY_PATH, {
+      args: ["transpile", inputPath, outputPath],
+      stdout: "piped",
+      stderr: "piped",
+    });
+  } else {
+    cmd = new Deno.Command("deno", {
+      args: ["run", "-A", CLI_PATH, "transpile", inputPath, outputPath],
+      stdout: "piped",
+      stderr: "piped",
+    });
+  }
+
+  const { success, stderr } = await cmd.output();
+  return {
+    success,
+    stderr: new TextDecoder().decode(stderr),
+  };
+}
 
 /**
  * Helper to create a temp HQL file, transpile it, and return the output
@@ -21,12 +88,11 @@ async function transpileHQL(hqlCode: string): Promise<string> {
   await Deno.writeTextFile(inputPath, hqlCode);
 
   try {
-    const result = await transpileCLI(inputPath, outputPath, {
-      verbose: false,
-      showTiming: false,
-      force: true,
-    });
-    return await Deno.readTextFile(result);
+    const { success, stderr } = await runTranspileCLI(inputPath, outputPath);
+    if (!success) {
+      throw new Error(`Transpilation failed: ${stderr}`);
+    }
+    return await Deno.readTextFile(outputPath);
   } finally {
     // Cleanup
     try {
@@ -48,34 +114,29 @@ async function transpileAndRun(hqlCode: string): Promise<{ stdout: string; stder
   await Deno.writeTextFile(inputPath, hqlCode);
 
   try {
-    await transpileCLI(inputPath, outputPath, {
-      verbose: false,
-      showTiming: false,
-      force: true,
-    });
+    // Transpile using subprocess
+    const transpileResult = await runTranspileCLI(inputPath, outputPath);
+    if (!transpileResult.success) {
+      return {
+        stdout: "",
+        stderr: `Transpilation failed: ${transpileResult.stderr}`,
+        success: false,
+      };
+    }
 
-    // Run with Deno using spawn
+    // Run the output with Deno
     const cmd = new Deno.Command("deno", {
       args: ["run", outputPath],
       stdout: "piped",
       stderr: "piped",
     });
 
-    const child = cmd.spawn();
-
-    // Read stdout and stderr
-    const [stdout, stderr] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ]);
-
-    // Wait for process to complete
-    const status = await child.status;
+    const { success, stdout, stderr } = await cmd.output();
 
     return {
-      stdout,
-      stderr,
-      success: status.success,
+      stdout: new TextDecoder().decode(stdout),
+      stderr: new TextDecoder().decode(stderr),
+      success,
     };
   } finally {
     try {
@@ -288,11 +349,9 @@ Deno.test({
     await Deno.writeTextFile(inputPath, `(print (first [100 200 300]))`);
 
     try {
-      await transpileCLI(inputPath, outputPath, {
-        verbose: false,
-        showTiming: false,
-        force: true,
-      });
+      // Transpile using subprocess
+      const transpileResult = await runTranspileCLI(inputPath, outputPath);
+      assertEquals(transpileResult.success, true, `Transpilation should succeed. stderr: ${transpileResult.stderr}`);
 
       // Run with Node.js
       const cmd = new Deno.Command("node", {
@@ -301,15 +360,10 @@ Deno.test({
         stderr: "piped",
       });
 
-      const child = cmd.spawn();
-      const [stdout, stderr] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-      ]);
-      const status = await child.status;
+      const { success, stdout, stderr } = await cmd.output();
 
-      assertEquals(status.success, true, `Node.js execution should succeed. stderr: ${stderr}`);
-      assertStringIncludes(stdout.trim(), "100");
+      assertEquals(success, true, `Node.js execution should succeed. stderr: ${new TextDecoder().decode(stderr)}`);
+      assertStringIncludes(new TextDecoder().decode(stdout).trim(), "100");
     } finally {
       try {
         await Deno.remove(tempDir, { recursive: true });
