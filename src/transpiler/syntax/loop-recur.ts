@@ -4,7 +4,7 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import { HQLError, TransformError, ValidationError } from "../../common/error.ts";
-import { sanitizeIdentifier } from "../../common/utils.ts";
+import { getErrorMessage, sanitizeIdentifier } from "../../common/utils.ts";
 import { validateTransformed } from "../utils/validation-helpers.ts";
 import { ensureReturnStatement } from "../utils/ir-helpers.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
@@ -254,7 +254,7 @@ export function transformLoop(
     }
     throw new TransformError(
       `Failed to transform loop: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       "loop transformation",
       "valid loop expression",
@@ -344,7 +344,7 @@ export function transformIfForLoop(
     }
     throw new TransformError(
       `Failed to transform if for loop: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       "if in loop transformation",
       "valid if expression",
@@ -912,7 +912,7 @@ export function transformRecur(
     }
     throw new TransformError(
       `Failed to transform recur: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       "recur transformation",
       "valid recur expression",

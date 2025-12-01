@@ -623,71 +623,106 @@ function tryOptimizeForEachCall(call: IR.IRCallExpression): IR.IRForStatement | 
  * Extract range information from sequence argument.
  *
  * Patterns:
+ *   5 (numeric literal)                       → {start: 0, end: 5, step: null}
+ *   n (identifier)                            → {start: 0, end: n, step: null}
  *   __hql_toSequence(__hql_range(n))          → {start: 0, end: n, step: null}
  *   __hql_toSequence(__hql_range(start, end)) → {start, end, step: null}
  *   __hql_toSequence(__hql_range(start, end, step)) → {start, end, step}
  *   __hql_getNumeric(__hql_toSequence, n)     → {start: 0, end: n, step: null}
  */
 function extractRangeInfo(sequenceArg: IR.IRNode): {start: IR.IRNode, end: IR.IRNode, step: IR.IRNode | null} | null {
-  // Pattern 1: __hql_toSequence(__hql_range(...))
-  if (sequenceArg.type === IR.IRNodeType.CallExpression) {
-    const call = sequenceArg as IR.IRCallExpression;
+  // Pattern: Numeric literal (e.g., 5)
+  if (sequenceArg.type === IR.IRNodeType.NumericLiteral) {
+    return {
+      start: {type: IR.IRNodeType.NumericLiteral, value: 0} as IR.IRNumericLiteral,
+      end: sequenceArg,
+      step: null
+    };
+  }
 
-    // Check for __hql_toSequence
-    if (call.callee.type === IR.IRNodeType.Identifier &&
-        (call.callee as IR.IRIdentifier).name === "__hql_toSequence" &&
-        call.arguments.length === 1) {
+  // Pattern: Identifier (e.g., n)
+  if (sequenceArg.type === IR.IRNodeType.Identifier) {
+    return {
+      start: {type: IR.IRNodeType.NumericLiteral, value: 0} as IR.IRNumericLiteral,
+      end: sequenceArg,
+      step: null
+    };
+  }
 
-      const innerArg = call.arguments[0];
-      if (innerArg.type === IR.IRNodeType.CallExpression) {
-        const innerCall = innerArg as IR.IRCallExpression;
+  if (sequenceArg.type !== IR.IRNodeType.CallExpression) {
+    return null;
+  }
 
-        // Check for __hql_range
-        if (innerCall.callee.type === IR.IRNodeType.Identifier &&
-            (innerCall.callee as IR.IRIdentifier).name === "__hql_range") {
+  const call = sequenceArg as IR.IRCallExpression;
 
-          const rangeArgs = innerCall.arguments;
-          if (rangeArgs.length === 1) {
-            // __hql_range(n) → for(i=0; i<n; i++)
-            return {
-              start: {type: IR.IRNodeType.NumericLiteral, value: 0} as IR.IRNumericLiteral,
-              end: rangeArgs[0],
-              step: null
-            };
-          } else if (rangeArgs.length === 2) {
-            // __hql_range(start, end) → for(i=start; i<end; i++)
-            return {
-              start: rangeArgs[0],
-              end: rangeArgs[1],
-              step: null
-            };
-          } else if (rangeArgs.length === 3) {
-            // __hql_range(start, end, step) → for(i=start; i<end; i+=step)
-            return {
-              start: rangeArgs[0],
-              end: rangeArgs[1],
-              step: rangeArgs[2]
-            };
-          }
-        }
+  // Pattern 0: Direct __hql_range call (optimized macro output)
+  if (call.callee.type === IR.IRNodeType.Identifier &&
+      (call.callee as IR.IRIdentifier).name === "__hql_range") {
+    return extractFromRangeCall(call.arguments);
+  }
+
+  // Pattern 1: __hql_toSequence(__hql_range(...)) (legacy macro output)
+  if (call.callee.type === IR.IRNodeType.Identifier &&
+      (call.callee as IR.IRIdentifier).name === "__hql_toSequence" &&
+      call.arguments.length === 1) {
+
+    const innerArg = call.arguments[0];
+    if (innerArg.type === IR.IRNodeType.CallExpression) {
+      const innerCall = innerArg as IR.IRCallExpression;
+
+      // Check for __hql_range
+      if (innerCall.callee.type === IR.IRNodeType.Identifier &&
+          (innerCall.callee as IR.IRIdentifier).name === "__hql_range") {
+        return extractFromRangeCall(innerCall.arguments);
       }
-    }
-
-    // Pattern 2: __hql_getNumeric(__hql_toSequence, n)
-    if (call.callee.type === IR.IRNodeType.Identifier &&
-        (call.callee as IR.IRIdentifier).name === "__hql_getNumeric" &&
-        call.arguments.length === 2) {
-
-      // Second argument is the range end
-      return {
-        start: {type: IR.IRNodeType.NumericLiteral, value: 0} as IR.IRNumericLiteral,
-        end: call.arguments[1],
-        step: null
-      };
     }
   }
 
+  // Pattern 2: __hql_getNumeric(__hql_toSequence, n)
+  if (call.callee.type === IR.IRNodeType.Identifier &&
+      (call.callee as IR.IRIdentifier).name === "__hql_getNumeric" &&
+      call.arguments.length === 2) {
+
+    // Second argument is the range end
+    return {
+      start: {type: IR.IRNodeType.NumericLiteral, value: 0} as IR.IRNumericLiteral,
+      end: call.arguments[1],
+      step: null
+    };
+  }
+
   return null;
+}
+
+function extractFromRangeCall(rangeArgs: IR.IRNode[]): {start: IR.IRNode, end: IR.IRNode, step: IR.IRNode | null} {
+  if (rangeArgs.length === 1) {
+    // __hql_range(n) → for(i=0; i<n; i++)
+    return {
+      start: {type: IR.IRNodeType.NumericLiteral, value: 0} as IR.IRNumericLiteral,
+      end: rangeArgs[0],
+      step: null
+    };
+  } else if (rangeArgs.length === 2) {
+    // __hql_range(start, end) → for(i=start; i<end; i++)
+    return {
+      start: rangeArgs[0],
+      end: rangeArgs[1],
+      step: null
+    };
+  } else if (rangeArgs.length === 3) {
+    // __hql_range(start, end, step) → for(i=start; i<end; i+=step)
+    return {
+      start: rangeArgs[0],
+      end: rangeArgs[1],
+      step: rangeArgs[2]
+    };
+  }
+  // Fallback default
+  return {
+    start: {type: IR.IRNodeType.NumericLiteral, value: 0} as IR.IRNumericLiteral,
+    end: {type: IR.IRNodeType.NumericLiteral, value: 0} as IR.IRNumericLiteral,
+    step: null
+  };
 }
 
 /**

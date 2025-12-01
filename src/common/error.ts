@@ -19,6 +19,7 @@ import {
   HQLErrorCode,
 } from "./error-codes.ts";
 import { ERROR_REPORTED_SYMBOL } from "./error-constants.ts";
+import { isObjectValue } from "./utils.ts";
 import { readTextFile as platformReadTextFile } from "../platform/platform.ts";
 import { extractContextLinesFromSource } from "./context-helpers.ts";
 
@@ -44,7 +45,7 @@ function createColorConfig() {
 
 export function formatErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
-  if (typeof error === "object" && error !== null) return JSON.stringify(error);
+  if (isObjectValue(error)) return JSON.stringify(error);
   return String(error);
 }
 
@@ -587,6 +588,14 @@ type ErrorPattern = {
  * @param context - Optional context string for additional matching
  * @returns Inferred error code
  */
+// Helper: Check if all test patterns match within text (optimized for early exit)
+function allTestsMatch(text: string, tests: string[]): boolean {
+  for (const test of tests) {
+    if (!text.includes(test)) return false;
+  }
+  return true;
+}
+
 // Optimized pattern matching using pre-compiled lowercase patterns
 function inferErrorCodeFromCompiledPatterns(
   msg: string,
@@ -597,32 +606,9 @@ function inferErrorCodeFromCompiledPatterns(
   const lower = msg.toLowerCase();
   const lowerContext = context?.toLowerCase();
 
-  // Use for loop instead of .every() for early exit and better performance
   for (const { tests, code } of compiledPatterns) {
-    let allMatch = true;
-    for (let i = 0; i < tests.length; i++) {
-      if (!lower.includes(tests[i])) {
-        allMatch = false;
-        break;
-      }
-    }
-    if (allMatch) {
-      return code;
-    }
-
-    // Also check context if provided
-    if (lowerContext) {
-      let allMatchContext = true;
-      for (let i = 0; i < tests.length; i++) {
-        if (!lowerContext.includes(tests[i])) {
-          allMatchContext = false;
-          break;
-        }
-      }
-      if (allMatchContext) {
-        return code;
-      }
-    }
+    if (allTestsMatch(lower, tests)) return code;
+    if (lowerContext && allTestsMatch(lowerContext, tests)) return code;
   }
 
   return fallback;
@@ -1590,7 +1576,7 @@ export class ErrorReporter {
 
   async reportError(error: Error | HQLError, isDebug = false): Promise<void> {
     // Prevent double reporting: if already reported, do nothing
-    if (typeof error === "object" && error !== null) {
+    if (isObjectValue(error)) {
       if (Reflect.get(error, ERROR_REPORTED_SYMBOL)) {
         return;
       }

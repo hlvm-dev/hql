@@ -12,7 +12,7 @@ import type {
   RestPattern,
   SkipPattern,
 } from "../../s-exp/types.ts";
-import { sanitizeIdentifier } from "../../common/utils.ts";
+import { sanitizeIdentifier, hyphenToUnderscore } from "../../common/utils.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import {
   perform,
@@ -1628,7 +1628,7 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
       if (!isJS) {
         name = sanitizeIdentifier(name);
       } else {
-        name = name.replace(/-/g, "_");
+        name = hyphenToUnderscore(name);
       }
 
       return { type: IR.IRNodeType.Identifier, name, isJS } as IR.IRIdentifier;

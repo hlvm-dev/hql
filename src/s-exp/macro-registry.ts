@@ -2,6 +2,7 @@
 import { Logger } from "../logger.ts";
 import type { MacroFn } from "../environment.ts";
 import { MacroError } from "../common/error.ts";
+import { getErrorMessage, setWithSanitized } from "../common/utils.ts";
 import { globalSymbolTable } from "../transpiler/symbol_table.ts";
 
 export class MacroRegistry {
@@ -41,14 +42,7 @@ export class MacroRegistry {
       name,
     );
     this.logger.debug(`Defining system macro: ${name}`);
-    this.systemMacros.set(name, macroFn);
-    const sanitizedName = name.replace(/-/g, "_");
-    if (sanitizedName !== name) {
-      this.logger.debug(
-        `Also registering system macro with sanitized name: ${sanitizedName}`,
-      );
-      this.systemMacros.set(sanitizedName, macroFn);
-    }
+    setWithSanitized(this.systemMacros, name, macroFn);
 
     // Add to global symbol table
     globalSymbolTable.set({
@@ -147,7 +141,7 @@ export class MacroRegistry {
       const message = error instanceof MacroError
         ? error.message
         : `Failed to import macro ${macroName} from ${fromFile} to ${toFile}: ${
-          error instanceof Error ? error.message : String(error)
+          getErrorMessage(error)
         }`;
       this.logger.warn(message);
       return false;

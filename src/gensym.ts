@@ -1,5 +1,7 @@
 // src/gensym.ts
 
+import { isObjectValue } from "./common/utils.ts";
+
 /**
  * GensymSymbol: Marker class for gensym-generated symbols
  *
@@ -31,8 +33,8 @@ export class GensymSymbol {
 export function isGensymSymbol(value: unknown): value is GensymSymbol {
   // Duck typing: check if it has the structure of GensymSymbol
   // This handles potential module loading issues where instanceof might fail
-  if (typeof value === "object" && value !== null) {
-    const obj = value as Record<string, unknown>;
+  if (isObjectValue(value)) {
+    const obj = value;
     // Check if it has a 'name' property (string) and is marked as GensymSymbol
     if (typeof obj.name === "string" &&
         typeof obj.constructor === "function" &&

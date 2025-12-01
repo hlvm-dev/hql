@@ -5,6 +5,7 @@
 
 import { exists, readTextFile } from "../platform/platform.ts";
 import { globalLogger as logger } from "../logger.ts";
+import { getErrorMessage } from "./utils.ts";
 
 /**
  * Represents a line of source code with context information.
@@ -130,7 +131,7 @@ export async function extractContextLinesFromFile(
   } catch (error) {
     logger.debug(
       `Error loading context lines from ${filePath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     return null;

@@ -5,7 +5,7 @@ import type { Environment, Value } from "./environment.ts";
 import type { MacroFn } from "./environment.ts";
 import { evaluateForMacro, expandMacros } from "./s-exp/macro.ts";
 import { parse } from "./transpiler/pipeline/parser.ts";
-import { readFile, sanitizeIdentifier } from "./common/utils.ts";
+import { readFile, sanitizeIdentifier, getErrorMessage, isObjectValue } from "./common/utils.ts";
 import {
   basename,
   dirname,
@@ -77,10 +77,7 @@ interface SourceLocationHolder {
 }
 
 function getSourceLocationFilePath(error: unknown): string | undefined {
-  if (
-    typeof error === "object" && error !== null &&
-    "sourceLocation" in (error as Record<string, unknown>)
-  ) {
+  if (isObjectValue(error) && "sourceLocation" in error) {
     const { sourceLocation } = error as SourceLocationHolder;
     if (sourceLocation && typeof sourceLocation.filePath === "string") {
       return sourceLocation.filePath;
@@ -407,7 +404,7 @@ function getCachedFileLines(filePath?: string): string[] | null {
     fileLineCache.set(filePath, lines);
     return lines;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     logger.debug(`Error caching file lines for ${filePath}: ${message}`);
     fileLineCache.set(filePath, null);
   }
@@ -1648,7 +1645,7 @@ async function loadTypeScriptModule(
   } catch (error) {
     throw new ImportError(
       `Importing TypeScript module ${moduleName}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       modulePath,
     );
@@ -1697,7 +1694,7 @@ async function loadJavaScriptModule(
   } catch (error) {
     throw new ImportError(
       `Importing JS module ${moduleName}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       modulePath,
     );
@@ -1737,7 +1734,7 @@ async function transpileTypeScriptToJavaScript(
   } catch (error) {
     throw new Error(
       `Failed to transpile TypeScript: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }

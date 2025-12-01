@@ -3,6 +3,7 @@
 
 import { lazySeq } from "../lib/stdlib/js/stdlib.js";
 import { rangeCore } from "./shared-core.ts";
+import { isNullish } from "./utils.ts";
 
 export function __hql_get(
   obj: unknown,
@@ -68,7 +69,7 @@ export function __hql_range(...args: number[]) {
 }
 
 export function __hql_toSequence(value: unknown): unknown[] {
-  if (value === null || value === undefined) return [];
+  if (isNullish(value)) return [];
   if (Array.isArray(value)) return value;
   if (typeof value === "number") {
     const result: number[] = [];
@@ -94,8 +95,28 @@ export function __hql_for_each(
   sequence: unknown,
   iteratee: (item: unknown, index: number) => unknown,
 ): null {
-  const list = Array.isArray(sequence) ? sequence : __hql_toSequence(sequence);
+  // Fast path for arrays
+  if (Array.isArray(sequence)) {
+    for (let index = 0; index < sequence.length; index++) {
+      iteratee(sequence[index], index);
+    }
+    return null;
+  }
 
+  // Handle LazySeq and other iterables directly without allocation
+  if (
+    sequence &&
+    typeof (sequence as Iterable<unknown>)[Symbol.iterator] === "function"
+  ) {
+    let index = 0;
+    for (const item of sequence as Iterable<unknown>) {
+      iteratee(item, index++);
+    }
+    return null;
+  }
+
+  // Fallback for numbers, strings, etc. via standard conversion
+  const list = __hql_toSequence(sequence);
   for (let index = 0; index < list.length; index++) {
     iteratee(list[index], index);
   }

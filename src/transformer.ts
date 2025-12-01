@@ -7,6 +7,7 @@ import { transformToIR } from "./transpiler/pipeline/hql-ast-to-hql-ir.ts";
 import { globalLogger as logger } from "./logger.ts";
 import { Environment } from "./environment.ts";
 import { HQLError, TransformError } from "./common/error.ts";
+import { getErrorMessage } from "./common/utils.ts";
 import { Timer } from "./common/timer.ts";
 import type { HQLNode } from "./transpiler/type/hql_ast.ts";
 import {
@@ -158,7 +159,7 @@ export async function transformAST(
     // For non-HQL errors, wrap in TransformError
     throw new TransformError(
       `Transformation failed: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       "Transformation failed",
       {

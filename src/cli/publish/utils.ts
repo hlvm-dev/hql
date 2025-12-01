@@ -12,6 +12,7 @@ import {
 } from "../../platform/platform.ts";
 import { parse } from "../../transpiler/pipeline/parser.ts";
 import { globalLogger as logger } from "../../logger.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import { buildJsModule } from "./build_js_module.ts";
 
 /**
@@ -59,7 +60,7 @@ export async function readJSONFile(path: string): Promise<Record<string, unknown
   } catch (error) {
     throw new Error(
       `Failed to read JSON file ${path}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -78,7 +79,7 @@ export async function writeJSONFile(
   } catch (error) {
     throw new Error(
       `Failed to write JSON file ${path}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -102,7 +103,7 @@ export async function verifyEntryFile(entryPath: string): Promise<boolean> {
     } catch (error) {
       console.error(
         `Entry file contains syntax errors: ${
-          error instanceof Error ? error.message : String(error)
+          getErrorMessage(error)
         }`,
       );
       return false;
@@ -110,7 +111,7 @@ export async function verifyEntryFile(entryPath: string): Promise<boolean> {
   } catch (error) {
     console.error(
       `Error verifying entry file: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     return false;
@@ -312,7 +313,7 @@ export async function executeCommand(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     };
   }
 }

@@ -240,16 +240,18 @@ Deno.test("Helper Embedding: __hql_hash_map is embedded when map literal is used
 // HQL throw expressions are transpiled to native JavaScript throw statements, not helper calls.
 // Therefore, there is no embedding test for __hql_throw - it would be pointless testing.
 
-Deno.test("Helper Embedding: __hql_for_each is embedded when for loop is used", async () => {
-  const hqlCode = `(var result []) (for [x] [1 2 3] (.push result x)) result`;
+Deno.test("Helper Embedding: __hql_for_each is embedded when for loop iterates over collection", async () => {
+  // Use collection iteration syntax (x coll) which requires __hql_for_each
+  // Note: Numeric range loops like (for (i 10) ...) are optimized to native for loops
+  const hqlCode = `(var result []) (for (x [1 2 3]) (.push result x)) result`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
-  // Verify __hql_for_each is embedded
+  // Verify __hql_for_each is embedded for collection iteration
   assertEquals(
     code.includes("__hql_for_each"),
     true,
-    "Transpiled code must include __hql_for_each when for loop is used"
+    "Transpiled code must include __hql_for_each when iterating over a collection"
   );
 
   // Verify the function definition is present
@@ -263,29 +265,30 @@ Deno.test("Helper Embedding: __hql_for_each is embedded when for loop is used", 
   assertEquals(
     code.includes("__hql_for_each("),
     true,
-    "For loop should be transpiled to __hql_for_each call"
+    "Collection iteration should be transpiled to __hql_for_each call"
   );
 
-  // This test verifies __hql_for_each embedding - the key regression protection.
-  // Functional testing is covered by existing 1152 tests.
+  // This test verifies __hql_for_each embedding for collection iteration.
+  // Numeric range loops are optimized to native JS for loops.
 });
 
 Deno.test("Helper Embedding: __hql_toSequence is embedded with __hql_for_each", async () => {
-  const hqlCode = `(for [x] [1 2 3] x)`;
+  // Use collection iteration syntax which requires both helpers
+  const hqlCode = `(for (x [1 2 3]) x)`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
-  // Verify BOTH helpers are embedded (they're always paired)
+  // Verify BOTH helpers are embedded (they're always paired for collection iteration)
   assertEquals(
     code.includes("__hql_toSequence"),
     true,
-    "Transpiled code must include __hql_toSequence when for loop is used"
+    "Transpiled code must include __hql_toSequence when iterating over collection"
   );
 
   assertEquals(
     code.includes("__hql_for_each"),
     true,
-    "Transpiled code must include __hql_for_each when for loop is used"
+    "Transpiled code must include __hql_for_each when iterating over collection"
   );
 
   // Verify both function definitions are present

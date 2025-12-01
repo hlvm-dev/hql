@@ -20,6 +20,7 @@ import {
   readTextFileSync as platformReadTextFileSync,
   fromFileUrl as platformFromFileUrl,
 } from "../../platform/platform.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 
 /**
  * Represents a position in source code
@@ -97,7 +98,7 @@ export async function loadSourceMap(
       normalizedPath = platformFromFileUrl(jsFilePath);
     } catch (error) {
       logger.debug(`Failed to normalize file URL ${jsFilePath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`);
     }
   }
@@ -129,7 +130,7 @@ export async function loadSourceMap(
   } catch (error) {
     logger.debug(
       `Failed to load external source map for ${normalizedPath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -161,7 +162,7 @@ export async function loadSourceMap(
   } catch (error) {
     logger.debug(
       `Failed to load inline source map for ${normalizedPath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -218,7 +219,7 @@ export async function mapPosition(
   } catch (error) {
     logger.warn(
       `Failed to map position ${line}:${column} in ${jsFilePath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     return null;
@@ -252,7 +253,7 @@ function loadSourceMapSync(
       normalizedPath = platformFromFileUrl(jsFilePath);
     } catch (error) {
       logger.debug(`Failed to normalize file URL ${jsFilePath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`);
     }
   }
@@ -300,11 +301,11 @@ function loadSourceMapSync(
     return consumer;
   } catch (error) {
     if (DEBUG) {
-      console.log("[loadSourceMapSync] External map failed:", error instanceof Error ? error.message : String(error));
+      console.log("[loadSourceMapSync] External map failed:", getErrorMessage(error));
     }
     logger.debug(
       `Failed to load external source map for ${normalizedPath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -356,11 +357,11 @@ function loadSourceMapSync(
     }
   } catch (error) {
     if (DEBUG) {
-      console.log("[loadSourceMapSync] Inline map failed:", error instanceof Error ? error.message : String(error));
+      console.log("[loadSourceMapSync] Inline map failed:", getErrorMessage(error));
     }
     logger.debug(
       `Failed to load inline source map for ${normalizedPath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -491,7 +492,7 @@ export function mapPositionSync(
   } catch (error) {
     logger.warn(
       `Failed to map position (sync) ${line}:${column} in ${jsFilePath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     return null;

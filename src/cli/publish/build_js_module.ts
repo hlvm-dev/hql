@@ -12,7 +12,7 @@ import {
 } from "../../platform/platform.ts";
 import { exists } from "jsr:@std/fs@1.0.13";
 import { globalLogger as logger } from "../../logger.ts";
-import { checkForHqlImports } from "../../common/utils.ts";
+import { checkForHqlImports, getErrorMessage } from "../../common/utils.ts";
 import {
   isHqlFile,
   isJsFile,
@@ -37,7 +37,7 @@ async function removeBuildDirectory(
     // Log but don't fail the build process if cleanup fails
     console.warn(
       `\n⚠️ Failed to clean up build directory: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -59,7 +59,7 @@ async function checkIsFile(
   } catch (error) {
     console.error(
       `\n❌ Error accessing path: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     throw error;
@@ -82,7 +82,7 @@ async function createBuildDirectories(
   } catch (error) {
     console.error(
       `\n❌ Failed to create directories: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     throw error;
@@ -138,7 +138,7 @@ async function bundleSourceFile(
   } catch (error) {
     console.error(
       `\n❌ Bundling failed: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     throw error;
@@ -217,7 +217,7 @@ async function prepareDistributionFiles(
   } catch (error) {
     console.error(
       `\n❌ Error preparing distribution files: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     throw error;
@@ -253,7 +253,7 @@ async function rewriteExternalSpecifiers(
   } catch (error) {
     console.warn(
       `\n⚠️ Failed to normalize module specifiers in ${filePath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -302,7 +302,7 @@ export async function buildJsModule(
   } catch (error) {
     console.error(
       `\n❌ Module build failed: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     throw error;

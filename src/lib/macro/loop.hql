@@ -66,12 +66,13 @@
         first-elem (%first spec))
     (cond
       ;; Error: empty spec
+      ;; Error: empty spec
       ((= spec-count 0)
        `(throw (str "Invalid 'for' loop binding: " '~binding)))
 
       ;; Collection iteration: (for (x coll) ...)
       ((= spec-count 1)
-       `(__hql_for_each (__hql_toSequence ~first-elem)
+       `(__hql_for_each ~first-elem
           (fn [~var]
             (do
               ~@body))))
@@ -83,21 +84,21 @@
            (if (= (name first-elem) "to:")
                ;; Named form: (for (i to: end) ...)
                (let (end (%nth spec 1))
-                 `(__hql_for_each (__hql_toSequence (__hql_range 0 ~end))
+                 `(__hql_for_each (__hql_range 0 ~end)
                     (fn [~var]
                       (do
                         ~@body))))
                ;; Positional form: (for (i start end) ...)
                (let (start first-elem
                      end (%nth spec 1))
-                 `(__hql_for_each (__hql_toSequence (__hql_range ~start ~end))
+                 `(__hql_for_each (__hql_range ~start ~end)
                     (fn [~var]
                       (do
                         ~@body)))))
            ;; Positional form: (for (i start end) ...)
            (let (start first-elem
                  end (%nth spec 1))
-             `(__hql_for_each (__hql_toSequence (__hql_range ~start ~end))
+             `(__hql_for_each (__hql_range ~start ~end)
                 (fn [~var]
                   (do
                     ~@body))))))
@@ -108,7 +109,7 @@
        (let (start first-elem
              end (%nth spec 1)
              step (%nth spec 2))
-         `(__hql_for_each (__hql_toSequence (__hql_range ~start ~end ~step))
+         `(__hql_for_each (__hql_range ~start ~end ~step)
             (fn [~var]
               (do
                 ~@body)))))
@@ -122,7 +123,7 @@
                    (if (= (name (%nth spec 2)) "by:")
                        (let (end (%nth spec 1)
                              step (%nth spec 3))
-                         `(__hql_for_each (__hql_toSequence (__hql_range 0 ~end ~step))
+                         `(__hql_for_each (__hql_range 0 ~end ~step)
                             (fn [~var]
                               (do
                                 ~@body))))
@@ -134,7 +135,7 @@
                        (if (= (name (%nth spec 2)) "to:")
                            (let (start (%nth spec 1)
                                  end (%nth spec 3))
-                             `(__hql_for_each (__hql_toSequence (__hql_range ~start ~end))
+                             `(__hql_for_each (__hql_range ~start ~end)
                                 (fn [~var]
                                   (do
                                     ~@body))))
@@ -154,7 +155,7 @@
                                (let (start (%nth spec 1)
                                      end (%nth spec 3)
                                      step (%nth spec 5))
-                                 `(__hql_for_each (__hql_toSequence (__hql_range ~start ~end ~step))
+                                 `(__hql_for_each (__hql_range ~start ~end ~step)
                                     (fn [~var]
                                       (do
                                         ~@body))))

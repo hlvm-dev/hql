@@ -26,6 +26,7 @@ import { perform } from "../common/error.ts";
 import { isGensymSymbol } from "../gensym.ts";
 import { LRUCache } from "../common/lru-cache.ts";
 import { globalLogger as logger } from "../logger.ts";
+import { getErrorMessage, isObjectValue, isNullish } from "../common/utils.ts";
 
 // Constants and caches
 const MAX_EXPANSION_ITERATIONS = 100;
@@ -91,8 +92,7 @@ interface MacroPlaceholderLiteral extends SLiteral {
 }
 
 function isSExpLike(value: unknown): value is SExp {
-  return typeof value === "object" && value !== null &&
-    "type" in (value as Record<string, unknown>);
+  return isObjectValue(value) && "type" in value;
 }
 
 interface RestParameterSplice {
@@ -108,7 +108,7 @@ function isRestParameterSplice(value: unknown): value is RestParameterSplice {
 
 /* Helper: Convert a JavaScript value to an S-expression */
 function convertJsValueToSExp(value: unknown): SExp {
-  if (value === null || value === undefined) return createNilLiteral();
+  if (isNullish(value)) return createNilLiteral();
 
   // CRITICAL: Check for GensymSymbol BEFORE other type checks
   // GensymSymbol must be converted to a symbol, not a string literal
@@ -270,7 +270,7 @@ export function defineMacro(
       : "unknown";
     throw new MacroError(
       `Failed to define macro: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       macroName,
       {
@@ -426,9 +426,7 @@ function evaluateSymbol(expr: SSymbol, env: Environment, logger: Logger): SExp {
       }
 
       let result: unknown = moduleValue;
-      if (
-        typeof result === "object" && result !== null && propertyPath in result
-      ) {
+      if (isObjectValue(result) && propertyPath in result) {
         const record = result as Record<string, unknown>;
         result = record[propertyPath];
       } else {
@@ -485,7 +483,7 @@ function evaluateList(expr: SList, env: Environment, logger: Logger): SExp {
     } catch (error) {
       throw new MacroError(
         `Error evaluating function call '${op}': ${
-          error instanceof Error ? error.message : String(error)
+          getErrorMessage(error)
         }`,
         op,
       );

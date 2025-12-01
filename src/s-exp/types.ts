@@ -410,5 +410,15 @@ export function isSExpNamespaceImport(elements: SExp[]): boolean {
 }
 
 /**
+ * Check if an S-expression is a vector (list starting with 'vector' or 'empty-array' symbol)
+ */
+export function isVector(exp: SExp): boolean {
+  return isList(exp) &&
+    exp.elements.length > 0 &&
+    isSymbol(exp.elements[0]) &&
+    (exp.elements[0].name === "vector" || exp.elements[0].name === "empty-array");
+}
+
+/**
  * Set source location for an S-expression
  */

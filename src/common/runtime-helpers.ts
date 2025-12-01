@@ -1,4 +1,5 @@
 import { globalLogger as logger } from "../logger.ts";
+import { isNullish } from "./utils.ts";
 import {
   __hql_deepFreeze,
   __hql_for_each,
@@ -113,7 +114,7 @@ function ensureHelpers(): void {
   const placeholderProxy = new Proxy(function placeholder() {}, {
     get(_target, property: PropertyKey) {
       const current = placeholderStore.value;
-      if (current === null || current === undefined) {
+      if (isNullish(current)) {
         if (property === Symbol.toPrimitive) {
           return () => undefined;
         }

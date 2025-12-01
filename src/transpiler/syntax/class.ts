@@ -9,7 +9,7 @@ import {
   TransformError,
   ValidationError,
 } from "../../common/error.ts";
-import { sanitizeIdentifier } from "../../common/utils.ts";
+import { getErrorMessage, sanitizeIdentifier } from "../../common/utils.ts";
 import {
   transformElements,
   transformNonNullElements,
@@ -185,7 +185,7 @@ export function transformClass(
     }
     throw new TransformError(
       `Failed to transform class declaration: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       "class declaration",
       withSourceLocationOpts({ phase: "transformation" }, list),
@@ -466,7 +466,7 @@ function processClassMethodFn(
   } catch (error) {
     logger.error(
       `Error processing class method (fn): ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     return null;
@@ -520,7 +520,7 @@ function processClassField(
   } catch (error) {
     logger.error(
       `Error processing class field: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     return null;
@@ -632,7 +632,7 @@ function processClassConstructor(
   } catch (error) {
     logger.error(
       `Error processing class constructor: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     return null;

@@ -16,6 +16,7 @@ import {
 } from "../../s-exp/types.ts";
 import { globalLogger as logger, type Logger } from "../../logger.ts";
 import { HQLError, perform, TransformError } from "../../common/error.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import type { ListNode, SymbolNode } from "../type/hql_ast.ts";
 import { globalSymbolTable } from "../symbol_table.ts";
@@ -357,7 +358,7 @@ export function transformSyntax(ast: SExp[]): SExp[] {
             const errorLoc = getLocationFromNode(list);
             throw new TransformError(
               `Invalid let form: ${
-                error instanceof Error ? error.message : String(error)
+                getErrorMessage(error)
               }`,
               "let form validation",
               withSourceLocationOpts(errorLoc, list),
@@ -433,7 +434,7 @@ export function transformSyntax(ast: SExp[]): SExp[] {
       const errorLoc = getLocationFromNode(node);
       throw new TransformError(
         `Transformation error: ${
-          error instanceof Error ? error.message : String(error)
+          getErrorMessage(error)
         }`,
         "node transformation",
         withSourceLocationOpts(errorLoc, node),
@@ -896,7 +897,7 @@ function transformLetExpr(
     const errorLoc = getLocationFromNode(list);
     throw new TransformError(
       `Invalid let form: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       "let form validation",
       withSourceLocationOpts(errorLoc, list),

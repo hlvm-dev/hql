@@ -8,7 +8,7 @@ import {
   TransformError,
   ValidationError,
 } from "../../common/error.ts";
-import { sanitizeIdentifier } from "../../common/utils.ts";
+import { getErrorMessage, sanitizeIdentifier } from "../../common/utils.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import {
   copyPosition,
@@ -314,7 +314,7 @@ export function transformFn(
     }
     throw new TransformError(
       `Failed to transform fn: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       "fn function",
       "transformation",
@@ -733,7 +733,7 @@ export function processFnFunctionCall(
     // Otherwise enhance the error with location info
     throw new TransformError(
       `Failed to process function call to '${funcName}': ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       "function call processing",
       extractMetaSourceLocation(args),
@@ -1243,7 +1243,7 @@ export function transformArrowLambda(
   } catch (error) {
     throw new TransformError(
       `Failed to transform arrow lambda: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       "=> expression",
       "transformation",

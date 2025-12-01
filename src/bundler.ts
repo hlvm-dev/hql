@@ -15,6 +15,7 @@ import type {
 } from "npm:esbuild-wasm@^0.17.0";
 import { transpileToJavascript } from "./transpiler/hql-transpiler.ts";
 import { formatErrorMessage } from "./common/error.ts";
+import { ERROR_REPORTED_SYMBOL } from "./common/error-constants.ts";
 import {
   isHqlFile,
   isJsFile,
@@ -23,6 +24,8 @@ import {
 import {
   checkForHqlImports,
   findActualFilePath,
+  getErrorMessage,
+  isObjectValue,
   readFile,
   sanitizeIdentifier,
 } from "./common/utils.ts";
@@ -53,8 +56,6 @@ import {
 import { transpile, type TranspileOptions } from "./transpiler/index.ts";
 import { fromFileUrl, join } from "./platform/platform.ts";
 
-const REPORTED_ERROR_SYMBOL = Symbol.for("__hql_error_reported__");
-
 /**
  * Get the path to the stdlib index.js file.
  * In development mode, this is relative to the bundler.ts location.
@@ -72,19 +73,11 @@ function getStdlibPath(): string {
 }
 
 function propagateReportedFlag(source: unknown, target: object): void {
-  if (source && typeof source === "object" && typeof target === "object") {
-    const record = source as Record<PropertyKey, unknown>;
-    if (record[REPORTED_ERROR_SYMBOL]) {
-      Reflect.set(target, REPORTED_ERROR_SYMBOL, true);
+  if (isObjectValue(source)) {
+    if (Reflect.get(source, ERROR_REPORTED_SYMBOL)) {
+      Reflect.set(target, ERROR_REPORTED_SYMBOL, true);
     }
   }
-}
-
-/**
- * Extract error message from any error type
- */
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**

@@ -19,6 +19,7 @@ import {
   visualizeTree,
   type HqlConfig,
 } from "./utils.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 
 // Common interfaces for publishing options
 export interface PublishOptions {
@@ -312,7 +313,7 @@ export async function publishPackage(
     // Start the publish process with initial version
     return await attemptPublish(context, packageVersion, 0, publisher);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     console.error(
       `\n❌ ${publisher.registryName.toUpperCase()} publish failed: ${errorMessage}`,
     );

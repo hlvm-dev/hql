@@ -112,9 +112,8 @@ export async function readFile(
   try {
     return await platformReadTextFile(filePath);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Reading file ${filePath}${context ? ` (${context})` : ""}: ${message}`,
+      `Reading file ${filePath}${context ? ` (${context})` : ""}: ${getErrorMessage(error)}`,
     );
   }
 }
@@ -130,8 +129,7 @@ export async function tryReadFile(
     );
     return content;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger?.debug?.(`Failed to read file ${filePath}: ${message}`);
+    logger?.debug?.(`Failed to read file ${filePath}: ${getErrorMessage(error)}`);
     return null;
   }
 }
@@ -231,4 +229,146 @@ export function createSExpCallRegex(funcName: string): RegExp {
  */
 export function createJsCallRegex(funcName: string): RegExp {
   return new RegExp(`\\b${escapeRegExp(funcName)}\\s*\\(`);
+}
+
+// ============================================================================
+// DRY Utilities - Consolidated patterns used across the codebase
+// ============================================================================
+
+/**
+ * Safely extract error message from unknown error value.
+ * Consolidates the `error instanceof Error ? error.message : String(error)` pattern.
+ *
+ * @param error - Any error value (Error, string, unknown)
+ * @returns The error message as a string
+ */
+export function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Remove file extension from a path.
+ *
+ * @param filePath - Path with extension
+ * @returns Path without extension
+ *
+ * @example
+ * ```typescript
+ * removeExtension("/path/file.ts") // "/path/file"
+ * removeExtension("file.test.ts")  // "file.test"
+ * ```
+ */
+export function removeExtension(filePath: string): string {
+  return filePath.replace(/\.[^.]+$/, "");
+}
+
+/**
+ * Replace file extension with a new one.
+ *
+ * @param filePath - Path with extension
+ * @param newExt - New extension (should include the dot, e.g., ".js")
+ * @returns Path with new extension
+ *
+ * @example
+ * ```typescript
+ * replaceExtension("/path/file.ts", ".js") // "/path/file.js"
+ * ```
+ */
+export function replaceExtension(filePath: string, newExt: string): string {
+  return filePath.replace(/\.[^.]+$/, newExt);
+}
+
+/**
+ * Convert .hql file path to .ts file path.
+ *
+ * @param hqlPath - Path to .hql file
+ * @returns Path with .ts extension
+ */
+export function hqlToTsExtension(hqlPath: string): string {
+  return hqlPath.replace(/\.hql$/, ".ts");
+}
+
+/**
+ * Normalize path by converting backslashes to forward slashes.
+ * Used for cross-platform path consistency.
+ *
+ * @param path - Path that may contain backslashes
+ * @returns Path with forward slashes only
+ */
+export function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+/**
+ * Convert hyphenated name to underscore format.
+ * Used for JavaScript identifier sanitization.
+ *
+ * @param name - Hyphenated name like "foo-bar"
+ * @returns Underscored name like "foo_bar"
+ */
+export function hyphenToUnderscore(name: string): string {
+  return name.replace(/-/g, "_");
+}
+
+/**
+ * Check if a value is a non-null object (not an array).
+ * Type guard that narrows the type to Record<string, unknown>.
+ *
+ * @param val - Value to check
+ * @returns True if val is a non-null object
+ */
+export function isObjectValue(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null;
+}
+
+/**
+ * Check if a value is null or undefined.
+ * Uses loose equality (==) for efficiency.
+ *
+ * @param val - Value to check
+ * @returns True if val is null or undefined
+ */
+export function isNullish(val: unknown): val is null | undefined {
+  return val == null;
+}
+
+/**
+ * Check if a value is neither null nor undefined.
+ *
+ * @param val - Value to check
+ * @returns True if val is not null and not undefined
+ */
+export function isNotNullish<T>(val: T): val is NonNullable<T> {
+  return val != null;
+}
+
+/**
+ * Add a name to a Set along with its sanitized version (hyphen → underscore).
+ * Used for macro/function registration to support both naming conventions.
+ *
+ * @param set - Set to add to
+ * @param name - Name to add (may contain hyphens)
+ */
+export function addWithSanitized(set: Set<string>, name: string): void {
+  set.add(name);
+  const sanitized = hyphenToUnderscore(name);
+  if (sanitized !== name) {
+    set.add(sanitized);
+  }
+}
+
+/**
+ * Set a value in a Map using both original name and sanitized version.
+ * Used for macro/function registration to support both naming conventions.
+ *
+ * @param map - Map to add to
+ * @param name - Name key (may contain hyphens)
+ * @param value - Value to associate with both keys
+ */
+export function setWithSanitized<T>(map: Map<string, T>, name: string, value: T): void {
+  map.set(name, value);
+  const sanitized = hyphenToUnderscore(name);
+  if (sanitized !== name) {
+    map.set(sanitized, value);
+  }
 }

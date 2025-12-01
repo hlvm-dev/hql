@@ -8,6 +8,7 @@ import {
   readTextFile as platformReadTextFile, // Needed for readJSONFile if used
 } from "../../platform/platform.ts";
 import { globalLogger as logger } from "../../logger.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import {
   detectMetadataFiles,
   executeCommand,
@@ -101,7 +102,7 @@ export async function publishJSR(
       link,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     return {
       registry: "jsr",
       name,

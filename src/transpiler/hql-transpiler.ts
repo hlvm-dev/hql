@@ -484,6 +484,9 @@ export async function loadSystemMacros(
     for (const macroPath of macroPaths) {
       if (env.hasProcessedFile(macroPath)) continue;
 
+      // Mark as processed immediately to prevent cycles
+      env.markFileProcessed(macroPath);
+
       const macroSource =
         EMBEDDED_MACROS[macroPath as keyof typeof EMBEDDED_MACROS];
 
@@ -512,9 +515,6 @@ export async function loadSystemMacros(
         scope: "global",
         meta: { isCore: true, isMacroModule: true },
       });
-
-      // Mark as processed
-      env.markFileProcessed(macroPath);
     }
 
     systemMacrosLoaded = true;

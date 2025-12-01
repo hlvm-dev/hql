@@ -12,6 +12,9 @@ import { globalLogger as logger } from "../logger.ts";
 import {
   createWordBoundaryRegex,
   escapeRegExp,
+  getErrorMessage,
+  isObjectValue,
+  isNullish,
 } from "./utils.ts";
 import { enrichErrorWithContext } from "./error-system.ts";
 import { resolveSourceLocation } from "../transpiler/utils/source_location_utils.ts";
@@ -72,7 +75,7 @@ async function findLocationByPatterns(
   } catch (error) {
     logger.debug(
       `Failed to search for patterns in ${filePath}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -296,7 +299,7 @@ export async function findSymbolLocation(
   } catch (error) {
     logger.debug(
       `Error finding symbol location for ${symbolName}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -777,7 +780,7 @@ export async function handleFunctionCallError(
 
   if (args.length > 0) {
     const argStrings = args.map((arg) => {
-      if (arg === null || arg === undefined) return "null";
+      if (isNullish(arg)) return "null";
       if (typeof arg === "object") {
         const node = arg as { type?: string; name?: string; value?: unknown };
         if (node.type === "symbol" && typeof node.name === "string") {
@@ -808,7 +811,7 @@ export async function handleFunctionCallError(
       const extraArgs = args.slice(expectedCount);
       if (extraArgs.length > 0) {
         const extraArgStrs = extraArgs.map((arg) => {
-          if (typeof arg === "object" && arg !== null) {
+          if (isObjectValue(arg)) {
             const node = arg as {
               type?: string;
               name?: string;
@@ -961,7 +964,7 @@ export async function findFunctionCallLocation(
   } catch (error) {
     logger.debug(
       `Error finding function call location: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     return location;

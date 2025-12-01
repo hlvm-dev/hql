@@ -12,6 +12,7 @@ import {
   type SSymbol,
 } from "../../s-exp/types.ts";
 import { ParseError } from "../../common/error.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import { HQLErrorCode } from "../../common/error-codes.ts";
 import { attachSourceLocation } from "../../common/syntax-error-handler.ts";
 import { readTextFileSync as platformReadTextFileSync } from "../../platform/platform.ts";
@@ -592,7 +593,7 @@ function parseTemplateLiteral(
           const expr = parseExpression(exprState);
           parts.push(expr);
         } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : String(error);
+          const errorMsg = getErrorMessage(error);
           throw new ParseError(
             `Invalid expression in template literal interpolation: ${exprStr}\nError: ${errorMsg}`,
             position,

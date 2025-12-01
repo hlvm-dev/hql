@@ -10,6 +10,7 @@ import { publishNpm } from "./publish_npm.ts";
 import { publishJSR } from "./publish_jsr.ts";
 import { printPublishSummary, type PublishSummary } from "./publish_summary.ts";
 import { globalLogger as logger } from "../../logger.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import {
   detectMetadataFiles,
   getPlatformsFromArgs,
@@ -165,7 +166,7 @@ function buildFailureSummary(
   version: string | undefined,
   error: unknown,
 ): PublishSummary {
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorMessage = getErrorMessage(error);
   console.error(
     `\n❌ ${registry.toUpperCase()} publish failed: ${errorMessage}`,
   );
@@ -260,7 +261,7 @@ export async function publish(args: string[]): Promise<void> {
   } catch (error) {
     console.error(
       `\n❌ Publish failed: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     exit(1);

@@ -5,6 +5,7 @@ import {
   createNilLiteral,
   isList,
   isSymbol,
+  isVector,
   type SExp,
 } from "./s-exp/types.ts";
 import { Logger } from "./logger.ts";
@@ -24,6 +25,7 @@ import {
 import { STDLIB_PUBLIC_API } from "./lib/stdlib/js/stdlib.js";
 import { gensym } from "./gensym.ts";
 import { isEmbeddedFile } from "./lib/embedded-macros.ts";
+import { getErrorMessage, hyphenToUnderscore, isObjectValue, addWithSanitized, isNullish } from "./common/utils.ts";
 
 type CallableValue = (...args: unknown[]) => unknown;
 
@@ -100,7 +102,7 @@ export class Environment {
 
         resolve(env);
       } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
+        const msg = getErrorMessage(error);
         logger.error(`Failed to initialize global environment: ${msg}`);
 
         // Clear the promise on error so retry is possible
@@ -151,7 +153,7 @@ export class Environment {
         message: string,
         operation: string,
       ): Record<string, unknown> => {
-        if (obj === null || obj === undefined) {
+        if (isNullish(obj)) {
           throw new ValidationError(
             message,
             operation,
@@ -169,6 +171,18 @@ export class Environment {
           return value.elements;
         }
         return null;
+      };
+
+      // Helper to check if a value is a "vector" symbol (used in [a b c] syntax)
+      const isVectorSymbol = (val: unknown): boolean => {
+        if (!val || typeof val !== "object") return false;
+        const obj = val as { type?: string; name?: string };
+        return obj.type === "symbol" && (obj.name === "vector" || obj.name === "empty-array");
+      };
+
+      // Helper to check if collection is a JS Array representing vector syntax
+      const isJSArrayVector = (coll: unknown): coll is unknown[] => {
+        return Array.isArray(coll) && coll.length > 0 && isVectorSymbol(coll[0]);
       };
 
       this.define(
@@ -226,8 +240,8 @@ export class Environment {
             }
             return notFound;
           }
-          if (typeof coll === "object" && coll !== null) {
-            const record = coll as Record<string, unknown>;
+          if (isObjectValue(coll)) {
+            const record = coll;
             const propKey = typeof key === "number"
               ? String(key)
               : String(key ?? "");
@@ -285,7 +299,7 @@ export class Environment {
         if (isSExpValue(value) && isSymbol(value)) {
           return value.name;
         }
-        if (typeof value === "object" && value !== null && "name" in value) {
+        if (isObjectValue(value) && "name" in value) {
           const record = value as { name?: unknown };
           return typeof record.name === "string" ? record.name : null;
         }
@@ -294,9 +308,10 @@ export class Environment {
 
       // Macro-time helper functions for collection operations
       // These execute during macro expansion and work with both JS arrays and S-expression lists
+
       this.define("%first", (coll: unknown) => {
         // Return S-expression nil for JS primitives (boolean, number, string, null, undefined)
-        if (coll === null || coll === undefined) {
+        if (isNullish(coll)) {
           return createNilLiteral();
         }
         if (
@@ -304,6 +319,18 @@ export class Environment {
           typeof coll === "string"
         ) {
           return createNilLiteral();
+        }
+
+        // 1. Handle Vector as S-Expression Object
+        if (isSExpValue(coll) && isVector(coll)) {
+          const list = coll as unknown as { elements: SExp[] };
+          return list.elements.length > 1 ? list.elements[1] : createNilLiteral();
+        }
+
+        // 2. Handle Vector as JS Array (Internal Parser Representation)
+        if (isJSArrayVector(coll)) {
+          // [vector, x, y, z] -> first is x (index 1)
+          return coll.length > 1 ? coll[1] : createNilLiteral();
         }
 
         // Handle S-expression lists
@@ -319,6 +346,15 @@ export class Environment {
         return createNilLiteral();
       });
       this.define("%rest", (coll: unknown) => {
+        // Special handling for vector syntax: (vector x y) as SExp
+        if (isSExpValue(coll) && isVector(coll)) {
+          const list = coll as unknown as { elements: SExp[] };
+          // (vector x y z) -> rest is (y z) -> elements 2+
+          return list.elements.length > 2
+            ? createList(...list.elements.slice(2))
+            : createList();
+        }
+
         // Handle S-expression lists
         const elements = getListElements(coll);
         if (elements) {
@@ -326,64 +362,114 @@ export class Environment {
             ? createList(...elements.slice(1))
             : createList();
         }
-        // Handle JS arrays - convert to S-expression list
+
+        // Handle JS arrays - check for vector syntax first
+        if (isJSArrayVector(coll)) {
+          // [vector, x, y, z] -> rest is [y, z] (indices 2+)
+          return coll.length > 2 ? createList(...(coll.slice(2) as SExp[])) : createList();
+        }
+
+        // Handle regular JS arrays - convert to S-expression list
         if (Array.isArray(coll)) {
-          return coll.length > 0 ? createList(...coll.slice(1)) : createList();
+          return coll.length > 0 ? createList(...(coll.slice(1) as SExp[])) : createList();
         }
         return createList();
       });
       this.define("%length", (coll: unknown) => {
-        if (coll === null || coll === undefined) {
+        if (isNullish(coll)) {
           return 0;
         }
+
+        // Special handling for vector syntax: (vector x y) as SExp
+        if (isSExpValue(coll) && isVector(coll)) {
+          const list = coll as unknown as { elements: SExp[] };
+          return Math.max(0, list.elements.length - 1);
+        }
+
         // Handle S-expression lists
         const elements = getListElements(coll);
         if (elements) {
           return elements.length;
         }
-        // Handle JS arrays
+
+        // Handle JS arrays - check for vector syntax first
+        if (isJSArrayVector(coll)) {
+          // [vector, x, y, z] -> length is 3 (excluding vector symbol)
+          return Math.max(0, coll.length - 1);
+        }
+
+        // Handle regular JS arrays
         if (Array.isArray(coll)) {
           return coll.length;
         }
         return 0;
       });
       this.define("%empty?", (coll: unknown) => {
-        if (coll === null || coll === undefined) {
+        if (isNullish(coll)) {
           return true;
         }
+
+        // Special handling for vector syntax: (vector x y) as SExp
+        if (isSExpValue(coll) && isVector(coll)) {
+          const list = coll as unknown as { elements: SExp[] };
+          return list.elements.length <= 1;
+        }
+
         // Handle S-expression lists
         const elements = getListElements(coll);
         if (elements) {
           return elements.length === 0;
         }
-        // Handle JS arrays
+
+        // Handle JS arrays - check for vector syntax first
+        if (isJSArrayVector(coll)) {
+          // [vector] -> empty, [vector, x] -> not empty
+          return coll.length <= 1;
+        }
+
+        // Handle regular JS arrays
         if (Array.isArray(coll)) {
           return coll.length === 0;
         }
         return true;
       });
       this.define("%nth", (coll: unknown, index: unknown) => {
-        if (coll === null || coll === undefined) {
+        if (isNullish(coll)) {
           return null;
         }
+
+        let numericIndex = Number(index);
+        if (!Number.isInteger(numericIndex) || numericIndex < 0) {
+          return null;
+        }
+
+        // Special handling for vector syntax: (vector x y) as SExp
+        if (isSExpValue(coll) && isVector(coll)) {
+          const list = coll as unknown as { elements: SExp[] };
+          numericIndex += 1;
+          return numericIndex < list.elements.length
+            ? list.elements[numericIndex]
+            : null;
+        }
+
         // Handle S-expression lists
         const elements = getListElements(coll);
         if (elements) {
-          const numericIndex = Number(index);
-          if (
-            Number.isInteger(numericIndex) && numericIndex >= 0 &&
-            numericIndex < elements.length
-          ) {
+          if (numericIndex < elements.length) {
             return elements[numericIndex] as Value;
           }
         }
-        // Handle JS arrays
+
+        // Handle JS arrays - check for vector syntax first
+        if (isJSArrayVector(coll)) {
+          // [vector, x, y, z] -> nth(0) is x (index 1), nth(1) is y (index 2)
+          const adjustedIndex = numericIndex + 1;
+          return adjustedIndex < coll.length ? coll[adjustedIndex] : null;
+        }
+
+        // Handle regular JS arrays
         if (Array.isArray(coll)) {
-          const numericIndex = Number(index);
-          if (
-            Number.isInteger(numericIndex) && numericIndex >= 0 &&
-            numericIndex < coll.length
-          ) {
+          if (numericIndex < coll.length) {
             return coll[numericIndex];
           }
         }
@@ -408,7 +494,7 @@ export class Environment {
 
       this.logger.debug("Built-in functions initialized successfully");
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = getErrorMessage(error);
       this.logger.error(`Failed to initialize built-in functions: ${msg}`);
       throw new ValidationError(
         `Failed to initialize built-in functions: ${msg}`,
@@ -481,7 +567,7 @@ export class Environment {
       // Pass the properly typed SymbolInfo object to the symbol table
       globalSymbolTable.set(enrichedSymbolInfo);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = getErrorMessage(error);
       throw new ValidationError(
         `Failed to define symbol ${key}: ${msg}`,
         "environment",
@@ -498,7 +584,7 @@ export class Environment {
         this.lookupCache.set(key, result);
         return result;
       }
-      const sanitizedKey = key.replace(/-/g, "_");
+      const sanitizedKey = hyphenToUnderscore(key);
       if (this.variables.has(sanitizedKey)) {
         const v = this.variables.get(sanitizedKey);
         this.lookupCache.set(key, v!);
@@ -526,7 +612,7 @@ export class Environment {
         { expectedType: "defined symbol", actualType: "undefined symbol" },
       );
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = getErrorMessage(error);
       if (error instanceof ValidationError) throw error;
       throw new ValidationError(
         `Error looking up symbol ${key}: ${msg}`,
@@ -568,7 +654,7 @@ export class Environment {
         }
         throw error;
       }
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = getErrorMessage(error);
       throw new ValidationError(
         `Error accessing ${key}: ${msg}`,
         "dot notation lookup",
@@ -578,7 +664,7 @@ export class Environment {
 
   private getPropertyFromPath(obj: unknown, path: string): Value {
     if (!path) return obj as Value;
-    if (obj === null || obj === undefined) {
+    if (isNullish(obj)) {
       throw new ValidationError(
         `Cannot access property '${path}' of ${
           obj === null ? "null" : "undefined"
@@ -593,9 +679,7 @@ export class Environment {
     const parts = path.split(".");
     let current: unknown = obj;
     for (const part of parts) {
-      if (
-        current === null || current === undefined || typeof current !== "object"
-      ) {
+      if (!isObjectValue(current)) {
         throw new ValidationError(
           `Cannot access property '${part}' of ${typeof current}`,
           "property path access",
@@ -607,7 +691,7 @@ export class Environment {
         current = c[part];
         continue;
       }
-      const sanitizedPart = part.replace(/-/g, "_");
+      const sanitizedPart = hyphenToUnderscore(part);
       if (sanitizedPart !== part && sanitizedPart in c) {
         current = c[sanitizedPart];
         continue;
@@ -631,7 +715,7 @@ export class Environment {
       } else {
         // Check if already defined as a variable (from a prior pre-registration)
         const existing = this.variables.get(moduleName);
-        if (existing && typeof existing === "object" && existing !== null) {
+        if (isObjectValue(existing)) {
           targetObj = existing as Record<string, Value>;
         } else {
           targetObj = {} as Record<string, Value>;
@@ -713,7 +797,7 @@ export class Environment {
       }
       this.logger.debug(`Module ${moduleName} imported with exports`);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = getErrorMessage(error);
       if (error instanceof ValidationError || error instanceof MacroError) {
         throw error;
       }
@@ -741,7 +825,7 @@ export class Environment {
     } catch (error) {
       this.logger.warn(
         `Could not tag macro function ${name}: ${
-          error instanceof Error ? error.message : String(error)
+          getErrorMessage(error)
         }`,
       );
     }
@@ -769,7 +853,7 @@ export class Environment {
       } else {
         // User macro - track source file for proper scoping
         this.macroSourceFiles.set(key, sourceFile);
-        const sanitizedKey = key.replace(/-/g, "_");
+        const sanitizedKey = hyphenToUnderscore(key);
         if (sanitizedKey !== key) {
           this.macroSourceFiles.set(sanitizedKey, sourceFile);
         }
@@ -783,12 +867,12 @@ export class Environment {
 
       // Always store in local macros map for lookup
       this.macros.set(key, macro);
-      const sanitizedKey = key.replace(/-/g, "_");
+      const sanitizedKey = hyphenToUnderscore(key);
       if (sanitizedKey !== key) {
         this.macros.set(sanitizedKey, macro);
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = getErrorMessage(error);
       throw new MacroError(
         `Failed to define macro ${key}: ${msg}`,
         key,
@@ -812,13 +896,7 @@ export class Environment {
       exports = new Set();
       this.exportedMacros.set(sourceFile, exports);
     }
-    exports.add(macroName);
-
-    // Also add sanitized version
-    const sanitizedName = macroName.replace(/-/g, "_");
-    if (sanitizedName !== macroName) {
-      exports.add(sanitizedName);
-    }
+    addWithSanitized(exports, macroName);
 
     this.logger.debug(`Marked macro ${macroName} as exported from ${sourceFile}`);
   }
@@ -827,11 +905,7 @@ export class Environment {
    * Mark a macro name as imported (for aliases where we've already verified the original)
    */
   markMacroImported(macroName: string): void {
-    this.importedMacros.add(macroName);
-    const sanitizedName = macroName.replace(/-/g, "_");
-    if (sanitizedName !== macroName) {
-      this.importedMacros.add(sanitizedName);
-    }
+    addWithSanitized(this.importedMacros, macroName);
     this.logger.debug(`Marked macro ${macroName} as imported (alias)`);
   }
 
@@ -841,14 +915,14 @@ export class Environment {
   importUserMacro(macroName: string, sourceFile: string): boolean {
     // Check if the macro exists and is exported from the source file
     let exports = this.exportedMacros.get(sourceFile);
-    
+
     if (!exports) {
       // Fallback: try to find a matching file path in exportedMacros
       // This handles cases where paths might be resolved differently (e.g. in tests or with symlinks)
       // We check if the requested sourceFile is a suffix of a known exported file or vice versa
       // matching at least the filename and parent directory for safety
       for (const [path, exportSet] of this.exportedMacros.entries()) {
-        if ((path.endsWith(sourceFile) || sourceFile.endsWith(path)) && 
+        if ((path.endsWith(sourceFile) || sourceFile.endsWith(path)) &&
             path.split('/').pop() === sourceFile.split('/').pop()) {
           exports = exportSet;
           break;
@@ -858,7 +932,7 @@ export class Environment {
 
     if (!exports?.has(macroName)) {
       // Also check sanitized name
-      const sanitizedName = macroName.replace(/-/g, "_");
+      const sanitizedName = hyphenToUnderscore(macroName);
       if (!exports?.has(sanitizedName)) {
         this.logger.debug(
           `Cannot import macro ${macroName}: not exported from ${sourceFile}`
@@ -868,11 +942,7 @@ export class Environment {
     }
 
     // Mark as imported in current scope
-    this.importedMacros.add(macroName);
-    const sanitizedName = macroName.replace(/-/g, "_");
-    if (sanitizedName !== macroName) {
-      this.importedMacros.add(sanitizedName);
-    }
+    addWithSanitized(this.importedMacros, macroName);
 
     this.logger.debug(`Imported macro ${macroName} from ${sourceFile}`);
     return true;
@@ -942,7 +1012,7 @@ export class Environment {
       }
       return success;
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = getErrorMessage(error);
       throw new MacroError(
         `Failed to import macro ${macroName}: ${msg}`,
         macroName,
@@ -995,7 +1065,7 @@ export class Environment {
     } catch (error) {
       this.logger.warn(
         `Error setting current file: ${
-          error instanceof Error ? error.message : String(error)
+          getErrorMessage(error)
         }`,
       );
     }

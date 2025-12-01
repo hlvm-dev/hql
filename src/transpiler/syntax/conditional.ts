@@ -9,6 +9,7 @@ import {
   TransformError,
   ValidationError,
 } from "../../common/error.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import { validateTransformed } from "../utils/validation-helpers.ts";
 import { ensureReturnStatement } from "../utils/ir-helpers.ts";
@@ -222,7 +223,7 @@ export function transformIf(
     }
     throw new TransformError(
       `Failed to transform if: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
       "if transformation",
       withSourceLocationOpts({ phase: "valid if expression" }, list),

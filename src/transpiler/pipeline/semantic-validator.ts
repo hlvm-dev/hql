@@ -12,6 +12,7 @@
 
 import * as IR from "../type/hql_ir.ts";
 import { ValidationError } from "../../common/error.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import { globalLogger as logger } from "../../logger.ts";
 
 /**
@@ -440,7 +441,7 @@ export function validateSemantics(ir: IR.IRProgram): void {
       throw error;
     }
     // Re-throw unexpected errors
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     logger.debug(`Unexpected error during semantic validation: ${message}`);
     throw error;
   }

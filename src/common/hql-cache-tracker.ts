@@ -19,7 +19,7 @@ import {
 } from "../platform/platform.ts";
 import { transpileHqlInJs } from "../bundler.ts";
 import { globalLogger as logger } from "../logger.ts";
-import { sanitizeIdentifier } from "./utils.ts";
+import { sanitizeIdentifier, getErrorMessage, normalizePath, hyphenToUnderscore } from "./utils.ts";
 
 // Cache directory configuration
 const HQL_CACHE_DIR = ".hql-cache";
@@ -78,7 +78,7 @@ function getCacheSubdirSegmentsForDir(dirPath: string): string[] {
     return splitPathSegments(relativeToProject).map(sanitizePathSegment);
   }
 
-  const normalized = dirPath.replace(/\\/g, "/");
+  const normalized = normalizePath(dirPath);
   const trimmed = normalized.replace(/^\/+/, "");
   const segments = splitPathSegments(trimmed);
   if (segments.length === 0) {
@@ -828,7 +828,7 @@ async function rewriteRelativeImports(
     } catch (error) {
       logger.debug(
         `Error processing import ${importPath}: ${
-          error instanceof Error ? error.message : String(error)
+          getErrorMessage(error)
         }`,
       );
     }
@@ -870,7 +870,7 @@ async function processJsImportsInJs(
       if (await exists(resolvedImportPath)) {
         sourcePath = resolvedImportPath;
       } else {
-        const underscoreFileName = `${fileNameBase.replace(/-/g, "_")}.js`;
+        const underscoreFileName = `${hyphenToUnderscore(fileNameBase)}.js`;
         const underscorePath = join(directory, underscoreFileName);
         if (await exists(underscorePath)) {
           sourcePath = underscorePath;
@@ -1005,7 +1005,7 @@ async function processTsImportsInJs(
       } catch (error) {
         logger.debug(
           `Error processing TS import in JS ${importPath}: ${
-            error instanceof Error ? error.message : String(error)
+            getErrorMessage(error)
           }`,
         );
         return null;
@@ -1061,7 +1061,7 @@ async function rewriteHqlImportsInJs(
       } catch (error) {
         logger.debug(
           `Failed to create placeholder JS file: ${
-            error instanceof Error ? error.message : String(error)
+            getErrorMessage(error)
           }`,
         );
       }
@@ -1086,7 +1086,7 @@ async function rewriteHqlImportsInJs(
       } catch (error) {
         logger.debug(
           `Failed TS->JS quick transpile for ${cachedTsPath}: ${
-            error instanceof Error ? error.message : String(error)
+            getErrorMessage(error)
           }`,
         );
       }
@@ -1214,7 +1214,7 @@ async function processNestedImports(
     } catch (error) {
       logger.debug(
         `Error processing nested import ${importPath}: ${
-          error instanceof Error ? error.message : String(error)
+          getErrorMessage(error)
         }`,
       );
     }
@@ -1299,7 +1299,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
   } catch (error) {
     logger.error(
       `Error processing HQL file ${sourceFile}: ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     throw error;
@@ -1353,7 +1353,7 @@ export async function createTempDirIfNeeded(
 
     return { tempDir, created: true };
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorMsg = getErrorMessage(error);
     throw new Error(`Creating temporary directory: ${errorMsg}`);
   }
 }

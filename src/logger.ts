@@ -1,6 +1,8 @@
 /**
  * Enhanced logger module with improved namespace support and timing
  */
+import { getErrorMessage } from "./common/utils.ts";
+
 export interface LogOptions {
   text: string;
   namespace?: string;
@@ -233,9 +235,7 @@ export class Logger {
    * Log an error message (always shown, can include namespace)
    */
   error(message: string, error?: unknown, namespace?: string): void {
-    const errorDetails = error
-      ? `: ${error instanceof Error ? error.message : String(error)}`
-      : "";
+    const errorDetails = error ? `: ${getErrorMessage(error)}` : "";
     const prefix = namespace ? `[${namespace}] ` : "";
     console.error(`❌ ${prefix}${message}${errorDetails}`);
   }
