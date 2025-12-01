@@ -24,11 +24,16 @@
   },
   "tasks": {
     "test": "deno task test:unit",
-    "test:unit": "deno test --allow-all tests/test/**/*.test.ts",
-    "test:binary": "HQL_TEST_BINARY=1 deno test --allow-all tests/test/**/*.test.ts",
+    "test:unit": "deno test --allow-all tests/unit/**/*.test.ts",
+    "test:binary": "HQL_TEST_BINARY=1 deno test --allow-all tests/binary/**/*.test.ts",
+    "test:binary:cli": "HQL_TEST_BINARY=1 deno test --allow-all tests/binary/cli/**/*.test.ts",
+    "test:binary:stdlib": "HQL_TEST_BINARY=1 deno test --allow-all tests/binary/stdlib/**/*.test.ts",
+    "test:binary:quick": "deno test --allow-all tests/binary/**/*.test.ts",
+    "test:compat": "deno test --allow-all tests/binary/compat/**/*.test.ts",
     "test:e2e": "deno run -A scripts/run-local-examples-all.ts",
-    "test:all": "deno task test:unit && deno task test:e2e",
-    "test:watch": "deno test --allow-all --watch tests/test/**/*.test.ts",
+    "test:all": "deno task test:unit && deno task test:binary:quick && deno task test:compat",
+    "test:all:binary": "deno task test:unit && deno task test:binary && HQL_TEST_BINARY=1 deno task test:compat",
+    "test:watch": "deno test --allow-all --watch tests/unit/**/*.test.ts",
     "verify": "./verify-codebase.sh",
     "check:platform": "deno run -A scripts/check-platform.ts"
   }
