@@ -178,6 +178,47 @@ Multi-way conditional:
   [else    "Positive"])
 ```
 
+### Pattern Matching
+
+Match values against patterns:
+```lisp
+(match value
+  (case 200 "OK")
+  (case 404 "Not Found")
+  (default "Unknown"))
+```
+
+Destructure arrays:
+```lisp
+(match point
+  (case [x, y] (+ x y))
+  (case [x, y, z] (+ x y z))
+  (default 0))
+```
+
+Destructure objects:
+```lisp
+(match user
+  (case {name: n, age: a} (+ n " is " a))
+  (default "Unknown"))
+```
+
+Guards for conditions:
+```lisp
+(match n
+  (case x (if (> x 0)) "positive")
+  (case x (if (< x 0)) "negative")
+  (default "zero"))
+```
+
+Rest patterns:
+```lisp
+(fn sum [lst]
+  (match lst
+    (case [] 0)
+    (case [h, & t] (+ h (sum t)))))
+```
+
 ### Loops
 
 For loop:

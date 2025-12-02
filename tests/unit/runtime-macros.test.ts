@@ -55,8 +55,9 @@ Deno.test("Runtime Macros - Rest Parameters", async () => {
   assertEquals(macros.mylist.restParam, "args", "Should have rest param");
 
   const expanded = await macroexpandRuntime("(mylist 1 2 3)") as unknown[];
-  assertEquals(expanded[0], "list");
-  assertEquals(expanded.length, 4, "Should have list + 3 args");
+  // 'list' is a macro that expands to a vector literal [...], so full expansion yields 'vector'
+  assertEquals(expanded[0], "vector");
+  assertEquals(expanded.length, 4, "Should have vector + 3 args");
 });
 
 Deno.test("Runtime Macros - Mixed Parameters", async () => {
@@ -74,7 +75,8 @@ Deno.test("Runtime Macros - Mixed Parameters", async () => {
   ) as unknown[];
   assertEquals(expanded[0], "if");
   const condition = expanded[1] as unknown[];
-  assertEquals(condition[0], "not");
+  // 'not' is a macro that expands to (if ...), so full expansion yields 'if'
+  assertEquals(condition[0], "if");
 });
 
 Deno.test("Runtime Macros - Empty Parameters", async () => {

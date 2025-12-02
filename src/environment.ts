@@ -59,8 +59,6 @@ export class Environment {
   public moduleExports = new Map<string, Record<string, Value>>();
 
   private parent: Environment | null;
-  private static globalEnv: Environment | null = null;
-  private static globalEnvPromise: Promise<Environment> | null = null;
   private processedFiles = new Set<string>();
   private lookupCache = new LRUCache<string, Value>(500);
   private macroRegistry: MacroRegistry;
@@ -75,55 +73,18 @@ export class Environment {
   // Track which macros have been imported into the current file: macroName -> true
   private importedMacros = new Set<string>();
 
-  static initializeGlobalEnv(): Promise<Environment> {
-    // If already initialized, return immediately
-    if (Environment.globalEnv) {
-      logger.debug("Reusing existing global environment");
-      return Promise.resolve(Environment.globalEnv);
-    }
-
-    // If initialization is in progress, wait for it to complete
-    if (Environment.globalEnvPromise) {
-      logger.debug("Waiting for ongoing global environment initialization");
-      return Environment.globalEnvPromise;
-    }
-
-    // Start initialization and store the promise
-    logger.debug("Starting new global environment initialization");
-    Environment.globalEnvPromise = new Promise((resolve, reject) => {
-      try {
-        const env = new Environment(null, logger);
-        env.initializeBuiltins();
-        logger.debug("Global environment initialized successfully");
-
-        // Store the result and clear the promise
-        Environment.globalEnv = env;
-        Environment.globalEnvPromise = null;
-
-        resolve(env);
-      } catch (error) {
-        const msg = getErrorMessage(error);
-        logger.error(`Failed to initialize global environment: ${msg}`);
-
-        // Clear the promise on error so retry is possible
-        Environment.globalEnvPromise = null;
-
-        if (!(error instanceof TranspilerError)) {
-          reject(new TranspilerError(
-            `Global environment initialization failed: ${msg}`,
-          ));
-        } else {
-          reject(error);
-        }
-      }
-    });
-
-    return Environment.globalEnvPromise;
+  /**
+   * Create a standard environment with built-ins loaded.
+   * This is the factory method for creating a fresh environment.
+   */
+  static async createStandard(): Promise<Environment> {
+    const env = new Environment(null, logger);
+    env.initializeBuiltins();
+    return env;
   }
 
-  static getGlobalEnv(): Environment | null {
-    return Environment.globalEnv;
-  }
+  // Legacy singleton removed to enforce dependency injection and statelessness.
+  // Use Environment.createStandard() instead.
 
   constructor(parent: Environment | null = null, logger?: Logger) {
     this.parent = parent;

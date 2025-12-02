@@ -228,6 +228,38 @@ Cond (multi-way):
   [else (print "F")])
 ```
 
+Pattern matching:
+
+```lisp
+;; Match values with patterns
+(match status-code
+  (case 200 "OK")
+  (case 404 "Not Found")
+  (default "Unknown"))
+
+;; Destructure arrays
+(match point
+  (case [x, y] (+ "x=" x ", y=" y))
+  (default "Invalid point"))
+
+;; Destructure objects
+(match user
+  (case {name: n, age: a} (+ n " is " a))
+  (default "Unknown user"))
+
+;; Guards for conditions
+(match n
+  (case x (if (> x 0)) "positive")
+  (case x (if (< x 0)) "negative")
+  (default "zero"))
+
+;; Rest patterns for lists
+(fn sum [lst]
+  (match lst
+    (case [] 0)
+    (case [h, & t] (+ h (sum t)))))
+```
+
 ### Lesson 12: Loops
 
 For loop:

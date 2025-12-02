@@ -54,14 +54,14 @@ interface SourcePosition {
 }
 
 const TOKEN_PATTERNS = {
-  TEMPLATE_LITERAL: /^`(?!\(|\[)(?:[^`\\$]|\\[\s\S]|\$(?!\{)|\$\{(?:[^}\\]|\\[\s\S])*\})*`/,
-  SPREAD_OPERATOR: /^\.\.\.(?![a-zA-Z_$])/,  // ... not followed by identifier (for inline expressions)
-  REST_PARAM: /^\.\.\.([a-zA-Z_$][a-zA-Z0-9_$-]*)/,  // ...identifier for rest parameters
-  SPECIAL_TOKENS: /^(#\[|\(|\)|\[|\]|\{|\}|\.|\:|,|'|`|~@|~)/,
-  STRING: /^"(?:\\.|[^\\"])*"/,
-  COMMENT: /^(;.*|\/\/.*|\/\*[\s\S]*?\*\/)/,
-  WHITESPACE: /^\s+/,
-  SYMBOL: /^[^\s\(\)\[\]\{\}"'`,;]+/, // Allow : in symbols for named params (y:)
+  TEMPLATE_LITERAL: /`(?!\(|\[)(?:[^`\\$]|\\[\s\S]|\$(?!\{)|\$\{(?:[^}\\]|\\[\s\S])*\})*`/y,
+  SPREAD_OPERATOR: /\.\.\.(?![a-zA-Z_$])/y,  // ... not followed by identifier (for inline expressions)
+  REST_PARAM: /\.\.\.([a-zA-Z_$][a-zA-Z0-9_$-]*)/y,  // ...identifier for rest parameters
+  SPECIAL_TOKENS: /(#\[|\(|\)|\[|\]|\{|\}|\.|\:|,|'|`|~@|~)/y,
+  STRING: /"(?:\\.|[^\\"])*"/y,
+  COMMENT: /(;.*|\/\/.*|\/\*[\s\S]*?\*\/)/y,
+  WHITESPACE: /\s+/y,
+  SYMBOL: /[^\s\(\)\[\]\{\}"'`,;]+/y, // Allow : in symbols for named params (y:)
 };
 
 /**
@@ -198,10 +198,12 @@ function buildUnclosedStringMessage(analysis: UnclosedStringAnalysis): string {
 
 function tokenize(input: string, filePath: string): Token[] {
   const tokens: Token[] = [];
-  let remaining = input, line = 1, column = 1, offset = 0;
+  let cursor = 0;
+  let line = 1;
+  let column = 1;
 
-  while (remaining.length > 0) {
-    const token = matchNextToken(remaining, line, column, offset, filePath);
+  while (cursor < input.length) {
+    const token = matchNextToken(input, cursor, line, column, filePath);
 
     if (
       token.type === TokenType.Comment || token.type === TokenType.Whitespace ||
@@ -221,13 +223,14 @@ function tokenize(input: string, filePath: string): Token[] {
       tokens.push(token);
     }
 
-    offset += token.value.length;
-    remaining = remaining.substring(token.value.length);
+    const len = token.value.length;
+    cursor += len;
+    
     if (
       token.type !== TokenType.Comment && token.type !== TokenType.Whitespace &&
       token.type !== TokenType.Comma
     ) {
-      column += token.value.length;
+      column += len;
     }
   }
 
@@ -883,30 +886,35 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
  */
 function matchNextToken(
   input: string,
+  cursor: number,
   line: number,
   column: number,
-  offset: number,
   filePath: string,
 ): Token {
-  const position: SourcePosition = { line, column, offset, filePath };
+  const position: SourcePosition = { line, column, offset: cursor, filePath };
 
-  // Define patterns to match
+  // Helper to execute sticky regex at cursor
+  const matchAtCursor = (pattern: RegExp): RegExpExecArray | null => {
+    pattern.lastIndex = cursor;
+    return pattern.exec(input);
+  };
+
   let match;
 
   // First check for template literals (must come before special tokens to catch backticks)
-  match = input.match(TOKEN_PATTERNS.TEMPLATE_LITERAL);
+  match = matchAtCursor(TOKEN_PATTERNS.TEMPLATE_LITERAL);
   if (match) return { type: TokenType.TemplateLiteral, value: match[0], position };
 
   // Check for spread operator (...) before rest parameters (for inline expressions)
-  match = input.match(TOKEN_PATTERNS.SPREAD_OPERATOR);
+  match = matchAtCursor(TOKEN_PATTERNS.SPREAD_OPERATOR);
   if (match) return { type: TokenType.Symbol, value: match[0], position };
 
   // Check for rest parameters (...identifier) before special tokens (to prevent ... being split into dots)
-  match = input.match(TOKEN_PATTERNS.REST_PARAM);
+  match = matchAtCursor(TOKEN_PATTERNS.REST_PARAM);
   if (match) return { type: TokenType.Symbol, value: match[0], position };
 
   // Then check for special tokens
-  match = input.match(TOKEN_PATTERNS.SPECIAL_TOKENS);
+  match = matchAtCursor(TOKEN_PATTERNS.SPECIAL_TOKENS);
   if (match) {
     return {
       type: getTokenTypeForSpecial(match[0]),
@@ -916,19 +924,19 @@ function matchNextToken(
   }
 
   // Then check for strings
-  match = input.match(TOKEN_PATTERNS.STRING);
+  match = matchAtCursor(TOKEN_PATTERNS.STRING);
   if (match) return { type: TokenType.String, value: match[0], position };
 
   // Then check for comments
-  match = input.match(TOKEN_PATTERNS.COMMENT);
+  match = matchAtCursor(TOKEN_PATTERNS.COMMENT);
   if (match) return { type: TokenType.Comment, value: match[0], position };
 
   // Then check for whitespace
-  match = input.match(TOKEN_PATTERNS.WHITESPACE);
+  match = matchAtCursor(TOKEN_PATTERNS.WHITESPACE);
   if (match) return { type: TokenType.Whitespace, value: match[0], position };
 
   // Finally check for symbols
-  match = input.match(TOKEN_PATTERNS.SYMBOL);
+  match = matchAtCursor(TOKEN_PATTERNS.SYMBOL);
   if (match) {
     const value = match[0];
     // If it's a number, return as number token
@@ -940,11 +948,10 @@ function matchNextToken(
   }
 
   // Check for unclosed string literal
-  // If we see an opening quote but the STRING pattern didn't match,
-  // it means the string is not properly closed
-  if (input[0] === '"') {
+  if (input[cursor] === '"') {
     // Analyze string to provide context-aware error message
-    const analysis = analyzeUnclosedString(input);
+    // Pass sliced string for analysis (error case only, perf not critical)
+    const analysis = analyzeUnclosedString(input.slice(cursor));
     const message = buildUnclosedStringMessage(analysis);
 
     throw new ParseError(
@@ -961,7 +968,7 @@ function matchNextToken(
 
   // If we get here, there's an unexpected character
   // Provide enhanced error context
-  const unexpectedChar = input[0] || "end of file";
+  const unexpectedChar = input[cursor] || "end of file";
   let errorContext = "";
 
   // Get some context for a better error message

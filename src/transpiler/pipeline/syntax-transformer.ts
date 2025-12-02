@@ -38,414 +38,324 @@ export function transformSyntax(ast: SExp[]): SExp[] {
     globalSymbolTable.clear();
   }
 
-  // === Phase 1: Register enums and cases ===
   const enumDefinitions = new Map<string, SList>();
+
+  // === Phase 1: Unified Symbol Registration ===
   for (const node of ast) {
-    if (isList(node)) {
-      const list = node as SList;
-      if (
-        list.elements.length > 0 && isSymbol(list.elements[0]) &&
-        (list.elements[0] as SSymbol).name === "enum" &&
-        list.elements.length > 1 && isSymbol(list.elements[1])
-      ) {
-        const enumName = (list.elements[1] as SSymbol).name.split(":")[0];
-        enumDefinitions.set(enumName, list);
-        const cases: string[] = [];
-        const associatedValues: { name: string; type?: string }[] = [];
-        for (let i = 2; i < list.elements.length; i++) {
-          const el = list.elements[i];
-          if (
-            isList(el) && el.elements.length > 1 && isSymbol(el.elements[0]) &&
-            (el.elements[0] as SSymbol).name === "case"
-          ) {
-            const caseName = (el.elements[1] as SSymbol)?.name;
-            if (caseName) cases.push(caseName);
-            if (el.elements.length > 2 && isList(el.elements[2])) {
-              for (const field of (el.elements[2] as SList).elements) {
-                if (isSymbol(field)) {
-                  const fieldStr = (field as SSymbol).name;
-                  // Type annotations removed - just store field names
-                  associatedValues.push({ name: fieldStr, type: undefined });
-                }
-              }
-            }
-            globalSymbolTable.set({
-              name: `${enumName}.${caseName}`,
-              kind: "enum-case",
-              parent: enumName,
-              scope: "global",
-              associatedValues,
-              definition: el,
-            });
-          }
-        }
-        globalSymbolTable.set({
-          name: enumName,
-          kind: "enum",
-          cases,
-          associatedValues,
-          scope: "global",
-          definition: list,
-        });
-      }
+    if (!isList(node)) continue;
+    const list = node as SList;
+    if (list.elements.length === 0 || !isSymbol(list.elements[0])) continue;
+
+    const head = (list.elements[0] as SSymbol).name;
+
+    switch (head) {
+      case "enum":
+        registerEnum(list, enumDefinitions);
+        break;
+      case "class":
+        registerClass(list);
+        break;
+      case "fn":
+      case "macro":
+        registerFunctionOrMacro(list, head);
+        break;
+      case "let":
+      case "var":
+        registerBinding(list, head);
+        break;
+      case "module":
+      case "import":
+      case "export":
+      case "namespace":
+      case "alias":
+      case "operator":
+      case "constant":
+      case "property":
+      case "special-form":
+      case "builtin":
+        registerModuleConstruct(list, head);
+        break;
     }
   }
+
   logger.debug(
-    "=== Symbol Table after ENUM phase ===\n" +
+    "=== Symbol Table after Registration phase ===\n" +
       JSON.stringify(globalSymbolTable.dump(), null, 2),
   );
 
-  // === Phase 2: Register classes ===
-  for (const node of ast) {
-    if (isList(node)) {
-      const list = node as SList;
-      if (list.elements.length > 0 && isSymbol(list.elements[0])) {
-        const head = (list.elements[0] as SSymbol).name;
-        if (
-          ["class"].includes(head) && list.elements.length > 1 &&
-          isSymbol(list.elements[1])
-        ) {
-          const typeName = (list.elements[1] as SSymbol).name;
-          const fields: { name: string; type?: string }[] = [];
-          const methods: {
-            name: string;
-            params?: { name: string; type?: string }[];
-            returnType?: string;
-          }[] = [];
-          for (let i = 2; i < list.elements.length; i++) {
-            const el = list.elements[i];
-            if (
-              isList(el) && el.elements.length > 0 && isSymbol(el.elements[0])
-            ) {
-              const subHead = (el.elements[0] as SSymbol).name;
-              if (
-                subHead === "field" && el.elements.length > 1 &&
-                isSymbol(el.elements[1])
-              ) {
-                const fieldName = (el.elements[1] as SSymbol).name;
-                let fieldType = undefined;
-                if (el.elements.length > 2 && isSymbol(el.elements[2])) {
-                  fieldType = (el.elements[2] as SSymbol).name;
-                }
-                fields.push({ name: fieldName, type: fieldType });
-                globalSymbolTable.set({
-                  name: `${typeName}.${fieldName}`,
-                  kind: "field",
-                  parent: typeName,
-                  scope: "class",
-                  type: fieldType,
-                  definition: el,
-                });
-              } else if (
-                subHead === "fn" && el.elements.length > 1 &&
-                isSymbol(el.elements[1])
-              ) {
-                const mName = (el.elements[1] as SSymbol).name;
-                let params: { name: string; type?: string }[] = [];
-                const returnType: string | undefined = undefined;
-                if (el.elements.length > 2 && isList(el.elements[2])) {
-                  params = (el.elements[2] as SList).elements.map((p) => {
-                    if (isSymbol(p)) {
-                      const pname = (p as SSymbol).name;
-                      // Type annotations removed - param names only
-                      return { name: pname };
-                    }
-                    return { name: "?" };
-                  });
-                }
-                // Return type annotations removed
-                methods.push({ name: mName, params, returnType });
-                globalSymbolTable.set({
-                  name: `${typeName}.${mName}`,
-                  kind: "method",
-                  parent: typeName,
-                  scope: "class",
-                  params,
-                  returnType,
-                  definition: el,
-                });
-              }
-            }
-          }
-          globalSymbolTable.set({
-            name: typeName,
-            kind: "class",
-            fields,
-            methods,
-            scope: "global",
-            definition: list,
-          });
-        }
-      }
-    }
-  }
-  logger.debug(
-    "=== Symbol Table after CLASS phase ===\n" +
-      JSON.stringify(globalSymbolTable.dump(), null, 2),
-  );
-
-  // === Phase 3: Register functions, macros ===
-  for (const node of ast) {
-    if (isList(node)) {
-      const list = node as SList;
-      if (list.elements.length > 0 && isSymbol(list.elements[0])) {
-        const head = (list.elements[0] as SSymbol).name;
-        if (
-          ["fn", "macro"].includes(head) && list.elements.length > 1 &&
-          isSymbol(list.elements[1])
-        ) {
-          const name = (list.elements[1] as SSymbol).name;
-          const kind = head === "fn" ? "function" : "macro";
-          let params: { name: string; type?: string }[] | undefined = undefined;
-          const returnType: string | undefined = undefined;
-          if (list.elements.length > 2 && isList(list.elements[2])) {
-            params = (list.elements[2] as SList).elements.map((p) => {
-              if (isSymbol(p)) {
-                const pname = (p as SSymbol).name;
-                // Type annotations removed - param names only
-                return { name: pname };
-              }
-              return { name: "?" };
-            });
-          }
-          // Return type annotations removed
-          globalSymbolTable.set({
-            name,
-            kind,
-            scope: "global",
-            params,
-            returnType,
-            definition: list,
-          });
-        }
-      }
-    }
-  }
-  logger.debug(
-    "=== Symbol Table after FUNCTION/MACRO/FX phase ===\n" +
-      JSON.stringify(globalSymbolTable.dump(), null, 2),
-  );
-
-  // === Phase 4: Register let bindings and data types ===
-  for (const node of ast) {
-    if (isList(node)) {
-      const list = node as SList;
-      if (list.elements.length > 0 && isSymbol(list.elements[0])) {
-        const head = (list.elements[0] as SSymbol).name;
-
-        // Process let binding (either global binding form or with a binding list)
-        if (head === "let" || head === "var") {
-          const bindingKeyword = head;
-          const isMutable = head === "var";
-          try {
-            // Global binding form: (let name value)
-            if (list.elements.length === 3 && isSymbol(list.elements[1])) {
-              const varName = (list.elements[1] as SSymbol).name;
-              const valueNode = list.elements[2];
-
-              // Register variable and detect its type
-              const dataType = inferDataType(valueNode);
-              globalSymbolTable.set({
-                name: varName,
-                kind: "variable",
-                type: dataType,
-                scope: "local",
-                definition: valueNode,
-                attributes: { mutable: isMutable },
-              });
-
-              logger.debug(
-                `Registered ${bindingKeyword} binding: ${varName} with type ${dataType}`,
-              );
-            } // Binding list form: (let (name1 value1 name2 value2...) body...)
-            // OR destructuring form: (let [pattern] value) or (let {pattern} value)
-            else if (list.elements.length > 1 && isList(list.elements[1])) {
-              let bindings = list.elements[1] as SList;
-
-              // Track if this was originally vector syntax [...] or hash-map syntax {...}
-              // Only these syntaxes should be treated as destructuring patterns!
-              const hadVectorPrefix = bindings.elements.length > 0 &&
-                isSymbol(bindings.elements[0]) &&
-                ((bindings.elements[0] as SSymbol).name === "vector" ||
-                  (bindings.elements[0] as SSymbol).name === "empty-array");
-
-              const hadHashMapPrefix = bindings.elements.length > 0 &&
-                isSymbol(bindings.elements[0]) &&
-                (bindings.elements[0] as SSymbol).name === "hash-map";
-
-              // Handle vector notation: [x 10 y 20] is parsed as (vector x 10 y 20)
-              // Skip the "vector" symbol if present
-              // Note: For hash-map, we keep the symbol because couldBePattern expects it
-              if (hadVectorPrefix) {
-                bindings = {
-                  ...bindings,
-                  elements: bindings.elements.slice(1),
-                } as SList;
-              }
-
-              // Check if this is a destructuring pattern (e.g., [x y z] or {x y})
-              // If so, skip validation - the transform function will handle it
-              // Only treat as pattern if it came from vector syntax [...] or hash-map syntax {...}
-              const isPattern = (hadVectorPrefix || hadHashMapPrefix) &&
-                couldBePattern(bindings);
-
-              // Only validate even number of elements for multi-binding forms
-              // Destructuring patterns and empty bindings can have any number of elements
-              if (
-                !isPattern && bindings.elements.length > 0 &&
-                bindings.elements.length % 2 !== 0
-              ) {
-                const errorLoc = getLocationFromNode(bindings);
-                throw new TransformError(
-                  `${bindingKeyword} bindings require an even number of forms (pairs of name and value)`,
-                  `${bindingKeyword} bindings validation`,
-                  withSourceLocationOpts(errorLoc, list),
-                );
-              }
-
-              // Skip symbol table registration for destructuring patterns
-              // The transform function will extract identifiers from patterns
-              if (!isPattern) {
-                // Process each binding pair (multi-binding form only)
-                for (let i = 0; i < bindings.elements.length; i += 2) {
-                  if (
-                    i + 1 < bindings.elements.length &&
-                    isSymbol(bindings.elements[i])
-                  ) {
-                    const varName = (bindings.elements[i] as SSymbol).name;
-                    const valueNode = bindings.elements[i + 1];
-
-                    // Register variable and detect its type
-                    const dataType = inferDataType(valueNode);
-
-                    globalSymbolTable.set({
-                      name: varName,
-                      kind: "variable",
-                      type: dataType,
-                      scope: "local",
-                      definition: valueNode,
-                      attributes: { mutable: isMutable },
-                    });
-
-                    logger.debug(
-                      `Registered ${bindingKeyword} binding: ${varName} with type ${dataType}`,
-                    );
-                  } else if (i + 1 < bindings.elements.length) {
-                    // Error: Binding name is not a symbol
-                    const errorLoc = getLocationFromNode(bindings.elements[i]);
-                    throw new TransformError(
-                      `${bindingKeyword} binding name must be a symbol`,
-                      `${bindingKeyword} binding name validation`,
-                      withSourceLocationOpts(errorLoc, bindings.elements[i]),
-                    );
-                  }
-                }
-              }
-            } else if (list.elements.length > 1) {
-              // Invalid form
-              const errorLoc = getLocationFromNode(list);
-              throw new TransformError(
-                `Invalid ${bindingKeyword} form: must be either (${bindingKeyword} name value) or (${bindingKeyword} (bindings...) body...)`,
-                `${bindingKeyword} form validation`,
-                withSourceLocationOpts(errorLoc, list),
-              );
-            }
-          } catch (error) {
-            // Preserve HQLError instances (ValidationError, ParseError, etc.)
-            if (error instanceof HQLError) {
-              throw error;
-            }
-            const errorLoc = getLocationFromNode(list);
-            throw new TransformError(
-              `Invalid let form: ${
-                getErrorMessage(error)
-              }`,
-              "let form validation",
-              withSourceLocationOpts(errorLoc, list),
-            );
-          }
-        }
-      }
-    }
-  }
-  logger.debug(
-    "=== Symbol Table after LET phase ===\n" +
-      JSON.stringify(globalSymbolTable.dump(), null, 2),
-  );
-
-  // === Phase 5: Register module/import/export/namespace/alias/operator/constant/property/special-form/builtin ===
-  for (const node of ast) {
-    if (isList(node)) {
-      const list = node as SList;
-      if (list.elements.length > 0 && isSymbol(list.elements[0])) {
-        const head = (list.elements[0] as SSymbol).name;
-        if (
-          ["module", "import", "export", "namespace", "alias"].includes(head)
-        ) {
-          const name = (list.elements[1] && isSymbol(list.elements[1]))
-            ? (list.elements[1] as SSymbol).name
-            : undefined;
-          if (name) {
-            const symbolKind = head as SymbolKind;
-            globalSymbolTable.set({
-              name,
-              kind: symbolKind,
-              scope: "global",
-              definition: list,
-            });
-          }
-        }
-        if (
-          ["operator", "constant", "property", "special-form", "builtin"]
-            .includes(head)
-        ) {
-          const name = (list.elements[1] && isSymbol(list.elements[1]))
-            ? (list.elements[1] as SSymbol).name
-            : undefined;
-          if (name) {
-            const symbolKind = head as SymbolKind;
-            globalSymbolTable.set({
-              name,
-              kind: symbolKind,
-              scope: "global",
-              definition: list,
-            });
-          }
-        }
-      }
-    }
-  }
-  logger.debug(
-    "=== Symbol Table after MODULE/IMPORT/EXPORT/ETC. phase ===\n" +
-      JSON.stringify(globalSymbolTable.dump(), null, 2),
-  );
-
-  // === Phase 6: Transform nodes with all the collected metadata ===
+  // === Phase 2: Transform nodes ===
   const transformed: SExp[] = [];
   for (const node of ast) {
     try {
       transformed.push(transformNode(node, enumDefinitions, logger));
     } catch (error) {
-      // Preserve HQLError instances (ValidationError, ParseError, TransformError, etc.)
       if (error instanceof HQLError) {
         throw error;
       }
-      // Convert regular error to TransformError with source location
       const errorLoc = getLocationFromNode(node);
       throw new TransformError(
-        `Transformation error: ${
-          getErrorMessage(error)
-        }`,
+        `Transformation error: ${getErrorMessage(error)}`,
         "node transformation",
         withSourceLocationOpts(errorLoc, node),
       );
     }
   }
-  logger.debug(
-    "=== FINAL Symbol Table ===\n" +
-      JSON.stringify(globalSymbolTable.dump(), null, 2),
-  );
+  
   return transformed;
+}
+
+function registerEnum(list: SList, enumDefinitions: Map<string, SList>): void {
+  if (list.elements.length > 1 && isSymbol(list.elements[1])) {
+    const enumName = (list.elements[1] as SSymbol).name.split(":")[0];
+    enumDefinitions.set(enumName, list);
+    const cases: string[] = [];
+    const associatedValues: { name: string; type?: string }[] = [];
+    for (let i = 2; i < list.elements.length; i++) {
+      const el = list.elements[i];
+      if (
+        isList(el) && el.elements.length > 1 && isSymbol(el.elements[0]) &&
+        (el.elements[0] as SSymbol).name === "case"
+      ) {
+        const caseName = (el.elements[1] as SSymbol)?.name;
+        if (caseName) cases.push(caseName);
+        if (el.elements.length > 2 && isList(el.elements[2])) {
+          for (const field of (el.elements[2] as SList).elements) {
+            if (isSymbol(field)) {
+              const fieldStr = (field as SSymbol).name;
+              associatedValues.push({ name: fieldStr, type: undefined });
+            }
+          }
+        }
+        globalSymbolTable.set({
+          name: `${enumName}.${caseName}`,
+          kind: "enum-case",
+          parent: enumName,
+          scope: "global",
+          associatedValues,
+          definition: el,
+        });
+      }
+    }
+    globalSymbolTable.set({
+      name: enumName,
+      kind: "enum",
+      cases,
+      associatedValues,
+      scope: "global",
+      definition: list,
+    });
+  }
+}
+
+function registerClass(list: SList): void {
+  if (list.elements.length > 1 && isSymbol(list.elements[1])) {
+    const typeName = (list.elements[1] as SSymbol).name;
+    const fields: { name: string; type?: string }[] = [];
+    const methods: {
+      name: string;
+      params?: { name: string; type?: string }[];
+      returnType?: string;
+    }[] = [];
+    for (let i = 2; i < list.elements.length; i++) {
+      const el = list.elements[i];
+      if (isList(el) && el.elements.length > 0 && isSymbol(el.elements[0])) {
+        const subHead = (el.elements[0] as SSymbol).name;
+        if (
+          subHead === "field" && el.elements.length > 1 &&
+          isSymbol(el.elements[1])
+        ) {
+          const fieldName = (el.elements[1] as SSymbol).name;
+          let fieldType = undefined;
+          if (el.elements.length > 2 && isSymbol(el.elements[2])) {
+            fieldType = (el.elements[2] as SSymbol).name;
+          }
+          fields.push({ name: fieldName, type: fieldType });
+          globalSymbolTable.set({
+            name: `${typeName}.${fieldName}`,
+            kind: "field",
+            parent: typeName,
+            scope: "class",
+            type: fieldType,
+            definition: el,
+          });
+        } else if (
+          subHead === "fn" && el.elements.length > 1 &&
+          isSymbol(el.elements[1])
+        ) {
+          const mName = (el.elements[1] as SSymbol).name;
+          let params: { name: string; type?: string }[] = [];
+          const returnType: string | undefined = undefined;
+          if (el.elements.length > 2 && isList(el.elements[2])) {
+            params = (el.elements[2] as SList).elements.map((p) => {
+              if (isSymbol(p)) {
+                const pname = (p as SSymbol).name;
+                return { name: pname };
+              }
+              return { name: "?" };
+            });
+          }
+          methods.push({ name: mName, params, returnType });
+          globalSymbolTable.set({
+            name: `${typeName}.${mName}`,
+            kind: "method",
+            parent: typeName,
+            scope: "class",
+            params,
+            returnType,
+            definition: el,
+          });
+        }
+      }
+    }
+    globalSymbolTable.set({
+      name: typeName,
+      kind: "class",
+      fields,
+      methods,
+      scope: "global",
+      definition: list,
+    });
+  }
+}
+
+function registerFunctionOrMacro(list: SList, head: string): void {
+  if (list.elements.length > 1 && isSymbol(list.elements[1])) {
+    const name = (list.elements[1] as SSymbol).name;
+    const kind = head === "fn" ? "function" : "macro";
+    let params: { name: string; type?: string }[] | undefined = undefined;
+    const returnType: string | undefined = undefined;
+    if (list.elements.length > 2 && isList(list.elements[2])) {
+      params = (list.elements[2] as SList).elements.map((p) => {
+        if (isSymbol(p)) {
+          const pname = (p as SSymbol).name;
+          return { name: pname };
+        }
+        return { name: "?" };
+      });
+    }
+    globalSymbolTable.set({
+      name,
+      kind,
+      scope: "global",
+      params,
+      returnType,
+      definition: list,
+    });
+  }
+}
+
+function registerBinding(list: SList, bindingKeyword: string): void {
+  const isMutable = bindingKeyword === "var";
+  try {
+    if (list.elements.length === 3 && isSymbol(list.elements[1])) {
+      const varName = (list.elements[1] as SSymbol).name;
+      const valueNode = list.elements[2];
+      const dataType = inferDataType(valueNode);
+      globalSymbolTable.set({
+        name: varName,
+        kind: "variable",
+        type: dataType,
+        scope: "local",
+        definition: valueNode,
+        attributes: { mutable: isMutable },
+      });
+      logger.debug(
+        `Registered ${bindingKeyword} binding: ${varName} with type ${dataType}`,
+      );
+    } else if (list.elements.length > 1 && isList(list.elements[1])) {
+      let bindings = list.elements[1] as SList;
+      const hadVectorPrefix = bindings.elements.length > 0 &&
+        isSymbol(bindings.elements[0]) &&
+        ((bindings.elements[0] as SSymbol).name === "vector" ||
+          (bindings.elements[0] as SSymbol).name === "empty-array");
+      const hadHashMapPrefix = bindings.elements.length > 0 &&
+        isSymbol(bindings.elements[0]) &&
+        (bindings.elements[0] as SSymbol).name === "hash-map";
+
+      if (hadVectorPrefix) {
+        bindings = {
+          ...bindings,
+          elements: bindings.elements.slice(1),
+        } as SList;
+      }
+
+      const isPattern = (hadVectorPrefix || hadHashMapPrefix) &&
+        couldBePattern(bindings);
+
+      if (
+        !isPattern && bindings.elements.length > 0 &&
+        bindings.elements.length % 2 !== 0
+      ) {
+        const errorLoc = getLocationFromNode(bindings);
+        throw new TransformError(
+          `${bindingKeyword} bindings require an even number of forms (pairs of name and value)`,
+          `${bindingKeyword} bindings validation`,
+          withSourceLocationOpts(errorLoc, list),
+        );
+      }
+
+      if (!isPattern) {
+        for (let i = 0; i < bindings.elements.length; i += 2) {
+          if (
+            i + 1 < bindings.elements.length &&
+            isSymbol(bindings.elements[i])
+          ) {
+            const varName = (bindings.elements[i] as SSymbol).name;
+            const valueNode = bindings.elements[i + 1];
+            const dataType = inferDataType(valueNode);
+            globalSymbolTable.set({
+              name: varName,
+              kind: "variable",
+              type: dataType,
+              scope: "local",
+              definition: valueNode,
+              attributes: { mutable: isMutable },
+            });
+            logger.debug(
+              `Registered ${bindingKeyword} binding: ${varName} with type ${dataType}`,
+            );
+          } else if (i + 1 < bindings.elements.length) {
+            const errorLoc = getLocationFromNode(bindings.elements[i]);
+            throw new TransformError(
+              `${bindingKeyword} binding name must be a symbol`,
+              `${bindingKeyword} binding name validation`,
+              withSourceLocationOpts(errorLoc, bindings.elements[i]),
+            );
+          }
+        }
+      }
+    } else if (list.elements.length > 1) {
+      const errorLoc = getLocationFromNode(list);
+      throw new TransformError(
+        `Invalid ${bindingKeyword} form: must be either (${bindingKeyword} name value) or (${bindingKeyword} (bindings...) body...)`,
+        `${bindingKeyword} form validation`,
+        withSourceLocationOpts(errorLoc, list),
+      );
+    }
+  } catch (error) {
+    if (error instanceof HQLError) throw error;
+    const errorLoc = getLocationFromNode(list);
+    throw new TransformError(
+      `Invalid let form: ${getErrorMessage(error)}`,
+      "let form validation",
+      withSourceLocationOpts(errorLoc, list),
+    );
+  }
+}
+
+function registerModuleConstruct(list: SList, head: string): void {
+  const name = (list.elements[1] && isSymbol(list.elements[1]))
+    ? (list.elements[1] as SSymbol).name
+    : undefined;
+  if (name) {
+    const symbolKind = head as SymbolKind;
+    globalSymbolTable.set({
+      name,
+      kind: symbolKind,
+      scope: "global",
+      definition: list,
+    });
+  }
 }
 
 /**
@@ -896,9 +806,7 @@ function transformLetExpr(
     // Convert regular error to TransformError with location info
     const errorLoc = getLocationFromNode(list);
     throw new TransformError(
-      `Invalid let form: ${
-        getErrorMessage(error)
-      }`,
+      `Invalid let form: ${getErrorMessage(error)}`,
       "let form validation",
       withSourceLocationOpts(errorLoc, list),
     );

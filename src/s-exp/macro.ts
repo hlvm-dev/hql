@@ -30,8 +30,7 @@ import { getErrorMessage, isObjectValue, isNullish } from "../common/utils.ts";
 
 // Constants and caches
 const MAX_EXPANSION_ITERATIONS = 100;
-// Simplified cache: Map<symbol, isMacro> (macros are global, not per-directory)
-export const macroCache = new Map<string, boolean>();
+// macroCache removed - use env.hasMacro()
 export const macroExpansionCache = new LRUCache<string, SExp>(5000);
 // symbolRenameMap REMOVED - was part of broken automatic hygiene attempt
 // HQL uses manual hygiene (Common Lisp style) with gensym
@@ -252,14 +251,17 @@ export function defineMacro(
       body,
       logger,
     );
-    env.defineMacro(macroName, macroFn);
 
-    // BUG FIX: Clear BOTH caches when macro is (re)defined
-    // macroCache: "is this a macro?" lookup results
-    // macroExpansionCache: actual macro expansion results
-    macroCache.clear();
-    macroExpansionCache.clear();
-    logger.debug(`Registered global macro ${macroName} (caches cleared)`);
+    // BUG FIX: Only clear caches if we are redefining an existing macro
+    // This prevents wiping the cache 50+ times during standard library loading
+    if (env.hasMacro(macroName)) {
+      macroExpansionCache.clear();
+      logger.debug(`Redefined global macro ${macroName} (caches cleared)`);
+    } else {
+      logger.debug(`Registered global macro ${macroName}`);
+    }
+    
+    env.defineMacro(macroName, macroFn);
   } catch (error) {
     // Preserve HQLError instances (MacroError, ValidationError, etc.)
     if (error instanceof HQLError) {
@@ -316,23 +318,33 @@ export function expandMacros(
     logger.debug(`Macro expansion iteration ${iteration}`);
 
     const newExprs = currentExprs.map((expr) => {
-      const exprStr = useCache ? sexpToString(expr) : "";
-      if (useCache && macroExpansionCache.has(exprStr)) {
-        logger.debug(
-          `Cache hit for expression: ${exprStr.substring(0, 30)}...`,
-        );
-        return macroExpansionCache.get(exprStr)!;
-      }
+      // Optimization: Avoid serializing every expression for cache key in hot loop
+      // Only check cache if it's a potential macro call (symbol or list starting with symbol)
+      // This is a heuristic to avoid O(N) serialization for literals
+      
+      // For now, we skip the cache lookup in the hot loop to avoid the O(TreeSize) stringification
+      // The macro expansion is fast enough without this specific cache level if we avoid the stringify cost
+      
+      // If we really need caching here later, we should use a structural hash or WeakMap
+      
       const expandedExpr = expandMacroExpression(expr, env, options, 0);
-      if (useCache) {
-        macroExpansionCache.set(exprStr, expandedExpr);
-      }
       return expandedExpr;
     });
 
-    const oldStr = currentExprs.map(sexpToString).join("\n");
-    const newStr = newExprs.map(sexpToString).join("\n");
-    const changed = oldStr !== newStr;
+    // Optimization: Use reference equality to detect changes
+    // This requires expandMacroExpression to return the original object if unchanged
+    let changed = false;
+    if (currentExprs.length !== newExprs.length) {
+      changed = true;
+    } else {
+      for (let i = 0; i < currentExprs.length; i++) {
+        if (currentExprs[i] !== newExprs[i]) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    
     currentExprs = newExprs;
 
     if (!changed) {
@@ -365,36 +377,6 @@ export function expandMacros(
     logger.debug(`Clearing current file`);
   }
   return currentExprs;
-}
-
-/* Check if a symbol represents a macro with caching. */
-export function isMacro(symbolName: string): boolean {
-  return perform(
-    () => {
-      // Check cache first
-      if (macroCache.has(symbolName)) {
-        return macroCache.get(symbolName)!;
-      }
-
-      // Cache miss: check global environment
-      const env = Environment.getGlobalEnv();
-      if (!env) {
-        logger.debug(
-          `No global environment found, assuming '${symbolName}' is not a macro`,
-        );
-        macroCache.set(symbolName, false);
-        return false;
-      }
-
-      const result = env.hasMacro(symbolName);
-      macroCache.set(symbolName, result);
-      logger.debug(`Checking if '${symbolName}' is a macro: ${result}`);
-      return result;
-    },
-    `isMacro '${symbolName}'`,
-    TransformError,
-    [symbolName],
-  );
 }
 
 /* Evaluate an S-expression for macro expansion */
@@ -632,7 +614,17 @@ function evaluateMacroCall(
   return evaluateForMacro(expanded, env, logger);
 }
 
-/* Helper: Evaluate arguments for function calls */
+/* Helper: Evaluate arguments for function calls
+ *
+ * This function evaluates macro-time arguments and extracts values appropriately:
+ * - Literals: extract the primitive value (number, string, boolean)
+ * - Symbols: return as-is (S-expression symbol)
+ * - Lists: return as-is (S-expression list) - NOT converted to JS arrays
+ *
+ * This preserves S-expression type information for introspection functions
+ * like `list?` and `symbol?` while still extracting primitive values for
+ * arithmetic and comparison operations.
+ */
 function evaluateArguments(
   args: SExp[],
   env: Environment,
@@ -640,10 +632,9 @@ function evaluateArguments(
 ): unknown[] {
   return args.map((arg) => {
     const evalArg = evaluateForMacro(arg, env, logger);
+    // Extract primitive values from literals
     if (isLiteral(evalArg)) return evalArg.value;
-    if (isList(evalArg)) {
-      return (evalArg as SList).elements.map((e) => isLiteral(e) ? e.value : e);
-    }
+    // Return S-expressions (lists, symbols) as-is to preserve type information
     return evalArg;
   });
 }
@@ -932,13 +923,28 @@ function expandMacroExpression(
     }
   }
 
-  const expandedElements = list.elements.map((elem) =>
-    expandMacroExpression(elem, env, options, depth + 1)
-  );
+  let hasChanged = false;
+  const expandedElements = list.elements.map((elem) => {
+    const expanded = expandMacroExpression(elem, env, options, depth + 1);
+    if (expanded !== elem) {
+      hasChanged = true;
+    }
+    return expanded;
+  });
 
   const cleanedElements = expandedElements.filter((elem) =>
     !isMacroPlaceholder(elem)
   );
+  
+  if (cleanedElements.length !== expandedElements.length) {
+    hasChanged = true;
+  }
+
+  // Optimization: If nothing changed, return the original object
+  // This allows reference equality checks in the main loop
+  if (!hasChanged) {
+    return list;
+  }
 
   // Use createListFrom to preserve source location through transformation
   return createListFrom(list, cleanedElements);

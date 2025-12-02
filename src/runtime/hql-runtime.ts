@@ -27,6 +27,7 @@ import {
 } from "../s-exp/types.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { cwd as platformCwd } from "../platform/platform.ts";
+import { loadSystemMacros } from "../transpiler/hql-transpiler.ts";
 
 /**
  * Convert S-expression to JavaScript object
@@ -72,12 +73,14 @@ export class HQLRuntime {
   /**
    * Initialize the runtime environment
    */
-  initialize(): void {
+  async initialize(): Promise<void> {
     logger.debug("Initializing HQL runtime");
 
     // Create a fresh environment for the runtime
-    const env = new Environment(null);
-    env.initializeBuiltins();
+    const env = await Environment.createStandard();
+    // Load system macros (core.hql, etc.) into this environment
+    await loadSystemMacros(env, { baseDir: this.baseDir, verbose: this.options.verbose });
+    
     this.environment = env;
 
     // Set up initial macro registry
@@ -239,15 +242,17 @@ export class HQLRuntime {
     logger.debug("Resetting HQL runtime");
     this.macroRegistry.macros.clear();
     this.macroRegistry.functions?.clear();
+    
     // Create a fresh environment instead of reusing global
-    const freshEnv = new Environment(null);
-    freshEnv.initializeBuiltins();
+    const freshEnv = await Environment.createStandard();
+    // Load system macros into the fresh environment
+    await loadSystemMacros(freshEnv, { baseDir: this.baseDir, verbose: this.options.verbose });
+    
     this.environment = freshEnv;
-    // Clear both caches
-    const { macroCache, macroExpansionCache } = await import(
+    // Clear expansion cache
+    const { macroExpansionCache } = await import(
       "../s-exp/macro.ts"
     );
-    macroCache.clear();
     macroExpansionCache.clear();
     // Reset gensym counter for reproducible builds (Common Lisp compatibility)
     const { resetGensymCounter } = await import("../gensym.ts");
@@ -276,11 +281,10 @@ export class HQLRuntime {
           // Actually compile and register the macro in the environment
           if (isList(sexp)) {
             defineMacro(sexp as SList, this.environment, logger);
-            // Clear both caches when a new macro is defined
-            const { macroCache, macroExpansionCache } = await import(
+            // Clear expansion cache when a new macro is defined
+            const { macroExpansionCache } = await import(
               "../s-exp/macro.ts"
             );
-            macroCache.clear();
             macroExpansionCache.clear();
           }
         }
@@ -456,10 +460,10 @@ let _runtime: HQLRuntime | null = null;
 /**
  * Get or create the global HQL runtime
  */
-export function getHQLRuntime(): Promise<HQLRuntime> {
+export async function getHQLRuntime(): Promise<HQLRuntime> {
   if (!_runtime) {
     _runtime = new HQLRuntime();
-    _runtime.initialize();
+    await _runtime.initialize();
   }
   return Promise.resolve(_runtime);
 }

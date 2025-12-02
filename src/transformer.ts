@@ -79,6 +79,7 @@ export async function transformAST(
   astNodes: HQLNode[],
   currentDir: string,
   options: TransformOptions = {},
+  env?: Environment,
 ): Promise<{ code: string; sourceMap?: string; ir?: unknown }> {
   try {
     const timer = new Timer(logger);
@@ -86,8 +87,8 @@ export async function transformAST(
     logger.debug(`Starting transformation: ${astNodes.length} nodes`);
     timer.phase("initialization");
 
-    const env = await Environment.getGlobalEnv() ??
-      await Environment.initializeGlobalEnv();
+    // Use injected env or create a new standard one (stateless fallback)
+    const contextEnv = env || await Environment.createStandard();
 
     timer.phase("environment init");
 
@@ -95,7 +96,7 @@ export async function transformAST(
     // Second expansion here was causing macros to run twice (BUG #1).
     // Removed duplicate expansion - astNodes already have expanded macros.
 
-    const imports = processImportNodes(astNodes, env);
+    const imports = processImportNodes(astNodes, contextEnv);
 
     timer.phase("import processing");
 

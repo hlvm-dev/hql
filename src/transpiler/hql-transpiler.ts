@@ -22,10 +22,6 @@ import { EMBEDDED_MACROS } from "../lib/embedded-macros.ts";
 import { CompilerContext, hasMacroRegistry } from "./compiler-context.ts";
 import { basename, cwd as platformCwd } from "../platform/platform.ts";
 
-let globalEnv: Environment | null = null;
-let globalEnvPromise: Promise<Environment> | null = null;
-let systemMacrosLoaded = false;
-
 const macroExpressionsCache = new Map<string, SExp[]>();
 
 interface ProcessOptions {
@@ -88,7 +84,7 @@ export async function transpileToJavascript(
   const macroOptions = context?.macroRegistry ? { useCache: false } : {};
   const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
   const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
-  const javascript = await transpileHqlAstToJs(hqlAst, mergedOptions);
+  const javascript = await transpileHqlAstToJs(hqlAst, mergedOptions, env);
 
   if (mergedOptions.baseDir) env.setCurrentFile(null);
 
@@ -154,7 +150,7 @@ export async function transpileToJavascriptWithIR(
   const macroOptions = context?.macroRegistry ? { useCache: false } : {};
   const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
   const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
-  const javascript = await transpileHqlAstToJsWithIR(hqlAst, mergedOptions);
+  const javascript = await transpileHqlAstToJsWithIR(hqlAst, mergedOptions, env);
 
   if (mergedOptions.baseDir) env.setCurrentFile(null);
 
@@ -389,6 +385,7 @@ function convertSexpsToHqlAst(
 async function transpileHqlAstToJs(
   hqlAst: HQLNode[],
   options: ProcessOptions,
+  env?: Environment,
 ): Promise<TranspileResult> {
   if (options.showTiming) {
     logger.startTiming("hql-process", "JS transformation");
@@ -404,6 +401,7 @@ async function transpileHqlAstToJs(
         generateSourceMap: options.generateSourceMap,
         sourceContent: options.sourceContent,
       },
+      env,
     );
 
     if (options.showTiming) {
@@ -429,6 +427,7 @@ async function transpileHqlAstToJs(
 async function transpileHqlAstToJsWithIR(
   hqlAst: HQLNode[],
   options: ProcessOptions,
+  env?: Environment,
 ): Promise<TranspileWithIRResult> {
   if (options.showTiming) {
     logger.startTiming("hql-process", "JS transformation");
@@ -444,6 +443,7 @@ async function transpileHqlAstToJsWithIR(
         generateSourceMap: options.generateSourceMap,
         sourceContent: options.sourceContent,
       },
+      env,
     );
 
     if (options.showTiming) {
@@ -474,11 +474,6 @@ export async function loadSystemMacros(
   env: Environment,
   options: ProcessOptions,
 ): Promise<void> {
-  if (systemMacrosLoaded) {
-    logger.debug("System macros already loaded, skipping");
-    return;
-  }
-
   try {
     const macroPaths = Object.keys(EMBEDDED_MACROS);
     for (const macroPath of macroPaths) {
@@ -517,7 +512,6 @@ export async function loadSystemMacros(
       });
     }
 
-    systemMacrosLoaded = true;
     logger.debug("System macros loaded successfully");
   } catch (error) {
     if (error instanceof Error) {
@@ -532,39 +526,20 @@ export async function loadSystemMacros(
  * Get or initialize the global environment
  */
 async function getGlobalEnv(options: ProcessOptions): Promise<Environment> {
-  // If already initialized, return immediately
-  if (globalEnv) {
-    logger.debug("Reusing existing global environment");
-    return globalEnv;
-  }
-
-  // If initialization is in progress, wait for it to complete
-  if (globalEnvPromise) {
-    logger.debug("Waiting for ongoing global environment initialization");
-    return await globalEnvPromise;
-  }
-
-  // Start initialization and store the promise
+  // Always create a fresh environment - no more global singleton
   logger.debug("Starting new global environment initialization");
-  globalEnvPromise = (async () => {
-    const t = performance.now();
-    logger.debug("Initializing global environment");
+  
+  const t = performance.now();
+  logger.debug("Initializing global environment");
 
-    const env = await Environment.initializeGlobalEnv();
-    await loadSystemMacros(env, options);
+  const env = await Environment.createStandard();
+  await loadSystemMacros(env, options);
 
-    logger.debug(
-      `Global environment initialization took ${
-        (performance.now() - t).toFixed(2)
-      }ms`,
-    );
+  logger.debug(
+    `Global environment initialization took ${
+      (performance.now() - t).toFixed(2)
+    }ms`,
+  );
 
-    // Store the result and clear the promise
-    globalEnv = env;
-    globalEnvPromise = null;
-
-    return env;
-  })();
-
-  return await globalEnvPromise;
+  return env;
 }
