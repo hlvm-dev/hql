@@ -37,13 +37,13 @@ OPTIONS:
 
 COMPILE OPTIONS:
   --target <target>         Compilation target (default: js)
-                            js      - JavaScript output
-                            native  - Binary for current platform
-                            all     - All platforms at once
-                            linux   - Linux x86_64 binary
-                            macos   - macOS x86_64 binary
-                            macos-arm - macOS ARM64 binary
-                            windows - Windows x86_64 binary
+                            js          - JavaScript output
+                            native      - Binary for current platform
+                            all         - All platforms at once
+                            linux       - Linux x86_64 binary
+                            macos       - macOS ARM64 binary (Apple Silicon)
+                            macos-intel - macOS x86_64 binary (Intel)
+                            windows     - Windows x86_64 binary
   -o, --output <path>       Output file path
 
 EXAMPLES:

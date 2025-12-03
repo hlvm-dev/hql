@@ -21,20 +21,20 @@ const TARGET_MAP: Record<string, string | undefined> = {
   "js": undefined,       // JavaScript output (no deno compile)
   "native": undefined,   // Current platform (no --target flag for deno compile)
   "linux": "x86_64-unknown-linux-gnu",
-  "macos": "x86_64-apple-darwin",
-  "macos-arm": "aarch64-apple-darwin",
+  "macos": "aarch64-apple-darwin",        // ARM64 (M1/M2/M3/M4) - primary
+  "macos-intel": "x86_64-apple-darwin",   // x86_64 (Intel) - legacy
   "windows": "x86_64-pc-windows-msvc",
 };
 
 /**
  * All binary targets for --target all
  */
-const ALL_BINARY_TARGETS = ["linux", "macos", "macos-arm", "windows"];
+const ALL_BINARY_TARGETS = ["linux", "macos", "macos-intel", "windows"];
 
 /**
  * Valid friendly target names for help display
  */
-const FRIENDLY_TARGETS = ["js", "native", "all", "linux", "macos", "macos-arm", "windows"];
+const FRIENDLY_TARGETS = ["js", "native", "all", "linux", "macos", "macos-intel", "windows"];
 
 /**
  * Compile options parsed from CLI args
@@ -60,13 +60,13 @@ USAGE:
 
 OPTIONS:
   --target <target>     Compilation target (default: js)
-                        js        - JavaScript output
-                        native    - Binary for current platform
-                        all       - All platforms (linux, macos, macos-arm, windows)
-                        linux     - Linux x86_64 binary
-                        macos     - macOS x86_64 binary
-                        macos-arm - macOS ARM64 binary
-                        windows   - Windows x86_64 binary
+                        js          - JavaScript output
+                        native      - Binary for current platform
+                        all         - All platforms (linux, macos, macos-intel, windows)
+                        linux       - Linux x86_64 binary
+                        macos       - macOS ARM64 binary (M1/M2/M3/M4)
+                        macos-intel - macOS x86_64 binary (Intel)
+                        windows     - Windows x86_64 binary
   -o, --output <path>   Output file path (or directory for --target all)
   --verbose, -v         Enable verbose logging
   --time                Show performance timing
