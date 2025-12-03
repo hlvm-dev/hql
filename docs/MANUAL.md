@@ -351,7 +351,7 @@ See [Standard Library Reference](./api/stdlib.md) for complete documentation.
 hql run <file>        # Execute HQL file
 hql run '<expr>'      # Evaluate expression
 hql repl              # Start REPL
-hql transpile <file>  # Transpile to JavaScript
+hql compile <file>    # Compile to JavaScript or binary
 hql init              # Initialize project
 hql publish           # Publish module
 ```

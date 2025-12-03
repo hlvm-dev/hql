@@ -186,34 +186,34 @@ Both C and Rust can produce native binaries and WASM. We chose Rust for **user e
 
 ## CLI Interface
 
-### Current Commands
+### Commands
 
 ```bash
-hql run app.hql                      # Execute directly
-hql transpile app.hql                # Transpile to JavaScript
-hql transpile app.hql -o dist/       # Transpile to specific directory
+hql repl                               # Interactive REPL
+hql init                               # Initialize new project
+hql run app.hql                        # Execute HQL directly
+hql compile app.hql                    # Compile to JavaScript (default)
+hql publish                            # Publish package
 ```
 
-### New: `hql compile` (wraps Deno compile)
+### `hql compile` (wraps Deno compile)
 
 ```bash
 # Compile to JavaScript (default)
-hql compile app.hql                    # → dist/app.js
+hql compile app.hql                    # → app.js
 
-# Compile to native binary (wraps deno compile)
-hql compile app.hql --target native    # → app (binary for current platform)
+# Compile to native binary
+hql compile app.hql --target native    # → app (current platform)
 hql compile app.hql --target native -o myapp  # → myapp
 
 # Cross-compilation
-hql compile app.hql --target linux     # → Linux binary
-hql compile app.hql --target macos     # → macOS binary
-hql compile app.hql --target windows   # → Windows .exe
-hql compile app.hql --target macos-arm # → macOS ARM64 binary
+hql compile app.hql --target linux       # → Linux x86_64 binary
+hql compile app.hql --target macos       # → macOS ARM64 binary (Apple Silicon)
+hql compile app.hql --target macos-intel # → macOS x86_64 binary (Intel)
+hql compile app.hql --target windows     # → Windows .exe
 
-# Specific Deno targets (pass-through)
-hql compile app.hql --target x86_64-unknown-linux-gnu
-hql compile app.hql --target x86_64-pc-windows-msvc
-hql compile app.hql --target aarch64-apple-darwin
+# Compile for all platforms
+hql compile app.hql --target all         # → 4 binaries
 ```
 
 **Key Design**: Users interact only with `hql` — Deno is an implementation detail. The HQL binary itself is compiled with `deno compile`, and can spawn itself to compile user code.

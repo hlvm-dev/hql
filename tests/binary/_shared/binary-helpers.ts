@@ -130,7 +130,7 @@ export function runRawCLI(args: string[]): Promise<CommandResult> {
 
 /**
  * Run a CLI command and return the result
- * @param command - The CLI command (transpile, run, init, repl, publish)
+ * @param command - The CLI command (compile, run, init, repl, publish)
  * @param args - Arguments to pass to the command
  */
 export function runCLI(command: string, args: string[] = []): Promise<CommandResult> {
@@ -146,7 +146,7 @@ export async function runExpression(expression: string): Promise<CommandResult> 
 }
 
 /**
- * Transpile HQL code and return the JavaScript output
+ * Compile HQL code to JavaScript and return the output
  */
 export async function transpileCode(hqlCode: string): Promise<{ js: string; result: CommandResult }> {
   return withTempDir(async (dir) => {
@@ -154,14 +154,14 @@ export async function transpileCode(hqlCode: string): Promise<{ js: string; resu
     const outputPath = `${dir}/test.js`;
 
     await Deno.writeTextFile(inputPath, hqlCode);
-    const result = await runCLI("transpile", [inputPath, outputPath]);
+    const result = await runCLI("compile", [inputPath, "-o", outputPath]);
 
     let js = "";
     if (result.success) {
       try {
         js = await Deno.readTextFile(outputPath);
       } catch {
-        // File might not exist if transpilation failed
+        // File might not exist if compilation failed
       }
     }
 
@@ -170,7 +170,7 @@ export async function transpileCode(hqlCode: string): Promise<{ js: string; resu
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// TRANSPILE AND RUN (DRY - shared implementation)
+// COMPILE AND RUN (DRY - shared implementation)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** Run a command and return result */
@@ -185,8 +185,8 @@ async function executeCommand(program: string, args: string[]): Promise<CommandR
   };
 }
 
-/** Transpile HQL and run with specified runtime */
-async function transpileAndRunWith(
+/** Compile HQL to JS and run with specified runtime */
+async function compileAndRunWith(
   hqlCode: string,
   runtime: "node" | "deno"
 ): Promise<CommandResult> {
@@ -195,9 +195,9 @@ async function transpileAndRunWith(
     const outputPath = `${dir}/test.js`;
 
     await Deno.writeTextFile(inputPath, hqlCode);
-    const transpileResult = await runCLI("transpile", [inputPath, outputPath]);
+    const compileResult = await runCLI("compile", [inputPath, "-o", outputPath]);
 
-    if (!transpileResult.success) return transpileResult;
+    if (!compileResult.success) return compileResult;
 
     return runtime === "node"
       ? executeCommand("node", [outputPath])
@@ -205,14 +205,14 @@ async function transpileAndRunWith(
   });
 }
 
-/** Transpile HQL and run the output with Node.js */
+/** Compile HQL to JS and run the output with Node.js */
 export function transpileAndRunWithNode(hqlCode: string): Promise<CommandResult> {
-  return transpileAndRunWith(hqlCode, "node");
+  return compileAndRunWith(hqlCode, "node");
 }
 
-/** Transpile HQL and run the output with Deno */
+/** Compile HQL to JS and run the output with Deno */
 export function transpileAndRunWithDeno(hqlCode: string): Promise<CommandResult> {
-  return transpileAndRunWith(hqlCode, "deno");
+  return compileAndRunWith(hqlCode, "deno");
 }
 
 /**

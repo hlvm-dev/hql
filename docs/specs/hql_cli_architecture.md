@@ -37,15 +37,15 @@ The HQL CLI is a **self-contained binary** that wraps Deno transparently. Users 
                               │ deno compile    │
                               └────────┬────────┘
                                        │
-                    ┌──────────────────┼──────────────────┐
-                    │                  │                  │
-                    ▼                  ▼                  ▼
-            ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-            │  hql run    │    │hql transpile│    │ hql compile │
-            │             │    │             │    │             │
-            │ Execute HQL │    │ HQL → JS    │    │ HQL → Binary│
-            │ directly    │    │ output      │    │ (via deno)  │
-            └─────────────┘    └─────────────┘    └──────┬──────┘
+                    ┌────────────────────┴────────────────────┐
+                    │                                         │
+                    ▼                                         ▼
+            ┌─────────────┐                           ┌─────────────┐
+            │  hql run    │                           │ hql compile │
+            │             │                           │             │
+            │ Execute HQL │                           │ HQL → JS or │
+            │ directly    │                           │ Binary      │
+            └─────────────┘                           └──────┬──────┘
                                                          │
                                               ┌──────────┴──────────┐
                                               │                     │
@@ -89,31 +89,34 @@ const denoBinary = Deno.execPath();  // Returns path to current Deno/HQL binary
 
 ## CLI Commands
 
-### Existing Commands
+### Available Commands
 
 ```bash
 hql repl                    # Interactive REPL
 hql init                    # Initialize new HQL project
 hql run app.hql             # Execute HQL file directly
-hql transpile app.hql       # Transpile to JavaScript
+hql compile app.hql         # Compile to JavaScript or binary
 hql publish                 # Publish package
 ```
 
-### New: `hql compile`
+### `hql compile`
 
 ```bash
-# Compile to JavaScript (default, same as transpile)
-hql compile app.hql                    # → dist/app.js
+# Compile to JavaScript (default)
+hql compile app.hql                    # → app.js
 
 # Compile to native binary (wraps deno compile)
 hql compile app.hql --target native    # → app (binary for current platform)
 hql compile app.hql --target native -o myapp  # → myapp (custom name)
 
 # Cross-compilation (friendly names)
-hql compile app.hql --target linux     # → Linux x86_64 binary
-hql compile app.hql --target macos     # → macOS x86_64 binary
-hql compile app.hql --target macos-arm # → macOS ARM64 binary
-hql compile app.hql --target windows   # → Windows x86_64 .exe
+hql compile app.hql --target linux       # → Linux x86_64 binary
+hql compile app.hql --target macos       # → macOS ARM64 binary (Apple Silicon)
+hql compile app.hql --target macos-intel # → macOS x86_64 binary (Intel)
+hql compile app.hql --target windows     # → Windows x86_64 .exe
+
+# Compile for all platforms at once
+hql compile app.hql --target all         # → 4 binaries (linux, macos, macos-intel, windows)
 
 # Deno target pass-through (for advanced users)
 hql compile app.hql --target x86_64-unknown-linux-gnu
@@ -130,9 +133,10 @@ hql compile app.hql --target aarch64-apple-darwin
 |---------------|-------------|--------|
 | `js` (default) | N/A | JavaScript file |
 | `native` | (current platform) | Binary for current OS |
+| `all` | (all platforms) | 4 binaries for all platforms |
 | `linux` | `x86_64-unknown-linux-gnu` | Linux x86_64 binary |
-| `macos` | `x86_64-apple-darwin` | macOS x86_64 binary |
-| `macos-arm` | `aarch64-apple-darwin` | macOS ARM64 binary |
+| `macos` | `aarch64-apple-darwin` | macOS ARM64 binary (Apple Silicon) |
+| `macos-intel` | `x86_64-apple-darwin` | macOS x86_64 binary (Intel) |
 | `windows` | `x86_64-pc-windows-msvc` | Windows x86_64 .exe |
 
 Unknown targets are passed through to Deno directly.
@@ -147,15 +151,16 @@ Unknown targets are passed through to Deno directly.
 src/cli/
 ├── cli.ts                    # Main CLI entry, command dispatch
 ├── commands/
-│   ├── repl.ts               # REPL command
+│   ├── compile.ts            # Compile command (JS or binary)
 │   ├── init.ts               # Init command
-│   ├── run.ts                # Run command
-│   ├── transpile.ts          # Transpile command
 │   ├── publish.ts            # Publish command
-│   └── compile.ts            # NEW: Compile command
+│   └── shared.ts             # Shared utilities
+├── repl.ts                   # REPL command
+├── run.ts                    # Run command
 └── utils/
     ├── cli-options.ts        # Option parsing
-    └── toolchain.ts          # NEW: Deno binary management
+    ├── common-helpers.ts     # Common CLI helpers
+    └── toolchain.ts          # Deno binary management
 ```
 
 ### Compile Command Flow
@@ -175,9 +180,9 @@ src/cli/
                                        │
                                        ▼
                     ┌─────────────────────────────────────┐
-                    │ 2. Transpile HQL → JavaScript       │
-                    │    - Use existing transpiler        │
-                    │    - Output: /tmp/app.js            │
+                    │ 2. Compile HQL → JavaScript         │
+                    │    - Use HQL transpiler             │
+                    │    - Output: temp .js file          │
                     └──────────────────┬──────────────────┘
                                        │
                                        ▼
@@ -235,7 +240,7 @@ throw new Error(`Compilation failed for target '${target}'. ${friendlyMessage}`)
 
 | Scenario | User Message |
 |----------|--------------|
-| Invalid target | `Unknown target '${target}'. Valid targets: native, linux, macos, macos-arm, windows` |
+| Invalid target | `Unknown target '${target}'. Valid targets: native, linux, macos, macos-intel, windows` |
 | Input not found | `File not found: ${inputFile}` |
 | Compilation fails | `Compilation failed. Check that your code runs correctly with 'hql run ${input}'` |
 | Cross-compile unavailable | `Cross-compilation to ${target} requires downloading additional tools. Run 'hql setup ${target}' first.` |
@@ -265,8 +270,8 @@ deno compile --allow-all --output hql src/main.ts
 
 # Cross-compile HQL CLI
 deno compile --allow-all --target x86_64-unknown-linux-gnu --output hql-linux src/main.ts
-deno compile --allow-all --target x86_64-apple-darwin --output hql-macos src/main.ts
-deno compile --allow-all --target aarch64-apple-darwin --output hql-macos-arm src/main.ts
+deno compile --allow-all --target aarch64-apple-darwin --output hql-macos src/main.ts
+deno compile --allow-all --target x86_64-apple-darwin --output hql-macos-intel src/main.ts
 deno compile --allow-all --target x86_64-pc-windows-msvc --output hql.exe src/main.ts
 ```
 
