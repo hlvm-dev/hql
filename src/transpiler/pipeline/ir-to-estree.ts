@@ -13,6 +13,7 @@
 import * as IR from "../type/hql_ir.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import { CodeGenError } from "../../common/error.ts";
+import { applyTCO } from "../optimize/tco-optimizer.ts";
 
 // ============================================================================
 // ESTree Type Definitions
@@ -949,10 +950,20 @@ function convertFunctionExpression(node: IR.IRFunctionExpression): FunctionExpre
 }
 
 function convertAssignmentExpression(node: IR.IRAssignmentExpression): AssignmentExpression {
+  // Handle destructuring patterns on the left side (e.g., [a, b] = [1, 2])
+  let left: Pattern | Expression;
+  if (node.left.type === IR.IRNodeType.ArrayPattern) {
+    left = convertArrayPattern(node.left as IR.IRArrayPattern);
+  } else if (node.left.type === IR.IRNodeType.ObjectPattern) {
+    left = convertObjectPattern(node.left as IR.IRObjectPattern);
+  } else {
+    left = convertIRToESTree(node.left) as Expression;
+  }
+
   return {
     type: "AssignmentExpression",
     operator: node.operator,
-    left: convertIRToESTree(node.left) as Expression,
+    left,
     right: convertIRToESTree(node.right) as Expression,
     loc: createLoc(node.position)
   };
@@ -1086,11 +1097,14 @@ function convertFunctionDeclaration(node: IR.IRFunctionDeclaration): FunctionDec
 }
 
 function convertFnFunctionDeclaration(node: IR.IRFnFunctionDeclaration): FunctionDeclaration {
+  // Apply Tail Call Optimization for self-recursive functions
+  const optimizedNode = applyTCO(node);
+
   let params: Pattern[];
   let body: BlockStatement;
 
   // Check if this function uses JSON map parameters
-  if (node.usesJsonMapParams) {
+  if (optimizedNode.usesJsonMapParams) {
     // Create single parameter: __hql_params = {}
     params = [{
       type: "AssignmentPattern",
@@ -1101,10 +1115,10 @@ function convertFnFunctionDeclaration(node: IR.IRFnFunctionDeclaration): Functio
 
     // Generate destructuring statements at the start of function body
     const destructuringStatements: VariableDeclaration[] = [];
-    for (const param of node.params) {
+    for (const param of optimizedNode.params) {
       if (param.type === IR.IRNodeType.Identifier) {
         const paramName = param.name;
-        const defaultValue = node.defaults.find(d => d.name === paramName)?.value;
+        const defaultValue = optimizedNode.defaults.find(d => d.name === paramName)?.value;
 
         // Generate: const paramName = __hql_params.paramName ?? defaultValue;
         const init: Expression = {
@@ -1138,16 +1152,16 @@ function convertFnFunctionDeclaration(node: IR.IRFnFunctionDeclaration): Functio
     // Prepend destructuring statements to function body
     body = {
       type: "BlockStatement",
-      body: [...destructuringStatements, ...convertBlockStatement(node.body).body],
-      loc: createLoc(node.body.position)
+      body: [...destructuringStatements, ...convertBlockStatement(optimizedNode.body).body],
+      loc: createLoc(optimizedNode.body.position)
     };
   } else {
     // Regular parameters with defaults
-    params = node.params.map(param => convertPattern(param));
+    params = optimizedNode.params.map(param => convertPattern(param));
 
     // Handle default parameters
-    if (node.defaults && node.defaults.length > 0) {
-      for (const defaultParam of node.defaults) {
+    if (optimizedNode.defaults && optimizedNode.defaults.length > 0) {
+      for (const defaultParam of optimizedNode.defaults) {
         const paramIndex = params.findIndex(
           p => p.type === "Identifier" && p.name === defaultParam.name
         );
@@ -1162,17 +1176,17 @@ function convertFnFunctionDeclaration(node: IR.IRFnFunctionDeclaration): Functio
       }
     }
 
-    body = convertBlockStatement(node.body);
+    body = convertBlockStatement(optimizedNode.body);
   }
 
   return {
     type: "FunctionDeclaration",
-    id: convertIdentifier(node.id),
+    id: convertIdentifier(optimizedNode.id),
     params,
     body,
-    async: node.async || false,
+    async: optimizedNode.async || false,
     generator: false,
-    loc: createLoc(node.position)
+    loc: createLoc(optimizedNode.position)
   };
 }
 

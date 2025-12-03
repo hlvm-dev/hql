@@ -1,214 +1,117 @@
-# HQL TypeScript Backend Proposal
+# HQL TypeScript Backend Specification
 
-## Status: Proposal
-## Date: 2024-12-02
-## Author: Architecture Discussion
-
----
-
-## Executive Summary
-
-This proposal outlines adding a TypeScript intermediate layer to HQL's compilation pipeline, enabling:
-1. Better tooling support (IDE, type checking) today
-2. A path to WebAssembly compilation in the future (via emerging TS→WASM tools)
+## Status: SUPERSEDED
+## Date: 2024-12-03 (Original) → 2025-12-03 (Superseded)
 
 ---
 
-## Current Architecture
+## ⚠️ This Document is Historical
+
+**This specification has been superseded by the Two-Backend Architecture.**
+
+See instead:
+- [hql_roadmap.md](./hql_roadmap.md) - Current architecture overview
+- [hql_rust_backend.md](./hql_rust_backend.md) - Rust backend specification
+
+---
+
+## Why This Approach Was Superseded
+
+The TypeScript intermediate strategy was based on the assumption that ecosystem tools would provide TS→WASM compilation. After thorough analysis, we found:
+
+| Tool | Status | Problem |
+|------|--------|---------|
+| porffor | Experimental | Uncertain future, limited feature support |
+| AssemblyScript | Stable | NOT TypeScript - different language with TS syntax |
+| ts2wasm (general) | Doesn't exist | Fundamental semantic gap between TS and WASM |
+
+### The Core Issue
 
 ```
-HQL Source → Parser → AST → IR → JavaScript
+TypeScript semantics ≠ WASM semantics
+
+TypeScript:                    WASM:
+• Dynamic typing               • Static typing
+• Prototype chains             • No inheritance model
+• Closures with captures       • No closures
+• Garbage collected            • Manual memory (or WasmGC)
+• eval(), Function()           • No dynamic code
+
+No tool bridges this gap reliably for real TypeScript.
 ```
 
-## Proposed Architecture
+### The New Architecture
+
+Instead of hoping for TS→WASM tools, we adopted a **hub-and-spoke** model:
 
 ```
-HQL Source → Parser → AST → IR → TypeScript → { JavaScript, WASM }
-                                      │
-                                      ├── tsc/esbuild/swc → JavaScript (today)
-                                      │
-                                      └── porffor/future  → WASM (future)
+                        HQL IR (hub)
+                            │
+             ┌──────────────┴──────────────┐
+             ▼                             ▼
+      ┌────────────┐               ┌────────────┐
+      │ JS Backend │               │Rust Backend│
+      │ (existing) │               │   (new)    │
+      └────────────┘               └────────────┘
+             │                         │     │
+             ▼                         ▼     ▼
+        JavaScript                  WASM   Native
 ```
 
----
-
-## Rationale
-
-### Why TypeScript as Intermediate?
-
-1. **Types Enable WASM Compilation**
-   - JavaScript cannot be compiled to WASM (dynamic types)
-   - TypeScript with type annotations CAN be compiled to WASM
-   - Emerging tools (porffor, etc.) compile typed TS to WASM
-
-2. **Better Developer Experience Today**
-   - Generated TS can be type-checked
-   - IDE support for generated code
-   - Easier debugging
-
-3. **Future Optionality**
-   - If ANY TS→WASM tool matures, HQL benefits
-   - We're not betting on one specific tool
-   - Types are the universal enabler
-
-### Why Not Direct WASM Backend?
-
-| Approach | Effort | Risk |
-|----------|--------|------|
-| HQL → WASM directly | 6-12 months | High (need GC, closures, etc.) |
-| HQL → TS → WASM | 2-4 weeks (TS backend) | Low (leverage existing tools) |
+Each backend generates directly from HQL IR. No chaining through intermediate languages.
 
 ---
 
-## Technical Design
+## Historical Content (Archived Below)
 
-### 1. IR → TypeScript Codegen
+The original specification is preserved below for historical reference.
 
-Similar to current IR → JS codegen, but with type annotations:
+---
 
-**HQL Input:**
-```clojure
-(fn add [a b]
-  (+ a b))
+<details>
+<summary>Click to expand original specification (archived)</summary>
 
-(fn greet [name]
-  (str "Hello, " name "!"))
-```
+## Original Executive Summary
 
-**TypeScript Output:**
-```typescript
-function add(a: number, b: number): number {
-  return a + b;
-}
+This specification outlines HQL's compilation strategy: **TypeScript as the universal intermediate target**, enabling multiple output formats (JS, WASM, and potentially more) by leveraging existing ecosystem tools rather than building custom backends.
 
-function greet(name: string): string {
-  return "Hello, " + name + "!";
-}
-```
-
-### 2. Type Inference
-
-For functions without explicit type hints, infer from:
-- Literal values
-- Operator usage (`+` on numbers, etc.)
-- Return statements
-- Default to `any` when truly dynamic
-
-### 3. Optional Type Annotations in HQL
-
-Add optional type hints syntax:
-
-```clojure
-;; With type hints (compiles to typed TS)
-(fn add ^number [^number a ^number b]
-  (+ a b))
-
-;; Without type hints (inferred or any)
-(fn process [data]
-  (transform data))
-```
-
-### 4. Build Pipeline
+## Original Architecture
 
 ```
-hql build src/main.hql
-    │
-    ├── Phase 1: HQL → TS (new)
-    │   Output: dist/main.ts
-    │
-    ├── Phase 2: TS → JS (via tsc/esbuild)
-    │   Output: dist/main.js
-    │
-    └── (Future) Phase 2b: TS → WASM (via porffor)
-        Output: dist/main.wasm
+HQL → TypeScript → esbuild → JavaScript
+                → porffor → WASM (hoped)
+                → wasm2c → C → LLVM → Native (hoped)
 ```
 
----
+## Why This Was Proposed
 
-## Implementation Plan
+1. **Leverage ecosystem tools** rather than build custom backends
+2. **TypeScript as universal intermediate** - typed, readable
+3. **Single codegen** for multiple targets
 
-### Phase 1: TS Backend (2-3 weeks)
-- [ ] Create IR → TypeScript codegen
-- [ ] Add type inference for common patterns
-- [ ] Generate `.ts` files instead of `.js`
-- [ ] Update build pipeline to run tsc/esbuild
+## Why This Was Rejected
 
-### Phase 2: Type Annotations (1 week)
-- [ ] Add `^type` syntax to parser
-- [ ] Pass type hints through AST → IR → TS
-- [ ] Document type annotation syntax
+1. **porffor is experimental** - uncertain if it will mature
+2. **No TS→WASM tool exists** for real TypeScript
+3. **AssemblyScript is not TypeScript** - different semantics
+4. **Chaining adds complexity** without benefit if tools don't exist
 
-### Phase 3: WASM Integration (future, when tools mature)
-- [ ] Evaluate TS → WASM tools (porffor, etc.)
-- [ ] Add `--target wasm` flag
-- [ ] Test with typed HQL subset
+## The Better Approach
 
----
+Direct backends from HQL IR:
+- JS Backend: Already exists, works perfectly
+- Rust Backend: Generates Rust, uses cargo/wasm-pack for WASM and native
 
-## What Changes vs What Stays
+See [hql_rust_backend.md](./hql_rust_backend.md) for the current approach.
 
-### Unchanged
-- HQL syntax
-- Parser
-- AST structure
-- IR structure
-- Macro system
-- All existing semantics
-- All existing tests
-
-### New
-- IR → TypeScript codegen module
-- Optional type annotation syntax (`^type`)
-- Build flag: `--emit ts` or `--emit js`
+</details>
 
 ---
 
-## Risk Assessment
+## Version History
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|------------|--------|------------|
-| TS→WASM tools don't mature | Medium | Low | TS output still valuable for DX |
-| Type inference is incomplete | Low | Low | Fall back to `any` |
-| Performance overhead of TS step | Low | Low | Use esbuild (fast) |
-
----
-
-## Success Criteria
-
-1. All existing HQL tests pass with TS backend
-2. Generated TS compiles without errors
-3. Generated TS has meaningful types (not all `any`)
-4. Build time increase < 20%
-
----
-
-## Future Possibilities
-
-With TypeScript as intermediate:
-
-1. **WASM Compilation** - When tools mature
-2. **Type Checking** - Catch errors at compile time
-3. **Better Source Maps** - TS → JS source maps are excellent
-4. **IDE Integration** - TS language server works on output
-5. **Gradual Typing** - Users can add types incrementally
-
----
-
-## Conclusion
-
-Adding a TypeScript backend is:
-- **Low risk**: Even without WASM, TS output improves DX
-- **High optionality**: Positions HQL for future WASM compilation
-- **Minimal change**: Only affects final codegen step
-- **Proven path**: Other languages use TS as intermediate successfully
-
-Recommendation: **Proceed with implementation.**
-
----
-
-## References
-
-- [porffor](https://github.com/AliasQli/porffor) - JS/TS to WASM compiler
-- [WasmGC](https://github.com/AliasQli/porffor) - WebAssembly Garbage Collection proposal
-- [AssemblyScript](https://www.assemblyscript.org/) - TS-like syntax to WASM (different semantics)
-- [Static TypeScript](https://www.microsoft.com/en-us/research/publication/static-typescript/) - Microsoft Research
+| Version | Date | Changes |
+|---------|------|---------|
+| 0.1 | 2024-12-02 | Initial proposal |
+| 0.2 | 2024-12-03 | Complete specification |
+| 0.3 | 2025-12-03 | **SUPERSEDED** by two-backend architecture |

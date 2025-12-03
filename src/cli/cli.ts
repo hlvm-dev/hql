@@ -5,8 +5,8 @@ import {
 } from "../platform/platform.ts";
 import { hasHelpFlag } from "./utils/common-helpers.ts";
 import { version as VERSION } from "../../mod.ts";
-const VALID_COMMANDS = ["repl", "init", "publish", "run", "transpile"] as const;
-const COMMANDS_REQUIRING_TARGET = new Set<Command>(["run", "transpile"]);
+const VALID_COMMANDS = ["repl", "init", "publish", "run", "transpile", "compile"] as const;
+const COMMANDS_REQUIRING_TARGET = new Set<Command>(["run", "transpile", "compile"]);
 
 // Types
 type Command = typeof VALID_COMMANDS[number];
@@ -26,6 +26,7 @@ USAGE:
   hql run <file>            Execute an HQL source file
   hql run '<expr>'          Evaluate an HQL expression
   hql transpile <file>      Transpile HQL to JavaScript
+  hql compile <file>        Compile HQL to JavaScript or native binary
 
 OPTIONS:
   --help, -h                Show this help message
@@ -35,19 +36,32 @@ OPTIONS:
   --debug                   Show detailed error information and call stacks
   --log <namespaces>        Filter log output to specific namespaces
 
+COMPILE OPTIONS:
+  --target <target>         Compilation target (default: js)
+                            js      - JavaScript output
+                            native  - Binary for current platform
+                            all     - All platforms at once
+                            linux   - Linux x86_64 binary
+                            macos   - macOS x86_64 binary
+                            macos-arm - macOS ARM64 binary
+                            windows - Windows x86_64 binary
+  -o, --output <path>       Output file path
+
 EXAMPLES:
   hql repl                      # Start REPL (instant evaluation!)
   hql init                      # Initialize project (creates hql.json)
   hql publish                   # Publish to JSR and NPM
   hql run hello.hql             # Run HQL file
   hql transpile hello.hql       # Transpile to JavaScript
+  hql compile hello.hql         # Compile to JavaScript
+  hql compile hello.hql --target native      # Compile to native binary
+  hql compile hello.hql --target linux -o app  # Cross-compile to Linux
   hql run '(+ 1 1)'             # Auto-prints: 2
-  hql run '(* 5 6)'             # Auto-prints: 30
-  hql run '(print "Hello!")'    # Explicit print: Hello!
 
 For command-specific help:
   hql init --help
   hql publish --help
+  hql compile --help
 `);
 }
 
@@ -99,6 +113,18 @@ async function executeReplCommand(args: string[]): Promise<void> {
 async function executeTranspileCommand(args: string[]): Promise<void> {
   const { main } = await import("./transpile.ts");
   await main(args);
+}
+
+/**
+ * Execute the compile command
+ */
+async function executeCompileCommand(args: string[]): Promise<void> {
+  await executeWithHelpHandler(
+    args,
+    () => import("./commands/compile.ts"),
+    (m) => m.showCompileHelp,
+    (m) => m.compileCommand
+  );
 }
 
 /**
@@ -160,6 +186,7 @@ const commandHandlers: Record<Command, CommandExecutor> = {
   publish: executePublishCommand,
   run: executeRunCommand,
   transpile: executeTranspileCommand,
+  compile: executeCompileCommand,
 };
 
 /**
