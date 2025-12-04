@@ -24,6 +24,11 @@ import { basename, cwd as platformCwd } from "../platform/platform.ts";
 
 const macroExpressionsCache = new Map<string, SExp[]>();
 
+// Cache the fully-initialized base environment with all system macros loaded.
+// This avoids re-parsing and re-expanding system macros on every compilation.
+let cachedBaseEnv: Environment | null = null;
+let baseEnvInitPromise: Promise<Environment> | null = null;
+
 interface ProcessOptions {
   verbose?: boolean;
   showTiming?: boolean;
@@ -523,23 +528,50 @@ export async function loadSystemMacros(
 }
 
 /**
- * Get or initialize the global environment
+ * Get or initialize the global environment.
+ * Uses a cached base environment to avoid redundant macro loading.
+ * Each call returns a fresh clone to prevent state pollution between compilations.
  */
 async function getGlobalEnv(options: ProcessOptions): Promise<Environment> {
-  // Always create a fresh environment - no more global singleton
-  logger.debug("Starting new global environment initialization");
-  
+  // If base environment is cached, clone it for this compilation
+  if (cachedBaseEnv) {
+    logger.debug("Cloning cached base environment");
+    return cachedBaseEnv.clone();
+  }
+
+  // If initialization is in progress, wait for it then clone
+  if (baseEnvInitPromise) {
+    logger.debug("Waiting for base environment initialization");
+    const baseEnv = await baseEnvInitPromise;
+    return baseEnv.clone();
+  }
+
+  // First-time initialization - create and cache the base environment
+  logger.debug("Initializing base environment (first time)");
   const t = performance.now();
-  logger.debug("Initializing global environment");
 
-  const env = await Environment.createStandard();
-  await loadSystemMacros(env, options);
+  baseEnvInitPromise = (async () => {
+    const env = await Environment.createStandard();
+    await loadSystemMacros(env, options);
+    cachedBaseEnv = env;
+    logger.debug(
+      `Base environment initialization took ${(performance.now() - t).toFixed(2)}ms`,
+    );
+    return env;
+  })();
 
-  logger.debug(
-    `Global environment initialization took ${
-      (performance.now() - t).toFixed(2)
-    }ms`,
-  );
+  const baseEnv = await baseEnvInitPromise;
+  // Return a clone for this compilation
+  return baseEnv.clone();
+}
 
-  return env;
+/**
+ * Clear the cached base environment.
+ * Useful for testing or when embedded macros change.
+ */
+export function clearEnvironmentCache(): void {
+  cachedBaseEnv = null;
+  baseEnvInitPromise = null;
+  macroExpressionsCache.clear();
+  logger.debug("Environment cache cleared");
 }

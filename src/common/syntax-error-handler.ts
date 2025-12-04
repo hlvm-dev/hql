@@ -25,6 +25,103 @@ type NodeWithMeta = { _meta?: SExpMeta };
 
 type LocationResolver = () => Promise<Partial<SourceLocation> | undefined>;
 
+/** Position tuple: [lineIndex, columnIndex] (0-based) */
+type Position = [number, number];
+
+/** Result of delimiter scanning */
+interface DelimiterScanResult {
+  /** Position of first unmatched closing delimiter, if any */
+  unmatchedCloser: Position | null;
+  /** Map of opener char to array of unclosed positions */
+  unclosedOpeners: Record<string, Position[]>;
+}
+
+/**
+ * Scan lines for delimiter balancing issues.
+ * Shared helper to avoid duplicate delimiter scanning logic.
+ *
+ * @param lines - Array of source lines to scan
+ * @param targetOpener - If provided, only track this specific opener (for unclosed errors)
+ * @returns Scan result with unmatched closer and unclosed openers
+ */
+function scanDelimiters(lines: string[], targetOpener?: string): DelimiterScanResult {
+  const openers: Record<string, Position[]> = {
+    "(": [],
+    "[": [],
+    "{": [],
+    '"': [],
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    let inString = false;
+
+    for (let j = 0; j < line.length; j++) {
+      const char = line[j];
+      const isEscaped = j > 0 && line[j - 1] === "\\";
+
+      // Handle string quotes
+      if (char === '"' && !isEscaped) {
+        inString = !inString;
+        if (targetOpener === '"') {
+          if (inString) {
+            openers['"'].push([i, j]);
+          } else if (openers['"'].length > 0) {
+            openers['"'].pop();
+          }
+        } else if (!targetOpener) {
+          // Track all delimiters
+          if (inString) {
+            openers['"'].push([i, j]);
+          } else if (openers['"'].length > 0) {
+            openers['"'].pop();
+          }
+        }
+        continue;
+      }
+
+      // Skip chars inside strings (unless we're looking for string delimiters)
+      if (inString && targetOpener !== '"') continue;
+
+      // If targeting a specific opener, only track that one
+      if (targetOpener && targetOpener !== '"') {
+        if (char === targetOpener) {
+          openers[targetOpener].push([i, j]);
+        } else {
+          const closerMap: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+          if (closerMap[char] === targetOpener && openers[targetOpener].length > 0) {
+            openers[targetOpener].pop();
+          }
+        }
+        continue;
+      }
+
+      // Track all opening delimiters
+      if (char === "(" || char === "[" || char === "{") {
+        openers[char].push([i, j]);
+      }
+      // Track closing delimiters
+      else if (char === ")" || char === "]" || char === "}") {
+        const matchingOpen = char === ")" ? "(" : (char === "]" ? "[" : "{");
+        if (openers[matchingOpen].length > 0) {
+          openers[matchingOpen].pop();
+        } else {
+          // Unmatched closing delimiter found
+          return {
+            unmatchedCloser: [i, j],
+            unclosedOpeners: openers,
+          };
+        }
+      }
+    }
+  }
+
+  return {
+    unmatchedCloser: null,
+    unclosedOpeners: openers,
+  };
+}
+
 interface PatternDescriptor {
   regex: RegExp;
   columnResolver?: (
@@ -54,16 +151,21 @@ async function findLocationByPatterns(
     const content = await readTextFile(filePath);
     const lines = content.split(/\r?\n/);
 
+    // Pre-compile all regex patterns once before the loop
+    // This avoids O(lines × patterns) regex allocations
+    const compiledPatterns = patterns.map((descriptor) => ({
+      regex: new RegExp(descriptor.regex.source, descriptor.regex.flags),
+      columnResolver: descriptor.columnResolver,
+    }));
+
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       const line = lines[lineIndex];
-      for (const descriptor of patterns) {
-        const regex = new RegExp(
-          descriptor.regex.source,
-          descriptor.regex.flags,
-        );
+      for (const { regex, columnResolver } of compiledPatterns) {
+        // Reset lastIndex for global regexes
+        regex.lastIndex = 0;
         const match = regex.exec(line);
         if (match) {
-          const column = descriptor.columnResolver?.(match, line) ??
+          const column = columnResolver?.(match, line) ??
             ((match.index ?? 0) + 1);
           return {
             line: lineIndex + 1,
@@ -527,7 +629,7 @@ export async function findSyntaxErrorLocation(
         searchTokens = tokens["quote"];
       }
 
-      // Search for imbalanced delimiters
+      // Search for imbalanced delimiters using shared helper
       if (
         searchTokens.length > 0 && (
           searchTokens.includes("(") ||
@@ -536,65 +638,21 @@ export async function findSyntaxErrorLocation(
           searchTokens.includes('"')
         )
       ) {
-        // Track delimiter balancing
-        const stacks: Record<string, number[][]> = {
-          "(": [],
-          ")": [],
-          "[": [],
-          "]": [],
-          "{": [],
-          "}": [],
-          '"': [],
-        };
+        const scanResult = scanDelimiters(lines);
 
-        // Scan the file for imbalanced delimiters
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          let inString = false;
-
-          for (let j = 0; j < line.length; j++) {
-            const char = line[j];
-
-            // Handle strings specially
-            if (char === '"' && (j === 0 || line[j - 1] !== "\\")) {
-              inString = !inString;
-
-              if (inString) {
-                stacks['"'].push([i, j]);
-              } else if (stacks['"'].length > 0) {
-                stacks['"'].pop();
-              }
-              continue;
-            }
-
-            // Skip chars inside strings except quotes
-            if (inString && char !== '"') continue;
-
-            // Track opening delimiters
-            if (char === "(" || char === "[" || char === "{") {
-              stacks[char].push([i, j]);
-            } // Track closing delimiters
-            else if (char === ")" || char === "]" || char === "}") {
-              const matchingOpen = char === ")"
-                ? "("
-                : (char === "]" ? "[" : "{");
-              if (stacks[matchingOpen].length > 0) {
-                stacks[matchingOpen].pop();
-              } else {
-                // Unmatched closing delimiter
-                location.line = i + 1;
-                location.column = j + 1;
-                return location;
-              }
-            }
-          }
+        // Check for unmatched closing delimiter
+        if (scanResult.unmatchedCloser) {
+          const [lineIdx, colIdx] = scanResult.unmatchedCloser;
+          location.line = lineIdx + 1;
+          location.column = colIdx + 1;
+          return location;
         }
 
         // Check for unclosed delimiters
         for (const token of searchTokens) {
-          if (stacks[token] && stacks[token].length > 0) {
-            // Use the position of the last unclosed delimiter
-            const [lineIdx, colIdx] = stacks[token][stacks[token].length - 1];
+          const unclosed = scanResult.unclosedOpeners[token];
+          if (unclosed && unclosed.length > 0) {
+            const [lineIdx, colIdx] = unclosed[unclosed.length - 1];
             location.line = lineIdx + 1;
             location.column = colIdx + 1;
             return location;
@@ -622,7 +680,7 @@ export async function findSyntaxErrorLocation(
         const firstNonWs = lineContent.search(/\S/);
         location.column = firstNonWs >= 0 ? firstNonWs + 1 : 1;
       }
-    } // Unclosed delimiter errors
+    } // Unclosed delimiter errors - use shared helper
     else if (unclosedMatch) {
       const type = unclosedMatch[1].toLowerCase();
       let openChar = "(";
@@ -643,43 +701,12 @@ export async function findSyntaxErrorLocation(
           break;
       }
 
-      // Track nesting levels to find unbalanced delimiters
-      const openPositions: [number, number][] = [];
+      // Use shared delimiter scanner with target opener
+      const scanResult = scanDelimiters(lines, openChar);
+      const unclosed = scanResult.unclosedOpeners[openChar];
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        let inString = false;
-
-        for (let j = 0; j < line.length; j++) {
-          const char = line[j];
-
-          // Handle strings specially
-          if (char === '"' && (j === 0 || line[j - 1] !== "\\")) {
-            inString = !inString;
-          }
-
-          // Skip chars inside strings except for string errors
-          if (inString && openChar !== '"') continue;
-
-          if (char === openChar) {
-            openPositions.push([i, j]);
-          } else if (
-            (openChar === "(" && char === ")") ||
-            (openChar === "[" && char === "]") ||
-            (openChar === "{" && char === "}") ||
-            (openChar === '"' && char === '"' &&
-              (j === 0 || line[j - 1] !== "\\"))
-          ) {
-            if (openPositions.length > 0) {
-              openPositions.pop();
-            }
-          }
-        }
-      }
-
-      // If we have unclosed delimiters, use the last one's position
-      if (openPositions.length > 0) {
-        const [lineIdx, colIdx] = openPositions[openPositions.length - 1];
+      if (unclosed && unclosed.length > 0) {
+        const [lineIdx, colIdx] = unclosed[unclosed.length - 1];
         location.line = lineIdx + 1;
         location.column = colIdx + 1;
         return location;

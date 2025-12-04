@@ -2025,14 +2025,15 @@ function convertProgram(node: IR.IRProgram): Program {
  */
 function detectUsedHelpers(program: Program): Set<string> {
   const used = new Set<string>();
-  const helperNames = ['__hql_get', '__hql_getNumeric', '__hql_range', '__hql_toSequence', '__hql_for_each', '__hql_hash_map', '__hql_throw', '__hql_deepFreeze'];
+  // Use Set for O(1) lookup instead of Array.includes O(n)
+  const helperNamesSet = new Set(['__hql_get', '__hql_getNumeric', '__hql_range', '__hql_toSequence', '__hql_for_each', '__hql_hash_map', '__hql_throw', '__hql_deepFreeze']);
 
   // Walk AST tree to find identifier references
   // @ts-ignore: Generic tree traversal - node type varies
   function walk(node: Node | null | undefined): void {
     if (!node || typeof node !== 'object') return;
 
-    if (node.type === 'Identifier' && 'name' in node && helperNames.includes(node.name)) {
+    if (node.type === 'Identifier' && 'name' in node && helperNamesSet.has(node.name)) {
       used.add(node.name);
     }
 

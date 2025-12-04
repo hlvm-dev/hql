@@ -805,23 +805,20 @@ async function processNamespaceImport(
     const modulePath = elements[3]?.type === "literal"
       ? String(elements[3].value)
       : "unknown";
-    // Try to get line information
+    // Try to get line information using cached file lines (avoids redundant file I/O)
     let line = undefined;
     if (options.currentFile) {
-      try {
-        const content = platformReadTextFileSync(options.currentFile);
-        const lines = content.split("\n");
-        for (let i = 0; i < lines.length; i++) {
+      const cachedLines = getCachedFileLines(options.currentFile);
+      if (cachedLines) {
+        for (let i = 0; i < cachedLines.length; i++) {
           if (
-            lines[i].includes("import") && lines[i].includes("from") &&
-            lines[i].includes(modulePath)
+            cachedLines[i].includes("import") && cachedLines[i].includes("from") &&
+            cachedLines[i].includes(modulePath)
           ) {
-            line = { line: i + 1, column: lines[i].indexOf("import") + 1 };
+            line = { line: i + 1, column: cachedLines[i].indexOf("import") + 1 };
             break;
           }
         }
-      } catch (_) {
-        // Ignore errors reading the file
       }
     }
     wrapImportError(

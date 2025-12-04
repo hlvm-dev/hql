@@ -367,11 +367,6 @@ function transformNamedFn(
   // Body expressions start after the parameter list (index 3)
   const bodyExpressions = list.elements.slice(3);
 
-  // Extract params and defaults
-  // Extract params and defaults
-  // const params = paramsInfo.params;
-  // const defaultValues = paramsInfo.defaults;
-
   // Process the body expressions
   const bodyNodes = processFunctionBody(bodyExpressions, currentDir);
 
@@ -439,8 +434,6 @@ function transformAnonymousFn(
     currentDir,
     transformNode,
   );
-
-  // const params = paramsInfo.params;
 
   // Process the body expressions (start at index 2 after params)
   const bodyNodes = processFunctionBody(

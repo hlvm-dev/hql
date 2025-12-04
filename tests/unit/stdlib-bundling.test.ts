@@ -48,9 +48,11 @@ async function ensureBinaryCompiled(): Promise<void> {
 }
 
 /**
- * Helper to transpile HQL
+ * Helper to compile HQL to JavaScript
  * - USE_BINARY=true: uses compiled binary (genuine production test)
  * - USE_BINARY=false: uses deno run (quick test, same code path)
+ *
+ * Uses the `compile` command with `--target js -o <output>` (transpile was removed)
  */
 async function runTranspileCLI(inputPath: string, outputPath: string): Promise<{ success: boolean; stderr: string }> {
   await ensureBinaryCompiled();
@@ -58,13 +60,13 @@ async function runTranspileCLI(inputPath: string, outputPath: string): Promise<{
   let cmd: Deno.Command;
   if (USE_BINARY) {
     cmd = new Deno.Command(BINARY_PATH, {
-      args: ["transpile", inputPath, outputPath],
+      args: ["compile", inputPath, "--target", "js", "-o", outputPath],
       stdout: "piped",
       stderr: "piped",
     });
   } else {
     cmd = new Deno.Command("deno", {
-      args: ["run", "-A", CLI_PATH, "transpile", inputPath, outputPath],
+      args: ["run", "-A", CLI_PATH, "compile", inputPath, "--target", "js", "-o", outputPath],
       stdout: "piped",
       stderr: "piped",
     });

@@ -23,13 +23,40 @@ import type { Logger } from "../logger.ts";
 import type { MacroFn } from "../environment.ts";
 import { HQLError, MacroError, TransformError } from "../common/error.ts";
 import { perform } from "../common/error.ts";
-import { isGensymSymbol } from "../gensym.ts";
+import { isGensymSymbol, gensym } from "../gensym.ts";
 import { LRUCache } from "../common/lru-cache.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { getErrorMessage, isObjectValue, isNullish } from "../common/utils.ts";
 
 // Constants and caches
 const MAX_EXPANSION_ITERATIONS = 100;
+
+// Auto-gensym: Map from "foo#" to generated symbol within a quasiquote
+type AutoGensymMap = Map<string, SSymbol>;
+
+/**
+ * Check if a symbol name is an auto-gensym (ends with #)
+ * e.g., "tmp#", "result#", "value#"
+ */
+function isAutoGensymSymbol(name: string): boolean {
+  return name.length > 1 && name.endsWith("#");
+}
+
+/**
+ * Get or create a gensym for an auto-gensym symbol
+ * All occurrences of "foo#" within the same quasiquote map to the same symbol
+ */
+function getAutoGensym(name: string, autoGensymMap: AutoGensymMap): SSymbol {
+  if (autoGensymMap.has(name)) {
+    return autoGensymMap.get(name)!;
+  }
+  // Strip the # suffix and use as prefix for gensym
+  const prefix = name.slice(0, -1);
+  const generated = gensym(prefix);
+  const symbol: SSymbol = { type: "symbol", name: generated.name };
+  autoGensymMap.set(name, symbol);
+  return symbol;
+}
 // macroCache removed - use env.hasMacro()
 export const macroExpansionCache = new LRUCache<string, SExp>(5000);
 // symbolRenameMap REMOVED - was part of broken automatic hygiene attempt
@@ -44,7 +71,7 @@ export interface MacroExpanderOptions {
 }
 
 /**
- * Recursively update _meta for all elements in an S-expression tree.
+ * Update _meta for all elements in an S-expression tree.
  * This fixes source location tracking for macro-expanded code.
  *
  * Elements that have _meta from a different file (macro definition file)
@@ -53,26 +80,37 @@ export interface MacroExpanderOptions {
  *
  * This ensures error messages point to the original source location,
  * not the macro definition file.
+ *
+ * Uses iterative approach with explicit stack to avoid stack overflow
+ * on deeply nested ASTs.
  */
 function updateMetaRecursively(expr: SExp, callSiteMeta: SExpMeta): void {
-  // Skip primitive values - they can't have _meta set on them
-  // (e.g., raw boolean false, numbers, strings that aren't wrapped in SLiteral)
-  if (typeof expr !== "object" || expr === null) {
-    return;
-  }
+  // Use explicit stack instead of recursion to prevent stack overflow
+  const stack: SExp[] = [expr];
 
-  const exprMeta = getMeta(expr);
+  while (stack.length > 0) {
+    const current = stack.pop()!;
 
-  // If this element has no _meta or has _meta from a different file,
-  // use the call site's _meta (but preserve the call site's file path)
-  if (!exprMeta || (exprMeta.filePath !== callSiteMeta.filePath)) {
-    (expr as { _meta?: SExpMeta })._meta = { ...callSiteMeta };
-  }
+    // Skip primitive values - they can't have _meta set on them
+    if (typeof current !== "object" || current === null) {
+      continue;
+    }
 
-  // Recursively update children
-  if (isList(expr)) {
-    for (const element of (expr as SList).elements) {
-      updateMetaRecursively(element, callSiteMeta);
+    const exprMeta = getMeta(current);
+
+    // If this element has no _meta or has _meta from a different file,
+    // use the call site's _meta (but preserve the call site's file path)
+    if (!exprMeta || (exprMeta.filePath !== callSiteMeta.filePath)) {
+      (current as { _meta?: SExpMeta })._meta = { ...callSiteMeta };
+    }
+
+    // Push children onto stack for processing
+    if (isList(current)) {
+      // Push in reverse order so we process left-to-right
+      const elements = (current as SList).elements;
+      for (let i = elements.length - 1; i >= 0; i--) {
+        stack.push(elements[i]);
+      }
     }
   }
 }
@@ -715,7 +753,10 @@ function evaluateQuasiquote(
     );
   }
   logger.debug(`Evaluating quasiquote: ${sexpToString(expr.elements[1])}`);
-  return processQuasiquotedExpr(expr.elements[1], 0, env, logger);
+  // Create auto-gensym map for this quasiquote template
+  // All foo# symbols within this template will map to the same generated symbol
+  const autoGensymMap: AutoGensymMap = new Map();
+  return processQuasiquotedExpr(expr.elements[1], 0, env, logger, autoGensymMap);
 }
 
 /* Process a quasiquoted expression with depth tracking for nested quasiquotes
@@ -724,13 +765,30 @@ function evaluateQuasiquote(
  * - depth>0: we're inside nested quasiquotes
  * - unquote decrements depth
  * - nested quasiquote increments depth
+ *
+ * AUTO-GENSYM: Symbols ending with # (e.g., tmp#, result#) are automatically
+ * replaced with unique gensyms. All occurrences of the same foo# within
+ * the same quasiquote template map to the same generated symbol.
  */
 function processQuasiquotedExpr(
   expr: SExp,
   depth: number,
   env: Environment,
   logger: Logger,
+  autoGensymMap: AutoGensymMap = new Map(),
 ): SExp {
+  // Handle auto-gensym symbols (e.g., tmp#, value#)
+  // Only at depth 0 - nested quasiquotes get their own context
+  if (isSymbol(expr) && depth === 0) {
+    const symName = (expr as SSymbol).name;
+    if (isAutoGensymSymbol(symName)) {
+      const generated = getAutoGensym(symName, autoGensymMap);
+      logger.debug(`Auto-gensym: ${symName} -> ${generated.name}`);
+      return generated;
+    }
+    return expr;
+  }
+
   if (!isList(expr)) return expr;
   const list = expr as SList;
   if (list.elements.length === 0) return expr;
@@ -745,11 +803,13 @@ function processQuasiquotedExpr(
       );
     }
     // Process inner quasiquote at increased depth
+    // Note: nested quasiquotes get a fresh autoGensymMap for their own scope
     const innerProcessed = processQuasiquotedExpr(
       list.elements[1],
       depth + 1,
       env,
       logger,
+      depth === 0 ? new Map() : autoGensymMap,
     );
     // At depth 0, expand the inner quasiquote fully
     // At depth > 0, preserve the quasiquote form as data
@@ -780,6 +840,7 @@ function processQuasiquotedExpr(
         depth - 1,
         env,
         logger,
+        autoGensymMap,
       );
       return createListFrom(list, [{ type: "symbol", name: "unquote" }, innerProcessed]);
     }
@@ -799,6 +860,7 @@ function processQuasiquotedExpr(
         depth - 1,
         env,
         logger,
+        autoGensymMap,
       );
       return createListFrom(list, [
         { type: "symbol", name: "unquote-splicing" },
@@ -846,7 +908,7 @@ function processQuasiquotedExpr(
       }
     } else {
       processedElements.push(
-        processQuasiquotedExpr(element, depth, env, logger),
+        processQuasiquotedExpr(element, depth, env, logger, autoGensymMap),
       );
     }
   }

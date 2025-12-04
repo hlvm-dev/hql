@@ -167,8 +167,8 @@ Deno.test("Helper Embedding: Verify single source of truth via function.toString
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
-  // Extract the embedded __hql_deepFreeze function
-  const match = code.match(/function __hql_deepFreeze\(obj\) \{[\s\S]*?\n\}/);
+  // Extract the embedded __hql_deepFreeze function (now with visited parameter for cycle detection)
+  const match = code.match(/function __hql_deepFreeze\(obj,?\s*visited\)?\s*\{[\s\S]*?\n\}/);
 
   assertEquals(
     match !== null,

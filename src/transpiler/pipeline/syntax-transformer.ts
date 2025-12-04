@@ -500,12 +500,24 @@ export function transformNode(
               ...list.elements.slice(1),
             );
           } else if (collectionInfo.type === "HashMap") {
-            // For hash-maps (plain objects), use the HQL get primitive
-            return createList(
-              createSymbol("get"),
-              list.elements[0],
-              ...list.elements.slice(1),
+            // Check if any argument is a dot accessor (e.g., .a, .b)
+            // If so, skip this optimization and let dot-chain form handling deal with it
+            const hasDotAccessor = list.elements.slice(1).some(
+              (elem) =>
+                isSymbol(elem) &&
+                (elem as SSymbol).name.startsWith(".") &&
+                !(elem as SSymbol).name.startsWith("..."),
             );
+
+            if (!hasDotAccessor) {
+              // For hash-maps (plain objects), use the HQL get primitive
+              return createList(
+                createSymbol("get"),
+                list.elements[0],
+                ...list.elements.slice(1),
+              );
+            }
+            // Otherwise, fall through to dot-chain form handling
           }
           // For arrays and other types, use standard indexing
           // (which is handled by the default conversion)
@@ -1124,6 +1136,22 @@ function isDotChainForm(list: SList): boolean {
   // First element shouldn't be a method
   const firstIsNotMethod = !isSymbol(list.elements[0]) ||
     !(list.elements[0] as SSymbol).name.startsWith(".");
+
+  // Exclude threading macros from being treated as dot-chain base objects.
+  // Threading macros follow Clojure naming conventions:
+  // - Base forms: -> and ->>
+  // - Variants end with ->: as->, some->, cond->, my->, custom->, etc.
+  // This precise pattern avoids false positives for variables like 'user->data' (-> in middle).
+  if (isSymbol(list.elements[0])) {
+    const symbolName = (list.elements[0] as SSymbol).name;
+    const isThreadingMacro =
+      symbolName === "->" ||
+      symbolName === "->>" ||
+      symbolName.endsWith("->");
+    if (isThreadingMacro) {
+      return false;
+    }
+  }
 
   // Check for at least one method in the rest of the list
   // Exclude spread operators (...identifier) from being treated as methods

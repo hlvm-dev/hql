@@ -1,11 +1,13 @@
 # HQL Build Tool (`core/build.ts`)
 
+> **Note:** This document describes the internal build script (`core/build.ts`) that powers the primary `hql compile` CLI command. For most users, using `hql compile` directly is recommended.
+
 The project now ships with a first-class build orchestrator that bundles an HQL
 entry module for multiple publish targets. It mirrors the proposed workflow in
 `doc/specs/hql_build_all.md` and is safe to use in CI.
 
 ```
-den o run --allow-all core/build.ts --all
+deno run --allow-all core/build.ts --all
 ```
 
 > Requires Deno 1.40+ because it uses the `Deno.Command` APIs exposed by the
@@ -24,7 +26,7 @@ den o run --allow-all core/build.ts --all
 
 When `--all` is provided the tool performs the steps below:
 
-1. Transpile the entry module (and its import graph) into temporary `.mjs` files
+1. Compile the entry module (and its import graph) into temporary `.mjs` files
    using the runtime compiler.
 2. Prepare **JSR** metadata (`dist/jsr.json`, `dist/deno.json`). Existing
    metadata is reused; otherwise sane defaults are created.

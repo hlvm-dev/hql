@@ -151,7 +151,7 @@ export function __hql_throw(value: unknown): never {
   throw value;
 }
 
-export function __hql_deepFreeze<T>(obj: T): T {
+export function __hql_deepFreeze<T>(obj: T, visited?: WeakSet<object>): T {
   // Primitives and null don't need freezing
   if (obj === null || typeof obj !== "object") {
     return obj;
@@ -170,6 +170,13 @@ export function __hql_deepFreeze<T>(obj: T): T {
     return obj;
   }
 
+  // Initialize visited set on first call, track to prevent infinite recursion on cycles
+  const seen = visited ?? new WeakSet<object>();
+  if (seen.has(obj as object)) {
+    return obj; // Already visited - break the cycle
+  }
+  seen.add(obj as object);
+
   // Freeze the object itself
   Object.freeze(obj);
 
@@ -180,7 +187,7 @@ export function __hql_deepFreeze<T>(obj: T): T {
       value !== null &&
       (typeof value === "object" || typeof value === "function")
     ) {
-      __hql_deepFreeze(value);
+      __hql_deepFreeze(value, seen);
     }
   });
 
@@ -191,7 +198,7 @@ export function __hql_deepFreeze<T>(obj: T): T {
       value !== null &&
       (typeof value === "object" || typeof value === "function")
     ) {
-      __hql_deepFreeze(value);
+      __hql_deepFreeze(value, seen);
     }
   });
 

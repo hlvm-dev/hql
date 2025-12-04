@@ -6,9 +6,15 @@
 - [Getting Started](#getting-started)
 - [Language Basics](#language-basics)
 - [Functions](#functions)
+  - [Arrow Functions](#arrow-functions-short-syntax)
+  - [Tail Call Optimization](#tail-call-optimization-tco)
 - [Data Structures](#data-structures)
 - [Control Flow](#control-flow)
 - [Macros](#macros)
+  - [Threading Macros](#threading-macros)
+  - [Type Predicates](#type-predicates)
+  - [Control Flow Macros](#control-flow-macros)
+  - [Utility Macros](#utility-macros)
 - [JavaScript Interop](#javascript-interop)
 - [Module System](#module-system)
 - [Standard Library](#standard-library)
@@ -117,6 +123,63 @@ Anonymous functions:
 (double 5)  ; → 10
 ```
 
+### Arrow Functions (Short Syntax)
+
+HQL provides a concise arrow function syntax `=>` with Swift-style implicit parameters:
+
+**Implicit parameters** (`$0`, `$1`, `$2`, ...):
+```lisp
+(let double (=> (* $0 2)))
+(double 5)  ; → 10
+
+(let add (=> (+ $0 $1)))
+(add 3 7)   ; → 10
+
+(let sum3 (=> (+ $0 (+ $1 $2))))
+(sum3 10 20 30)  ; → 60
+```
+
+**Explicit parameters**:
+```lisp
+(let square (=> (x) (* x x)))
+(square 7)  ; → 49
+
+(let multiply (=> (x y) (* x y)))
+(multiply 6 7)  ; → 42
+```
+
+**Inline usage**:
+```lisp
+((=> (* $0 3)) 7)  ; → 21
+
+(map (=> (* $0 2)) [1 2 3])  ; → [2 4 6]
+```
+
+### Tail Call Optimization (TCO)
+
+HQL automatically optimizes tail-recursive functions at compile time, preventing stack overflow for deep recursion.
+
+**Automatic TCO** (no explicit `recur` needed):
+```lisp
+(fn factorial [n acc]
+  (if (<= n 1)
+    acc
+    (factorial (- n 1) (* n acc))))
+
+(factorial 10000 1)  ; Works! No stack overflow
+```
+
+**Explicit loop/recur** for more control:
+```lisp
+(fn factorial [n]
+  (loop [n n acc 1]
+    (if (<= n 1)
+      acc
+      (recur (- n 1) (* acc n)))))
+
+(factorial 5)  ; → 120
+```
+
 ### Higher-Order Functions
 
 ```lisp
@@ -196,12 +259,14 @@ Destructure arrays:
   (default 0))
 ```
 
-Destructure objects:
+Destructure objects (binds property values to names):
 ```lisp
 (match user
   (case {name: n, age: a} (+ n " is " a))
   (default "Unknown"))
 ```
+
+> **Note**: Object patterns support binding (`{name: n}`) but not literal value matching (`{status: 200}`). For literal matching, use guards.
 
 Guards for conditions:
 ```lisp
@@ -246,6 +311,83 @@ Define custom syntax:
 (when (> x 10)
   (print "x is large")
   (print "Processing..."))
+```
+
+### Threading Macros
+
+Threading macros transform nested function calls into readable pipelines with **zero runtime overhead** (compile-time transformation):
+
+**Thread-first (`->`)** - inserts value as first argument:
+```lisp
+(-> 5
+    (+ 3)      ; → (+ 5 3) = 8
+    (* 2))     ; → (* 8 2) = 16
+```
+
+**Thread-last (`->>`)** - inserts value as last argument:
+```lisp
+(->> [1 2 3 4 5]
+     (filter (=> (> $0 2)))   ; → [3 4 5]
+     (map (=> (* $0 2))))     ; → [6 8 10]
+```
+
+**Thread-as (`as->`)** - binds value to a name for arbitrary placement:
+```lisp
+(as-> {:name "Alice"} user
+      (get user :name)           ; → "Alice"
+      (str "Hello, " user))      ; → "Hello, Alice"
+```
+
+### Type Predicates
+
+Built-in type checking macros that compile to optimal inline JavaScript:
+
+**Null/Undefined checks**:
+```lisp
+(isNull x)       ; x === null
+(isUndefined x)  ; x === undefined
+(isNil x)        ; x == null (catches both null and undefined)
+(isDefined x)    ; x !== undefined
+(notNil x)       ; x != null
+```
+
+**Type checks**:
+```lisp
+(isString x)     ; typeof x === "string"
+(isNumber x)     ; typeof x === "number"
+(isBoolean x)    ; typeof x === "boolean"
+(isFunction x)   ; typeof x === "function"
+(isSymbol x)     ; typeof x === "symbol"
+(isArray x)      ; Array.isArray(x)
+(isObject x)     ; typeof x === "object" && x !== null && !Array.isArray(x)
+```
+
+### Control Flow Macros
+
+```lisp
+(when test & body)       ; if test, execute body
+(unless test & body)     ; if not test, execute body
+(if-let [x val] then else)  ; bind and test in one
+(when-let [x val] & body)   ; bind, test, and execute
+
+(cond
+  [test1 result1]
+  [test2 result2]
+  [else  default])
+
+(and a b c)   ; short-circuit AND
+(or a b c)    ; short-circuit OR
+```
+
+### Utility Macros
+
+```lisp
+(inc x)          ; (+ x 1)
+(dec x)          ; (- x 1)
+(str a b c)      ; string concatenation
+(print & args)   ; console.log
+(empty? coll)    ; check if collection is empty
+(nil? x)         ; check if x is null
 ```
 
 ## JavaScript Interop

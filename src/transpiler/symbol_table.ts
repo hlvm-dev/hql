@@ -169,12 +169,20 @@ export class SymbolTable {
 
   /**
    * Get all symbols in this scope and all parent scopes
+   * Uses iterative approach to avoid O(D²) copying from recursive spread
    */
   getAllSymbols(): SymbolInfo[] {
-    const symbols = this.getAllSymbolsInCurrentScope();
-    if (this.parent) {
-      symbols.push(...this.parent.getAllSymbols());
+    const symbols: SymbolInfo[] = [];
+    let current: SymbolTable | null = this;
+
+    // Walk up the scope chain iteratively, pushing to single array
+    while (current !== null) {
+      for (const symbol of current.table.values()) {
+        symbols.push(symbol);
+      }
+      current = current.parent;
     }
+
     return symbols;
   }
 

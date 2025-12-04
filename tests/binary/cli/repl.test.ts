@@ -19,5 +19,5 @@ binaryTest("CLI repl: --help flag shows global help", async () => {
   const result = await runRawCLI(["--help"]);
   assertEquals(result.stdout.includes("repl"), true, `Expected 'repl' in help output`);
   assertEquals(result.stdout.includes("run"), true, `Expected 'run' in help output`);
-  assertEquals(result.stdout.includes("transpile"), true, `Expected 'transpile' in help output`);
+  assertEquals(result.stdout.includes("compile"), true, `Expected 'compile' in help output`);
 });

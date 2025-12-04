@@ -266,38 +266,14 @@ function inferErrorLocationFromMessage(
     }
   }
 
-  // Add context lines if we found a line
+  // Add context lines if we found a line - use shared helper to avoid duplication
   if (error.sourceLocation.line) {
-    const line = error.sourceLocation.line;
-    const contextLines = [];
-
-    // Add context lines before the error line
-    for (let i = Math.max(0, line - 2); i < line; i++) {
-      contextLines.push({
-        line: i + 1,
-        content: lines[i] || "",
-        isError: false,
-      });
-    }
-
-    // Add the error line
-    contextLines.push({
-      line: line,
-      content: lines[line - 1] || "",
-      isError: true,
-      column: error.sourceLocation.column,
-    });
-
-    // Add context lines after the error line
-    for (let i = line; i < Math.min(lines.length, line + 2); i++) {
-      contextLines.push({
-        line: i + 1,
-        content: lines[i] || "",
-        isError: false,
-      });
-    }
-
-    error.contextLines = contextLines;
+    error.contextLines = extractContextLinesFromSource(
+      fileContent,
+      error.sourceLocation.line,
+      error.sourceLocation.column,
+      2,
+    );
   }
 
   return error;

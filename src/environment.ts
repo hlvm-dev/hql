@@ -83,6 +83,51 @@ export class Environment {
     return env;
   }
 
+  /**
+   * Create a shallow clone of this environment for isolated compilation.
+   * Copies all macros and variables but creates fresh state for per-compilation data.
+   * This allows reusing a cached base environment without state pollution.
+   */
+  clone(): Environment {
+    const cloned = new Environment(this.parent, this.logger);
+
+    // Copy macros (immutable definitions - safe to share references)
+    for (const [name, macro] of this.macros) {
+      cloned.macros.set(name, macro);
+    }
+
+    // Copy variables (builtin functions are immutable - safe to share)
+    for (const [name, value] of this.variables) {
+      cloned.variables.set(name, value);
+    }
+
+    // Copy module exports (reference to existing exports)
+    for (const [path, exports] of this.moduleExports) {
+      cloned.moduleExports.set(path, exports);
+    }
+
+    // Copy processed files (so we don't re-process system macros)
+    for (const file of this.processedFiles) {
+      cloned.processedFiles.add(file);
+    }
+
+    // Copy macro source tracking
+    for (const [name, source] of this.macroSourceFiles) {
+      cloned.macroSourceFiles.set(name, source);
+    }
+    for (const [file, macros] of this.exportedMacros) {
+      cloned.exportedMacros.set(file, new Set(macros));
+    }
+
+    // Share the macro registry (contains parsed macro definitions)
+    cloned.macroRegistry = this.macroRegistry;
+
+    // Fresh state for per-compilation data
+    // lookupCache, importedMacros, currentFilePath, currentMacroContext are fresh
+
+    return cloned;
+  }
+
   // Legacy singleton removed to enforce dependency injection and statelessness.
   // Use Environment.createStandard() instead.
 
@@ -882,9 +927,11 @@ export class Environment {
       // This handles cases where paths might be resolved differently (e.g. in tests or with symlinks)
       // We check if the requested sourceFile is a suffix of a known exported file or vice versa
       // matching at least the filename and parent directory for safety
+      // Cache the filename extraction to avoid redundant .split() calls
+      const sourceFileName = sourceFile.split('/').pop();
       for (const [path, exportSet] of this.exportedMacros.entries()) {
         if ((path.endsWith(sourceFile) || sourceFile.endsWith(path)) &&
-            path.split('/').pop() === sourceFile.split('/').pop()) {
+            path.split('/').pop() === sourceFileName) {
           exports = exportSet;
           break;
         }
@@ -1055,21 +1102,20 @@ export class Environment {
 
   /**
    * Get all defined symbols in the environment
+   * Builds Set incrementally to avoid multiple intermediate array allocations
    */
   getAllDefinedSymbols(): string[] {
-    // Collect symbols from variables
-    const variableSymbols = Array.from(this.variables.keys());
+    // Build Set incrementally - single allocation instead of 4
+    const symbolsSet = new Set(this.variables.keys());
 
-    // Collect symbols from imported modules
-    const moduleSymbols: string[] = [];
-    this.moduleExports.forEach((exports) => {
-      Object.keys(exports).forEach((key) => {
-        moduleSymbols.push(key);
-      });
-    });
+    // Add symbols from imported modules directly to Set
+    for (const exports of this.moduleExports.values()) {
+      for (const key of Object.keys(exports)) {
+        symbolsSet.add(key);
+      }
+    }
 
-    // Return a unique set of symbols
-    return [...new Set([...variableSymbols, ...moduleSymbols])];
+    return Array.from(symbolsSet);
   }
 
   /**

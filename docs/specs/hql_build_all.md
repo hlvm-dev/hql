@@ -18,7 +18,7 @@ supported by HQL.
 ### Examples
 
 ```
-den o run --allow-all core/build.ts --all
+deno run --allow-all core/build.ts --all
 ```
 
 ```
