@@ -1095,6 +1095,13 @@ export class Environment {
     return new Environment(this, this.logger);
   }
 
+  /**
+   * Get the parent environment (for scope chain traversal)
+   */
+  getParent(): Environment | null {
+    return this.parent;
+  }
+
   clearCache(): void {
     this.lookupCache.clear();
     this.logger.debug("Lookup cache cleared");

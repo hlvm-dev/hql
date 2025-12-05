@@ -74,6 +74,7 @@ export enum IRNodeType {
   // Loop Statements
   WhileStatement = 54,
   ForStatement = 55,
+  ForOfStatement = 59,
 
   // Template Literals
   TemplateLiteral = 56,
@@ -244,7 +245,7 @@ export interface IRVariableDeclaration extends IRNode {
 export interface IRVariableDeclarator extends IRNode {
   type: IRNodeType.VariableDeclarator;
   id: IRIdentifier | IRArrayPattern | IRObjectPattern | IRRestElement | IRAssignmentPattern;
-  init: IRNode;
+  init: IRNode | null;
 }
 
 // Destructuring Pattern Types
@@ -418,6 +419,13 @@ export interface IRForStatement extends IRNode {
   init: IRVariableDeclaration | IRNode | null;
   test: IRNode | null;
   update: IRNode | null;
+  body: IRBlockStatement;
+}
+
+export interface IRForOfStatement extends IRNode {
+  type: IRNodeType.ForOfStatement;
+  left: IRVariableDeclaration;
+  right: IRNode;
   body: IRBlockStatement;
 }
 

@@ -27,9 +27,69 @@ import { isGensymSymbol, gensym } from "../gensym.ts";
 import { LRUCache } from "../common/lru-cache.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { getErrorMessage, isObjectValue, isNullish } from "../common/utils.ts";
+import {
+  Interpreter,
+  createStandardEnv,
+  hqlValueToSExp,
+  type InterpreterEnv,
+} from "../interpreter/index.ts";
+import { InterpreterEnv as InterpreterEnvClass } from "../interpreter/environment.ts";
 
 // Constants and caches
 const MAX_EXPANSION_ITERATIONS = 100;
+
+// Lazy singleton interpreter for macro-time evaluation
+let macroInterpreter: Interpreter | null = null;
+
+/**
+ * Get or create the macro-time interpreter
+ */
+function getMacroInterpreter(): Interpreter {
+  if (!macroInterpreter) {
+    macroInterpreter = new Interpreter({ maxCallDepth: 100, maxSeqLength: 10000 });
+  }
+  return macroInterpreter;
+}
+
+/**
+ * Bridge compiler Environment to InterpreterEnv
+ * Copies ALL bindings from the ENTIRE scope chain (not just immediate scope)
+ *
+ * This is critical for macro evaluation because:
+ * - Macro parameters are bound in a parent scope
+ * - Let bindings create child scopes
+ * - The interpreter needs access to ALL variables in the chain
+ */
+function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
+  const interpEnv = createStandardEnv();
+
+  // Collect ALL bindings from the entire scope chain
+  // Walk up the parent chain and collect all variable bindings
+  const allBindings = new Map<string, unknown>();
+  let currentEnv: Environment | null = compilerEnv;
+
+  while (currentEnv !== null) {
+    // Iterate over variables in this scope
+    for (const [name, value] of currentEnv.variables) {
+      // Only add if not already defined (inner scope shadows outer)
+      if (!allBindings.has(name)) {
+        allBindings.set(name, value);
+      }
+    }
+    // Move to parent scope
+    currentEnv = currentEnv.getParent();
+  }
+
+  // Now copy all collected bindings to interpreter env
+  for (const [name, value] of allBindings) {
+    // Skip if already in standard env (builtins/stdlib)
+    if (!interpEnv.isDefined(name)) {
+      interpEnv.define(name, value as import("../interpreter/types.ts").HQLValue);
+    }
+  }
+
+  return interpEnv;
+}
 
 // Auto-gensym: Map from "foo#" to generated symbol within a quasiquote
 type AutoGensymMap = Map<string, SSymbol>;
@@ -166,6 +226,16 @@ function convertJsValueToSExp(value: unknown): SExp {
     primitive === "string" || primitive === "number" || primitive === "boolean"
   ) {
     return createLiteral(value as string | number | boolean);
+  }
+
+  // Functions should not reach here in normal operation.
+  // If they do, it means a function was looked up but not called,
+  // which is a macro evaluation error.
+  if (typeof value === "function") {
+    throw new MacroError(
+      "Cannot convert function to S-expression. Functions must be called, not referenced as values in macro context.",
+      "convertJsValueToSExp"
+    );
   }
 
   return createLiteral(String(value));
@@ -707,7 +777,45 @@ function tryMathOperation(op: string, args: unknown[], logger: Logger): SExp {
   return createLiteral(0);
 }
 
-/* Evaluate a function call with improved error handling */
+// Stdlib function names that need interpreter wrapping for S-expression handling
+// These are the functions from src/lib/stdlib/js/core.js that work on collections
+// and need proper S-expression conversion at macro-time
+const STDLIB_FUNCTIONS = new Set([
+  // Collection accessors
+  "first", "rest", "next", "cons", "nth", "count", "second", "last",
+  "isEmpty", "some", "take", "drop",
+  // HOFs
+  "map", "filter", "reduce", "concat", "flatten", "distinct",
+  "mapIndexed", "keepIndexed", "mapcat", "keep",
+  // Sequence generators
+  "range", "iterate", "repeat", "repeatedly", "cycle",
+  // Function utilities
+  "comp", "partial", "apply",
+  // Collection operations
+  "groupBy", "keys", "doall", "realized", "seq", "empty", "conj", "into",
+  "every", "notAny", "sort", "sortBy", "reverse", "interleave", "interpose",
+  "partition", "partitionBy", "partitionAll", "splitAt", "splitWith",
+  "butlast", "dropLast", "takeLast", "takeWhile", "dropWhile",
+  "update", "updateIn", "assocIn", "getIn", "selectKeys",
+  "zipmap", "frequencies", "merge",
+  // Predicates
+  "contains", "includes", "not-empty",
+  // Type coercion
+  "vec", "set", "vals", "length",
+]);
+
+/* Evaluate a function call with improved error handling
+ *
+ * Strategy:
+ * 1. Handle Math operations directly (they work with primitives)
+ * 2. Try compiler env FIRST for operators and macro primitives
+ * 3. Use interpreter ONLY for STDLIB functions (which need S-expression wrapping)
+ *
+ * This is critical because:
+ * - Compiler env builtins (=, +, -, %, <, >, etc.) work correctly with S-expressions
+ * - Compiler env macro primitives (%first, %rest, etc.) are designed for S-expressions
+ * - ONLY stdlib functions (first, rest, map, filter, etc.) need interpreter wrapping
+ */
 function evaluateFunctionCall(
   list: SList,
   env: Environment,
@@ -716,24 +824,50 @@ function evaluateFunctionCall(
   const first = list.elements[0];
   if (isSymbol(first)) {
     const op = (first as SSymbol).name;
+
+    // Handle Math operations directly (they work fine with primitive args)
+    if (
+      op === "Math.abs" || op.endsWith(".abs") ||
+      op === "Math.round" || op.endsWith(".round") ||
+      op === "Math.max" || op.endsWith(".max")
+    ) {
+      const evalArgs = evaluateArguments(list.elements.slice(1), env, logger);
+      return tryMathOperation(op, evalArgs, logger);
+    }
+
+    // For STDLIB functions, use interpreter (it has wrapped versions for S-expressions)
+    if (STDLIB_FUNCTIONS.has(op)) {
+      try {
+        const interpreter = getMacroInterpreter();
+        const interpEnv = bridgeToInterpreterEnv(env);
+
+        if (interpEnv.isDefined(op)) {
+          logger.debug(`Using interpreter for stdlib function '${op}'`);
+          const result = interpreter.eval(list, interpEnv);
+          return hqlValueToSExp(result);
+        }
+      } catch (interpError) {
+        logger.debug(
+          `Interpreter evaluation failed for '${op}': ${getErrorMessage(interpError)}`
+        );
+        // Fall through to compiler env
+      }
+    }
+
+    // For everything else (operators, macro primitives, user functions), use compiler env
     try {
       const fn = env.lookup(op);
       if (typeof fn === "function") {
         const evalArgs = evaluateArguments(list.elements.slice(1), env, logger);
-        if (
-          op === "Math.abs" || op.endsWith(".abs") ||
-          op === "Math.round" || op.endsWith(".round") ||
-          op === "Math.max" || op.endsWith(".max")
-        ) {
-          return tryMathOperation(op, evalArgs, logger);
-        }
         const callable = fn as (...args: unknown[]) => unknown;
         return convertJsValueToSExp(callable(...evalArgs));
       }
     } catch {
-      logger.debug(`Function '${op}' not found during macro expansion`);
+      logger.debug(`Function '${op}' not found in compiler env`);
     }
   }
+
+  // Fallback: return the list with evaluated elements
   return createListFrom(
     list,
     list.elements.map((elem) => evaluateForMacro(elem, env, logger)),
@@ -895,7 +1029,18 @@ function processQuasiquotedExpr(
       const spliced = evaluateForMacro(splicedExpr, env, logger);
       logger.debug(`Evaluated unquote-splicing to: ${sexpToString(spliced)}`);
       if (isList(spliced)) {
-        processedElements.push(...(spliced as SList).elements);
+        const elements = (spliced as SList).elements;
+        // Skip "vector" prefix if present - vectors returned from interpreter
+        // are represented as (vector a b c), but we want to splice [a b c]
+        if (
+          elements.length > 0 &&
+          isSymbol(elements[0]) &&
+          (elements[0] as SSymbol).name === "vector"
+        ) {
+          processedElements.push(...elements.slice(1));
+        } else {
+          processedElements.push(...elements);
+        }
       } else if (isRestParameterSplice(spliced)) {
         processedElements.push(...spliced.elements);
       } else {

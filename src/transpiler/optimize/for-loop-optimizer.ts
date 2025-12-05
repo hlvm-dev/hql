@@ -37,10 +37,10 @@ function optimizeForLoopsNode(node: IR.IRNode, isStatementContext: boolean = fal
     const optimized = tryOptimizeForEachCall(node as IR.IRCallExpression);
     if (optimized) {
       if (isStatementContext) {
-        // Statement context: return ForStatement directly (parent will unwrap/handle it)
+        // Statement context: return ForStatement/ForOfStatement directly (parent will handle it)
         return optimized;
       } else {
-        // Expression position: wrap ForStatement in IIFE that returns null
+        // Expression position: wrap ForStatement/ForOfStatement in IIFE that returns null
         // This converts: __hql_for_each(...)
         // Into: (() => { for(...) {...}; return null; })()
         return wrapForStatementInIIFE(optimized, node.position);
@@ -145,7 +145,7 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
           const optimizedDecl: IR.IRVariableDeclarator = {
             type: IR.IRNodeType.VariableDeclarator,
             id: decl.id,
-            init: optimizeForLoopsNode(decl.init),
+            init: decl.init ? optimizeForLoopsNode(decl.init) : null,
             position: decl.position
           };
           return optimizedDecl;
@@ -169,9 +169,10 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
       const exprStmt = node as IR.IRExpressionStatement;
       // Pass isStatementContext=true to allow optimization to return ForStatement directly
       const optimizedExpr = optimizeForLoopsNode(exprStmt.expression, true);
-      
-      if (optimizedExpr.type === IR.IRNodeType.ForStatement) {
-        // Unwrap: If we got a ForStatement back, return it directly (replacing the ExpressionStatement)
+
+      // Unwrap: If we got a ForStatement or ForOfStatement back, return it directly
+      if (optimizedExpr.type === IR.IRNodeType.ForStatement ||
+          optimizedExpr.type === IR.IRNodeType.ForOfStatement) {
         return optimizedExpr;
       }
 
@@ -427,7 +428,7 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
 }
 
 /**
- * Wrap a ForStatement in an IIFE for use in expression positions.
+ * Wrap a ForStatement or ForOfStatement in an IIFE for use in expression positions.
  *
  * Since for statements cannot appear in expression contexts, we wrap them in an IIFE:
  *   for (let i = 0; i < n; i++) { body; }
@@ -436,7 +437,7 @@ function optimizeChildren(node: IR.IRNode): IR.IRNode {
  *
  * This preserves the semantics: HQL for loops return null.
  */
-function wrapForStatementInIIFE(forStmt: IR.IRForStatement, position?: IR.SourcePosition): IR.IRCallExpression {
+function wrapForStatementInIIFE(forStmt: IR.IRForStatement | IR.IRForOfStatement, position?: IR.SourcePosition): IR.IRCallExpression {
   // Create: return null;
   const returnNull: IR.IRReturnStatement = {
     type: IR.IRNodeType.ReturnStatement,
@@ -524,8 +525,9 @@ function unwrapFunctionBody(body: IR.IRBlockStatement): IR.IRBlockStatement {
  *   - __hql_toSequence(__hql_range(n))          → for(let i=0; i<n; i++)
  *   - __hql_toSequence(__hql_range(start, end)) → for(let i=start; i<end; i++)
  *   - __hql_toSequence(__hql_range(start, end, step)) → for(let i=start; i<end; i+=step)
+ *   - Any other collection (array, etc.)       → for(const x of collection)
  */
-function tryOptimizeForEachCall(call: IR.IRCallExpression): IR.IRForStatement | null {
+function tryOptimizeForEachCall(call: IR.IRCallExpression): IR.IRForStatement | IR.IRForOfStatement | null {
   // Must be call to __hql_for_each
   if (call.callee.type !== IR.IRNodeType.Identifier) {
     return null;
@@ -558,16 +560,39 @@ function tryOptimizeForEachCall(call: IR.IRCallExpression): IR.IRForStatement | 
 
   const loopVar = iteratee.params[0];
 
-  // Try to extract range parameters from sequence
-  const rangeInfo = extractRangeInfo(sequenceArg);
-  if (!rangeInfo) {
-    return null;
-  }
-
   // Unwrap the iteratee function body (remove return statements)
   const loopBody = unwrapFunctionBody(iteratee.body);
 
-  // Build for loop: for(let loopVar = start; loopVar < end; loopVar += step)
+  // Try to extract range parameters from sequence
+  const rangeInfo = extractRangeInfo(sequenceArg);
+
+  // If not a numeric range, generate a for-of loop for collection iteration
+  // This is critical for proper early return handling - for-of loops allow
+  // return statements to exit the enclosing function directly
+  if (!rangeInfo) {
+    // Generate: for (const loopVar of sequence) { body }
+    const varDecl: IR.IRVariableDeclaration = {
+      type: IR.IRNodeType.VariableDeclaration,
+      declarations: [{
+        type: IR.IRNodeType.VariableDeclarator,
+        id: loopVar,
+        init: null,
+        position: call.position
+      }],
+      kind: "const",
+      position: call.position
+    };
+
+    return {
+      type: IR.IRNodeType.ForOfStatement,
+      left: varDecl,
+      right: sequenceArg,
+      body: loopBody,
+      position: call.position
+    } as IR.IRForOfStatement;
+  }
+
+  // Build numeric for loop: for(let loopVar = start; loopVar < end; loopVar += step)
   const init: IR.IRVariableDeclaration = {
     type: IR.IRNodeType.VariableDeclaration,
     declarations: [{
@@ -622,16 +647,19 @@ function tryOptimizeForEachCall(call: IR.IRCallExpression): IR.IRForStatement | 
 /**
  * Extract range information from sequence argument.
  *
- * Patterns:
- *   5 (numeric literal)                       → {start: 0, end: 5, step: null}
- *   n (identifier)                            → {start: 0, end: n, step: null}
- *   __hql_toSequence(__hql_range(n))          → {start: 0, end: n, step: null}
- *   __hql_toSequence(__hql_range(start, end)) → {start, end, step: null}
- *   __hql_toSequence(__hql_range(start, end, step)) → {start, end, step}
- *   __hql_getNumeric(__hql_toSequence, n)     → {start: 0, end: n, step: null}
+ * Patterns (only statically-known numeric ranges):
+ *   5 (numeric literal)                              → {start: 0, end: 5, step: null}
+ *   __hql_range(n)                                   → {start: 0, end: n, step: null}
+ *   __hql_range(start, end)                          → {start, end, step: null}
+ *   __hql_range(start, end, step)                    → {start, end, step}
+ *   __hql_toSequence(__hql_range(...))               → (same as above)
+ *   __hql_getNumeric(__hql_toSequence, n)            → {start: 0, end: n, step: null}
+ *
+ * Returns null for bare identifiers (could be arrays, not numbers).
  */
 function extractRangeInfo(sequenceArg: IR.IRNode): {start: IR.IRNode, end: IR.IRNode, step: IR.IRNode | null} | null {
   // Pattern: Numeric literal (e.g., 5)
+  // This is safe to optimize because we know it's a number
   if (sequenceArg.type === IR.IRNodeType.NumericLiteral) {
     return {
       start: {type: IR.IRNodeType.NumericLiteral, value: 0} as IR.IRNumericLiteral,
@@ -640,14 +668,10 @@ function extractRangeInfo(sequenceArg: IR.IRNode): {start: IR.IRNode, end: IR.IR
     };
   }
 
-  // Pattern: Identifier (e.g., n)
-  if (sequenceArg.type === IR.IRNodeType.Identifier) {
-    return {
-      start: {type: IR.IRNodeType.NumericLiteral, value: 0} as IR.IRNumericLiteral,
-      end: sequenceArg,
-      step: null
-    };
-  }
+  // NOTE: We intentionally do NOT optimize bare identifiers here.
+  // An identifier like `arr` could be an array, not a number.
+  // Only optimize when we can statically confirm it's a numeric range
+  // (e.g., from __hql_range calls or numeric literals).
 
   if (sequenceArg.type !== IR.IRNodeType.CallExpression) {
     return null;

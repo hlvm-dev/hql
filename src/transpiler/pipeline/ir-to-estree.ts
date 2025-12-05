@@ -57,6 +57,7 @@ export type Statement =
   | IfStatement
   | WhileStatement
   | ForStatement
+  | ForOfStatement
   | ThrowStatement
   | TryStatement
   | VariableDeclaration
@@ -97,6 +98,14 @@ export interface ForStatement extends BaseNode {
   test: Expression | null;
   update: Expression | null;
   body: Statement;
+}
+
+export interface ForOfStatement extends BaseNode {
+  type: "ForOfStatement";
+  left: VariableDeclaration;
+  right: Expression;
+  body: Statement;
+  await: boolean;
 }
 
 export interface ThrowStatement extends BaseNode {
@@ -584,6 +593,7 @@ const irToESTreeConverters = new Map<IR.IRNodeType, IRConverter>([
   [IR.IRNodeType.IfStatement, convertIfStatement],
   [IR.IRNodeType.WhileStatement, convertWhileStatement],
   [IR.IRNodeType.ForStatement, convertForStatement],
+  [IR.IRNodeType.ForOfStatement, convertForOfStatement],
   [IR.IRNodeType.ThrowStatement, convertThrowStatement],
   [IR.IRNodeType.TryStatement, convertTryStatement],
 
@@ -1035,6 +1045,17 @@ function convertForStatement(node: IR.IRForStatement): ForStatement {
   };
 }
 
+function convertForOfStatement(node: IR.IRForOfStatement): ForOfStatement {
+  return {
+    type: "ForOfStatement",
+    left: convertVariableDeclaration(node.left),
+    right: convertIRToESTree(node.right) as Expression,
+    body: convertIRToESTree(node.body) as Statement,
+    await: false,
+    loc: createLoc(node.position)
+  };
+}
+
 function convertThrowStatement(node: IR.IRThrowStatement): ThrowStatement {
   return {
     type: "ThrowStatement",
@@ -1079,7 +1100,7 @@ function convertVariableDeclarator(node: IR.IRVariableDeclarator): VariableDecla
   return {
     type: "VariableDeclarator",
     id: convertPattern(node.id),
-    init: convertIRToESTree(node.init) as Expression,
+    init: node.init ? convertIRToESTree(node.init) as Expression : null,
     loc: createLoc(node.position)
   };
 }

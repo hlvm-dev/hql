@@ -240,72 +240,44 @@ Deno.test("Helper Embedding: __hql_hash_map is embedded when map literal is used
 // HQL throw expressions are transpiled to native JavaScript throw statements, not helper calls.
 // Therefore, there is no embedding test for __hql_throw - it would be pointless testing.
 
-Deno.test("Helper Embedding: __hql_for_each is embedded when for loop iterates over collection", async () => {
-  // Use collection iteration syntax (x coll) which requires __hql_for_each
-  // Note: Numeric range loops like (for (i 10) ...) are optimized to native for loops
+Deno.test("Helper Embedding: for loop over collection generates native for-of loop", async () => {
+  // Collection iteration syntax (x coll) is now optimized to native for-of loops
+  // This is more efficient and supports early returns correctly
   const hqlCode = `(var result []) (for (x [1 2 3]) (.push result x)) result`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
-  // Verify __hql_for_each is embedded for collection iteration
+  // Verify native for-of loop is generated
   assertEquals(
-    code.includes("__hql_for_each"),
+    code.includes("for (const x of"),
     true,
-    "Transpiled code must include __hql_for_each when iterating over a collection"
+    "Collection iteration should be transpiled to native for-of loop"
   );
 
-  // Verify the function definition is present
-  assertEquals(
-    code.includes("function __hql_for_each"),
-    true,
-    "Transpiled code must define __hql_for_each function"
-  );
-
-  // Verify for loop is transpiled to __hql_for_each call
-  assertEquals(
-    code.includes("__hql_for_each("),
-    true,
-    "Collection iteration should be transpiled to __hql_for_each call"
-  );
-
-  // This test verifies __hql_for_each embedding for collection iteration.
-  // Numeric range loops are optimized to native JS for loops.
+  // __hql_for_each is no longer needed for simple collection iteration
+  // The native for-of loop handles all iterables including arrays and LazySeqs
 });
 
-Deno.test("Helper Embedding: __hql_toSequence is embedded with __hql_for_each", async () => {
-  // Use collection iteration syntax which requires both helpers
-  const hqlCode = `(for (x [1 2 3]) x)`;
+Deno.test("Helper Embedding: numeric range loops are optimized to native for loops", async () => {
+  // Numeric range loops are optimized to native for loops
+  // No helpers needed - pure native JavaScript
+  const hqlCode = `(for (i 0 10) i)`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
-  // Verify BOTH helpers are embedded (they're always paired for collection iteration)
+  // Verify native for loop is generated with numeric initialization
   assertEquals(
-    code.includes("__hql_toSequence"),
+    code.includes("for (let i = 0; i < 10;"),
     true,
-    "Transpiled code must include __hql_toSequence when iterating over collection"
+    "Numeric range loops should be transpiled to native for loops"
   );
 
+  // Verify i++ is used (standard increment)
   assertEquals(
-    code.includes("__hql_for_each"),
+    code.includes("i++)"),
     true,
-    "Transpiled code must include __hql_for_each when iterating over collection"
+    "Numeric range loops should use standard increment"
   );
-
-  // Verify both function definitions are present
-  assertEquals(
-    code.includes("function __hql_toSequence"),
-    true,
-    "Transpiled code must define __hql_toSequence function"
-  );
-
-  assertEquals(
-    code.includes("function __hql_for_each"),
-    true,
-    "Transpiled code must define __hql_for_each function"
-  );
-
-  // This test explicitly verifies the pairing: toSequence and for_each
-  // are always embedded together to ensure sequence conversion works
 });
 
 Deno.test("Helper Embedding: __hql_getNumeric alias is set when __hql_get is embedded", async () => {

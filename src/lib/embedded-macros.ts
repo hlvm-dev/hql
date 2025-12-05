@@ -314,10 +314,10 @@ export const EMBEDDED_MACROS = {
 ;; Time complexity: O(n) where n = number of clauses (optimal for sequential matching)
 
 ;; Main match macro - binds value once, dispatches to implementation
+;; Uses auto-gensym (val#) for hygiene - Clojure-style syntax
 (macro match [value & clauses]
-  (let (val-sym (gensym "match"))
-    \`(let (~val-sym ~value)
-       (%match-impl ~val-sym ~@clauses))))
+  \`(let (val# ~value)
+     (%match-impl val# ~@clauses)))
 
 ;; Implementation macro - processes clauses recursively
 (macro %match-impl [val-sym & clauses]
