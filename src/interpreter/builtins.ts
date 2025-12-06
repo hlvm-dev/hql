@@ -56,12 +56,9 @@ export function loadBuiltins(env: InterpreterEnv): void {
   env.define("array?", builtinIsArray);
   env.define("isArray", builtinIsArray);
 
-  // S-expression operations (macro-time helpers)
-  env.define("%first", builtinFirst);
-  env.define("%rest", builtinRest);
-  env.define("%length", builtinLength);
-  env.define("%nth", builtinNth);
-  env.define("%empty?", builtinIsEmpty);
+  // NOTE: %first, %rest, %length, %nth, %empty? are COMPILER-ONLY primitives.
+  // They are defined in src/environment.ts, NOT here.
+  // The bridgeToInterpreterEnv() function filters them out to prevent copying.
 
   // Meta operations
   env.define("name", builtinName);

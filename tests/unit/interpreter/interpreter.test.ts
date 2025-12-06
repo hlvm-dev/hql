@@ -141,7 +141,8 @@ Deno.test("Interpreter - Special form: fn - named function", () => {
 });
 
 Deno.test("Interpreter - Special form: fn - rest parameters", () => {
-  assertEquals(evalExpr("((fn (& args) (%length args)) 1 2 3)"), 3);
+  // Use 'count' (stdlib) instead of '%length' (compiler primitive)
+  assertEquals(evalExpr("((fn (& args) (count args)) 1 2 3)"), 3);
 });
 
 // ============================================================================

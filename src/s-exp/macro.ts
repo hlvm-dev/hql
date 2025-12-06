@@ -123,6 +123,11 @@ function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
   // Now copy all collected bindings to interpreter env
   // IMPORTANT: Convert S-expression values to HQL values for interpreter compatibility
   for (const [name, value] of allBindings) {
+    // Skip raw JavaScript functions - these are compiler infrastructure (operators, primitives)
+    // In macro context, user bindings are ALWAYS S-expressions, never JS functions
+    // The interpreter already has stdlib functions via createStandardEnv()
+    if (typeof value === "function") continue;
+
     // Skip if already in standard env (builtins/stdlib)
     if (!interpEnv.isDefined(name)) {
       const hqlValue = sexpToHqlValue(value);
@@ -791,12 +796,15 @@ function evaluateArguments(
 
 /* Evaluate a function call - ALL HQL functions work in macros automatically
  *
- * Strategy:
- * 1. Macro primitives (% prefix) go to compiler env (designed for S-exps)
- * 2. Everything else: try interpreter first, fall back to compiler env
+ * Strategy: Try interpreter first, fall back to compiler env.
  *
- * This ensures ALL HQL functions (stdlib, core, operators, everything)
- * work in macros out of the box with ZERO configuration or hardcoding.
+ * The interpreter has stdlib loaded, so all HQL functions work automatically.
+ * Compiler primitives (%first, %rest, etc.) are:
+ *   - NOT defined in interpreter builtins
+ *   - NOT copied during bridgeToInterpreterEnv (filtered out)
+ * So they naturally fall through to compiler env lookup.
+ *
+ * ZERO special cases. ZERO hardcoded lists. Clean architectural separation.
  */
 function evaluateFunctionCall(
   list: SList,
@@ -807,21 +815,7 @@ function evaluateFunctionCall(
   if (isSymbol(first)) {
     const op = (first as SSymbol).name;
 
-    // Macro primitives (% prefix) go directly to compiler env - they're designed for S-exps
-    if (op.startsWith("%")) {
-      try {
-        const fn = env.lookup(op);
-        if (typeof fn === "function") {
-          const evalArgs = evaluateArguments(list.elements.slice(1), env, logger);
-          const callable = fn as (...args: unknown[]) => unknown;
-          return convertJsValueToSExp(callable(...evalArgs));
-        }
-      } catch {
-        logger.debug(`Macro primitive '${op}' not found in compiler env`);
-      }
-    }
-
-    // For everything else: try interpreter first (handles S-exp conversion for stdlib)
+    // Try interpreter first (has stdlib loaded)
     try {
       const interpreter = getMacroInterpreter();
       const interpEnv = bridgeToInterpreterEnv(env);
@@ -838,7 +832,7 @@ function evaluateFunctionCall(
       // Fall through to compiler env
     }
 
-    // Fall back to compiler env
+    // Fall back to compiler env (handles % primitives and other compiler functions)
     try {
       const fn = env.lookup(op);
       if (typeof fn === "function") {

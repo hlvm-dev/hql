@@ -92,25 +92,25 @@
 
 (macro or [& args]
   (cond
-    ((%empty? args) false)
-    ((=== (%length args) 1) (%first args))
-    (true
+    ((empty? args) false)
+    ((=== (count args) 1) (first args))
+    (else
       `((fn [value]
           (if value
               value
-              (or ~@(%rest args))))
-        ~(%first args)))))
+              (or ~@(rest args))))
+        ~(first args)))))
 
 (macro and [& args]
   (cond
-    ((%empty? args) true)
-    ((=== (%length args) 1) (%first args))
-    (true
+    ((empty? args) true)
+    ((=== (count args) 1) (first args))
+    (else
       `((fn [value]
           (if value
-              (and ~@(%rest args))
+              (and ~@(rest args))
               value))
-        ~(%first args)))))
+        ~(first args)))))
 
 (macro when [test & body]
   `(if ~test
@@ -118,8 +118,8 @@
        nil))
 
 (macro when-let [binding & body]
-  (let (var-name (%first binding)
-        var-value (%nth binding 1))
+  (let (var-name (first binding)
+        var-value (second binding))
     `((fn [~var-name]
          (when ~var-name
              ~@body))
@@ -146,9 +146,9 @@
 
 (macro str [& args]
   (cond
-    ((%empty? args) `"")
-    ((=== (%length args) 1) `(+ "" ~(%first args)))
-    (true `(+ ~@args))))
+    ((empty? args) `"")
+    ((=== (count args) 1) `(+ "" ~(first args)))
+    (else `(+ ~@args))))
 
 (macro contains? [coll key]
   `(js-call ~coll "has" ~key))
@@ -156,8 +156,8 @@
 ;; NOTE: nth is in STDLIB - handles LazySeq properly
 
 (macro if-let [binding then-expr else-expr]
-  (let (var-name (%first binding)
-        var-value (%nth binding 1))
+  (let (var-name (first binding)
+        var-value (second binding))
     `((fn [~var-name]
          (if ~var-name
              ~then-expr
@@ -198,38 +198,27 @@
 ;; ----------------------------------------
 
 (macro cond [& clauses]
-  (if (%empty? clauses)
+  (if (empty? clauses)
       nil
-      (let (first-clause (%first clauses)
-            rest-clauses (%rest clauses)
-            first-el (%first first-clause))
-        ;; Check if first clause is a list (e.g., (else expr))
-        ;; If we can extract a first element, it's a list
-        (if (not (=== first-el nil))
-            ;; List clause syntax: ((test) result)
-            (let (test first-el
-                  result (%first (%rest first-clause)))
-              ;; Check if test is the symbol 'else' - if so, return result directly
-              (if (symbol? test)
-                  (if (=== (name test) "else")
-                      result
-                      ;; Otherwise generate if expression
-                      (if (%empty? rest-clauses)
-                          `(if ~test ~result nil)
-                          `(if ~test ~result (cond ~@rest-clauses))))
-                  ;; test is not a symbol, generate if expression
-                  (if (%empty? rest-clauses)
-                      `(if ~test ~result nil)
-                      `(if ~test ~result (cond ~@rest-clauses)))))
-            ;; Flat syntax: test result test result...
-            (if (%empty? rest-clauses)
-                (throw "cond requires result expression for test")
-                (let (test first-clause
-                      result (%first rest-clauses)
-                      remaining (%rest rest-clauses))
-                  (if (%empty? remaining)
-                      `(if ~test ~result nil)
-                      `(if ~test ~result (cond ~@remaining)))))))))
+      (let (first-arg (first clauses))
+        (if (list? first-arg)
+            ;; Case 1: Clause is a list (test result)
+            (let (test (first first-arg)
+                  result (second first-arg)
+                  remaining (rest clauses))
+              (if (and (symbol? test) (=== (name test) "else"))
+                  result
+                  `(if ~test ~result (cond ~@remaining))))
+            
+            ;; Case 2: Flat syntax test result ...
+            (if (=== (length clauses) 1)
+                first-arg  ;; Implicit default value
+                (let (test first-arg
+                      result (nth clauses 1)
+                      remaining (drop 2 clauses))
+                   (if (=== result undefined)
+                       (throw "cond requires result expression for test")
+                       `(if ~test ~result (cond ~@remaining)))))))))
 
 ;; NOTE: `do` is a kernel primitive, not a macro
 ;; It needs to create an IIFE with BlockStatement to handle both statements and expressions
@@ -245,13 +234,13 @@
 ;; (-> x (f a) (g b)) => (g (f x a) b)
 ;; (-> x f g) => (g (f x))
 (macro -> [x & forms]
-  (if (%empty? forms)
+  (if (empty? forms)
     x
-    (let (form (%first forms)
-          rest-forms (%rest forms)
+    (let (form (first forms)
+          rest-forms (rest forms)
           threaded (if (list? form)
                      ;; Form is a list like (f a b), insert x as first arg: (f x a b)
-                     `(~(%first form) ~x ~@(%rest form))
+                     `(~(first form) ~x ~@(rest form))
                      ;; Form is a symbol like f, make it (f x)
                      `(~form ~x)))
       `(-> ~threaded ~@rest-forms))))
@@ -260,10 +249,10 @@
 ;; (->> x (f a) (g b)) => (g b (f a x))
 ;; (->> x f g) => (g (f x))
 (macro ->> [x & forms]
-  (if (%empty? forms)
+  (if (empty? forms)
     x
-    (let (form (%first forms)
-          rest-forms (%rest forms)
+    (let (form (first forms)
+          rest-forms (rest forms)
           threaded (if (list? form)
                      ;; Form is a list like (f a b), insert x as last arg: (f a b x)
                      `(~@form ~x)
@@ -275,10 +264,10 @@
 ;; (as-> 2 x (+ x 1) (* x 3)) => ((fn [x] (* x 3)) ((fn [x] (+ x 1)) 2))
 ;; Each form is wrapped in a function that binds the name, avoiding rebinding issues
 (macro as-> [expr name & forms]
-  (if (%empty? forms)
+  (if (empty? forms)
     expr
-    (let (first-form (%first forms)
-          rest-forms (%rest forms))
+    (let (first-form (first forms)
+          rest-forms (rest forms))
       `((fn [~name] (as-> ~first-form ~name ~@rest-forms))
         ~expr))))
 
@@ -311,31 +300,31 @@
 
 ;; Implementation macro - processes clauses recursively
 (macro %match-impl [val-sym & clauses]
-  (if (%empty? clauses)
+  (if (empty? clauses)
       `((fn [] (throw (new Error "No matching pattern"))))
-      (let (clause (%first clauses)
-            rest-clauses (%rest clauses)
+      (let (clause (first clauses)
+            rest-clauses (rest clauses)
             clause-kind (if (list? clause)
-                            (if (symbol? (%first clause))
-                                (name (%first clause))
+                            (if (symbol? (first clause))
+                                (name (first clause))
                                 "unknown")
                             "unknown"))
         (cond
           ((=== clause-kind "default")
-           (%nth clause 1))
+           (nth clause 1))
 
           ((=== clause-kind "case")
-           (let (pattern (%nth clause 1)
+           (let (pattern (nth clause 1)
                  ;; Guard detection
-                 has-guard (if (>= (%length clause) 4)
-                               (if (list? (%nth clause 2))
-                                   (if (symbol? (%first (%nth clause 2)))
-                                       (=== (name (%first (%nth clause 2))) "if")
+                 has-guard (if (>= (count clause) 4)
+                               (if (list? (nth clause 2))
+                                   (if (symbol? (first (nth clause 2)))
+                                       (=== (name (first (nth clause 2))) "if")
                                        false)
                                    false)
                                false)
-                 guard-expr (if has-guard (%nth (%nth clause 2) 1) nil)
-                 result-expr (if has-guard (%nth clause 3) (%nth clause 2))
+                 guard-expr (if has-guard (nth (nth clause 2) 1) nil)
+                 result-expr (if has-guard (nth clause 3) (nth clause 2))
                  ;; Pattern classification - single symbol? check, reuse result
                  pat-name (if (symbol? pattern) (name pattern) nil)
                  is-wildcard (=== pat-name "_")
@@ -343,14 +332,14 @@
                  is-binding (if pat-name (if is-wildcard false (if is-null-pat false true)) false)
                  ;; List pattern detection
                  is-list (if pat-name false (list? pattern))
-                 head-name (if is-list (if (symbol? (%first pattern)) (name (%first pattern)) nil) nil)
+                 head-name (if is-list (if (symbol? (first pattern)) (name (first pattern)) nil) nil)
                  is-object (if head-name (if (=== head-name "hash-map") true (=== head-name "__hql_hash_map")) false)
                  is-array (if is-list (if is-object false true) false)
                  ;; Array rest pattern detection
-                 arr-len (if is-array (%length pattern) 0)
+                 arr-len (if is-array (count pattern) 0)
                  has-rest (if (>= arr-len 2)
-                              (if (symbol? (%nth pattern (- arr-len 2)))
-                                  (=== (name (%nth pattern (- arr-len 2))) "&")
+                              (if (symbol? (nth pattern (- arr-len 2)))
+                                  (=== (name (nth pattern (- arr-len 2))) "&")
                                   false)
                               false)
                  check-len (if has-rest (- arr-len 2) arr-len)

@@ -102,25 +102,25 @@ export const EMBEDDED_MACROS = {
 
 (macro or [& args]
   (cond
-    ((%empty? args) false)
-    ((=== (%length args) 1) (%first args))
-    (true
+    ((empty? args) false)
+    ((=== (count args) 1) (first args))
+    (else
       \`((fn [value]
           (if value
               value
-              (or ~@(%rest args))))
-        ~(%first args)))))
+              (or ~@(rest args))))
+        ~(first args)))))
 
 (macro and [& args]
   (cond
-    ((%empty? args) true)
-    ((=== (%length args) 1) (%first args))
-    (true
+    ((empty? args) true)
+    ((=== (count args) 1) (first args))
+    (else
       \`((fn [value]
           (if value
-              (and ~@(%rest args))
+              (and ~@(rest args))
               value))
-        ~(%first args)))))
+        ~(first args)))))
 
 (macro when [test & body]
   \`(if ~test
@@ -128,8 +128,8 @@ export const EMBEDDED_MACROS = {
        nil))
 
 (macro when-let [binding & body]
-  (let (var-name (%first binding)
-        var-value (%nth binding 1))
+  (let (var-name (first binding)
+        var-value (second binding))
     \`((fn [~var-name]
          (when ~var-name
              ~@body))
@@ -156,9 +156,9 @@ export const EMBEDDED_MACROS = {
 
 (macro str [& args]
   (cond
-    ((%empty? args) \`"")
-    ((=== (%length args) 1) \`(+ "" ~(%first args)))
-    (true \`(+ ~@args))))
+    ((empty? args) \`"")
+    ((=== (count args) 1) \`(+ "" ~(first args)))
+    (else \`(+ ~@args))))
 
 (macro contains? [coll key]
   \`(js-call ~coll "has" ~key))
@@ -166,8 +166,8 @@ export const EMBEDDED_MACROS = {
 ;; NOTE: nth is in STDLIB - handles LazySeq properly
 
 (macro if-let [binding then-expr else-expr]
-  (let (var-name (%first binding)
-        var-value (%nth binding 1))
+  (let (var-name (first binding)
+        var-value (second binding))
     \`((fn [~var-name]
          (if ~var-name
              ~then-expr
@@ -208,38 +208,27 @@ export const EMBEDDED_MACROS = {
 ;; ----------------------------------------
 
 (macro cond [& clauses]
-  (if (%empty? clauses)
+  (if (empty? clauses)
       nil
-      (let (first-clause (%first clauses)
-            rest-clauses (%rest clauses)
-            first-el (%first first-clause))
-        ;; Check if first clause is a list (e.g., (else expr))
-        ;; If we can extract a first element, it's a list
-        (if (not (=== first-el nil))
-            ;; List clause syntax: ((test) result)
-            (let (test first-el
-                  result (%first (%rest first-clause)))
-              ;; Check if test is the symbol 'else' - if so, return result directly
-              (if (symbol? test)
-                  (if (=== (name test) "else")
-                      result
-                      ;; Otherwise generate if expression
-                      (if (%empty? rest-clauses)
-                          \`(if ~test ~result nil)
-                          \`(if ~test ~result (cond ~@rest-clauses))))
-                  ;; test is not a symbol, generate if expression
-                  (if (%empty? rest-clauses)
-                      \`(if ~test ~result nil)
-                      \`(if ~test ~result (cond ~@rest-clauses)))))
-            ;; Flat syntax: test result test result...
-            (if (%empty? rest-clauses)
-                (throw "cond requires result expression for test")
-                (let (test first-clause
-                      result (%first rest-clauses)
-                      remaining (%rest rest-clauses))
-                  (if (%empty? remaining)
-                      \`(if ~test ~result nil)
-                      \`(if ~test ~result (cond ~@remaining)))))))))
+      (let (first-arg (first clauses))
+        (if (list? first-arg)
+            ;; Case 1: Clause is a list (test result)
+            (let (test (first first-arg)
+                  result (second first-arg)
+                  remaining (rest clauses))
+              (if (and (symbol? test) (=== (name test) "else"))
+                  result
+                  \`(if ~test ~result (cond ~@remaining))))
+            
+            ;; Case 2: Flat syntax test result ...
+            (if (=== (length clauses) 1)
+                first-arg  ;; Implicit default value
+                (let (test first-arg
+                      result (nth clauses 1)
+                      remaining (drop 2 clauses))
+                   (if (=== result undefined)
+                       (throw "cond requires result expression for test")
+                       \`(if ~test ~result (cond ~@remaining)))))))))
 
 ;; NOTE: \`do\` is a kernel primitive, not a macro
 ;; It needs to create an IIFE with BlockStatement to handle both statements and expressions
@@ -255,13 +244,13 @@ export const EMBEDDED_MACROS = {
 ;; (-> x (f a) (g b)) => (g (f x a) b)
 ;; (-> x f g) => (g (f x))
 (macro -> [x & forms]
-  (if (%empty? forms)
+  (if (empty? forms)
     x
-    (let (form (%first forms)
-          rest-forms (%rest forms)
+    (let (form (first forms)
+          rest-forms (rest forms)
           threaded (if (list? form)
                      ;; Form is a list like (f a b), insert x as first arg: (f x a b)
-                     \`(~(%first form) ~x ~@(%rest form))
+                     \`(~(first form) ~x ~@(rest form))
                      ;; Form is a symbol like f, make it (f x)
                      \`(~form ~x)))
       \`(-> ~threaded ~@rest-forms))))
@@ -270,10 +259,10 @@ export const EMBEDDED_MACROS = {
 ;; (->> x (f a) (g b)) => (g b (f a x))
 ;; (->> x f g) => (g (f x))
 (macro ->> [x & forms]
-  (if (%empty? forms)
+  (if (empty? forms)
     x
-    (let (form (%first forms)
-          rest-forms (%rest forms)
+    (let (form (first forms)
+          rest-forms (rest forms)
           threaded (if (list? form)
                      ;; Form is a list like (f a b), insert x as last arg: (f a b x)
                      \`(~@form ~x)
@@ -285,10 +274,10 @@ export const EMBEDDED_MACROS = {
 ;; (as-> 2 x (+ x 1) (* x 3)) => ((fn [x] (* x 3)) ((fn [x] (+ x 1)) 2))
 ;; Each form is wrapped in a function that binds the name, avoiding rebinding issues
 (macro as-> [expr name & forms]
-  (if (%empty? forms)
+  (if (empty? forms)
     expr
-    (let (first-form (%first forms)
-          rest-forms (%rest forms))
+    (let (first-form (first forms)
+          rest-forms (rest forms))
       \`((fn [~name] (as-> ~first-form ~name ~@rest-forms))
         ~expr))))
 
@@ -321,31 +310,31 @@ export const EMBEDDED_MACROS = {
 
 ;; Implementation macro - processes clauses recursively
 (macro %match-impl [val-sym & clauses]
-  (if (%empty? clauses)
+  (if (empty? clauses)
       \`((fn [] (throw (new Error "No matching pattern"))))
-      (let (clause (%first clauses)
-            rest-clauses (%rest clauses)
+      (let (clause (first clauses)
+            rest-clauses (rest clauses)
             clause-kind (if (list? clause)
-                            (if (symbol? (%first clause))
-                                (name (%first clause))
+                            (if (symbol? (first clause))
+                                (name (first clause))
                                 "unknown")
                             "unknown"))
         (cond
           ((=== clause-kind "default")
-           (%nth clause 1))
+           (nth clause 1))
 
           ((=== clause-kind "case")
-           (let (pattern (%nth clause 1)
+           (let (pattern (nth clause 1)
                  ;; Guard detection
-                 has-guard (if (>= (%length clause) 4)
-                               (if (list? (%nth clause 2))
-                                   (if (symbol? (%first (%nth clause 2)))
-                                       (=== (name (%first (%nth clause 2))) "if")
+                 has-guard (if (>= (count clause) 4)
+                               (if (list? (nth clause 2))
+                                   (if (symbol? (first (nth clause 2)))
+                                       (=== (name (first (nth clause 2))) "if")
                                        false)
                                    false)
                                false)
-                 guard-expr (if has-guard (%nth (%nth clause 2) 1) nil)
-                 result-expr (if has-guard (%nth clause 3) (%nth clause 2))
+                 guard-expr (if has-guard (nth (nth clause 2) 1) nil)
+                 result-expr (if has-guard (nth clause 3) (nth clause 2))
                  ;; Pattern classification - single symbol? check, reuse result
                  pat-name (if (symbol? pattern) (name pattern) nil)
                  is-wildcard (=== pat-name "_")
@@ -353,14 +342,14 @@ export const EMBEDDED_MACROS = {
                  is-binding (if pat-name (if is-wildcard false (if is-null-pat false true)) false)
                  ;; List pattern detection
                  is-list (if pat-name false (list? pattern))
-                 head-name (if is-list (if (symbol? (%first pattern)) (name (%first pattern)) nil) nil)
+                 head-name (if is-list (if (symbol? (first pattern)) (name (first pattern)) nil) nil)
                  is-object (if head-name (if (=== head-name "hash-map") true (=== head-name "__hql_hash_map")) false)
                  is-array (if is-list (if is-object false true) false)
                  ;; Array rest pattern detection
-                 arr-len (if is-array (%length pattern) 0)
+                 arr-len (if is-array (count pattern) 0)
                  has-rest (if (>= arr-len 2)
-                              (if (symbol? (%nth pattern (- arr-len 2)))
-                                  (=== (name (%nth pattern (- arr-len 2))) "&")
+                              (if (symbol? (nth pattern (- arr-len 2)))
+                                  (=== (name (nth pattern (- arr-len 2))) "&")
                                   false)
                               false)
                  check-len (if has-rest (- arr-len 2) arr-len)
@@ -402,8 +391,7 @@ export const EMBEDDED_MACROS = {
                  \`(if ~condition ~body ~fallback))))
 
           (else
-           \`((fn [] (throw (new Error "Invalid match clause")))))))))
-`,
+           \`((fn [] (throw (new Error "Invalid match clause")))))))))`,
   "src/lib/macro/loop.hql": `;; ====================================================
 ;; HQL Loop Constructs Library - Enhanced Version
 ;; This library implements a series of looping constructs
@@ -466,10 +454,10 @@ export const EMBEDDED_MACROS = {
 
 ;; for loop - enhanced iteration with multiple syntaxes
 (macro for [binding & body]
-  (let (var (%first binding)
-        spec (%rest binding)
-        spec-count (%length spec)
-        first-elem (%first spec))
+  (let (var (first binding)
+        spec (rest binding)
+        spec-count (count spec)
+        first-elem (first spec))
     (cond
       ;; Error: empty spec
       ;; Error: empty spec
@@ -489,21 +477,21 @@ export const EMBEDDED_MACROS = {
        (if (symbol? first-elem)
            (if (= (name first-elem) "to:")
                ;; Named form: (for (i to: end) ...)
-               (let (end (%nth spec 1))
+               (let (end (nth spec 1))
                  \`(__hql_for_each (__hql_range 0 ~end)
                     (fn [~var]
                       (do
                         ~@body))))
                ;; Positional form: (for (i start end) ...)
                (let (start first-elem
-                     end (%nth spec 1))
+                     end (nth spec 1))
                  \`(__hql_for_each (__hql_range ~start ~end)
                     (fn [~var]
                       (do
                         ~@body)))))
            ;; Positional form: (for (i start end) ...)
            (let (start first-elem
-                 end (%nth spec 1))
+                 end (nth spec 1))
              \`(__hql_for_each (__hql_range ~start ~end)
                 (fn [~var]
                   (do
@@ -513,8 +501,8 @@ export const EMBEDDED_MACROS = {
       ((= spec-count 3)
        ;; Positional form: (for (i start end step) ...)
        (let (start first-elem
-             end (%nth spec 1)
-             step (%nth spec 2))
+             end (nth spec 1)
+             step (nth spec 2))
          \`(__hql_for_each (__hql_range ~start ~end ~step)
             (fn [~var]
               (do
@@ -525,10 +513,10 @@ export const EMBEDDED_MACROS = {
        (if (symbol? first-elem)
            (if (= (name first-elem) "to:")
                ;; Named form: (for (i to: end by: step) ...)
-               (if (symbol? (%nth spec 2))
-                   (if (= (name (%nth spec 2)) "by:")
-                       (let (end (%nth spec 1)
-                             step (%nth spec 3))
+               (if (symbol? (nth spec 2))
+                   (if (= (name (nth spec 2)) "by:")
+                       (let (end (nth spec 1)
+                             step (nth spec 3))
                          \`(__hql_for_each (__hql_range 0 ~end ~step)
                             (fn [~var]
                               (do
@@ -537,10 +525,10 @@ export const EMBEDDED_MACROS = {
                    \`(throw (str "Invalid 'for' loop binding: " '~binding)))
                (if (= (name first-elem) "from:")
                    ;; Named form: (for (i from: start to: end) ...)
-                   (if (symbol? (%nth spec 2))
-                       (if (= (name (%nth spec 2)) "to:")
-                           (let (start (%nth spec 1)
-                                 end (%nth spec 3))
+                   (if (symbol? (nth spec 2))
+                       (if (= (name (nth spec 2)) "to:")
+                           (let (start (nth spec 1)
+                                 end (nth spec 3))
                              \`(__hql_for_each (__hql_range ~start ~end)
                                 (fn [~var]
                                   (do
@@ -554,13 +542,13 @@ export const EMBEDDED_MACROS = {
       ((= spec-count 6)
        (if (symbol? first-elem)
            (if (= (name first-elem) "from:")
-               (if (symbol? (%nth spec 2))
-                   (if (= (name (%nth spec 2)) "to:")
-                       (if (symbol? (%nth spec 4))
-                           (if (= (name (%nth spec 4)) "by:")
-                               (let (start (%nth spec 1)
-                                     end (%nth spec 3)
-                                     step (%nth spec 5))
+               (if (symbol? (nth spec 2))
+                   (if (= (name (nth spec 2)) "to:")
+                       (if (symbol? (nth spec 4))
+                           (if (= (name (nth spec 4)) "by:")
+                               (let (start (nth spec 1)
+                                     end (nth spec 3)
+                                     step (nth spec 5))
                                  \`(__hql_for_each (__hql_range ~start ~end ~step)
                                     (fn [~var]
                                       (do
@@ -573,7 +561,52 @@ export const EMBEDDED_MACROS = {
            \`(throw (str "Invalid 'for' loop binding: " '~binding))))
 
       (true \`(throw (str "Invalid 'for' loop binding: " '~binding)))))
-  )
+  )`,
+  "src/lib/macro/utils.hql": `;; ====================================================
+;; HQL Utility Macros
+;; Common Lisp-style utilities
+;; ====================================================
+
+;; doto: Executes forms with x as first argument, returns x
+;; (doto (new HashMap) (.set "a" 1) (.set "b" 2))
+(macro doto [x & forms]
+  (let (gx (gensym "doto"))
+    \`(let (~gx ~x)
+       ~@(map (fn [f]
+                (if (list? f)
+                  (let (head (first f))
+                    (if (symbol? head)
+                        (let (hname (name head))
+                          (if (=== (js-call hname "charAt" 0) ".")
+                              \`(js-call ~gx ~(js-call hname "substring" 1) ~@(rest f))
+                              \`(~head ~gx ~@(rest f))))
+                        \`(~head ~gx ~@(rest f))))
+                  \`(~f ~gx)))
+              forms)
+       ~gx)))
+
+;; if-not: Inverse of if
+(macro if-not [test then else]
+  \`(if ~test ~else ~then))
+
+;; when-not: Inverse of when
+(macro when-not [test & body]
+  \`(if ~test nil (do ~@body)))
+
+;; xor: Logical XOR
+(macro xor [a b]
+  (let (ga (gensym "xor_a")
+        gb (gensym "xor_b"))
+    \`(let (~ga ~a
+           ~gb ~b)
+       (if ~ga (not ~gb) ~gb))))
+
+;; min/max macros expanding to Math functions
+(macro min [& args]
+  \`(Math.min ~@args))
+
+(macro max [& args]
+  \`(Math.max ~@args))
 `,
 } as const;
 
