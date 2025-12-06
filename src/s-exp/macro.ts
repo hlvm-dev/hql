@@ -52,6 +52,46 @@ function getMacroInterpreter(): Interpreter {
 }
 
 /**
+ * Convert S-expression value to HQL value for interpreter use
+ * This is critical for bridging compiler env (S-expressions) to interpreter env (HQL values)
+ *
+ * IMPORTANT: We ONLY convert S-expression literals (primitives) to HQL values.
+ * S-expression lists and symbols are kept as-is because:
+ * - `list?` and `symbol?` introspection functions need S-expression objects
+ * - Macro expansion works on S-expression AST nodes, not HQL runtime values
+ */
+function sexpToHqlValue(value: unknown): import("../interpreter/types.ts").HQLValue {
+  // If it's already a primitive, return as-is
+  if (value === null || value === undefined) return null;
+  if (typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
+    return value;
+  }
+
+  // If it's an S-expression literal, extract the primitive value
+  // This is the ONLY S-expression type we convert - literals become primitives
+  if (isObjectValue(value) && (value as { type?: string }).type === "literal") {
+    return (value as unknown as SLiteral).value;
+  }
+
+  // S-expression symbols and lists are kept as-is for introspection (list?, symbol?)
+  // They will be handled by the interpreter's S-expression aware builtins
+  if (isObjectValue(value) && (
+    (value as { type?: string }).type === "symbol" ||
+    (value as { type?: string }).type === "list"
+  )) {
+    return value as unknown as import("../interpreter/types.ts").HQLValue;
+  }
+
+  // If it's already an array, keep it as-is (runtime HQL arrays)
+  if (Array.isArray(value)) {
+    return value as unknown as import("../interpreter/types.ts").HQLValue;
+  }
+
+  // Functions and other values pass through as-is
+  return value as unknown as import("../interpreter/types.ts").HQLValue;
+}
+
+/**
  * Bridge compiler Environment to InterpreterEnv
  * Copies ALL bindings from the ENTIRE scope chain (not just immediate scope)
  *
@@ -81,10 +121,12 @@ function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
   }
 
   // Now copy all collected bindings to interpreter env
+  // IMPORTANT: Convert S-expression values to HQL values for interpreter compatibility
   for (const [name, value] of allBindings) {
     // Skip if already in standard env (builtins/stdlib)
     if (!interpEnv.isDefined(name)) {
-      interpEnv.define(name, value as import("../interpreter/types.ts").HQLValue);
+      const hqlValue = sexpToHqlValue(value);
+      interpEnv.define(name, hqlValue);
     }
   }
 
@@ -747,74 +789,14 @@ function evaluateArguments(
   });
 }
 
-/* Helper: Centralize math operations during function calls */
-function tryMathOperation(op: string, args: unknown[], logger: Logger): SExp {
-  try {
-    const asNumber = (value: unknown): number => {
-      if (typeof value === "number") return value;
-      throw new Error(`Expected numeric argument, received ${typeof value}`);
-    };
-
-    if (op === "Math.abs" || op.endsWith(".abs")) {
-      return createLiteral(Math.abs(asNumber(args[0])));
-    }
-    if (op === "Math.round" || op.endsWith(".round")) {
-      return createLiteral(Math.round(asNumber(args[0])));
-    }
-    if (op === "Math.max" || op.endsWith(".max")) {
-      const numbers = args.map(asNumber);
-      return createLiteral(Math.max(...numbers));
-    }
-  } catch (callError) {
-    logger.debug(
-      `Error calling math function ${op}: ${
-        callError instanceof Error ? callError.message : String(callError)
-      }`,
-    );
-    return createLiteral(0);
-  }
-  // Should not reach here if op matches math functions
-  return createLiteral(0);
-}
-
-// Stdlib function names that need interpreter wrapping for S-expression handling
-// These are the functions from src/lib/stdlib/js/core.js that work on collections
-// and need proper S-expression conversion at macro-time
-const STDLIB_FUNCTIONS = new Set([
-  // Collection accessors
-  "first", "rest", "next", "cons", "nth", "count", "second", "last",
-  "isEmpty", "some", "take", "drop",
-  // HOFs
-  "map", "filter", "reduce", "concat", "flatten", "distinct",
-  "mapIndexed", "keepIndexed", "mapcat", "keep",
-  // Sequence generators
-  "range", "iterate", "repeat", "repeatedly", "cycle",
-  // Function utilities
-  "comp", "partial", "apply",
-  // Collection operations
-  "groupBy", "keys", "doall", "realized", "seq", "empty", "conj", "into",
-  "every", "notAny", "sort", "sortBy", "reverse", "interleave", "interpose",
-  "partition", "partitionBy", "partitionAll", "splitAt", "splitWith",
-  "butlast", "dropLast", "takeLast", "takeWhile", "dropWhile",
-  "update", "updateIn", "assocIn", "getIn", "selectKeys",
-  "zipmap", "frequencies", "merge",
-  // Predicates
-  "contains", "includes", "not-empty",
-  // Type coercion
-  "vec", "set", "vals", "length",
-]);
-
-/* Evaluate a function call with improved error handling
+/* Evaluate a function call - ALL HQL functions work in macros automatically
  *
  * Strategy:
- * 1. Handle Math operations directly (they work with primitives)
- * 2. Try compiler env FIRST for operators and macro primitives
- * 3. Use interpreter ONLY for STDLIB functions (which need S-expression wrapping)
+ * 1. Macro primitives (% prefix) go to compiler env (designed for S-exps)
+ * 2. Everything else: try interpreter first, fall back to compiler env
  *
- * This is critical because:
- * - Compiler env builtins (=, +, -, %, <, >, etc.) work correctly with S-expressions
- * - Compiler env macro primitives (%first, %rest, etc.) are designed for S-expressions
- * - ONLY stdlib functions (first, rest, map, filter, etc.) need interpreter wrapping
+ * This ensures ALL HQL functions (stdlib, core, operators, everything)
+ * work in macros out of the box with ZERO configuration or hardcoding.
  */
 function evaluateFunctionCall(
   list: SList,
@@ -825,36 +807,38 @@ function evaluateFunctionCall(
   if (isSymbol(first)) {
     const op = (first as SSymbol).name;
 
-    // Handle Math operations directly (they work fine with primitive args)
-    if (
-      op === "Math.abs" || op.endsWith(".abs") ||
-      op === "Math.round" || op.endsWith(".round") ||
-      op === "Math.max" || op.endsWith(".max")
-    ) {
-      const evalArgs = evaluateArguments(list.elements.slice(1), env, logger);
-      return tryMathOperation(op, evalArgs, logger);
-    }
-
-    // For STDLIB functions, use interpreter (it has wrapped versions for S-expressions)
-    if (STDLIB_FUNCTIONS.has(op)) {
+    // Macro primitives (% prefix) go directly to compiler env - they're designed for S-exps
+    if (op.startsWith("%")) {
       try {
-        const interpreter = getMacroInterpreter();
-        const interpEnv = bridgeToInterpreterEnv(env);
-
-        if (interpEnv.isDefined(op)) {
-          logger.debug(`Using interpreter for stdlib function '${op}'`);
-          const result = interpreter.eval(list, interpEnv);
-          return hqlValueToSExp(result);
+        const fn = env.lookup(op);
+        if (typeof fn === "function") {
+          const evalArgs = evaluateArguments(list.elements.slice(1), env, logger);
+          const callable = fn as (...args: unknown[]) => unknown;
+          return convertJsValueToSExp(callable(...evalArgs));
         }
-      } catch (interpError) {
-        logger.debug(
-          `Interpreter evaluation failed for '${op}': ${getErrorMessage(interpError)}`
-        );
-        // Fall through to compiler env
+      } catch {
+        logger.debug(`Macro primitive '${op}' not found in compiler env`);
       }
     }
 
-    // For everything else (operators, macro primitives, user functions), use compiler env
+    // For everything else: try interpreter first (handles S-exp conversion for stdlib)
+    try {
+      const interpreter = getMacroInterpreter();
+      const interpEnv = bridgeToInterpreterEnv(env);
+
+      if (interpEnv.isDefined(op)) {
+        logger.debug(`Using interpreter for '${op}'`);
+        const result = interpreter.eval(list, interpEnv);
+        return hqlValueToSExp(result);
+      }
+    } catch (interpError) {
+      logger.debug(
+        `Interpreter evaluation failed for '${op}': ${getErrorMessage(interpError)}`
+      );
+      // Fall through to compiler env
+    }
+
+    // Fall back to compiler env
     try {
       const fn = env.lookup(op);
       if (typeof fn === "function") {
