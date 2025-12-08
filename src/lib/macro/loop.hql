@@ -60,10 +60,10 @@
 
 ;; for loop - enhanced iteration with multiple syntaxes
 (macro for [binding & body]
-  (let (var (first binding)
-        spec (rest binding)
-        spec-count (count spec)
-        first-elem (first spec))
+  (let (var (%first binding)
+        spec (%rest binding)
+        spec-count (%length spec)
+        first-elem (%first spec))
     (cond
       ;; Error: empty spec
       ;; Error: empty spec
@@ -83,21 +83,21 @@
        (if (symbol? first-elem)
            (if (= (name first-elem) "to:")
                ;; Named form: (for (i to: end) ...)
-               (let (end (nth spec 1))
+               (let (end (%nth spec 1))
                  `(__hql_for_each (__hql_range 0 ~end)
                     (fn [~var]
                       (do
                         ~@body))))
                ;; Positional form: (for (i start end) ...)
                (let (start first-elem
-                     end (nth spec 1))
+                     end (%nth spec 1))
                  `(__hql_for_each (__hql_range ~start ~end)
                     (fn [~var]
                       (do
                         ~@body)))))
            ;; Positional form: (for (i start end) ...)
            (let (start first-elem
-                 end (nth spec 1))
+                 end (%nth spec 1))
              `(__hql_for_each (__hql_range ~start ~end)
                 (fn [~var]
                   (do
@@ -107,8 +107,8 @@
       ((= spec-count 3)
        ;; Positional form: (for (i start end step) ...)
        (let (start first-elem
-             end (nth spec 1)
-             step (nth spec 2))
+             end (%nth spec 1)
+             step (%nth spec 2))
          `(__hql_for_each (__hql_range ~start ~end ~step)
             (fn [~var]
               (do
@@ -119,10 +119,10 @@
        (if (symbol? first-elem)
            (if (= (name first-elem) "to:")
                ;; Named form: (for (i to: end by: step) ...)
-               (if (symbol? (nth spec 2))
-                   (if (= (name (nth spec 2)) "by:")
-                       (let (end (nth spec 1)
-                             step (nth spec 3))
+               (if (symbol? (%nth spec 2))
+                   (if (= (name (%nth spec 2)) "by:")
+                       (let (end (%nth spec 1)
+                             step (%nth spec 3))
                          `(__hql_for_each (__hql_range 0 ~end ~step)
                             (fn [~var]
                               (do
@@ -131,10 +131,10 @@
                    `(throw (str "Invalid 'for' loop binding: " '~binding)))
                (if (= (name first-elem) "from:")
                    ;; Named form: (for (i from: start to: end) ...)
-                   (if (symbol? (nth spec 2))
-                       (if (= (name (nth spec 2)) "to:")
-                           (let (start (nth spec 1)
-                                 end (nth spec 3))
+                   (if (symbol? (%nth spec 2))
+                       (if (= (name (%nth spec 2)) "to:")
+                           (let (start (%nth spec 1)
+                                 end (%nth spec 3))
                              `(__hql_for_each (__hql_range ~start ~end)
                                 (fn [~var]
                                   (do
@@ -148,13 +148,13 @@
       ((= spec-count 6)
        (if (symbol? first-elem)
            (if (= (name first-elem) "from:")
-               (if (symbol? (nth spec 2))
-                   (if (= (name (nth spec 2)) "to:")
-                       (if (symbol? (nth spec 4))
-                           (if (= (name (nth spec 4)) "by:")
-                               (let (start (nth spec 1)
-                                     end (nth spec 3)
-                                     step (nth spec 5))
+               (if (symbol? (%nth spec 2))
+                   (if (= (name (%nth spec 2)) "to:")
+                       (if (symbol? (%nth spec 4))
+                           (if (= (name (%nth spec 4)) "by:")
+                               (let (start (%nth spec 1)
+                                     end (%nth spec 3)
+                                     step (%nth spec 5))
                                  `(__hql_for_each (__hql_range ~start ~end ~step)
                                     (fn [~var]
                                       (do
