@@ -142,16 +142,14 @@ Deno.test("Rest: arrow function with rest", async () => {
   assertEquals(result, 10);
 });
 
-// NOTE: Arrow functions with mixed regular + rest params need additional implementation
-// TODO: Fix arrow function parameter handling for mixed params
-// Deno.test("Rest: arrow function with regular and rest params", async () => {
-//   const result = await run(`
-//     (let multiply (=> (factor ...nums)
-//       (.map nums (fn [x] (* factor x)))))
-//     (multiply 3 1 2 3)
-//   `);
-//   assertEquals(result, [3, 6, 9]);
-// });
+Deno.test("Rest: arrow function with regular and rest params", async () => {
+  const result = await run(`
+    (let multiply (=> (factor ...nums)
+      (.map nums (fn [x] (* factor x)))))
+    (multiply 3 1 2 3)
+  `);
+  assertEquals(result, [3, 6, 9]);
+});
 
 ////////////////////////////////////////////////////////////////////////////////
 // Section 6: Complex Scenarios
@@ -179,17 +177,16 @@ Deno.test("Rest: rest parameter in returned function", async () => {
   assertEquals(result, 11);
 });
 
-// NOTE: This test requires spread operator which is implemented in Part 1.4
-// Deno.test("Rest: spread values to another rest function", async () => {
-//   const result = await run(`
-//     (fn sum [...nums]
-//       (.reduce nums (fn [acc x] (+ acc x)) 0))
-//     (fn average [...values]
-//       (/ (sum ...values) (get values "length")))
-//     (average 10 20 30)
-//   `);
-//   assertEquals(result, 20);
-// });
+Deno.test("Rest: spread values to another rest function", async () => {
+  const result = await run(`
+    (fn sum [...nums]
+      (.reduce nums (fn [acc x] (+ acc x)) 0))
+    (fn average [...values]
+      (/ (sum ...values) (get values "length")))
+    (average 10 20 30)
+  `);
+  assertEquals(result, 20);
+});
 
 ////////////////////////////////////////////////////////////////////////////////
 // Section 7: Edge Cases

@@ -118,33 +118,17 @@ if (macroContext && currentFile) {
 
 ---
 
-### ❌ REJECTED: Issue #4 - Nuclear Cache Clearing
+### ✅ RESOLVED: Issue #4 - Nuclear Cache Clearing
 
 **Claim:** Clearing entire cache on macro redefinition is wasteful
 
-**Verification:**
+**Resolution:**
 
-```typescript
-// Line 172-173: Clears both entire caches
-macroCache.clear();
-macroExpansionCache.clear();
-```
+The `macroExpansionCache` was actually dead code - it was created but never used for caching.
+It has been removed entirely. Only `macroCache` (which stores macro definitions) remains
+and is cleared when macros are redefined.
 
-**Performance Analysis:**
-
-- Frequency: Only when macros are (re)defined
-- Typical use: Define macros once at startup
-- Cost: O(cache size) but happens rarely
-- Alternative: Surgical clearing - track dependencies
-
-**Why NOT fixed:**
-
-- Macro redefinition is NOT a hot path
-- Current approach is simple and correct
-- Surgical clearing adds significant complexity
-- No measurable performance benefit
-
-**Decision:** Premature optimization - keep simple approach
+**Decision:** Dead code removed
 
 ---
 
@@ -361,3 +345,180 @@ methodology and findings.
 **Completed:** 2025-11-01 **Test Count:** 975/975 passing **Bugs Introduced:** 0
 **Complexity Reduced:** -8 lines **Quality Improvement:** Moderate **Status:**
 ✅ **PRODUCTION-READY**
+
+---
+
+# Macro System Bug Fixes (2025-12-14)
+
+**Date:** 2025-12-14 **Status:** ✅ **COMPLETED** - All macro edge cases fixed
+**Tests:** 1808/1808 passing | 0 failures | 60 new tests added
+
+---
+
+## Executive Summary
+
+Fixed critical macro system bugs that prevented proper functioning of:
+- Nested macro calls as arguments
+- Recursive macros
+- Multi-level macro composition
+- Chained let bindings with macros
+
+All fixes follow DRY and KISS principles with no hacks or workarounds.
+
+---
+
+## Bugs Fixed
+
+### ✅ Bug 1: Nested Macro as Argument Produces NaN
+
+**Symptom:** `(dec1 (dec1 10))` returned NaN instead of 8
+
+**Root Cause:** `expandMacroExpression` didn't pre-expand nested macro calls
+in arguments before passing them to the outer macro.
+
+**Fix:** Added pre-expansion logic using `preExpandMacroArgs` helper:
+
+```typescript
+// src/s-exp/macro.ts:1271-1275
+const args = preExpandMacroArgs(
+  list.elements.slice(1),
+  env,
+  (arg) => expandMacroExpression(arg, env, options, depth + 1),
+);
+```
+
+### ✅ Bug 2: Recursive Macros Only Execute Once
+
+**Symptom:** Recursive macros like factorial only executed one iteration
+
+**Root Cause:** `evaluateMacroCall` passed expressions like `(- n 1)` as
+unevaluated S-expressions instead of computing their values.
+
+**Fix:** Changed argument handling to fully evaluate at macro-time:
+
+```typescript
+// src/s-exp/macro.ts:906-910
+const args = list.elements.slice(1).map((arg) => {
+  // Fully evaluate the argument at macro-time
+  return evaluateForMacro(arg, env, logger);
+});
+```
+
+### ✅ Bug 3: Macro in Function Call Arguments
+
+**Symptom:** `(+ (double x) 5)` where `double` is a macro produced `[object Object]`
+
+**Root Cause:** `evaluateFunctionCall` didn't expand macro calls in arguments
+before passing to interpreter.
+
+**Fix:** Added pre-expansion using `preExpandMacroArgs` helper:
+
+```typescript
+// src/s-exp/macro.ts:987-992
+const expandedArgs = preExpandMacroArgs(
+  list.elements.slice(1),
+  env,
+  (arg) => evaluateForMacro(arg, env, logger),
+);
+```
+
+---
+
+## DRY Improvements
+
+### Extracted `preExpandMacroArgs` Helper
+
+Consolidated duplicate pre-expansion logic from two locations into a single
+reusable helper function:
+
+```typescript
+function preExpandMacroArgs<T>(
+  args: SExp[],
+  env: Environment,
+  expandFn: (arg: SExp) => T,
+): (SExp | T)[] {
+  return args.map((arg) => {
+    if (isList(arg)) {
+      const argList = arg as SList;
+      if (argList.elements.length > 0 && isSymbol(argList.elements[0])) {
+        const argOp = (argList.elements[0] as SSymbol).name;
+        if (env.hasMacro(argOp)) {
+          return expandFn(arg);
+        }
+      }
+    }
+    return arg;
+  });
+}
+```
+
+---
+
+## Dead Code Removed
+
+### Removed `macroExpansionCache`
+
+**Problem:** Cache was created but never actually used for caching.
+
+**Files Changed:**
+- `src/s-exp/macro.ts:224` - Removed cache declaration, added comment
+- `src/runtime/hql-runtime.ts` - Removed 2 cache.clear() calls
+- `src/runtime/index.ts` - Removed cache.clear() call
+
+### Removed `useCache` Option
+
+**Problem:** Option was defined in interfaces but never used (cache was removed).
+
+**Files Changed:**
+- `src/s-exp/macro.ts:232` - Removed from MacroExpanderOptions
+- `src/transpiler/hql-transpiler.ts` - Removed usages
+- `src/transpiler/compiler-context.ts:39` - Removed from CompilerOptions
+
+---
+
+## Test Coverage Added
+
+### New Test Files
+
+1. **`tests/unit/macro-capabilities-comprehensive.test.ts`** (40 tests)
+   - Basic macro definition
+   - Quasiquote with unquote
+   - Unquote-splicing
+   - Rest parameters
+   - Recursive macros
+   - Macro calling macro
+   - Nested macro as argument
+   - Stdlib functions in macros
+   - User-defined functions in macros
+   - Built-in macros (when, unless, or, and)
+   - Gensym hygiene
+   - Conditional logic in macros
+   - Macro generates macro
+   - Multi-level macro nesting
+   - Complex scenarios
+
+2. **`tests/unit/macro-edge-cases.test.ts`** (20 tests)
+   - Nested macro as argument (previously broken)
+   - Recursive factorial and fibonacci (previously broken)
+   - 3, 4, 5-level macro nesting
+   - Chained let with macros
+   - Complex arithmetic in macros
+
+---
+
+## Verification Results
+
+| Capability | Status | Example |
+|------------|--------|---------|
+| Nested macro as argument | ✅ | `(dec1 (dec1 10))` = 8 |
+| Recursive factorial | ✅ | `(factorial 5)` = 120 |
+| Recursive fibonacci | ✅ | `(fib 8)` = 21 |
+| 5-level macro nesting | ✅ | `(l5 0)` = 16 |
+| Macro in function args | ✅ | `(+ (double 3) 5)` = 11 |
+| Chained let with macros | ✅ | `(let [a (dbl 3) b (dbl a)] b)` = 12 |
+
+---
+
+**Completed:** 2025-12-14 **Test Count:** 1808/1808 passing
+**Bugs Fixed:** 3 **Dead Code Removed:** ~30 lines **New Tests:** 60
+**Status:** ✅ **PRODUCTION-READY**

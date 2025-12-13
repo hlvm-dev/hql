@@ -18,6 +18,20 @@ import {
 // Maximum length when realizing lazy sequences
 const MAX_SEQ_LENGTH = 10000;
 
+/** Marker symbol to identify wrapped BuiltinFn functions */
+export const BUILTIN_MARKER = Symbol.for("hql-builtin-fn");
+
+/**
+ * Type guard: Check if function is a tagged BuiltinFn
+ * BuiltinFn expects (args: HQLValue[], env, interp) => HQLValue
+ * Regular JS functions expect (...args) => result
+ */
+export function isTaggedBuiltinFn(value: unknown): boolean {
+  if (typeof value !== "function") return false;
+  // deno-lint-ignore no-explicit-any
+  return (value as any)[BUILTIN_MARKER] === true;
+}
+
 /**
  * Load all stdlib functions into an interpreter environment
  */
@@ -34,7 +48,7 @@ export function loadStdlib(env: InterpreterEnv): void {
  * Handles conversion between HQL values and JavaScript values
  */
 function wrapStdlibFn(fn: (...args: unknown[]) => unknown): BuiltinFn {
-  return (args: HQLValue[], env: InterpreterEnv, interp: IInterpreter): HQLValue => {
+  const wrapped: BuiltinFn = (args: HQLValue[], env: InterpreterEnv, interp: IInterpreter): HQLValue => {
     // Convert HQL values to JS values for the stdlib function
     // Pass interpreter context so HQL functions can be wrapped as callable
     const jsArgs = args.map((a) => hqlToJs(a, interp as Interpreter, env));
@@ -45,6 +59,16 @@ function wrapStdlibFn(fn: (...args: unknown[]) => unknown): BuiltinFn {
     // Convert result back to HQL value, realizing any lazy sequences
     return jsToHql(result, MAX_SEQ_LENGTH);
   };
+
+  // TAG the function so we can identify it later in hqlToJs
+  // This enables proper calling convention conversion
+  Object.defineProperty(wrapped, BUILTIN_MARKER, {
+    value: true,
+    enumerable: false,
+    configurable: false
+  });
+
+  return wrapped;
 }
 
 /**
@@ -136,8 +160,24 @@ export function hqlToJs(
     return new Set([...value].map((el) => hqlToJs(el as HQLValue, interp, env)));
   }
 
-  // Built-in function -> pass through
+  // Function handling - distinguish between BuiltinFn and regular JS functions
+  // BuiltinFn signature: (args: HQLValue[], env, interp) => HQLValue
+  // Regular JS signature: (...args) => result
   if (typeof value === "function") {
+    // Only wrap if it's a TAGGED BuiltinFn (from stdlib)
+    // This is the proper fix - use symbol marker instead of guessing
+    if (isTaggedBuiltinFn(value)) {
+      return (...jsArgs: unknown[]) => {
+        // Convert JS args to HQL values
+        const hqlArgs = jsArgs.map((a) => jsToHql(a)) as HQLValue[];
+        // Call the builtin with proper signature
+        const result = (value as BuiltinFn)(hqlArgs, env!, interp!);
+        // Convert result back to JS
+        return hqlToJs(result, interp, env);
+      };
+    }
+    // Regular JS function - pass through unchanged
+    // This includes user callbacks, lambdas, etc.
     return value;
   }
 

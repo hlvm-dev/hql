@@ -85,8 +85,7 @@ export async function transpileToJavascript(
 
   await handleImports(canonicalSexps, env, mergedOptions);
 
-  // Disable caching when runtime macros are present
-  const macroOptions = context?.macroRegistry ? { useCache: false } : {};
+  const macroOptions = {};
   const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
   const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
   const javascript = await transpileHqlAstToJs(hqlAst, mergedOptions, env);
@@ -151,8 +150,7 @@ export async function transpileToJavascriptWithIR(
 
   await handleImports(canonicalSexps, env, mergedOptions);
 
-  // Disable caching when runtime macros are present
-  const macroOptions = context?.macroRegistry ? { useCache: false } : {};
+  const macroOptions = {};
   const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
   const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
   const javascript = await transpileHqlAstToJsWithIR(hqlAst, mergedOptions, env);
@@ -186,7 +184,7 @@ export async function transpileToJavascriptWithIR(
  *
  * @param hqlSource - Raw HQL source code to expand
  * @param options - Processing options (baseDir, currentFile, timing, etc.)
- * @param macroOptions - Macro expander options (useCache, maxDepth, etc.)
+ * @param macroOptions - Macro expander options (maxDepth, iterationLimit, etc.)
  * @param context - Optional compiler context for dependency injection
  * @returns Promise resolving to array of expanded S-expressions
  *
@@ -341,7 +339,6 @@ function expand(
     const expanded = expandMacros(sexps, env, {
       verbose: macroOptions.verbose ?? options.verbose,
       currentFile: macroOptions.currentFile ?? options.currentFile,
-      useCache: macroOptions.useCache ?? true,
       iterationLimit: macroOptions.iterationLimit,
       maxExpandDepth: macroOptions.maxExpandDepth,
     });

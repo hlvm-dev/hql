@@ -36,7 +36,6 @@ export interface MacroRegistry {
 export interface CompilerOptions {
   verbose?: boolean;
   showTiming?: boolean;
-  useCache?: boolean;
   maxExpandDepth?: number;
   iterationLimit?: number;
 }

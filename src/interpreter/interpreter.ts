@@ -20,6 +20,7 @@ import type {
   InterpreterEnv as IInterpreterEnv,
 } from "./types.ts";
 import { isHQLFunction, isBuiltinFn, DEFAULT_CONFIG } from "./types.ts";
+import { isTaggedBuiltinFn } from "./stdlib-bridge.ts";
 import { getSpecialForms, type SpecialFormHandler } from "./special-forms.ts";
 import { InterpreterError, MaxCallDepthError, UndefinedSymbolError } from "./errors.ts";
 
@@ -129,16 +130,15 @@ export class Interpreter implements IInterpreter {
       return this.applyHQLFunction(callee, evaluatedArgs);
     }
 
-    // Built-in function (from builtins or stdlib)
-    if (isBuiltinFn(callee)) {
-      return callee(evaluatedArgs, env, this);
+    // Tagged built-in function (from builtins or stdlib) - expects (args, env, interp) signature
+    if (isTaggedBuiltinFn(callee)) {
+      return (callee as BuiltinFn)(evaluatedArgs, env, this);
     }
 
-    // If it's a raw JS function (wrapped stdlib, etc.)
+    // Raw JS function (user imports) - expects spread arguments (...args)
     if (typeof callee === "function") {
-      // Cast to BuiltinFn signature for raw functions
-      const rawFn = callee as unknown as BuiltinFn;
-      return rawFn(evaluatedArgs, env, this);
+      // Call with spread arguments, not the BuiltinFn signature
+      return (callee as (...args: unknown[]) => unknown)(...evaluatedArgs) as HQLValue;
     }
 
     throw new InterpreterError(

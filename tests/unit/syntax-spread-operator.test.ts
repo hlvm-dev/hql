@@ -145,18 +145,15 @@ Deno.test("Spread: with filter", async () => {
 // Section 4: Function Call Spread - Complex Scenarios
 ////////////////////////////////////////////////////////////////////////////////
 
-// TODO: Fix spreading of rest parameters inside function bodies
-// Currently fails with "Cannot read properties of undefined (reading 'args')"
-// This is a separate issue from basic spread - likely a scoping problem
-// Deno.test("Spread: with higher-order function", async () => {
-//   const result = await run(`
-//     (fn apply [f ...args]
-//       (f ...args))
-//     (fn add [x y z] (+ x y z))
-//     (apply add 1 2 3)
-//   `);
-//   assertEquals(result, 6);
-// });
+Deno.test("Spread: with higher-order function", async () => {
+  const result = await run(`
+    (fn apply [f ...args]
+      (f ...args))
+    (fn add [x y z] (+ x y z))
+    (apply add 1 2 3)
+  `);
+  assertEquals(result, 6);
+});
 
 // NOTE: Spread of function call results `...(expr)` not yet supported
 // TODO: Implement spread of arbitrary expressions, not just identifiers
@@ -169,17 +166,14 @@ Deno.test("Spread: with filter", async () => {
 //   assertEquals(result, 6);
 // });
 
-// TODO: Fix spreading variables in method calls
-// Currently fails with "Cannot read properties of undefined (reading 'arr')"
-// This is related to the rest parameter spreading issue above
-// Deno.test("Spread: in method call", async () => {
-//   const result = await run(`
-//     (let arr [2 3 4])
-//     (.push arr ...arr)
-//     arr
-//   `);
-//   assertEquals(result, [2, 3, 4, 2, 3, 4]);
-// });
+Deno.test("Spread: in method call", async () => {
+  const result = await run(`
+    (let arr [2 3 4])
+    (.push arr ...arr)
+    arr
+  `);
+  assertEquals(result, [2, 3, 4, 2, 3, 4]);
+});
 
 ////////////////////////////////////////////////////////////////////////////////
 // Section 5: Integration with Other Features

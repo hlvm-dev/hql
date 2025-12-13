@@ -5,6 +5,19 @@ import type { HQLValue, BuiltinFn } from "./types.ts";
 import { isHQLFunction, isSExp } from "./types.ts";
 import { ArityError, TypeError, getTypeName } from "./errors.ts";
 import { gensym, GensymSymbol } from "../gensym.ts";
+import { BUILTIN_MARKER } from "./stdlib-bridge.ts";
+
+/**
+ * Tag a function as a BuiltinFn so the interpreter knows to call it with (args, env, interp) signature
+ */
+function tagBuiltin(fn: BuiltinFn): BuiltinFn {
+  Object.defineProperty(fn, BUILTIN_MARKER, {
+    value: true,
+    enumerable: false,
+    configurable: false
+  });
+  return fn;
+}
 import {
   createList,
   createLiteral,
@@ -19,72 +32,73 @@ import {
 
 /**
  * Load all built-in functions into an environment
+ * All builtins are tagged so the interpreter knows to call them with (args, env, interp) signature
  */
 export function loadBuiltins(env: InterpreterEnv): void {
   // Arithmetic
-  env.define("+", builtinAdd);
-  env.define("-", builtinSub);
-  env.define("*", builtinMul);
-  env.define("/", builtinDiv);
-  env.define("%", builtinMod);
-  env.define("mod", builtinMod);
+  env.define("+", tagBuiltin(builtinAdd));
+  env.define("-", tagBuiltin(builtinSub));
+  env.define("*", tagBuiltin(builtinMul));
+  env.define("/", tagBuiltin(builtinDiv));
+  env.define("%", tagBuiltin(builtinMod));
+  env.define("mod", tagBuiltin(builtinMod));
 
   // Comparison
-  env.define("=", builtinEq);
-  env.define("==", builtinEq);
-  env.define("===", builtinStrictEq);
-  env.define("!=", builtinNeq);
-  env.define("!==", builtinStrictNeq);
-  env.define("<", builtinLt);
-  env.define(">", builtinGt);
-  env.define("<=", builtinLte);
-  env.define(">=", builtinGte);
+  env.define("=", tagBuiltin(builtinEq));
+  env.define("==", tagBuiltin(builtinEq));
+  env.define("===", tagBuiltin(builtinStrictEq));
+  env.define("!=", tagBuiltin(builtinNeq));
+  env.define("!==", tagBuiltin(builtinStrictNeq));
+  env.define("<", tagBuiltin(builtinLt));
+  env.define(">", tagBuiltin(builtinGt));
+  env.define("<=", tagBuiltin(builtinLte));
+  env.define(">=", tagBuiltin(builtinGte));
 
   // Type predicates
-  env.define("nil?", builtinIsNil);
-  env.define("isNil", builtinIsNil);
-  env.define("number?", builtinIsNumber);
-  env.define("isNumber", builtinIsNumber);
-  env.define("string?", builtinIsString);
-  env.define("isString", builtinIsString);
-  env.define("boolean?", builtinIsBoolean);
-  env.define("isBoolean", builtinIsBoolean);
-  env.define("function?", builtinIsFunction);
-  env.define("isFunction", builtinIsFunction);
-  env.define("list?", builtinIsList);
-  env.define("symbol?", builtinIsSymbol);
-  env.define("array?", builtinIsArray);
-  env.define("isArray", builtinIsArray);
+  env.define("nil?", tagBuiltin(builtinIsNil));
+  env.define("isNil", tagBuiltin(builtinIsNil));
+  env.define("number?", tagBuiltin(builtinIsNumber));
+  env.define("isNumber", tagBuiltin(builtinIsNumber));
+  env.define("string?", tagBuiltin(builtinIsString));
+  env.define("isString", tagBuiltin(builtinIsString));
+  env.define("boolean?", tagBuiltin(builtinIsBoolean));
+  env.define("isBoolean", tagBuiltin(builtinIsBoolean));
+  env.define("function?", tagBuiltin(builtinIsFunction));
+  env.define("isFunction", tagBuiltin(builtinIsFunction));
+  env.define("list?", tagBuiltin(builtinIsList));
+  env.define("symbol?", tagBuiltin(builtinIsSymbol));
+  env.define("array?", tagBuiltin(builtinIsArray));
+  env.define("isArray", tagBuiltin(builtinIsArray));
 
   // S-expression operations (macro-time helpers)
   // These work directly with S-expression AST nodes, unlike stdlib versions
   // which convert S-exps to JS arrays (breaking macro expansion)
-  env.define("%first", builtinFirst);
-  env.define("%rest", builtinRest);
-  env.define("%length", builtinLength);
-  env.define("%nth", builtinNth);
-  env.define("%empty?", builtinIsEmpty);
+  env.define("%first", tagBuiltin(builtinFirst));
+  env.define("%rest", tagBuiltin(builtinRest));
+  env.define("%length", tagBuiltin(builtinLength));
+  env.define("%nth", tagBuiltin(builtinNth));
+  env.define("%empty?", tagBuiltin(builtinIsEmpty));
 
   // Meta operations
-  env.define("name", builtinName);
-  env.define("gensym", builtinGensym);
+  env.define("name", tagBuiltin(builtinName));
+  env.define("gensym", tagBuiltin(builtinGensym));
 
   // Logic
-  env.define("not", builtinNot);
+  env.define("not", tagBuiltin(builtinNot));
 
   // Type coercion
-  env.define("str", builtinStr);
+  env.define("str", tagBuiltin(builtinStr));
 
   // Collection constructors
-  env.define("vector", builtinVector);
-  env.define("list", builtinList);
-  env.define("hash-map", builtinHashMap);
-  env.define("hash-set", builtinHashSet);
+  env.define("vector", tagBuiltin(builtinVector));
+  env.define("list", tagBuiltin(builtinList));
+  env.define("hash-map", tagBuiltin(builtinHashMap));
+  env.define("hash-set", tagBuiltin(builtinHashSet));
 
   // Empty collection constructors (for [] {} #{} syntax)
-  env.define("empty-array", builtinEmptyArray);
-  env.define("empty-map", builtinEmptyMap);
-  env.define("empty-set", builtinEmptySet);
+  env.define("empty-array", tagBuiltin(builtinEmptyArray));
+  env.define("empty-map", tagBuiltin(builtinEmptyMap));
+  env.define("empty-set", tagBuiltin(builtinEmptySet));
 }
 
 // ============================================================================

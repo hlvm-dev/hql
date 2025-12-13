@@ -1,7 +1,6 @@
 // core/src/s-exp/macro.ts - Refactored to remove user-level macro support
 
 import {
-  copyMeta,
   createList,
   createListFrom,
   createLiteral,
@@ -21,10 +20,8 @@ import {
 import { Environment } from "../environment.ts";
 import type { Logger } from "../logger.ts";
 import type { MacroFn } from "../environment.ts";
-import { HQLError, MacroError, TransformError } from "../common/error.ts";
-import { perform } from "../common/error.ts";
+import { HQLError, MacroError } from "../common/error.ts";
 import { isGensymSymbol, gensym } from "../gensym.ts";
-import { LRUCache } from "../common/lru-cache.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { getErrorMessage, isObjectValue, isNullish } from "../common/utils.ts";
 import {
@@ -33,13 +30,14 @@ import {
   hqlValueToSExp,
   type InterpreterEnv,
 } from "../interpreter/index.ts";
-import { InterpreterEnv as InterpreterEnvClass } from "../interpreter/environment.ts";
 
 // Constants and caches
 const MAX_EXPANSION_ITERATIONS = 100;
 
 // Lazy singleton interpreter for macro-time evaluation
 let macroInterpreter: Interpreter | null = null;
+// Persistent environment for user-defined functions across macro expansions
+let persistentMacroEnv: InterpreterEnv | null = null;
 
 /**
  * Get or create the macro-time interpreter
@@ -49,6 +47,18 @@ function getMacroInterpreter(): Interpreter {
     macroInterpreter = new Interpreter({ maxCallDepth: 100, maxSeqLength: 10000 });
   }
   return macroInterpreter;
+}
+
+/**
+ * Get or create the persistent macro environment
+ * This environment survives across macro expansions, allowing user-defined
+ * functions to be used in later macros (like Clojure).
+ */
+function getPersistentMacroEnv(): InterpreterEnv {
+  if (!persistentMacroEnv) {
+    persistentMacroEnv = createStandardEnv();
+  }
+  return persistentMacroEnv;
 }
 
 /**
@@ -92,6 +102,53 @@ function sexpToHqlValue(value: unknown): import("../interpreter/types.ts").HQLVa
 }
 
 /**
+ * Resolve a value for the interpreter environment.
+ * This is the key to making function arguments work in macros.
+ *
+ * - S-exp symbols are resolved to actual values if defined in interpreter env
+ * - S-exp constructor lists like (empty-map) are evaluated to produce real Maps
+ * - Everything else passes through sexpToHqlValue
+ *
+ * This fixes the problem where (m triple) passes an S-exp symbol instead of the function.
+ */
+function resolveValueForInterpreter(
+  value: unknown,
+  interpEnv: InterpreterEnv
+): import("../interpreter/types.ts").HQLValue {
+  // If S-exp symbol, try to resolve to actual value in interpreter env
+  // This is critical for function references passed as macro arguments
+  if (isObjectValue(value) && (value as { type?: string }).type === "symbol") {
+    const symbolName = (value as unknown as SSymbol).name;
+    // Check if symbol refers to something in interpreter env (user fn, stdlib fn, etc.)
+    if (interpEnv.isDefined(symbolName)) {
+      return interpEnv.lookup(symbolName);
+    }
+    // Symbol not defined - keep as S-exp for introspection (symbol?, etc.)
+  }
+
+  // If S-exp list that looks like a constructor, evaluate it
+  // This fixes {} parsing to (empty-map) not being evaluated to a real Map
+  if (isObjectValue(value) && (value as { type?: string }).type === "list") {
+    const list = value as unknown as SList;
+    if (list.elements.length > 0 && isSymbol(list.elements[0])) {
+      const op = (list.elements[0] as SSymbol).name;
+      // Evaluate constructor calls that produce runtime values
+      if (op === "empty-map" || op === "hash-map" || op === "hash-set" || op === "vector") {
+        try {
+          const interpreter = getMacroInterpreter();
+          return interpreter.eval(list, interpEnv);
+        } catch {
+          // If evaluation fails, fall through to default
+        }
+      }
+    }
+  }
+
+  // Default: use existing conversion
+  return sexpToHqlValue(value);
+}
+
+/**
  * Bridge compiler Environment to InterpreterEnv
  * Copies ALL bindings from the ENTIRE scope chain (not just immediate scope)
  *
@@ -99,9 +156,11 @@ function sexpToHqlValue(value: unknown): import("../interpreter/types.ts").HQLVa
  * - Macro parameters are bound in a parent scope
  * - Let bindings create child scopes
  * - The interpreter needs access to ALL variables in the chain
+ * - User-defined functions from earlier in the file are preserved in persistent env
  */
 function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
-  const interpEnv = createStandardEnv();
+  // Use persistent env as base to preserve user-defined functions across macro expansions
+  const interpEnv = getPersistentMacroEnv().extend();
 
   // Collect ALL bindings from the entire scope chain
   // Walk up the parent chain and collect all variable bindings
@@ -121,11 +180,13 @@ function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
   }
 
   // Now copy all collected bindings to interpreter env
-  // IMPORTANT: Convert S-expression values to HQL values for interpreter compatibility
+  // IMPORTANT: Use resolveValueForInterpreter to properly handle:
+  // - S-exp symbols -> actual function values (critical for function args in macros)
+  // - S-exp constructors like (empty-map) -> actual Map objects
   for (const [name, value] of allBindings) {
     // Skip if already in standard env (builtins/stdlib)
     if (!interpEnv.isDefined(name)) {
-      const hqlValue = sexpToHqlValue(value);
+      const hqlValue = resolveValueForInterpreter(value, interpEnv);
       interpEnv.define(name, hqlValue);
     }
   }
@@ -160,7 +221,7 @@ function getAutoGensym(name: string, autoGensymMap: AutoGensymMap): SSymbol {
   return symbol;
 }
 // macroCache removed - use env.hasMacro()
-export const macroExpansionCache = new LRUCache<string, SExp>(5000);
+// macroExpansionCache REMOVED - was never actually used for caching
 // symbolRenameMap REMOVED - was part of broken automatic hygiene attempt
 // HQL uses manual hygiene (Common Lisp style) with gensym
 
@@ -168,7 +229,6 @@ export interface MacroExpanderOptions {
   verbose?: boolean;
   maxExpandDepth?: number;
   currentFile?: string;
-  useCache?: boolean;
   iterationLimit?: number;
 }
 
@@ -402,11 +462,8 @@ export function defineMacro(
       logger,
     );
 
-    // BUG FIX: Only clear caches if we are redefining an existing macro
-    // This prevents wiping the cache 50+ times during standard library loading
     if (env.hasMacro(macroName)) {
-      macroExpansionCache.clear();
-      logger.debug(`Redefined global macro ${macroName} (caches cleared)`);
+      logger.debug(`Redefined global macro ${macroName}`);
     } else {
       logger.debug(`Registered global macro ${macroName}`);
     }
@@ -440,7 +497,6 @@ export function expandMacros(
   options: MacroExpanderOptions = {},
 ): SExp[] {
   const currentFile = options.currentFile;
-  const useCache = options.useCache !== false;
   logger.debug(
     `Starting macro expansion on ${exprs.length} expressions${
       currentFile ? ` in ${currentFile}` : ""
@@ -550,13 +606,6 @@ function evaluateSymbol(expr: SSymbol, env: Environment, logger: Logger): SExp {
     const propertyPath = parts.slice(1).join(".");
     try {
       const moduleValue = env.lookup(moduleName);
-      // Optional export validation
-      const macroContext = env.getCurrentMacroContext();
-      const currentFile = env.getCurrentFile();
-      if (macroContext && currentFile) {
-        // Reserved for future validation hooks
-      }
-
       let result: unknown = moduleValue;
       if (isObjectValue(result) && propertyPath in result) {
         const record = result as Record<string, unknown>;
@@ -687,16 +736,23 @@ function evaluateLet(list: SList, env: Environment, logger: Logger): SExp {
     throw new MacroError("let bindings must be a list", "let");
   }
   const bindingsList = bindings as SList;
-  if (bindingsList.elements.length % 2 !== 0) {
+
+  // Handle vector form [a b] -> (vector a b)
+  // This is needed when macro args are passed to let bindings
+  const elements = isVectorForm(bindingsList)
+    ? bindingsList.elements.slice(1)
+    : bindingsList.elements;
+
+  if (elements.length % 2 !== 0) {
     throw new MacroError(
       "let bindings must have an even number of forms",
       "let",
     );
   }
   const letEnv = env.extend();
-  for (let i = 0; i < bindingsList.elements.length; i += 2) {
-    const name = bindingsList.elements[i];
-    const value = bindingsList.elements[i + 1];
+  for (let i = 0; i < elements.length; i += 2) {
+    const name = elements[i];
+    const value = elements[i + 1];
     if (!isSymbol(name)) {
       throw new MacroError("let binding names must be symbols", "let");
     }
@@ -748,6 +804,79 @@ function evaluateVar(list: SList, env: Environment, logger: Logger): SExp {
   return evaluatedValue;
 }
 
+/**
+ * Check if an expression is a named function definition: (fn name [params] body...)
+ */
+function isNamedFnDefinition(list: SList): boolean {
+  if (list.elements.length < 3) return false;
+  const first = list.elements[0];
+  if (!isSymbol(first) || (first as SSymbol).name !== "fn") return false;
+  const second = list.elements[1];
+  return isSymbol(second);
+}
+
+/**
+ * Register a named function definition in the persistent macro environment
+ *
+ * (fn name [params] body...) - named function
+ *
+ * When a named function is encountered during macro expansion, we:
+ * 1. Evaluate it using the interpreter
+ * 2. Store the resulting HQL function in the persistent macro environment
+ *
+ * This enables user-defined functions to be used in later macros, like Clojure.
+ */
+function registerNamedFnInMacroEnv(
+  expr: SList,
+  logger: Logger
+): void {
+  const fnName = (expr.elements[1] as SSymbol).name;
+
+  // Evaluate the fn form using the interpreter to create an HQL function
+  try {
+    const interpreter = getMacroInterpreter();
+    const interpEnv = getPersistentMacroEnv();
+    interpreter.eval(expr, interpEnv);
+
+    // The interpreter's handleFn already defines the function in its env
+    logger.debug(`Registered user function '${fnName}' in macro environment`);
+  } catch (error) {
+    // If evaluation fails, silently continue - function will still be transpiled
+    logger.debug(`Could not evaluate fn '${fnName}' at macro-time: ${getErrorMessage(error)}`);
+  }
+}
+
+/**
+ * Pre-expand macro calls in a list of arguments.
+ * This is used by both evaluateFunctionCall and expandMacroExpression
+ * to ensure nested macro calls are expanded before passing to outer operations.
+ *
+ * DRY: This helper consolidates the pre-expansion pattern used in multiple places.
+ *
+ * @param args - The arguments to process
+ * @param env - The environment for macro lookup
+ * @param expandFn - The function to use for expanding macro calls
+ * @returns Arguments with nested macro calls expanded
+ */
+function preExpandMacroArgs<T>(
+  args: SExp[],
+  env: Environment,
+  expandFn: (arg: SExp) => T,
+): (SExp | T)[] {
+  return args.map((arg) => {
+    if (isList(arg)) {
+      const argList = arg as SList;
+      if (argList.elements.length > 0 && isSymbol(argList.elements[0])) {
+        const argOp = (argList.elements[0] as SSymbol).name;
+        if (env.hasMacro(argOp)) {
+          return expandFn(arg);
+        }
+      }
+    }
+    return arg;
+  });
+}
+
 /* Evaluate a macro call */
 function evaluateMacroCall(
   list: SList,
@@ -759,7 +888,26 @@ function evaluateMacroCall(
   if (!macroFn) {
     throw new MacroError(`Macro not found: ${op}`, op);
   }
-  const args = list.elements.slice(1);
+
+  // CRITICAL: Evaluate ALL arguments at macro-time for compile-time macros.
+  //
+  // When a macro calls another macro during expansion (e.g., recursive calls),
+  // ALL arguments must be fully evaluated to values, not passed as code.
+  //
+  // Examples this enables:
+  //   - (dec1 (dec1 5)) → evaluates (dec1 5)=4, then (dec1 4)=3
+  //   - (countdown (- n 1)) → evaluates (- 5 1)=4, then (countdown 4)
+  //   - (let [a 5] (my-macro a)) → resolves a to 5
+  //
+  // This is essential for recursive macros and macro composition to work.
+  // Without full evaluation, expressions like (- n 1) would be passed as
+  // unevaluated S-expressions, causing the inner macro to fail.
+  const args = list.elements.slice(1).map((arg) => {
+    // Fully evaluate the argument at macro-time
+    // This handles all cases: macro calls, function calls, symbols, literals
+    return evaluateForMacro(arg, env, logger);
+  });
+
   const expanded = macroFn(args, env);
   return evaluateForMacro(expanded, env, logger);
 }
@@ -831,7 +979,18 @@ function evaluateFunctionCall(
 
       if (interpEnv.isDefined(op)) {
         logger.debug(`Using interpreter for '${op}'`);
-        const result = interpreter.eval(list, interpEnv);
+
+        // Pre-expand macro calls in arguments before passing to interpreter.
+        // The interpreter doesn't know about HQL macros, so we expand them first.
+        // Example: (+ (double x) 5) where 'double' is a macro -> (+ 10 5)
+        const expandedArgs = preExpandMacroArgs(
+          list.elements.slice(1),
+          env,
+          (arg) => evaluateForMacro(arg, env, logger),
+        );
+        const expandedList = createListFrom(list, [first, ...expandedArgs]);
+
+        const result = interpreter.eval(expandedList, interpEnv);
         return hqlValueToSExp(result);
       }
     } catch (interpError) {
@@ -1079,6 +1238,13 @@ function expandMacroExpression(
     return placeholder;
   }
 
+  // Register named fn definitions in persistent macro env for use in macros
+  // This is similar to Clojure's incremental evaluation model
+  if (isList(expr) && isNamedFnDefinition(expr as SList)) {
+    registerNamedFnInMacroEnv(expr as SList, logger);
+    // Continue with normal expansion (don't return early)
+  }
+
   if (!isList(expr)) return expr;
 
   const list = expr as SList;
@@ -1093,7 +1259,19 @@ function expandMacroExpression(
       const macroFn = env.getMacro(op);
       if (!macroFn) return expr;
 
-      const args = list.elements.slice(1);
+      // Arguments to compile-time macros need careful handling.
+      // For code-generating macros (using quasiquote), args should be passed as code.
+      // But for compile-time evaluation macros, args need to be evaluated first.
+      //
+      // We only pre-expand MACRO calls in arguments, keeping other expressions as code.
+      // This preserves macro semantics (receiving code as data) while enabling
+      // patterns like (dec1 (dec1 5)) where nested macros need expansion.
+      // DRY: Uses preExpandMacroArgs helper for consistent pre-expansion logic.
+      const args = preExpandMacroArgs(
+        list.elements.slice(1),
+        env,
+        (arg) => expandMacroExpression(arg, env, options, depth + 1),
+      );
       const originalExpr = list;
 
       logger.debug(`Expanding macro ${op} at depth ${depth}`, "macro");

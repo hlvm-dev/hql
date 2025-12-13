@@ -249,11 +249,6 @@ export class HQLRuntime {
     await loadSystemMacros(freshEnv, { baseDir: this.baseDir, verbose: this.options.verbose });
     
     this.environment = freshEnv;
-    // Clear expansion cache
-    const { macroExpansionCache } = await import(
-      "../s-exp/macro.ts"
-    );
-    macroExpansionCache.clear();
     // Reset gensym counter for reproducible builds (Common Lisp compatibility)
     const { resetGensymCounter } = await import("../gensym.ts");
     resetGensymCounter();
@@ -281,11 +276,6 @@ export class HQLRuntime {
           // Actually compile and register the macro in the environment
           if (isList(sexp)) {
             defineMacro(sexp as SList, this.environment, logger);
-            // Clear expansion cache when a new macro is defined
-            const { macroExpansionCache } = await import(
-              "../s-exp/macro.ts"
-            );
-            macroExpansionCache.clear();
           }
         }
       }

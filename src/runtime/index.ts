@@ -144,12 +144,6 @@ export async function resetRuntime(): Promise<void> {
 export async function defineMacro(source: string): Promise<void> {
   const runtime = await getHQLRuntime();
   await runtime.eval(source);
-  // Clear expansion cache since we've defined a new macro
-  const { macroExpansionCache } = await import(
-    "../s-exp/macro.ts"
-  );
-  // Also clear the expansion cache - THIS IS THE KEY FIX!
-  macroExpansionCache.clear();
 }
 
 /**

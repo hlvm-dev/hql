@@ -22,6 +22,8 @@ import {
 import {
   transformElements,
   validateTransformed,
+  isSpreadOperator,
+  transformSpreadOperator,
 } from "../utils/validation-helpers.ts";
 import {
   processFunctionBody,
@@ -1161,13 +1163,19 @@ function transformDotMethodCall(list: ListNode, currentDir: string): IR.IRNode {
   );
 
   // Arguments are all elements AFTER the object (starting from the third element)
-  const args = list.elements.slice(2).map((arg) =>
-    validateTransformed(
-      transformNode(arg, currentDir),
-      "method argument",
-      "Method argument",
-    )
-  );
+  // Handle spread operators in arguments
+  const args: IR.IRNode[] = [];
+  for (const arg of list.elements.slice(2)) {
+    if (isSpreadOperator(arg)) {
+      args.push(transformSpreadOperator(arg, currentDir, transformNode, "spread in method call"));
+    } else {
+      args.push(validateTransformed(
+        transformNode(arg, currentDir),
+        "method argument",
+        "Method argument",
+      ));
+    }
+  }
 
   // Create the call expression with member expression as callee
   return {
@@ -1468,15 +1476,22 @@ function createCallExpression(
 ): IR.IRCallExpression {
   const args: IR.IRNode[] = [];
   for (let i = 1; i < list.elements.length; i++) {
-    const arg = transformNode(list.elements[i], currentDir);
-    if (!arg) {
-      throw new TransformError(
-        `Argument ${i} transformed to null`,
-        JSON.stringify(list),
-        "Function argument",
-      );
+    const elem = list.elements[i];
+
+    // Check if this argument is a spread operator (...args or (... expr))
+    if (isSpreadOperator(elem)) {
+      args.push(transformSpreadOperator(elem, currentDir, transformNode, "spread in function call"));
+    } else {
+      const arg = transformNode(elem, currentDir);
+      if (!arg) {
+        throw new TransformError(
+          `Argument ${i} transformed to null`,
+          JSON.stringify(list),
+          "Function argument",
+        );
+      }
+      args.push(arg);
     }
-    args.push(arg);
   }
 
   return {

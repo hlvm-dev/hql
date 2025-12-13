@@ -2387,5 +2387,42 @@ export function __hql_deepFreeze(obj) {
   return obj;
 }
 
+/**
+ * Reverses a collection
+ * @example (reverse [1 2 3]) => [3 2 1]
+ */
+export function reverse(coll) {
+  if (coll == null) return [];
+  return [...coll].reverse();
+}
+
+/**
+ * Creates a symbol from a string
+ * In HQL runtime, symbols are strings (JavaScript)
+ * @example (symbol "foo") => "foo"
+ */
+export function symbol(name) {
+  return String(name);
+}
+
+/**
+ * Creates a keyword from a string
+ * Keywords are strings prefixed with ":"
+ * @example (keyword "bar") => ":bar"
+ */
+export function keyword(name) {
+  const s = String(name);
+  return s.startsWith(":") ? s : ":" + s;
+}
+
+/**
+ * Gets the name of a symbol or keyword (removes leading :)
+ * @example (name :foo) => "foo"
+ */
+export function name(x) {
+  if (typeof x !== "string") return null;
+  return x.startsWith(":") ? x.slice(1) : x;
+}
+
 // Export lazySeq for creating custom lazy sequences
 export { lazySeq };

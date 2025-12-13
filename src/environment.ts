@@ -965,30 +965,45 @@ export class Environment {
       return true;
     }
 
-    // Check if macro exists at all
-    if (!this.macros.has(macroName)) {
-      return false;
+    // Walk up the parent chain to find the macro
+    let current: Environment | null = this;
+    while (current !== null) {
+      if (current.macros.has(macroName)) {
+        // Found the macro - check accessibility
+        const macroSourceFile = current.macroSourceFiles.get(macroName);
+
+        // If no source file tracked, it's accessible
+        if (!macroSourceFile) {
+          return true;
+        }
+
+        // Get effective current file (check parent chain if not set locally)
+        let effectiveCurrentFile = this.currentFilePath;
+        if (!effectiveCurrentFile) {
+          let env: Environment | null = this.parent;
+          while (env !== null && !effectiveCurrentFile) {
+            effectiveCurrentFile = env.currentFilePath;
+            env = env.parent;
+          }
+        }
+
+        // Macro from current file is always accessible
+        if (macroSourceFile === effectiveCurrentFile) {
+          return true;
+        }
+
+        // Check if macro was explicitly imported
+        if (this.importedMacros.has(macroName)) {
+          return true;
+        }
+
+        // Not accessible - macro is from another file and not imported
+        return false;
+      }
+      current = current.parent;
     }
 
-    // Get source file of the macro
-    const macroSourceFile = this.macroSourceFiles.get(macroName);
-
-    // If no source file tracked, it's accessible (legacy behavior for system macros)
-    if (!macroSourceFile) {
-      return true;
-    }
-
-    // Macro from current file is always accessible
-    if (macroSourceFile === this.currentFilePath) {
-      return true;
-    }
-
-    // Check if macro was explicitly imported
-    if (this.importedMacros.has(macroName)) {
-      return true;
-    }
-
-    // Not accessible - macro is from another file and not imported
+    // Macro not found in any scope
     return false;
   }
 
@@ -1045,8 +1060,17 @@ export class Environment {
       return systemMacro;
     }
 
-    // Then check local macros
-    return this.macros.get(key);
+    // Walk up the parent chain to find the macro
+    let current: Environment | null = this;
+    while (current !== null) {
+      const macro = current.macros.get(key);
+      if (macro) {
+        return macro;
+      }
+      current = current.parent;
+    }
+
+    return undefined;
   }
 
   isSystemMacro(symbolName: string): boolean {
