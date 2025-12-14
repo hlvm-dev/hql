@@ -1,368 +1,158 @@
 /**
  * Known Identifiers Registry for "Did you mean?" suggestions
  *
- * This module maintains lists of known HQL identifiers that can be used
- * to provide helpful suggestions when a user mistypes a name.
+ * Provides a curated list of known HQL identifiers for typo suggestions.
+ * The stdlib functions are loaded dynamically at module initialization,
+ * with a static fallback for reliability.
  */
+
+// Cache for all identifiers (populated on first access or async init)
+let _cachedIdentifiers: string[] | null = null;
+let _initPromise: Promise<void> | null = null;
 
 /**
- * Standard library functions from src/lib/stdlib/js/core.js
- * These are available at runtime via imports
+ * Builtin function names from the interpreter (builtins.ts).
  */
-export const STDLIB_FUNCTIONS: readonly string[] = [
-  // Collection functions (Iterable handling)
-  "first",
-  "rest",
-  "cons",
-  "nth",
-  "count",
-  "second",
-  "last",
-  "isEmpty",
-  "some",
-  "every",
-  "notAny",
-  "notEvery",
-  "take",
-  "drop",
-  "map",
-  "filter",
-  "reduce",
-  "concat",
-  "flatten",
-  "distinct",
-  "mapIndexed",
-  "keep",
-  "keepIndexed",
-  "mapcat",
-  "range",
-  "groupBy",
-  "realize",
-  "toArray",
-  "toSet",
-  "seq",
-  "conj",
-  "into",
-  "pour",
-  "cycle",
-
-  // Map/Object functions
-  "get",
-  "getIn",
-  "assoc",
-  "assocIn",
-  "dissoc",
-  "update",
-  "updateIn",
-  "merge",
-  "keys",
-  "vals",
-  "zip",
-  "zipWith",
-
-  // Function utilities
-  "comp",
-  "partial",
-  "apply",
-  "iterate",
-
-  // I/O functions
-  "print",
-  "println",
-  "readFile",
-  "writeFile",
-  "appendFile",
-  "fileExists",
-  "deleteFile",
-
-  // String functions
-  "str",
-  "subs",
-  "split",
-  "join",
-  "trim",
-  "upper",
-  "lower",
-  "replace",
-  "includes",
-  "startsWith",
-  "endsWith",
-  "padStart",
-  "padEnd",
-  "repeat",
-  "reverse",
-  "charAt",
-  "indexOf",
-  "lastIndexOf",
-
-  // Math functions
-  "abs",
-  "ceil",
-  "floor",
-  "round",
-  "sqrt",
-  "pow",
-  "min",
-  "max",
-  "random",
-  "randomInt",
-  "sin",
-  "cos",
-  "tan",
-  "asin",
-  "acos",
-  "atan",
-  "atan2",
-  "log",
-  "log10",
-  "exp",
-  "sign",
-  "trunc",
-
-  // Type conversion
-  "parseInt",
-  "parseFloat",
-  "toString",
-  "toNumber",
-  "toBoolean",
-
-  // Utility functions
-  "identity",
-  "constantly",
-  "juxt",
-  "complement",
-] as const;
-
-/**
- * Built-in functions available in HQL (from builtins.ts)
- * These are primitive operations available at compile/interpret time
- */
-export const BUILTIN_FUNCTIONS: readonly string[] = [
-  // Arithmetic operators
-  "+",
-  "-",
-  "*",
-  "/",
-  "%",
-  "mod",
-
-  // Comparison operators
-  "=",
-  "==",
-  "===",
-  "!=",
-  "!==",
-  "<",
-  ">",
-  "<=",
-  ">=",
-
+const BUILTIN_NAMES = [
+  // Arithmetic
+  "+", "-", "*", "/", "%", "mod",
+  // Comparison
+  "=", "==", "===", "!=", "!==", "<", ">", "<=", ">=",
   // Type predicates
-  "nil?",
-  "isNil",
-  "number?",
-  "isNumber",
-  "string?",
-  "isString",
-  "boolean?",
-  "isBoolean",
-  "function?",
-  "isFunction",
-  "list?",
-  "symbol?",
-  "array?",
-  "isArray",
-
-  // Logic
-  "not",
-  "and",
-  "or",
-
-  // Meta operations
-  "name",
-  "gensym",
-
-  // Type coercion
-  "str",
-
+  "nil?", "isNil", "number?", "isNumber", "string?", "isString",
+  "boolean?", "isBoolean", "function?", "isFunction", "list?",
+  "symbol?", "array?", "isArray",
+  // S-expression operations
+  "%first", "%rest", "%length", "%nth", "%empty?",
+  // Meta
+  "name", "gensym", "not", "str",
   // Collection constructors
-  "vector",
-  "list",
-  "hash-map",
-  "hash-set",
-] as const;
+  "vector", "list", "hash-map", "hash-set",
+];
 
 /**
- * Special forms in HQL (keywords with special semantics)
+ * Special forms and macros handled by the transpiler.
  */
-export const SPECIAL_FORMS: readonly string[] = [
+const SPECIAL_FORM_NAMES = [
+  // Core forms
+  "if", "let", "var", "fn", "do", "quote", "quasiquote", "cond",
   // Definitions
-  "def",
-  "let",
-  "fn",
-  "defn",
-  "defmacro",
-  "macro",
-
+  "def", "defn", "defmacro", "macro",
   // Control flow
-  "if",
-  "cond",
-  "when",
-  "unless",
-  "case",
-  "do",
-
+  "when", "unless", "case", "and", "or",
   // Loops
-  "for",
-  "while",
-  "loop",
-  "recur",
-  "doseq",
-  "dotimes",
-
-  // Exception handling
-  "try",
-  "catch",
-  "finally",
-  "throw",
-
+  "for", "while", "loop", "recur", "doseq", "dotimes",
+  // Exceptions
+  "try", "catch", "finally", "throw",
   // Modules
-  "import",
-  "export",
-  "require",
-
+  "import", "export",
   // Interop
-  "js/new",
-  "js/typeof",
-  "js/instanceof",
-  "js/await",
-  "js/yield",
-  "new",
-
-  // Data structures
-  "quote",
-  "quasiquote",
-  "unquote",
-  "unquote-splicing",
-
-  // Class system
-  "defclass",
-  "definterface",
-  "defprotocol",
-  "extend-type",
-  "extend-protocol",
-] as const;
+  "new", "js/new", "js/typeof", "js/instanceof", "js/await",
+  // Threading macros
+  "->", "->>", "as->", "some->", "some->>", "cond->", "cond->>",
+];
 
 /**
- * Common JavaScript global objects and functions that are accessible in HQL
+ * Common stdlib functions (static fallback).
+ * These are the most commonly used functions that should always be suggested.
  */
-export const JS_GLOBALS: readonly string[] = [
-  // Console
-  "console",
-
-  // Types
-  "Array",
-  "Object",
-  "String",
-  "Number",
-  "Boolean",
-  "Symbol",
-  "BigInt",
-  "Map",
-  "Set",
-  "WeakMap",
-  "WeakSet",
-
-  // Error types
-  "Error",
-  "TypeError",
-  "RangeError",
-  "SyntaxError",
-  "ReferenceError",
-
-  // Async
-  "Promise",
-
+const COMMON_STDLIB_NAMES = [
+  // Core collection functions
+  "first", "rest", "cons", "nth", "count", "second", "last",
+  "map", "filter", "reduce", "concat", "flatten", "distinct",
+  "take", "drop", "some", "every", "isEmpty",
+  // Higher-order
+  "mapIndexed", "keep", "keepIndexed", "mapcat", "groupBy",
   // Utilities
-  "JSON",
-  "Math",
-  "Date",
-  "RegExp",
-
-  // Global functions
-  "setTimeout",
-  "setInterval",
-  "clearTimeout",
-  "clearInterval",
-  "fetch",
-
-  // Node/Deno globals
-  "Deno",
-  "process",
-] as const;
+  "range", "repeat", "cycle", "iterate",
+  "comp", "partial", "apply", "identity",
+  // Map operations
+  "get", "getIn", "assoc", "assocIn", "dissoc",
+  "update", "updateIn", "merge", "keys", "vals",
+  // Collection conversion
+  "toArray", "toSet", "seq", "conj", "into", "realize",
+  // I/O
+  "print", "println",
+  // Predicates
+  "isNil", "isSome", "empty",
+];
 
 /**
- * Get all known identifiers combined
- * @returns Array of all known identifier names
+ * Common JS globals accessible in HQL.
+ */
+const JS_GLOBAL_NAMES = [
+  "console", "Array", "Object", "String", "Number", "Boolean",
+  "Map", "Set", "Promise", "JSON", "Math", "Date", "RegExp",
+  "Error", "TypeError", "RangeError",
+  "setTimeout", "clearTimeout", "fetch",
+];
+
+/**
+ * Build the static identifier list (always available).
+ */
+function buildStaticIdentifiers(): string[] {
+  const all = new Set<string>([
+    ...BUILTIN_NAMES,
+    ...SPECIAL_FORM_NAMES,
+    ...COMMON_STDLIB_NAMES,
+    ...JS_GLOBAL_NAMES,
+  ]);
+  return Array.from(all);
+}
+
+/**
+ * Dynamically load all stdlib exports and merge with static list.
+ */
+async function loadStdlibExports(): Promise<string[]> {
+  try {
+    const stdlib = await import("../lib/stdlib/js/core.js") as Record<string, unknown>;
+    return Object.keys(stdlib).filter(key => {
+      if (key.startsWith("__") || key.startsWith("_")) return false;
+      if (typeof stdlib[key] !== "function") return false;
+      return true;
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Initialize the identifier cache with full stdlib.
+ * Call this at application startup for complete suggestions.
+ */
+export async function initializeKnownIdentifiers(): Promise<void> {
+  if (_initPromise) return _initPromise;
+
+  _initPromise = (async () => {
+    const staticIds = buildStaticIdentifiers();
+    const stdlibIds = await loadStdlibExports();
+
+    const all = new Set<string>([...staticIds, ...stdlibIds]);
+    _cachedIdentifiers = Array.from(all);
+  })();
+
+  return _initPromise;
+}
+
+/**
+ * Get all known identifiers.
+ * Returns cached list if available, otherwise static fallback.
  */
 export function getAllKnownIdentifiers(): string[] {
-  return [
-    ...STDLIB_FUNCTIONS,
-    ...BUILTIN_FUNCTIONS,
-    ...SPECIAL_FORMS,
-    ...JS_GLOBALS,
-  ];
+  if (_cachedIdentifiers) {
+    return _cachedIdentifiers;
+  }
+  // Return static list immediately, will be enhanced after async init
+  return buildStaticIdentifiers();
 }
 
 /**
- * Get stdlib function names only (for runtime error suggestions)
- * @returns Array of stdlib function names
+ * Clear the identifier cache (for testing).
  */
-export function getStdlibFunctions(): string[] {
-  return [...STDLIB_FUNCTIONS];
+export function clearIdentifierCache(): void {
+  _cachedIdentifiers = null;
+  _initPromise = null;
 }
 
-/**
- * Get builtin function names only
- * @returns Array of builtin function names
- */
-export function getBuiltinFunctions(): string[] {
-  return [...BUILTIN_FUNCTIONS];
-}
-
-/**
- * Get special form names only
- * @returns Array of special form names
- */
-export function getSpecialForms(): string[] {
-  return [...SPECIAL_FORMS];
-}
-
-/**
- * Check if an identifier is a known HQL function or form
- * @param name - The identifier to check
- * @returns true if the identifier is known
- */
-export function isKnownIdentifier(name: string): boolean {
-  return (
-    (STDLIB_FUNCTIONS as readonly string[]).includes(name) ||
-    (BUILTIN_FUNCTIONS as readonly string[]).includes(name) ||
-    (SPECIAL_FORMS as readonly string[]).includes(name) ||
-    (JS_GLOBALS as readonly string[]).includes(name)
-  );
-}
-
-/**
- * Get the category of a known identifier
- * @param name - The identifier to categorize
- * @returns The category name or null if not known
- */
-export function getIdentifierCategory(
-  name: string,
-): "stdlib" | "builtin" | "special-form" | "js-global" | null {
-  if ((STDLIB_FUNCTIONS as readonly string[]).includes(name)) return "stdlib";
-  if ((BUILTIN_FUNCTIONS as readonly string[]).includes(name)) return "builtin";
-  if ((SPECIAL_FORMS as readonly string[]).includes(name)) return "special-form";
-  if ((JS_GLOBALS as readonly string[]).includes(name)) return "js-global";
-  return null;
-}
+// Auto-initialize on module load (non-blocking)
+initializeKnownIdentifiers().catch(() => {});

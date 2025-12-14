@@ -1,77 +1,24 @@
 /**
  * String Similarity Utilities for "Did you mean?" suggestions
  *
- * Provides Levenshtein distance calculation and similar name finding
- * for typo correction in error messages.
+ * Uses Damerau-Levenshtein distance to find similar identifiers,
+ * which handles transpositions (common in typos like "teh" → "the").
  */
 
 /**
- * Calculate the Levenshtein (edit) distance between two strings.
- * This is the minimum number of single-character edits (insertions,
- * deletions, or substitutions) required to transform one string into another.
+ * Calculate the Damerau-Levenshtein distance between two strings.
+ * This counts transpositions (swapping adjacent characters) as a single edit,
+ * which is more accurate for typo detection than plain Levenshtein.
  *
  * @param a - First string
  * @param b - Second string
- * @returns The edit distance between the two strings
+ * @returns The edit distance
  *
  * @example
- * levenshteinDistance("println", "prnitln") // 2
- * levenshteinDistance("map", "mpa") // 2
- * levenshteinDistance("filter", "filtre") // 2
- */
-export function levenshteinDistance(a: string, b: string): number {
-  // Handle edge cases
-  if (a === b) return 0;
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-
-  // Create matrix
-  const m = a.length;
-  const n = b.length;
-
-  // Use two rows instead of full matrix for space efficiency
-  let prevRow: number[] = new Array(n + 1);
-  let currRow: number[] = new Array(n + 1);
-
-  // Initialize first row
-  for (let j = 0; j <= n; j++) {
-    prevRow[j] = j;
-  }
-
-  // Fill in the rest of the matrix
-  for (let i = 1; i <= m; i++) {
-    currRow[0] = i;
-
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      currRow[j] = Math.min(
-        prevRow[j] + 1, // deletion
-        currRow[j - 1] + 1, // insertion
-        prevRow[j - 1] + cost, // substitution
-      );
-    }
-
-    // Swap rows
-    [prevRow, currRow] = [currRow, prevRow];
-  }
-
-  return prevRow[n];
-}
-
-/**
- * Calculate the Damerau-Levenshtein distance, which also accounts for
- * transpositions (swapping two adjacent characters).
- * This is more useful for typo detection since transpositions are common.
- *
- * @param a - First string
- * @param b - Second string
- * @returns The Damerau-Levenshtein distance
- *
- * @example
- * damerauLevenshteinDistance("println", "prnitln") // 1 (transposition)
+ * damerauLevenshteinDistance("prnitln", "println") // 1 (transposition)
  * damerauLevenshteinDistance("teh", "the") // 1 (transposition)
  */
-export function damerauLevenshteinDistance(a: string, b: string): number {
+function damerauLevenshteinDistance(a: string, b: string): number {
   if (a === b) return 0;
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
@@ -127,17 +74,16 @@ export function damerauLevenshteinDistance(a: string, b: string): number {
 }
 
 /**
- * Options for finding similar names
+ * Calculate max allowed edit distance based on string length.
+ * Shorter strings require closer matches to avoid false positives.
+ *
+ * @param length - Length of the unknown identifier
+ * @returns Maximum allowed edit distance
  */
-export interface FindSimilarOptions {
-  /** Maximum edit distance to consider (default: auto based on length) */
-  maxDistance?: number;
-  /** Use Damerau-Levenshtein (handles transpositions) instead of plain Levenshtein */
-  useTranspositions?: boolean;
-  /** Maximum number of suggestions to return (default: 1) */
-  maxSuggestions?: number;
-  /** Case-insensitive matching (default: false) */
-  caseInsensitive?: boolean;
+function getMaxDistance(length: number): number {
+  if (length <= 3) return 1; // Short: max 1 edit
+  if (length <= 6) return 2; // Medium: max 2 edits
+  return 3; // Long: max 3 edits
 }
 
 /**
@@ -146,46 +92,30 @@ export interface FindSimilarOptions {
  *
  * @param unknown - The unknown/misspelled identifier
  * @param candidates - List of valid identifiers to compare against
- * @param options - Configuration options
  * @returns The most similar name, or null if none is close enough
  *
  * @example
- * findSimilarName("prnitln", ["print", "println", "map", "filter"])
- * // "println"
+ * findSimilarName("prnitln", ["print", "println", "map"])
+ * // Returns "println"
  *
- * findSimilarName("masp", ["map", "filter", "reduce"])
- * // "map"
+ * findSimilarName("xyzabc", ["map", "filter", "reduce"])
+ * // Returns null (too different)
  */
 export function findSimilarName(
   unknown: string,
   candidates: string[],
-  options: FindSimilarOptions = {},
 ): string | null {
-  const {
-    useTranspositions = true,
-    maxSuggestions = 1,
-    caseInsensitive = false,
-  } = options;
+  if (!unknown || candidates.length === 0) {
+    return null;
+  }
 
-  // Calculate max distance based on string length if not provided
-  // Short names (1-3 chars): max 1 edit
-  // Medium names (4-6 chars): max 2 edits
-  // Long names (7+ chars): max 3 edits
-  const maxDistance =
-    options.maxDistance ??
-    (unknown.length <= 3 ? 1 : unknown.length <= 6 ? 2 : 3);
+  const maxDistance = getMaxDistance(unknown.length);
 
-  const distanceFn = useTranspositions
-    ? damerauLevenshteinDistance
-    : levenshteinDistance;
-
-  const compareUnknown = caseInsensitive ? unknown.toLowerCase() : unknown;
-
-  // Track all matches with their distances
-  const matches: { name: string; distance: number }[] = [];
+  let bestMatch: string | null = null;
+  let bestDistance = maxDistance + 1;
 
   for (const candidate of candidates) {
-    // Skip if length difference is too large (quick filter)
+    // Quick filter: skip if length difference is too large
     if (Math.abs(candidate.length - unknown.length) > maxDistance) {
       continue;
     }
@@ -195,94 +125,18 @@ export function findSimilarName(
       continue;
     }
 
-    const compareCandidate = caseInsensitive
-      ? candidate.toLowerCase()
-      : candidate;
+    const distance = damerauLevenshteinDistance(unknown, candidate);
 
-    const dist = distanceFn(compareUnknown, compareCandidate);
-
-    if (dist <= maxDistance) {
-      matches.push({ name: candidate, distance: dist });
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestMatch = candidate;
+    } else if (distance === bestDistance && bestMatch !== null) {
+      // For ties, prefer alphabetically first (deterministic)
+      if (candidate < bestMatch) {
+        bestMatch = candidate;
+      }
     }
   }
 
-  if (matches.length === 0) {
-    return null;
-  }
-
-  // Sort by distance (closest first), then alphabetically for ties
-  matches.sort((a, b) => {
-    if (a.distance !== b.distance) {
-      return a.distance - b.distance;
-    }
-    return a.name.localeCompare(b.name);
-  });
-
-  // Return single best match or multiple if requested
-  if (maxSuggestions === 1) {
-    return matches[0].name;
-  }
-
-  // For multiple suggestions, we'd return an array - but interface expects string | null
-  // So for now, just return the best match
-  return matches[0].name;
-}
-
-/**
- * Find multiple similar names from candidates.
- *
- * @param unknown - The unknown/misspelled identifier
- * @param candidates - List of valid identifiers
- * @param maxSuggestions - Maximum suggestions to return (default: 3)
- * @param options - Additional options
- * @returns Array of similar names, sorted by similarity
- */
-export function findSimilarNames(
-  unknown: string,
-  candidates: string[],
-  maxSuggestions: number = 3,
-  options: Omit<FindSimilarOptions, "maxSuggestions"> = {},
-): string[] {
-  const { useTranspositions = true, caseInsensitive = false } = options;
-
-  const maxDistance =
-    options.maxDistance ??
-    (unknown.length <= 3 ? 1 : unknown.length <= 6 ? 2 : 3);
-
-  const distanceFn = useTranspositions
-    ? damerauLevenshteinDistance
-    : levenshteinDistance;
-
-  const compareUnknown = caseInsensitive ? unknown.toLowerCase() : unknown;
-
-  const matches: { name: string; distance: number }[] = [];
-
-  for (const candidate of candidates) {
-    if (Math.abs(candidate.length - unknown.length) > maxDistance) {
-      continue;
-    }
-
-    if (candidate === unknown) {
-      continue;
-    }
-
-    const compareCandidate = caseInsensitive
-      ? candidate.toLowerCase()
-      : candidate;
-
-    const dist = distanceFn(compareUnknown, compareCandidate);
-
-    if (dist <= maxDistance) {
-      matches.push({ name: candidate, distance: dist });
-    }
-  }
-
-  matches.sort((a, b) => {
-    if (a.distance !== b.distance) {
-      return a.distance - b.distance;
-    }
-    return a.name.localeCompare(b.name);
-  });
-
-  return matches.slice(0, maxSuggestions).map((m) => m.name);
+  return bestDistance <= maxDistance ? bestMatch : null;
 }

@@ -20,7 +20,7 @@ import { ERROR_REPORTED_SYMBOL } from "./error-constants.ts";
 import { mapPositionSync } from "../transpiler/pipeline/source-map-support.ts";
 import { extractContextLinesFromFile } from "./context-helpers.ts";
 import { findSimilarName } from "./string-similarity.ts";
-import { getAllKnownIdentifiers } from "./known-identifiers.ts";
+import { getAllKnownIdentifiers, initializeKnownIdentifiers } from "./known-identifiers.ts";
 
 // SourceMapConsumer bias constants (from source-map library)
 // GREATEST_LOWER_BOUND = 1: When exact position not found, use closest position before
@@ -310,6 +310,10 @@ async function readContextLines(
  */
 export function initializeErrorHandling(): void {
   installGlobalErrorHandler();
+  // Pre-load known identifiers for "Did you mean?" suggestions
+  initializeKnownIdentifiers().catch(() => {
+    // Silently ignore - fallback to static identifiers
+  });
 }
 
 /**
@@ -602,8 +606,8 @@ export async function handleRuntimeError(
 }
 
 /**
- * Get a "Did you mean?" suggestion for an unknown identifier
- * Uses Levenshtein distance to find the closest match
+ * Get a "Did you mean?" suggestion for an unknown identifier.
+ * Uses Damerau-Levenshtein distance which handles transpositions.
  */
 function getDidYouMeanSuggestion(unknownName: string): string | null {
   const candidates = getAllKnownIdentifiers();
