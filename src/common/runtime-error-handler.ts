@@ -601,11 +601,16 @@ export async function handleRuntimeError(
 
 /**
  * Get a suggestion based on the type of error
+ * Provides comprehensive, context-aware suggestions for all runtime error types
  */
 function getErrorSuggestion(error: Error): string | undefined {
   const rawMessage = error.message;
   const normalized = rawMessage.toLowerCase();
+  const errorName = error.name?.toLowerCase() ?? "";
 
+  // ==========================================================================
+  // Function argument errors
+  // ==========================================================================
   if (messageIncludesAll(normalized, "too many", "arguments")) {
     const funcName = matchFirstGroup(
       rawMessage,
@@ -628,16 +633,259 @@ function getErrorSuggestion(error: Error): string | undefined {
     }`;
   }
 
-  if (messageIncludesAny(normalized, "is not defined", "is not a function")) {
-    const funcName = matchFirstGroup(
+  // ==========================================================================
+  // Undefined variable / function not found
+  // ==========================================================================
+  if (messageIncludesAny(normalized, "is not defined")) {
+    const varName = matchFirstGroup(
       rawMessage,
-      /['"]?([^'"]+?)['"]?\s+is not/,
+      /['"]?([^'"]+?)['"]?\s+is not defined/,
     ) ?? "";
 
-    return `Check that '${funcName}' is defined and spelled correctly. It might be a typo or the function might not be defined in this scope.`;
+    return `The variable '${varName}' is not defined. Check that it is spelled correctly and has been declared before use. Common causes: typo in variable name, variable out of scope, or missing import.`;
   }
 
-  return undefined;
+  if (messageIncludesAny(normalized, "is not a function")) {
+    const name = matchFirstGroup(
+      rawMessage,
+      /['"]?([^'"]+?)['"]?\s+is not a function/,
+    ) ?? "";
+
+    return `'${name}' is not a function. Check that: (1) the function name is spelled correctly, (2) you're calling the right variable, (3) the value is actually a function and not a different type.`;
+  }
+
+  // ==========================================================================
+  // Null/undefined reference errors (Cannot read properties of null/undefined)
+  // ==========================================================================
+  if (messageIncludesAll(normalized, "cannot read", "null")) {
+    const propName = matchFirstGroup(
+      rawMessage,
+      /reading ['"]?([^'"]+?)['"]?\)?$/,
+    ) ?? "";
+
+    return `Attempted to access property '${propName}' on a null value. Add a null check before accessing: (if (not (null? value)) (value.${propName})) or use optional chaining syntax.`;
+  }
+
+  if (messageIncludesAll(normalized, "cannot read", "undefined")) {
+    const propName = matchFirstGroup(
+      rawMessage,
+      /reading ['"]?([^'"]+?)['"]?\)?$/,
+    ) ?? "";
+
+    return `Attempted to access property '${propName}' on an undefined value. The variable may not be initialized or may have been set incorrectly. Check that the value exists before accessing its properties.`;
+  }
+
+  if (messageIncludesAll(normalized, "cannot set", "null")) {
+    const propName = matchFirstGroup(
+      rawMessage,
+      /property ['"]?([^'"]+?)['"]?/,
+    ) ?? "";
+
+    return `Cannot set property '${propName}' on null. The object you're trying to modify is null. Ensure the object is properly initialized before setting properties.`;
+  }
+
+  if (messageIncludesAll(normalized, "cannot set", "undefined")) {
+    const propName = matchFirstGroup(
+      rawMessage,
+      /property ['"]?([^'"]+?)['"]?/,
+    ) ?? "";
+
+    return `Cannot set property '${propName}' on undefined. The object doesn't exist. Make sure to create the object before trying to set its properties.`;
+  }
+
+  // ==========================================================================
+  // Type errors
+  // ==========================================================================
+  if (messageIncludesAny(normalized, "type error", "typeerror") || errorName === "typeerror") {
+    // Generic type error
+    if (messageIncludesAny(normalized, "cannot convert", "is not iterable", "not iterable")) {
+      return "Type mismatch: The value cannot be used in this context. Check that you're using the correct type. For iteration, ensure the value is an array, string, or other iterable.";
+    }
+
+    if (messageIncludesAny(normalized, "reduce of empty array")) {
+      return "Cannot reduce an empty array without an initial value. Either provide an initial value as the second argument to reduce, or ensure the array is not empty.";
+    }
+
+    return "A type error occurred. Check that the values you're using have the expected types. Common issues: passing wrong type to a function, using null/undefined where an object is expected.";
+  }
+
+  // ==========================================================================
+  // Division by zero
+  // ==========================================================================
+  if (messageIncludesAny(normalized, "division by zero", "divide by zero", "infinity")) {
+    return "Division by zero detected. Add a check to ensure the divisor is not zero before dividing: (if (not (= divisor 0)) (/ dividend divisor) default-value)";
+  }
+
+  // ==========================================================================
+  // Regular expression errors
+  // ==========================================================================
+  if (messageIncludesAny(normalized, "invalid regular expression", "invalid regex")) {
+    const detail = matchFirstGroup(
+      rawMessage,
+      /invalid regular expression:.*?\/(.+?)\//i,
+    ) ?? "";
+
+    return `Invalid regular expression${detail ? `: /${detail}/` : ""}. Common issues: unescaped special characters (use \\\\ for backslash), unbalanced brackets, invalid quantifiers. Check the regex syntax.`;
+  }
+
+  if (messageIncludesAny(normalized, "unterminated character class")) {
+    return "Unterminated character class in regex. A '[' was opened but not closed with ']'. Make sure all character classes are properly closed.";
+  }
+
+  if (messageIncludesAny(normalized, "unterminated group")) {
+    return "Unterminated group in regex. A '(' was opened but not closed with ')'. Make sure all groups are properly closed.";
+  }
+
+  // ==========================================================================
+  // Stack overflow / recursion errors
+  // ==========================================================================
+  if (messageIncludesAny(normalized, "maximum call stack", "stack overflow", "too much recursion")) {
+    return "Maximum call stack size exceeded (stack overflow). This usually means infinite recursion. Check that: (1) recursive functions have a proper base case, (2) there are no accidental infinite loops, (3) mutual recursion terminates.";
+  }
+
+  // ==========================================================================
+  // JSON parse errors
+  // ==========================================================================
+  if (messageIncludesAny(normalized, "json", "unexpected token") && errorName === "syntaxerror") {
+    const position = matchFirstGroup(rawMessage, /position (\d+)/i);
+    const positionHint = position ? ` at position ${position}` : "";
+
+    return `JSON parsing failed${positionHint}. Common issues: missing quotes around keys, trailing commas, single quotes instead of double quotes, unescaped special characters in strings.`;
+  }
+
+  if (messageIncludesAll(normalized, "json", "parse")) {
+    return "Failed to parse JSON string. Ensure the input is valid JSON: keys must be double-quoted strings, no trailing commas, no comments, and all strings must use double quotes.";
+  }
+
+  // ==========================================================================
+  // Range errors
+  // ==========================================================================
+  if (errorName === "rangeerror") {
+    if (messageIncludesAny(normalized, "invalid array length")) {
+      return "Invalid array length. Array length must be a non-negative integer less than 2^32. Check that you're not passing a negative number or NaN to Array constructor.";
+    }
+
+    if (messageIncludesAny(normalized, "invalid string length")) {
+      return "String length exceeds maximum allowed size. The operation would create a string that's too large. Consider processing data in smaller chunks.";
+    }
+
+    if (messageIncludesAny(normalized, "precision")) {
+      return "Number precision out of range. The precision argument must be between 0 and 100 for toFixed/toPrecision methods.";
+    }
+
+    return "Value is out of the allowed range. Check that numeric values are within acceptable bounds for the operation.";
+  }
+
+  // ==========================================================================
+  // Assignment errors (strict mode)
+  // ==========================================================================
+  if (messageIncludesAny(normalized, "cannot assign to read only", "read-only", "readonly")) {
+    const propName = matchFirstGroup(rawMessage, /property ['"]?([^'"]+?)['"]?/i) ?? "";
+    return `Cannot assign to read-only property${propName ? ` '${propName}'` : ""}. The property or variable is immutable (defined with const or as a read-only property). If you need to modify it, use let instead of const or make the property writable.`;
+  }
+
+  if (messageIncludesAny(normalized, "assignment to constant", "const", "immutable")) {
+    return "Cannot reassign a constant variable. Variables declared with 'const' cannot be reassigned. Use 'let' if you need to reassign the variable, or use mutation methods for objects/arrays.";
+  }
+
+  // ==========================================================================
+  // Promise/async errors
+  // ==========================================================================
+  if (messageIncludesAny(normalized, "unhandled promise rejection", "promise rejection")) {
+    return "An unhandled Promise rejection occurred. Make sure to: (1) use try/catch around await calls, (2) add .catch() handlers to promises, (3) handle all error cases in async functions.";
+  }
+
+  if (messageIncludesAny(normalized, "await is only valid", "cannot use await")) {
+    return "The 'await' keyword can only be used inside async functions. Either mark the containing function as async, or use .then()/.catch() for Promise handling.";
+  }
+
+  // ==========================================================================
+  // URI errors
+  // ==========================================================================
+  if (errorName === "urierror" || messageIncludesAny(normalized, "uri", "malformed", "decode")) {
+    return "URI encoding/decoding error. The string contains invalid URI sequences. Make sure to use encodeURIComponent before decoding, and that the input is properly encoded.";
+  }
+
+  // ==========================================================================
+  // Eval errors (security)
+  // ==========================================================================
+  if (errorName === "evalerror" || messageIncludesAll(normalized, "eval", "error")) {
+    return "Error in eval() call. Avoid using eval() as it poses security risks and makes debugging difficult. Consider using safer alternatives like JSON.parse() for data or Function() for dynamic code.";
+  }
+
+  // ==========================================================================
+  // Module/import errors
+  // ==========================================================================
+  if (messageIncludesAny(normalized, "module", "import", "export")) {
+    if (messageIncludesAny(normalized, "not found", "cannot find")) {
+      return "Module not found. Check that: (1) the file path is correct, (2) the file exists, (3) the module name is spelled correctly, (4) the module is installed if it's a third-party package.";
+    }
+    if (messageIncludesAny(normalized, "does not provide", "no export")) {
+      return "The requested export was not found in the module. Check that: (1) the export name is spelled correctly, (2) you're using the right import syntax (default vs named), (3) the module actually exports what you're trying to import.";
+    }
+  }
+
+  // ==========================================================================
+  // Network errors
+  // ==========================================================================
+  if (messageIncludesAny(normalized, "network", "fetch", "connection")) {
+    if (messageIncludesAny(normalized, "failed", "refused", "timeout")) {
+      return "Network request failed. Check your internet connection, verify the URL is correct, and ensure the server is accessible. For CORS issues, the server may need to allow cross-origin requests.";
+    }
+  }
+
+  // ==========================================================================
+  // Generic syntax error (non-parse, runtime syntax issues)
+  // ==========================================================================
+  if (errorName === "syntaxerror") {
+    if (messageIncludesAny(normalized, "unexpected identifier")) {
+      return "Unexpected identifier in JavaScript. This might be caused by: missing operators between expressions, forgotten parentheses, or invalid syntax in generated code.";
+    }
+
+    if (messageIncludesAny(normalized, "unexpected end")) {
+      return "Unexpected end of input. The code is incomplete - check for missing closing braces, parentheses, or quotes.";
+    }
+
+    return "Syntax error in generated JavaScript. This might indicate an issue with the HQL code structure. Check for malformed expressions or unsupported syntax.";
+  }
+
+  // ==========================================================================
+  // Reference error (catch-all for undefined references)
+  // ==========================================================================
+  if (errorName === "referenceerror") {
+    const varName = matchFirstGroup(rawMessage, /(['"]?[^'"]+?)['"]?\s+is not defined/i) ?? "";
+    return `Reference error: '${varName}' is not accessible. This usually means the variable doesn't exist in the current scope. Check spelling, scope, and declaration order.`;
+  }
+
+  // ==========================================================================
+  // Fallback: Context-aware generic suggestion based on error code
+  // ==========================================================================
+  return getGenericSuggestion(error);
+}
+
+/**
+ * Provide a context-aware generic suggestion when no specific pattern matches
+ */
+function getGenericSuggestion(error: Error): string {
+  const errorName = error.name?.toLowerCase() ?? "";
+
+  // Map error types to helpful generic messages
+  const suggestions: Record<string, string> = {
+    "typeerror": "Check that values have the expected types. Ensure you're not calling methods on null/undefined or using incompatible types.",
+    "referenceerror": "Check that all variables and functions are defined before use. Look for typos in names or scope issues.",
+    "rangeerror": "A value is out of its allowed range. Check numeric bounds and array/string lengths.",
+    "syntaxerror": "Check the syntax near this location. Look for missing or extra punctuation, brackets, or quotes.",
+    "urierror": "Check URI encoding/decoding. Ensure strings are properly encoded before decoding.",
+    "evalerror": "Avoid using eval(). Use safer alternatives like JSON.parse() or structured data parsing.",
+    "internalerror": "An internal error occurred. This might be due to resource limits (stack, memory). Try simplifying the code.",
+  };
+
+  if (errorName && suggestions[errorName]) {
+    return suggestions[errorName];
+  }
+
+  // Ultimate fallback with actionable advice
+  return "Check the code near this location for errors. Common issues: undefined variables, null references, type mismatches, or missing imports.";
 }
 
 function matchFirstGroup(message: string, pattern: RegExp): string | null {

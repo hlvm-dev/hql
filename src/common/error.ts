@@ -16,6 +16,7 @@ import { basename } from "../platform/platform.ts";
 import {
   formatErrorCode,
   getErrorDocUrl,
+  getErrorFixes,
   HQLErrorCode,
 } from "./error-codes.ts";
 import { ERROR_REPORTED_SYMBOL } from "./error-constants.ts";
@@ -477,7 +478,27 @@ export class HQLError extends Error {
   }
 
   getSuggestion(): string {
-    return "Check the documentation for more information.";
+    // If we have an error code, try to get fixes from the error info system
+    if (this.code) {
+      const fixes = getErrorFixes(this.code);
+      if (fixes && fixes.length > 0) {
+        // Return the first (most common) fix as the suggestion
+        return fixes[0];
+      }
+    }
+
+    // Fallback based on error type
+    const errorTypeHints: Record<string, string> = {
+      "Parse Error": "Check the syntax near this location. Look for missing or extra parentheses, brackets, or quotes.",
+      "Import Error": "Check that the file path is correct and the module exists.",
+      "Validation Error": "Check that the expression follows HQL syntax rules.",
+      "Transform Error": "The code structure might not be supported. Try simplifying the expression.",
+      "Runtime Error": "Check variable names, types, and ensure values are properly initialized.",
+      "Codegen Error": "This might be an internal compiler issue. Try simplifying the code.",
+      "Macro Error": "Check the macro definition and ensure arguments match the expected pattern.",
+    };
+
+    return errorTypeHints[this.errorType] || "Check the code near this location for errors.";
   }
 
   /**
