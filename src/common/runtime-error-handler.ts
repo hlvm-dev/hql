@@ -19,6 +19,8 @@ import {
 import { ERROR_REPORTED_SYMBOL } from "./error-constants.ts";
 import { mapPositionSync } from "../transpiler/pipeline/source-map-support.ts";
 import { extractContextLinesFromFile } from "./context-helpers.ts";
+import { findSimilarName } from "./string-similarity.ts";
+import { getAllKnownIdentifiers } from "./known-identifiers.ts";
 
 // SourceMapConsumer bias constants (from source-map library)
 // GREATEST_LOWER_BOUND = 1: When exact position not found, use closest position before
@@ -600,6 +602,21 @@ export async function handleRuntimeError(
 }
 
 /**
+ * Get a "Did you mean?" suggestion for an unknown identifier
+ * Uses Levenshtein distance to find the closest match
+ */
+function getDidYouMeanSuggestion(unknownName: string): string | null {
+  const candidates = getAllKnownIdentifiers();
+  const suggestion = findSimilarName(unknownName, candidates);
+
+  if (suggestion) {
+    return `Did you mean '${suggestion}'?`;
+  }
+
+  return null;
+}
+
+/**
  * Get a suggestion based on the type of error
  * Provides comprehensive, context-aware suggestions for all runtime error types
  */
@@ -642,7 +659,13 @@ function getErrorSuggestion(error: Error): string | undefined {
       /['"]?([^'"]+?)['"]?\s+is not defined/,
     ) ?? "";
 
-    return `The variable '${varName}' is not defined. Check that it is spelled correctly and has been declared before use. Common causes: typo in variable name, variable out of scope, or missing import.`;
+    // Try to find a similar name
+    const didYouMean = varName ? getDidYouMeanSuggestion(varName) : null;
+    const suggestion = didYouMean
+      ? `${didYouMean} `
+      : "";
+
+    return `The variable '${varName}' is not defined. ${suggestion}Check that it is spelled correctly and has been declared before use.`;
   }
 
   if (messageIncludesAny(normalized, "is not a function")) {
@@ -651,7 +674,13 @@ function getErrorSuggestion(error: Error): string | undefined {
       /['"]?([^'"]+?)['"]?\s+is not a function/,
     ) ?? "";
 
-    return `'${name}' is not a function. Check that: (1) the function name is spelled correctly, (2) you're calling the right variable, (3) the value is actually a function and not a different type.`;
+    // Try to find a similar function name
+    const didYouMean = name ? getDidYouMeanSuggestion(name) : null;
+    const suggestion = didYouMean
+      ? `${didYouMean} `
+      : "";
+
+    return `'${name}' is not a function. ${suggestion}Check that: (1) the function name is spelled correctly, (2) you're calling the right variable, (3) the value is actually a function.`;
   }
 
   // ==========================================================================
@@ -854,7 +883,14 @@ function getErrorSuggestion(error: Error): string | undefined {
   // ==========================================================================
   if (errorName === "referenceerror") {
     const varName = matchFirstGroup(rawMessage, /(['"]?[^'"]+?)['"]?\s+is not defined/i) ?? "";
-    return `Reference error: '${varName}' is not accessible. This usually means the variable doesn't exist in the current scope. Check spelling, scope, and declaration order.`;
+
+    // Try to find a similar name
+    const didYouMean = varName ? getDidYouMeanSuggestion(varName) : null;
+    const suggestion = didYouMean
+      ? `${didYouMean} `
+      : "";
+
+    return `Reference error: '${varName}' is not accessible. ${suggestion}This usually means the variable doesn't exist in the current scope. Check spelling, scope, and declaration order.`;
   }
 
   // ==========================================================================
