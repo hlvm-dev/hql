@@ -78,10 +78,10 @@
   (= i (+ i 1)))
 (assert (=== sum 10) "while loop sum 0+1+2+3+4=10")
 
-; --- 10. Loop/recur ---
+; --- 10. Loop/recur (uses [] for bindings, Clojure-style) ---
 (print "\n--- 10. Loop/recur ---")
 (let factorial-result
-  (loop (n 5 acc 1)
+  (loop [n 5 acc 1]
     (if (<= n 1)
       acc
       (recur (- n 1) (* acc n)))))
@@ -90,7 +90,7 @@
 ; --- 11. For loop (collection) ---
 (print "\n--- 11. For loop ---")
 (var for-sum 0)
-(for (x [1 2 3 4 5])
+(for [x [1 2 3 4 5]]
   (= for-sum (+ for-sum x)))
 (assert (=== for-sum 15) "for loop sum [1 2 3 4 5]=15")
 
@@ -174,7 +174,7 @@
 ; --- 21. Early return in for loop (CRITICAL - was buggy) ---
 (print "\n--- 21. Early return in for ---")
 (fn find-first-positive [arr]
-  (for (x arr)
+  (for [x arr]
     (if (> x 0)
       (return x)))
   null)

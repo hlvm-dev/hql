@@ -13,7 +13,7 @@ import { getErrorMessage } from "../../common/utils.ts";
 import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import { validateTransformed } from "../utils/validation-helpers.ts";
 import { ensureReturnStatement } from "../utils/ir-helpers.ts";
-import { isExpressionResult } from "../pipeline/hql-ast-to-hql-ir.ts";
+import { isExpressionResult, extractMeta } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
   enterIIFE,
   exitIIFE,
@@ -314,6 +314,10 @@ export function transformDo(
       // Multiple expressions - create statements for IIFE body
       const bodyStatements: IR.IRNode[] = [];
 
+      // Extract position from the 'do' list for the IIFE
+      const listMeta = extractMeta(list);
+      const listPosition = listMeta ? { line: listMeta.line, column: listMeta.column, filePath: listMeta.filePath } : undefined;
+
       // Enter IIFE context (for tracking nested returns)
       enterIIFE();
 
@@ -327,6 +331,7 @@ export function transformDo(
               bodyStatements.push({
                 type: IR.IRNodeType.ExpressionStatement,
                 expression: transformedExpr,
+                position: transformedExpr.position, // Inherit position
               } as IR.IRExpressionStatement);
             } else {
               bodyStatements.push(transformedExpr);
@@ -356,6 +361,7 @@ export function transformDo(
             bodyStatements.push({
               type: IR.IRNodeType.ReturnStatement,
               argument: lastExpr,
+              position: lastExpr.position, // Inherit position
             } as IR.IRReturnStatement);
           }
         }
@@ -363,6 +369,9 @@ export function transformDo(
         // Exit IIFE context
         exitIIFE();
       }
+
+      // Get position for block from first body statement
+      const blockPosition = bodyStatements.length > 0 ? bodyStatements[0].position : listPosition;
 
       // Return an IIFE (Immediately Invoked Function Expression)
       return {
@@ -374,9 +383,12 @@ export function transformDo(
           body: {
             type: IR.IRNodeType.BlockStatement,
             body: bodyStatements,
+            position: blockPosition,
           } as IR.IRBlockStatement,
+          position: listPosition, // Position of the do block
         } as IR.IRFunctionExpression,
         arguments: [],
+        position: listPosition, // Position of the do block
       } as IR.IRCallExpression;
     },
     "transformDo",

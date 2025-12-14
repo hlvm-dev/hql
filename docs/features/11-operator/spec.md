@@ -65,13 +65,19 @@ All operators use prefix notation (Lisp-style).
 (>= 10 10)          ; => true
 (>= 15 10)          ; => true
 
-; Equality
-(= 42 42)           ; => true
-(= "hello" "hello") ; => true
+; Strict Equality
+(=== 42 42)           ; => true
+(=== "hello" "hello") ; => true
 
-; Inequality
-(!= 10 20)          ; => true
-(!= 10 10)          ; => false
+; Loose Equality
+(== 42 "42")          ; => true (type coercion)
+
+; Strict Inequality
+(!== 10 20)           ; => true
+(!== 10 10)           ; => false
+
+; Loose Inequality
+(!= 10 20)            ; => true
 ```
 
 ### Logical Operators
@@ -213,6 +219,29 @@ Some operators support multiple operands:
 1 + 2 + 3 + 4 + 5
 ```
 
+### Operators as First-Class Values
+
+Operators can be passed as arguments to higher-order functions like `reduce`:
+
+```lisp
+;; Sum all numbers
+(reduce + 0 [1 2 3 4 5])     ; => 15
+
+;; Product of all numbers
+(reduce * 1 [1 2 3 4 5])     ; => 120
+
+;; Logical operations
+(reduce && true [true true false])  ; => false
+(reduce || false [false false true]) ; => true
+```
+
+This works with all operators: arithmetic (`+`, `-`, `*`, `/`, `%`, `**`),
+comparison (`===`, `==`, `!==`, `!=`, `<`, `>`, `<=`, `>=`),
+logical (`&&`, `||`), and bitwise (`&`, `|`, `^`, `<<`, `>>`, `>>>`).
+
+**Implementation:** When an operator symbol appears in value position (not as the
+first element of a call), it's converted to a function at runtime using `__hql_get_op`.
+
 ### Type Coercion
 
 HQL follows JavaScript semantics for type coercion:
@@ -351,14 +380,18 @@ JavaScript
 
 ### Comparison Operators
 
-| Operator | HQL        | JavaScript | Description         |
-| -------- | ---------- | ---------- | ------------------- |
-| `<`      | `(< a b)`  | `a < b`    | Less than           |
-| `>`      | `(> a b)`  | `a > b`    | Greater than        |
-| `<=`     | `(<= a b)` | `a <= b`   | Less or equal       |
-| `>=`     | `(>= a b)` | `a >= b`   | Greater or equal    |
-| `=`      | `(= a b)`  | `a === b`  | Equality (strict)   |
-| `!=`     | `(!= a b)` | `a !== b`  | Inequality (strict) |
+| Operator | HQL         | JavaScript | Description               |
+| -------- | ----------- | ---------- | ------------------------- |
+| `<`      | `(< a b)`   | `a < b`    | Less than                 |
+| `>`      | `(> a b)`   | `a > b`    | Greater than              |
+| `<=`     | `(<= a b)`  | `a <= b`   | Less or equal             |
+| `>=`     | `(>= a b)`  | `a >= b`   | Greater or equal          |
+| `===`    | `(=== a b)` | `a === b`  | Strict equality           |
+| `==`     | `(== a b)`  | `a == b`   | Loose equality (coercion) |
+| `!==`    | `(!== a b)` | `a !== b`  | Strict inequality         |
+| `!=`     | `(!= a b)`  | `a != b`   | Loose inequality          |
+
+> **Note:** `=` is the assignment operator in HQL. Use `===` for strict equality.
 
 ### Logical Operators
 
@@ -449,10 +482,28 @@ Comparison with equality ✅ Short-circuit evaluation (and, or, ternary) ✅
 
 ✅ **Ternary operator (`?`)** - JavaScript-style conditional expressions
 
+## Implemented Operators
+
+### Bitwise Operators (implemented)
+
+| Operator | HQL          | JavaScript  | Description           |
+| -------- | ------------ | ----------- | --------------------- |
+| `~`      | `(~ a)`      | `~a`        | Bitwise NOT           |
+| `&`      | `(& a b)`    | `a & b`     | Bitwise AND           |
+| `\|`     | `(\| a b)`   | `a \| b`    | Bitwise OR            |
+| `^`      | `(^ a b)`    | `a ^ b`     | Bitwise XOR           |
+| `<<`     | `(<< a b)`   | `a << b`    | Left shift            |
+| `>>`     | `(>> a b)`   | `a >> b`    | Right shift           |
+| `>>>`    | `(>>> a b)`  | `a >>> b`   | Unsigned right shift  |
+
+### Exponentiation (implemented)
+
+| Operator | HQL          | JavaScript | Description    |
+| -------- | ------------ | ---------- | -------------- |
+| `**`     | `(** a b)`   | `a ** b`   | Exponentiation |
+
 ## Future Enhancements
 
-- Bitwise operators (`&`, `|`, `^`, `~`, `<<`, `>>`)
-- Exponentiation operator (`**`)
 - Nullish coalescing (`??`)
 - Optional chaining (`?.`)
 - Type checking operators (`typeof`, `instanceof`)

@@ -299,7 +299,7 @@
 (export (fn arrayMap [arr transform-fn]
   (do
     (var result [])
-    (for (item arr)
+    (for [item arr]
       (.push result (transform-fn item)))
     result)))
 
@@ -307,7 +307,7 @@
 (fn map-values [obj transform-fn]
   (do
     (var result {})
-    (for (key (Object.keys obj))
+    (for [key (Object.keys obj)]
       (= result (assoc result key (transform-fn (get obj key)))))
     result))
 

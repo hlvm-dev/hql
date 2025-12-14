@@ -79,8 +79,6 @@ ${Object.entries(embeddedPackages).map(([name, content]) =>
   `  ${JSON.stringify(name)}: ${JSON.stringify(content)}`
 ).join(',\n')}
 };
-
-export const EMBEDDED_PACKAGE_COUNT = ${Object.keys(embeddedPackages).length};
 `;
 
 // Write output

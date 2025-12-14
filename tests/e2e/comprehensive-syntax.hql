@@ -274,9 +274,9 @@
 ; ============================================================================
 (print "\n=== SECTION 10: LOOPS ===")
 
-; loop/recur
+; loop/recur (uses [] for bindings, Clojure-style)
 (let factorial-result
-  (loop (n 5 acc 1)
+  (loop [n 5 acc 1]
     (if (<= n 1)
       acc
       (recur (- n 1) (* acc n)))))
@@ -298,37 +298,37 @@
 
 ; for loop - positional
 (var for-sum 0)
-(for (i 5)
+(for [i 5]
   (= for-sum (+ for-sum i)))
 (assert-eq for-sum 10 "for loop 0-4")
 
 ; for loop - range
 (var for-range-sum 0)
-(for (i 2 5)
+(for [i 2 5]
   (= for-range-sum (+ for-range-sum i)))
 (assert-eq for-range-sum 9 "for loop 2-4")
 
 ; for loop - with step
 (var for-step-sum 0)
-(for (i 0 10 2)
+(for [i 0 10 2]
   (= for-step-sum (+ for-step-sum i)))
 (assert-eq for-step-sum 20 "for loop 0,2,4,6,8")
 
 ; for loop - named parameters
 (var for-named-sum 0)
-(for (i from: 1 to: 4)
+(for [i from: 1 to: 4]
   (= for-named-sum (+ for-named-sum i)))
 (assert-eq for-named-sum 6 "for loop named 1-3")
 
 ; for loop - collection iteration
 (var for-each-sum 0)
-(for (item [10, 20, 30])
+(for [item [10, 20, 30]]
   (= for-each-sum (+ for-each-sum item)))
 (assert-eq for-each-sum 60 "for-each collection")
 
 ; return inside for loop
 (fn find-first-even [arr]
-  (for (item arr)
+  (for [item arr]
     (if (=== (% item 2) 0)
       (return item)))
   null)

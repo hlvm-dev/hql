@@ -5,7 +5,7 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import hql from "../../mod.ts";
 
 Deno.test("For loop optimization: Basic range (0 to n)", async () => {
-  const code = `(var result []) (for (i 10) (.push result i)) result`;
+  const code = `(var result []) (for [i 10] (.push result i)) result`;
   const transpiled = await hql.transpile(code);
   const js = typeof transpiled === 'string' ? transpiled : transpiled.code;
   const result = await hql.run(code);
@@ -21,7 +21,7 @@ Deno.test("For loop optimization: Basic range (0 to n)", async () => {
 });
 
 Deno.test("For loop optimization: Range with start and end", async () => {
-  const code = `(var result []) (for (i 5 15) (.push result i)) result`;
+  const code = `(var result []) (for [i 5 15] (.push result i)) result`;
   const transpiled = await hql.transpile(code);
   const js = typeof transpiled === 'string' ? transpiled : transpiled.code;
   const result = await hql.run(code);
@@ -37,7 +37,7 @@ Deno.test("For loop optimization: Range with start and end", async () => {
 });
 
 Deno.test("For loop optimization: Range with step", async () => {
-  const code = `(var result []) (for (i 0 20 2) (.push result i)) result`;
+  const code = `(var result []) (for [i 0 20 2] (.push result i)) result`;
   const transpiled = await hql.transpile(code);
   const js = typeof transpiled === 'string' ? transpiled : transpiled.code;
   const result = await hql.run(code);
@@ -56,7 +56,7 @@ Deno.test("For loop optimization: Multiple statements in body", async () => {
   const code = `
     (var sum 0)
     (var result [])
-    (for (i 5)
+    (for [i 5]
       (= sum (+ sum i))
       (.push result i))
     result
@@ -79,7 +79,7 @@ Deno.test("For loop optimization: Multiple statements in body", async () => {
 Deno.test("For loop optimization: No return statement in loop body", async () => {
   const code = `
     (var result [])
-    (for (i 3) (.push result i))
+    (for [i 3] (.push result i))
     result
   `;
   const transpiled = await hql.transpile(code);
@@ -97,7 +97,7 @@ Deno.test("For loop optimization: No return statement in loop body", async () =>
 });
 
 Deno.test("For loop optimization: Negative step (reverse iteration)", async () => {
-  const code = `(var result []) (for (i 10 0 -1) (.push result i)) result`;
+  const code = `(var result []) (for [i 10 0 -1] (.push result i)) result`;
   const transpiled = await hql.transpile(code);
   const js = typeof transpiled === 'string' ? transpiled : transpiled.code;
   const result = await hql.run(code);
@@ -110,7 +110,7 @@ Deno.test("For loop optimization: Negative step (reverse iteration)", async () =
 });
 
 Deno.test("For loop optimization: Empty loop body", async () => {
-  const code = `(var x 0) (for (i 5)) x`;
+  const code = `(var x 0) (for [i 5]) x`;
   const transpiled = await hql.transpile(code);
   const js = typeof transpiled === 'string' ? transpiled : transpiled.code;
   const result = await hql.run(code);
@@ -125,7 +125,7 @@ Deno.test("For loop optimization: Empty loop body", async () => {
 Deno.test("For loop optimization: Accumulator pattern", async () => {
   const code = `
     (var sum 0)
-    (for (i 1 11) (= sum (+ sum i)))
+    (for [i 1 11] (= sum (+ sum i)))
     sum
   `;
   const transpiled = await hql.transpile(code);

@@ -274,6 +274,7 @@ export function transformToIR(
         body.push({
           type: IR.IRNodeType.ExpressionStatement,
           expression: ir,
+          position: ir.position, // Inherit position from wrapped expression
         } as IR.IRExpressionStatement);
       } else {
         body.push(ir);
@@ -899,6 +900,10 @@ function transformTry(
             );
           }
 
+          // Extract position from catch clause
+          const catchMeta = extractMeta(clause);
+          const catchPosition = catchMeta ? { line: catchMeta.line, column: catchMeta.column, filePath: catchMeta.filePath } : undefined;
+
           handler = {
             type: IR.IRNodeType.CatchClause,
             param,
@@ -908,6 +913,7 @@ function transformTry(
               transformNode,
               true,
             ),
+            position: catchPosition, // Add position
           };
         } else if (clauseName === "finally") {
           if (finalizer) {
@@ -947,11 +953,16 @@ function transformTry(
         index++;
       }
 
+      // Extract position from the 'try' list
+      const listMeta = extractMeta(list);
+      const listPosition = listMeta ? { line: listMeta.line, column: listMeta.column, filePath: listMeta.filePath } : undefined;
+
       const tryStatement: IR.IRTryStatement = {
         type: IR.IRNodeType.TryStatement,
         block: tryBlock,
         handler,
         finalizer,
+        position: listPosition, // Add position
       };
 
       // BUGFIX: Detect if try/catch/finally contain await expressions
@@ -965,6 +976,7 @@ function transformTry(
       const functionBody: IR.IRBlockStatement = {
         type: IR.IRNodeType.BlockStatement,
         body: [tryStatement],
+        position: listPosition, // Add position
       };
 
       const functionExpression: IR.IRFunctionExpression = {
@@ -973,12 +985,14 @@ function transformTry(
         params: [],
         body: functionBody,
         async: needsAsync, // BUGFIX: Mark as async if contains await
+        position: listPosition, // Add position
       };
 
       return {
         type: IR.IRNodeType.CallExpression,
         callee: functionExpression,
         arguments: [],
+        position: listPosition, // Add position
       } as IR.IRCallExpression;
     },
     "transformTry",
@@ -1250,6 +1264,7 @@ function transformBasedOnOperator(
       list.elements.slice(1),
       currentDir,
       transformNode,
+      list, // Pass source list for position extraction
     );
   }
 
@@ -1595,6 +1610,15 @@ function transformTemplateLiteral(
   );
 }
 
+// Set of operators that can be used as first-class values
+// When used in value position, transpiler calls __hql_get_op("+") at runtime
+const FIRST_CLASS_OPERATORS = new Set([
+  "+", "-", "*", "/", "%", "**",
+  "===", "==", "!==", "!=", "<", ">", "<=", ">=",
+  "&&", "||", "!",
+  "~", "&", "|", "^", "<<", ">>", ">>>",
+]);
+
 /**
  * Transform a symbol node to its IR representation.
  */
@@ -1611,6 +1635,16 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
           type: IR.IRNodeType.StringLiteral,
           value: "_",
         } as IR.IRStringLiteral;
+      }
+
+      // Handle operators as first-class values (e.g., for (reduce + 0 nums))
+      // When an operator symbol appears in value position, call runtime lookup
+      if (FIRST_CLASS_OPERATORS.has(name)) {
+        return {
+          type: IR.IRNodeType.CallExpression,
+          callee: { type: IR.IRNodeType.Identifier, name: "__hql_get_op" } as IR.IRIdentifier,
+          arguments: [{ type: IR.IRNodeType.StringLiteral, value: name } as IR.IRStringLiteral],
+        } as IR.IRCallExpression;
       }
 
       // Exclude spread operators (...identifier) from dot notation handling

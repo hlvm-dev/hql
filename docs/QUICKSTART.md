@@ -64,8 +64,8 @@ Arrays:
 
 Maps:
 ```lisp
-(let person {:name "Alice" :age 30})
-(get person :name)  ; → "Alice"
+(let person {name: "Alice", age: 30})
+(get person "name")  ; → "Alice"
 ```
 
 ## Working with Collections
@@ -78,7 +78,7 @@ Maps:
 ; → [2 4 6 8 10]
 
 ; Filter evens
-(filter (fn [x] (= (% x 2) 0)) numbers)
+(filter (fn [x] (=== (% x 2) 0)) numbers)
 ; → [2 4]
 
 ; Sum

@@ -58,8 +58,8 @@ export function invalidateSourceMapCache(jsFilePath?: string): void {
     if (jsFilePath.startsWith("file://")) {
       try {
         normalizedPath = platformFromFileUrl(jsFilePath);
-      } catch (error) {
-        // Ignore error
+      } catch {
+        // Ignore conversion errors for non-standard URLs
       }
     }
     

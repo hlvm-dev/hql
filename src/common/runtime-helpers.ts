@@ -9,6 +9,7 @@ import {
   __hql_throw,
   __hql_toSequence,
 } from "./runtime-helper-impl.ts";
+import { __hql_get_op } from "../lib/stdlib/js/core.js";
 import { STDLIB_PUBLIC_API } from "../lib/stdlib/js/stdlib.js";
 import { gensym as gensymImpl } from "../gensym.ts";
 
@@ -48,6 +49,7 @@ type GlobalHqlHelpers = {
   __hql_hash_map?: typeof __hql_hash_map;
   __hql_throw?: typeof __hql_throw;
   __hql_deepFreeze?: typeof __hql_deepFreeze;
+  __hql_get_op?: typeof __hql_get_op;
   gensym?: (prefix?: string) => string;
   _?: unknown;
 } & Omit<typeof globalThis, "__hql_get" | "__hql_call" | "__hql_callFn">;
@@ -299,6 +301,11 @@ function ensureHelpers(): void {
   // This ensures REPL and transpiled code have identical behavior
   if (typeof globalAny.__hql_deepFreeze !== "function") {
     globalAny.__hql_deepFreeze = __hql_deepFreeze;
+  }
+
+  // First-class operators: allows (reduce + 0 nums) by converting operator symbols to functions
+  if (typeof globalAny.__hql_get_op !== "function") {
+    globalAny.__hql_get_op = __hql_get_op;
   }
 
   // Add gensym for hygienic macros

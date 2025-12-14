@@ -515,7 +515,7 @@ classes ✅ Circular imports - HQL ↔ JS
 ```lisp
 (async fn retry-fetch [url max-attempts]
   (var attempts 0)
-  (loop ()
+  (loop []
     (= attempts (+ attempts 1))
     (try
       (return (await (js-call fetch url)))

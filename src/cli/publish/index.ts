@@ -145,21 +145,6 @@ function printPublishInfo(
   Mode: ${options.dryRun ? "Dry run (no actual publishing)" : "Live publish"}`);
 }
 
-function buildRegistryPublishOptions(
-  _registry: "jsr" | "npm",
-  options: PublishOptions,
-  metadataType: MetadataFileType | null,
-) {
-  return {
-    entryFile: options.entryFile,
-    version: options.version,
-    hasMetadata: Boolean(metadataType),
-    metadataType: metadataType ?? undefined,
-    verbose: options.verbose,
-    dryRun: options.dryRun,
-  };
-}
-
 function buildFailureSummary(
   registry: "jsr" | "npm",
   metadataType: MetadataFileType | null,

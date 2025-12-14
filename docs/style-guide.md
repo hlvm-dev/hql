@@ -395,8 +395,8 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 
 ```lisp
 ;; Loop keywords to:, from:, by: ARE allowed (special form)
-(for (i to: 10) ...)
-(for (i from: 0 to: 10 by: 2) ...)
+(for [i to: 10] ...)
+(for [i from: 0 to: 10 by: 2] ...)
 ```
 
 ---

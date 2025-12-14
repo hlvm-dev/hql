@@ -329,7 +329,7 @@
 ; Custom find function using for loop with early return
 (fn find-by [arr predicate]
   (var result null)
-  (for (item arr)
+  (for [item arr]
     (if (predicate item)
       (do
         (= result item)
@@ -351,7 +351,7 @@
 
 (async fn retry [action max-attempts]
   (var attempts 0)
-  (loop ()
+  (loop []
     (= attempts (+ attempts 1))
     (try
       (return (await (action)))

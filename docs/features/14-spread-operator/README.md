@@ -358,7 +358,7 @@ func(...args)
 ; Flatten one level
 (fn flatten [arrays]
   (let result [])
-  (for (arr arrays)
+  (for [arr arrays]
     (= result [...result ...arr]))
   result)
 
@@ -401,7 +401,7 @@ func(...args)
 
 ; ❌ Avoid: Manual copying
 (let copy [])
-(for (item original)
+(for [item original]
   (.push copy item))
 ```
 
@@ -510,8 +510,8 @@ func(...args)
 
 ; Manual (tedious)
 (let result {})
-(for (key (.keys a)) (= (get result key) (get a key)))
-(for (key (.keys b)) (= (get result key) (get b key)))
+(for [key (.keys a)] (= (get result key) (get a key)))
+(for [key (.keys b)] (= (get result key) (get b key)))
 ```
 
 ## Known Issues

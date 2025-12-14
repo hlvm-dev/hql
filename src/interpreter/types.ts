@@ -1,6 +1,6 @@
 // src/interpreter/types.ts - Type definitions for the HQL interpreter
 
-import type { SExp, SList } from "../s-exp/types.ts";
+import type { SExp } from "../s-exp/types.ts";
 
 /**
  * Forward declaration for InterpreterEnv (to break circular dependency)

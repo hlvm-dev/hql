@@ -169,7 +169,7 @@ HQL automatically optimizes tail-recursive functions at compile time, preventing
 (factorial 10000 1)  ; Works! No stack overflow
 ```
 
-**Explicit loop/recur** for more control:
+**Explicit loop/recur** for more control (uses `[]` for bindings, Clojure-style):
 ```lisp
 (fn factorial [n]
   (loop [n n acc 1]
@@ -191,8 +191,10 @@ HQL automatically optimizes tail-recursive functions at compile time, preventing
 (filter (fn [x] (> x 3)) numbers)
 ; → [4 5]
 
-(reduce + 0 numbers)
-; → 15
+;; Operators can be passed as first-class values
+(reduce + 0 numbers)    ; → 15 (sum)
+(reduce * 1 numbers)    ; → 120 (product)
+(reduce && true [true true false])  ; → false
 ```
 
 ## Data Structures
@@ -209,18 +211,17 @@ HQL automatically optimizes tail-recursive functions at compile time, preventing
 ### Maps
 
 ```lisp
-(let person {:name "Alice" :age 30})
-(get person :name)  ; → "Alice"
+(let person {name: "Alice", age: 30})
+(get person "name")  ; → "Alice"
 
-(let updated (assoc person :city "NYC"))
-(keys person)       ; → [:name :age]
-(vals person)       ; → ["Alice" 30]
+(let updated (assoc person "city" "NYC"))
+(keys person)        ; → ["name", "age"]
 ```
 
 ### Sets
 
 ```lisp
-(let unique #{1 2 3 2 1})  ; → #{1 2 3}
+(let unique #[1 2 3 2 1])  ; → Set {1, 2, 3}
 ```
 
 ## Control Flow
@@ -236,9 +237,9 @@ HQL automatically optimizes tail-recursive functions at compile time, preventing
 Multi-way conditional:
 ```lisp
 (cond
-  [(< x 0) "Negative"]
-  [(= x 0) "Zero"]
-  [else    "Positive"])
+  ((< x 0) "Negative")
+  ((=== x 0) "Zero")
+  (else "Positive"))
 ```
 
 ### Pattern Matching
@@ -371,9 +372,9 @@ Built-in type checking macros that compile to optimal inline JavaScript:
 (when-let [x val] & body)   ; bind, test, and execute
 
 (cond
-  [test1 result1]
-  [test2 result2]
-  [else  default])
+  (test1 result1)
+  (test2 result2)
+  (else  default))
 
 (and a b c)   ; short-circuit AND
 (or a b c)    ; short-circuit OR
@@ -409,8 +410,13 @@ Built-in type checking macros that compile to optimal inline JavaScript:
 ### Accessing Properties
 
 ```lisp
-(js-get Math.PI)           ; → 3.14159...
-(js-get process.env.HOME)  ; → "/Users/you"
+;; Using js-get with object and property name
+(js-get Math "PI")                 ; → 3.14159...
+(js-get (js-get process "env") "HOME")  ; → "/Users/you"
+
+;; Using dot notation (recommended)
+Math.PI                    ; → 3.14159...
+process.env.HOME           ; → "/Users/you"
 ```
 
 ### Creating Objects
@@ -469,10 +475,9 @@ See [Standard Library Reference](./api/stdlib.md) for complete documentation.
 ### Map Operations
 
 ```lisp
-(assoc {:a 1} :b 2)       ; → {:a 1 :b 2}
-(dissoc {:a 1 :b 2} :a)   ; → {:b 2}
-(keys {:a 1 :b 2})        ; → [:a :b]
-(vals {:a 1 :b 2})        ; → [1 2]
+(assoc {a: 1} "b" 2)      ; → {a: 1, b: 2}
+(dissoc {a: 1, b: 2} "a") ; → {b: 2}
+(keys {a: 1, b: 2})       ; → ["a", "b"]
 ```
 
 ### Composition

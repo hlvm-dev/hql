@@ -15,7 +15,7 @@
 
 ;; Simple while loop - repeats body as long as condition is true
 (macro while [condition & body]
-  `(loop ()
+  `(loop []
      (if ~condition
        (do
          ~@body
@@ -31,7 +31,7 @@
 ;; Example usage:
 ;; (dotimes 3 (print "hello"))
 (macro dotimes [count & body]
-  `(loop (i 0)
+  `(loop [i 0]
      (if (< i ~count)
        (do
          ~@body
@@ -47,7 +47,7 @@
 ;; Example usage:
 ;; (repeat 3 (print "hello"))
 (macro repeat [count & body]
-  `(loop (__repeat_i 0)
+  `(loop [__repeat_i 0]
      (if (< __repeat_i ~count)
        (do
          ~@body
@@ -59,11 +59,21 @@
 ;; ====================
 
 ;; for loop - enhanced iteration with multiple syntaxes
+;; Handle [] syntax: (for [x coll]) is parsed as (for (vector x coll))
+;; Strip the "vector" prefix to normalize both () and [] syntax
 (macro for [binding & body]
-  (let (var (%first binding)
-        spec (%rest binding)
-        spec-count (%length spec)
-        first-elem (%first spec))
+  (let (normalized-binding
+         (if (symbol? (%first binding))
+             (if (=== (name (%first binding)) "vector")
+                 (%rest binding)
+                 (if (=== (name (%first binding)) "empty-array")
+                     (%rest binding)
+                     binding))
+             binding))
+    (let (var (%first normalized-binding)
+          spec (%rest normalized-binding)
+          spec-count (%length spec)
+          first-elem (%first spec))
     (cond
       ;; Error: empty spec
       ;; Error: empty spec
@@ -166,5 +176,5 @@
                `(throw (str "Invalid 'for' loop binding: " '~binding)))
            `(throw (str "Invalid 'for' loop binding: " '~binding))))
 
-      (true `(throw (str "Invalid 'for' loop binding: " '~binding)))))
+      (true `(throw (str "Invalid 'for' loop binding: " '~binding))))))
   )

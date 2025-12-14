@@ -53,32 +53,6 @@ function extractDeclarationName(ast: SList): string | undefined {
 }
 
 /**
- * Convert declaration to var assignment using AST info
- */
-function convertToVarDeclaration(transpiled: string, name: string, isRedefinition: boolean): string {
-  const isFunctionDecl = transpiled.startsWith("function ");
-  const isClassDecl = transpiled.startsWith("class ");
-
-  if (!isFunctionDecl && !isClassDecl) {
-    return transpiled;
-  }
-
-  if (isRedefinition) {
-    if (isFunctionDecl) {
-      return transpiled.replace(/^function\s+\w+/, `${name} = function`);
-    } else {
-      return transpiled.replace(/^class\s+\w+/, `${name} = class`);
-    }
-  } else {
-    if (isFunctionDecl) {
-      return transpiled.replace(/^function\s+\w+/, `var ${name} = function`);
-    } else {
-      return transpiled.replace(/^class\s+\w+/, `var ${name} = class`);
-    }
-  }
-}
-
-/**
  * Analyze expression type from AST
  */
 function analyzeExpression(ast: SList): ExpressionType {

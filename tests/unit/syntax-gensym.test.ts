@@ -134,7 +134,7 @@ Deno.test("gensym: when-let macro with gensym binding", async () => {
          ~@body)
        nil)))
 
-(when-let (x 42)
+(when-let [x 42]
   (+ x 10))
 `;
   const result = await run(code);

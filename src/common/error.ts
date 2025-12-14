@@ -1054,9 +1054,9 @@ export class ValidationError extends HQLError {
     // Loop-specific suggestions
     if (m.includes("loop") || ctx.includes("loop")) {
       if (m.includes("bindings")) {
-        return "Loop requires: (loop (var init ...) body). Example: (loop (i 0) (if (< i 10) (recur (+ i 1)) i))";
+        return "Loop requires: (loop [var init ...] body). Example: (loop [i 0] (if (< i 10) (recur (+ i 1)) i))";
       }
-      return "Check loop syntax: (loop (bindings) body)";
+      return "Check loop syntax: (loop [bindings] body)";
     }
 
     // Recur-specific suggestions
@@ -1286,7 +1286,7 @@ export class TransformError extends HQLError {
     // Loop-specific suggestions
     if (msg.includes("loop") || msg.includes("recur")) {
       if (msg.includes("bindings")) {
-        return "Loop requires: (loop (var init ...) body). Example: (loop (i 0) (if (< i 10) (recur (+ i 1)) i))";
+        return "Loop requires: (loop [var init ...] body). Example: (loop [i 0] (if (< i 10) (recur (+ i 1)) i))";
       }
       if (msg.includes("inside a loop")) {
         return "The 'recur' form can only be used inside a 'loop' expression.";

@@ -5,7 +5,7 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import hql from "../../mod.ts";
 
 Deno.test("For loop in expression: Variable initializer", async () => {
-  const code = `(let x (for (i 5) i)) x`;
+  const code = `(let x (for [i 5] i)) x`;
   const transpiled = await hql.transpile(code);
   const js = typeof transpiled === 'string' ? transpiled : transpiled.code;
   const result = await hql.run(code);
@@ -21,7 +21,7 @@ Deno.test("For loop in expression: Variable initializer", async () => {
 });
 
 Deno.test("For loop in expression: Array element", async () => {
-  const code = `[(for (i 3) i) 42]`;
+  const code = `[(for [i 3] i) 42]`;
   const transpiled = await hql.transpile(code);
   const js = typeof transpiled === 'string' ? transpiled : transpiled.code;
   const result = await hql.run(code);
@@ -35,7 +35,7 @@ Deno.test("For loop in expression: Array element", async () => {
 });
 
 Deno.test("For loop in expression: Object value", async () => {
-  const code = `{x: (for (i 3) i) y: 10}`;
+  const code = `{x: (for [i 3] i) y: 10}`;
   const transpiled = await hql.transpile(code);
   const js = typeof transpiled === 'string' ? transpiled : transpiled.code;
   const result = await hql.run(code) as any;
@@ -52,7 +52,7 @@ Deno.test("For loop in expression: Object value", async () => {
 Deno.test("For loop in expression: Function argument", async () => {
   const code = `
     (fn double [x] (* x 2))
-    (double (for (i 3) i))
+    (double (for [i 3] i))
   `;
 
   // For loop returns null, so double(null) will try to multiply null by 2
@@ -63,7 +63,7 @@ Deno.test("For loop in expression: Function argument", async () => {
 
 Deno.test("For loop in expression: Return value", async () => {
   const code = `
-    (fn test [] (for (i 3) i))
+    (fn test [] (for [i 3] i))
     (test)
   `;
   const result = await hql.run(code);
@@ -73,7 +73,7 @@ Deno.test("For loop in expression: Return value", async () => {
 });
 
 Deno.test("For loop in expression: Nested in binary expression", async () => {
-  const code = `(+ 10 (for (i 3) i))`;
+  const code = `(+ 10 (for [i 3] i))`;
   const transpiled = await hql.transpile(code);
   const js = typeof transpiled === 'string' ? transpiled : transpiled.code;
   const result = await hql.run(code);
@@ -86,7 +86,7 @@ Deno.test("For loop in expression: Nested in binary expression", async () => {
 });
 
 Deno.test("For loop in expression: Conditional test", async () => {
-  const code = `(if (for (i 1) i) "yes" "no")`;
+  const code = `(if (for [i 1] i) "yes" "no")`;
   const result = await hql.run(code);
 
   // null is falsy, so should return "no"
@@ -94,7 +94,7 @@ Deno.test("For loop in expression: Conditional test", async () => {
 });
 
 Deno.test("For loop in expression: Conditional consequent", async () => {
-  const code = `(if true (for (i 3) i) 0)`;
+  const code = `(if true (for [i 3] i) 0)`;
   const result = await hql.run(code);
 
   // Should return null from for loop
@@ -102,7 +102,7 @@ Deno.test("For loop in expression: Conditional consequent", async () => {
 });
 
 Deno.test("For loop in expression: Conditional alternate", async () => {
-  const code = `(if false 0 (for (i 3) i))`;
+  const code = `(if false 0 (for [i 3] i))`;
   const result = await hql.run(code);
 
   // Should return null from for loop
@@ -112,7 +112,7 @@ Deno.test("For loop in expression: Conditional alternate", async () => {
 Deno.test("For loop in expression: Assignment right side", async () => {
   const code = `
     (var x 0)
-    (= x (for (i 3) i))
+    (= x (for [i 3] i))
     x
   `;
   const result = await hql.run(code);
@@ -124,7 +124,7 @@ Deno.test("For loop in expression: Assignment right side", async () => {
 Deno.test("For loop in expression: With side effects in variable init", async () => {
   const code = `
     (var result [])
-    (let x (for (i 5) (.push result i)))
+    (let x (for [i 5] (.push result i)))
     result
   `;
   const result = await hql.run(code);
@@ -137,7 +137,7 @@ Deno.test("For loop in expression: Multiple in array", async () => {
   const code = `
     (var a [])
     (var b [])
-    [(for (i 3) (.push a i)) (for (j 2) (.push b j))]
+    [(for [i 3] (.push a i)) (for [j 2] (.push b j))]
     [a b]
   `;
   const result = await hql.run(code);
@@ -150,7 +150,7 @@ Deno.test("For loop in expression: Multiple in array", async () => {
 Deno.test("For loop in expression: Nested for loops", async () => {
   const code = `
     (var result [])
-    (let x (for (i 3) (for (j 2) (.push result [i j]))))
+    (let x (for [i 3] (for [j 2] (.push result [i j]))))
     result
   `;
   const result = await hql.run(code);
@@ -162,7 +162,7 @@ Deno.test("For loop in expression: Nested for loops", async () => {
 Deno.test("For loop in expression: Performance check - IIFE overhead acceptable", async () => {
   const code = `
     (var sum 0)
-    (let x (for (i 1000) (= sum (+ sum i))))
+    (let x (for [i 1000] (= sum (+ sum i))))
     sum
   `;
 

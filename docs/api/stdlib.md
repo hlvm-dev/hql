@@ -299,8 +299,8 @@ Applies function to array of arguments.
 Associates key with value in map, returning new map.
 
 ```lisp
-(assoc {:a 1} :b 2)                ;; → {:a 1 :b 2}
-(assoc {} :x 10)                   ;; → {:x 10}
+(assoc {a: 1} "b" 2)               ;; → {a: 1, b: 2}
+(assoc {} "x" 10)                  ;; → {x: 10}
 ```
 
 **Immutable:** Returns new map
@@ -312,7 +312,7 @@ Associates key with value in map, returning new map.
 Removes key from map, returning new map.
 
 ```lisp
-(dissoc {:a 1 :b 2} :b)            ;; → {:a 1}
+(dissoc {a: 1, b: 2} "b")          ;; → {a: 1}
 ```
 
 **Immutable:** Returns new map
@@ -324,8 +324,8 @@ Removes key from map, returning new map.
 Merges multiple maps, later values override.
 
 ```lisp
-(merge {:a 1} {:b 2})              ;; → {:a 1 :b 2}
-(merge {:a 1} {:a 2})              ;; → {:a 2}
+(merge {a: 1} {b: 2})              ;; → {a: 1, b: 2}
+(merge {a: 1} {a: 2})              ;; → {a: 2}
 ```
 
 **Immutable:** Returns new map
@@ -337,37 +337,7 @@ Merges multiple maps, later values override.
 Returns all keys from map.
 
 ```lisp
-(keys {:a 1 :b 2})                 ;; → [:a :b]
-```
-
----
-
-### `vals(map)`
-
-Returns all values from map.
-
-```lisp
-(vals {:a 1 :b 2})                 ;; → [1 2]
-```
-
----
-
-### `select-keys(map, keys)`
-
-Returns map with only specified keys.
-
-```lisp
-(select-keys {:a 1 :b 2 :c 3} [:a :c])   ;; → {:a 1 :c 3}
-```
-
----
-
-### `rename-keys(map, key-map)`
-
-Renames keys according to key-map.
-
-```lisp
-(rename-keys {:a 1 :b 2} {:a :x :b :y})  ;; → {:x 1 :y 2}
+(keys {a: 1, b: 2})                ;; → ["a", "b"]
 ```
 
 ---

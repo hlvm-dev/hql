@@ -204,8 +204,20 @@ export async function transpile(
     }
 
     // Prepend helpers to code WITHOUT wrapping
+    // CRITICAL: 'use strict' must be FIRST for strict mode to be in effect
+    // If it comes after any statement (like helper definitions), it's just a string expression
+    let userCode = result.code;
+    let useStrictDirective = "";
+
+    // Extract 'use strict' if present at the start of user code
+    const strictMatch = userCode.match(/^(['"]use strict['"];?\s*\n?)/);
+    if (strictMatch) {
+      useStrictDirective = "'use strict';\n";
+      userCode = userCode.slice(strictMatch[0].length);
+    }
+
     const codeWithHelpers = helperSnippets.length > 0
-      ? `${helperSnippets.join("\n")}\n\n${result.code}`
+      ? `${useStrictDirective}${helperSnippets.join("\n")}\n\n${userCode}`
       : result.code;
 
     // Adjust source map to account for line offset from:
@@ -528,6 +540,63 @@ ${formattedExpression}
 }
 
 /**
+ * Wrap JavaScript code for ES module export
+ * Parses the JS, finds the last expression, and wraps in export default
+ * so that import() returns the last expression value (like eval does)
+ */
+function wrapCodeForModuleExport(code: string): string {
+  // Parse JavaScript using acorn
+  interface AcornNode {
+    type: string;
+    start: number;
+    end: number;
+    expression?: AcornNode;
+  }
+
+  try {
+    const ast = acorn.parse(code, {
+      ecmaVersion: 2020,
+      sourceType: "module",
+      locations: true,
+    }) as unknown as { body: AcornNode[] };
+
+    const statements = ast.body;
+    if (statements.length === 0) {
+      return `export default undefined;`;
+    }
+
+    const lastStatement = statements[statements.length - 1];
+    const precedingCode = code.slice(0, lastStatement.start).trim();
+    const lastCode = code.slice(lastStatement.start, lastStatement.end).trim();
+
+    // Build the wrapped code
+    let body: string;
+    let returnStmt: string;
+
+    if (lastStatement.type === "ExpressionStatement" && lastStatement.expression) {
+      // Last statement is an expression - return its value
+      const expr = code.slice(lastStatement.expression.start, lastStatement.expression.end);
+      body = precedingCode;
+      returnStmt = `return ${expr};`;
+    } else {
+      // Last statement is not an expression (e.g., declaration) - execute it and return undefined
+      body = precedingCode ? `${precedingCode}\n${lastCode}` : lastCode;
+      returnStmt = `return undefined;`;
+    }
+
+    // Wrap in async IIFE with export default
+    if (body) {
+      return `export default (async () => {\n${body}\n${returnStmt}\n})();`;
+    } else {
+      return `export default (async () => {\n${returnStmt}\n})();`;
+    }
+  } catch {
+    // If parsing fails, wrap the whole code and return undefined
+    return `export default (async () => {\n${code}\nreturn undefined;\n})();`;
+  }
+}
+
+/**
  * Run HQL code by transpiling and evaluating
  * @param source - HQL source code
  * @param options - Options including baseDir and optional adapter
@@ -550,8 +619,6 @@ export async function run(
   // Enable source maps for better error reporting when working with actual files
   // For REPL/eval cases (anonymous files), keep source maps off by default
   // to avoid breaking return value expectations
-  // Pass original source content for embedded source maps
-  // Use the resolved absolute currentFile path for accurate source maps
   const isRealFile = Boolean(
     currentFile && !currentFile.includes("<anonymous>"),
   );
@@ -656,24 +723,39 @@ export async function run(
     const outPath = platformResolve(runtimeDir, fileName);
     const mapPath = `${outPath}.map`;
 
-    // Fix source map file path to match actual output path
+    // Wrap code in export default to return last expression value
+    // ES modules don't automatically export the result like eval() does
+    const wrappedCode = wrapCodeForModuleExport(compiledJs);
+    const wrapperLineOffset = 1; // "export default (async () => {" adds 1 line
+
+    // Fix source map file path and adjust line numbers for wrapper
     const mapJson = JSON.parse(sourceMap);
     mapJson.file = outPath; // Update to actual runtime file path
+
+    // Shift all generated line numbers down to account for wrapper prefix
+    if (mapJson.mappings && wrapperLineOffset > 0) {
+      // Add empty line mappings for wrapper prefix (semicolons = empty lines)
+      const emptyLines = ";".repeat(wrapperLineOffset);
+      mapJson.mappings = emptyLines + mapJson.mappings;
+    }
     const correctedSourceMap = JSON.stringify(mapJson);
 
     await platformWriteTextFile(mapPath, correctedSourceMap);
-    const codeWithSourceMap = `${compiledJs}\n//# sourceMappingURL=${
+    const codeWithSourceMap = `${wrappedCode}\n//# sourceMappingURL=${
       basename(mapPath)
     }`;
     await platformWriteTextFile(outPath, codeWithSourceMap);
 
     try {
       // Set runtime context for better error location resolution
-      // Pass the parsed source map and JS file path so runtime errors can map back to HQL source
-      setRuntimeContext(currentFile, outPath, parsedSourceMap);
+      // Pass the ADJUSTED source map (with wrapper offset) so runtime errors can map back to HQL source
+      setRuntimeContext(currentFile, outPath, mapJson as RawSourceMap);
 
       const module = await import(platformToFileUrl(outPath).href);
-      return "default" in module ? module.default : module;
+      // IMPORTANT: module.default is a Promise from the async IIFE wrapper
+      // We must await it here so errors are caught by this try/catch
+      const result = "default" in module ? await module.default : module;
+      return result;
     } catch (runtimeError) {
       // Enhance error with HQL context before rethrowing
       if (runtimeError instanceof Error) {

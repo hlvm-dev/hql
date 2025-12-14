@@ -243,7 +243,7 @@ Deno.test("Helper Embedding: __hql_hash_map is embedded when map literal is used
 Deno.test("Helper Embedding: for loop over collection generates native for-of loop", async () => {
   // Collection iteration syntax (x coll) is now optimized to native for-of loops
   // This is more efficient and supports early returns correctly
-  const hqlCode = `(var result []) (for (x [1 2 3]) (.push result x)) result`;
+  const hqlCode = `(var result []) (for [x [1 2 3]] (.push result x)) result`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
@@ -261,7 +261,7 @@ Deno.test("Helper Embedding: for loop over collection generates native for-of lo
 Deno.test("Helper Embedding: numeric range loops are optimized to native for loops", async () => {
   // Numeric range loops are optimized to native for loops
   // No helpers needed - pure native JavaScript
-  const hqlCode = `(for (i 0 10) i)`;
+  const hqlCode = `(for [i 0 10] i)`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 

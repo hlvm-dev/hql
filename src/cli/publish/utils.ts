@@ -1,14 +1,12 @@
 import {
-  cwd as platformCwd,
   exists,
   readTextFile,
   resolve,
   writeTextFile,
   join,
-  mkdir as platformMkdir,
   readDir,
   runCmd,
-  dirname, // Add this import
+  dirname,
 } from "../../platform/platform.ts";
 import { parse } from "../../transpiler/pipeline/parser.ts";
 import { globalLogger as logger } from "../../logger.ts";

@@ -62,7 +62,7 @@ export function transformLoop(
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
   try {
-    // Verify loop syntax: (loop (bindings...) body...)
+    // Verify loop syntax: (loop [bindings...] body...)
     if (list.elements.length < 3) {
       throw new ValidationError(
         "loop requires bindings and at least one body expression",
@@ -82,7 +82,22 @@ export function transformLoop(
       );
     }
 
-    const bindings = bindingsNode as ListNode;
+    let bindings = bindingsNode as ListNode;
+
+    // Handle vector syntax: (loop [n 0 acc 1] ...) is parsed as (loop (vector n 0 acc 1) ...)
+    // Strip the "vector" prefix to normalize both () and [] syntax
+    if (
+      bindings.elements.length > 0 &&
+      bindings.elements[0].type === "symbol" &&
+      ((bindings.elements[0] as SymbolNode).name === "vector" ||
+       (bindings.elements[0] as SymbolNode).name === "empty-array")
+    ) {
+      bindings = {
+        ...bindings,
+        elements: bindings.elements.slice(1),
+      } as ListNode;
+    }
+
     if (bindings.elements.length % 2 !== 0) {
       throw new ValidationError(
         "loop bindings require an even number of forms",
@@ -374,7 +389,7 @@ export function isRecurExpression(expr: HQLNode): boolean {
  * 5. No complex control flow
  *
  * Example of simple loop:
- * (loop (i 0 sum 0)
+ * (loop [i 0 sum 0]
  *   (if (< i 100)
  *     (recur (+ i 1) (+ sum i))
  *     sum))
@@ -596,7 +611,7 @@ function tryOptimizeArithmetic(
  * Transform a simple loop to a native while loop.
  *
  * Input:
- * (loop (i 0 sum 0)
+ * (loop [i 0 sum 0]
  *   (if (< i 100)
  *     (recur (+ i 1) (+ sum i))
  *     sum))

@@ -126,10 +126,10 @@ Return values:
 ```lisp
 (fn calculate [a b op]
   (cond
-    [(= op "add") (+ a b)]
-    [(= op "sub") (- a b)]
-    [(= op "mul") (* a b)]
-    [else "Unknown"]))
+    ((=== op "add") (+ a b))
+    ((=== op "sub") (- a b))
+    ((=== op "mul") (* a b))
+    (else "Unknown")))
 
 (calculate 10 5 "add")  ; → 15
 (calculate 10 5 "mul")  ; → 50
@@ -156,20 +156,20 @@ Return values:
 ### Lesson 9: Maps
 
 ```lisp
-(let person {:name "Alice" :age 30 :city "NYC"})
+(let person {name: "Alice", age: 30, city: "NYC"})
 
-(get person :name)   ; → "Alice"
-(get person :age)    ; → 30
+(get person "name")  ; → "Alice"
+(get person "age")   ; → 30
 ```
 
 Updating maps:
 
 ```lisp
-(let updated (assoc person :job "Engineer"))
-; → {:name "Alice" :age 30 :city "NYC" :job "Engineer"}
+(let updated (assoc person "job" "Engineer"))
+; → {name: "Alice", age: 30, city: "NYC", job: "Engineer"}
 
-(let removed (dissoc person :city))
-; → {:name "Alice" :age 30}
+(let removed (dissoc person "city"))
+; → {name: "Alice", age: 30}
 ```
 
 ### Lesson 10: Working with Collections
@@ -185,7 +185,7 @@ Map (transform):
 Filter:
 
 ```lisp
-(let evens (filter (fn [x] (= (% x 2) 0)) numbers))
+(let evens (filter (fn [x] (=== (% x 2) 0)) numbers))
 (print evens)  ; → [2 4]
 ```
 
@@ -222,10 +222,10 @@ Cond (multi-way):
 (let score 85)
 
 (cond
-  [(>= score 90) (print "A")]
-  [(>= score 80) (print "B")]
-  [(>= score 70) (print "C")]
-  [else (print "F")])
+  ((>= score 90) (print "A"))
+  ((>= score 80) (print "B"))
+  ((>= score 70) (print "C"))
+  (else (print "F")))
 ```
 
 Pattern matching:
@@ -297,8 +297,11 @@ While loop:
 ### Lesson 14: Accessing Properties
 
 ```lisp
-(js-get Math.PI)            ; → 3.14159...
-(js-get Array.length)       ; → function
+;; Using dot notation (recommended)
+Math.PI               ; → 3.14159...
+
+;; Using js-get
+(js-get Math "PI")    ; → 3.14159...
 ```
 
 ### Lesson 15: Creating Objects
@@ -452,7 +455,7 @@ Create `todo.hql`:
   (print "Added:" text))
 
 (fn list-todos []
-  (for [i 0 (js-get todos.length)]
+  (for [i 0 todos.length]
     (print (+ i 1) "." (get todos i))))
 
 (fn main []
@@ -475,14 +478,14 @@ Create `server.hql`:
 
 ```lisp
 (fn handle-request [req]
-  (let url (js-get req.url))
+  (let url req.url)
   (new Response
     (+ "You visited: " url)
-    {:status 200
-     :headers {:content-type "text/plain"}}))
+    {status: 200,
+     headers: {"content-type": "text/plain"}}))
 
 (print "Server on http://localhost:8000")
-(js-call Deno.serve {:port 8000} handle-request)
+(js-call Deno.serve {port: 8000} handle-request)
 ```
 
 Run:

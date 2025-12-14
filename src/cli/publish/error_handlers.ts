@@ -553,10 +553,6 @@ function detectError(errorMessage: string, registry: "npm" | "jsr"): ErrorInfo {
   };
 }
 
-export function detectJsrError(errorMessage: string): ErrorInfo {
-  return detectError(errorMessage, "jsr");
-}
-
 export function detectNpmError(errorMessage: string): ErrorInfo {
   return detectError(errorMessage, "npm");
 }

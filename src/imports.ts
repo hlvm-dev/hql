@@ -626,19 +626,6 @@ Expected one of:
 }
 
 /**
- * Resolve @hql/* stdlib package paths to actual file paths
- * @hql/string -> packages/string/mod.hql
- * Returns original path if it's an @hql/* path (handled specially by loadModule)
- */
-function resolveStdlibPath(modulePath: string): string {
-  // Keep @hql/* paths as-is - they will be handled by embedded packages
-  if (modulePath.startsWith("@hql/")) {
-    return modulePath;
-  }
-  return modulePath;
-}
-
-/**
  * Check if a module path is an @hql/* stdlib package
  */
 function isStdlibPackage(modulePath: string): boolean {

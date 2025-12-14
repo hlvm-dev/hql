@@ -12,6 +12,7 @@ import { getErrorMessage, sanitizeIdentifier } from "../../common/utils.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import {
   copyPosition,
+  extractMeta,
   getIIFEDepth,
   setIIFEDepth,
   transformNode,
@@ -96,10 +97,13 @@ export function processFunctionBody(
           const expr = transformNode(bodyExprs[i], currentDir);
           if (expr) {
             if (isExpressionResult(expr)) {
-              bodyNodes.push({
+              // Wrap in ExpressionStatement, inheriting position from the expression
+              const exprStmt: IR.IRExpressionStatement = {
                 type: IR.IRNodeType.ExpressionStatement,
                 expression: expr,
-              } as IR.IRExpressionStatement);
+                position: expr.position, // Propagate position from wrapped expression
+              };
+              bodyNodes.push(exprStmt);
             } else {
               bodyNodes.push(expr);
             }
@@ -127,6 +131,7 @@ export function processFunctionBody(
                 : {
                   type: IR.IRNodeType.ReturnStatement,
                   argument: ifStmt.consequent,
+                  position: ifStmt.consequent.position, // Propagate position
                 } as IR.IRReturnStatement;
 
               // Wrap alternate in return if it's not already a control flow statement
@@ -135,6 +140,7 @@ export function processFunctionBody(
                 finalAlternate = {
                   type: IR.IRNodeType.ReturnStatement,
                   argument: finalAlternate,
+                  position: finalAlternate.position, // Propagate position
                 } as IR.IRReturnStatement;
               }
 
@@ -143,6 +149,7 @@ export function processFunctionBody(
                 test: ifStmt.test,
                 consequent: finalConsequent,
                 alternate: finalAlternate,
+                position: ifStmt.position, // Propagate position
               } as IR.IRIfStatement);
             } else {
               // ReturnStatement or ThrowStatement
@@ -153,6 +160,7 @@ export function processFunctionBody(
             bodyNodes.push({
               type: IR.IRNodeType.ReturnStatement,
               argument: lastExpr,
+              position: lastExpr.position, // Propagate position from wrapped expression
             } as IR.IRReturnStatement);
           }
         }
@@ -163,9 +171,12 @@ export function processFunctionBody(
           containsNestedReturns(node)
         );
         if (hasNestedReturns) {
+          // Get position for block statement from first body node
+          const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
           const originalBody: IR.IRBlockStatement = {
             type: IR.IRNodeType.BlockStatement,
             body: bodyNodes,
+            position: blockPosition, // Propagate position for source mapping
           };
           const wrappedBody = wrapWithEarlyReturnHandler(originalBody);
           return wrappedBody.body; // Return the statements from the wrapped body
@@ -218,13 +229,21 @@ export function transformStandardFunctionCall(
         const op = (first as SymbolNode).name;
         logger.debug(`Processing standard function call to ${op}`);
 
+        // Extract position from the function name symbol
+        const meta = extractMeta(first);
+        const position = meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined;
+
+        const calleeId: IR.IRIdentifier = {
+          type: IR.IRNodeType.Identifier,
+          name: sanitizeIdentifier(op),
+          position, // Copy position from source symbol
+        };
+
         return {
           type: IR.IRNodeType.CallExpression,
-          callee: {
-            type: IR.IRNodeType.Identifier,
-            name: sanitizeIdentifier(op),
-          } as IR.IRIdentifier,
+          callee: calleeId,
           arguments: transformArgsWithSpread(argNodes, currentDir),
+          position, // Copy position to call expression too
         } as IR.IRCallExpression;
       }
 
@@ -235,10 +254,15 @@ export function transformStandardFunctionCall(
         "Function callee",
       );
 
+      // Get position from the list (the full call expression)
+      const listMeta = extractMeta(list);
+      const listPosition = listMeta ? { line: listMeta.line, column: listMeta.column, filePath: listMeta.filePath } : undefined;
+
       return {
         type: IR.IRNodeType.CallExpression,
         callee,
         arguments: transformArgsWithSpread(argNodes, currentDir),
+        position: listPosition, // Use position of the whole call expression
       } as IR.IRCallExpression;
     },
     "transformStandardFunctionCall",
@@ -377,6 +401,9 @@ function transformNamedFn(
   };
   copyPosition(funcNameNode, funcId);
 
+  // Get position for block statement from first body node or param list
+  const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
+
   const fnFuncDecl = {
     type: IR.IRNodeType.FnFunctionDeclaration,
     id: funcId,
@@ -388,6 +415,7 @@ function transformNamedFn(
     body: {
       type: IR.IRNodeType.BlockStatement,
       body: bodyNodes,
+      position: blockPosition, // Propagate position for source mapping
     },
     usesJsonMapParams,
   } as IR.IRFnFunctionDeclaration;
@@ -441,11 +469,18 @@ function transformAnonymousFn(
     currentDir,
   );
 
+  // Get position for block statement from first body node
+  const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
+
   return {
     type: IR.IRNodeType.FunctionExpression,
     id: null,
     params,
-    body: { type: IR.IRNodeType.BlockStatement, body: bodyNodes },
+    body: {
+      type: IR.IRNodeType.BlockStatement,
+      body: bodyNodes,
+      position: blockPosition, // Propagate position for source mapping
+    },
   } as IR.IRFunctionExpression;
 }
 
@@ -692,6 +727,7 @@ export function processFnFunctionCall(
   args: HQLNode[],
   currentDir: string,
   transformNode: TransformNodeFn,
+  sourceList?: ListNode, // Optional source node for position extraction
 ): IR.IRNode {
   try {
     // Validate that removed named argument syntax is not used
@@ -705,12 +741,24 @@ export function processFnFunctionCall(
     // Process normal positional arguments
     const finalArgs = processPositionalArgs(funcName, funcDef, args, currentDir, transformNode);
 
+    // Extract position for the callee identifier
+    // Use the function name symbol position if available (first element in sourceList)
+    let calleePosition: IR.SourcePosition | undefined;
+    if (sourceList && sourceList.elements.length > 0) {
+      const firstElem = sourceList.elements[0];
+      const meta = extractMeta(firstElem);
+      if (meta) {
+        calleePosition = { line: meta.line, column: meta.column, filePath: meta.filePath };
+      }
+    }
+
     // Create the final call expression
     return {
       type: IR.IRNodeType.CallExpression,
       callee: {
         type: IR.IRNodeType.Identifier,
         name: sanitizeIdentifier(funcName),
+        position: calleePosition, // Add position to callee
       },
       arguments: finalArgs,
     } as IR.IRCallExpression;

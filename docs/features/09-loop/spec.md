@@ -22,7 +22,7 @@ via bindings.
 **Latest Syntax:**
 
 ```lisp
-(loop (i 0)
+(loop [i 0]
   (when (< i 3)
     (print "Basic loop iteration:" i)
     (recur (+ i 1))))
@@ -30,7 +30,7 @@ via bindings.
 
 **Explanation:**
 
-- `(loop (i 0))` initializes the loop with `i` set to `0`.
+- `(loop [i 0])` initializes the loop with `i` set to `0` (uses `[]` for bindings, Clojure-style).
 - The `when` condition checks if `i` is less than `3`.
 - `recur` is used for tail‑recursive calls, passing the updated value of `i`.
 
@@ -132,21 +132,21 @@ positional parameters and named parameters.
 **Latest Syntax:**
 
 ```lisp
-(for (i 3)
+(for [i 3]
   (print "Loop 1:" i))
 
-(for (i 5 8)
+(for [i 5 8]
   (print "Loop 2:" i))
 
-(for (i 0 10 2)
+(for [i 0 10 2]
   (print "Loop 3:" i))
 ```
 
 **Explanation:**
 
-- `(for (i 3))` iterates `i` from `0` to `2`.
-- `(for (i 5 8))` iterates `i` from `5` to `7`.
-- `(for (i 0 10 2))` iterates `i` from `0` to `8` in steps of `2`.
+- `(for [i 3])` iterates `i` from `0` to `2`.
+- `(for [i 5 8])` iterates `i` from `5` to `7`.
+- `(for [i 0 10 2])` iterates `i` from `0` to `8` in steps of `2`.
 
 **Expected Output:**
 
@@ -171,16 +171,16 @@ Loop 3: 8
 **Latest Syntax:**
 
 ```lisp
-(for (i to: 3)
+(for [i to: 3]
   (print "Named loop 1:" i))
 
-(for (i from: 5 to: 8)
+(for [i from: 5 to: 8]
   (print "Named loop 2:" i))
 
-(for (i from: 0 to: 10 by: 2)
+(for [i from: 0 to: 10 by: 2]
   (print "Named loop 3:" i))
 
-(for (i to: 10 by: 3)
+(for [i to: 10 by: 3]
   (print "Named loop 4:" i))
 ```
 
@@ -221,7 +221,7 @@ HQL provides a lazy `range` function in the standard library for generating sequ
 
 ```lisp
 ;; Iterate over a range
-(for (i 10)
+(for [i 10]
   (print "Iteration:" i))
 
 ;; Using range with doall for explicit sequence

@@ -2424,5 +2424,60 @@ export function name(x) {
   return x.startsWith(":") ? x.slice(1) : x;
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FIRST-CLASS OPERATORS (single source of truth)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Operators can be passed as first-class values to HOFs:
+// (reduce + 0 [1 2 3]) => __hql_get_op("+") returns the + function
+// (map * [1 2 3] [4 5 6]) => __hql_get_op("*") returns the * function
+
+const __HQL_OPERATORS = {
+  // Arithmetic
+  "+": (a, b) => a + b,
+  "-": (a, b) => a - b,
+  "*": (a, b) => a * b,
+  "/": (a, b) => a / b,
+  "%": (a, b) => a % b,
+  "**": (a, b) => a ** b,
+
+  // Comparison
+  "===": (a, b) => a === b,
+  "==": (a, b) => a == b,
+  "!==": (a, b) => a !== b,
+  "!=": (a, b) => a != b,
+  "<": (a, b) => a < b,
+  ">": (a, b) => a > b,
+  "<=": (a, b) => a <= b,
+  ">=": (a, b) => a >= b,
+
+  // Logical
+  "&&": (a, b) => a && b,
+  "||": (a, b) => a || b,
+  "!": (a) => !a,
+
+  // Bitwise
+  "~": (a) => ~a,
+  "&": (a, b) => a & b,
+  "|": (a, b) => a | b,
+  "^": (a, b) => a ^ b,
+  "<<": (a, b) => a << b,
+  ">>": (a, b) => a >> b,
+  ">>>": (a, b) => a >>> b,
+};
+
+/**
+ * Get an operator function by its symbol.
+ * This is the single source of truth for all operator-as-value usage.
+ * @param {string} op - The operator symbol (e.g., "+", "-", "*")
+ * @returns {Function} The function that implements the operator
+ */
+export function __hql_get_op(op) {
+  const fn = __HQL_OPERATORS[op];
+  if (!fn) {
+    throw new Error(`Unknown operator: ${op}`);
+  }
+  return fn;
+}
+
 // Export lazySeq for creating custom lazy sequences
 export { lazySeq };

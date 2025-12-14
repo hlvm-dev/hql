@@ -325,3 +325,125 @@ c
   const result = await run(code);
   assertEquals(result, 20); // (5*2) + 10 = 20
 });
+
+// ============================================================================
+// SECTION 7: FIRST-CLASS OPERATORS
+// Operators can be used as values (passed to HOFs, stored in variables, etc.)
+// ============================================================================
+
+Deno.test("First-class: reduce with + operator", async () => {
+  const code = `(reduce + 0 [1 2 3 4 5])`;
+  const result = await run(code);
+  assertEquals(result, 15);
+});
+
+Deno.test("First-class: reduce with * operator", async () => {
+  const code = `(reduce * 1 [1 2 3 4 5])`;
+  const result = await run(code);
+  assertEquals(result, 120);
+});
+
+Deno.test("First-class: reduce with - operator", async () => {
+  const code = `(reduce - 100 [10 20 30])`;
+  const result = await run(code);
+  assertEquals(result, 40);
+});
+
+Deno.test("First-class: reduce with / operator", async () => {
+  const code = `(reduce / 1000 [10 2])`;
+  const result = await run(code);
+  assertEquals(result, 50);
+});
+
+Deno.test("First-class: reduce with && operator", async () => {
+  const code = `(reduce && true [true true false])`;
+  const result = await run(code);
+  assertEquals(result, false);
+});
+
+Deno.test("First-class: reduce with || operator", async () => {
+  const code = `(reduce || false [false false true])`;
+  const result = await run(code);
+  assertEquals(result, true);
+});
+
+Deno.test("First-class: store operator in variable", async () => {
+  const code = `
+(let add-fn +)
+(add-fn 10 20)
+`;
+  const result = await run(code);
+  assertEquals(result, 30);
+});
+
+Deno.test("First-class: array of operators", async () => {
+  const code = `
+(let ops [+ - * /])
+[((get ops 0) 10 5)
+ ((get ops 1) 10 5)
+ ((get ops 2) 10 5)
+ ((get ops 3) 10 5)]
+`;
+  const result = await run(code);
+  assertEquals(result, [15, 5, 50, 2]);
+});
+
+Deno.test("First-class: pass operator to custom function", async () => {
+  const code = `
+(fn apply-op [op a b]
+  (op a b))
+(apply-op * 6 7)
+`;
+  const result = await run(code);
+  assertEquals(result, 42);
+});
+
+Deno.test("First-class: return operator from function", async () => {
+  const code = `
+(fn get-op [name]
+  (cond
+    ((=== name "add") +)
+    ((=== name "mul") *)
+    (else -)))
+(let my-op (get-op "mul"))
+(my-op 6 7)
+`;
+  const result = await run(code);
+  assertEquals(result, 42);
+});
+
+Deno.test("First-class: operator in ternary", async () => {
+  const code = `
+(let op (? true + -))
+(op 10 3)
+`;
+  const result = await run(code);
+  assertEquals(result, 13);
+});
+
+Deno.test("First-class: map with operator array", async () => {
+  const code = `(map (fn [op] (op 10 5)) [+ - * /])`;
+  const result = await run(code);
+  assertEquals(Array.from(result), [15, 5, 50, 2]);
+});
+
+Deno.test("First-class: bitwise operators in reduce", async () => {
+  const code = `(reduce | 0 [1 2 4 8])`;
+  const result = await run(code);
+  assertEquals(result, 15); // 1|2|4|8 = 15
+});
+
+Deno.test("First-class: comparison operator stored", async () => {
+  const code = `
+(let cmp >)
+(cmp 10 5)
+`;
+  const result = await run(code);
+  assertEquals(result, true);
+});
+
+Deno.test("First-class: mixed normal and first-class usage", async () => {
+  const code = `(+ 1 (reduce * 1 [2 3 4]))`;
+  const result = await run(code);
+  assertEquals(result, 25); // 1 + (2*3*4) = 1 + 24 = 25
+});

@@ -112,7 +112,7 @@
 
 (fn test-if-let [value]
   (print "Testing if-let with value:" value)
-  (if-let (x value)
+  (if-let [x value]
     (print "Value is truthy, doubled:" (* x 2))
     (print "Value is falsy")))
 
@@ -122,7 +122,7 @@
 
 ;; Testing if-let with computed value
 (print "\nTesting if-let with computed value:")
-(if-let (result (if (> 5 3) "yes" nil))
+(if-let [result (if (> 5 3) "yes" nil)]
   (print "Got result:" result)
   (print "No result"))
 
@@ -130,7 +130,7 @@
 (print "\n=== Combined test ===")
 (let (x 100)
   (when (> x 50)
-    (if-let (result (- x 50))
+    (if-let [result (- x 50)]
       (print "x - 50 =" result)
       (print "Result was falsy"))))
 

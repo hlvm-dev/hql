@@ -124,7 +124,7 @@ const builtinSub: BuiltinFn = (args) => {
     }
     return -val;
   }
-  return args.reduce((acc: number | null, val, i) => {
+  return args.reduce((acc: number | null, val) => {
     if (typeof val !== "number") {
       throw new TypeError("number", getTypeName(val), "-");
     }

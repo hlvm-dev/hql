@@ -127,13 +127,23 @@ export const EMBEDDED_MACROS = {
        (do ~@body)
        nil))
 
+;; Handle [] syntax: (when-let [x val]) is parsed as (when-let (vector x val))
+;; Strip the "vector" prefix to normalize both () and [] syntax
 (macro when-let [binding & body]
-  (let (var-name (%first binding)
-        var-value (%nth binding 1))
-    \`((fn [~var-name]
-         (when ~var-name
-             ~@body))
-       ~var-value)))
+  (let (normalized-binding
+         (if (symbol? (%first binding))
+             (if (=== (name (%first binding)) "vector")
+                 (%rest binding)
+                 (if (=== (name (%first binding)) "empty-array")
+                     (%rest binding)
+                     binding))
+             binding))
+    (let (var-name (%first normalized-binding)
+          var-value (%nth normalized-binding 1))
+      \`((fn [~var-name]
+           (when ~var-name
+               ~@body))
+         ~var-value))))
 
 (macro unless [test & body]
   \`(if ~test
@@ -165,14 +175,24 @@ export const EMBEDDED_MACROS = {
 
 ;; NOTE: nth is in STDLIB - handles LazySeq properly
 
+;; Handle [] syntax: (if-let [x val]) is parsed as (if-let (vector x val))
+;; Strip the "vector" prefix to normalize both () and [] syntax
 (macro if-let [binding then-expr else-expr]
-  (let (var-name (%first binding)
-        var-value (%nth binding 1))
-    \`((fn [~var-name]
-         (if ~var-name
-             ~then-expr
-             ~else-expr))
-       ~var-value)))
+  (let (normalized-binding
+         (if (symbol? (%first binding))
+             (if (=== (name (%first binding)) "vector")
+                 (%rest binding)
+                 (if (=== (name (%first binding)) "empty-array")
+                     (%rest binding)
+                     binding))
+             binding))
+    (let (var-name (%first normalized-binding)
+          var-value (%nth normalized-binding 1))
+      \`((fn [~var-name]
+           (if ~var-name
+               ~then-expr
+               ~else-expr))
+         ~var-value))))
 
 ;; NOTE: second is in STDLIB - handles LazySeq properly
 
@@ -421,7 +441,7 @@ export const EMBEDDED_MACROS = {
 
 ;; Simple while loop - repeats body as long as condition is true
 (macro while [condition & body]
-  \`(loop ()
+  \`(loop []
      (if ~condition
        (do
          ~@body
@@ -437,7 +457,7 @@ export const EMBEDDED_MACROS = {
 ;; Example usage:
 ;; (dotimes 3 (print "hello"))
 (macro dotimes [count & body]
-  \`(loop (i 0)
+  \`(loop [i 0]
      (if (< i ~count)
        (do
          ~@body
@@ -453,7 +473,7 @@ export const EMBEDDED_MACROS = {
 ;; Example usage:
 ;; (repeat 3 (print "hello"))
 (macro repeat [count & body]
-  \`(loop (__repeat_i 0)
+  \`(loop [__repeat_i 0]
      (if (< __repeat_i ~count)
        (do
          ~@body
@@ -465,11 +485,21 @@ export const EMBEDDED_MACROS = {
 ;; ====================
 
 ;; for loop - enhanced iteration with multiple syntaxes
+;; Handle [] syntax: (for [x coll]) is parsed as (for (vector x coll))
+;; Strip the "vector" prefix to normalize both () and [] syntax
 (macro for [binding & body]
-  (let (var (%first binding)
-        spec (%rest binding)
-        spec-count (%length spec)
-        first-elem (%first spec))
+  (let (normalized-binding
+         (if (symbol? (%first binding))
+             (if (=== (name (%first binding)) "vector")
+                 (%rest binding)
+                 (if (=== (name (%first binding)) "empty-array")
+                     (%rest binding)
+                     binding))
+             binding))
+    (let (var (%first normalized-binding)
+          spec (%rest normalized-binding)
+          spec-count (%length spec)
+          first-elem (%first spec))
     (cond
       ;; Error: empty spec
       ;; Error: empty spec
@@ -572,7 +602,7 @@ export const EMBEDDED_MACROS = {
                \`(throw (str "Invalid 'for' loop binding: " '~binding)))
            \`(throw (str "Invalid 'for' loop binding: " '~binding))))
 
-      (true \`(throw (str "Invalid 'for' loop binding: " '~binding)))))
+      (true \`(throw (str "Invalid 'for' loop binding: " '~binding))))))
   )
 `,
   "src/lib/macro/utils.hql": `;; ====================================================

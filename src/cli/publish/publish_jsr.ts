@@ -4,8 +4,6 @@ import {
   join,
   mkdir as platformMkdir,
   writeTextFile as platformWriteTextFile,
-  runCmd, // Needed for executeCommand check
-  readTextFile as platformReadTextFile, // Needed for readJSONFile if used
 } from "../../platform/platform.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import { getErrorMessage } from "../../common/utils.ts";
@@ -15,7 +13,6 @@ import {
   generatePackageMetadata,
   readJSONFile,
   type HqlConfig,
-  writeJSONFile,
 } from "./utils.ts";
 import type { PublishOptions } from "./index.ts";
 import type { PublishSummary } from "./publish_summary.ts";
@@ -33,7 +30,6 @@ export async function publishJSR(
   let name = config.name;
   let version = config.version;
   let link = `(unknown)`;
-  const metadataType = "deno.json"; // JSR typically uses deno.json
 
   try {
     // 1. Detect/validate deno.json

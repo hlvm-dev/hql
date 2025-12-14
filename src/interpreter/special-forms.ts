@@ -2,7 +2,7 @@
 
 import type { HQLValue, HQLFunction, Interpreter as IInterpreter, InterpreterEnv } from "./types.ts";
 import { isTruthy, isHQLFunction, isSExp } from "./types.ts";
-import { SyntaxError, ArityError, getTypeName } from "./errors.ts";
+import { SyntaxError, ArityError } from "./errors.ts";
 import {
   type SExp,
   type SList,
@@ -10,7 +10,6 @@ import {
   type SLiteral,
   isSymbol,
   isList,
-  isLiteral,
   createList,
   createNilLiteral,
 } from "../s-exp/types.ts";

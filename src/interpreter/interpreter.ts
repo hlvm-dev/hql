@@ -10,7 +10,6 @@ import {
   isList,
   isLiteral,
 } from "../s-exp/types.ts";
-import { InterpreterEnv } from "./environment.ts";
 import type {
   HQLValue,
   HQLFunction,
@@ -19,7 +18,7 @@ import type {
   BuiltinFn,
   InterpreterEnv as IInterpreterEnv,
 } from "./types.ts";
-import { isHQLFunction, isBuiltinFn, DEFAULT_CONFIG } from "./types.ts";
+import { isHQLFunction, DEFAULT_CONFIG } from "./types.ts";
 import { isTaggedBuiltinFn } from "./stdlib-bridge.ts";
 import { getSpecialForms, type SpecialFormHandler } from "./special-forms.ts";
 import { InterpreterError, MaxCallDepthError, UndefinedSymbolError } from "./errors.ts";

@@ -23,9 +23,9 @@
 ; SECTION 1: LOOP/RECUR - TAIL-CALL OPTIMIZATION
 ; ============================================================================
 
-; Basic loop/recur
+; Basic loop/recur (uses [] for bindings, Clojure-style)
 (let basicSum
-  (loop (i 0 sum 0)
+  (loop [i 0 sum 0]
     (if (< i 5)
       (recur (+ i 1) (+ sum i))
       sum)))
@@ -33,7 +33,7 @@
 
 ; Factorial using loop/recur
 (let factorial5
-  (loop (n 5 acc 1)
+  (loop [n 5 acc 1]
     (if (<= n 1)
       acc
       (recur (- n 1) (* acc n)))))
@@ -42,7 +42,7 @@
 ; Fibonacci using loop/recur
 ; Note: Use === for comparison in conditions (= with symbol is assignment)
 (let fib7
-  (loop (n 7 a 0 b 1)
+  (loop [n 7 a 0 b 1]
     (if (=== n 0)
       a
       (recur (- n 1) b (+ a b)))))
@@ -50,7 +50,7 @@
 
 ; Countdown with side effects
 (var countdownResult [])
-(loop (i 5)
+(loop [i 5]
   (if (> i 0)
     (do
       (.push countdownResult i)
@@ -61,7 +61,7 @@
 ; Sum of array elements
 (var nums [1, 2, 3, 4, 5])
 (let arraySum
-  (loop (i 0 sum 0)
+  (loop [i 0 sum 0]
     (if (< i nums.length)
       (recur (+ i 1) (+ sum (get nums i)))
       sum)))
@@ -69,7 +69,7 @@
 
 ; Collect even numbers
 (var evensResult [])
-(loop (i 0)
+(loop [i 0]
   (if (< i 10)
     (do
       (if (=== (% i 2) 0)
@@ -82,7 +82,7 @@
 ; Find first element matching condition
 (var testNums [1, 3, 5, 8, 9, 12])
 (let firstEven
-  (loop (i 0)
+  (loop [i 0]
     (if (< i testNums.length)
       (if (=== (% (get testNums i) 2) 0)
         (get testNums i)
@@ -92,7 +92,7 @@
 
 ; Tail-call optimization pattern (large N)
 (fn sumTo [n]
-  (loop (i 1 acc 0)
+  (loop [i 1 acc 0]
     (if (<= i n)
       (recur (+ i 1) (+ acc i))
       acc)))
@@ -161,43 +161,43 @@
 
 ; Single arg: 0 to n-1
 (var forResult1 [])
-(for (i 3)
+(for [i 3]
   (.push forResult1 i))
 (assertEqual forResult1 [0, 1, 2] "For single arg (0 to 2)")
 
 ; Two args: start to end-1
 (var forResult2 [])
-(for (i 5 8)
+(for [i 5 8]
   (.push forResult2 i))
 (assertEqual forResult2 [5, 6, 7] "For two args (5 to 7)")
 
 ; Three args: start to end-1 by step
 (var forResult3 [])
-(for (i 0 10 2)
+(for [i 0 10 2]
   (.push forResult3 i))
 (assertEqual forResult3 [0, 2, 4, 6, 8] "For three args (0 to 10 by 2)")
 
 ; Named to: syntax
 (var forNamed1 [])
-(for (i to: 3)
+(for [i to: 3]
   (.push forNamed1 i))
 (assertEqual forNamed1 [0, 1, 2] "For with to: syntax")
 
 ; Named from: to: syntax
 (var forNamed2 [])
-(for (i from: 5 to: 8)
+(for [i from: 5 to: 8]
   (.push forNamed2 i))
 (assertEqual forNamed2 [5, 6, 7] "For with from:to: syntax")
 
 ; Named from: to: by: syntax
 (var forNamed3 [])
-(for (i from: 0 to: 10 by: 2)
+(for [i from: 0 to: 10 by: 2]
   (.push forNamed3 i))
 (assertEqual forNamed3 [0, 2, 4, 6, 8] "For with from:to:by: syntax")
 
 ; Collection iteration
 (var forCollection [])
-(for (x [1, 2, 3])
+(for [x [1, 2, 3]]
   (.push forCollection (* x 2)))
 (assertEqual forCollection [2, 4, 6] "For collection iteration")
 
@@ -206,7 +206,7 @@
 ; ============================================================================
 
 (fn factorial [n]
-  (loop (i n acc 1)
+  (loop [i n acc 1]
     (if (<= i 1)
       acc
       (recur (- i 1) (* acc i)))))
@@ -221,7 +221,7 @@
 ; ============================================================================
 
 (fn fibonacci [n]
-  (loop (i n a 0 b 1)
+  (loop [i n a 0 b 1]
     (if (=== i 0)
       a
       (recur (- i 1) b (+ a b)))))
@@ -236,7 +236,7 @@
 
 (fn filterEvens [nums]
   (var result [])
-  (loop (i 0)
+  (loop [i 0]
     (if (< i nums.length)
       (do
         (if (=== (% (get nums i) 2) 0)
@@ -253,7 +253,7 @@
 ; ============================================================================
 
 (fn findIndex [nums predicate]
-  (loop (i 0)
+  (loop [i 0]
     (if (< i nums.length)
       (if (predicate (get nums i))
         i
@@ -272,7 +272,7 @@
 
 (fn sumRange [start end]
   (var total 0)
-  (for (i from: start to: end)
+  (for [i from: start to: end]
     (= total (+ total i)))
   total)
 
@@ -285,7 +285,7 @@
 
 (fn mapArray [arr mapper]
   (var result [])
-  (for (item arr)
+  (for [item arr]
     (.push result (mapper item)))
   result)
 
@@ -343,7 +343,7 @@
 ; ============================================================================
 
 (fn power [base exp]
-  (loop (n exp acc 1)
+  (loop [n exp acc 1]
     (if (<= n 0)
       acc
       (recur (- n 1) (* acc base)))))
@@ -357,7 +357,7 @@
 ; ============================================================================
 
 (fn gcd [a b]
-  (loop (x a y b)
+  (loop [x a y b]
     (if (=== y 0)
       x
       (recur y (% x y)))))

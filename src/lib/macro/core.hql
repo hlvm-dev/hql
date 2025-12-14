@@ -117,13 +117,23 @@
        (do ~@body)
        nil))
 
+;; Handle [] syntax: (when-let [x val]) is parsed as (when-let (vector x val))
+;; Strip the "vector" prefix to normalize both () and [] syntax
 (macro when-let [binding & body]
-  (let (var-name (%first binding)
-        var-value (%nth binding 1))
-    `((fn [~var-name]
-         (when ~var-name
-             ~@body))
-       ~var-value)))
+  (let (normalized-binding
+         (if (symbol? (%first binding))
+             (if (=== (name (%first binding)) "vector")
+                 (%rest binding)
+                 (if (=== (name (%first binding)) "empty-array")
+                     (%rest binding)
+                     binding))
+             binding))
+    (let (var-name (%first normalized-binding)
+          var-value (%nth normalized-binding 1))
+      `((fn [~var-name]
+           (when ~var-name
+               ~@body))
+         ~var-value))))
 
 (macro unless [test & body]
   `(if ~test
@@ -155,14 +165,24 @@
 
 ;; NOTE: nth is in STDLIB - handles LazySeq properly
 
+;; Handle [] syntax: (if-let [x val]) is parsed as (if-let (vector x val))
+;; Strip the "vector" prefix to normalize both () and [] syntax
 (macro if-let [binding then-expr else-expr]
-  (let (var-name (%first binding)
-        var-value (%nth binding 1))
-    `((fn [~var-name]
-         (if ~var-name
-             ~then-expr
-             ~else-expr))
-       ~var-value)))
+  (let (normalized-binding
+         (if (symbol? (%first binding))
+             (if (=== (name (%first binding)) "vector")
+                 (%rest binding)
+                 (if (=== (name (%first binding)) "empty-array")
+                     (%rest binding)
+                     binding))
+             binding))
+    (let (var-name (%first normalized-binding)
+          var-value (%nth normalized-binding 1))
+      `((fn [~var-name]
+           (if ~var-name
+               ~then-expr
+               ~else-expr))
+         ~var-value))))
 
 ;; NOTE: second is in STDLIB - handles LazySeq properly
 

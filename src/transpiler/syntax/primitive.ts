@@ -473,69 +473,6 @@ export function transformEqualsOperator(
 }
 
 /**
- * Transform equality comparison (=).
- * Handles: (= expr1 expr2)
- * Compiles to: expr1 === expr2
- */
-function transformEqualityComparison(
-  list: ListNode,
-  currentDir: string,
-  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
-): IR.IRNode {
-  const args = transformElements(
-    list.elements.slice(1),
-    currentDir,
-    transformNode,
-    "equality argument",
-    "Equality comparison argument",
-  );
-
-  if (args.length < 2) {
-    throw new ValidationError(
-      `= comparison requires at least 2 arguments`,
-      "equality comparison",
-      "at least 2 arguments",
-      `${args.length} arguments`,
-    );
-  }
-
-  // For 2 args, create simple binary expression
-  if (args.length === 2) {
-    return {
-      type: IR.IRNodeType.BinaryExpression,
-      operator: "===",
-      left: args[0],
-      right: args[1],
-    } as IR.IRBinaryExpression;
-  }
-
-  // For more than 2 args, chain comparisons with &&
-  // (= a b c) => (a === b) && (b === c)
-  let result: IR.IRNode = {
-    type: IR.IRNodeType.BinaryExpression,
-    operator: "===",
-    left: args[0],
-    right: args[1],
-  } as IR.IRBinaryExpression;
-
-  for (let i = 2; i < args.length; i++) {
-    result = {
-      type: IR.IRNodeType.LogicalExpression,
-      operator: "&&",
-      left: result,
-      right: {
-        type: IR.IRNodeType.BinaryExpression,
-        operator: "===",
-        left: args[i - 1],
-        right: args[i],
-      } as IR.IRBinaryExpression,
-    } as IR.IRLogicalExpression;
-  }
-
-  return result;
-}
-
-/**
  * Transform assignment operation (=).
  * Handles: (= target value)
  * Compiles to: target = value

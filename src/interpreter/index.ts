@@ -3,7 +3,7 @@
 
 import { InterpreterEnv } from "./environment.ts";
 import { loadBuiltins } from "./builtins.ts";
-import { loadStdlib, hqlToJs, jsToHql } from "./stdlib-bridge.ts";
+import { loadStdlib } from "./stdlib-bridge.ts";
 
 // Core exports
 export { Interpreter } from "./interpreter.ts";

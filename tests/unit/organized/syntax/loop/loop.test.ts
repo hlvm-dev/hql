@@ -7,7 +7,7 @@ import { run } from "../../../helpers.ts";
 Deno.test("Loop: basic loop with recur", async () => {
   const code = `
 (var sum 0)
-(loop (i 0)
+(loop [i 0]
   (if (< i 5)
     (do
       (= sum (+ sum i))
@@ -20,7 +20,7 @@ Deno.test("Loop: basic loop with recur", async () => {
 
 Deno.test("Loop: loop with multiple bindings", async () => {
   const code = `
-(loop (i 0 acc 0)
+(loop [i 0 acc 0]
   (if (< i 5)
     (recur (+ i 1) (+ acc i))
     acc))
@@ -31,7 +31,7 @@ Deno.test("Loop: loop with multiple bindings", async () => {
 
 Deno.test("Loop: factorial using loop/recur", async () => {
   const code = `
-(loop (n 5 acc 1)
+(loop [n 5 acc 1]
   (if (<= n 1)
     acc
     (recur (- n 1) (* acc n))))
@@ -42,7 +42,7 @@ Deno.test("Loop: factorial using loop/recur", async () => {
 
 Deno.test("Loop: fibonacci using loop/recur", async () => {
   const code = `
-(loop (n 7 a 0 b 1)
+(loop [n 7 a 0 b 1]
   (if (=== n 0)
     a
     (recur (- n 1) b (+ a b))))
@@ -54,7 +54,7 @@ Deno.test("Loop: fibonacci using loop/recur", async () => {
 Deno.test("Loop: countdown using loop/recur", async () => {
   const code = `
 (var result [])
-(loop (i 5)
+(loop [i 5]
   (if (> i 0)
     (do
       (.push result i)
@@ -68,7 +68,7 @@ Deno.test("Loop: countdown using loop/recur", async () => {
 Deno.test("Loop: sum of array using loop/recur", async () => {
   const code = `
 (var nums [1, 2, 3, 4, 5])
-(loop (i 0 sum 0)
+(loop [i 0 sum 0]
   (if (< i nums.length)
     (recur (+ i 1) (+ sum (get nums i)))
     sum))
@@ -80,7 +80,7 @@ Deno.test("Loop: sum of array using loop/recur", async () => {
 Deno.test("Loop: collect even numbers", async () => {
   const code = `
 (var result [])
-(loop (i 0)
+(loop [i 0]
   (if (< i 10)
     (do
       (if (=== (% i 2) 0)
@@ -100,7 +100,7 @@ Deno.test("Loop: collect even numbers", async () => {
 Deno.test("Loop: find first element matching condition", async () => {
   const code = `
 (var nums [1, 3, 5, 8, 9, 12])
-(loop (i 0)
+(loop [i 0]
   (if (< i nums.length)
     (if (=== (% (get nums i) 2) 0)
       (get nums i)
@@ -114,7 +114,7 @@ Deno.test("Loop: find first element matching condition", async () => {
 Deno.test("Loop: tail-call optimization pattern", async () => {
   const code = `
 (fn sum-to [n]
-  (loop (i 1 acc 0)
+  (loop [i 1 acc 0]
     (if (<= i n)
       (recur (+ i 1) (+ acc i))
       acc)))
@@ -127,10 +127,10 @@ Deno.test("Loop: tail-call optimization pattern", async () => {
 Deno.test("Loop: nested loop simulation", async () => {
   const code = `
 (var result 0)
-(loop (i 1)
+(loop [i 1]
   (if (<= i 3)
     (do
-      (loop (j 1)
+      (loop [j 1]
         (if (<= j 3)
           (do
             (= result (+ result (* i j)))
@@ -236,7 +236,7 @@ sum
 Deno.test("For: single arg range (0 to n-1)", async () => {
   const code = `
 (var result [])
-(for (i 3)
+(for [i 3]
   (.push result i))
 result`;
   const result = await run(code);
@@ -246,7 +246,7 @@ result`;
 Deno.test("For: two arg range (start to end-1)", async () => {
   const code = `
 (var result [])
-(for (i 5 8)
+(for [i 5 8]
   (.push result i))
 result`;
   const result = await run(code);
@@ -256,7 +256,7 @@ result`;
 Deno.test("For: three arg range with step", async () => {
   const code = `
 (var result [])
-(for (i 0 10 2)
+(for [i 0 10 2]
   (.push result i))
 result`;
   const result = await run(code);
@@ -266,7 +266,7 @@ result`;
 Deno.test("For: named to: syntax", async () => {
   const code = `
 (var result [])
-(for (i to: 3)
+(for [i to: 3]
   (.push result i))
 result`;
   const result = await run(code);
@@ -276,7 +276,7 @@ result`;
 Deno.test("For: named from: to: syntax", async () => {
   const code = `
 (var result [])
-(for (i from: 5 to: 8)
+(for [i from: 5 to: 8]
   (.push result i))
 result`;
   const result = await run(code);
@@ -286,7 +286,7 @@ result`;
 Deno.test("For: named from: to: by: syntax", async () => {
   const code = `
 (var result [])
-(for (i from: 0 to: 10 by: 2)
+(for [i from: 0 to: 10 by: 2]
   (.push result i))
 result`;
   const result = await run(code);
@@ -296,9 +296,62 @@ result`;
 Deno.test("For: collection iteration", async () => {
   const code = `
 (var result [])
-(for (x [1 2 3])
+(for [x [1 2 3]]
   (.push result (* x 2)))
 result`;
   const result = await run(code);
   assertEquals(result, [2, 4, 6]);
+});
+
+// ============================================================
+// Loop with [] syntax (Clojure-style) - both () and [] should work
+// ============================================================
+
+Deno.test("Loop: bracket syntax [n acc] works same as paren syntax", async () => {
+  // Using [] instead of () for bindings - should work identically
+  const code = `
+(loop [i 0 acc 0]
+  (if (< i 5)
+    (recur (+ i 1) (+ acc i))
+    acc))
+`;
+  const result = await run(code);
+  assertEquals(result, 10); // 0+1+2+3+4
+});
+
+Deno.test("Loop: bracket syntax factorial", async () => {
+  const code = `
+(loop [n 5 acc 1]
+  (if (<= n 1)
+    acc
+    (recur (- n 1) (* acc n))))
+`;
+  const result = await run(code);
+  assertEquals(result, 120);
+});
+
+Deno.test("Loop: bracket syntax fibonacci", async () => {
+  const code = `
+(loop [n 7 a 0 b 1]
+  (if (=== n 0)
+    a
+    (recur (- n 1) b (+ a b))))
+`;
+  const result = await run(code);
+  assertEquals(result, 13);
+});
+
+Deno.test("Loop: empty bracket syntax", async () => {
+  // Zero bindings with [] syntax
+  const code = `
+(var counter 0)
+(loop []
+  (if (< counter 3)
+    (do
+      (= counter (+ counter 1))
+      (recur))
+    counter))
+`;
+  const result = await run(code);
+  assertEquals(result, 3);
 });
