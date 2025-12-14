@@ -259,14 +259,12 @@
 (fn eval-expr [expr]
   (match expr
     (case {op: o, left: l, right: r}
-      (let lv (eval-expr l)
-           rv (eval-expr r))
-        (cond
-          ((=== o "+") (+ lv rv))
-          ((=== o "-") (- lv rv))
-          ((=== o "*") (* lv rv))
-          ((=== o "/") (/ lv rv))
-          (else 0)))
+      (cond
+        ((=== o "+") (+ (eval-expr l) (eval-expr r)))
+        ((=== o "-") (- (eval-expr l) (eval-expr r)))
+        ((=== o "*") (* (eval-expr l) (eval-expr r)))
+        ((=== o "/") (/ (eval-expr l) (eval-expr r)))
+        (else 0)))
     (case {value: v} v)
     (case n n)))  ; literal number
 

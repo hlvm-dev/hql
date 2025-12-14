@@ -155,6 +155,7 @@ export async function transpile(
   const needsSequence = result.code.includes("__hql_toSequence(") ||
     result.code.includes("__hql_for_each(");
   const needsDeepFreeze = result.code.includes("__hql_deepFreeze(");
+  const needsMatchObj = result.code.includes("__hql_match_obj(");
 
   // If source maps are requested, inject helpers WITHOUT IIFE wrapping
   if (options.generateSourceMap && result.sourceMap) {
@@ -200,6 +201,12 @@ export async function transpile(
         `const __hql_deepFreeze = ${
           getRuntimeHelperSource("__hql_deepFreeze")
         };`,
+      );
+    }
+
+    if (needsMatchObj) {
+      helperSnippets.push(
+        `const __hql_match_obj = ${getRuntimeHelperSource("__hql_match_obj")};`,
       );
     }
 
@@ -317,7 +324,7 @@ export async function transpile(
     !hasExports &&
     !hasImports &&
     (needsGet || needsRange || needsSequence || needsThrow || needsHashMap ||
-      needsDeepFreeze)
+      needsDeepFreeze || needsMatchObj)
   ) {
     const helperSnippets: string[] = [];
 
@@ -361,6 +368,12 @@ export async function transpile(
         `const __hql_deepFreeze = ${
           getRuntimeHelperSource("__hql_deepFreeze")
         };`,
+      );
+    }
+
+    if (needsMatchObj) {
+      helperSnippets.push(
+        `const __hql_match_obj = ${getRuntimeHelperSource("__hql_match_obj")};`,
       );
     }
 
@@ -483,7 +496,7 @@ ${formattedExpression}
 })()`;
       return wrappedCode;
     }
-  } else if ((hasExports || hasImports) && (needsGet || needsRange || needsSequence || needsThrow || needsHashMap || needsDeepFreeze)) {
+  } else if ((hasExports || hasImports) && (needsGet || needsRange || needsSequence || needsThrow || needsHashMap || needsDeepFreeze || needsMatchObj)) {
     // Code has ES module exports/imports AND needs helpers
     // Prepend helpers WITHOUT wrapping (like source map mode)
     const helperSnippets: string[] = [];
@@ -527,6 +540,12 @@ ${formattedExpression}
         `const __hql_deepFreeze = ${
           getRuntimeHelperSource("__hql_deepFreeze")
         };`,
+      );
+    }
+
+    if (needsMatchObj) {
+      helperSnippets.push(
+        `const __hql_match_obj = ${getRuntimeHelperSource("__hql_match_obj")};`,
       );
     }
 

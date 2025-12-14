@@ -320,17 +320,19 @@
 ;;
 ;; Guards: (if condition) checked AFTER pattern binding
 ;;
-;; Implementation: All logic inlined because macros receive literal arguments.
+;; Implementation: Uses IIFE with JS destructuring for object/array patterns.
+;; This avoids macro-time let evaluation issues.
 ;; Time complexity: O(n) where n = number of clauses (optimal for sequential matching)
+
 
 ;; Main match macro - binds value once, dispatches to implementation
 ;; Uses auto-gensym (val#) for hygiene - Clojure-style syntax
 (macro match [value & clauses]
   `(let (val# ~value)
-     (%match-impl val# ~@clauses)))
+     (__match_impl__ val# ~@clauses)))
 
 ;; Implementation macro - processes clauses recursively
-(macro %match-impl [val-sym & clauses]
+(macro __match_impl__ [val-sym & clauses]
   (if (%empty? clauses)
       `((fn [] (throw (new Error "No matching pattern"))))
       (let (clause (%first clauses)
@@ -374,14 +376,16 @@
                                   false)
                               false)
                  check-len (if has-rest (- arr-len 2) arr-len)
-                 ;; Generate condition
+                 ;; Generate condition using runtime helper __hql_match_obj
+                 ;; For object patterns, pass the entire pattern - runtime extracts keys dynamically
+                 ;; No hardcoding of key count - works for ANY number of keys
                  condition (cond
                              (is-wildcard true)
                              (is-binding true)
                              (is-null-pat `(=== ~val-sym null))
-                             (is-object `(and (=== (typeof ~val-sym) "object")
-                                              (!== ~val-sym null)
-                                              (! (Array.isArray ~val-sym))))
+                             ;; Object pattern: pass pattern to runtime helper
+                             ;; __hql_match_obj(val, pattern) extracts keys from pattern at indices 1,3,5,...
+                             (is-object `(__hql_match_obj ~val-sym (quote ~pattern)))
                              (is-array (if has-rest
                                            `(and (Array.isArray ~val-sym)
                                                  (>= (js-get ~val-sym "length") ~check-len))
@@ -389,20 +393,24 @@
                                                  (=== (js-get ~val-sym "length") ~check-len))))
                              (else `(=== ~val-sym ~pattern)))
                  ;; Fallback for next clause
-                 fallback `(%match-impl ~val-sym ~@rest-clauses)
-                 ;; Generate body - 3 cases: no-binding, simple-binding, destructure
-                 needs-destruct (if is-object true is-array)
+                 fallback `(__match_impl__ ~val-sym ~@rest-clauses)
+                 ;; Generate body - uses IIFE with destructuring param for object/array
+                 ;; This bypasses macro-time let evaluation which doesn't support destructuring
                  body (cond
                         ;; Simple symbol binding
                         (is-binding
                          (if has-guard
                              `(let (~pattern ~val-sym) (if ~guard-expr ~result-expr ~fallback))
                              `(let (~pattern ~val-sym) ~result-expr)))
-                        ;; Destructuring (object/array)
-                        (needs-destruct
+                        ;; Destructuring via IIFE - fn param supports destructuring!
+                        (is-object
                          (if has-guard
-                             `(do (let ~pattern ~val-sym) (if ~guard-expr ~result-expr ~fallback))
-                             `(do (let ~pattern ~val-sym) ~result-expr)))
+                             `((fn [~pattern] (if ~guard-expr ~result-expr ~fallback)) ~val-sym)
+                             `((fn [~pattern] ~result-expr) ~val-sym)))
+                        (is-array
+                         (if has-guard
+                             `((fn [~pattern] (if ~guard-expr ~result-expr ~fallback)) ~val-sym)
+                             `((fn [~pattern] ~result-expr) ~val-sym)))
                         ;; No binding (wildcard, null, literal)
                         (else
                          (if has-guard `(if ~guard-expr ~result-expr ~fallback) result-expr))))

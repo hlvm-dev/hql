@@ -28,6 +28,7 @@ import {
   Interpreter,
   createStandardEnv,
   hqlValueToSExp,
+  getSpecialForms,
   type InterpreterEnv,
 } from "../interpreter/index.ts";
 
@@ -877,7 +878,122 @@ function preExpandMacroArgs<T>(
   });
 }
 
-/* Evaluate a macro call */
+// Cache special forms from interpreter (canonical source of truth)
+let _specialFormsCache: Set<string> | null = null;
+function getSpecialFormsSet(): Set<string> {
+  if (!_specialFormsCache) {
+    _specialFormsCache = new Set(getSpecialForms().keys());
+  }
+  return _specialFormsCache;
+}
+
+/**
+ * Check if an operator is known (can be evaluated).
+ *
+ * This function determines whether a list form like (op ...) can be evaluated
+ * during macro expansion. Known operators include:
+ * - Special forms (from interpreter's canonical list)
+ * - Macros (defined in environment)
+ * - Macro primitives (% prefix convention)
+ * - Functions (defined in compiler or interpreter environment)
+ *
+ * Unknown operators (like 'case', 'default') are treated as syntax/data,
+ * allowing code-generating macros to receive them unevaluated.
+ */
+function isKnownOperator(op: string, env: Environment): boolean {
+  // Special forms - use interpreter's canonical list
+  if (getSpecialFormsSet().has(op)) return true;
+
+  // Macros
+  if (env.hasMacro(op)) return true;
+
+  // Macro primitives (% prefix convention)
+  if (op.startsWith("%")) return true;
+
+  // Try compiler env (user-defined functions, stdlib bindings)
+  try {
+    const value = env.lookup(op);
+    if (typeof value === "function") return true;
+  } catch {
+    // Not found in compiler env
+  }
+
+  // Try interpreter's persistent env (stdlib functions, arithmetic operators, etc.)
+  try {
+    const interpEnv = getPersistentMacroEnv();
+    if (interpEnv.isDefined(op)) return true;
+  } catch {
+    // Not found
+  }
+
+  return false;
+}
+
+/**
+ * Evaluate an argument for a macro call.
+ *
+ * This carefully handles the distinction between:
+ * - Evaluable expressions (known operators): evaluate them for computation macros
+ * - Syntax/data forms (unknown operators like 'case'): preserve for code-generating macros
+ *
+ * This enables BOTH patterns:
+ * - Code-generating macros like `match` that receive syntax as data
+ * - Compile-time computation macros like `count-sum` that need evaluated args
+ *
+ * Examples:
+ *   - (count-sum (- n 1)) → evaluates (- n 1) because '-' is known
+ *   - (match x (case pat res)) → preserves (case pat res) because 'case' is unknown
+ */
+function evaluateArgumentForMacro(
+  arg: SExp,
+  env: Environment,
+  logger: Logger,
+): SExp {
+  // Non-list expressions: evaluate normally (symbols resolve, literals pass through)
+  if (!isList(arg)) {
+    return evaluateForMacro(arg, env, logger);
+  }
+
+  const argList = arg as SList;
+  if (argList.elements.length === 0) {
+    return arg;
+  }
+
+  const first = argList.elements[0];
+
+  // Non-symbol head (IIFE, etc.): evaluate normally
+  if (!isSymbol(first)) {
+    return evaluateForMacro(arg, env, logger);
+  }
+
+  const op = (first as SSymbol).name;
+
+  // Check if operator is known (evaluable)
+  if (isKnownOperator(op, env)) {
+    return evaluateForMacro(arg, env, logger);
+  }
+
+  // Unknown operator - this is likely syntax/data for a code-generating macro
+  // Return as-is without evaluating (prevents errors on forms like (case x (if guard) y))
+  logger.debug(`Preserving '${op}' form as syntax in macro argument`);
+  return arg;
+}
+
+/* Evaluate a macro call
+ *
+ * HYBRID SEMANTICS: Evaluate arguments with known operators, preserve unknown syntax.
+ *
+ * This combines the best of both worlds:
+ * - Computation macros (like count-sum) get evaluated arguments: (- n 1) → 2
+ * - Code-generating macros (like match) get syntax preserved: (case x y) stays as-is
+ *
+ * The distinction is based on whether the argument's operator is KNOWN (function,
+ * macro, special form, builtin) or UNKNOWN (syntax marker like 'case', 'default').
+ *
+ * Examples:
+ *   - (count-sum (- 3 1)) - '-' is known, so (- 3 1) evaluates to 2
+ *   - (__match_impl__ val (case x y)) - 'case' is unknown, so (case x y) stays as syntax
+ */
 function evaluateMacroCall(
   list: SList,
   env: Environment,
@@ -889,24 +1005,12 @@ function evaluateMacroCall(
     throw new MacroError(`Macro not found: ${op}`, op);
   }
 
-  // CRITICAL: Evaluate ALL arguments at macro-time for compile-time macros.
-  //
-  // When a macro calls another macro during expansion (e.g., recursive calls),
-  // ALL arguments must be fully evaluated to values, not passed as code.
-  //
-  // Examples this enables:
-  //   - (dec1 (dec1 5)) → evaluates (dec1 5)=4, then (dec1 4)=3
-  //   - (countdown (- n 1)) → evaluates (- 5 1)=4, then (countdown 4)
-  //   - (let [a 5] (my-macro a)) → resolves a to 5
-  //
-  // This is essential for recursive macros and macro composition to work.
-  // Without full evaluation, expressions like (- n 1) would be passed as
-  // unevaluated S-expressions, causing the inner macro to fail.
-  const args = list.elements.slice(1).map((arg) => {
-    // Fully evaluate the argument at macro-time
-    // This handles all cases: macro calls, function calls, symbols, literals
-    return evaluateForMacro(arg, env, logger);
-  });
+  // Evaluate arguments with hybrid semantics:
+  // - Known operators (functions, macros, special forms): evaluate
+  // - Unknown operators (syntax markers like 'case'): preserve as-is
+  const args = list.elements.slice(1).map((arg) =>
+    evaluateArgumentForMacro(arg, env, logger)
+  );
 
   const expanded = macroFn(args, env);
   return evaluateForMacro(expanded, env, logger);

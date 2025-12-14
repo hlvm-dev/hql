@@ -151,6 +151,33 @@ export function __hql_throw(value: unknown): never {
   throw value;
 }
 
+/**
+ * Check if value matches an object pattern with required keys.
+ * Used by pattern matching to properly check object destructuring patterns.
+ *
+ * This function takes the raw pattern array from the macro and extracts keys dynamically.
+ * Pattern structure: ["__hql_hash_map", key1, var1, key2, var2, ...]
+ * Keys are at odd indices (1, 3, 5, ...) and are strings.
+ *
+ * @param val - The value to check
+ * @param pattern - The pattern array from macro expansion (e.g., ["__hql_hash_map", "op", "o", "left", "l"])
+ * @returns true if val is a non-null object (not array) with all required keys
+ */
+export function __hql_match_obj(val: unknown, pattern: unknown[]): boolean {
+  if (typeof val !== "object" || val === null || Array.isArray(val)) {
+    return false;
+  }
+  // Extract keys from odd indices (1, 3, 5, ...) and check existence
+  // Pattern: [header, key1, var1, key2, var2, ...]
+  for (let i = 1; i < pattern.length; i += 2) {
+    const key = pattern[i];
+    if (typeof key === "string" && !(key in val)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function __hql_deepFreeze<T>(obj: T, visited?: WeakSet<object>): T {
   // Primitives and null don't need freezing
   if (obj === null || typeof obj !== "object") {
@@ -214,6 +241,7 @@ export const runtimeHelperImplementations = {
   __hql_hash_map,
   __hql_throw,
   __hql_deepFreeze,
+  __hql_match_obj,
 };
 
 export type RuntimeHelperName = keyof typeof runtimeHelperImplementations;

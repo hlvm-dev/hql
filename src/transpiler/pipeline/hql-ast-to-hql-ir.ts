@@ -1709,7 +1709,22 @@ function transformNestedList(list: ListNode, currentDir: string): IR.IRNode {
           (second as SymbolNode).name.startsWith(".")
         ) {
           return transformNestedMethodCall(list, innerExpr, currentDir);
-        } // Handle property access (list).property
+        } // IIFE: If inner expr is a function, treat subsequent elements as arguments, not property access
+        // This fixes ((fn [x] x) arg) -> function call, not property access
+        else if (innerExpr.type === IR.IRNodeType.FunctionExpression) {
+          const args = transformElements(
+            list.elements.slice(1),
+            currentDir,
+            transformNode,
+            "function argument",
+            "Argument",
+          );
+          return {
+            type: IR.IRNodeType.CallExpression,
+            callee: innerExpr,
+            arguments: args,
+          } as IR.IRCallExpression;
+        } // Handle property access (list).property - but only for non-function inner expressions
         else if (second.type === "symbol") {
           return {
             type: IR.IRNodeType.MemberExpression,

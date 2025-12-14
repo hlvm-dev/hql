@@ -5,6 +5,7 @@ import {
   __hql_for_each,
   __hql_get,
   __hql_hash_map,
+  __hql_match_obj,
   __hql_range,
   __hql_throw,
   __hql_toSequence,
@@ -47,6 +48,7 @@ type GlobalHqlHelpers = {
   __hql_toSequence?: typeof __hql_toSequence;
   __hql_for_each?: typeof __hql_for_each;
   __hql_hash_map?: typeof __hql_hash_map;
+  __hql_match_obj?: typeof __hql_match_obj;
   __hql_throw?: typeof __hql_throw;
   __hql_deepFreeze?: typeof __hql_deepFreeze;
   __hql_get_op?: typeof __hql_get_op;
@@ -291,6 +293,10 @@ function ensureHelpers(): void {
 
   if (typeof globalAny.__hql_hash_map !== "function") {
     globalAny.__hql_hash_map = __hql_hash_map;
+  }
+
+  if (typeof globalAny.__hql_match_obj !== "function") {
+    globalAny.__hql_match_obj = __hql_match_obj;
   }
 
   if (typeof globalAny.__hql_throw !== "function") {

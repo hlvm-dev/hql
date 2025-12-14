@@ -22,6 +22,24 @@ import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
   return result;
 };
 
+// Helper function needed for pattern matching object checks
+// Checks if val is an object with all required keys from the pattern
+// Pattern format: ["__hql_hash_map", key1, var1, key2, var2, ...]
+// deno-lint-ignore no-explicit-any
+(globalThis as any).__hql_match_obj = function(val: unknown, pattern: unknown[]): boolean {
+  if (typeof val !== "object" || val === null || Array.isArray(val)) {
+    return false;
+  }
+  // Extract keys from odd indices (1, 3, 5, ...) and check existence
+  for (let i = 1; i < pattern.length; i += 2) {
+    const key = pattern[i];
+    if (typeof key === "string" && !(key in (val as Record<string, unknown>))) {
+      return false;
+    }
+  }
+  return true;
+};
+
 async function transpile(code: string): Promise<string> {
   const result = await transpileToJavascript(code);
   return result.code.trim();
