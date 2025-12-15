@@ -2,15 +2,20 @@
  * Known Identifiers Registry for "Did you mean?" suggestions
  *
  * Provides known HQL identifiers for typo suggestions.
- * Stdlib functions are loaded dynamically from core.js at module init,
- * with a static fallback for immediate availability.
+ * All identifiers are loaded DYNAMICALLY from their source:
+ * - Stdlib functions: from core.js exports
+ * - Macros: parsed from EMBEDDED_MACROS source
+ * - Builtins & special forms: static (these are truly fixed)
  */
+
+import { EMBEDDED_MACROS } from "../lib/embedded-macros.ts";
 
 // Cache for identifiers (populated on module load)
 let _cachedIdentifiers: string[] | null = null;
 
 /**
  * Builtin function names from the interpreter (builtins.ts).
+ * These are truly static - defined in TypeScript, not HQL.
  */
 const BUILTIN_NAMES = [
   "+", "-", "*", "/", "%", "mod",
@@ -24,44 +29,17 @@ const BUILTIN_NAMES = [
 ];
 
 /**
- * Special forms and macros handled by the transpiler.
+ * Special forms handled by the transpiler.
+ * These are truly static - hardcoded in the transpiler, not defined as macros.
  */
 const SPECIAL_FORM_NAMES = [
-  // Core special forms
-  "if", "let", "var", "fn", "do", "quote", "quasiquote", "cond",
+  "if", "let", "var", "fn", "do", "quote", "quasiquote",
   "def", "defn", "defmacro", "macro",
-  "when", "unless", "case", "and", "or",
-  "for", "while", "loop", "recur", "doseq", "dotimes",
+  "case", "loop", "recur", "doseq",
   "try", "catch", "finally", "throw",
   "import", "export",
   "new", "js/new", "js/typeof", "js/instanceof", "js/await",
-  "->", "->>", "as->", "some->", "some->>", "cond->", "cond->>",
-  // Macros from embedded-macros.ts
-  "print", "inc", "dec", "str", "set", "length", "match", "doto", "xor",
-  "nil?", "empty?", "contains?", "min", "max",
-  "if-let", "when-let", "if-not", "when-not",
-  "isNull", "isUndefined", "isDefined", "notNil", "rest?", "empty-list?",
-];
-
-/**
- * Common stdlib functions (static fallback for immediate availability).
- * These are loaded dynamically from core.js, but this provides immediate
- * availability before async init completes.
- */
-const COMMON_STDLIB_NAMES = [
-  "first", "rest", "cons", "nth", "count", "second", "last",
-  "map", "filter", "reduce", "concat", "flatten", "distinct",
-  "take", "drop", "some", "every", "isEmpty",
-  "mapIndexed", "keep", "keepIndexed", "mapcat", "groupBy",
-  "range", "repeat", "cycle", "iterate",
-  "comp", "partial", "apply",
-  "get", "getIn", "assoc", "assocIn", "dissoc",
-  "update", "updateIn", "merge", "keys",
-  "seq", "conj", "into", "realized",
-  "isNil", "isSome", "empty",
-  // Additional stdlib functions
-  "reverse", "repeatedly", "doall", "lazySeq", "vec",
-  "notAny", "notEvery", "next", "keyword", "symbol",
+  "some->", "some->>", "cond->", "cond->>",
 ];
 
 /**
@@ -75,13 +53,30 @@ const JS_GLOBAL_NAMES = [
 ];
 
 /**
- * Build the static identifier list.
+ * Extract macro names from EMBEDDED_MACROS source code.
+ * Parses (macro NAME ...) patterns from the HQL source.
+ */
+function extractMacroNames(): string[] {
+  const allSource = Object.values(EMBEDDED_MACROS).join("\n");
+  const macroRegex = /\(macro\s+([^\s\[\]]+)/g;
+  const macros = new Set<string>();
+
+  let match;
+  while ((match = macroRegex.exec(allSource)) !== null) {
+    macros.add(match[1]);
+  }
+
+  return [...macros];
+}
+
+/**
+ * Build the static identifier list (for immediate availability).
  */
 function buildStaticIdentifiers(): string[] {
   return [...new Set([
     ...BUILTIN_NAMES,
     ...SPECIAL_FORM_NAMES,
-    ...COMMON_STDLIB_NAMES,
+    ...extractMacroNames(),
     ...JS_GLOBAL_NAMES,
   ])];
 }
