@@ -15,7 +15,7 @@
  * @returns The edit distance
  *
  * @example
- * damerauLevenshteinDistance("prnitln", "println") // 1 (transposition)
+ * damerauLevenshteinDistance("fitler", "filter") // 1 (transposition)
  * damerauLevenshteinDistance("teh", "the") // 1 (transposition)
  */
 function damerauLevenshteinDistance(a: string, b: string): number {
@@ -95,8 +95,8 @@ function getMaxDistance(length: number): number {
  * @returns The most similar name, or null if none is close enough
  *
  * @example
- * findSimilarName("prnitln", ["print", "println", "map"])
- * // Returns "println"
+ * findSimilarName("fitler", ["map", "filter", "reduce"])
+ * // Returns "filter"
  *
  * findSimilarName("xyzabc", ["map", "filter", "reduce"])
  * // Returns null (too different)

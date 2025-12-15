@@ -35,6 +35,7 @@ const SPECIAL_FORM_NAMES = [
   "import", "export",
   "new", "js/new", "js/typeof", "js/instanceof", "js/await",
   "->", "->>", "as->", "some->", "some->>", "cond->", "cond->>",
+  "print", "inc", "dec", "str", "set",  // Macros from embedded-macros.ts
 ];
 
 /**
@@ -50,7 +51,6 @@ const COMMON_STDLIB_NAMES = [
   "get", "getIn", "assoc", "assocIn", "dissoc",
   "update", "updateIn", "merge", "keys", "vals",
   "toArray", "toSet", "seq", "conj", "into", "realize",
-  "print", "println",
   "isNil", "isSome", "empty",
 ];
 
