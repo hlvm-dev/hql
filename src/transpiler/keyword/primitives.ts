@@ -104,3 +104,54 @@ export const PRIMITIVE_DATA_STRUCTURE = new Set([
   "vector",
   "hash-set",
 ]);
+
+/**
+ * Arithmetic operators - used for loop optimization checks.
+ */
+export const ARITHMETIC_OPS = ["+", "-", "*", "/"] as const;
+
+/**
+ * First-class operators - can be used as values (passed to higher-order functions).
+ * When used in value position, transpiler calls __hql_get_op("+") at runtime.
+ * This is a SUBSET of PRIMITIVE_OPS.
+ */
+export const FIRST_CLASS_OPERATORS = new Set([
+  // Arithmetic
+  "+", "-", "*", "/", "%", "**",
+  // Comparison
+  "===", "==", "!==", "!=", "<", ">", "<=", ">=",
+  // Logical
+  "&&", "||", "!",
+  // Bitwise
+  "~", "&", "|", "^", "<<", ">>", ">>>",
+]);
+
+/**
+ * All operator names for external use (e.g., "Did you mean?" suggestions).
+ */
+export const ALL_OPERATOR_NAMES = [...PRIMITIVE_OPS] as const;
+
+/**
+ * Declaration keywords - forms that declare new named entities.
+ */
+export const DECLARATION_KEYWORDS = ["fn", "function", "class", "enum"] as const;
+
+/**
+ * Binding keywords - forms that bind values to names.
+ */
+export const BINDING_KEYWORDS = ["let", "var", "const", "def"] as const;
+
+/**
+ * All declaration and binding keywords combined.
+ * Used for checking if a form is a declaration export.
+ */
+export const ALL_DECLARATION_BINDING_KEYWORDS = [
+  ...DECLARATION_KEYWORDS,
+  ...BINDING_KEYWORDS,
+] as const;
+
+/**
+ * JavaScript literal keywords - values that transpile directly to JS literals.
+ * These are language constants that should never change.
+ */
+export const JS_LITERAL_KEYWORDS = ["null", "undefined", "true", "false"] as const;

@@ -5,37 +5,40 @@
  * All identifiers are loaded DYNAMICALLY from their source:
  * - Stdlib functions: from core.js exports
  * - Macros: parsed from EMBEDDED_MACROS source
+ * - Operators: from primitives.ts (single source of truth)
  * - Builtins & special forms: static (these are truly fixed)
  */
 
 import { EMBEDDED_MACROS } from "../lib/embedded-macros.ts";
+import { ALL_OPERATOR_NAMES, KERNEL_PRIMITIVES } from "../transpiler/keyword/primitives.ts";
 
 // Cache for identifiers (populated on module load)
 let _cachedIdentifiers: string[] | null = null;
 
 /**
  * Builtin function names from the interpreter (builtins.ts).
- * These are truly static - defined in TypeScript, not HQL.
+ * Operators are imported from primitives.ts (single source of truth).
  */
-const BUILTIN_NAMES = [
-  "+", "-", "*", "/", "%", "mod",
-  "=", "==", "===", "!=", "!==", "<", ">", "<=", ">=",
+const BUILTIN_PREDICATE_NAMES = [
   "nil?", "isNil", "number?", "isNumber", "string?", "isString",
   "boolean?", "isBoolean", "function?", "isFunction", "list?",
   "symbol?", "array?", "isArray",
+];
+
+const BUILTIN_FUNCTION_NAMES = [
   "%first", "%rest", "%length", "%nth", "%empty?",
-  "name", "gensym", "not", "str",
+  "name", "gensym", "not", "str", "mod",
   "vector", "list", "hash-map", "hash-set",
 ];
 
 /**
  * Special forms handled by the transpiler.
- * These are truly static - hardcoded in the transpiler, not defined as macros.
+ * KERNEL_PRIMITIVES imported from primitives.ts.
+ * Additional forms not in KERNEL_PRIMITIVES listed here.
  */
-const SPECIAL_FORM_NAMES = [
-  "if", "let", "var", "fn", "do", "quote", "quasiquote",
-  "def", "defn", "defmacro", "macro",
-  "case", "loop", "recur", "doseq",
+const ADDITIONAL_SPECIAL_FORMS = [
+  "defn", "defmacro", "macro",
+  "case", "doseq",
   "try", "catch", "finally", "throw",
   "import", "export",
   "new", "js/new", "js/typeof", "js/instanceof", "js/await",
@@ -74,8 +77,11 @@ function extractMacroNames(): string[] {
  */
 function buildStaticIdentifiers(): string[] {
   return [...new Set([
-    ...BUILTIN_NAMES,
-    ...SPECIAL_FORM_NAMES,
+    ...ALL_OPERATOR_NAMES,
+    ...BUILTIN_PREDICATE_NAMES,
+    ...BUILTIN_FUNCTION_NAMES,
+    ...[...KERNEL_PRIMITIVES],
+    ...ADDITIONAL_SPECIAL_FORMS,
     ...extractMacroNames(),
     ...JS_GLOBAL_NAMES,
   ])];

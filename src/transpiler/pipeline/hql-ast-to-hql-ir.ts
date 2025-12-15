@@ -37,6 +37,7 @@ import {
   isVectorExport,
   isVectorImport,
 } from "../syntax/import-export.ts";
+import { FIRST_CLASS_OPERATORS } from "../keyword/primitives.ts";
 
 // Import syntax modules
 import * as bindingModule from "../syntax/binding.ts";
@@ -1610,14 +1611,7 @@ function transformTemplateLiteral(
   );
 }
 
-// Set of operators that can be used as first-class values
-// When used in value position, transpiler calls __hql_get_op("+") at runtime
-const FIRST_CLASS_OPERATORS = new Set([
-  "+", "-", "*", "/", "%", "**",
-  "===", "==", "!==", "!=", "<", ">", "<=", ">=",
-  "&&", "||", "!",
-  "~", "&", "|", "^", "<<", ">>", ">>>",
-]);
+// FIRST_CLASS_OPERATORS imported from ../keyword/primitives.ts (single source of truth)
 
 /**
  * Transform a symbol node to its IR representation.

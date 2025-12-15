@@ -14,6 +14,7 @@ import * as IR from "../type/hql_ir.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import { CodeGenError } from "../../common/error.ts";
 import { applyTCO } from "../optimize/tco-optimizer.ts";
+import { RUNTIME_HELPER_NAMES } from "../../common/runtime-helper-impl.ts";
 
 // ============================================================================
 // ESTree Type Definitions
@@ -2046,16 +2047,16 @@ function convertProgram(node: IR.IRProgram): Program {
  */
 function detectUsedHelpers(program: Program): Set<string> {
   const used = new Set<string>();
-  // Use Set for O(1) lookup instead of Array.includes O(n)
-  const helperNamesSet = new Set(['__hql_get', '__hql_getNumeric', '__hql_range', '__hql_toSequence', '__hql_for_each', '__hql_hash_map', '__hql_throw', '__hql_deepFreeze']);
+  // Use RUNTIME_HELPER_NAMES from runtime-helper-impl.ts (single source of truth)
+  const helperNamesSet = new Set<string>(RUNTIME_HELPER_NAMES);
 
   // Walk AST tree to find identifier references
   // @ts-ignore: Generic tree traversal - node type varies
   function walk(node: Node | null | undefined): void {
     if (!node || typeof node !== 'object') return;
 
-    if (node.type === 'Identifier' && 'name' in node && helperNamesSet.has(node.name)) {
-      used.add(node.name);
+    if (node.type === 'Identifier' && 'name' in node && helperNamesSet.has(node.name as string)) {
+      used.add(node.name as string);
     }
 
     // Traverse all properties of the node

@@ -244,6 +244,12 @@ export const runtimeHelperImplementations = {
   __hql_match_obj,
 };
 
+/**
+ * All runtime helper names - SINGLE SOURCE OF TRUTH.
+ * Used by ir-to-estree.ts to detect which helpers are used.
+ */
+export const RUNTIME_HELPER_NAMES = Object.keys(runtimeHelperImplementations) as RuntimeHelperName[];
+
 export type RuntimeHelperName = keyof typeof runtimeHelperImplementations;
 
 export function getRuntimeHelperSource(name: RuntimeHelperName): string {

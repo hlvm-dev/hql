@@ -10,10 +10,11 @@ import type { SList, SSymbol, SLiteral } from "../s-exp/types.ts";
 import type { REPLPlugin, REPLContext, EvalResult } from "@hlvm/repl";
 import { isVectorImport, isNamespaceImport } from "../transpiler/syntax/import-export.ts";
 import { sanitizeIdentifier } from "../common/utils.ts";
+import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../transpiler/keyword/primitives.ts";
 
-// Special form operators
-const DECLARATION_OPS = new Set(["fn", "function", "class"] as const);
-const BINDING_OPS = new Set(["let", "var"] as const);
+// Special form operators (from primitives.ts - single source of truth)
+const DECLARATION_OPS = new Set(DECLARATION_KEYWORDS);
+const BINDING_OPS = new Set(BINDING_KEYWORDS);
 
 // Type definitions
 type ExpressionKind = "declaration" | "binding" | "expression" | "import";

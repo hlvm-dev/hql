@@ -9,6 +9,7 @@ import { validateTransformed } from "../utils/validation-helpers.ts";
 import { ensureReturnStatement } from "../utils/ir-helpers.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
+import { ARITHMETIC_OPS } from "../keyword/primitives.ts";
 
 // Stack to track the current loop context for recur targeting
 const loopContextStack: string[] = [];
@@ -509,8 +510,8 @@ function tryOptimizeArithmetic(
 
   const operator = (list.elements[0] as SymbolNode).name;
 
-  // Must be arithmetic operator
-  if (!["+", "-", "*", "/"].includes(operator)) {
+  // Must be arithmetic operator (from primitives.ts single source of truth)
+  if (!ARITHMETIC_OPS.includes(operator as typeof ARITHMETIC_OPS[number])) {
     return null;
   }
 

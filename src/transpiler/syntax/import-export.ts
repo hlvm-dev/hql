@@ -14,6 +14,7 @@ import { globalLogger as logger } from "../../logger.ts";
 import { processVectorElements } from "./data-structure.ts";
 import { globalSymbolTable } from "../symbol_table.ts";
 import { globalMacroRegistry } from "../../imports.ts";
+import { ALL_DECLARATION_BINDING_KEYWORDS } from "../keyword/primitives.ts";
 
 /**
  * Check if a list is a vector import
@@ -78,8 +79,8 @@ export function isDeclarationExport(list: ListNode): boolean {
   }
 
   const keyword = (innerFirst as SymbolNode).name;
-  // Support fn, let, var, const, class, enum declarations
-  return ["fn", "let", "var", "const", "class", "enum"].includes(keyword);
+  // Support all declaration and binding keywords (from primitives.ts)
+  return ALL_DECLARATION_BINDING_KEYWORDS.includes(keyword as typeof ALL_DECLARATION_BINDING_KEYWORDS[number]);
 }
 
 /**

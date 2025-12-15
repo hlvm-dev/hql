@@ -10,6 +10,7 @@ import { hqlPlugin } from "./hql-plugin.ts";
 import { getArgs as platformGetArgs, exit as platformExit } from "../platform/platform.ts";
 import { ANSI_COLORS } from "./ansi.ts";
 import { version as VERSION } from "../../mod.ts";
+import { getAllKnownIdentifiers } from "../common/known-identifiers.ts";
 
 const {
   BOLD,
@@ -73,31 +74,19 @@ EXAMPLES:
   }
 
   // Create REPL with HQL plugin
+  // Keywords loaded dynamically from known-identifiers.ts (single source of truth)
+  const keywords = [
+    ...getAllKnownIdentifiers(),
+    // Additional REPL-specific keywords (JS literals, etc.)
+    "true", "false", "nil", "null", "undefined",
+    "constructor", "this", "else", "from", "async",
+  ];
+
   const repl = new REPL([hqlPlugin], {
     banner: makeBanner(),
     prompt: "hql> ",
     tempDirPrefix: "hql-repl-",
-    keywords: [
-      // Core forms (from thesis)
-      "fn", "const", "let", "var", "if", "cond", "else", "do",
-      "loop", "recur", "while", "for", "repeat",
-      "class", "enum", "case", "new", "macro",
-      "import", "export", "from",
-      "async", "await", "try", "catch", "finally", "throw",
-      // Stdlib (auto-loaded)
-      "cons", "first", "rest", "map", "filter", "reduce",
-      "take", "drop", "range", "print",
-      // Literals
-      "true", "false", "nil", "null", "undefined",
-      // Special
-      "constructor", "this", "when", "return",
-      // Operators
-      "+", "-", "*", "/", "%", "**",
-      "===", "==", "!==", "!=", "<", ">", "<=", ">=",
-      "&&", "||", "!", "??",
-      // Macros
-      "and", "or", "not",
-    ],
+    keywords,
     onInit(_context) {
       const startTime = Date.now();
       const initTime = Date.now() - startTime;
