@@ -27,6 +27,7 @@ const BUILTIN_NAMES = [
  * Special forms and macros handled by the transpiler.
  */
 const SPECIAL_FORM_NAMES = [
+  // Core special forms
   "if", "let", "var", "fn", "do", "quote", "quasiquote", "cond",
   "def", "defn", "defmacro", "macro",
   "when", "unless", "case", "and", "or",
@@ -35,11 +36,17 @@ const SPECIAL_FORM_NAMES = [
   "import", "export",
   "new", "js/new", "js/typeof", "js/instanceof", "js/await",
   "->", "->>", "as->", "some->", "some->>", "cond->", "cond->>",
-  "print", "inc", "dec", "str", "set",  // Macros from embedded-macros.ts
+  // Macros from embedded-macros.ts
+  "print", "inc", "dec", "str", "set", "length", "match", "doto", "xor",
+  "nil?", "empty?", "contains?", "min", "max",
+  "if-let", "when-let", "if-not", "when-not",
+  "isNull", "isUndefined", "isDefined", "notNil", "rest?", "empty-list?",
 ];
 
 /**
  * Common stdlib functions (static fallback for immediate availability).
+ * These are loaded dynamically from core.js, but this provides immediate
+ * availability before async init completes.
  */
 const COMMON_STDLIB_NAMES = [
   "first", "rest", "cons", "nth", "count", "second", "last",
@@ -47,11 +54,14 @@ const COMMON_STDLIB_NAMES = [
   "take", "drop", "some", "every", "isEmpty",
   "mapIndexed", "keep", "keepIndexed", "mapcat", "groupBy",
   "range", "repeat", "cycle", "iterate",
-  "comp", "partial", "apply", "identity",
+  "comp", "partial", "apply",
   "get", "getIn", "assoc", "assocIn", "dissoc",
-  "update", "updateIn", "merge", "keys", "vals",
-  "toArray", "toSet", "seq", "conj", "into", "realize",
+  "update", "updateIn", "merge", "keys",
+  "seq", "conj", "into", "realized",
   "isNil", "isSome", "empty",
+  // Additional stdlib functions
+  "reverse", "repeatedly", "doall", "lazySeq", "vec",
+  "notAny", "notEvery", "next", "keyword", "symbol",
 ];
 
 /**
