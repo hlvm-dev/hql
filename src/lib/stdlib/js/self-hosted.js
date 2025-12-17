@@ -1,7 +1,7 @@
 // self-hosted.js - Pre-transpiled HQL stdlib functions
 // Source of truth: stdlib.hql - this JS is the bootstrap execution form
 
-import { lazySeq, cons } from "./internal/seq-protocol.js";
+import { lazySeq, cons, SEQ } from "./internal/seq-protocol.js";
 import { seq, first, rest } from "./core.js";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -606,4 +606,176 @@ export function name(x) {
   if (x == null) return null;
   const s = String(x);
   return s.startsWith(":") ? s.slice(1) : s;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 15: TYPE CONVERSIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** vec - Convert collection to array (always new copy) */
+export function vec(coll) {
+  if (coll == null) return [];
+  return Array.from(coll);
+}
+
+/** set - Convert collection to Set (always new copy) */
+export function set(coll) {
+  if (coll == null) return new Set();
+  return new Set(coll);
+}
+
+/** doall - Force realization of lazy sequence */
+export function doall(coll) {
+  if (coll == null) return [];
+  if (Array.isArray(coll)) return coll; // O(1) - already realized
+  return Array.from(coll);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 16: MAP ACCESS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** get - Get value at key from map/object, with optional default */
+export function get(m, key, notFound) {
+  if (m == null) return notFound;
+  if (m instanceof Map) return m.has(key) ? m.get(key) : notFound;
+  return (key in m) ? m[key] : notFound;
+}
+
+/** getIn - Get value at nested path */
+export function getIn(m, path, notFound) {
+  if (path.length === 0) return m;
+  let current = m;
+  for (const key of path) {
+    current = get(current, key, null);
+    if (current == null) return notFound;
+  }
+  return current;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 17: MAP MUTATIONS (immutable)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** assoc - Associate key with value (returns new map) */
+export function assoc(m, key, value) {
+  if (m == null) {
+    return typeof key === "number" ? ((() => { const a = []; a[key] = value; return a; })()) : { [key]: value };
+  }
+  if (m instanceof Map) { const r = new Map(m); r.set(key, value); return r; }
+  if (Array.isArray(m)) { const r = [...m]; r[key] = value; return r; }
+  return { ...m, [key]: value };
+}
+
+/** assocIn - Associate value at nested path */
+export function assocIn(m, path, value) {
+  if (path.length === 0) return value;
+  if (path.length === 1) return assoc(m, path[0], value);
+  const [key, ...restPath] = path;
+  const existing = get(m == null ? {} : m, key);
+  const nested = (existing != null && typeof existing === "object")
+    ? existing
+    : (typeof restPath[0] === "number" ? [] : {});
+  return assoc(m == null ? {} : m, key, assocIn(nested, restPath, value));
+}
+
+/** dissoc - Remove keys from map (returns new map) */
+export function dissoc(m, ...keys) {
+  if (m == null) return {};
+  if (m instanceof Map) {
+    const r = new Map(m);
+    for (const k of keys) r.delete(k);
+    return r;
+  }
+  if (Array.isArray(m)) {
+    const r = [...m];
+    for (const k of keys) delete r[k];
+    return r;
+  }
+  const r = { ...m };
+  for (const k of keys) delete r[k];
+  return r;
+}
+
+/** update - Transform value at key with function */
+export function update(m, key, fn) {
+  if (typeof fn !== "function") throw new TypeError("update: transform function must be a function");
+  return assoc(m, key, fn(get(m, key)));
+}
+
+/** updateIn - Transform value at nested path with function */
+export function updateIn(m, path, fn) {
+  if (typeof fn !== "function") throw new TypeError("updateIn: transform function must be a function");
+  if (path.length === 0) return fn(m);
+  return assocIn(m, path, fn(getIn(m, path)));
+}
+
+/** merge - Merge multiple maps (later wins, shallow) */
+export function merge(...maps) {
+  const nonNil = maps.filter(m => m != null);
+  if (nonNil.length === 0) return {};
+  if (nonNil[0] instanceof Map) {
+    const r = new Map();
+    for (const m of nonNil) if (m instanceof Map) for (const [k, v] of m) r.set(k, v);
+    return r;
+  }
+  return Object.assign({}, ...nonNil);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 18: COLLECTION PROTOCOLS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** empty - Return empty collection of same type */
+export function empty(coll) {
+  if (coll == null) return null;
+  if (Array.isArray(coll)) return [];
+  if (typeof coll === "string") return "";
+  if (coll[SEQ]) return null; // LazySeq -> null (empty lazy seq)
+  if (coll instanceof Set) return new Set();
+  if (coll instanceof Map) return new Map();
+  if (typeof coll === "object") return {};
+  throw new TypeError(`Cannot create empty collection from ${typeof coll}`);
+}
+
+/** conj - Add item(s) to collection (type-preserving) */
+export function conj(coll, ...items) {
+  if (items.length === 0) return coll == null ? [] : coll;
+  if (coll == null) return [...items];
+  if (Array.isArray(coll)) return [...coll, ...items];
+  if (typeof coll === "string") return coll + items.join("");
+  if (coll[SEQ]) {
+    // LazySeq: prepend items (reverse order for correct result)
+    let result = coll;
+    for (let i = items.length - 1; i >= 0; i--) result = cons(items[i], result);
+    return result;
+  }
+  if (coll instanceof Set) {
+    const r = new Set(coll);
+    for (const item of items) r.add(item);
+    return r;
+  }
+  if (coll instanceof Map) {
+    const r = new Map(coll);
+    for (const item of items) {
+      if (!Array.isArray(item) || item.length !== 2) throw new TypeError("Map entries must be [key, value] pairs");
+      r.set(item[0], item[1]);
+    }
+    return r;
+  }
+  if (typeof coll === "object") {
+    const r = { ...coll };
+    for (const item of items) {
+      if (!Array.isArray(item) || item.length !== 2) throw new TypeError("Object entries must be [key, value] pairs");
+      r[item[0]] = item[1];
+    }
+    return r;
+  }
+  throw new TypeError(`Cannot conj to ${typeof coll}`);
+}
+
+/** into - Pour collection into target (uses reduce + conj) */
+export function into(to, from) {
+  if (from == null) return to == null ? [] : to;
+  return reduce((acc, item) => conj(acc, item), to, from);
 }

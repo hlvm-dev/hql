@@ -64,6 +64,14 @@ const SELF_HOSTED_FUNCTIONS = new Set([
   "add", "sub", "mul", "div", "mod",
   // Phase 14: Symbol/Keyword
   "symbol", "keyword", "name",
+  // Phase 15: Type Conversions
+  "vec", "set", "doall",
+  // Phase 16: Map Access
+  "get", "getIn",
+  // Phase 17: Map Mutations
+  "assoc", "assocIn", "dissoc", "update", "updateIn", "merge",
+  // Phase 18: Collection Protocols
+  "empty", "conj", "into",
 ]);
 
 export const STDLIB_PUBLIC_API = Object.fromEntries(
