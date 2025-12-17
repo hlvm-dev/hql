@@ -39,22 +39,6 @@
        nil)))
 
 ;; ====================
-;; 2b. Repeat Loop (alias for dotimes)
-;; ====================
-
-;; repeat loop - executes body a specific number of times
-;; Same as dotimes but with a different name
-;; Example usage:
-;; (repeat 3 (print "hello"))
-(macro repeat [count & body]
-  `(loop [__repeat_i 0]
-     (if (< __repeat_i ~count)
-       (do
-         ~@body
-         (recur (+ __repeat_i 1)))
-       nil)))
-
-;; ====================
 ;; 3. Enhanced For Loop
 ;; ====================
 

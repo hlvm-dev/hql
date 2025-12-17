@@ -151,7 +151,8 @@ export async function initializeIdentifiers(): Promise<void> {
   const staticIds = buildStaticIdentifiers();
 
   try {
-    const stdlib = await import("../lib/stdlib/js/core.js") as Record<string, unknown>;
+    // Import from index.js which includes both core.js AND self-hosted.js functions
+    const stdlib = await import("../lib/stdlib/js/index.js") as Record<string, unknown>;
     const stdlibIds = Object.keys(stdlib).filter(key =>
       !key.startsWith("_") && typeof stdlib[key] === "function"
     );

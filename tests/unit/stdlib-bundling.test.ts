@@ -194,7 +194,8 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const result = await transpileAndRun(`(print (map (fn (x) (* x 2)) [1 2 3]))`);
+    // Use doall to realize the lazy sequence for printing
+    const result = await transpileAndRun(`(print (doall (map (fn (x) (* x 2)) [1 2 3])))`);
     assertEquals(result.success, true, `Execution should succeed. stderr: ${result.stderr}`);
     assertMatch(result.stdout, /2.*4.*6/);
   },
@@ -205,7 +206,8 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const result = await transpileAndRun(`(print (filter (fn (x) (> x 2)) [1 2 3 4 5]))`);
+    // Use doall to realize the lazy sequence for printing
+    const result = await transpileAndRun(`(print (doall (filter (fn (x) (> x 2)) [1 2 3 4 5])))`);
     assertEquals(result.success, true, `Execution should succeed. stderr: ${result.stderr}`);
     assertMatch(result.stdout, /3.*4.*5/);
   },
@@ -251,7 +253,8 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const result = await transpileAndRun(`(print (concat [1 2] [3 4]))`);
+    // Use doall to realize the lazy sequence for printing
+    const result = await transpileAndRun(`(print (doall (concat [1 2] [3 4])))`);
     assertEquals(result.success, true, `Execution should succeed. stderr: ${result.stderr}`);
     assertMatch(result.stdout, /1.*2.*3.*4/);
   },
@@ -273,7 +276,8 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const result = await transpileAndRun(`(print (distinct [1 2 2 3 3 3]))`);
+    // Use doall to realize the lazy sequence for printing
+    const result = await transpileAndRun(`(print (doall (distinct [1 2 2 3 3 3])))`);
     assertEquals(result.success, true, `Execution should succeed. stderr: ${result.stderr}`);
     assertMatch(result.stdout, /1.*2.*3/);
   },
@@ -284,7 +288,8 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const result = await transpileAndRun(`(print (flatten [[1 2] [3 4]]))`);
+    // Use doall to realize the lazy sequence for printing
+    const result = await transpileAndRun(`(print (doall (flatten [[1 2] [3 4]])))`);
     assertEquals(result.success, true, `Execution should succeed. stderr: ${result.stderr}`);
     assertMatch(result.stdout, /1.*2.*3.*4/);
   },
@@ -390,8 +395,8 @@ Deno.test({
     const sizeKB = output.length / 1024;
     console.log(`Output size: ${sizeKB.toFixed(2)} KB`);
 
-    // The size should be reasonable (under 260KB with all bundling overhead)
-    // Increased from 250KB after adding self-hosted stdlib functions
-    assertEquals(sizeKB < 260, true, `Output should be under 260KB, got ${sizeKB.toFixed(2)} KB`);
+    // The size should be reasonable (under 330KB with all bundling overhead)
+    // Increased from 310KB after adding Phase 3 self-hosted functions (mapIndexed, keepIndexed, mapcat, keep)
+    assertEquals(sizeKB < 330, true, `Output should be under 330KB, got ${sizeKB.toFixed(2)} KB`);
   },
 });

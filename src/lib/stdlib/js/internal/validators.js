@@ -6,19 +6,6 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Validate that a value is a non-negative finite number
- */
-export function validateNonNegativeNumber(n, functionName) {
-  if (typeof n !== "number" || n < 0 || !Number.isFinite(n)) {
-    // Show actual value for better debugging
-    const valueDesc = typeof n === "number" ? n : `${n} (type: ${typeof n})`;
-    throw new TypeError(
-      `${functionName}: first argument must be a non-negative finite number, got ${valueDesc}`,
-    );
-  }
-}
-
-/**
  * Validate that a value is a finite number (can be negative)
  */
 export function validateFiniteNumber(n, functionName, paramName) {

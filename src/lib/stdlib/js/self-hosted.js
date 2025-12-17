@@ -26,11 +26,12 @@ export function drop(n, coll) {
   return lazySeq(() => {
     let s = seq(coll);
     let remaining = n;
-    while (s && remaining > 0) {
-      s = rest(s);
+    while (s != null && remaining > 0) {
+      s = seq(rest(s));  // Use seq() for proper nil-punning
       remaining--;
     }
-    if (s) {
+    // Must return Cons structure for LazySeq protocol
+    if (s != null) {
       return cons(first(s), drop(0, rest(s)));
     }
     return null;
@@ -84,25 +85,29 @@ export function reduce(f, init, coll) {
   return acc;
 }
 
-/** concat - Concatenates multiple collections (lazy) */
+/** concat - Concatenates multiple collections (lazy) - O(k) for k collections */
 export function concat(...colls) {
-  return lazySeq(() => {
-    let idx = 0;
-    while (idx < colls.length) {
-      const s = seq(colls[idx]);
+  // Use index-based iteration to avoid array slicing
+  function step(collIdx, currSeq) {
+    return lazySeq(() => {
+      // Continue current sequence if non-empty
+      const s = currSeq != null ? seq(currSeq) : null;
       if (s != null) {
-        const restOfFirst = rest(s);
-        const remainingColls = colls.slice(idx + 1);
-        if (seq(restOfFirst) != null) {
-          return cons(first(s), concat(restOfFirst, ...remainingColls));
-        } else {
-          return cons(first(s), concat(...remainingColls));
+        return cons(first(s), step(collIdx, rest(s)));
+      }
+      // Move to next collection
+      let idx = collIdx;
+      while (idx < colls.length) {
+        const nextSeq = seq(colls[idx]);
+        idx++;
+        if (nextSeq != null) {
+          return cons(first(nextSeq), step(idx, rest(nextSeq)));
         }
       }
-      idx++;
-    }
-    return null;
-  });
+      return null;
+    });
+  }
+  return step(0, null);
 }
 
 /** Check if a value is a collection (iterable but not a string) */
@@ -126,25 +131,25 @@ export function flatten(coll) {
   });
 }
 
-/** distinct - Removes duplicate elements (lazy) */
+/** distinct - Removes duplicate elements (lazy) - O(n) time */
 export function distinct(coll) {
-  function step(s, seen) {
+  const seen = new Set();  // Single mutable set per distinct() call
+  function step(s) {
     return lazySeq(() => {
-      const xs = seq(s);
-      if (xs != null) {
+      let xs = seq(s);
+      // Skip already-seen elements in a single pass
+      while (xs != null) {
         const f = first(xs);
-        if (seen.has(f)) {
-          return step(rest(xs), seen).seq();
-        } else {
-          const newSeen = new Set(seen);
-          newSeen.add(f);
-          return cons(f, step(rest(xs), newSeen));
+        if (!seen.has(f)) {
+          seen.add(f);
+          return cons(f, step(rest(xs)));
         }
+        xs = seq(rest(xs));
       }
       return null;
     });
   }
-  return step(coll, new Set());
+  return step(coll);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -774,8 +779,30 @@ export function conj(coll, ...items) {
   throw new TypeError(`Cannot conj to ${typeof coll}`);
 }
 
-/** into - Pour collection into target (uses reduce + conj) */
+/** into - Pour collection into target - O(n) optimized */
 export function into(to, from) {
   if (from == null) return to == null ? [] : to;
+  // Fast paths to avoid O(n²) from repeated conj
+  if (to == null) {
+    return Array.from(from);
+  }
+  if (Array.isArray(to)) {
+    const arr = [...to];
+    for (const item of from) arr.push(item);
+    return arr;
+  }
+  if (to instanceof Set) {
+    const result = new Set(to);
+    for (const item of from) result.add(item);
+    return result;
+  }
+  if (to instanceof Map) {
+    const result = new Map(to);
+    for (const item of from) {
+      if (Array.isArray(item) && item.length === 2) result.set(item[0], item[1]);
+    }
+    return result;
+  }
+  // Fallback for other types (strings, objects, etc.)
   return reduce((acc, item) => conj(acc, item), to, from);
 }

@@ -12,7 +12,13 @@ import {
   SEQ,
   isCons,
   LazySeq as SeqLazySeq,
+  ArraySeq,
 } from "./internal/seq-protocol.js";
+import {
+  validateFiniteNumber,
+  validateFunction,
+  validateNonZeroNumber,
+} from "./internal/validators.js";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // FOUNDATION BRIDGE (for HQL lazy-seq macro)
@@ -32,12 +38,6 @@ export function __hql_lazy_seq(thunk) {
 export function isConsCell(value) {
   return isCons(value);
 }
-
-import {
-  validateFiniteNumber,
-  validateFunction,
-  validateNonZeroNumber,
-} from "./internal/validators.js";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SEQUENCE PRIMITIVES (The Lisp Trinity)
@@ -99,14 +99,10 @@ export function rest(coll) {
     return coll.rest();
   }
 
-  // Array fast path: indexed iteration (2-3x faster + lazy)
+  // Array fast path: O(1) ArraySeq instead of O(n) generator
   if (Array.isArray(coll)) {
     if (coll.length <= 1) return SEQ_EMPTY;
-    return lazySeq(function* () {
-      for (let i = 1; i < coll.length; i++) {
-        yield coll[i];
-      }
-    });
+    return new ArraySeq(coll, 1);  // O(1) count/nth operations
   }
 
   // Generic path for other iterables
@@ -121,7 +117,6 @@ export function rest(coll) {
     }
   });
 }
-
 
 /**
  * Returns a new sequence with element prepended
@@ -143,7 +138,6 @@ export function cons(item, coll) {
   // This enables stack-safe deeply nested lazy sequences
   return seqCons(item, coll);
 }
-
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SEQUENCE GENERATORS
@@ -236,7 +230,7 @@ export function realized(coll) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// COLLECTION PROTOCOLS (Week 3)
+// SEQ - Sequence Abstraction (Bootstrap Primitive)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
@@ -265,11 +259,9 @@ export function seq(coll) {
     return coll.seq();
   }
 
-  // Empty array → null
+  // Array: O(1) ArraySeq instead of O(n) generator
   if (Array.isArray(coll)) {
-    return coll.length === 0 ? null : lazySeq(function* () {
-      for (const item of coll) yield item;
-    });
+    return coll.length === 0 ? null : new ArraySeq(coll, 0);
   }
 
   // Empty string → null
@@ -329,14 +321,6 @@ export function seq(coll) {
 
   throw new TypeError(`seq: Cannot create sequence from ${typeof coll}`);
 }
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// NOTE: The following functions are now self-hosted in self-hosted.js:
-// - Phase 15: doall, vec, set (type conversions)
-// - Phase 16: get, getIn (map access)
-// - Phase 17: assoc, assocIn, dissoc, update, updateIn, merge (map mutations)
-// - Phase 18: empty, conj, into (collection protocols)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // RUNTIME HELPERS (used by transpiled code)

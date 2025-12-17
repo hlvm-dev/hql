@@ -18,9 +18,10 @@ import {
 // seq(coll) - 12 tests
 // =============================================================================
 
-Deno.test("seq: array returns LazySeq", () => {
+Deno.test("seq: array returns iterable seq", () => {
   const result = seq([1, 2, 3]);
-  assertEquals(result instanceof LazySeq, true);
+  // Result should be iterable (LazySeq or ArraySeq both work)
+  assertEquals(typeof result![Symbol.iterator], "function");
   assertEquals(doall(result!), [1, 2, 3]);
 });
 

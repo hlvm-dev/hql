@@ -1,8 +1,28 @@
 ;; lib/stdlib/stdlib.hql - HQL stdlib with self-hosted functions
 ;;
 ;; SELF-HOSTED FUNCTIONS:
-;; - take: Implemented in HQL using lazy-seq foundation
-;; - (more to come as we migrate from JS)
+;; Phase 1 - Core Sequence Operations:
+;; - take: Returns first n elements from a collection (lazy)
+;; - drop: Drops first n elements from a collection (lazy)
+;; - map: Maps function over collection (lazy)
+;; - filter: Filters collection by predicate (lazy)
+;; - reduce: Reduces collection with function and initial value (EAGER)
+;; - concat: Concatenates multiple collections (lazy)
+;; - flatten: Flattens nested collections (lazy)
+;; - distinct: Removes duplicate elements (lazy)
+;;
+;; Phase 2 - Indexed Operations:
+;; - next: Returns seq of rest, or nil if empty (same as (seq (rest coll)))
+;; - second: Returns second element (same as (nth coll 1 nil))
+;; - nth: Returns element at index with optional not-found
+;; - count: Returns count of elements (EAGER)
+;; - last: Returns last element (EAGER)
+;;
+;; Phase 3 - Map Operations:
+;; - mapIndexed: Maps (index, item) over collection (lazy)
+;; - keepIndexed: Like mapIndexed but filters nil results (lazy)
+;; - mapcat: Maps then flattens one level (lazy)
+;; - keep: Maps and filters nil results (lazy)
 ;;
 ;; The self-hosted approach:
 ;; - Import primitive functions from JS (first, rest, cons, seq, lazy-seq)
@@ -14,17 +34,14 @@
   ;; Sequence primitives (Lisp Trinity) - these are the foundation
   first, rest, cons, seq,
 
-  ;; Indexed access & counting (Week 1)
-  nth, count, second, last,
+  ;; NOTE: nth, count, second, last, next are NOW SELF-HOSTED BELOW!
 
   ;; Sequence predicates
   isEmpty, some,
 
-  ;; Sequence operations (NOT take - that's self-hosted below!)
-  map, filter, reduce, drop, concat, flatten, distinct,
+  ;; Sequence operations (NOT take/drop/map/filter/reduce/concat/flatten/distinct - those are self-hosted below!)
 
-  ;; Map operations (Week 2)
-  mapIndexed, keepIndexed, mapcat, keep,
+  ;; NOTE: mapIndexed, keepIndexed, mapcat, keep are NOW SELF-HOSTED BELOW!
 
   ;; Collection protocols (Week 3)
   seq, empty, conj, into,
@@ -78,13 +95,315 @@
         (when s
           (cons (first s) (drop 0 (rest s))))))))
 
-;; Export all functions (matching STDLIB_PUBLIC_API - 51 total)
+;; map - Maps function over collection (lazy)
+;; This is the heart of functional programming
+;; Pattern: (lazy-seq (when-let [s (seq coll)] (cons (f (first s)) (map f (rest s)))))
+(fn map [f coll]
+  (lazy-seq
+    (when-let [s (seq coll)]
+      (cons (f (first s)) (map f (rest s))))))
+
+;; filter - Filters collection by predicate (lazy)
+;; Only includes elements where (pred elem) is truthy
+;; Pattern: skip non-matching elements recursively until we find one
+(fn filter [pred coll]
+  (lazy-seq
+    (when-let [s (seq coll)]
+      (let [f (first s)]
+        (if (pred f)
+          (cons f (filter pred (rest s)))
+          (filter pred (rest s)))))))
+
+;; reduce - Reduces collection with function and initial value (EAGER)
+;; This is the foundation of many aggregate operations
+;; Unlike map/filter, reduce consumes the entire collection
+(fn reduce [f init coll]
+  (loop [acc init, s (seq coll)]
+    (if s
+      (recur (f acc (first s)) (rest s))
+      acc)))
+
+;; concat - Concatenates multiple collections (lazy)
+;; Variadic function: (concat [1 2] [3 4]) => (1 2 3 4)
+;; Processes collections one element at a time
+(fn concat [& colls]
+  (lazy-seq
+    (when-let [cs (seq colls)]
+      (if-let [s (seq (first cs))]
+        (cons (first s) (apply concat (cons (rest s) (rest cs))))
+        (apply concat (rest cs))))))
+
+;; flatten - Flattens nested collections (lazy)
+;; Recursively flattens all iterable items (except strings)
+;; Note: Uses JS interop for iterable checking in pre-transpiled version
+(fn flatten [coll]
+  (lazy-seq
+    (when-let [s (seq coll)]
+      (let [f (first s)]
+        (if (coll? f)  ;; coll? checks for collections (arrays, seqs) but not strings
+          (concat (flatten f) (flatten (rest s)))
+          (cons f (flatten (rest s))))))))
+
+;; distinct - Removes duplicate elements (lazy)
+;; Uses a Set to track seen elements efficiently
+;; Note: Pre-transpiled version uses JS Set for O(1) lookup
+(fn distinct [coll]
+  (let [step (fn [s seen]
+               (lazy-seq
+                 (when-let [xs (seq s)]
+                   (let [f (first xs)]
+                     (if (contains? seen f)
+                       (step (rest xs) seen)
+                       (cons f (step (rest xs) (conj seen f))))))))]
+    (step coll #{})))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 2: INDEXED OPERATIONS
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; next - Returns (seq (rest coll)), nil if rest is empty
+;; This is the Clojure-style "next" that differs from "rest"
+;; next returns nil for empty, rest returns empty seq
+(fn next [coll]
+  (seq (rest coll)))
+
+;; nth - Returns element at index, with optional not-found value
+;; Uses loop to iterate to the index position
+;; Throws error if out of bounds and no not-found provided
+;; Note: Uses (seq args) instead of (count args) to avoid circular dependency
+(fn nth [coll index & args]
+  (let [not-found (first args)
+        has-not-found (seq args)]  ;; truthy if args is non-empty
+    (if (nil? coll)
+      (if has-not-found
+        not-found
+        (throw (js/Error (str "nth: index " index " out of bounds for null collection"))))
+      (loop [s (seq coll), i 0]
+        (if s
+          (if (= i index)
+            (first s)
+            (recur (rest s) (+ i 1)))
+          (if has-not-found
+            not-found
+            (throw (js/Error (str "nth: index " index " out of bounds")))))))))
+
+;; second - Returns second element of collection
+;; Simply (nth coll 1 nil) - returns nil if less than 2 elements
+(fn second [coll]
+  (nth coll 1 nil))
+
+;; count - Returns count of elements (EAGER)
+;; Forces full realization of lazy sequences
+(fn count [coll]
+  (if (nil? coll)
+    0
+    (loop [s (seq coll), n 0]
+      (if s
+        (recur (rest s) (+ n 1))
+        n))))
+
+;; last - Returns last element (EAGER)
+;; Forces full realization to find the last element
+(fn last [coll]
+  (if (nil? coll)
+    nil
+    (loop [s (seq coll), result nil]
+      (if s
+        (recur (rest s) (first s))
+        result))))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 3: MAP OPERATIONS
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; mapIndexed - Maps function (index, item) over collection (lazy)
+;; Like map but the function receives (index, item) instead of just (item)
+(fn mapIndexed [f coll]
+  (let [step (fn [s idx]
+               (lazy-seq
+                 (when-let [xs (seq s)]
+                   (cons (f idx (first xs))
+                         (step (rest xs) (+ idx 1))))))]
+    (step coll 0)))
+
+;; keepIndexed - Like mapIndexed but filters nil results (lazy)
+;; Only keeps results where (f index item) is not nil/undefined
+(fn keepIndexed [f coll]
+  (let [step (fn [s idx]
+               (lazy-seq
+                 (when-let [xs (seq s)]
+                   (let [result (f idx (first xs))]
+                     (if (some? result)
+                       (cons result (step (rest xs) (+ idx 1)))
+                       (step (rest xs) (+ idx 1)))))))]
+    (step coll 0)))
+
+;; mapcat - Maps function then concatenates/flattens one level (lazy)
+;; Equivalent to (apply concat (map f coll))
+(fn mapcat [f coll]
+  (lazy-seq
+    (when-let [s (seq coll)]
+      (concat (f (first s)) (mapcat f (rest s))))))
+
+;; keep - Maps function and filters nil results (lazy)
+;; Only keeps results where (f item) is not nil/undefined
+(fn keep [f coll]
+  (lazy-seq
+    (when-let [s (seq coll)]
+      (let [result (f (first s))]
+        (if (some? result)
+          (cons result (keep f (rest s)))
+          (keep f (rest s)))))))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 4: PREDICATES
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; isEmpty - Tests if collection is empty
+;; Returns true if nil or empty, false otherwise
+(fn isEmpty [coll]
+  (nil? (seq coll)))
+
+;; some - Returns first item where predicate returns truthy, or nil
+;; Short-circuits on first match
+(fn some [pred coll]
+  (loop [s (seq coll)]
+    (if s
+      (if (pred (first s))
+        (first s)
+        (recur (rest s)))
+      nil)))
+
+;; every - Returns true if predicate returns truthy for all items
+;; Short-circuits on first falsy, empty collection returns true (vacuous truth)
+(fn every [pred coll]
+  (loop [s (seq coll)]
+    (if s
+      (if (pred (first s))
+        (recur (rest s))
+        false)
+      true)))
+
+;; notAny - Returns true if predicate returns false for all items
+;; Equivalent to (not (some pred coll))
+(fn notAny [pred coll]
+  (loop [s (seq coll)]
+    (if s
+      (if (pred (first s))
+        false
+        (recur (rest s)))
+      true)))
+
+;; notEvery - Returns true if predicate returns false for at least one item
+;; Equivalent to (not (every pred coll))
+(fn notEvery [pred coll]
+  (loop [s (seq coll)]
+    (if s
+      (if (pred (first s))
+        (recur (rest s))
+        true)
+      false)))
+
+;; isSome - Returns true if value is not nil (null or undefined)
+;; Note: This only checks for nil, not falsiness (0, false, "" return true)
+(fn isSome [x]
+  (not (nil? x)))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 5: TYPE PREDICATES
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+(fn isNil [x] (nil? x))
+(fn isEven [n] (== 0 (mod n 2)))
+(fn isOdd [n] (not (== 0 (mod n 2))))
+(fn isZero [n] (== n 0))
+(fn isPositive [n] (> n 0))
+(fn isNegative [n] (< n 0))
+(fn isNumber [x] (== "number" (typeof x)))
+(fn isString [x] (== "string" (typeof x)))
+(fn isBoolean [x] (== "boolean" (typeof x)))
+(fn isFunction [x] (== "function" (typeof x)))
+(fn isArray [x] (js-call Array.isArray x))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 6: ARITHMETIC
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+(fn inc [x] (+ x 1))
+(fn dec [x] (- x 1))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 7: COMPARISON
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+(fn eq [& vals]
+  (if (< (count vals) 2)
+    true
+    (let [fst (first vals)]
+      (loop [s (rest vals)]
+        (if (seq s)
+          (if (=== fst (first s))
+            (recur (rest s))
+            false)
+          true)))))
+
+(fn neq [a b] (not (=== a b)))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 8: LAZY CONSTRUCTORS
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; repeat - Infinite sequence of the same value
+(fn repeat [x]
+  (lazy-seq (cons x (repeat x))))
+
+;; repeatedly - Infinite sequence calling f each time
+(fn repeatedly [f]
+  (lazy-seq (cons (f) (repeatedly f))))
+
+;; cycle - Infinite sequence cycling through collection
+(fn cycle [coll]
+  (let [xs (seq coll)]
+    (if xs
+      (let [step (fn [s]
+                   (lazy-seq
+                     (if (seq s)
+                       (cons (first s) (step (rest s)))
+                       (step xs))))]
+        (step xs))
+      nil)))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 9: FUNCTION OPERATIONS
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; iterate - Returns x, f(x), f(f(x)), ...
+(fn iterate [f x]
+  (lazy-seq (cons x (iterate f (f x)))))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 10: UTILITIES
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; keys - Get keys from an object
+(fn keys [obj]
+  (if (nil? obj)
+    []
+    (js-call Object.keys obj)))
+
+;; reverse - Reverse a collection
+(fn reverse [coll]
+  (if (nil? coll)
+    []
+    (.. (js-call Array.from coll) (reverse))))
+
+;; Export all functions
 (export [
   ;; Sequence primitives (Lisp Trinity)
   first, rest, cons,
 
-  ;; Indexed access & counting (Week 1)
-  nth, count, second, last,
+  ;; Indexed access & counting (Phase 2 self-hosted)
+  next, nth, count, second, last,
 
   ;; Sequence predicates
   isEmpty, some,
@@ -92,7 +411,7 @@
   ;; Sequence operations
   take, map, filter, reduce, drop, concat, flatten, distinct,
 
-  ;; Map operations (Week 2)
+  ;; Map operations (Phase 3 self-hosted)
   mapIndexed, keepIndexed, mapcat, keep,
 
   ;; Collection protocols (Week 3)

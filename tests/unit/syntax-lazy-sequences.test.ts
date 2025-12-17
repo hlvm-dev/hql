@@ -209,12 +209,14 @@ Deno.test("REPL: no computation until toString() called", () => {
   assertEquals(computeCount, 20, "Only computes 20 items for preview");
 });
 
-Deno.test("map: returns LazySeq", () => {
+Deno.test("map: returns lazy sequence (SEQ protocol)", () => {
   const result = map((x: number) => x * 2, [1, 2, 3]);
+  // Self-hosted map returns seq-protocol LazySeq, not old lazy-seq.js LazySeq
+  // Check for SEQ protocol instead of instanceof
   assertEquals(
-    result instanceof LazySeq,
+    isSeq(result),
     true,
-    "map must return LazySeq instance",
+    "map must return a lazy sequence implementing SEQ protocol",
   );
 });
 
@@ -255,12 +257,12 @@ Deno.test("map: empty/null input", () => {
   assertEquals(arr, []);
 });
 
-Deno.test("filter: returns LazySeq", () => {
+Deno.test("filter: returns lazy sequence (SEQ protocol)", () => {
   const result = filter((x: number) => x % 2 === 0, [1, 2, 3, 4]);
   assertEquals(
-    result instanceof LazySeq,
+    isSeq(result),
     true,
-    "filter must return LazySeq instance",
+    "filter must return a lazy sequence implementing SEQ protocol",
   );
 });
 
@@ -354,17 +356,17 @@ Deno.test("drop: is lazy", () => {
   assertEquals(computeCount <= 10, true, "Only computes needed items");
 });
 
-Deno.test("concat: is lazy", () => {
+Deno.test("concat: is lazy (SEQ protocol)", () => {
   const result = concat([1, 2], [3, 4], [5, 6]);
-  assertEquals(result instanceof LazySeq, true);
+  assertEquals(isSeq(result), true, "concat must return a lazy sequence implementing SEQ protocol");
 
   const arr = Array.from(result);
   assertEquals(arr, [1, 2, 3, 4, 5, 6]);
 });
 
-Deno.test("flatten: is lazy and flattens one level", () => {
+Deno.test("flatten: is lazy and flattens (SEQ protocol)", () => {
   const result = flatten([[1, 2], [3, 4], 5, [6]]);
-  assertEquals(result instanceof LazySeq, true);
+  assertEquals(isSeq(result), true, "flatten must return a lazy sequence implementing SEQ protocol");
 
   const arr = Array.from(result);
   assertEquals(arr, [1, 2, 3, 4, 5, 6]);
