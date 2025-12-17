@@ -12,6 +12,36 @@
 import { EMPTY_LAZY_SEQ, LazySeq, lazySeq } from "./internal/lazy-seq.js";
 import { normalize } from "./internal/normalize.js";
 import { rangeCore } from "./internal/range-core.js";
+
+// Import Clojure-aligned foundation for lazy-seq support
+import {
+  lazySeq as seqLazySeq,
+  cons as seqCons,
+  EMPTY as SEQ_EMPTY,
+  SEQ,
+  isCons,
+  LazySeq as SeqLazySeq,
+} from "./internal/seq-protocol.js";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FOUNDATION BRIDGE (for HQL lazy-seq macro)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Creates a lazy sequence from a thunk (for HQL lazy-seq macro).
+ * Uses Clojure-aligned seq-protocol.js foundation.
+ */
+export function __hql_lazy_seq(thunk) {
+  return seqLazySeq(thunk);
+}
+
+/**
+ * Check if a value is a Cons cell
+ */
+export function isConsCell(value) {
+  return isCons(value);
+}
+
 import {
   validateFiniteNumber,
   validateFunction,
@@ -37,12 +67,17 @@ import {
 export function first(coll) {
   if (coll == null) return undefined;
 
+  // SEQ protocol (foundation Cons/LazySeq): use first() method
+  if (coll[SEQ]) {
+    return coll.first();
+  }
+
   // Optimize for arrays
   if (Array.isArray(coll)) {
     return coll.length > 0 ? coll[0] : undefined;
   }
 
-  // Optimize for LazySeq
+  // Optimize for old LazySeq
   if (coll instanceof LazySeq) {
     return coll.get(0);
   }
@@ -67,11 +102,16 @@ export function first(coll) {
  * rest(null)       // → []
  */
 export function rest(coll) {
-  if (coll == null) return EMPTY_LAZY_SEQ;
+  if (coll == null) return SEQ_EMPTY;
+
+  // SEQ protocol (foundation Cons/LazySeq): use rest() method
+  if (coll[SEQ]) {
+    return coll.rest();
+  }
 
   // Array fast path: indexed iteration (2-3x faster + lazy)
   if (Array.isArray(coll)) {
-    if (coll.length <= 1) return EMPTY_LAZY_SEQ;
+    if (coll.length <= 1) return SEQ_EMPTY;
     return lazySeq(function* () {
       for (let i = 1; i < coll.length; i++) {
         yield coll[i];
@@ -110,6 +150,11 @@ export function rest(coll) {
 export function next(coll) {
   if (coll == null) return null;
 
+  // SEQ protocol (foundation Cons/LazySeq): next = (seq (rest coll))
+  if (coll[SEQ]) {
+    return coll.rest().seq();
+  }
+
   // Array fast path
   if (Array.isArray(coll)) {
     if (coll.length <= 1) return null;
@@ -120,7 +165,7 @@ export function next(coll) {
     });
   }
 
-  // LazySeq path
+  // Old LazySeq path
   if (coll instanceof LazySeq) {
     const second = coll.get(1);
     if (second === undefined) return null;
@@ -159,7 +204,9 @@ export function next(coll) {
  * cons(1, null)       // → [1]
  */
 export function cons(item, coll) {
-  return concat([item], coll);
+  // Use foundation's Cons cell for proper trampolining
+  // This enables stack-safe deeply nested lazy sequences
+  return seqCons(item, coll);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -460,85 +507,13 @@ export function some(pred, coll) {
 // SEQUENCE OPERATIONS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/**
- * Takes first n elements from a collection
- * Returns a LazySeq (lazy evaluation)
- *
- * @param {number} n - Number of elements to take
- * @param {Iterable|null|undefined} coll - Collection to take from
- * @returns {LazySeq} Lazy sequence of first n elements
- *
- * @example
- * take(3, [1,2,3,4,5])  // → [1,2,3]
- * take(10, [1,2,3])     // → [1,2,3]
- */
-export function take(n, coll) {
-  validateNonNegativeNumber(n, "take");
+// NOTE: `take` is SELF-HOSTED in HQL (see src/lib/stdlib/stdlib.hql)
+// Pre-transpiled version: src/lib/stdlib/js/self-hosted.js
+// Source of truth: HQL, not JavaScript
 
-  if (coll == null) {
-    return EMPTY_LAZY_SEQ;
-  }
-
-  // Array fast path: indexed iteration (2-3x faster + no counter)
-  if (Array.isArray(coll)) {
-    const limit = Math.min(n, coll.length);
-    if (limit === 0) return EMPTY_LAZY_SEQ;
-    return lazySeq(function* () {
-      for (let i = 0; i < limit; i++) {
-        yield coll[i];
-      }
-    });
-  }
-
-  // Generic path for other iterables
-  return lazySeq(function* () {
-    let count = 0;
-    const iterator = coll[Symbol.iterator]();
-    while (count < n) {
-      const { value, done } = iterator.next();
-      if (done) break;
-      yield value;
-      count++;
-    }
-  });
-}
-
-/**
- * Drops first n elements from a collection
- * Returns a LazySeq (lazy evaluation)
- *
- * @param {number} n - Number of elements to drop
- * @param {Iterable|null|undefined} coll - Collection to drop from
- * @returns {LazySeq} Lazy sequence without first n elements
- */
-export function drop(n, coll) {
-  validateNonNegativeNumber(n, "drop");
-
-  if (coll == null) {
-    return EMPTY_LAZY_SEQ;
-  }
-
-  // Array fast path: indexed iteration (2-3x faster + no counter)
-  if (Array.isArray(coll)) {
-    if (n >= coll.length) return EMPTY_LAZY_SEQ;
-    return lazySeq(function* () {
-      for (let i = n; i < coll.length; i++) {
-        yield coll[i];
-      }
-    });
-  }
-
-  // Generic path for other iterables
-  return lazySeq(function* () {
-    let count = 0;
-    for (const item of coll) {
-      if (count >= n) {
-        yield item;
-      }
-      count++;
-    }
-  });
-}
+// NOTE: `drop` is SELF-HOSTED in HQL (see src/lib/stdlib/stdlib.hql)
+// Pre-transpiled version: src/lib/stdlib/js/self-hosted.js
+// Source of truth: HQL, not JavaScript
 
 /**
  * Maps function over collection (lazy)
@@ -1148,8 +1123,13 @@ export function doall(coll) {
  */
 export function realized(coll) {
   if (coll == null) return true;
+  // Old generator-based LazySeq
   if (coll instanceof LazySeq) {
     return coll._exhausted;
+  }
+  // New seq-protocol LazySeq
+  if (coll instanceof SeqLazySeq) {
+    return coll._isRealized;
   }
   return true; // Non-lazy collections are always realized
 }
@@ -1179,6 +1159,11 @@ export function seq(coll) {
   // Nil input → null
   if (coll == null) return null;
 
+  // SEQ protocol (foundation Cons/LazySeq): use seq() method for nil-punning
+  if (coll[SEQ]) {
+    return coll.seq();
+  }
+
   // Empty array → null
   if (Array.isArray(coll)) {
     return coll.length === 0 ? null : lazySeq(function* () {
@@ -1193,9 +1178,13 @@ export function seq(coll) {
     });
   }
 
-  // LazySeq: pass through directly (don't check isEmpty - that would realize it!)
-  // Empty LazySeqs will be handled by consumers
+  // OLD LazySeq: check if empty by realizing first element (nil-punning)
+  // This is necessary for proper termination in recursive patterns like self-hosted map
   if (coll instanceof LazySeq) {
+    coll._realize(1);
+    if (coll._exhausted && coll._realized.length === 0) {
+      return null;  // Empty → null for nil-punning
+    }
     return coll;
   }
 

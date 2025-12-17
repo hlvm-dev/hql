@@ -409,7 +409,7 @@ async function processHqlEntryFile(
   });
 
   // Inject stdlib import for bundling - esbuild will resolve and inline it
-  const stdlibImport = `import { first, rest, next, cons, nth, count, second, last, isEmpty, some, every, notAny, notEvery, isSome, take, drop, map, filter, reduce, concat, flatten, distinct, mapIndexed, keepIndexed, mapcat, keep, seq, empty, conj, into, repeat, repeatedly, cycle, iterate, lazySeq, get, getIn, assoc, assocIn, dissoc, update, updateIn, merge, vec, set, range, comp, partial, apply, groupBy, keys, doall, realized, add, sub, mul, div, mod, inc, dec, isNil, eq, neq, lt, gt, lte, gte, LazySeq, __hql_get, __hql_getNumeric, __hql_range, __hql_toSequence, __hql_for_each, __hql_hash_map, __hql_throw, __hql_deepFreeze } from "./hql-stdlib.js";\n`;
+  const stdlibImport = `import { first, rest, next, cons, nth, count, second, last, isEmpty, some, every, notAny, notEvery, isSome, take, drop, map, filter, reduce, concat, flatten, distinct, mapIndexed, keepIndexed, mapcat, keep, seq, empty, conj, into, repeat, repeatedly, cycle, iterate, lazySeq, get, getIn, assoc, assocIn, dissoc, update, updateIn, merge, vec, set, range, comp, partial, apply, groupBy, keys, doall, realized, add, sub, mul, div, mod, inc, dec, isNil, eq, neq, lt, gt, lte, gte, LazySeq, __hql_get, __hql_getNumeric, __hql_range, __hql_toSequence, __hql_for_each, __hql_hash_map, __hql_throw, __hql_deepFreeze, __hql_lazy_seq } from "./hql-stdlib.js";\n`;
   jsCode = stdlibImport + jsCode;
   logger.debug("Injected stdlib import for bundling");
 

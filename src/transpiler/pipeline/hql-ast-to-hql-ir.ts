@@ -445,6 +445,67 @@ function initializeTransformFactory(): void {
         (list, currentDir) =>
           conditionalModule.transformDo(list, currentDir, transformNode),
       );
+      // lazy-seq special form for self-hosted stdlib (Clojure-style lazy sequences)
+      // (lazy-seq body) → __hql_lazy_seq(() => body)
+      transformFactory.set(
+        "lazy-seq",
+        (list, currentDir) => {
+          // Get body expressions (skip the 'lazy-seq' symbol)
+          const bodyExprs = list.elements.slice(1);
+
+          // If no body, return call to __hql_lazy_seq with null-returning thunk
+          if (bodyExprs.length === 0) {
+            return {
+              type: IR.IRNodeType.CallExpression,
+              callee: { type: IR.IRNodeType.Identifier, name: "__hql_lazy_seq" } as IR.IRIdentifier,
+              arguments: [{
+                type: IR.IRNodeType.FunctionExpression,
+                id: null,
+                params: [],
+                body: {
+                  type: IR.IRNodeType.BlockStatement,
+                  body: [{
+                    type: IR.IRNodeType.ReturnStatement,
+                    argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+                  } as IR.IRReturnStatement],
+                } as IR.IRBlockStatement,
+              } as IR.IRFunctionExpression],
+            } as IR.IRCallExpression;
+          }
+
+          // Transform body - if multiple expressions, use do
+          let bodyNode: IR.IRNode;
+          if (bodyExprs.length === 1) {
+            const transformed = transformNode(bodyExprs[0], currentDir);
+            bodyNode = transformed || { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
+          } else {
+            // Multiple expressions - wrap in do
+            bodyNode = conditionalModule.transformDo(
+              { ...list, elements: [list.elements[0], ...bodyExprs] } as ListNode,
+              currentDir,
+              transformNode,
+            );
+          }
+
+          // Create: __hql_lazy_seq(() => { return body; })
+          return {
+            type: IR.IRNodeType.CallExpression,
+            callee: { type: IR.IRNodeType.Identifier, name: "__hql_lazy_seq" } as IR.IRIdentifier,
+            arguments: [{
+              type: IR.IRNodeType.FunctionExpression,
+              id: null,
+              params: [],
+              body: {
+                type: IR.IRNodeType.BlockStatement,
+                body: [{
+                  type: IR.IRNodeType.ReturnStatement,
+                  argument: bodyNode,
+                } as IR.IRReturnStatement],
+              } as IR.IRBlockStatement,
+            } as IR.IRFunctionExpression],
+          } as IR.IRCallExpression;
+        },
+      );
       transformFactory.set(
         "try",
         (list, currentDir) => transformTry(list, currentDir, transformNode),

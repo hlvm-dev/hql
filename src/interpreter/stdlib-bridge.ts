@@ -3,6 +3,7 @@
 
 import { STDLIB_PUBLIC_API } from "../lib/stdlib/js/index.js";
 import { LazySeq } from "../lib/stdlib/js/internal/lazy-seq.js";
+import { LazySeq as SeqLazySeq, isSeq, SEQ } from "../lib/stdlib/js/internal/seq-protocol.js";
 import type { HQLValue, BuiltinFn, Interpreter as IInterpreter, InterpreterEnv } from "./types.ts";
 import { isHQLFunction, isSExp } from "./types.ts";
 import { Interpreter } from "./interpreter.ts";
@@ -200,9 +201,16 @@ export function jsToHql(value: unknown, maxLength: number = MAX_SEQ_LENGTH): HQL
     return value;
   }
 
-  // LazySeq -> realize to array (with limit)
+  // Old generator-based LazySeq -> realize to array (with limit)
   if (value instanceof LazySeq) {
     const arr = value.toArray(maxLength);
+    return arr.map((item) => jsToHql(item, maxLength)) as HQLValue[];
+  }
+
+  // New seq-protocol LazySeq (and other SEQ types) -> realize to array
+  // deno-lint-ignore no-explicit-any
+  if (value instanceof SeqLazySeq || (typeof value === "object" && value !== null && (value as any)[SEQ])) {
+    const arr = Array.from(value as Iterable<unknown>).slice(0, maxLength);
     return arr.map((item) => jsToHql(item, maxLength)) as HQLValue[];
   }
 

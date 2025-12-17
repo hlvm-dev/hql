@@ -429,22 +429,40 @@ export function isSimpleLoop(bodyExprs: HQLNode[]): boolean {
     return false;
   }
 
-  // Check if-true branch (consequent) ends with recur
+  // Check if either branch ends with recur (for optimizing to while loop)
   const consequent = bodyList.elements[2];
+  const alternate = bodyList.elements.length > 3 ? bodyList.elements[3] : null;
 
+  // Check consequent (then branch) for recur
+  if (branchEndsWithRecur(consequent)) {
+    return true;
+  }
+
+  // Check alternate (else branch) for recur
+  if (alternate && branchEndsWithRecur(alternate)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Helper to check if a branch (consequent or alternate) ends with recur
+ */
+function branchEndsWithRecur(branch: HQLNode): boolean {
   // Direct recur
-  if (isRecurExpression(consequent)) {
+  if (isRecurExpression(branch)) {
     return true;
   }
 
   // Recur wrapped in (do ...)
   if (
-    consequent.type === "list" &&
-    consequent.elements.length > 0 &&
-    consequent.elements[0].type === "symbol" &&
-    (consequent.elements[0] as SymbolNode).name === "do"
+    branch.type === "list" &&
+    branch.elements.length > 0 &&
+    branch.elements[0].type === "symbol" &&
+    (branch.elements[0] as SymbolNode).name === "do"
   ) {
-    const doList = consequent as ListNode;
+    const doList = branch as ListNode;
     const lastExpr = doList.elements[doList.elements.length - 1];
     return isRecurExpression(lastExpr);
   }
@@ -644,33 +662,71 @@ export function transformSimpleLoop(
   const consequent = bodyList.elements[2];
   const alternate = bodyList.elements.length > 3 ? bodyList.elements[3] : null;
 
+  // Determine which branch has recur to decide loop structure
+  const recurInConsequent = branchEndsWithRecur(consequent);
+  const recurInAlternate = alternate && branchEndsWithRecur(alternate);
+
   // Transform the test condition
-  const test = validateTransformed(
+  let test = validateTransformed(
     transformNode(testExpr, currentDir),
     "while test",
     "While loop test condition",
   );
 
-  // Extract recur arguments from consequent
+  // If recur is in alternate (else branch), negate the condition
+  // Pattern: (if done? result (recur ...)) → while(!done?) { recur... }; return result
+  if (recurInAlternate && !recurInConsequent) {
+    test = {
+      type: IR.IRNodeType.UnaryExpression,
+      operator: "!",
+      prefix: true,
+      argument: test,
+    } as IR.IRUnaryExpression;
+  }
+
+  // Extract recur arguments and the branch containing recur
   let recurArgs: HQLNode[] = [];
+  let recurBranch: HQLNode = consequent;
 
-  if (isRecurExpression(consequent)) {
-    // Direct recur: (recur ...)
-    const recurList = consequent as ListNode;
-    recurArgs = recurList.elements.slice(1);
-  } else if (
-    consequent.type === "list" &&
-    consequent.elements.length > 0 &&
-    consequent.elements[0].type === "symbol" &&
-    (consequent.elements[0] as SymbolNode).name === "do"
-  ) {
-    // Recur in do: (do ... (recur ...))
-    const doList = consequent as ListNode;
-    const lastExpr = doList.elements[doList.elements.length - 1];
-    if (isRecurExpression(lastExpr)) {
-      const recurList = lastExpr as ListNode;
+  if (recurInConsequent) {
+    recurBranch = consequent;
+    if (isRecurExpression(consequent)) {
+      // Direct recur: (recur ...)
+      const recurList = consequent as ListNode;
       recurArgs = recurList.elements.slice(1);
-
+    } else if (
+      consequent.type === "list" &&
+      consequent.elements.length > 0 &&
+      consequent.elements[0].type === "symbol" &&
+      (consequent.elements[0] as SymbolNode).name === "do"
+    ) {
+      // Recur in do: (do ... (recur ...))
+      const doList = consequent as ListNode;
+      const lastExpr = doList.elements[doList.elements.length - 1];
+      if (isRecurExpression(lastExpr)) {
+        const recurList = lastExpr as ListNode;
+        recurArgs = recurList.elements.slice(1);
+      }
+    }
+  } else if (recurInAlternate && alternate) {
+    recurBranch = alternate;
+    if (isRecurExpression(alternate)) {
+      // Direct recur: (recur ...)
+      const recurList = alternate as ListNode;
+      recurArgs = recurList.elements.slice(1);
+    } else if (
+      alternate.type === "list" &&
+      alternate.elements.length > 0 &&
+      alternate.elements[0].type === "symbol" &&
+      (alternate.elements[0] as SymbolNode).name === "do"
+    ) {
+      // Recur in do: (do ... (recur ...))
+      const doList = alternate as ListNode;
+      const lastExpr = doList.elements[doList.elements.length - 1];
+      if (isRecurExpression(lastExpr)) {
+        const recurList = lastExpr as ListNode;
+        recurArgs = recurList.elements.slice(1);
+      }
     }
   }
 
@@ -684,14 +740,14 @@ export function transformSimpleLoop(
 
   const whileBodyStatements: IR.IRNode[] = [];
 
-  // Add statements from do block (if consequent is do)
+  // Add statements from do block (if recurBranch is do)
   if (
-    consequent.type === "list" &&
-    consequent.elements.length > 0 &&
-    consequent.elements[0].type === "symbol" &&
-    (consequent.elements[0] as SymbolNode).name === "do"
+    recurBranch.type === "list" &&
+    recurBranch.elements.length > 0 &&
+    recurBranch.elements[0].type === "symbol" &&
+    (recurBranch.elements[0] as SymbolNode).name === "do"
   ) {
-    const doList = consequent as ListNode;
+    const doList = recurBranch as ListNode;
     // Transform all expressions except the last (recur)
     for (let i = 1; i < doList.elements.length - 1; i++) {
       const transformed = transformNode(doList.elements[i], currentDir);
@@ -805,10 +861,19 @@ export function transformSimpleLoop(
     } as IR.IRBlockStatement,
   };
 
-  // Transform alternate (return value)
-  const returnValue = alternate
+  // Transform return value (from the branch that doesn't have recur)
+  // - If recur is in consequent: return alternate
+  // - If recur is in alternate: return consequent
+  let returnValueBranch: HQLNode | null;
+  if (recurInAlternate && !recurInConsequent) {
+    returnValueBranch = consequent; // Return from then-branch when recur is in else-branch
+  } else {
+    returnValueBranch = alternate; // Default: return from else-branch
+  }
+
+  const returnValue = returnValueBranch
     ? validateTransformed(
-      transformNode(alternate, currentDir),
+      transformNode(returnValueBranch, currentDir),
       "loop return value",
       "Loop return value",
     )

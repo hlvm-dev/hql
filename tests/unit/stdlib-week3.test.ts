@@ -81,11 +81,11 @@ Deno.test("seq: empty object returns null", () => {
   assertEquals(result, null);
 });
 
-Deno.test("seq: empty LazySeq pass-through", () => {
-  const empty = new LazySeq(function* () {});
-  const result = seq(empty);
-  // Pass through the LazySeq, don't realize to check if empty
-  assertEquals(result, empty);
+Deno.test("seq: empty LazySeq returns null (nil-punning)", () => {
+  const emptyLazy = new LazySeq(function* () {});
+  const result = seq(emptyLazy);
+  // Clojure-aligned behavior: seq returns null for empty sequences
+  assertEquals(result, null);
 });
 
 Deno.test("seq: LazySeq maintains lazy evaluation", () => {
@@ -98,10 +98,11 @@ Deno.test("seq: LazySeq maintains lazy evaluation", () => {
   });
 
   const result = seq(lazy);
-  assertEquals(counter, 0); // Not realized yet
+  // seq() must check if empty, which realizes first element
+  assertEquals(counter, 1);
 
   assertEquals(first(result!), 1);
-  assertEquals(counter, 1); // Only first element realized
+  assertEquals(counter, 1); // No additional realization for first()
 });
 
 // =============================================================================

@@ -34,6 +34,13 @@ export class LazySeq {
     return index < this._realized.length ? this._realized[index] : undefined;
   }
 
+  // Check if index exists (after realization) - handles undefined values correctly
+  // Unlike get(), this distinguishes "value is undefined" from "index out of bounds"
+  has(index) {
+    this._realize(index + 1);
+    return index < this._realized.length;
+  }
+
   // Convert to array up to a certain size (or all if realized)
   toArray(maxSize = Infinity) {
     if (maxSize === Infinity && this._exhausted) {
@@ -149,3 +156,88 @@ export function lazySeq(generatorFn) {
  * Singleton empty LazySeq - reused to avoid creating wasteful empty generators
  */
 export const EMPTY_LAZY_SEQ = lazySeq(function* () {});
+
+/**
+ * OffsetLazySeq - A view of a LazySeq starting at a given offset.
+ *
+ * CRITICAL for preventing stack overflow with nested rest() calls.
+ * Instead of creating nested generators, OffsetLazySeq provides O(1) access
+ * by storing a reference to the ORIGINAL source and a cumulative offset.
+ *
+ * rest(rest(rest(seq))) → OffsetLazySeq(source=seq, offset=3)
+ */
+export class OffsetLazySeq {
+  constructor(source, offset) {
+    // If source is already an OffsetLazySeq, collapse to avoid chaining
+    if (source instanceof OffsetLazySeq) {
+      this._source = source._source;
+      this._offset = source._offset + offset;
+    } else {
+      this._source = source;
+      this._offset = offset;
+    }
+  }
+
+  get(index) {
+    return this._source.get(this._offset + index);
+  }
+
+  // Check if index exists - delegates to source with offset
+  // CRITICAL: This correctly handles sequences containing undefined values
+  has(index) {
+    return this._source.has(this._offset + index);
+  }
+
+  // Make it iterable - optimized to avoid double _realize() calls
+  [Symbol.iterator]() {
+    let index = 0;
+    const source = this._source;
+    const offset = this._offset;
+    return {
+      next: () => {
+        // Directly access source's internals for efficiency:
+        // _realize once, then check _realized.length
+        const actualIndex = offset + index;
+        source._realize(actualIndex + 1);
+        if (actualIndex < source._realized.length) {
+          return { value: source._realized[actualIndex], done: (index++, false) };
+        }
+        return { done: true, value: undefined };
+      },
+    };
+  }
+
+  // DRY: Single preview generation method
+  _getPreview() {
+    const preview = [];
+    const source = this._source;
+    const offset = this._offset;
+    for (let i = 0; i < PREVIEW_SIZE; i++) {
+      const actualIndex = offset + i;
+      source._realize(actualIndex + 1);
+      if (actualIndex >= source._realized.length) break;
+      preview.push(source._realized[actualIndex]);
+    }
+    return preview;
+  }
+
+  toString() {
+    return JSON.stringify(this._getPreview()) + " ...";
+  }
+
+  toJSON() {
+    return { preview: this._getPreview(), hasMore: true, type: "OffsetLazySeq" };
+  }
+
+  inspect() {
+    return [...this._getPreview(), "..."];
+  }
+
+  [Symbol.for("Deno.customInspect")]() {
+    return this.inspect();
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")]() {
+    return this.inspect();
+  }
+}

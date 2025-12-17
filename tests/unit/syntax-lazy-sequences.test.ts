@@ -26,6 +26,9 @@ const {
   doall,
   realized,
   rangeGenerator,
+  SEQ,
+  isSeq,
+  SeqLazySeq,
 } = await import(stdlibPath);
 
 Deno.test("LazySeq: iterator created only once", () => {
@@ -68,13 +71,14 @@ Deno.test("LazySeq: memoization works", () => {
   assertEquals(computeCount, 5);
 });
 
-Deno.test("take: returns LazySeq", () => {
+Deno.test("take: returns lazy sequence (SEQ protocol)", () => {
   const result = take(3, [1, 2, 3, 4, 5]);
   assertExists(result);
+  // Check for SEQ protocol (works for both old LazySeq and new seq-protocol LazySeq)
   assertEquals(
-    result instanceof LazySeq,
+    isSeq(result) || result instanceof LazySeq,
     true,
-    "take must return LazySeq instance",
+    "take must return lazy sequence (SEQ protocol or LazySeq instance)",
   );
 });
 

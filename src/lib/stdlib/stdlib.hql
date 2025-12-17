@@ -1,15 +1,18 @@
-;; lib/stdlib/stdlib.hql - HQL re-exports JavaScript implementation
-;; Note: These functions are auto-loaded by the runtime, so this file is mainly
-;; for documentation and explicit imports in user code.
+;; lib/stdlib/stdlib.hql - HQL stdlib with self-hosted functions
 ;;
-;; IMPORTANT: This must match STDLIB_PUBLIC_API behavior!
-;; - We import rangeGenerator (lazy) and export it as range
-;; - This ensures explicit imports match auto-loaded behavior
+;; SELF-HOSTED FUNCTIONS:
+;; - take: Implemented in HQL using lazy-seq foundation
+;; - (more to come as we migrate from JS)
+;;
+;; The self-hosted approach:
+;; - Import primitive functions from JS (first, rest, cons, seq, lazy-seq)
+;; - Build higher-level functions in HQL using those primitives
+;; - This is TRUE self-hosting: HQL code that gets transpiled
 
-;; Import all 51 fundamental functions from modular JS implementation
+;; Import primitive functions from JavaScript (the foundation)
 (import [
-  ;; Sequence primitives (Lisp Trinity)
-  first, rest, cons,
+  ;; Sequence primitives (Lisp Trinity) - these are the foundation
+  first, rest, cons, seq,
 
   ;; Indexed access & counting (Week 1)
   nth, count, second, last,
@@ -17,8 +20,8 @@
   ;; Sequence predicates
   isEmpty, some,
 
-  ;; Sequence operations
-  take, map, filter, reduce, drop, concat, flatten, distinct,
+  ;; Sequence operations (NOT take - that's self-hosted below!)
+  map, filter, reduce, drop, concat, flatten, distinct,
 
   ;; Map operations (Week 2)
   mapIndexed, keepIndexed, mapcat, keep,
@@ -49,8 +52,31 @@
 ] from "./js/stdlib.js")
 
 ;; Create alias for range to match runtime behavior
-;; rangeGenerator is imported above, we alias it as "range" here
 (let range rangeGenerator)
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; SELF-HOSTED STDLIB FUNCTIONS
+;; These are implemented in HQL, not JavaScript!
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; take - Returns first n elements from a collection (lazy)
+;; This is TRUE self-hosted HQL code using lazy-seq foundation
+(fn take [n coll]
+  (lazy-seq
+    (when (> n 0)
+      (when-let [s (seq coll)]
+        (cons (first s) (take (- n 1) (rest s)))))))
+
+;; drop - Drops first n elements from a collection (lazy)
+;; Returns remaining elements after skipping n
+;; Note: Uses iterative skip + cons to ensure seq-protocol compatibility
+(fn drop [n coll]
+  (lazy-seq
+    (loop [s (seq coll) remaining n]
+      (if (and s (> remaining 0))
+        (recur (rest s) (- remaining 1))
+        (when s
+          (cons (first s) (drop 0 (rest s))))))))
 
 ;; Export all functions (matching STDLIB_PUBLIC_API - 51 total)
 (export [

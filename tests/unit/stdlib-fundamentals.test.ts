@@ -441,20 +441,16 @@ Deno.test("apply: throws TypeError for null", () => {
   );
 });
 
-Deno.test("take: throws TypeError for negative number", () => {
-  assertThrows(
-    () => doall(take(-5, [1, 2, 3])),
-    TypeError,
-    "non-negative",
-  );
+Deno.test("take: returns empty for negative n (Clojure behavior)", () => {
+  // Clojure's take returns empty for negative n, doesn't throw
+  const result = doall(take(-5, [1, 2, 3]));
+  assertEquals(result, []);
 });
 
-Deno.test("drop: throws TypeError for negative number", () => {
-  assertThrows(
-    () => doall(drop(-5, [1, 2, 3])),
-    TypeError,
-    "non-negative",
-  );
+Deno.test("drop: returns all elements for negative n (Clojure behavior)", () => {
+  // Clojure's drop returns all elements for negative n, doesn't throw
+  const result = doall(drop(-5, [1, 2, 3]));
+  assertEquals(result, [1, 2, 3]);
 });
 
 Deno.test("range: throws TypeError for zero step", () => {

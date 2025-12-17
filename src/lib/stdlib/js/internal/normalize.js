@@ -2,7 +2,8 @@
 // NOTE: This is NOT the public seq() API (see Week 3)
 // Purpose: DRY helper for type checking across stdlib functions
 
-import { LazySeq } from "./lazy-seq.js";
+import { SEQ, EMPTY } from "./seq-protocol.js";
+import { LazySeq, OffsetLazySeq, EMPTY_LAZY_SEQ } from "./lazy-seq.js";
 
 /**
  * Normalizes any collection for type checking.
@@ -13,12 +14,10 @@ import { LazySeq } from "./lazy-seq.js";
  * This helper provides consistent handling of:
  * - null/undefined → null
  * - Empty arrays/strings → null
- * - Empty LazySeq → null (after peeking first element)
+ * - Empty SEQ (EMPTY) → null
+ * - Cons/LazySeq → use seq() method for nil-punning
+ * - Old generator-based LazySeq → check if empty
  * - Non-empty collections → returned as-is
- *
- * Named "normalize" (not "seq") to avoid confusion with Week 3's public seq() API:
- * - normalize(): Returns null for empty, collection-as-is for non-empty (internal)
- * - seq(): Wraps collection in LazySeq (public API, Week 3)
  *
  * @param {*} coll - Collection to normalize
  * @returns {*} - null if empty/nil, else the collection as-is
@@ -27,11 +26,22 @@ import { LazySeq } from "./lazy-seq.js";
  * normalize(null) // → null
  * normalize([]) // → null
  * normalize([1, 2, 3]) // → [1, 2, 3]
- * normalize(lazySeq(function* () {})) // → null (empty LazySeq)
+ * normalize(EMPTY) // → null
  */
 export function normalize(coll) {
   // Nil/undefined → null
   if (coll == null) return null;
+
+  // SEQ protocol (new Clojure-aligned): use seq() method for nil-punning
+  if (coll[SEQ]) {
+    // seq() returns null for empty, this for non-empty
+    return coll.seq();
+  }
+
+  // Old generator-based LazySeq: check if has first element
+  if (coll instanceof LazySeq || coll instanceof OffsetLazySeq) {
+    return coll.has(0) ? coll : null;
+  }
 
   // Empty array → null, non-empty → as-is
   if (Array.isArray(coll)) {
@@ -41,13 +51,6 @@ export function normalize(coll) {
   // Empty string → null, non-empty → as-is
   if (typeof coll === "string") {
     return coll.length > 0 ? coll : null;
-  }
-
-  // LazySeq: Peek first element to check if truly empty
-  if (coll instanceof LazySeq) {
-    coll._realize(1); // Realize up to 1 element
-    const empty = coll._exhausted && coll._realized.length === 0;
-    return empty ? null : coll;
   }
 
   // Other iterables (Set, Map, custom): assume non-empty
