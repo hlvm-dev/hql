@@ -35,8 +35,35 @@ export { LazySeq } from "./internal/lazy-seq.js";
 // Pre-transpiled versions are loaded from self-hosted.js
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const SELF_HOSTED_FUNCTIONS = new Set([
-  "take",  // Source: stdlib.hql - (fn take [n coll] (lazy-seq ...))
-  "drop",  // Source: stdlib.hql - (fn drop [n coll] (lazy-seq ...))
+  // Phase 1: Core Sequence Operations
+  "take", "drop", "map", "filter", "reduce", "concat", "flatten", "distinct",
+  // Phase 2: Indexed Operations
+  "next", "nth", "second", "count", "last",
+  // Phase 3: Map Operations
+  "mapIndexed", "keepIndexed", "mapcat", "keep",
+  // Phase 4: Predicates
+  "isEmpty", "some", "every", "notAny", "notEvery", "isSome",
+  // Phase 5: Type Predicates
+  "isNil", "isEven", "isOdd", "isZero", "isPositive", "isNegative",
+  "isNumber", "isString", "isBoolean", "isFunction", "isArray",
+  // Phase 6: Arithmetic
+  "inc", "dec",
+  // Phase 7: Comparison
+  "eq", "neq",
+  // Phase 8: Lazy Constructors
+  "repeat", "repeatedly", "cycle",
+  // Phase 9: Function Operations
+  "iterate",
+  // Phase 10: Utilities
+  "keys", "reverse",
+  // Phase 11: Function Operations
+  "comp", "partial", "apply",
+  // Phase 12: Comparison (variadic)
+  "lt", "gt", "lte", "gte",
+  // Phase 13: Arithmetic (variadic)
+  "add", "sub", "mul", "div", "mod",
+  // Phase 14: Symbol/Keyword
+  "symbol", "keyword", "name",
 ]);
 
 export const STDLIB_PUBLIC_API = Object.fromEntries(

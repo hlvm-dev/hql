@@ -306,8 +306,8 @@ Deno.test("iterate: increment sequence", () => {
 
 Deno.test("iterate: is lazy (infinite)", () => {
   const infiniteSeq = iterate((x) => x + 1, 0);
-  // Should be LazySeq
-  assertEquals(typeof infiniteSeq.toArray, "function");
+  // Should be iterable (LazySeq)
+  assertEquals(typeof infiniteSeq[Symbol.iterator], "function");
   // Can take finite amount
   assertEquals(doall(take(3, infiniteSeq)), [0, 1, 2]);
 });
