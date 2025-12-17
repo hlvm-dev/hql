@@ -46,6 +46,10 @@ interface CompileOptions {
   verbose?: boolean;
   showTiming?: boolean;
   debug?: boolean;
+  /** Enable release mode (minification, optimizations) */
+  release?: boolean;
+  /** Disable source maps */
+  noSourcemap?: boolean;
 }
 
 /**
@@ -68,13 +72,21 @@ OPTIONS:
                         macos-intel - macOS x86_64 binary (Intel)
                         windows     - Windows x86_64 binary
   -o, --output <path>   Output file path (or directory for --target all)
+  --release             Production build (minified, optimized)
+  --no-sourcemap        Disable source map generation
   --verbose, -v         Enable verbose logging
   --time                Show performance timing
   --debug               Show detailed error information
   --help, -h            Show this help message
 
+BUILD MODES:
+  Default (dev):        Readable output, inline source maps, no minification
+  --release (prod):     Minified output, inline source maps, tree-shaken
+
 EXAMPLES:
-  hql compile app.hql                     # Compile to JavaScript
+  hql compile app.hql                     # Dev build (readable)
+  hql compile app.hql --release           # Production build (minified)
+  hql compile app.hql --release --no-sourcemap  # Smallest output
   hql compile app.hql --target native     # Compile to native binary
   hql compile app.hql --target all        # Compile for ALL platforms
   hql compile app.hql --target linux      # Cross-compile to Linux
@@ -109,6 +121,20 @@ function parseOutput(args: string[]): string | undefined {
 }
 
 /**
+ * Parse --release flag from args
+ */
+function parseRelease(args: string[]): boolean {
+  return args.includes("--release") || args.includes("-r");
+}
+
+/**
+ * Parse --no-sourcemap flag from args
+ */
+function parseNoSourcemap(args: string[]): boolean {
+  return args.includes("--no-sourcemap");
+}
+
+/**
  * Parse compile options from CLI args
  */
 function parseCompileOptions(args: string[]): CompileOptions {
@@ -124,6 +150,8 @@ function parseCompileOptions(args: string[]): CompileOptions {
 
   const target = parseTarget(args);
   const outputPath = parseOutput(args);
+  const release = parseRelease(args);
+  const noSourcemap = parseNoSourcemap(args);
 
   return {
     inputFile,
@@ -132,6 +160,8 @@ function parseCompileOptions(args: string[]): CompileOptions {
     verbose: cliOptions.verbose,
     showTiming: cliOptions.showTiming,
     debug: cliOptions.debug,
+    release,
+    noSourcemap,
   };
 }
 
@@ -316,14 +346,21 @@ export async function compileCommand(args: string[]): Promise<void> {
   const outputName = options.outputPath || deriveOutputName(options.inputFile, target);
   const outputPath = resolve(outputName);
 
+  // Determine build mode
+  const isRelease = options.release ?? false;
+  const sourcemap = options.noSourcemap ? false : "inline";
+
   if (options.verbose) {
     console.log(`[compile] Input: ${resolvedInput}`);
     console.log(`[compile] Target: ${target}`);
     console.log(`[compile] Output: ${outputPath}`);
+    console.log(`[compile] Mode: ${isRelease ? "release (minified)" : "dev (readable)"}`);
+    console.log(`[compile] Sourcemap: ${sourcemap}`);
   }
 
   // Step 1: Transpile HQL to JavaScript
-  console.log(`Compiling ${options.inputFile}...`);
+  const modeLabel = isRelease ? "release" : "dev";
+  console.log(`Compiling ${options.inputFile} (${modeLabel})...`);
 
   const jsOutputPath = target === "js"
     ? outputPath
@@ -333,6 +370,8 @@ export async function compileCommand(args: string[]): Promise<void> {
     await transpileCLI(resolvedInput, jsOutputPath, {
       verbose: options.verbose,
       showTiming: options.showTiming,
+      minify: isRelease,
+      sourcemap,
     });
 
     // Step 2: Handle different target types

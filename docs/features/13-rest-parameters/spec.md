@@ -1,6 +1,6 @@
 # Rest Parameters Feature Documentation
 
-**Implementation:** Built-in syntax (transpiler core) **Test Count:** 18 tests **Coverage:** ✅ 100% **Version:** v2.0
+**Implementation:** Built-in syntax (transpiler core) **Coverage:** ✅ 100% **Version:** v2.0
 
 ## Overview
 
@@ -145,34 +145,34 @@ function sum(...nums) {
 
 ## Test Coverage
 
-**Total Tests:** 18
 
-### Section 1: Basic Rest Parameters (3 tests)
+
+### Section 1: Basic Rest Parameters
 - Only rest parameter
 - Rest with single regular param
 - Rest with multiple regular params
 
-### Section 2: Empty Rest Arrays (2 tests)
+### Section 2: Empty Rest Arrays
 - Empty rest array with only rest param
 - Empty rest array with regular params
 
-### Section 3: Rest Parameter Access (3 tests)
+### Section 3: Rest Parameter Access
 - Array indexing
 - Array length property
 - Array methods (.reduce)
 
-### Section 4: Type Handling (3 tests)
+### Section 4: Type Handling
 - String collection
 - Mixed types
 - Object collection
 
-### Section 5: Array Methods (4 tests)
+### Section 5: Array Methods
 - .map on rest parameters
 - .filter on rest parameters
 - .reduce for sums
 - .join for strings
 
-### Section 6: Real-world Patterns (3 tests)
+### Section 6: Real-world Patterns
 - Logging with variable arguments
 - Math operations (min, max, average)
 - Function composition with rest

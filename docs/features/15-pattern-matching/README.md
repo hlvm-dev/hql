@@ -1,7 +1,7 @@
 # Pattern Matching Feature Documentation
 
 **Implementation:** Core macro system (`src/lib/macro/core.hql`)
-**Test Count:** 32 tests
+
 **Coverage:** 100%
 
 ## Overview
@@ -193,24 +193,24 @@ Pattern matching compiles to nested ternary expressions:
 
 ## Test Coverage
 
-**Total Tests:** 32
 
-### Section 1: Literal Matching (5 tests)
+
+### Section 1: Literal Matching
 - Literal number match
 - Literal string match
 - Literal boolean match
 - Literal null match
 - Falls through to next case
 
-### Section 2: Symbol Binding (2 tests)
+### Section 2: Symbol Binding
 - Symbol binding
 - Symbol binding with default
 
-### Section 3: Wildcard (2 tests)
+### Section 3: Wildcard
 - Wildcard matches anything
 - Wildcard as fallback
 
-### Section 4: Array Patterns (6 tests)
+### Section 4: Array Patterns
 - Empty array pattern
 - Single element array
 - Two element array
@@ -218,34 +218,34 @@ Pattern matching compiles to nested ternary expressions:
 - Array rest pattern head
 - Non-array doesn't match array pattern
 
-### Section 5: Object Patterns (3 tests)
+### Section 5: Object Patterns
 - Object binding
 - Object single key binding
 - Non-object doesn't match object pattern
 
-### Section 6: Guards (4 tests)
+### Section 6: Guards
 - Guard passes
 - Guard fails, falls through
 - Multiple guards
 - Guard with array binding
 
-### Section 7: Default Clause (2 tests)
+### Section 7: Default Clause
 - Default is executed when no match
 - Default can have complex expression
 
-### Section 8: Nested Patterns (2 tests)
+### Section 8: Nested Patterns
 - Nested array
 - Object with array value
 
-### Section 9: Recursive Patterns (2 tests)
+### Section 9: Recursive Patterns
 - Recursive sum
 - Recursive length
 
-### Section 10: Complex Examples (2 tests)
+### Section 10: Complex Examples
 - HTTP response handler
 - Event handler
 
-### Section 11: Code Quality (2 tests)
+### Section 11: Code Quality
 - Generated code doesn't contain 'match' keyword
 - Generated code doesn't contain 'case' keyword
 

@@ -20,7 +20,6 @@ Verify:
 
 ```bash
 hql --version
-# HQL CLI version 0.1.0
 ```
 
 ## Level 1: Basics (30 minutes)
@@ -289,29 +288,26 @@ While loop:
 ### Lesson 13: Calling JavaScript
 
 ```lisp
-(js-call console.log "Hello from HQL!")
-(js-call Math.floor 3.7)    ; → 3
-(js-call Math.random)       ; → random number
+;; Direct dot notation
+(console.log "Hello from HQL!")
+(Math.floor 3.7)            ; → 3
+(Math.random)               ; → random number
 ```
 
 ### Lesson 14: Accessing Properties
 
 ```lisp
-;; Using dot notation (recommended)
-Math.PI               ; → 3.14159...
-
-;; Using js-get
-(js-get Math "PI")    ; → 3.14159...
+Math.PI                     ; → 3.14159...
 ```
 
 ### Lesson 15: Creating Objects
 
 ```lisp
 (let date (new Date))
-(js-call date.toISOString)
+(date.toISOString)
 
 (let arr (new Array 1 2 3))
-(print arr)  ; → [1, 2, 3]
+(print arr)                 ; → [1, 2, 3]
 ```
 
 ### Lesson 16: Importing Modules
@@ -319,7 +315,7 @@ Math.PI               ; → 3.14159...
 ```lisp
 (import fs from "npm:fs/promises")
 
-(let content (await (js-call fs.readFile "./hello.hql" "utf-8")))
+(let content (await (fs.readFile "./hello.hql" "utf-8")))
 (print content)
 ```
 
@@ -390,9 +386,9 @@ Time macro:
 ```lisp
 (macro time [& body]
   `(do
-     (let start (js-call Date.now))
+     (let start (Date.now))
      (let result (do ~@body))
-     (let end (js-call Date.now))
+     (let end (Date.now))
      (print "Took:" (- end start) "ms")
      result))
 
@@ -451,7 +447,7 @@ Create `todo.hql`:
 (let todos [])
 
 (fn add-todo [text]
-  (js-call todos.push text)
+  (todos.push text)
   (print "Added:" text))
 
 (fn list-todos []
@@ -485,7 +481,7 @@ Create `server.hql`:
      headers: {"content-type": "text/plain"}}))
 
 (print "Server on http://localhost:8000")
-(js-call Deno.serve {port: 8000} handle-request)
+(Deno.serve {port: 8000} handle-request)
 ```
 
 Run:
@@ -532,7 +528,3 @@ See [Build Guide](./BUILD.md) for details.
 - Ask in [GitHub Discussions](https://github.com/hlvm-dev/hql/discussions)
 - Report bugs in [Issues](https://github.com/hlvm-dev/hql/issues)
 
-## Exercises Repository
-
-Find all practice problems and solutions at:
-[github.com/hlvm-dev/hql-exercises](https://github.com/hlvm-dev/hql-exercises)

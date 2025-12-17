@@ -1190,7 +1190,9 @@ export {
   resetRuntime,
 } from "./src/runtime/index.ts";
 
-export const version = "7.8.22";
+// Version imported from single source of truth
+import { VERSION } from "./src/version.ts";
+export const version = VERSION;
 
 const hql: HQLModule = {
   isHQL,

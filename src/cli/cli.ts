@@ -5,7 +5,7 @@ import {
 } from "../platform/platform.ts";
 import { hasHelpFlag } from "./utils/common-helpers.ts";
 import { version as VERSION } from "../../mod.ts";
-const VALID_COMMANDS = ["repl", "init", "publish", "run", "compile"] as const;
+const VALID_COMMANDS = ["repl", "init", "publish", "run", "compile", "upgrade", "uninstall", "lsp"] as const;
 const COMMANDS_REQUIRING_TARGET = new Set<Command>(["run", "compile"]);
 
 // Types
@@ -26,6 +26,9 @@ USAGE:
   hql run '<expr>'          Evaluate an HQL expression
   hql compile <file>        Compile HQL to JavaScript or native binary
   hql publish [options]     Publish HQL module to JSR/NPM
+  hql upgrade               Update HQL to latest version
+  hql uninstall             Remove HQL from system
+  hql lsp                   Start Language Server for IDE support
 
 OPTIONS:
   --help, -h                Show this help message
@@ -165,6 +168,42 @@ async function executeRunCommand(args: string[]): Promise<void> {
 }
 
 /**
+ * Execute the upgrade command
+ */
+async function executeUpgradeCommand(args: string[]): Promise<void> {
+  await executeWithHelpHandler(
+    args,
+    () => import("./commands/upgrade.ts"),
+    (m) => m.showUpgradeHelp,
+    (m) => m.upgrade
+  );
+}
+
+/**
+ * Execute the uninstall command
+ */
+async function executeUninstallCommand(args: string[]): Promise<void> {
+  await executeWithHelpHandler(
+    args,
+    () => import("./commands/uninstall.ts"),
+    (m) => m.showUninstallHelp,
+    (m) => m.uninstall
+  );
+}
+
+/**
+ * Execute the lsp command
+ */
+async function executeLspCommand(args: string[]): Promise<void> {
+  await executeWithHelpHandler(
+    args,
+    () => import("./commands/lsp.ts"),
+    (m) => m.showLspHelp,
+    (m) => m.lspCommand
+  );
+}
+
+/**
  * Command handler map for O(1) routing
  */
 const commandHandlers: Record<Command, CommandExecutor> = {
@@ -173,6 +212,9 @@ const commandHandlers: Record<Command, CommandExecutor> = {
   publish: executePublishCommand,
   run: executeRunCommand,
   compile: executeCompileCommand,
+  upgrade: executeUpgradeCommand,
+  uninstall: executeUninstallCommand,
+  lsp: executeLspCommand,
 };
 
 /**
@@ -203,6 +245,14 @@ async function main(): Promise<void> {
   // Validate command
   const command = validateCommand(args);
   const [, ...commandArgs] = args;
+
+  // Check for updates (non-blocking, fire-and-forget)
+  // Skip for upgrade/uninstall commands
+  if (command !== "upgrade" && command !== "uninstall") {
+    import("./utils/update-check.ts")
+      .then((m) => m.checkForUpdates())
+      .catch(() => {});
+  }
 
   // Route to command handler (O(1) lookup)
   const handler = commandHandlers[command];

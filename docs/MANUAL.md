@@ -36,7 +36,6 @@ Download the binary from [releases](https://github.com/hlvm-dev/hql/releases).
 
 ```bash
 hql --version
-# HQL CLI version 0.1.0
 ```
 
 ## Getting Started
@@ -403,18 +402,15 @@ Built-in type checking macros that compile to optimal inline JavaScript:
 ### Calling JavaScript
 
 ```lisp
-(js-call console.log "Hello from HQL!")
-(js-call Math.floor 3.7)  ; → 3
+;; Direct dot notation (recommended)
+(console.log "Hello from HQL!")
+(Math.floor 3.7)           ; → 3
+(Math.max 10 20 30)        ; → 30
 ```
 
 ### Accessing Properties
 
 ```lisp
-;; Using js-get with object and property name
-(js-get Math "PI")                 ; → 3.14159...
-(js-get (js-get process "env") "HOME")  ; → "/Users/you"
-
-;; Using dot notation (recommended)
 Math.PI                    ; → 3.14159...
 process.env.HOME           ; → "/Users/you"
 ```
@@ -501,9 +497,27 @@ hql repl              # Start REPL
 hql compile <file>    # Compile to JavaScript or binary
 hql init              # Initialize project
 hql publish           # Publish module
+hql upgrade           # Update HQL to latest version
+hql uninstall         # Remove HQL from system
+hql lsp               # Start Language Server for IDE support
 ```
 
-### Options
+### Compile Options
+
+```bash
+hql compile app.hql                     # Dev build (readable output)
+hql compile app.hql --release           # Production build (minified)
+hql compile app.hql --release --no-sourcemap  # Smallest output
+hql compile app.hql --target native     # Compile to native binary
+hql compile app.hql --target all        # Compile for all platforms
+hql compile app.hql -o myapp.js         # Custom output path
+```
+
+Build modes:
+- **Default (dev)**: Readable output, inline source maps, no minification
+- **--release**: Minified output, inline source maps, tree-shaken
+
+### Global Options
 
 ```bash
 --help               # Show help
@@ -518,4 +532,5 @@ hql publish           # Publish module
 - [Language Features](./features/) - Detailed feature documentation
 - [API Reference](./api/) - Complete API documentation
 - [Standard Library](./api/stdlib.md) - Built-in functions
+- [LSP & Editor Support](./LSP.md) - Language Server Protocol for IDEs
 - [Examples](./features/) - Code examples

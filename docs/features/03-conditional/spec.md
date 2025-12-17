@@ -1,6 +1,6 @@
 # Conditional Feature Documentation
 
-**Implementation:** Transpiler syntax transformers **Test Count:** 14 tests
+**Implementation:** Transpiler syntax transformers
 **Coverage:** ✅ 100%
 
 ## Overview
@@ -133,9 +133,9 @@ return value in functions ✅ Cond with multiple clauses ✅ Cond with else clau
 
 ## Test Coverage
 
-**Total Tests:** 14
 
-### Section 1: If Expressions (7 tests)
+
+### Section 1: If Expressions
 
 - If true branch
 - If false branch
@@ -145,13 +145,13 @@ return value in functions ✅ Cond with multiple clauses ✅ Cond with else clau
 - If as expression in let
 - If as return value
 
-### Section 2: Cond Expressions (3 tests)
+### Section 2: Cond Expressions
 
 - Cond with multiple clauses
 - Cond with else clause
 - Cond with expressions
 
-### Section 3: If with Operators (4 tests)
+### Section 3: If with Operators
 
 - If with `=` operator
 - If with `!=` operator

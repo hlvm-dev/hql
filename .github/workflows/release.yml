@@ -84,6 +84,12 @@ jobs:
           mv artifacts/hql-windows.exe/hql-windows.exe .
           chmod +x hql-mac-arm hql-mac-intel hql-linux
 
+      - name: Generate checksums
+        run: |
+          sha256sum hql-mac-arm hql-mac-intel hql-linux hql-windows.exe > checksums.sha256
+          echo "Generated checksums:"
+          cat checksums.sha256
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -102,8 +108,10 @@ jobs:
             curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
             ```
 
-            **Windows:**
-            Download `hql-windows.exe` below and add to PATH.
+            **Windows (PowerShell):**
+            ```powershell
+            irm https://raw.githubusercontent.com/hlvm-dev/hql/main/install.ps1 | iex
+            ```
 
             ## What's Included
 
@@ -137,5 +145,6 @@ jobs:
             hql-mac-intel
             hql-linux
             hql-windows.exe
+            checksums.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

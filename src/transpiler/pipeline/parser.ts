@@ -16,6 +16,7 @@ import { getErrorMessage } from "../../common/utils.ts";
 import { HQLErrorCode } from "../../common/error-codes.ts";
 import { attachSourceLocation } from "../../common/syntax-error-handler.ts";
 import { readTextFileSync as platformReadTextFileSync } from "../../platform/platform.ts";
+import { FOR_LOOP_SYNTAX_KEYWORDS } from "../../common/known-identifiers.ts";
 
 enum TokenType {
   LeftParen,
@@ -767,7 +768,7 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
 
       // Special exception: loop keywords (to:, from:, by:) are NOT named-args
       // They're special form syntax for the 'for' construct
-      const isLoopKeyword = ["to:", "from:", "by:"].includes(tokenValue);
+      const isLoopKeyword = FOR_LOOP_SYNTAX_KEYWORDS.includes(tokenValue as typeof FOR_LOOP_SYNTAX_KEYWORDS[number]);
 
       if (isLoopKeyword) {
         // Parse loop keywords as regular symbols

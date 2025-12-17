@@ -86,6 +86,12 @@ detect_platform() {
             echo "hql-mac-intel"
         fi
     elif [ "$platform" = "linux" ]; then
+        if [ "$arch" = "arm" ]; then
+            print_error "Linux ARM64 is not yet supported"
+            print_info "Supported platforms: Linux x86_64, macOS (Intel/ARM), Windows"
+            print_info "Build from source: https://github.com/hlvm-dev/hql#building-from-source"
+            exit 1
+        fi
         echo "hql-linux"
     else
         echo "hql-windows.exe"

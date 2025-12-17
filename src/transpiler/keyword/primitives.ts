@@ -106,9 +106,25 @@ export const PRIMITIVE_DATA_STRUCTURE = new Set([
 ]);
 
 /**
- * Arithmetic operators - used for loop optimization checks.
+ * Arithmetic operators - used for loop optimization AND syntax highlighting.
  */
-export const ARITHMETIC_OPS = ["+", "-", "*", "/"] as const;
+export const ARITHMETIC_OPS = ["+", "-", "*", "/", "%", "**"] as const;
+
+/**
+ * Comparison operators - for syntax highlighting categorization.
+ */
+export const COMPARISON_OPS = ["===", "==", "!==", "!=", "<", ">", "<=", ">="] as const;
+
+/**
+ * Logical operators (symbol form) - for syntax highlighting categorization.
+ * Note: word-form (and, or, not) are in known-identifiers.ts WORD_LOGICAL_OPERATORS.
+ */
+export const LOGICAL_OPS = ["&&", "||", "!", "??"] as const;
+
+/**
+ * Bitwise operators - for syntax highlighting categorization.
+ */
+export const BITWISE_OPS = ["&", "|", "^", "~", "<<", ">>", ">>>"] as const;
 
 /**
  * First-class operators - can be used as values (passed to higher-order functions).
@@ -155,3 +171,13 @@ export const ALL_DECLARATION_BINDING_KEYWORDS = [
  * These are language constants that should never change.
  */
 export const JS_LITERAL_KEYWORDS = ["null", "undefined", "true", "false"] as const;
+
+/**
+ * HQL-specific constant keywords (in addition to JS literals).
+ */
+export const HQL_CONSTANT_KEYWORDS = ["nil"] as const;
+
+/**
+ * All constant keywords combined.
+ */
+export const ALL_CONSTANT_KEYWORDS = [...JS_LITERAL_KEYWORDS, ...HQL_CONSTANT_KEYWORDS] as const;

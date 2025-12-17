@@ -1,9 +1,12 @@
 // Shared runtime helper implementations used by both the runtime and transpiled output.
 // Keeping these definitions here ensures we have a single source of truth.
+//
+// NOTE: Do NOT use external imports in helper implementations!
+// These functions are stringified for embedding in transpiled code.
+// Any external references will cause "X is not defined" errors at runtime.
 
 import { lazySeq } from "../lib/stdlib/js/stdlib.js";
 import { rangeCore } from "./shared-core.ts";
-import { isNullish } from "./utils.ts";
 
 export function __hql_get(
   obj: unknown,
@@ -69,7 +72,7 @@ export function __hql_range(...args: number[]) {
 }
 
 export function __hql_toSequence(value: unknown): unknown[] {
-  if (isNullish(value)) return [];
+  if (value == null) return [];  // Inline check - don't use external imports!
   if (Array.isArray(value)) return value;
   if (typeof value === "number") {
     const result: number[] = [];

@@ -1,7 +1,7 @@
 # Operator Feature Documentation
 
-**Implementation:** Built-in operators (transpiler core) **Test Count:** 73
-tests (47 basic + 26 ternary) **Coverage:** ✅ 100%
+**Implementation:** Built-in operators (transpiler core)
+**Coverage:** ✅ 100%
 
 ## Overview
 
@@ -233,9 +233,9 @@ concatenation ✅ String properties and methods ✅ Combined expressions
 
 ## Test Coverage
 
-**Total Tests:** 73 (47 basic operators + 26 ternary)
 
-### Section 1: Arithmetic Operators (11 tests)
+
+### Section 1: Arithmetic Operators
 
 - Addition with integers
 - Addition with floats
@@ -249,7 +249,7 @@ concatenation ✅ String properties and methods ✅ Combined expressions
 - Modulo with integers
 - Nested arithmetic expressions
 
-### Section 2: Comparison Operators (12 tests)
+### Section 2: Comparison Operators
 
 - Less than (true and false cases)
 - Greater than (true and false cases)
@@ -259,23 +259,23 @@ concatenation ✅ String properties and methods ✅ Combined expressions
 - Equality with strings
 - Inequality (true and false cases)
 
-### Section 3: Logical Operators (8 tests)
+### Section 3: Logical Operators
 
 - Logical AND (all combinations)
 - Logical OR (all combinations)
 - Logical NOT (true and false)
 
-### Section 3.5: Ternary Operator (26 tests) - v2.0
+### Section 3.5: Ternary Operator - v2.0
 
-- Error validation (3 tests): too few/many/no arguments
-- Basic operations (5 tests): true/false conditions, comparisons, function calls, arithmetic
-- Falsy values (5 tests): false, 0, empty string, null, undefined
-- Nested ternaries (4 tests): nested in then/else branches, 3-level nesting, multiple in expression
-- Different contexts (4 tests): let binding, function return, array/object values
-- Return values (3 tests): null and undefined from branches
-- Side effect evaluation (2 tests): only then-branch or else-branch executes
+- Error validation: too few/many/no arguments
+- Basic operations: true/false conditions, comparisons, function calls, arithmetic
+- Falsy values: false, 0, empty string, null, undefined
+- Nested ternaries: nested in then/else branches, 3-level nesting, multiple in expression
+- Different contexts: let binding, function return, array/object values
+- Return values: null and undefined from branches
+- Side effect evaluation: only then-branch or else-branch executes
 
-### Section 4: Primitive Types (9 tests)
+### Section 4: Primitive Types
 
 - Integer numbers
 - Floating-point numbers
@@ -287,13 +287,13 @@ concatenation ✅ String properties and methods ✅ Combined expressions
 - Null value
 - Undefined value
 
-### Section 5: String Operations (3 tests)
+### Section 5: String Operations
 
 - String concatenation with +
 - String length property
 - String charAt method
 
-### Section 6: Combined Expressions (4 tests)
+### Section 6: Combined Expressions
 
 - Arithmetic with comparison
 - Comparison with logical operators

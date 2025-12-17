@@ -1,7 +1,6 @@
 # HQL Standard Library
 
-**Location:** `core/lib/stdlib/js/stdlib.js` **Tests:** 9 test files, 436 tests
-**Status:** ✅ Production ready
+**Location:** `src/lib/stdlib/js/stdlib.js`
 
 ---
 
@@ -10,12 +9,6 @@
 HQL's standard library provides functional programming utilities for working
 with collections, sequences, and data transformations. All functions are lazy by
 default and support both arrays and lazy sequences.
-
-**Import:**
-
-```typescript
-const stdlib = await import("core/lib/stdlib/js/stdlib.js");
-```
 
 ---
 
@@ -31,8 +24,6 @@ Returns the first element of a collection.
 (first [])             ;; → undefined
 ```
 
-**Tested:** 5 tests (arrays, strings, empty, null, lazy sequences)
-
 ---
 
 ### `rest(coll)`
@@ -45,8 +36,7 @@ Returns all but the first element as a lazy sequence.
 (rest [])              ;; → ()
 ```
 
-**Lazy:** Yes - returns lazy sequence **Tested:** 6 tests (arrays, empty, lazy
-sequences)
+**Lazy:** Yes
 
 ---
 
@@ -59,7 +49,7 @@ Prepends an item to a collection, returning a lazy sequence.
 (cons 0 [])            ;; → (0)
 ```
 
-**Lazy:** Yes **Tested:** 4 tests
+**Lazy:** Yes
 
 ---
 
@@ -75,7 +65,7 @@ Takes the first `n` elements from a collection as a lazy sequence.
 (take 0 [1 2])         ;; → ()
 ```
 
-**Lazy:** Yes **Tested:** 5 tests (basic, empty, zero, lazy chains)
+**Lazy:** Yes
 
 ---
 
@@ -88,7 +78,7 @@ Drops the first `n` elements from a collection, returning lazy sequence.
 (drop 10 [1 2])        ;; → ()
 ```
 
-**Lazy:** Yes **Tested:** 4 tests
+**Lazy:** Yes
 
 ---
 
@@ -102,7 +92,7 @@ Concatenates multiple collections into a lazy sequence.
 (concat [1] [] [2])    ;; → (1 2)
 ```
 
-**Lazy:** Yes **Tested:** 5 tests
+**Lazy:** Yes
 
 ---
 
@@ -116,7 +106,7 @@ Flattens nested collections one level deep.
 (flatten [[[1]] [2]])        ;; → ([1] 2) ; only one level
 ```
 
-**Lazy:** Yes **Tested:** 3 tests
+**Lazy:** Yes
 
 ---
 
@@ -129,7 +119,7 @@ Returns lazy sequence of unique elements (preserves first occurrence).
 (distinct "hello")           ;; → ("h" "e" "l" "o")
 ```
 
-**Lazy:** Yes **Tested:** 3 tests
+**Lazy:** Yes
 
 ---
 
@@ -143,7 +133,7 @@ Generates a lazy sequence of numbers.
 (range 0 10 2)               ;; → (0 2 4 6 8)
 ```
 
-**Lazy:** Yes **Tested:** 4 tests
+**Lazy:** Yes
 
 ---
 
@@ -158,7 +148,7 @@ Applies function to each element, returning lazy sequence.
 (map str [1 2 3])                  ;; → ("1" "2" "3")
 ```
 
-**Lazy:** Yes **Tested:** 87 tests (in stdlib-fundamentals)
+**Lazy:** Yes
 
 ---
 
@@ -171,7 +161,7 @@ Returns lazy sequence of elements satisfying predicate.
 (filter (fn [x] (> x 5)) [3 6 9])  ;; → (6 9)
 ```
 
-**Lazy:** Yes **Tested:** Multiple tests
+**Lazy:** Yes
 
 ---
 
@@ -184,7 +174,7 @@ Reduces collection to single value.
 (reduce * 1 [1 2 3 4])             ;; → 24
 ```
 
-**Lazy:** No (must realize entire collection) **Tested:** Multiple tests
+**Lazy:** No (must realize entire collection)
 
 ---
 
@@ -200,8 +190,6 @@ Returns true if collection is empty.
 (isEmpty nil)                      ;; → true
 ```
 
-**Tested:** 3 tests
-
 ---
 
 ### `some(pred, coll)`
@@ -212,8 +200,6 @@ Returns true if any element satisfies predicate.
 (some even? [1 3 5])               ;; → false
 (some even? [1 2 3])               ;; → true
 ```
-
-**Tested:** Multiple tests
 
 ---
 
@@ -228,8 +214,7 @@ Forces realization of lazy sequence, returning array.
 (doall (map inc [1 2 3]))          ;; → [2 3 4]
 ```
 
-**Use:** When you need an actual array instead of lazy sequence **Tested:**
-Multiple tests
+**Use:** When you need an actual array instead of lazy sequence
 
 ---
 
@@ -244,8 +229,6 @@ Checks if a sequence has been realized.
 (realized lazySeq)                 ;; → true
 ```
 
-**Tested:** Multiple tests
-
 ---
 
 ## Higher-Order Functions
@@ -259,8 +242,6 @@ Composes functions right-to-left.
 (addThenDouble 5)                  ;; → 12  ; (5 + 1) * 2
 ```
 
-**Tested:** Multiple tests
-
 ---
 
 ### `partial(fn, ...args)`
@@ -273,8 +254,6 @@ Partially applies arguments to a function.
 (add10 20)                         ;; → 30
 ```
 
-**Tested:** Multiple tests
-
 ---
 
 ### `apply(fn, args)`
@@ -286,13 +265,9 @@ Applies function to array of arguments.
 (apply max [5 2 9 1])              ;; → 9
 ```
 
-**Tested:** Multiple tests
-
 ---
 
 ## Map Operations
-
-**Test File:** `test/stdlib-map-ops.test.ts` (93 tests)
 
 ### `assoc(map, key, value)`
 
@@ -356,8 +331,6 @@ Groups collection by result of function.
 ;; → {1: ["a"], 2: ["bb", "dd"], 3: ["ccc"]}
 ```
 
-**Tested:** Multiple tests
-
 ---
 
 ## Generators
@@ -371,7 +344,7 @@ Generates infinite lazy sequence by repeatedly applying function.
 (take 4 (iterate (fn [x] (* x 2)) 1))     ;; → (1 2 4 8)
 ```
 
-**Lazy:** Yes (infinite sequence!) **Tested:** Multiple tests
+**Lazy:** Yes (infinite sequence!)
 
 ---
 
@@ -387,7 +360,7 @@ Returns count of elements in collection.
 (count [])                         ;; → 0
 ```
 
-**Note:** Forces realization of lazy sequences **Tested:** Multiple tests
+**Note:** Forces realization of lazy sequences
 
 ---
 
@@ -401,8 +374,6 @@ Returns element at index n.
 (nth [1 2 3] 10 "n/a")             ;; → "n/a"
 ```
 
-**Tested:** Multiple tests
-
 ---
 
 ### `last(coll)`
@@ -414,7 +385,7 @@ Returns last element of collection.
 (last [])                          ;; → undefined
 ```
 
-**Note:** Forces realization of lazy sequences **Tested:** Multiple tests
+**Note:** Forces realization of lazy sequences
 
 ---
 
@@ -427,8 +398,6 @@ Returns second element of collection.
 (second [1])                       ;; → undefined
 ```
 
-**Tested:** Multiple tests
-
 ---
 
 ### `vec(coll)`
@@ -440,7 +409,7 @@ Converts collection to vector (array).
 (vec "hello")                      ;; → ["h" "e" "l" "l" "o"]
 ```
 
-**Same as:** `doall` **Tested:** Multiple tests
+**Same as:** `doall`
 
 ---
 
@@ -452,13 +421,9 @@ Converts collection to set (unique values).
 (set [1 2 2 3 1])                  ;; → Set{1, 2, 3}
 ```
 
-**Tested:** Multiple tests
-
 ---
 
 ## Conversions
-
-**Test File:** `test/stdlib-conversions.test.ts` (20 tests)
 
 ### String Conversions
 
@@ -472,58 +437,6 @@ Converts collection to set (unique values).
 - `vec(coll)` - Convert to vector/array
 - `set(coll)` - Convert to set
 - `list(coll)` - Convert to list
-
-**Tested:** 20 tests covering all conversions
-
----
-
-## Autoloading
-
-**Test File:** `test/stdlib-autoload.test.ts` (28 tests)
-
-The stdlib supports automatic loading and initialization:
-
-- Functions are available without explicit imports
-- Lazy sequences are auto-realized when needed
-- Performance optimization for repeated calls
-
-**Tested:** 28 tests
-
----
-
-## Week-by-Week Coverage
-
-Additional functions documented across weekly test files:
-
-### Week 1 (45 tests)
-
-- Basic sequence operations
-- Collection fundamentals
-- Predicate functions
-
-### Week 2 (54 tests)
-
-- Advanced transformations
-- Nested operations
-- Error handling
-
-### Week 3 (49 tests)
-
-- Map operations deep-dive
-- Immutability patterns
-- Performance tests
-
-### Week 4 (30 tests)
-
-- Higher-order functions
-- Function composition
-- Currying patterns
-
-### Week 5 (30 tests)
-
-- Lazy evaluation edge cases
-- Memory efficiency
-- Stream processing
 
 ---
 
@@ -565,33 +478,22 @@ Some operations create infinite sequences - always limit them:
 Run stdlib tests:
 
 ```bash
-# All stdlib tests (436 tests)
-deno task test:stdlib
-
-# Individual test files
-deno test --allow-all test/stdlib-fundamentals.test.ts
-deno test --allow-all test/stdlib-map-ops.test.ts
+deno task test:unit
 ```
 
 ---
 
 ## Summary
 
-**Total Functions:** 40+ documented **Test Coverage:** 436 tests across 9 test
-files **Paradigm:** Functional, lazy, immutable **Status:** ✅ Production ready
-
 All stdlib functions are:
 
-- ✅ Tested with comprehensive test suite
-- ✅ Lazy by default (where applicable)
-- ✅ Immutable (return new values, don't mutate)
-- ✅ Composable (work well together)
-- ✅ Performance-optimized
+- Lazy by default (where applicable)
+- Immutable (return new values, don't mutate)
+- Composable (work well together)
 
 ---
 
 **See Also:**
 
-- [Built-in Functions](./builtins.md) - Runtime built-ins (+, -, *, get,
-  js-call)
+- [Built-in Functions](./builtins.md) - Runtime built-ins (+, -, *, get, js-call)
 - [Runtime API](./runtime.md) - HQL runtime environment

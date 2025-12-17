@@ -1,8 +1,7 @@
 # HQL Module System
 
 This document explains how the HQL runtime resolves modules, tracks circular
-imports, and exposes exports to user code. It complements the specs in
-`doc/specs/hql_module.md` with concrete runtime detail.
+imports, and exposes exports to user code.
 
 ---
 
@@ -85,17 +84,6 @@ multi-hop cycles.
   environment.
 - Exports are recorded in the global symbol table so tooling/linters can
   introspect available bindings.
-
----
-
-## Interaction with the Build Tool
-
-`core/build.ts` relies on the same module resolution logic as the runtime. This
-means:
-
-- Build outputs preserve circular dependencies without manual shims.
-- Metadata generation correctly tracks which files participate in the graph.
-- Subsequent builds reuse cached `.mjs` files, improving performance.
 
 ---
 

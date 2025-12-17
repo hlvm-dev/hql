@@ -1,7 +1,7 @@
 # Class Feature Documentation
 
-**Implementation:** Transpiler class syntax transformers **Test Count:** 32
-tests **Coverage:** ✅ 100%
+**Implementation:** Transpiler class syntax transformers
+**Coverage:** ✅ 100%
 
 ## Overview
 
@@ -292,21 +292,21 @@ in nested expressions ✅ Method returns object literal
 
 ## Test Coverage
 
-**Total Tests:** 32
 
-### Section 1: Basic Class Definition (2 tests)
+
+### Section 1: Basic Class Definition
 
 - Empty class
 - Simple class with constructor
 
-### Section 2: Constructor Behavior (4 tests)
+### Section 2: Constructor Behavior
 
 - Single parameter
 - Multiple parameters
 - Computations in constructor
 - Empty constructor
 
-### Section 3: Methods (8 tests)
+### Section 3: Methods
 
 - Without parameters
 - With single parameter
@@ -317,7 +317,7 @@ in nested expressions ✅ Method returns object literal
 - Return statement
 - Various signatures
 
-### Section 4: Field Declarations (5 tests)
+### Section 4: Field Declarations
 
 - Mutable field (var)
 - Immutable field (let)
@@ -325,24 +325,24 @@ in nested expressions ✅ Method returns object literal
 - Let with default value
 - Mixed var and let fields
 
-### Section 5: Property Access & Modification (3 tests)
+### Section 5: Property Access & Modification
 
 - Dot notation access
 - Modify existing property
 - Add new property
 
-### Section 6: Multiple Instances (2 tests)
+### Section 6: Multiple Instances
 
 - First instance independence
 - Second instance independence
 
-### Section 7: Method Default Parameters (3 tests)
+### Section 7: Method Default Parameters
 
 - All defaults used
 - One default used
 - No defaults used
 
-### Section 8: Complex Scenarios (4 tests)
+### Section 8: Complex Scenarios
 
 - Method returns self
 - Multi-property computation

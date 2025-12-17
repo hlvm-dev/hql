@@ -1,7 +1,7 @@
 # Function Feature Documentation
 
-**Implementation:** Transpiler function syntax transformers **Test Count:** 95
-tests **Coverage:** ✅ 100%
+**Implementation:** Transpiler function syntax transformers
+**Coverage:** ✅ 100%
 
 > **📋 Source of Truth:** See [`spec.md`](./spec.md) for the definitive THESIS on function parameter syntax (two styles: `[]` positional and `{}` JSON map).
 
@@ -411,9 +411,9 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 
 ## Test Coverage
 
-**Total Tests:** 95
 
-### Section 1: Basic Functions (15 tests)
+
+### Section 1: Basic Functions
 
 - Simple definition
 - Parameters (none, single, multiple)
@@ -424,7 +424,7 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 - Closures
 - IIFE
 
-### Section 2: Arrow Lambda Shorthand (26 tests)
+### Section 2: Arrow Lambda Shorthand
 
 - Implicit parameters (`$0`, `$1`, `$2`)
 - Single, multiple, and gaps in parameter usage
@@ -436,32 +436,32 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 - Real-world use cases (sort, find, transform)
 - Edge cases (empty params, nested structures)
 
-### Section 3: Default Parameters (6 tests)
+### Section 3: Default Parameters
 
 - All defaults used
 - Override parameters
 - Placeholder usage
 - Single param defaults
 
-### Section 4: JSON Map Parameters (3 tests)
+### Section 4: JSON Map Parameters
 
 - All defaults used
 - Partial override
 - Full override
 
-### Section 5: Rest Parameters (4 tests)
+### Section 5: Rest Parameters
 
 - Rest only
 - With regular params
 - Empty rest array
 - Accessing rest properties
 
-### Section 6: Placeholders (2 tests)
+### Section 6: Placeholders
 
 - Multiple placeholders
 - All placeholders
 
-### Section 7: Return Statements (15 tests)
+### Section 7: Return Statements
 
 - Implicit returns
 - Explicit returns

@@ -2,7 +2,7 @@
 
 import { InterpreterEnv } from "./environment.ts";
 import type { HQLValue, BuiltinFn } from "./types.ts";
-import { isHQLFunction, isSExp } from "./types.ts";
+import { isSExp } from "./types.ts";
 import { ArityError, TypeError, getTypeName } from "./errors.ts";
 import { gensym, GensymSymbol } from "../gensym.ts";
 import { BUILTIN_MARKER } from "./stdlib-bridge.ts";
@@ -54,21 +54,10 @@ export function loadBuiltins(env: InterpreterEnv): void {
   env.define("<=", tagBuiltin(builtinLte));
   env.define(">=", tagBuiltin(builtinGte));
 
-  // Type predicates
-  env.define("nil?", tagBuiltin(builtinIsNil));
-  env.define("isNil", tagBuiltin(builtinIsNil));
-  env.define("number?", tagBuiltin(builtinIsNumber));
-  env.define("isNumber", tagBuiltin(builtinIsNumber));
-  env.define("string?", tagBuiltin(builtinIsString));
-  env.define("isString", tagBuiltin(builtinIsString));
-  env.define("boolean?", tagBuiltin(builtinIsBoolean));
-  env.define("isBoolean", tagBuiltin(builtinIsBoolean));
-  env.define("function?", tagBuiltin(builtinIsFunction));
-  env.define("isFunction", tagBuiltin(builtinIsFunction));
-  env.define("list?", tagBuiltin(builtinIsList));
-  env.define("symbol?", tagBuiltin(builtinIsSymbol));
-  env.define("array?", tagBuiltin(builtinIsArray));
-  env.define("isArray", tagBuiltin(builtinIsArray));
+  // S-expression type predicates (interpreter-only, for macro AST inspection)
+  // Note: isNil, isNumber, isString, isBoolean, isFunction, isArray are in stdlib (core.js)
+  env.define("isList", tagBuiltin(builtinIsList));
+  env.define("isSymbol", tagBuiltin(builtinIsSymbol));
 
   // S-expression operations (macro-time helpers)
   // These work directly with S-expression AST nodes, unlike stdlib versions
@@ -228,49 +217,20 @@ const builtinLte = makeNumericComparison("<=", (a, b) => a <= b);
 const builtinGte = makeNumericComparison(">=", (a, b) => a >= b);
 
 // ============================================================================
-// Type Predicates
+// S-Expression Type Predicates (for macro AST inspection)
+// Note: General type predicates (isNil, isNumber, etc.) are in stdlib (core.js)
 // ============================================================================
 
-const builtinIsNil: BuiltinFn = (args) => {
-  if (args.length !== 1) throw new ArityError("nil?", 1, args.length);
-  return args[0] === null;
-};
-
-const builtinIsNumber: BuiltinFn = (args) => {
-  if (args.length !== 1) throw new ArityError("number?", 1, args.length);
-  return typeof args[0] === "number";
-};
-
-const builtinIsString: BuiltinFn = (args) => {
-  if (args.length !== 1) throw new ArityError("string?", 1, args.length);
-  return typeof args[0] === "string";
-};
-
-const builtinIsBoolean: BuiltinFn = (args) => {
-  if (args.length !== 1) throw new ArityError("boolean?", 1, args.length);
-  return typeof args[0] === "boolean";
-};
-
-const builtinIsFunction: BuiltinFn = (args) => {
-  if (args.length !== 1) throw new ArityError("function?", 1, args.length);
-  return isHQLFunction(args[0]) || typeof args[0] === "function";
-};
-
 const builtinIsList: BuiltinFn = (args) => {
-  if (args.length !== 1) throw new ArityError("list?", 1, args.length);
+  if (args.length !== 1) throw new ArityError("isList", 1, args.length);
   const val = args[0];
   return isSExp(val) && isList(val);
 };
 
 const builtinIsSymbol: BuiltinFn = (args) => {
-  if (args.length !== 1) throw new ArityError("symbol?", 1, args.length);
+  if (args.length !== 1) throw new ArityError("isSymbol", 1, args.length);
   const val = args[0];
   return isSExp(val) && isSymbol(val);
-};
-
-const builtinIsArray: BuiltinFn = (args) => {
-  if (args.length !== 1) throw new ArityError("array?", 1, args.length);
-  return Array.isArray(args[0]);
 };
 
 // ============================================================================

@@ -27,7 +27,6 @@ Verify:
 
 ```bash
 ./hql --version
-# HQL CLI version 0.1.0
 ```
 
 ## Build Commands
@@ -252,7 +251,7 @@ deno run --allow-all src/cli/cli.ts run test.hql
 
 ### GitHub Actions
 
-See `.github/workflows/build.yml` for automated builds.
+See `.github/workflows/release.yml` for automated builds.
 
 ### Build Matrix
 

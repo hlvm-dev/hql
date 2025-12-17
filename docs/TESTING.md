@@ -14,25 +14,16 @@ This runs basic smoke tests.
 
 ## Running HQL's Test Suite
 
-HQL has 1457 tests covering all language features.
-
 ### Run All Tests
 
 ```bash
-hql test
-```
-
-Expected output:
-
-```
-ok | 1457 passed | 0 failed (6s)
+deno task test:unit
 ```
 
 ### Run Specific Test Files
 
 ```bash
-hql test tests/syntax-ternary.test.ts
-hql test tests/stdlib.test.ts
+deno test --allow-all tests/unit/syntax-ternary.test.ts
 ```
 
 ### Watch Mode
@@ -40,15 +31,7 @@ hql test tests/stdlib.test.ts
 Rerun tests on file changes:
 
 ```bash
-hql test --watch
-```
-
-### Coverage
-
-Generate coverage report:
-
-```bash
-hql test --coverage
+deno task test:watch
 ```
 
 ## Test Structure
@@ -57,11 +40,13 @@ hql test --coverage
 
 ```
 tests/
-├── syntax-*.test.ts       # Syntax tests
-├── stdlib.test.ts         # Standard library tests
-├── macro.test.ts          # Macro tests
-├── js-interop.test.ts     # JavaScript interop tests
-└── integration.test.ts    # Integration tests
+├── unit/                  # Unit tests
+│   ├── syntax-*.test.ts   # Syntax tests
+│   ├── stdlib-*.test.ts   # Standard library tests
+│   ├── macro-*.test.ts    # Macro tests
+│   └── organized/         # Feature-organized tests
+├── binary/                # Binary/CLI tests
+└── e2e/                   # End-to-end tests
 ```
 
 ### Example Test
@@ -134,7 +119,7 @@ Deno.test("division by zero throws", async () => {
 Deno.test("async operations work", async () => {
   const result = await run(`
     (fn async-double [x]
-      (await (js-call Promise.resolve (* x 2))))
+      (await (Promise.resolve (* x 2))))
     (await (async-double 5))
   `);
   assertEquals(result, 10);
@@ -227,7 +212,7 @@ hql run --time script.hql
 Profile compilation:
 
 ```bash
-hql transpile --time --verbose script.hql
+hql compile --time --verbose script.hql
 ```
 
 ## Continuous Integration
@@ -240,7 +225,7 @@ Tests run automatically on:
 - Pull requests
 - Releases
 
-See `.github/workflows/test.yml`.
+See `.github/workflows/release.yml`.
 
 ### Local CI Simulation
 
@@ -313,7 +298,7 @@ Deno.test("file operations", async () => {
   try {
     const result = await run(`
       (import fs from "npm:fs/promises")
-      (await (js-call fs.readFile "/tmp/test.txt" "utf-8"))
+      (await (fs.readFile "/tmp/test.txt" "utf-8"))
     `);
     assertEquals(result, "hello");
   } finally {
@@ -328,36 +313,22 @@ Deno.test("file operations", async () => {
 ### Verbose Output
 
 ```bash
-hql test --verbose
+deno test --allow-all tests/unit/
 ```
 
 ### Single Test
 
 ```bash
-hql test tests/specific.test.ts
+deno test --allow-all tests/unit/specific.test.ts
 ```
 
 ### Debug Mode
 
 ```bash
-hql test --debug
+HQL_DEBUG=1 deno test --allow-all tests/unit/
 ```
 
-Shows:
-
-- Stack traces
-- Compilation steps
-- Execution details
-
 ## Test Coverage Goals
-
-Current coverage:
-
-- Syntax: 100%
-- Standard library: 100%
-- JavaScript interop: 100%
-- Macros: 100%
-- Error handling: 95%
 
 All features must have tests.
 

@@ -21,9 +21,9 @@ HQL uses GitHub Actions to automatically build and release binaries for all plat
 **Step 1: Update Version**
 
 Update version in:
+- `mod.ts` (export const version)
 - `deno.json` (version field)
 - `Makefile` (VERSION variable)
-- `src/version.ts` (if exists)
 
 **Step 2: Commit Changes**
 

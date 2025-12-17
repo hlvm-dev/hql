@@ -1,7 +1,7 @@
 # Macro Feature Documentation
 
 **Implementation:** Transpiler macro system and quote transformers **Test
-Count:** 20 tests **Coverage:** ✅ 100%
+Count:** **Coverage:** ✅ 100%
 
 ## Overview
 
@@ -194,9 +194,9 @@ unquote
 
 ## Test Coverage
 
-**Total Tests:** 20
 
-### Section 1: Quote - Preventing Evaluation (8 tests)
+
+### Section 1: Quote - Preventing Evaluation
 
 - Quote symbol returns string
 - Quote number returns number
@@ -207,7 +207,7 @@ unquote
 - Quote list of symbols
 - Quote nested list
 
-### Section 2: Quasiquote - Template with Interpolation (5 tests)
+### Section 2: Quasiquote - Template with Interpolation
 
 - Quasiquote without unquote (like quote)
 - Quasiquote with unquote (evaluation)
@@ -215,18 +215,18 @@ unquote
 - Unquote-splicing
 - Multiple unquote-splicings
 
-### Section 3: Backtick Syntax (3 tests)
+### Section 3: Backtick Syntax
 
 - Backtick without tilde (like quote)
 - Backtick with tilde (~) for unquote
 - Backtick with ~@ for unquote-splicing
 
-### Section 4: Quote in Macro Contexts (2 tests)
+### Section 4: Quote in Macro Contexts
 
 - Macro using quasiquote and unquote
 - Macro with unquote-splicing for variadic arguments
 
-### Section 5: Nested Quasiquotes (2 tests)
+### Section 5: Nested Quasiquotes
 
 - Nested quasiquote with unquote
 - Quasiquote with complex expression

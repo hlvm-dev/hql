@@ -1,6 +1,6 @@
 # Template Literals Feature Documentation
 
-**Implementation:** Built-in syntax (transpiler core) **Test Count:** 30 tests **Coverage:** ✅ 100% **Version:** v2.0
+**Implementation:** Built-in syntax (transpiler core) **Coverage:** ✅ 100% **Version:** v2.0
 
 ## Overview
 
@@ -132,25 +132,25 @@ Template literals follow JavaScript's `toString()` coercion rules:
 
 ## Test Coverage
 
-**Total Tests:** 30
 
-### Section 1: Basic Template Literals (3 tests)
+
+### Section 1: Basic Template Literals
 - Plain string
 - Empty string
 - String with spaces
 
-### Section 2: Single Interpolation (4 tests)
+### Section 2: Single Interpolation
 - Interpolation at beginning
 - Interpolation in middle
 - Interpolation at end
 - Only interpolation (no surrounding text)
 
-### Section 3: Multiple Interpolations (3 tests)
+### Section 3: Multiple Interpolations
 - Two interpolations
 - Three interpolations
 - Consecutive interpolations (no text between)
 
-### Section 4: Expressions in Interpolations (6 tests)
+### Section 4: Expressions in Interpolations
 - Arithmetic expressions
 - Variable references
 - Function calls
@@ -158,7 +158,7 @@ Template literals follow JavaScript's `toString()` coercion rules:
 - Complex calculations
 - Method calls
 
-### Section 5: Type Coercion (7 tests)
+### Section 5: Type Coercion
 - Numbers to strings
 - Booleans to strings
 - Arrays to strings
@@ -167,7 +167,7 @@ Template literals follow JavaScript's `toString()` coercion rules:
 - Undefined to string
 - Mixed types
 
-### Section 6: Edge Cases (7 tests)
+### Section 6: Edge Cases
 - Empty interpolations
 - Whitespace handling
 - Escape sequences

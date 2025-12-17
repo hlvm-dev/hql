@@ -1,6 +1,6 @@
 # Loop Feature Documentation
 
-**Implementation:** Transpiler loop transformers **Test Count:** 23 tests
+**Implementation:** Transpiler loop transformers
 **Coverage:** ✅ 100%
 
 ## Overview
@@ -257,9 +257,9 @@ For with named from: to: by: syntax ✅ For collection iteration
 
 ## Test Coverage
 
-**Total Tests:** 23
 
-### Section 1: Loop/Recur (10 tests)
+
+### Section 1: Loop/Recur
 
 - Basic loop with recur
 - Loop with multiple bindings
@@ -272,19 +272,19 @@ For with named from: to: by: syntax ✅ For collection iteration
 - Tail-call optimization pattern
 - Nested loop simulation
 
-### Section 2: While Loop (3 tests)
+### Section 2: While Loop
 
 - Basic while loop
 - While loop with array operations
 - While loop early termination
 
-### Section 3: Repeat Loop (3 tests)
+### Section 3: Repeat Loop
 
 - Basic repeat loop
 - Repeat with multiple expressions
 - Repeat with counter accumulation
 
-### Section 4: For Loop (7 tests)
+### Section 4: For Loop
 
 - Single arg range (0 to n-1)
 - Two arg range (start to end-1)

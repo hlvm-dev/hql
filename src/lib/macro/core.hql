@@ -24,13 +24,8 @@
 (macro list [& items]
   `[~@items])
 
-(macro nil? [x]
-  `(=== ~x null))
-
-(macro empty? [coll]
-  `(if (nil? ~coll)
-       true
-       (=== (length ~coll) 0)))
+;; REMOVED: nil? - use isNil instead (camelCase convention)
+;; REMOVED: empty? - use isEmpty from stdlib instead (camelCase convention)
 
 ;; ----------------------------------------
 ;; JavaScript-Style Type Predicates
@@ -78,6 +73,10 @@
   `(&& (&& (=== (typeof ~x) "object")
            (!== ~x null))
        (! (Array.isArray ~x))))
+
+;; Numeric predicates: isEven, isOdd, isZero, isPositive, isNegative
+;; These are FUNCTIONS in stdlib (core.js), not macros.
+;; Functions can be passed to higher-order functions like filter/map.
 
 ;; ----------------------------------------
 ;; camelCase Aliases for Lisp-Style Macros
@@ -160,7 +159,7 @@
     ((=== (%length args) 1) `(+ "" ~(%first args)))
     (true `(+ ~@args))))
 
-(macro contains? [coll key]
+(macro contains [coll key]
   `(js-call ~coll "has" ~key))
 
 ;; NOTE: nth is in STDLIB - handles LazySeq properly
@@ -186,10 +185,10 @@
 
 ;; NOTE: second is in STDLIB - handles LazySeq properly
 
-(macro rest? [coll]
+(macro hasElements [coll]
   `(> (length ~coll) 0))
 
-(macro empty-list? [coll]
+(macro isEmptyList [coll]
   `(=== (length ~coll) 0))
 
 ;; NOTE: seq is in STDLIB - handles LazySeq properly

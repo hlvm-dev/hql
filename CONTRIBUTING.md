@@ -29,16 +29,13 @@ Run the test suite:
 make test
 ```
 
-Expected output:
-```
-ok | 1457 passed | 0 failed
-```
+All tests should pass.
 
 ## Making Changes
 
 ### Code Style
 
-- Follow existing code patterns
+- Follow existing code patterns (see [Style Guide](./docs/style-guide.md))
 - Add tests for new features
 - Update documentation
 
@@ -60,8 +57,8 @@ All tests must pass.
 Update relevant documentation:
 - `README.md` - If changing core features
 - `docs/MANUAL.md` - For new language features
-- `doc/api/` - For API changes
-- `doc/features/` - For feature examples
+- `docs/api/` - For API changes
+- `docs/features/` - For feature examples
 
 ## Submitting Changes
 
@@ -90,6 +87,10 @@ Include:
 - Operating system
 - Steps to reproduce
 - Expected vs actual behavior
+
+## Releases
+
+See [Release Guide](./docs/RELEASING.md) for release process.
 
 ## Community
 

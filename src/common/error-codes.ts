@@ -649,7 +649,7 @@ const ERROR_INFO: Record<HQLErrorCode, ErrorInfo> = {
       "Reserved name used",
     ],
     fixes: [
-      "Use correct syntax: (defmacro name [params] body)",
+      "Use correct syntax: (macro name [params] body)",
       "Ensure parameters use valid syntax",
       "Choose non-reserved name for macro",
     ],

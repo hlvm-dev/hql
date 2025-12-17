@@ -451,6 +451,6 @@ Following **Clojure's battle-tested approach:**
 
 ## Further Reading
 
-- `doc/features/06-function/README.md` - Function feature documentation
-- `doc/features/06-function/spec.md` - Detailed function specification
+- `docs/features/06-function/README.md` - Function feature documentation
+- `docs/features/06-function/spec.md` - Detailed function specification
 - `test/organized/syntax/function/` - Comprehensive test examples

@@ -240,45 +240,9 @@ Deno.test("Helper Embedding: __hql_hash_map is embedded when map literal is used
 // HQL throw expressions are transpiled to native JavaScript throw statements, not helper calls.
 // Therefore, there is no embedding test for __hql_throw - it would be pointless testing.
 
-Deno.test("Helper Embedding: for loop over collection generates native for-of loop", async () => {
-  // Collection iteration syntax (x coll) is now optimized to native for-of loops
-  // This is more efficient and supports early returns correctly
-  const hqlCode = `(var result []) (for [x [1 2 3]] (.push result x)) result`;
-  const result = await transpile(hqlCode);
-  const code = typeof result === 'string' ? result : result.code || '';
-
-  // Verify native for-of loop is generated
-  assertEquals(
-    code.includes("for (const x of"),
-    true,
-    "Collection iteration should be transpiled to native for-of loop"
-  );
-
-  // __hql_for_each is no longer needed for simple collection iteration
-  // The native for-of loop handles all iterables including arrays and LazySeqs
-});
-
-Deno.test("Helper Embedding: numeric range loops are optimized to native for loops", async () => {
-  // Numeric range loops are optimized to native for loops
-  // No helpers needed - pure native JavaScript
-  const hqlCode = `(for [i 0 10] i)`;
-  const result = await transpile(hqlCode);
-  const code = typeof result === 'string' ? result : result.code || '';
-
-  // Verify native for loop is generated with numeric initialization
-  assertEquals(
-    code.includes("for (let i = 0; i < 10;"),
-    true,
-    "Numeric range loops should be transpiled to native for loops"
-  );
-
-  // Verify i++ is used (standard increment)
-  assertEquals(
-    code.includes("i++)"),
-    true,
-    "Numeric range loops should use standard increment"
-  );
-});
+// NOTE: For-loop optimizer tests were removed. Pattern-specific optimizers (for-loop-optimizer,
+// pipeline-optimizer) were removed in favor of future lazy sequence implementation.
+// The for loop functionality still works via __hql_for_each runtime helper.
 
 Deno.test("Helper Embedding: __hql_getNumeric alias is set when __hql_get is embedded", async () => {
   const hqlCode = `(get {"a": 1} "a")`;

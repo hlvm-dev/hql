@@ -118,7 +118,10 @@ const ERROR_INITIALIZE = "initialize";
 export interface BundleOptions {
   verbose?: boolean;
   standalone?: boolean;
+  /** Enable minification (default: false for dev, true for --release) */
   minify?: boolean;
+  /** Source map generation: "inline" | "external" | false (default: "inline") */
+  sourcemap?: "inline" | "external" | boolean;
   outDir?: string;
   tempDir?: string;
   keepTemp?: boolean;
@@ -155,6 +158,10 @@ export async function transpileCLI(
     external?: string[];
     esbuildTarget?: string | string[];
     skipBundle?: boolean; // Skip bundling step (just transpile)
+    /** Enable minification (default: false, true with --release) */
+    minify?: boolean;
+    /** Source map generation (default: "inline") */
+    sourcemap?: "inline" | "external" | boolean;
   } = {},
 ): Promise<string> {
   configureLogger(options);
@@ -809,13 +816,22 @@ async function bundleWithEsbuild(
       : ["es2020"];
     const external = options.external ?? [];
 
+    // Resolve sourcemap option: default to "inline" if not specified
+    const sourcemapOption = options.sourcemap === undefined
+      ? "inline" as const
+      : options.sourcemap === true
+        ? "inline" as const
+        : options.sourcemap === false
+          ? false
+          : options.sourcemap;
+
     const buildOptions: BuildOptions = {
       entryPoints: [entryPath],
       bundle: true,
       outfile: outputPath,
       format: "esm",
       logLevel,
-      minify: false, // options.minify !== false,
+      minify: options.minify ?? false,  // Default: false (dev mode)
       treeShaking: true,
       platform: "neutral",
       target,
@@ -831,8 +847,7 @@ async function bundleWithEsbuild(
         ".js": "js" as const,
         ".hql": "ts" as const,
       },
-      // Always force inline source maps for the final bundle
-      sourcemap: "inline" as const,
+      sourcemap: sourcemapOption,
       // Enable TypeScript processing
       tsconfig: JSON.stringify({
         compilerOptions: {

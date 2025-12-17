@@ -2017,6 +2017,114 @@ export function isNil(x) {
   return x == null;
 }
 
+/**
+ * Check if a number is even.
+ * @param {number} n - The number to check
+ * @returns {boolean} True if n is even
+ * @example
+ * isEven(2)  // => true
+ * isEven(3)  // => false
+ * isEven(0)  // => true
+ */
+export function isEven(n) {
+  return n % 2 === 0;
+}
+
+/**
+ * Check if a number is odd.
+ * @param {number} n - The number to check
+ * @returns {boolean} True if n is odd
+ * @example
+ * isOdd(3)  // => true
+ * isOdd(2)  // => false
+ */
+export function isOdd(n) {
+  return n % 2 !== 0;
+}
+
+/**
+ * Check if a number is zero.
+ * @param {number} n - The number to check
+ * @returns {boolean} True if n is 0
+ * @example
+ * isZero(0)  // => true
+ * isZero(1)  // => false
+ */
+export function isZero(n) {
+  return n === 0;
+}
+
+/**
+ * Check if a number is positive (greater than zero).
+ * @param {number} n - The number to check
+ * @returns {boolean} True if n > 0
+ * @example
+ * isPositive(1)   // => true
+ * isPositive(0)   // => false
+ * isPositive(-1)  // => false
+ */
+export function isPositive(n) {
+  return n > 0;
+}
+
+/**
+ * Check if a number is negative (less than zero).
+ * @param {number} n - The number to check
+ * @returns {boolean} True if n < 0
+ * @example
+ * isNegative(-1)  // => true
+ * isNegative(0)   // => false
+ * isNegative(1)   // => false
+ */
+export function isNegative(n) {
+  return n < 0;
+}
+
+/**
+ * Check if value is a number.
+ * @param {*} x - Value to check
+ * @returns {boolean} True if x is a number
+ */
+export function isNumber(x) {
+  return typeof x === "number";
+}
+
+/**
+ * Check if value is a string.
+ * @param {*} x - Value to check
+ * @returns {boolean} True if x is a string
+ */
+export function isString(x) {
+  return typeof x === "string";
+}
+
+/**
+ * Check if value is a boolean.
+ * @param {*} x - Value to check
+ * @returns {boolean} True if x is a boolean
+ */
+export function isBoolean(x) {
+  return typeof x === "boolean";
+}
+
+/**
+ * Check if value is a function.
+ * @param {*} x - Value to check
+ * @returns {boolean} True if x is a function
+ */
+export function isFunction(x) {
+  return typeof x === "function";
+}
+
+/**
+ * Check if value is an array.
+ * @param {*} x - Value to check
+ * @returns {boolean} True if x is an array
+ */
+export function isArray(x) {
+  return Array.isArray(x);
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // EQUALITY AND COMPARISON
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

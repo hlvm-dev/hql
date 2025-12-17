@@ -2,9 +2,7 @@
 
 **A Lisp that compiles to JavaScript.**
 
-[![Tests](https://img.shields.io/badge/tests-1403%20passing-success)](./tests)
-[![Version](https://img.shields.io/badge/version-0.1.0-blue)]()
-[![License](https://img.shields.io/badge/license-MIT-green)]()
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
 Modern Lisp dialect with full JavaScript interoperability, powerful macros, and zero runtime dependencies.
 
@@ -12,15 +10,27 @@ Modern Lisp dialect with full JavaScript interoperability, powerful macros, and 
 
 ## Installation
 
-**macOS / Linux:**
+**macOS (Intel & Apple Silicon):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
 ```
 
-**Windows:**
+**Linux x86_64:**
 
-Download from [releases](https://github.com/hlvm-dev/hql/releases).
+```bash
+curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
+```
+
+> **Note:** Linux installer has limited testing. Please [report issues](https://github.com/hlvm-dev/hql/issues).
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/hlvm-dev/hql/main/install.ps1 | iex
+```
+
+> **Note:** Windows installer has limited testing. Please [report issues](https://github.com/hlvm-dev/hql/issues).
 
 **From source:**
 
@@ -29,6 +39,13 @@ make build
 ```
 
 See [build guide](./docs/BUILD.md) for details.
+
+**Update & Uninstall:**
+
+```bash
+hql upgrade      # Update to latest version
+hql uninstall    # Remove HQL from system
+```
 
 ---
 

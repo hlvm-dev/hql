@@ -1,6 +1,6 @@
 # JavaScript Interoperability Documentation
 
-**Implementation:** Transpiler JS interop transformers **Test Count:** 59 tests
+**Implementation:** Transpiler JS interop transformers
 **Coverage:** ✅ 100%
 
 ## Overview
@@ -430,9 +430,9 @@ classes ✅ Circular imports - HQL ↔ JS
 
 ## Test Coverage
 
-**Total Tests:** 59
 
-### Section 1: Basic JS Interop (10 tests)
+
+### Section 1: Basic JS Interop
 
 - js-call method invocation
 - js-get property access
@@ -440,7 +440,7 @@ classes ✅ Circular imports - HQL ↔ JS
 - js-new object creation
 - Dot notation syntactic sugar
 
-### Section 2: Async/Await (12 tests)
+### Section 2: Async/Await
 
 - Basic async functions
 - Multiple awaits in sequence
@@ -449,7 +449,7 @@ classes ✅ Circular imports - HQL ↔ JS
 - Nested async calls
 - Bug regression tests
 
-### Section 3: Error Handling (16 tests)
+### Section 3: Error Handling
 
 - Try/catch/finally basics
 - Catching JS errors
@@ -458,7 +458,7 @@ classes ✅ Circular imports - HQL ↔ JS
 - Async error handling
 - Error property access
 
-### Section 4: Deep Dive (17 tests)
+### Section 4: Deep Dive
 
 - HQL importing JS modules
 - Runtime API (transpile, run)
@@ -467,7 +467,7 @@ classes ✅ Circular imports - HQL ↔ JS
 - Dot notation comprehensive tests
 - Edge cases (null, undefined, this)
 
-### Section 5: Module System (3 tests)
+### Section 5: Module System
 
 - Compile HQL to JS
 - Import compiled HQL in JavaScript

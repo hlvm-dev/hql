@@ -113,22 +113,14 @@ export async function transformAST(
 
     timer.phase("semantic validation");
 
-    // Optimize IR: Phase 2C - Convert __hql_for_each to native for loops
-    const { optimizeForLoops } = await import("./transpiler/optimize/for-loop-optimizer.ts");
-    const optimizedIR = optimizeForLoops(ir);
-
-    timer.phase("IR optimization: for loops");
-
-    // Note: Object literal optimization (Phase 3) was considered but REJECTED
-    // because it would change object prototype from null to Object.prototype,
-    // violating HQL's data purity guarantees. __hql_hash_map creates objects
-    // with Object.create(null) which is intentional for safety and purity.
-    // Preserving this semantic is more important than performance gains.
+    // Note: Pattern-specific optimizers (for-loop-optimizer, pipeline-optimizer) were removed.
+    // They were band-aids for eager evaluation. The proper solution is lazy sequences.
+    // TCO optimization is kept (in ir-to-estree.ts) as it's a legitimate compiler technique.
 
     // Use currentFile for source map references, not the directory
     const sourceFilePath = options.currentFile || currentDir;
     const { generateJavaScript } = await import("./transpiler/pipeline/js-code-generator.ts");
-    const javascript = await generateJavaScript(optimizedIR, {
+    const javascript = await generateJavaScript(ir, {
       sourceFilePath: sourceFilePath,
       currentFilePath: options.currentFile,
       generateSourceMap: options.generateSourceMap,
@@ -142,7 +134,7 @@ export async function transformAST(
     return {
       code: javascript.code,
       sourceMap: javascript.sourceMap,
-      ir: optimizedIR,
+      ir: ir,
     };
   } catch (error) {
     // If it's already an HQLError (ValidationError, ParseError, etc.), preserve it

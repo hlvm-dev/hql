@@ -166,19 +166,19 @@ Deno.test("Interpreter - Closures: nested closures", () => {
 // Type Predicates
 // ============================================================================
 
-Deno.test("Interpreter - Type predicates: nil?", () => {
-  assertEquals(evalExpr("(nil? nil)"), true);
-  assertEquals(evalExpr("(nil? 1)"), false);
+Deno.test("Interpreter - Type predicates: isNil", () => {
+  assertEquals(evalExpr("(isNil nil)"), true);
+  assertEquals(evalExpr("(isNil 1)"), false);
 });
 
-Deno.test("Interpreter - Type predicates: number?", () => {
-  assertEquals(evalExpr("(number? 42)"), true);
-  assertEquals(evalExpr('(number? "hello")'), false);
+Deno.test("Interpreter - Type predicates: isNumber", () => {
+  assertEquals(evalExpr("(isNumber 42)"), true);
+  assertEquals(evalExpr('(isNumber "hello")'), false);
 });
 
-Deno.test("Interpreter - Type predicates: string?", () => {
-  assertEquals(evalExpr('(string? "hello")'), true);
-  assertEquals(evalExpr("(string? 42)"), false);
+Deno.test("Interpreter - Type predicates: isString", () => {
+  assertEquals(evalExpr('(isString "hello")'), true);
+  assertEquals(evalExpr("(isString 42)"), false);
 });
 
 // ============================================================================

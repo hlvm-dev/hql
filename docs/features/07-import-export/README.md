@@ -1,6 +1,6 @@
 # Import/Export Feature Documentation
 
-**Implementation:** Transpiler module system **Test Count:** 26 tests
+**Implementation:** Transpiler module system
 **Coverage:** ✅ 100%
 
 ## Overview
@@ -259,9 +259,9 @@ assignment
 
 ## Test Coverage
 
-**Total Tests:** 26
 
-### Section 1: Local Imports (13 tests)
+
+### Section 1: Local Imports
 
 - Import single function
 - Import multiple functions
@@ -276,19 +276,19 @@ assignment
 - Import constants in computation
 - Import from multiple modules
 
-### Section 2: Re-Exports (3 tests)
+### Section 2: Re-Exports
 
 - Import function through re-export
 - Import multiple items through re-export
 - Import value through re-export
 
-### Section 3: TypeScript Imports (3 tests)
+### Section 3: TypeScript Imports
 
 - Import function from .ts file
 - Import multiple functions from .ts file
 - Import constant from .ts file
 
-### Section 4: Remote Imports (7 tests)
+### Section 4: Remote Imports
 
 - Import from JSR (single)
 - Import from JSR (multiple)
