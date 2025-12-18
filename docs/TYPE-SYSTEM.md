@@ -291,7 +291,7 @@ $ ./hql run typed-code.hql
 
 The TypeScript type checker catches:
 
-1. **Type mismatches**
+1. **Type mismatches on function arguments**
    ```clojure
    (fn add [a:number b:number] :number (+ a b))
    (add "hello" "world")  ; ⚠️ Argument of type 'string' is not assignable to type 'number'
@@ -303,17 +303,21 @@ The TypeScript type checker catches:
      "not a number")  ; ⚠️ Type 'string' is not assignable to type 'number'
    ```
 
-3. **Undefined access**
+3. **Undefined access from collections**
    ```clojure
-   (fn first [arr:Array<number>] :number
+   (fn first-num [arr:Array<number>] :number
      (get arr 0))  ; ⚠️ Type 'number | undefined' is not assignable to type 'number'
    ```
 
-4. **Property access on wrong types**
-   ```clojure
-   (fn get-length [n:number] :number
-     n.length)  ; ⚠️ Property 'length' does not exist on type 'number'
-   ```
+### Type Errors NOT Caught (Known Limitation)
+
+**Property access on wrong types is NOT caught:**
+```clojure
+(fn get-length [n:number] :number
+  n.length)  ; ❌ No error! Produces `undefined` at runtime
+```
+
+**Why?** HQL's dot notation (`n.length`) compiles to JavaScript bracket notation (`(n)["length"]`) for JS interop flexibility. TypeScript cannot type-check dynamic bracket access.
 
 ---
 
