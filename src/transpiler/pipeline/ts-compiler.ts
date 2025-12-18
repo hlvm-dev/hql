@@ -434,19 +434,3 @@ export function formatDiagnostics(diagnostics: TypeDiagnostic[]): string {
     })
     .join("\n");
 }
-
-/**
- * Check if TypeScript code has type errors without emitting output.
- * Useful for quick validation.
- */
-export function checkTypes(
-  tsCode: string,
-  options: TSCompilerOptions = {},
-): TypeDiagnostic[] {
-  const result = compileTypeScript(tsCode, {
-    ...options,
-    sourceMap: false,
-    declaration: false,
-  });
-  return result.diagnostics.filter((d) => d.severity === "error");
-}

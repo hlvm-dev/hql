@@ -34,7 +34,7 @@ export interface TSGeneratorResult {
   usedHelpers: Set<string>;
 }
 
-export interface GeneratorOptions {
+interface GeneratorOptions {
   sourceFilePath?: string;
   indent?: string;
 }
@@ -120,6 +120,19 @@ class TSGenerator {
     if (RUNTIME_HELPER_NAMES_SET.has(name)) {
       this.usedHelpers.add(name);
     }
+  }
+
+  /**
+   * Build a Map from defaults array for efficient lookup.
+   * Consolidates duplicate pattern: new Map(defaults?.map(d => [d.name, d.value]))
+   */
+  private buildDefaultsMap(
+    defaults?: { name: string; value: IR.IRNode }[]
+  ): Map<string, IR.IRNode> {
+    if (!defaults || defaults.length === 0) {
+      return new Map();
+    }
+    return new Map(defaults.map(d => [d.name, d.value]));
   }
 
   // ============================================================================
@@ -770,7 +783,7 @@ class TSGenerator {
       // Generate object destructuring for JSON map parameters
       this.generateJsonMapParams(optimizedNode.params, optimizedNode.defaults);
     } else {
-      this.generateFnParams(optimizedNode.params, optimizedNode.defaults);
+      this.generateFnParams(optimizedNode.params, this.buildDefaultsMap(optimizedNode.defaults));
     }
     this.emit(")");
 
@@ -848,7 +861,7 @@ class TSGenerator {
     }
 
     this.emit("(");
-    this.generateFnParams(method.params, method.defaults ? new Map(method.defaults.map(d => [d.name, d.value])) : undefined);
+    this.generateFnParams(method.params, this.buildDefaultsMap(method.defaults));
     this.emit(")");
 
     // Add return type annotation if present
@@ -1144,9 +1157,28 @@ class TSGenerator {
   private generateInteropIIFE(node: IR.IRInteropIIFE): void {
     this.emit("(", node.position);
     this.generateNode(node.object);
-    this.emit(")[");
-    this.generateStringLiteral(node.property);
-    this.emit("]");
+    this.emit(")");
+
+    const propName = node.property.value;
+    if (this.isValidJsIdentifier(propName)) {
+      // Dot notation - enables TypeScript type checking!
+      this.emit(".");
+      this.emit(propName);
+    } else {
+      // Bracket notation fallback for non-identifier property names
+      this.emit("[");
+      this.generateStringLiteral(node.property);
+      this.emit("]");
+    }
+  }
+
+  /**
+   * Checks if a string is a valid JavaScript identifier.
+   * Used to determine whether to emit dot notation (type-checkable)
+   * or bracket notation (flexible but not type-checked).
+   */
+  private isValidJsIdentifier(name: string): boolean {
+    return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
   }
 
   private generateJsMethodAccess(node: IR.IRJsMethodAccess): void {
@@ -1177,11 +1209,8 @@ class TSGenerator {
 
   private generateFnParams(
     params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[],
-    defaults?: { name: string; value: IR.IRNode }[] | Map<string, IR.IRNode>
+    defaultsMap: Map<string, IR.IRNode> = new Map()
   ): void {
-    const defaultsMap = defaults instanceof Map
-      ? defaults
-      : new Map(defaults?.map(d => [d.name, d.value]));
 
     for (let i = 0; i < params.length; i++) {
       if (i > 0) this.emit(", ");
@@ -1189,16 +1218,12 @@ class TSGenerator {
 
       if (param.type === IR.IRNodeType.Identifier) {
         const id = param as IR.IRIdentifier;
-        // Check if rest parameter
-        if (id.name.startsWith("...")) {
-          this.emit(id.name, id.position);
-        } else {
-          this.emit(id.name, id.position);
-          if (id.typeAnnotation) {
-            this.emit(`: ${id.typeAnnotation}`);
-          }
+        this.emit(id.name, id.position);
+        // Type annotation (skip for rest parameters - they have ... prefix)
+        if (!id.name.startsWith("...") && id.typeAnnotation) {
+          this.emit(`: ${id.typeAnnotation}`);
         }
-        // Check for default value
+        // Default value
         const defaultValue = defaultsMap.get(id.name);
         if (defaultValue) {
           this.emit(" = ");
@@ -1216,7 +1241,7 @@ class TSGenerator {
     defaults?: { name: string; value: IR.IRNode }[]
   ): void {
     // Generate object destructuring: { param1 = default1, param2 = default2 } = {}
-    const defaultsMap = new Map(defaults?.map(d => [d.name, d.value]));
+    const defaultsMap = this.buildDefaultsMap(defaults);
 
     this.emit("{ ");
     for (let i = 0; i < params.length; i++) {

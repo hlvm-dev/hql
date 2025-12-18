@@ -38,6 +38,22 @@ import { parsePattern } from "../../s-exp/pattern-parser.ts";
 
 const fnFunctionRegistry = new Map<string, IR.IRFnFunctionDeclaration>();
 
+/**
+ * Normalizes array type shorthand T[] to Array<T>.
+ * This is needed because HQL's parser treats [] as a vector literal,
+ * so "number[]" gets parsed incorrectly.
+ * Converting to "Array<number>" ensures proper TypeScript type generation.
+ */
+function normalizeArrayType(type: string): string {
+  // Match T[] pattern at the end of the type string
+  // Handles: number[], string[], MyType[], etc.
+  const match = type.match(/^(.+)\[\]$/);
+  if (match) {
+    return `Array<${match[1]}>`;
+  }
+  return type;
+}
+
 type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 
 /**
@@ -404,7 +420,7 @@ function transformNamedFn(
       const sym = (potentialReturnType as SymbolNode).name;
       // Return type starts with : (e.g., ":number", ":string[]", ":T | null")
       if (sym.startsWith(":") && sym.length > 1) {
-        returnType = sym.slice(1).trim();
+        returnType = normalizeArrayType(sym.slice(1).trim());
         bodyStartIndex = 4;
       }
     }
@@ -497,7 +513,7 @@ function transformAnonymousFn(
       const sym = (potentialReturnType as SymbolNode).name;
       // Return type starts with : (e.g., ":number", ":string[]", ":T | null")
       if (sym.startsWith(":") && sym.length > 1) {
-        returnType = sym.slice(1).trim();
+        returnType = normalizeArrayType(sym.slice(1).trim());
         bodyStartIndex = 3;
       }
     }
@@ -959,6 +975,9 @@ function parseParameters(
         // Handle empty type annotation
         if (!typeAnnotation) {
           typeAnnotation = undefined;
+        } else {
+          // Normalize T[] shorthand to Array<T> for TypeScript compatibility
+          typeAnnotation = normalizeArrayType(typeAnnotation);
         }
       }
 

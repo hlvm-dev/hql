@@ -13,6 +13,7 @@ import { analyzeDocument } from "../../../lsp/analysis.ts";
 import { getHover } from "../../../lsp/features/hover.ts";
 import { getDefinition } from "../../../lsp/features/definition.ts";
 import { getCompletions } from "../../../lsp/features/completion.ts";
+import type { CompletionContext } from "../../../lsp/features/completion.ts";
 import { getDiagnostics } from "../../../lsp/features/diagnostics.ts";
 
 // ============================================
@@ -119,6 +120,67 @@ Deno.test("Completion - includes user-defined symbols", () => {
   const labels = completions.map((c) => c.label);
   assertEquals(labels.includes("myVar"), true);
   assertEquals(labels.includes("myFunc"), true);
+});
+
+// ============================================
+// Type Completion Tests
+// ============================================
+
+Deno.test("Completion - returns type completions when in type position", () => {
+  // When isTypePosition is true, we get type completions
+  const completions = getCompletions(null, undefined, { isTypePosition: true });
+
+  const labels = completions.map((c) => c.label);
+
+  // Should include primitive types
+  assertEquals(labels.includes("number"), true, "Should include number type");
+  assertEquals(labels.includes("string"), true, "Should include string type");
+  assertEquals(labels.includes("boolean"), true, "Should include boolean type");
+  assertEquals(labels.includes("any"), true, "Should include any type");
+  assertEquals(labels.includes("void"), true, "Should include void type");
+
+  // Should include object types
+  assertEquals(labels.includes("Array"), true, "Should include Array type");
+  assertEquals(labels.includes("Promise"), true, "Should include Promise type");
+  assertEquals(labels.includes("Map"), true, "Should include Map type");
+});
+
+Deno.test("Completion - type completions exclude regular keywords", () => {
+  const completions = getCompletions(null, undefined, { isTypePosition: true });
+
+  const labels = completions.map((c) => c.label);
+
+  // Type completions should NOT include regular keywords/builtins
+  assertEquals(labels.includes("let"), false, "Should NOT include let keyword");
+  assertEquals(labels.includes("fn"), false, "Should NOT include fn keyword");
+  assertEquals(labels.includes("if"), false, "Should NOT include if keyword");
+  assertEquals(labels.includes("print"), false, "Should NOT include print function");
+});
+
+Deno.test("Completion - returns regular completions when NOT in type position", () => {
+  // When isTypePosition is false or undefined, we get regular completions
+  const completions = getCompletions(null, undefined, { isTypePosition: false });
+
+  const labels = completions.map((c) => c.label);
+
+  // Should include regular keywords
+  assertEquals(labels.includes("let"), true, "Should include let keyword");
+  assertEquals(labels.includes("fn"), true, "Should include fn keyword");
+  assertEquals(labels.includes("if"), true, "Should include if keyword");
+
+  // Should include builtins
+  assertEquals(labels.includes("print"), true, "Should include print function");
+});
+
+Deno.test("Completion - no context defaults to regular completions", () => {
+  // When context is not provided, should return regular completions
+  const completions = getCompletions(null);
+
+  const labels = completions.map((c) => c.label);
+
+  // Should include regular keywords
+  assertEquals(labels.includes("let"), true);
+  assertEquals(labels.includes("fn"), true);
 });
 
 // ============================================
