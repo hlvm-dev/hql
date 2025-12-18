@@ -29,6 +29,10 @@ export interface TransformOptions {
   generateSourceMap?: boolean;
   /** Original HQL source code for embedding in source map */
   sourceContent?: string;
+  /** Enable TypeScript type checking (default: true when types present) */
+  typeCheck?: boolean;
+  /** Fail compilation on type errors (default: false - emit anyway) */
+  failOnTypeErrors?: boolean;
 }
 
 /**
@@ -119,13 +123,46 @@ export async function transformAST(
 
     // Use currentFile for source map references, not the directory
     const sourceFilePath = options.currentFile || currentDir;
-    const { generateJavaScript } = await import("./transpiler/pipeline/js-code-generator.ts");
-    const javascript = await generateJavaScript(ir, {
-      sourceFilePath: sourceFilePath,
-      currentFilePath: options.currentFile,
-      generateSourceMap: options.generateSourceMap,
-      sourceContent: options.sourceContent,
-    });
+    const {
+      generateJavaScript,
+      generateJavaScriptWithTypes,
+      hasTypeAnnotations,
+    } = await import("./transpiler/pipeline/js-code-generator.ts");
+
+    // Decide which compilation path to use
+    const useTypeScript = options.typeCheck !== false && hasTypeAnnotations(ir);
+
+    let javascript;
+    let typeErrors: Array<{ message: string; line: number; column: number }> = [];
+
+    if (useTypeScript) {
+      // TypeScript path: full type checking with tsc
+      logger.debug("Type annotations detected, using TypeScript compilation path");
+      const tsResult = await generateJavaScriptWithTypes(ir, {
+        sourceFilePath: sourceFilePath,
+        currentFilePath: options.currentFile,
+        generateSourceMap: options.generateSourceMap,
+        sourceContent: options.sourceContent,
+        failOnTypeErrors: options.failOnTypeErrors,
+      });
+      javascript = tsResult;
+      typeErrors = tsResult.typeErrors || [];
+
+      // Log type errors if any
+      if (typeErrors.length > 0) {
+        for (const err of typeErrors) {
+          logger.warn(`Type error at ${sourceFilePath}:${err.line}:${err.column}: ${err.message}`);
+        }
+      }
+    } else {
+      // ESTree path: fast, no type checking
+      javascript = await generateJavaScript(ir, {
+        sourceFilePath: sourceFilePath,
+        currentFilePath: options.currentFile,
+        generateSourceMap: options.generateSourceMap,
+        sourceContent: options.sourceContent,
+      });
+    }
 
     timer.phase("JS code generation");
 

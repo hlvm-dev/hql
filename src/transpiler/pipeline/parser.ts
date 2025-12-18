@@ -58,6 +58,10 @@ const TOKEN_PATTERNS = {
   TEMPLATE_LITERAL: /`(?!\(|\[)(?:[^`\\$]|\\[\s\S]|\$(?!\{)|\$\{(?:[^}\\]|\\[\s\S])*\})*`/y,
   SPREAD_OPERATOR: /\.\.\.(?![a-zA-Z_$])/y,  // ... not followed by identifier (for inline expressions)
   REST_PARAM: /\.\.\.([a-zA-Z_$][a-zA-Z0-9_$-]*)/y,  // ...identifier for rest parameters
+  // Type annotation keyword: :identifier (e.g., :number, :string, :Array<T>, :number[])
+  // Must be checked before SPECIAL_TOKENS to prevent : from being split off
+  // Don't include [] in the main character class - they're delimiters. Use explicit \[\] suffix for arrays.
+  TYPE_ANNOTATION: /:[a-zA-Z_$][a-zA-Z0-9_$<>,|&?]*(\[\])?(?=[\s\)\]\}]|$)/y,
   SPECIAL_TOKENS: /(#\[|\(|\)|\[|\]|\{|\}|\.|\:|,|'|`|~@|~)/y,
   STRING: /"(?:\\.|[^\\"])*"/y,
   COMMENT: /(;.*|\/\/.*|\/\*[\s\S]*?\*\/)/y,
@@ -912,6 +916,11 @@ function matchNextToken(
 
   // Check for rest parameters (...identifier) before special tokens (to prevent ... being split into dots)
   match = matchAtCursor(TOKEN_PATTERNS.REST_PARAM);
+  if (match) return { type: TokenType.Symbol, value: match[0], position };
+
+  // Check for type annotations (:identifier) before special tokens (to prevent : from being split off)
+  // This enables syntax like (fn add [a: number]: number body) where :number is a type annotation
+  match = matchAtCursor(TOKEN_PATTERNS.TYPE_ANNOTATION);
   if (match) return { type: TokenType.Symbol, value: match[0], position };
 
   // Then check for special tokens

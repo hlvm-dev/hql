@@ -134,6 +134,8 @@ export interface IRIdentifier extends IRNode {
   name: string;
   originalName?: string;
   isJS?: boolean;
+  /** TypeScript type annotation (e.g., "number", "string[]", "T | null") */
+  typeAnnotation?: string;
 }
 
 // Expressions
@@ -209,6 +211,10 @@ export interface IRFunctionExpression extends IRNode {
   params: (IRIdentifier | IRArrayPattern | IRObjectPattern)[];
   body: IRBlockStatement;
   async?: boolean;
+  /** TypeScript return type annotation */
+  returnType?: string;
+  /** TypeScript generic type parameters */
+  typeParameters?: string[];
 }
 
 // Object literal support (for maps)
@@ -246,6 +252,8 @@ export interface IRVariableDeclarator extends IRNode {
   type: IRNodeType.VariableDeclarator;
   id: IRIdentifier | IRArrayPattern | IRObjectPattern | IRRestElement | IRAssignmentPattern;
   init: IRNode | null;
+  /** TypeScript type annotation for the variable */
+  typeAnnotation?: string;
 }
 
 // Destructuring Pattern Types
@@ -297,6 +305,10 @@ export interface IRFunctionDeclaration extends IRNode {
   params: IRIdentifier[];
   body: IRBlockStatement;
   async?: boolean;
+  /** TypeScript return type annotation */
+  returnType?: string;
+  /** TypeScript generic type parameters */
+  typeParameters?: string[];
 }
 
 export interface IRReturnStatement extends IRNode {
@@ -376,6 +388,10 @@ export interface IRFnFunctionDeclaration extends IRNode {
   body: IRBlockStatement;
   async?: boolean;
   usesJsonMapParams?: boolean;
+  /** TypeScript return type annotation (e.g., "number", "Promise<string>") */
+  returnType?: string;
+  /** TypeScript generic type parameters (e.g., ["T", "U extends string"]) */
+  typeParameters?: string[];
 }
 
 export interface IRAwaitExpression extends IRNode {
@@ -442,6 +458,8 @@ export interface IRClassField extends IRNode {
   name: string;
   mutable: boolean;
   initialValue: IRNode | null;
+  /** TypeScript type annotation */
+  typeAnnotation?: string;
 }
 
 export interface IRClassMethod extends IRNode {
@@ -451,6 +469,10 @@ export interface IRClassMethod extends IRNode {
   defaults?: { name: string; value: IRNode }[];
   body: IRBlockStatement;
   hasJsonParams?: boolean;
+  /** TypeScript return type annotation */
+  returnType?: string;
+  /** TypeScript generic type parameters */
+  typeParameters?: string[];
 }
 
 export interface IRClassConstructor extends IRNode {

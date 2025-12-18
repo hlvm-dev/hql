@@ -20,6 +20,7 @@
     "npm:@babel/core@7.23.6": "7.23.6",
     "npm:@jridgewell/sourcemap-codec@*": "1.5.5",
     "npm:@types/node@*": "22.12.0",
+    "npm:@types/source-map@0.5.7": "0.5.7",
     "npm:acorn@8.11.3": "8.11.3",
     "npm:chalk@4.1.2": "4.1.2",
     "npm:esbuild-wasm@0.17": "0.17.19",
@@ -368,6 +369,12 @@
       "integrity": "sha512-Fll2FZ1riMjNmlmJOdAyY5pUbkftXslB5DgEzlIuNaiWhXd00FhWxVC/r4yV/4wBb9JfImTu+jiSvXTkJ7F/gA==",
       "dependencies": [
         "undici-types"
+      ]
+    },
+    "@types/source-map@0.5.7": {
+      "integrity": "sha512-LrnsgZIfJaysFkv9rRJp4/uAyqw87oVed3s1hhF83nwbo9c7MG9g5DqR0seHP+lkX4ldmMrVolPjQSe2ZfD0yA==",
+      "dependencies": [
+        "source-map@0.7.4"
       ]
     },
     "acorn@8.11.3": {
@@ -1050,7 +1057,8 @@
   },
   "workspace": {
     "dependencies": [
-      "npm:source-map@0.6.1"
+      "npm:source-map@0.6.1",
+      "npm:typescript@5.3.3"
     ]
   }
 }

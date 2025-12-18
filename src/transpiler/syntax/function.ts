@@ -388,8 +388,25 @@ function transformNamedFn(
     transformNode,
   );
 
-  // Body expressions start after the parameter list (index 3)
-  const bodyExpressions = list.elements.slice(3);
+  // Check for return type annotation after parameter list
+  // Syntax: (fn name [params]: ReturnType body)
+  let returnType: string | undefined;
+  let bodyStartIndex = 3;
+
+  if (list.elements.length > 3) {
+    const potentialReturnType = list.elements[3];
+    if (potentialReturnType.type === "symbol") {
+      const sym = (potentialReturnType as SymbolNode).name;
+      // Return type starts with : (e.g., ":number", ":string[]", ":T | null")
+      if (sym.startsWith(":") && sym.length > 1) {
+        returnType = sym.slice(1).trim();
+        bodyStartIndex = 4;
+      }
+    }
+  }
+
+  // Body expressions start after the parameter list (and return type if present)
+  const bodyExpressions = list.elements.slice(bodyStartIndex);
 
   // Process the body expressions
   const bodyNodes = processFunctionBody(bodyExpressions, currentDir);
@@ -418,6 +435,7 @@ function transformNamedFn(
       position: blockPosition, // Propagate position for source mapping
     },
     usesJsonMapParams,
+    returnType, // TypeScript return type annotation
   } as IR.IRFnFunctionDeclaration;
 
   // Register this function in our registry for call site handling
@@ -463,9 +481,26 @@ function transformAnonymousFn(
     transformNode,
   );
 
-  // Process the body expressions (start at index 2 after params)
+  // Check for return type annotation after parameter list
+  // Syntax: (fn [params]: ReturnType body)
+  let returnType: string | undefined;
+  let bodyStartIndex = 2;
+
+  if (list.elements.length > 2) {
+    const potentialReturnType = list.elements[2];
+    if (potentialReturnType.type === "symbol") {
+      const sym = (potentialReturnType as SymbolNode).name;
+      // Return type starts with : (e.g., ":number", ":string[]", ":T | null")
+      if (sym.startsWith(":") && sym.length > 1) {
+        returnType = sym.slice(1).trim();
+        bodyStartIndex = 3;
+      }
+    }
+  }
+
+  // Process the body expressions (start after params and optional return type)
   const bodyNodes = processFunctionBody(
-    list.elements.slice(2),
+    list.elements.slice(bodyStartIndex),
     currentDir,
   );
 
@@ -481,6 +516,7 @@ function transformAnonymousFn(
       body: bodyNodes,
       position: blockPosition, // Propagate position for source mapping
     },
+    returnType, // TypeScript return type annotation
   } as IR.IRFunctionExpression;
 }
 
@@ -872,17 +908,34 @@ function parseParameters(
       const isRestParam = supportRest && symbolName.startsWith("...");
       const actualParamName = isRestParam ? symbolName.slice(3) : symbolName;
 
+      // Extract type annotation if present (e.g., "name: string" or "a: number")
+      // Format: paramName: TypeAnnotation
+      let paramNameWithoutType = actualParamName;
+      let typeAnnotation: string | undefined;
+      const colonIndex = actualParamName.indexOf(":");
+      if (colonIndex > 0) {
+        // Has type annotation - split on first colon
+        paramNameWithoutType = actualParamName.slice(0, colonIndex).trim();
+        typeAnnotation = actualParamName.slice(colonIndex + 1).trim();
+        // Handle empty type annotation
+        if (!typeAnnotation) {
+          typeAnnotation = undefined;
+        }
+      }
+
       // Handle regular parameter (with optional rest and default)
       const param: IR.IRIdentifier = (restMode || isRestParam)
         ? {
             type: IR.IRNodeType.Identifier,
-            name: `...${sanitizeIdentifier(actualParamName)}`,
-            originalName: actualParamName,
+            name: `...${sanitizeIdentifier(paramNameWithoutType)}`,
+            originalName: paramNameWithoutType,
+            typeAnnotation,
           }
         : {
             type: IR.IRNodeType.Identifier,
-            name: sanitizeIdentifier(symbolName),
-            originalName: symbolName,
+            name: sanitizeIdentifier(paramNameWithoutType),
+            originalName: paramNameWithoutType,
+            typeAnnotation,
           };
       copyPosition(elem, param);
       params.push(param);
@@ -898,12 +951,13 @@ function parseParameters(
           const defaultValueNode = paramList.elements[i + 2];
           const defaultValue = transformNode(defaultValueNode, currentDir);
           if (defaultValue) {
-            defaults.set(symbolName, defaultValue);
+            // Use the sanitized name (without type annotation) for defaults
+            defaults.set(sanitizeIdentifier(paramNameWithoutType), defaultValue);
           }
           i += 2; // Skip = and default value
         } else {
           throw new ValidationError(
-            `Missing default value after '=' for parameter '${symbolName}'`,
+            `Missing default value after '=' for parameter '${paramNameWithoutType}'`,
             "fn parameter default",
             "default value",
             "missing value",
