@@ -272,6 +272,15 @@ function parseClassMethodParameters(
 } {
   let paramsList = paramsNode;
 
+  // Check for empty-array (empty brackets [])
+  if (
+    paramsList.elements.length === 1 &&
+    paramsList.elements[0].type === "symbol" &&
+    (paramsList.elements[0] as SymbolNode).name === "empty-array"
+  ) {
+    return { params: [], defaults: new Map(), hasJsonParams: false };
+  }
+
   // Check for hash-map (JSON map parameters)
   if (
     paramsList.elements.length > 0 &&

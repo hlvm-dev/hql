@@ -485,14 +485,25 @@ export function transformDotNotation(
       } as IR.IRIdentifier;
 
       if (list.elements.length === 1) {
+        // Zero-argument method call: (p.greet) -> p.greet()
+        const literalNode = {
+          type: IR.IRNodeType.StringLiteral,
+          value: property,
+        } as IR.IRStringLiteral;
+        const { property: memberProperty, computed } = resolveMemberProperty(
+          literalNode,
+          true,
+        );
         return {
-          type: IR.IRNodeType.InteropIIFE,
-          object: objectExpr,
-          property: {
-            type: IR.IRNodeType.StringLiteral,
-            value: property,
-          } as IR.IRStringLiteral,
-        } as IR.IRInteropIIFE;
+          type: IR.IRNodeType.CallExpression,
+          callee: {
+            type: IR.IRNodeType.MemberExpression,
+            object: objectExpr,
+            property: memberProperty,
+            computed,
+          } as IR.IRMemberExpression,
+          arguments: [],
+        } as IR.IRCallExpression;
       }
 
       const args = transformElements(

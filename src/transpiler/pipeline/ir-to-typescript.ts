@@ -362,7 +362,12 @@ class TSGenerator {
       if (node.operator === "typeof" || node.operator === "void" || node.operator === "delete") {
         this.emit(" ");
       }
+      // Wrap function expressions in parentheses to avoid precedence issues
+      // e.g., typeof (x) => x should be typeof ((x) => x)
+      const needsParens = node.argument.type === IR.IRNodeType.FunctionExpression;
+      if (needsParens) this.emit("(");
       this.generateNode(node.argument);
+      if (needsParens) this.emit(")");
     } else {
       this.generateNode(node.argument);
       this.emit(node.operator);
@@ -388,7 +393,14 @@ class TSGenerator {
   }
 
   private generateCallExpression(node: IR.IRCallExpression): void {
+    // If callee is a function expression, wrap it in parentheses for IIFE
+    // Note: HQL IR uses FunctionExpression for both regular and arrow functions
+    const needsParens = node.callee.type === IR.IRNodeType.FunctionExpression;
+
+    if (needsParens) this.emit("(");
     this.generateNode(node.callee);
+    if (needsParens) this.emit(")");
+
     this.emit("(", node.position);
     for (let i = 0; i < node.arguments.length; i++) {
       if (i > 0) this.emit(", ");
@@ -472,10 +484,27 @@ class TSGenerator {
   }
 
   private generateFunctionExpression(node: IR.IRFunctionExpression): void {
+    // If the function uses 'this', generate a regular function expression
+    // to preserve the dynamic 'this' binding (arrow functions capture lexical 'this')
+    if (node.usesThis) {
+      if (node.async) {
+        this.emit("async ", node.position);
+      }
+      this.emit("function(");
+      this.generateFnParams(node.params, undefined);
+      this.emit(")");
+      if (node.returnType) {
+        this.emit(`: ${node.returnType}`);
+      }
+      this.emit(" ");
+      this.generateBlockStatement(node.body);
+      return;
+    }
+
+    // Use arrow function syntax for anonymous functions
     if (node.async) {
       this.emit("async ", node.position);
     }
-    // Use arrow function syntax for anonymous functions
     this.emit("(");
     this.generateFnParams(node.params, undefined);
     this.emit(")");
@@ -518,7 +547,12 @@ class TSGenerator {
 
   private generateExpressionStatement(node: IR.IRExpressionStatement): void {
     this.emitIndent();
+    // Wrap object expressions in parentheses to disambiguate from block statements
+    // JavaScript/TypeScript treats `{...}` at statement level as a block, not an object literal
+    const needsParens = node.expression.type === IR.IRNodeType.ObjectExpression;
+    if (needsParens) this.emit("(");
     this.generateNode(node.expression);
+    if (needsParens) this.emit(")");
     this.emit(";\n");
   }
 
@@ -733,7 +767,12 @@ class TSGenerator {
     }
 
     this.emit("(");
-    this.generateFnParams(optimizedNode.params, optimizedNode.defaults);
+    if (optimizedNode.usesJsonMapParams) {
+      // Generate object destructuring for JSON map parameters
+      this.generateJsonMapParams(optimizedNode.params, optimizedNode.defaults);
+    } else {
+      this.generateFnParams(optimizedNode.params, optimizedNode.defaults);
+    }
     this.emit(")");
 
     // Add return type annotation if present
@@ -824,11 +863,20 @@ class TSGenerator {
   }
 
   private generateEnumDeclaration(node: IR.IREnumDeclaration): void {
-    // Generate as a const object (TypeScript enum equivalent)
+    if (node.hasAssociatedValues) {
+      // Generate class-based implementation for enums with associated values
+      this.generateEnumWithAssociatedValues(node);
+    } else {
+      // Generate simple const object for enums without associated values
+      this.generateSimpleEnum(node);
+    }
+  }
+
+  private generateSimpleEnum(node: IR.IREnumDeclaration): void {
     this.emitIndent();
     this.emit("const ", node.position);
     this.generateIdentifier(node.id);
-    this.emit(" = {\n");
+    this.emit(" = Object.freeze({\n");
     this.indent();
 
     for (let i = 0; i < node.cases.length; i++) {
@@ -839,7 +887,8 @@ class TSGenerator {
       if (enumCase.rawValue) {
         this.generateNode(enumCase.rawValue);
       } else {
-        this.emit(String(i));
+        // Simple enums use case name as value (string)
+        this.emit(JSON.stringify(enumCase.id.name));
       }
       if (i < node.cases.length - 1) {
         this.emit(",");
@@ -849,7 +898,86 @@ class TSGenerator {
 
     this.dedent();
     this.emitIndent();
-    this.emit("} as const;\n");
+    this.emit("});\n");
+  }
+
+  private generateEnumWithAssociatedValues(node: IR.IREnumDeclaration): void {
+    const enumName = node.id.name;
+
+    // Generate class declaration
+    this.emitIndent();
+    this.emit("class ", node.position);
+    this.emit(enumName);
+    this.emit(" {\n");
+    this.indent();
+
+    // Generate instance properties
+    this.emitIndent();
+    this.emit("type;\n");
+    this.emitIndent();
+    this.emit("values;\n\n");
+
+    // Generate private constructor
+    this.emitIndent();
+    this.emit("constructor(type, values) {\n");
+    this.indent();
+    this.emitIndent();
+    this.emit("this.type = type;\n");
+    this.emitIndent();
+    this.emit("this.values = values;\n");
+    this.emitIndent();
+    this.emit("Object.freeze(this);\n");
+    this.dedent();
+    this.emitIndent();
+    this.emit("}\n\n");
+
+    // Generate is() method
+    this.emitIndent();
+    this.emit("is(type) {\n");
+    this.indent();
+    this.emitIndent();
+    this.emit("return this.type === type;\n");
+    this.dedent();
+    this.emitIndent();
+    this.emit("}\n");
+
+    // Generate static factory methods for each case
+    for (const enumCase of node.cases) {
+      this.emit("\n");
+      this.emitIndent();
+      this.emit("static ");
+      this.emit(enumCase.id.name);
+      this.emit("(");
+
+      // Generate parameter list
+      const params = enumCase.associatedValues || [];
+      for (let i = 0; i < params.length; i++) {
+        if (i > 0) this.emit(", ");
+        this.emit(params[i].name);
+      }
+      this.emit(") {\n");
+      this.indent();
+      this.emitIndent();
+      this.emit("return new ");
+      this.emit(enumName);
+      this.emit("(");
+      this.emit(JSON.stringify(enumCase.id.name));
+      this.emit(", { ");
+
+      // Generate values object
+      for (let i = 0; i < params.length; i++) {
+        if (i > 0) this.emit(", ");
+        this.emit(params[i].name);
+      }
+      this.emit(" });\n");
+      this.dedent();
+      this.emitIndent();
+      this.emit("}\n");
+    }
+
+    this.dedent();
+    this.emitIndent();
+    this.emit("}\n");
   }
 
   // ============================================================================
@@ -1023,9 +1151,21 @@ class TSGenerator {
   }
 
   private generateJsMethodAccess(node: IR.IRJsMethodAccess): void {
+    // JsMethodAccess needs runtime detection: could be a property or a no-arg method
+    // Generate: (typeof obj.method === 'function' ? obj.method() : obj.method)
+    this.emit("(typeof ");
     this.generateNode(node.object);
     this.emit(".", node.position);
     this.emit(node.method);
+    this.emit(" === 'function' ? ");
+    this.generateNode(node.object);
+    this.emit(".");
+    this.emit(node.method);
+    this.emit("() : ");
+    this.generateNode(node.object);
+    this.emit(".");
+    this.emit(node.method);
+    this.emit(")");
   }
 
   private generateJsImportReference(node: IR.IRJsImportReference): void {
@@ -1086,6 +1226,35 @@ class TSGenerator {
         this.generatePattern(param);
       }
     }
+  }
+
+  private generateJsonMapParams(
+    params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[],
+    defaults?: { name: string; value: IR.IRNode }[]
+  ): void {
+    // Generate object destructuring: { param1 = default1, param2 = default2 } = {}
+    const defaultsMap = new Map(defaults?.map(d => [d.name, d.value]));
+
+    this.emit("{ ");
+    for (let i = 0; i < params.length; i++) {
+      if (i > 0) this.emit(", ");
+      const param = params[i];
+
+      if (param.type === IR.IRNodeType.Identifier) {
+        const id = param as IR.IRIdentifier;
+        this.emit(id.name, id.position);
+        if (id.typeAnnotation) {
+          this.emit(`: ${id.typeAnnotation}`);
+        }
+        // Add default value
+        const defaultValue = defaultsMap.get(id.name);
+        if (defaultValue) {
+          this.emit(" = ");
+          this.generateNode(defaultValue);
+        }
+      }
+    }
+    this.emit(" } = {}");
   }
 }
 

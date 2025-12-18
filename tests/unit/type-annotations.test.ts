@@ -10,11 +10,6 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { parse } from "../../src/transpiler/pipeline/parser.ts";
 import { transpile } from "../../src/transpiler/index.ts";
-import {
-  generateJavaScriptWithTypes,
-  hasTypeAnnotations,
-} from "../../src/transpiler/pipeline/js-code-generator.ts";
-import * as IR from "../../src/transpiler/type/hql_ir.ts";
 
 Deno.test("Type Annotations - Parameter type parsing", async () => {
   const code = `(fn add [a:number b:number] (+ a b))`;

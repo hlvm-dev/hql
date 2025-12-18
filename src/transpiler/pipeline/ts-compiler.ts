@@ -62,6 +62,10 @@ const DEFAULT_COMPILER_OPTIONS: ts.CompilerOptions = {
   // Don't use NodeNext for moduleResolution - it requires lib.d.ts
   moduleResolution: ts.ModuleResolutionKind.Bundler,
   strict: true,
+  // IMPORTANT: Disable noImplicitAny for gradual typing
+  // This allows untyped HQL code to work without warnings
+  // while still type-checking code that has explicit type annotations
+  noImplicitAny: false,
   declaration: true,
   sourceMap: true,
   esModuleInterop: true,
@@ -144,9 +148,11 @@ interface JSON { parse(text: string): unknown; stringify(value: unknown): string
 interface Math { abs(x: number): number; ceil(x: number): number; floor(x: number): number; round(x: number): number; max(...values: number[]): number; min(...values: number[]): number; pow(x: number, y: number): number; sqrt(x: number): number; random(): number; PI: number; E: number; sin(x: number): number; cos(x: number): number; tan(x: number): number; log(x: number): number; exp(x: number): number; }
 interface Console { log(...args: unknown[]): void; error(...args: unknown[]): void; warn(...args: unknown[]): void; info(...args: unknown[]): void; debug(...args: unknown[]): void; }
 interface Date { getTime(): number; getFullYear(): number; getMonth(): number; getDate(): number; getDay(): number; getHours(): number; getMinutes(): number; getSeconds(): number; getMilliseconds(): number; toISOString(): string; toDateString(): string; toTimeString(): string; toString(): string; }
+interface ObjectConstructor { freeze<T>(o: T): Readonly<T>; keys(o: object): string[]; values(o: object): unknown[]; entries(o: object): [string, unknown][]; assign<T, U>(target: T, source: U): T & U; create(o: object | null): object; defineProperty(o: object, p: string, attributes: object): object; }
 declare const console: Console;
 declare const Math: Math;
 declare const JSON: JSON;
+declare const Object: ObjectConstructor;
 declare function parseInt(s: string, radix?: number): number;
 declare function parseFloat(s: string): number;
 declare function isNaN(x: number): boolean;
@@ -239,6 +245,25 @@ declare function print(...args: unknown[]): void;
 declare function println(...args: unknown[]): void;
 
 declare const __hql_nil: null;
+
+// Additional runtime helpers (for hash maps, ranges, etc.)
+declare function __hql_getNumeric<T>(arr: T[], index: number): T | undefined;
+declare function __hql_getNumeric<T extends object, K extends keyof T>(obj: T, key: K): T[K];
+declare function __hql_getNumeric(obj: unknown, key: string | number): unknown;
+
+declare function __hql_hash_map(...entries: unknown[]): Record<string, unknown>;
+
+declare function __hql_range(...args: number[]): number[];
+
+declare function __hql_toSequence(value: unknown): unknown[];
+
+declare function __hql_for_each<T>(bindingName: string, sequence: Iterable<T>, body: (item: T) => void): void;
+
+declare function __hql_throw(value: unknown): never;
+
+declare function __hql_deepFreeze<T>(obj: T): T;
+
+declare function __hql_match_obj(val: unknown, pattern: unknown[]): boolean;
 `;
 
 // ============================================================================

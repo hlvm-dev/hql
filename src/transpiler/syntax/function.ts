@@ -507,6 +507,9 @@ function transformAnonymousFn(
   // Get position for block statement from first body node
   const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
 
+  // Check if 'this' is used in the body - if so, generate a regular function
+  const usesThis = containsThisReference(list.elements.slice(bodyStartIndex));
+
   return {
     type: IR.IRNodeType.FunctionExpression,
     id: null,
@@ -517,7 +520,38 @@ function transformAnonymousFn(
       position: blockPosition, // Propagate position for source mapping
     },
     returnType, // TypeScript return type annotation
+    usesThis,
   } as IR.IRFunctionExpression;
+}
+
+/**
+ * Check if an AST subtree contains a reference to 'this'.
+ * Used to determine if an anonymous function should be a regular function
+ * (to preserve 'this' binding) instead of an arrow function.
+ */
+function containsThisReference(nodes: HQLNode[]): boolean {
+  for (const node of nodes) {
+    if (hasThisInNode(node)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasThisInNode(node: HQLNode): boolean {
+  if (node.type === "symbol") {
+    const sym = node as SymbolNode;
+    return sym.name === "this";
+  }
+  if (node.type === "list") {
+    const list = node as ListNode;
+    for (const elem of list.elements) {
+      if (hasThisInNode(elem)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 // Enhancements to core/src/transpiler/syntax/function.ts

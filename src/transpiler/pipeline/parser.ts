@@ -1115,7 +1115,6 @@ function parseMap(state: ParserState, startPos: SourcePosition): SList {
         const value = parseExpression(state);
         entries.push(key, value);
       } else {
-        // Shorthand syntax: {x y} → {x: x, y: y}
         // Only allowed when key is a symbol
         if (key.type !== "symbol") {
           const errorPos = state.currentPos < state.tokens.length
@@ -1126,8 +1125,17 @@ function parseMap(state: ParserState, startPos: SourcePosition): SList {
             errorPos,
           );
         }
-        // Duplicate the key as the value
-        entries.push(key, key);
+
+        // Check if this is a spread operator: ...obj
+        const keyName = (key as SSymbol).name;
+        if (keyName.startsWith("...")) {
+          // Spread operator: {...obj} - push once, not as key/value pair
+          entries.push(key);
+        } else {
+          // Shorthand syntax: {x y} → {x: x, y: y}
+          // Duplicate the key as the value
+          entries.push(key, key);
+        }
       }
     }
 

@@ -215,6 +215,8 @@ export interface IRFunctionExpression extends IRNode {
   returnType?: string;
   /** TypeScript generic type parameters */
   typeParameters?: string[];
+  /** If true, uses 'this' keyword - generate regular function instead of arrow */
+  usesThis?: boolean;
 }
 
 // Object literal support (for maps)

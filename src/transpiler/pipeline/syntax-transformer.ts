@@ -565,6 +565,28 @@ export function transformNode(
         return transformEqualityExpression(list, enumDefinitions, logger);
       }
 
+      // SPECIAL CASE: Single-element list with dotted symbol = zero-arg method call
+      // Example: (p.greet) should become p.greet() not just p.greet
+      // This must be checked BEFORE normalization which splits into (p .greet)
+      if (
+        list.elements.length === 1 &&
+        isSymbol(list.elements[0]) &&
+        (list.elements[0] as SSymbol).name.includes('.') &&
+        !(list.elements[0] as SSymbol).name.startsWith('.') &&
+        !(list.elements[0] as SSymbol).name.startsWith('js/')
+      ) {
+        const dottedName = (list.elements[0] as SSymbol).name;
+        const parts = dottedName.split('.');
+        const objName = parts[0];
+        const methodName = parts.slice(1).join('.');
+        // Create a method-call for zero-arg invocation
+        return createListFrom(list, [
+          createSymbol('method-call'),
+          createSymbol(objName),
+          createLiteral(methodName),
+        ]);
+      }
+
       // Normalize spaceless dot chains before checking for dot-chain form
       // This allows (text.trim.toUpperCase) to work the same as (text .trim .toUpperCase)
       const normalizedList = normalizeSpacelessDotChain(list);
@@ -1247,7 +1269,9 @@ function transformDotChainForm(
           ]);
         } else {
           // No arguments and last in chain - could be property or no-arg method
-          // Use js-method to dynamically check at runtime
+          // Use js-method for property access semantics
+          // Note: (p.greet) syntax (dotted symbol) is handled separately in
+          // transformDotNotation (js-interop.ts) which creates a method call
           result = createListFrom(method as SExp, [
             createSymbol("js-method"),
             result,
