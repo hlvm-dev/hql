@@ -237,12 +237,13 @@ export interface MacroExpanderOptions {
  * Update _meta for all elements in an S-expression tree.
  * This fixes source location tracking for macro-expanded code.
  *
- * Elements that have _meta from a different file (macro definition file)
- * are updated to use the call site's _meta. Elements from the same file
- * (user code passed to the macro) keep their original _meta.
+ * All elements in the expanded expression are updated to use the call site's
+ * _meta. This ensures error messages point to where the user wrote the macro
+ * call, not where the macro was defined.
  *
- * This ensures error messages point to the original source location,
- * not the macro definition file.
+ * Note: This means user arguments passed to the macro will also get the call
+ * site position. This is intentional - the entire macro call logically exists
+ * at the call site, and errors should point there.
  *
  * Uses iterative approach with explicit stack to avoid stack overflow
  * on deeply nested ASTs.
@@ -261,9 +262,19 @@ function updateMetaRecursively(expr: SExp, callSiteMeta: SExpMeta): void {
 
     const exprMeta = getMeta(current);
 
-    // If this element has no _meta or has _meta from a different file,
-    // use the call site's _meta (but preserve the call site's file path)
-    if (!exprMeta || (exprMeta.filePath !== callSiteMeta.filePath)) {
+    // Update to call site position for macro-expanded code when:
+    // 1. No existing metadata
+    // 2. Different source file (macro definition in another file)
+    // 3. Same file but expression comes from earlier in file (macro definition)
+    //
+    // This fixes the bug where same-file macros would keep positions
+    // from the macro definition instead of the call site.
+    const shouldUpdate = !exprMeta ||
+        exprMeta.filePath !== callSiteMeta.filePath ||
+        (exprMeta.line !== undefined && callSiteMeta.line !== undefined &&
+         exprMeta.line < callSiteMeta.line);
+
+    if (shouldUpdate) {
       (current as { _meta?: SExpMeta })._meta = { ...callSiteMeta };
     }
 

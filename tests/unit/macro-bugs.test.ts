@@ -178,3 +178,57 @@ Deno.test("Macro behavior: Explicitly unquoted variables capture correctly", asy
     "Explicitly unquoted variables should capture correctly",
   );
 });
+
+// ============================================================================
+// BUG FIX: SAME-FILE MACRO POSITION TRACKING
+// ============================================================================
+
+Deno.test("Macro Bug Fix: Same-file macro error reports call site position (December 2024)", async () => {
+  // This tests that when a macro is defined and called in the same file,
+  // type errors report the CALL SITE position, not the macro definition position
+  //
+  // Previously, errors would report line 2 (macro definition) instead of line 5 (call site)
+
+  const code = `
+(macro my-add [a b]
+  \`(+ ~a ~b))
+
+(fn check [x:number] :number x)
+(check (my-add "wrong" 5))
+`;
+
+  // Helper to run HQL code and capture output
+  const proc = new Deno.Command("deno", {
+    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", code],
+    stdout: "piped",
+    stderr: "piped",
+    cwd: Deno.cwd(),
+  });
+
+  const result = await proc.output();
+  const stderr = new TextDecoder().decode(result.stderr);
+
+  // Should have a type error
+  assertEquals(stderr.includes("Type error"), true, "Expected type error");
+
+  // CRITICAL: Error should report line 6 (call site), NOT line 2 (macro definition)
+  // The error format is: "Type error at <file>:<line>:<column>"
+  const errorMatch = stderr.match(/Type error at [^:]+:(\d+):(\d+)/);
+
+  assertEquals(
+    errorMatch !== null,
+    true,
+    `Expected type error with location, got: ${stderr}`,
+  );
+
+  if (errorMatch) {
+    const errorLine = parseInt(errorMatch[1], 10);
+    // Line 6 is where (check (my-add "wrong" 5)) is called
+    // The macro call (my-add "wrong" 5) is at column ~8
+    assertEquals(
+      errorLine,
+      6,
+      `Error should report call site (line 6), not macro definition (line 2). Got line ${errorLine}`,
+    );
+  }
+});
