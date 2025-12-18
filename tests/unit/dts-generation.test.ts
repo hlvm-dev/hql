@@ -37,7 +37,7 @@ Deno.test("DTS Generation: variable export", async () => {
 
 Deno.test("DTS Generation: export default function", async () => {
   const code = `
-    (fn main [args] (println "Hello"))
+    (fn main [args] (print "Hello"))
     (export default main)
   `;
   const result = await transpile(code, { baseDir: Deno.cwd(), generateDts: true });

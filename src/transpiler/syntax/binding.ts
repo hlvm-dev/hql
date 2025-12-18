@@ -20,6 +20,7 @@ import {
   hasHashMapPrefix,
   hasVectorPrefix,
 } from "../../common/sexp-utils.ts";
+import { DEEP_FREEZE_HELPER } from "../../common/runtime-helper-impl.ts";
 import { copyPosition, isExpressionResult } from "../pipeline/hql-ast-to-hql-ir.ts";
 
 /**
@@ -481,7 +482,7 @@ function wrapWithFreeze(node: IR.IRNode): IR.IRNode {
     type: IR.IRNodeType.CallExpression,
     callee: {
       type: IR.IRNodeType.Identifier,
-      name: "__hql_deepFreeze",
+      name: DEEP_FREEZE_HELPER,
     } as IR.IRIdentifier,
     arguments: [node],
   } as IR.IRCallExpression;

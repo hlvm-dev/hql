@@ -4,7 +4,7 @@
  * Provides navigation to symbol definitions.
  */
 
-import { Location } from "npm:vscode-languageserver@9.0.1";
+import type { Location } from "npm:vscode-languageserver@9.0.1";
 import type { SymbolInfo } from "../../src/transpiler/symbol_table.ts";
 import { toLSPPosition } from "../utils/position.ts";
 import { filePathToUri } from "../documents.ts";

@@ -1,6 +1,8 @@
 // core/src/common/sexp-utils.ts
 // Shared helpers for working with S-expression style node arrays.
 
+import { HASH_MAP_INTERNAL, HASH_MAP_USER } from "./runtime-helper-impl.ts";
+
 interface BaseNode {
   type: string;
 }
@@ -122,6 +124,6 @@ export function hasHashMapPrefix(list: ListLike): boolean {
     return false;
   }
   const first = list.elements[0];
-  return isSymbolWithName(first, "hash-map") ||
-    isSymbolWithName(first, "__hql_hash_map");
+  return isSymbolWithName(first, HASH_MAP_USER) ||
+    isSymbolWithName(first, HASH_MAP_INTERNAL);
 }

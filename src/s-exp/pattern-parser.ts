@@ -26,6 +26,12 @@ import {
   hasHashMapPrefix,
   isSymbolWithName,
 } from "../common/sexp-utils.ts";
+import {
+  HASH_MAP_INTERNAL,
+  HASH_MAP_USER,
+  VECTOR_SYMBOL,
+  EMPTY_ARRAY_SYMBOL,
+} from "../common/runtime-helper-impl.ts";
 
 // Re-export couldBePattern so it can be imported from this module
 export { couldBePattern } from "./types.ts";
@@ -92,8 +98,8 @@ export function parsePattern(exp: SExp): Pattern {
     let arrayExp = exp;
     if (
       exp.elements.length > 0 &&
-      (isSymbolWithName(exp.elements[0], "vector") ||
-        isSymbolWithName(exp.elements[0], "empty-array"))
+      (isSymbolWithName(exp.elements[0], VECTOR_SYMBOL) ||
+        isSymbolWithName(exp.elements[0], EMPTY_ARRAY_SYMBOL))
     ) {
       arrayExp = { ...exp, elements: exp.elements.slice(1) };
     }
@@ -316,8 +322,8 @@ export function parseObjectPattern(exp: SExp): ObjectPattern {
   if (
     exp.elements.length === 0 ||
     !isSymbol(exp.elements[0]) ||
-    (exp.elements[0].name !== "hash-map" &&
-      exp.elements[0].name !== "__hql_hash_map")
+    (exp.elements[0].name !== HASH_MAP_USER &&
+      exp.elements[0].name !== HASH_MAP_INTERNAL)
   ) {
     throw new Error(
       `Expected hash-map for object pattern, got: ${JSON.stringify(exp)}`,

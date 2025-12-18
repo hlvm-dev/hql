@@ -94,6 +94,11 @@ export const THREADING_MACROS = [
 export const FOR_LOOP_SYNTAX_KEYWORDS = ["to:", "from:", "by:"] as const;
 
 /**
+ * Set version for O(1) lookup - use this for .has() checks instead of Array.includes()
+ */
+export const FOR_LOOP_SYNTAX_KEYWORDS_SET: ReadonlySet<string> = new Set(FOR_LOOP_SYNTAX_KEYWORDS);
+
+/**
  * Word-form logical operators (macros that act like operators).
  * For syntax highlighting categorization.
  */

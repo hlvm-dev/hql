@@ -190,7 +190,6 @@ declare function __hql_into<T>(target: T[], source: Iterable<T>): T[];
 
 declare function __hql_str(...args: unknown[]): string;
 declare function __hql_print(...args: unknown[]): void;
-declare function __hql_println(...args: unknown[]): void;
 
 declare function __hql_equal(a: unknown, b: unknown): boolean;
 declare function __hql_not_equal(a: unknown, b: unknown): boolean;
@@ -240,9 +239,8 @@ declare function mod(a: number, b: number): number;
 declare function quot(a: number, b: number): number;
 declare function rem(a: number, b: number): number;
 
-// Print functions
+// Print function (HQL has print, NOT println)
 declare function print(...args: unknown[]): void;
-declare function println(...args: unknown[]): void;
 
 declare const __hql_nil: null;
 

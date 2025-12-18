@@ -5,9 +5,9 @@
  */
 
 import {
-  Diagnostic,
   DiagnosticSeverity,
 } from "npm:vscode-languageserver@9.0.1";
+import type { Diagnostic } from "npm:vscode-languageserver@9.0.1";
 import type { AnalysisResult, AnalysisError } from "../analysis.ts";
 import { toLSPRange } from "../utils/position.ts";
 

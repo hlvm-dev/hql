@@ -8,6 +8,61 @@
 import { lazySeq } from "../lib/stdlib/js/stdlib.js";
 import { rangeCore } from "./shared-core.ts";
 
+// ============================================================================
+// INTERNAL IDENTIFIER CONSTANTS - SINGLE SOURCE OF TRUTH
+// ============================================================================
+// Use these constants instead of hardcoded strings throughout the codebase.
+
+// --- Data Structure Symbols ---
+/** Symbol for vector/array literals: [1 2 3] parses as (vector 1 2 3) */
+export const VECTOR_SYMBOL = "vector";
+
+/** Symbol for empty array literals: [] parses as (empty-array) */
+export const EMPTY_ARRAY_SYMBOL = "empty-array";
+
+/** The user-facing name for hash-map in HQL source */
+export const HASH_MAP_USER = "hash-map";
+
+// --- Runtime Helper Names ---
+/** The internal name for hash-map helper function (after macro expansion) */
+export const HASH_MAP_INTERNAL = "__hql_hash_map";
+
+/** Internal return value variable for early returns */
+export const RETURN_VALUE_VAR = "__hql_ret__";
+
+/** Internal early return flag variable */
+export const EARLY_RETURN_FLAG = "__hql_early_return__";
+
+/** Runtime helper for property access */
+export const GET_HELPER = "__hql_get";
+
+/** Runtime helper for numeric property access */
+export const GET_NUMERIC_HELPER = "__hql_getNumeric";
+
+/** Runtime helper for range generation */
+export const RANGE_HELPER = "__hql_range";
+
+/** Runtime helper for lazy sequences */
+export const LAZY_SEQ_HELPER = "__hql_lazy_seq";
+
+/** Runtime helper for iteration */
+export const FOR_EACH_HELPER = "__hql_for_each";
+
+/** Runtime helper for sequence conversion */
+export const TO_SEQUENCE_HELPER = "__hql_toSequence";
+
+/** Runtime helper for throwing */
+export const THROW_HELPER = "__hql_throw";
+
+/** Runtime helper for deep freezing */
+export const DEEP_FREEZE_HELPER = "__hql_deepFreeze";
+
+/** Runtime helper for object pattern matching */
+export const MATCH_OBJ_HELPER = "__hql_match_obj";
+
+/** Runtime helper for get operations (first-class) */
+export const GET_OP_HELPER = "__hql_get_op";
+
 export function __hql_get(
   obj: unknown,
   key: unknown,
@@ -249,9 +304,14 @@ export const runtimeHelperImplementations = {
 
 /**
  * All runtime helper names - SINGLE SOURCE OF TRUTH.
- * Used by ir-to-estree.ts to detect which helpers are used.
+ * Used by ir-to-typescript.ts to detect which helpers are used.
  */
 export const RUNTIME_HELPER_NAMES = Object.keys(runtimeHelperImplementations) as RuntimeHelperName[];
+
+/**
+ * Set version for O(1) lookup - use this for .has() checks instead of Array.includes()
+ */
+export const RUNTIME_HELPER_NAMES_SET: ReadonlySet<string> = new Set(RUNTIME_HELPER_NAMES);
 
 export type RuntimeHelperName = keyof typeof runtimeHelperImplementations;
 

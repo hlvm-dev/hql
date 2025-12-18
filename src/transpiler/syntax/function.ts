@@ -28,6 +28,11 @@ import {
   containsNestedReturns,
   wrapWithEarlyReturnHandler,
 } from "../utils/return-helpers.ts";
+import {
+  HASH_MAP_INTERNAL,
+  HASH_MAP_USER,
+  VECTOR_SYMBOL,
+} from "../../common/runtime-helper-impl.ts";
 import { patternToIR } from "../utils/pattern-to-ir.ts";
 import { parsePattern } from "../../s-exp/pattern-parser.ts";
 
@@ -596,8 +601,8 @@ function processJsonMapArgs(
       if (
         listArg.elements.length > 0 &&
         listArg.elements[0].type === "symbol" &&
-        ((listArg.elements[0] as SymbolNode).name === "hash-map" ||
-          (listArg.elements[0] as SymbolNode).name === "__hql_hash_map")
+        ((listArg.elements[0] as SymbolNode).name === HASH_MAP_USER ||
+          (listArg.elements[0] as SymbolNode).name === HASH_MAP_INTERNAL)
       ) {
         // Transform the hash-map argument
         const transformedArg = validateTransformed(
@@ -942,8 +947,8 @@ function parseParameters(
       const isRestParam = supportRest && symbolName.startsWith("...");
       const actualParamName = isRestParam ? symbolName.slice(3) : symbolName;
 
-      // Extract type annotation if present (e.g., "name: string" or "a: number")
-      // Format: paramName: TypeAnnotation
+      // Extract type annotation if present (e.g., "name:string" or "a:number")
+      // Format: paramName:TypeAnnotation (NO SPACE after colon - parser uses whitespace as delimiter)
       let paramNameWithoutType = actualParamName;
       let typeAnnotation: string | undefined;
       const colonIndex = actualParamName.indexOf(":");
@@ -1049,8 +1054,8 @@ function parseFunctionParameters(
   if (
     paramList.elements.length > 0 &&
     paramList.elements[0].type === "symbol" &&
-    ((paramList.elements[0] as SymbolNode).name === "hash-map" ||
-      (paramList.elements[0] as SymbolNode).name === "__hql_hash_map")
+    ((paramList.elements[0] as SymbolNode).name === HASH_MAP_USER ||
+      (paramList.elements[0] as SymbolNode).name === HASH_MAP_INTERNAL)
   ) {
     const { params, defaults } = parseJsonMapParameters(
       paramList,
@@ -1064,7 +1069,7 @@ function parseFunctionParameters(
   if (
     paramList.elements.length > 0 &&
     paramList.elements[0].type === "symbol" &&
-    (paramList.elements[0] as SymbolNode).name === "vector"
+    (paramList.elements[0] as SymbolNode).name === VECTOR_SYMBOL
   ) {
     const vectorList = {
       ...paramList,
@@ -1102,8 +1107,8 @@ export function parseJsonMapParameters(
   if (
     mapNode.elements.length === 0 ||
     mapNode.elements[0].type !== "symbol" ||
-    !((mapNode.elements[0] as SymbolNode).name === "hash-map" ||
-      (mapNode.elements[0] as SymbolNode).name === "__hql_hash_map")
+    !((mapNode.elements[0] as SymbolNode).name === HASH_MAP_USER ||
+      (mapNode.elements[0] as SymbolNode).name === HASH_MAP_INTERNAL)
   ) {
     throw new ValidationError(
       "JSON map parameters must be a hash-map literal",

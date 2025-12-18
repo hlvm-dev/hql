@@ -6,11 +6,11 @@
  */
 
 import {
-  CompletionItem,
   CompletionItemKind,
   InsertTextFormat,
   MarkupKind,
 } from "npm:vscode-languageserver@9.0.1";
+import type { CompletionItem } from "npm:vscode-languageserver@9.0.1";
 import type { SymbolTable, SymbolInfo } from "../../src/transpiler/symbol_table.ts";
 import type { ModuleExport } from "../workspace/mod.ts";
 
@@ -370,7 +370,7 @@ function buildBuiltins(): CompletionItem[] {
     .map(id => ({
       label: id,
       kind: operatorSet.has(id) ? CompletionItemKind.Operator : CompletionItemKind.Function,
-      detail: BUILTIN_DESCRIPTIONS[id] ?? (id.endsWith("?") ? "predicate" : "function"),
+      detail: BUILTIN_DESCRIPTIONS[id] ?? "function",
     }));
 }
 
@@ -394,6 +394,148 @@ function buildConstants(): CompletionItem[] {
     kind: CompletionItemKind.Constant,
     detail: constantDescriptions[c] ?? "constant",
   }));
+}
+
+/**
+ * HQL Type Completions
+ *
+ * These types are used for type annotations in HQL:
+ *   (fn add [a:number b:number] :number ...)
+ *
+ * HQL supports TypeScript-style types since it compiles to TypeScript/JavaScript.
+ */
+const TYPE_COMPLETIONS: CompletionItem[] = [
+  // Primitive types
+  {
+    label: "number",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Number type (integer or float)",
+    documentation: "JavaScript number type for numeric values",
+  },
+  {
+    label: "string",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "String type",
+    documentation: "JavaScript string type for text values",
+  },
+  {
+    label: "boolean",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Boolean type (true/false)",
+    documentation: "JavaScript boolean type",
+  },
+  {
+    label: "any",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Any type (disables type checking)",
+    documentation: "TypeScript any type - allows any value",
+  },
+  {
+    label: "void",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Void type (no return value)",
+    documentation: "Used for functions that don't return a value",
+  },
+  {
+    label: "null",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Null type",
+    documentation: "The null value type",
+  },
+  {
+    label: "undefined",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Undefined type",
+    documentation: "The undefined value type",
+  },
+  // Object types
+  {
+    label: "object",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Object type",
+    documentation: "JavaScript object type",
+  },
+  {
+    label: "Array",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Array type",
+    documentation: "JavaScript Array - use Array<T> for typed arrays",
+  },
+  {
+    label: "Function",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Function type",
+    documentation: "JavaScript function type",
+  },
+  {
+    label: "Promise",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Promise type",
+    documentation: "JavaScript Promise for async operations",
+  },
+  {
+    label: "Map",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Map type",
+    documentation: "JavaScript Map collection",
+  },
+  {
+    label: "Set",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Set type",
+    documentation: "JavaScript Set collection",
+  },
+  // Common DOM/Web types
+  {
+    label: "Element",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "DOM Element type",
+    documentation: "DOM Element for web development",
+  },
+  {
+    label: "HTMLElement",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "HTML Element type",
+    documentation: "DOM HTMLElement for web development",
+  },
+  {
+    label: "Event",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Event type",
+    documentation: "DOM Event type",
+  },
+  // TypeScript utility types
+  {
+    label: "Record",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Record<K, V> - object with keys K and values V",
+    documentation: "TypeScript Record utility type",
+  },
+  {
+    label: "Partial",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Partial<T> - all properties optional",
+    documentation: "TypeScript Partial utility type",
+  },
+  {
+    label: "Required",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Required<T> - all properties required",
+    documentation: "TypeScript Required utility type",
+  },
+  {
+    label: "Readonly",
+    kind: CompletionItemKind.TypeParameter,
+    detail: "Readonly<T> - all properties readonly",
+    documentation: "TypeScript Readonly utility type",
+  },
+];
+
+/**
+ * Get type completions (for use after : in type positions)
+ */
+export function getTypeCompletions(): CompletionItem[] {
+  return TYPE_COMPLETIONS;
 }
 
 // Cache for dynamically built completions (built once per session)
@@ -425,15 +567,29 @@ export interface ImportedModuleContext {
 }
 
 /**
+ * Completion context for determining what kind of completions to provide
+ */
+export interface CompletionContext {
+  isTypePosition: boolean; // True if cursor is after : in a type annotation position
+}
+
+/**
  * Get completion items for a document
  *
  * @param symbols - Local symbol table
  * @param importedModules - Exports from imported modules (npm:, jsr:, local .js/.ts)
+ * @param context - Optional context for type position detection
  */
 export function getCompletions(
   symbols: SymbolTable | null,
-  importedModules?: ImportedModuleContext[]
+  importedModules?: ImportedModuleContext[],
+  context?: CompletionContext
 ): CompletionItem[] {
+  // If in type position, return type completions
+  if (context?.isTypePosition) {
+    return TYPE_COMPLETIONS;
+  }
+
   const items: CompletionItem[] = [...getBaseCompletions()];
 
   // Add user-defined symbols

@@ -7,11 +7,7 @@
  */
 
 import { parse } from "../src/transpiler/pipeline/parser.ts";
-import {
-  SymbolTable,
-  type SymbolInfo,
-  type SymbolKind,
-} from "../src/transpiler/symbol_table.ts";
+import { SymbolTable } from "../src/transpiler/symbol_table.ts";
 import { HQLError } from "../src/common/error.ts";
 import type { SExp, SList, SSymbol, SLiteral } from "../src/s-exp/types.ts";
 import type { HQLRange } from "./utils/position.ts";
@@ -135,6 +131,21 @@ function isLiteral(exp: SExp): exp is SLiteral {
 }
 
 /**
+ * Parse parameter name and type from HQL syntax.
+ * HQL uses colon-separated format: `name:type`
+ * Examples: "x:number", "callback:Function", "items:string[]"
+ */
+function parseParamNameAndType(rawName: string): { name: string; type?: string } {
+  const colonIndex = rawName.indexOf(":");
+  if (colonIndex > 0) {
+    const name = rawName.slice(0, colonIndex).trim();
+    const type = rawName.slice(colonIndex + 1).trim();
+    return { name, type: type || undefined };
+  }
+  return { name: rawName };
+}
+
+/**
  * Extract symbol definitions from an AST
  */
 function collectSymbols(
@@ -239,6 +250,7 @@ function collectBinding(
 
 /**
  * Collect a function definition: (fn name [params] body)
+ * Also supports typed syntax: (fn name [a:number b:string] :ReturnType body)
  * HQL uses `fn` for all function definitions (named and anonymous)
  */
 function collectFunction(
@@ -262,8 +274,9 @@ function collectFunction(
   // Anonymous functions don't get registered as top-level symbols
   if (!nameNode) return;
 
-  // Extract parameters
+  // Extract parameters with type annotations
   // Note: [a b] is parsed as (vector a b), so skip the "vector" symbol
+  // HQL type syntax: [a:number b:string] - colon inside the symbol
   const params: { name: string; type?: string }[] = [];
   if (
     node.elements.length > paramsIndex &&
@@ -272,7 +285,25 @@ function collectFunction(
     const paramsNode = node.elements[paramsIndex] as SList;
     for (const p of paramsNode.elements) {
       if (isSymbol(p) && p.name !== "vector" && p.name !== "empty-array") {
-        params.push({ name: p.name });
+        // Parse type annotation from parameter name (e.g., "x:number")
+        const parsed = parseParamNameAndType(p.name);
+        params.push(parsed);
+      }
+    }
+  }
+
+  // Extract return type annotation
+  // Syntax: (fn name [params] :ReturnType body)
+  // Return type is a symbol starting with ":" after the params list
+  let returnType: string | undefined;
+  const returnTypeIndex = paramsIndex + 1;
+  if (node.elements.length > returnTypeIndex) {
+    const potentialReturnType = node.elements[returnTypeIndex];
+    if (isSymbol(potentialReturnType)) {
+      const sym = potentialReturnType.name;
+      // Return type starts with : (e.g., ":number", ":string[]", ":void")
+      if (sym.startsWith(":") && sym.length > 1) {
+        returnType = sym.slice(1).trim();
       }
     }
   }
@@ -282,6 +313,7 @@ function collectFunction(
     kind: "function",
     scope: "global",
     params,
+    returnType,
     location: {
       filePath,
       line: nameNode._meta?.line ?? 1,
@@ -292,6 +324,7 @@ function collectFunction(
 
 /**
  * Collect a macro definition: (macro name [params] body)
+ * Macros can also have typed parameters: (macro name [x:SExp y:SExp] body)
  */
 function collectMacro(
   node: SList,
@@ -303,14 +336,16 @@ function collectMacro(
   const nameNode = node.elements[1];
   if (!isSymbol(nameNode)) return;
 
-  // Extract parameters
+  // Extract parameters with type annotations
   // Note: [a b] is parsed as (vector a b), so skip the "vector" symbol
   const params: { name: string; type?: string }[] = [];
   if (node.elements.length > 2 && isList(node.elements[2])) {
     const paramsNode = node.elements[2] as SList;
     for (const p of paramsNode.elements) {
       if (isSymbol(p) && p.name !== "vector" && p.name !== "empty-array") {
-        params.push({ name: p.name });
+        // Parse type annotation from parameter name (e.g., "x:SExp")
+        const parsed = parseParamNameAndType(p.name);
+        params.push(parsed);
       }
     }
   }
@@ -330,6 +365,8 @@ function collectMacro(
 
 /**
  * Collect a class definition: (class Name ...)
+ * Supports typed syntax for fields: (field x:number)
+ * Supports typed methods: (fn methodName [a:Type] :ReturnType body)
  */
 function collectClass(
   node: SList,
@@ -359,7 +396,9 @@ function collectClass(
     if (memberHead.name === "field" && member.elements.length >= 2) {
       const fieldName = member.elements[1];
       if (isSymbol(fieldName)) {
-        fields.push({ name: fieldName.name });
+        // Parse field type annotation (e.g., "x:number")
+        const parsed = parseParamNameAndType(fieldName.name);
+        fields.push(parsed);
       }
     } else if (
       memberHead.name === "fn" &&
@@ -368,15 +407,32 @@ function collectClass(
       const methodName = member.elements[1];
       if (isSymbol(methodName)) {
         const methodParams: { name: string; type?: string }[] = [];
-        if (isList(member.elements[2])) {
-          for (const p of (member.elements[2] as SList).elements) {
+        const paramsNode = member.elements[2];
+        if (isList(paramsNode)) {
+          for (const p of (paramsNode as SList).elements) {
             // Skip "vector" symbol from parsed [params]
             if (isSymbol(p) && p.name !== "vector" && p.name !== "empty-array") {
-              methodParams.push({ name: p.name });
+              // Parse type annotation from parameter name (e.g., "x:number")
+              const parsed = parseParamNameAndType(p.name);
+              methodParams.push(parsed);
             }
           }
         }
-        methods.push({ name: methodName.name, params: methodParams });
+
+        // Extract return type for method
+        // Syntax: (fn name [params] :ReturnType body)
+        let returnType: string | undefined;
+        if (member.elements.length > 3) {
+          const potentialReturnType = member.elements[3];
+          if (isSymbol(potentialReturnType)) {
+            const sym = potentialReturnType.name;
+            if (sym.startsWith(":") && sym.length > 1) {
+              returnType = sym.slice(1).trim();
+            }
+          }
+        }
+
+        methods.push({ name: methodName.name, params: methodParams, returnType });
       }
     }
   }

@@ -21,13 +21,14 @@ import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import type { ListNode, SymbolNode } from "../type/hql_ast.ts";
 import { globalSymbolTable } from "../symbol_table.ts";
 import type { SymbolKind } from "../symbol_table.ts";
+import {
+  VECTOR_SYMBOL,
+  EMPTY_ARRAY_SYMBOL,
+  HASH_MAP_INTERNAL,
+} from "../../common/runtime-helper-impl.ts";
 
-/**
- * Options for syntax transformation
- */
-interface TransformOptions {
-  verbose?: boolean;
-}
+// Pre-compiled regex for numeric string check (avoid creating regex in hot path)
+const NUMERIC_STRING_REGEX = /^\d+$/;
 
 /**
  * Main entry point - transforms all syntax sugar into canonical S-expressions
@@ -266,8 +267,8 @@ function registerBinding(list: SList, bindingKeyword: string): void {
       let bindings = list.elements[1] as SList;
       const hadVectorPrefix = bindings.elements.length > 0 &&
         isSymbol(bindings.elements[0]) &&
-        ((bindings.elements[0] as SSymbol).name === "vector" ||
-          (bindings.elements[0] as SSymbol).name === "empty-array");
+        ((bindings.elements[0] as SSymbol).name === VECTOR_SYMBOL ||
+          (bindings.elements[0] as SSymbol).name === EMPTY_ARRAY_SYMBOL);
       const hadHashMapPrefix = bindings.elements.length > 0 &&
         isSymbol(bindings.elements[0]) &&
         (bindings.elements[0] as SSymbol).name === "hash-map";
@@ -397,7 +398,7 @@ function inferDataType(node: SExp): string {
       const op = (list.elements[0] as SSymbol).name;
 
       // Check common data structure constructors
-      if (op === "vector" || op === "empty-array") {
+      if (op === VECTOR_SYMBOL || op === EMPTY_ARRAY_SYMBOL) {
         return "Array";
       }
       if (op === "hash-set" || op === "empty-set") {
@@ -669,7 +670,7 @@ function transformMacro(
     if (
       paramList.elements.length > 0 &&
       isSymbol(paramList.elements[0]) &&
-      (paramList.elements[0] as SSymbol).name === "vector"
+      (paramList.elements[0] as SSymbol).name === VECTOR_SYMBOL
     ) {
       paramList = {
         ...paramList,
@@ -679,7 +680,7 @@ function transformMacro(
     else if (
       paramList.elements.length === 1 &&
       isSymbol(paramList.elements[0]) &&
-      (paramList.elements[0] as SSymbol).name === "empty-array"
+      (paramList.elements[0] as SSymbol).name === EMPTY_ARRAY_SYMBOL
     ) {
       paramList = {
         ...paramList,
@@ -745,8 +746,8 @@ function transformLetExpr(
       // Only these syntaxes should be treated as destructuring patterns!
       const hadVectorPrefix = bindingList.elements.length > 0 &&
         isSymbol(bindingList.elements[0]) &&
-        ((bindingList.elements[0] as SSymbol).name === "vector" ||
-          (bindingList.elements[0] as SSymbol).name === "empty-array");
+        ((bindingList.elements[0] as SSymbol).name === VECTOR_SYMBOL ||
+          (bindingList.elements[0] as SSymbol).name === EMPTY_ARRAY_SYMBOL);
 
       const hadHashMapPrefix = bindingList.elements.length > 0 &&
         isSymbol(bindingList.elements[0]) &&
@@ -862,7 +863,7 @@ function transformBindingList(
   if (
     elements.length > 0 &&
     isSymbol(elements[0]) &&
-    (elements[0] as SSymbol).name === "vector"
+    (elements[0] as SSymbol).name === VECTOR_SYMBOL
   ) {
     elements = elements.slice(1);
   }
@@ -1121,7 +1122,7 @@ function normalizeSpacelessDotChain(list: SList): SList {
 
   // Check if first part is numeric - don't normalize
   // Prevents (42.map) from becoming (42 .map) which is semantically wrong
-  if (/^\d+$/.test(parts[0])) {
+  if (NUMERIC_STRING_REGEX.test(parts[0])) {
     return list;
   }
 

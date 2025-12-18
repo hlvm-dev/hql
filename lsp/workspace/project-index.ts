@@ -15,7 +15,6 @@ import {
   type FileIndex,
   type IndexedSymbol,
   type ExportInfo,
-  type ImportInfo,
   createSymbolId,
 } from "./types.ts";
 

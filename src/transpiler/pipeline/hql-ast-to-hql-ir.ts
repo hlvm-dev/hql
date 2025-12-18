@@ -13,6 +13,16 @@ import type {
   SkipPattern,
 } from "../../s-exp/types.ts";
 import { sanitizeIdentifier, hyphenToUnderscore } from "../../common/utils.ts";
+import {
+  HASH_MAP_INTERNAL,
+  HASH_MAP_USER,
+  RANGE_HELPER,
+  LAZY_SEQ_HELPER,
+  GET_HELPER,
+  GET_NUMERIC_HELPER,
+  GET_OP_HELPER,
+  VECTOR_SYMBOL,
+} from "../../common/runtime-helper-impl.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import {
   perform,
@@ -312,7 +322,7 @@ function initializeTransformFactory(): void {
           quoteModule.transformUnquoteSplicing(list, currentDir, transformNode),
       );
       transformFactory.set(
-        "vector",
+        VECTOR_SYMBOL,
         (list, currentDir) =>
           dataStructureModule.transformVector(list, currentDir, transformNode),
       );
@@ -322,12 +332,12 @@ function initializeTransformFactory(): void {
           dataStructureModule.transformHashSet(list, currentDir, transformNode),
       );
       transformFactory.set(
-        "hash-map",
+        HASH_MAP_USER,
         (list, currentDir) =>
           dataStructureModule.transformHashMap(list, currentDir, transformNode),
       );
       transformFactory.set(
-        "__hql_hash_map",
+        HASH_MAP_INTERNAL,
         (list, currentDir) =>
           dataStructureModule.transformHashMap(list, currentDir, transformNode),
       );
@@ -388,7 +398,7 @@ function initializeTransformFactory(): void {
             type: IR.IRNodeType.CallExpression,
             callee: {
               type: IR.IRNodeType.Identifier,
-              name: "__hql_range",
+              name: RANGE_HELPER,
             } as IR.IRIdentifier,
             arguments: args,
           } as IR.IRCallExpression;
@@ -457,7 +467,7 @@ function initializeTransformFactory(): void {
           if (bodyExprs.length === 0) {
             return {
               type: IR.IRNodeType.CallExpression,
-              callee: { type: IR.IRNodeType.Identifier, name: "__hql_lazy_seq" } as IR.IRIdentifier,
+              callee: { type: IR.IRNodeType.Identifier, name: LAZY_SEQ_HELPER } as IR.IRIdentifier,
               arguments: [{
                 type: IR.IRNodeType.FunctionExpression,
                 id: null,
@@ -490,7 +500,7 @@ function initializeTransformFactory(): void {
           // Create: __hql_lazy_seq(() => { return body; })
           return {
             type: IR.IRNodeType.CallExpression,
-            callee: { type: IR.IRNodeType.Identifier, name: "__hql_lazy_seq" } as IR.IRIdentifier,
+            callee: { type: IR.IRNodeType.Identifier, name: LAZY_SEQ_HELPER } as IR.IRIdentifier,
             arguments: [{
               type: IR.IRNodeType.FunctionExpression,
               id: null,
@@ -1520,7 +1530,7 @@ function createPropertyAccessWithFallback(
     type: IR.IRNodeType.CallExpression,
     callee: {
       type: IR.IRNodeType.Identifier,
-      name: "__hql_get",
+      name: GET_HELPER,
     } as IR.IRIdentifier,
     arguments: [objectNode, keyNode],
   } as IR.IRCallExpression;
@@ -1536,7 +1546,7 @@ function createNumericAccessWithFallback(
     type: IR.IRNodeType.CallExpression,
     callee: {
       type: IR.IRNodeType.Identifier,
-      name: "__hql_getNumeric",
+      name: GET_NUMERIC_HELPER,
     } as IR.IRIdentifier,
     arguments: [objectNode, keyNode],
   } as IR.IRCallExpression;
@@ -1697,7 +1707,7 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
       if (FIRST_CLASS_OPERATORS.has(name)) {
         return {
           type: IR.IRNodeType.CallExpression,
-          callee: { type: IR.IRNodeType.Identifier, name: "__hql_get_op" } as IR.IRIdentifier,
+          callee: { type: IR.IRNodeType.Identifier, name: GET_OP_HELPER } as IR.IRIdentifier,
           arguments: [{ type: IR.IRNodeType.StringLiteral, value: name } as IR.IRStringLiteral],
         } as IR.IRCallExpression;
       }

@@ -15,7 +15,7 @@ import * as IR from "../type/hql_ir.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import { CodeGenError } from "../../common/error.ts";
 import { applyTCO } from "../optimize/tco-optimizer.ts";
-import { RUNTIME_HELPER_NAMES } from "../../common/runtime-helper-impl.ts";
+import { RUNTIME_HELPER_NAMES_SET } from "../../common/runtime-helper-impl.ts";
 
 // ============================================================================
 // Types
@@ -73,14 +73,15 @@ class TSGenerator {
       });
     }
 
-    // Emit the text and track position
-    for (const char of text) {
-      if (char === "\n") {
-        this.currentLine++;
-        this.currentColumn = 0;
-      } else {
-        this.currentColumn++;
-      }
+    // Track position - optimized to avoid character-by-character iteration
+    // Fast path: no newlines (most common case for tokens/identifiers)
+    if (!text.includes("\n")) {
+      this.currentColumn += text.length;
+    } else {
+      // Has newlines - split is well-optimized in V8
+      const lines = text.split("\n");
+      this.currentLine += lines.length - 1;
+      this.currentColumn = lines[lines.length - 1].length;
     }
     this.code += text;
   }
@@ -105,8 +106,18 @@ class TSGenerator {
     if (this.indentLevel > 0) this.indentLevel--;
   }
 
+  /**
+   * Emit items separated by commas - DRY helper for common pattern
+   */
+  private emitCommaSeparated<T>(items: T[], processor: (item: T) => void): void {
+    for (let i = 0; i < items.length; i++) {
+      if (i > 0) this.emit(", ");
+      processor(items[i]);
+    }
+  }
+
   private trackHelper(name: string): void {
-    if ((RUNTIME_HELPER_NAMES as readonly string[]).includes(name)) {
+    if (RUNTIME_HELPER_NAMES_SET.has(name)) {
       this.usedHelpers.add(name);
     }
   }
@@ -402,10 +413,7 @@ class TSGenerator {
     if (needsParens) this.emit(")");
 
     this.emit("(", node.position);
-    for (let i = 0; i < node.arguments.length; i++) {
-      if (i > 0) this.emit(", ");
-      this.generateNode(node.arguments[i]);
-    }
+    this.emitCommaSeparated(node.arguments, (arg) => this.generateNode(arg));
     this.emit(")");
   }
 
@@ -426,10 +434,7 @@ class TSGenerator {
     this.emit(".", node.position);
     this.generateNode(node.property);
     this.emit("(");
-    for (let i = 0; i < node.arguments.length; i++) {
-      if (i > 0) this.emit(", ");
-      this.generateNode(node.arguments[i]);
-    }
+    this.emitCommaSeparated(node.arguments, (arg) => this.generateNode(arg));
     this.emit(")");
   }
 
@@ -437,19 +442,13 @@ class TSGenerator {
     this.emit("new ", node.position);
     this.generateNode(node.callee);
     this.emit("(");
-    for (let i = 0; i < node.arguments.length; i++) {
-      if (i > 0) this.emit(", ");
-      this.generateNode(node.arguments[i]);
-    }
+    this.emitCommaSeparated(node.arguments, (arg) => this.generateNode(arg));
     this.emit(")");
   }
 
   private generateArrayExpression(node: IR.IRArrayExpression): void {
     this.emit("[", node.position);
-    for (let i = 0; i < node.elements.length; i++) {
-      if (i > 0) this.emit(", ");
-      this.generateNode(node.elements[i]);
-    }
+    this.emitCommaSeparated(node.elements, (elem) => this.generateNode(elem));
     this.emit("]");
   }
 
@@ -735,7 +734,7 @@ class TSGenerator {
     }
 
     this.emit("(");
-    this.generateParams(node.params);
+    this.generateFnParams(node.params);
     this.emit(")");
 
     // Add return type annotation if present
@@ -831,7 +830,7 @@ class TSGenerator {
   private generateClassConstructor(ctor: IR.IRClassConstructor): void {
     this.emitIndent();
     this.emit("constructor(", ctor.position);
-    this.generateParams(ctor.params);
+    this.generateFnParams(ctor.params);
     this.emit(") ");
     this.generateBlockStatement(ctor.body);
     this.emit("\n");
@@ -1175,22 +1174,6 @@ class TSGenerator {
   // ============================================================================
   // Helper Generators
   // ============================================================================
-
-  private generateParams(params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[]): void {
-    for (let i = 0; i < params.length; i++) {
-      if (i > 0) this.emit(", ");
-      const param = params[i];
-      if (param.type === IR.IRNodeType.Identifier) {
-        const id = param as IR.IRIdentifier;
-        this.emit(id.name, id.position);
-        if (id.typeAnnotation) {
-          this.emit(`: ${id.typeAnnotation}`);
-        }
-      } else {
-        this.generatePattern(param);
-      }
-    }
-  }
 
   private generateFnParams(
     params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[],

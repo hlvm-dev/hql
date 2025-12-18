@@ -119,7 +119,7 @@ export async function transformAST(
 
     // Note: Pattern-specific optimizers (for-loop-optimizer, pipeline-optimizer) were removed.
     // They were band-aids for eager evaluation. The proper solution is lazy sequences.
-    // TCO optimization is kept (in ir-to-estree.ts) as it's a legitimate compiler technique.
+    // TCO optimization is kept (in ir-to-typescript.ts) as it's a legitimate compiler technique.
 
     // Use currentFile for source map references, not the directory
     const sourceFilePath = options.currentFile || "<anonymous>.hql";

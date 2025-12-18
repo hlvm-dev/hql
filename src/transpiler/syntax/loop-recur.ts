@@ -10,6 +10,7 @@ import { ensureReturnStatement } from "../utils/ir-helpers.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
 import { ARITHMETIC_OPS } from "../keyword/primitives.ts";
+import { VECTOR_SYMBOL, EMPTY_ARRAY_SYMBOL } from "../../common/runtime-helper-impl.ts";
 
 // Stack to track the current loop context for recur targeting
 const loopContextStack: string[] = [];
@@ -90,8 +91,8 @@ export function transformLoop(
     if (
       bindings.elements.length > 0 &&
       bindings.elements[0].type === "symbol" &&
-      ((bindings.elements[0] as SymbolNode).name === "vector" ||
-       (bindings.elements[0] as SymbolNode).name === "empty-array")
+      ((bindings.elements[0] as SymbolNode).name === VECTOR_SYMBOL ||
+       (bindings.elements[0] as SymbolNode).name === EMPTY_ARRAY_SYMBOL)
     ) {
       bindings = {
         ...bindings,
@@ -283,7 +284,7 @@ export function transformLoop(
  * Transform if expression specifically for loop body
  * Ensures proper return statements for both branches
  */
-export function transformIfForLoop(
+function transformIfForLoop(
   ifExpr: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
@@ -372,7 +373,7 @@ export function transformIfForLoop(
 /**
  * Check if a given expression is a recur expression
  */
-export function isRecurExpression(expr: HQLNode): boolean {
+function isRecurExpression(expr: HQLNode): boolean {
   return expr.type === "list" &&
     expr.elements.length > 0 &&
     expr.elements[0].type === "symbol" &&
@@ -405,7 +406,7 @@ export function isRecurExpression(expr: HQLNode): boolean {
  * }
  * return sum;
  */
-export function isSimpleLoop(bodyExprs: HQLNode[]): boolean {
+function isSimpleLoop(bodyExprs: HQLNode[]): boolean {
   // Must have exactly one body expression
   if (bodyExprs.length !== 1) {
     return false;
@@ -648,7 +649,7 @@ function tryOptimizeArithmetic(
  *   return sum;
  * })()
  */
-export function transformSimpleLoop(
+function transformSimpleLoop(
   params: IR.IRIdentifier[],
   initialValues: IR.IRNode[],
   bodyExpr: HQLNode,
@@ -1005,7 +1006,7 @@ export function transformRecur(
 /**
  * Helper function to transform a list of body expressions for a loop
  */
-export function transformLoopBody(
+function transformLoopBody(
   bodyExprs: HQLNode[],
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,

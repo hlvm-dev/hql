@@ -1,5 +1,12 @@
 // core/src/s-exp/types.ts - Modified to support source location metadata
 
+import {
+  HASH_MAP_INTERNAL,
+  HASH_MAP_USER,
+  VECTOR_SYMBOL,
+  EMPTY_ARRAY_SYMBOL,
+} from "../common/runtime-helper-impl.ts";
+
 export type SExp = SSymbol | SList | SLiteral;
 
 // Destructuring pattern types
@@ -273,8 +280,8 @@ export function couldBePattern(exp: SExp): boolean {
     // Syntax transformer may convert hash-map to __hql_hash_map
     if (
       isSymbol(exp.elements[0]) &&
-      (exp.elements[0].name === "hash-map" ||
-        exp.elements[0].name === "__hql_hash_map")
+      (exp.elements[0].name === HASH_MAP_USER ||
+        exp.elements[0].name === HASH_MAP_INTERNAL)
     ) {
       // Must have even number of elements after hash-map (key-value pairs)
       const numPairs = exp.elements.length - 1;
@@ -416,7 +423,7 @@ export function isVector(exp: SExp): boolean {
   return isList(exp) &&
     exp.elements.length > 0 &&
     isSymbol(exp.elements[0]) &&
-    (exp.elements[0].name === "vector" || exp.elements[0].name === "empty-array");
+    (exp.elements[0].name === VECTOR_SYMBOL || exp.elements[0].name === EMPTY_ARRAY_SYMBOL);
 }
 
 /**

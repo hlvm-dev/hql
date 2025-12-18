@@ -20,6 +20,7 @@ import {
   normalizeVectorElements,
   type NormalizeVectorOptions,
 } from "../../common/sexp-utils.ts";
+import { HASH_MAP_INTERNAL } from "../../common/runtime-helper-impl.ts";
 
 // Export the get function to make it available through the module
 export { createGetOperation, transformGet };
@@ -125,7 +126,7 @@ export function transformHashMap(
           type: IR.IRNodeType.CallExpression,
           callee: {
             type: IR.IRNodeType.Identifier,
-            name: "__hql_hash_map",
+            name: HASH_MAP_INTERNAL,
             isJS: false,
           } as IR.IRIdentifier,
           arguments: transformedArgs,

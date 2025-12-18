@@ -22,6 +22,12 @@ import {
   parseJsonMapParameters,
   parseParametersWithDefaults,
 } from "./function.ts";
+import {
+  HASH_MAP_INTERNAL,
+  HASH_MAP_USER,
+  VECTOR_SYMBOL,
+  EMPTY_ARRAY_SYMBOL,
+} from "../../common/runtime-helper-impl.ts";
 
 interface MemberExpressionOptions {
   guard?: boolean;
@@ -276,7 +282,7 @@ function parseClassMethodParameters(
   if (
     paramsList.elements.length === 1 &&
     paramsList.elements[0].type === "symbol" &&
-    (paramsList.elements[0] as SymbolNode).name === "empty-array"
+    (paramsList.elements[0] as SymbolNode).name === EMPTY_ARRAY_SYMBOL
   ) {
     return { params: [], defaults: new Map(), hasJsonParams: false };
   }
@@ -285,8 +291,8 @@ function parseClassMethodParameters(
   if (
     paramsList.elements.length > 0 &&
     paramsList.elements[0].type === "symbol" &&
-    ((paramsList.elements[0] as SymbolNode).name === "hash-map" ||
-      (paramsList.elements[0] as SymbolNode).name === "__hql_hash_map")
+    ((paramsList.elements[0] as SymbolNode).name === HASH_MAP_USER ||
+      (paramsList.elements[0] as SymbolNode).name === HASH_MAP_INTERNAL)
   ) {
     const { params, defaults } = parseJsonMapParameters(
       paramsList,
@@ -299,7 +305,7 @@ function parseClassMethodParameters(
   if (
     paramsList.elements.length > 0 &&
     paramsList.elements[0].type === "symbol" &&
-    (paramsList.elements[0] as SymbolNode).name === "vector"
+    (paramsList.elements[0] as SymbolNode).name === VECTOR_SYMBOL
   ) {
     paramsList = {
       ...paramsList,
@@ -572,7 +578,7 @@ function processClassConstructor(
     if (
       paramsList.elements.length > 0 &&
       paramsList.elements[0].type === "symbol" &&
-      (paramsList.elements[0] as SymbolNode).name === "vector"
+      (paramsList.elements[0] as SymbolNode).name === VECTOR_SYMBOL
     ) {
       paramsList = {
         ...paramsList,

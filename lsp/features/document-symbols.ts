@@ -6,10 +6,9 @@
  */
 
 import {
-  DocumentSymbol,
   SymbolKind,
-  Range,
 } from "npm:vscode-languageserver@9.0.1";
+import type { DocumentSymbol, Range } from "npm:vscode-languageserver@9.0.1";
 import type { SymbolTable, SymbolInfo } from "../../src/transpiler/symbol_table.ts";
 import { toLSPPosition } from "../utils/position.ts";
 

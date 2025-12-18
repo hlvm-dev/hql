@@ -14,9 +14,14 @@
 import {
   createConnection,
   ProposedFeatures,
+  TextDocumentSyncKind,
+  StreamMessageReader,
+  StreamMessageWriter,
+  Location,
+} from "npm:vscode-languageserver@9.0.1/node.js";
+import type {
   InitializeParams,
   InitializeResult,
-  TextDocumentSyncKind,
   DidOpenTextDocumentParams,
   DidChangeTextDocumentParams,
   DidCloseTextDocumentParams,
@@ -26,11 +31,11 @@ import {
   DocumentSymbolParams,
   WorkspaceSymbolParams,
   ReferenceParams,
+  SignatureHelpParams,
+  RenameParams,
+  PrepareRenameParams,
+  CodeActionParams,
   SymbolInformation,
-  SymbolKind,
-  StreamMessageReader,
-  StreamMessageWriter,
-  Location,
 } from "npm:vscode-languageserver@9.0.1/node.js";
 import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import process from "node:process";
@@ -39,8 +44,20 @@ import { DocumentManager, uriToFilePath, filePathToUri } from "./documents.ts";
 import { getDiagnostics } from "./features/diagnostics.ts";
 import { getHover, getHoverFromExport } from "./features/hover.ts";
 import { getDefinition } from "./features/definition.ts";
-import { getCompletions, ImportedModuleContext } from "./features/completion.ts";
+import { getCompletions } from "./features/completion.ts";
+import type { ImportedModuleContext, CompletionContext } from "./features/completion.ts";
 import { getDocumentSymbols, symbolKindToLSP } from "./features/document-symbols.ts";
+import { getSignatureHelp } from "./features/signature-help.ts";
+import {
+  findReferencesInWorkspace,
+  findReferencesInContent,
+} from "./features/references.ts";
+import { prepareRename, performRename, getWordForRename } from "./features/rename.ts";
+import { getCodeActions, getSupportedCodeActionKinds } from "./features/code-actions.ts";
+import {
+  buildSemanticTokens,
+  getSemanticTokensCapability,
+} from "./features/semantic-tokens.ts";
 import { getWordAtPosition } from "./utils/position.ts";
 import { ProjectIndex, ImportResolver, ModuleAnalyzer } from "./workspace/mod.ts";
 
@@ -93,6 +110,12 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
         resolveProvider: false, // We don't need additional resolution
       },
 
+      // Signature Help: Show parameter hints on function calls
+      signatureHelpProvider: {
+        triggerCharacters: ["(", " "],
+        retriggerCharacters: [" "],
+      },
+
       // Go to Definition: Ctrl+Click to jump to symbol definition
       definitionProvider: true,
 
@@ -104,6 +127,19 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
       // Find All References: Shift+F12 to find all usages
       referencesProvider: true,
+
+      // Rename Symbol: F2 to rename across workspace
+      renameProvider: {
+        prepareProvider: true, // Support prepareRename for validation
+      },
+
+      // Code Actions: Quick fixes and refactorings
+      codeActionProvider: {
+        codeActionKinds: getSupportedCodeActionKinds(),
+      },
+
+      // Semantic Tokens: Rich syntax highlighting based on semantic analysis
+      semanticTokensProvider: getSemanticTokensCapability(),
     },
   };
 });
@@ -185,7 +221,7 @@ documentManager.setAnalysisCallback((uri, analysis) => {
 /**
  * Hover: Show information about symbol under cursor
  */
-connection.onHover(async (params: HoverParams) => {
+connection.onHover((params: HoverParams) => {
   const { textDocument, position } = params;
 
   const doc = documentManager.getDocument(textDocument.uri);
@@ -268,15 +304,92 @@ async function getImportedModuleContexts(
  * Completion: Provide autocomplete suggestions
  */
 connection.onCompletion(async (params: CompletionParams) => {
-  const { textDocument } = params;
+  const { textDocument, position } = params;
 
+  const doc = documentManager.getDocument(textDocument.uri);
   const analysis = documentManager.getAnalysis(textDocument.uri);
+
+  // Detect if we're in a type position (after : in parameter or return type)
+  const context: CompletionContext = {
+    isTypePosition: isTypePosition(doc, position),
+  };
 
   // Get imports from the document and analyze them
   const importSpecifiers = extractImportSpecifiers(analysis);
   const importedModules = await getImportedModuleContexts(importSpecifiers);
 
-  return getCompletions(analysis?.symbols ?? null, importedModules);
+  return getCompletions(analysis?.symbols ?? null, importedModules, context);
+});
+
+/**
+ * Check if cursor is in a type annotation position.
+ *
+ * Type positions in HQL:
+ * - Parameter type: [param:Type]  (after : in param list)
+ * - Return type: ] :Type  (after ] and :)
+ *
+ * Examples:
+ *   (fn add [a:| b:number] ...)  <- cursor at | is in type position
+ *   (fn greet [name:string] :| ...)  <- cursor at | is in type position
+ */
+function isTypePosition(
+  doc: TextDocument | null,
+  position: { line: number; character: number }
+): boolean {
+  if (!doc) return false;
+
+  const text = doc.getText();
+  const lines = text.split("\n");
+
+  if (position.line >= lines.length) return false;
+
+  const line = lines[position.line];
+  const beforeCursor = line.substring(0, position.character);
+
+  // Check for parameter type position: identifier followed by :
+  // Pattern: word: (we're right after the colon)
+  const paramTypeMatch = beforeCursor.match(/[a-zA-Z_][a-zA-Z0-9_\-?!]*:$/);
+  if (paramTypeMatch) {
+    return true;
+  }
+
+  // Check for return type position: ] followed by optional whitespace and :
+  // Pattern: ] : (we're right after the colon)
+  const returnTypeMatch = beforeCursor.match(/\]\s*:$/);
+  if (returnTypeMatch) {
+    return true;
+  }
+
+  // Also check if we're continuing to type a type annotation
+  // Pattern: word: followed by partial type name
+  const continuingTypeMatch = beforeCursor.match(/[a-zA-Z_][a-zA-Z0-9_\-?!]*:[a-zA-Z]*$/);
+  if (continuingTypeMatch) {
+    return true;
+  }
+
+  // Return type continuing: ] : followed by partial type
+  const continuingReturnMatch = beforeCursor.match(/\]\s*:[a-zA-Z]*$/);
+  if (continuingReturnMatch) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Signature Help: Show parameter hints when typing function calls
+ */
+connection.onSignatureHelp((params: SignatureHelpParams) => {
+  const { textDocument, position } = params;
+
+  const doc = documentManager.getDocument(textDocument.uri);
+  const analysis = documentManager.getAnalysis(textDocument.uri);
+
+  if (!doc || !analysis) {
+    return null;
+  }
+
+  return getSignatureHelp(doc, position, analysis.symbols);
 });
 
 /**
@@ -385,15 +498,17 @@ connection.onWorkspaceSymbol(
 );
 
 /**
- * Find All References: Find all usages of a symbol (Shift+F12)
+ * Find All References: Find all usages of a symbol across workspace (Shift+F12)
+ *
+ * This implementation searches all HQL files in the workspace, not just open documents.
  */
-connection.onReferences((params: ReferenceParams): Location[] => {
+connection.onReferences(async (params: ReferenceParams): Promise<Location[]> => {
   const { textDocument, position, context } = params;
 
   const doc = documentManager.getDocument(textDocument.uri);
   const analysis = documentManager.getAnalysis(textDocument.uri);
 
-  if (!doc || !analysis) {
+  if (!doc) {
     return [];
   }
 
@@ -404,46 +519,141 @@ connection.onReferences((params: ReferenceParams): Location[] => {
   }
 
   const symbolName = wordInfo.word;
+  const currentFilePath = uriToFilePath(textDocument.uri);
+
+  // Find definition location (for marking)
+  let definitionFile: string | undefined;
+  let definitionLine: number | undefined;
+
+  if (analysis) {
+    const symbol = analysis.symbols.get(symbolName);
+    if (symbol?.location && !symbol.isImported) {
+      definitionFile = currentFilePath;
+      definitionLine = symbol.location.line;
+    }
+  }
+
+  // If we have workspace roots, search all HQL files
+  if (workspaceRoots.length > 0) {
+    const results = await findReferencesInWorkspace(
+      symbolName,
+      workspaceRoots,
+      definitionFile,
+      definitionLine,
+      context.includeDeclaration
+    );
+    return results.map((r) => r.location);
+  }
+
+  // Fallback: Search only open documents (limited functionality)
   const references: Location[] = [];
 
-  // Search all open documents for references
   for (const uri of documentManager.getAllUris()) {
-    const docAnalysis = documentManager.getAnalysis(uri);
-    if (!docAnalysis) continue;
+    const openDoc = documentManager.getDocument(uri);
+    if (!openDoc) continue;
 
     const filePath = uriToFilePath(uri);
+    const fileRefs = findReferencesInContent(
+      openDoc.getText(),
+      symbolName,
+      filePath
+    );
 
-    // Look through all symbols in this file
-    for (const sym of docAnalysis.symbols.getAllSymbols()) {
-      // Match by name
-      if (sym.name === symbolName && sym.location) {
-        // Include definition if requested
-        if (!context.includeDeclaration && !sym.isImported) {
-          // Skip the declaration itself if not including declarations
-          const isDeclaration =
-            filePath === uriToFilePath(textDocument.uri) &&
-            sym.location.line === position.line + 1;
-          if (isDeclaration) continue;
-        }
+    // Filter out declaration if needed
+    for (const ref of fileRefs) {
+      const isDefinition =
+        filePath === definitionFile &&
+        ref.range.start.line + 1 === definitionLine;
 
-        references.push({
-          uri,
-          range: {
-            start: {
-              line: sym.location.line - 1,
-              character: sym.location.column - 1,
-            },
-            end: {
-              line: sym.location.line - 1,
-              character: sym.location.column - 1 + sym.name.length,
-            },
-          },
-        });
+      if (!context.includeDeclaration && isDefinition) {
+        continue;
       }
+
+      references.push(ref);
     }
   }
 
   return references;
+});
+
+/**
+ * Prepare Rename: Validate that rename is possible at position
+ */
+connection.onPrepareRename((params: PrepareRenameParams) => {
+  const { textDocument, position } = params;
+
+  const doc = documentManager.getDocument(textDocument.uri);
+  if (!doc) {
+    return null;
+  }
+
+  return prepareRename(doc, position);
+});
+
+/**
+ * Rename Symbol: Rename a symbol across the workspace (F2)
+ */
+connection.onRenameRequest(async (params: RenameParams) => {
+  const { textDocument, position, newName } = params;
+
+  const doc = documentManager.getDocument(textDocument.uri);
+  if (!doc) {
+    return null;
+  }
+
+  // Get the current symbol name
+  const oldName = getWordForRename(doc, position);
+  if (!oldName) {
+    return null;
+  }
+
+  // Build map of open documents for fallback
+  const openDocs = new Map<string, TextDocument>();
+  for (const uri of documentManager.getAllUris()) {
+    const d = documentManager.getDocument(uri);
+    if (d) {
+      openDocs.set(uri, d);
+    }
+  }
+
+  try {
+    return await performRename(oldName, newName, workspaceRoots, openDocs);
+  } catch (error) {
+    // Return null on error - the client will show a generic message
+    connection.console.error(`Rename failed: ${error}`);
+    return null;
+  }
+});
+
+/**
+ * Code Actions: Quick fixes and refactorings (lightbulb menu)
+ */
+connection.onCodeAction((params: CodeActionParams) => {
+  const { textDocument } = params;
+
+  const doc = documentManager.getDocument(textDocument.uri);
+  if (!doc) {
+    return [];
+  }
+
+  return getCodeActions(doc, params);
+});
+
+/**
+ * Semantic Tokens: Rich syntax highlighting based on semantic analysis
+ */
+connection.languages.semanticTokens.on((params) => {
+  const { textDocument } = params;
+
+  const doc = documentManager.getDocument(textDocument.uri);
+  const analysis = documentManager.getAnalysis(textDocument.uri);
+
+  if (!doc) {
+    return { data: [] };
+  }
+
+  const data = buildSemanticTokens(doc, analysis?.symbols ?? null);
+  return { data };
 });
 
 /**

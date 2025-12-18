@@ -9,6 +9,7 @@ import {
   ValidationError,
 } from "../../common/error.ts";
 import { validateTransformed } from "../utils/validation-helpers.ts";
+import { GET_HELPER } from "../../common/runtime-helper-impl.ts";
 
 /**
  * Transform collection 'get' operation to IR.
@@ -70,7 +71,7 @@ export function createGetOperation(
     type: IR.IRNodeType.CallExpression,
     callee: {
       type: IR.IRNodeType.Identifier,
-      name: "__hql_get",
+      name: GET_HELPER,
     } as IR.IRIdentifier,
     arguments: args,
   } as IR.IRCallExpression;

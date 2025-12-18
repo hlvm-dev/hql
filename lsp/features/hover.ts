@@ -4,7 +4,8 @@
  * Provides hover information for symbols in HQL documents.
  */
 
-import { Hover, MarkupKind } from "npm:vscode-languageserver@9.0.1";
+import { MarkupKind } from "npm:vscode-languageserver@9.0.1";
+import type { Hover } from "npm:vscode-languageserver@9.0.1";
 import type { SymbolInfo } from "../../src/transpiler/symbol_table.ts";
 import type { ModuleExport } from "../workspace/mod.ts";
 

@@ -11,7 +11,7 @@ Deno.test("LSP Analysis - parses valid HQL code without errors", () => {
   const code = `
 (let x 42)
 (fn add [a b] (+ a b))
-(println (add x 10))
+(print (add x 10))
 `;
 
   const result = analyzeDocument(code, "test.hql");
@@ -201,4 +201,93 @@ Deno.test("LSP Analysis - handles inline export (export (fn ...))", () => {
   const subSymbol = result.symbols.get("subtract");
   assertExists(subSymbol, "Should find subtract symbol");
   assertEquals(subSymbol?.isExported, true, "subtract should be exported");
+});
+
+// ============================================================================
+// Type Annotation Tests - HQL Type System Support
+// ============================================================================
+
+Deno.test("LSP Analysis - extracts parameter type annotations", () => {
+  const code = `(fn add [a:number b:number] (+ a b))`;
+
+  const result = analyzeDocument(code, "test.hql");
+
+  const symbol = result.symbols.get("add");
+  assertExists(symbol, "Should find add symbol");
+  assertEquals(symbol?.params?.length, 2, "Should have 2 params");
+  assertEquals(symbol?.params?.[0].name, "a", "First param name should be 'a'");
+  assertEquals(symbol?.params?.[0].type, "number", "First param type should be 'number'");
+  assertEquals(symbol?.params?.[1].name, "b", "Second param name should be 'b'");
+  assertEquals(symbol?.params?.[1].type, "number", "Second param type should be 'number'");
+});
+
+Deno.test("LSP Analysis - extracts return type annotation", () => {
+  const code = `(fn add [a b] :number (+ a b))`;
+
+  const result = analyzeDocument(code, "test.hql");
+
+  const symbol = result.symbols.get("add");
+  assertExists(symbol, "Should find add symbol");
+  assertEquals(symbol?.returnType, "number", "Return type should be 'number'");
+});
+
+Deno.test("LSP Analysis - extracts both parameter and return types", () => {
+  const code = `(fn greet [name:string] :string (str "Hello " name))`;
+
+  const result = analyzeDocument(code, "test.hql");
+
+  const symbol = result.symbols.get("greet");
+  assertExists(symbol, "Should find greet symbol");
+  assertEquals(symbol?.params?.[0].name, "name", "Param name should be 'name'");
+  assertEquals(symbol?.params?.[0].type, "string", "Param type should be 'string'");
+  assertEquals(symbol?.returnType, "string", "Return type should be 'string'");
+});
+
+Deno.test("LSP Analysis - handles complex type annotations", () => {
+  // Note: Array types like string[] can't be used directly as the [] is parsed
+  // as vector syntax. Use Array<string> or custom type names instead.
+  const code = `(fn process [items:Array callback:Function] :Promise (map callback items))`;
+
+  const result = analyzeDocument(code, "test.hql");
+
+  const symbol = result.symbols.get("process");
+  assertExists(symbol, "Should find process symbol");
+  assertEquals(symbol?.params?.[0].type, "Array", "First param type should be 'Array'");
+  assertEquals(symbol?.params?.[1].type, "Function", "Second param type should be 'Function'");
+  assertEquals(symbol?.returnType, "Promise", "Return type should be 'Promise'");
+});
+
+Deno.test("LSP Analysis - extracts class method types", () => {
+  const code = `
+(class Calculator
+  (field value:number)
+  (fn add [x:number] :number (+ this.value x)))
+`;
+
+  const result = analyzeDocument(code, "test.hql");
+
+  const symbol = result.symbols.get("Calculator");
+  assertExists(symbol, "Should find Calculator symbol");
+  assertEquals(symbol?.fields?.[0].name, "value", "Field name should be 'value'");
+  assertEquals(symbol?.fields?.[0].type, "number", "Field type should be 'number'");
+  assertEquals(symbol?.methods?.[0].name, "add", "Method name should be 'add'");
+  assertEquals(symbol?.methods?.[0].params?.[0].name, "x", "Method param name should be 'x'");
+  assertEquals(symbol?.methods?.[0].params?.[0].type, "number", "Method param type should be 'number'");
+  assertEquals(symbol?.methods?.[0].returnType, "number", "Method return type should be 'number'");
+});
+
+Deno.test("LSP Analysis - handles mixed typed and untyped params", () => {
+  const code = `(fn mixed [a:number b c:string] (print a b c))`;
+
+  const result = analyzeDocument(code, "test.hql");
+
+  const symbol = result.symbols.get("mixed");
+  assertExists(symbol, "Should find mixed symbol");
+  assertEquals(symbol?.params?.length, 3, "Should have 3 params");
+  assertEquals(symbol?.params?.[0].name, "a");
+  assertEquals(symbol?.params?.[0].type, "number");
+  assertEquals(symbol?.params?.[1].name, "b");
+  assertEquals(symbol?.params?.[1].type, undefined, "Untyped param should have no type");
+  assertEquals(symbol?.params?.[2].name, "c");
+  assertEquals(symbol?.params?.[2].type, "string");
 });

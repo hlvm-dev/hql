@@ -3,6 +3,7 @@
  */
 
 import * as IR from "../type/hql_ir.ts";
+import { RETURN_VALUE_VAR, EARLY_RETURN_FLAG } from "../../common/runtime-helper-impl.ts";
 
 /**
  * Check if an IR node tree contains ReturnStatement nodes
@@ -256,7 +257,7 @@ export function createEarlyReturnObject(
         type: IR.IRNodeType.ObjectProperty,
         key: {
           type: IR.IRNodeType.Identifier,
-          name: "__hql_early_return__",
+          name: EARLY_RETURN_FLAG,
         } as IR.IRIdentifier,
         value: {
           type: IR.IRNodeType.BooleanLiteral,
@@ -288,7 +289,7 @@ export function wrapWithEarlyReturnHandler(
 ): IR.IRBlockStatement {
   const errorParam: IR.IRIdentifier = {
     type: IR.IRNodeType.Identifier,
-    name: "__hql_ret__",
+    name: RETURN_VALUE_VAR,
   };
 
   // Check: __hql_ret__ && __hql_ret__.__hql_early_return__
@@ -297,17 +298,17 @@ export function wrapWithEarlyReturnHandler(
     operator: "&&",
     left: {
       type: IR.IRNodeType.Identifier,
-      name: "__hql_ret__",
+      name: RETURN_VALUE_VAR,
     } as IR.IRIdentifier,
     right: {
       type: IR.IRNodeType.MemberExpression,
       object: {
         type: IR.IRNodeType.Identifier,
-        name: "__hql_ret__",
+        name: RETURN_VALUE_VAR,
       } as IR.IRIdentifier,
       property: {
         type: IR.IRNodeType.Identifier,
-        name: "__hql_early_return__",
+        name: EARLY_RETURN_FLAG,
       } as IR.IRIdentifier,
       computed: false,
     } as IR.IRMemberExpression,
@@ -320,7 +321,7 @@ export function wrapWithEarlyReturnHandler(
       type: IR.IRNodeType.MemberExpression,
       object: {
         type: IR.IRNodeType.Identifier,
-        name: "__hql_ret__",
+        name: RETURN_VALUE_VAR,
       } as IR.IRIdentifier,
       property: {
         type: IR.IRNodeType.Identifier,
@@ -335,7 +336,7 @@ export function wrapWithEarlyReturnHandler(
     type: IR.IRNodeType.ThrowStatement,
     argument: {
       type: IR.IRNodeType.Identifier,
-      name: "__hql_ret__",
+      name: RETURN_VALUE_VAR,
     } as IR.IRIdentifier,
   };
 

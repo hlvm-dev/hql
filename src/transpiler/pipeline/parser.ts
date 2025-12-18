@@ -16,7 +16,8 @@ import { getErrorMessage } from "../../common/utils.ts";
 import { HQLErrorCode } from "../../common/error-codes.ts";
 import { attachSourceLocation } from "../../common/syntax-error-handler.ts";
 import { readTextFileSync as platformReadTextFileSync } from "../../platform/platform.ts";
-import { FOR_LOOP_SYNTAX_KEYWORDS } from "../../common/known-identifiers.ts";
+import { FOR_LOOP_SYNTAX_KEYWORDS_SET } from "../../common/known-identifiers.ts";
+import { VECTOR_SYMBOL, EMPTY_ARRAY_SYMBOL } from "../../common/runtime-helper-impl.ts";
 
 enum TokenType {
   LeftParen,
@@ -772,7 +773,7 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
 
       // Special exception: loop keywords (to:, from:, by:) are NOT named-args
       // They're special form syntax for the 'for' construct
-      const isLoopKeyword = FOR_LOOP_SYNTAX_KEYWORDS.includes(tokenValue as typeof FOR_LOOP_SYNTAX_KEYWORDS[number]);
+      const isLoopKeyword = FOR_LOOP_SYNTAX_KEYWORDS_SET.has(tokenValue);
 
       if (isLoopKeyword) {
         // Parse loop keywords as regular symbols
@@ -1034,9 +1035,9 @@ function parseVector(state: ParserState, startPos: SourcePosition): SList {
 
   let result: SList;
   if (elements.length === 0) {
-    result = createList(createSymbol("empty-array"));
+    result = createList(createSymbol(EMPTY_ARRAY_SYMBOL));
   } else {
-    result = createList(createSymbol("vector"), ...elements);
+    result = createList(createSymbol(VECTOR_SYMBOL), ...elements);
   }
 
   // Attach source location
