@@ -53,6 +53,10 @@ class TSGenerator {
   private indentLevel: number = 0;
   private indentStr: string;
 
+  // Expression-everywhere: track top-level binding names for hoisting
+  private topLevelBindingNames: Set<string> = new Set();
+  private isTopLevel: boolean = true;
+
   constructor(options: GeneratorOptions = {}) {
     this.sourceFilePath = options.sourceFilePath || "input.hql";
     this.indentStr = options.indent || "  ";
@@ -136,11 +140,71 @@ class TSGenerator {
   }
 
   // ============================================================================
+  // Expression-Everywhere: Name Collection
+  // ============================================================================
+
+  /**
+   * Collect top-level binding names for hoisting.
+   * These names will be declared with `let` at the top of the module,
+   * allowing us to use assignment expressions that return values.
+   */
+  private collectTopLevelNames(node: IR.IRNode): void {
+    switch (node.type) {
+      case IR.IRNodeType.VariableDeclaration: {
+        const varDecl = node as IR.IRVariableDeclaration;
+        for (const decl of varDecl.declarations) {
+          if (decl.id.type === IR.IRNodeType.Identifier) {
+            this.topLevelBindingNames.add((decl.id as IR.IRIdentifier).name);
+          }
+          // Skip destructuring patterns - they can't be simple assignments
+        }
+        break;
+      }
+      case IR.IRNodeType.FnFunctionDeclaration: {
+        const fnDecl = node as IR.IRFnFunctionDeclaration;
+        this.topLevelBindingNames.add(fnDecl.id.name);
+        break;
+      }
+      case IR.IRNodeType.ClassDeclaration: {
+        const classDecl = node as IR.IRClassDeclaration;
+        this.topLevelBindingNames.add(classDecl.id.name);
+        break;
+      }
+      case IR.IRNodeType.EnumDeclaration: {
+        const enumDecl = node as IR.IREnumDeclaration;
+        this.topLevelBindingNames.add(enumDecl.id.name);
+        break;
+      }
+      // ImportDeclaration, ExportDeclaration - don't add (handled separately by ESM)
+    }
+  }
+
+  /**
+   * Check if a variable declaration is a simple binding (single identifier).
+   * Destructuring patterns cannot use assignment expression syntax.
+   */
+  private isSimpleBinding(node: IR.IRVariableDeclaration): boolean {
+    return node.declarations.length === 1 &&
+           node.declarations[0].id.type === IR.IRNodeType.Identifier;
+  }
+
+  // ============================================================================
   // Main Entry Point
   // ============================================================================
 
   generate(program: IR.IRProgram): TSGeneratorResult {
-    // Generate code for each statement
+    // Pass 1: Collect all top-level binding names
+    for (const node of program.body) {
+      this.collectTopLevelNames(node);
+    }
+
+    // Emit hoisted let declarations (if any non-import bindings)
+    if (this.topLevelBindingNames.size > 0) {
+      this.emitLine(`let ${[...this.topLevelBindingNames].join(", ")};`);
+      this.emitLine();
+    }
+
+    // Pass 2: Generate expressions (with isTopLevel = true)
     for (const node of program.body) {
       this.generateNode(node);
     }
@@ -569,6 +633,10 @@ class TSGenerator {
   }
 
   private generateBlockStatement(node: IR.IRBlockStatement): void {
+    // When entering a block, we're no longer at top level
+    const wasTopLevel = this.isTopLevel;
+    this.isTopLevel = false;
+
     this.emit("{\n", node.position);
     this.indent();
     for (const stmt of node.body) {
@@ -577,6 +645,9 @@ class TSGenerator {
     this.dedent();
     this.emitIndent();
     this.emit("}");
+
+    // Restore top level status
+    this.isTopLevel = wasTopLevel;
   }
 
   private generateReturnStatement(node: IR.IRReturnStatement): void {
@@ -700,6 +771,13 @@ class TSGenerator {
   // ============================================================================
 
   private generateVariableDeclaration(node: IR.IRVariableDeclaration): void {
+    // Expression-everywhere: top-level simple bindings become assignment expressions
+    if (this.isTopLevel && this.isSimpleBinding(node)) {
+      this.generateVariableAsAssignment(node);
+      return;
+    }
+
+    // Standard declaration for nested scopes and destructuring patterns
     this.emitIndent();
     this.emit(`${node.kind} `, node.position);
     for (let i = 0; i < node.declarations.length; i++) {
@@ -707,6 +785,27 @@ class TSGenerator {
       this.generateVariableDeclarator(node.declarations[i]);
     }
     this.emit(";\n");
+  }
+
+  /**
+   * Generate a simple variable binding as an assignment expression.
+   * Used for top-level bindings to make them return values.
+   * Example: (let x 10) → (x = 10); which returns 10
+   */
+  private generateVariableAsAssignment(node: IR.IRVariableDeclaration): void {
+    const decl = node.declarations[0];
+    const id = decl.id as IR.IRIdentifier;
+
+    this.emitIndent();
+    this.emit("(", node.position);
+    this.emit(id.name);
+    this.emit(" = ");
+    if (decl.init) {
+      this.generateNode(decl.init);
+    } else {
+      this.emit("undefined");
+    }
+    this.emit(");\n");
   }
 
   private generateVariableDeclarationInline(node: IR.IRVariableDeclaration): void {
@@ -764,6 +863,13 @@ class TSGenerator {
     // Apply Tail Call Optimization for self-recursive functions
     const optimizedNode = applyTCO(node);
 
+    // Expression-everywhere: top-level named functions become assignment expressions
+    if (this.isTopLevel) {
+      this.generateFnAsAssignment(optimizedNode);
+      return;
+    }
+
+    // Standard function declaration for nested scopes
     this.emitIndent();
     if (optimizedNode.async) {
       this.emit("async ", optimizedNode.position);
@@ -797,13 +903,92 @@ class TSGenerator {
     this.emit("\n");
   }
 
+  /**
+   * Generate a named function as an assignment expression.
+   * Used for top-level fn definitions to make them return the function value.
+   * Example: (fn add [a b] (+ a b)) → (add = function add(a, b) { return a + b; });
+   */
+  private generateFnAsAssignment(node: IR.IRFnFunctionDeclaration): void {
+    this.emitIndent();
+    this.emit("(", node.position);
+    this.emit(node.id.name);
+    this.emit(" = ");
+
+    // Generate function expression
+    if (node.async) {
+      this.emit("async ");
+    }
+    this.emit("function ");
+    this.emit(node.id.name);  // Keep the function name for stack traces
+
+    // Add generic type parameters if present
+    if (node.typeParameters && node.typeParameters.length > 0) {
+      this.emit("<");
+      this.emit(node.typeParameters.join(", "));
+      this.emit(">");
+    }
+
+    this.emit("(");
+    if (node.usesJsonMapParams) {
+      this.generateJsonMapParams(node.params, node.defaults);
+    } else {
+      this.generateFnParams(node.params, this.buildDefaultsMap(node.defaults));
+    }
+    this.emit(")");
+
+    // Add return type annotation if present
+    if (node.returnType) {
+      this.emit(`: ${node.returnType}`);
+    }
+
+    this.emit(" ");
+    this.generateBlockStatement(node.body);
+    this.emit(");\n");
+  }
+
   private generateClassDeclaration(node: IR.IRClassDeclaration): void {
+    // Expression-everywhere: top-level classes become assignment expressions
+    if (this.isTopLevel) {
+      this.generateClassAsAssignment(node);
+      return;
+    }
+
+    // Standard class declaration for nested scopes
     this.emitIndent();
     this.emit("class ", node.position);
     this.generateIdentifier(node.id);
     this.emit(" {\n");
     this.indent();
+    this.generateClassBody(node);
+    this.dedent();
+    this.emitIndent();
+    this.emit("}\n");
+  }
 
+  /**
+   * Generate a class as an assignment expression.
+   * Used for top-level class definitions to make them return the class value.
+   * Example: (class Point ...) → (Point = class Point { ... });
+   */
+  private generateClassAsAssignment(node: IR.IRClassDeclaration): void {
+    this.emitIndent();
+    this.emit("(", node.position);
+    this.emit(node.id.name);
+    this.emit(" = class ");
+    this.emit(node.id.name);  // Keep the class name
+    this.emit(" {\n");
+    this.indent();
+    this.generateClassBody(node);
+    this.dedent();
+    this.emitIndent();
+    this.emit("});\n");
+  }
+
+  /**
+   * Generate the body of a class (fields, constructor, methods).
+   * Extracted for reuse between generateClassDeclaration and generateClassAsAssignment.
+   */
+  private generateClassBody(node: IR.IRClassDeclaration): void {
     // Fields
     for (const field of node.fields) {
       this.generateClassField(field);
@@ -818,10 +1003,6 @@ class TSGenerator {
     for (const method of node.methods) {
       this.generateClassMethod(method);
     }
-
-    this.dedent();
-    this.emitIndent();
-    this.emit("}\n");
   }
 
   private generateClassField(field: IR.IRClassField): void {
@@ -875,11 +1056,20 @@ class TSGenerator {
   }
 
   private generateEnumDeclaration(node: IR.IREnumDeclaration): void {
+    // Expression-everywhere: top-level enums become assignment expressions
+    if (this.isTopLevel) {
+      if (node.hasAssociatedValues) {
+        this.generateEnumWithAssociatedValuesAsAssignment(node);
+      } else {
+        this.generateSimpleEnumAsAssignment(node);
+      }
+      return;
+    }
+
+    // Standard enum generation for nested scopes
     if (node.hasAssociatedValues) {
-      // Generate class-based implementation for enums with associated values
       this.generateEnumWithAssociatedValues(node);
     } else {
-      // Generate simple const object for enums without associated values
       this.generateSimpleEnum(node);
     }
   }
@@ -890,7 +1080,33 @@ class TSGenerator {
     this.generateIdentifier(node.id);
     this.emit(" = Object.freeze({\n");
     this.indent();
+    this.generateEnumCases(node);
+    this.dedent();
+    this.emitIndent();
+    this.emit("});\n");
+  }
 
+  /**
+   * Generate a simple enum as an assignment expression.
+   * Used for top-level enum definitions to make them return the enum value.
+   * Example: (enum Status ...) → (Status = Object.freeze({ ... }));
+   */
+  private generateSimpleEnumAsAssignment(node: IR.IREnumDeclaration): void {
+    this.emitIndent();
+    this.emit("(", node.position);
+    this.emit(node.id.name);
+    this.emit(" = Object.freeze({\n");
+    this.indent();
+    this.generateEnumCases(node);
+    this.dedent();
+    this.emitIndent();
+    this.emit("}));\n");
+  }
+
+  /**
+   * Generate enum cases for both regular and assignment-style enums.
+   */
+  private generateEnumCases(node: IR.IREnumDeclaration): void {
     for (let i = 0; i < node.cases.length; i++) {
       const enumCase = node.cases[i];
       this.emitIndent();
@@ -907,10 +1123,6 @@ class TSGenerator {
       }
       this.emit("\n");
     }
-
-    this.dedent();
-    this.emitIndent();
-    this.emit("});\n");
   }
 
   private generateEnumWithAssociatedValues(node: IR.IREnumDeclaration): void {
@@ -922,6 +1134,37 @@ class TSGenerator {
     this.emit(enumName);
     this.emit(" {\n");
     this.indent();
+    this.generateEnumClassBody(node);
+    this.dedent();
+    this.emitIndent();
+    this.emit("}\n");
+  }
+
+  /**
+   * Generate an enum with associated values as an assignment expression.
+   * Used for top-level enum definitions to make them return the enum class.
+   */
+  private generateEnumWithAssociatedValuesAsAssignment(node: IR.IREnumDeclaration): void {
+    const enumName = node.id.name;
+
+    this.emitIndent();
+    this.emit("(", node.position);
+    this.emit(enumName);
+    this.emit(" = class ");
+    this.emit(enumName);
+    this.emit(" {\n");
+    this.indent();
+    this.generateEnumClassBody(node);
+    this.dedent();
+    this.emitIndent();
+    this.emit("});\n");
+  }
+
+  /**
+   * Generate the body of an enum class (for enums with associated values).
+   */
+  private generateEnumClassBody(node: IR.IREnumDeclaration): void {
+    const enumName = node.id.name;
 
     // Generate instance properties
     this.emitIndent();
@@ -986,10 +1229,6 @@ class TSGenerator {
       this.emitIndent();
       this.emit("}\n");
     }
-
-    this.dedent();
-    this.emitIndent();
-    this.emit("}\n");
   }
 
   // ============================================================================

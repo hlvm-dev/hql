@@ -29,6 +29,22 @@ import {
 } from "./source-map-chain.ts";
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/** Normalize source file name for TypeScript compilation */
+function normalizeSourceFileName(fileName: string): string {
+  if (fileName.endsWith(".hql") || fileName.endsWith(".ts")) {
+    return fileName;
+  }
+  // REPL paths like "<repl>:1" need a virtual filename
+  if (fileName.startsWith("<") || fileName.includes("<repl>")) {
+    return "repl.hql";
+  }
+  return fileName + ".hql";
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -99,8 +115,9 @@ export async function generateJavaScript(
   );
 
   const startTime = performance.now();
-  const sourceFileName =
-    options.sourceFilePath || options.currentFilePath || "module.hql";
+  const sourceFileName = normalizeSourceFileName(
+    options.sourceFilePath || options.currentFilePath || "module.hql"
+  );
   const tsFileName = sourceFileName.replace(/\.hql$/, ".ts");
 
   // ============================================================================
