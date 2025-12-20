@@ -299,7 +299,11 @@ class TSGenerator {
           if (prop.type === IR.IRNodeType.SpreadAssignment) {
             this.collectHoistableNames((prop as IR.IRSpreadAssignment).expression, true);
           } else {
-            this.collectHoistableNames((prop as IR.IRObjectProperty).value, true);
+            const objProp = prop as IR.IRObjectProperty;
+            if (objProp.computed) {
+              this.collectHoistableNames(objProp.key, true);
+            }
+            this.collectHoistableNames(objProp.value, true);
           }
         }
         break;

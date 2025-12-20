@@ -169,11 +169,17 @@ export function transformHashMap(
             "Object value",
           );
 
+          // HQL hash-map keys are evaluated expressions
+          // So they must be computed properties in JS ({ [key]: val })
+          // Unless they are string/numeric literals which can be static keys
+          const computed = key.type !== IR.IRNodeType.StringLiteral && 
+                           key.type !== IR.IRNodeType.NumericLiteral;
+
           properties.push({
             type: IR.IRNodeType.ObjectProperty,
             key,
             value,
-            computed: false,
+            computed,
           } as IR.IRObjectProperty);
 
           i++; // Skip the value since we've already processed it
