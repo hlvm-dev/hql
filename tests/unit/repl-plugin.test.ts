@@ -19,9 +19,9 @@ import {
 import { parse } from "../../src/transpiler/pipeline/parser.ts";
 import type { SList } from "../../src/s-exp/types.ts";
 
-// ============================================================================
+// ============================================================================ 
 // cleanJs() Tests
-// ============================================================================
+// ============================================================================ 
 
 Deno.test("cleanJs: removes single-quote 'use strict'", () => {
   const input = "'use strict';\nconst x = 1;";
@@ -75,9 +75,9 @@ Deno.test("cleanJs: handles input with only use strict", () => {
   assertEquals(result, "");
 });
 
-// ============================================================================
+// ============================================================================ 
 // makeComment() Tests
-// ============================================================================
+// ============================================================================ 
 
 Deno.test("makeComment: generates correct format", () => {
   const result = makeComment(5, "(+ 1 2)");
@@ -103,9 +103,9 @@ Deno.test("makeComment: handles empty input", () => {
   assertEquals(result, "\n// Line 1: \n");
 });
 
-// ============================================================================
+// ============================================================================ 
 // analyzeExpression() Tests - Using Real Parser
-// ============================================================================
+// ============================================================================ 
 
 function parseFirst(code: string): SList {
   const ast = parse(code, "<test>");
@@ -181,13 +181,13 @@ Deno.test("analyzeExpression: handles anonymous fn as declaration", () => {
   assertEquals(result.name, undefined);
 });
 
-// ============================================================================
+// ============================================================================ 
 // wrapInExportFunction() Tests
-// ============================================================================
+// ============================================================================ 
 
 Deno.test("wrapInExportFunction: generates valid export function", () => {
   const result = wrapInExportFunction("__test", "1 + 2", "// comment\n");
-  assertStringIncludes(result, "export function __test()");
+  assertStringIncludes(result, "export function __test()")
   assertStringIncludes(result, "const __result = 1 + 2;");
   assertStringIncludes(result, "return { success: true, value: __result }");
   assertStringIncludes(result, "return { success: false, error: __error }");
@@ -219,13 +219,13 @@ Deno.test("wrapInExportFunction: catches errors", async () => {
   assertEquals(result.error.message, "test");
 });
 
-// ============================================================================
+// ============================================================================ 
 // wrapInAsyncExportFunction() Tests
-// ============================================================================
+// ============================================================================ 
 
 Deno.test("wrapInAsyncExportFunction: generates valid async export function", () => {
   const result = wrapInAsyncExportFunction("__test", "await fetch('/')", "// comment\n");
-  assertStringIncludes(result, "export function __test()");
+  assertStringIncludes(result, "export function __test()")
   assertStringIncludes(result, "return (async () => {");
   assertStringIncludes(result, "await fetch('/')");
   assertStringIncludes(result, "return { success: true, value: undefined }");
@@ -251,9 +251,9 @@ Deno.test("wrapInAsyncExportFunction: catches async errors", async () => {
   assertEquals(result.error.message, "async fail");
 });
 
-// ============================================================================
+// ============================================================================ 
 // transformForGlobalThis() Tests
-// ============================================================================
+// ============================================================================ 
 
 Deno.test("transformForGlobalThis: transforms expression-everywhere let format", () => {
   const input = 'let x;\n(x = 42);';
@@ -292,9 +292,9 @@ Deno.test("transformForGlobalThis: handles function with complex body", () => {
   assertStringIncludes(result, "factorial(n - 1)");
 });
 
-// ============================================================================
+// ============================================================================ 
 // Integration Tests - hqlPlugin.evaluate() with Mock Context
-// ============================================================================
+// ============================================================================ 
 
 function createMockContext(lineNumber: number = 1) {
   const state = new Map<string, unknown>();
@@ -327,124 +327,130 @@ function createMockContext(lineNumber: number = 1) {
 Deno.test("hqlPlugin.evaluate: simple arithmetic expression", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate("(+ 1 2)", ctx as any);
-  assertEquals(result.value, 3);
+  assertEquals((result as any).value, 3);
 });
 
 Deno.test("hqlPlugin.evaluate: string expression", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate('"hello"', ctx as any);
-  assertEquals(result.value, "hello");
+  assertEquals((result as any).value, "hello");
 });
 
 Deno.test("hqlPlugin.evaluate: boolean expression", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate("(> 5 3)", ctx as any);
-  assertEquals(result.value, true);
+  assertEquals((result as any).value, true);
 });
 
 Deno.test("hqlPlugin.evaluate: let binding returns value", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate("(let x 42)", ctx as any);
-  assertEquals(result.value, 42);
+  assertEquals((result as any).value, 42);
 });
 
 Deno.test("hqlPlugin.evaluate: const binding returns value", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate("(const PI 3.14159)", ctx as any);
-  assertEquals(result.value, 3.14159);
+  assertEquals((result as any).value, 3.14159);
 });
 
 Deno.test("hqlPlugin.evaluate: fn declaration returns function", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate("(fn double [x] (* x 2))", ctx as any);
-  assertEquals(typeof result.value, "function");
+  assertEquals(typeof (result as any).value, "function");
 });
 
 Deno.test("hqlPlugin.evaluate: class declaration returns constructor", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate("(class Box [value])", ctx as any);
-  assertEquals(typeof result.value, "function");
+  assertEquals(typeof (result as any).value, "function");
 });
 
 Deno.test("hqlPlugin.evaluate: empty input returns suppressOutput", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate("", ctx as any);
-  assertEquals(result.suppressOutput, true);
+  assertEquals((result as any).suppressOutput, true);
 });
 
 Deno.test("hqlPlugin.evaluate: comment-only input returns suppressOutput", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate("; this is a comment", ctx as any);
-  assertEquals(result.suppressOutput, true);
+  assertEquals((result as any).suppressOutput, true);
 });
 
 Deno.test("hqlPlugin.evaluate: complex nested expression", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate("(+ (* 2 3) (- 10 4))", ctx as any);
-  assertEquals(result.value, 12); // (2*3) + (10-4) = 6 + 6 = 12
+  assertEquals((result as any).value, 12); // (2*3) + (10-4) = 6 + 6 = 12
 });
 
 Deno.test("hqlPlugin.evaluate: array literal", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate("[1 2 3]", ctx as any);
-  assertEquals(result.value, [1, 2, 3]);
+  assertEquals((result as any).value, [1, 2, 3]);
 });
 
 Deno.test("hqlPlugin.evaluate: if expression returns value", async () => {
   const ctx = createMockContext(1);
   const result = await hqlPlugin.evaluate('(if true "yes" "no")', ctx as any);
-  assertEquals(result.value, "yes");
+  assertEquals((result as any).value, "yes");
 });
 
-// ============================================================================
+// ============================================================================ 
 // hqlPlugin.detect() Tests
-// ============================================================================
+// ============================================================================ 
 
 Deno.test("hqlPlugin.detect: returns 100 for parenthesis start", () => {
-  const result = hqlPlugin.detect("(+ 1 2)");
+  const ctx = createMockContext(1);
+  const result = hqlPlugin.detect!("(+ 1 2)", ctx as any);
   assertEquals(result, 100);
 });
 
 Deno.test("hqlPlugin.detect: returns 100 for semicolon (comment) start", () => {
-  const result = hqlPlugin.detect("; comment");
+  const ctx = createMockContext(1);
+  const result = hqlPlugin.detect!("; comment", ctx as any);
   assertEquals(result, 100);
 });
 
 Deno.test("hqlPlugin.detect: returns 100 for hash start", () => {
-  const result = hqlPlugin.detect("#(+ %1 1)");
+  const ctx = createMockContext(1);
+  const result = hqlPlugin.detect!("#(+ %1 1)", ctx as any);
   assertEquals(result, 100);
 });
 
 Deno.test("hqlPlugin.detect: returns false for JavaScript code", () => {
-  const result = hqlPlugin.detect("const x = 1;");
+  const ctx = createMockContext(1);
+  const result = hqlPlugin.detect!("const x = 1;", ctx as any);
   assertEquals(result, false);
 });
 
 Deno.test("hqlPlugin.detect: returns false for empty string", () => {
-  const result = hqlPlugin.detect("");
+  const ctx = createMockContext(1);
+  const result = hqlPlugin.detect!("", ctx as any);
   assertEquals(result, false);
 });
 
 Deno.test("hqlPlugin.detect: handles whitespace before code", () => {
-  const result = hqlPlugin.detect("   (+ 1 2)");
+  const ctx = createMockContext(1);
+  const result = hqlPlugin.detect!("   (+ 1 2)", ctx as any);
   assertEquals(result, 100);
 });
 
-// ============================================================================
+// ============================================================================ 
 // hqlPlugin.init() Tests
-// ============================================================================
+// ============================================================================ 
 
 Deno.test("hqlPlugin.init: initializes declaredNames state", async () => {
   const ctx = createMockContext(1);
-  await hqlPlugin.init(ctx as any);
+  await hqlPlugin.init!(ctx as any);
   const declaredNames = ctx.getState<Set<string>>("declaredNames");
   assert(declaredNames instanceof Set);
   assertEquals(declaredNames.size, 0);
 });
 
-// ============================================================================
+// ============================================================================ 
 // State Persistence Tests
-// ============================================================================
+// ============================================================================ 
 
 Deno.test("hqlPlugin: variable persists across evaluations via globalThis", async () => {
   const ctx = createMockContext(1);
@@ -477,9 +483,9 @@ Deno.test("hqlPlugin: function persists and is callable via globalThis", async (
   delete (globalThis as any)["triple"];
 });
 
-// ============================================================================
+// ============================================================================ 
 // Error Handling Tests
-// ============================================================================
+// ============================================================================ 
 
 Deno.test("hqlPlugin.evaluate: throws on syntax error", async () => {
   const ctx = createMockContext(1);

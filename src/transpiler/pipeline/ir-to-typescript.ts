@@ -59,6 +59,14 @@ class TSGenerator {
   private topLevelFunctionTypes: Map<string, string> = new Map();
   private isTopLevel: boolean = true;
 
+  // Block-level hoisting: stack of hoisting sets (one per block scope)
+  private hoistingStack: Set<string>[] = [];
+
+  // Expression context: when true, we're generating inside an expression
+  // and hoisted variables should emit just the assignment expression without
+  // indentation, semicolon, or newline
+  private inExpressionContext: boolean = false;
+
   constructor(options: GeneratorOptions = {}) {
     this.sourceFilePath = options.sourceFilePath || "input.hql";
     this.indentStr = options.indent || "  ";
@@ -202,6 +210,247 @@ class TSGenerator {
   }
 
   /**
+   * Get the current hoisting set (for the innermost block scope).
+   */
+  private currentHoistingSet(): Set<string> {
+    return this.hoistingStack[this.hoistingStack.length - 1];
+  }
+
+  /**
+   * Generate a node within expression context.
+   * In expression context, hoisted variable declarations emit just the
+   * assignment expression without indentation, semicolon, or newline.
+   */
+  private generateInExpressionContext(node: IR.IRNode): void {
+    const wasInExpression = this.inExpressionContext;
+    this.inExpressionContext = true;
+    this.generateNode(node);
+    this.inExpressionContext = wasInExpression;
+  }
+
+  /**
+   * Recursively collect variable names that need hoisting.
+   * Variables in expression positions (e.g., arguments to function calls)
+   * need to be hoisted to the enclosing block scope.
+   *
+   * @param node The IR node to traverse
+   * @param inExpression Whether we're inside an expression context
+   */
+  private collectHoistableNames(node: IR.IRNode, inExpression: boolean): void {
+    switch (node.type) {
+      case IR.IRNodeType.VariableDeclaration: {
+        const varDecl = node as IR.IRVariableDeclaration;
+        // Only hoist if: in expression context, simple binding, and not const
+        if (inExpression && this.isSimpleBinding(varDecl) && varDecl.kind !== "const") {
+          const id = varDecl.declarations[0].id as IR.IRIdentifier;
+          this.currentHoistingSet().add(id.name);
+        }
+        // Recurse into initializers (they're expressions)
+        for (const decl of varDecl.declarations) {
+          if (decl.init) {
+            this.collectHoistableNames(decl.init, true);
+          }
+        }
+        break;
+      }
+
+      case IR.IRNodeType.ExpressionStatement: {
+        const exprStmt = node as IR.IRExpressionStatement;
+        this.collectHoistableNames(exprStmt.expression, true);
+        break;
+      }
+
+      case IR.IRNodeType.CallExpression: {
+        const call = node as IR.IRCallExpression;
+        this.collectHoistableNames(call.callee, true);
+        for (const arg of call.arguments) {
+          this.collectHoistableNames(arg, true);
+        }
+        break;
+      }
+
+      case IR.IRNodeType.BinaryExpression:
+      case IR.IRNodeType.LogicalExpression: {
+        const binExpr = node as IR.IRBinaryExpression;
+        this.collectHoistableNames(binExpr.left, true);
+        this.collectHoistableNames(binExpr.right, true);
+        break;
+      }
+
+      case IR.IRNodeType.ConditionalExpression: {
+        const condExpr = node as IR.IRConditionalExpression;
+        this.collectHoistableNames(condExpr.test, true);
+        this.collectHoistableNames(condExpr.consequent, true);
+        this.collectHoistableNames(condExpr.alternate, true);
+        break;
+      }
+
+      case IR.IRNodeType.ArrayExpression: {
+        const arrExpr = node as IR.IRArrayExpression;
+        for (const elem of arrExpr.elements) {
+          this.collectHoistableNames(elem, true);
+        }
+        break;
+      }
+
+      case IR.IRNodeType.ObjectExpression: {
+        const objExpr = node as IR.IRObjectExpression;
+        for (const prop of objExpr.properties) {
+          if (prop.type === IR.IRNodeType.SpreadAssignment) {
+            this.collectHoistableNames((prop as IR.IRSpreadAssignment).expression, true);
+          } else {
+            this.collectHoistableNames((prop as IR.IRObjectProperty).value, true);
+          }
+        }
+        break;
+      }
+
+      case IR.IRNodeType.FunctionExpression: {
+        // Function bodies create new scope - don't collect here
+        // They will be handled when generateBlockStatement is called
+        break;
+      }
+
+      case IR.IRNodeType.ReturnStatement: {
+        const ret = node as IR.IRReturnStatement;
+        this.collectHoistableNames(ret.argument, true);
+        break;
+      }
+
+      case IR.IRNodeType.IfStatement: {
+        const ifStmt = node as IR.IRIfStatement;
+        this.collectHoistableNames(ifStmt.test, true);
+        this.collectHoistableNames(ifStmt.consequent, false);
+        if (ifStmt.alternate) {
+          this.collectHoistableNames(ifStmt.alternate, false);
+        }
+        break;
+      }
+
+      case IR.IRNodeType.WhileStatement: {
+        const whileStmt = node as IR.IRWhileStatement;
+        this.collectHoistableNames(whileStmt.test, true);
+        // Don't collect from body - it's a block with its own scope
+        break;
+      }
+
+      case IR.IRNodeType.ForOfStatement: {
+        const forOf = node as IR.IRForOfStatement;
+        this.collectHoistableNames(forOf.right, true);
+        // Don't collect from body - it's a block with its own scope
+        break;
+      }
+
+      case IR.IRNodeType.ForStatement: {
+        const forStmt = node as IR.IRForStatement;
+        if (forStmt.init) this.collectHoistableNames(forStmt.init, false);
+        if (forStmt.test) this.collectHoistableNames(forStmt.test, true);
+        if (forStmt.update) this.collectHoistableNames(forStmt.update, true);
+        // Don't collect from body - it's a block with its own scope
+        break;
+      }
+
+      case IR.IRNodeType.BlockStatement: {
+        // Block creates new scope - will be handled separately
+        break;
+      }
+
+      case IR.IRNodeType.UnaryExpression: {
+        const unary = node as IR.IRUnaryExpression;
+        this.collectHoistableNames(unary.argument, true);
+        break;
+      }
+
+      case IR.IRNodeType.MemberExpression: {
+        const member = node as IR.IRMemberExpression;
+        this.collectHoistableNames(member.object, true);
+        if (member.computed) {
+          this.collectHoistableNames(member.property, true);
+        }
+        break;
+      }
+
+      case IR.IRNodeType.CallMemberExpression: {
+        const callMember = node as IR.IRCallMemberExpression;
+        this.collectHoistableNames(callMember.object, true);
+        for (const arg of callMember.arguments) {
+          this.collectHoistableNames(arg, true);
+        }
+        break;
+      }
+
+      case IR.IRNodeType.NewExpression: {
+        const newExpr = node as IR.IRNewExpression;
+        this.collectHoistableNames(newExpr.callee, true);
+        for (const arg of newExpr.arguments) {
+          this.collectHoistableNames(arg, true);
+        }
+        break;
+      }
+
+      case IR.IRNodeType.AssignmentExpression: {
+        const assign = node as IR.IRAssignmentExpression;
+        this.collectHoistableNames(assign.right, true);
+        break;
+      }
+
+      case IR.IRNodeType.SpreadElement: {
+        const spread = node as IR.IRSpreadElement;
+        this.collectHoistableNames(spread.argument, true);
+        break;
+      }
+
+      case IR.IRNodeType.AwaitExpression: {
+        const awaitExpr = node as IR.IRAwaitExpression;
+        this.collectHoistableNames(awaitExpr.argument, true);
+        break;
+      }
+
+      case IR.IRNodeType.TryStatement: {
+        // Block statements inside try/catch create their own scope
+        break;
+      }
+
+      case IR.IRNodeType.ThrowStatement: {
+        const throwStmt = node as IR.IRThrowStatement;
+        this.collectHoistableNames(throwStmt.argument, true);
+        break;
+      }
+
+      case IR.IRNodeType.TemplateLiteral: {
+        const tmpl = node as IR.IRTemplateLiteral;
+        for (const expr of tmpl.expressions) {
+          this.collectHoistableNames(expr, true);
+        }
+        break;
+      }
+
+      // Primitives and identifiers - nothing to collect
+      case IR.IRNodeType.Identifier:
+      case IR.IRNodeType.StringLiteral:
+      case IR.IRNodeType.NumericLiteral:
+      case IR.IRNodeType.BooleanLiteral:
+      case IR.IRNodeType.NullLiteral:
+        break;
+
+      // Skip declarations that don't contain nested expressions we need to handle
+      case IR.IRNodeType.FnFunctionDeclaration:
+      case IR.IRNodeType.FunctionDeclaration:
+      case IR.IRNodeType.ClassDeclaration:
+      case IR.IRNodeType.EnumDeclaration:
+      case IR.IRNodeType.ImportDeclaration:
+      case IR.IRNodeType.ExportNamedDeclaration:
+      case IR.IRNodeType.ExportDefaultDeclaration:
+      case IR.IRNodeType.ExportVariableDeclaration:
+        break;
+
+      default:
+        // For unknown types, don't recurse (safe default)
+        break;
+    }
+  }
+
+  /**
    * Build a function type signature string for TypeScript.
    * Example: (a: number, b: number) => number
    *
@@ -233,9 +482,22 @@ class TSGenerator {
   // ============================================================================
 
   generate(program: IR.IRProgram): TSGeneratorResult {
-    // Pass 1: Collect all top-level binding names
+    // Push module-level hoisting scope
+    this.hoistingStack.push(new Set());
+
+    // Pass 1: Collect all top-level binding names (direct declarations)
     for (const node of program.body) {
       this.collectTopLevelNames(node);
+    }
+
+    // Pass 1b: Collect nested hoistable names (variables in expression positions)
+    for (const node of program.body) {
+      this.collectHoistableNames(node, false);
+    }
+
+    // Merge: Add nested hoistable names to topLevelBindingNames
+    for (const name of this.currentHoistingSet()) {
+      this.topLevelBindingNames.add(name);
     }
 
     // Emit hoisted let declarations with types for functions (enables call-site type checking)
@@ -259,6 +521,9 @@ class TSGenerator {
     for (const node of program.body) {
       this.generateNode(node);
     }
+
+    // Pop module-level hoisting scope
+    this.hoistingStack.pop();
 
     return {
       code: this.code,
@@ -466,7 +731,7 @@ class TSGenerator {
       this.emit(quasi.value);
       if (i < node.expressions.length) {
         this.emit("${");
-        this.generateNode(node.expressions[i]);
+        this.generateInExpressionContext(node.expressions[i]);
         this.emit("}");
       }
     }
@@ -489,9 +754,9 @@ class TSGenerator {
 
   private generateBinaryExpression(node: IR.IRBinaryExpression): void {
     this.emit("(", node.position);
-    this.generateNode(node.left);
+    this.generateInExpressionContext(node.left);
     this.emit(` ${node.operator} `);
-    this.generateNode(node.right);
+    this.generateInExpressionContext(node.right);
     this.emit(")");
   }
 
@@ -505,29 +770,29 @@ class TSGenerator {
       // e.g., typeof (x) => x should be typeof ((x) => x)
       const needsParens = node.argument.type === IR.IRNodeType.FunctionExpression;
       if (needsParens) this.emit("(");
-      this.generateNode(node.argument);
+      this.generateInExpressionContext(node.argument);
       if (needsParens) this.emit(")");
     } else {
-      this.generateNode(node.argument);
+      this.generateInExpressionContext(node.argument);
       this.emit(node.operator);
     }
   }
 
   private generateLogicalExpression(node: IR.IRLogicalExpression): void {
     this.emit("(", node.position);
-    this.generateNode(node.left);
+    this.generateInExpressionContext(node.left);
     this.emit(` ${node.operator} `);
-    this.generateNode(node.right);
+    this.generateInExpressionContext(node.right);
     this.emit(")");
   }
 
   private generateConditionalExpression(node: IR.IRConditionalExpression): void {
     this.emit("(", node.position);
-    this.generateNode(node.test);
+    this.generateInExpressionContext(node.test);
     this.emit(" ? ");
-    this.generateNode(node.consequent);
+    this.generateInExpressionContext(node.consequent);
     this.emit(" : ");
-    this.generateNode(node.alternate);
+    this.generateInExpressionContext(node.alternate);
     this.emit(")");
   }
 
@@ -537,46 +802,46 @@ class TSGenerator {
     const needsParens = node.callee.type === IR.IRNodeType.FunctionExpression;
 
     if (needsParens) this.emit("(");
-    this.generateNode(node.callee);
+    this.generateInExpressionContext(node.callee);
     if (needsParens) this.emit(")");
 
     this.emit("(", node.position);
-    this.emitCommaSeparated(node.arguments, (arg) => this.generateNode(arg));
+    this.emitCommaSeparated(node.arguments, (arg) => this.generateInExpressionContext(arg));
     this.emit(")");
   }
 
   private generateMemberExpression(node: IR.IRMemberExpression): void {
-    this.generateNode(node.object);
+    this.generateInExpressionContext(node.object);
     if (node.computed) {
       this.emit("[", node.position);
-      this.generateNode(node.property);
+      this.generateInExpressionContext(node.property);
       this.emit("]");
     } else {
       this.emit(".", node.position);
-      this.generateNode(node.property);
+      this.generateInExpressionContext(node.property);
     }
   }
 
   private generateCallMemberExpression(node: IR.IRCallMemberExpression): void {
-    this.generateNode(node.object);
+    this.generateInExpressionContext(node.object);
     this.emit(".", node.position);
-    this.generateNode(node.property);
+    this.generateInExpressionContext(node.property);
     this.emit("(");
-    this.emitCommaSeparated(node.arguments, (arg) => this.generateNode(arg));
+    this.emitCommaSeparated(node.arguments, (arg) => this.generateInExpressionContext(arg));
     this.emit(")");
   }
 
   private generateNewExpression(node: IR.IRNewExpression): void {
     this.emit("new ", node.position);
-    this.generateNode(node.callee);
+    this.generateInExpressionContext(node.callee);
     this.emit("(");
-    this.emitCommaSeparated(node.arguments, (arg) => this.generateNode(arg));
+    this.emitCommaSeparated(node.arguments, (arg) => this.generateInExpressionContext(arg));
     this.emit(")");
   }
 
   private generateArrayExpression(node: IR.IRArrayExpression): void {
     this.emit("[", node.position);
-    this.emitCommaSeparated(node.elements, (elem) => this.generateNode(elem));
+    this.emitCommaSeparated(node.elements, (elem) => this.generateInExpressionContext(elem));
     this.emit("]");
   }
 
@@ -593,18 +858,18 @@ class TSGenerator {
       if (prop.type === IR.IRNodeType.SpreadAssignment) {
         const spread = prop as IR.IRSpreadAssignment;
         this.emit("...");
-        this.generateNode(spread.expression);
+        this.generateInExpressionContext(spread.expression);
       } else {
         const objProp = prop as IR.IRObjectProperty;
         if (objProp.computed) {
           this.emit("[");
-          this.generateNode(objProp.key);
+          this.generateInExpressionContext(objProp.key);
           this.emit("]");
         } else {
-          this.generateNode(objProp.key);
+          this.generateInExpressionContext(objProp.key);
         }
         this.emit(": ");
-        this.generateNode(objProp.value);
+        this.generateInExpressionContext(objProp.value);
       }
     }
     this.emit(" }");
@@ -653,19 +918,19 @@ class TSGenerator {
   }
 
   private generateAssignmentExpression(node: IR.IRAssignmentExpression): void {
-    this.generateNode(node.left);
+    this.generateInExpressionContext(node.left);
     this.emit(` ${node.operator} `, node.position);
-    this.generateNode(node.right);
+    this.generateInExpressionContext(node.right);
   }
 
   private generateAwaitExpression(node: IR.IRAwaitExpression): void {
     this.emit("await ", node.position);
-    this.generateNode(node.argument);
+    this.generateInExpressionContext(node.argument);
   }
 
   private generateSpreadElement(node: IR.IRSpreadElement): void {
     this.emit("...", node.position);
-    this.generateNode(node.argument);
+    this.generateInExpressionContext(node.argument);
   }
 
   // ============================================================================
@@ -688,30 +953,49 @@ class TSGenerator {
     const wasTopLevel = this.isTopLevel;
     this.isTopLevel = false;
 
+    // Push new hoisting scope for this block
+    this.hoistingStack.push(new Set());
+
+    // Collect hoistable names for this block
+    for (const stmt of node.body) {
+      this.collectHoistableNames(stmt, false);
+    }
+
     this.emit("{\n", node.position);
     this.indent();
+
+    // Emit hoisted declarations for this block (if any)
+    const blockHoisted = this.currentHoistingSet();
+    if (blockHoisted.size > 0) {
+      this.emitIndent();
+      this.emit(`let ${[...blockHoisted].join(", ")};\n`);
+    }
+
+    // Generate statements
     for (const stmt of node.body) {
       this.generateNode(stmt);
     }
+
     this.dedent();
     this.emitIndent();
     this.emit("}");
 
-    // Restore top level status
+    // Pop hoisting scope and restore top level status
+    this.hoistingStack.pop();
     this.isTopLevel = wasTopLevel;
   }
 
   private generateReturnStatement(node: IR.IRReturnStatement): void {
     this.emitIndent();
     this.emit("return ", node.position);
-    this.generateNode(node.argument);
+    this.generateInExpressionContext(node.argument);
     this.emit(";\n");
   }
 
   private generateIfStatement(node: IR.IRIfStatement): void {
     this.emitIndent();
     this.emit("if (", node.position);
-    this.generateNode(node.test);
+    this.generateInExpressionContext(node.test);
     this.emit(") ");
 
     if (node.consequent.type === IR.IRNodeType.BlockStatement) {
@@ -748,7 +1032,7 @@ class TSGenerator {
   private generateWhileStatement(node: IR.IRWhileStatement): void {
     this.emitIndent();
     this.emit("while (", node.position);
-    this.generateNode(node.test);
+    this.generateInExpressionContext(node.test);
     this.emit(") ");
     this.generateBlockStatement(node.body);
     this.emit("\n");
@@ -761,16 +1045,16 @@ class TSGenerator {
       if (node.init.type === IR.IRNodeType.VariableDeclaration) {
         this.generateVariableDeclarationInline(node.init as IR.IRVariableDeclaration);
       } else {
-        this.generateNode(node.init);
+        this.generateInExpressionContext(node.init);
       }
     }
     this.emit("; ");
     if (node.test) {
-      this.generateNode(node.test);
+      this.generateInExpressionContext(node.test);
     }
     this.emit("; ");
     if (node.update) {
-      this.generateNode(node.update);
+      this.generateInExpressionContext(node.update);
     }
     this.emit(") ");
     this.generateBlockStatement(node.body);
@@ -782,7 +1066,7 @@ class TSGenerator {
     this.emit("for (", node.position);
     this.generateVariableDeclarationInline(node.left);
     this.emit(" of ");
-    this.generateNode(node.right);
+    this.generateInExpressionContext(node.right);
     this.emit(") ");
     this.generateBlockStatement(node.body);
     this.emit("\n");
@@ -791,7 +1075,7 @@ class TSGenerator {
   private generateThrowStatement(node: IR.IRThrowStatement): void {
     this.emitIndent();
     this.emit("throw ", node.position);
-    this.generateNode(node.argument);
+    this.generateInExpressionContext(node.argument);
     this.emit(";\n");
   }
 
@@ -822,13 +1106,21 @@ class TSGenerator {
   // ============================================================================
 
   private generateVariableDeclaration(node: IR.IRVariableDeclaration): void {
-    // Expression-everywhere: top-level simple bindings become assignment expressions
-    if (this.isTopLevel && this.isSimpleBinding(node)) {
-      this.generateVariableAsAssignment(node);
-      return;
+    // Check if this variable should use expression syntax (was hoisted)
+    if (this.isSimpleBinding(node)) {
+      const id = node.declarations[0].id as IR.IRIdentifier;
+      const currentScope = this.hoistingStack.length > 0
+        ? this.currentHoistingSet()
+        : null;
+
+      // If hoisted in current block scope OR at top-level, use assignment expression
+      if (currentScope?.has(id.name) || (this.isTopLevel && this.topLevelBindingNames.has(id.name))) {
+        this.generateVariableAsAssignment(node);
+        return;
+      }
     }
 
-    // Standard declaration for nested scopes and destructuring patterns
+    // Standard declaration for non-hoisted variables and destructuring patterns
     this.emitIndent();
     this.emit(`${node.kind} `, node.position);
     for (let i = 0; i < node.declarations.length; i++) {
@@ -840,23 +1132,36 @@ class TSGenerator {
 
   /**
    * Generate a simple variable binding as an assignment expression.
-   * Used for top-level bindings to make them return values.
-   * Example: (let x 10) → (x = 10); which returns 10
+   * Used for hoisted bindings to make them return values.
+   *
+   * In statement context (inExpressionContext=false):
+   *   Example: (let x 10) → (x = 10); with indent and newline
+   *
+   * In expression context (inExpressionContext=true):
+   *   Example: (if (let x true) ...) → just (x = true) as pure expression
    */
   private generateVariableAsAssignment(node: IR.IRVariableDeclaration): void {
     const decl = node.declarations[0];
     const id = decl.id as IR.IRIdentifier;
 
-    this.emitIndent();
+    // In expression context, emit just the assignment expression
+    // without indentation, semicolon, or newline
+    if (!this.inExpressionContext) {
+      this.emitIndent();
+    }
     this.emit("(", node.position);
     this.emit(id.name);
     this.emit(" = ");
     if (decl.init) {
-      this.generateNode(decl.init);
+      // The initializer is always in expression context
+      this.generateInExpressionContext(decl.init);
     } else {
       this.emit("undefined");
     }
-    this.emit(");\n");
+    this.emit(")");
+    if (!this.inExpressionContext) {
+      this.emit(";\n");
+    }
   }
 
   private generateVariableDeclarationInline(node: IR.IRVariableDeclaration): void {
