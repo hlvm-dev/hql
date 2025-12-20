@@ -183,7 +183,9 @@ Deno.test("Macro behavior: Explicitly unquoted variables capture correctly", asy
 // BUG FIX: SAME-FILE MACRO POSITION TRACKING
 // ============================================================================
 
-Deno.test("Macro Bug Fix: Same-file macro error reports call site position (December 2024)", async () => {
+Deno.test({
+  name: "Macro Bug Fix: Same-file macro error reports call site position (December 2024)",
+  fn: async () => {
   // This tests that when a macro is defined and called in the same file,
   // type errors report the CALL SITE position, not the macro definition position
   //
@@ -198,8 +200,9 @@ Deno.test("Macro Bug Fix: Same-file macro error reports call site position (Dece
 `;
 
   // Helper to run HQL code and capture output
-  const proc = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", code],
+  // Use compiled ./hql binary for consistent output capture
+  const proc = new Deno.Command("./hql", {
+    args: ["run", "-e", code],
     stdout: "piped",
     stderr: "piped",
     cwd: Deno.cwd(),
@@ -231,4 +234,5 @@ Deno.test("Macro Bug Fix: Same-file macro error reports call site position (Dece
       `Error should report call site (line 6), not macro definition (line 2). Got line ${errorLine}`,
     );
   }
+  },
 });

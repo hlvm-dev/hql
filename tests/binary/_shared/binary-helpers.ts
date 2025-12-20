@@ -50,7 +50,7 @@ export async function ensureBinaryCompiled(): Promise<void> {
   compilationPromise = (async () => {
     console.log("Compiling HQL binary for genuine binary testing...");
     const cmd = new Deno.Command("deno", {
-      args: ["compile", "-A", "--output", BINARY_PATH, CLI_PATH],
+      args: ["compile", "-A", "--no-check", "--output", BINARY_PATH, CLI_PATH],
       stdout: "piped",
       stderr: "piped",
     });

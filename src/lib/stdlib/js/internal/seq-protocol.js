@@ -226,6 +226,8 @@ export class ArraySeq {
     }
   }
 
+  toArray() { return this._arr.slice(this._i); }
+
   toString() {
     const items = this._arr.slice(this._i, this._i + 21);
     const str = items.map(String).join(" ");

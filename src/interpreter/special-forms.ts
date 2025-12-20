@@ -452,6 +452,14 @@ export function hqlValueToSExp(value: HQLValue): SExp {
     return { type: "symbol", name: `#<function:${value.name || "anonymous"}>` } as SSymbol;
   }
 
+  // Check for lazy sequences (ISeq protocol) - avoid infinite iteration on String(value)
+  // LazySeq objects have the Symbol.for("hql.seq") property set to true
+  const SEQ = Symbol.for("hql.seq");
+  if (typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[SEQ]) {
+    // Return a placeholder for lazy sequences - they can't be serialized during macro expansion
+    return { type: "symbol", name: "#<lazy-seq>" } as SSymbol;
+  }
+
   // Default: convert to string literal
   return { type: "literal", value: String(value) } as SLiteral;
 }

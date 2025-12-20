@@ -55,6 +55,8 @@ class TSGenerator {
 
   // Expression-everywhere: track top-level binding names for hoisting
   private topLevelBindingNames: Set<string> = new Set();
+  // Track function type signatures for proper call-site type checking
+  private topLevelFunctionTypes: Map<string, string> = new Map();
   private isTopLevel: boolean = true;
 
   constructor(options: GeneratorOptions = {}) {
@@ -163,6 +165,17 @@ class TSGenerator {
       case IR.IRNodeType.FnFunctionDeclaration: {
         const fnDecl = node as IR.IRFnFunctionDeclaration;
         this.topLevelBindingNames.add(fnDecl.id.name);
+
+        // Collect function type signature if params have types or return type is specified
+        // This enables TypeScript to check call-site argument types
+        // Only consider simple identifier parameters (not destructuring patterns)
+        const hasTypedParams = fnDecl.params.some(p =>
+          p.type === IR.IRNodeType.Identifier && (p as IR.IRIdentifier).typeAnnotation
+        );
+        if (hasTypedParams || fnDecl.returnType) {
+          const typeSignature = this.buildFunctionTypeSignature(fnDecl);
+          this.topLevelFunctionTypes.set(fnDecl.id.name, typeSignature);
+        }
         break;
       }
       case IR.IRNodeType.ClassDeclaration: {
@@ -188,6 +201,33 @@ class TSGenerator {
            node.declarations[0].id.type === IR.IRNodeType.Identifier;
   }
 
+  /**
+   * Build a function type signature string for TypeScript.
+   * Example: (a: number, b: number) => number
+   *
+   * Uses `any` for untyped parameters/return to support gradual typing.
+   * This allows untyped code to work without type errors while still
+   * checking typed parameters.
+   */
+  private buildFunctionTypeSignature(fnDecl: IR.IRFnFunctionDeclaration): string {
+    const params = fnDecl.params.map((p, index) => {
+      // Only simple identifiers have name and typeAnnotation
+      if (p.type === IR.IRNodeType.Identifier) {
+        const ident = p as IR.IRIdentifier;
+        const name = ident.name;
+        // Use 'any' for untyped params to support gradual typing
+        const type = ident.typeAnnotation || "any";
+        return `${name}: ${type}`;
+      }
+      // Destructuring patterns get a placeholder name and 'any' type
+      return `_p${index}: any`;
+    });
+
+    // Use 'any' for untyped return to support gradual typing
+    const returnType = fnDecl.returnType || "any";
+    return `(${params.join(", ")}) => ${returnType}`;
+  }
+
   // ============================================================================
   // Main Entry Point
   // ============================================================================
@@ -198,9 +238,20 @@ class TSGenerator {
       this.collectTopLevelNames(node);
     }
 
-    // Emit hoisted let declarations (if any non-import bindings)
+    // Emit hoisted let declarations with types for functions (enables call-site type checking)
     if (this.topLevelBindingNames.size > 0) {
-      this.emitLine(`let ${[...this.topLevelBindingNames].join(", ")};`);
+      const declarations: string[] = [];
+      for (const name of this.topLevelBindingNames) {
+        const funcType = this.topLevelFunctionTypes.get(name);
+        if (funcType) {
+          // Typed function: let add: (a: number, b: number) => number;
+          declarations.push(`${name}: ${funcType}`);
+        } else {
+          // Untyped binding: let x;
+          declarations.push(name);
+        }
+      }
+      this.emitLine(`let ${declarations.join(", ")};`);
       this.emitLine();
     }
 

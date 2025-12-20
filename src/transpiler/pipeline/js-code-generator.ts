@@ -21,6 +21,7 @@ import {
   compileTypeScript,
   formatDiagnostics,
   type TypeDiagnostic,
+  PRELUDE_LINE_COUNT,
 } from "./ts-compiler.ts";
 import {
   chainSourceMaps,
@@ -160,9 +161,12 @@ export async function generateJavaScript(
 
   if (options.typeCheck !== false) {
     // Build TS→HQL position map for error mapping
+    // Note: tsc diagnostics are ALREADY adjusted to remove the prelude offset
+    // (see convertDiagnostics in ts-compiler.ts), so we use direct line numbers here
     const tsToHqlMap = new Map<string, { line: number; column: number }>();
     for (const mapping of tsResult.mappings) {
       if (mapping.original) {
+        // Use direct line numbers - diagnostics are already offset-adjusted
         const key = `${mapping.generated.line}:${mapping.generated.column}`;
         tsToHqlMap.set(key, mapping.original);
       }
@@ -206,8 +210,19 @@ export async function generateJavaScript(
   if (options.generateSourceMap !== false && compileResult.sourceMap) {
     logger.debug("Step 4: Chaining source maps");
 
+    // Offset the HQL→TS mappings by the prelude line count.
+    // The TS compiler prepends runtime helper declarations, shifting all line numbers.
+    // Without this offset, the TS→JS source map positions won't match the HQL→TS positions.
+    const offsetMappings = tsResult.mappings.map(m => ({
+      ...m,
+      generated: {
+        line: m.generated.line + PRELUDE_LINE_COUNT,
+        column: m.generated.column,
+      },
+    }));
+
     const chainedMap = await chainSourceMaps(
-      tsResult.mappings,
+      offsetMappings,
       compileResult.sourceMap,
       sourceFileName,
       options.sourceContent,

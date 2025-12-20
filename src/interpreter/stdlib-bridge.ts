@@ -208,9 +208,17 @@ export function jsToHql(value: unknown, maxLength: number = MAX_SEQ_LENGTH): HQL
   }
 
   // New seq-protocol LazySeq (and other SEQ types) -> realize to array
+  // IMPORTANT: Use take() to limit iteration BEFORE collecting, not after!
+  // Array.from() on an infinite sequence will never complete.
   // deno-lint-ignore no-explicit-any
   if (value instanceof SeqLazySeq || (typeof value === "object" && value !== null && (value as any)[SEQ])) {
-    const arr = Array.from(value as Iterable<unknown>).slice(0, maxLength);
+    const arr: unknown[] = [];
+    let count = 0;
+    for (const item of value as Iterable<unknown>) {
+      if (count >= maxLength) break;
+      arr.push(item);
+      count++;
+    }
     return arr.map((item) => jsToHql(item, maxLength)) as HQLValue[];
   }
 

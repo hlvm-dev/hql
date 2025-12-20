@@ -264,6 +264,12 @@ declare function __hql_deepFreeze<T>(obj: T): T;
 declare function __hql_match_obj(val: unknown, pattern: unknown[]): boolean;
 `;
 
+/**
+ * Number of lines in the runtime helper declarations prelude.
+ * This is used to offset source map positions when chaining HQL→TS→JS maps.
+ */
+export const PRELUDE_LINE_COUNT = RUNTIME_HELPER_DECLARATIONS.split('\n').length;
+
 // ============================================================================
 // Compiler Implementation
 // ============================================================================

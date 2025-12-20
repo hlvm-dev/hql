@@ -136,10 +136,13 @@ export async function transformAST(
       failOnTypeErrors: options.failOnTypeErrors,
     });
 
-    // Log type errors if any
+    // Report type errors to stderr so users see them
+    // Type errors are non-fatal warnings - code still runs but may have issues
     if (result.typeErrors && result.typeErrors.length > 0) {
       for (const err of result.typeErrors) {
-        logger.warn(`Type error at ${sourceFilePath}:${err.line}:${err.column}: ${err.message}`);
+        const location = `${err.file || sourceFilePath}:${err.line}:${err.column}`;
+        console.error(`Type error at ${location}: ${err.message}`);
+        logger.debug(`Type error details: TS${err.code} at ${location}`);
       }
     }
 
