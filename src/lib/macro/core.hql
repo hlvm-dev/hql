@@ -93,23 +93,13 @@
   (cond
     ((%empty? args) false)
     ((=== (%length args) 1) (%first args))
-    (true
-      `((fn [value]
-          (if value
-              value
-              (or ~@(%rest args))))
-        ~(%first args)))))
+    (true `(|| ~(%first args) (or ~@(%rest args))))))
 
 (macro and [& args]
   (cond
     ((%empty? args) true)
     ((=== (%length args) 1) (%first args))
-    (true
-      `((fn [value]
-          (if value
-              (and ~@(%rest args))
-              value))
-        ~(%first args)))))
+    (true `(&& ~(%first args) (and ~@(%rest args))))))
 
 (macro when [test & body]
   `(if ~test

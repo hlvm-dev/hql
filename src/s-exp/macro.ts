@@ -743,9 +743,30 @@ function evaluateLet(list: SList, env: Environment, logger: Logger): SExp {
       "let",
     );
   }
-  const bindings = list.elements[1];
+
+  const second = list.elements[1];
+
+  // Handle simple form: (let name value)
+  // This is the expression-everywhere form where let returns the assigned value
+  if (isSymbol(second)) {
+    if (list.elements.length !== 3) {
+      throw new MacroError(
+        "simple let form requires exactly a name and value: (let name value)",
+        "let",
+      );
+    }
+    const name = (second as SSymbol).name;
+    const value = evaluateForMacro(list.elements[2], env, logger);
+    // Bind in current environment (like var) so the value is accessible
+    env.define(name, value);
+    // Return the value (expression-everywhere semantics)
+    return value;
+  }
+
+  // Handle bindings form: (let [bindings...] body...)
+  const bindings = second;
   if (!isList(bindings)) {
-    throw new MacroError("let bindings must be a list", "let");
+    throw new MacroError("let bindings must be a list or symbol", "let");
   }
   const bindingsList = bindings as SList;
 

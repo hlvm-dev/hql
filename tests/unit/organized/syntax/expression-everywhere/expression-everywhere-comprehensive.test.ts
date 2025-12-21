@@ -1,14 +1,23 @@
 /**
  * Comprehensive Expression-Everywhere Tests
  *
- * Tests the core transpiler feature where TOP-LEVEL declarations return values:
+ * Tests the core transpiler feature where declarations return values and can be
+ * used ANYWHERE an expression is expected - both at top-level AND nested:
+ *
+ * TOP-LEVEL (declarations return values):
  * - (let x 10) returns 10
  * - (fn add ...) returns the function
  * - (class Point ...) returns the constructor
  * - (enum Color ...) returns the enum object
  *
- * NOTE: Expression-everywhere applies to TOP-LEVEL declarations only.
- * Using (let x 10) as a sub-expression inside other forms is NOT supported.
+ * NESTED (declarations as sub-expressions):
+ * - (print (let x 99)) - let as function argument
+ * - (if (let x true) ...) - let as condition
+ * - (+ (let x 10) (let y 20)) - lets as arithmetic operands
+ * - [(let a 1) (let b 2)] - lets in array literals
+ *
+ * Implementation uses variable hoisting: variables in expression positions are
+ * collected and declared at block scope, then assignments are used as expressions.
  */
 
 import { assertEquals, assertNotEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
@@ -465,4 +474,375 @@ Deno.test("Expr-everywhere: with reduce", async () => {
     sum
   `;
   assertEquals(await run(code), 15);
+});
+
+// ============================================================================
+// NESTED EXPRESSIONS - let/var as sub-expressions (TRUE expression-everywhere)
+// ============================================================================
+
+Deno.test("Nested expr: let as function argument", async () => {
+  // (let x 99) inside print should bind x=99 and pass 99 to print
+  const code = `
+    (fn identity [x] x)
+    (identity (let val 42))
+  `;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Nested expr: let as condition in if", async () => {
+  // (let x true) as condition should bind x=true and evaluate as truthy
+  const code = `
+    (if (let flag true) "yes" "no")
+  `;
+  assertEquals(await run(code), "yes");
+});
+
+Deno.test("Nested expr: let with false as condition", async () => {
+  const code = `
+    (if (let flag false) "yes" "no")
+  `;
+  assertEquals(await run(code), "no");
+});
+
+Deno.test("Nested expr: multiple lets as arithmetic operands", async () => {
+  // Each let binds its variable and returns the value for the addition
+  const code = `(+ (let a 10) (let b 20))`;
+  assertEquals(await run(code), 30);
+});
+
+Deno.test("Nested expr: lets inside array literal", async () => {
+  const code = `[(let x 1) (let y 2) (let z 3)]`;
+  assertEquals(await run(code), [1, 2, 3]);
+});
+
+Deno.test("Nested expr: let in object value", async () => {
+  const code = `
+    (let obj { "value": (let v 42) })
+    obj.value
+  `;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Nested expr: multiple lets in object", async () => {
+  const code = `
+    (let obj { "a": (let x 1), "b": (let y 2), "c": (let z 3) })
+    (+ obj.a obj.b obj.c)
+  `;
+  assertEquals(await run(code), 6);
+});
+
+Deno.test("Nested expr: var as function argument", async () => {
+  const code = `
+    (fn double [x] (* x 2))
+    (double (var n 21))
+  `;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Nested expr: chained lets in expression", async () => {
+  // (let a 5) returns 5, (let b (+ a 5)) uses a=5, returns 10
+  const code = `(* (let a 5) (let b (+ a 5)))`;
+  assertEquals(await run(code), 50);  // 5 * 10 = 50
+});
+
+Deno.test("Nested expr: let in ternary branches", async () => {
+  const code = `
+    (if true
+      (let x 100)
+      (let y 200))
+  `;
+  assertEquals(await run(code), 100);
+});
+
+Deno.test("Nested expr: let in logical expression", async () => {
+  const code = `(&& (let a true) (let b true))`;
+  assertEquals(await run(code), true);
+});
+
+Deno.test("Nested expr: let in comparison", async () => {
+  const code = `(> (let x 10) (let y 5))`;
+  assertEquals(await run(code), true);
+});
+
+Deno.test("Nested expr: deeply nested lets", async () => {
+  const code = `
+    (+ (let a (+ (let b 1) (let c 2)))
+       (let d (+ (let e 3) (let f 4))))
+  `;
+  // a = 1+2 = 3, d = 3+4 = 7, result = 3+7 = 10
+  assertEquals(await run(code), 10);
+});
+
+Deno.test("Nested expr: let inside function body expression", async () => {
+  const code = `
+    (fn compute []
+      (+ (let x 10) (let y 20)))
+    (compute)
+  `;
+  assertEquals(await run(code), 30);
+});
+
+Deno.test("Nested expr: variable available after nested binding", async () => {
+  // After (print (let x 99)), x should still be accessible
+  const code = `
+    (fn identity [v] v)
+    (identity (let myVar 42))
+    myVar
+  `;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Nested expr: multiple variables bound in same expression", async () => {
+  const code = `
+    [(let first 1) (let second 2) (+ first second)]
+  `;
+  assertEquals(await run(code), [1, 2, 3]);
+});
+
+// ============================================================================
+// CONST IN EXPRESSION POSITION
+// ============================================================================
+
+Deno.test("Nested expr: const as function argument", async () => {
+  const code = `
+    (fn identity [x] x)
+    (identity (const val 42))
+  `;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Nested expr: const in arithmetic", async () => {
+  const code = `(+ (const a 10) (const b 20))`;
+  assertEquals(await run(code), 30);
+});
+
+Deno.test("Nested expr: const in array literal", async () => {
+  const code = `[(const x 1) (const y 2) (const z 3)]`;
+  assertEquals(await run(code), [1, 2, 3]);
+});
+
+Deno.test("Nested expr: const as condition", async () => {
+  const code = `(if (const flag true) "yes" "no")`;
+  assertEquals(await run(code), "yes");
+});
+
+Deno.test("Nested expr: mixed let/const/var in expression", async () => {
+  const code = `(+ (let a 1) (const b 2) (var c 3))`;
+  assertEquals(await run(code), 6);
+});
+
+// ============================================================================
+// DEEPLY NESTED EXPRESSIONS
+// ============================================================================
+
+Deno.test("Nested expr: 5 levels deep", async () => {
+  const code = `
+    (+ (let a (+ (let b (+ (let c (+ (let d (let e 1)) 2)) 3)) 4)) 5)
+  `;
+  // e=1, d=1, c=1+2=3, b=3+3=6, a=6+4=10, result=10+5=15
+  assertEquals(await run(code), 15);
+});
+
+Deno.test("Nested expr: in template literal", async () => {
+  const code = "`value is ${(let x 42)}`";
+  assertEquals(await run(code), "value is 42");
+});
+
+Deno.test("Nested expr: in conditional branches", async () => {
+  const code = `
+    (+ (if true (let a 10) (let b 20))
+       (if false (let c 30) (let d 40)))
+  `;
+  assertEquals(await run(code), 50);  // a=10, d=40, 10+40=50
+});
+
+Deno.test("Nested expr: let in while condition", async () => {
+  // This tests that let works in loop conditions
+  const code = `
+    (let count 0)
+    (while (< (let i count) 3)
+      (= count (+ count 1)))
+    count
+  `;
+  assertEquals(await run(code), 3);
+});
+
+Deno.test("Nested expr: let in method chain", async () => {
+  const code = `
+    ((let arr [1 2 3 4 5]).filter (fn [x] (> x 2)))
+  `;
+  assertEquals(await run(code), [3, 4, 5]);
+});
+
+Deno.test("Nested expr: let returning function", async () => {
+  const code = `
+    ((let f (fn [x] (* x 2))) 21)
+  `;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Nested expr: var in nested function call", async () => {
+  const code = `
+    (fn outer [x] (fn inner [y] (+ x y)))
+    ((outer (var a 10)) (var b 32))
+  `;
+  assertEquals(await run(code), 42);
+});
+
+// ============================================================================
+// FN/CLASS/ENUM AS EXPRESSIONS (IIFE patterns)
+// ============================================================================
+
+Deno.test("Expr-everywhere: named fn as IIFE", async () => {
+  // Named function immediately invoked
+  const code = `((fn double [x] (* x 2)) 21)`;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Expr-everywhere: fn returning fn as IIFE", async () => {
+  const code = `(((fn makeAdder [x] (fn [y] (+ x y))) 10) 5)`;
+  assertEquals(await run(code), 15);
+});
+
+Deno.test("Expr-everywhere: class instantiated inline", async () => {
+  const code = `
+    (let p (new (class Point (constructor [x] (= this.x x))) 42))
+    p.x
+  `;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Expr-everywhere: enum assigned to variable", async () => {
+  const code = `
+    (let e (enum Color (case Red) (case Blue)))
+    e.Red
+  `;
+  assertEquals(await run(code), "Red");
+});
+
+Deno.test("Expr-everywhere: fn in array", async () => {
+  const code = `
+    (let fns [(fn [x] (+ x 1)) (fn [x] (* x 2))])
+    ((fns 0) 5)
+  `;
+  assertEquals(await run(code), 6);
+});
+
+Deno.test("Expr-everywhere: fn as argument to higher-order fn", async () => {
+  const code = `
+    (fn apply [f x] (f x))
+    (apply (fn double [n] (* n 2)) 21)
+  `;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Expr-everywhere: nested fn definitions", async () => {
+  // Each fn returns the next fn, so we need to call each level
+  const code = `
+    (fn outer [] (fn middle [] (fn inner [] 42)))
+    (let f (outer))
+    (let g (f))
+    (g)
+  `;
+  assertEquals(await run(code), 42);
+});
+
+// ============================================================================
+// NESTED CALL EXPRESSIONS - ((expr)) calls the result of (expr)
+// ============================================================================
+
+Deno.test("Expr-everywhere: ((fn)) calls anonymous fn result", async () => {
+  // ((fn [] 42)) should call the fn and return 42
+  const code = `((fn [] 42))`;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Expr-everywhere: ((outer)) calls function returned by outer", async () => {
+  // (outer) returns inner fn, ((outer)) calls that inner fn
+  const code = `
+    (let outer (fn [] (fn [] 123)))
+    ((outer))
+  `;
+  assertEquals(await run(code), 123);
+});
+
+Deno.test("Expr-everywhere: (((f))) triple-nested call", async () => {
+  // Three levels of function returns
+  const code = `
+    (let f (fn [] (fn [] (fn [] 999))))
+    (((f)))
+  `;
+  assertEquals(await run(code), 999);
+});
+
+Deno.test("Expr-everywhere: ((outer) arg) passes arg to returned fn", async () => {
+  // outer returns a fn that takes an arg
+  const code = `
+    (let outer (fn [] (fn [x] (* x 2))))
+    ((outer) 21)
+  `;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Expr-everywhere: ((fn returning fn) arg) with args at each level", async () => {
+  // makeAdder(10) returns (fn [y] (+ 10 y)), then call with 5
+  const code = `
+    (let makeAdder (fn [x] (fn [y] (+ x y))))
+    ((makeAdder 10) 5)
+  `;
+  assertEquals(await run(code), 15);
+});
+
+Deno.test("Expr-everywhere: member access on call result", async () => {
+  // (getObj).a accesses property on returned object
+  const code = `
+    (let getObj (fn [] { "value": 42 }))
+    ((getObj) .value)
+  `;
+  assertEquals(await run(code), 42);
+});
+
+// ============================================================================
+// LET IN ARROW FUNCTION BODY - Tests hoisting in concise arrow bodies
+// ============================================================================
+
+Deno.test("Expr-everywhere: let in if inside arrow fn", async () => {
+  // Arrow fn with let in conditional branches
+  const code = `
+    (let f (fn [x] (if x (let r 42) (let r 0))))
+    (f true)
+  `;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Expr-everywhere: let in and inside arrow fn", async () => {
+  // and macro uses arrow functions internally
+  const code = `(and (let x true) (let y 42))`;
+  assertEquals(await run(code), 42);
+});
+
+Deno.test("Expr-everywhere: let in or inside arrow fn", async () => {
+  // or macro uses arrow functions internally
+  const code = `(or (let x false) (let y 99))`;
+  assertEquals(await run(code), 99);
+});
+
+Deno.test("Expr-everywhere: multiple lets in arrow fn", async () => {
+  // Multiple lets in a single arrow fn body
+  const code = `
+    (let f (fn [x] (+ (let a 1) (let b 2) x)))
+    (f 10)
+  `;
+  assertEquals(await run(code), 13);
+});
+
+Deno.test("Expr-everywhere: nested lets in arrow fn branches", async () => {
+  // Deeply nested lets in conditional branches
+  const code = `
+    (let f (fn [x] (if x
+                       (if (let a true) (let b 100) (let c 0))
+                       (let d 50))))
+    (f true)
+  `;
+  assertEquals(await run(code), 100);
 });

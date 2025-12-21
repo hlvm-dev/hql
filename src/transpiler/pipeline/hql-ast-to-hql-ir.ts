@@ -1818,17 +1818,14 @@ function transformNestedList(list: ListNode, currentDir: string): IR.IRNode {
         }
       }
 
-      // If the inner expression is a function, treat it as an IIFE with zero arguments
-      // This handles cases like ((fn [] 42)) which should invoke the function immediately
-      if (innerExpr.type === IR.IRNodeType.FunctionExpression) {
-        return {
-          type: IR.IRNodeType.CallExpression,
-          callee: innerExpr as IR.IRFunctionExpression,
-          arguments: [],
-        } as IR.IRCallExpression;
-      }
-
-      return innerExpr;
+      // A single-element nested list ((expr)) means: evaluate expr and call the result
+      // This handles both ((fn [] 42)) and ((outer)) where outer returns a function
+      // In Lisp/Clojure semantics, wrapping in extra parens = call the result
+      return {
+        type: IR.IRNodeType.CallExpression,
+        callee: innerExpr as unknown as IR.IRFunctionExpression,
+        arguments: [],
+      } as IR.IRCallExpression;
     },
     "transformNestedList",
     TransformError,
