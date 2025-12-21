@@ -44,7 +44,7 @@ interface GeneratorOptions {
 // ============================================================================
 
 class TSGenerator {
-  private code: string = "";
+  private chunks: string[] = [];
   private currentLine: number = 1;
   private currentColumn: number = 0;
   private mappings: SourceMapping[] = [];
@@ -97,7 +97,7 @@ class TSGenerator {
       this.currentLine += lines.length - 1;
       this.currentColumn = lines[lines.length - 1].length;
     }
-    this.code += text;
+    this.chunks.push(text);
   }
 
   private emitLine(text: string = "", irPosition?: IR.SourcePosition): void {
@@ -229,6 +229,15 @@ class TSGenerator {
   }
 
   /**
+   * Helper to collect hoistable names from a list of nodes.
+   */
+  private collectList(nodes: IR.IRNode[], inExpression: boolean): void {
+    for (const node of nodes) {
+      if (node) this.collectHoistableNames(node, inExpression);
+    }
+  }
+
+  /**
    * Recursively collect variable names that need hoisting.
    * Variables in expression positions (e.g., arguments to function calls)
    * need to be hoisted to the enclosing block scope.
@@ -265,9 +274,7 @@ class TSGenerator {
       case IR.IRNodeType.CallExpression: {
         const call = node as IR.IRCallExpression;
         this.collectHoistableNames(call.callee, true);
-        for (const arg of call.arguments) {
-          this.collectHoistableNames(arg, true);
-        }
+        this.collectList(call.arguments, true);
         break;
       }
 
@@ -289,9 +296,7 @@ class TSGenerator {
 
       case IR.IRNodeType.ArrayExpression: {
         const arrExpr = node as IR.IRArrayExpression;
-        for (const elem of arrExpr.elements) {
-          this.collectHoistableNames(elem, true);
-        }
+        this.collectList(arrExpr.elements, true);
         break;
       }
 
@@ -379,18 +384,14 @@ class TSGenerator {
       case IR.IRNodeType.CallMemberExpression: {
         const callMember = node as IR.IRCallMemberExpression;
         this.collectHoistableNames(callMember.object, true);
-        for (const arg of callMember.arguments) {
-          this.collectHoistableNames(arg, true);
-        }
+        this.collectList(callMember.arguments, true);
         break;
       }
 
       case IR.IRNodeType.NewExpression: {
         const newExpr = node as IR.IRNewExpression;
         this.collectHoistableNames(newExpr.callee, true);
-        for (const arg of newExpr.arguments) {
-          this.collectHoistableNames(arg, true);
-        }
+        this.collectList(newExpr.arguments, true);
         break;
       }
 
@@ -425,9 +426,7 @@ class TSGenerator {
 
       case IR.IRNodeType.TemplateLiteral: {
         const tmpl = node as IR.IRTemplateLiteral;
-        for (const expr of tmpl.expressions) {
-          this.collectHoistableNames(expr, true);
-        }
+        this.collectList(tmpl.expressions, true);
         break;
       }
 
@@ -628,7 +627,7 @@ class TSGenerator {
     this.hoistingStack.pop();
 
     return {
-      code: this.code,
+      code: this.chunks.join(""),
       mappings: this.mappings,
       usedHelpers: this.usedHelpers,
     };
