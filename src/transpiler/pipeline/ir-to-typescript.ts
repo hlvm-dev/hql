@@ -1202,10 +1202,16 @@ class TSGenerator {
   }
 
   private generateThrowStatement(node: IR.IRThrowStatement): void {
-    this.emitIndent();
-    this.emit("throw ", node.position);
-    this.generateInExpressionContext(node.argument);
-    this.emit(";\n");
+    if (this.inExpressionContext) {
+      this.emit("((() => { throw ", node.position);
+      this.generateInExpressionContext(node.argument);
+      this.emit("; })())");
+    } else {
+      this.emitIndent();
+      this.emit("throw ", node.position);
+      this.generateInExpressionContext(node.argument);
+      this.emit(";\n");
+    }
   }
 
   private generateTryStatement(node: IR.IRTryStatement): void {
