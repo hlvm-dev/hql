@@ -417,7 +417,7 @@ enum ErrorType {
 
 export class HQLError extends Error {
   readonly errorType: string;
-  readonly code?: HQLErrorCode;
+  code?: HQLErrorCode; // Not readonly - child classes need to set this
   sourceLocation: SourceLocationInfo;
   readonly originalError?: Error;
   contextLines: {
@@ -556,7 +556,6 @@ export class ParseError extends HQLError {
       originalError: opts.originalError,
     });
 
-    // @ts-ignore - Set code on parent class
     this.code = errorCode;
   }
 
@@ -743,29 +742,40 @@ const COMPILED_CODEGEN_ERROR_PATTERNS = compilePatterns(CODEGEN_ERROR_PATTERNS);
 const COMPILED_RUNTIME_ERROR_PATTERNS = compilePatterns(RUNTIME_ERROR_PATTERNS);
 
 /**
- * Infer error code from parse error message
+ * Factory function to create error code inferrers
+ * Reduces duplication across similar inference functions
  */
-function inferParseErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromCompiledPatterns(
-    msg,
-    COMPILED_PARSE_ERROR_PATTERNS,
-    HQLErrorCode.INVALID_SYNTAX,
-  );
+function createErrorCodeInferrer(
+  patterns: CompiledErrorPattern[],
+  fallback: HQLErrorCode,
+): (msg: string) => HQLErrorCode {
+  return (msg: string) => inferErrorCodeFromCompiledPatterns(msg, patterns, fallback);
 }
 
-/**
- * Infer error code from import error message
- */
-function inferImportErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromCompiledPatterns(
-    msg,
-    COMPILED_IMPORT_ERROR_PATTERNS,
-    HQLErrorCode.INVALID_IMPORT_SYNTAX,
-  );
-}
+// Create inferrers using factory pattern
+const inferParseErrorCode = createErrorCodeInferrer(
+  COMPILED_PARSE_ERROR_PATTERNS,
+  HQLErrorCode.INVALID_SYNTAX,
+);
+const inferImportErrorCode = createErrorCodeInferrer(
+  COMPILED_IMPORT_ERROR_PATTERNS,
+  HQLErrorCode.INVALID_IMPORT_SYNTAX,
+);
+const inferMacroErrorCode = createErrorCodeInferrer(
+  COMPILED_MACRO_ERROR_PATTERNS,
+  HQLErrorCode.MACRO_EXPANSION_FAILED,
+);
+const inferTransformErrorCode = createErrorCodeInferrer(
+  COMPILED_TRANSFORM_ERROR_PATTERNS,
+  HQLErrorCode.TRANSFORMATION_FAILED,
+);
+const inferCodeGenErrorCode = createErrorCodeInferrer(
+  COMPILED_CODEGEN_ERROR_PATTERNS,
+  HQLErrorCode.CODEGEN_FAILED,
+);
 
 /**
- * Infer error code from validation error message
+ * Infer error code from validation error message (needs context parameter)
  */
 function inferValidationErrorCode(msg: string, context: string): HQLErrorCode {
   return inferErrorCodeFromCompiledPatterns(
@@ -773,39 +783,6 @@ function inferValidationErrorCode(msg: string, context: string): HQLErrorCode {
     COMPILED_VALIDATION_ERROR_PATTERNS,
     HQLErrorCode.INVALID_EXPRESSION,
     context,
-  );
-}
-
-/**
- * Infer error code from macro error message
- */
-function inferMacroErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromCompiledPatterns(
-    msg,
-    COMPILED_MACRO_ERROR_PATTERNS,
-    HQLErrorCode.MACRO_EXPANSION_FAILED,
-  );
-}
-
-/**
- * Infer error code from transform error message
- */
-function inferTransformErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromCompiledPatterns(
-    msg,
-    COMPILED_TRANSFORM_ERROR_PATTERNS,
-    HQLErrorCode.TRANSFORMATION_FAILED,
-  );
-}
-
-/**
- * Infer error code from code generation error message
- */
-function inferCodeGenErrorCode(msg: string): HQLErrorCode {
-  return inferErrorCodeFromCompiledPatterns(
-    msg,
-    COMPILED_CODEGEN_ERROR_PATTERNS,
-    HQLErrorCode.CODEGEN_FAILED,
   );
 }
 
@@ -957,7 +934,6 @@ export class ImportError extends HQLError {
       originalError,
     });
     this.importPath = importPath;
-    // @ts-ignore - Set code on parent class
     this.code = errorCode;
   }
 
@@ -1028,7 +1004,6 @@ export class ValidationError extends HQLError {
     this.context = context;
     this.expectedType = expectedType;
     this.actualType = actualType;
-    // @ts-ignore - Set code on parent class
     this.code = errorCode;
   }
 
@@ -1142,7 +1117,6 @@ export class MacroError extends HQLError {
       originalError,
     });
     this.macroName = macroName;
-    // @ts-ignore - Set code on parent class
     this.code = errorCode;
   }
 
@@ -1264,7 +1238,6 @@ export class TransformError extends HQLError {
       originalError,
     });
     this.phase = phase;
-    // @ts-ignore - Set code on parent class
     this.code = errorCode;
   }
 
@@ -1366,7 +1339,6 @@ export class RuntimeError extends HQLError {
       sourceLocation: opts,
       originalError: opts.originalError,
     });
-    // @ts-ignore - Set code on parent class
     this.code = errorCode;
 
     // Preserve the original error's stack if available (it may have been transformed by Error.prepareStackTrace)
@@ -1496,7 +1468,6 @@ export class CodeGenError extends HQLError {
       originalError,
     });
     this.nodeType = nodeType;
-    // @ts-ignore - Set code on parent class
     this.code = errorCode;
   }
 

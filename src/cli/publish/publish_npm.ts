@@ -139,7 +139,6 @@ const npmPublisher: RegistryPublisher = {
     }
 
     const extraFlags = ["--access", "public"];
-    // @ts-ignore - allowDirty property exists on CLI options but maybe not in interface yet
     if (options.allowDirty) {
       extraFlags.push("--allow-dirty");
     }

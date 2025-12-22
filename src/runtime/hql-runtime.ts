@@ -113,8 +113,6 @@ export class HQLRuntime {
       return "";
     }
 
-    const evalContext = this.createCompilerContext(currentFile);
-
     // Use pure compiler with injected context
     const result = await transpileToJavascript(
       source,

@@ -13,8 +13,9 @@ import { sanitizeIdentifier } from "../common/utils.ts";
 import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../transpiler/keyword/primitives.ts";
 
 // Special form operators (from primitives.ts - single source of truth)
-const DECLARATION_OPS = new Set(DECLARATION_KEYWORDS);
-const BINDING_OPS = new Set(BINDING_KEYWORDS);
+// Typed as Set<string> to allow .has() with any string operand
+const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
+const BINDING_OPS: Set<string> = new Set(BINDING_KEYWORDS);
 
 // Type definitions
 export type ExpressionKind = "declaration" | "binding" | "expression" | "import";
@@ -48,10 +49,8 @@ export function analyzeExpression(ast: SList): ExpressionType {
   const el = ast.elements[1];
   const name = isSymbol(el) ? el.name : undefined;
 
-  // deno-lint-ignore no-explicit-any
-  if (DECLARATION_OPS.has(op as any)) return { kind: "declaration", name };
-  // deno-lint-ignore no-explicit-any
-  if (BINDING_OPS.has(op as any) && ast.elements.length >= 3) return { kind: "binding", name };
+  if (DECLARATION_OPS.has(op)) return { kind: "declaration", name };
+  if (BINDING_OPS.has(op) && ast.elements.length >= 3) return { kind: "binding", name };
   return { kind: "expression" };
 }
 

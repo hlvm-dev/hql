@@ -77,11 +77,10 @@ export class Environment {
    * Create a standard environment with built-ins loaded.
    * This is the factory method for creating a fresh environment.
    */
-  // deno-lint-ignore require-await
-  static async createStandard(): Promise<Environment> {
+  static createStandard(): Promise<Environment> {
     const env = new Environment(null, logger);
     env.initializeBuiltins();
-    return env;
+    return Promise.resolve(env);
   }
 
   /**
@@ -958,6 +957,60 @@ export class Environment {
   }
 
   /**
+   * Get the effective current file path by checking this env and parents
+   */
+  private getEffectiveCurrentFile(): string | undefined {
+    if (this.currentFilePath) {
+      return this.currentFilePath;
+    }
+    let env = this.parent;
+    while (env !== null) {
+      if (env.currentFilePath) {
+        return env.currentFilePath;
+      }
+      env = env.parent;
+    }
+    return undefined;
+  }
+
+  /**
+   * Check if a macro in a specific scope is accessible from this environment
+   * Returns true/false if found, undefined if macro not in this scope
+   */
+  private checkMacroAccessibilityInScope(
+    scope: Environment,
+    macroName: string,
+  ): boolean | undefined {
+    if (!scope.macros.has(macroName)) {
+      return undefined; // Macro not in this scope
+    }
+
+    // Found the macro - check accessibility
+    const macroSourceFile = scope.macroSourceFiles.get(macroName);
+
+    // If no source file tracked, it's accessible
+    if (!macroSourceFile) {
+      return true;
+    }
+
+    // Get effective current file
+    const effectiveCurrentFile = this.getEffectiveCurrentFile();
+
+    // Macro from current file is always accessible
+    if (macroSourceFile === effectiveCurrentFile) {
+      return true;
+    }
+
+    // Check if macro was explicitly imported
+    if (this.importedMacros.has(macroName)) {
+      return true;
+    }
+
+    // Not accessible - macro is from another file and not imported
+    return false;
+  }
+
+  /**
    * Check if a macro is accessible in the current scope
    */
   isMacroAccessible(macroName: string): boolean {
@@ -966,41 +1019,18 @@ export class Environment {
       return true;
     }
 
-    // Walk up the parent chain to find the macro
-    // deno-lint-ignore no-this-alias
-    let current: Environment | null = this;
+    // Check this scope first
+    const thisResult = this.checkMacroAccessibilityInScope(this, macroName);
+    if (thisResult !== undefined) {
+      return thisResult;
+    }
+
+    // Walk up the parent chain
+    let current = this.parent;
     while (current !== null) {
-      if (current.macros.has(macroName)) {
-        // Found the macro - check accessibility
-        const macroSourceFile = current.macroSourceFiles.get(macroName);
-
-        // If no source file tracked, it's accessible
-        if (!macroSourceFile) {
-          return true;
-        }
-
-        // Get effective current file (check parent chain if not set locally)
-        let effectiveCurrentFile = this.currentFilePath;
-        if (!effectiveCurrentFile) {
-          let env: Environment | null = this.parent;
-          while (env !== null && !effectiveCurrentFile) {
-            effectiveCurrentFile = env.currentFilePath;
-            env = env.parent;
-          }
-        }
-
-        // Macro from current file is always accessible
-        if (macroSourceFile === effectiveCurrentFile) {
-          return true;
-        }
-
-        // Check if macro was explicitly imported
-        if (this.importedMacros.has(macroName)) {
-          return true;
-        }
-
-        // Not accessible - macro is from another file and not imported
-        return false;
+      const result = this.checkMacroAccessibilityInScope(current, macroName);
+      if (result !== undefined) {
+        return result;
       }
       current = current.parent;
     }
@@ -1062,9 +1092,14 @@ export class Environment {
       return systemMacro;
     }
 
+    // Check this scope first
+    const thisMacro = this.macros.get(key);
+    if (thisMacro) {
+      return thisMacro;
+    }
+
     // Walk up the parent chain to find the macro
-    // deno-lint-ignore no-this-alias
-    let current: Environment | null = this;
+    let current = this.parent;
     while (current !== null) {
       const macro = current.macros.get(key);
       if (macro) {

@@ -6,6 +6,78 @@ import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, SymbolNode, ListNode } from "../type/hql_ast.ts";
 
 /**
+ * Validate that a list has the expected number of elements.
+ * This is a DRY helper that replaces ~40 identical validation patterns across syntax files.
+ *
+ * The expected count includes the operator (first element). So for `(fn x body)`:
+ * - list.elements.length should be 3 (fn, x, body)
+ * - expectedCount is 3
+ * - argCount shown in error is 2 (elements after operator)
+ *
+ * @param list - The list to validate
+ * @param expectedCount - Expected total elements (including operator)
+ * @param operatorName - Name of the operator for error messages
+ * @param context - Additional context for error (default: "expression")
+ * @throws ValidationError if the count doesn't match
+ *
+ * @example
+ * // For (quote expr) - expects exactly 2 elements
+ * validateListLength(list, 2, "quote");
+ *
+ * @example
+ * // For (if cond then else) - expects exactly 4 elements
+ * validateListLength(list, 4, "if", "conditional");
+ */
+export function validateListLength(
+  list: ListNode,
+  expectedCount: number,
+  operatorName: string,
+  context: string = "expression",
+): void {
+  if (list.elements.length !== expectedCount) {
+    const expectedArgs = expectedCount - 1;
+    const actualArgs = list.elements.length - 1;
+    throw new ValidationError(
+      `${operatorName} requires exactly ${expectedArgs} argument${expectedArgs !== 1 ? "s" : ""}, got ${actualArgs}`,
+      `${operatorName} ${context}`,
+      `${expectedArgs} argument${expectedArgs !== 1 ? "s" : ""}`,
+      `${actualArgs} argument${actualArgs !== 1 ? "s" : ""}`,
+    );
+  }
+}
+
+/**
+ * Validate that a list has at least a minimum number of elements.
+ *
+ * @param list - The list to validate
+ * @param minCount - Minimum total elements (including operator)
+ * @param operatorName - Name of the operator for error messages
+ * @param context - Additional context for error (default: "expression")
+ * @throws ValidationError if the count is less than minimum
+ *
+ * @example
+ * // For (do body...) - expects at least 2 elements
+ * validateMinListLength(list, 2, "do");
+ */
+export function validateMinListLength(
+  list: ListNode,
+  minCount: number,
+  operatorName: string,
+  context: string = "expression",
+): void {
+  if (list.elements.length < minCount) {
+    const minArgs = minCount - 1;
+    const actualArgs = list.elements.length - 1;
+    throw new ValidationError(
+      `${operatorName} requires at least ${minArgs} argument${minArgs !== 1 ? "s" : ""}, got ${actualArgs}`,
+      `${operatorName} ${context}`,
+      `at least ${minArgs} argument${minArgs !== 1 ? "s" : ""}`,
+      `${actualArgs} argument${actualArgs !== 1 ? "s" : ""}`,
+    );
+  }
+}
+
+/**
  * Extract SourcePosition from an HQL node's _meta field.
  * Used to propagate source location through IR transformations for accurate error reporting.
  */

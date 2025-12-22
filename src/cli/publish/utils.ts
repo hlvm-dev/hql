@@ -116,22 +116,25 @@ export async function verifyEntryFile(entryPath: string): Promise<boolean> {
   }
 }
 
+/** Metadata file info */
+interface MetadataFile {
+  path: string;
+  content: string;
+}
+
+/** Result of metadata generation */
+interface PackageMetadata {
+  npm: MetadataFile | null;
+  jsr: MetadataFile | null;
+}
+
 /**
  * Generate package metadata files (package.json, deno.json, etc.)
  */
-// deno-lint-ignore require-await
-export async function generatePackageMetadata(
+export function generatePackageMetadata(
   config: HqlConfig,
   outDir: string,
-): Promise<{
-  npm: { path: string; content: string } | null;
-  jsr: { path: string; content: string } | null;
-}> {
-  const metadata = {
-    npm: null,
-    jsr: null,
-  };
-
+): PackageMetadata {
   // Generate package.json for NPM
   const packageJson = {
     name: config.name,
@@ -149,12 +152,6 @@ export async function generatePackageMetadata(
     },
   };
 
-  // @ts-ignore - Allow assigning to typed property
-  metadata.npm = {
-    path: resolve(outDir, "package.json"),
-    content: JSON.stringify(packageJson, null, 2),
-  };
-
   // Generate deno.json for JSR
   const denoJson = {
     name: config.name.startsWith("@") ? config.name : `@${config.author || "hql"}/${config.name}`,
@@ -166,15 +163,15 @@ export async function generatePackageMetadata(
     imports: config.dependencies,
   };
 
-  // @ts-ignore - Allow assigning to typed property
-  metadata.jsr = {
-    path: resolve(outDir, "deno.json"),
-    content: JSON.stringify(denoJson, null, 2),
-  };
-
-  return metadata as {
-    npm: { path: string; content: string } | null;
-    jsr: { path: string; content: string } | null;
+  return {
+    npm: {
+      path: resolve(outDir, "package.json"),
+      content: JSON.stringify(packageJson, null, 2),
+    },
+    jsr: {
+      path: resolve(outDir, "deno.json"),
+      content: JSON.stringify(denoJson, null, 2),
+    },
   };
 }
 

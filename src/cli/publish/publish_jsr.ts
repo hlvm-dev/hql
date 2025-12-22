@@ -70,8 +70,7 @@ export async function publishJSR(
       publishCmd.push("--dry-run");
     }
     
-    // deno-lint-ignore no-explicit-any
-    if ((options as any).allowDirty) { // Cast to any to access allowDirty if not in interface
+    if (options.allowDirty) {
       publishCmd.push("--allow-dirty");
     }
 

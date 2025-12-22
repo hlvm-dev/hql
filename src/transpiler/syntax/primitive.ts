@@ -9,7 +9,7 @@ import {
   ValidationError,
 } from "../../common/error.ts";
 import { sanitizeIdentifier } from "../../common/utils.ts";
-import { transformElements } from "../utils/validation-helpers.ts";
+import { transformElements, validateListLength } from "../utils/validation-helpers.ts";
 import {
   KERNEL_PRIMITIVES,
   PRIMITIVE_CLASS,
@@ -485,16 +485,7 @@ export function transformAssignment(
 ): IR.IRNode {
   return perform(
     () => {
-      if (list.elements.length !== 3) {
-        throw new ValidationError(
-          `= requires exactly 2 arguments: target and value, got ${
-            list.elements.length - 1
-          }`,
-          "assignment expression",
-          "2 arguments",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      validateListLength(list, 3, "=", "assignment expression");
 
       const targetNode = list.elements[1];
       const valueNode = list.elements[2];

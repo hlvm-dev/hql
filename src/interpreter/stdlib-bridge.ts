@@ -29,8 +29,9 @@ export const BUILTIN_MARKER = Symbol.for("hql-builtin-fn");
  */
 export function isTaggedBuiltinFn(value: unknown): boolean {
   if (typeof value !== "function") return false;
-  // deno-lint-ignore no-explicit-any
-  return (value as any)[BUILTIN_MARKER] === true;
+  // Use symbol property access - cast through unknown for type safety
+  const fn = value as unknown as Record<symbol, unknown>;
+  return fn[BUILTIN_MARKER] === true;
 }
 
 /**
@@ -210,8 +211,7 @@ export function jsToHql(value: unknown, maxLength: number = MAX_SEQ_LENGTH): HQL
   // New seq-protocol LazySeq (and other SEQ types) -> realize to array
   // IMPORTANT: Use take() to limit iteration BEFORE collecting, not after!
   // Array.from() on an infinite sequence will never complete.
-  // deno-lint-ignore no-explicit-any
-  if (value instanceof SeqLazySeq || (typeof value === "object" && value !== null && (value as any)[SEQ])) {
+  if (value instanceof SeqLazySeq || (typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[SEQ])) {
     const arr: unknown[] = [];
     let count = 0;
     for (const item of value as Iterable<unknown>) {

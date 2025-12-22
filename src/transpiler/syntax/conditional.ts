@@ -11,7 +11,7 @@ import {
 } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
-import { validateTransformed } from "../utils/validation-helpers.ts";
+import { validateTransformed, validateListLength } from "../utils/validation-helpers.ts";
 import { ensureReturnStatement } from "../utils/ir-helpers.ts";
 import { isExpressionResult, extractMeta } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
@@ -407,15 +407,7 @@ export function transformThrow(
 ): IR.IRNode {
   return perform(
     () => {
-      // Verify we have exactly one argument
-      if (list.elements.length !== 2) {
-        throw new ValidationError(
-          "throw requires exactly one expression to throw",
-          "throw statement",
-          "1 expression",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      validateListLength(list, 2, "throw");
 
       // Get the value to throw
       const valueNode = validateTransformed(
@@ -447,15 +439,7 @@ export function transformTernary(
 ): IR.IRNode {
   return perform(
     () => {
-      // Verify we have exactly three arguments
-      if (list.elements.length !== 4) {
-        throw new ValidationError(
-          "ternary operator (?) requires exactly 3 arguments (condition, true-value, false-value)",
-          "ternary expression",
-          "3 arguments",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      validateListLength(list, 4, "?", "ternary expression");
 
       const test = validateTransformed(
         transformNode(list.elements[1], currentDir),

@@ -26,7 +26,8 @@ export interface PublishOptions {
   version?: string;
   verbose?: boolean;
   dryRun?: boolean;
-  hasMetadata?: boolean; // Add this line
+  hasMetadata?: boolean;
+  allowDirty?: boolean;
 }
 
 function showHelp() {

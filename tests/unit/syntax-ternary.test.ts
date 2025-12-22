@@ -13,7 +13,7 @@ Deno.test("Ternary: error on too few arguments", async () => {
   await assertRejects(
     async () => await run('(? true "yes")'),
     Error,
-    "ternary operator (?) requires exactly 3 arguments",
+    "? requires exactly 3 arguments",
   );
 });
 
@@ -21,7 +21,7 @@ Deno.test("Ternary: error on too many arguments", async () => {
   await assertRejects(
     async () => await run('(? true "yes" "no" "extra")'),
     Error,
-    "ternary operator (?) requires exactly 3 arguments",
+    "? requires exactly 3 arguments",
   );
 });
 
@@ -29,7 +29,7 @@ Deno.test("Ternary: error on no arguments", async () => {
   await assertRejects(
     async () => await run('(?)'),
     Error,
-    "ternary operator (?) requires exactly 3 arguments",
+    "? requires exactly 3 arguments",
   );
 });
 

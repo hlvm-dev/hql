@@ -11,6 +11,7 @@ import {
 import {
   transformElements,
   validateTransformed,
+  validateListLength,
   isSpreadOperator,
   transformSpreadOperator,
 } from "../utils/validation-helpers.ts";
@@ -179,16 +180,7 @@ export function transformJsGet(
 ): IR.IRNode {
   return perform(
     () => {
-      if (list.elements.length !== 3) {
-        throw new ValidationError(
-          `js-get requires exactly 2 arguments, got ${
-            list.elements.length - 1
-          }`,
-          "js-get",
-          "2 arguments",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      validateListLength(list, 3, "js-get");
 
       const object = validateTransformed(
         transformNode(list.elements[1], currentDir),
@@ -316,14 +308,7 @@ export function transformJsSet(
 ): IR.IRNode {
   return perform(
     () => {
-      if (list.elements.length !== 4) {
-        throw new ValidationError(
-          "js-set requires exactly 3 arguments: object, key, and value",
-          "js-set",
-          "3 arguments",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      validateListLength(list, 4, "js-set");
 
       const object = validateTransformed(
         transformNode(list.elements[1], currentDir),
@@ -371,16 +356,7 @@ export function transformJsGetInvoke(
 ): IR.IRNode {
   return perform(
     () => {
-      if (list.elements.length !== 3) {
-        throw new ValidationError(
-          `js-get-invoke requires exactly 2 arguments, got ${
-            list.elements.length - 1
-          }`,
-          "js-get-invoke",
-          "2 arguments",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      validateListLength(list, 3, "js-get-invoke");
 
       const object = validateTransformed(
         transformNode(list.elements[1], currentDir),

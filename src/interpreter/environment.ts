@@ -109,9 +109,8 @@ export class InterpreterEnv {
    * Get depth of scope chain (for debugging/limits)
    */
   getDepth(): number {
-    let depth = 0;
-    // deno-lint-ignore no-this-alias
-    let env: InterpreterEnv | null = this;
+    let depth = 1; // Count this environment
+    let env = this.parent;
     while (env) {
       depth++;
       env = env.parent;

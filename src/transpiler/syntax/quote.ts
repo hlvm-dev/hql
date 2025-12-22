@@ -5,7 +5,8 @@ import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import { TransformError, ValidationError } from "../../common/error.ts";
 import { perform } from "../../common/error.ts";
-import { validateTransformed } from "../utils/validation-helpers.ts";
+import { validateTransformed, validateListLength } from "../utils/validation-helpers.ts";
+import { isSymbolWithName } from "../../common/sexp-utils.ts";
 
 /**
  * Transform a quoted expression.
@@ -17,14 +18,7 @@ export function transformQuote(
 ): IR.IRNode {
   return perform(
     () => {
-      if (list.elements.length !== 2) {
-        throw new ValidationError(
-          `quote requires exactly 1 argument, got ${list.elements.length - 1}`,
-          "quote",
-          "1 argument",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      validateListLength(list, 2, "quote");
 
       const quoted = list.elements[1];
       if (quoted.type === "literal") {
@@ -103,16 +97,7 @@ export function transformQuasiquote(
 ): IR.IRNode {
   return perform(
     () => {
-      if (list.elements.length !== 2) {
-        throw new ValidationError(
-          `quasiquote requires exactly one argument, got ${
-            list.elements.length - 1
-          }`,
-          "quasiquote",
-          "1 argument",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      validateListLength(list, 2, "quasiquote");
 
       const transformed = validateTransformed(
         buildQuasiquoteIR(
@@ -146,14 +131,7 @@ function buildQuasiquoteIR(
 
       // BUG FIX: Handle nested quasiquote
       if (isSymbolWithName(head, "quasiquote")) {
-        if (list.elements.length !== 2) {
-          throw new ValidationError(
-            "quasiquote requires exactly one argument",
-            "quasiquote",
-            "1 argument",
-            `${list.elements.length - 1} arguments`,
-          );
-        }
+        validateListLength(list, 2, "quasiquote");
         // Process inner quasiquote at increased depth
         return buildQuasiquoteIR(
           list.elements[1],
@@ -164,14 +142,7 @@ function buildQuasiquoteIR(
       }
 
       if (isSymbolWithName(head, "unquote")) {
-        if (list.elements.length !== 2) {
-          throw new ValidationError(
-            "unquote requires exactly one argument",
-            "quasiquote",
-            "1 argument",
-            `${list.elements.length - 1} arguments`,
-          );
-        }
+        validateListLength(list, 2, "unquote");
         if (depth === 0) {
           // At depth 0, unquote evaluates/transforms the expression
           return transformNode(list.elements[1], currentDir);
@@ -190,14 +161,7 @@ function buildQuasiquoteIR(
       if (isSymbolWithName(head, "unquote-splicing")) {
         if (depth > 0) {
           // At depth > 0, handle as nested unquote-splicing
-          if (list.elements.length !== 2) {
-            throw new ValidationError(
-              "unquote-splicing requires exactly one argument",
-              "quasiquote",
-              "1 argument",
-              `${list.elements.length - 1} arguments`,
-            );
-          }
+          validateListLength(list, 2, "unquote-splicing");
           const innerProcessed = buildQuasiquoteIR(
             list.elements[1],
             depth - 1,
@@ -332,10 +296,6 @@ function quoteAtom(
   return transformQuote(quoteForm, currentDir, transformNode);
 }
 
-function isSymbolWithName(node: HQLNode, name: string): boolean {
-  return node.type === "symbol" && (node as SymbolNode).name === name;
-}
-
 function isUnquoteSplicing(node: HQLNode): node is ListNode {
   if (node.type !== "list") return false;
   const list = node as ListNode;
@@ -353,16 +313,7 @@ export function transformUnquote(
 ): IR.IRNode {
   return perform(
     () => {
-      if (list.elements.length !== 2) {
-        throw new ValidationError(
-          `unquote requires exactly one argument, got ${
-            list.elements.length - 1
-          }`,
-          "unquote",
-          "1 argument",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      validateListLength(list, 2, "unquote");
 
       const transformed = validateTransformed(
         transformNode(list.elements[1], currentDir),
@@ -387,16 +338,7 @@ export function transformUnquoteSplicing(
 ): IR.IRNode {
   return perform(
     () => {
-      if (list.elements.length !== 2) {
-        throw new ValidationError(
-          `unquote-splicing requires exactly one argument, got ${
-            list.elements.length - 1
-          }`,
-          "unquote-splicing",
-          "1 argument",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      validateListLength(list, 2, "unquote-splicing");
 
       const transformed = validateTransformed(
         transformNode(list.elements[1], currentDir),
