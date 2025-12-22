@@ -5,6 +5,7 @@
 
 import { transpile } from "../../mod.ts";
 import { parse } from "../transpiler/pipeline/parser.ts";
+import type { ListNode } from "../transpiler/type/hql_ast.ts";
 import { isList, isSymbol, sexpToString, type SList, type SSymbol, type SLiteral } from "../s-exp/types.ts";
 import type { REPLPlugin, REPLContext, EvalResult } from "@hlvm/repl";
 import { isVectorImport, isNamespaceImport } from "../transpiler/syntax/import-export.ts";
@@ -47,7 +48,9 @@ export function analyzeExpression(ast: SList): ExpressionType {
   const el = ast.elements[1];
   const name = isSymbol(el) ? el.name : undefined;
 
+  // deno-lint-ignore no-explicit-any
   if (DECLARATION_OPS.has(op as any)) return { kind: "declaration", name };
+  // deno-lint-ignore no-explicit-any
   if (BINDING_OPS.has(op as any) && ast.elements.length >= 3) return { kind: "binding", name };
   return { kind: "expression" };
 }
@@ -192,7 +195,7 @@ async function handleImport(
 ): Promise<string> {
   let dynamicImportCode = "";
 
-  if (isVectorImport(list as any)) {
+  if (isVectorImport(list as unknown as ListNode)) {
     // (import [names] from "path")
     const path = String((list.elements[3] as SLiteral).value);
     const elements = (list.elements[1] as SList).elements;
@@ -218,7 +221,7 @@ async function handleImport(
     dynamicImportCode = `const __mod = await import("${path}");
       ${assignments.join("\n      ")}`;
 
-  } else if (isNamespaceImport(list as any)) {
+  } else if (isNamespaceImport(list as unknown as ListNode)) {
     // (import name from "path")
     const localName = sanitizeIdentifier((list.elements[1] as SSymbol).name);
     const path = String((list.elements[3] as SLiteral).value);

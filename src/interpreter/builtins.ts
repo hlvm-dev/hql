@@ -1,6 +1,6 @@
 // src/interpreter/builtins.ts - Built-in primitive operations
 
-import { InterpreterEnv } from "./environment.ts";
+import type { InterpreterEnv } from "./environment.ts";
 import type { HQLValue, BuiltinFn } from "./types.ts";
 import { isSExp } from "./types.ts";
 import { ArityError, TypeError, getTypeName } from "./errors.ts";

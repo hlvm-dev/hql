@@ -3,7 +3,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 import * as IR from "../type/hql_ir.ts";
-import { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import type {
   ArrayPattern,
   IdentifierPattern,

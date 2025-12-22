@@ -173,6 +173,7 @@ export class SymbolTable {
    */
   getAllSymbols(): SymbolInfo[] {
     const symbols: SymbolInfo[] = [];
+    // deno-lint-ignore no-this-alias
     let current: SymbolTable | null = this;
 
     // Walk up the scope chain iteratively, pushing to single array

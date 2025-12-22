@@ -641,7 +641,7 @@ async function processSimpleImport(
   baseDir: string,
   options: ImportProcessorOptions,
 ): Promise<void> {
-  let modulePath = (elements[1] as SLiteral).value as string;
+  const modulePath = (elements[1] as SLiteral).value as string;
   
   // Special handling for @hql/ packages
   if (isStdlibPackage(modulePath)) {

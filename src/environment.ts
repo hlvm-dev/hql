@@ -77,6 +77,7 @@ export class Environment {
    * Create a standard environment with built-ins loaded.
    * This is the factory method for creating a fresh environment.
    */
+  // deno-lint-ignore require-await
   static async createStandard(): Promise<Environment> {
     const env = new Environment(null, logger);
     env.initializeBuiltins();
@@ -966,6 +967,7 @@ export class Environment {
     }
 
     // Walk up the parent chain to find the macro
+    // deno-lint-ignore no-this-alias
     let current: Environment | null = this;
     while (current !== null) {
       if (current.macros.has(macroName)) {
@@ -1061,6 +1063,7 @@ export class Environment {
     }
 
     // Walk up the parent chain to find the macro
+    // deno-lint-ignore no-this-alias
     let current: Environment | null = this;
     while (current !== null) {
       const macro = current.macros.get(key);

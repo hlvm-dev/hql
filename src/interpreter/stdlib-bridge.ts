@@ -3,10 +3,10 @@
 
 import { STDLIB_PUBLIC_API } from "../lib/stdlib/js/index.js";
 import { LazySeq } from "../lib/stdlib/js/internal/lazy-seq.js";
-import { LazySeq as SeqLazySeq, isSeq, SEQ } from "../lib/stdlib/js/internal/seq-protocol.js";
+import { LazySeq as SeqLazySeq, SEQ } from "../lib/stdlib/js/internal/seq-protocol.js";
 import type { HQLValue, BuiltinFn, Interpreter as IInterpreter, InterpreterEnv } from "./types.ts";
 import { isHQLFunction, isSExp } from "./types.ts";
-import { Interpreter } from "./interpreter.ts";
+import type { Interpreter } from "./interpreter.ts";
 import {
   type SList,
   type SSymbol,

@@ -1,12 +1,12 @@
 // core/src/transpiler/hql-transpiler.ts - Modified to support dependency injection
 import { parse } from "./pipeline/parser.ts";
 import { Environment } from "../environment.ts";
-import { expandMacros, MacroExpanderOptions } from "../s-exp/macro.ts";
+import { expandMacros, type MacroExpanderOptions } from "../s-exp/macro.ts";
 import { processImports } from "../imports.ts";
 import { convertToHqlAst as convert } from "../s-exp/macro-reader.ts";
 import { transformAST } from "../transformer.ts";
 import { transformSyntax } from "./pipeline/syntax-transformer.ts";
-import { SExp } from "../s-exp/types.ts";
+import type { SExp } from "../s-exp/types.ts";
 import {
   MacroError,
   TransformError,
@@ -17,9 +17,9 @@ import { reportError } from "../common/error.ts";
 import type { TranspileResult } from "./index.ts";
 import type { IRProgram } from "./type/hql_ir.ts";
 import { globalSymbolTable } from "../transpiler/symbol_table.ts";
-import { HQLNode } from "../transpiler/type/hql_ast.ts";
+import type { HQLNode } from "../transpiler/type/hql_ast.ts";
 import { EMBEDDED_MACROS } from "../lib/embedded-macros.ts";
-import { CompilerContext, hasMacroRegistry } from "./compiler-context.ts";
+import { type CompilerContext, hasMacroRegistry } from "./compiler-context.ts";
 import { basename, cwd as platformCwd } from "../platform/platform.ts";
 
 const macroExpressionsCache = new Map<string, SExp[]>();

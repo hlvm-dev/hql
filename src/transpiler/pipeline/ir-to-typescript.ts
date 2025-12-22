@@ -463,15 +463,15 @@ class TSGenerator {
         break;
       }
 
-      // Primitives and identifiers - nothing to collect
+      // Primitives, identifiers, and statement-level declarations that don't need hoisting recursion
       case IR.IRNodeType.Identifier:
       case IR.IRNodeType.StringLiteral:
       case IR.IRNodeType.NumericLiteral:
       case IR.IRNodeType.BooleanLiteral:
       case IR.IRNodeType.NullLiteral:
+      case IR.IRNodeType.FunctionDeclaration:
+      case IR.IRNodeType.ImportDeclaration:
         break;
-
-      // Named declarations in expression context need hoisting
       case IR.IRNodeType.FnFunctionDeclaration: {
         const fnDecl = node as IR.IRFnFunctionDeclaration;
         if (inExpression) {
@@ -517,11 +517,6 @@ class TSGenerator {
         }
         break;
       }
-
-      // FunctionDeclaration is statement-level, body handled separately
-      case IR.IRNodeType.FunctionDeclaration:
-      case IR.IRNodeType.ImportDeclaration:
-        break;
 
       // Export declarations need to recurse into their content
       case IR.IRNodeType.ExportNamedDeclaration: {

@@ -24,7 +24,6 @@ import type { SymbolKind } from "../symbol_table.ts";
 import {
   VECTOR_SYMBOL,
   EMPTY_ARRAY_SYMBOL,
-  HASH_MAP_INTERNAL,
 } from "../../common/runtime-helper-impl.ts";
 
 // Pre-compiled regex for numeric string check (avoid creating regex in hot path)

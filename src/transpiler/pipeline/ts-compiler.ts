@@ -353,14 +353,14 @@ export function compileTypeScript(
  * Create a custom compiler host for in-memory compilation.
  */
 function createCompilerHost(
-  sourceCode: string,
+  _sourceCode: string,
   fileName: string,
   options: ts.CompilerOptions,
   outputs: Map<string, string>,
 ): ts.CompilerHost {
   const sourceFile = ts.createSourceFile(
     fileName,
-    sourceCode,
+    _sourceCode,
     options.target || ts.ScriptTarget.ES2020,
     true,
   );
@@ -380,7 +380,7 @@ function createCompilerHost(
     useCaseSensitiveFileNames: () => true,
     getNewLine: () => "\n",
     fileExists: (name: string) => name === fileName,
-    readFile: (name: string) => (name === fileName ? sourceCode : undefined),
+    readFile: (name: string) => (name === fileName ? _sourceCode : undefined),
     directoryExists: () => true,
     getDirectories: () => [],
   };
@@ -391,7 +391,7 @@ function createCompilerHost(
  */
 function convertDiagnostics(
   diagnostics: readonly ts.Diagnostic[],
-  sourceCode: string,
+  _sourceCode: string,
   fileName: string,
 ): TypeDiagnostic[] {
   const result: TypeDiagnostic[] = [];

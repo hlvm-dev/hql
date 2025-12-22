@@ -119,6 +119,7 @@ export async function verifyEntryFile(entryPath: string): Promise<boolean> {
 /**
  * Generate package metadata files (package.json, deno.json, etc.)
  */
+// deno-lint-ignore require-await
 export async function generatePackageMetadata(
   config: HqlConfig,
   outDir: string,

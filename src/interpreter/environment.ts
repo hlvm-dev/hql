@@ -110,6 +110,7 @@ export class InterpreterEnv {
    */
   getDepth(): number {
     let depth = 0;
+    // deno-lint-ignore no-this-alias
     let env: InterpreterEnv | null = this;
     while (env) {
       depth++;

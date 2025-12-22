@@ -17,7 +17,7 @@ import {
   type SLiteral,
   type SSymbol,
 } from "./types.ts";
-import { Environment } from "../environment.ts";
+import type { Environment } from "../environment.ts";
 import type { Logger } from "../logger.ts";
 import type { MacroFn } from "../environment.ts";
 import { HQLError, MacroError } from "../common/error.ts";

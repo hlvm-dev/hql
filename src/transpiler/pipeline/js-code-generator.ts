@@ -11,7 +11,7 @@
  * - Source map chaining (HQL → TS → JS = HQL → JS)
  */
 
-import * as IR from "../type/hql_ir.ts";
+import type * as IR from "../type/hql_ir.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import {
   generateTypeScript,

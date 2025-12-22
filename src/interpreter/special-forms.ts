@@ -455,7 +455,7 @@ export function hqlValueToSExp(value: HQLValue): SExp {
   // Check for lazy sequences (ISeq protocol) - avoid infinite iteration on String(value)
   // LazySeq objects have the Symbol.for("hql.seq") property set to true
   const SEQ = Symbol.for("hql.seq");
-  if (typeof value === "object" && value !== null && (value as any)[SEQ]) {
+  if (typeof value === "object" && value !== null && (value as unknown as Record<symbol, unknown>)[SEQ]) {
     // Return a placeholder for lazy sequences - they can't be serialized during macro expansion
     return { type: "symbol", name: "#<lazy-seq>" } as SSymbol;
   }

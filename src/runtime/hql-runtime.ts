@@ -5,7 +5,7 @@ import { Environment } from "../environment.ts";
 import { parse } from "../transpiler/pipeline/parser.ts";
 import { transformSyntax } from "../transpiler/pipeline/syntax-transformer.ts";
 import { defineMacro } from "../s-exp/macro.ts";
-import {
+import type {
   CompilerContext,
   CompilerOptions,
   MacroDefinition,
@@ -15,15 +15,15 @@ import {
   expandHql,
   transpileToJavascript,
 } from "../transpiler/hql-transpiler.ts";
-import { MacroFn } from "../environment.ts";
+import type { MacroFn } from "../environment.ts";
 import {
   createList,
   createSymbol,
   isList,
   isLiteral,
   isSymbol,
-  SExp,
-  SList,
+  type SExp,
+  type SList,
 } from "../s-exp/types.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { cwd as platformCwd } from "../platform/platform.ts";
@@ -95,7 +95,8 @@ export class HQLRuntime {
    */
   async eval(source: string, currentFile?: string): Promise<string> {
     // Parse and process the source to detect and compile macros
-    await this.processAndCompileMacros(source, currentFile);
+    const context = this.createCompilerContext(currentFile);
+    await this.processAndCompileMacros(source, context);
 
     // Check if the source is only macro definitions
     const sexps = parse(source, currentFile);
@@ -112,8 +113,7 @@ export class HQLRuntime {
       return "";
     }
 
-    // Create compiler context with current runtime state
-    const context = this.createCompilerContext(currentFile);
+    const evalContext = this.createCompilerContext(currentFile);
 
     // Use pure compiler with injected context
     const result = await transpileToJavascript(
@@ -193,8 +193,7 @@ export class HQLRuntime {
     // Parse if string
     const sexp = typeof form === "string" ? parse(form)[0] : form;
 
-    // Use compiler's expansion with our context
-    const context = this.createCompilerContext();
+    const context = this.createCompilerContext(undefined);
     const expanded = await expandHql(
       typeof form === "string" ? form : this.sexpToString(sexp),
       { baseDir: this.baseDir, ...this.options },
@@ -258,20 +257,20 @@ export class HQLRuntime {
    * Process source to detect and compile macro definitions
    * @private
    */
-  private async processAndCompileMacros(
+  private processAndCompileMacros(
     source: string,
-    currentFile?: string,
-  ): Promise<void> {
+    context: CompilerContext,
+  ): void {
     try {
       // Parse source
-      const sexps = parse(source, currentFile);
+      const sexps = parse(source, context.currentFile);
       const canonical = transformSyntax(sexps);
 
       // Look for macro definitions and compile them
       for (const sexp of canonical) {
         if (this.isMacroDefinition(sexp)) {
           // Store the definition
-          this.storeMacroDefinition(sexp, currentFile);
+          this.storeMacroDefinition(sexp, context.currentFile);
 
           // Actually compile and register the macro in the environment
           if (isList(sexp)) {
