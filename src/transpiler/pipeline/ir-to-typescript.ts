@@ -1577,9 +1577,9 @@ class TSGenerator {
     // Expression-everywhere: hoisted enums become assignment expressions
     if (isHoisted) {
       if (node.hasAssociatedValues) {
-        this.generateEnumWithAssociatedValuesAsAssignment(node);
+        this.generateEnumWithAssociatedValues(node, true);
       } else {
-        this.generateSimpleEnumAsAssignment(node);
+        this.generateSimpleEnum(node, true);
       }
       return;
     }
@@ -1592,41 +1592,37 @@ class TSGenerator {
     }
   }
 
-  private generateSimpleEnum(node: IR.IREnumDeclaration): void {
-    this.emitIndent();
-    this.emit("const ", node.position);
-    this.generateIdentifier(node.id);
-    this.emit(" = Object.freeze({\n");
-    this.indent();
-    this.generateEnumCases(node);
-    this.dedent();
-    this.emitIndent();
-    this.emit("});\n");
-  }
-
   /**
-   * Generate a simple enum as an assignment expression.
-   * Used for hoisted enum definitions to make them return the enum value.
-   * Example: (enum Status ...) → (Status = Object.freeze({ ... }));
+   * Generate a simple enum, optionally as an assignment expression.
+   * Regular: const Name = Object.freeze({ ... });
+   * Assignment: (Name = Object.freeze({ ... }));
    *
-   * In expression context: just (name = ...) without indent/semicolon
-   * In statement context: with indent and semicolon
+   * When asAssignment=true and in expression context: just (name = ...) without indent/semicolon
+   * When asAssignment=true and in statement context: with indent and semicolon
    */
-  private generateSimpleEnumAsAssignment(node: IR.IREnumDeclaration): void {
-    if (!this.inExpressionContext) {
+  private generateSimpleEnum(node: IR.IREnumDeclaration, asAssignment = false): void {
+    if (asAssignment) {
+      if (!this.inExpressionContext) this.emitIndent();
+      this.emit("(", node.position);
+      this.emit(node.id.name);
+      this.emit(" = Object.freeze({\n");
+    } else {
       this.emitIndent();
+      this.emit("const ", node.position);
+      this.generateIdentifier(node.id);
+      this.emit(" = Object.freeze({\n");
     }
-    this.emit("(", node.position);
-    this.emit(node.id.name);
-    this.emit(" = Object.freeze({\n");
+
     this.indent();
     this.generateEnumCases(node);
     this.dedent();
     this.emitIndent();
-    this.emit("}))");
 
-    if (!this.inExpressionContext) {
-      this.emit(";\n");
+    if (asAssignment) {
+      this.emit("}))");
+      if (!this.inExpressionContext) this.emit(";\n");
+    } else {
+      this.emit("});\n");
     }
   }
 
@@ -1652,47 +1648,41 @@ class TSGenerator {
     }
   }
 
-  private generateEnumWithAssociatedValues(node: IR.IREnumDeclaration): void {
-    const enumName = node.id.name;
-
-    // Generate class declaration
-    this.emitIndent();
-    this.emit("class ", node.position);
-    this.emit(enumName);
-    this.emit(" {\n");
-    this.indent();
-    this.generateEnumClassBody(node);
-    this.dedent();
-    this.emitIndent();
-    this.emit("}\n");
-  }
-
   /**
-   * Generate an enum with associated values as an assignment expression.
-   * Used for hoisted enum definitions to make them return the enum class.
+   * Generate an enum with associated values, optionally as an assignment expression.
+   * Regular: class Name { ... }
+   * Assignment: (Name = class Name { ... });
    *
-   * In expression context: just (name = ...) without indent/semicolon
-   * In statement context: with indent and semicolon
+   * When asAssignment=true and in expression context: just (name = ...) without indent/semicolon
+   * When asAssignment=true and in statement context: with indent and semicolon
    */
-  private generateEnumWithAssociatedValuesAsAssignment(node: IR.IREnumDeclaration): void {
+  private generateEnumWithAssociatedValues(node: IR.IREnumDeclaration, asAssignment = false): void {
     const enumName = node.id.name;
 
-    if (!this.inExpressionContext) {
+    if (asAssignment) {
+      if (!this.inExpressionContext) this.emitIndent();
+      this.emit("(", node.position);
+      this.emit(enumName);
+      this.emit(" = class ");
+      this.emit(enumName);
+      this.emit(" {\n");
+    } else {
       this.emitIndent();
+      this.emit("class ", node.position);
+      this.emit(enumName);
+      this.emit(" {\n");
     }
-    this.emit("(", node.position);
-    this.emit(enumName);
-    this.emit(" = class ");
-    this.emit(enumName);
-    this.emit(" {\n");
+
     this.indent();
     this.generateEnumClassBody(node);
     this.dedent();
     this.emitIndent();
-    this.emit("})");
 
-    if (!this.inExpressionContext) {
-      this.emit(";\n");
+    if (asAssignment) {
+      this.emit("})");
+      if (!this.inExpressionContext) this.emit(";\n");
+    } else {
+      this.emit("}\n");
     }
   }
 

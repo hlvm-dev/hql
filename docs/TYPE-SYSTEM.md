@@ -310,15 +310,19 @@ The TypeScript type checker catches:
      (get arr 0))  ; ⚠️ Type 'number | undefined' is not assignable to type 'number'
    ```
 
-### Type Errors NOT Caught (Known Limitation)
+4. **Property access on wrong types**
+   ```clojure
+   (fn get-length [n:number] :number
+     n.length)  ; ⚠️ Property 'length' does not exist on type 'number'
+   ```
 
-**Property access on wrong types is NOT caught:**
-```clojure
-(fn get-length [n:number] :number
-  n.length)  ; ❌ No error! Produces `undefined` at runtime
-```
+5. **Method return type mismatches**
+   ```clojure
+   (fn upper [s:string] :number
+     (.toUpperCase s))  ; ⚠️ Type 'string' is not assignable to type 'number'
+   ```
 
-**Why?** HQL's dot notation (`n.length`) compiles to JavaScript bracket notation (`(n)["length"]`) for JS interop flexibility. TypeScript cannot type-check dynamic bracket access.
+HQL emits proper dot notation (`obj.prop`) for property access, enabling full TypeScript type checking on member access expressions.
 
 ---
 
@@ -440,11 +444,9 @@ function divide(a: number, b: number): number {
 
 | File | Purpose |
 |------|---------|
-| `src/transpiler/syntax/function.ts:950-978` | Extracts type annotations from parameters |
-| `src/transpiler/syntax/function.ts:396-411` | Extracts return type annotations |
-| `src/transpiler/type/hql_ir.ts:132-139` | IRIdentifier with typeAnnotation field |
-| `src/transpiler/type/hql_ir.ts:208-222` | IRFunctionExpression with returnType field |
-| `src/transpiler/pipeline/ir-to-typescript.ts:1178-1212` | Emits TypeScript type annotations |
+| `src/transpiler/syntax/function.ts` | Extracts type annotations from parameters and return types (see `parseFunctionParameters`, `normalizeArrayType`) |
+| `src/transpiler/type/hql_ir.ts` | IR definitions with `typeAnnotation` and `returnType` fields |
+| `src/transpiler/pipeline/ir-to-typescript.ts` | Emits TypeScript type annotations (see `generateFnParams`, `collectTopLevelNames`, `buildFunctionTypeSignature`) |
 
 ### IR Structure
 
@@ -668,7 +670,7 @@ HQL's type system provides approximately **95% of TypeScript's type checking pow
 | Type inference | ✅ | `(let x 5)` → x is number |
 | `T[]` return types | ✅ | `:number[]` in return position |
 
-### What DOESN'T Work (~5%)
+### Known Limitations (~5%)
 
 #### 1. Array Shorthand in Parameters ❌
 
@@ -705,18 +707,15 @@ HQL's type system provides approximately **95% of TypeScript's type checking pow
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### Full List of Non-Working Features
+#### Limitations Summary
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Property access checking | ✅ | Fixed! Dot notation emitted |
-| Method return types | ✅ | Fixed! TypeScript infers correctly |
-| Type inference | ✅ | Fixed! Comes free with dot notation |
-| `T[]` param shorthand | ❌ | Use `Array<T>` instead |
-| `T[]` return shorthand | ✅ | Fixed! Works in return types |
-| Runtime checks | ❌ | Types erased to JS (by design) |
-| Generic functions `<T>` | ⚠️ | Untested |
-| Inline object types | ❌ | Parser limitation |
+| `T[]` param shorthand | ❌ | Parser treats `[]` as vector - use `Array<T>` |
+| `T[]` return shorthand | ✅ | Works in return position (e.g., `:number[]`) |
+| Runtime type checks | ❌ | Types erased to JS (by design, same as TypeScript) |
+| Generic functions `<T>` | ⚠️ | Untested - may work |
+| Inline object types | ❌ | Parser limitation for complex inline types |
 | Class method types | ⚠️ | Partial support |
 
 ### Comparison Summary
@@ -748,17 +747,18 @@ HQL's type system provides approximately **95% of TypeScript's type checking pow
 
 **HQL types provide full TypeScript power for:**
 - Function parameter and return type checking
-- Property and method access validation (e.g., `n.length` on number → error!)
+- Property access validation (`n.length` on `number` → compile-time error)
+- Method return type checking (`.toUpperCase` on `string` returns `string`)
 - Call site argument validation
 - Null/undefined safety
 - Type inference from initializers
 - Generic types, union types, and more
 
-**HQL types will NOT catch:**
-- Runtime type violations (types are erased to JS, same as TypeScript)
+**The only significant limitations are:**
 - `T[]` shorthand in parameters (use `Array<T>` instead)
+- Runtime type violations (types are erased to JS, same as TypeScript)
 
-**Practical advice:** Use types freely - HQL now has ~95% of TypeScript's type checking power!
+**Practical advice:** Use types freely - HQL provides ~95% of TypeScript's static type checking power!
 
 ---
 
