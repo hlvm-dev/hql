@@ -1,5 +1,5 @@
 
-import { assertEquals, assertRejects } from "jsr:@std/assert@1";
+import { assertEquals } from "jsr:@std/assert@1";
 
 const stdlibPath =
   new URL("../../src/lib/stdlib/js/stdlib.js", import.meta.url).pathname;
