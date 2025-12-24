@@ -124,6 +124,12 @@ function isExpression(node: IR.IRNode): boolean {
     case IR.IRNodeType.ExportDefaultDeclaration:
     case IR.IRNodeType.TypeAliasDeclaration:
     case IR.IRNodeType.InterfaceDeclaration:
+    case IR.IRNodeType.AbstractClassDeclaration:
+    case IR.IRNodeType.AbstractMethod:
+    case IR.IRNodeType.DeclareStatement:
+    case IR.IRNodeType.NamespaceDeclaration:
+    case IR.IRNodeType.ConstEnumDeclaration:
+    case IR.IRNodeType.FunctionOverload:
       return false;
 
     default:
@@ -866,6 +872,483 @@ function initializeTransformFactory(): void {
             typeParameters,
             extends: extendsClause,
           } as IR.IRInterfaceDeclaration;
+        },
+      );
+
+      // =========================================================================
+      // TypeScript: Abstract class declaration (abstract-class)
+      // =========================================================================
+      transformFactory.set(
+        "abstract-class",
+        (list: ListNode, currentDir: string) => {
+          // (abstract-class Name extends? Parent [...body])
+          // (abstract-class Name<T> extends Parent [...body])
+          const elements = list.elements.slice(1);
+          if (elements.length < 2) {
+            throw new TransformError(
+              "abstract-class requires at least a name and body",
+              list.position,
+            );
+          }
+
+          // Parse name (may include generics)
+          const nameNode = elements[0];
+          let name: string;
+          let typeParameters: string[] | undefined;
+
+          if (nameNode.type === "symbol") {
+            const nameParts = (nameNode as SymbolNode).name.match(
+              /^([^<]+)(?:<(.+)>)?$/,
+            );
+            if (nameParts) {
+              name = nameParts[1];
+              if (nameParts[2]) {
+                typeParameters = nameParts[2].split(",").map((s) => s.trim());
+              }
+            } else {
+              name = (nameNode as SymbolNode).name;
+            }
+          } else {
+            throw new TransformError(
+              "abstract-class name must be a symbol",
+              nameNode.position,
+            );
+          }
+
+          let idx = 1;
+          let superClass: IR.IRNode | undefined;
+
+          // Check for extends keyword
+          if (
+            idx < elements.length - 1 &&
+            elements[idx].type === "symbol" &&
+            (elements[idx] as SymbolNode).name === "extends"
+          ) {
+            idx++;
+            superClass = transformNode(elements[idx], currentDir);
+            idx++;
+          }
+
+          // Parse body - vectors are lists with first element being "vector" symbol
+          const bodyNode = elements[idx];
+          if (
+            !bodyNode ||
+            bodyNode.type !== "list" ||
+            !(bodyNode as ListNode).elements[0] ||
+            (bodyNode as ListNode).elements[0].type !== "symbol" ||
+            ((bodyNode as ListNode).elements[0] as SymbolNode).name !== "vector"
+          ) {
+            throw new TransformError(
+              "abstract-class requires a body vector",
+              list.position,
+            );
+          }
+
+          const body: IR.IRNode[] = [];
+          // Skip the "vector" symbol at index 0
+          const vectorElements = (bodyNode as ListNode).elements.slice(1);
+          for (const member of vectorElements) {
+            const transformed = transformNode(member, currentDir);
+            body.push(transformed);
+          }
+
+          return {
+            type: IR.IRNodeType.AbstractClassDeclaration,
+            id: { type: IR.IRNodeType.Identifier, name },
+            body,
+            superClass,
+            typeParameters,
+          } as IR.IRAbstractClassDeclaration;
+        },
+      );
+
+      // =========================================================================
+      // TypeScript: Abstract method (abstract-method)
+      // =========================================================================
+      transformFactory.set(
+        "abstract-method",
+        (list: ListNode, _currentDir: string) => {
+          // (abstract-method name [params] :return-type)
+          // (abstract-method name<T> [params] :return-type)
+          // (abstract-method name "params-string" :return-type)
+          const elements = list.elements.slice(1);
+          if (elements.length < 2) {
+            throw new TransformError(
+              "abstract-method requires name and params",
+              list.position,
+            );
+          }
+
+          const nameNode = elements[0];
+          let name: string;
+          let typeParameters: string[] | undefined;
+
+          if (nameNode.type === "symbol") {
+            const nameParts = (nameNode as SymbolNode).name.match(
+              /^([^<]+)(?:<(.+)>)?$/,
+            );
+            if (nameParts) {
+              name = nameParts[1];
+              if (nameParts[2]) {
+                typeParameters = nameParts[2].split(",").map((s) => s.trim());
+              }
+            } else {
+              name = (nameNode as SymbolNode).name;
+            }
+          } else {
+            throw new TransformError(
+              "abstract-method name must be a symbol",
+              nameNode.position,
+            );
+          }
+
+          // Parse params (as string for TypeScript signature)
+          const paramsNode = elements[1];
+          let params = "";
+          // Check if it's a vector (list with first element "vector")
+          if (
+            paramsNode.type === "list" &&
+            (paramsNode as ListNode).elements[0]?.type === "symbol" &&
+            ((paramsNode as ListNode).elements[0] as SymbolNode).name ===
+              "vector"
+          ) {
+            // Skip the "vector" symbol and process elements
+            params = (paramsNode as ListNode).elements
+              .slice(1)
+              .map((el) => {
+                if (el.type === "symbol") {
+                  return (el as SymbolNode).name;
+                }
+                return "";
+              })
+              .filter((s) => s)
+              .join(", ");
+          } else if (paramsNode.type === "literal") {
+            params = String((paramsNode as LiteralNode).value);
+          }
+
+          // Parse return type
+          let returnType: string | undefined;
+          if (elements.length > 2) {
+            const returnNode = elements[2];
+            // Keywords start with : in HQL but are symbols internally
+            if (returnNode.type === "symbol") {
+              const symName = (returnNode as SymbolNode).name;
+              // Remove leading : if present
+              returnType = symName.startsWith(":")
+                ? symName.slice(1)
+                : symName;
+            } else if (returnNode.type === "literal") {
+              returnType = String((returnNode as LiteralNode).value);
+            }
+          }
+
+          return {
+            type: IR.IRNodeType.AbstractMethod,
+            key: { type: IR.IRNodeType.Identifier, name },
+            params,
+            returnType,
+            typeParameters,
+          } as IR.IRAbstractMethod;
+        },
+      );
+
+      // =========================================================================
+      // TypeScript: Function overload declaration (fn-overload)
+      // =========================================================================
+      transformFactory.set(
+        "fn-overload",
+        (list: ListNode, _currentDir: string) => {
+          // (fn-overload name "params" :return-type)
+          // (fn-overload name<T> "params" :return-type)
+          const elements = list.elements.slice(1);
+          if (elements.length < 3) {
+            throw new TransformError(
+              "fn-overload requires name, params, and return type",
+              list.position,
+            );
+          }
+
+          const nameNode = elements[0];
+          let name: string;
+          let typeParameters: string[] | undefined;
+
+          if (nameNode.type === "symbol") {
+            const nameParts = (nameNode as SymbolNode).name.match(
+              /^([^<]+)(?:<(.+)>)?$/,
+            );
+            if (nameParts) {
+              name = nameParts[1];
+              if (nameParts[2]) {
+                typeParameters = nameParts[2].split(",").map((s) => s.trim());
+              }
+            } else {
+              name = (nameNode as SymbolNode).name;
+            }
+          } else if (nameNode.type === "literal") {
+            name = String((nameNode as LiteralNode).value);
+          } else {
+            throw new TransformError(
+              "fn-overload name must be a symbol or string",
+              nameNode.position,
+            );
+          }
+
+          // Parse params (as string)
+          const paramsNode = elements[1];
+          let params: string;
+          if (paramsNode.type === "literal") {
+            params = String((paramsNode as LiteralNode).value);
+          } else if (
+            paramsNode.type === "list" &&
+            (paramsNode as ListNode).elements[0]?.type === "symbol" &&
+            ((paramsNode as ListNode).elements[0] as SymbolNode).name ===
+              "vector"
+          ) {
+            // Vector: skip first element and process rest
+            params = (paramsNode as ListNode).elements
+              .slice(1)
+              .map((el) => {
+                if (el.type === "symbol") {
+                  return (el as SymbolNode).name;
+                }
+                return "";
+              })
+              .filter((s) => s)
+              .join(", ");
+          } else {
+            throw new TransformError(
+              "fn-overload params must be a string or vector",
+              paramsNode.position,
+            );
+          }
+
+          // Parse return type
+          const returnNode = elements[2];
+          let returnType: string;
+          if (returnNode.type === "symbol") {
+            const symName = (returnNode as SymbolNode).name;
+            returnType = symName.startsWith(":") ? symName.slice(1) : symName;
+          } else if (returnNode.type === "literal") {
+            returnType = String((returnNode as LiteralNode).value);
+          } else {
+            throw new TransformError(
+              "fn-overload return type must be a keyword or string",
+              returnNode.position,
+            );
+          }
+
+          return {
+            type: IR.IRNodeType.FunctionOverload,
+            name,
+            params,
+            returnType,
+            typeParameters,
+          } as IR.IRFunctionOverload;
+        },
+      );
+
+      // =========================================================================
+      // TypeScript: Declare statement (declare)
+      // =========================================================================
+      transformFactory.set(
+        "declare",
+        (list: ListNode, _currentDir: string) => {
+          // (declare function "name(params): returnType")
+          // (declare var "name: Type")
+          // (declare module "name" "body")
+          const elements = list.elements.slice(1);
+          if (elements.length < 2) {
+            throw new TransformError(
+              "declare requires a kind and body",
+              list.position,
+            );
+          }
+
+          const kindNode = elements[0];
+          if (kindNode.type !== "symbol") {
+            throw new TransformError(
+              "declare kind must be a symbol",
+              kindNode.position,
+            );
+          }
+          const kind = (kindNode as SymbolNode).name as
+            | "function"
+            | "class"
+            | "var"
+            | "const"
+            | "let"
+            | "module"
+            | "namespace";
+
+          const bodyNode = elements[1];
+          let body: string;
+          if (bodyNode.type === "literal") {
+            body = String((bodyNode as LiteralNode).value);
+          } else if (bodyNode.type === "symbol") {
+            body = (bodyNode as SymbolNode).name;
+          } else {
+            throw new TransformError(
+              "declare body must be a string or symbol",
+              bodyNode.position,
+            );
+          }
+
+          return {
+            type: IR.IRNodeType.DeclareStatement,
+            kind,
+            body,
+          } as IR.IRDeclareStatement;
+        },
+      );
+
+      // =========================================================================
+      // TypeScript: Namespace declaration (namespace)
+      // =========================================================================
+      transformFactory.set(
+        "namespace",
+        (list: ListNode, currentDir: string) => {
+          // (namespace Name [...body])
+          const elements = list.elements.slice(1);
+          if (elements.length < 2) {
+            throw new TransformError(
+              "namespace requires a name and body",
+              list.position,
+            );
+          }
+
+          const nameNode = elements[0];
+          if (nameNode.type !== "symbol") {
+            throw new TransformError(
+              "namespace name must be a symbol",
+              nameNode.position,
+            );
+          }
+          const name = (nameNode as SymbolNode).name;
+
+          const bodyNode = elements[1];
+          // Check for vector (list with first element "vector")
+          if (
+            bodyNode.type !== "list" ||
+            !(bodyNode as ListNode).elements[0] ||
+            (bodyNode as ListNode).elements[0].type !== "symbol" ||
+            ((bodyNode as ListNode).elements[0] as SymbolNode).name !== "vector"
+          ) {
+            throw new TransformError(
+              "namespace body must be a vector",
+              bodyNode.position,
+            );
+          }
+
+          const body: IR.IRNode[] = [];
+          // Skip "vector" symbol at index 0
+          const vectorElements = (bodyNode as ListNode).elements.slice(1);
+          for (const member of vectorElements) {
+            const transformed = transformNode(member, currentDir);
+            body.push(transformed);
+          }
+
+          return {
+            type: IR.IRNodeType.NamespaceDeclaration,
+            name,
+            body,
+          } as IR.IRNamespaceDeclaration;
+        },
+      );
+
+      // =========================================================================
+      // TypeScript: Const enum declaration (const-enum)
+      // =========================================================================
+      transformFactory.set(
+        "const-enum",
+        (list: ListNode, _currentDir: string) => {
+          // (const-enum Name [A B C] or [(A 1) (B 2)])
+          const elements = list.elements.slice(1);
+          if (elements.length < 2) {
+            throw new TransformError(
+              "const-enum requires a name and members",
+              list.position,
+            );
+          }
+
+          const nameNode = elements[0];
+          if (nameNode.type !== "symbol") {
+            throw new TransformError(
+              "const-enum name must be a symbol",
+              nameNode.position,
+            );
+          }
+          const name = (nameNode as SymbolNode).name;
+
+          const membersNode = elements[1];
+          // Check for vector (list with first element "vector")
+          if (
+            membersNode.type !== "list" ||
+            !(membersNode as ListNode).elements[0] ||
+            (membersNode as ListNode).elements[0].type !== "symbol" ||
+            ((membersNode as ListNode).elements[0] as SymbolNode).name !==
+              "vector"
+          ) {
+            throw new TransformError(
+              "const-enum members must be a vector",
+              membersNode.position,
+            );
+          }
+
+          const members: Array<{ name: string; value?: number | string }> = [];
+          // Skip "vector" symbol at index 0
+          const vectorElements = (membersNode as ListNode).elements.slice(1);
+          for (const el of vectorElements) {
+            if (el.type === "symbol") {
+              members.push({ name: (el as SymbolNode).name });
+            } else if (el.type === "list") {
+              const pair = el as ListNode;
+              if (pair.elements.length >= 2) {
+                const memberName = (pair.elements[0] as SymbolNode).name;
+                const valueNode = pair.elements[1];
+                let value: number | string | undefined;
+                if (valueNode.type === "literal") {
+                  const litValue = (valueNode as LiteralNode).value;
+                  if (typeof litValue === "number") {
+                    value = litValue;
+                  } else if (typeof litValue === "string") {
+                    value = litValue;
+                  }
+                }
+                members.push({ name: memberName, value });
+              }
+            }
+          }
+
+          return {
+            type: IR.IRNodeType.ConstEnumDeclaration,
+            id: { type: IR.IRNodeType.Identifier, name },
+            members,
+          } as IR.IRConstEnumDeclaration;
+        },
+      );
+
+      // =========================================================================
+      // TypeScript: Decorator (decorator) - Used with class/method definitions
+      // =========================================================================
+      transformFactory.set(
+        "decorator",
+        (list: ListNode, currentDir: string) => {
+          // (decorator @Name) or (decorator (@Name arg1 arg2))
+          const elements = list.elements.slice(1);
+          if (elements.length < 1) {
+            throw new TransformError(
+              "decorator requires an expression",
+              list.position,
+            );
+          }
+
+          const expression = transformNode(elements[0], currentDir);
+
+          return {
+            type: IR.IRNodeType.Decorator,
+            expression,
+          } as IR.IRDecorator;
         },
       );
 

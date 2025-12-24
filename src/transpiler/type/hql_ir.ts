@@ -114,6 +114,25 @@ export enum IRNodeType {
 
   // TypeScript interface declaration
   InterfaceDeclaration = 71,
+
+  // TypeScript decorators
+  Decorator = 72,
+
+  // TypeScript function overload declaration
+  FunctionOverload = 73,
+
+  // TypeScript abstract class
+  AbstractClassDeclaration = 74,
+  AbstractMethod = 75,
+
+  // TypeScript declare statement (ambient declarations)
+  DeclareStatement = 76,
+
+  // TypeScript namespace
+  NamespaceDeclaration = 77,
+
+  // TypeScript enum (const enum)
+  ConstEnumDeclaration = 78,
 }
 
 export interface SourcePosition {
@@ -692,4 +711,81 @@ export interface IRInterfaceDeclaration extends IRNode {
   typeParameters?: string[];
   /** Optional extends clause */
   extends?: string[];
+}
+
+// TypeScript decorator
+export interface IRDecorator extends IRNode {
+  type: IRNodeType.Decorator;
+  /** Decorator expression (e.g., "@Component" or "@Injectable()") */
+  expression: IRNode;
+}
+
+// TypeScript function overload declaration
+export interface IRFunctionOverload extends IRNode {
+  type: IRNodeType.FunctionOverload;
+  /** Function name */
+  name: string;
+  /** Parameter signatures as string */
+  params: string;
+  /** Return type */
+  returnType: string;
+  /** Generic type parameters */
+  typeParameters?: string[];
+}
+
+// TypeScript abstract class declaration
+export interface IRAbstractClassDeclaration extends IRNode {
+  type: IRNodeType.AbstractClassDeclaration;
+  /** Class name */
+  id: IRIdentifier;
+  /** Class body */
+  body: IRNode[];
+  /** Optional superclass */
+  superClass?: IRNode;
+  /** Generic type parameters */
+  typeParameters?: string[];
+  /** Decorators */
+  decorators?: IRDecorator[];
+}
+
+// TypeScript abstract method
+export interface IRAbstractMethod extends IRNode {
+  type: IRNodeType.AbstractMethod;
+  /** Method name */
+  key: IRNode;
+  /** Parameters as string */
+  params: string;
+  /** Return type */
+  returnType?: string;
+  /** Type parameters */
+  typeParameters?: string[];
+}
+
+// TypeScript declare statement (ambient declarations)
+export interface IRDeclareStatement extends IRNode {
+  type: IRNodeType.DeclareStatement;
+  /** The declaration kind */
+  kind: "function" | "class" | "var" | "const" | "let" | "module" | "namespace";
+  /** Declaration body as string */
+  body: string;
+}
+
+// TypeScript namespace declaration
+export interface IRNamespaceDeclaration extends IRNode {
+  type: IRNodeType.NamespaceDeclaration;
+  /** Namespace name */
+  name: string;
+  /** Namespace body */
+  body: IRNode[];
+  /** Whether this is a module namespace */
+  isModule?: boolean;
+}
+
+// TypeScript const enum declaration
+export interface IRConstEnumDeclaration extends IRNode {
+  type: IRNodeType.ConstEnumDeclaration;
+  /** Enum name */
+  id: IRIdentifier;
+  /** Enum members */
+  members: Array<{ name: string; value?: number | string }>;
 }

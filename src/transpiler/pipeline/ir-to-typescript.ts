@@ -874,6 +874,31 @@ class TSGenerator {
         this.generateInterfaceDeclaration(node as IR.IRInterfaceDeclaration);
         break;
 
+      // TypeScript advanced features
+      case IR.IRNodeType.AbstractClassDeclaration:
+        this.generateAbstractClassDeclaration(
+          node as IR.IRAbstractClassDeclaration,
+        );
+        break;
+      case IR.IRNodeType.AbstractMethod:
+        this.generateAbstractMethod(node as IR.IRAbstractMethod);
+        break;
+      case IR.IRNodeType.FunctionOverload:
+        this.generateFunctionOverload(node as IR.IRFunctionOverload);
+        break;
+      case IR.IRNodeType.DeclareStatement:
+        this.generateDeclareStatement(node as IR.IRDeclareStatement);
+        break;
+      case IR.IRNodeType.NamespaceDeclaration:
+        this.generateNamespaceDeclaration(node as IR.IRNamespaceDeclaration);
+        break;
+      case IR.IRNodeType.ConstEnumDeclaration:
+        this.generateConstEnumDeclaration(node as IR.IRConstEnumDeclaration);
+        break;
+      case IR.IRNodeType.Decorator:
+        this.generateDecorator(node as IR.IRDecorator);
+        break;
+
       default:
         logger.warn(`Unknown IR node type: ${node.type}`);
     }
@@ -927,6 +952,138 @@ class TSGenerator {
     }
     this.emit(" ");
     this.emit(node.body);
+    this.emit("\n");
+  }
+
+  private generateAbstractClassDeclaration(
+    node: IR.IRAbstractClassDeclaration,
+  ): void {
+    // Emit decorators if any
+    if (node.decorators) {
+      for (const decorator of node.decorators) {
+        this.generateDecorator(decorator);
+      }
+    }
+
+    this.emit("abstract class ", node.position);
+    this.emit(node.id.name);
+
+    if (node.typeParameters && node.typeParameters.length > 0) {
+      this.emit("<");
+      this.emit(node.typeParameters.join(", "));
+      this.emit(">");
+    }
+
+    if (node.superClass) {
+      this.emit(" extends ");
+      this.generateNode(node.superClass);
+    }
+
+    this.emit(" {\n");
+
+    for (const member of node.body) {
+      this.emit("  ");
+      this.generateNode(member);
+      this.emit("\n");
+    }
+
+    this.emit("}\n");
+  }
+
+  private generateAbstractMethod(node: IR.IRAbstractMethod): void {
+    this.emit("abstract ", node.position);
+    this.generateNode(node.key);
+
+    if (node.typeParameters && node.typeParameters.length > 0) {
+      this.emit("<");
+      this.emit(node.typeParameters.join(", "));
+      this.emit(">");
+    }
+
+    this.emit("(");
+    this.emit(node.params);
+    this.emit(")");
+
+    if (node.returnType) {
+      this.emit(": ");
+      this.emit(node.returnType);
+    }
+
+    this.emit(";");
+  }
+
+  private generateFunctionOverload(node: IR.IRFunctionOverload): void {
+    this.emit("function ", node.position);
+    this.emit(node.name);
+
+    if (node.typeParameters && node.typeParameters.length > 0) {
+      this.emit("<");
+      this.emit(node.typeParameters.join(", "));
+      this.emit(">");
+    }
+
+    this.emit("(");
+    this.emit(node.params);
+    this.emit("): ");
+    this.emit(node.returnType);
+    this.emit(";\n");
+  }
+
+  private generateDeclareStatement(node: IR.IRDeclareStatement): void {
+    this.emit("declare ", node.position);
+    this.emit(node.kind);
+    this.emit(" ");
+    this.emit(node.body);
+    this.emit(";\n");
+  }
+
+  private generateNamespaceDeclaration(
+    node: IR.IRNamespaceDeclaration,
+  ): void {
+    this.emit("namespace ", node.position);
+    this.emit(node.name);
+    this.emit(" {\n");
+
+    for (const member of node.body) {
+      this.emit("  ");
+      this.generateNode(member);
+      this.emit("\n");
+    }
+
+    this.emit("}\n");
+  }
+
+  private generateConstEnumDeclaration(
+    node: IR.IRConstEnumDeclaration,
+  ): void {
+    this.emit("const enum ", node.position);
+    this.emit(node.id.name);
+    this.emit(" {\n");
+
+    for (let i = 0; i < node.members.length; i++) {
+      const member = node.members[i];
+      this.emit("  ");
+      this.emit(member.name);
+      if (member.value !== undefined) {
+        this.emit(" = ");
+        if (typeof member.value === "string") {
+          this.emit(JSON.stringify(member.value));
+        } else {
+          this.emit(String(member.value));
+        }
+      }
+      if (i < node.members.length - 1) {
+        this.emit(",");
+      }
+      this.emit("\n");
+    }
+
+    this.emit("}\n");
+  }
+
+  private generateDecorator(node: IR.IRDecorator): void {
+    this.emit("@", node.position);
+    this.generateNode(node.expression);
     this.emit("\n");
   }
 
