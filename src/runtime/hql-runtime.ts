@@ -31,9 +31,8 @@ import { loadSystemMacros } from "../transpiler/hql-transpiler.ts";
 
 /**
  * Convert S-expression to JavaScript object
- * @private
  */
-function toJs(sexp: SExp): unknown {
+export function toJs(sexp: SExp): unknown {
   if (isSymbol(sexp)) {
     return sexp.name;
   } else if (isLiteral(sexp)) {

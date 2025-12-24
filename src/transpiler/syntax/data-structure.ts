@@ -15,6 +15,7 @@ import {
   isSpreadOperator,
   transformSpreadOperator,
   transformObjectSpreadOperator,
+  extractPosition,
 } from "../utils/validation-helpers.ts";
 import {
   normalizeVectorElements,
@@ -24,18 +25,6 @@ import { HASH_MAP_INTERNAL } from "../../common/runtime-helper-impl.ts";
 
 // Export the get function to make it available through the module
 export { createGetOperation, transformGet };
-
-/**
- * Extract SourcePosition from an HQL node's _meta field.
- * Used to propagate source location through IR transformations for accurate error reporting.
- */
-function extractPosition(node: HQLNode): IR.SourcePosition | undefined {
-  const meta = (node as unknown as { _meta?: { line: number; column: number; filePath?: string } })._meta;
-  if (meta) {
-    return { line: meta.line, column: meta.column, filePath: meta.filePath };
-  }
-  return undefined;
-}
 
 /**
  * Process elements in a vector, handling vector keyword and commas

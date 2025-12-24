@@ -1,25 +1,10 @@
 // index.ts - Public API for HQL runtime features
 
-import { getHQLRuntime, HQLRuntime, resetHQLRuntime } from "./hql-runtime.ts";
-import { isList, isLiteral, isSymbol, type SExp } from "../s-exp/types.ts";
+import { getHQLRuntime, HQLRuntime, resetHQLRuntime, toJs } from "./hql-runtime.ts";
 import { gensym as gensymImpl } from "../gensym.ts";
 
 function setDoc<T>(fn: T, doc: string): void {
   (fn as T & { __doc__?: string }).__doc__ = doc;
-}
-
-/**
- * Convert S-expression to JavaScript object
- */
-function toJs(sexp: SExp): unknown {
-  if (isSymbol(sexp)) {
-    return sexp.name;
-  } else if (isLiteral(sexp)) {
-    return sexp.value;
-  } else if (isList(sexp)) {
-    return sexp.elements.map(toJs);
-  }
-  return sexp;
 }
 
 /**

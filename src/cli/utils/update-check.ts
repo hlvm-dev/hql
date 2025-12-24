@@ -98,7 +98,7 @@ export async function checkForUpdates(): Promise<void> {
  * Compare semantic versions.
  * Returns true if `latest` is newer than `current`.
  */
-function isNewer(latest: string, current: string): boolean {
+export function isNewer(latest: string, current: string): boolean {
   const latestParts = latest.split(".").map((n) => parseInt(n, 10) || 0);
   const currentParts = current.split(".").map((n) => parseInt(n, 10) || 0);
 

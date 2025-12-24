@@ -9,6 +9,7 @@
 
 import { VERSION } from "../../version.ts";
 import { exit as platformExit } from "../../platform/platform.ts";
+import { isNewer } from "../utils/update-check.ts";
 
 const GITHUB_API = "https://api.github.com/repos/hlvm-dev/hql/releases/latest";
 const INSTALL_SCRIPT =
@@ -134,20 +135,3 @@ EXAMPLES:
 `);
 }
 
-/**
- * Compare semantic versions.
- * Returns true if `latest` is newer than `current`.
- */
-function isNewer(latest: string, current: string): boolean {
-  const latestParts = latest.split(".").map((n) => parseInt(n, 10) || 0);
-  const currentParts = current.split(".").map((n) => parseInt(n, 10) || 0);
-
-  for (let i = 0; i < 3; i++) {
-    const l = latestParts[i] || 0;
-    const c = currentParts[i] || 0;
-    if (l > c) return true;
-    if (l < c) return false;
-  }
-
-  return false;
-}

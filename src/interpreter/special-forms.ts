@@ -10,6 +10,7 @@ import {
   type SLiteral,
   isSymbol,
   isList,
+  isVector,
   createList,
   createNilLiteral,
 } from "../s-exp/types.ts";
@@ -24,17 +25,6 @@ export type SpecialFormHandler = (
 ) => HQLValue;
 
 /**
- * Check if a symbol is a vector marker
- */
-function isVectorForm(list: SList): boolean {
-  return (
-    list.elements.length > 0 &&
-    isSymbol(list.elements[0]) &&
-    (list.elements[0] as SSymbol).name === "vector"
-  );
-}
-
-/**
  * Parse function parameters from a parameter list
  * Handles both (a b c) and [a b c] (vector) syntax
  * Supports rest parameters with &
@@ -45,7 +35,7 @@ function parseParams(paramsExpr: SExp): { params: string[]; restParam: string | 
   }
 
   const list = paramsExpr as SList;
-  const elements = isVectorForm(list) ? list.elements.slice(1) : list.elements;
+  const elements = isVector(list) ? list.elements.slice(1) : list.elements;
 
   const params: string[] = [];
   let restParam: string | null = null;
@@ -119,7 +109,7 @@ export function handleLet(
   }
 
   const bindingsList = bindingsExpr as SList;
-  const elements = isVectorForm(bindingsList)
+  const elements = isVector(bindingsList)
     ? bindingsList.elements.slice(1)
     : bindingsList.elements;
 
@@ -372,7 +362,7 @@ function processQuasiquote(
       } else if (isSExp(result) && isList(result)) {
         const resultList = result as SList;
         // Skip "vector" prefix if present
-        const elements = isVectorForm(resultList)
+        const elements = isVector(resultList)
           ? resultList.elements.slice(1)
           : resultList.elements;
         processedElements.push(...elements);

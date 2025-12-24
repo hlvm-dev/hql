@@ -10,6 +10,7 @@ import {
   isList,
   isLiteral,
   isSymbol,
+  isVector,
   type SExp,
   type SExpMeta,
   sexpToString,
@@ -403,15 +404,6 @@ function processMacroDefinition(
 /* Helper: Process a parameter list (including rest parameters) */
 const isRestMarker = (symbol: SSymbol): boolean => symbol.name === "&";
 
-/**
- * Check if a list is a vector form (starts with 'vector' symbol)
- * Vectors are created when parsing [...] syntax
- */
-function isVectorForm(list: SList): boolean {
-  return list.elements.length > 0 &&
-    isSymbol(list.elements[0]) &&
-    (list.elements[0] as SSymbol).name === "vector";
-}
 
 function processParamList(
   paramsExp: SList,
@@ -422,7 +414,7 @@ function processParamList(
 
   // Handle vector form: [a b c] parses as (vector a b c)
   // We need to skip the 'vector' symbol at the start
-  const elements = isVectorForm(paramsExp)
+  const elements = isVector(paramsExp)
     ? paramsExp.elements.slice(1)
     : paramsExp.elements;
 
@@ -772,7 +764,7 @@ function evaluateLet(list: SList, env: Environment, logger: Logger): SExp {
 
   // Handle vector form [a b] -> (vector a b)
   // This is needed when macro args are passed to let bindings
-  const elements = isVectorForm(bindingsList)
+  const elements = isVector(bindingsList)
     ? bindingsList.elements.slice(1)
     : bindingsList.elements;
 
