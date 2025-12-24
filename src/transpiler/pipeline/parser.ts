@@ -40,6 +40,7 @@ enum TokenType {
   Comma,
   Comment,
   Whitespace,
+  BigInt,
 }
 
 interface Token {
@@ -410,6 +411,14 @@ function parseExpressionByTokenType(token: Token, state: ParserState): SExp {
       break;
     case TokenType.Number:
       result = createLiteral(Number(token.value));
+      break;
+    case TokenType.BigInt:
+      // Create a BigInt literal marker - a list with special form
+      // Strip the 'n' suffix from the value
+      result = createList(
+        createSymbol("bigint-literal"),
+        createLiteral(token.value.slice(0, -1))
+      );
       break;
     case TokenType.Symbol:
       result = parseSymbol(token.value);
@@ -950,6 +959,11 @@ function matchNextToken(
   match = matchAtCursor(TOKEN_PATTERNS.SYMBOL);
   if (match) {
     const value = match[0];
+    // Check for BigInt literal (number ending with 'n')
+    if (/^-?\d+n$/.test(value)) {
+      // Keep full value including 'n' for proper cursor advancement
+      return { type: TokenType.BigInt, value, position };
+    }
     // If it's a number, return as number token
     if (!isNaN(Number(value))) {
       return { type: TokenType.Number, value, position };

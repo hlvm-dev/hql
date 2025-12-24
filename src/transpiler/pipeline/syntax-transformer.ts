@@ -1087,7 +1087,8 @@ function normalizeSpacelessDotChain(list: SList): SList {
   // 1. Already starts with dot: (.push arr 42)
   // 2. JS import: (js/console.log "hi")
   // 3. No dots present: (arr push 42)
-  if (name.startsWith('.') || name.startsWith('js/') || !name.includes('.')) {
+  // 4. Contains optional chaining (?.): (obj?.greet "World") - handled separately
+  if (name.startsWith('.') || name.startsWith('js/') || !name.includes('.') || name.includes('?.')) {
     return list;
   }
 

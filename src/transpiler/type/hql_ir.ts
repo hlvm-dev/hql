@@ -84,6 +84,36 @@ export enum IRNodeType {
 
   // Export default
   ExportDefaultDeclaration = 58,
+
+  // Optional chaining
+  OptionalMemberExpression = 60,
+  OptionalCallExpression = 61,
+
+  // Control flow
+  ContinueStatement = 62,
+  BreakStatement = 63,
+
+  // Generators
+  YieldExpression = 64,
+
+  // Switch statement
+  SwitchStatement = 65,
+  SwitchCase = 66,
+
+  // Labeled statement
+  LabeledStatement = 67,
+
+  // Dynamic import expression
+  DynamicImport = 68,
+
+  // BigInt literal
+  BigIntLiteral = 69,
+
+  // TypeScript type alias declaration
+  TypeAliasDeclaration = 70,
+
+  // TypeScript interface declaration
+  InterfaceDeclaration = 71,
 }
 
 export interface SourcePosition {
@@ -117,6 +147,11 @@ export interface IRTemplateLiteral extends IRNode {
 export interface IRNumericLiteral extends IRNode {
   type: IRNodeType.NumericLiteral;
   value: number;
+}
+
+export interface IRBigIntLiteral extends IRNode {
+  type: IRNodeType.BigIntLiteral;
+  value: string; // BigInt can be very large, so we store as string
 }
 
 export interface IRBooleanLiteral extends IRNode {
@@ -157,6 +192,21 @@ export interface IRMemberExpression extends IRNode {
   object: IRNode;
   property: IRNode;
   computed: boolean;
+}
+
+export interface IROptionalMemberExpression extends IRNode {
+  type: IRNodeType.OptionalMemberExpression;
+  object: IRNode;
+  property: IRNode;
+  computed: boolean;
+  optional: boolean; // true if this specific access is optional (?.)
+}
+
+export interface IROptionalCallExpression extends IRNode {
+  type: IRNodeType.OptionalCallExpression;
+  callee: IRNode;
+  arguments: IRNode[];
+  optional: boolean; // true if this call is optional ?.()
 }
 
 export interface IRCallMemberExpression extends IRNode {
@@ -211,6 +261,8 @@ export interface IRFunctionExpression extends IRNode {
   params: (IRIdentifier | IRArrayPattern | IRObjectPattern)[];
   body: IRBlockStatement;
   async?: boolean;
+  /** Whether this is a generator function (function*) */
+  generator?: boolean;
   /** TypeScript return type annotation */
   returnType?: string;
   /** TypeScript generic type parameters */
@@ -307,6 +359,8 @@ export interface IRFunctionDeclaration extends IRNode {
   params: IRIdentifier[];
   body: IRBlockStatement;
   async?: boolean;
+  /** Whether this is a generator function (function*) */
+  generator?: boolean;
   /** TypeScript return type annotation */
   returnType?: string;
   /** TypeScript generic type parameters */
@@ -380,6 +434,14 @@ export interface IRImportNamespaceSpecifier extends IRNode {
 }
 
 /**
+ * IR node for dynamic import expressions: import("./module.js")
+ */
+export interface IRDynamicImport extends IRNode {
+  type: IRNodeType.DynamicImport;
+  source: IRNode; // The module path (usually a string literal, but can be any expression)
+}
+
+/**
  * IR node for fn function declarations
  */
 export interface IRFnFunctionDeclaration extends IRNode {
@@ -389,6 +451,8 @@ export interface IRFnFunctionDeclaration extends IRNode {
   defaults: { name: string; value: IRNode }[];
   body: IRBlockStatement;
   async?: boolean;
+  /** Whether this is a generator function (function*) */
+  generator?: boolean;
   usesJsonMapParams?: boolean;
   /** TypeScript return type annotation (e.g., "number", "Promise<string>") */
   returnType?: string;
@@ -445,6 +509,8 @@ export interface IRForOfStatement extends IRNode {
   left: IRVariableDeclaration;
   right: IRNode;
   body: IRBlockStatement;
+  /** Whether this is a for-await-of statement (for async iteration) */
+  await?: boolean;
 }
 
 export interface IRClassDeclaration extends IRNode {
@@ -462,6 +528,10 @@ export interface IRClassField extends IRNode {
   initialValue: IRNode | null;
   /** TypeScript type annotation */
   typeAnnotation?: string;
+  /** Whether this is a static field */
+  isStatic?: boolean;
+  /** Whether this is a private field (uses # prefix) */
+  isPrivate?: boolean;
 }
 
 export interface IRClassMethod extends IRNode {
@@ -475,6 +545,10 @@ export interface IRClassMethod extends IRNode {
   returnType?: string;
   /** TypeScript generic type parameters */
   typeParameters?: string[];
+  /** Whether this is a static method */
+  isStatic?: boolean;
+  /** Method kind: regular method, getter, or setter */
+  kind?: "method" | "get" | "set";
 }
 
 export interface IRClassConstructor extends IRNode {
@@ -551,4 +625,71 @@ export function isPatternParam(
 ): param is IRArrayPattern | IRObjectPattern {
   return param.type === IRNodeType.ArrayPattern ||
     param.type === IRNodeType.ObjectPattern;
+}
+
+// Control flow statements
+export interface IRContinueStatement extends IRNode {
+  type: IRNodeType.ContinueStatement;
+  label?: string;
+}
+
+export interface IRBreakStatement extends IRNode {
+  type: IRNodeType.BreakStatement;
+  label?: string;
+}
+
+// Generator expressions
+export interface IRYieldExpression extends IRNode {
+  type: IRNodeType.YieldExpression;
+  argument: IRNode | null;
+  /** Whether this is yield* (delegate to another iterator) */
+  delegate?: boolean;
+}
+
+// Switch statement
+export interface IRSwitchStatement extends IRNode {
+  type: IRNodeType.SwitchStatement;
+  discriminant: IRNode;
+  cases: IRSwitchCase[];
+}
+
+export interface IRSwitchCase extends IRNode {
+  type: IRNodeType.SwitchCase;
+  /** The case test expression, or null for default case */
+  test: IRNode | null;
+  /** Statements in this case */
+  consequent: IRNode[];
+  /** Whether to fall through to next case (no break) */
+  fallthrough?: boolean;
+}
+
+// Labeled statement
+export interface IRLabeledStatement extends IRNode {
+  type: IRNodeType.LabeledStatement;
+  label: string;
+  body: IRNode;
+}
+
+// TypeScript type alias declaration
+export interface IRTypeAliasDeclaration extends IRNode {
+  type: IRNodeType.TypeAliasDeclaration;
+  /** The name of the type alias */
+  name: string;
+  /** The type expression as a string */
+  typeExpression: string;
+  /** Optional generic type parameters */
+  typeParameters?: string[];
+}
+
+// TypeScript interface declaration
+export interface IRInterfaceDeclaration extends IRNode {
+  type: IRNodeType.InterfaceDeclaration;
+  /** The name of the interface */
+  name: string;
+  /** Interface body as a string (for simple cases) */
+  body: string;
+  /** Optional generic type parameters */
+  typeParameters?: string[];
+  /** Optional extends clause */
+  extends?: string[];
 }

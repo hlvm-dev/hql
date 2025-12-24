@@ -37,6 +37,17 @@ export function transformPrimitiveOp(
         return transformEqualsOperator(list, currentDir, transformNode);
       }
 
+      // Handle logical assignment operators (??=, &&=, ||=)
+      if (op === "??=" || op === "&&=" || op === "||=") {
+        return transformLogicalAssignment(list, currentDir, transformNode, op as "??=" | "&&=" | "||=");
+      }
+
+      // Handle compound assignment operators (+=, -=, *=, /=, %=, **=, &=, |=, ^=, <<=, >>=, >>>=)
+      const compoundAssignOps = ["+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>=", ">>>="];
+      if (compoundAssignOps.includes(op)) {
+        return transformCompoundAssignment(list, currentDir, transformNode, op);
+      }
+
       const args = transformElements(
         list.elements.slice(1),
         currentDir,
@@ -599,6 +610,252 @@ export function transformAssignment(
       } as IR.IRAssignmentExpression;
     },
     "transformAssignment",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform logical assignment operations (??=, &&=, ||=).
+ * Handles: (??= target value), (&&= target value), (||= target value)
+ * Compiles to: target ??= value, target &&= value, target ||= value
+ */
+export function transformLogicalAssignment(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  operator: "??=" | "&&=" | "||=",
+): IR.IRNode {
+  return perform(
+    () => {
+      validateListLength(list, 3, operator, "logical assignment expression");
+
+      const targetNode = list.elements[1];
+      const valueNode = list.elements[2];
+
+      // Handle both simple symbols and member expressions (like this.x)
+      let target: IR.IRNode;
+
+      if (targetNode.type === "symbol") {
+        const symbolName = (targetNode as SymbolNode).name;
+
+        // Check for dot notation: obj.prop or obj.nested.prop
+        if (symbolName.includes(".")) {
+          // Build member expression from dot notation
+          const parts = symbolName.split(".");
+          const sanitizedBase = sanitizeIdentifier(parts[0]);
+
+          // Helper to create member expression based on property type
+          const createMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
+            // Check for numeric index (e.g. array.0 or tuple.1)
+            if (/^\d+$/.test(propStr)) {
+              return {
+                type: IR.IRNodeType.MemberExpression,
+                object,
+                property: {
+                  type: IR.IRNodeType.NumericLiteral,
+                  value: parseInt(propStr, 10)
+                } as IR.IRNumericLiteral,
+                computed: true
+              };
+            }
+            // Standard identifier property
+            return {
+              type: IR.IRNodeType.MemberExpression,
+              object,
+              property: {
+                type: IR.IRNodeType.Identifier,
+                name: sanitizeIdentifier(propStr)
+              } as IR.IRIdentifier,
+              computed: false
+            };
+          };
+
+          let memberExpr = createMember(
+            { type: IR.IRNodeType.Identifier, name: sanitizedBase } as IR.IRIdentifier,
+            parts[1]
+          );
+
+          // Handle nested properties like obj.a.b.c
+          for (let i = 2; i < parts.length; i++) {
+            memberExpr = createMember(memberExpr, parts[i]);
+          }
+
+          target = memberExpr;
+        } else {
+          target = {
+            type: IR.IRNodeType.Identifier,
+            name: sanitizeIdentifier(symbolName),
+          } as IR.IRIdentifier;
+        }
+      } else if (targetNode.type === "list") {
+        // Handle (. obj prop) or other member access patterns
+        const transformed = transformNode(targetNode, currentDir);
+        if (
+          !transformed ||
+          (transformed.type !== IR.IRNodeType.MemberExpression &&
+           transformed.type !== IR.IRNodeType.OptionalMemberExpression)
+        ) {
+          throw new ValidationError(
+            `${operator} target must be a valid lvalue`,
+            operator,
+            "identifier or member expression",
+            targetNode.type,
+          );
+        }
+        target = transformed;
+      } else {
+        throw new ValidationError(
+          `${operator} target must be a symbol or member expression`,
+          operator,
+          "symbol or member expression",
+          targetNode.type,
+        );
+      }
+
+      const value = transformNode(valueNode, currentDir);
+      if (!value) {
+        throw new ValidationError(
+          `${operator} value cannot be null`,
+          operator,
+          "expression",
+          "null",
+        );
+      }
+
+      return {
+        type: IR.IRNodeType.AssignmentExpression,
+        operator,
+        left: target,
+        right: value,
+      } as IR.IRAssignmentExpression;
+    },
+    "transformLogicalAssignment",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform compound assignment operators (+=, -=, *=, /=, %=, **=, &=, |=, ^=, <<=, >>=, >>>=)
+ *
+ * Syntax: (operator target value)
+ * Examples:
+ *   (+= x 10) → x += 10
+ *   (*= arr.0 2) → arr[0] *= 2
+ *   (**= base 2) → base **= 2
+ */
+export function transformCompoundAssignment(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  operator: string,
+): IR.IRNode {
+  return perform(
+    () => {
+      validateListLength(list, 3, operator, "compound assignment expression");
+
+      const targetNode = list.elements[1];
+      const valueNode = list.elements[2];
+
+      // Handle both simple symbols and member expressions (like this.x)
+      let target: IR.IRNode;
+
+      if (targetNode.type === "symbol") {
+        const symbolName = (targetNode as SymbolNode).name;
+
+        // Check for dot notation: obj.prop or obj.nested.prop
+        if (symbolName.includes(".")) {
+          // Build member expression from dot notation
+          const parts = symbolName.split(".");
+          const sanitizedBase = sanitizeIdentifier(parts[0]);
+
+          // Helper to create member expression based on property type
+          const createMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
+            // Check for numeric index (e.g. array.0 or tuple.1)
+            if (/^\d+$/.test(propStr)) {
+              return {
+                type: IR.IRNodeType.MemberExpression,
+                object,
+                property: {
+                  type: IR.IRNodeType.NumericLiteral,
+                  value: parseInt(propStr, 10)
+                } as IR.IRNumericLiteral,
+                computed: true
+              };
+            }
+            // Standard identifier property
+            return {
+              type: IR.IRNodeType.MemberExpression,
+              object,
+              property: {
+                type: IR.IRNodeType.Identifier,
+                name: sanitizeIdentifier(propStr)
+              } as IR.IRIdentifier,
+              computed: false
+            };
+          };
+
+          let memberExpr = createMember(
+            { type: IR.IRNodeType.Identifier, name: sanitizedBase } as IR.IRIdentifier,
+            parts[1]
+          );
+
+          // Handle nested properties like obj.a.b.c
+          for (let i = 2; i < parts.length; i++) {
+            memberExpr = createMember(memberExpr, parts[i]);
+          }
+
+          target = memberExpr;
+        } else {
+          target = {
+            type: IR.IRNodeType.Identifier,
+            name: sanitizeIdentifier(symbolName),
+          } as IR.IRIdentifier;
+        }
+      } else if (targetNode.type === "list") {
+        // Handle (. obj prop) or other member access patterns
+        const transformed = transformNode(targetNode, currentDir);
+        if (
+          !transformed ||
+          (transformed.type !== IR.IRNodeType.MemberExpression &&
+           transformed.type !== IR.IRNodeType.OptionalMemberExpression)
+        ) {
+          throw new ValidationError(
+            `${operator} target must be a valid lvalue`,
+            operator,
+            "identifier or member expression",
+            targetNode.type,
+          );
+        }
+        target = transformed;
+      } else {
+        throw new ValidationError(
+          `${operator} target must be a symbol or member expression`,
+          operator,
+          "symbol or member expression",
+          targetNode.type,
+        );
+      }
+
+      const value = transformNode(valueNode, currentDir);
+      if (!value) {
+        throw new ValidationError(
+          `${operator} value cannot be null`,
+          operator,
+          "expression",
+          "null",
+        );
+      }
+
+      return {
+        type: IR.IRNodeType.AssignmentExpression,
+        operator,
+        left: target,
+        right: value,
+      } as IR.IRAssignmentExpression;
+    },
+    "transformCompoundAssignment",
     TransformError,
     [list],
   );

@@ -1004,6 +1004,70 @@ export function transformRecur(
 }
 
 /**
+ * Transform a continue statement.
+ * (continue) or (continue label)
+ */
+export function transformContinue(
+  list: ListNode,
+  _currentDir: string,
+  _transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  // Validate inside loop context
+  if (!hasLoopContext()) {
+    throw new ValidationError(
+      "continue must be inside a loop",
+      "continue statement",
+      "inside loop context",
+      { actualType: "outside loop context", ...extractMetaSourceLocation(list) },
+    );
+  }
+
+  // Check for optional label
+  const label = list.elements.length > 1 && list.elements[1].type === "symbol"
+    ? (list.elements[1] as SymbolNode).name
+    : undefined;
+
+  const node: IR.IRContinueStatement = {
+    type: IR.IRNodeType.ContinueStatement,
+    label,
+  };
+  copyPosition(list, node);
+  return node;
+}
+
+/**
+ * Transform a break statement.
+ * (break) or (break label)
+ */
+export function transformBreak(
+  list: ListNode,
+  _currentDir: string,
+  _transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  // Validate inside loop context
+  if (!hasLoopContext()) {
+    throw new ValidationError(
+      "break must be inside a loop",
+      "break statement",
+      "inside loop context",
+      { actualType: "outside loop context", ...extractMetaSourceLocation(list) },
+    );
+  }
+
+  // Check for optional label
+  const label = list.elements.length > 1 && list.elements[1].type === "symbol"
+    ? (list.elements[1] as SymbolNode).name
+    : undefined;
+
+  const node: IR.IRBreakStatement = {
+    type: IR.IRNodeType.BreakStatement,
+    label,
+  };
+  copyPosition(list, node);
+  return node;
+}
+
+/**
  * Helper function to transform a list of body expressions for a loop
  */
 function transformLoopBody(
@@ -1083,4 +1147,236 @@ function transformLoopBody(
     type: IR.IRNodeType.BlockStatement,
     body: bodyNodes,
   };
+}
+
+/**
+ * Transform a for-of statement.
+ * (for-of [x collection] body...)
+ *
+ * Generates: for (const x of collection) { body }
+ */
+export function transformForOf(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  isAwait: boolean = false,
+): IR.IRNode {
+  // Validate syntax: (for-of [binding collection] body...)
+  if (list.elements.length < 3) {
+    throw new ValidationError(
+      `for-of requires binding and body`,
+      "for-of statement",
+      "[binding collection] body",
+      { actualType: `${list.elements.length - 1} elements`, ...extractMetaSourceLocation(list) },
+    );
+  }
+
+  const bindingsNode = list.elements[1];
+  if (bindingsNode.type !== "list") {
+    throw new ValidationError(
+      "for-of binding must be a vector [var collection]",
+      "for-of binding",
+      "vector",
+      { actualType: bindingsNode.type, ...extractMetaSourceLocation(bindingsNode) },
+    );
+  }
+
+  let bindings = bindingsNode as ListNode;
+
+  // Handle vector syntax: strip "vector" prefix if present
+  if (
+    bindings.elements.length > 0 &&
+    bindings.elements[0].type === "symbol" &&
+    ((bindings.elements[0] as SymbolNode).name === VECTOR_SYMBOL ||
+     (bindings.elements[0] as SymbolNode).name === EMPTY_ARRAY_SYMBOL)
+  ) {
+    bindings = {
+      ...bindings,
+      elements: bindings.elements.slice(1),
+    } as ListNode;
+  }
+
+  if (bindings.elements.length !== 2) {
+    throw new ValidationError(
+      "for-of binding requires exactly [var collection]",
+      "for-of binding",
+      "2 elements",
+      { actualType: String(bindings.elements.length), ...extractMetaSourceLocation(bindings) },
+    );
+  }
+
+  // Get binding variable name
+  const varNode = bindings.elements[0];
+  if (varNode.type !== "symbol") {
+    throw new ValidationError(
+      "for-of binding variable must be a symbol",
+      "for-of binding variable",
+      "symbol",
+      { actualType: varNode.type, ...extractMetaSourceLocation(varNode) },
+    );
+  }
+
+  const varName = sanitizeIdentifier((varNode as SymbolNode).name);
+
+  // Transform the collection/iterable expression
+  const collectionNode = bindings.elements[1];
+  const collection = transformNode(collectionNode, currentDir);
+  if (!collection) {
+    throw new ValidationError(
+      "for-of collection must be a valid expression",
+      "for-of collection",
+      "expression",
+      { actualType: "null", ...extractMetaSourceLocation(collectionNode) },
+    );
+  }
+
+  // Push loop context for continue/break
+  const loopId = generateLoopId();
+  pushLoopContext(loopId);
+
+  try {
+    // Transform body expressions
+    const bodyExprs = list.elements.slice(2);
+    const bodyStatements: IR.IRNode[] = [];
+
+    for (const expr of bodyExprs) {
+      const transformed = transformNode(expr, currentDir);
+      if (transformed) {
+        // Wrap expressions in ExpressionStatement if needed
+        if (
+          transformed.type !== IR.IRNodeType.ExpressionStatement &&
+          transformed.type !== IR.IRNodeType.VariableDeclaration &&
+          transformed.type !== IR.IRNodeType.ReturnStatement &&
+          transformed.type !== IR.IRNodeType.IfStatement &&
+          transformed.type !== IR.IRNodeType.WhileStatement &&
+          transformed.type !== IR.IRNodeType.ForStatement &&
+          transformed.type !== IR.IRNodeType.ForOfStatement &&
+          transformed.type !== IR.IRNodeType.ContinueStatement &&
+          transformed.type !== IR.IRNodeType.BreakStatement
+        ) {
+          bodyStatements.push({
+            type: IR.IRNodeType.ExpressionStatement,
+            expression: transformed,
+          } as IR.IRExpressionStatement);
+        } else {
+          bodyStatements.push(transformed);
+        }
+      }
+    }
+
+    // Create the for-of statement
+    const forOfNode: IR.IRForOfStatement = {
+      type: IR.IRNodeType.ForOfStatement,
+      left: {
+        type: IR.IRNodeType.VariableDeclaration,
+        kind: "const",
+        declarations: [{
+          type: IR.IRNodeType.VariableDeclarator,
+          id: {
+            type: IR.IRNodeType.Identifier,
+            name: varName,
+          } as IR.IRIdentifier,
+          init: null,
+        } as IR.IRVariableDeclarator],
+      } as IR.IRVariableDeclaration,
+      right: collection,
+      body: {
+        type: IR.IRNodeType.BlockStatement,
+        body: bodyStatements,
+      } as IR.IRBlockStatement,
+      await: isAwait,
+    };
+    copyPosition(list, forOfNode);
+    return forOfNode;
+  } finally {
+    popLoopContext();
+  }
+}
+
+/**
+ * Transform a for-await-of statement.
+ * (for-await-of [x asyncIterable] body...)
+ *
+ * Generates: for await (const x of asyncIterable) { body }
+ */
+export function transformForAwaitOf(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  return transformForOf(list, currentDir, transformNode, true);
+}
+
+/**
+ * Transform a labeled statement.
+ * (label name statement)
+ *
+ * Example:
+ * (label outer
+ *   (while true
+ *     (while true
+ *       (when condition
+ *         (break outer)))))
+ *
+ * Generates:
+ * outer: while (true) {
+ *   while (true) {
+ *     if (condition) {
+ *       break outer;
+ *     }
+ *   }
+ * }
+ */
+export function transformLabel(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  if (list.elements.length < 3) {
+    throw new ValidationError(
+      "label requires a name and a statement",
+      "label statement",
+      "(label name statement)",
+      { actualType: `${list.elements.length - 1} elements`, ...extractMetaSourceLocation(list) },
+    );
+  }
+
+  const nameNode = list.elements[1];
+  if (nameNode.type !== "symbol") {
+    throw new ValidationError(
+      "label name must be a symbol",
+      "label name",
+      "symbol",
+      { actualType: nameNode.type, ...extractMetaSourceLocation(nameNode) },
+    );
+  }
+
+  const labelName = sanitizeIdentifier((nameNode as SymbolNode).name);
+
+  // Push label context so break/continue can reference it
+  pushLoopContext(labelName);
+
+  try {
+    // Transform the body statement
+    const bodyNode = list.elements[2];
+    const body = transformNode(bodyNode, currentDir);
+    if (!body) {
+      throw new ValidationError(
+        "label body must be a valid statement",
+        "label body",
+        "statement",
+        { actualType: "null", ...extractMetaSourceLocation(bodyNode) },
+      );
+    }
+
+    const node: IR.IRLabeledStatement = {
+      type: IR.IRNodeType.LabeledStatement,
+      label: labelName,
+      body,
+    };
+    copyPosition(list, node);
+    return node;
+  } finally {
+    popLoopContext();
+  }
 }

@@ -381,6 +381,22 @@ class TSGenerator {
         break;
       }
 
+      case IR.IRNodeType.OptionalMemberExpression: {
+        const optMember = node as IR.IROptionalMemberExpression;
+        this.collectHoistableNames(optMember.object, true);
+        if (optMember.computed) {
+          this.collectHoistableNames(optMember.property, true);
+        }
+        break;
+      }
+
+      case IR.IRNodeType.OptionalCallExpression: {
+        const optCall = node as IR.IROptionalCallExpression;
+        this.collectHoistableNames(optCall.callee, true);
+        this.collectList(optCall.arguments, true);
+        break;
+      }
+
       case IR.IRNodeType.CallMemberExpression: {
         const callMember = node as IR.IRCallMemberExpression;
         this.collectHoistableNames(callMember.object, true);
@@ -413,6 +429,27 @@ class TSGenerator {
         break;
       }
 
+      case IR.IRNodeType.YieldExpression: {
+        const yieldExpr = node as IR.IRYieldExpression;
+        if (yieldExpr.argument) {
+          this.collectHoistableNames(yieldExpr.argument, true);
+        }
+        break;
+      }
+
+      case IR.IRNodeType.SwitchStatement: {
+        const switchStmt = node as IR.IRSwitchStatement;
+        this.collectHoistableNames(switchStmt.discriminant, true);
+        // Don't collect from cases - they're in their own scope
+        break;
+      }
+
+      case IR.IRNodeType.LabeledStatement: {
+        const labeledStmt = node as IR.IRLabeledStatement;
+        this.collectHoistableNames(labeledStmt.body, inExpression);
+        break;
+      }
+
       case IR.IRNodeType.TryStatement: {
         // Block statements inside try/catch create their own scope
         break;
@@ -423,6 +460,11 @@ class TSGenerator {
         this.collectHoistableNames(throwStmt.argument, true);
         break;
       }
+
+      case IR.IRNodeType.ContinueStatement:
+      case IR.IRNodeType.BreakStatement:
+        // No hoistable names in continue/break statements
+        break;
 
       case IR.IRNodeType.TemplateLiteral: {
         const tmpl = node as IR.IRTemplateLiteral;
@@ -641,6 +683,9 @@ class TSGenerator {
       case IR.IRNodeType.NumericLiteral:
         this.generateNumericLiteral(node as IR.IRNumericLiteral);
         break;
+      case IR.IRNodeType.BigIntLiteral:
+        this.generateBigIntLiteral(node as IR.IRBigIntLiteral);
+        break;
       case IR.IRNodeType.BooleanLiteral:
         this.generateBooleanLiteral(node as IR.IRBooleanLiteral);
         break;
@@ -675,6 +720,12 @@ class TSGenerator {
       case IR.IRNodeType.MemberExpression:
         this.generateMemberExpression(node as IR.IRMemberExpression);
         break;
+      case IR.IRNodeType.OptionalMemberExpression:
+        this.generateOptionalMemberExpression(node as IR.IROptionalMemberExpression);
+        break;
+      case IR.IRNodeType.OptionalCallExpression:
+        this.generateOptionalCallExpression(node as IR.IROptionalCallExpression);
+        break;
       case IR.IRNodeType.CallMemberExpression:
         this.generateCallMemberExpression(node as IR.IRCallMemberExpression);
         break;
@@ -695,6 +746,15 @@ class TSGenerator {
         break;
       case IR.IRNodeType.AwaitExpression:
         this.generateAwaitExpression(node as IR.IRAwaitExpression);
+        break;
+      case IR.IRNodeType.YieldExpression:
+        this.generateYieldExpression(node as IR.IRYieldExpression);
+        break;
+      case IR.IRNodeType.SwitchStatement:
+        this.generateSwitchStatement(node as IR.IRSwitchStatement);
+        break;
+      case IR.IRNodeType.LabeledStatement:
+        this.generateLabeledStatement(node as IR.IRLabeledStatement);
         break;
       case IR.IRNodeType.SpreadElement:
         this.generateSpreadElement(node as IR.IRSpreadElement);
@@ -728,6 +788,12 @@ class TSGenerator {
       case IR.IRNodeType.TryStatement:
         this.generateTryStatement(node as IR.IRTryStatement);
         break;
+      case IR.IRNodeType.ContinueStatement:
+        this.generateContinueStatement(node as IR.IRContinueStatement);
+        break;
+      case IR.IRNodeType.BreakStatement:
+        this.generateBreakStatement(node as IR.IRBreakStatement);
+        break;
 
       // Declarations
       case IR.IRNodeType.VariableDeclaration:
@@ -758,6 +824,9 @@ class TSGenerator {
         break;
       case IR.IRNodeType.ExportDefaultDeclaration:
         this.generateExportDefaultDeclaration(node as IR.IRExportDefaultDeclaration);
+        break;
+      case IR.IRNodeType.DynamicImport:
+        this.generateDynamicImport(node as IR.IRDynamicImport);
         break;
 
       // Patterns
@@ -797,6 +866,14 @@ class TSGenerator {
           node
         );
 
+      // TypeScript type declarations
+      case IR.IRNodeType.TypeAliasDeclaration:
+        this.generateTypeAliasDeclaration(node as IR.IRTypeAliasDeclaration);
+        break;
+      case IR.IRNodeType.InterfaceDeclaration:
+        this.generateInterfaceDeclaration(node as IR.IRInterfaceDeclaration);
+        break;
+
       default:
         logger.warn(`Unknown IR node type: ${node.type}`);
     }
@@ -813,6 +890,44 @@ class TSGenerator {
 
   private generateNumericLiteral(node: IR.IRNumericLiteral): void {
     this.emit(String(node.value), node.position);
+  }
+
+  private generateBigIntLiteral(node: IR.IRBigIntLiteral): void {
+    this.emit(node.value + "n", node.position);
+  }
+
+  // ============================================================================
+  // TypeScript Type Declaration Generators
+  // ============================================================================
+
+  private generateTypeAliasDeclaration(node: IR.IRTypeAliasDeclaration): void {
+    this.emit("type ", node.position);
+    this.emit(node.name);
+    if (node.typeParameters && node.typeParameters.length > 0) {
+      this.emit("<");
+      this.emit(node.typeParameters.join(", "));
+      this.emit(">");
+    }
+    this.emit(" = ");
+    this.emit(node.typeExpression);
+    this.emit(";\n");
+  }
+
+  private generateInterfaceDeclaration(node: IR.IRInterfaceDeclaration): void {
+    this.emit("interface ", node.position);
+    this.emit(node.name);
+    if (node.typeParameters && node.typeParameters.length > 0) {
+      this.emit("<");
+      this.emit(node.typeParameters.join(", "));
+      this.emit(">");
+    }
+    if (node.extends && node.extends.length > 0) {
+      this.emit(" extends ");
+      this.emit(node.extends.join(", "));
+    }
+    this.emit(" ");
+    this.emit(node.body);
+    this.emit("\n");
   }
 
   private generateBooleanLiteral(node: IR.IRBooleanLiteral): void {
@@ -921,6 +1036,31 @@ class TSGenerator {
     }
   }
 
+  /**
+   * Generate optional member expression: obj?.prop or obj?.["key"]
+   */
+  private generateOptionalMemberExpression(node: IR.IROptionalMemberExpression): void {
+    this.generateInExpressionContext(node.object);
+    if (node.computed) {
+      this.emit("?.[", node.position);
+      this.generateInExpressionContext(node.property);
+      this.emit("]");
+    } else {
+      this.emit("?.", node.position);
+      this.generateInExpressionContext(node.property);
+    }
+  }
+
+  /**
+   * Generate optional call expression: func?.() or obj.method?.()
+   */
+  private generateOptionalCallExpression(node: IR.IROptionalCallExpression): void {
+    this.generateInExpressionContext(node.callee);
+    this.emit("?.(", node.position);
+    this.emitCommaSeparated(node.arguments, (arg) => this.generateInExpressionContext(arg));
+    this.emit(")");
+  }
+
   private generateCallMemberExpression(node: IR.IRCallMemberExpression): void {
     this.generateInExpressionContext(node.object);
     this.emit(".", node.position);
@@ -975,6 +1115,22 @@ class TSGenerator {
   }
 
   private generateFunctionExpression(node: IR.IRFunctionExpression): void {
+    // Generators MUST use function* syntax (arrow functions can't be generators)
+    if (node.generator) {
+      if (node.async) {
+        this.emit("async ", node.position);
+      }
+      this.emit("function*(");
+      this.generateFnParams(node.params, undefined);
+      this.emit(")");
+      if (node.returnType) {
+        this.emit(`: ${node.returnType}`);
+      }
+      this.emit(" ");
+      this.generateBlockStatement(node.body);
+      return;
+    }
+
     // If the function uses 'this', generate a regular function expression
     // to preserve the dynamic 'this' binding (arrow functions capture lexical 'this')
     if (node.usesThis) {
@@ -1049,6 +1205,20 @@ class TSGenerator {
   private generateAwaitExpression(node: IR.IRAwaitExpression): void {
     this.emit("await ", node.position);
     this.generateInExpressionContext(node.argument);
+  }
+
+  private generateYieldExpression(node: IR.IRYieldExpression): void {
+    if (node.delegate) {
+      this.emit("yield* ", node.position);
+    } else {
+      this.emit("yield", node.position);
+      if (node.argument) {
+        this.emit(" ");
+      }
+    }
+    if (node.argument) {
+      this.generateInExpressionContext(node.argument);
+    }
   }
 
   private generateSpreadElement(node: IR.IRSpreadElement): void {
@@ -1186,13 +1356,116 @@ class TSGenerator {
 
   private generateForOfStatement(node: IR.IRForOfStatement): void {
     this.emitIndent();
-    this.emit("for (", node.position);
+    if (node.await) {
+      this.emit("for await (", node.position);
+    } else {
+      this.emit("for (", node.position);
+    }
     this.generateVariableDeclarationInline(node.left);
     this.emit(" of ");
     this.generateInExpressionContext(node.right);
     this.emit(") ");
     this.generateBlockStatement(node.body);
     this.emit("\n");
+  }
+
+  private generateSwitchStatement(node: IR.IRSwitchStatement): void {
+    this.emitIndent();
+    this.emit("switch (", node.position);
+    this.generateInExpressionContext(node.discriminant);
+    this.emit(") {\n");
+    this.indent();
+
+    for (const caseNode of node.cases) {
+      this.emitIndent();
+      if (caseNode.test === null) {
+        this.emit("default:\n");
+      } else {
+        this.emit("case ");
+        this.generateInExpressionContext(caseNode.test);
+        this.emit(":\n");
+      }
+
+      this.indent();
+      for (const stmt of caseNode.consequent) {
+        this.generateNode(stmt);
+        // Add newline after expression statements if needed
+        if (stmt.type !== IR.IRNodeType.BlockStatement &&
+            stmt.type !== IR.IRNodeType.IfStatement &&
+            stmt.type !== IR.IRNodeType.WhileStatement &&
+            stmt.type !== IR.IRNodeType.ForStatement &&
+            stmt.type !== IR.IRNodeType.ForOfStatement) {
+          // Already has newline from ExpressionStatement
+        }
+      }
+      // Add break unless fallthrough is specified
+      if (!caseNode.fallthrough) {
+        this.emitIndent();
+        this.emit("break;\n");
+      }
+      this.dedent();
+    }
+
+    this.dedent();
+    this.emitIndent();
+    this.emit("}\n");
+  }
+
+  private generateLabeledStatement(node: IR.IRLabeledStatement): void {
+    this.emitIndent();
+    this.emit(`${node.label}: `, node.position);
+    // Generate the body directly (no newline before the statement)
+    // We need to handle the body inline since we already emitted the label
+    const body = node.body;
+    if (body.type === IR.IRNodeType.WhileStatement) {
+      // Generate while without indentation since label handles it
+      const whileNode = body as IR.IRWhileStatement;
+      this.emit("while (");
+      this.generateInExpressionContext(whileNode.test);
+      this.emit(") ");
+      this.generateBlockStatement(whileNode.body);
+      this.emit("\n");
+    } else if (body.type === IR.IRNodeType.ForOfStatement) {
+      const forOf = body as IR.IRForOfStatement;
+      if (forOf.await) {
+        this.emit("for await (");
+      } else {
+        this.emit("for (");
+      }
+      this.generateVariableDeclarationInline(forOf.left);
+      this.emit(" of ");
+      this.generateInExpressionContext(forOf.right);
+      this.emit(") ");
+      this.generateBlockStatement(forOf.body);
+      this.emit("\n");
+    } else if (body.type === IR.IRNodeType.ForStatement) {
+      const forNode = body as IR.IRForStatement;
+      this.emit("for (");
+      if (forNode.init) {
+        if (forNode.init.type === IR.IRNodeType.VariableDeclaration) {
+          this.generateVariableDeclarationInline(forNode.init as IR.IRVariableDeclaration);
+        } else {
+          this.generateInExpressionContext(forNode.init);
+        }
+      }
+      this.emit("; ");
+      if (forNode.test) {
+        this.generateInExpressionContext(forNode.test);
+      }
+      this.emit("; ");
+      if (forNode.update) {
+        this.generateInExpressionContext(forNode.update);
+      }
+      this.emit(") ");
+      this.generateBlockStatement(forNode.body);
+      this.emit("\n");
+    } else if (body.type === IR.IRNodeType.BlockStatement) {
+      this.generateBlockStatement(body as IR.IRBlockStatement);
+      this.emit("\n");
+    } else {
+      // For other statements, generate them normally
+      this.generateNode(body);
+    }
   }
 
   private generateThrowStatement(node: IR.IRThrowStatement): void {
@@ -1206,6 +1479,24 @@ class TSGenerator {
       this.generateInExpressionContext(node.argument);
       this.emit(";\n");
     }
+  }
+
+  private generateContinueStatement(node: IR.IRContinueStatement): void {
+    this.emitIndent();
+    this.emit("continue", node.position);
+    if (node.label) {
+      this.emit(` ${node.label}`);
+    }
+    this.emit(";\n");
+  }
+
+  private generateBreakStatement(node: IR.IRBreakStatement): void {
+    this.emitIndent();
+    this.emit("break", node.position);
+    if (node.label) {
+      this.emit(` ${node.label}`);
+    }
+    this.emit(";\n");
   }
 
   private generateTryStatement(node: IR.IRTryStatement): void {
@@ -1364,7 +1655,11 @@ class TSGenerator {
     if (optimizedNode.async) {
       this.emit("async ", optimizedNode.position);
     }
-    this.emit("function ");
+    if (optimizedNode.generator) {
+      this.emit("function* ");
+    } else {
+      this.emit("function ");
+    }
     this.generateIdentifier(optimizedNode.id);
 
     // Add generic type parameters if present
@@ -1413,7 +1708,11 @@ class TSGenerator {
     if (node.async) {
       this.emit("async ");
     }
-    this.emit("function ");
+    if (node.generator) {
+      this.emit("function* ");
+    } else {
+      this.emit("function ");
+    }
     this.emit(node.id.name);  // Keep the function name for stack traces
 
     // Add generic type parameters if present
@@ -1520,6 +1819,13 @@ class TSGenerator {
 
   private generateClassField(field: IR.IRClassField): void {
     this.emitIndent();
+    if (field.isStatic) {
+      this.emit("static ");
+    }
+    // Private fields use # prefix
+    if (field.isPrivate) {
+      this.emit("#");
+    }
     this.emit(field.name, field.position);
 
     // Add type annotation if present
@@ -1545,6 +1851,15 @@ class TSGenerator {
 
   private generateClassMethod(method: IR.IRClassMethod): void {
     this.emitIndent();
+    if (method.isStatic) {
+      this.emit("static ");
+    }
+    // Handle getter/setter
+    if (method.kind === "get") {
+      this.emit("get ");
+    } else if (method.kind === "set") {
+      this.emit("set ");
+    }
     this.emit(method.name, method.position);
 
     // Add generic type parameters if present
@@ -1794,6 +2109,15 @@ class TSGenerator {
       this.emit(JSON.stringify(node.source));
     }
     this.emit(";\n");
+  }
+
+  /**
+   * Generate dynamic import expression: import("./module.js")
+   */
+  private generateDynamicImport(node: IR.IRDynamicImport): void {
+    this.emit("import(", node.position);
+    this.generateNode(node.source);
+    this.emit(")");
   }
 
   private generateExportNamedDeclaration(node: IR.IRExportNamedDeclaration): void {

@@ -139,8 +139,18 @@ export function transformClass(
 
       const elementType = (firstElement as SymbolNode).name;
 
-      // Process field declarations (var and let)
-      if (elementType === "var" || elementType === "let") {
+      // Process private field shorthand: (#fieldName value)
+      if (elementType.startsWith("#")) {
+        const field = processPrivateField(
+          elementList,
+          currentDir,
+          transformNode,
+        );
+        if (field) {
+          fields.push(field);
+        }
+      } // Process field declarations (var and let)
+      else if (elementType === "var" || elementType === "let") {
         const field = processClassField(
           elementList,
           currentDir,
@@ -166,6 +176,92 @@ export function transformClass(
         );
         if (method) {
           methods.push(method);
+        }
+      } // Process static members: (static var name value) or (static fn name ...)
+      else if (elementType === "static") {
+        if (elementList.elements.length < 2) {
+          throw new ValidationError(
+            "static requires a member definition",
+            "static member",
+            "var, let, or fn",
+            { actualType: "incomplete", ...extractMetaSourceLocation(elementList) },
+          );
+        }
+
+        const staticContent = elementList.elements[1];
+        if (staticContent.type !== "symbol") {
+          throw new ValidationError(
+            "static member type must be var, let, or fn",
+            "static member",
+            "var, let, or fn",
+            { actualType: staticContent.type, ...extractMetaSourceLocation(staticContent) },
+          );
+        }
+
+        const innerType = (staticContent as SymbolNode).name;
+
+        if (innerType === "var" || innerType === "let") {
+          // (static var name value) or (static let name value)
+          // Create a pseudo list without "static" for field processing
+          const fieldList: ListNode = {
+            ...elementList,
+            elements: elementList.elements.slice(1), // Remove "static"
+          };
+          const field = processClassField(
+            fieldList,
+            currentDir,
+            transformNode,
+            innerType,
+          );
+          if (field) {
+            field.isStatic = true;
+            fields.push(field);
+          }
+        } else if (innerType === "fn") {
+          // (static fn name [...] body)
+          // Create a pseudo list without "static" for method processing
+          const methodList: ListNode = {
+            ...elementList,
+            elements: elementList.elements.slice(1), // Remove "static"
+          };
+          const method = processClassMethodFn(
+            methodList,
+            currentDir,
+            transformNode,
+          );
+          if (method) {
+            method.isStatic = true;
+            methods.push(method);
+          }
+        } else {
+          throw new ValidationError(
+            "static member type must be var, let, or fn",
+            "static member",
+            "var, let, or fn",
+            { actualType: innerType, ...extractMetaSourceLocation(staticContent) },
+          );
+        }
+      } // Process getter: (getter name [] body) - uses "getter" to avoid conflicts
+      else if (elementType === "getter") {
+        const getter = processClassAccessor(
+          elementList,
+          "get",
+          currentDir,
+          transformNode,
+        );
+        if (getter) {
+          methods.push(getter);
+        }
+      } // Process setter: (setter name [param] body) - uses "setter" to avoid macro conflict
+      else if (elementType === "setter") {
+        const setter = processClassAccessor(
+          elementList,
+          "set",
+          currentDir,
+          transformNode,
+        );
+        if (setter) {
+          methods.push(setter);
         }
       }
     }
@@ -489,6 +585,52 @@ function processClassMethodFn(
 }
 
 /**
+ * Process a private field declaration with shorthand syntax: (#fieldName value)
+ * The field name includes the # prefix and is stored as-is
+ */
+function processPrivateField(
+  elementList: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRClassField | null {
+  try {
+    // (#fieldName value) - first element is the #name, second is value
+    const fieldNameNode = elementList.elements[0];
+    if (fieldNameNode.type !== "symbol") {
+      throw new ValidationError(
+        "Private field name must be a symbol starting with #",
+        "private field",
+        "#name",
+        fieldNameNode.type,
+      );
+    }
+
+    const fieldName = (fieldNameNode as SymbolNode).name;
+    // Remove the # for storage, will be added back in codegen
+    const storedName = fieldName.slice(1);
+    let initialValue: IR.IRNode | null = null;
+
+    // If there's an initial value, transform it
+    if (elementList.elements.length > 1) {
+      initialValue = transformNode(elementList.elements[1], currentDir);
+    }
+
+    return {
+      type: IR.IRNodeType.ClassField,
+      name: storedName,
+      mutable: true, // Private fields are mutable by default
+      initialValue,
+      isPrivate: true,
+    };
+  } catch (error) {
+    logger.error(
+      `Error processing private field: ${getErrorMessage(error)}`,
+    );
+    return null;
+  }
+}
+
+/**
  * Process a class field declaration
  */
 function processClassField(
@@ -537,6 +679,114 @@ function processClassField(
       `Error processing class field: ${
         getErrorMessage(error)
       }`,
+    );
+    return null;
+  }
+}
+
+/**
+ * Process a class getter or setter
+ * Getter: (get name [] body) - body starts at index 3
+ * Setter: (set name [param] body) - body starts at index 3
+ */
+function processClassAccessor(
+  elementList: ListNode,
+  kind: "get" | "set",
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRClassMethod | null {
+  try {
+    // Both getter and setter: (get/set name [params] body) - minimum 4 elements
+    if (elementList.elements.length < 4) {
+      throw new ValidationError(
+        `${kind} requires a name, parameters, and body`,
+        `${kind} definition`,
+        "name, params, body",
+        `${elementList.elements.length - 1} arguments`,
+      );
+    }
+
+    const nameNode = elementList.elements[1];
+    if (nameNode.type !== "symbol") {
+      throw new ValidationError(
+        `${kind} name must be a symbol`,
+        `${kind} name`,
+        "symbol",
+        nameNode.type,
+      );
+    }
+    const accessorName = (nameNode as SymbolNode).name;
+
+    // Parse parameters - getters should have empty [], setters have one param
+    const paramsNode = elementList.elements[2];
+    if (paramsNode.type !== "list") {
+      throw new ValidationError(
+        `${kind} parameters must be a list`,
+        `${kind} params`,
+        "list",
+        paramsNode.type,
+      );
+    }
+
+    const { params } = parseClassMethodParameters(
+      paramsNode as ListNode,
+      currentDir,
+      transformNode,
+    );
+
+    // Validate parameter count
+    if (kind === "get" && params.length > 0) {
+      throw new ValidationError(
+        "Getter must not have parameters",
+        "getter params",
+        "empty",
+        `${params.length} parameters`,
+      );
+    }
+    if (kind === "set" && params.length !== 1) {
+      throw new ValidationError(
+        "Setter must have exactly one parameter",
+        "setter params",
+        "1 parameter",
+        `${params.length} parameters`,
+      );
+    }
+
+    // Body starts at index 3 for both getters and setters
+    const { bodyElements } = extractMethodBodyElements(elementList, 3);
+
+    const bodyNodes = transformNonNullElements(
+      bodyElements,
+      currentDir,
+      transformNode,
+    );
+
+    // Getters need implicit return; setters don't return
+    const bodyStmts = bodyNodes.map((node, i) => {
+      const isLast = i === bodyNodes.length - 1;
+      // Only getters need implicit return
+      if (kind === "get" && isLast && node.type !== IR.IRNodeType.ReturnStatement) {
+        return {
+          type: IR.IRNodeType.ReturnStatement,
+          argument: node,
+        } as IR.IRReturnStatement;
+      }
+      return node;
+    });
+
+    return {
+      type: IR.IRNodeType.ClassMethod,
+      name: accessorName,
+      params,
+      body: {
+        type: IR.IRNodeType.BlockStatement,
+        body: bodyStmts,
+      },
+      kind,
+    };
+  } catch (error) {
+    logger.error(
+      `Error processing class ${kind}: ${getErrorMessage(error)}`,
     );
     return null;
   }

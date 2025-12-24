@@ -57,7 +57,7 @@ export interface TSCompilerOptions {
 // ============================================================================
 
 const DEFAULT_COMPILER_OPTIONS: ts.CompilerOptions = {
-  target: ts.ScriptTarget.ES2020,
+  target: ts.ScriptTarget.ES2021,
   module: ts.ModuleKind.ESNext,
   // Don't use NodeNext for moduleResolution - it requires lib.d.ts
   moduleResolution: ts.ModuleResolutionKind.Bundler,

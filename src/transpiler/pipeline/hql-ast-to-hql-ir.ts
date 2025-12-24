@@ -122,6 +122,8 @@ function isExpression(node: IR.IRNode): boolean {
     case IR.IRNodeType.ExportNamedDeclaration:
     case IR.IRNodeType.ExportVariableDeclaration:
     case IR.IRNodeType.ExportDefaultDeclaration:
+    case IR.IRNodeType.TypeAliasDeclaration:
+    case IR.IRNodeType.InterfaceDeclaration:
       return false;
 
     default:
@@ -356,6 +358,21 @@ function initializeTransformFactory(): void {
             processFunctionBody,
           ),
       );
+      // Generator function: (fn* name [params] body...) or (fn* [params] body...)
+      transformFactory.set(
+        "fn*",
+        (list, currentDir) =>
+          transformGeneratorFn(list, currentDir, transformNode, processFunctionBody),
+      );
+      // Yield expression: (yield value) or (yield* iterator)
+      transformFactory.set(
+        "yield",
+        (list, currentDir) => transformYield(list, currentDir, transformNode),
+      );
+      transformFactory.set(
+        "yield*",
+        (list, currentDir) => transformYieldDelegate(list, currentDir, transformNode),
+      );
       transformFactory.set(
         "=>",
         (list, currentDir) =>
@@ -531,6 +548,31 @@ function initializeTransformFactory(): void {
           loopRecurModule.transformRecur(list, currentDir, transformNode),
       );
       transformFactory.set(
+        "continue",
+        (list, currentDir) =>
+          loopRecurModule.transformContinue(list, currentDir, transformNode),
+      );
+      transformFactory.set(
+        "break",
+        (list, currentDir) =>
+          loopRecurModule.transformBreak(list, currentDir, transformNode),
+      );
+      transformFactory.set(
+        "for-of",
+        (list, currentDir) =>
+          loopRecurModule.transformForOf(list, currentDir, transformNode),
+      );
+      transformFactory.set(
+        "for-await-of",
+        (list, currentDir) =>
+          loopRecurModule.transformForAwaitOf(list, currentDir, transformNode),
+      );
+      transformFactory.set(
+        "label",
+        (list, currentDir) =>
+          loopRecurModule.transformLabel(list, currentDir, transformNode),
+      );
+      transformFactory.set(
         "return",
         (list, currentDir) =>
           conditionalModule.transformReturn(list, currentDir, transformNode),
@@ -539,6 +581,11 @@ function initializeTransformFactory(): void {
         "throw",
         (list, currentDir) =>
           conditionalModule.transformThrow(list, currentDir, transformNode),
+      );
+      transformFactory.set(
+        "switch",
+        (list, currentDir) =>
+          conditionalModule.transformSwitch(list, currentDir, transformNode),
       );
 
       transformFactory.set(
@@ -631,6 +678,197 @@ function initializeTransformFactory(): void {
           );
         },
       );
+      // Dynamic import: (import-dynamic "./module.js") -> import("./module.js")
+      transformFactory.set(
+        "import-dynamic",
+        (list, currentDir) => {
+          if (list.elements.length !== 2) {
+            throw new ValidationError(
+              "import-dynamic requires exactly one argument (the module path)",
+              "import-dynamic",
+              '(import-dynamic "./module.js")',
+              `${list.elements.length - 1} arguments`,
+            );
+          }
+          const sourceNode = transformNode(list.elements[1], currentDir);
+          if (!sourceNode) {
+            throw new ValidationError(
+              "import-dynamic source cannot be null",
+              "import-dynamic",
+              "expression",
+              "null",
+            );
+          }
+          return {
+            type: IR.IRNodeType.DynamicImport,
+            source: sourceNode,
+          } as IR.IRDynamicImport;
+        },
+      );
+      // BigInt literal: (bigint-literal "123") -> 123n
+      transformFactory.set(
+        "bigint-literal",
+        (list, _currentDir) => {
+          if (list.elements.length !== 2) {
+            throw new ValidationError(
+              "bigint-literal requires exactly one argument",
+              "bigint-literal",
+              "(bigint-literal value)",
+              `${list.elements.length - 1} arguments`,
+            );
+          }
+          const valueNode = list.elements[1];
+          let value: string;
+          if (valueNode.type === "literal") {
+            value = String((valueNode as LiteralNode).value);
+          } else {
+            throw new ValidationError(
+              "bigint-literal value must be a literal",
+              "bigint-literal",
+              "literal value",
+              valueNode.type,
+            );
+          }
+          return {
+            type: IR.IRNodeType.BigIntLiteral,
+            value,
+          } as IR.IRBigIntLiteral;
+        },
+      );
+
+      // Type alias declaration: (deftype Name "type-expression")
+      // With generics: (deftype Name<T> "type-expression")
+      transformFactory.set(
+        "deftype",
+        (list, _currentDir) => {
+          if (list.elements.length < 3) {
+            throw new ValidationError(
+              "deftype requires at least 2 arguments: name and type expression",
+              "deftype",
+              "(deftype Name \"type-expression\")",
+              `${list.elements.length - 1} arguments`,
+            );
+          }
+          const nameNode = list.elements[1];
+          let fullName: string;
+          if (nameNode.type === "symbol") {
+            fullName = (nameNode as SymbolNode).name;
+          } else if (nameNode.type === "literal") {
+            // Allow string literal for names with special characters like "Pair<A, B>"
+            fullName = String((nameNode as LiteralNode).value);
+          } else {
+            throw new ValidationError(
+              "deftype name must be a symbol or string literal",
+              "deftype",
+              "symbol or string name",
+              nameNode.type,
+            );
+          }
+          // Parse generic parameters from name like "Name<T, U>"
+          let name = fullName;
+          let typeParameters: string[] | undefined;
+          const genericMatch = fullName.match(/^([^<]+)<(.+)>$/);
+          if (genericMatch) {
+            name = genericMatch[1];
+            typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
+          }
+          const typeNode = list.elements[2];
+          let typeExpression: string;
+          if (typeNode.type === "literal") {
+            typeExpression = String((typeNode as LiteralNode).value);
+          } else if (typeNode.type === "symbol") {
+            typeExpression = (typeNode as SymbolNode).name;
+          } else {
+            throw new ValidationError(
+              "deftype type expression must be a string literal or symbol",
+              "deftype",
+              "string literal or symbol",
+              typeNode.type,
+            );
+          }
+          return {
+            type: IR.IRNodeType.TypeAliasDeclaration,
+            name,
+            typeExpression,
+            typeParameters,
+          } as IR.IRTypeAliasDeclaration;
+        },
+      );
+
+      // Interface declaration: (interface Name "{ body }")
+      // With generics: (interface Name<T> "{ body }")
+      // With extends: (interface Name extends Base "{ body }")
+      transformFactory.set(
+        "interface",
+        (list, _currentDir) => {
+          if (list.elements.length < 3) {
+            throw new ValidationError(
+              "interface requires at least 2 arguments: name and body",
+              "interface",
+              "(interface Name \"{ ... }\")",
+              `${list.elements.length - 1} arguments`,
+            );
+          }
+          let idx = 1;
+          const nameNode = list.elements[idx];
+          let fullName: string;
+          if (nameNode.type === "symbol") {
+            fullName = (nameNode as SymbolNode).name;
+          } else if (nameNode.type === "literal") {
+            // Allow string literal for names with special characters like "Box<A, B>"
+            fullName = String((nameNode as LiteralNode).value);
+          } else {
+            throw new ValidationError(
+              "interface name must be a symbol or string literal",
+              "interface",
+              "symbol or string name",
+              nameNode.type,
+            );
+          }
+          // Parse generic parameters from name like "Name<T, U>"
+          let name = fullName;
+          let typeParameters: string[] | undefined;
+          const genericMatch = fullName.match(/^([^<]+)<(.+)>$/);
+          if (genericMatch) {
+            name = genericMatch[1];
+            typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
+          }
+          idx++;
+          // Check for extends clause
+          let extendsClause: string[] | undefined;
+          if (list.elements[idx]?.type === "symbol" &&
+              (list.elements[idx] as SymbolNode).name === "extends") {
+            idx++;
+            extendsClause = [];
+            // Collect all extends types until we hit the body string
+            while (idx < list.elements.length - 1 &&
+                   list.elements[idx].type === "symbol") {
+              extendsClause.push((list.elements[idx] as SymbolNode).name);
+              idx++;
+            }
+          }
+          const bodyNode = list.elements[idx];
+          let body: string;
+          if (bodyNode.type === "literal") {
+            body = String((bodyNode as LiteralNode).value);
+          } else {
+            throw new ValidationError(
+              "interface body must be a string literal",
+              "interface",
+              "string literal body",
+              bodyNode.type,
+            );
+          }
+          return {
+            type: IR.IRNodeType.InterfaceDeclaration,
+            name,
+            body,
+            typeParameters,
+            extends: extendsClause,
+          } as IR.IRInterfaceDeclaration;
+        },
+      );
+
       transformFactory.set(
         "get",
         (list, currentDir) =>
@@ -705,18 +943,22 @@ function transformAsync(
         throw new ValidationError(
           "async requires a function form",
           "async",
-          "(async fn ...)",
+          "(async fn ...) or (async fn* ...)",
           `${list.elements.length - 1} arguments`,
         );
       }
 
       const target = list.elements[1];
-      if (target.type !== "symbol" || (target as SymbolNode).name !== "fn") {
+      const targetName = target.type === "symbol" ? (target as SymbolNode).name : "";
+      const isGenerator = targetName === "fn*";
+      const isRegularFn = targetName === "fn";
+
+      if (!isGenerator && !isRegularFn) {
         throw new ValidationError(
-          "async currently supports 'fn' definitions",
+          "async currently supports 'fn' and 'fn*' definitions",
           "async",
-          "fn",
-          target.type,
+          "fn or fn*",
+          target.type === "symbol" ? targetName : target.type,
         );
       }
 
@@ -725,12 +967,19 @@ function transformAsync(
         elements: list.elements.slice(1),
       };
 
-      const transformed = functionModule.transformFn(
-        fnList,
-        currentDir,
-        transformNode,
-        processFunctionBody,
-      );
+      let transformed: IR.IRNode;
+      if (isGenerator) {
+        // Async generator: (async fn* name [params] body...)
+        transformed = transformGeneratorFn(fnList, currentDir, transformNode, processFunctionBody);
+      } else {
+        // Regular async function: (async fn name [params] body...)
+        transformed = functionModule.transformFn(
+          fnList,
+          currentDir,
+          transformNode,
+          processFunctionBody,
+        );
+      }
 
       setAsyncFlag(transformed);
 
@@ -770,6 +1019,131 @@ function transformAwait(
       } as IR.IRAwaitExpression;
     },
     "transformAwait",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform a generator function: (fn* name [params] body...) or (fn* [params] body...)
+ */
+function transformGeneratorFn(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+  processFunctionBody: (body: HQLNode[], dir: string) => IR.IRNode[],
+): IR.IRNode {
+  return perform(
+    () => {
+      // Transform as regular fn, then set generator flag
+      const transformed = functionModule.transformFn(
+        list,
+        currentDir,
+        transformNode,
+        processFunctionBody,
+      );
+
+      // Set generator flag on the function based on its type
+      if (transformed.type === IR.IRNodeType.FunctionExpression) {
+        (transformed as IR.IRFunctionExpression).generator = true;
+      } else if (transformed.type === IR.IRNodeType.FunctionDeclaration) {
+        (transformed as IR.IRFunctionDeclaration).generator = true;
+      } else if (transformed.type === IR.IRNodeType.FnFunctionDeclaration) {
+        // Named fn function
+        (transformed as IR.IRFnFunctionDeclaration).generator = true;
+      } else if (transformed.type === IR.IRNodeType.VariableDeclaration) {
+        // Named function becomes variable declaration with function expression
+        const decl = transformed as IR.IRVariableDeclaration;
+        if (decl.declarations[0]?.init?.type === IR.IRNodeType.FunctionExpression) {
+          (decl.declarations[0].init as IR.IRFunctionExpression).generator = true;
+        }
+      }
+
+      return transformed;
+    },
+    "transformGeneratorFn",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform yield expression: (yield value)
+ */
+function transformYield(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRNode {
+  return perform(
+    () => {
+      // yield can have 0 or 1 argument
+      if (list.elements.length > 2) {
+        throw new ValidationError(
+          "yield takes at most one argument",
+          "yield",
+          "0 or 1 argument",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      let argument: IR.IRNode | null = null;
+      if (list.elements.length === 2) {
+        argument = validateTransformed(
+          transformNode(list.elements[1], currentDir),
+          "yield",
+          "yield operand",
+        );
+      }
+
+      const node: IR.IRYieldExpression = {
+        type: IR.IRNodeType.YieldExpression,
+        argument,
+        delegate: false,
+      };
+      copyPosition(list, node);
+      return node;
+    },
+    "transformYield",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform yield* expression: (yield* iterator)
+ */
+function transformYieldDelegate(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRNode {
+  return perform(
+    () => {
+      if (list.elements.length !== 2) {
+        throw new ValidationError(
+          "yield* requires exactly one argument",
+          "yield*",
+          "1 argument",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      const argument = validateTransformed(
+        transformNode(list.elements[1], currentDir),
+        "yield*",
+        "yield* operand",
+      );
+
+      const node: IR.IRYieldExpression = {
+        type: IR.IRNodeType.YieldExpression,
+        argument,
+        delegate: true,
+      };
+      copyPosition(list, node);
+      return node;
+    },
+    "transformYieldDelegate",
     TransformError,
     [list],
   );
@@ -1316,6 +1690,11 @@ function transformBasedOnOperator(
     return importExportModule.transformNamespaceImport(list, currentDir);
   }
 
+  // Handle optional chaining method calls (obj?.greet "World")
+  if (op.includes("?.") && !op.startsWith("js/") && !op.startsWith("...")) {
+    return transformOptionalChainMethodCall(list, op, currentDir, transformNode);
+  }
+
   // Handle dot notation for property access (obj.prop)
   if (jsInteropModule.isDotNotation(op)) {
     return jsInteropModule.transformDotNotation(
@@ -1685,6 +2064,152 @@ function transformTemplateLiteral(
 // FIRST_CLASS_OPERATORS imported from ../keyword/primitives.ts (single source of truth)
 
 /**
+ * Parse optional chain segments from a symbol like "user?.name" or "data?.user?.address?.city"
+ * Returns array of segments: [{name: "user", optional: false}, {name: "name", optional: true}]
+ */
+function parseOptionalChainSegments(name: string): { name: string; optional: boolean }[] {
+  const segments: { name: string; optional: boolean }[] = [];
+
+  // Split by both ?. and . while preserving which type of access it was
+  // E.g., "obj?.a.b?.c" -> ["obj", "?.a", ".b", "?.c"]
+  let current = "";
+  let i = 0;
+
+  while (i < name.length) {
+    if (name[i] === "?" && name[i + 1] === ".") {
+      // Found optional access
+      if (current) {
+        segments.push({ name: current, optional: false });
+      }
+      current = "";
+      i += 2; // Skip ?.
+      // Parse the property name
+      while (i < name.length && name[i] !== "?" && name[i] !== ".") {
+        current += name[i];
+        i++;
+      }
+      if (current) {
+        segments.push({ name: current, optional: true });
+        current = "";
+      }
+    } else if (name[i] === ".") {
+      // Found regular access
+      if (current) {
+        segments.push({ name: current, optional: false });
+      }
+      current = "";
+      i++; // Skip .
+      // Parse the property name
+      while (i < name.length && name[i] !== "?" && name[i] !== ".") {
+        current += name[i];
+        i++;
+      }
+      if (current) {
+        segments.push({ name: current, optional: false });
+        current = "";
+      }
+    } else {
+      current += name[i];
+      i++;
+    }
+  }
+
+  if (current) {
+    segments.push({ name: current, optional: false });
+  }
+
+  return segments;
+}
+
+/**
+ * Transform optional chain symbol to IR.
+ * E.g., "user?.name" -> OptionalMemberExpression(Identifier("user"), "name", optional: true)
+ * E.g., "data?.user?.address" -> OptionalMemberExpression(OptionalMemberExpression(Identifier("data"), "user"), "address")
+ */
+function transformOptionalChainSymbol(name: string): IR.IRNode {
+  const segments = parseOptionalChainSegments(name);
+
+  if (segments.length === 0) {
+    throw new TransformError(`Invalid optional chain: ${name}`, name, "optional chain");
+  }
+
+  // Start with the first segment as an identifier
+  const baseObjectName = sanitizeIdentifier(segments[0].name);
+  const objectName = baseObjectName === "self" ? "this" : baseObjectName;
+
+  let current: IR.IRNode = {
+    type: IR.IRNodeType.Identifier,
+    name: objectName,
+  } as IR.IRIdentifier;
+
+  // Build chain from left to right
+  for (let i = 1; i < segments.length; i++) {
+    const seg = segments[i];
+    const propName = sanitizeIdentifier(seg.name);
+    const propNode: IR.IRIdentifier = {
+      type: IR.IRNodeType.Identifier,
+      name: propName,
+    };
+
+    if (seg.optional) {
+      current = {
+        type: IR.IRNodeType.OptionalMemberExpression,
+        object: current,
+        property: propNode,
+        computed: false,
+        optional: true,
+      } as IR.IROptionalMemberExpression;
+    } else {
+      current = {
+        type: IR.IRNodeType.MemberExpression,
+        object: current,
+        property: propNode,
+        computed: false,
+      } as IR.IRMemberExpression;
+    }
+  }
+
+  return current;
+}
+
+/**
+ * Transform optional chain method calls.
+ * E.g., (obj?.greet "World") -> obj?.greet("World")
+ */
+function transformOptionalChainMethodCall(
+  list: ListNode,
+  op: string,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  return perform(
+    () => {
+      // Parse the chain to get the callee as an OptionalMemberExpression/MemberExpression
+      const callee = transformOptionalChainSymbol(op);
+
+      // Transform arguments
+      const args: IR.IRNode[] = [];
+      for (let i = 1; i < list.elements.length; i++) {
+        const argResult = transformNode(list.elements[i], currentDir);
+        if (argResult) {
+          args.push(argResult);
+        }
+      }
+
+      // Create a regular CallExpression with the optional chain callee
+      return {
+        type: IR.IRNodeType.CallExpression,
+        callee,
+        arguments: args,
+      } as IR.IRCallExpression;
+    },
+    `transformOptionalChainMethodCall '${op}'`,
+    TransformError,
+    [list],
+  );
+}
+
+/**
  * Transform a symbol node to its IR representation.
  */
 function transformSymbol(sym: SymbolNode): IR.IRNode {
@@ -1710,6 +2235,11 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
           callee: { type: IR.IRNodeType.Identifier, name: GET_OP_HELPER } as IR.IRIdentifier,
           arguments: [{ type: IR.IRNodeType.StringLiteral, value: name } as IR.IRStringLiteral],
         } as IR.IRCallExpression;
+      }
+
+      // Handle optional chaining: user?.name, data?.user?.address
+      if (name.includes("?.") && !name.startsWith("js/") && !name.startsWith("...")) {
+        return transformOptionalChainSymbol(name);
       }
 
       // Exclude spread operators (...identifier) from dot notation handling

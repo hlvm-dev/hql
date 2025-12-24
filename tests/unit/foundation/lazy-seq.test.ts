@@ -455,7 +455,7 @@ Deno.test("laziness: elements computed only when accessed", async () => {
       ;; Print realized count - should be EXACTLY 5
       (print realized)
     `],
-    cwd: "/Users/seoksoonjang/Desktop/hql",
+    cwd: Deno.cwd(),
   });
 
   const { code, stdout } = await cmd.output();
@@ -479,7 +479,7 @@ Deno.test("laziness: first only realizes one element", async () => {
       (first (counting 1))
       (print realized)
     `],
-    cwd: "/Users/seoksoonjang/Desktop/hql",
+    cwd: Deno.cwd(),
   });
 
   const { code, stdout } = await cmd.output();
@@ -504,7 +504,7 @@ Deno.test("trampolining: deeply nested lazy-seq (10000 levels)", async () => {
 
       (print (reduce + 0 (take 10000 (natural-numbers 1))))
     `],
-    cwd: "/Users/seoksoonjang/Desktop/hql",
+    cwd: Deno.cwd(),
   });
 
   const { code, stdout } = await cmd.output();
@@ -579,7 +579,7 @@ Deno.test("integration: self-hosted map pattern", async () => {
 
       (print (doall (my-map (fn [x] (* x 2)) [1 2 3 4 5])))
     `],
-    cwd: "/Users/seoksoonjang/Desktop/hql",
+    cwd: Deno.cwd(),
   });
 
   const { code, stdout } = await cmd.output();
@@ -602,7 +602,7 @@ Deno.test("integration: self-hosted filter pattern", async () => {
 
       (print (doall (my-filter (fn [x] (> x 2)) [1 2 3 4 5])))
     `],
-    cwd: "/Users/seoksoonjang/Desktop/hql",
+    cwd: Deno.cwd(),
   });
 
   const { code, stdout } = await cmd.output();
@@ -623,7 +623,7 @@ Deno.test("integration: loop/recur with 100000 iterations", async () => {
 
       (print (loop-sum 100000))
     `],
-    cwd: "/Users/seoksoonjang/Desktop/hql",
+    cwd: Deno.cwd(),
   });
 
   const { code, stdout } = await cmd.output();

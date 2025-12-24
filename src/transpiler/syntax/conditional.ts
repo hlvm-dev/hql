@@ -472,3 +472,198 @@ export function transformTernary(
     [list],
   );
 }
+
+/**
+ * Transform a switch statement.
+ * (switch expr
+ *   (case val1 body...)
+ *   (case val2 body...)  ; Use (case val2 :fallthrough body...) for fallthrough
+ *   (default body...))
+ *
+ * Generates:
+ * switch (expr) {
+ *   case val1:
+ *     body...
+ *     break;
+ *   case val2:
+ *     body...  // no break if :fallthrough
+ *   default:
+ *     body...
+ * }
+ */
+export function transformSwitch(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  return perform(
+    () => {
+      if (list.elements.length < 2) {
+        throw new ValidationError(
+          "switch requires a discriminant expression",
+          "switch statement",
+          "(switch expr (case val body...) ...)",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      // Transform the discriminant expression
+      const discriminant = validateTransformed(
+        transformNode(list.elements[1], currentDir),
+        "switch discriminant",
+        "Switch expression",
+      );
+
+      // Process case clauses
+      const cases: IR.IRSwitchCase[] = [];
+
+      for (let i = 2; i < list.elements.length; i++) {
+        const caseNode = list.elements[i];
+
+        if (caseNode.type !== "list") {
+          throw new ValidationError(
+            "switch case must be a list",
+            "switch case",
+            "(case val body...) or (default body...)",
+            caseNode.type,
+          );
+        }
+
+        const caseList = caseNode as ListNode;
+        if (caseList.elements.length < 1) {
+          throw new ValidationError(
+            "switch case cannot be empty",
+            "switch case",
+            "(case val body...) or (default body...)",
+            "empty list",
+          );
+        }
+
+        const caseType = caseList.elements[0];
+        if (caseType.type !== "symbol") {
+          throw new ValidationError(
+            "switch case must start with 'case' or 'default'",
+            "switch case",
+            "'case' or 'default'",
+            caseType.type,
+          );
+        }
+
+        const caseKeyword = (caseType as SymbolNode).name;
+
+        if (caseKeyword === "case") {
+          if (caseList.elements.length < 2) {
+            throw new ValidationError(
+              "case requires a test value",
+              "case clause",
+              "(case val body...)",
+              `${caseList.elements.length - 1} elements`,
+            );
+          }
+
+          // Check for :fallthrough keyword
+          let fallthrough = false;
+          let bodyStartIndex = 2;
+
+          if (caseList.elements.length >= 3) {
+            const maybeKeyword = caseList.elements[2];
+            if (maybeKeyword.type === "symbol" &&
+                (maybeKeyword as SymbolNode).name === ":fallthrough") {
+              fallthrough = true;
+              bodyStartIndex = 3;
+            }
+          }
+
+          // Transform test value
+          const test = validateTransformed(
+            transformNode(caseList.elements[1], currentDir),
+            "case test",
+            "Case value",
+          );
+
+          // Transform body statements
+          const consequent: IR.IRNode[] = [];
+          for (let j = bodyStartIndex; j < caseList.elements.length; j++) {
+            const stmt = transformNode(caseList.elements[j], currentDir);
+            if (stmt) {
+              // Wrap expressions in ExpressionStatement
+              if (stmt.type !== IR.IRNodeType.ExpressionStatement &&
+                  stmt.type !== IR.IRNodeType.VariableDeclaration &&
+                  stmt.type !== IR.IRNodeType.ReturnStatement &&
+                  stmt.type !== IR.IRNodeType.IfStatement &&
+                  stmt.type !== IR.IRNodeType.WhileStatement &&
+                  stmt.type !== IR.IRNodeType.ForStatement &&
+                  stmt.type !== IR.IRNodeType.ForOfStatement &&
+                  stmt.type !== IR.IRNodeType.ContinueStatement &&
+                  stmt.type !== IR.IRNodeType.BreakStatement &&
+                  stmt.type !== IR.IRNodeType.ThrowStatement) {
+                consequent.push({
+                  type: IR.IRNodeType.ExpressionStatement,
+                  expression: stmt,
+                } as IR.IRExpressionStatement);
+              } else {
+                consequent.push(stmt);
+              }
+            }
+          }
+
+          cases.push({
+            type: IR.IRNodeType.SwitchCase,
+            test,
+            consequent,
+            fallthrough,
+          } as IR.IRSwitchCase);
+        } else if (caseKeyword === "default") {
+          // Transform body statements
+          const consequent: IR.IRNode[] = [];
+          for (let j = 1; j < caseList.elements.length; j++) {
+            const stmt = transformNode(caseList.elements[j], currentDir);
+            if (stmt) {
+              // Wrap expressions in ExpressionStatement
+              if (stmt.type !== IR.IRNodeType.ExpressionStatement &&
+                  stmt.type !== IR.IRNodeType.VariableDeclaration &&
+                  stmt.type !== IR.IRNodeType.ReturnStatement &&
+                  stmt.type !== IR.IRNodeType.IfStatement &&
+                  stmt.type !== IR.IRNodeType.WhileStatement &&
+                  stmt.type !== IR.IRNodeType.ForStatement &&
+                  stmt.type !== IR.IRNodeType.ForOfStatement &&
+                  stmt.type !== IR.IRNodeType.ContinueStatement &&
+                  stmt.type !== IR.IRNodeType.BreakStatement &&
+                  stmt.type !== IR.IRNodeType.ThrowStatement) {
+                consequent.push({
+                  type: IR.IRNodeType.ExpressionStatement,
+                  expression: stmt,
+                } as IR.IRExpressionStatement);
+              } else {
+                consequent.push(stmt);
+              }
+            }
+          }
+
+          cases.push({
+            type: IR.IRNodeType.SwitchCase,
+            test: null, // null test means default case
+            consequent,
+            fallthrough: false, // default case doesn't need break
+          } as IR.IRSwitchCase);
+        } else {
+          throw new ValidationError(
+            "switch case must be 'case' or 'default'",
+            "switch case",
+            "'case' or 'default'",
+            caseKeyword,
+          );
+        }
+      }
+
+      return {
+        type: IR.IRNodeType.SwitchStatement,
+        discriminant,
+        cases,
+      } as IR.IRSwitchStatement;
+    },
+    "transformSwitch",
+    TransformError,
+    [list],
+  );
+}

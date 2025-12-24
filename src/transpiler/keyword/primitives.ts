@@ -52,6 +52,19 @@ export const PRIMITIVE_OPS = new Set([
   "!",    // Logical NOT
   "??",   // Nullish coalescing
 
+  // Logical assignment operators (v2.0)
+  "??=",  // Nullish coalescing assignment
+  "&&=",  // Logical AND assignment
+  "||=",  // Logical OR assignment
+
+  // Compound assignment operators (v2.0)
+  "+=",   // Addition assignment
+  "-=",   // Subtraction assignment
+  "*=",   // Multiplication assignment
+  "/=",   // Division assignment
+  "%=",   // Remainder assignment
+  "**=",  // Exponentiation assignment
+
   // Bitwise operators (v2.0)
   "&",    // Bitwise AND
   "|",    // Bitwise OR
@@ -60,6 +73,14 @@ export const PRIMITIVE_OPS = new Set([
   "<<",   // Left shift
   ">>",   // Sign-propagating right shift
   ">>>",  // Zero-fill right shift
+
+  // Bitwise assignment operators (v2.0)
+  "&=",   // Bitwise AND assignment
+  "|=",   // Bitwise OR assignment
+  "^=",   // Bitwise XOR assignment
+  "<<=",  // Left shift assignment
+  ">>=",  // Right shift assignment
+  ">>>=", // Unsigned right shift assignment
 
   // Type and special operators (v2.0)
   "typeof",
