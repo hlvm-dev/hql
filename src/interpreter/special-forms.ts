@@ -414,6 +414,9 @@ export function handleCond(
   return null;
 }
 
+// Cached symbol for lazy sequence detection (O(1) vs symbol table lookup per call)
+const HQL_SEQ_SYMBOL = Symbol.for("hql.seq");
+
 /**
  * Convert HQL value to S-expression
  * Used for quasiquote results
@@ -443,9 +446,7 @@ export function hqlValueToSExp(value: HQLValue): SExp {
   }
 
   // Check for lazy sequences (ISeq protocol) - avoid infinite iteration on String(value)
-  // LazySeq objects have the Symbol.for("hql.seq") property set to true
-  const SEQ = Symbol.for("hql.seq");
-  if (typeof value === "object" && value !== null && (value as unknown as Record<symbol, unknown>)[SEQ]) {
+  if (typeof value === "object" && value !== null && (value as unknown as Record<symbol, unknown>)[HQL_SEQ_SYMBOL]) {
     // Return a placeholder for lazy sequences - they can't be serialized during macro expansion
     return { type: "symbol", name: "#<lazy-seq>" } as SSymbol;
   }
@@ -454,10 +455,15 @@ export function hqlValueToSExp(value: HQLValue): SExp {
   return { type: "literal", value: String(value) } as SLiteral;
 }
 
+// Cached special forms map - created once at module load (O(1) lookup vs O(n) creation)
+let _specialFormsCache: Map<string, SpecialFormHandler> | null = null;
+
 /**
- * Get all special form handlers
+ * Get all special form handlers (cached for O(1) access)
  */
 export function getSpecialForms(): Map<string, SpecialFormHandler> {
+  if (_specialFormsCache) return _specialFormsCache;
+
   const forms = new Map<string, SpecialFormHandler>();
 
   forms.set("if", handleIf);
@@ -469,5 +475,6 @@ export function getSpecialForms(): Map<string, SpecialFormHandler> {
   forms.set("quasiquote", handleQuasiquote);
   forms.set("cond", handleCond);
 
+  _specialFormsCache = forms;
   return forms;
 }

@@ -251,7 +251,7 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
     const namespaces = parseLogNamespaces(args);
 
     if (namespaces.length) {
-      Logger.allowedNamespaces = namespaces;
+      Logger.setAllowedNamespaces(namespaces);
       console.log(`Logging restricted to namespaces: ${namespaces.join(", ")}`);
     }
 

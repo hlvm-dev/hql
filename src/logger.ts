@@ -46,8 +46,10 @@ class TimingData {
 }
 
 export class Logger {
-  /** Static property to hold allowed namespaces from the CLI --log option */
-  static allowedNamespaces: string[] = [];
+  /** Static Set for O(1) namespace lookup (vs O(n) array.includes) */
+  static allowedNamespacesSet: Set<string> = new Set();
+  /** Static array of wildcard patterns (checked separately) */
+  static allowedWildcards: string[] = [];
 
   /** Instance property to control logging when no namespace filtering is applied */
   public enabled: boolean;
@@ -179,23 +181,36 @@ export class Logger {
   }
 
   /**
+   * Set allowed namespaces (converts to Set for O(1) lookup)
+   */
+  static setAllowedNamespaces(namespaces: string[]): void {
+    Logger.allowedNamespacesSet.clear();
+    Logger.allowedWildcards = [];
+    for (const ns of namespaces) {
+      if (ns.endsWith("*")) {
+        Logger.allowedWildcards.push(ns.slice(0, -1));
+      } else {
+        Logger.allowedNamespacesSet.add(ns);
+      }
+    }
+  }
+
+  /**
    * Check if a given namespace is enabled for logging
+   * O(1) for exact matches, O(w) for wildcards where w is number of wildcards
    */
   isNamespaceEnabled(namespace?: string): boolean {
     if (!namespace) return false;
 
     // If no allowed namespaces are specified, none are enabled
-    if (Logger.allowedNamespaces.length === 0) return false;
+    if (Logger.allowedNamespacesSet.size === 0 && Logger.allowedWildcards.length === 0) return false;
 
-    // Check if the exact namespace is allowed
-    if (Logger.allowedNamespaces.includes(namespace)) return true;
+    // O(1) check for exact namespace match
+    if (Logger.allowedNamespacesSet.has(namespace)) return true;
 
-    // Check for wildcard matches (e.g., "macro*" would match "macro-expansion")
-    for (const allowed of Logger.allowedNamespaces) {
-      if (
-        allowed.endsWith("*") &&
-        namespace.startsWith(allowed.slice(0, -1))
-      ) {
+    // O(w) check for wildcard matches (e.g., "macro*" would match "macro-expansion")
+    for (const prefix of Logger.allowedWildcards) {
+      if (namespace.startsWith(prefix)) {
         return true;
       }
     }
