@@ -133,6 +133,58 @@ export enum IRNodeType {
 
   // TypeScript enum (const enum)
   ConstEnumDeclaration = 78,
+
+  // =========================================================================
+  // Native TypeScript Type Expressions
+  // =========================================================================
+
+  // Type reference (e.g., Person, Array<T>, Map<K, V>)
+  TypeReference = 79,
+
+  // keyof T
+  KeyofType = 80,
+
+  // T[K] - indexed access
+  IndexedAccessType = 81,
+
+  // T extends U ? X : Y - conditional type
+  ConditionalType = 82,
+
+  // { [K in keyof T]: T[K] } - mapped type
+  MappedType = 83,
+
+  // A | B | C - union type
+  UnionType = 84,
+
+  // A & B & C - intersection type
+  IntersectionType = 85,
+
+  // [A, B, C] - tuple type
+  TupleType = 86,
+
+  // T[] or Array<T> - array type
+  ArrayType = 87,
+
+  // (a: A, b: B) => R - function type
+  FunctionTypeExpr = 88,
+
+  // infer T
+  InferType = 89,
+
+  // readonly T
+  ReadonlyType = 90,
+
+  // typeof x
+  TypeofType = 91,
+
+  // Literal types: "foo", 42, true
+  LiteralType = 92,
+
+  // Rest type in tuple: ...T
+  RestType = 93,
+
+  // Optional type in tuple: T?
+  OptionalType = 94,
 }
 
 export interface SourcePosition {
@@ -788,4 +840,163 @@ export interface IRConstEnumDeclaration extends IRNode {
   id: IRIdentifier;
   /** Enum members */
   members: Array<{ name: string; value?: number | string }>;
+}
+
+// =============================================================================
+// Native TypeScript Type Expression Interfaces
+// =============================================================================
+
+/** Base type for all type expressions */
+export type IRTypeExpression =
+  | IRTypeReference
+  | IRKeyofType
+  | IRIndexedAccessType
+  | IRConditionalType
+  | IRMappedType
+  | IRUnionType
+  | IRIntersectionType
+  | IRTupleType
+  | IRArrayType
+  | IRFunctionTypeExpr
+  | IRInferType
+  | IRReadonlyType
+  | IRTypeofType
+  | IRLiteralType
+  | IRRestType
+  | IROptionalType;
+
+/** Type reference: Person, Array<T>, Map<K, V> */
+export interface IRTypeReference extends IRNode {
+  type: IRNodeType.TypeReference;
+  /** Type name */
+  name: string;
+  /** Generic type arguments */
+  typeArguments?: IRTypeExpression[];
+}
+
+/** keyof T */
+export interface IRKeyofType extends IRNode {
+  type: IRNodeType.KeyofType;
+  /** The type to get keys from */
+  argument: IRTypeExpression;
+}
+
+/** T[K] - indexed access type */
+export interface IRIndexedAccessType extends IRNode {
+  type: IRNodeType.IndexedAccessType;
+  /** Object type */
+  objectType: IRTypeExpression;
+  /** Index type */
+  indexType: IRTypeExpression;
+}
+
+/** T extends U ? X : Y - conditional type */
+export interface IRConditionalType extends IRNode {
+  type: IRNodeType.ConditionalType;
+  /** Check type */
+  checkType: IRTypeExpression;
+  /** Extends type */
+  extendsType: IRTypeExpression;
+  /** True branch */
+  trueType: IRTypeExpression;
+  /** False branch */
+  falseType: IRTypeExpression;
+}
+
+/** { [K in keyof T]: T[K] } - mapped type */
+export interface IRMappedType extends IRNode {
+  type: IRNodeType.MappedType;
+  /** Type parameter name (K) */
+  typeParameter: string;
+  /** Constraint (keyof T) */
+  constraint: IRTypeExpression;
+  /** Value type (T[K]) */
+  valueType: IRTypeExpression;
+  /** Optional readonly modifier */
+  readonly?: boolean | "+" | "-";
+  /** Optional optional modifier */
+  optional?: boolean | "+" | "-";
+}
+
+/** A | B | C - union type */
+export interface IRUnionType extends IRNode {
+  type: IRNodeType.UnionType;
+  /** Union members */
+  types: IRTypeExpression[];
+}
+
+/** A & B & C - intersection type */
+export interface IRIntersectionType extends IRNode {
+  type: IRNodeType.IntersectionType;
+  /** Intersection members */
+  types: IRTypeExpression[];
+}
+
+/** [A, B, C] - tuple type */
+export interface IRTupleType extends IRNode {
+  type: IRNodeType.TupleType;
+  /** Tuple element types */
+  elements: IRTypeExpression[];
+  /** Named tuple labels */
+  labels?: string[];
+}
+
+/** T[] - array type */
+export interface IRArrayType extends IRNode {
+  type: IRNodeType.ArrayType;
+  /** Element type */
+  elementType: IRTypeExpression;
+}
+
+/** (a: A, b: B) => R - function type */
+export interface IRFunctionTypeExpr extends IRNode {
+  type: IRNodeType.FunctionTypeExpr;
+  /** Parameter types with names */
+  parameters: Array<{ name?: string; type: IRTypeExpression; optional?: boolean }>;
+  /** Return type */
+  returnType: IRTypeExpression;
+  /** Type parameters */
+  typeParameters?: string[];
+}
+
+/** infer T */
+export interface IRInferType extends IRNode {
+  type: IRNodeType.InferType;
+  /** Inferred type parameter name */
+  typeParameter: string;
+}
+
+/** readonly T */
+export interface IRReadonlyType extends IRNode {
+  type: IRNodeType.ReadonlyType;
+  /** The type to make readonly */
+  argument: IRTypeExpression;
+}
+
+/** typeof x */
+export interface IRTypeofType extends IRNode {
+  type: IRNodeType.TypeofType;
+  /** Expression to get type of */
+  expression: string;
+}
+
+/** Literal type: "foo", 42, true */
+export interface IRLiteralType extends IRNode {
+  type: IRNodeType.LiteralType;
+  /** Literal value */
+  value: string | number | boolean;
+}
+
+/** Rest type in tuple: ...T */
+export interface IRRestType extends IRNode {
+  type: IRNodeType.RestType;
+  /** The type being spread */
+  argument: IRTypeExpression;
+}
+
+/** Optional type: T? */
+export interface IROptionalType extends IRNode {
+  type: IRNodeType.OptionalType;
+  /** The optional type */
+  argument: IRTypeExpression;
 }

@@ -130,6 +130,23 @@ function isExpression(node: IR.IRNode): boolean {
     case IR.IRNodeType.NamespaceDeclaration:
     case IR.IRNodeType.ConstEnumDeclaration:
     case IR.IRNodeType.FunctionOverload:
+    // Native type expressions (should not be wrapped)
+    case IR.IRNodeType.TypeReference:
+    case IR.IRNodeType.KeyofType:
+    case IR.IRNodeType.IndexedAccessType:
+    case IR.IRNodeType.ConditionalType:
+    case IR.IRNodeType.MappedType:
+    case IR.IRNodeType.UnionType:
+    case IR.IRNodeType.IntersectionType:
+    case IR.IRNodeType.TupleType:
+    case IR.IRNodeType.ArrayType:
+    case IR.IRNodeType.FunctionTypeExpr:
+    case IR.IRNodeType.InferType:
+    case IR.IRNodeType.ReadonlyType:
+    case IR.IRNodeType.TypeofType:
+    case IR.IRNodeType.LiteralType:
+    case IR.IRNodeType.RestType:
+    case IR.IRNodeType.OptionalType:
       return false;
 
     default:
@@ -742,64 +759,417 @@ function initializeTransformFactory(): void {
         },
       );
 
-      // Type alias declaration: (deftype Name "type-expression")
-      // With generics: (deftype Name<T> "type-expression")
-      transformFactory.set(
-        "deftype",
-        (list, _currentDir) => {
-          if (list.elements.length < 3) {
-            throw new ValidationError(
-              "deftype requires at least 2 arguments: name and type expression",
-              "deftype",
-              "(deftype Name \"type-expression\")",
-              `${list.elements.length - 1} arguments`,
-            );
+      // =========================================================================
+      // Native TypeScript Type Expression Parser
+      // =========================================================================
+
+      /**
+       * Parse a type expression from HQL AST to IR type expression
+       * Supports native HQL syntax for TypeScript types:
+       * - Simple types: number, string, Person
+       * - Generic types: Array<T>, Map<K,V>
+       * - Union: (| A B C) → A | B | C
+       * - Intersection: (& A B C) → A & B & C
+       * - Keyof: (keyof T) → keyof T
+       * - Indexed access: ([] T K) → T[K]
+       * - Conditional: (if-extends T U Then Else) → T extends U ? Then : Else
+       * - Tuple: (tuple A B C) → [A, B, C]
+       * - Array: (array T) → T[]
+       * - Readonly: (readonly T) → readonly T
+       * - Infer: (infer T) → infer T
+       * - Typeof: (typeof expr) → typeof expr
+       * - Mapped: (mapped K T ValueType) → { [K in T]: ValueType }
+       * - Function: (-> [params] ReturnType) → (params) => ReturnType
+       */
+      function parseTypeExpression(node: HQLNode): IR.IRTypeExpression | string {
+        // String literal - pass through
+        if (node.type === "literal") {
+          const value = (node as LiteralNode).value;
+          if (typeof value === "string") {
+            return value; // String passthrough for complex expressions
           }
-          const nameNode = list.elements[1];
-          let fullName: string;
-          if (nameNode.type === "symbol") {
-            fullName = (nameNode as SymbolNode).name;
-          } else if (nameNode.type === "literal") {
-            // Allow string literal for names with special characters like "Pair<A, B>"
-            fullName = String((nameNode as LiteralNode).value);
-          } else {
-            throw new ValidationError(
-              "deftype name must be a symbol or string literal",
-              "deftype",
-              "symbol or string name",
-              nameNode.type,
-            );
-          }
-          // Parse generic parameters from name like "Name<T, U>"
-          let name = fullName;
-          let typeParameters: string[] | undefined;
-          const genericMatch = fullName.match(/^([^<]+)<(.+)>$/);
+          // Literal type (number, boolean)
+          return {
+            type: IR.IRNodeType.LiteralType,
+            value: value as string | number | boolean,
+          } as IR.IRLiteralType;
+        }
+
+        // Symbol - type reference
+        if (node.type === "symbol") {
+          const name = (node as SymbolNode).name;
+          // Check for generic syntax in symbol: Array<T>
+          const genericMatch = name.match(/^([^<]+)<(.+)>$/);
           if (genericMatch) {
-            name = genericMatch[1];
-            typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
+            const baseName = genericMatch[1];
+            const args = genericMatch[2].split(",").map((s) => s.trim());
+            return {
+              type: IR.IRNodeType.TypeReference,
+              name: baseName,
+              typeArguments: args.map((arg) => ({
+                type: IR.IRNodeType.TypeReference,
+                name: arg,
+              })) as IR.IRTypeExpression[],
+            } as IR.IRTypeReference;
           }
-          const typeNode = list.elements[2];
-          let typeExpression: string;
-          if (typeNode.type === "literal") {
-            typeExpression = String((typeNode as LiteralNode).value);
-          } else if (typeNode.type === "symbol") {
-            typeExpression = (typeNode as SymbolNode).name;
-          } else {
-            throw new ValidationError(
-              "deftype type expression must be a string literal or symbol",
-              "deftype",
-              "string literal or symbol",
-              typeNode.type,
+          return {
+            type: IR.IRNodeType.TypeReference,
+            name,
+          } as IR.IRTypeReference;
+        }
+
+        // List - compound type expression
+        if (node.type === "list") {
+          const elements = (node as ListNode).elements;
+          if (elements.length === 0) {
+            throw new TransformError("Empty type expression", node.position);
+          }
+
+          const op = elements[0];
+          if (op.type !== "symbol") {
+            throw new TransformError(
+              "Type expression must start with an operator",
+              node.position,
             );
           }
+
+          const opName = (op as SymbolNode).name;
+
+          // Helper to convert element to type expression, checking if it's a string literal
+          const toTypeExpr = (el: HQLNode): IR.IRTypeExpression => {
+            // If the element is a string literal, check if it's a simple literal or complex expression
+            if (el.type === "literal" && typeof (el as LiteralNode).value === "string") {
+              const value = (el as LiteralNode).value as string;
+              // If it looks like a complex type expression, parse it as TypeReference
+              if (value.includes(" ") || value.includes("|") || value.includes("&") ||
+                  value.includes("<") || value.includes("(") || value.includes("{")) {
+                return { type: IR.IRNodeType.TypeReference, name: value } as IR.IRTypeReference;
+              }
+              // Otherwise, it's a string literal type like "pending" or "active"
+              return { type: IR.IRNodeType.LiteralType, value } as IR.IRLiteralType;
+            }
+            const parsed = parseTypeExpression(el);
+            return typeof parsed === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
+              : parsed;
+          };
+
+          switch (opName) {
+            case "|": {
+              // Union type: (| A B C) → A | B | C
+              const types = elements.slice(1).map(toTypeExpr);
+              return {
+                type: IR.IRNodeType.UnionType,
+                types,
+              } as IR.IRUnionType;
+            }
+
+            case "&": {
+              // Intersection type: (& A B C) → A & B & C
+              const types = elements.slice(1).map(toTypeExpr);
+              return {
+                type: IR.IRNodeType.IntersectionType,
+                types,
+              } as IR.IRIntersectionType;
+            }
+
+            case "keyof": {
+              // Keyof: (keyof T) → keyof T
+              if (elements.length < 2) {
+                throw new TransformError("keyof requires a type argument", node.position);
+              }
+              const arg = parseTypeExpression(elements[1]);
+              return {
+                type: IR.IRNodeType.KeyofType,
+                argument: typeof arg === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
+                  : arg,
+              } as IR.IRKeyofType;
+            }
+
+            case "[]":
+            case "indexed": {
+              // Indexed access: ([] T K) → T[K]
+              if (elements.length < 3) {
+                throw new TransformError("Indexed access requires object and index types", node.position);
+              }
+              const objType = parseTypeExpression(elements[1]);
+              const idxElement = elements[2];
+              // Special handling for index: if it's a string literal, treat as LiteralType
+              // This ensures (indexed Person "name") → Person["name"]
+              let idxTypeResult: IR.IRTypeExpression;
+              if (idxElement.type === "literal" && typeof (idxElement as LiteralNode).value === "string") {
+                idxTypeResult = {
+                  type: IR.IRNodeType.LiteralType,
+                  value: (idxElement as LiteralNode).value as string,
+                } as IR.IRLiteralType;
+              } else {
+                const idxType = parseTypeExpression(idxElement);
+                idxTypeResult = typeof idxType === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: idxType } as IR.IRTypeReference)
+                  : idxType;
+              }
+              return {
+                type: IR.IRNodeType.IndexedAccessType,
+                objectType: typeof objType === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: objType } as IR.IRTypeReference)
+                  : objType,
+                indexType: idxTypeResult,
+              } as IR.IRIndexedAccessType;
+            }
+
+            case "if-extends":
+            case "extends": {
+              // Conditional: (if-extends T U Then Else) → T extends U ? Then : Else
+              if (elements.length < 5) {
+                throw new TransformError(
+                  "Conditional type requires check, extends, true, and false types",
+                  node.position,
+                );
+              }
+              // For check/extends types, use regular parsing (not literal detection)
+              const checkType = parseTypeExpression(elements[1]);
+              const extendsType = parseTypeExpression(elements[2]);
+              const wrapType = (t: IR.IRTypeExpression | string): IR.IRTypeExpression =>
+                typeof t === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: t } as IR.IRTypeReference)
+                  : t;
+              // For true/false types, use toTypeExpr for proper string literal handling
+              return {
+                type: IR.IRNodeType.ConditionalType,
+                checkType: wrapType(checkType),
+                extendsType: wrapType(extendsType),
+                trueType: toTypeExpr(elements[3]),
+                falseType: toTypeExpr(elements[4]),
+              } as IR.IRConditionalType;
+            }
+
+            case "tuple": {
+              // Tuple: (tuple A B C) → [A, B, C]
+              const tupleElements = elements.slice(1).map((el) => {
+                const parsed = parseTypeExpression(el);
+                return typeof parsed === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
+                  : parsed;
+              });
+              return {
+                type: IR.IRNodeType.TupleType,
+                elements: tupleElements,
+              } as IR.IRTupleType;
+            }
+
+            case "array": {
+              // Array: (array T) → T[]
+              if (elements.length < 2) {
+                throw new TransformError("array requires an element type", node.position);
+              }
+              const elemType = parseTypeExpression(elements[1]);
+              return {
+                type: IR.IRNodeType.ArrayType,
+                elementType: typeof elemType === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: elemType } as IR.IRTypeReference)
+                  : elemType,
+              } as IR.IRArrayType;
+            }
+
+            case "readonly": {
+              // Readonly: (readonly T) → readonly T
+              if (elements.length < 2) {
+                throw new TransformError("readonly requires a type argument", node.position);
+              }
+              const arg = parseTypeExpression(elements[1]);
+              return {
+                type: IR.IRNodeType.ReadonlyType,
+                argument: typeof arg === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
+                  : arg,
+              } as IR.IRReadonlyType;
+            }
+
+            case "infer": {
+              // Infer: (infer T) → infer T
+              if (elements.length < 2) {
+                throw new TransformError("infer requires a type parameter", node.position);
+              }
+              const paramNode = elements[1];
+              if (paramNode.type !== "symbol") {
+                throw new TransformError("infer type parameter must be a symbol", node.position);
+              }
+              return {
+                type: IR.IRNodeType.InferType,
+                typeParameter: (paramNode as SymbolNode).name,
+              } as IR.IRInferType;
+            }
+
+            case "typeof": {
+              // Typeof: (typeof expr) → typeof expr
+              if (elements.length < 2) {
+                throw new TransformError("typeof requires an expression", node.position);
+              }
+              const exprNode = elements[1];
+              let expression: string;
+              if (exprNode.type === "symbol") {
+                expression = (exprNode as SymbolNode).name;
+              } else if (exprNode.type === "literal") {
+                expression = String((exprNode as LiteralNode).value);
+              } else {
+                throw new TransformError("typeof expression must be a symbol or string", node.position);
+              }
+              return {
+                type: IR.IRNodeType.TypeofType,
+                expression,
+              } as IR.IRTypeofType;
+            }
+
+            case "mapped": {
+              // Mapped: (mapped K T ValueType) → { [K in T]: ValueType }
+              if (elements.length < 4) {
+                throw new TransformError(
+                  "mapped type requires parameter, constraint, and value type",
+                  node.position,
+                );
+              }
+              const paramNode = elements[1];
+              if (paramNode.type !== "symbol") {
+                throw new TransformError("mapped type parameter must be a symbol", node.position);
+              }
+              const constraint = parseTypeExpression(elements[2]);
+              const valueType = parseTypeExpression(elements[3]);
+              return {
+                type: IR.IRNodeType.MappedType,
+                typeParameter: (paramNode as SymbolNode).name,
+                constraint: typeof constraint === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: constraint } as IR.IRTypeReference)
+                  : constraint,
+                valueType: typeof valueType === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: valueType } as IR.IRTypeReference)
+                  : valueType,
+              } as IR.IRMappedType;
+            }
+
+            case "->":
+            case "fn": {
+              // Function type: (-> [params] ReturnType) → (params) => ReturnType
+              if (elements.length < 3) {
+                throw new TransformError(
+                  "function type requires parameters and return type",
+                  node.position,
+                );
+              }
+              // Parse parameters - simplified for now
+              const returnType = parseTypeExpression(elements[elements.length - 1]);
+              return {
+                type: IR.IRNodeType.FunctionTypeExpr,
+                parameters: [], // Simplified - full param parsing would be more complex
+                returnType: typeof returnType === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: returnType } as IR.IRTypeReference)
+                  : returnType,
+              } as IR.IRFunctionTypeExpr;
+            }
+
+            case "...":
+            case "rest": {
+              // Rest type: (... T) → ...T
+              if (elements.length < 2) {
+                throw new TransformError("rest type requires a type argument", node.position);
+              }
+              const arg = parseTypeExpression(elements[1]);
+              return {
+                type: IR.IRNodeType.RestType,
+                argument: typeof arg === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
+                  : arg,
+              } as IR.IRRestType;
+            }
+
+            default:
+              // Unknown operator - treat as generic type reference
+              // e.g., (Partial T) → Partial<T>
+              const typeArgs = elements.slice(1).map((el) => {
+                const parsed = parseTypeExpression(el);
+                return typeof parsed === "string"
+                  ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
+                  : parsed;
+              });
+              return {
+                type: IR.IRNodeType.TypeReference,
+                name: opName,
+                typeArguments: typeArgs.length > 0 ? typeArgs : undefined,
+              } as IR.IRTypeReference;
+          }
+        }
+
+        throw new TransformError(`Unknown type expression: ${node.type}`, node.position);
+      }
+
+      // =========================================================================
+      // Type alias declaration: (type Name TypeExpr) or (deftype Name "...")
+      // =========================================================================
+      // Supports both native syntax and string passthrough:
+      //   (type Keys (keyof Person))        → type Keys = keyof Person;
+      //   (type Union (| A B C))            → type Union = A | B | C;
+      //   (type Complex "T extends U ? X : Y") → type Complex = T extends U ? X : Y;
+
+      const typeAliasHandler = (list: ListNode, _currentDir: string) => {
+        if (list.elements.length < 3) {
+          throw new ValidationError(
+            "type requires at least 2 arguments: name and type expression",
+            "type",
+            "(type Name TypeExpr)",
+            `${list.elements.length - 1} arguments`,
+          );
+        }
+        const nameNode = list.elements[1];
+        let fullName: string;
+        if (nameNode.type === "symbol") {
+          fullName = (nameNode as SymbolNode).name;
+        } else if (nameNode.type === "literal") {
+          // Allow string literal for names with special characters like "Pair<A, B>"
+          fullName = String((nameNode as LiteralNode).value);
+        } else {
+          throw new ValidationError(
+            "type name must be a symbol or string literal",
+            "type",
+            "symbol or string name",
+            nameNode.type,
+          );
+        }
+        // Parse generic parameters from name like "Name<T, U>"
+        let name = fullName;
+        let typeParameters: string[] | undefined;
+        const genericMatch = fullName.match(/^([^<]+)<(.+)>$/);
+        if (genericMatch) {
+          name = genericMatch[1];
+          typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
+        }
+
+        const typeNode = list.elements[2];
+
+        // Try to parse as native type expression
+        const parsedType = parseTypeExpression(typeNode);
+
+        // If it's a string, use string passthrough (for complex expressions)
+        if (typeof parsedType === "string") {
           return {
             type: IR.IRNodeType.TypeAliasDeclaration,
             name,
-            typeExpression,
+            typeExpression: parsedType,
             typeParameters,
           } as IR.IRTypeAliasDeclaration;
-        },
-      );
+        }
+
+        // Otherwise, it's a native type expression - we'll generate TS from the IR
+        return {
+          type: IR.IRNodeType.TypeAliasDeclaration,
+          name,
+          typeExpression: parsedType, // Now stores IR node instead of string
+          typeParameters,
+        } as IR.IRTypeAliasDeclaration & { typeExpression: IR.IRTypeExpression };
+      };
+
+      // Register both "type" and "deftype" for backward compatibility
+      transformFactory.set("type", typeAliasHandler);
+      transformFactory.set("deftype", typeAliasHandler);
 
       // Interface declaration: (interface Name "{ body }")
       // With generics: (interface Name<T> "{ body }")

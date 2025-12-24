@@ -899,6 +899,56 @@ class TSGenerator {
         this.generateDecorator(node as IR.IRDecorator);
         break;
 
+      // Native TypeScript type expressions
+      case IR.IRNodeType.TypeReference:
+        this.generateTypeReference(node as IR.IRTypeReference);
+        break;
+      case IR.IRNodeType.KeyofType:
+        this.generateKeyofType(node as IR.IRKeyofType);
+        break;
+      case IR.IRNodeType.IndexedAccessType:
+        this.generateIndexedAccessType(node as IR.IRIndexedAccessType);
+        break;
+      case IR.IRNodeType.ConditionalType:
+        this.generateConditionalType(node as IR.IRConditionalType);
+        break;
+      case IR.IRNodeType.MappedType:
+        this.generateMappedType(node as IR.IRMappedType);
+        break;
+      case IR.IRNodeType.UnionType:
+        this.generateUnionType(node as IR.IRUnionType);
+        break;
+      case IR.IRNodeType.IntersectionType:
+        this.generateIntersectionType(node as IR.IRIntersectionType);
+        break;
+      case IR.IRNodeType.TupleType:
+        this.generateTupleType(node as IR.IRTupleType);
+        break;
+      case IR.IRNodeType.ArrayType:
+        this.generateArrayType(node as IR.IRArrayType);
+        break;
+      case IR.IRNodeType.FunctionTypeExpr:
+        this.generateFunctionTypeExpr(node as IR.IRFunctionTypeExpr);
+        break;
+      case IR.IRNodeType.InferType:
+        this.generateInferType(node as IR.IRInferType);
+        break;
+      case IR.IRNodeType.ReadonlyType:
+        this.generateReadonlyType(node as IR.IRReadonlyType);
+        break;
+      case IR.IRNodeType.TypeofType:
+        this.generateTypeofType(node as IR.IRTypeofType);
+        break;
+      case IR.IRNodeType.LiteralType:
+        this.generateLiteralType(node as IR.IRLiteralType);
+        break;
+      case IR.IRNodeType.RestType:
+        this.generateRestType(node as IR.IRRestType);
+        break;
+      case IR.IRNodeType.OptionalType:
+        this.generateOptionalType(node as IR.IROptionalType);
+        break;
+
       default:
         logger.warn(`Unknown IR node type: ${node.type}`);
     }
@@ -925,7 +975,9 @@ class TSGenerator {
   // TypeScript Type Declaration Generators
   // ============================================================================
 
-  private generateTypeAliasDeclaration(node: IR.IRTypeAliasDeclaration): void {
+  private generateTypeAliasDeclaration(
+    node: IR.IRTypeAliasDeclaration & { typeExpression: string | IR.IRTypeExpression },
+  ): void {
     this.emit("type ", node.position);
     this.emit(node.name);
     if (node.typeParameters && node.typeParameters.length > 0) {
@@ -934,8 +986,259 @@ class TSGenerator {
       this.emit(">");
     }
     this.emit(" = ");
-    this.emit(node.typeExpression);
+    // Handle both string (passthrough) and IR type expressions
+    if (typeof node.typeExpression === "string") {
+      this.emit(node.typeExpression);
+    } else {
+      this.generateTypeExpression(node.typeExpression);
+    }
     this.emit(";\n");
+  }
+
+  /**
+   * Generate TypeScript code for a type expression IR node
+   */
+  private generateTypeExpression(node: IR.IRTypeExpression): void {
+    switch (node.type) {
+      case IR.IRNodeType.TypeReference:
+        this.generateTypeReference(node as IR.IRTypeReference);
+        break;
+      case IR.IRNodeType.KeyofType:
+        this.generateKeyofType(node as IR.IRKeyofType);
+        break;
+      case IR.IRNodeType.IndexedAccessType:
+        this.generateIndexedAccessType(node as IR.IRIndexedAccessType);
+        break;
+      case IR.IRNodeType.ConditionalType:
+        this.generateConditionalType(node as IR.IRConditionalType);
+        break;
+      case IR.IRNodeType.MappedType:
+        this.generateMappedType(node as IR.IRMappedType);
+        break;
+      case IR.IRNodeType.UnionType:
+        this.generateUnionType(node as IR.IRUnionType);
+        break;
+      case IR.IRNodeType.IntersectionType:
+        this.generateIntersectionType(node as IR.IRIntersectionType);
+        break;
+      case IR.IRNodeType.TupleType:
+        this.generateTupleType(node as IR.IRTupleType);
+        break;
+      case IR.IRNodeType.ArrayType:
+        this.generateArrayType(node as IR.IRArrayType);
+        break;
+      case IR.IRNodeType.FunctionTypeExpr:
+        this.generateFunctionTypeExpr(node as IR.IRFunctionTypeExpr);
+        break;
+      case IR.IRNodeType.InferType:
+        this.generateInferType(node as IR.IRInferType);
+        break;
+      case IR.IRNodeType.ReadonlyType:
+        this.generateReadonlyType(node as IR.IRReadonlyType);
+        break;
+      case IR.IRNodeType.TypeofType:
+        this.generateTypeofType(node as IR.IRTypeofType);
+        break;
+      case IR.IRNodeType.LiteralType:
+        this.generateLiteralType(node as IR.IRLiteralType);
+        break;
+      case IR.IRNodeType.RestType:
+        this.generateRestType(node as IR.IRRestType);
+        break;
+      case IR.IRNodeType.OptionalType:
+        this.generateOptionalType(node as IR.IROptionalType);
+        break;
+      default:
+        logger.warn(`Unknown type expression: ${(node as IR.IRNode).type}`);
+    }
+  }
+
+  // Type reference: Person, Array<T>
+  private generateTypeReference(node: IR.IRTypeReference): void {
+    this.emit(node.name, node.position);
+    if (node.typeArguments && node.typeArguments.length > 0) {
+      this.emit("<");
+      for (let i = 0; i < node.typeArguments.length; i++) {
+        if (i > 0) this.emit(", ");
+        this.generateTypeExpression(node.typeArguments[i]);
+      }
+      this.emit(">");
+    }
+  }
+
+  // keyof T
+  private generateKeyofType(node: IR.IRKeyofType): void {
+    this.emit("keyof ", node.position);
+    this.generateTypeExpression(node.argument);
+  }
+
+  // T[K]
+  private generateIndexedAccessType(node: IR.IRIndexedAccessType): void {
+    this.generateTypeExpression(node.objectType);
+    this.emit("[");
+    this.generateTypeExpression(node.indexType);
+    this.emit("]");
+  }
+
+  // T extends U ? X : Y
+  private generateConditionalType(node: IR.IRConditionalType): void {
+    this.generateTypeExpression(node.checkType);
+    this.emit(" extends ");
+    this.generateTypeExpression(node.extendsType);
+    this.emit(" ? ");
+    this.generateTypeExpression(node.trueType);
+    this.emit(" : ");
+    this.generateTypeExpression(node.falseType);
+  }
+
+  // { [K in T]: ValueType }
+  private generateMappedType(node: IR.IRMappedType): void {
+    this.emit("{ ");
+    if (node.readonly === true || node.readonly === "+") {
+      this.emit("readonly ");
+    } else if (node.readonly === "-") {
+      this.emit("-readonly ");
+    }
+    this.emit("[");
+    this.emit(node.typeParameter);
+    this.emit(" in ");
+    this.generateTypeExpression(node.constraint);
+    this.emit("]");
+    if (node.optional === true || node.optional === "+") {
+      this.emit("?");
+    } else if (node.optional === "-") {
+      this.emit("-?");
+    }
+    this.emit(": ");
+    this.generateTypeExpression(node.valueType);
+    this.emit(" }");
+  }
+
+  // Check if a type needs parentheses for precedence
+  private needsParens(node: IR.IRTypeExpression, context: "union" | "array"): boolean {
+    if (context === "union") {
+      // In union context, intersection needs parens: (A & B) | C
+      return node.type === IR.IRNodeType.IntersectionType;
+    }
+    if (context === "array") {
+      // In array context, union/intersection/function/infer need parens: (A | B)[], (infer U)[]
+      return node.type === IR.IRNodeType.UnionType ||
+             node.type === IR.IRNodeType.IntersectionType ||
+             node.type === IR.IRNodeType.FunctionTypeExpr ||
+             node.type === IR.IRNodeType.InferType;
+    }
+    return false;
+  }
+
+  // A | B | C
+  private generateUnionType(node: IR.IRUnionType): void {
+    for (let i = 0; i < node.types.length; i++) {
+      if (i > 0) this.emit(" | ");
+      const t = node.types[i];
+      if (this.needsParens(t, "union")) {
+        this.emit("(");
+        this.generateTypeExpression(t);
+        this.emit(")");
+      } else {
+        this.generateTypeExpression(t);
+      }
+    }
+  }
+
+  // A & B & C
+  private generateIntersectionType(node: IR.IRIntersectionType): void {
+    for (let i = 0; i < node.types.length; i++) {
+      if (i > 0) this.emit(" & ");
+      this.generateTypeExpression(node.types[i]);
+    }
+  }
+
+  // [A, B, C]
+  private generateTupleType(node: IR.IRTupleType): void {
+    this.emit("[");
+    for (let i = 0; i < node.elements.length; i++) {
+      if (i > 0) this.emit(", ");
+      if (node.labels && node.labels[i]) {
+        this.emit(node.labels[i]);
+        this.emit(": ");
+      }
+      this.generateTypeExpression(node.elements[i]);
+    }
+    this.emit("]");
+  }
+
+  // T[]
+  private generateArrayType(node: IR.IRArrayType): void {
+    const elem = node.elementType;
+    if (this.needsParens(elem, "array")) {
+      this.emit("(");
+      this.generateTypeExpression(elem);
+      this.emit(")");
+    } else {
+      this.generateTypeExpression(elem);
+    }
+    this.emit("[]");
+  }
+
+  // (a: A, b: B) => R
+  private generateFunctionTypeExpr(node: IR.IRFunctionTypeExpr): void {
+    if (node.typeParameters && node.typeParameters.length > 0) {
+      this.emit("<");
+      this.emit(node.typeParameters.join(", "));
+      this.emit(">");
+    }
+    this.emit("(");
+    for (let i = 0; i < node.parameters.length; i++) {
+      if (i > 0) this.emit(", ");
+      const param = node.parameters[i];
+      if (param.name) {
+        this.emit(param.name);
+        if (param.optional) this.emit("?");
+        this.emit(": ");
+      }
+      this.generateTypeExpression(param.type);
+    }
+    this.emit(") => ");
+    this.generateTypeExpression(node.returnType);
+  }
+
+  // infer T
+  private generateInferType(node: IR.IRInferType): void {
+    this.emit("infer ", node.position);
+    this.emit(node.typeParameter);
+  }
+
+  // readonly T
+  private generateReadonlyType(node: IR.IRReadonlyType): void {
+    this.emit("readonly ", node.position);
+    this.generateTypeExpression(node.argument);
+  }
+
+  // typeof x
+  private generateTypeofType(node: IR.IRTypeofType): void {
+    this.emit("typeof ", node.position);
+    this.emit(node.expression);
+  }
+
+  // Literal type: "foo", 42, true
+  private generateLiteralType(node: IR.IRLiteralType): void {
+    if (typeof node.value === "string") {
+      this.emit(JSON.stringify(node.value), node.position);
+    } else {
+      this.emit(String(node.value), node.position);
+    }
+  }
+
+  // ...T
+  private generateRestType(node: IR.IRRestType): void {
+    this.emit("...", node.position);
+    this.generateTypeExpression(node.argument);
+  }
+
+  // T?
+  private generateOptionalType(node: IR.IROptionalType): void {
+    this.generateTypeExpression(node.argument);
+    this.emit("?");
   }
 
   private generateInterfaceDeclaration(node: IR.IRInterfaceDeclaration): void {
