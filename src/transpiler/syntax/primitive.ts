@@ -15,7 +15,7 @@ import {
   PRIMITIVE_CLASS,
   PRIMITIVE_DATA_STRUCTURE,
   PRIMITIVE_OPS,
-  JS_LITERAL_KEYWORDS,
+  JS_LITERAL_KEYWORDS_SET,
 } from "../keyword/primitives.ts";
 
 /**
@@ -435,7 +435,8 @@ export function transformEqualsOperator(
         const symbolName = (firstArg as SymbolNode).name;
 
         // Special literal symbols - ERROR (can't assign to null/undefined/true/false)
-        if (JS_LITERAL_KEYWORDS.includes(symbolName as typeof JS_LITERAL_KEYWORDS[number])) {
+        // O(1) Set lookup instead of O(n) array scan
+        if (JS_LITERAL_KEYWORDS_SET.has(symbolName)) {
           throw new ValidationError(
             `Cannot assign to '${symbolName}'. Use === for comparison.`,
             "= operator",

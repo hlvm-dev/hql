@@ -131,6 +131,9 @@ export const PRIMITIVE_DATA_STRUCTURE = new Set([
  */
 export const ARITHMETIC_OPS = ["+", "-", "*", "/", "%", "**"] as const;
 
+/** Set version for O(1) lookup */
+export const ARITHMETIC_OPS_SET: ReadonlySet<string> = new Set(ARITHMETIC_OPS);
+
 /**
  * Comparison operators - for syntax highlighting categorization.
  */
@@ -187,11 +190,17 @@ export const ALL_DECLARATION_BINDING_KEYWORDS = [
   ...BINDING_KEYWORDS,
 ] as const;
 
+/** Set version for O(1) lookup */
+export const ALL_DECLARATION_BINDING_KEYWORDS_SET: ReadonlySet<string> = new Set(ALL_DECLARATION_BINDING_KEYWORDS);
+
 /**
  * JavaScript literal keywords - values that transpile directly to JS literals.
  * These are language constants that should never change.
  */
 export const JS_LITERAL_KEYWORDS = ["null", "undefined", "true", "false"] as const;
+
+/** Set version for O(1) lookup */
+export const JS_LITERAL_KEYWORDS_SET: ReadonlySet<string> = new Set(JS_LITERAL_KEYWORDS);
 
 /**
  * HQL-specific constant keywords (in addition to JS literals).

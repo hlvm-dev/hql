@@ -14,7 +14,7 @@ import { globalLogger as logger } from "../../logger.ts";
 import { processVectorElements } from "./data-structure.ts";
 import { globalSymbolTable } from "../symbol_table.ts";
 import { globalMacroRegistry } from "../../imports.ts";
-import { ALL_DECLARATION_BINDING_KEYWORDS } from "../keyword/primitives.ts";
+import { ALL_DECLARATION_BINDING_KEYWORDS_SET } from "../keyword/primitives.ts";
 
 /**
  * Check if a list is a vector import
@@ -80,7 +80,8 @@ export function isDeclarationExport(list: ListNode): boolean {
 
   const keyword = (innerFirst as SymbolNode).name;
   // Support all declaration and binding keywords (from primitives.ts)
-  return ALL_DECLARATION_BINDING_KEYWORDS.includes(keyword as typeof ALL_DECLARATION_BINDING_KEYWORDS[number]);
+  // O(1) Set lookup instead of O(n) array scan
+  return ALL_DECLARATION_BINDING_KEYWORDS_SET.has(keyword);
 }
 
 /**

@@ -9,7 +9,7 @@ import { validateTransformed } from "../utils/validation-helpers.ts";
 import { ensureReturnStatement } from "../utils/ir-helpers.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
-import { ARITHMETIC_OPS } from "../keyword/primitives.ts";
+import { ARITHMETIC_OPS_SET } from "../keyword/primitives.ts";
 import { VECTOR_SYMBOL, EMPTY_ARRAY_SYMBOL } from "../../common/runtime-helper-impl.ts";
 
 // Stack to track the current loop context for recur targeting
@@ -530,7 +530,8 @@ function tryOptimizeArithmetic(
   const operator = (list.elements[0] as SymbolNode).name;
 
   // Must be arithmetic operator (from primitives.ts single source of truth)
-  if (!ARITHMETIC_OPS.includes(operator as typeof ARITHMETIC_OPS[number])) {
+  // O(1) Set lookup instead of O(n) array scan
+  if (!ARITHMETIC_OPS_SET.has(operator)) {
     return null;
   }
 
