@@ -16,6 +16,15 @@ import { globalSymbolTable } from "../symbol_table.ts";
 import { globalMacroRegistry } from "../../imports.ts";
 import { ALL_DECLARATION_BINDING_KEYWORDS_SET } from "../keyword/primitives.ts";
 
+/** Valid export declaration types - cached Set for O(1) lookup */
+const VALID_EXPORT_DECLARATION_TYPES: ReadonlySet<IR.IRNodeType> = new Set([
+  IR.IRNodeType.FunctionDeclaration,
+  IR.IRNodeType.VariableDeclaration,
+  IR.IRNodeType.ClassDeclaration,
+  IR.IRNodeType.EnumDeclaration,
+  IR.IRNodeType.FnFunctionDeclaration,
+]);
+
 /**
  * Check if a list is a vector import
  */
@@ -502,13 +511,8 @@ export function transformDeclarationExport(
 
       // Validate that it IS a declaration or function that can be exported
       if (
-        ![
-          IR.IRNodeType.FunctionDeclaration,
-          IR.IRNodeType.VariableDeclaration,
-          IR.IRNodeType.ClassDeclaration,
-          IR.IRNodeType.EnumDeclaration,
-          IR.IRNodeType.FnFunctionDeclaration,
-        ].includes(transformed.type)
+        // O(1) Set lookup instead of O(n) array creation + includes
+        !VALID_EXPORT_DECLARATION_TYPES.has(transformed.type)
       ) {
         // Allow exporting expressions if they are valid declarations in disguise?
         // No, export named must be a declaration.

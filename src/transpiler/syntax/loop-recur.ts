@@ -604,7 +604,8 @@ function tryOptimizeArithmetic(
   // (/ var n) → var /= n
 
   // For subtraction and division, param must be on the left
-  if (["-", "/"].includes(operator) && !isLeftParam) {
+  // Use direct comparison instead of array creation + includes (O(1) vs O(n) + allocation)
+  if ((operator === "-" || operator === "/") && !isLeftParam) {
     return null;
   }
 

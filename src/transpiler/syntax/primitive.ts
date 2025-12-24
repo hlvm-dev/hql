@@ -18,6 +18,11 @@ import {
   JS_LITERAL_KEYWORDS_SET,
 } from "../keyword/primitives.ts";
 
+/** Compound assignment operators - cached Set for O(1) lookup */
+const COMPOUND_ASSIGN_OPS_SET: ReadonlySet<string> = new Set([
+  "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>=", ">>>="
+]);
+
 /**
  * Transform primitive operations (+, -, *, /, etc.).
  */
@@ -43,8 +48,8 @@ export function transformPrimitiveOp(
       }
 
       // Handle compound assignment operators (+=, -=, *=, /=, %=, **=, &=, |=, ^=, <<=, >>=, >>>=)
-      const compoundAssignOps = ["+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>=", ">>>="];
-      if (compoundAssignOps.includes(op)) {
+      // Use module-level Set for O(1) lookup instead of creating array each call
+      if (COMPOUND_ASSIGN_OPS_SET.has(op)) {
         return transformCompoundAssignment(list, currentDir, transformNode, op);
       }
 
