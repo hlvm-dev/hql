@@ -74,9 +74,6 @@ async function main(): Promise<void> {
   const command = args[0];
   const commandArgs = args.slice(1);
 
-  // Override platformGetArgs to return command-specific args
-  const originalGetArgs = platformGetArgs;
-
   switch (command) {
     case "run":
       // Run command with remaining args

@@ -1082,7 +1082,7 @@ function initializeTransformFactory(): void {
               } as IR.IRRestType;
             }
 
-            default:
+            default: {
               // Unknown operator - treat as generic type reference
               // e.g., (Partial T) → Partial<T>
               const typeArgs = elements.slice(1).map((el) => {
@@ -1096,6 +1096,7 @@ function initializeTransformFactory(): void {
                 name: opName,
                 typeArguments: typeArgs.length > 0 ? typeArgs : undefined,
               } as IR.IRTypeReference;
+            }
           }
         }
 
