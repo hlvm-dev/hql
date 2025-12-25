@@ -5,10 +5,14 @@
 
 ## Overview
 
-HQL provides conditional expressions for control flow:
+HQL v2.0 provides conditional expressions for control flow:
 
 1. **`if`** - Binary conditional (true/false branches)
 2. **`cond`** - Multi-way conditional (pattern matching style)
+3. **`switch`** - JavaScript-style switch statement (v2.0)
+4. **`when`** - Execute when condition is true (v2.0)
+5. **`unless`** - Execute when condition is false (v2.0)
+6. **`match`** - Pattern matching expression (v2.0)
 
 All conditionals are **expressions** that return values (not statements).
 
@@ -78,6 +82,131 @@ All conditionals are **expressions** that return values (not statements).
   (true "large"))  ; => "medium"
 ```
 
+### Switch Statement (v2.0)
+
+```lisp
+; Basic switch
+(switch value
+  (case 1 (print "one"))
+  (case 2 (print "two"))
+  (default (print "other")))
+
+; Switch with string cases
+(let status "active")
+(switch status
+  (case "active" (print "Running"))
+  (case "pending" (print "Waiting"))
+  (case "error" (print "Failed"))
+  (default (print "Unknown")))
+
+; Switch with fallthrough
+(switch grade
+  (case "A" :fallthrough)
+  (case "B" (print "Good"))
+  (default (print "Other")))
+
+; Switch as expression
+(let result
+  (switch code
+    (case 200 "OK")
+    (case 404 "Not Found")
+    (default "Error")))
+```
+
+### When Expression (v2.0)
+
+```lisp
+; Execute when true
+(when (> x 10)
+  (print "x is large")
+  (do-something))
+
+; when returns nil if condition is false
+(when false
+  (print "never prints"))  ; => nil
+
+; Equivalent to (if condition (do body...) nil)
+```
+
+### Unless Expression (v2.0)
+
+```lisp
+; Execute when false
+(unless (empty? list)
+  (print "list has items")
+  (process list))
+
+; unless returns nil if condition is true
+(unless true
+  (print "never prints"))  ; => nil
+
+; Equivalent to (if (not condition) (do body...) nil)
+```
+
+### If-Let Expression (v2.0)
+
+```lisp
+; Conditional binding - only execute then-branch if binding is truthy
+(if-let [user (find-user id)]
+  (greet user)                    ; user is bound and truthy
+  (print "User not found"))       ; else branch
+
+; Bracket or paren syntax both work
+(if-let (result (compute))
+  (use result)
+  (handle-error))
+
+; Common pattern for optional values
+(if-let [config (load-config)]
+  (apply-config config)
+  (use-defaults))
+```
+
+### When-Let Expression (v2.0)
+
+```lisp
+; Conditional binding (single branch)
+(when-let [data (fetch-data)]
+  (process data)
+  (save data))                    ; Only if data is truthy
+
+; Useful for chained optional access
+(when-let [user (get-user)]
+  (when-let [email user.email]
+    (send-notification email)))
+```
+
+### Match Expression (v2.0)
+
+```lisp
+; Pattern matching
+(match value
+  (case 1 "one")
+  (case 2 "two")
+  (default "other"))
+
+; Match with destructuring
+(match point
+  (case [0, 0] "origin")
+  (case [x, 0] (+ "on x-axis at " x))
+  (case [0, y] (+ "on y-axis at " y))
+  (case [x, y] (+ "at (" x ", " y ")")))
+
+; Match with guards
+(match n
+  (case x (if (> x 0)) "positive")
+  (case x (if (< x 0)) "negative")
+  (default "zero"))
+
+; Match as expression
+(let description
+  (match status-code
+    (case 200 "Success")
+    (case 404 "Not Found")
+    (case 500 "Server Error")
+    (default "Unknown")))
+```
+
 ## Implementation Details
 
 ### If Expression
@@ -125,11 +254,28 @@ default
 
 ## Features Covered
 
-✅ If expression with true/false branches ✅ If with expression conditions ✅ If
-with comparison operators (=, !=, <, >, <=, >=) ✅ If with multiple statements
-(using `do`) ✅ Nested if expressions ✅ If as expression in bindings ✅ If as
-return value in functions ✅ Cond with multiple clauses ✅ Cond with else clause
+### Core Conditionals
+✅ If expression with true/false branches
+✅ If with expression conditions
+✅ If with comparison operators (=, !=, <, >, <=, >=)
+✅ If with multiple statements (using `do`)
+✅ Nested if expressions
+✅ If as expression in bindings
+✅ If as return value in functions
+✅ Cond with multiple clauses
+✅ Cond with else clause
 ✅ Cond with variable expressions
+
+### Extended Conditionals (v2.0)
+✅ Switch statement with case/default
+✅ Switch with fallthrough
+✅ When expression (single-branch true)
+✅ Unless expression (single-branch false)
+✅ If-let (conditional binding with else)
+✅ When-let (conditional binding, single branch)
+✅ Match expression with pattern matching
+✅ Match with destructuring (arrays, objects)
+✅ Match with guards
 
 ## Test Coverage
 
@@ -318,8 +464,6 @@ fallback
 
 ## Future Enhancements
 
-- Pattern matching (destructuring in conditions)
-- `when` and `unless` helpers (syntactic sugar)
-- `case` expression (value-based dispatch)
-- Guards in function definitions
-- Exhaustiveness checking for enums
+- Exhaustiveness checking for enums in match
+- Pattern matching in function parameters
+- Nested pattern destructuring optimization

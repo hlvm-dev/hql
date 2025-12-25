@@ -850,9 +850,8 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
       // Point to the end of the line where the closing parenthesis should be
       const lastColumn = errorLine.length;
 
-      // Add more context to the error message
-      errorMessage =
-        `Unclosed list starting at line ${lineNumber}. Check for a missing closing parenthesis ')'`;
+      // Concise error message (location shown separately in formatted output)
+      errorMessage = `Unclosed list. Check for a missing closing parenthesis ')'`;
 
       // Create a precise error position that points to the end of the line
       // where the closing parenthesis is likely missing
@@ -1014,7 +1013,7 @@ function matchNextToken(
   }
 
   throw new ParseError(
-    `Unexpected character: '${unexpectedChar}' at line ${line}, column ${column}${errorContext}`,
+    `Unexpected character: '${unexpectedChar}'${errorContext}`,
     {
       line: position.line,
       column: position.column,

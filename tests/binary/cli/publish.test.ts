@@ -52,7 +52,7 @@ Deno.test({
       const originalCwd = Deno.cwd();
       try {
         // Create a minimal module
-        await Deno.writeTextFile(`${dir}/mod.hql`, `(def greeting "hello")`);
+        await Deno.writeTextFile(`${dir}/mod.hql`, `(const greeting "hello")`);
 
         Deno.chdir(dir);
         const result = await runCLI("publish", ["--dry-run", "-y"]);

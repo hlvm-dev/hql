@@ -20,7 +20,7 @@ Deno.test({
     // HQL repeat is a MACRO that executes body n times (like a loop)
     const result = await runExpression(`
       (var count 0)
-      (repeat 5 (set count (+ count 1)))
+      (repeat 5 (= count (+ count 1)))
       (print count)
     `);
     assertEquals(result.success, true, result.stderr);
@@ -36,7 +36,7 @@ Deno.test({
     // Use repeat macro to build up a result
     const result = await runExpression(`
       (var sum 0)
-      (repeat 3 (set sum (+ sum 10)))
+      (repeat 3 (= sum (+ sum 10)))
       (print sum)
     `);
     assertEquals(result.success, true, result.stderr);
@@ -70,7 +70,7 @@ Deno.test({
     // repeatedly can use closures for stateful generation
     const result = await runExpression(`
       (var counter 0)
-      (def nextVal (fn [] (set counter (+ counter 1)) counter))
+      (let nextVal (fn [] (= counter (+ counter 1)) counter))
       (print (vec (take 5 (repeatedly nextVal))))
     `);
     assertEquals(result.success, true, result.stderr);

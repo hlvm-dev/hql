@@ -36,9 +36,9 @@ export function parseSymbolId(symbolId: SymbolId): {
 }
 
 /**
- * Reference to a symbol usage
+ * Reference to a symbol usage (internal type for future use)
  */
-export interface SymbolReference {
+interface SymbolReference {
   filePath: string;
   range: HQLRange;
   kind: ReferenceKind;

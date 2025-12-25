@@ -258,7 +258,6 @@ export function transformVectorExport(
     () => {
       const vectorNode = list.elements[1];
       if (vectorNode.type !== "list") {
-        console.error("DEBUG: transformVectorExport received non-list:", vectorNode.type, JSON.stringify(vectorNode, null, 2));
         throw new ValidationError(
           "Export argument must be a vector (list)",
           "vector export",

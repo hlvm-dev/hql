@@ -49,6 +49,13 @@ temp/
 test-simple.js
 !test/fixtures/*.js  # Keep test fixtures (these are intentional)
 
+# Test binaries and artifacts (from deno compile tests)
+test_bin
+hql_final_test
+ollama_extracted
+test_resource.txt
+/resources/
+
 # Documentation examples - ignore compiled files
 doc/examples/**/*.js
 mod.js

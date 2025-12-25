@@ -45,7 +45,7 @@ export function isGensymSymbol(value: unknown): value is GensymSymbol {
   return value instanceof GensymSymbol;
 }
 
-export let gensymCounter = 0;
+let gensymCounter = 0;
 
 /**
  * Generate a unique symbol name for macro hygiene

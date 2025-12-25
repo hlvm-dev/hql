@@ -875,9 +875,6 @@ async function bundleWithEsbuild(
 
     const result = await esbuild.build(buildOptions);
 
-    // esbuild.stop() doesn't exist in newer versions
-    // await esbuild.stop();
-
     // Write output manually (browser WASM version doesn't support write: true)
     if (result.outputFiles && result.outputFiles.length > 0) {
       const outputContent = result.outputFiles[0].text;

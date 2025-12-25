@@ -276,7 +276,7 @@ Deno.test("Interpreter - Error: undefined symbol", () => {
   assertThrows(
     () => evalExpr("undefined-symbol"),
     Error,
-    "Undefined symbol"
+    "is not defined"
   );
 });
 

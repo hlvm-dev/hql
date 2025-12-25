@@ -112,7 +112,7 @@ Template literals follow JavaScript's `toString()` coercion rules:
 `Number: ${42}`                  ; => "Number: 42"
 `Boolean: ${true}`               ; => "Boolean: true"
 `Array: ${[1 2 3]}`              ; => "Array: 1,2,3"
-`Object: ${{:x 10}}`             ; => "Object: [object Object]"
+`Object: ${{x: 10}}`             ; => "Object: [object Object]"
 `Null: ${null}`                  ; => "Null: null"
 `Undefined: ${undefined}`        ; => "Undefined: undefined"
 ```
@@ -215,20 +215,20 @@ Template literals follow JavaScript's `toString()` coercion rules:
 ```lisp
 (fn renderUser [user]
   `<div class="user">
-     <h2>${(get user :name)}</h2>
-     <p>Email: ${(get user :email)}</p>
+     <h2>${user.name}</h2>
+     <p>Email: ${user.email}</p>
    </div>`)
 
-(renderUser {:name "Alice" :email "alice@example.com"})
+(renderUser {name: "Alice" email: "alice@example.com"})
 ```
 
 ### URL Construction
 
 ```lisp
 (fn buildApiUrl [endpoint params]
-  `/api/${endpoint}?id=${(get params :id)}&type=${(get params :type)}`)
+  `/api/${endpoint}?id=${params.id}&type=${params.type}`)
 
-(buildApiUrl "users" {:id 123 :type "admin"})
+(buildApiUrl "users" {id: 123 type: "admin"})
 ; => "/api/users?id=123&type=admin"
 ```
 

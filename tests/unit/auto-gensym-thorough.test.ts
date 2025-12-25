@@ -158,8 +158,8 @@ Deno.test("auto-gensym: swap macro compiles and would work", async () => {
   const source = `
     (macro my-swap [a b]
       \`(let (temp# ~a)
-         (set ~a ~b)
-         (set ~b temp#)))
+         (= ~a ~b)
+         (= ~b temp#)))
 
     (fn []
       (var x 1)

@@ -5,15 +5,18 @@
 
 ## Overview
 
-HQL provides full object-oriented programming (OOP) support with classes:
+HQL v2.0 provides full object-oriented programming (OOP) support with classes:
 
 1. **Class definitions** - Define reusable object templates
 2. **Constructors** - Initialize instance state
 3. **Methods** - Instance functions with `this` binding
 4. **Fields** - Mutable (`var`) and immutable (`let`) properties
-5. **Multiple instances** - Independent object state
-6. **Default parameters** - Methods with optional arguments
-7. **Property access** - Dot notation for members
+5. **Static members** - Class-level properties and methods (v2.0)
+6. **Private fields** - Encapsulated state with `#` prefix (v2.0)
+7. **Getters/Setters** - Computed property access (v2.0)
+8. **Multiple instances** - Independent object state
+9. **Default parameters** - Methods with optional arguments
+10. **Property access** - Dot notation for members
 
 All classes compile to JavaScript ES6 class syntax.
 
@@ -129,6 +132,103 @@ All classes compile to JavaScript ES6 class syntax.
     (do
       (= this.accountNumber accNum)
       (= this.balance initialBalance))))
+```
+
+### Static Members (v2.0)
+
+```lisp
+; Static variable
+(class Counter
+  (static var count 0)
+
+  (constructor []
+    (= Counter.count (+ Counter.count 1)))
+
+  (static fn getCount []
+    Counter.count))
+
+(new Counter)
+(new Counter)
+(Counter.getCount)  ; => 2
+
+; Static constants
+(class MathUtils
+  (static let PI 3.14159)
+  (static let E 2.71828)
+
+  (static fn circleArea [r]
+    (* MathUtils.PI r r)))
+
+(MathUtils.circleArea 5)  ; => 78.53975
+```
+
+### Private Fields (v2.0)
+
+```lisp
+; Private fields start with #
+(class BankAccount
+  (#balance 0)  ; private field
+
+  (constructor [initial]
+    (= this.#balance initial))
+
+  (fn deposit [amount]
+    (= this.#balance (+ this.#balance amount)))
+
+  (fn getBalance []
+    this.#balance))
+
+(let account (new BankAccount 100))
+(.deposit account 50)
+(.getBalance account)  ; => 150
+; account.#balance     ; ERROR: Private field
+```
+
+### Getters and Setters (v2.0)
+
+```lisp
+; Getter - computed property access
+(class Circle
+  (var _radius 0)
+
+  (constructor [r]
+    (= this._radius r))
+
+  (getter radius []
+    this._radius)
+
+  (getter diameter []
+    (* 2 this._radius))
+
+  (getter area []
+    (* 3.14159 this._radius this._radius)))
+
+(let c (new Circle 5))
+c.radius    ; => 5 (calls getter)
+c.diameter  ; => 10
+c.area      ; => 78.53975
+
+; Setter - property assignment
+(class Temperature
+  (var _celsius 0)
+
+  (getter celsius []
+    this._celsius)
+
+  (setter celsius [value]
+    (= this._celsius value))
+
+  (getter fahrenheit []
+    (+ (* this._celsius 1.8) 32))
+
+  (setter fahrenheit [value]
+    (= this._celsius (/ (- value 32) 1.8))))
+
+(let t (new Temperature))
+(= t.celsius 100)
+t.fahrenheit  ; => 212
+(= t.fahrenheit 32)
+t.celsius     ; => 0
 ```
 
 ### Property Access and Modification

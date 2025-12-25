@@ -2732,9 +2732,11 @@ class TSGenerator {
    * Checks if a string is a valid JavaScript identifier.
    * Used to determine whether to emit dot notation (type-checkable)
    * or bracket notation (flexible but not type-checked).
+   * Also accepts private field identifiers (#name).
    */
   private isValidJsIdentifier(name: string): boolean {
-    return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
+    // Match regular identifiers or private field identifiers (#name)
+    return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name) || /^#[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
   }
 
   private generateJsMethodAccess(node: IR.IRJsMethodAccess): void {

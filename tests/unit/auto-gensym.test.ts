@@ -32,8 +32,8 @@ Deno.test("auto-gensym: multiple foo# in same template use same symbol", async (
   const source = `(do
     (macro swap [a b]
       \`(let (tmp# ~a)
-         (set ~a ~b)
-         (set ~b tmp#)))
+         (= ~a ~b)
+         (= ~b tmp#)))
     (swap x y))`;
 
   const [expanded] = await macroexpand(source);
@@ -99,8 +99,8 @@ Deno.test("auto-gensym: real-world swap macro", async () => {
   const source = `(do
     (macro my-swap [a b]
       \`(let (temp# ~a)
-         (set ~a ~b)
-         (set ~b temp#)))
+         (= ~a ~b)
+         (= ~b temp#)))
     (my-swap foo bar))`;
 
   const [expanded] = await macroexpand(source);

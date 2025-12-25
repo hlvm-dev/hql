@@ -8,7 +8,7 @@ Deno.test("For Loop: __hql_for_each handles large range without OOM (Manual Expa
     (let count 0)
     (__hql_for_each (range 1000000)
       (fn [i]
-        (set count (+ count 1))))
+        (= count (+ count 1))))
     count
   `;
   const result = await run(code, { baseDir: Deno.cwd() });
@@ -20,7 +20,7 @@ Deno.test("For Loop: Standard macro syntax works (Vector Binding Fix)", async ()
   const code = `
     (let acc [])
     (for [i (range 5)]
-      (set acc (conj acc i)))
+      (= acc (conj acc i)))
     acc
   `;
   // This test verifies that the 'for' macro correctly extracts 'i' from '[i (range 5)]'
@@ -34,7 +34,7 @@ Deno.test("For Loop: Large range with macro syntax works (Zero-Cost Abstraction)
   const code = `
     (let count 0)
     (for [i (range 1000000)]
-      (set count (+ count 1)))
+      (= count (+ count 1)))
     count
   `;
   // This confirms that:

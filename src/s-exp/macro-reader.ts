@@ -60,7 +60,7 @@ function convertExpr(sexp: SExp, logger: Logger): HQLNode {
 /**
  * Convert an S-expression literal to an HQL AST literal
  */
-function convertLiteral(literal: SLiteral, __logger: Logger): LiteralNode {
+function convertLiteral(literal: SLiteral, _logger: Logger): LiteralNode {
   const node: LiteralNode = {
     type: "literal",
     value: literal.value,

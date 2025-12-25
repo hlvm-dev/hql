@@ -1,5 +1,3 @@
-import { globalLogger as logger } from "../../logger.ts";
-
 export enum ErrorType {
   AUTHORIZATION = "authorization",
   NETWORK = "network",

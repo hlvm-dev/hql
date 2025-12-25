@@ -17,6 +17,7 @@ import {
 } from "../utils/validation-helpers.ts";
 
 const IDENTIFIER_REGEX = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+const PRIVATE_IDENTIFIER_REGEX = /^#[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 
 /**
  * Transform arguments, handling spread operators.
@@ -77,7 +78,8 @@ function resolveMemberProperty(
 
   if (property.type === IR.IRNodeType.StringLiteral) {
     const keyValue = (property as IR.IRStringLiteral).value;
-    if (IDENTIFIER_REGEX.test(keyValue)) {
+    // Handle regular identifiers and private field identifiers (#name)
+    if (IDENTIFIER_REGEX.test(keyValue) || PRIVATE_IDENTIFIER_REGEX.test(keyValue)) {
       return {
         property: {
           type: IR.IRNodeType.Identifier,

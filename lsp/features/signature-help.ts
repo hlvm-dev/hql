@@ -243,32 +243,3 @@ function buildSignature(symbol: SymbolInfo): SignatureInformation | null {
   };
 }
 
-/**
- * Get signature help for external module exports
- */
-export function getSignatureHelpFromExport(
-  funcName: string,
-  exports: Array<{ name: string; signature?: string; documentation?: string }>,
-  argumentIndex: number
-): SignatureHelp | null {
-  const exp = exports.find((e) => e.name === funcName);
-  if (!exp || !exp.signature) return null;
-
-  // Parse parameter count from signature (rough estimate)
-  const paramMatch = exp.signature.match(/\(([^)]*)\)/);
-  const paramCount = paramMatch
-    ? paramMatch[1].split(",").filter((p) => p.trim()).length
-    : 0;
-
-  return {
-    signatures: [
-      {
-        label: exp.signature,
-        documentation: exp.documentation,
-        parameters: [],  // Could parse from signature
-      },
-    ],
-    activeSignature: 0,
-    activeParameter: Math.min(argumentIndex, Math.max(0, paramCount - 1)),
-  };
-}

@@ -164,10 +164,13 @@ export enum HQLErrorCode {
 /**
  * Base URL for error documentation
  * Can be configured via HQL_ERROR_DOC_BASE_URL environment variable
+ *
+ * NOTE: Error documentation URLs are disabled until the documentation site exists.
+ * Set HQL_ERROR_DOC_BASE_URL environment variable to enable.
  */
 const ERROR_DOC_BASE_URL =
   (typeof Deno !== "undefined" && Deno.env?.get?.("HQL_ERROR_DOC_BASE_URL")) ||
-  "https://hql-lang.dev/errors";
+  null; // Disabled until docs exist
 
 /**
  * Detailed error information including description and common causes
@@ -725,44 +728,18 @@ export function formatErrorCode(code: HQLErrorCode): string {
  * Get documentation URL for an error code
  *
  * @param code - The error code enum value
- * @returns URL to error documentation
+ * @returns URL to error documentation, or null if docs are not configured
  *
  * @example
  * getErrorDocUrl(HQLErrorCode.UNCLOSED_LIST)
- * // "https://hql-lang.dev/errors/HQL1001"
+ * // "https://hql-lang.dev/errors/HQL1001" (when configured)
+ * // null (when not configured)
  */
-export function getErrorDocUrl(code: HQLErrorCode): string {
+export function getErrorDocUrl(code: HQLErrorCode): string | null {
+  if (!ERROR_DOC_BASE_URL) {
+    return null;
+  }
   return `${ERROR_DOC_BASE_URL}/HQL${code}`;
-}
-
-/**
- * Get detailed error information for an error code
- *
- * @param code - The error code enum value
- * @returns Detailed error information including description, causes, and fixes
- */
-export function getErrorInfo(code: HQLErrorCode): ErrorInfo {
-  return ERROR_INFO[code];
-}
-
-/**
- * Get error description for an error code
- *
- * @param code - The error code enum value
- * @returns Short description of the error
- */
-export function getErrorDescription(code: HQLErrorCode): string {
-  return ERROR_INFO[code]?.description ?? "An error occurred.";
-}
-
-/**
- * Get common causes for an error code
- *
- * @param code - The error code enum value
- * @returns Array of common causes
- */
-export function getErrorCauses(code: HQLErrorCode): string[] {
-  return ERROR_INFO[code]?.causes ?? [];
 }
 
 /**

@@ -184,13 +184,37 @@ All macro operations happen at **compile time**, generating code before runtime.
 
 ## Features Covered
 
-✅ Quote symbols, numbers, strings, booleans, null ✅ Quote empty lists and
-nested lists ✅ Quasiquote without unquote (like quote) ✅ Quasiquote with
-unquote (evaluation) ✅ Multiple unquotes in template ✅ Unquote-splicing for
-array spreading ✅ Multiple unquote-splicings ✅ Backtick syntax shorthand ✅
-Tilde (~) for unquote ✅ ~@ for unquote-splicing ✅ Macros using quasiquote ✅
-Macros with unquote-splicing ✅ Nested quasiquotes ✅ Complex expressions in
-unquote
+### Quote System
+✅ Quote symbols, numbers, strings, booleans, null
+✅ Quote empty lists and nested lists
+✅ Quasiquote without unquote (like quote)
+✅ Quasiquote with unquote (evaluation)
+✅ Multiple unquotes in template
+✅ Unquote-splicing for array spreading
+✅ Multiple unquote-splicings
+✅ Backtick syntax shorthand
+✅ Tilde (~) for unquote
+✅ ~@ for unquote-splicing
+✅ Macros using quasiquote
+✅ Macros with unquote-splicing
+✅ Nested quasiquotes
+✅ Complex expressions in unquote
+
+### Core Macros (from core.hql)
+✅ Threading macros (`->`, `->>`, `as->`)
+✅ Logic macros (`and`, `or`, `not`)
+✅ Conditional macros (`when`, `unless`, `if-let`, `when-let`, `cond`)
+✅ Type predicates (`isNull`, `isNil`, `isUndefined`, `isDefined`, `notNil`)
+✅ Type checks (`isString`, `isNumber`, `isBoolean`, `isFunction`, `isSymbol`, `isArray`, `isObject`)
+✅ Utility macros (`inc`, `dec`, `print`, `str`, `set`, `length`, `list`, `contains`)
+✅ Collection macros (`hash-map`, `empty-map`, `empty-set`, `empty-array`, `hasElements`, `isEmptyList`)
+✅ Pattern matching (`match` with `case`, `default`, guards)
+
+### Utility Macros (from utils.hql)
+✅ Object chaining (`doto`)
+✅ Inverse conditionals (`if-not`, `when-not`)
+✅ Logical XOR (`xor`)
+✅ Math wrappers (`min`, `max`)
 
 ## Test Coverage
 
@@ -457,12 +481,405 @@ in unquote
      null))
 ```
 
+## Built-in Core Macros
+
+HQL includes a comprehensive set of core macros in `src/lib/macro/core.hql`. These are automatically available in all HQL programs.
+
+### Threading Macros
+
+Threading macros transform nested function calls into readable linear pipelines. They are **compile-time transformations** with zero runtime overhead.
+
+#### Thread-First (`->`)
+
+Inserts the value as the **first argument** of each form:
+
+```lisp
+; Basic threading
+(-> 5 inc inc)                    ; => 7 (same as (inc (inc 5)))
+
+; With function calls
+(-> "hello"
+    (.toUpperCase)
+    (.substring 0 3))             ; => "HEL"
+
+; Complex pipeline
+(-> user
+    (get-profile)
+    (update-name "Alice")
+    (save))
+
+; Compilation:
+; (-> x (f a) (g b)) => (g (f x a) b)
+```
+
+#### Thread-Last (`->>`)
+
+Inserts the value as the **last argument** of each form:
+
+```lisp
+; With collections
+(->> [1 2 3 4 5]
+     (filter isOdd)
+     (map double))                ; => [2 6 10]
+
+; String processing
+(->> items
+     (filter active?)
+     (map get-name)
+     (join ", "))
+
+; Compilation:
+; (->> x (f a) (g b)) => (g b (f a x))
+```
+
+#### Thread-As (`as->`)
+
+Binds the value to a symbol for arbitrary placement:
+
+```lisp
+; Place value anywhere
+(as-> 2 x
+  (+ x 1)                         ; x is 2, result is 3
+  (* 10 x)                        ; x is 3, result is 30
+  (- x 5))                        ; x is 30, result is 25
+
+; Mixed positioning
+(as-> user u
+  (get-id u)                      ; thread-first style
+  (fetch-data u)
+  (process id: u name: "test"))   ; arbitrary position
+```
+
+### Logic Macros
+
+#### `and` - Logical AND with short-circuit
+
+```lisp
+(and)                             ; => true (identity)
+(and x)                           ; => x
+(and x y z)                       ; => (&& (&& x y) z)
+
+; Short-circuit evaluation
+(and (> x 0) (< x 10))           ; Only evaluates second if first is truthy
+```
+
+#### `or` - Logical OR with short-circuit
+
+```lisp
+(or)                              ; => false (identity)
+(or x)                            ; => x
+(or x y z)                        ; => (|| (|| x y) z)
+
+; Default value pattern
+(or user.name "Anonymous")        ; Use name or default
+```
+
+#### `not` - Logical negation
+
+```lisp
+(not true)                        ; => false
+(not false)                       ; => true
+(not value)                       ; => (if value false true)
+```
+
+### Conditional Macros
+
+#### `when` - Single-branch conditional
+
+```lisp
+(when condition
+  (print "It's true!")
+  (do-something))                 ; Only executes if condition is truthy
+
+; Compiles to:
+; (if condition (do ...) nil)
+```
+
+#### `unless` - Inverse conditional
+
+```lisp
+(unless error
+  (process data)
+  (save result))                  ; Only executes if error is falsy
+
+; Compiles to:
+; (if error nil (do ...))
+```
+
+#### `if-let` - Conditional binding
+
+```lisp
+; Only execute then-branch if binding is truthy
+(if-let [user (find-user id)]
+  (greet user)                    ; user is bound and truthy
+  (print "User not found"))       ; else branch
+
+; Bracket or paren syntax both work
+(if-let (result (compute))
+  (use result)
+  (handle-error))
+```
+
+#### `when-let` - Conditional binding (single branch)
+
+```lisp
+; Only execute body if binding is truthy
+(when-let [data (fetch-data)]
+  (process data)
+  (save data))                    ; Only if data is truthy
+
+; Useful for optional chaining
+(when-let [user (get-user)]
+  (when-let [email user.email]
+    (send-notification email)))
+```
+
+#### `cond` - Multi-branch conditional
+
+```lisp
+; Multiple conditions
+(cond
+  ((< x 0) "negative")
+  ((=== x 0) "zero")
+  ((> x 0) "positive")
+  (else "unknown"))               ; else clause is optional
+
+; Flat syntax also supported
+(cond
+  (< x 0) "negative"
+  (=== x 0) "zero"
+  true "positive")
+```
+
+### Type Predicate Macros
+
+All type predicates compile to **optimal inline JavaScript** with zero function call overhead.
+
+#### Nullish Checks
+
+```lisp
+(isNull x)                        ; => (=== x null)
+(isUndefined x)                   ; => (=== x undefined)
+(isNil x)                         ; => (== x null)  ; catches null AND undefined
+(isDefined x)                     ; => (!== x undefined)
+(notNil x)                        ; => (!= x null)  ; neither null nor undefined
+```
+
+#### Type Checks
+
+```lisp
+(isString x)                      ; => (=== (typeof x) "string")
+(isNumber x)                      ; => (=== (typeof x) "number")
+(isBoolean x)                     ; => (=== (typeof x) "boolean")
+(isFunction x)                    ; => (=== (typeof x) "function")
+(isSymbol x)                      ; => (=== (typeof x) "symbol")
+(isArray x)                       ; => (Array.isArray x)
+(isObject x)                      ; => typeof object, not null, not array
+```
+
+### Utility Macros
+
+#### `inc` / `dec` - Increment/Decrement
+
+```lisp
+(inc x)                           ; => (+ x 1)
+(dec x)                           ; => (- x 1)
+
+; Common usage
+(var count 0)
+(set count (inc count))           ; count is now 1
+```
+
+#### `print` - Console logging
+
+```lisp
+(print "Hello")                   ; => console.log("Hello")
+(print "Value:" x)                ; => console.log("Value:", x)
+(print a b c)                     ; => console.log(a, b, c)
+```
+
+#### `str` - String concatenation
+
+```lisp
+(str)                             ; => ""
+(str x)                           ; => (+ "" x)  ; coerce to string
+(str "Hello" " " name)            ; => (+ "Hello" " " name)
+```
+
+#### `set` - Assignment
+
+```lisp
+(set x 10)                        ; => (= x 10)
+(set obj.field value)             ; => (= obj.field value)
+```
+
+#### `length` - Collection length
+
+```lisp
+(length arr)                      ; => arr.length (null-safe)
+(length null)                     ; => 0
+```
+
+#### `list` - Create array
+
+```lisp
+(list 1 2 3)                      ; => [1, 2, 3]
+(list)                            ; => []
+```
+
+#### `contains` - Map/Set membership
+
+```lisp
+(contains myMap key)              ; => myMap.has(key)
+(contains mySet value)            ; => mySet.has(value)
+```
+
+### Collection Macros
+
+```lisp
+(hash-map "a" 1 "b" 2)            ; => {a: 1, b: 2}
+(empty-map)                       ; => {}
+(empty-set)                       ; => new Set()
+(empty-array)                     ; => []
+
+(hasElements coll)                ; => (> (length coll) 0)
+(isEmptyList coll)                ; => (=== (length coll) 0)
+```
+
+### Pattern Matching (`match`)
+
+The `match` macro provides powerful pattern matching similar to Swift/Scala:
+
+```lisp
+; Basic literal matching
+(match value
+  (case 1 "one")
+  (case 2 "two")
+  (default "other"))
+
+; Symbol binding
+(match result
+  (case x (print "Got:" x)))      ; x binds to result
+
+; Wildcard pattern
+(match value
+  (case _ "anything"))            ; _ matches but doesn't bind
+
+; Array destructuring
+(match [1 2 3]
+  (case [a b c] (+ a b c)))       ; => 6
+
+; Rest pattern
+(match [1 2 3 4 5]
+  (case [h & t] (list h t)))      ; => [1, [2, 3, 4, 5]]
+
+; Object destructuring
+(match {name: "Alice", age: 30}
+  (case {name age} (str name " is " age)))
+
+; Guards
+(match value
+  (case n (if (> n 0)) "positive")
+  (case n (if (< n 0)) "negative")
+  (default "zero"))
+
+; Complex example
+(match response
+  (case {status: 200, data} (process data))
+  (case {status: 404} (handle-not-found))
+  (case {status: s, error} (if (>= s 500)) (log-error error))
+  (default (throw "Unknown response")))
+```
+
+**Supported patterns:**
+- Literals: `42`, `"hello"`, `true`, `null`
+- Wildcard: `_` (matches anything, no binding)
+- Symbol: `x` (matches anything, binds to x)
+- Array: `[a b]`, `[]`, `[h & t]` (rest pattern)
+- Object: `{name age}`, `{name: n, age: a}` (with rename)
+
+**Guards:** `(if condition)` checked after pattern match
+
+### Utility Macros (from utils.hql)
+
+Additional utility macros available from the utils library:
+
+#### `doto` - Execute Forms and Return Object
+
+Executes forms with x as the first argument, then returns x:
+
+```lisp
+; Chain method calls, return the object
+(doto (new Map)
+  (.set "a" 1)
+  (.set "b" 2)
+  (.set "c" 3))   ; => Map with 3 entries
+
+; Object initialization
+(doto {}
+  (= .name "Alice")
+  (= .age 30))    ; => {name: "Alice", age: 30}
+
+; Array mutations
+(doto []
+  (.push 1)
+  (.push 2)
+  (.push 3))      ; => [1, 2, 3]
+```
+
+#### `if-not` - Inverse of If
+
+Swaps the then and else branches:
+
+```lisp
+(if-not condition then else)
+; Equivalent to: (if condition else then)
+
+(if-not (empty? list)
+  (process list)
+  (print "empty"))
+```
+
+#### `when-not` - Inverse of When
+
+Execute body when condition is false:
+
+```lisp
+(when-not error
+  (continue-processing)
+  (save-results))
+
+; Equivalent to: (if error nil (do ...))
+```
+
+#### `xor` - Logical XOR
+
+Exclusive OR - true if exactly one operand is truthy:
+
+```lisp
+(xor true false)   ; => true
+(xor true true)    ; => false
+(xor false false)  ; => false
+(xor a b)          ; => (if a (not b) b)
+```
+
+#### `min` / `max` - Math Functions
+
+Wrapper macros for JavaScript Math functions:
+
+```lisp
+(min 1 2 3)        ; => 1 (Math.min(1, 2, 3))
+(max 1 2 3)        ; => 3 (Math.max(1, 2, 3))
+
+; With expressions
+(min (+ a 1) (- b 2) c)
+```
+
 ## Future Enhancements
 
 - Symbol hygiene (gensym for collision-free generated names)
 - Macro debugging (expand-macro utility)
 - Syntax-quote with auto-gensym
-- Pattern matching in macro parameters
 - Macro namespaces (avoid collision)
 - Compile-time warnings for macro misuse
 

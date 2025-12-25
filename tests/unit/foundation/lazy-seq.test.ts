@@ -444,7 +444,7 @@ Deno.test("laziness: elements computed only when accessed", async () => {
       (fn counting [n]
         (lazy-seq
           (do
-            (set realized (+ realized 1))
+            (= realized (+ realized 1))
             (cons n (counting (+ n 1))))))
 
       (let nums (counting 1))
@@ -473,7 +473,7 @@ Deno.test("laziness: first only realizes one element", async () => {
       (fn counting [n]
         (lazy-seq
           (do
-            (set realized (+ realized 1))
+            (= realized (+ realized 1))
             (cons n (counting (+ n 1))))))
 
       (first (counting 1))

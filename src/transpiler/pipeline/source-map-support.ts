@@ -23,9 +23,9 @@ import {
 import { getErrorMessage } from "../../common/utils.ts";
 
 /**
- * Represents a position in source code
+ * Represents a position in source code (used internally by mapPositionSync)
  */
-export interface Position {
+interface Position {
   /** Source file path */
   source: string;
   /** Line number (1-indexed) */

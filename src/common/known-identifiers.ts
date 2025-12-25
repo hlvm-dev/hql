@@ -21,7 +21,7 @@ let _cachedIdentifiers: string[] | null = null;
  * isFunction, isArray) and numeric predicates (isEven, isOdd, etc.)
  * are in stdlib (core.js) and loaded dynamically.
  */
-export const BUILTIN_PREDICATE_NAMES = [
+const BUILTIN_PREDICATE_NAMES = [
   "isList", "isSymbol",  // S-exp AST predicates (interpreter-only)
 ] as const;
 
@@ -91,7 +91,7 @@ export const THREADING_MACROS = [
  * For-loop syntax keywords - special form syntax in (for ...) construct.
  * Example: (for (i from: 0 to: 10 by: 2) ...)
  */
-export const FOR_LOOP_SYNTAX_KEYWORDS = ["to:", "from:", "by:"] as const;
+const FOR_LOOP_SYNTAX_KEYWORDS = ["to:", "from:", "by:"] as const;
 
 /**
  * Set version for O(1) lookup - use this for .has() checks instead of Array.includes()

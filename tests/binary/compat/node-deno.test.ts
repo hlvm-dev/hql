@@ -163,7 +163,7 @@ Deno.test({
     }
 
     const code = `
-      (def square (fn [x] (* x x)))
+      (const square (fn [x] (* x x)))
       (print (square 7))
     `;
     const [nodeResult, denoResult] = await Promise.all([
@@ -189,7 +189,7 @@ Deno.test({
     }
 
     const code = `
-      (def factorial (fn [n]
+      (const factorial (fn [n]
         (if (lte n 1)
           1
           (* n (factorial (- n 1))))))
@@ -322,8 +322,8 @@ Deno.test({
     }
 
     const code = `
-      (def numbers [1 2 3 4 5 6 7 8 9 10])
-      (def evenDoubled (vec (map (fn [x] (* x 2)) (filter (fn [x] (eq 0 (mod x 2))) numbers))))
+      (const numbers [1 2 3 4 5 6 7 8 9 10])
+      (const evenDoubled (vec (map (fn [x] (* x 2)) (filter (fn [x] (eq 0 (mod x 2))) numbers))))
       (print (reduce add 0 evenDoubled))
     `;
     const [nodeResult, denoResult] = await Promise.all([

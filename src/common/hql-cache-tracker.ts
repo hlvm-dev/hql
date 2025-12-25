@@ -192,9 +192,10 @@ async function calculateHash(content: string): Promise<string> {
  * Get or calculate content hash for a file
  */
 export async function getContentHash(filePath: string): Promise<string> {
-  // Return cached hash if available
-  if (contentHashCache.has(filePath)) {
-    return contentHashCache.get(filePath)!;
+  // Return cached hash if available - single get() instead of has()+get()
+  const cachedHash = contentHashCache.get(filePath);
+  if (cachedHash !== undefined) {
+    return cachedHash;
   }
 
   try {
@@ -329,8 +330,9 @@ async function processCachedImports(
       }
 
       // If we have a special mapping for this import, use it (for ANY file type)
-      if (importPathMap.has(resolvedOriginalPath)) {
-        const mappedPath = importPathMap.get(resolvedOriginalPath)!;
+      // Single get() instead of has()+get() to avoid double lookup
+      const mappedPath = importPathMap.get(resolvedOriginalPath);
+      if (mappedPath !== undefined) {
 
         // IMPORTANT: For JS files importing HQL, prefer JS over TS
         let finalPath = mappedPath;

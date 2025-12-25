@@ -145,7 +145,7 @@ function isSpecialForm(name: string): boolean {
     "let",
     "var",
     "const",
-    "set!",
+    // NOTE: set! was removed in HQL v2.0 - use = operator instead
     "if",
     "do",
     "quote",

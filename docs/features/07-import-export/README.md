@@ -14,8 +14,9 @@ reusability:
 4. **Re-exports** - Export items imported from other modules
 5. **TypeScript imports** - Import from .ts files
 6. **Remote imports** - Import from JSR, HTTPS, and NPM
+7. **Dynamic imports** - Runtime module loading (v2.0)
 
-All imports are statically analyzed and resolved at compile time.
+All imports are statically analyzed and resolved at compile time (except dynamic imports).
 
 ## Syntax
 
@@ -89,6 +90,53 @@ TS_CONSTANT
 (import [default] from "npm:chalk@4.1.2")
 (var chalk default)
 ```
+
+### Dynamic Import (v2.0)
+
+Dynamic imports enable runtime module loading for code splitting and conditional loading:
+
+```lisp
+; Basic dynamic import
+(let module (await (import-dynamic "./heavy-module.hql")))
+(module.process data)
+
+; Conditional loading
+(async fn load-feature [name]
+  (let path (+ "./" name ".hql"))
+  (await (import-dynamic path)))
+
+; With destructuring (in async context)
+(async fn setup []
+  (let {default as config} (await (import-dynamic "./config.hql")))
+  (print config.version))
+
+; Lazy loading based on condition
+(when needsFeature
+  (let feature (await (import-dynamic "./optional-feature.hql")))
+  (feature.init))
+
+; Error handling
+(try
+  (let mod (await (import-dynamic "./maybe-missing.hql")))
+  (mod.run)
+  (catch e
+    (print "Module not found:" e)))
+```
+
+**Compilation:**
+
+```lisp
+(import-dynamic "./module.hql")
+; Compiles to:
+import("./module.mjs")
+```
+
+**Characteristics:**
+- Returns a Promise that resolves to module namespace
+- Path can be computed at runtime
+- Enables code splitting for performance
+- Useful for optional dependencies
+- Must be used with `await` in async context
 
 ## Implementation Details
 
@@ -255,7 +303,8 @@ functions from TypeScript file ✅ Import constant from TypeScript file ✅ Impo
 from JSR (single function) ✅ Import from JSR (multiple functions) ✅ Import
 from HTTPS URL ✅ Import multiple from HTTPS URL ✅ Import default export from
 NPM (chalk) ✅ Import default export from NPM (ms) ✅ Use NPM import in variable
-assignment
+assignment ✅ Dynamic import with await ✅ Dynamic import with computed path
+✅ Dynamic import with error handling
 
 ## Test Coverage
 
@@ -297,6 +346,14 @@ assignment
 - Import NPM default (chalk)
 - Import NPM default (ms)
 - Use NPM import in assignment
+
+### Section 5: Dynamic Imports (v2.0)
+
+- Dynamic import with await
+- Dynamic import with computed path
+- Conditional module loading
+- Error handling for missing modules
+- Dynamic import in async functions
 
 ## Use Cases
 

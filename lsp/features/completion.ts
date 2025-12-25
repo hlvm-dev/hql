@@ -531,13 +531,6 @@ const TYPE_COMPLETIONS: CompletionItem[] = [
   },
 ];
 
-/**
- * Get type completions (for use after : in type positions)
- */
-export function getTypeCompletions(): CompletionItem[] {
-  return TYPE_COMPLETIONS;
-}
-
 // Cache for dynamically built completions (built once per session)
 let _cachedCompletions: CompletionItem[] | null = null;
 

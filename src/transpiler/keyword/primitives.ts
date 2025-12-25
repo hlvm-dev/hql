@@ -98,7 +98,6 @@ export const PRIMITIVE_OPS = new Set([
 export const KERNEL_PRIMITIVES = new Set([
   "quote",
   "if",
-  "def",    // Clojure-style definition (alias for const)
   "const",  // v2.0: Immutable binding
   "let",    // v2.0: Mutable block-scoped binding (changed from immutable)
   "var",    // Function-scoped binding (unchanged)
@@ -179,7 +178,7 @@ export const DECLARATION_KEYWORDS = ["fn", "function", "class", "enum"] as const
 /**
  * Binding keywords - forms that bind values to names.
  */
-export const BINDING_KEYWORDS = ["let", "var", "const", "def"] as const;
+export const BINDING_KEYWORDS = ["let", "var", "const"] as const;
 
 /**
  * All declaration and binding keywords combined.
@@ -205,7 +204,7 @@ export const JS_LITERAL_KEYWORDS_SET: ReadonlySet<string> = new Set(JS_LITERAL_K
 /**
  * HQL-specific constant keywords (in addition to JS literals).
  */
-export const HQL_CONSTANT_KEYWORDS = ["nil"] as const;
+const HQL_CONSTANT_KEYWORDS = ["nil"] as const;
 
 /**
  * All constant keywords combined.

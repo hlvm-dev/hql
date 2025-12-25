@@ -7,13 +7,16 @@
 
 HQL provides a complete set of operators for:
 
-1. **Arithmetic** - Math operations (`+`, `-`, `*`, `/`, `%`)
+1. **Arithmetic** - Math operations (`+`, `-`, `*`, `/`, `%`, `**`)
 2. **Comparison** - Relational tests (`<`, `>`, `<=`, `>=`, `=`, `!=`)
-3. **Logical** - Boolean logic (`and`, `or`, `not`)
+3. **Logical** - Boolean logic (`and`, `or`, `not`, `??`)
 4. **Ternary** - Conditional expressions (`?`) - **v2.0 feature**
-5. **Primitive Types** - Numbers, strings, booleans, null, undefined
-6. **String Operations** - Concatenation and string methods
-7. **Combined Expressions** - Nested operator usage
+5. **Bitwise** - Bit manipulation (`&`, `|`, `^`, `~`, `<<`, `>>`, `>>>`) - **v2.0**
+6. **Compound Assignment** - Update in place (`+=`, `-=`, `*=`, `/=`, etc.) - **v2.0**
+7. **Type Operations** - Type checking (`typeof`, `instanceof`, `in`) - **v2.0**
+8. **Primitive Types** - Numbers, strings, booleans, null, undefined
+9. **String Operations** - Concatenation and string methods
+10. **Combined Expressions** - Nested operator usage
 
 All operators use prefix notation (Lisp-style).
 
@@ -41,6 +44,10 @@ All operators use prefix notation (Lisp-style).
 
 ; Modulo
 (% 17 5)            ; => 2
+
+; Exponentiation (v2.0)
+(** 2 10)           ; => 1024
+(** 3 3)            ; => 27
 
 ; Nested expressions
 (+ (* 2 3) (- 10 5))  ; => 11  ((2*3) + (10-5))
@@ -93,6 +100,103 @@ All operators use prefix notation (Lisp-style).
 
 ; Combined
 (and (> 10 5) (< 3 7))  ; => true
+
+; Nullish coalescing (v2.0)
+(?? null "default")       ; => "default"
+(?? undefined "default")  ; => "default"
+(?? 0 "default")          ; => 0 (0 is not nullish)
+(?? "" "default")         ; => "" (empty string is not nullish)
+(?? false "default")      ; => false (false is not nullish)
+```
+
+### Bitwise Operators (v2.0)
+
+```lisp
+; Bitwise AND
+(& 5 3)             ; => 1 (0101 & 0011 = 0001)
+
+; Bitwise OR
+(| 5 3)             ; => 7 (0101 | 0011 = 0111)
+
+; Bitwise XOR
+(^ 5 3)             ; => 6 (0101 ^ 0011 = 0110)
+
+; Bitwise NOT
+(~ 5)               ; => -6
+
+; Left shift
+(<< 5 2)            ; => 20 (5 << 2)
+
+; Right shift (signed)
+(>> 20 2)           ; => 5
+
+; Right shift (unsigned)
+(>>> -1 0)          ; => 4294967295
+```
+
+### Compound Assignment Operators (v2.0)
+
+```lisp
+; Addition assignment
+(let x 10)
+(+= x 5)            ; x is now 15
+
+; Subtraction assignment
+(-= x 3)            ; x is now 12
+
+; Multiplication assignment
+(*= x 2)            ; x is now 24
+
+; Division assignment
+(/= x 4)            ; x is now 6
+
+; Modulo assignment
+(%= x 4)            ; x is now 2
+
+; Exponentiation assignment
+(**= x 3)           ; x is now 8
+
+; Bitwise assignments
+(&= x 7)            ; Bitwise AND assignment
+(|= x 4)            ; Bitwise OR assignment
+(^= x 2)            ; Bitwise XOR assignment
+(<<= x 1)           ; Left shift assignment
+(>>= x 1)           ; Right shift assignment
+
+; Logical assignments
+(??= x default)     ; Nullish coalescing assignment
+(&&= x value)       ; Logical AND assignment
+(||= x fallback)    ; Logical OR assignment
+```
+
+### Type Operators (v2.0)
+
+```lisp
+; typeof - Get type as string
+(typeof 42)           ; => "number"
+(typeof "hello")      ; => "string"
+(typeof true)         ; => "boolean"
+(typeof undefined)    ; => "undefined"
+(typeof null)         ; => "object" (JS quirk)
+(typeof [])           ; => "object"
+(typeof {})           ; => "object"
+(typeof (fn [] 1))    ; => "function"
+
+; instanceof - Check prototype chain
+(instanceof date Date)       ; => true
+(instanceof [] Array)        ; => true
+(instanceof "str" String)    ; => false (primitive)
+
+; in - Check property existence
+(in "name" obj)              ; => true if obj has "name" property
+(in 0 [1 2 3])               ; => true (index exists)
+
+; delete - Remove property
+(delete obj.prop)            ; Removes prop from obj
+
+; void - Evaluate and return undefined
+(void 0)                     ; => undefined
+(void (side-effect))         ; Runs side-effect, returns undefined
 ```
 
 ### Ternary Operator (v2.0)
@@ -161,6 +265,39 @@ null                ; Null value
 undefined           ; Undefined value
 ```
 
+### BigInt Literals (v2.0)
+
+BigInt provides arbitrary precision integers for large number arithmetic:
+
+```lisp
+; Create BigInt literal
+(bigint-literal 12345678901234567890)  ; => 12345678901234567890n
+
+; Very large numbers
+(bigint-literal 999999999999999999999999999999)  ; => 999999999999999999999999999999n
+
+; Arithmetic with BigInts
+(let big1 (bigint-literal 9007199254740992))
+(let big2 (bigint-literal 1))
+(+ big1 big2)  ; => 9007199254740993n (beyond Number.MAX_SAFE_INTEGER)
+
+; Comparison
+(> (bigint-literal 100) (bigint-literal 50))  ; => true
+```
+
+**Compilation:**
+
+```lisp
+(bigint-literal 12345)
+; Compiles to:
+12345n
+```
+
+**Characteristics:**
+- Arbitrary precision (no overflow)
+- Cannot mix with regular numbers in arithmetic
+- Use for cryptography, large IDs, precise calculations
+
 ### String Operations
 
 ```lisp
@@ -224,12 +361,13 @@ HQL follows JavaScript semantics for type coercion:
 
 ## Features Covered
 
-✅ Arithmetic operators (+, -, *, /, %) ✅ Comparison operators (<, >, <=, >=,
-=, !=) ✅ Logical operators (and, or, not) ✅ **Ternary operator (?) - v2.0** ✅ Integer arithmetic ✅
+✅ Arithmetic operators (+, -, *, /, %, **) ✅ Comparison operators (<, >, <=, >=,
+=, !=) ✅ Logical operators (and, or, not, ??) ✅ Ternary operator (?) ✅ Integer arithmetic ✅
 Floating-point arithmetic ✅ Multi-operand operations ✅ Nested expressions ✅
 Primitive types (number, string, boolean, null, undefined) ✅ String
 concatenation ✅ String properties and methods ✅ Combined expressions
-(arithmetic + comparison + logic + ternary)
+✅ Bitwise operators (&, |, ^, ~, <<, >>, >>>) ✅ Compound assignment (+=, -=, *=, /=, etc.)
+✅ Logical assignment (??=, &&=, ||=) ✅ Type operators (typeof, instanceof, in, delete, void)
 
 ## Test Coverage
 
@@ -300,6 +438,27 @@ concatenation ✅ String properties and methods ✅ Combined expressions
 - Complex nested expressions
 - Arithmetic in variable assignment
 
+### Section 7: Bitwise Operators (v2.0)
+
+- Bitwise AND, OR, XOR
+- Bitwise NOT
+- Left shift, right shift
+- Unsigned right shift
+
+### Section 8: Compound Assignment (v2.0)
+
+- Arithmetic assignment (+=, -=, *=, /=, %=, **=)
+- Bitwise assignment (&=, |=, ^=, <<=, >>=, >>>=)
+- Logical assignment (??=, &&=, ||=)
+
+### Section 9: Type Operators (v2.0)
+
+- typeof with all types
+- instanceof with objects
+- in operator with objects/arrays
+- delete operator
+- void operator
+
 ## Operator Precedence
 
 HQL uses explicit parentheses instead of implicit precedence:
@@ -348,6 +507,7 @@ JavaScript
 | `*`      | `(* a b)` | `a * b`    | 2     |
 | `/`      | `(/ a b)` | `a / b`    | 2     |
 | `%`      | `(% a b)` | `a % b`    | 2     |
+| `**`     | `(** a b)` | `a ** b`  | 2     |
 
 ### Comparison Operators
 
@@ -367,6 +527,43 @@ JavaScript
 | `and`    | `(and a b)` | `a && b`   | Logical AND |
 | `or`     | `(or a b)`  | `a \|\| b` | Logical OR  |
 | `not`    | `(not a)`   | `!a`       | Logical NOT |
+| `??`     | `(?? a b)`  | `a ?? b`   | Nullish coalescing |
+
+### Bitwise Operators (v2.0)
+
+| Operator | HQL         | JavaScript | Description |
+| -------- | ----------- | ---------- | ----------- |
+| `&`      | `(& a b)`   | `a & b`    | Bitwise AND |
+| `\|`     | `(\| a b)`  | `a \| b`   | Bitwise OR  |
+| `^`      | `(^ a b)`   | `a ^ b`    | Bitwise XOR |
+| `~`      | `(~ a)`     | `~a`       | Bitwise NOT |
+| `<<`     | `(<< a b)`  | `a << b`   | Left shift  |
+| `>>`     | `(>> a b)`  | `a >> b`   | Right shift |
+| `>>>`    | `(>>> a b)` | `a >>> b`  | Unsigned right shift |
+
+### Compound Assignment Operators (v2.0)
+
+| Operator | HQL           | JavaScript  | Description |
+| -------- | ------------- | ----------- | ----------- |
+| `+=`     | `(+= a b)`    | `a += b`    | Add and assign |
+| `-=`     | `(-= a b)`    | `a -= b`    | Subtract and assign |
+| `*=`     | `(*= a b)`    | `a *= b`    | Multiply and assign |
+| `/=`     | `(/= a b)`    | `a /= b`    | Divide and assign |
+| `%=`     | `(%= a b)`    | `a %= b`    | Modulo and assign |
+| `**=`    | `(**= a b)`   | `a **= b`   | Exponent and assign |
+| `??=`    | `(??= a b)`   | `a ??= b`   | Nullish and assign |
+| `&&=`    | `(&&= a b)`   | `a &&= b`   | Logical AND assign |
+| `\|\|=`  | `(\|\|= a b)` | `a \|\|= b` | Logical OR assign |
+
+### Type Operators (v2.0)
+
+| Operator     | HQL                   | JavaScript          | Description |
+| ------------ | --------------------- | ------------------- | ----------- |
+| `typeof`     | `(typeof a)`          | `typeof a`          | Get type string |
+| `instanceof` | `(instanceof a Type)` | `a instanceof Type` | Check prototype |
+| `in`         | `(in key obj)`        | `key in obj`        | Check property |
+| `delete`     | `(delete obj.prop)`   | `delete obj.prop`   | Remove property |
+| `void`       | `(void expr)`         | `void expr`         | Return undefined |
 
 ### Ternary Operator (v2.0)
 
@@ -387,8 +584,11 @@ JavaScript
 numbers ✅ Empty strings ✅ Null and undefined values ✅ String concatenation vs
 numeric addition ✅ Nested expressions with multiple operator types ✅
 Comparison with equality ✅ Short-circuit evaluation (and, or, ternary) ✅
-**Ternary with all falsy values (0, "", null, undefined, false)** ✅
-**Nested ternaries (3+ levels)** ✅ **Ternary side-effect evaluation**
+Ternary with all falsy values (0, "", null, undefined, false) ✅
+Nested ternaries (3+ levels) ✅ Ternary side-effect evaluation ✅
+Bitwise operations with signed/unsigned values ✅ Compound assignment with
+all operators ✅ Nullish coalescing vs OR (0, "", false handling) ✅
+Type operators with primitives and objects ✅ Logical assignment operators
 
 ## Best Practices
 
@@ -448,12 +648,16 @@ Comparison with equality ✅ Short-circuit evaluation (and, or, ternary) ✅
 ## Implemented in v2.0
 
 ✅ **Ternary operator (`?`)** - JavaScript-style conditional expressions
+✅ **Bitwise operators** - All bitwise operations (`&`, `|`, `^`, `~`, `<<`, `>>`, `>>>`)
+✅ **Exponentiation operator (`**`)** - Power operations
+✅ **Nullish coalescing (`??`)** - Handle null/undefined
+✅ **Compound assignment** - All assignment operators (`+=`, `-=`, `*=`, etc.)
+✅ **Logical assignment** - Modern assignment operators (`??=`, `&&=`, `||=`)
+✅ **Type operators** - `typeof`, `instanceof`, `in`, `delete`, `void`
+✅ **Optional chaining (`?.`)** - Safe property/method access (see 08-js-interop)
+✅ **BigInt literals** - Arbitrary precision integers (`bigint-literal`)
 
 ## Future Enhancements
 
-- Bitwise operators (`&`, `|`, `^`, `~`, `<<`, `>>`)
-- Exponentiation operator (`**`)
-- Nullish coalescing (`??`)
-- Optional chaining (`?.`)
-- Type checking operators (`typeof`, `instanceof`)
+- Pipeline operator (`|>`) - Function composition
 - Custom operator definitions (advanced metaprogramming)

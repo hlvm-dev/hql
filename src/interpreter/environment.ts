@@ -2,6 +2,7 @@
 
 import type { HQLValue } from "./types.ts";
 import { UndefinedSymbolError } from "./errors.ts";
+import { hyphenToUnderscore } from "../common/utils.ts";
 
 /**
  * InterpreterEnv - Manages variable bindings with lexical scoping
@@ -25,17 +26,23 @@ export class InterpreterEnv {
   /**
    * Look up a symbol in the scope chain
    * Throws UndefinedSymbolError if not found
+   * Uses single get() instead of has()+get() to avoid double lookup
    */
   lookup(name: string): HQLValue {
-    // Check current scope first
-    if (this.bindings.has(name)) {
-      return this.bindings.get(name)!;
+    // Check current scope first - single lookup
+    const value = this.bindings.get(name);
+    if (value !== undefined) {
+      return value;
     }
 
     // Try hyphen-to-underscore conversion (for kebab-case compatibility)
-    const underscoreName = name.replace(/-/g, "_");
-    if (underscoreName !== name && this.bindings.has(underscoreName)) {
-      return this.bindings.get(underscoreName)!;
+    // Uses cached regex from utils.ts for efficiency
+    const underscoreName = hyphenToUnderscore(name);
+    if (underscoreName !== name) {
+      const underscoreValue = this.bindings.get(underscoreName);
+      if (underscoreValue !== undefined) {
+        return underscoreValue;
+      }
     }
 
     // Traverse parent chain
@@ -74,8 +81,8 @@ export class InterpreterEnv {
       return true;
     }
 
-    // Try hyphen-to-underscore conversion
-    const underscoreName = name.replace(/-/g, "_");
+    // Try hyphen-to-underscore conversion - uses cached regex from utils.ts
+    const underscoreName = hyphenToUnderscore(name);
     if (underscoreName !== name && this.bindings.has(underscoreName)) {
       return true;
     }

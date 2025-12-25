@@ -210,10 +210,12 @@ function isAutoGensymSymbol(name: string): boolean {
 /**
  * Get or create a gensym for an auto-gensym symbol
  * All occurrences of "foo#" within the same quasiquote map to the same symbol
+ * Uses single get() instead of has()+get() to avoid double lookup
  */
 function getAutoGensym(name: string, autoGensymMap: AutoGensymMap): SSymbol {
-  if (autoGensymMap.has(name)) {
-    return autoGensymMap.get(name)!;
+  const existing = autoGensymMap.get(name);
+  if (existing !== undefined) {
+    return existing;
   }
   // Strip the # suffix and use as prefix for gensym
   const prefix = name.slice(0, -1);

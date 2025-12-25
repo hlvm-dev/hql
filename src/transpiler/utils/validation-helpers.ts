@@ -47,37 +47,6 @@ export function validateListLength(
 }
 
 /**
- * Validate that a list has at least a minimum number of elements.
- *
- * @param list - The list to validate
- * @param minCount - Minimum total elements (including operator)
- * @param operatorName - Name of the operator for error messages
- * @param context - Additional context for error (default: "expression")
- * @throws ValidationError if the count is less than minimum
- *
- * @example
- * // For (do body...) - expects at least 2 elements
- * validateMinListLength(list, 2, "do");
- */
-export function validateMinListLength(
-  list: ListNode,
-  minCount: number,
-  operatorName: string,
-  context: string = "expression",
-): void {
-  if (list.elements.length < minCount) {
-    const minArgs = minCount - 1;
-    const actualArgs = list.elements.length - 1;
-    throw new ValidationError(
-      `${operatorName} requires at least ${minArgs} argument${minArgs !== 1 ? "s" : ""}, got ${actualArgs}`,
-      `${operatorName} ${context}`,
-      `at least ${minArgs} argument${minArgs !== 1 ? "s" : ""}`,
-      `${actualArgs} argument${actualArgs !== 1 ? "s" : ""}`,
-    );
-  }
-}
-
-/**
  * Extract SourcePosition from an HQL node's _meta field.
  * Used to propagate source location through IR transformations for accurate error reporting.
  */

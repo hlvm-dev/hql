@@ -68,7 +68,7 @@ function parseParams(paramsExpr: SExp): { params: string[]; restParam: string | 
  * Special form: if
  * (if test then else?)
  */
-export function handleIf(
+function handleIf(
   args: SExp[],
   env: InterpreterEnv,
   interpreter: IInterpreter
@@ -94,7 +94,7 @@ export function handleIf(
  * (let (name1 value1 name2 value2 ...) body...)
  * Or: (let [name1 value1 name2 value2 ...] body...)
  */
-export function handleLet(
+function handleLet(
   args: SExp[],
   env: InterpreterEnv,
   interpreter: IInterpreter
@@ -149,7 +149,7 @@ export function handleLet(
  * (var name value)
  * Defines in CURRENT scope (not new scope like let)
  */
-export function handleVar(
+function handleVar(
   args: SExp[],
   env: InterpreterEnv,
   interpreter: IInterpreter
@@ -176,7 +176,7 @@ export function handleVar(
  * (fn [params] body...) - anonymous function
  * (fn name [params] body...) - named function
  */
-export function handleFn(
+function handleFn(
   args: SExp[],
   env: InterpreterEnv,
   _interpreter: IInterpreter
@@ -234,7 +234,7 @@ export function handleFn(
  * (do expr1 expr2 ... exprN)
  * Evaluates all expressions, returns last result
  */
-export function handleDo(
+function handleDo(
   args: SExp[],
   env: InterpreterEnv,
   interpreter: IInterpreter
@@ -251,7 +251,7 @@ export function handleDo(
  * (quote expr) or 'expr
  * Returns unevaluated expression
  */
-export function handleQuote(
+function handleQuote(
   args: SExp[],
   _env: InterpreterEnv,
   _interpreter: IInterpreter
@@ -267,7 +267,7 @@ export function handleQuote(
  * (quasiquote expr) or `expr
  * Template with unquote/unquote-splicing support
  */
-export function handleQuasiquote(
+function handleQuasiquote(
   args: SExp[],
   env: InterpreterEnv,
   interpreter: IInterpreter
@@ -381,7 +381,7 @@ function processQuasiquote(
  * Special form: cond
  * (cond (test1 result1) (test2 result2) ... (else resultN))
  */
-export function handleCond(
+function handleCond(
   args: SExp[],
   env: InterpreterEnv,
   interpreter: IInterpreter

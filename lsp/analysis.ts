@@ -9,7 +9,15 @@
 import { parse } from "../src/transpiler/pipeline/parser.ts";
 import { SymbolTable } from "../src/transpiler/symbol_table.ts";
 import { HQLError } from "../src/common/error.ts";
-import type { SExp, SList, SSymbol, SLiteral } from "../src/s-exp/types.ts";
+import {
+  type SExp,
+  type SList,
+  type SSymbol,
+  type SLiteral,
+  isSymbol,
+  isList,
+  isLiteral,
+} from "../src/s-exp/types.ts";
 import type { HQLRange } from "./utils/position.ts";
 
 /**
@@ -109,26 +117,6 @@ function cleanErrorMessage(message: string): string {
     .replace(/^\[HQL\d+\]\s*/, ""); // Remove error code prefix (LSP shows it separately)
 }
 
-/**
- * Type guard to check if SExp is a symbol
- */
-function isSymbol(exp: SExp): exp is SSymbol {
-  return exp.type === "symbol";
-}
-
-/**
- * Type guard to check if SExp is a list
- */
-function isList(exp: SExp): exp is SList {
-  return exp.type === "list";
-}
-
-/**
- * Type guard to check if SExp is a literal
- */
-function isLiteral(exp: SExp): exp is SLiteral {
-  return exp.type === "literal";
-}
 
 /**
  * Parse parameter name and type from HQL syntax.

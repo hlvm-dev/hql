@@ -532,10 +532,6 @@ function processClassMethodFn(
       transformNode,
     );
 
-    if (hasJsonParams) {
-      // logger.debug(`Method ${methodName} uses JSON map parameters`);
-    }
-
     const { bodyElements } = extractMethodBodyElements(elementList, 3);
 
     const bodyNodes = transformNonNullElements(

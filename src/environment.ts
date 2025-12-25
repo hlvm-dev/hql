@@ -590,17 +590,18 @@ export class Environment {
         this.lookupCache.set(key, result);
         return result;
       }
+      // Single get() instead of has()+get() to avoid double lookup
       const sanitizedKey = hyphenToUnderscore(key);
-      if (this.variables.has(sanitizedKey)) {
-        const v = this.variables.get(sanitizedKey);
-        this.lookupCache.set(key, v!);
-        this.lookupCache.set(sanitizedKey, v!);
-        return v!;
+      const sanitizedValue = this.variables.get(sanitizedKey);
+      if (sanitizedValue !== undefined) {
+        this.lookupCache.set(key, sanitizedValue);
+        this.lookupCache.set(sanitizedKey, sanitizedValue);
+        return sanitizedValue;
       }
-      if (this.variables.has(key)) {
-        const v = this.variables.get(key);
-        this.lookupCache.set(key, v!);
-        return v!;
+      const directValue = this.variables.get(key);
+      if (directValue !== undefined) {
+        this.lookupCache.set(key, directValue);
+        return directValue;
       }
       if (this.parent) {
         try {
@@ -630,8 +631,9 @@ export class Environment {
   private lookupDotNotation(key: string): Value {
     const [moduleName, ...propertyParts] = key.split(".");
     const propertyPath = propertyParts.join(".");
-    if (this.moduleExports.has(moduleName)) {
-      const moduleObj = this.moduleExports.get(moduleName)!;
+    // Single get() instead of has()+get() to avoid double lookup
+    const moduleObj = this.moduleExports.get(moduleName);
+    if (moduleObj !== undefined) {
       try {
         return this.getPropertyFromPath(moduleObj, propertyPath);
       } catch (error) {
@@ -715,10 +717,9 @@ export class Environment {
     try {
       this.logger.debug(`Importing module: ${moduleName}`);
       // Use a single stable object per module to support circular/live bindings
-      let targetObj: Record<string, Value> | undefined = undefined;
-      if (this.moduleExports.has(moduleName)) {
-        targetObj = this.moduleExports.get(moduleName)!;
-      } else {
+      // Single get() instead of has()+get() to avoid double lookup
+      let targetObj = this.moduleExports.get(moduleName);
+      if (targetObj === undefined) {
         // Check if already defined as a variable (from a prior pre-registration)
         const existing = this.variables.get(moduleName);
         if (isObjectValue(existing)) {

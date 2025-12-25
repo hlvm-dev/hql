@@ -27,7 +27,7 @@ Deno.test("DTS Generation: multiple function exports", async () => {
 
 Deno.test("DTS Generation: variable export", async () => {
   const code = `
-    (def PI 3.14159)
+    (const PI 3.14159)
     (export [PI])
   `;
   const result = await transpile(code, { baseDir: Deno.cwd(), generateDts: true });
@@ -61,7 +61,7 @@ Deno.test("DTS Generation: export default with named exports", async () => {
 
 Deno.test("DTS Generation: empty module exports empty declaration", async () => {
   const code = `
-    (def x 1)
+    (const x 1)
   `;
   const result = await transpile(code, { baseDir: Deno.cwd(), generateDts: true });
   assertEquals(result.dts !== undefined, true);

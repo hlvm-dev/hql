@@ -286,20 +286,5 @@ function isAlphaNumeric(char: string): boolean {
   return /[a-zA-Z0-9_]/.test(char);
 }
 
-/**
- * Run a CLI command with enhanced error handling
- */
-
-// Export error classes and utilities for easier access
-export {
-  HQLError,
-  ParseError,
-  reportError,
-  RuntimeError,
-  ValidationError,
-} from "./error.ts";
-export {
-  handleRuntimeError,
-  resolveRuntimeLocation,
-  setRuntimeContext as setErrorContext,
-} from "./runtime-error-handler.ts";
+// Re-export setRuntimeContext as setErrorContext for cleaner API
+export { setRuntimeContext as setErrorContext } from "./runtime-error-handler.ts";

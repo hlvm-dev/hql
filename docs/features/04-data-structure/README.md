@@ -205,7 +205,5 @@ nesting) ✅ Higher-order functions (map, filter, reduce)
 
 ## Future Enhancements
 
-- Destructuring for vectors and maps
-- Spread operator for collections
-- Immutable update operations
 - Better type inference for nested structures
+- Record types with compile-time shape validation

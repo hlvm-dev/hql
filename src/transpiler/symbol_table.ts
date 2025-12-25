@@ -94,9 +94,11 @@ export class SymbolTable {
 
   /**
    * Get a symbol from current scope or parent scopes
+   * Uses single get() instead of has()+get() to avoid double lookup
    */
   get(name: string): SymbolInfo | undefined {
-    if (this.table.has(name)) return this.table.get(name);
+    const local = this.table.get(name);
+    if (local !== undefined) return local;
     if (this.parent) return this.parent.get(name);
     return undefined;
   }
@@ -117,10 +119,11 @@ export class SymbolTable {
 
   /**
    * Update properties of an existing symbol
+   * Uses single get() instead of has()+get() to avoid double lookup
    */
   update(name: string, updates: Partial<SymbolInfo>): boolean {
-    if (this.table.has(name)) {
-      const current = this.table.get(name)!;
+    const current = this.table.get(name);
+    if (current !== undefined) {
       this.table.set(name, { ...current, ...updates });
       return true;
     }
@@ -135,10 +138,11 @@ export class SymbolTable {
 
   /**
    * Add a reference to a symbol
+   * Uses single get() instead of has()+get() to avoid double lookup
    */
   addReference(name: string, reference: HQLNode | IRNode): boolean {
-    if (this.table.has(name)) {
-      const info = this.table.get(name)!;
+    const info = this.table.get(name);
+    if (info !== undefined) {
       if (!info.references) {
         info.references = [];
       }

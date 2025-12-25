@@ -295,12 +295,4 @@ Deno.test("Arrow Lambda: $0 in nested structure", async () => {
   assertEquals(result, [10, 6]);
 });
 
-// NOTE: Rest parameters currently have a runtime issue in HQL (pre-existing limitation)
-// Deno.test("Arrow Lambda: with rest parameters", async () => {
-//   const code = `
-//     (let myFn (=> (x & rest) (+ x (reduce + 0 rest))))
-//     (myFn 10 20 30)
-//   `;
-//   const result = await run(code);
-//   assertEquals(result, 60);
-// });
+// NOTE: Rest parameters in arrow lambdas have a known runtime limitation

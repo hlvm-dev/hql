@@ -12,11 +12,12 @@ HQL provides seamless bidirectional interoperability with JavaScript:
 3. **js-set** - Mutate JavaScript properties
 4. **js-new** - Create JavaScript objects
 5. **Dot notation** - Syntactic sugar for property/method access
-6. **Async/await** - Asynchronous JavaScript integration
-7. **Error handling** - Try/catch/finally across boundaries
-8. **Module system** - Import/export between HQL and JS
-9. **Type mapping** - Automatic data type conversion
-10. **Circular imports** - Support for circular HQL ↔ JS dependencies
+6. **Optional chaining** - Safe property/method access with `?.` (v2.0)
+7. **Async/await** - Asynchronous JavaScript integration
+8. **Error handling** - Try/catch/finally across boundaries
+9. **Module system** - Import/export between HQL and JS
+10. **Type mapping** - Automatic data type conversion
+11. **Circular imports** - Support for circular HQL ↔ JS dependencies
 
 All HQL code compiles to valid JavaScript with full ES6+ support.
 
@@ -175,6 +176,57 @@ HQL supports both spaced and spaceless dot notation. **Both compile to identical
 ```
 
 All generate: `data.filter(even).map(double).slice(0, 5)`
+
+### Optional Chaining (v2.0)
+
+Optional chaining allows safe property access on potentially null/undefined values:
+
+```lisp
+; Basic optional property access
+user?.name                       ; => user's name or undefined
+
+; Chained optional access
+data?.user?.address?.city        ; => city or undefined if any is nullish
+
+; Mixed with regular access
+company?.ceo.name                ; => ceo's name, undefined if company is nullish
+
+; Optional method calls
+obj?.greet("World")              ; => calls greet or returns undefined
+
+; With method chaining
+response?.data?.items?.map(fn)   ; => maps items or undefined
+```
+
+**Use cases:**
+
+```lisp
+; Safe nested access
+(const city data?.user?.address?.city)
+(print "City:" city)             ; Works even if data is null
+
+; Optional method invocation
+(const result obj?.compute(10))  ; Returns undefined if obj is null
+
+; Combining with nullish coalescing
+(?? user?.name "Anonymous")      ; Fallback if user or name is nullish
+
+; API response handling
+(const items response?.data?.items)
+(if items
+  (items.map process)
+  [])
+```
+
+**Compilation:**
+
+```lisp
+user?.name                       ; => user?.name
+data?.user?.address              ; => data?.user?.address
+obj?.method(arg)                 ; => obj?.method(arg)
+```
+
+Optional chaining compiles directly to JavaScript optional chaining, providing identical semantics.
 
 **Edge Cases:**
 
@@ -421,12 +473,13 @@ array indexing ✅ js-get - undefined properties ✅ js-set - property mutation 
 js-set - create new properties ✅ js-new - constructor invocation ✅ js-new -
 with arguments ✅ js-new - built-in constructors (Date, Array, Map) ✅ Dot
 notation - property access ✅ Dot notation - method calls ✅ Dot notation -
-chaining ✅ Async functions - basic ✅ Async functions - multiple awaits ✅
-Async functions - Promise.all ✅ Async functions - Promise.race ✅ Async
-functions - chained operations ✅ Try/catch - basic ✅ Try/catch - with finally
-✅ Try/catch - nested ✅ Try/catch - async ✅ Error types - access properties ✅
-Module imports - HQL → JS ✅ Module imports - JS → HQL ✅ Module exports - HQL
-classes ✅ Circular imports - HQL ↔ JS
+chaining ✅ Optional chaining - property access (`?.`) ✅ Optional chaining -
+method calls ✅ Optional chaining - chained access ✅ Async functions - basic ✅
+Async functions - multiple awaits ✅ Async functions - Promise.all ✅ Async
+functions - Promise.race ✅ Async functions - chained operations ✅ Try/catch -
+basic ✅ Try/catch - with finally ✅ Try/catch - nested ✅ Try/catch - async ✅
+Error types - access properties ✅ Module imports - HQL → JS ✅ Module imports -
+JS → HQL ✅ Module exports - HQL classes ✅ Circular imports - HQL ↔ JS
 
 ## Test Coverage
 

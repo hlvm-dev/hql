@@ -30,12 +30,12 @@ Deno.test("References - finds symbol in single file", () => {
 
 Deno.test("References - finds variable references", () => {
   const content = `(let count 0)
-(set! count (+ count 1))
+(= count (+ count 1))
 (print count)`;
 
   const refs = findReferencesInContent(content, "count", "/test.hql");
 
-  // Definition + 3 usages
+  // Definition + 3 usages (= count, + count, print count)
   assertEquals(refs.length, 4);
 });
 

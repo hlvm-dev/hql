@@ -276,10 +276,10 @@ function sum(...nums) {
 (fn collectUsers [...userData]
   (.map userData (fn [data]
     {id: (get data 0)
-     :name (get data 1)})))
+     name: (get data 1)})))
 
 (collectUsers [1 "Alice"] [2 "Bob"] [3 "Charlie"])
-; => [{id: 1 :name: "Alice"} {id: 2 :name: "Bob"} {id: 3 :name: "Charlie"}]
+; => [{id: 1 name: "Alice"} {id: 2 name: "Bob"} {id: 3 name: "Charlie"}]
 ```
 
 ## Best Practices

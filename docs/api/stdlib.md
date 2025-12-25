@@ -178,6 +178,110 @@ Reduces collection to single value.
 
 ---
 
+### `mapIndexed(fn, coll)`
+
+Maps function receiving (index, item) over collection.
+
+```lisp
+(mapIndexed (fn [i x] [i x]) ["a" "b" "c"])
+;; → ([0 "a"] [1 "b"] [2 "c"])
+
+(mapIndexed (fn [i x] (* i x)) [10 20 30])
+;; → (0 20 60)
+```
+
+**Lazy:** Yes
+
+---
+
+### `keepIndexed(fn, coll)`
+
+Like mapIndexed but filters nil results.
+
+```lisp
+(keepIndexed (fn [i x] (if (even? i) x nil)) ["a" "b" "c" "d"])
+;; → ("a" "c")
+```
+
+**Lazy:** Yes
+
+---
+
+### `mapcat(fn, coll)`
+
+Maps function then concatenates results (flat-map).
+
+```lisp
+(mapcat (fn [x] [x x]) [1 2 3])    ;; → (1 1 2 2 3 3)
+(mapcat rest [[1 2 3] [4 5] [6]])  ;; → (2 3 5)
+```
+
+**Lazy:** Yes
+
+---
+
+### `keep(fn, coll)`
+
+Maps function and filters nil results.
+
+```lisp
+(keep (fn [x] (if (> x 0) x nil)) [-1 0 1 2])
+;; → (1 2)
+```
+
+**Lazy:** Yes
+
+---
+
+## Collection Protocols
+
+### `seq(coll)`
+
+Returns a sequence view of the collection, or nil if empty.
+
+```lisp
+(seq [1 2 3])                      ;; → (1 2 3)
+(seq [])                           ;; → nil
+(seq "hello")                      ;; → ("h" "e" "l" "l" "o")
+```
+
+---
+
+### `empty(coll)`
+
+Returns an empty collection of the same type.
+
+```lisp
+(empty [1 2 3])                    ;; → []
+(empty #{1 2 3})                   ;; → #{}
+```
+
+---
+
+### `conj(coll, item)`
+
+Adds item to collection in type-appropriate position.
+
+```lisp
+(conj [1 2] 3)                     ;; → [1 2 3]
+(conj #{1 2} 3)                    ;; → #{1 2 3}
+(conj '(1 2) 0)                    ;; → (0 1 2)
+```
+
+---
+
+### `into(to, from)`
+
+Adds all elements from `from` into `to`.
+
+```lisp
+(into [] [1 2 3])                  ;; → [1 2 3]
+(into #{} [1 2 2 3])               ;; → #{1 2 3}
+(into {} [["a" 1] ["b" 2]])        ;; → {a: 1, b: 2}
+```
+
+---
+
 ## Predicates
 
 ### `isEmpty(coll)`
@@ -194,11 +298,59 @@ Returns true if collection is empty.
 
 ### `some(pred, coll)`
 
-Returns true if any element satisfies predicate.
+Returns first truthy value of (pred item), or nil.
 
 ```lisp
-(some even? [1 3 5])               ;; → false
-(some even? [1 2 3])               ;; → true
+(some even? [1 3 5])               ;; → nil
+(some even? [1 2 3])               ;; → 2 (first matching item)
+(some #(> % 5) [1 3 6 9])          ;; → 6
+```
+
+---
+
+### `every(pred, coll)`
+
+Returns true if predicate returns truthy for all elements.
+
+```lisp
+(every even? [2 4 6])              ;; → true
+(every even? [2 3 4])              ;; → false
+(every pos? [])                    ;; → true (vacuous truth)
+```
+
+---
+
+### `notAny(pred, coll)`
+
+Returns true if predicate returns false for all elements.
+
+```lisp
+(notAny even? [1 3 5])             ;; → true
+(notAny even? [1 2 3])             ;; → false
+```
+
+---
+
+### `notEvery(pred, coll)`
+
+Returns true if predicate returns false for at least one element.
+
+```lisp
+(notEvery even? [2 4 6])           ;; → false
+(notEvery even? [2 3 4])           ;; → true
+```
+
+---
+
+### `isSome(x)`
+
+Returns true if x is not nil (null or undefined).
+
+```lisp
+(isSome 0)                         ;; → true
+(isSome false)                     ;; → true
+(isSome nil)                       ;; → false
+(isSome undefined)                 ;; → false
 ```
 
 ---
@@ -269,6 +421,29 @@ Applies function to array of arguments.
 
 ## Map Operations
 
+### `get(map, key [, notFound])`
+
+Gets value from map by key.
+
+```lisp
+(get {a: 1, b: 2} "a")             ;; → 1
+(get {a: 1} "b")                   ;; → undefined
+(get {a: 1} "b" "default")         ;; → "default"
+```
+
+---
+
+### `getIn(map, path [, notFound])`
+
+Gets value at nested path (array of keys).
+
+```lisp
+(getIn {a: {b: {c: 1}}} ["a" "b" "c"])  ;; → 1
+(getIn {a: {b: 1}} ["a" "x"] "n/a")     ;; → "n/a"
+```
+
+---
+
 ### `assoc(map, key, value)`
 
 Associates key with value in map, returning new map.
@@ -282,12 +457,50 @@ Associates key with value in map, returning new map.
 
 ---
 
+### `assocIn(map, path, value)`
+
+Associates value at nested path.
+
+```lisp
+(assocIn {} ["a" "b" "c"] 1)       ;; → {a: {b: {c: 1}}}
+(assocIn {a: {b: 1}} ["a" "c"] 2)  ;; → {a: {b: 1, c: 2}}
+```
+
+**Immutable:** Returns new map
+
+---
+
 ### `dissoc(map, key)`
 
 Removes key from map, returning new map.
 
 ```lisp
 (dissoc {a: 1, b: 2} "b")          ;; → {a: 1}
+```
+
+**Immutable:** Returns new map
+
+---
+
+### `update(map, key, fn)`
+
+Updates value at key by applying function.
+
+```lisp
+(update {a: 1} "a" inc)            ;; → {a: 2}
+(update {a: 1} "a" (fn [x] (* x 10)))  ;; → {a: 10}
+```
+
+**Immutable:** Returns new map
+
+---
+
+### `updateIn(map, path, fn)`
+
+Updates value at nested path by applying function.
+
+```lisp
+(updateIn {a: {b: 1}} ["a" "b"] inc)  ;; → {a: {b: 2}}
 ```
 
 **Immutable:** Returns new map
@@ -348,6 +561,45 @@ Generates infinite lazy sequence by repeatedly applying function.
 
 ---
 
+### `repeat(x)`
+
+Returns infinite lazy sequence of the same value.
+
+```lisp
+(take 5 (repeat "hello"))          ;; → ("hello" "hello" "hello" "hello" "hello")
+(take 3 (repeat 42))               ;; → (42 42 42)
+```
+
+**Lazy:** Yes (infinite sequence!)
+
+---
+
+### `repeatedly(fn)`
+
+Returns infinite lazy sequence calling function each time.
+
+```lisp
+(take 3 (repeatedly (fn [] (Math.random))))  ;; → (0.123 0.456 0.789)
+(take 4 (repeatedly (fn [] (Date.now))))     ;; → timestamps
+```
+
+**Lazy:** Yes (infinite sequence!)
+
+---
+
+### `cycle(coll)`
+
+Returns infinite lazy sequence cycling through collection.
+
+```lisp
+(take 7 (cycle [1 2 3]))           ;; → (1 2 3 1 2 3 1)
+(take 5 (cycle "ab"))              ;; → ("a" "b" "a" "b" "a")
+```
+
+**Lazy:** Yes (infinite sequence!)
+
+---
+
 ## Utilities
 
 ### `count(coll)`
@@ -396,6 +648,31 @@ Returns second element of collection.
 ```lisp
 (second [1 2 3])                   ;; → 2
 (second [1])                       ;; → undefined
+```
+
+---
+
+### `next(coll)`
+
+Returns (seq (rest coll)), or nil if empty.
+
+```lisp
+(next [1 2 3])                     ;; → (2 3)
+(next [1])                         ;; → nil
+(next [])                          ;; → nil
+```
+
+**Note:** Unlike `rest` which returns empty seq, `next` returns nil.
+
+---
+
+### `reverse(coll)`
+
+Reverses a collection.
+
+```lisp
+(reverse [1 2 3])                  ;; → [3 2 1]
+(reverse "hello")                  ;; → ["o" "l" "l" "e" "h"]
 ```
 
 ---

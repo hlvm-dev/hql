@@ -453,12 +453,6 @@ function initializeTransformFactory(): void {
         (list, currentDir) =>
           bindingModule.transformConst(list, currentDir, transformNode),
       );
-      // def is an alias for const (Clojure-style immutable binding)
-      transformFactory.set(
-        "def",
-        (list, currentDir) =>
-          bindingModule.transformConst(list, currentDir, transformNode),
-      );
       transformFactory.set(
         "let",
         (list, currentDir) =>

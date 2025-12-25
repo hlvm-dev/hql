@@ -19,8 +19,10 @@ HQL provides comprehensive function support with modern features:
 8. **Closures** - Functions capturing outer scope
 9. **Higher-order functions** - Functions as arguments/return values
 10. **Recursive functions** - Self-referencing functions
+11. **Generator functions** - `fn*` with `yield`/`yield*` (v2.0)
+12. **Async generators** - `async fn*` for async iteration (v2.0)
 
-All functions compile to JavaScript functions with full ES6 support.
+All functions compile to JavaScript functions with full ES6+ support.
 
 ## Syntax Flexibility
 
@@ -297,6 +299,99 @@ For config-style functions with many parameters, use map syntax:
 (factorial 5)  ; → 120
 ```
 
+### Generator Functions (v2.0)
+
+Generator functions use `fn*` syntax and produce iterators:
+
+```lisp
+; Basic generator
+(fn* count-up [max]
+  (loop [i 0]
+    (when (< i max)
+      (yield i)
+      (recur (+ i 1)))))
+
+; Using generator
+(let gen (count-up 3))
+(gen.next)  ; → { value: 0, done: false }
+(gen.next)  ; → { value: 1, done: false }
+(gen.next)  ; → { value: 2, done: false }
+(gen.next)  ; → { value: undefined, done: true }
+
+; Iterate with for-of
+(for [n (count-up 5)]
+  (print n))  ; Prints: 0, 1, 2, 3, 4
+
+; Yield with value
+(fn* range [start end]
+  (loop [i start]
+    (when (< i end)
+      (yield i)
+      (recur (+ i 1)))))
+
+; Anonymous generator
+(let gen (fn* []
+  (yield 1)
+  (yield 2)
+  (yield 3)))
+```
+
+### Yield* (Delegate Yield)
+
+Use `yield*` to delegate to another iterator:
+
+```lisp
+; Delegate to another generator
+(fn* numbers []
+  (yield 1)
+  (yield 2))
+
+(fn* more-numbers []
+  (yield* (numbers))  ; Yields 1, 2
+  (yield 3))
+
+(for [n (more-numbers)]
+  (print n))  ; Prints: 1, 2, 3
+
+; Delegate to array
+(fn* from-array [arr]
+  (yield* arr))
+
+(for [x (from-array [1 2 3])]
+  (print x))  ; Prints: 1, 2, 3
+```
+
+### Async Generator Functions (v2.0)
+
+Async generators combine async/await with generators:
+
+```lisp
+; Async generator
+(async fn* fetch-pages [urls]
+  (for [url urls]
+    (let response (await (fetch url)))
+    (let data (await (response.json)))
+    (yield data)))
+
+; Use with for-await-of
+(async fn process-all [urls]
+  (for-await-of [page (fetch-pages urls)]
+    (print page.title)))
+
+; Async generator with delay
+(async fn* ticker [interval count]
+  (loop [i 0]
+    (when (< i count)
+      (await (delay interval))
+      (yield i)
+      (recur (+ i 1)))))
+
+; Anonymous async generator
+(let asyncGen (async fn* []
+  (yield (await (fetch-data 1)))
+  (yield (await (fetch-data 2)))))
+```
+
 ## Implementation Details
 
 ### Function Compilation
@@ -389,6 +484,54 @@ function sum(x, y, ...rest) {
 }
 ```
 
+### Generator Functions
+
+**HQL:**
+
+```lisp
+(fn* count-to [n]
+  (loop [i 0]
+    (when (< i n)
+      (yield i)
+      (recur (+ i 1)))))
+```
+
+**Compiled:**
+
+```javascript
+function* countTo(n) {
+  let i = 0;
+  while (true) {
+    if (i < n) {
+      yield i;
+      i = i + 1;
+      continue;
+    }
+    return;
+  }
+}
+```
+
+### Async Generator Functions
+
+**HQL:**
+
+```lisp
+(async fn* fetch-items [urls]
+  (for [url urls]
+    (yield (await (fetch url)))))
+```
+
+**Compiled:**
+
+```javascript
+async function* fetchItems(urls) {
+  for (const url of urls) {
+    yield await fetch(url);
+  }
+}
+```
+
 ## Features Covered
 
 ✅ Simple function definition ✅ Function with single parameter ✅ Function with
@@ -408,6 +551,8 @@ regular params ✅ Rest params - empty rest array ✅ Placeholder - multiple
 placeholders ✅ Return - implicit return ✅ Return - explicit return ✅ Return -
 early return ✅ Return - in conditional branches ✅ Return - in anonymous
 functions ✅ Return - multiple return paths ✅ Return - in nested functions
+✅ Generator functions (`fn*`) ✅ Yield expression (`yield`) ✅ Delegate yield (`yield*`)
+✅ Async generator functions (`async fn*`) ✅ Generator iteration (for-of)
 
 ## Test Coverage
 
@@ -473,6 +618,21 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 ### Section 8: Comprehensive (1 test)
 
 - Defaults + rest combined
+
+### Section 9: Generator Functions (v2.0)
+
+- Basic generator with `fn*`
+- Yield expression
+- Yield without value
+- Yield* (delegate to iterator)
+- Generator iteration (for-of)
+- Generator manual iteration (.next())
+- Named and anonymous generators
+- Generators with parameters
+- Generators with loop/recur
+- Async generators (`async fn*`)
+- Async generator with await
+- For-await-of with async generators
 
 ## Use Cases
 
@@ -545,6 +705,50 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 
   ; Process data
   data)
+```
+
+### 7. Generators for Lazy Sequences
+
+```lisp
+; Infinite sequence generator
+(fn* naturals []
+  (loop [n 0]
+    (yield n)
+    (recur (+ n 1))))
+
+; Take first n items
+(fn take [n gen]
+  (var result [])
+  (var iter (gen))
+  (loop [i 0]
+    (when (< i n)
+      (let val (iter.next))
+      (when (not val.done)
+        (.push result val.value)
+        (recur (+ i 1)))))
+  result)
+
+(take 5 naturals)  ; → [0, 1, 2, 3, 4]
+```
+
+### 8. Async Generators for Streaming
+
+```lisp
+; Stream data from paginated API
+(async fn* fetch-all-pages [baseUrl]
+  (var page 1)
+  (var hasMore true)
+  (while hasMore
+    (let response (await (fetch (+ baseUrl "?page=" page))))
+    (let data (await (response.json)))
+    (yield* data.items)
+    (= hasMore data.hasNextPage)
+    (= page (+ page 1))))
+
+; Process stream
+(async fn process-stream []
+  (for-await-of [item (fetch-all-pages "/api/items")]
+    (process item)))
 ```
 
 ## Comparison with Other Languages
@@ -758,6 +962,8 @@ HQL's function system provides:
 - ✅ **Closures** (capturing outer scope)
 - ✅ **Higher-order functions** (functions as values)
 - ✅ **Recursion** (self-referencing functions)
+- ✅ **Generator functions** (`fn*` with `yield`/`yield*`)
+- ✅ **Async generators** (`async fn*` for streaming)
 
 Choose the right pattern:
 
@@ -768,3 +974,5 @@ Choose the right pattern:
 - **Variable length**: Rest parameters `[& rest]`
 - **Factories**: Functions returning functions
 - **Guards**: Early returns with conditionals
+- **Lazy sequences**: Generator functions `(fn* range [...] (yield ...))`
+- **Async streaming**: Async generators with `for-await-of`

@@ -11,13 +11,6 @@ export function hasHelpFlag(args: string[]): boolean {
 }
 
 /**
- * Check if args contain a specific flag
- */
-export function hasFlag(args: string[], flag: string): boolean {
-  return args.includes(flag);
-}
-
-/**
  * Filter positional arguments (non-flags)
  */
 export function getPositionalArgs(args: string[]): string[] {

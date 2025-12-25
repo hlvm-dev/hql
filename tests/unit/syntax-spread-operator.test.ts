@@ -156,15 +156,6 @@ Deno.test("Spread: with higher-order function", async () => {
 });
 
 // NOTE: Spread of function call results `...(expr)` not yet supported
-// TODO: Implement spread of arbitrary expressions, not just identifiers
-// Deno.test("Spread: spread result of function", async () => {
-//   const result = await run(`
-//     (fn getArgs [] [1 2 3])
-//     (fn add [x y z] (+ x y z))
-//     (add ...(getArgs))
-//   `);
-//   assertEquals(result, 6);
-// });
 
 Deno.test("Spread: in method call", async () => {
   const result = await run(`

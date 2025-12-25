@@ -49,6 +49,12 @@ const STATIC_HQL_IMPORT_PATTERN =
 const DYNAMIC_HQL_IMPORT_PATTERN =
   /import\(\s*['"]([^'"]+\.hql)['"]\s*\)/;
 
+/** Cached regex patterns for identifier sanitization (avoid compilation per call) */
+const HYPHEN_REGEX = /-/g;
+const CAMEL_CASE_REGEX = /-([a-z])/g;
+const VALID_START_REGEX = /^[a-zA-Z_$]/;
+const INVALID_CHARS_REGEX = /[^a-zA-Z0-9_$]/g;
+
 export function sanitizeIdentifier(
   name: string,
   options: { useCamelCase?: boolean } = {},
@@ -74,28 +80,28 @@ function sanitizeBasicIdentifier(
     return `_${name}`; // Prefix with underscore: "default" → "_default"
   }
 
-  // Handle hyphenated names
+  // Handle hyphenated names - uses cached regex patterns for efficiency
   let sanitized: string;
 
   if (name.includes("-")) {
     if (options.useCamelCase) {
       // Convert to camelCase: "foo-bar" -> "fooBar"
-      sanitized = name.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+      sanitized = name.replace(CAMEL_CASE_REGEX, (_, char) => char.toUpperCase());
     } else {
       // Convert to snake_case: "foo-bar" -> "foo_bar"
-      sanitized = name.replace(/-/g, "_");
+      sanitized = name.replace(HYPHEN_REGEX, "_");
     }
   } else {
     sanitized = name;
   }
 
-  // Ensure starts with valid character
-  if (!/^[a-zA-Z_$]/.test(sanitized)) {
+  // Ensure starts with valid character - uses cached regex
+  if (!VALID_START_REGEX.test(sanitized)) {
     sanitized = `_${sanitized}`;
   }
 
-  // Remove any remaining invalid characters
-  sanitized = sanitized.replace(/[^a-zA-Z0-9_$]/g, "");
+  // Remove any remaining invalid characters - uses cached regex
+  sanitized = sanitized.replace(INVALID_CHARS_REGEX, "");
 
   return sanitized;
 }
@@ -247,48 +253,6 @@ export function getErrorMessage(error: unknown): string {
 }
 
 /**
- * Remove file extension from a path.
- *
- * @param filePath - Path with extension
- * @returns Path without extension
- *
- * @example
- * ```typescript
- * removeExtension("/path/file.ts") // "/path/file"
- * removeExtension("file.test.ts")  // "file.test"
- * ```
- */
-export function removeExtension(filePath: string): string {
-  return filePath.replace(/\.[^.]+$/, "");
-}
-
-/**
- * Replace file extension with a new one.
- *
- * @param filePath - Path with extension
- * @param newExt - New extension (should include the dot, e.g., ".js")
- * @returns Path with new extension
- *
- * @example
- * ```typescript
- * replaceExtension("/path/file.ts", ".js") // "/path/file.js"
- * ```
- */
-export function replaceExtension(filePath: string, newExt: string): string {
-  return filePath.replace(/\.[^.]+$/, newExt);
-}
-
-/**
- * Convert .hql file path to .ts file path.
- *
- * @param hqlPath - Path to .hql file
- * @returns Path with .ts extension
- */
-export function hqlToTsExtension(hqlPath: string): string {
-  return hqlPath.replace(/\.hql$/, ".ts");
-}
-
-/**
  * Normalize path by converting backslashes to forward slashes.
  * Used for cross-platform path consistency.
  *
@@ -302,12 +266,13 @@ export function normalizePath(path: string): string {
 /**
  * Convert hyphenated name to underscore format.
  * Used for JavaScript identifier sanitization.
+ * Uses cached HYPHEN_REGEX from module top for O(1) pattern access.
  *
  * @param name - Hyphenated name like "foo-bar"
  * @returns Underscored name like "foo_bar"
  */
 export function hyphenToUnderscore(name: string): string {
-  return name.replace(/-/g, "_");
+  return name.replace(HYPHEN_REGEX, "_");
 }
 
 /**
@@ -330,16 +295,6 @@ export function isObjectValue(val: unknown): val is Record<string, unknown> {
  */
 export function isNullish(val: unknown): val is null | undefined {
   return val == null;
-}
-
-/**
- * Check if a value is neither null nor undefined.
- *
- * @param val - Value to check
- * @returns True if val is not null and not undefined
- */
-export function isNotNullish<T>(val: T): val is NonNullable<T> {
-  return val != null;
 }
 
 /**

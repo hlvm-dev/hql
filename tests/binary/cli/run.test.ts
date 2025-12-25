@@ -49,8 +49,8 @@ Deno.test({
     await withTempDir(async (dir) => {
       const filePath = `${dir}/test.hql`;
       await Deno.writeTextFile(filePath, `
-        (def x 10)
-        (def y 20)
+        (const x 10)
+        (const y 20)
         (print (+ x y))
       `);
 
@@ -125,7 +125,7 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const result = await runExpression("(def x");  // Unclosed paren
+    const result = await runExpression("(const x");  // Unclosed paren
     assertEquals(result.success, false, "Should fail for syntax error");
   },
 });

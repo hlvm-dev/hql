@@ -95,35 +95,35 @@ The spread operator provides JavaScript-style spreading using the `...` prefix s
 
 ```lisp
 ; Spread at start
-(let obj {b: 2 :c: 3})
-{...obj :a: 1}                    ; => {a: 1 :b: 2 :c: 3}
+(let obj {b: 2 c: 3})
+{...obj a: 1}                    ; => {a: 1 b: 2 c: 3}
 
 ; Spread in middle
-(let obj {b: 2 :c: 3})
-{a: 1 ...obj :d 4}               ; => {a: 1 :b: 2 :c: 3 :d 4}
+(let obj {b: 2 c: 3})
+{a: 1 ...obj d: 4}               ; => {a: 1 b: 2 c: 3 d: 4}
 
 ; Spread at end
-(let obj {b: 2 :c: 3})
-{a: 1 ...obj}                    ; => {a: 1 :b: 2 :c: 3}
+(let obj {b: 2 c: 3})
+{a: 1 ...obj}                    ; => {a: 1 b: 2 c: 3}
 
 ; Multiple objects
 (let a {a: 1})
 (let b {b: 2})
-{...a ...b :c: 3}                 ; => {a: 1 :b: 2 :c: 3}
+{...a ...b c: 3}                 ; => {a: 1 b: 2 c: 3}
 ```
 
 #### Property Overwriting
 
 ```lisp
 ; Later properties override earlier ones
-(let obj {a: 1 :b: 2})
-{...obj :a 99}                   ; => {a: 99 :b: 2}
+(let obj {a: 1 b: 2})
+{...obj a: 99}                   ; => {a: 99 b: 2}
 
 ; Spread before explicit property
-{a: 1 ...obj}                    ; obj's :a overwrites the literal
+{a: 1 ...obj}                    ; obj's a overwrites the literal
 
 ; Spread after explicit property
-{...obj :a 99}                   ; literal 99 overwrites obj's :a
+{...obj a: 99}                   ; literal 99 overwrites obj's a
 ```
 
 ## Implementation Details
@@ -154,7 +154,7 @@ func(...args)
 
 ```lisp
 ; HQL
-{a: 1 ...obj :b: 2}
+{a: 1 ...obj b: 2}
 
 ; Compiles to JavaScript
 { a: 1, ...obj, b: 2 }
@@ -312,25 +312,25 @@ func(...args)
 
 ```lisp
 ; Merge configurations
-(let defaults {host: "localhost" :port: 8080 :debug: false})
-(let custom {port: 3000 :debug: true})
+(let defaults {host: "localhost" port: 8080 debug: false})
+(let custom {port: 3000 debug: true})
 (let config {...defaults ...custom})
-; => {host: "localhost" :port 3000 :debug: true}
+; => {host: "localhost" port: 3000 debug: true}
 
 ; Add properties
-(let user {name: "Alice" :age 30})
-(let enhanced {...user :admin: true :createdAt: (Date.now)})
+(let user {name: "Alice" age: 30})
+(let enhanced {...user admin: true createdAt: (Date.now)})
 ```
 
 ### Object Cloning
 
 ```lisp
 ; Shallow clone
-(let original {a: 1 :b: 2})
+(let original {a: 1 b: 2})
 (let clone {...original})
 
 ; Clone and modify
-(let modified {...original :c: 3})
+(let modified {...original c: 3})
 ```
 
 ## Real-World Examples
@@ -339,17 +339,17 @@ func(...args)
 
 ```lisp
 (let defaultConfig {
-  :timeout: 30000
-  :retries: 3
-  :debug: false
-  :headers: {}
+  timeout: 30000
+  retries: 3
+  debug: false
+  headers: {}
 })
 
 (fn createConfig [overrides]
   {...defaultConfig ...overrides})
 
-(let prodConfig (createConfig {debug: false :timeout: 60000}))
-(let devConfig (createConfig {debug: true :retries: 10}))
+(let prodConfig (createConfig {debug: false timeout: 60000}))
+(let devConfig (createConfig {debug: true retries: 10}))
 ```
 
 ### Array Operations
@@ -379,16 +379,16 @@ func(...args)
 ; Build user object
 (fn createUser [name email ...roles]
   {name: name
-   :email: email
-   :roles: roles
-   :createdAt: (Date.now)})
+   email: email
+   roles: roles
+   createdAt: (Date.now)})
 
 (createUser "Alice" "alice@example.com" "admin" "editor")
-; => {name: "Alice" :email "alice@example.com" :roles ["admin" "editor"] :createdAt: 1234567890}
+; => {name: "Alice" email: "alice@example.com" roles: ["admin" "editor"] createdAt: 1234567890}
 
 ; Merge user updates
 (fn updateUser [user updates]
-  {...user ...updates :updatedAt: (Date.now)})
+  {...user ...updates updatedAt: (Date.now)})
 ```
 
 ## Best Practices
@@ -437,15 +437,15 @@ func(...args)
 (.push copy.data 4)              ; Modifies original.data too!
 
 ; ✅ For deep copy, use explicit approach
-(let deepCopy {...original :data [...original.data]})
+(let deepCopy {...original data: [...original.data]})
 ```
 
 ### Spread Order Matters for Objects
 
 ```lisp
 ; Last property wins
-{a: 1 ...obj}                    ; obj's :a overwrites literal
-{...obj :a: 1}                    ; literal overwrites obj's :a
+{a: 1 ...obj}                    ; obj's a overwrites literal
+{...obj a: 1}                    ; literal overwrites obj's a
 
 ; Use order for defaults vs. overrides
 (let withDefaults {...defaults ...userConfig})  ; User overrides defaults

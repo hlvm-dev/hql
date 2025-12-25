@@ -605,13 +605,14 @@ export async function handleRuntimeError(
 /**
  * Get a "Did you mean?" suggestion for an unknown identifier.
  * Uses Damerau-Levenshtein distance which handles transpositions.
+ * Returns Rust-style suggestion with backticks.
  */
 function getDidYouMeanSuggestion(unknownName: string): string | null {
   const candidates = getAllKnownIdentifiers();
   const suggestion = findSimilarName(unknownName, candidates);
 
   if (suggestion) {
-    return `Did you mean '${suggestion}'?`;
+    return `Did you mean \`${suggestion}\`?`;
   }
 
   return null;
@@ -660,13 +661,15 @@ function getErrorSuggestion(error: Error): string | undefined {
       /['"]?([^'"]+?)['"]?\s+is not defined/,
     ) ?? "";
 
-    // Try to find a similar name
+    // Try to find a similar name - Rust-style prominent suggestion
     const didYouMean = varName ? getDidYouMeanSuggestion(varName) : null;
-    const suggestion = didYouMean
-      ? `${didYouMean} `
-      : "";
 
-    return `The variable '${varName}' is not defined. ${suggestion}Check that it is spelled correctly and has been declared before use.`;
+    if (didYouMean) {
+      // Lead with the suggestion (like Rust does)
+      return didYouMean;
+    }
+
+    return `Check that \`${varName}\` is spelled correctly and has been declared before use.`;
   }
 
   if (messageIncludesAny(normalized, "is not a function")) {
@@ -675,13 +678,14 @@ function getErrorSuggestion(error: Error): string | undefined {
       /['"]?([^'"]+?)['"]?\s+is not a function/,
     ) ?? "";
 
-    // Try to find a similar function name
+    // Try to find a similar function name - Rust-style
     const didYouMean = name ? getDidYouMeanSuggestion(name) : null;
-    const suggestion = didYouMean
-      ? `${didYouMean} `
-      : "";
 
-    return `'${name}' is not a function. ${suggestion}Check that: (1) the function name is spelled correctly, (2) you're calling the right variable, (3) the value is actually a function.`;
+    if (didYouMean) {
+      return didYouMean;
+    }
+
+    return `\`${name}\` is not callable. Check that it's a function before invoking.`;
   }
 
   // ==========================================================================

@@ -504,7 +504,5 @@ Comparison with equality ✅ Short-circuit evaluation (and, or, ternary) ✅
 
 ## Future Enhancements
 
-- Nullish coalescing (`??`)
-- Optional chaining (`?.`)
-- Type checking operators (`typeof`, `instanceof`)
+- Pipeline operator (`|>`) - Function composition
 - Custom operator definitions (advanced metaprogramming)

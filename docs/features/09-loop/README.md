@@ -11,6 +11,10 @@ HQL provides four loop constructs for iteration and recursion:
 2. **`while`** - Traditional condition-based loop
 3. **`repeat`** - Execute n times
 4. **`for`** - Range and collection iteration
+5. **`for-await-of`** - Async iteration over async iterables (v2.0)
+6. **`break`/`continue`** - Loop control statements (v2.0)
+7. **Labeled statements** - Named loops for multi-level control (v2.0)
+8. **`range`** - Lazy number sequence generator (v2.0)
 
 All loops support breaking early and manipulating state during iteration.
 
@@ -142,6 +146,147 @@ sum
 ; Prints: 2, 4, 6
 ```
 
+### For-Await-Of (v2.0) - Async Iteration
+
+```lisp
+; Iterate over async iterables
+(for-await-of [item asyncIterable]
+  body...)
+
+; With async generator
+(async fn* fetch-pages []
+  (yield (await (fetch "/page1")))
+  (yield (await (fetch "/page2"))))
+
+(async fn process []
+  (for-await-of [page (fetch-pages)]
+    (print page.data)))
+
+; With async array operations
+(async fn process-urls [urls]
+  (for-await-of [response (urls.map fetch)]
+    (let data (await (response.json)))
+    (print data)))
+```
+
+### Break Statement (v2.0)
+
+```lisp
+; Exit loop early
+(for [i 10]
+  (when (= i 5)
+    (break))
+  (print i))
+; Prints: 0, 1, 2, 3, 4
+
+; Break in while loop
+(var i 0)
+(while true
+  (if (>= i 10)
+    (break)
+    (do
+      (print i)
+      (= i (+ i 1)))))
+
+; Break with label (multi-level)
+(label outer
+  (for [i 3]
+    (for [j 3]
+      (when (and (= i 1) (= j 1))
+        (break outer))
+      (print i j))))
+; Prints: 0 0, 0 1, 0 2, 1 0
+```
+
+### Continue Statement (v2.0)
+
+```lisp
+; Skip iteration
+(for [i 10]
+  (when (= (% i 2) 0)
+    (continue))
+  (print i))
+; Prints: 1, 3, 5, 7, 9
+
+; Continue in while
+(var i 0)
+(while (< i 10)
+  (= i (+ i 1))
+  (when (= (% i 2) 0)
+    (continue))
+  (print i))
+; Prints: 1, 3, 5, 7, 9
+
+; Continue with label
+(label outer
+  (for [i 3]
+    (for [j 3]
+      (when (= j 1)
+        (continue outer))
+      (print i j))))
+; Prints: 0 0, 1 0, 2 0
+```
+
+### Labeled Statements (v2.0)
+
+```lisp
+; Label syntax
+(label name
+  body...)
+
+; Nested loops with labels
+(label outer
+  (for [i from: 0 to: 5]
+    (label inner
+      (for [j from: 0 to: 5]
+        (when (= (* i j) 6)
+          (break outer))
+        (print (* i j))))))
+
+; Search with early exit
+(label search
+  (for [row matrix]
+    (for [cell row]
+      (when (= cell target)
+        (print "Found!")
+        (break search)))))
+```
+
+### Range Function (v2.0)
+
+The `range` function generates lazy sequences of numbers:
+
+```lisp
+; Basic range (0 to n-1)
+(range 5)           ; => lazy seq of 0, 1, 2, 3, 4
+
+; Range with start and end
+(range 1 6)         ; => lazy seq of 1, 2, 3, 4, 5
+
+; Range with step
+(range 0 10 2)      ; => lazy seq of 0, 2, 4, 6, 8
+
+; Negative step (countdown)
+(range 10 0 -1)     ; => lazy seq of 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+
+; Use with for loop
+(for [i (range 5)]
+  (print i))        ; Prints: 0, 1, 2, 3, 4
+
+; Use with array methods
+(let nums (doall (range 5)))  ; Convert to array: [0, 1, 2, 3, 4]
+
+; Lazy evaluation (only computes what's needed)
+(let first-three (take 3 (range 1000000)))
+; Only generates 0, 1, 2 - not all million numbers
+```
+
+**Characteristics:**
+- Lazy evaluation (generates values on demand)
+- Memory efficient for large ranges
+- Supports forward and reverse iteration
+- Use `doall` to materialize to array
+
 ## Implementation Details
 
 ### Loop/Recur
@@ -242,6 +387,78 @@ for (const x of array) {
 - ✅ Positional syntax (1, 2, or 3 args)
 - ✅ Step size configurable
 
+### For-Await-Of (v2.0)
+
+**Compilation:**
+
+```lisp
+(for-await-of [item asyncIterable]
+  (process item))
+
+; Compiles to:
+for await (const item of asyncIterable) {
+  process(item);
+}
+```
+
+**Characteristics:**
+
+- ✅ Async iteration over async iterables
+- ✅ Works with async generators
+- ✅ Awaits each iteration automatically
+- ✅ Must be inside async function
+
+### Break Statement
+
+**Compilation:**
+
+```lisp
+(break)       ; Compiles to: break;
+(break outer) ; Compiles to: break outer;
+```
+
+**Characteristics:**
+
+- ✅ Exits innermost loop
+- ✅ Optional label for multi-level break
+- ✅ Works in for, while, and switch
+
+### Continue Statement
+
+**Compilation:**
+
+```lisp
+(continue)       ; Compiles to: continue;
+(continue outer) ; Compiles to: continue outer;
+```
+
+**Characteristics:**
+
+- ✅ Skips to next iteration
+- ✅ Optional label for outer loop continue
+- ✅ Works in for and while loops
+
+### Labeled Statements
+
+**Compilation:**
+
+```lisp
+(label name
+  (for [i 10]
+    (break name)))
+
+; Compiles to:
+name: for (let i = 0; i < 10; i++) {
+  break name;
+}
+```
+
+**Characteristics:**
+
+- ✅ Names loops for multi-level control
+- ✅ Works with break and continue
+- ✅ Labels are block-scoped
+
 ## Features Covered
 
 ✅ Loop/recur with single binding ✅ Loop/recur with multiple bindings ✅
@@ -254,6 +471,8 @@ basic ✅ Repeat with multiple expressions ✅ Repeat with counter accumulation 
 For single arg (0 to n-1) ✅ For two args (start to end-1) ✅ For three args
 (with step) ✅ For with named to: syntax ✅ For with named from: to: syntax ✅
 For with named from: to: by: syntax ✅ For collection iteration
+✅ For-await-of (async iteration) ✅ Break statement ✅ Break with label
+✅ Continue statement ✅ Continue with label ✅ Labeled statements
 
 ## Test Coverage
 
@@ -293,6 +512,33 @@ For with named from: to: by: syntax ✅ For collection iteration
 - Named from: to: syntax
 - Named from: to: by: syntax
 - Collection iteration
+
+### Section 5: For-Await-Of (v2.0)
+
+- Basic async iteration
+- With async generators
+- With Promise arrays
+- Inside async functions
+- Error handling in async loops
+
+### Section 6: Break/Continue (v2.0)
+
+- Break in for loop
+- Break in while loop
+- Break with label
+- Continue in for loop
+- Continue in while loop
+- Continue with label
+- Nested loops with labeled break
+- Nested loops with labeled continue
+
+### Section 7: Labeled Statements (v2.0)
+
+- Basic labeled loops
+- Nested labeled loops
+- Multi-level break
+- Multi-level continue
+- Labels with different loop types
 
 ## Use Cases
 
@@ -643,11 +889,9 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
 
 ## Future Enhancements
 
-- `break` and `continue` statements
 - `for-in` for object key iteration
 - `loop*` with destructuring in bindings
 - `while*` with pattern matching
-- `doseq` for lazy sequence iteration
 - `loop/recur` with guards (early exit conditions)
 
 ## Summary
@@ -662,6 +906,9 @@ HQL's loop constructs provide:
 - ✅ **Named parameters** (for with from:/to:/by:)
 - ✅ **Functional style** (loop/recur mimics recursion)
 - ✅ **Imperative style** (while, for, dotimes)
+- ✅ **Async iteration** (for-await-of with async generators)
+- ✅ **Loop control** (break, continue with optional labels)
+- ✅ **Labeled statements** (multi-level loop control)
 
 Choose the right loop for the task:
 
@@ -669,3 +916,5 @@ Choose the right loop for the task:
 - **While:** Complex conditions, stateful iteration
 - **Repeat:** Fixed count, simple repetition
 - **For:** Range or collection iteration
+- **For-Await-Of:** Async generators, streaming data
+- **Labeled loops:** Nested loops with multi-level control

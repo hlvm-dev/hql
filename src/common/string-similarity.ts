@@ -105,7 +105,9 @@ export function findSimilarName(
   unknown: string,
   candidates: string[],
 ): string | null {
-  if (!unknown || candidates.length === 0) {
+  // Don't suggest for very short names (1-2 chars) - too prone to false positives
+  // e.g., "x" would match "!" with distance 1, which is nonsense
+  if (!unknown || unknown.length <= 2 || candidates.length === 0) {
     return null;
   }
 

@@ -318,8 +318,6 @@ fallback
 
 ## Future Enhancements
 
-- Pattern matching (destructuring in conditions)
-- `when` and `unless` helpers (syntactic sugar)
-- `case` expression (value-based dispatch)
+- Exhaustiveness checking for enums in match
 - Guards in function definitions
-- Exhaustiveness checking for enums
+- Pattern matching in function parameters

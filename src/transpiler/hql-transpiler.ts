@@ -562,13 +562,3 @@ async function getGlobalEnv(options: ProcessOptions): Promise<Environment> {
   return baseEnv.clone();
 }
 
-/**
- * Clear the cached base environment.
- * Useful for testing or when embedded macros change.
- */
-export function clearEnvironmentCache(): void {
-  cachedBaseEnv = null;
-  baseEnvInitPromise = null;
-  macroExpressionsCache.clear();
-  logger.debug("Environment cache cleared");
-}

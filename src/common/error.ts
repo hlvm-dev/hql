@@ -30,13 +30,20 @@ import { extractContextLinesFromSource } from "./context-helpers.ts";
 
 function createColorConfig() {
   return {
-    purple: (s: string) => `\x1b[35m${s}\x1b[0m`,
     red: (s: string) => `\x1b[31m${s}\x1b[0m`,
-    black: (s: string) => `\x1b[30m${s}\x1b[0m`,
-    gray: (s: string) => `\x1b[90m${s}\x1b[0m`,
-    bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
-    white: (s: string) => `\x1b[37m${s}\x1b[0m`,
+    yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
+    green: (s: string) => `\x1b[32m${s}\x1b[0m`,
+    blue: (s: string) => `\x1b[34m${s}\x1b[0m`,
     cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+    magenta: (s: string) => `\x1b[35m${s}\x1b[0m`,
+    gray: (s: string) => `\x1b[90m${s}\x1b[0m`,
+    white: (s: string) => `\x1b[37m${s}\x1b[0m`,
+    bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+    dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
+    underline: (s: string) => `\x1b[4m${s}\x1b[0m`,
+    // Legacy alias for compatibility
+    purple: (s: string) => `\x1b[35m${s}\x1b[0m`,
+    black: (s: string) => `\x1b[30m${s}\x1b[0m`,
   };
 }
 
@@ -89,28 +96,28 @@ function stripErrorCodeFromMessage(msg: string): string {
 function enhanceErrorMessage(
   msg: string,
   errorCode: HQLErrorCode,
-  opts: { filePath?: string; line?: number; column?: number },
+  _opts: { filePath?: string; line?: number; column?: number },
 ): string {
   const codeStr = formatErrorCode(errorCode);
 
   // Don't add duplicate error codes - strip any existing ones first
   const cleanMsg = stripErrorCodeFromMessage(msg);
-  let enhancedMsg = `[${codeStr}] ${cleanMsg}`;
 
-  if (opts.filePath && opts.line && opts.column) {
-    enhancedMsg += ` at ${opts.filePath}:${opts.line}:${opts.column}`;
-  } else if (opts.line && opts.column) {
-    enhancedMsg += ` at line ${opts.line}:${opts.column}`;
-  }
-
-  return enhancedMsg;
+  // Note: Location info is stored in sourceLocation and shown in formatted output
+  // We don't add it to the message to avoid redundancy
+  return `[${codeStr}] ${cleanMsg}`;
 }
 
 /**
- * Format context lines with line numbers, highlighting, and column pointers
+ * Format context lines with Rust-inspired visual design
  *
- * Extracted helper to eliminate duplication in formatHQLError()
- * Used for both pre-loaded contextLines and dynamically loaded file content
+ * Produces output like:
+ *   │
+ * 3 │ (let x 10)
+ * 4 │ (let y (+ x undefinedVar))
+ *   │            ^^^^^^^^^^^^^ undefined variable
+ * 5 │ (print y)
+ *   │
  */
 function formatContextLines(
   contextLines: Array<
@@ -118,6 +125,7 @@ function formatContextLines(
   >,
   colors: ReturnType<typeof createColorConfig>,
   errorMessage: string,
+  errorLabel?: string, // Optional label to show under the caret (e.g., "undefined variable")
 ): string[] {
   const output: string[] = [];
 
@@ -125,9 +133,9 @@ function formatContextLines(
     return output;
   }
 
-  // Calculate line number padding
+  // Calculate line number padding (minimum 2 for visual consistency)
   const maxLineNumber = Math.max(...contextLines.map((item) => item.line));
-  const lineNumPadding = String(maxLineNumber).length;
+  const lineNumPadding = Math.max(2, String(maxLineNumber).length);
 
   // Deduplicate lines (prefer error lines if duplicates exist)
   const lineMap = new Map<
@@ -138,7 +146,6 @@ function formatContextLines(
     if (!lineMap.has(line)) {
       lineMap.set(line, { content, isError, column });
     } else if (isError) {
-      // If duplicate, prefer error line
       lineMap.set(line, { content, isError, column });
     }
   });
@@ -146,6 +153,10 @@ function formatContextLines(
   // Find error line number for highlighting
   const errorLineObj = contextLines.find(({ isError }) => isError);
   const errorLineNo = errorLineObj ? errorLineObj.line : -1;
+
+  // Rust-style: empty gutter line at the start
+  const gutterSpace = " ".repeat(lineNumPadding);
+  output.push(`${colors.blue(gutterSpace + " │")}`);
 
   // Format each line
   for (
@@ -156,54 +167,181 @@ function formatContextLines(
     const lineNumStr = String(lineNo).padStart(lineNumPadding, " ");
 
     if (isError || lineNo === errorLineNo) {
-      // Error line - highlight in purple
-      output.push(` ${colors.purple(lineNumStr)} │ ${text}`);
+      // Error line - blue line number, red highlight
+      output.push(`${colors.blue(lineNumStr + " │")} ${text}`);
 
-      // Add column pointer if available
+      // Add underline pointer if column available
       if (column && column > 0) {
         // Calculate effective column accounting for tabs
-        // Tabs display as 4 spaces but occupy 1 char, so add (TAB_WIDTH - 1) extra per tab
         const TAB_WIDTH = 4;
         let effectiveColumn = column;
         const textBefore = text.substring(0, column - 1);
         const tabCount = (textBefore.match(/\t/g) || []).length;
         effectiveColumn += tabCount * (TAB_WIDTH - 1);
 
-        // Create arrow pointer
-        const pointer = " ".repeat(lineNumPadding + 3) +
-          " ".repeat(effectiveColumn - 1) + colors.red(colors.bold("^"));
-        output.push(pointer);
+        // Try to determine error span length (for ^^^^ underline)
+        // Extract the token at error position for smarter underlines
+        const tokenMatch = text.substring(column - 1).match(/^[^\s()[\]{}'"`,;]+/);
+        const underlineLength = tokenMatch ? tokenMatch[0].length : 1;
 
-        // Special indicators for function call errors
-        const isTooManyArgs = errorMessage.includes("Too many") &&
-          errorMessage.includes("arguments");
-        const isMissingArg = errorMessage.includes("Missing required") &&
-          errorMessage.includes("parameter");
+        // Create underline with carets
+        const underline = "^".repeat(Math.max(1, underlineLength));
+        const pointerLine = `${colors.blue(gutterSpace + " │")} ` +
+          " ".repeat(effectiveColumn - 1) + colors.red(colors.bold(underline));
 
-        if (isTooManyArgs || isMissingArg) {
-          const errorIndicator = " ".repeat(lineNumPadding + 3) +
-            " ".repeat(effectiveColumn - 1) + colors.red(colors.bold("⬆"));
-          const errorText = isTooManyArgs
-            ? colors.red("Extra argument")
-            : colors.red("Missing required argument");
-          output.push(`${errorIndicator} ${errorText}`);
+        // Add label under the caret if provided, or auto-generate for common errors
+        const label = errorLabel ?? extractErrorLabel(errorMessage);
+
+        if (label) {
+          output.push(`${pointerLine} ${colors.red(label)}`);
+        } else {
+          output.push(pointerLine);
         }
       }
     } else {
-      // Context line - gray
-      output.push(` ${colors.gray(lineNumStr)} │ ${colors.gray(text)}`);
+      // Context line - dim
+      output.push(`${colors.blue(lineNumStr + " │")} ${colors.dim(text)}`);
     }
   }
+
+  // Rust-style: empty gutter line at the end
+  output.push(`${colors.blue(gutterSpace + " │")}`);
 
   return output;
 }
 
-// Enhancements to formatHQLError function in core/src/common/error.ts
+/**
+ * Extract a concise label from error message for display under caret
+ * Inspired by Rust's excellent error labels
+ */
+function extractErrorLabel(message: string): string | null {
+  const lower = message.toLowerCase();
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Undefined/not defined errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (lower.includes("is not defined")) {
+    const match = message.match(/['"`]?(\w+)['"`]?\s+is not defined/i);
+    if (match) return `not found in this scope`;
+    return "not defined";
+  }
+
+  if (lower.includes("before initialization")) {
+    return "used before declaration";
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Function call errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (lower.includes("too many") && lower.includes("argument")) {
+    const match = message.match(/expected (\d+)/i);
+    if (match) return `expected ${match[1]} argument(s)`;
+    return "too many arguments";
+  }
+
+  if (lower.includes("missing") && lower.includes("argument")) {
+    const match = message.match(/['"`](\w+)['"`]/);
+    if (match) return `missing \`${match[1]}\``;
+    return "missing argument";
+  }
+
+  if (lower.includes("is not a function") || lower.includes("is not callable")) {
+    return "not callable";
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Parse errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (lower.includes("unclosed list")) {
+    return "missing closing `)`";
+  }
+
+  if (lower.includes("unclosed string")) {
+    return "missing closing quote";
+  }
+
+  if (lower.includes("unclosed comment")) {
+    return "missing `*/`";
+  }
+
+  if (lower.includes("unclosed vector") || lower.includes("unclosed bracket")) {
+    return "missing closing `]`";
+  }
+
+  if (lower.includes("unclosed map") || lower.includes("unclosed set")) {
+    return "missing closing `}`";
+  }
+
+  if (lower.includes("unexpected") && lower.includes("')'")) {
+    return "unmatched `)`";
+  }
+
+  if (lower.includes("unexpected end")) {
+    return "unexpected end of input";
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Type errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (lower.includes("cannot read") && lower.includes("null")) {
+    return "this is null";
+  }
+
+  if (lower.includes("cannot read") && lower.includes("undefined")) {
+    return "this is undefined";
+  }
+
+  if (lower.includes("type") && lower.includes("mismatch")) {
+    return "type mismatch";
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Import errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (lower.includes("module") && lower.includes("not found")) {
+    return "module not found";
+  }
+
+  if (lower.includes("circular") && lower.includes("import")) {
+    return "circular dependency";
+  }
+
+  if (lower.includes("export") && lower.includes("not found")) {
+    return "no such export";
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Validation errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (lower.includes("already") && lower.includes("declared")) {
+    return "already declared";
+  }
+
+  if (lower.includes("duplicate")) {
+    return "duplicate";
+  }
+
+  if (lower.includes("invalid") && lower.includes("syntax")) {
+    return "invalid syntax";
+  }
+
+  return null;
+}
 
 /**
- * Format HQL error with proper error message display
- * Improved with better context handling and more accurate error pointers
- * Enhanced for function call errors
+ * Format HQL error with Rust-inspired visual design
+ *
+ * Produces output like:
+ *
+ *   error[HQL5001]: `foo` is not defined
+ *     --> src/main.hql:4:12
+ *      │
+ *    3 │ (let x 10)
+ *    4 │ (print foo)
+ *      │        ^^^ `foo` is not defined
+ *    5 │ (let y 20)
+ *      │
+ *   help: Did you mean `food`?
  */
 export async function formatHQLError(
   error: HQLError,
@@ -212,71 +350,68 @@ export async function formatHQLError(
   const colors = createColorConfig();
   const output: string[] = [];
 
-  // ALWAYS show the error message at the top - not just in debug mode
-  const errorType = error.errorType || "Error";
+  // Extract and clean the message
   let message = error.message || "An unknown error occurred";
 
-  // Clean up the message by removing redundant file:line:column references
-  // that we'll show in a better format anyway
+  // Clean up redundant location references (we show them better in the --> line)
   message = message.replace(/\s+at\s+\S+:\d+:\d+$/, "");
   message = message.replace(/\s+\(\S+:\d+:\d+\)$/, "");
-
-  // Remove error code from message if it's already at the start (we'll display it separately)
   message = message.replace(/^\[HQL\d+\]\s*/, "");
+  // Remove location info from message (we show it separately in --> line)
+  message = message.replace(/\s*starting at line \d+\.?/gi, "");
+  message = message.replace(/\s*at line \d+:\d+/gi, "");
+  message = message.replace(/\s*at line \d+/gi, "");
+  // Clean up double periods that might result from cleanup
+  message = message.replace(/\.\s*\./g, ".");
+  // Trim any trailing punctuation cleanup artifacts
+  message = message.trim();
 
-  // Enhance messages for common function call errors
-  if (message.includes("Too many") && message.includes("arguments")) {
-    // Already enhanced in the improved error handling
-  } else if (
-    message.includes("Missing required") && message.includes("parameter")
-  ) {
-    // Already enhanced in the improved error handling
-  }
-
-  // Format error type with code if available
+  // ─────────────────────────────────────────────────────────────────────────
+  // Line 1: Error header with code (Rust-style)
+  // ─────────────────────────────────────────────────────────────────────────
   const errorHeader = error.code
-    ? `${
-      colors.red(colors.bold(`error[${formatErrorCode(error.code)}]:`))
-    } ${message}`
-    : `${colors.red(colors.bold(`${errorType}:`))} ${message}`;
+    ? `${colors.red(colors.bold(`error[${formatErrorCode(error.code)}]:`))} ${colors.bold(message)}`
+    : `${colors.red(colors.bold("error:"))} ${colors.bold(message)}`;
 
   output.push(errorHeader);
 
-  // Display code context with line numbers and column pointer if available
-  if (error.contextLines?.length > 0) {
-    // Add empty line before context
-    output.push("");
+  // ─────────────────────────────────────────────────────────────────────────
+  // Line 2: Location arrow (Rust-style --> file:line:column)
+  // ─────────────────────────────────────────────────────────────────────────
+  if (error.sourceLocation?.filePath) {
+    const filepath = error.sourceLocation.filePath;
+    const line = error.sourceLocation.line || 1;
+    const column = error.sourceLocation.column || 1;
+    output.push(`  ${colors.blue("-->")} ${filepath}:${line}:${column}`);
+  }
 
-    // Use helper to format context lines (eliminates 50 lines of duplication!)
+  // ─────────────────────────────────────────────────────────────────────────
+  // Lines 3+: Code context with line numbers and underlines
+  // ─────────────────────────────────────────────────────────────────────────
+  if (error.contextLines?.length > 0) {
     const formattedLines = formatContextLines(
       error.contextLines,
       colors,
       error.message,
     );
     output.push(...formattedLines);
-  } // Try to load context lines if they don't exist but we have source location
-  else if (error.sourceLocation?.filePath && error.sourceLocation.line) {
+  } else if (error.sourceLocation?.filePath && error.sourceLocation.line) {
+    // Try to load context lines from file
     try {
       const filepath = error.sourceLocation.filePath;
       const line = error.sourceLocation.line;
       const column = error.sourceLocation.column || 1;
 
-      // Add empty line before context
-      output.push("");
-
-      // Read file and extract context lines
       const fileContent = await platformReadTextFile(filepath);
       const fileLines = fileContent.split(/\r?\n/);
       const errorIdx = line - 1;
 
-      // Make sure we're in bounds
       if (errorIdx >= 0 && errorIdx < fileLines.length) {
-        // Build context lines array
         const contextLines: Array<
           { line: number; content: string; isError: boolean; column?: number }
         > = [];
 
-        // Add context before error (2 lines)
+        // 2 lines before
         for (let i = Math.max(0, errorIdx - 2); i < errorIdx; i++) {
           contextLines.push({
             line: i + 1,
@@ -285,7 +420,7 @@ export async function formatHQLError(
           });
         }
 
-        // Add error line with column pointer
+        // Error line
         contextLines.push({
           line: line,
           content: fileLines[errorIdx],
@@ -293,7 +428,7 @@ export async function formatHQLError(
           column: column > 0 ? column : undefined,
         });
 
-        // Add context after error (2 lines)
+        // 2 lines after
         for (
           let i = errorIdx + 1;
           i <= Math.min(fileLines.length - 1, errorIdx + 2);
@@ -306,75 +441,136 @@ export async function formatHQLError(
           });
         }
 
-        // Use helper to format (eliminates 50+ lines of duplication!)
         const formattedLines = formatContextLines(
           contextLines,
           colors,
           error.message,
         );
         output.push(...formattedLines);
-      } else {
-        // Line number is out of bounds
-        output.push(
-          `${
-            colors.gray(
-              `Line ${line} is outside the range of file (${fileLines.length} lines)`,
-            )
-          }`,
-        );
       }
-    } catch (_readError) {
-      // If file can't be read, add a note about the location without context
-      output.push("");
-      output.push(
-        `${
-          colors.gray(
-            `Could not read source file: ${error.sourceLocation.filePath}`,
-          )
-        }`,
-      );
+    } catch {
+      // Silently skip context if file can't be read
     }
   }
 
-  // Add empty line before location info
-  output.push("");
-
-  // Add IDE-friendly location info with "Where:" prefix
-  if (error.sourceLocation?.filePath) {
-    const filepath = error.sourceLocation.filePath;
-    const line = error.sourceLocation.line || 1;
-    const column = error.sourceLocation.column || 1;
-    const whereStr = `${filepath}:${line}:${column}`;
-    output.push(
-      `${colors.purple(colors.bold("Where:"))} ${colors.white(whereStr)}`,
-    );
-  }
-
-  // Add suggestion if available
+  // ─────────────────────────────────────────────────────────────────────────
+  // Help/suggestion section (Rust-style "help:" prefix)
+  // ─────────────────────────────────────────────────────────────────────────
   if (error.getSuggestion && typeof error.getSuggestion === "function") {
     const suggestion = error.getSuggestion();
     if (suggestion) {
-      output.push(`${colors.cyan(`Suggestion: ${suggestion}`)}`);
+      // Check if it's a "Did you mean?" suggestion - make it more prominent
+      if (suggestion.toLowerCase().startsWith("did you mean")) {
+        output.push(`  ${colors.cyan(colors.bold("help:"))} ${colors.cyan(suggestion)}`);
+      } else {
+        output.push(`  ${colors.green(colors.bold("help:"))} ${suggestion}`);
+      }
     }
   }
 
-  // Add help URL if available
-  const helpUrl = error.getHelpUrl?.();
-  if (helpUrl) {
-    output.push("");
-    output.push(
-      `${colors.gray("For more information, see:")} ${colors.cyan(helpUrl)}`,
-    );
+  // ─────────────────────────────────────────────────────────────────────────
+  // Note section for additional context (Rust-style "note:" prefix)
+  // ─────────────────────────────────────────────────────────────────────────
+  // Add notes for common error types
+  const note = getErrorNote(error);
+  if (note) {
+    output.push(`  ${colors.blue(colors.bold("note:"))} ${note}`);
   }
 
-  // Add stack trace only in debug mode
+  // ─────────────────────────────────────────────────────────────────────────
+  // Stack trace (debug mode only)
+  // ─────────────────────────────────────────────────────────────────────────
   if (isDebug && error.originalError?.stack) {
     output.push("");
-    output.push(colors.gray("Stack trace:"));
-    output.push(colors.gray(error.originalError.stack));
+    output.push(colors.dim("Stack trace:"));
+    output.push(colors.dim(error.originalError.stack));
   }
 
   return output.join("\n");
+}
+
+/**
+ * Get contextual notes for specific error types
+ * Inspired by Rust's educational error notes
+ */
+function getErrorNote(error: HQLError): string | null {
+  const message = error.message.toLowerCase();
+  const errorType = error.errorType?.toLowerCase() ?? "";
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TDZ (Temporal Dead Zone) errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (message.includes("before initialization") || message.includes("temporal dead zone")) {
+    return "Variables declared with `let` and `const` cannot be accessed before their declaration.";
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Import/Module errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (message.includes("circular") && message.includes("import")) {
+    return "Consider extracting shared code into a separate module to break the cycle.";
+  }
+
+  if (message.includes("module") && message.includes("not found")) {
+    return "Check the module path and ensure the file exists.";
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Undefined variable errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (message.includes("is not defined")) {
+    const match = error.message.match(/['"`]?(\w+)['"`]?\s+is not defined/i);
+    if (match) {
+      const name = match[1];
+      // Short names more prone to typos
+      if (name.length <= 3) {
+        return "Short variable names are prone to typos. Consider using more descriptive names.";
+      }
+      // Check for common JS globals that might be accidentally used
+      if (["document", "window", "process", "require"].includes(name)) {
+        return `\`${name}\` is a Node.js/browser global. HQL runs in a Deno environment.`;
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Parse errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (errorType.includes("parse") || message.includes("unclosed")) {
+    if (message.includes("unclosed list")) {
+      return "Every `(` must have a matching `)`. Check for unbalanced parentheses.";
+    }
+    if (message.includes("unclosed string")) {
+      return "Strings must be closed with the same quote character they started with.";
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Function call errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (message.includes("is not a function") || message.includes("not callable")) {
+    return "Only functions can be called with `(fn args...)`. Check that you have a function, not a value.";
+  }
+
+  if (message.includes("too many") && message.includes("argument")) {
+    return "Check the function signature for the expected number of parameters.";
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Null/undefined access errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (message.includes("cannot read") && (message.includes("null") || message.includes("undefined"))) {
+    return "Use `when-let` or check for nil before accessing properties.";
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Stack overflow / recursion errors
+  // ─────────────────────────────────────────────────────────────────────────
+  if (message.includes("maximum call") || message.includes("stack") && message.includes("exceeded")) {
+    return "Ensure recursive functions have a proper base case that terminates recursion.";
+  }
+
+  return null;
 }
 
 // -----------------------------------------------------------------------------
@@ -1637,22 +1833,3 @@ export async function reportError(
   await globalErrorReporter.reportError(error, isDebug);
 }
 
-export const ErrorPipeline = {
-  reportError,
-  perform,
-  wrapError,
-  // classes
-  HQLError,
-  ParseError,
-  ImportError,
-  ValidationError,
-  MacroError,
-  TransformError,
-  RuntimeError,
-  CodeGenError,
-  TranspilerError,
-  ErrorType,
-  SourceLocationInfo,
-};
-
-export default ErrorPipeline;
