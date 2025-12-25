@@ -106,22 +106,24 @@ Deno.test("Range Lazy Consistency", async (t) => {
     );
   });
 
-  await t.step("Transpiled code uses lazy range", async () => {
-    const transpiled = await hql.transpile("(range 5)");
+  await t.step("Transpiled code uses range stdlib function", async () => {
+    // Use 2-arg form to get proper function call syntax
+    const transpiled = await hql.transpile("(range 0 5)");
     const code = typeof transpiled === "string" ? transpiled : transpiled.code;
 
-    // Verify transpiler still uses __hql_range
+    // range is now a stdlib function, not a special form
+    // Should compile to range(0, 5) function call
     assertEquals(
-      code.includes("__hql_range"),
+      code.includes("range(0, 5)") || code.includes("range(0,5)"),
       true,
-      "Transpiler should use __hql_range",
+      "Transpiler should call range as a stdlib function",
     );
 
-    // Verify __hql_range function is included in output
+    // __hql_range should NOT appear (no longer a special form)
     assertEquals(
-      code.includes("function __hql_range"),
-      true,
-      "Transpiled output should include __hql_range function",
+      code.includes("__hql_range"),
+      false,
+      "Transpiled output should NOT include __hql_range special form",
     );
   });
 

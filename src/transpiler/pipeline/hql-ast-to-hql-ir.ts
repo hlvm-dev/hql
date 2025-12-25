@@ -16,7 +16,6 @@ import { sanitizeIdentifier, hyphenToUnderscore } from "../../common/utils.ts";
 import {
   HASH_MAP_INTERNAL,
   HASH_MAP_USER,
-  RANGE_HELPER,
   LAZY_SEQ_HELPER,
   GET_HELPER,
   GET_NUMERIC_HELPER,
@@ -410,40 +409,8 @@ function initializeTransformFactory(): void {
         "async",
         (list, currentDir) => transformAsync(list, currentDir, transformNode),
       );
-      // Simple built-in range implementation - just call a runtime function
-      transformFactory.set(
-        "range",
-        (list, currentDir) => {
-          // Transform it as a regular function call to a built-in 'range' function
-          // The runtime will need to provide this function
-          const args = transformElements(
-            list.elements.slice(1),
-            currentDir,
-            transformNode,
-            "range argument",
-            "Range argument",
-          );
-
-          if (args.length > 3) {
-            throw new ValidationError(
-              "range requires 0-3 arguments",
-              "range",
-              "(range) or (range end) or (range start end) or (range start end step)",
-              `${args.length} arguments`,
-            );
-          }
-
-          // Generate a simple function call that will be provided at runtime
-          return {
-            type: IR.IRNodeType.CallExpression,
-            callee: {
-              type: IR.IRNodeType.Identifier,
-              name: RANGE_HELPER,
-            } as IR.IRIdentifier,
-            arguments: args,
-          } as IR.IRCallExpression;
-        },
-      );
+      // Note: `range` is no longer a special form - it's a stdlib function
+      // available globally via STDLIB_PUBLIC_API injection in runtime-helpers.ts
       transformFactory.set(
         "await",
         (list, currentDir) => transformAwait(list, currentDir, transformNode),

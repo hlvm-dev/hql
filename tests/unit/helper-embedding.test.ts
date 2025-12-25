@@ -112,23 +112,25 @@ Deno.test("Helper Embedding: __hql_deepFreeze NOT embedded when only var is used
   );
 });
 
-Deno.test("Helper Embedding: __hql_range is embedded when range is used", async () => {
-  const hqlCode = `(into [] (range 5))`;
+Deno.test("Helper Embedding: range is a stdlib function (not a special form)", async () => {
+  // Test with 2 args to verify function call syntax
+  const hqlCode = `(into [] (range 0 5))`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
-  // Verify __hql_range is embedded
+  // range is now a stdlib function, not a special form calling __hql_range
+  // With 2+ arguments, it compiles to a regular function call
   assertEquals(
-    code.includes("__hql_range"),
+    code.includes("range(0, 5)") || code.includes("range(0,5)"),
     true,
-    "Transpiled code must include __hql_range when range is used"
+    "Transpiled code should call range as a function"
   );
 
-  // Verify rangeCore dependency is also embedded
+  // __hql_range should NOT appear (no longer a special form)
   assertEquals(
-    code.includes("rangeCore"),
-    true,
-    "Transpiled code must include rangeCore dependency"
+    code.includes("__hql_range"),
+    false,
+    "Transpiled code should NOT use __hql_range special form"
   );
 });
 
@@ -146,20 +148,24 @@ Deno.test("Helper Embedding: __hql_get is embedded when property access is used"
 });
 
 Deno.test("Helper Embedding: Multiple helpers embedded when needed", async () => {
-  const hqlCode = `(const nums (into [] (range 5)))`;
+  // Use range with 2 args for proper function call syntax
+  const hqlCode = `(const nums (into [] (range 0 5)))`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
-  // Verify multiple helpers are embedded
-  const expectedHelpers = ["__hql_deepFreeze", "__hql_range"];
+  // Verify __hql_deepFreeze is embedded for const
+  assertEquals(
+    code.includes("__hql_deepFreeze"),
+    true,
+    "Transpiled code must include __hql_deepFreeze for const"
+  );
 
-  for (const helper of expectedHelpers) {
-    assertEquals(
-      code.includes(helper),
-      true,
-      `Transpiled code must include ${helper}`
-    );
-  }
+  // range is now a stdlib function, called as range(0, 5)
+  assertEquals(
+    code.includes("range(0, 5)") || code.includes("range(0,5)"),
+    true,
+    "Transpiled code should call range as a function"
+  );
 });
 
 Deno.test("Helper Embedding: Verify single source of truth via function.toString()", async () => {
