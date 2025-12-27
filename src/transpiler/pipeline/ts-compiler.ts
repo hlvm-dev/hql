@@ -76,8 +76,10 @@ const DEFAULT_COMPILER_OPTIONS: ts.CompilerOptions = {
   allowJs: true,
   // Preserve JSX for frameworks
   jsx: ts.JsxEmit.Preserve,
-  // Skip standard library - we're doing in-memory compilation
-  // We provide our own type declarations for runtime helpers
+  // In-memory compilation requires noLib: true
+  // We provide type declarations in RUNTIME_HELPER_DECLARATIONS
+  // Note: TS2318 "Cannot find global type" errors are expected and filtered
+  // because TypeScript's intrinsic types can't be fully replicated with interfaces
   noLib: true,
 };
 
@@ -140,6 +142,7 @@ interface Iterable<T> { }
 interface Iterator<T> { next(): IteratorResult<T>; }
 interface IteratorResult<T> { done: boolean; value: T; }
 interface IterableIterator<T> extends Iterator<T> { }
+interface PromiseLike<T> { then<R>(onfulfilled?: (value: T) => R | PromiseLike<R>): PromiseLike<R>; }
 interface Promise<T> { then<R>(fn: (x: T) => R | Promise<R>): Promise<R>; catch(fn: (e: unknown) => unknown): Promise<T>; finally(fn: () => void): Promise<T>; }
 interface Error { name: string; message: string; stack?: string; }
 interface Map<K, V> { get(key: K): V | undefined; set(key: K, value: V): Map<K, V>; has(key: K): boolean; delete(key: K): boolean; clear(): void; size: number; keys(): IterableIterator<K>; values(): IterableIterator<V>; entries(): IterableIterator<[K, V]>; forEach(fn: (value: V, key: K) => void): void; }
@@ -161,6 +164,18 @@ declare function setTimeout(fn: () => void, ms: number): number;
 declare function setInterval(fn: () => void, ms: number): number;
 declare function clearTimeout(id: number): void;
 declare function clearInterval(id: number): void;
+
+// Web/Deno API declarations
+interface Response { ok: boolean; status: number; statusText: string; headers: Headers; body: ReadableStream<Uint8Array> | null; json(): Promise<unknown>; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer>; blob(): Promise<Blob>; }
+interface Headers { get(name: string): string | null; has(name: string): boolean; set(name: string, value: string): void; append(name: string, value: string): void; delete(name: string): void; forEach(fn: (value: string, key: string) => void): void; }
+interface ReadableStream<T> { cancel(): Promise<void>; getReader(): ReadableStreamDefaultReader<T>; }
+interface ReadableStreamDefaultReader<T> { read(): Promise<{ done: boolean; value: T | undefined }>; cancel(): Promise<void>; }
+interface ArrayBuffer { byteLength: number; slice(begin: number, end?: number): ArrayBuffer; }
+interface Uint8Array { length: number; [n: number]: number; slice(start?: number, end?: number): Uint8Array; }
+interface Blob { size: number; type: string; slice(start?: number, end?: number): Blob; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer>; }
+interface RequestInit { method?: string; headers?: Record<string, string>; body?: string | Uint8Array; signal?: AbortSignal; }
+interface AbortSignal { aborted: boolean; }
+declare function fetch(url: string, init?: RequestInit): Promise<Response>;
 
 // HQL Runtime Helper Type Declarations
 declare function __hql_get<T>(arr: T[], index: number): T | undefined;

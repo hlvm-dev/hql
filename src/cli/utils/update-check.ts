@@ -60,7 +60,10 @@ export async function checkForUpdates(): Promise<void> {
 
       clearTimeout(timeoutId);
 
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        if (resp.body) await resp.body.cancel();
+        return;
+      }
 
       const release = await resp.json();
       const latestVersion = (release.tag_name || "").replace(/^v/, "");

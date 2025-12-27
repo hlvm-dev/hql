@@ -11,6 +11,7 @@ export async function getNpmLatestVersion(
       `https://registry.npmjs.org/${encodeURIComponent(name)}`,
     );
     if (!resp.ok) {
+      if (resp.body) await resp.body.cancel();
       logger.debug &&
         logger.debug(`NPM registry returned status: ${resp.status}`);
       return null;
@@ -57,6 +58,7 @@ export async function getJsrLatestVersion(
       }`,
     );
     if (!resp.ok) {
+      if (resp.body) await resp.body.cancel();
       logger.debug &&
         logger.debug(`JSR registry returned status: ${resp.status}`);
       return null;

@@ -21,6 +21,10 @@ async function isAIRunning(): Promise<boolean> {
     const response = await fetch(`${OLLAMA_URL}/api/tags`, {
       signal: AbortSignal.timeout(1000)
     });
+    // Must consume or cancel the response body to avoid resource leaks
+    if (response.body) {
+      await response.body.cancel();
+    }
     return response.ok;
   } catch {
     return false;

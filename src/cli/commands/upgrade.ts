@@ -37,6 +37,7 @@ export async function upgrade(args: string[]): Promise<void> {
     });
 
     if (!resp.ok) {
+      if (resp.body) await resp.body.cancel();
       console.error(`Failed to check for updates (HTTP ${resp.status})`);
       platformExit(1);
     }

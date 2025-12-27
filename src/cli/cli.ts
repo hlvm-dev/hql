@@ -14,8 +14,8 @@ import { upgrade as upgradeCommand, showUpgradeHelp } from "./commands/upgrade.t
 
 // Import run command from run.ts
 import { run as runCommand } from "./run.ts";
-// Import repl command
-import { main as replCommand } from "./repl.ts";
+// Import repl command from new REPL module
+import { main as replCommand } from "./repl/mod.ts";
 
 /**
  * Display main CLI help

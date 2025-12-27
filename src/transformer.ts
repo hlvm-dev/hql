@@ -138,14 +138,26 @@ export async function transformAST(
       failOnTypeErrors: options.failOnTypeErrors,
     });
 
-    // Report type errors to stderr only if showTypeWarnings is enabled
+    // Report type errors to stderr
     // Type errors are non-fatal warnings - code still runs but may have issues
-    // By default, suppress these noisy warnings for better user experience
-    if (result.typeErrors && result.typeErrors.length > 0 && options.showTypeWarnings) {
+    if (result.typeErrors && result.typeErrors.length > 0 && options.showTypeWarnings !== false) {
+      // Infrastructure errors that are NOT user code issues:
+      // - TS2318 "Cannot find global type" - noLib: true limitation
+      // - TS2307 "Cannot find module '@hql/*'" - embedded packages aren't real modules
+      const TS_INFRASTRUCTURE_ERRORS = new Set([2318, 2307]);
+
       for (const err of result.typeErrors) {
+        // Skip TypeScript infrastructure errors
+        if (TS_INFRASTRUCTURE_ERRORS.has(err.code)) {
+          continue;
+        }
+        // Skip errors from internal @hql/* packages (not user code)
+        const errorFile = err.file || "";
+        if (errorFile.startsWith("@hql/") || errorFile.includes("/@hql/")) {
+          continue;
+        }
         const location = `${err.file || sourceFilePath}:${err.line}:${err.column}`;
         console.error(`Type error at ${location}: ${err.message}`);
-        logger.debug(`Type error details: TS${err.code} at ${location}`);
       }
     }
 
