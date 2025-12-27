@@ -176,9 +176,9 @@ export function ${exportName}() {
 
   commands: {
     ".hql": {
-      description: "Force HQL evaluation",
-      async handler(context, input) {
-        await hqlPlugin.evaluate(input, context);
+      description: "Force HQL mode (input next line as HQL)",
+      handler(_context: REPLContext) {
+        console.log("HQL mode active - enter HQL expression:");
       }
     }
   }

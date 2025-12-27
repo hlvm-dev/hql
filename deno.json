@@ -6,7 +6,7 @@
   "imports": {
     "source-map": "npm:source-map@0.6.1",
     "typescript": "npm:typescript@5.3.3",
-    "@hlvm/repl": "../repl/mod.ts"
+    "@hlvm/repl": "./vendor/repl/mod.ts"
   },
   "publish": {
     "exclude": [

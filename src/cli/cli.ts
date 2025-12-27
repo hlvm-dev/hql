@@ -14,6 +14,8 @@ import { upgrade as upgradeCommand, showUpgradeHelp } from "./commands/upgrade.t
 
 // Import run command from run.ts
 import { run as runCommand } from "./run.ts";
+// Import repl command
+import { main as replCommand } from "./repl.ts";
 
 /**
  * Display main CLI help
@@ -26,6 +28,7 @@ Usage: hql <command> [options]
 
 Commands:
   run <file|expr>    Run an HQL file or expression
+  repl               Start interactive REPL
   compile <file>     Compile HQL to JavaScript or native binary
   init               Initialize a new HQL project
   lsp                Start the Language Server Protocol server
@@ -78,6 +81,11 @@ async function main(): Promise<void> {
     case "run":
       // Run command with remaining args
       await runCommand(commandArgs);
+      break;
+
+    case "repl":
+      // Start interactive REPL
+      await replCommand(commandArgs);
       break;
 
     case "compile":
