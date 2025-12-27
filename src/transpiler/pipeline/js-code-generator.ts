@@ -184,13 +184,15 @@ export async function generateJavaScript(
       });
     }
 
-    // Log type errors if any
+    // Log type errors if any (only when failOnTypeErrors is set or verbose logging)
     if (hqlTypeErrors.length > 0) {
       const errorCount = hqlTypeErrors.filter((e) => e.severity === "error")
         .length;
       const warnCount = hqlTypeErrors.filter((e) => e.severity === "warning")
         .length;
-      logger.warn(
+
+      // Only log to debug level by default - avoid noisy console output
+      logger.debug(
         `Type checking found ${errorCount} error(s), ${warnCount} warning(s)`,
       );
 

@@ -33,6 +33,8 @@ export interface TransformOptions {
   typeCheck?: boolean;
   /** Fail compilation on type errors (default: false - emit anyway) */
   failOnTypeErrors?: boolean;
+  /** Show type checking warnings (default: false - suppress noisy warnings) */
+  showTypeWarnings?: boolean;
 }
 
 /**
@@ -136,9 +138,10 @@ export async function transformAST(
       failOnTypeErrors: options.failOnTypeErrors,
     });
 
-    // Report type errors to stderr so users see them
+    // Report type errors to stderr only if showTypeWarnings is enabled
     // Type errors are non-fatal warnings - code still runs but may have issues
-    if (result.typeErrors && result.typeErrors.length > 0) {
+    // By default, suppress these noisy warnings for better user experience
+    if (result.typeErrors && result.typeErrors.length > 0 && options.showTypeWarnings) {
       for (const err of result.typeErrors) {
         const location = `${err.file || sourceFilePath}:${err.line}:${err.column}`;
         console.error(`Type error at ${location}: ${err.message}`);

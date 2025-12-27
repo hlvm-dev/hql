@@ -76,6 +76,51 @@ all: build-mac-intel build-mac-arm build-linux build-windows
 	@echo ""
 	@echo "✅ Ready to distribute!"
 
+# Build with AI (includes embedded Ollama)
+# Requires: resources/ai-engine (Ollama binary)
+build-ai:
+	@if [ ! -f resources/ai-engine ]; then \
+		echo "❌ Missing resources/ai-engine"; \
+		echo "   Run: make setup-ai"; \
+		exit 1; \
+	fi
+	@echo "📦 Embedding HQL packages..."
+	@./scripts/embed-packages.ts
+	@echo "🤖 Building HQL with AI (includes Ollama)..."
+	@deno compile --allow-all --no-check --config deno.json \
+		--include resources/ai-engine \
+		--output $(BINARY) src/cli/cli.ts
+	@echo "✅ Done! AI-enabled binary: ./$(BINARY)"
+	@ls -lh $(BINARY)
+
+# Setup AI engine (download Ollama for embedding)
+setup-ai:
+	@echo "📥 Setting up AI engine..."
+	@mkdir -p resources
+	@if [ -f /usr/local/bin/ollama ]; then \
+		echo "   Using system Ollama..."; \
+		cp /usr/local/bin/ollama resources/ai-engine; \
+	elif [ -f $(HOME)/.ollama/ollama ]; then \
+		echo "   Using user Ollama..."; \
+		cp $(HOME)/.ollama/ollama resources/ai-engine; \
+	elif command -v ollama >/dev/null 2>&1; then \
+		echo "   Copying from PATH..."; \
+		cp $$(which ollama) resources/ai-engine; \
+	else \
+		echo "❌ Ollama not found. Install it first:"; \
+		echo "   curl -fsSL https://ollama.com/install.sh | sh"; \
+		exit 1; \
+	fi
+	@chmod +x resources/ai-engine
+	@echo "✅ AI engine ready: resources/ai-engine"
+	@ls -lh resources/ai-engine
+
+# Test AI features
+test-ai: build-ai
+	@echo "🧪 Testing HQL AI features..."
+	@./$(BINARY) run -e '(import [ask] from "@hql/ai") (print (ask "Say: Hello from HQL!"))'
+	@echo "✅ AI test passed!"
+
 # Clean up
 clean:
 	@rm -f hql hql-* /tmp/hql-test.hql
@@ -93,6 +138,11 @@ help:
 	@echo "  make all          - Build for all platforms"
 	@echo "  make clean        - Remove build files"
 	@echo ""
+	@echo "AI-Enabled Build (includes Ollama):"
+	@echo "  make setup-ai     - Setup AI engine (copy Ollama)"
+	@echo "  make build-ai     - Build with embedded AI"
+	@echo "  make test-ai      - Test AI features"
+	@echo ""
 	@echo "Platform-specific builds:"
 	@echo "  make build-mac-intel"
 	@echo "  make build-mac-arm"
@@ -101,3 +151,4 @@ help:
 
 .PHONY: build install fast test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows
+.PHONY: build-ai setup-ai test-ai

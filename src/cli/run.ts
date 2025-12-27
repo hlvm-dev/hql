@@ -309,5 +309,8 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
 }
 
 if (import.meta.main) {
-  run();
+  run().then((code) => {
+    // Explicitly exit to avoid hanging on background processes (like Ollama)
+    Deno.exit(code);
+  });
 }

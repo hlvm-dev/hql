@@ -9,6 +9,7 @@ import { globalLogger as logger } from "../logger.ts";
 import { dirname, exists, fromFileUrl, join } from "../platform/platform.ts";
 import { copyNeighborFiles, processHqlFile } from "./hql-cache-tracker.ts";
 import { initializeRuntimeHelpers } from "./runtime-helpers.ts";
+import { initAIRuntime } from "../runtime/ai-runtime.ts";
 
 // Runtime component initialization states
 interface InitializationState {
@@ -48,6 +49,14 @@ class HqlRuntimeInitializer {
       this.initializeStdlib(),
       this.initializeCache(),
     ]);
+
+    // Initialize AI runtime (checks if Ollama is running, starts if embedded)
+    try {
+      await initAIRuntime();
+    } catch {
+      // AI initialization is optional - don't fail if it doesn't work
+      logger.debug("AI runtime not available (optional)");
+    }
 
     logger.debug("HQL runtime initialization complete");
   }
