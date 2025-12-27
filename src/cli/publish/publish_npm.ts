@@ -14,6 +14,9 @@ import {
   type HqlConfig, // Import HqlConfig
 } from "./utils.ts";
 import {
+  deriveModuleBaseName,
+  findMetadataSourcePath,
+  mergeConfigWithDefaults,
   type PublishOptions,
   publishPackage,
   type RegistryPublisher,

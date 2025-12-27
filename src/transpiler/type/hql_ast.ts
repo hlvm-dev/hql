@@ -1,19 +1,28 @@
 // src/transpiler/hql_ast.ts
 export type HQLNode = LiteralNode | SymbolNode | ListNode;
 
+export interface Position {
+  line: number;
+  column: number;
+  filePath?: string;
+}
+
 export interface LiteralNode {
   type: "literal";
   value: string | number | boolean | null;
+  position?: Position;
 }
 
 export interface SymbolNode {
   type: "symbol";
   name: string;
+  position?: Position;
 }
 
 export interface ListNode {
   type: "list";
   elements: HQLNode[];
+  position?: Position;
 }
 
 /**

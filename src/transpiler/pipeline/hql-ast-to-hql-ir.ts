@@ -1061,7 +1061,8 @@ function initializeTransformFactory(): void {
           }
         }
 
-        throw new TransformError(`Unknown type expression: ${node.type}`, node.position);
+        // Exhaustive check fallback - should never be reached
+        throw new TransformError(`Unknown type expression: ${(node as HQLNode).type}`, (node as HQLNode).position);
       }
 
       // =========================================================================
@@ -1257,7 +1258,7 @@ function initializeTransformFactory(): void {
             (elements[idx] as SymbolNode).name === "extends"
           ) {
             idx++;
-            superClass = transformNode(elements[idx], currentDir);
+            superClass = transformNode(elements[idx], currentDir) ?? undefined;
             idx++;
           }
 
@@ -1281,7 +1282,9 @@ function initializeTransformFactory(): void {
           const vectorElements = (bodyNode as ListNode).elements.slice(1);
           for (const member of vectorElements) {
             const transformed = transformNode(member, currentDir);
-            body.push(transformed);
+            if (transformed !== null) {
+              body.push(transformed);
+            }
           }
 
           return {
@@ -1577,7 +1580,9 @@ function initializeTransformFactory(): void {
           const vectorElements = (bodyNode as ListNode).elements.slice(1);
           for (const member of vectorElements) {
             const transformed = transformNode(member, currentDir);
-            body.push(transformed);
+            if (transformed !== null) {
+              body.push(transformed);
+            }
           }
 
           return {

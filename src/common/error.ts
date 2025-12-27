@@ -1349,9 +1349,28 @@ export class TransformError extends HQLError {
   readonly phase: string;
   constructor(
     msg: string,
-    phase: string,
-    ...details: Array<TransformErrorOptions | string | Error | object>
+    phaseOrOpts?: string | TransformErrorOptions | object | Error | undefined,
+    ...moreDetails: Array<TransformErrorOptions | string | Error | object | undefined>
   ) {
+    let phase = "Transformation";
+    const details: Array<TransformErrorOptions | string | Error | object> = [];
+
+    if (typeof phaseOrOpts === "string") {
+      phase = phaseOrOpts;
+      // Filter out undefined values from moreDetails
+      for (const d of moreDetails) {
+        if (d !== undefined) details.push(d);
+      }
+    } else {
+      if (phaseOrOpts !== undefined) {
+        details.push(phaseOrOpts);
+      }
+      // Filter out undefined values from moreDetails
+      for (const d of moreDetails) {
+        if (d !== undefined) details.push(d);
+      }
+    }
+
     const collected: TransformErrorOptions = {};
 
     const assignOpts = (

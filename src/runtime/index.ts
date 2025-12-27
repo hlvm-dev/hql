@@ -2,6 +2,7 @@
 
 import { getHQLRuntime, HQLRuntime, resetHQLRuntime, toJs } from "./hql-runtime.ts";
 import { gensym as gensymImpl } from "../gensym.ts";
+import type { SExp } from "../s-exp/types.ts";
 
 function setDoc<T>(fn: T, doc: string): void {
   (fn as T & { __doc__?: string }).__doc__ = doc;
