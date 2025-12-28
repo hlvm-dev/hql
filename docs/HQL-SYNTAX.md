@@ -33,7 +33,7 @@ HQL (Homoiconic Query Language) is a Lisp dialect that transpiles to JavaScript/
 
 | Category | Features |
 |----------|----------|
-| **Variables** | `let`, `var`, `const`/`def`, destructuring |
+| **Variables** | `let`, `var`, `const`, destructuring |
 | **Functions** | `fn`, `async fn`, `fn*`, `async fn*`, `=>` |
 | **Classes** | `constructor`, methods, `static`, `getter`/`setter`, `#private` |
 | **Control** | `if`, `cond`, `when`, `unless`, `switch`, `match` |
@@ -163,18 +163,32 @@ obj.name              ; Dot notation
 
 ## 4. Bindings
 
-### Immutable (`let`, `const`)
+HQL bindings have the same semantics as JavaScript:
+
+### Block-scoped Mutable (`let`)
 
 ```clojure
 (let x 10)
-(const PI 3.14159)
+(= x 20)              ; Reassignment allowed
 
 ; Multiple bindings with body
 (let (x 10 y 20)
-  (+ x y))            ; → 30
+  (= x 100)
+  (+ x y))            ; → 120
 ```
 
-### Mutable (`var`)
+### Block-scoped Immutable (`const`)
+
+```clojure
+(const PI 3.14159)
+; (= PI 3.0)          ; ERROR: Cannot reassign const
+
+; Objects/arrays are frozen (deep immutability)
+(const data {"name": "Alice"})
+; (= data.name "Bob") ; ERROR: Cannot mutate frozen object
+```
+
+### Function-scoped Mutable (`var`)
 
 ```clojure
 (var count 0)
@@ -310,7 +324,7 @@ obj.name              ; Dot notation
 ```clojure
 (class Counter
   (static var count 0)
-  (static let MAX 100)
+  (static const MAX 100)  ; Immutable static field
 
   (static fn increment []
     (= Counter.count (+ Counter.count 1))))
@@ -1075,10 +1089,11 @@ obj?.prop             ; Optional chaining
 │ Category         │ HQL Syntax                        │ JavaScript/TypeScript        │
 ├──────────────────┼───────────────────────────────────┼──────────────────────────────┤
 │ BINDINGS         │                                   │                              │
-│ Immutable        │ (let x 10)                        │ const x = 10                 │
-│ Mutable          │ (var x 10)                        │ let x = 10                   │
+│ Block mutable    │ (let x 10)                        │ let x = 10                   │
+│ Block immutable  │ (const x 10)                      │ const x = 10 (frozen)        │
+│ Function mutable │ (var x 10)                        │ var x = 10                   │
 │ Assignment       │ (= x 20)                          │ x = 20                       │
-│ Destructure      │ (let [a b] arr)                   │ const [a, b] = arr           │
+│ Destructure      │ (let [a b] arr)                   │ let [a, b] = arr             │
 ├──────────────────┼───────────────────────────────────┼──────────────────────────────┤
 │ FUNCTIONS        │                                   │                              │
 │ Named            │ (fn add [a b] (+ a b))            │ function add(a, b) {...}     │

@@ -28,13 +28,16 @@ hql run hello.hql
 ## Variables
 
 ```lisp
-; Immutable
+; Block-scoped mutable (like JS let)
 (let x 10)
 (let name "Alice")
 
-; Mutable
+; Function-scoped mutable (like JS var)
 (var counter 0)
 (= counter 100)
+
+; Immutable (like JS const, values are frozen)
+(const PI 3.14159)
 ```
 
 ## Functions

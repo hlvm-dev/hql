@@ -213,7 +213,7 @@ p.count
   assertEquals(result, 1);
 });
 
-Deno.test("Class: immutable field with let", async () => {
+Deno.test("Class: let field with default value", async () => {
   const code = `
 (class Config
   (let defaultKey "default-key")
@@ -229,11 +229,11 @@ cfg.defaultKey
   assertEquals(result, "default-key");
 });
 
-Deno.test("Class: immutable field with default value", async () => {
+Deno.test("Class: const field (immutable) with default value", async () => {
   const code = `
 (class Constants
-  (let PI 3.14159)
-  (let E 2.71828)
+  (const PI 3.14159)
+  (const E 2.71828)
 
   (constructor ()
     (= this.timestamp (js-call Date "now"))))
@@ -245,11 +245,11 @@ c.PI
   assertEquals(result, 3.14159);
 });
 
-Deno.test("Class: multiple immutable and mutable fields", async () => {
+Deno.test("Class: mixed mutable and immutable fields", async () => {
   const code = `
 (class Account
-  (let bankName "MyBank")  ;; immutable - must have default value
-  (var balance 0)          ;; mutable
+  (const bankName "MyBank")  ;; immutable (const)
+  (var balance 0)            ;; mutable (var)
 
   (constructor (accNum initialBalance)
     (do

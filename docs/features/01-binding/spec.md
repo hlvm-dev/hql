@@ -1,47 +1,93 @@
-──────────────────────────── Part 1: Binding Model (let, var)
+──────────────────────────── Part 1: Binding Model (let, var, const)
 ────────────────────────────
 
-Overview let: Purpose: Declare immutable bindings. Semantics: • Compiles to
-JavaScript’s const. • For reference types (e.g. arrays, objects), the value is
-automatically frozen (using an internal helper such as freeze), ensuring its
-internal state cannot be changed. Usage: Use let when you want the binding to
-remain constant throughout its scope. var: Purpose: Declare mutable bindings.
-Semantics: • Compiles to JavaScript’s let. • Permits updates via = within its
-scope. Usage: Use var when you need the binding’s value to be updated over time.
-Showcase Examples Global Bindings
+Overview
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; ;; Global Bindings
+HQL bindings have the same semantics as JavaScript:
+
+let: Purpose: Declare block-scoped mutable bindings.
+Semantics: • Compiles to JavaScript's let. • Permits updates via = within its scope.
+Usage: Use let for local variables that may need reassignment.
+
+var: Purpose: Declare function-scoped mutable bindings.
+Semantics: • Compiles to JavaScript's var. • Hoisted to function scope.
+Usage: Use var when function-scoped hoisting is desired (rare in modern code).
+
+const: Purpose: Declare block-scoped immutable bindings.
+Semantics: • Compiles to JavaScript's const. • For reference types (arrays, objects),
+the value is automatically frozen (using Object.freeze), ensuring its internal state
+cannot be changed.
+Usage: Use const for values that should never be reassigned or mutated.
+
+Showcase Examples
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Global Bindings
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Immutable global binding with let: (let globalValue 10) (print "Global
-immutable value:" globalValue) ;; → Compiles to: const globalValue = 10;
+;; Mutable binding with let:
+(let x 10)
+(= x 20)  ; Reassignment allowed
+(print "x after reassignment:" x)
+;; → Compiles to: let x = 10; x = 20;
 
-;; Mutable global binding with var: (var globalCounter 0) (print "Global mutable
-counter (initial):" globalCounter) (= globalCounter (+ globalCounter 1))
-(print "Global mutable counter (after mutation):" globalCounter) ;; → Compiles
-to: let globalCounter = 0; then updated. Local Bindings
+;; Function-scoped binding with var:
+(var counter 0)
+(= counter (+ counter 1))
+(print "counter after increment:" counter)
+;; → Compiles to: var counter = 0; counter = counter + 1;
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; ;; Local Bindings: Immutable
-vs. Mutable ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Immutable binding with const:
+(const PI 3.14159)
+;; (= PI 3.0)  ; ERROR: Cannot reassign const
+(print "PI:" PI)
+;; → Compiles to: const PI = Object.freeze(3.14159);
 
-;; Using let for an immutable local binding: (let (x 10) (print "Local immutable
-x:" x) ;; (= x 20) ; ERROR: Cannot mutate x because let creates an immutable
-binding. )
-
-;; Using var for a mutable local binding: (var (y 10) (print "Local mutable y
-(initial):" y) (= y (+ y 10)) ; Allowed mutation. (print "Local mutable y
-(after mutation):" y) ) JavaScript Interop
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; ;; JavaScript Interop:
-Preventing Accidental Mutation
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Local Bindings with Body
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Immutable array using let: ;; Compiler must gurantee pure immutability for
-example, the following Javascript interop case should be transformed inernally
-;; (let numbers (new Array)) → to: (let numbers (freeze (new Array))) ;; to
-gurantee immutability (let numbers (new Array)) ;; (numbers.push 1) would throw
-an error at runtime. (print "Immutable array for JS interop:" numbers)
+;; Using let for mutable local binding:
+(let (x 10)
+  (= x 20)  ; Allowed - let is mutable
+  (print "x:" x))
 
-;; Mutable array using var: (var mutableNumbers (new Array))
-(mutableNumbers.push 1) ;; Allowed mutation. (mutableNumbers.push 2) (print
-"Mutable array for JS interop:" mutableNumbers)
+;; Using const for immutable local binding:
+(const (PI 3.14159)
+  ;; (= PI 3.0)  ; ERROR: Cannot mutate const
+  (print "PI:" PI))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Reference Types
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Mutable array using let:
+(let numbers [1, 2, 3])
+(numbers.push 4)  ; Allowed - let arrays are mutable
+(print "numbers:" numbers)
+
+;; Immutable array using const:
+(const frozen [1, 2, 3])
+;; (frozen.push 4)  ; ERROR: Cannot modify frozen array
+(print "frozen:" frozen)
+
+;; Mutable object using let:
+(let person {"name": "Alice"})
+(= person.name "Bob")  ; Allowed
+(print "person:" person)
+
+;; Immutable object using const:
+(const config {"host": "localhost"})
+;; (= config.host "127.0.0.1")  ; ERROR: Cannot modify frozen object
+(print "config:" config)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Compilation Table
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+| HQL                | JavaScript                    |
+|--------------------|-------------------------------|
+| (let x 10)         | let x = 10;                   |
+| (var x 10)         | var x = 10;                   |
+| (const x 10)       | const x = Object.freeze(10);  |
+| (= x 20)           | x = 20;                       |

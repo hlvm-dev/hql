@@ -46,17 +46,21 @@ Hello, World!
 ### Lesson 2: Variables
 
 ```lisp
-; Immutable variables
+; Block-scoped mutable (like JS let)
 (let x 10)
 (let name "Alice")
 
 (print x)      ; → 10
 (print name)   ; → Alice
 
-; Mutable variables
+; Function-scoped mutable (like JS var)
 (var counter 0)
 (= counter 100)
 (print counter)  ; → 100
+
+; Immutable (like JS const)
+(const PI 3.14159)
+(print PI)     ; → 3.14159
 ```
 
 ### Lesson 3: Basic Math

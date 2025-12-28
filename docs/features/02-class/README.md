@@ -10,7 +10,7 @@ HQL v2.0 provides full object-oriented programming (OOP) support with classes:
 1. **Class definitions** - Define reusable object templates
 2. **Constructors** - Initialize instance state
 3. **Methods** - Instance functions with `this` binding
-4. **Fields** - Mutable (`var`) and immutable (`let`) properties
+4. **Fields** - Mutable (`var`, `let`) and immutable (`const`) properties
 5. **Static members** - Class-level properties and methods (v2.0)
 6. **Private fields** - Encapsulated state with `#` prefix (v2.0)
 7. **Getters/Setters** - Computed property access (v2.0)
@@ -117,16 +117,16 @@ All classes compile to JavaScript ES6 class syntax.
   (constructor []
     (= this.count 0)))
 
-; Immutable field (let) - must have default value
+; Immutable field (const) - must have default value
 (class Config
-  (let maxSize 100)
+  (const maxSize 100)
 
   (constructor []))
 
 ; Mixed mutable and immutable fields
 (class Account
-  (let bankName "MyBank")  ; immutable constant
-  (var balance 0)          ; mutable state
+  (const bankName "MyBank")  ; immutable constant
+  (var balance 0)            ; mutable state
 
   (constructor [accNum initialBalance]
     (do
@@ -419,11 +419,10 @@ in nested expressions ✅ Method returns object literal
 
 ### Section 4: Field Declarations
 
-- Mutable field (var)
-- Immutable field (let)
-- Var with default value
-- Let with default value
-- Mixed var and let fields
+- Mutable field (var, let)
+- Immutable field (const)
+- Fields with default values
+- Mixed mutable and immutable fields
 
 ### Section 5: Property Access & Modification
 
@@ -941,7 +940,7 @@ HQL's class system provides:
 - ✅ **Class definitions** (standard ES6 output)
 - ✅ **Constructors** (single or multi-param)
 - ✅ **Methods** (with this binding)
-- ✅ **Fields** (var for mutable, let for immutable)
+- ✅ **Fields** (var/let for mutable, const for immutable)
 - ✅ **Property access** (dot notation)
 - ✅ **Multiple instances** (independent state)
 - ✅ **Default parameters** (optional method args)

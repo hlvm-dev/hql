@@ -77,16 +77,22 @@ Hello, HQL
 
 ### Variables
 
-**Immutable bindings:**
+**Block-scoped mutable (like JS let):**
 ```clojure
 (let x 10)
-(const PI 3.14159)
+(= x 20)  ; Can reassign
 ```
 
-**Mutable bindings:**
+**Function-scoped mutable (like JS var):**
 ```clojure
 (var counter 0)
 (= counter (+ counter 1))
+```
+
+**Immutable (like JS const):**
+```clojure
+(const PI 3.14159)
+; (= PI 3.0)  ; Error: cannot reassign const
 ```
 
 ### Destructuring
@@ -229,7 +235,7 @@ Hello, HQL
 ```clojure
 (class Counter
   (static var count 0)
-  (static let MAX 100)
+  (static const MAX 100)  ; Immutable static field
 
   (static fn increment []
     (= Counter.count (+ Counter.count 1))))

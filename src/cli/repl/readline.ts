@@ -32,7 +32,7 @@ const RESET = "\x1b[0m";
 
 // HQL keywords for syntax highlighting
 const KEYWORDS = [
-  "fn", "function", "defn", "let", "var", "if", "cond", "match",
+  "fn", "function", "let", "var", "const", "if", "cond", "match",
   "for", "while", "loop", "recur", "do", "class", "import", "export",
   "try", "catch", "throw", "await", "async", "return", "break", "continue"
 ];

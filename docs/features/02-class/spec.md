@@ -11,8 +11,8 @@ features such as inheritance.
   ;; Field declarations using unified syntax
   (var name)         ;; mutable field (set in constructor)
   (var age)          ;; mutable field (set in constructor)
-  (var score 0)      ;; mutable field with default value
-  (let role "user")  ;; immutable field with default value
+  (var score 0)        ;; mutable field with default value
+  (const role "user")  ;; immutable field with default value
 
   ;; Constructor: initializes required fields, can override defaults
   (constructor [name age]
@@ -61,8 +61,8 @@ features such as inheritance.
   desired) in their constructor or methods.
 - **Inheritance & Polymorphism:** While not shown in this example, classes are
   designed to support subclassing and method overriding.
-- **Unified Declaration:** The same `(var …)` and `(let …)` syntax is used for
-  fields, keeping the language consistent.
+- **Unified Declaration:** The same `(var …)`, `(let …)`, and `(const …)` syntax
+  is used for fields, keeping the language consistent with JavaScript semantics.
 
 ---
 
@@ -84,8 +84,9 @@ features such as inheritance.
   (person.celebrateBirthday 31)  ;; Calls a method with arguments
   ```
 
-- **Unified Field Declaration:** Using `(var ...)` for mutable and `(let ...)`
-  for immutable fields keeps the syntax consistent and easy to learn.
+- **Unified Field Declaration:** Using `(var ...)` and `(let ...)` for mutable
+  fields, and `(const ...)` for immutable fields keeps the syntax consistent
+  with JavaScript semantics.
 
 ---
 

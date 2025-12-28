@@ -31,14 +31,21 @@ const SNIPPETS: CompletionItem[] = [
   {
     label: "let",
     kind: CompletionItemKind.Snippet,
-    detail: "(let name value) - immutable binding",
+    detail: "(let name value) - block-scoped mutable binding",
     insertText: "(let ${1:name} ${2:value})$0",
+    insertTextFormat: InsertTextFormat.Snippet,
+  },
+  {
+    label: "const",
+    kind: CompletionItemKind.Snippet,
+    detail: "(const name value) - immutable binding (frozen)",
+    insertText: "(const ${1:name} ${2:value})$0",
     insertTextFormat: InsertTextFormat.Snippet,
   },
   {
     label: "var",
     kind: CompletionItemKind.Snippet,
-    detail: "(var name value) - mutable binding",
+    detail: "(var name value) - function-scoped mutable binding",
     insertText: "(var ${1:name} ${2:value})$0",
     insertTextFormat: InsertTextFormat.Snippet,
   },

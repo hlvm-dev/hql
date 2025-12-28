@@ -149,8 +149,8 @@ export function transformClass(
         if (field) {
           fields.push(field);
         }
-      } // Process field declarations (var and let)
-      else if (elementType === "var" || elementType === "let") {
+      } // Process field declarations (var, let, and const)
+      else if (elementType === "var" || elementType === "let" || elementType === "const") {
         const field = processClassField(
           elementList,
           currentDir,
@@ -183,7 +183,7 @@ export function transformClass(
           throw new ValidationError(
             "static requires a member definition",
             "static member",
-            "var, let, or fn",
+            "var, let, const, or fn",
             { actualType: "incomplete", ...extractMetaSourceLocation(elementList) },
           );
         }
@@ -191,17 +191,17 @@ export function transformClass(
         const staticContent = elementList.elements[1];
         if (staticContent.type !== "symbol") {
           throw new ValidationError(
-            "static member type must be var, let, or fn",
+            "static member type must be var, let, const, or fn",
             "static member",
-            "var, let, or fn",
+            "var, let, const, or fn",
             { actualType: staticContent.type, ...extractMetaSourceLocation(staticContent) },
           );
         }
 
         const innerType = (staticContent as SymbolNode).name;
 
-        if (innerType === "var" || innerType === "let") {
-          // (static var name value) or (static let name value)
+        if (innerType === "var" || innerType === "let" || innerType === "const") {
+          // (static var/let/const name value)
           // Create a pseudo list without "static" for field processing
           const fieldList: ListNode = {
             ...elementList,
@@ -235,9 +235,9 @@ export function transformClass(
           }
         } else {
           throw new ValidationError(
-            "static member type must be var, let, or fn",
+            "static member type must be var, let, const, or fn",
             "static member",
-            "var, let, or fn",
+            "var, let, const, or fn",
             { actualType: innerType, ...extractMetaSourceLocation(staticContent) },
           );
         }
@@ -667,7 +667,7 @@ function processClassField(
     return {
       type: IR.IRNodeType.ClassField,
       name: fieldName,
-      mutable: elementType === "var",
+      mutable: elementType !== "const",  // var and let are mutable, only const is immutable
       initialValue,
     };
   } catch (error) {
