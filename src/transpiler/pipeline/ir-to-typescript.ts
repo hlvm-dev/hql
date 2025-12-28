@@ -57,6 +57,8 @@ class TSGenerator {
   private topLevelBindingNames: Set<string> = new Set();
   // Track function type signatures for proper call-site type checking
   private topLevelFunctionTypes: Map<string, string> = new Map();
+  // Track variable type annotations for hoisted declarations
+  private topLevelVariableTypes: Map<string, string> = new Map();
   private isTopLevel: boolean = true;
 
   // Block-level hoisting: stack of hoisting sets (one per block scope)
@@ -164,7 +166,12 @@ class TSGenerator {
         const varDecl = node as IR.IRVariableDeclaration;
         for (const decl of varDecl.declarations) {
           if (decl.id.type === IR.IRNodeType.Identifier) {
-            this.topLevelBindingNames.add((decl.id as IR.IRIdentifier).name);
+            const name = (decl.id as IR.IRIdentifier).name;
+            this.topLevelBindingNames.add(name);
+            // Collect type annotation if present
+            if (decl.typeAnnotation) {
+              this.topLevelVariableTypes.set(name, decl.typeAnnotation);
+            }
           }
           // Skip destructuring patterns - they can't be simple assignments
         }
@@ -638,14 +645,18 @@ class TSGenerator {
       this.topLevelBindingNames.add(name);
     }
 
-    // Emit hoisted let declarations with types for functions (enables call-site type checking)
+    // Emit hoisted let declarations with types for functions and variables (enables call-site type checking)
     if (this.topLevelBindingNames.size > 0) {
       const declarations: string[] = [];
       for (const name of this.topLevelBindingNames) {
         const funcType = this.topLevelFunctionTypes.get(name);
+        const varType = this.topLevelVariableTypes.get(name);
         if (funcType) {
           // Typed function: let add: (a: number, b: number) => number;
           declarations.push(`${name}: ${funcType}`);
+        } else if (varType) {
+          // Typed variable: let x: number;
+          declarations.push(`${name}: ${varType}`);
         } else {
           // Untyped binding: let x;
           declarations.push(name);
@@ -2220,6 +2231,12 @@ class TSGenerator {
     this.emitIndent();
     this.emit("class ", node.position);
     this.generateIdentifier(node.id);
+    // Emit generic type parameters if present (e.g., <T, K extends string>)
+    if (node.typeParameters && node.typeParameters.length > 0) {
+      this.emit("<");
+      this.emit(node.typeParameters.join(", "));
+      this.emit(">");
+    }
     this.emit(" {\n");
     this.indent();
     this.generateClassBody(node);
@@ -2244,6 +2261,12 @@ class TSGenerator {
     this.emit(node.id.name);
     this.emit(" = class ");
     this.emit(node.id.name);  // Keep the class name
+    // Emit generic type parameters if present (e.g., <T, K extends string>)
+    if (node.typeParameters && node.typeParameters.length > 0) {
+      this.emit("<");
+      this.emit(node.typeParameters.join(", "));
+      this.emit(">");
+    }
     this.emit(" {\n");
     this.indent();
     this.generateClassBody(node);

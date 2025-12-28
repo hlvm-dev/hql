@@ -5,7 +5,7 @@
 
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import hql from "../../mod.ts";
-import { defineMacro, hqlEval, resetRuntime } from "../../mod.ts";
+import { defineMacro, hqlEval, resetRuntime, transpile } from "../../mod.ts";
 
 // ============================================================================
 // BUG 1: CACHE INVALIDATION
@@ -199,17 +199,21 @@ Deno.test({
 (check (my-add "wrong" 5))
 `;
 
-  // Helper to run HQL code and capture output
-  // Use compiled ./hql binary for consistent output capture
-  const proc = new Deno.Command("./hql", {
-    args: ["run", "-e", code],
-    stdout: "piped",
-    stderr: "piped",
-    cwd: Deno.cwd(),
-  });
+  // Use transpile API to capture type errors
+  // Capture stderr by temporarily overriding console.error
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map(a => String(a)).join(" "));
+  };
 
-  const result = await proc.output();
-  const stderr = new TextDecoder().decode(result.stderr);
+  try {
+    await transpile(code);
+  } finally {
+    console.error = originalError;
+  }
+
+  const stderr = errors.join("\n");
 
   // Should have a type error
   assertEquals(stderr.includes("Type error"), true, "Expected type error");

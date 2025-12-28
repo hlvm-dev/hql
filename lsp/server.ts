@@ -41,7 +41,7 @@ import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import process from "node:process";
 
 import { DocumentManager, uriToFilePath, filePathToUri } from "./documents.ts";
-import { getDiagnostics } from "./features/diagnostics.ts";
+import { getDiagnostics, getUnusedImportDiagnostics } from "./features/diagnostics.ts";
 import { getHover, getHoverFromExport } from "./features/hover.ts";
 import { getDefinition } from "./features/definition.ts";
 import { getCompletions } from "./features/completion.ts";
@@ -209,12 +209,22 @@ connection.onDidCloseTextDocument((params: DidCloseTextDocumentParams) => {
  * When analysis completes, send diagnostics to client and update workspace index
  */
 documentManager.setAnalysisCallback((uri, analysis) => {
-  // Send diagnostics
+  const doc = documentManager.getDocument(uri);
+  const filePath = uriToFilePath(uri);
+
+  // Get parse/analysis errors
   const diagnostics = getDiagnostics(analysis);
+
+  // Add unused import diagnostics
+  if (doc) {
+    const unusedImportDiags = getUnusedImportDiagnostics(doc.getText(), filePath);
+    diagnostics.push(...unusedImportDiags);
+  }
+
+  // Send all diagnostics
   connection.sendDiagnostics({ uri, diagnostics });
 
   // Update workspace index
-  const filePath = uriToFilePath(uri);
   projectIndex.indexFile(filePath, analysis);
 });
 
@@ -636,7 +646,7 @@ connection.onCodeAction((params: CodeActionParams) => {
     return [];
   }
 
-  return getCodeActions(doc, params);
+  return getCodeActions(doc, params, projectIndex);
 });
 
 /**

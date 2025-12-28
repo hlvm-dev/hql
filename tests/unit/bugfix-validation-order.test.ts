@@ -23,6 +23,7 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
 import { run } from "./helpers.ts";
+import { shutdownAIRuntime } from "../../src/runtime/ai-runtime.ts";
 
 Deno.test("Bugfix #3: Duplicate variable declarations detected", async () => {
   // Test that duplicate declarations at top level are caught during validation
@@ -43,8 +44,9 @@ Deno.test("Bugfix #3: Duplicate variable declarations detected", async () => {
 });
 
 Deno.test("Bugfix #3: Valid code with similar names passes validation", async () => {
-  // Test that validation doesn't produce false positives
-  const code = `
+  try {
+    // Test that validation doesn't produce false positives
+    const code = `
 (fn foo []
   (let x 10)
   (let y 20)
@@ -53,9 +55,12 @@ Deno.test("Bugfix #3: Valid code with similar names passes validation", async ()
 (foo)
 `;
 
-  // Should compile successfully
-  const result = await run(code);
-  assertEquals(result, 30, "Valid code should compile and run correctly");
+    // Should compile successfully
+    const result = await run(code);
+    assertEquals(result, 30, "Valid code should compile and run correctly");
+  } finally {
+    await shutdownAIRuntime();
+  }
 });
 
 Deno.test("Bugfix #3: Nested scope variables are allowed", async () => {

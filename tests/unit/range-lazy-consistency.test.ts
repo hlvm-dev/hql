@@ -13,7 +13,10 @@ Deno.test("Range Lazy Consistency", async (t) => {
     const result = await hql.run(`(range 5)`);
 
     // Verify from JavaScript side (HQL's js-get doesn't expose constructor.name)
-    assertEquals(result?.constructor?.name, "LazySeq", "Direct range should return LazySeq");
+    // NumericRange is a specialized lazy sequence for numeric ranges
+    const name = result?.constructor?.name;
+    const isLazyType = name === "LazySeq" || name === "NumericRange";
+    assertEquals(isLazyType, true, `Direct range should return LazySeq or NumericRange, got ${name}`);
     assertEquals(Array.isArray(result), false, "Should not be an Array");
   });
 
@@ -25,14 +28,20 @@ Deno.test("Range Lazy Consistency", async (t) => {
   await t.step("Indirect call returns LazySeq (verified from JS)", async () => {
     const result = await hql.run(`(do (var f range) (f 5))`);
 
-    assertEquals(result?.constructor?.name, "LazySeq", "Indirect range should return LazySeq");
+    // NumericRange is a specialized lazy sequence for numeric ranges
+    const name = result?.constructor?.name;
+    const isLazyType = name === "LazySeq" || name === "NumericRange";
+    assertEquals(isLazyType, true, `Indirect range should return LazySeq or NumericRange, got ${name}`);
     assertEquals(Array.isArray(result), false, "Should not be an Array");
   });
 
   await t.step("__hql_range returns LazySeq (verified from JS)", async () => {
     const result = await hql.run(`(__hql_range 5)`);
 
-    assertEquals(result?.constructor?.name, "LazySeq", "__hql_range should return LazySeq");
+    // NumericRange is a specialized lazy sequence for numeric ranges
+    const name = result?.constructor?.name;
+    const isLazyType = name === "LazySeq" || name === "NumericRange";
+    assertEquals(isLazyType, true, `__hql_range should return LazySeq or NumericRange, got ${name}`);
     assertEquals(Array.isArray(result), false, "Should not be an Array");
   });
 

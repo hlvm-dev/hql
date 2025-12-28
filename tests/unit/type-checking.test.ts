@@ -10,24 +10,53 @@
  */
 
 import { assertEquals, assertStringIncludes, assertMatch } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { transpile } from "../../src/transpiler/index.ts";
+import hql from "../../mod.ts";
 
 /**
- * Helper to run HQL code and capture output/errors
- * Uses the compiled ./hql binary for accurate output capture
+ * Helper to run HQL code and capture type errors and output
+ * Uses transpile API for type checking and hql.run for execution
  */
 async function runHQL(code: string): Promise<{ stdout: string; stderr: string; success: boolean }> {
-  const proc = new Deno.Command("./hql", {
-    args: ["run", "-e", code],
-    stdout: "piped",
-    stderr: "piped",
-    cwd: Deno.cwd(),
-  });
+  // Capture type errors from transpile
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map(a => String(a)).join(" "));
+  };
 
-  const result = await proc.output();
+  try {
+    await transpile(code);
+  } finally {
+    console.error = originalError;
+  }
+
+  let stderr = errors.join("\n");
+
+  // Also capture stdout from running the code
+  const outputs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    // Use Deno.inspect for proper formatting (matches HQL's print behavior)
+    outputs.push(args.map(a => typeof a === 'string' ? a : Deno.inspect(a)).join(" "));
+  };
+
+  try {
+    await hql.run(code);
+  } catch (e) {
+    // Capture runtime errors too (for tests that check runtime behavior)
+    const errMsg = e instanceof Error ? e.message : String(e);
+    stderr = stderr ? stderr + "\n" + errMsg : errMsg;
+  } finally {
+    console.log = originalLog;
+  }
+
+  const stdout = outputs.join("\n");
+
   return {
-    stdout: new TextDecoder().decode(result.stdout).trim(),
-    stderr: new TextDecoder().decode(result.stderr).trim(),
-    success: result.success,
+    stdout,
+    stderr,
+    success: !stderr.includes("Type error"),
   };
 }
 

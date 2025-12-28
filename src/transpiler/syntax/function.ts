@@ -8,7 +8,11 @@ import {
   TransformError,
   ValidationError,
 } from "../../common/error.ts";
-import { getErrorMessage, sanitizeIdentifier } from "../../common/utils.ts";
+import {
+  findTypeAnnotationColon,
+  getErrorMessage,
+  sanitizeIdentifier,
+} from "../../common/utils.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import {
   copyPosition,
@@ -387,7 +391,17 @@ function transformNamedFn(
   }
 
   const funcNameNode = list.elements[1] as SymbolNode;
-  const funcName = funcNameNode.name;
+  let funcName = funcNameNode.name;
+
+  // Extract generic type parameters from function name (e.g., "identity<T>" -> name="identity", typeParameters=["T"])
+  let typeParameters: string[] | undefined;
+  const nameParts = funcName.match(/^([^<]+)(?:<(.+)>)?$/);
+  if (nameParts) {
+    funcName = nameParts[1];
+    if (nameParts[2]) {
+      typeParameters = nameParts[2].split(",").map((s) => s.trim());
+    }
+  }
 
   // Extract parameter list
   const paramListNode = list.elements[2];
@@ -457,6 +471,7 @@ function transformNamedFn(
     },
     usesJsonMapParams,
     returnType, // TypeScript return type annotation
+    typeParameters, // TypeScript generic type parameters (e.g., ["T", "U"])
   } as IR.IRFnFunctionDeclaration;
 
   // Register this function in our registry for call site handling
@@ -965,11 +980,12 @@ function parseParameters(
 
       // Extract type annotation if present (e.g., "name:string" or "a:number")
       // Format: paramName:TypeAnnotation (NO SPACE after colon - parser uses whitespace as delimiter)
+      // Use findTypeAnnotationColon to handle nested generics like Array<Record<string, number>>
       let paramNameWithoutType = actualParamName;
       let typeAnnotation: string | undefined;
-      const colonIndex = actualParamName.indexOf(":");
+      const colonIndex = findTypeAnnotationColon(actualParamName);
       if (colonIndex > 0) {
-        // Has type annotation - split on first colon
+        // Has type annotation - split on type-separating colon (not nested colons)
         paramNameWithoutType = actualParamName.slice(0, colonIndex).trim();
         typeAnnotation = actualParamName.slice(colonIndex + 1).trim();
         // Handle empty type annotation

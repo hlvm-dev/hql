@@ -9,7 +9,7 @@ import {
   TransformError,
   ValidationError,
 } from "../../common/error.ts";
-import { getErrorMessage, sanitizeIdentifier } from "../../common/utils.ts";
+import { findTypeAnnotationColon, getErrorMessage, normalizeArrayType, sanitizeIdentifier } from "../../common/utils.ts";
 import {
   transformElements,
   transformNonNullElements,
@@ -110,7 +110,17 @@ export function transformClass(
         { actualType: nameNode.type, ...extractMetaSourceLocation(nameNode) },
       );
     }
-    const className = (nameNode as SymbolNode).name;
+    let className = (nameNode as SymbolNode).name;
+
+    // Extract generic type parameters from class name (e.g., "Box<T>" -> name="Box", typeParameters=["T"])
+    let typeParameters: string[] | undefined;
+    const nameParts = className.match(/^([^<]+)(?:<(.+)>)?$/);
+    if (nameParts) {
+      className = nameParts[1];
+      if (nameParts[2]) {
+        typeParameters = nameParts[2].split(",").map((s) => s.trim());
+      }
+    }
 
     // Process class body elements
     const bodyElements = list.elements.slice(2);
@@ -279,6 +289,7 @@ export function transformClass(
       fields,
       constructor: classConstructor,
       methods,
+      typeParameters, // TypeScript generic type parameters (e.g., ["T", "K"])
     } as IR.IRClassDeclaration;
   } catch (error) {
     // Preserve HQLError instances (ValidationError, ParseError, etc.)
@@ -844,9 +855,22 @@ function processClassConstructor(
         );
       }
 
+      // Extract type annotation if present (e.g., "v:T" -> name="v", typeAnnotation="T")
+      let paramName = (param as SymbolNode).name;
+      let typeAnnotation: string | undefined;
+      const colonIndex = findTypeAnnotationColon(paramName);
+      if (colonIndex > 0) {
+        typeAnnotation = paramName.slice(colonIndex + 1).trim();
+        paramName = paramName.slice(0, colonIndex).trim();
+        if (typeAnnotation) {
+          typeAnnotation = normalizeArrayType(typeAnnotation);
+        }
+      }
+
       const parameter: IR.IRIdentifier = {
         type: IR.IRNodeType.Identifier,
-        name: sanitizeIdentifier((param as SymbolNode).name),
+        name: sanitizeIdentifier(paramName),
+        typeAnnotation,
       };
       copyPosition(param, parameter);
       params.push(parameter);

@@ -590,6 +590,8 @@ export interface IRClassDeclaration extends IRNode {
   fields: IRClassField[];
   constructor: IRClassConstructor | null;
   methods: IRClassMethod[];
+  /** TypeScript generic type parameters (e.g., ["T", "K extends string"]) */
+  typeParameters?: string[];
 }
 
 export interface IRClassField extends IRNode {

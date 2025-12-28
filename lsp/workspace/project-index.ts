@@ -49,12 +49,33 @@ export class ProjectIndex {
 
     // Index all symbols
     for (const symbol of analysis.symbols.getAllSymbols()) {
-      // Skip imported symbols - they're from other files
+      // Handle imported symbols
       if (symbol.isImported) {
-        // But track the import information
+        // Track the import information
         if (symbol.sourceModule) {
           this.addImportInfo(fileIndex, symbol);
         }
+
+        // Check if this is a re-export (imported AND exported)
+        if (symbol.isExported && symbol.sourceModule) {
+          const symbolId = createSymbolId(filePath, symbol.name);
+          const exportInfo: ExportInfo = {
+            symbolName: symbol.name,
+            localName: symbol.name,
+            symbolId,
+            isReExport: true,
+            originalModule: symbol.sourceModule,
+          };
+
+          fileIndex.exports.set(symbol.name, exportInfo);
+
+          // Update export index - re-exports also count as exports
+          if (!this.exportIndex.has(symbol.name)) {
+            this.exportIndex.set(symbol.name, new Set());
+          }
+          this.exportIndex.get(symbol.name)!.add(filePath);
+        }
+
         continue;
       }
 
@@ -189,6 +210,7 @@ export class ProjectIndex {
 
   /**
    * Get an exported symbol by name from a specific file
+   * Follows re-export chains to find the original definition
    */
   getExportedSymbol(symbolName: string, filePath: string): SymbolInfo | null {
     const fileIndex = this.fileIndices.get(filePath);
@@ -197,14 +219,34 @@ export class ProjectIndex {
     const exportInfo = fileIndex.exports.get(symbolName);
     if (!exportInfo) return null;
 
-    // Handle re-exports (future enhancement)
+    // Handle re-exports - follow chain to original
     if (exportInfo.isReExport && exportInfo.originalModule) {
-      // Would need to resolve and recurse
+      const originalFile = this.findFileForModule(exportInfo.originalModule, filePath);
+      if (originalFile) {
+        return this.getExportedSymbol(symbolName, originalFile);
+      }
       return null;
     }
 
     const symbol = fileIndex.symbols.get(exportInfo.localName);
     return symbol?.info ?? null;
+  }
+
+  /**
+   * Find a file in the index that matches a module path
+   */
+  private findFileForModule(modulePath: string, fromFile: string): string | null {
+    // Extract the filename from the module path
+    const moduleFileName = modulePath.replace(/^\.\.?\//, "").replace(/\/$/, "");
+
+    for (const filePath of this.fileIndices.keys()) {
+      // Check if file path ends with the module name
+      if (filePath.endsWith(moduleFileName) || filePath.endsWith("/" + moduleFileName)) {
+        return filePath;
+      }
+    }
+
+    return null;
   }
 
   /**

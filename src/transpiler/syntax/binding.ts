@@ -6,7 +6,11 @@ import type { ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import {
   ValidationError,
 } from "../../common/error.ts";
-import { sanitizeIdentifier } from "../../common/utils.ts";
+import {
+  findTypeAnnotationColon,
+  normalizeArrayType,
+  sanitizeIdentifier,
+} from "../../common/utils.ts";
 import { transformIf } from "./conditional.ts";
 import {
   transformNonNullElements,
@@ -105,7 +109,18 @@ function transformBinding(
     // Handle simple identifier binding
     if (bindingTarget.type === "symbol") {
       const nameNode = bindingTarget as SymbolNode;
-      const name = nameNode.name;
+      let name = nameNode.name;
+
+      // Extract type annotation if present (e.g., "x:number")
+      let typeAnnotation: string | undefined;
+      const colonIndex = findTypeAnnotationColon(name);
+      if (colonIndex > 0) {
+        typeAnnotation = name.slice(colonIndex + 1).trim();
+        name = name.slice(0, colonIndex).trim();
+        if (typeAnnotation) {
+          typeAnnotation = normalizeArrayType(typeAnnotation);
+        }
+      }
 
       // Validate for var: cannot use for property assignment
       if (keyword === "var" && name.includes(".") && !name.startsWith(".")) {
@@ -138,6 +153,7 @@ function transformBinding(
         type: IR.IRNodeType.VariableDeclarator,
         id,
         init,
+        typeAnnotation,
       };
       copyPosition(bindingTarget, declarator);
 
@@ -360,7 +376,12 @@ function processBindings(
   kind: "const" | "let" | "var",
 ): IR.IRNode {
   // Process bindings as pairs
-  const bindings: Array<{ name: string; value: IR.IRNode; nameNode: SymbolNode }> = [];
+  const bindings: Array<{
+    name: string;
+    value: IR.IRNode;
+    nameNode: SymbolNode;
+    typeAnnotation?: string;
+  }> = [];
 
   for (let i = 0; i < bindingsNode.elements.length; i += 2) {
     if (i + 1 >= bindingsNode.elements.length) {
@@ -382,7 +403,18 @@ function processBindings(
       );
     }
 
-    const name = (nameNode as SymbolNode).name;
+    let name = (nameNode as SymbolNode).name;
+
+    // Extract type annotation if present (e.g., "x:number")
+    let typeAnnotation: string | undefined;
+    const colonIndex = findTypeAnnotationColon(name);
+    if (colonIndex > 0) {
+      typeAnnotation = name.slice(colonIndex + 1).trim();
+      name = name.slice(0, colonIndex).trim();
+      if (typeAnnotation) {
+        typeAnnotation = normalizeArrayType(typeAnnotation);
+      }
+    }
 
     // Check if the value is an if-expression
     const valueNode = bindingsNode.elements[i + 1];
@@ -404,7 +436,12 @@ function processBindings(
 
     // Wrap with freeze if it's a const binding (let)
     const finalValue = kind === "const" ? wrapWithFreeze(valueExpr) : valueExpr;
-    bindings.push({ name, value: finalValue, nameNode: nameNode as SymbolNode });
+    bindings.push({
+      name,
+      value: finalValue,
+      nameNode: nameNode as SymbolNode,
+      typeAnnotation,
+    });
   }
 
   // Create variable declarations for all bindings
@@ -419,6 +456,7 @@ function processBindings(
       type: IR.IRNodeType.VariableDeclarator,
       id: idNode,
       init: b.value,
+      typeAnnotation: b.typeAnnotation,
     };
     copyPosition(b.nameNode, declarator);
 

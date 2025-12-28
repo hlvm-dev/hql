@@ -192,9 +192,12 @@ export function transformIf(
       // Otherwise, it's a value-returning if in loop, use expression
     }
 
-    // Check if either branch contains statements (not expressions)
+    // Check if either branch contains control flow statements (not expressions)
     // If so, use IfStatement instead of ConditionalExpression
-    // These are statements and cannot be used in ternary operator
+    // Note: VariableDeclaration is NOT included because HQL's let/var/const
+    // are expression-returning - the code generator handles hoisting.
+    // LabeledStatement is also not included because label transformation
+    // wraps in IIFE when needed, making it expression-returning.
     const isStatement = (node: IR.IRNode) =>
       node.type === IR.IRNodeType.ReturnStatement ||
       node.type === IR.IRNodeType.ThrowStatement ||
@@ -202,9 +205,7 @@ export function transformIf(
       node.type === IR.IRNodeType.ContinueStatement ||
       node.type === IR.IRNodeType.ForOfStatement ||
       node.type === IR.IRNodeType.ForStatement ||
-      node.type === IR.IRNodeType.WhileStatement ||
-      node.type === IR.IRNodeType.VariableDeclaration ||
-      node.type === IR.IRNodeType.LabeledStatement;
+      node.type === IR.IRNodeType.WhileStatement;
 
     const hasControlFlow = isStatement(consequent) || isStatement(alternate);
 

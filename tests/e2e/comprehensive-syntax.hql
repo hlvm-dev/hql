@@ -90,7 +90,7 @@
 ; ============================================================================
 (print "\n=== SECTION 3: VARIABLE BINDING ===")
 
-; let - immutable binding
+; let - block-scoped mutable binding (like JS let)
 (let x 10)
 (assert-eq x 10 "let binding")
 

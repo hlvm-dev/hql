@@ -355,7 +355,4 @@ export function toFileUrl(path: string): URL {
   return activePlatform.toFileUrl(path);
 }
 
-export async function useNodePlatform(): Promise<void> {
-  const module = await import("./node-platform.ts");
-  setPlatform(module.NodePlatform);
-}
+

@@ -113,6 +113,11 @@ export async function initAIRuntime(): Promise<void> {
   if (initialized) return;
   initialized = true;
 
+  // Check for disable flag (e.g. during tests)
+  if (Deno.env.get("HQL_DISABLE_AI_AUTOSTART")) {
+    return;
+  }
+
   // Check if already running
   if (await isAIRunning()) {
     return;

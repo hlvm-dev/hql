@@ -72,6 +72,85 @@ const TOKEN_PATTERNS = {
 };
 
 /**
+ * Count angle bracket depth in a string.
+ * Returns positive if more '<' than '>', negative if more '>' than '<', zero if balanced.
+ */
+function countAngleBracketDepth(s: string): number {
+  let depth = 0;
+  for (const c of s) {
+    if (c === '<') depth++;
+    else if (c === '>') depth--;
+  }
+  return depth;
+}
+
+/**
+ * Continue scanning from cursor to complete a symbol with unbalanced angle brackets.
+ * This handles cases like `x:Record<string,number>` where the comma would normally
+ * split the symbol into two parts.
+ *
+ * @param input - The full input string
+ * @param cursor - Position after the initial symbol match
+ * @param depth - Current angle bracket depth (positive means unbalanced '<')
+ * @returns Additional characters to append to the symbol, or empty string if none
+ */
+function scanBalancedAngleBrackets(input: string, cursor: number, depth: number): string {
+  if (depth <= 0) return "";
+
+  let result = "";
+  let pos = cursor;
+
+  // Valid characters inside type parameters (including comma which is the key fix)
+  const isValidTypeChar = (c: string): boolean => {
+    // Allow alphanumeric, type-related chars, commas, spaces within angle brackets
+    return /[a-zA-Z0-9_$<>,|&?:\s\-\.]/.test(c);
+  };
+
+  while (pos < input.length && depth > 0) {
+    const c = input[pos];
+
+    // Stop at delimiters that close the containing context
+    if (c === ')' || c === ']' || c === '}') {
+      break;
+    }
+
+    // Stop at whitespace or delimiter if we're at depth 0
+    // But continue if we're inside angle brackets
+    if (depth === 0 && /[\s\(\)\[\]\{\}"'`;]/.test(c)) {
+      break;
+    }
+
+    // Track angle bracket depth
+    if (c === '<') {
+      depth++;
+      result += c;
+      pos++;
+    } else if (c === '>') {
+      depth--;
+      result += c;
+      pos++;
+      // If we've balanced, we're done
+      if (depth === 0) {
+        // Check for trailing [] for array types
+        if (pos + 1 < input.length && input[pos] === '[' && input[pos + 1] === ']') {
+          result += '[]';
+          pos += 2;
+        }
+        break;
+      }
+    } else if (isValidTypeChar(c)) {
+      result += c;
+      pos++;
+    } else {
+      // Invalid character for type parameter, stop
+      break;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Parse HQL source code into an S-expression AST
  *
  * Converts raw HQL source text into a structured representation of
@@ -957,7 +1036,7 @@ function matchNextToken(
   // Finally check for symbols
   match = matchAtCursor(TOKEN_PATTERNS.SYMBOL);
   if (match) {
-    const value = match[0];
+    let value = match[0];
     // Check for BigInt literal (number ending with 'n')
     if (/^-?\d+n$/.test(value)) {
       // Keep full value including 'n' for proper cursor advancement
@@ -967,6 +1046,24 @@ function matchNextToken(
     if (!isNaN(Number(value))) {
       return { type: TokenType.Number, value, position };
     }
+
+    // Check for unbalanced angle brackets in type annotations
+    // This handles cases like `x:Record<string,number>` where the comma would normally split the symbol
+    //
+    // IMPORTANT: Only apply this to type annotations and generic names, NOT to comparison operators!
+    // - Type annotations: contain ":" (e.g., "data:Record<string,number>")
+    // - Generic names: start with identifier followed by "<" (e.g., "Array<T>", "identity<T>")
+    // - Operators like "<", "<=", ">", ">=" should NOT trigger this logic
+    const angleBracketDepth = countAngleBracketDepth(value);
+    const looksLikeTypeAnnotation = value.includes(':') || /^[a-zA-Z_$][a-zA-Z0-9_$]*</.test(value);
+    if (angleBracketDepth > 0 && looksLikeTypeAnnotation) {
+      // Symbol has unbalanced '<' in a type context - continue scanning to find the closing '>'
+      const additional = scanBalancedAngleBrackets(input, cursor + value.length, angleBracketDepth);
+      if (additional) {
+        value = value + additional;
+      }
+    }
+
     // Otherwise return as symbol token
     return { type: TokenType.Symbol, value, position };
   }

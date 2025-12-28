@@ -2,6 +2,7 @@
  * LSP Diagnostics Feature
  *
  * Converts HQL analysis errors to LSP diagnostics format.
+ * Also detects unused imports.
  */
 
 import {
@@ -10,6 +11,7 @@ import {
 import type { Diagnostic } from "npm:vscode-languageserver@9.0.1";
 import type { AnalysisResult, AnalysisError } from "../analysis.ts";
 import { toLSPRange } from "../utils/position.ts";
+import { analyzeUnusedImports } from "../imports/symbol-usage.ts";
 
 /**
  * Convert analysis result to LSP diagnostics
@@ -47,4 +49,29 @@ function severityToLSP(severity: 1 | 2 | 3 | 4): DiagnosticSeverity {
     default:
       return DiagnosticSeverity.Error;
   }
+}
+
+/**
+ * Detect unused imports in a document and return diagnostics
+ */
+export function getUnusedImportDiagnostics(
+  content: string,
+  filePath: string
+): Diagnostic[] {
+  const unusedImports = analyzeUnusedImports(content, filePath);
+
+  return unusedImports.map((unused) => ({
+    severity: DiagnosticSeverity.Warning,
+    range: unused.range,
+    message: `'${unused.symbolName}' is imported but never used`,
+    code: "unused-import",
+    source: "hql",
+    data: {
+      symbolName: unused.symbolName,
+      originalName: unused.originalName,
+      isNamespace: unused.isNamespace,
+      importLine: unused.importLine,
+      modulePath: unused.modulePath,
+    },
+  }));
 }

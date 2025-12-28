@@ -29,7 +29,6 @@ import {
   relative as platformRelative,
   resolve as platformResolve,
   toFileUrl as platformToFileUrl,
-  useNodePlatform,
   writeTextFile as platformWriteTextFile,
 } from "./src/platform/platform.ts";
 import * as acorn from "npm:acorn@8.11.3";
@@ -60,17 +59,6 @@ try {
 // This is used to resolve @hql/* stdlib packages relative to the HQL installation,
 // not relative to user code location
 const HQL_MODULE_DIR = platformFromFileUrl(dirname(import.meta.url));
-
-if (
-  typeof globalThis.Deno === "undefined" && typeof process !== "undefined" &&
-  process.versions?.node
-) {
-  try {
-    await useNodePlatform();
-  } catch {
-    // Ignore failures; consumers can invoke useNodePlatform manually.
-  }
-}
 
 // Install automatic source map support - errors will show HQL positions automatically
 installSourceMapSupport();
@@ -844,7 +832,6 @@ export {
   getPlatform,
   type Platform,
   setPlatform,
-  useNodePlatform,
 } from "./src/platform/platform.ts";
 
 interface ModuleProcessingContext {

@@ -327,3 +327,70 @@ export function setWithSanitized<T>(map: Map<string, T>, name: string, value: T)
     map.set(sanitized, value);
   }
 }
+
+// ============================================================================
+// Type Annotation Utilities
+// ============================================================================
+
+/**
+ * Find the first colon that separates parameter/variable name from type annotation,
+ * accounting for nested angle brackets in generic types.
+ *
+ * This correctly handles complex types like `Array<Record<string, number>>`
+ * where naive indexOf(":") would incorrectly split inside the generic.
+ *
+ * @param paramSymbol - Symbol string potentially containing name:type
+ * @returns Index of the type-separating colon, or -1 if not found
+ *
+ * @example
+ * ```typescript
+ * findTypeAnnotationColon("x:number")                    // → 1
+ * findTypeAnnotationColon("x:Array<Record<string,number>>")  // → 1
+ * findTypeAnnotationColon("x")                           // → -1
+ * ```
+ */
+export function findTypeAnnotationColon(paramSymbol: string): number {
+  let angleDepth = 0;
+  let parenDepth = 0;
+
+  for (let i = 0; i < paramSymbol.length; i++) {
+    const char = paramSymbol[i];
+
+    if (char === "<") angleDepth++;
+    else if (char === ">") angleDepth--;
+    else if (char === "(") parenDepth++;
+    else if (char === ")") parenDepth--;
+    else if (char === ":" && angleDepth === 0 && parenDepth === 0) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+/**
+ * Normalize shorthand array type notation to generic Array<T> form.
+ * Converts "T[]" to "Array<T>" for consistent TypeScript output.
+ *
+ * This ensures proper type generation since the IR and generator
+ * work best with the generic form.
+ *
+ * @param type - Type string potentially using shorthand array notation
+ * @returns Normalized type string with Array<T> form
+ *
+ * @example
+ * ```typescript
+ * normalizeArrayType("number[]")    // → "Array<number>"
+ * normalizeArrayType("string")      // → "string"
+ * normalizeArrayType("MyType[]")    // → "Array<MyType>"
+ * ```
+ */
+export function normalizeArrayType(type: string): string {
+  // Match T[] pattern at the end of the type string
+  // Handles: number[], string[], MyType[], etc.
+  const match = type.match(/^(.+)\[\]$/);
+  if (match) {
+    return `Array<${match[1]}>`;
+  }
+  return type;
+}
