@@ -13,13 +13,13 @@
 
 ; Import single function
 ; (import [add] from "./math.hql")
-; (assert (= (add 5 10) 15) "Import single function")
+; (assert (=== (add 5 10) 15) "Import single function")
 
 ; Import multiple functions
 ; (import [add, subtract, multiply] from "./math.hql")
-; (assert (= (add 5 3) 8) "Import multiple - add")
-; (assert (= (subtract 10 2) 8) "Import multiple - subtract")
-; (assert (= (multiply 2 4) 8) "Import multiple - multiply")
+; (assert (=== (add 5 3) 8) "Import multiple - add")
+; (assert (=== (subtract 10 2) 8) "Import multiple - subtract")
+; (assert (=== (multiply 2 4) 8) "Import multiple - multiply")
 
 ; Import constants
 ; (import [PI, E] from "./constants.hql")
@@ -32,8 +32,8 @@
 
 ; Rename imports to avoid conflicts
 ; (import [add as sum, multiply as times] from "./math.hql")
-; (assert (= (sum 5 3) 8) "Aliased import - sum")
-; (assert (= (times 2 4) 8) "Aliased import - times")
+; (assert (=== (sum 5 3) 8) "Aliased import - sum")
+; (assert (=== (times 2 4) 8) "Aliased import - times")
 
 ; Multiple aliases from same module
 ; (import [longFunctionName as short, anotherLongName as another] from "./utils.hql")
@@ -46,8 +46,8 @@
 
 ; Import entire module as namespace
 ; (import math from "./math.hql")
-; (assert (= (math.add 10 20) 30) "Namespace import")
-; (assert (= (math.multiply 5 6) 30) "Namespace method access")
+; (assert (=== (math.add 10 20) 30) "Namespace import")
+; (assert (=== (math.multiply 5 6) 30) "Namespace method access")
 
 ; Namespace prevents naming conflicts
 ; (import array from "./array-utils.hql")
@@ -66,7 +66,7 @@
 
 ; Consumer imports from middleware:
 ; (import [greet] from "./middleware.hql")
-; (assert (= (greet "World") "Hello, World!") "Re-export function")
+; (assert (=== (greet "World") "Hello, World!") "Re-export function")
 
 ; Re-export multiple items
 ; (import [func1, func2, const1] from "./middleware.hql")

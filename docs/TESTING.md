@@ -157,8 +157,8 @@ Test individual functions:
 ```lisp
 ; tests/unit/math.test.hql
 (fn test-addition []
-  (assert (= (+ 1 2) 3))
-  (assert (= (+ 10 20 30) 60)))
+  (assert (=== (+ 1 2) 3))
+  (assert (=== (+ 10 20 30) 60)))
 
 (test-addition)
 ```

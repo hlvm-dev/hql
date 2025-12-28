@@ -153,7 +153,7 @@
 (dotimes 5
   (= dotimesSum (+ dotimesSum dotimesCounter))
   (= dotimesCounter (+ dotimesCounter 1)))
-(assert (== dotimesSum 10) "Dotimes with counter (0+1+2+3+4)")
+(assert (=== dotimesSum 10) "Dotimes with counter (0+1+2+3+4)")
 
 ; ============================================================================
 ; SECTION 4: FOR LOOP - RANGE ITERATION
