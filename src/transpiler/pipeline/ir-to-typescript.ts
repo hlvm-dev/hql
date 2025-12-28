@@ -307,6 +307,12 @@ class TSGenerator {
         break;
       }
 
+      case IR.IRNodeType.SequenceExpression: {
+        const seqExpr = node as IR.IRSequenceExpression;
+        this.collectList(seqExpr.expressions, true);
+        break;
+      }
+
       case IR.IRNodeType.ObjectExpression: {
         const objExpr = node as IR.IRObjectExpression;
         for (const prop of objExpr.properties) {
@@ -745,6 +751,9 @@ class TSGenerator {
         break;
       case IR.IRNodeType.ArrayExpression:
         this.generateArrayExpression(node as IR.IRArrayExpression);
+        break;
+      case IR.IRNodeType.SequenceExpression:
+        this.generateSequenceExpression(node as IR.IRSequenceExpression);
         break;
       case IR.IRNodeType.ObjectExpression:
         this.generateObjectExpression(node as IR.IRObjectExpression);
@@ -1553,6 +1562,16 @@ class TSGenerator {
     this.emit("[", node.position);
     this.emitCommaSeparated(node.elements, (elem) => this.generateInExpressionContext(elem));
     this.emit("]");
+  }
+
+  /**
+   * Generate comma operator expression: (expr1, expr2, expr3)
+   * Returns the value of the last expression.
+   */
+  private generateSequenceExpression(node: IR.IRSequenceExpression): void {
+    this.emit("(", node.position);
+    this.emitCommaSeparated(node.expressions, (expr) => this.generateInExpressionContext(expr));
+    this.emit(")");
   }
 
   private generateObjectExpression(node: IR.IRObjectExpression): void {

@@ -297,6 +297,9 @@ export function transformReturn(
 
 /**
  * Transform a "do" expression - executes multiple expressions in sequence
+ *
+ * OPTIMIZATION: Uses comma operator (SequenceExpression) when all children
+ * are pure expressions. Falls back to IIFE when statements are present.
  */
 export function transformDo(
   list: ListNode,
@@ -321,39 +324,62 @@ export function transformDo(
           ({ type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral);
       }
 
-      // Multiple expressions - create statements for IIFE body
-      const bodyStatements: IR.IRNode[] = [];
-
-      // Extract position from the 'do' list for the IIFE
+      // Extract position from the 'do' list
       const listMeta = extractMeta(list);
       const listPosition = listMeta ? { line: listMeta.line, column: listMeta.column, filePath: listMeta.filePath } : undefined;
+
+      // First pass: Check if any expression contains return (AST level check)
+      const hasReturnInAST = bodyExprs.some(containsReturn);
+
+      // Transform all body expressions
+      const transformedExprs: IR.IRNode[] = [];
+      for (const expr of bodyExprs) {
+        const transformed = transformNode(expr, currentDir);
+        if (transformed) {
+          transformedExprs.push(transformed);
+        }
+      }
+
+      // OPTIMIZATION: Check if we can use comma operator (SequenceExpression)
+      // Requirements:
+      // 1. No early returns in AST
+      // 2. All transformed nodes are pure expressions (not statements)
+      const canUseCommaOperator = !hasReturnInAST &&
+        transformedExprs.every(node => isExpressionResult(node));
+
+      if (canUseCommaOperator && transformedExprs.length > 0) {
+        // Use native JS comma operator: (expr1, expr2, expr3) => returns last value
+        return {
+          type: IR.IRNodeType.SequenceExpression,
+          expressions: transformedExprs,
+          position: listPosition,
+        } as IR.IRSequenceExpression;
+      }
+
+      // Fall back to IIFE for statements or control flow
+      const bodyStatements: IR.IRNode[] = [];
 
       // Enter IIFE context (for tracking nested returns)
       enterIIFE();
 
       try {
         // Transform all except the last expression
-        for (let i = 0; i < bodyExprs.length - 1; i++) {
-          const transformedExpr = transformNode(bodyExprs[i], currentDir);
-          if (transformedExpr) {
-            // Wrap expressions in ExpressionStatement for proper block statement body
-            if (isExpressionResult(transformedExpr)) {
-              bodyStatements.push({
-                type: IR.IRNodeType.ExpressionStatement,
-                expression: transformedExpr,
-                position: transformedExpr.position, // Inherit position
-              } as IR.IRExpressionStatement);
-            } else {
-              bodyStatements.push(transformedExpr);
-            }
+        for (let i = 0; i < transformedExprs.length - 1; i++) {
+          const transformedExpr = transformedExprs[i];
+          // Wrap expressions in ExpressionStatement for proper block statement body
+          if (isExpressionResult(transformedExpr)) {
+            bodyStatements.push({
+              type: IR.IRNodeType.ExpressionStatement,
+              expression: transformedExpr,
+              position: transformedExpr.position,
+            } as IR.IRExpressionStatement);
+          } else {
+            bodyStatements.push(transformedExpr);
           }
         }
 
-        // Transform the last expression - it's the return value
-        const lastExpr = transformNode(
-          bodyExprs[bodyExprs.length - 1],
-          currentDir,
-        );
+        // Handle the last expression - it's the return value
+        const lastExpr = transformedExprs[transformedExprs.length - 1];
 
         if (lastExpr) {
           // CRITICAL FIX: Don't wrap certain statements in ReturnStatement
@@ -389,7 +415,7 @@ export function transformDo(
             bodyStatements.push({
               type: IR.IRNodeType.ReturnStatement,
               argument: lastExpr,
-              position: lastExpr.position, // Inherit position
+              position: lastExpr.position,
             } as IR.IRReturnStatement);
           }
         }
@@ -413,10 +439,10 @@ export function transformDo(
             body: bodyStatements,
             position: blockPosition,
           } as IR.IRBlockStatement,
-          position: listPosition, // Position of the do block
+          position: listPosition,
         } as IR.IRFunctionExpression,
         arguments: [],
-        position: listPosition, // Position of the do block
+        position: listPosition,
       } as IR.IRCallExpression;
     },
     "transformDo",
@@ -788,6 +814,62 @@ export function transformSwitch(
         } as IR.IRSwitchCase);
       }
 
+      // OPTIMIZATION: Check if we can use chained ternaries instead of IIFE
+      // A switch is "simple" if:
+      // 1. No case has fallthrough
+      // 2. Each case has exactly one element in consequent (the return statement)
+      const canUseTernary = cases.every(c => {
+        const sc = c as IR.IRSwitchCase;
+        // No fallthrough allowed
+        if (sc.fallthrough) return false;
+        // Must have exactly one element which is a ReturnStatement
+        if (sc.consequent.length !== 1) return false;
+        return sc.consequent[0].type === IR.IRNodeType.ReturnStatement;
+      });
+
+      if (canUseTernary) {
+        // EXPRESSION-EVERYWHERE: Use native chained ternaries
+        // (x === v1 ? r1 : x === v2 ? r2 : default)
+        // This is more idiomatic JS than IIFE wrapping
+
+        // Build from the end (default case) backwards
+        // Find the default case (test === null)
+        const defaultCase = cases.find(c => (c as IR.IRSwitchCase).test === null) as IR.IRSwitchCase;
+        const regularCases = cases.filter(c => (c as IR.IRSwitchCase).test !== null) as IR.IRSwitchCase[];
+
+        // Start with the default value
+        let result: IR.IRNode = (defaultCase.consequent[0] as IR.IRReturnStatement).argument!;
+
+        // Build chain from right to left
+        for (let i = regularCases.length - 1; i >= 0; i--) {
+          const caseItem = regularCases[i];
+          const test = caseItem.test!;
+          const value = (caseItem.consequent[0] as IR.IRReturnStatement).argument!;
+
+          // Create: discriminant === test ? value : result
+          const condition: IR.IRBinaryExpression = {
+            type: IR.IRNodeType.BinaryExpression,
+            operator: "===",
+            left: discriminant,
+            right: test,
+          };
+
+          result = {
+            type: IR.IRNodeType.ConditionalExpression,
+            test: condition,
+            consequent: value,
+            alternate: result,
+          } as IR.IRConditionalExpression;
+        }
+
+        // Copy position from the original list
+        if ((list as any).position) {
+          (result as any).position = (list as any).position;
+        }
+        return result;
+      }
+
+      // Complex switch (fallthrough or multiple statements): use IIFE
       // Create the switch statement
       const switchStmt: IR.IRSwitchStatement = {
         type: IR.IRNodeType.SwitchStatement,
@@ -942,30 +1024,45 @@ export function transformCase(
         } as IR.IRSwitchCase);
       }
 
-      // Create the switch statement
-      const switchStmt: IR.IRSwitchStatement = {
-        type: IR.IRNodeType.SwitchStatement,
-        discriminant,
-        cases,
-      };
+      // OPTIMIZATION: Use chained ternaries instead of IIFE-wrapped switch
+      // case expressions are always simple (no fallthrough), so always use ternary
+      // (x === v1 ? r1 : x === v2 ? r2 : default)
 
-      // EXPRESSION-EVERYWHERE: Wrap in IIFE to make it an expression
-      // (() => { switch(expr) { case v1: return r1; ... } })()
-      const iife: IR.IRCallExpression = {
-        type: IR.IRNodeType.CallExpression,
-        callee: {
-          type: IR.IRNodeType.FunctionExpression,
-          id: null,
-          params: [],
-          body: {
-            type: IR.IRNodeType.BlockStatement,
-            body: [switchStmt],
-          } as IR.IRBlockStatement,
-        } as IR.IRFunctionExpression,
-        arguments: [],
-      };
+      // Find the default case (test === null)
+      const defaultCase = cases.find(c => (c as IR.IRSwitchCase).test === null) as IR.IRSwitchCase;
+      const regularCases = cases.filter(c => (c as IR.IRSwitchCase).test !== null) as IR.IRSwitchCase[];
 
-      return iife;
+      // Start with the default value
+      let result: IR.IRNode = (defaultCase.consequent[0] as IR.IRReturnStatement).argument!;
+
+      // Build chain from right to left
+      for (let i = regularCases.length - 1; i >= 0; i--) {
+        const caseItem = regularCases[i];
+        const test = caseItem.test!;
+        const value = (caseItem.consequent[0] as IR.IRReturnStatement).argument!;
+
+        // Create: discriminant === test ? value : result
+        const condition: IR.IRBinaryExpression = {
+          type: IR.IRNodeType.BinaryExpression,
+          operator: "===",
+          left: discriminant,
+          right: test,
+        };
+
+        result = {
+          type: IR.IRNodeType.ConditionalExpression,
+          test: condition,
+          consequent: value,
+          alternate: result,
+        } as IR.IRConditionalExpression;
+      }
+
+      // Copy position from the original list
+      if ((list as any).position) {
+        (result as any).position = (list as any).position;
+      }
+
+      return result;
     },
     "transformCase",
     TransformError,

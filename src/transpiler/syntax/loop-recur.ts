@@ -1308,6 +1308,68 @@ function collectForOfNodesRecursive(node: IR.IRNode, results: IR.IRForOfStatemen
 }
 
 /**
+ * Check if a node contains any break/continue statements targeting a specific label.
+ * Used for expression-everywhere: labels must return a value even without for-of.
+ */
+function hasBreakOrContinueTargeting(node: IR.IRNode, labelName: string): boolean {
+  if (!node) return false;
+
+  // Check BreakStatement
+  if (node.type === IR.IRNodeType.BreakStatement) {
+    const breakStmt = node as IR.IRBreakStatement;
+    return breakStmt.label === labelName;
+  }
+
+  // Check ContinueStatement
+  if (node.type === IR.IRNodeType.ContinueStatement) {
+    const continueStmt = node as IR.IRContinueStatement;
+    return continueStmt.label === labelName;
+  }
+
+  // Don't recurse into function expressions - they have their own scope
+  if (node.type === IR.IRNodeType.FunctionExpression ||
+      node.type === IR.IRNodeType.FunctionDeclaration) {
+    return false;
+  }
+
+  // Recurse into child nodes
+  if (node.type === IR.IRNodeType.BlockStatement) {
+    return (node as IR.IRBlockStatement).body.some(child => hasBreakOrContinueTargeting(child, labelName));
+  }
+  if (node.type === IR.IRNodeType.IfStatement) {
+    const ifStmt = node as IR.IRIfStatement;
+    return hasBreakOrContinueTargeting(ifStmt.consequent, labelName) ||
+           (ifStmt.alternate ? hasBreakOrContinueTargeting(ifStmt.alternate, labelName) : false);
+  }
+  if (node.type === IR.IRNodeType.ExpressionStatement) {
+    return hasBreakOrContinueTargeting((node as IR.IRExpressionStatement).expression, labelName);
+  }
+  if (node.type === IR.IRNodeType.ForOfStatement) {
+    return hasBreakOrContinueTargeting((node as IR.IRForOfStatement).body, labelName);
+  }
+  if (node.type === IR.IRNodeType.WhileStatement) {
+    return hasBreakOrContinueTargeting((node as IR.IRWhileStatement).body, labelName);
+  }
+  if (node.type === IR.IRNodeType.ForStatement) {
+    return hasBreakOrContinueTargeting((node as IR.IRForStatement).body, labelName);
+  }
+  if (node.type === IR.IRNodeType.LabeledStatement) {
+    return hasBreakOrContinueTargeting((node as IR.IRLabeledStatement).body, labelName);
+  }
+  if (node.type === IR.IRNodeType.CallExpression) {
+    const callExpr = node as IR.IRCallExpression;
+    // Check if this is an IIFE - need to look inside
+    if (callExpr.callee.type === IR.IRNodeType.FunctionExpression) {
+      const funcExpr = callExpr.callee as IR.IRFunctionExpression;
+      return hasBreakOrContinueTargeting(funcExpr.body, labelName);
+    }
+    return callExpr.arguments.some(arg => hasBreakOrContinueTargeting(arg, labelName));
+  }
+
+  return false;
+}
+
+/**
  * Transform a for-of statement.
  * (for-of [x collection] body...)
  *
@@ -1646,6 +1708,12 @@ export function transformLabel(
           // Don't break - continue checking to find if any for-await-of exists
         }
       }
+    }
+
+    // EXPRESSION-EVERYWHERE: Also check for break/continue targeting this label
+    // even without for-of. This ensures (label x (break x)) returns null.
+    if (!needsIIFE && hasBreakOrContinueTargeting(body, labelName)) {
+      needsIIFE = true;
     }
 
     if (needsIIFE) {

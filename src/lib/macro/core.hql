@@ -214,7 +214,16 @@
             first-el (%first first-clause))
         ;; Check if first clause is a list (e.g., (else expr))
         ;; If we can extract a first element, it's a list
-        (if (not (=== first-el nil))
+        (if (=== first-el nil)
+            ;; Flat syntax: test result test result...
+            (if (%empty? rest-clauses)
+                (throw "cond requires result expression for test")
+                (let (test first-clause
+                      result (%first rest-clauses)
+                      remaining (%rest rest-clauses))
+                  (if (%empty? remaining)
+                      `(if ~test ~result nil)
+                      `(if ~test ~result (cond ~@remaining)))))
             ;; List clause syntax: ((test) result)
             (let (test first-el
                   result (%first (%rest first-clause)))
@@ -229,16 +238,7 @@
                   ;; test is not a symbol, generate if expression
                   (if (%empty? rest-clauses)
                       `(if ~test ~result nil)
-                      `(if ~test ~result (cond ~@rest-clauses)))))
-            ;; Flat syntax: test result test result...
-            (if (%empty? rest-clauses)
-                (throw "cond requires result expression for test")
-                (let (test first-clause
-                      result (%first rest-clauses)
-                      remaining (%rest rest-clauses))
-                  (if (%empty? remaining)
-                      `(if ~test ~result nil)
-                      `(if ~test ~result (cond ~@remaining)))))))))
+                      `(if ~test ~result (cond ~@rest-clauses)))))))))
 
 ;; NOTE: `do` is a kernel primitive, not a macro
 ;; It needs to create an IIFE with BlockStatement to handle both statements and expressions

@@ -175,13 +175,6 @@ const SNIPPETS: CompletionItem[] = [
     insertTextFormat: InsertTextFormat.Snippet,
   },
   {
-    label: "field",
-    kind: CompletionItemKind.Snippet,
-    detail: "(field name) - class field",
-    insertText: "(field ${1:name})$0",
-    insertTextFormat: InsertTextFormat.Snippet,
-  },
-  {
     label: "case",
     kind: CompletionItemKind.Snippet,
     detail: "(case Name) - enum case",

@@ -182,16 +182,17 @@ Deno.test("case: can be used as function argument", async () => {
   assertEquals(await run(code), "Status: Running");
 });
 
-Deno.test("case: generates IIFE-wrapped switch", async () => {
+Deno.test("case: generates native ternary (optimized)", async () => {
   const result = await transpile(`
     (case x
       1 "one"
       2 "two"
       "other")
   `);
-  // Should have switch and return statements
-  assertStringIncludes(result.code, "switch");
-  assertStringIncludes(result.code, "return");
+  // Now optimized to chained ternaries instead of IIFE-wrapped switch
+  assertStringIncludes(result.code, "x === 1");
+  assertStringIncludes(result.code, "x === 2");
+  assertStringIncludes(result.code, "?");
 });
 
 Deno.test("case: returns expression result not statement", async () => {
@@ -376,17 +377,17 @@ Deno.test("switch: with multi-statement body returns last value", async () => {
   assertEquals(await run(code), 30);
 });
 
-Deno.test("switch: generates IIFE-wrapped switch", async () => {
+Deno.test("switch: generates native ternary (optimized)", async () => {
   const result = await transpile(`
     (switch x
       (case 1 "one")
       (case 2 "two")
       (default "other"))
   `);
-  // Should have switch and return statements inside IIFE
-  assertStringIncludes(result.code, "switch");
-  assertStringIncludes(result.code, "return");
-  assertStringIncludes(result.code, ")()"); // IIFE invocation
+  // Now optimized to chained ternaries instead of IIFE-wrapped switch
+  assertStringIncludes(result.code, "x === 1");
+  assertStringIncludes(result.code, "x === 2");
+  assertStringIncludes(result.code, "?");
 });
 
 // ============================================================================

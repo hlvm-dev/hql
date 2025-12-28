@@ -118,7 +118,7 @@ Deno.test("prepareRename - handles multiline", () => {
 });
 
 Deno.test("prepareRename - class name", () => {
-  const doc = createDoc("(class Point (x y))");
+  const doc = createDoc("(class Point (var x 0) (var y 0))");
   const result = prepareRename(doc, { line: 0, character: 9 }); // cursor on "Point"
 
   assertExists(result);

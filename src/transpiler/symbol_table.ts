@@ -15,7 +15,6 @@ export type SymbolKind =
   | "enum"
   | "enum-case"
   | "class"
-  | "field"
   | "method"
   | "interface"
   | "module"

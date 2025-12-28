@@ -160,24 +160,37 @@ function registerClass(list: SList): void {
       const el = list.elements[i];
       if (isList(el) && el.elements.length > 0 && isSymbol(el.elements[0])) {
         const subHead = (el.elements[0] as SSymbol).name;
+        // Handle class fields: (var name value), (let name value), (const name value)
         if (
-          subHead === "field" && el.elements.length > 1 &&
+          (subHead === "var" || subHead === "let" || subHead === "const") &&
+          el.elements.length > 1 &&
           isSymbol(el.elements[1])
         ) {
           const fieldName = (el.elements[1] as SSymbol).name;
           let fieldType = undefined;
-          if (el.elements.length > 2 && isSymbol(el.elements[2])) {
-            fieldType = (el.elements[2] as SSymbol).name;
+          // Check for typed field: (var name:type value)
+          if (fieldName.includes(":")) {
+            const [name, type] = fieldName.split(":");
+            fields.push({ name, type });
+            globalSymbolTable.set({
+              name: `${typeName}.${name}`,
+              kind: "variable",
+              parent: typeName,
+              scope: "class",
+              type,
+              definition: el,
+            });
+          } else {
+            fields.push({ name: fieldName, type: fieldType });
+            globalSymbolTable.set({
+              name: `${typeName}.${fieldName}`,
+              kind: "variable",
+              parent: typeName,
+              scope: "class",
+              type: fieldType,
+              definition: el,
+            });
           }
-          fields.push({ name: fieldName, type: fieldType });
-          globalSymbolTable.set({
-            name: `${typeName}.${fieldName}`,
-            kind: "field",
-            parent: typeName,
-            scope: "class",
-            type: fieldType,
-            definition: el,
-          });
         } else if (
           subHead === "fn" && el.elements.length > 1 &&
           isSymbol(el.elements[1])

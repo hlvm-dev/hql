@@ -722,6 +722,7 @@ function evaluateCond(list: SList, env: Environment, logger: Logger): SExp {
       );
     }
     const test = evaluateForMacro(clauseList.elements[0], env, logger);
+    
     if (isTruthy(test)) {
       return evaluateForMacro(clauseList.elements[1], env, logger);
     }

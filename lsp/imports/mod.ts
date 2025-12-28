@@ -15,23 +15,18 @@ export type {
   ParsedImportSymbol,
   UnusedImport,
   ResolvedExport,
-  ImportSuggestion,
 } from "./types.ts";
 
 // Import Parser
 export {
   findAllImports,
   findImportByPath,
-  getImportedSymbols,
-  findImportContainingSymbol,
   findInsertPosition,
 } from "./import-parser.ts";
 
 // Symbol Usage Analyzer
 export {
   analyzeUnusedImports,
-  isSymbolUsed,
-  findAllUsages,
   findUnusedImports,
 } from "./symbol-usage.ts";
 
@@ -39,11 +34,8 @@ export {
 export {
   getRemoveUnusedImportAction,
   getRemoveAllUnusedAction,
-  deleteEntireImport,
-  removeSymbolFromImport,
   addSymbolToImport,
   createNewImport,
-  createNamespaceImport,
   calculateRelativePath,
 } from "./import-editor.ts";
 
@@ -52,5 +44,4 @@ export {
   isReExportedSymbol,
   resolveReExportChain,
   detectCircularReExports,
-  buildExportChain,
 } from "./export-resolver.ts";

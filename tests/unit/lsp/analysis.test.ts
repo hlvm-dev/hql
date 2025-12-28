@@ -66,8 +66,8 @@ Deno.test("LSP Analysis - collects macro definitions", () => {
 Deno.test("LSP Analysis - collects class definitions", () => {
   const code = `
 (class Point
-  (field x)
-  (field y)
+  (var x 0)
+  (var y 0)
   (fn distance [self other]
     (Math.sqrt (+ (* (- other.x self.x) (- other.x self.x))
                   (* (- other.y self.y) (- other.y self.y))))))
@@ -260,7 +260,7 @@ Deno.test("LSP Analysis - handles complex type annotations", () => {
 Deno.test("LSP Analysis - extracts class method types", () => {
   const code = `
 (class Calculator
-  (field value:number)
+  (var value:number 0)
   (fn add [x:number] :number (+ this.value x)))
 `;
 

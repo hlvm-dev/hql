@@ -77,21 +77,3 @@ export interface ResolvedExport {
   /** Whether this is a re-export (vs direct export) */
   isReExport: boolean;
 }
-
-/**
- * Suggestion for auto-importing a symbol
- */
-export interface ImportSuggestion {
-  /** The symbol to import */
-  symbolName: string;
-  /** Path to use in the import statement */
-  modulePath: string;
-  /** Absolute file path */
-  absolutePath: string;
-  /** Kind of symbol (function, class, etc.) */
-  kind: string;
-  /** Whether to prefer this source over others */
-  isPreferred: boolean;
-  /** Ranking score (higher = better) */
-  score: number;
-}

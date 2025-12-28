@@ -2333,6 +2333,7 @@ export function isExpressionResult(node: IR.IRNode): boolean {
     case IR.IRNodeType.InteropIIFE:
     case IR.IRNodeType.JsMethodAccess:
     case IR.IRNodeType.FunctionExpression:
+    case IR.IRNodeType.SequenceExpression:
       return true;
     default:
       return false;

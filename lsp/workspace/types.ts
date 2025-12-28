@@ -5,7 +5,6 @@
  */
 
 import type { SymbolInfo } from "../../src/transpiler/symbol_table.ts";
-import type { HQLRange } from "../utils/position.ts";
 
 /**
  * Unique identifier for a symbol across the workspace
@@ -19,32 +18,6 @@ export type SymbolId = string;
 export function createSymbolId(filePath: string, symbolName: string): SymbolId {
   return `${filePath}#${symbolName}`;
 }
-
-/**
- * Parse a symbol ID back to its components
- */
-export function parseSymbolId(symbolId: SymbolId): {
-  filePath: string;
-  symbolName: string;
-} | null {
-  const idx = symbolId.lastIndexOf("#");
-  if (idx === -1) return null;
-  return {
-    filePath: symbolId.slice(0, idx),
-    symbolName: symbolId.slice(idx + 1),
-  };
-}
-
-/**
- * Reference to a symbol usage (internal type for future use)
- */
-interface SymbolReference {
-  filePath: string;
-  range: HQLRange;
-  kind: ReferenceKind;
-}
-
-export type ReferenceKind = "read" | "write" | "import" | "export" | "call";
 
 /**
  * Export information for a symbol

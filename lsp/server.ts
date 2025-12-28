@@ -59,7 +59,12 @@ import {
   getSemanticTokensCapability,
 } from "./features/semantic-tokens.ts";
 import { getWordAtPosition } from "./utils/position.ts";
-import { ProjectIndex, ImportResolver, ModuleAnalyzer } from "./workspace/mod.ts";
+import {
+  ProjectIndex,
+  ImportResolver,
+  ModuleAnalyzer,
+  WorkspaceScanner,
+} from "./workspace/mod.ts";
 
 // Create the connection using stdio transport
 // This allows communication via stdin/stdout with editors
@@ -145,10 +150,20 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 });
 
 /**
- * Initialized: Server is ready
+ * Initialized: Server is ready - scan workspace to enable auto-import
  */
-connection.onInitialized(() => {
-  // Server is ready
+connection.onInitialized(async () => {
+  if (workspaceRoots.length > 0) {
+    const scanner = new WorkspaceScanner(projectIndex);
+    try {
+      const result = await scanner.scan(workspaceRoots);
+      connection.console.log(
+        `Indexed ${result.filesIndexed} HQL files in ${result.durationMs}ms`
+      );
+    } catch (error) {
+      connection.console.error(`Workspace scan failed: ${error}`);
+    }
+  }
 });
 
 /**
@@ -215,9 +230,13 @@ documentManager.setAnalysisCallback((uri, analysis) => {
   // Get parse/analysis errors
   const diagnostics = getDiagnostics(analysis);
 
-  // Add unused import diagnostics
+  // Add unused import diagnostics (pass AST to avoid re-parsing)
   if (doc) {
-    const unusedImportDiags = getUnusedImportDiagnostics(doc.getText(), filePath);
+    const unusedImportDiags = getUnusedImportDiagnostics(
+      doc.getText(),
+      filePath,
+      analysis.ast
+    );
     diagnostics.push(...unusedImportDiags);
   }
 

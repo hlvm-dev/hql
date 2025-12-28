@@ -15,7 +15,7 @@ import {
 } from "npm:vscode-languageserver@9.0.1";
 import type { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import type { UnusedImport, ParsedImport, LSPRange } from "./types.ts";
-import { findAllImports, findImportByPath } from "./import-parser.ts";
+import { findAllImports } from "./import-parser.ts";
 import * as path from "node:path";
 
 /**
@@ -121,9 +121,9 @@ export function getRemoveAllUnusedAction(
 }
 
 /**
- * Delete an entire import statement
+ * Delete an entire import statement (internal helper)
  */
-export function deleteEntireImport(
+function deleteEntireImport(
   doc: TextDocument,
   imp: ParsedImport
 ): TextEdit {
@@ -144,9 +144,9 @@ export function deleteEntireImport(
 }
 
 /**
- * Remove a single symbol from an import statement
+ * Remove a single symbol from an import statement (internal helper)
  */
-export function removeSymbolFromImport(
+function removeSymbolFromImport(
   doc: TextDocument,
   imp: ParsedImport,
   symbolName: string
@@ -265,16 +265,6 @@ export function addSymbolToImport(
 export function createNewImport(symbols: string[], modulePath: string): string {
   if (symbols.length === 0) return "";
   return `(import [${symbols.join(" ")}] from "${modulePath}")\n`;
-}
-
-/**
- * Create a namespace import statement
- */
-export function createNamespaceImport(
-  namespaceName: string,
-  modulePath: string
-): string {
-  return `(import ${namespaceName} from "${modulePath}")\n`;
 }
 
 /**

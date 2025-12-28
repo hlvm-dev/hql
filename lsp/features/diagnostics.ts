@@ -11,7 +11,9 @@ import {
 import type { Diagnostic } from "npm:vscode-languageserver@9.0.1";
 import type { AnalysisResult, AnalysisError } from "../analysis.ts";
 import { toLSPRange } from "../utils/position.ts";
-import { analyzeUnusedImports } from "../imports/symbol-usage.ts";
+import { findUnusedImports } from "../imports/symbol-usage.ts";
+import { extractImportsFromAST, findAllImportsViaAST } from "../imports/ast-import-adapter.ts";
+import type { SExp } from "../../src/s-exp/types.ts";
 
 /**
  * Convert analysis result to LSP diagnostics
@@ -53,12 +55,22 @@ function severityToLSP(severity: 1 | 2 | 3 | 4): DiagnosticSeverity {
 
 /**
  * Detect unused imports in a document and return diagnostics
+ *
+ * @param content - Document text content
+ * @param filePath - File path for error reporting
+ * @param ast - Optional pre-parsed AST to avoid re-parsing
  */
 export function getUnusedImportDiagnostics(
   content: string,
-  filePath: string
+  filePath: string,
+  ast?: SExp[] | null
 ): Diagnostic[] {
-  const unusedImports = analyzeUnusedImports(content, filePath);
+  // Extract imports - use pre-parsed AST if available to avoid re-parsing
+  const imports = ast
+    ? extractImportsFromAST(ast, content)
+    : findAllImportsViaAST(content, filePath);
+
+  const unusedImports = findUnusedImports(content, imports);
 
   return unusedImports.map((unused) => ({
     severity: DiagnosticSeverity.Warning,

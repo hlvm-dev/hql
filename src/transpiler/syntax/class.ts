@@ -9,7 +9,8 @@ import {
   TransformError,
   ValidationError,
 } from "../../common/error.ts";
-import { findTypeAnnotationColon, getErrorMessage, normalizeArrayType, sanitizeIdentifier } from "../../common/utils.ts";
+import { getErrorMessage, sanitizeIdentifier } from "../../common/utils.ts";
+import { extractAndNormalizeType } from "../tokenizer/type-tokenizer.ts";
 import {
   transformElements,
   transformNonNullElements,
@@ -856,16 +857,7 @@ function processClassConstructor(
       }
 
       // Extract type annotation if present (e.g., "v:T" -> name="v", typeAnnotation="T")
-      let paramName = (param as SymbolNode).name;
-      let typeAnnotation: string | undefined;
-      const colonIndex = findTypeAnnotationColon(paramName);
-      if (colonIndex > 0) {
-        typeAnnotation = paramName.slice(colonIndex + 1).trim();
-        paramName = paramName.slice(0, colonIndex).trim();
-        if (typeAnnotation) {
-          typeAnnotation = normalizeArrayType(typeAnnotation);
-        }
-      }
+      const { name: paramName, type: typeAnnotation } = extractAndNormalizeType((param as SymbolNode).name);
 
       const parameter: IR.IRIdentifier = {
         type: IR.IRNodeType.Identifier,

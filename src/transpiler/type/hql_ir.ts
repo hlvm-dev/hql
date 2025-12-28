@@ -185,6 +185,9 @@ export enum IRNodeType {
 
   // Optional type in tuple: T?
   OptionalType = 94,
+
+  // Sequence expression (comma operator): (expr1, expr2, expr3)
+  SequenceExpression = 95,
 }
 
 export interface SourcePosition {
@@ -324,6 +327,12 @@ export interface IRConditionalExpression extends IRNode {
 export interface IRArrayExpression extends IRNode {
   type: IRNodeType.ArrayExpression;
   elements: IRNode[];
+}
+
+// Sequence expression (comma operator): (expr1, expr2, expr3) => last value
+export interface IRSequenceExpression extends IRNode {
+  type: IRNodeType.SequenceExpression;
+  expressions: IRNode[];
 }
 
 export interface IRFunctionExpression extends IRNode {

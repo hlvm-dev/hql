@@ -96,7 +96,8 @@ Deno.test("References - handles special HQL identifiers", () => {
 
 Deno.test("References - finds class references", () => {
   const content = `(class Point
-  (x y)
+  (var x 0)
+  (var y 0)
   (fn distance [other]
     (let dx (- (.-x other) x))
     dx))

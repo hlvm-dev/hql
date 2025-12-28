@@ -203,19 +203,3 @@ export function findReferencesInContent(
 
   return results;
 }
-
-/**
- * Quick check if a file might contain references to a symbol
- * (for pre-filtering before full search)
- */
-export async function fileContainsSymbol(
-  filePath: string,
-  symbolName: string
-): Promise<boolean> {
-  try {
-    const content = await Deno.readTextFile(filePath);
-    return content.includes(symbolName);
-  } catch {
-    return false;
-  }
-}

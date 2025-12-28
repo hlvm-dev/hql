@@ -7,10 +7,11 @@ import {
   ValidationError,
 } from "../../common/error.ts";
 import {
-  findTypeAnnotationColon,
-  normalizeArrayType,
   sanitizeIdentifier,
 } from "../../common/utils.ts";
+import {
+  extractAndNormalizeType,
+} from "../tokenizer/type-tokenizer.ts";
 import { transformIf } from "./conditional.ts";
 import {
   transformNonNullElements,
@@ -109,18 +110,9 @@ function transformBinding(
     // Handle simple identifier binding
     if (bindingTarget.type === "symbol") {
       const nameNode = bindingTarget as SymbolNode;
-      let name = nameNode.name;
 
       // Extract type annotation if present (e.g., "x:number")
-      let typeAnnotation: string | undefined;
-      const colonIndex = findTypeAnnotationColon(name);
-      if (colonIndex > 0) {
-        typeAnnotation = name.slice(colonIndex + 1).trim();
-        name = name.slice(0, colonIndex).trim();
-        if (typeAnnotation) {
-          typeAnnotation = normalizeArrayType(typeAnnotation);
-        }
-      }
+      const { name, type: typeAnnotation } = extractAndNormalizeType(nameNode.name);
 
       // Validate for var: cannot use for property assignment
       if (keyword === "var" && name.includes(".") && !name.startsWith(".")) {
@@ -403,18 +395,8 @@ function processBindings(
       );
     }
 
-    let name = (nameNode as SymbolNode).name;
-
     // Extract type annotation if present (e.g., "x:number")
-    let typeAnnotation: string | undefined;
-    const colonIndex = findTypeAnnotationColon(name);
-    if (colonIndex > 0) {
-      typeAnnotation = name.slice(colonIndex + 1).trim();
-      name = name.slice(0, colonIndex).trim();
-      if (typeAnnotation) {
-        typeAnnotation = normalizeArrayType(typeAnnotation);
-      }
-    }
+    const { name, type: typeAnnotation } = extractAndNormalizeType((nameNode as SymbolNode).name);
 
     // Check if the value is an if-expression
     const valueNode = bindingsNode.elements[i + 1];

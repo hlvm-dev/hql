@@ -406,6 +406,7 @@ function handleCond(
 
     // Evaluate test
     const testResult = interpreter.eval(test, env);
+
     if (isTruthy(testResult)) {
       return interpreter.eval(result, env);
     }
@@ -455,6 +456,22 @@ export function hqlValueToSExp(value: HQLValue): SExp {
   return { type: "literal", value: String(value) } as SLiteral;
 }
 
+/**
+ * Special form: ! (logical not)
+ * (! value)
+ */
+function handleNot(
+  args: SExp[],
+  env: InterpreterEnv,
+  interpreter: IInterpreter
+): HQLValue {
+  if (args.length !== 1) {
+    throw new ArityError("!", "1", args.length);
+  }
+  const value = interpreter.eval(args[0], env);
+  return !isTruthy(value);
+}
+
 // Cached special forms map - created once at module load (O(1) lookup vs O(n) creation)
 let _specialFormsCache: Map<string, SpecialFormHandler> | null = null;
 
@@ -474,6 +491,7 @@ export function getSpecialForms(): Map<string, SpecialFormHandler> {
   forms.set("quote", handleQuote);
   forms.set("quasiquote", handleQuasiquote);
   forms.set("cond", handleCond);
+  forms.set("!", handleNot);
 
   _specialFormsCache = forms;
   return forms;

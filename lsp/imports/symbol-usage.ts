@@ -7,49 +7,35 @@
  * - Symbols that are re-exported (counts as usage)
  */
 
-import type { UnusedImport, LSPRange, ParsedImport } from "./types.ts";
+import type { UnusedImport, ParsedImport } from "./types.ts";
 import { findAllImports } from "./import-parser.ts";
 
 /**
  * Analyze a document for unused imports
+ *
+ * Convenience function that parses imports and finds unused ones.
  */
 export function analyzeUnusedImports(
   text: string,
   _filePath: string
 ): UnusedImport[] {
   const imports = findAllImports(text);
-  const unusedImports: UnusedImport[] = [];
-
-  for (const imp of imports) {
-    for (const sym of imp.symbols) {
-      const localName = sym.alias ?? sym.name;
-
-      // Check if symbol is used outside of import/export statements
-      if (!isSymbolUsed(text, localName, imp.line)) {
-        unusedImports.push({
-          symbolName: localName,
-          originalName: sym.alias ? sym.name : undefined,
-          isNamespace: imp.isNamespace,
-          range: sym.range,
-          importLine: imp.line,
-          modulePath: imp.modulePath,
-        });
-      }
-    }
-  }
-
-  return unusedImports;
+  return findUnusedImports(text, imports);
 }
 
 /**
  * Check if a symbol is used in the document (excluding import/export lines)
+ *
+ * For multiline imports, importStartLine and importEndLine define the range to skip.
  */
-export function isSymbolUsed(
+function isSymbolUsed(
   text: string,
   symbolName: string,
-  importLine: number
+  importStartLine: number,
+  importEndLine?: number
 ): boolean {
   const lines = text.split("\n");
+  const endLine = importEndLine ?? importStartLine;
 
   // Check for re-export (symbol is exported)
   if (isSymbolReExported(text, symbolName)) {
@@ -57,13 +43,14 @@ export function isSymbolUsed(
   }
 
   // Check for property access on namespace (e.g., math.add)
-  if (isNamespacePropertyAccessed(text, symbolName, importLine)) {
+  if (isNamespacePropertyAccessed(text, symbolName, importStartLine, endLine)) {
     return true;
   }
 
   // Look for usages on other lines
   for (let i = 0; i < lines.length; i++) {
-    if (i === importLine) continue; // Skip the import line
+    // Skip all lines within the import statement range
+    if (i >= importStartLine && i <= endLine) continue;
 
     const line = lines[i];
 
@@ -118,12 +105,14 @@ function isSymbolReExported(text: string, symbolName: string): boolean {
 function isNamespacePropertyAccessed(
   text: string,
   namespaceName: string,
-  importLine: number
+  importStartLine: number,
+  importEndLine: number
 ): boolean {
   const lines = text.split("\n");
 
   for (let i = 0; i < lines.length; i++) {
-    if (i === importLine) continue;
+    // Skip all lines within the import statement range
+    if (i >= importStartLine && i <= importEndLine) continue;
 
     const line = lines[i];
     // Check for pattern: namespaceName.something
@@ -205,34 +194,6 @@ function escapeRegex(str: string): string {
 }
 
 /**
- * Find all locations where a symbol is used
- */
-export function findAllUsages(text: string, symbolName: string): LSPRange[] {
-  const usages: LSPRange[] = [];
-  const lines = text.split("\n");
-  const pattern = new RegExp(
-    `(?<![a-zA-Z0-9_\\-?!])${escapeRegex(symbolName)}(?![a-zA-Z0-9_\\-?!])`,
-    "g"
-  );
-
-  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-    const line = lines[lineIdx];
-    let match;
-
-    while ((match = pattern.exec(line)) !== null) {
-      if (!isPositionInStringOrComment(line, match.index)) {
-        usages.push({
-          start: { line: lineIdx, character: match.index },
-          end: { line: lineIdx, character: match.index + symbolName.length },
-        });
-      }
-    }
-  }
-
-  return usages;
-}
-
-/**
  * Find unused symbols from a list of parsed imports
  */
 export function findUnusedImports(
@@ -242,10 +203,14 @@ export function findUnusedImports(
   const unusedImports: UnusedImport[] = [];
 
   for (const imp of imports) {
+    // For multiline imports, we need to skip all lines in the import range
+    const importStartLine = imp.range.start.line;
+    const importEndLine = imp.range.end.line;
+
     for (const sym of imp.symbols) {
       const localName = sym.alias ?? sym.name;
 
-      if (!isSymbolUsed(text, localName, imp.line)) {
+      if (!isSymbolUsed(text, localName, importStartLine, importEndLine)) {
         unusedImports.push({
           symbolName: localName,
           originalName: sym.alias ? sym.name : undefined,

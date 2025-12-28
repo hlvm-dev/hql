@@ -158,15 +158,3 @@ export function detectCircularReExports(index: ProjectIndex): string[][] {
 
   return cycles;
 }
-
-/**
- * Get the full re-export chain for debugging
- */
-export function buildExportChain(
-  symbolName: string,
-  startFile: string,
-  index: ProjectIndex
-): string[] {
-  const result = resolveReExportChain(symbolName, startFile, index);
-  return result ? [startFile, ...result.chain, result.originalFile] : [];
-}

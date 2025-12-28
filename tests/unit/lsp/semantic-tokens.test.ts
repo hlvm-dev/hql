@@ -177,7 +177,7 @@ Deno.test("SemanticTokens - handles boolean literals", () => {
 });
 
 Deno.test("SemanticTokens - handles class definitions", () => {
-  const doc = createDoc("(class Point (x y))");
+  const doc = createDoc("(class Point (var x 0) (var y 0))");
   const tokens = buildSemanticTokens(doc, null);
 
   // Should have tokens

@@ -295,3 +295,58 @@ Deno.test("UnusedImports - handles aliased import unused", () => {
   assertEquals(result[0].symbolName, "sum");
   assertEquals(result[0].originalName, "add");
 });
+
+// ============================================================================
+// MULTILINE IMPORT TESTS (16-18)
+// ============================================================================
+
+Deno.test("UnusedImports - handles multiline import", () => {
+  const code = `(import [
+  add
+  subtract
+  multiply
+] from "./math.hql")
+(add 1 2)`;
+
+  const result = analyzeUnusedImports(code, "test.hql");
+
+  // subtract and multiply are unused
+  assertEquals(result.length, 2);
+  const names = result.map((r) => r.symbolName).sort();
+  assertEquals(names, ["multiply", "subtract"]);
+});
+
+Deno.test("UnusedImports - multiline import has correct ranges", () => {
+  const code = `(import [
+  add
+  subtract
+] from "./utils.hql")
+(print 1)`;
+
+  const imports = findAllImports(code);
+
+  assertEquals(imports.length, 1);
+  // Import starts at line 0
+  assertEquals(imports[0].range.start.line, 0);
+  // Import ends at line 3 (0-indexed) - the line with closing bracket
+  assertEquals(imports[0].range.end.line >= 3, true);
+  // Should have 2 symbols
+  assertEquals(imports[0].symbols.length, 2);
+  // Symbols should be on different lines
+  assertEquals(imports[0].symbols[0].range.start.line, 1); // add on line 1
+  assertEquals(imports[0].symbols[1].range.start.line, 2); // subtract on line 2
+});
+
+Deno.test("UnusedImports - multiline with alias", () => {
+  const code = `(import [
+  add as sum
+  subtract
+] from "./math.hql")
+(sum 1 2)`;
+
+  const result = analyzeUnusedImports(code, "test.hql");
+
+  // Only subtract is unused (sum is used)
+  assertEquals(result.length, 1);
+  assertEquals(result[0].symbolName, "subtract");
+});

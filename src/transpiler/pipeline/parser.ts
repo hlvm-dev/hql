@@ -13,6 +13,12 @@ import {
 } from "../../s-exp/types.ts";
 import { ParseError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
+import {
+  countAngleBracketDepth,
+  countBraceDepth,
+  looksLikeTypeAnnotation,
+  tokenizeType,
+} from "../tokenizer/type-tokenizer.ts";
 import { HQLErrorCode } from "../../common/error-codes.ts";
 import { attachSourceLocation } from "../../common/syntax-error-handler.ts";
 import { readTextFileSync as platformReadTextFileSync } from "../../platform/platform.ts";
@@ -64,6 +70,8 @@ const TOKEN_PATTERNS = {
   // Must be checked before SPECIAL_TOKENS to prevent : from being split off
   // Don't include [] in the main character class - they're delimiters. Use explicit \[\] suffix for arrays.
   TYPE_ANNOTATION: /:[a-zA-Z_$][a-zA-Z0-9_$<>,|&?]*(\[\])?(?=[\s\)\]\}]|$)/y,
+  // Inline object type annotation: :{...} (e.g., :{name:string, age:number})
+  TYPE_INLINE_OBJECT: /:\{/y,
   SPECIAL_TOKENS: /(#\[|\(|\)|\[|\]|\{|\}|\.|\:|,|'|`|~@|~)/y,
   STRING: /"(?:\\.|[^\\"])*"/y,
   COMMENT: /(;.*|\/\/.*|\/\*[\s\S]*?\*\/)/y,
@@ -71,84 +79,8 @@ const TOKEN_PATTERNS = {
   SYMBOL: /[^\s\(\)\[\]\{\}"'`,;]+/y, // Allow : in symbols for named params (y:)
 };
 
-/**
- * Count angle bracket depth in a string.
- * Returns positive if more '<' than '>', negative if more '>' than '<', zero if balanced.
- */
-function countAngleBracketDepth(s: string): number {
-  let depth = 0;
-  for (const c of s) {
-    if (c === '<') depth++;
-    else if (c === '>') depth--;
-  }
-  return depth;
-}
-
-/**
- * Continue scanning from cursor to complete a symbol with unbalanced angle brackets.
- * This handles cases like `x:Record<string,number>` where the comma would normally
- * split the symbol into two parts.
- *
- * @param input - The full input string
- * @param cursor - Position after the initial symbol match
- * @param depth - Current angle bracket depth (positive means unbalanced '<')
- * @returns Additional characters to append to the symbol, or empty string if none
- */
-function scanBalancedAngleBrackets(input: string, cursor: number, depth: number): string {
-  if (depth <= 0) return "";
-
-  let result = "";
-  let pos = cursor;
-
-  // Valid characters inside type parameters (including comma which is the key fix)
-  const isValidTypeChar = (c: string): boolean => {
-    // Allow alphanumeric, type-related chars, commas, spaces within angle brackets
-    return /[a-zA-Z0-9_$<>,|&?:\s\-\.]/.test(c);
-  };
-
-  while (pos < input.length && depth > 0) {
-    const c = input[pos];
-
-    // Stop at delimiters that close the containing context
-    if (c === ')' || c === ']' || c === '}') {
-      break;
-    }
-
-    // Stop at whitespace or delimiter if we're at depth 0
-    // But continue if we're inside angle brackets
-    if (depth === 0 && /[\s\(\)\[\]\{\}"'`;]/.test(c)) {
-      break;
-    }
-
-    // Track angle bracket depth
-    if (c === '<') {
-      depth++;
-      result += c;
-      pos++;
-    } else if (c === '>') {
-      depth--;
-      result += c;
-      pos++;
-      // If we've balanced, we're done
-      if (depth === 0) {
-        // Check for trailing [] for array types
-        if (pos + 1 < input.length && input[pos] === '[' && input[pos + 1] === ']') {
-          result += '[]';
-          pos += 2;
-        }
-        break;
-      }
-    } else if (isValidTypeChar(c)) {
-      result += c;
-      pos++;
-    } else {
-      // Invalid character for type parameter, stop
-      break;
-    }
-  }
-
-  return result;
-}
+// Type tokenization functions are imported from ../tokenizer/type-tokenizer.ts:
+// countAngleBracketDepth, countBraceDepth, looksLikeTypeAnnotation, scanBalancedBrackets
 
 /**
  * Parse HQL source code into an S-expression AST
@@ -1009,7 +941,26 @@ function matchNextToken(
   // Check for type annotations (:identifier) before special tokens (to prevent : from being split off)
   // This enables syntax like (fn add [a: number]: number body) where :number is a type annotation
   match = matchAtCursor(TOKEN_PATTERNS.TYPE_ANNOTATION);
-  if (match) return { type: TokenType.Symbol, value: match[0], position };
+  if (match) {
+    // Try to get a more complex type if possible (e.g. :Array<string> or :A | B)
+    const typeResult = tokenizeType(input, cursor + 1); // +1 to skip ':'
+    if (typeResult.type.length > 0 && typeResult.isValid) {
+      const value = input.slice(cursor, typeResult.endIndex);
+      return { type: TokenType.Symbol, value, position };
+    }
+    return { type: TokenType.Symbol, value: match[0], position };
+  }
+
+  // Check for inline object type annotations (:{...})
+  // This handles syntax like (fn f [x:{name:string}] x) where :{name:string} is an object type
+  match = matchAtCursor(TOKEN_PATTERNS.TYPE_INLINE_OBJECT);
+  if (match) {
+    const typeResult = tokenizeType(input, cursor + 1); // +1 to skip ':'
+    if (typeResult.type.length > 0 && typeResult.isValid) {
+      const value = input.slice(cursor, typeResult.endIndex);
+      return { type: TokenType.Symbol, value, position };
+    }
+  }
 
   // Then check for special tokens
   match = matchAtCursor(TOKEN_PATTERNS.SPECIAL_TOKENS);
@@ -1047,24 +998,28 @@ function matchNextToken(
       return { type: TokenType.Number, value, position };
     }
 
-    // Check for unbalanced angle brackets in type annotations
-    // This handles cases like `x:Record<string,number>` where the comma would normally split the symbol
-    //
-    // IMPORTANT: Only apply this to type annotations and generic names, NOT to comparison operators!
-    // - Type annotations: contain ":" (e.g., "data:Record<string,number>")
-    // - Generic names: start with identifier followed by "<" (e.g., "Array<T>", "identity<T>")
-    // - Operators like "<", "<=", ">", ">=" should NOT trigger this logic
-    const angleBracketDepth = countAngleBracketDepth(value);
-    const looksLikeTypeAnnotation = value.includes(':') || /^[a-zA-Z_$][a-zA-Z0-9_$]*</.test(value);
-    if (angleBracketDepth > 0 && looksLikeTypeAnnotation) {
-      // Symbol has unbalanced '<' in a type context - continue scanning to find the closing '>'
-      const additional = scanBalancedAngleBrackets(input, cursor + value.length, angleBracketDepth);
-      if (additional) {
-        value = value + additional;
+    // Check for inline type annotations that use special characters: {}, (), [], spaces, |, &, etc.
+    // When SYMBOL regex matches "x:" or "x:?", we scan the following type using the dedicated tokenizer.
+    // This supports full TypeScript type syntax including spaces: "x: number | string"
+    const nextCharPos = cursor + value.length;
+    // Fix: Do not check value.endsWith('?') to avoid breaking predicates like 'empty? args'
+    // Optional parameters 'x?: type' work because 'x?:' is matched as a symbol ending with ':'
+    const canStartComplexType = value.endsWith(':');
+
+    // Fix: ambiguous map syntax vs type annotation.
+    // If there is a space after ':', treat it as a map key (x: y) -> tokens [x:, y]
+    // If there is no space, treat it as a type annotation (x:type) -> token [x:type]
+    // This disambiguates {x: 1} (map) from x:number (type).
+    if (canStartComplexType && nextCharPos < input.length && !/\s/.test(input[nextCharPos])) {
+      const typeResult = tokenizeType(input, nextCharPos);
+      // Only attach if it found a non-empty, valid type
+      if (typeResult.type.length > 0 && typeResult.isValid) {
+        // We include the full slice to maintain cursor alignment
+        value = input.slice(cursor, typeResult.endIndex);
+        return { type: TokenType.Symbol, value, position };
       }
     }
 
-    // Otherwise return as symbol token
     return { type: TokenType.Symbol, value, position };
   }
 

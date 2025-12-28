@@ -353,7 +353,7 @@ function collectMacro(
 
 /**
  * Collect a class definition: (class Name ...)
- * Supports typed syntax for fields: (field x:number)
+ * Supports typed syntax for fields: (var x:number 0), (let x:number 0), (const x:number 0)
  * Supports typed methods: (fn methodName [a:Type] :ReturnType body)
  */
 function collectClass(
@@ -381,7 +381,11 @@ function collectClass(
     const memberHead = member.elements[0];
     if (!isSymbol(memberHead)) continue;
 
-    if (memberHead.name === "field" && member.elements.length >= 2) {
+    // Handle class fields: (var name value), (let name value), (const name value)
+    if (
+      (memberHead.name === "var" || memberHead.name === "let" || memberHead.name === "const") &&
+      member.elements.length >= 2
+    ) {
       const fieldName = member.elements[1];
       if (isSymbol(fieldName)) {
         // Parse field type annotation (e.g., "x:number")

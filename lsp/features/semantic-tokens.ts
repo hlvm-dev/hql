@@ -326,7 +326,6 @@ function classifyToken(
             type: SemanticTokenTypes.namespace,
             modifiers: [],
           };
-        case "field":
         case "property":
           return {
             type: SemanticTokenTypes.property,

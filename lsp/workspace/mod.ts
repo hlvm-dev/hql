@@ -9,3 +9,7 @@ export { ImportResolver } from "./import-resolver.ts";
 export { ModuleAnalyzer } from "./module-analyzer.ts";
 export type { ModuleExport, ModuleInfo } from "./module-analyzer.ts";
 export * from "./types.ts";
+
+// Workspace scanning
+export { WorkspaceScanner } from "./workspace-scanner.ts";
+export type { ScanResult } from "./workspace-scanner.ts";
