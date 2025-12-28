@@ -489,11 +489,11 @@ export function take(n, coll) {
 **Clojure Original:**
 ```clojure
 (defn drop [n coll]
-  (let [step (fn [n coll]
-               (let [s (seq coll)]
+  (let step (fn [n coll]
+               (let s (seq coll))
                  (if (and (pos? n) s)
                    (recur (dec n) (rest s))
-                   s)))]
+                   s)))
     (lazy-seq (step n coll))))
 ```
 

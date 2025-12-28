@@ -78,10 +78,7 @@ multi-hop cycles.
 
 ## Export Semantics
 
-- Vector exports simply expose existing bindings.
-- String exports (`(export "name" expression)`) evaluate the expression at
-  compile time; failures fall back to looking up the binding in the runtime
-  environment.
+- Vector exports (`(export [name])`) expose existing bindings.
 - Exports are recorded in the global symbol table so tooling/linters can
   introspect available bindings.
 

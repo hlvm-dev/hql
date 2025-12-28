@@ -5,7 +5,7 @@
   (+ 1 2))
 
 ; Macro examples - demonstrating core macro features
-(console.log (str "hello " "world"))
+(print (str "hello " "world"))
 
 (print (str "hello" " " "world"))
 
