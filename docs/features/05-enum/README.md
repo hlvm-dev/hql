@@ -92,7 +92,7 @@ HQL supports shorthand enum access with type inference:
 ## Features Covered
 
 ✅ Simple enum definition ✅ Enum with raw values (Int, String) ✅ Enum with
-associated values ✅ Dot notation access ✅ Enum comparison (`=`) ✅ Conditional
+associated values ✅ Dot notation access ✅ Enum comparison (`===`) ✅ Conditional
 matching (`cond`) ✅ Type inference with `.caseName` ✅ Instance methods
 (`.is()`, `.getValue()`) ✅ Immutability (frozen objects)
 
@@ -154,7 +154,7 @@ JavaScript
 
 ## Edge Cases Tested
 
-✅ Multiple enum cases ✅ Enum comparison with `=` ✅ Enum in `cond` expressions
+✅ Multiple enum cases ✅ Enum comparison with `===` ✅ Enum in `cond` expressions
 ✅ Raw value types (Int) ✅ Associated value creation ✅ Type checking with
 `.is()` ✅ Value extraction from instances ✅ Type inference shortcuts
 

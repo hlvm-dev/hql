@@ -7,9 +7,9 @@
 
 HQL provides a complete set of operators for:
 
-1. **Arithmetic** - Math operations (`+`, `-`, `*`, `/`, `%`)
-2. **Comparison** - Relational tests (`<`, `>`, `<=`, `>=`, `=`, `!=`)
-3. **Logical** - Boolean logic (`and`, `or`, `not`)
+1. **Arithmetic** - Math operations (`+`, `-`, `*`, `/`, `%`, `**`)
+2. **Comparison** - Relational tests (`<`, `>`, `<=`, `>=`, `===`, `!==`)
+3. **Logical** - Boolean logic (`and`, `or`, `not`, `??`)
 4. **Ternary** - Conditional expressions (`?`) - **v2.0 feature**
 5. **Primitive Types** - Numbers, strings, booleans, null, undefined
 6. **String Operations** - Concatenation and string methods
