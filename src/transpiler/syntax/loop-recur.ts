@@ -1152,6 +1152,78 @@ function transformLoopBody(
 }
 
 /**
+ * Check if an IR node tree contains a labeled break or continue statement.
+ * This is used to determine if we can wrap a for-of in an IIFE.
+ * Labeled break/continue cannot cross function boundaries, so if present,
+ * we must not wrap in IIFE.
+ */
+function containsLabeledBreakOrContinue(nodes: IR.IRNode[]): boolean {
+  for (const node of nodes) {
+    if (hasLabeledJumpInNode(node)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasLabeledJumpInNode(node: IR.IRNode): boolean {
+  if (!node) return false;
+
+  // Check if this is a labeled break or continue
+  if (node.type === IR.IRNodeType.BreakStatement) {
+    const breakStmt = node as IR.IRBreakStatement;
+    if (breakStmt.label) return true;
+  }
+  if (node.type === IR.IRNodeType.ContinueStatement) {
+    const continueStmt = node as IR.IRContinueStatement;
+    if (continueStmt.label) return true;
+  }
+
+  // Don't recurse into function expressions - they have their own scope
+  if (node.type === IR.IRNodeType.FunctionExpression ||
+      node.type === IR.IRNodeType.FunctionDeclaration) {
+    return false;
+  }
+
+  // Recurse into child nodes
+  if (node.type === IR.IRNodeType.BlockStatement) {
+    const block = node as IR.IRBlockStatement;
+    return containsLabeledBreakOrContinue(block.body);
+  }
+  if (node.type === IR.IRNodeType.IfStatement) {
+    const ifStmt = node as IR.IRIfStatement;
+    if (hasLabeledJumpInNode(ifStmt.consequent)) return true;
+    if (ifStmt.alternate && hasLabeledJumpInNode(ifStmt.alternate)) return true;
+  }
+  if (node.type === IR.IRNodeType.ExpressionStatement) {
+    const exprStmt = node as IR.IRExpressionStatement;
+    return hasLabeledJumpInNode(exprStmt.expression);
+  }
+  if (node.type === IR.IRNodeType.ConditionalExpression) {
+    const condExpr = node as IR.IRConditionalExpression;
+    if (hasLabeledJumpInNode(condExpr.consequent)) return true;
+    if (hasLabeledJumpInNode(condExpr.alternate)) return true;
+  }
+  if (node.type === IR.IRNodeType.WhileStatement) {
+    const whileStmt = node as IR.IRWhileStatement;
+    return hasLabeledJumpInNode(whileStmt.body);
+  }
+  if (node.type === IR.IRNodeType.ForOfStatement) {
+    const forOfStmt = node as IR.IRForOfStatement;
+    return hasLabeledJumpInNode(forOfStmt.body);
+  }
+  if (node.type === IR.IRNodeType.CallExpression) {
+    const callExpr = node as IR.IRCallExpression;
+    // Check arguments but not callee (callee might be a function expression)
+    for (const arg of callExpr.arguments) {
+      if (hasLabeledJumpInNode(arg)) return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Transform a for-of statement.
  * (for-of [x collection] body...)
  *
@@ -1303,6 +1375,16 @@ export function transformForOf(
       await: isAwait,
     };
     copyPosition(list, forOfNode);
+
+    // Check if body contains labeled break/continue that would cross IIFE boundary
+    // If so, we can't wrap in IIFE - fall back to statement semantics
+    const hasLabeledJump = containsLabeledBreakOrContinue(bodyStatements);
+
+    if (hasLabeledJump) {
+      // Can't wrap in IIFE due to labeled break/continue
+      // Return as statement (will return undefined, not null)
+      return forOfNode;
+    }
 
     // EXPRESSION-EVERYWHERE: Wrap for-of in IIFE that returns null
     // This makes for-of an expression like Clojure's doseq
