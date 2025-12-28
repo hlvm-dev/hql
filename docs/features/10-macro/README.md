@@ -206,7 +206,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 ✅ Conditional macros (`when`, `unless`, `if-let`, `when-let`, `cond`)
 ✅ Type predicates (`isNull`, `isNil`, `isUndefined`, `isDefined`, `notNil`)
 ✅ Type checks (`isString`, `isNumber`, `isBoolean`, `isFunction`, `isSymbol`, `isArray`, `isObject`)
-✅ Utility macros (`inc`, `dec`, `print`, `str`, `set`, `length`, `list`, `contains`)
+✅ Utility macros (`inc`, `dec`, `print`, `str`, `length`, `list`, `contains`)
 ✅ Collection macros (`hash-map`, `empty-map`, `empty-set`, `empty-array`, `hasElements`, `isEmptyList`)
 ✅ Pattern matching (`match` with `case`, `default`, guards)
 
@@ -704,13 +704,6 @@ All type predicates compile to **optimal inline JavaScript** with zero function 
 (str)                             ; => ""
 (str x)                           ; => (+ "" x)  ; coerce to string
 (str "Hello" " " name)            ; => (+ "Hello" " " name)
-```
-
-#### `set` - Assignment
-
-```lisp
-(set x 10)                        ; => (= x 10)
-(set obj.field value)             ; => (= obj.field value)
 ```
 
 #### `length` - Collection length
