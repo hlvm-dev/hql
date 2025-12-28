@@ -180,7 +180,7 @@
         (throw (js/Error (str "nth: index " index " out of bounds for null collection"))))
       (loop [s (seq coll), i 0]
         (if s
-          (if (= i index)
+          (if (=== i index)
             (first s)
             (recur (rest s) (+ i 1)))
           (if has-not-found

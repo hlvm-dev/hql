@@ -4,7 +4,7 @@
       true))
 
 (fn assert-eq [actual expected message]
-  (if (not (= actual expected))
+  (if (!== actual expected)
       (throw (+ (or message "Assertion failed") " - Expected: " expected ", Actual: " actual))
       true))
 

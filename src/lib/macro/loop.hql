@@ -77,21 +77,21 @@
     (cond
       ;; Error: empty spec
       ;; Error: empty spec
-      ((= spec-count 0)
+      ((=== spec-count 0)
        `(throw (str "Invalid 'for' loop binding: " '~binding)))
 
       ;; Collection iteration: (for (x coll) ...)
-      ((= spec-count 1)
+      ((=== spec-count 1)
        `(__hql_for_each ~first-elem
           (fn [~var]
             (do
               ~@body))))
 
       ;; spec-count is 2 - could be positional OR named "to:"
-      ((= spec-count 2)
+      ((=== spec-count 2)
        ;; Check if first element is the SYMBOL "to:"
        (if (symbol? first-elem)
-           (if (= (name first-elem) "to:")
+           (if (=== (name first-elem) "to:")
                ;; Named form: (for (i to: end) ...)
                (let (end (%nth spec 1))
                  `(__hql_for_each (__hql_range 0 ~end)
@@ -114,7 +114,7 @@
                     ~@body))))))
 
       ;; spec-count is 3 - could be positional OR named with step
-      ((= spec-count 3)
+      ((=== spec-count 3)
        ;; Positional form: (for (i start end step) ...)
        (let (start first-elem
              end (%nth spec 1)
@@ -125,12 +125,12 @@
                 ~@body)))))
 
       ;; spec-count is 4 - must be named "to: end by: step" OR "from: start to: end"
-      ((= spec-count 4)
+      ((=== spec-count 4)
        (if (symbol? first-elem)
-           (if (= (name first-elem) "to:")
+           (if (=== (name first-elem) "to:")
                ;; Named form: (for (i to: end by: step) ...)
                (if (symbol? (%nth spec 2))
-                   (if (= (name (%nth spec 2)) "by:")
+                   (if (=== (name (%nth spec 2)) "by:")
                        (let (end (%nth spec 1)
                              step (%nth spec 3))
                          `(__hql_for_each (__hql_range 0 ~end ~step)
@@ -139,10 +139,10 @@
                                 ~@body))))
                        `(throw (str "Invalid 'for' loop binding: " '~binding)))
                    `(throw (str "Invalid 'for' loop binding: " '~binding)))
-               (if (= (name first-elem) "from:")
+               (if (=== (name first-elem) "from:")
                    ;; Named form: (for (i from: start to: end) ...)
                    (if (symbol? (%nth spec 2))
-                       (if (= (name (%nth spec 2)) "to:")
+                       (if (=== (name (%nth spec 2)) "to:")
                            (let (start (%nth spec 1)
                                  end (%nth spec 3))
                              `(__hql_for_each (__hql_range ~start ~end)
@@ -155,13 +155,13 @@
            `(throw (str "Invalid 'for' loop binding: " '~binding))))
 
       ;; spec-count is 6 - must be named "from: start to: end by: step"
-      ((= spec-count 6)
+      ((=== spec-count 6)
        (if (symbol? first-elem)
-           (if (= (name first-elem) "from:")
+           (if (=== (name first-elem) "from:")
                (if (symbol? (%nth spec 2))
-                   (if (= (name (%nth spec 2)) "to:")
+                   (if (=== (name (%nth spec 2)) "to:")
                        (if (symbol? (%nth spec 4))
-                           (if (= (name (%nth spec 4)) "by:")
+                           (if (=== (name (%nth spec 4)) "by:")
                                (let (start (%nth spec 1)
                                      end (%nth spec 3)
                                      step (%nth spec 5))
