@@ -360,7 +360,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 
 ```lisp
 (fn divide [a b]
-  (if (= b 0)
+  (if (=== b 0)
     (throw (Error "Division by zero"))
     (/ a b)))
 ```

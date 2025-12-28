@@ -44,7 +44,7 @@ All loops support breaking early and manipulating state during iteration.
 
 ; Fibonacci
 (loop [n 7 a 0 b 1]
-  (if (= n 0)
+  (if (=== n 0)
     a
     (recur (- n 1) b (+ a b))))
 ; => 13 (7th fibonacci)
@@ -174,7 +174,7 @@ sum
 ```lisp
 ; Exit loop early
 (for [i 10]
-  (when (= i 5)
+  (when (=== i 5)
     (break))
   (print i))
 ; Prints: 0, 1, 2, 3, 4
@@ -192,7 +192,7 @@ sum
 (label outer
   (for [i 3]
     (for [j 3]
-      (when (and (= i 1) (= j 1))
+      (when (and (=== i 1) (=== j 1))
         (break outer))
       (print i j))))
 ; Prints: 0 0, 0 1, 0 2, 1 0
@@ -203,7 +203,7 @@ sum
 ```lisp
 ; Skip iteration
 (for [i 10]
-  (when (= (% i 2) 0)
+  (when (=== (% i 2) 0)
     (continue))
   (print i))
 ; Prints: 1, 3, 5, 7, 9
@@ -212,7 +212,7 @@ sum
 (var i 0)
 (while (< i 10)
   (= i (+ i 1))
-  (when (= (% i 2) 0)
+  (when (=== (% i 2) 0)
     (continue))
   (print i))
 ; Prints: 1, 3, 5, 7, 9
@@ -221,7 +221,7 @@ sum
 (label outer
   (for [i 3]
     (for [j 3]
-      (when (= j 1)
+      (when (=== j 1)
         (continue outer))
       (print i j))))
 ; Prints: 0 0, 1 0, 2 0
@@ -239,7 +239,7 @@ sum
   (for [i from: 0 to: 5]
     (label inner
       (for [j from: 0 to: 5]
-        (when (= (* i j) 6)
+        (when (=== (* i j) 6)
           (break outer))
         (print (* i j))))))
 
@@ -247,7 +247,7 @@ sum
 (label search
   (for [row matrix]
     (for [cell row]
-      (when (= cell target)
+      (when (=== cell target)
         (print "Found!")
         (break search)))))
 ```
@@ -774,7 +774,7 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
 ```lisp
 (fn fib [n]
   (loop [i n a 0 b 1]
-    (if (= i 0)
+    (if (=== i 0)
       a
       (recur (- i 1) b (+ a b)))))
 ```
@@ -787,7 +787,7 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
   (loop [i 0]
     (if (< i nums.length)
       (do
-        (if (= (% (get nums i) 2) 0)
+        (if (=== (% (get nums i) 2) 0)
           (.push result (get nums i))
           nil)
         (recur (+ i 1)))

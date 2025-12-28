@@ -170,7 +170,7 @@ return value in functions ✅ Cond with multiple clauses ✅ Cond with else clau
 
 ```lisp
 (fn processInput [value]
-  (if (= value null)
+  (if (=== value null)
     "no input"
     (doSomething value)))
 ```

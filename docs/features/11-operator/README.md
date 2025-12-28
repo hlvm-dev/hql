@@ -72,13 +72,16 @@ All operators use prefix notation (Lisp-style).
 (>= 10 10)          ; => true
 (>= 15 10)          ; => true
 
-; Equality
-(= 42 42)           ; => true
-(= "hello" "hello") ; => true
+; Strict Equality (=== in JS)
+(=== 42 42)         ; => true
+(=== "hello" "hello") ; => true
 
-; Inequality
-(!= 10 20)          ; => true
-(!= 10 10)          ; => false
+; Strict Inequality (!== in JS)
+(!== 10 20)         ; => true
+(!== 10 10)         ; => false
+
+; NOTE: = is ASSIGNMENT, not equality!
+; (= x 10)          ; assigns 10 to x
 ```
 
 ### Logical Operators
@@ -517,8 +520,12 @@ JavaScript
 | `>`      | `(> a b)`  | `a > b`    | Greater than        |
 | `<=`     | `(<= a b)` | `a <= b`   | Less or equal       |
 | `>=`     | `(>= a b)` | `a >= b`   | Greater or equal    |
-| `=`      | `(= a b)`  | `a === b`  | Equality (strict)   |
-| `!=`     | `(!= a b)` | `a !== b`  | Inequality (strict) |
+| `===`    | `(=== a b)`| `a === b`  | Strict equality     |
+| `==`     | `(== a b)` | `a == b`   | Loose equality      |
+| `!==`    | `(!== a b)`| `a !== b`  | Strict inequality   |
+| `!=`     | `(!= a b)` | `a != b`   | Loose inequality    |
+
+> **⚠️ CRITICAL:** `=` is ASSIGNMENT, not equality! Use `===` for comparison.
 
 ### Logical Operators
 

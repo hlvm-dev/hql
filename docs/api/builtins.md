@@ -31,20 +31,35 @@ examples.
 
 ---
 
+## Assignment
+
+| Operator | Signature         | Description                   |
+| -------- | ----------------- | ----------------------------- |
+| `=`      | `(var value)`     | Assignment (NOT equality!).   |
+
+```lisp
+(let x 10)
+(= x 20)         ;; x is now 20
+```
+
+---
+
 ## Comparison
 
 | Function | Signature         | Description              |
 | -------- | ----------------- | ------------------------ |
-| `=`      | `(value value)`   | Strict equality (`===`). |
-| `!=`     | `(value value)`   | Strict inequality.       |
+| `===`    | `(value value)`   | Strict equality.         |
+| `==`     | `(value value)`   | Loose equality.          |
+| `!==`    | `(value value)`   | Strict inequality.       |
+| `!=`     | `(value value)`   | Loose inequality.        |
 | `<`      | `(number number)` | Less-than.               |
 | `>`      | `(number number)` | Greater-than.            |
 | `<=`     | `(number number)` | Less-or-equal.           |
 | `>=`     | `(number number)` | Greater-or-equal.        |
 
 ```lisp
-(= 3 3)          ;; → true
-(!= 3 4)         ;; → true
+(=== 3 3)        ;; → true (strict equality)
+(!== 3 "3")      ;; → true (strict inequality)
 (< 1 2)          ;; → true
 (>= 10 5)        ;; → true
 ```

@@ -316,7 +316,7 @@ default
 
 ```lisp
 (fn processInput [value]
-  (if (= value null)
+  (if (=== value null)
     "no input"
     (doSomething value)))
 ```

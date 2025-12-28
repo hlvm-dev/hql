@@ -165,7 +165,7 @@
 
 ;; === EARLY RETURN ===
 (fn safe-divide [a b]
-  (if (= b 0)
+  (if (=== b 0)
     (return 0))         ;; early exit
   (/ a b))              ;; normal path
 
@@ -173,7 +173,7 @@
 (fn classify [x]
   (cond
     ((< x 0) (return "negative"))
-    ((= x 0) (return "zero"))
+    ((=== x 0) (return "zero"))
     (else (return "positive"))))
 ```
 
