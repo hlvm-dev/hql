@@ -6,17 +6,32 @@
 /**
  * Get the path to the Deno executable
  *
- * Since HQL runs on Deno, we use Deno.execPath() to get the current Deno binary.
- * This works even when HQL is compiled with `deno compile` - the embedded Deno
- * can still spawn new processes to compile other code.
+ * When HQL is compiled with `deno compile`, Deno.execPath() returns the HQL binary,
+ * not the Deno binary. So we need to search for the system Deno instead.
  */
 export async function ensureDenoAvailable(): Promise<string> {
-  // Use the current Deno that's running us
-  if (typeof Deno !== "undefined" && Deno.execPath) {
-    return Deno.execPath();
+  // Check if we're running as a compiled binary (Deno.execPath won't be "deno")
+  const execPath = Deno.execPath?.();
+  const isCompiledBinary = execPath && !execPath.endsWith("deno") && !execPath.includes("/deno");
+
+  // If running as compiled binary, we MUST find system Deno
+  if (isCompiledBinary) {
+    const systemDeno = await findInPath("deno");
+    if (systemDeno) {
+      return systemDeno;
+    }
+    throw new Error(
+      "Deno not found in PATH. Native compilation requires Deno to be installed.\n" +
+      "Please install Deno: https://deno.land"
+    );
   }
 
-  // Fallback: search in PATH (shouldn't normally reach here)
+  // If running via `deno run`, use the current Deno
+  if (execPath) {
+    return execPath;
+  }
+
+  // Fallback: search in PATH
   const systemDeno = await findInPath("deno");
   if (systemDeno) {
     return systemDeno;
