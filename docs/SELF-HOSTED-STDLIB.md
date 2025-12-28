@@ -657,7 +657,7 @@ deno task test:unit
 | `(- a b)` | `a - b` |
 | `(and a b)` | `a && b` |
 | `(if test then else)` | `test ? then : else` or `if/else` |
-| `(let [x val] body)` | `const x = val; return body;` |
+| `(let [x val] body)` | `let x = val; return body;` |
 | `(loop [x init] body)` | `let x = init; while (...) { ... }` or recursion |
 | `(recur new-x)` | `x = new-x; continue;` or tail call |
 | `(fn [args] body)` | `(args) => body` or `function(args) { return body; }` |

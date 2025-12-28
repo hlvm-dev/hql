@@ -8,10 +8,10 @@
 
 ### Variables
 ```clojure
-(let x 10)                ; const x = 10
-(var y 20)                ; let y = 20
-(= y 30)                  ; y = 30 (assignment)
-(const PI 3.14)           ; const PI = 3.14
+(let x 10)                ; let x = 10 (block-scoped mutable)
+(var y 20)                ; var y = 20 (function-scoped mutable)
+(= x 30)                  ; x = 30 (assignment)
+(const PI 3.14)           ; const PI = 3.14 (immutable, frozen)
 (let [a b] [1 2])         ; destructure array
 (let {x y} obj)           ; destructure object
 ```
