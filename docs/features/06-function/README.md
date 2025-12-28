@@ -235,7 +235,7 @@ For config-style functions with many parameters, use map syntax:
 
 ; Early return
 (fn safe-divide [a b]
-  (if (= b 0)
+  (if (=== b 0)
     (return 0)
     (/ a b)))
 
@@ -243,7 +243,7 @@ For config-style functions with many parameters, use map syntax:
 (fn classify [x]
   (cond
     ((< x 0) (return "negative"))
-    ((= x 0) (return "zero"))
+    ((=== x 0) (return "zero"))
     ((> x 0) (return "positive"))))
 ```
 

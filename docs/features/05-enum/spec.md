@@ -72,7 +72,7 @@ Access involves dot notation; shorthand may be possible with type inference.
 (let currentOS OsType.macOS)
 
 ;; Compare simple case
-(if (= currentOS OsType.linux) (print "Linux!"))
+(if (=== currentOS OsType.linux) (print "Linux!"))
 
 ;; Use raw value enum
 (let status StatusCodes.notFound)
@@ -99,9 +99,9 @@ Access involves dot notation; shorthand may be possible with type inference.
 ;; A function that “installs” based on the OS.
 (fn install [os]
   (cond
-    ((= os OS.macOS) (print "Installing on macOS"))
-    ((= os OS.iOS)   (print "Installing on iOS"))
-    ((= os OS.linux) (print "Installing on Linux"))
+    ((=== os OS.macOS) (print "Installing on macOS"))
+    ((=== os OS.iOS)   (print "Installing on iOS"))
+    ((=== os OS.linux) (print "Installing on Linux"))
     (else            (print "Unsupported OS"))
   )
 )

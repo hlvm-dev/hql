@@ -73,7 +73,7 @@
 
 ; Re-export values
 ; (import [secretValue] from "./middleware.hql")
-; (assert (= secretValue 42) "Re-export value")
+; (assert (=== secretValue 42) "Re-export value")
 
 ; ============================================================================
 ; SECTION 5: TYPESCRIPT FILE IMPORTS
@@ -81,13 +81,13 @@
 
 ; Import from .ts file
 ; (import [tsFunction, tsConstant] from "./module.ts")
-; (assert (= (tsFunction 5) 15) "TypeScript function import")
-; (assert (= tsConstant "TypeScript works!") "TypeScript constant import")
+; (assert (=== (tsFunction 5) 15) "TypeScript function import")
+; (assert (=== tsConstant "TypeScript works!") "TypeScript constant import")
 
 ; Import multiple from .ts
 ; (import [tsAdd, tsMultiply, TS_CONSTANT] from "./ts-module.ts")
 ; (var result (+ (tsAdd 10 20) (tsMultiply 2 3)))
-; (assert (= result 36) "Multiple TS imports")
+; (assert (=== result 36) "Multiple TS imports")
 
 ; ============================================================================
 ; SECTION 6: REMOTE IMPORTS (JSR)

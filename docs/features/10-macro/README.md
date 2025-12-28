@@ -312,7 +312,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 ```lisp
 ; Environment-based config
 (macro config [env settings]
-  `(if (= process.env.NODE_ENV ~env)
+  `(if (=== process.env.NODE_ENV ~env)
      ~settings
      null))
 ```

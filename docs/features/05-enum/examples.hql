@@ -15,16 +15,16 @@
 (var heading Direction.north)
 
 ;; Value equality
-(if (= heading Direction.west)
+(if (=== heading Direction.west)
   (print "Heading west!")
   (print "Not heading west"))
 
 ;; Pattern matching with cond
 (cond
-  ((= heading Direction.north) (print "Going north"))
-  ((= heading Direction.south) (print "Going south"))
-  ((= heading Direction.east) (print "Going east"))
-  ((= heading Direction.west) (print "Going west"))
+  ((=== heading Direction.north) (print "Going north"))
+  ((=== heading Direction.south) (print "Going south"))
+  ((=== heading Direction.east) (print "Going east"))
+  ((=== heading Direction.west) (print "Going west"))
 )
 
 ;; ------------------------------
@@ -135,9 +135,9 @@
 ;; A function that "installs" based on the OS
 (fn install [os]
   (cond
-    ((= os OS.macOS) "Installing on macOS")
-    ((= os OS.iOS)   "Installing on iOS")
-    ((= os OS.linux) "Installing on Linux")
+    ((=== os OS.macOS) "Installing on macOS")
+    ((=== os OS.iOS)   "Installing on iOS")
+    ((=== os OS.linux) "Installing on Linux")
     (else            "Unsupported OS")
   )
 )
@@ -145,18 +145,18 @@
 ;; A function with dot notation in equality comparisons
 (fn install2 [os]
   (cond
-    ((= os .macOS) "Installing on macOS")
-    ((= os .iOS)   "Installing on iOS")
-    ((= os .linux) "Installing on Linux")
+    ((=== os .macOS) "Installing on macOS")
+    ((=== os .iOS)   "Installing on iOS")
+    ((=== os .linux) "Installing on Linux")
     (else          "Unsupported OS")
   )
 )
 
 ;; A function demonstrating if statements with enum dot notation
 (fn check-status [code]
-  (if (= code .ok)
+  (if (=== code .ok)
     "Everything is ok!"
-    (if (= code .notFound)
+    (if (=== code .notFound)
       "Not found!"
       "Server error!"
     )
@@ -165,7 +165,7 @@
 
 ;; A function demonstrating when with enum dot notation
 (fn process-status [code]
-  (when (= code .serverError)
+  (when (=== code .serverError)
     (print "Critical error detected!")
     "Server error needs attention"
   )
@@ -173,7 +173,7 @@
 
 ;; Test reversed comparison order
 (fn reverse-check [code]
-  (if (= .ok code)
+  (if (=== .ok code)
     "Status is ok!"
     "Status is not ok!"
   )

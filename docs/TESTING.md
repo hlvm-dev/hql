@@ -176,7 +176,7 @@ Test feature combinations:
       0
       (map (fn [x] (* x 2))
            (filter (fn [x] (> x 2)) numbers))))
-  (assert (= result 24)))
+  (assert (=== result 24)))
 
 (test-pipeline)
 ```
@@ -192,7 +192,7 @@ Test bug fixes:
   (macro when [test & body]
     `(if ~test (do ~@body)))
   (let result (when true 42))
-  (assert (= result 42)))
+  (assert (=== result 42)))
 
 (test-macro-expansion)
 ```
