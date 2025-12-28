@@ -210,7 +210,7 @@
 ; Complex nested expression with variables
 (var x 10)
 (var y 20)
-(assert (and (> x 5) (or (= y 20) (< y 10))) "Complex with vars")
+(assert (and (> x 5) (or (=== y 20) (< y 10))) "Complex with vars")
 
 ; Arithmetic in variable assignment
 (var a 5)

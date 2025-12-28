@@ -8,14 +8,14 @@
     ((> n 50) "medium")     ;; Between 51-100: "medium"
     ((> n 10) "small")      ;; Between 11-50: "small"
     ((> n 0) "tiny")        ;; Between 1-10: "tiny"
-    ((= n 0) "zero")        ;; Exactly 0: "zero"
+    ((=== n 0) "zero")      ;; Exactly 0: "zero"
     (else "negative")))     ;; Less than 0: "negative"
 
 ;; Test function 2: Simple test with few clauses
 (fn check-value [val]
   (cond
     ((> val 10) "greater")
-    ((= val 10) "equal")
+    ((=== val 10) "equal")
     (else "less")))
 
 ;; Test function 3: Testing nested conditions
@@ -28,7 +28,7 @@
               ((< y 0) "fourth quadrant")
               (else "first quadrant")))
     (else (cond
-           ((= y 0) "origin")
+           ((=== y 0) "origin")
            ((> y 0) "positive y-axis")
            (else "negative y-axis")))))
 

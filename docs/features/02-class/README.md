@@ -110,9 +110,10 @@ All classes compile to JavaScript ES6 class syntax.
 ### Field Declarations
 
 ```lisp
-; Mutable field (var) - must have default value
+; Mutable field (var)
 (class Counter
-  (var count 0)
+  (var count 0)      ; with default value
+  (var uninitialized) ; defaults to undefined
 
   (constructor []
     (= this.count 0)))

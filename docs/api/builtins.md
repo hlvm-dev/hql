@@ -35,7 +35,7 @@ examples.
 
 | Operator | Signature         | Description                   |
 | -------- | ----------------- | ----------------------------- |
-| `=`      | `(var value)`     | Assignment (NOT equality!).   |
+| `=`      | `(target value)`  | Assignment (NOT equality!).   |
 
 ```lisp
 (let x 10)
