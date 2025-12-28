@@ -474,22 +474,25 @@ export function transformTernary(
 }
 
 /**
- * Transform a switch statement.
+ * Transform a switch expression.
+ *
+ * EXPRESSION-EVERYWHERE: switch is now an expression that returns the
+ * value of the matched case branch.
+ *
+ * Syntax:
  * (switch expr
  *   (case val1 body...)
- *   (case val2 body...)  ; Use (case val2 :fallthrough body...) for fallthrough
+ *   (case val2 :fallthrough body...)  ; fallthrough to next case
  *   (default body...))
  *
- * Generates:
- * switch (expr) {
- *   case val1:
- *     body...
- *     break;
- *   case val2:
- *     body...  // no break if :fallthrough
- *   default:
- *     body...
- * }
+ * Generates an IIFE-wrapped switch:
+ * (() => {
+ *   switch (expr) {
+ *     case val1: { body...; return lastExpr; }
+ *     case val2: { body...; } // fallthrough, no return
+ *     default: { body...; return lastExpr; }
+ *   }
+ * })()
  */
 export function transformSwitch(
   list: ListNode,
@@ -501,7 +504,7 @@ export function transformSwitch(
       if (list.elements.length < 2) {
         throw new ValidationError(
           "switch requires a discriminant expression",
-          "switch statement",
+          "switch expression",
           "(switch expr (case val body...) ...)",
           `${list.elements.length - 1} arguments`,
         );
@@ -516,6 +519,7 @@ export function transformSwitch(
 
       // Process case clauses
       const cases: IR.IRSwitchCase[] = [];
+      let hasDefault = false;
 
       for (let i = 2; i < list.elements.length; i++) {
         const caseNode = list.elements[i];
@@ -582,29 +586,75 @@ export function transformSwitch(
           );
 
           // Transform body statements
+          const bodyElements = caseList.elements.slice(bodyStartIndex);
           const consequent: IR.IRNode[] = [];
-          for (let j = bodyStartIndex; j < caseList.elements.length; j++) {
-            const stmt = transformNode(caseList.elements[j], currentDir);
+
+          for (let j = 0; j < bodyElements.length; j++) {
+            const isLast = j === bodyElements.length - 1;
+            const stmt = transformNode(bodyElements[j], currentDir);
+
             if (stmt) {
-              // Wrap expressions in ExpressionStatement
-              if (stmt.type !== IR.IRNodeType.ExpressionStatement &&
-                  stmt.type !== IR.IRNodeType.VariableDeclaration &&
-                  stmt.type !== IR.IRNodeType.ReturnStatement &&
-                  stmt.type !== IR.IRNodeType.IfStatement &&
-                  stmt.type !== IR.IRNodeType.WhileStatement &&
-                  stmt.type !== IR.IRNodeType.ForStatement &&
-                  stmt.type !== IR.IRNodeType.ForOfStatement &&
-                  stmt.type !== IR.IRNodeType.ContinueStatement &&
-                  stmt.type !== IR.IRNodeType.BreakStatement &&
-                  stmt.type !== IR.IRNodeType.ThrowStatement) {
-                consequent.push({
-                  type: IR.IRNodeType.ExpressionStatement,
-                  expression: stmt,
-                } as IR.IRExpressionStatement);
+              // EXPRESSION-EVERYWHERE: Last expression becomes return value
+              // (unless fallthrough, then no return)
+              if (isLast && !fallthrough) {
+                // Make last expression the return value
+                if (stmt.type === IR.IRNodeType.ReturnStatement ||
+                    stmt.type === IR.IRNodeType.ThrowStatement) {
+                  // Already a return/throw, use as-is
+                  consequent.push(stmt);
+                } else if (stmt.type === IR.IRNodeType.ExpressionStatement) {
+                  // Unwrap ExpressionStatement and return the expression
+                  consequent.push({
+                    type: IR.IRNodeType.ReturnStatement,
+                    argument: (stmt as IR.IRExpressionStatement).expression,
+                  } as IR.IRReturnStatement);
+                } else if (stmt.type === IR.IRNodeType.VariableDeclaration ||
+                           stmt.type === IR.IRNodeType.IfStatement ||
+                           stmt.type === IR.IRNodeType.WhileStatement ||
+                           stmt.type === IR.IRNodeType.ForStatement ||
+                           stmt.type === IR.IRNodeType.ForOfStatement) {
+                  // Statements that don't produce values - return null after
+                  consequent.push(stmt);
+                  consequent.push({
+                    type: IR.IRNodeType.ReturnStatement,
+                    argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+                  } as IR.IRReturnStatement);
+                } else {
+                  // Expression - wrap in return
+                  consequent.push({
+                    type: IR.IRNodeType.ReturnStatement,
+                    argument: stmt,
+                  } as IR.IRReturnStatement);
+                }
               } else {
-                consequent.push(stmt);
+                // Not the last expression, or fallthrough - wrap as statement
+                if (stmt.type !== IR.IRNodeType.ExpressionStatement &&
+                    stmt.type !== IR.IRNodeType.VariableDeclaration &&
+                    stmt.type !== IR.IRNodeType.ReturnStatement &&
+                    stmt.type !== IR.IRNodeType.IfStatement &&
+                    stmt.type !== IR.IRNodeType.WhileStatement &&
+                    stmt.type !== IR.IRNodeType.ForStatement &&
+                    stmt.type !== IR.IRNodeType.ForOfStatement &&
+                    stmt.type !== IR.IRNodeType.ContinueStatement &&
+                    stmt.type !== IR.IRNodeType.BreakStatement &&
+                    stmt.type !== IR.IRNodeType.ThrowStatement) {
+                  consequent.push({
+                    type: IR.IRNodeType.ExpressionStatement,
+                    expression: stmt,
+                  } as IR.IRExpressionStatement);
+                } else {
+                  consequent.push(stmt);
+                }
               }
             }
+          }
+
+          // If no body, return null
+          if (consequent.length === 0 && !fallthrough) {
+            consequent.push({
+              type: IR.IRNodeType.ReturnStatement,
+              argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+            } as IR.IRReturnStatement);
           }
 
           cases.push({
@@ -614,37 +664,78 @@ export function transformSwitch(
             fallthrough,
           } as IR.IRSwitchCase);
         } else if (caseKeyword === "default") {
+          hasDefault = true;
+
           // Transform body statements
+          const bodyElements = caseList.elements.slice(1);
           const consequent: IR.IRNode[] = [];
-          for (let j = 1; j < caseList.elements.length; j++) {
-            const stmt = transformNode(caseList.elements[j], currentDir);
+
+          for (let j = 0; j < bodyElements.length; j++) {
+            const isLast = j === bodyElements.length - 1;
+            const stmt = transformNode(bodyElements[j], currentDir);
+
             if (stmt) {
-              // Wrap expressions in ExpressionStatement
-              if (stmt.type !== IR.IRNodeType.ExpressionStatement &&
-                  stmt.type !== IR.IRNodeType.VariableDeclaration &&
-                  stmt.type !== IR.IRNodeType.ReturnStatement &&
-                  stmt.type !== IR.IRNodeType.IfStatement &&
-                  stmt.type !== IR.IRNodeType.WhileStatement &&
-                  stmt.type !== IR.IRNodeType.ForStatement &&
-                  stmt.type !== IR.IRNodeType.ForOfStatement &&
-                  stmt.type !== IR.IRNodeType.ContinueStatement &&
-                  stmt.type !== IR.IRNodeType.BreakStatement &&
-                  stmt.type !== IR.IRNodeType.ThrowStatement) {
-                consequent.push({
-                  type: IR.IRNodeType.ExpressionStatement,
-                  expression: stmt,
-                } as IR.IRExpressionStatement);
+              // EXPRESSION-EVERYWHERE: Last expression becomes return value
+              if (isLast) {
+                if (stmt.type === IR.IRNodeType.ReturnStatement ||
+                    stmt.type === IR.IRNodeType.ThrowStatement) {
+                  consequent.push(stmt);
+                } else if (stmt.type === IR.IRNodeType.ExpressionStatement) {
+                  consequent.push({
+                    type: IR.IRNodeType.ReturnStatement,
+                    argument: (stmt as IR.IRExpressionStatement).expression,
+                  } as IR.IRReturnStatement);
+                } else if (stmt.type === IR.IRNodeType.VariableDeclaration ||
+                           stmt.type === IR.IRNodeType.IfStatement ||
+                           stmt.type === IR.IRNodeType.WhileStatement ||
+                           stmt.type === IR.IRNodeType.ForStatement ||
+                           stmt.type === IR.IRNodeType.ForOfStatement) {
+                  consequent.push(stmt);
+                  consequent.push({
+                    type: IR.IRNodeType.ReturnStatement,
+                    argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+                  } as IR.IRReturnStatement);
+                } else {
+                  consequent.push({
+                    type: IR.IRNodeType.ReturnStatement,
+                    argument: stmt,
+                  } as IR.IRReturnStatement);
+                }
               } else {
-                consequent.push(stmt);
+                if (stmt.type !== IR.IRNodeType.ExpressionStatement &&
+                    stmt.type !== IR.IRNodeType.VariableDeclaration &&
+                    stmt.type !== IR.IRNodeType.ReturnStatement &&
+                    stmt.type !== IR.IRNodeType.IfStatement &&
+                    stmt.type !== IR.IRNodeType.WhileStatement &&
+                    stmt.type !== IR.IRNodeType.ForStatement &&
+                    stmt.type !== IR.IRNodeType.ForOfStatement &&
+                    stmt.type !== IR.IRNodeType.ContinueStatement &&
+                    stmt.type !== IR.IRNodeType.BreakStatement &&
+                    stmt.type !== IR.IRNodeType.ThrowStatement) {
+                  consequent.push({
+                    type: IR.IRNodeType.ExpressionStatement,
+                    expression: stmt,
+                  } as IR.IRExpressionStatement);
+                } else {
+                  consequent.push(stmt);
+                }
               }
             }
+          }
+
+          // If no body, return null
+          if (consequent.length === 0) {
+            consequent.push({
+              type: IR.IRNodeType.ReturnStatement,
+              argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+            } as IR.IRReturnStatement);
           }
 
           cases.push({
             type: IR.IRNodeType.SwitchCase,
             test: null, // null test means default case
             consequent,
-            fallthrough: false, // default case doesn't need break
+            fallthrough: false,
           } as IR.IRSwitchCase);
         } else {
           throw new ValidationError(
@@ -656,13 +747,199 @@ export function transformSwitch(
         }
       }
 
-      return {
+      // If no default case, add one that returns null
+      if (!hasDefault) {
+        cases.push({
+          type: IR.IRNodeType.SwitchCase,
+          test: null,
+          consequent: [{
+            type: IR.IRNodeType.ReturnStatement,
+            argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+          } as IR.IRReturnStatement],
+          fallthrough: false,
+        } as IR.IRSwitchCase);
+      }
+
+      // Create the switch statement
+      const switchStmt: IR.IRSwitchStatement = {
         type: IR.IRNodeType.SwitchStatement,
         discriminant,
         cases,
-      } as IR.IRSwitchStatement;
+      };
+
+      // EXPRESSION-EVERYWHERE: Wrap in IIFE to make switch an expression
+      // (() => { switch(expr) { case v1: return r1; ... } })()
+      const iife: IR.IRCallExpression = {
+        type: IR.IRNodeType.CallExpression,
+        callee: {
+          type: IR.IRNodeType.FunctionExpression,
+          id: null,
+          params: [],
+          body: {
+            type: IR.IRNodeType.BlockStatement,
+            body: [switchStmt],
+          } as IR.IRBlockStatement,
+        } as IR.IRFunctionExpression,
+        arguments: [],
+      };
+
+      return iife;
     },
     "transformSwitch",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform a case expression (Clojure-style expression-based switch).
+ *
+ * EXPRESSION-EVERYWHERE: case is an expression that returns the matched value.
+ * This follows Clojure's case semantics.
+ *
+ * Syntax:
+ * (case expr
+ *   val1 result1
+ *   val2 result2
+ *   default-result)    ; optional default (odd number of args after expr)
+ *
+ * Examples:
+ * (case day
+ *   :monday "Start of week"
+ *   :friday "Almost weekend"
+ *   "Just another day")
+ *
+ * (def result (case status
+ *               :ok "Success"
+ *               :error "Failed"))
+ *
+ * Generates an IIFE-wrapped switch that returns values:
+ * (() => {
+ *   switch (expr) {
+ *     case val1: return result1;
+ *     case val2: return result2;
+ *     default: return defaultResult;
+ *   }
+ * })()
+ */
+export function transformCase(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  return perform(
+    () => {
+      if (list.elements.length < 2) {
+        throw new ValidationError(
+          "case requires a test expression",
+          "case expression",
+          "(case expr val1 result1 val2 result2 ... [default])",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      // Transform the discriminant expression
+      const discriminant = validateTransformed(
+        transformNode(list.elements[1], currentDir),
+        "case discriminant",
+        "Case expression",
+      );
+
+      // Process case pairs: val1 result1 val2 result2 ...
+      // If odd number of remaining elements, last one is default
+      const caseArgs = list.elements.slice(2);
+      const hasDefault = caseArgs.length % 2 === 1;
+      const pairCount = Math.floor(caseArgs.length / 2);
+
+      const cases: IR.IRSwitchCase[] = [];
+
+      // Process each test-value/result pair
+      for (let i = 0; i < pairCount; i++) {
+        const testNode = caseArgs[i * 2];
+        const resultNode = caseArgs[i * 2 + 1];
+
+        // Transform test value
+        const test = validateTransformed(
+          transformNode(testNode, currentDir),
+          "case test",
+          `Case test value ${i + 1}`,
+        );
+
+        // Transform result - wrap in ReturnStatement for IIFE
+        const result = validateTransformed(
+          transformNode(resultNode, currentDir),
+          "case result",
+          `Case result ${i + 1}`,
+        );
+
+        cases.push({
+          type: IR.IRNodeType.SwitchCase,
+          test,
+          consequent: [{
+            type: IR.IRNodeType.ReturnStatement,
+            argument: result,
+          } as IR.IRReturnStatement],
+          fallthrough: false,
+        } as IR.IRSwitchCase);
+      }
+
+      // Add default case
+      if (hasDefault) {
+        // Explicit default value provided
+        const defaultResult = validateTransformed(
+          transformNode(caseArgs[caseArgs.length - 1], currentDir),
+          "case default",
+          "Default result",
+        );
+
+        cases.push({
+          type: IR.IRNodeType.SwitchCase,
+          test: null, // null test means default case
+          consequent: [{
+            type: IR.IRNodeType.ReturnStatement,
+            argument: defaultResult,
+          } as IR.IRReturnStatement],
+          fallthrough: false,
+        } as IR.IRSwitchCase);
+      } else {
+        // No default provided - return null for unmatched cases
+        cases.push({
+          type: IR.IRNodeType.SwitchCase,
+          test: null,
+          consequent: [{
+            type: IR.IRNodeType.ReturnStatement,
+            argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+          } as IR.IRReturnStatement],
+          fallthrough: false,
+        } as IR.IRSwitchCase);
+      }
+
+      // Create the switch statement
+      const switchStmt: IR.IRSwitchStatement = {
+        type: IR.IRNodeType.SwitchStatement,
+        discriminant,
+        cases,
+      };
+
+      // EXPRESSION-EVERYWHERE: Wrap in IIFE to make it an expression
+      // (() => { switch(expr) { case v1: return r1; ... } })()
+      const iife: IR.IRCallExpression = {
+        type: IR.IRNodeType.CallExpression,
+        callee: {
+          type: IR.IRNodeType.FunctionExpression,
+          id: null,
+          params: [],
+          body: {
+            type: IR.IRNodeType.BlockStatement,
+            body: [switchStmt],
+          } as IR.IRBlockStatement,
+        } as IR.IRFunctionExpression,
+        arguments: [],
+      };
+
+      return iife;
+    },
+    "transformCase",
     TransformError,
     [list],
   );

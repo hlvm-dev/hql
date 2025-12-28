@@ -1155,7 +1155,21 @@ function transformLoopBody(
  * Transform a for-of statement.
  * (for-of [x collection] body...)
  *
- * Generates: for (const x of collection) { body }
+ * EXPRESSION-EVERYWHERE: for-of is now an expression that returns nil.
+ * This follows Clojure's doseq semantics - iteration for side effects,
+ * always returns nil but IS an expression.
+ *
+ * Generates:
+ * (() => {
+ *   for (const x of collection) { body }
+ *   return null;
+ * })()
+ *
+ * For async (for-await-of):
+ * (async () => {
+ *   for await (const x of collection) { body }
+ *   return null;
+ * })()
  */
 export function transformForOf(
   list: ListNode,
@@ -1289,7 +1303,39 @@ export function transformForOf(
       await: isAwait,
     };
     copyPosition(list, forOfNode);
-    return forOfNode;
+
+    // EXPRESSION-EVERYWHERE: Wrap for-of in IIFE that returns null
+    // This makes for-of an expression like Clojure's doseq
+    //
+    // Generated code:
+    // (() => { for (const x of coll) { ... }; return null; })()
+    // or for async:
+    // (async () => { for await (const x of coll) { ... }; return null; })()
+    const iifeBody: IR.IRBlockStatement = {
+      type: IR.IRNodeType.BlockStatement,
+      body: [
+        forOfNode,
+        {
+          type: IR.IRNodeType.ReturnStatement,
+          argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+        } as IR.IRReturnStatement,
+      ],
+    };
+
+    const iife: IR.IRCallExpression = {
+      type: IR.IRNodeType.CallExpression,
+      callee: {
+        type: IR.IRNodeType.FunctionExpression,
+        id: null,
+        params: [],
+        body: iifeBody,
+        async: isAwait,  // async IIFE for for-await-of
+      } as IR.IRFunctionExpression,
+      arguments: [],
+    };
+    copyPosition(list, iife);
+
+    return iife;
   } finally {
     popLoopContext();
   }

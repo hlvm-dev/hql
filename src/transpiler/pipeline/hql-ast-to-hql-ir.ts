@@ -571,6 +571,12 @@ function initializeTransformFactory(): void {
         (list, currentDir) =>
           conditionalModule.transformSwitch(list, currentDir, transformNode),
       );
+      // case: Expression-based switch (Clojure-style, returns values)
+      transformFactory.set(
+        "case",
+        (list, currentDir) =>
+          conditionalModule.transformCase(list, currentDir, transformNode),
+      );
 
       transformFactory.set(
         "js-new",
