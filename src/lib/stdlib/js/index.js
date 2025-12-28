@@ -7,6 +7,17 @@ import * as SelfHosted from "./self-hosted.js";
 // Export LazySeq class for advanced users (instanceof checks)
 export { LazySeq } from "./internal/lazy-seq.js";
 
+// Export NumericRange, Delay, and Chunking primitives for advanced users
+export {
+  NumericRange,
+  Delay,
+  // Chunking infrastructure (32-element batches like Clojure)
+  CHUNK_SIZE,
+  ArrayChunk,
+  ChunkBuffer,
+  ChunkedCons,
+} from "./internal/seq-protocol.js";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SELF-HOSTED FUNCTIONS (90% of stdlib)
 // Implemented in HQL (stdlib.hql), pre-transpiled to self-hosted.js
@@ -49,6 +60,17 @@ const SELF_HOSTED_FUNCTIONS = new Set([
   "assoc", "assocIn", "dissoc", "update", "updateIn", "merge",
   // Phase 18: Collection Protocols
   "empty", "conj", "into",
+  // Phase 19: Conditional Lazy Functions
+  "takeWhile", "dropWhile", "splitWith", "splitAt",
+  // Phase 20: Reduction Variants
+  "reductions",
+  // Phase 21: Sequence Combinators
+  "interleave", "interpose",
+  // Phase 22: Partition Family
+  "partition", "partitionAll", "partitionBy",
+  // Phase 23: Transducers
+  "mapT", "filterT", "takeT", "dropT", "takeWhileT", "dropWhileT",
+  "distinctT", "partitionAllT", "composeTransducers",
 ]);
 
 export const STDLIB_PUBLIC_API = Object.fromEntries(

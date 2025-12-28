@@ -1,7 +1,18 @@
 // self-hosted.js - Pre-transpiled HQL stdlib functions
 // Source of truth: stdlib.hql - this JS is the bootstrap execution form
 
-import { lazySeq, cons, SEQ } from "./internal/seq-protocol.js";
+import {
+  lazySeq,
+  cons,
+  SEQ,
+  Reduced,
+  reduced,
+  isReduced,
+  ensureReduced,
+  TRANSDUCER_INIT,
+  TRANSDUCER_STEP,
+  TRANSDUCER_RESULT,
+} from "./internal/seq-protocol.js";
 import { seq, first, rest } from "./core.js";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -38,17 +49,54 @@ export function drop(n, coll) {
   });
 }
 
-/** map - Maps function over collection (lazy) */
-export function map(f, coll) {
+/**
+ * map - Maps function over collection(s) (lazy)
+ *
+ * Multi-arity support like Clojure:
+ * - (map f coll) - single collection
+ * - (map f c1 c2) - parallel map over 2 collections
+ * - (map f c1 c2 c3 ...) - parallel map over n collections
+ *
+ * Clojure: (map + [1 2 3] [4 5 6]) => (5 7 9)
+ * Clojure: (map vector [1 2] [:a :b]) => ([1 :a] [2 :b])
+ */
+export function map(f, ...colls) {
   if (typeof f !== "function") {
     throw new TypeError("map: first argument must be a function, got " + typeof f);
   }
+
+  if (colls.length === 0) {
+    throw new TypeError("map: requires at least one collection");
+  }
+
+  if (colls.length === 1) {
+    // Single collection - original behavior
+    const coll = colls[0];
+    return lazySeq(() => {
+      const s = seq(coll);
+      if (s != null) {
+        return cons(f(first(s)), map(f, rest(s)));
+      }
+      return null;
+    });
+  }
+
+  // Multi-collection parallel map
   return lazySeq(() => {
-    const s = seq(coll);
-    if (s != null) {
-      return cons(f(first(s)), map(f, rest(s)));
+    const seqs = colls.map(c => seq(c));
+
+    // Stop when any sequence is exhausted
+    if (seqs.some(s => s == null)) {
+      return null;
     }
-    return null;
+
+    // Apply f to first elements of all sequences
+    const firsts = seqs.map(s => first(s));
+    const result = f(...firsts);
+
+    // Recur with rest of each sequence
+    const rests = seqs.map(s => rest(s));
+    return cons(result, map(f, ...rests));
   });
 }
 
@@ -71,15 +119,50 @@ export function filter(pred, coll) {
   });
 }
 
-/** reduce - Reduces collection with function and initial value (EAGER) */
-export function reduce(f, init, coll) {
+/**
+ * reduce - Reduces collection with function (EAGER)
+ *
+ * Multi-arity support like Clojure:
+ * - (reduce f coll) - 2-arity, uses first element as init
+ * - (reduce f init coll) - 3-arity, explicit init
+ *
+ * Supports early termination with Reduced:
+ * - If f returns (reduced x), stops immediately and returns x
+ *
+ * Clojure: (reduce + [1 2 3 4]) => 10
+ * Clojure: (reduce + 10 [1 2 3]) => 16
+ * Clojure: (reduce (fn [acc x] (if (> acc 5) (reduced acc) (+ acc x))) [1 2 3 4 5]) => 6
+ */
+export function reduce(f, initOrColl, maybeColl) {
   if (typeof f !== "function") {
     throw new TypeError("reduce: reducer must be a function, got " + typeof f);
   }
-  let acc = init;
-  let s = seq(coll);
+
+  let acc, s;
+
+  if (maybeColl === undefined) {
+    // 2-arity: (reduce f coll)
+    const coll = initOrColl;
+    s = seq(coll);
+    if (s == null) {
+      // Empty collection - call f with no args for identity
+      return f();
+    }
+    acc = first(s);
+    s = seq(rest(s));
+  } else {
+    // 3-arity: (reduce f init coll)
+    acc = initOrColl;
+    s = seq(maybeColl);
+  }
+
+  // Reduce loop with Reduced support
   while (s != null) {
     acc = f(acc, first(s));
+    // Check for early termination
+    if (isReduced(acc)) {
+      return acc._val;
+    }
     s = seq(rest(s));
   }
   return acc;
@@ -805,4 +888,514 @@ export function into(to, from) {
   }
   // Fallback for other types (strings, objects, etc.)
   return reduce((acc, item) => conj(acc, item), to, from);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 19: CONDITIONAL LAZY FUNCTIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * takeWhile - Returns elements while predicate is true (lazy)
+ * Clojure: (take-while pos? [1 2 3 0 -1]) => (1 2 3)
+ */
+export function takeWhile(pred, coll) {
+  if (typeof pred !== "function") {
+    throw new TypeError("takeWhile: predicate must be a function, got " + typeof pred);
+  }
+  return lazySeq(() => {
+    const s = seq(coll);
+    if (s != null) {
+      const f = first(s);
+      if (pred(f)) {
+        return cons(f, takeWhile(pred, rest(s)));
+      }
+    }
+    return null;
+  });
+}
+
+/**
+ * dropWhile - Drops elements while predicate is true (lazy)
+ * Clojure: (drop-while pos? [1 2 3 0 -1 2]) => (0 -1 2)
+ */
+export function dropWhile(pred, coll) {
+  if (typeof pred !== "function") {
+    throw new TypeError("dropWhile: predicate must be a function, got " + typeof pred);
+  }
+  return lazySeq(() => {
+    let s = seq(coll);
+    // Skip while predicate is true
+    while (s != null && pred(first(s))) {
+      s = seq(rest(s));
+    }
+    // Return remaining elements
+    if (s != null) {
+      return cons(first(s), rest(s));
+    }
+    return null;
+  });
+}
+
+/**
+ * splitWith - Returns [(takeWhile pred coll) (dropWhile pred coll)]
+ * Clojure: (split-with pos? [1 2 -1 3]) => [(1 2) (-1 3)]
+ */
+export function splitWith(pred, coll) {
+  if (typeof pred !== "function") {
+    throw new TypeError("splitWith: predicate must be a function, got " + typeof pred);
+  }
+  return [doall(takeWhile(pred, coll)), doall(dropWhile(pred, coll))];
+}
+
+/**
+ * splitAt - Returns [(take n coll) (drop n coll)]
+ * Clojure: (split-at 2 [1 2 3 4 5]) => [(1 2) (3 4 5)]
+ */
+export function splitAt(n, coll) {
+  if (!Number.isInteger(n) || n < 0) {
+    throw new TypeError("splitAt: n must be non-negative integer, got " + n);
+  }
+  return [doall(take(n, coll)), doall(drop(n, coll))];
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 20: REDUCTION VARIANTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * reductions - Returns lazy seq of intermediate reduce values
+ * Clojure: (reductions + [1 2 3 4]) => (1 3 6 10)
+ * Clojure: (reductions + 0 [1 2 3]) => (0 1 3 6)
+ */
+export function reductions(f, initOrColl, maybeColl) {
+  if (typeof f !== "function") {
+    throw new TypeError("reductions: reducer must be a function, got " + typeof f);
+  }
+
+  // 2-arity: (reductions f coll) - use first element as init
+  if (maybeColl === undefined) {
+    const coll = initOrColl;
+    return lazySeq(() => {
+      const s = seq(coll);
+      if (s != null) {
+        return reductionsWithInit(f, first(s), rest(s)).seq();
+      }
+      return null;
+    });
+  }
+
+  // 3-arity: (reductions f init coll)
+  return reductionsWithInit(f, initOrColl, maybeColl);
+}
+
+/** Helper: reductions with explicit init */
+function reductionsWithInit(f, init, coll) {
+  return cons(init, lazySeq(() => {
+    const s = seq(coll);
+    if (s != null) {
+      const newAcc = f(init, first(s));
+      return reductionsWithInit(f, newAcc, rest(s)).seq();
+    }
+    return null;
+  }));
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 21: SEQUENCE COMBINATORS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * interleave - Interleaves multiple sequences (lazy)
+ * Stops when shortest sequence is exhausted.
+ * Clojure: (interleave [1 2 3] [:a :b :c]) => (1 :a 2 :b 3 :c)
+ */
+export function interleave(...colls) {
+  if (colls.length === 0) return lazySeq(() => null);
+  if (colls.length === 1) return lazySeq(() => seq(colls[0]));
+
+  return lazySeq(() => {
+    // Get seqs of all collections
+    const seqs = colls.map(c => seq(c));
+
+    // If any seq is null, stop
+    if (seqs.some(s => s == null)) {
+      return null;
+    }
+
+    // Yield first from each, then recur with rests
+    const firsts = seqs.map(s => first(s));
+    const rests = seqs.map(s => rest(s));
+
+    // Build result: first elements, then interleave of rests
+    let result = interleave(...rests);
+    for (let i = firsts.length - 1; i >= 0; i--) {
+      result = cons(firsts[i], result);
+    }
+    return result.seq();
+  });
+}
+
+/**
+ * interpose - Inserts separator between elements (lazy)
+ * Clojure: (interpose :x [1 2 3]) => (1 :x 2 :x 3)
+ */
+export function interpose(sep, coll) {
+  return lazySeq(() => {
+    const s = seq(coll);
+    if (s == null) return null;
+
+    const f = first(s);
+    const r = rest(s);
+
+    // First element, then [sep, elem] for each remaining
+    return cons(f, interposeRest(sep, r));
+  });
+}
+
+/** Helper: interpose for remaining elements */
+function interposeRest(sep, coll) {
+  return lazySeq(() => {
+    const s = seq(coll);
+    if (s == null) return null;
+    return cons(sep, cons(first(s), interposeRest(sep, rest(s))));
+  });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 22: PARTITION FAMILY
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * partition - Partitions collection into groups of n (lazy)
+ * Drops incomplete trailing groups.
+ *
+ * 2-arity: (partition n coll) - step defaults to n
+ * 3-arity: (partition n step coll) - explicit step
+ *
+ * Clojure: (partition 3 [1 2 3 4 5 6 7]) => ((1 2 3) (4 5 6))
+ * Clojure: (partition 3 1 [1 2 3 4 5]) => ((1 2 3) (2 3 4) (3 4 5))
+ */
+export function partition(n, stepOrColl, maybeColl) {
+  if (typeof n !== "number" || n < 1) {
+    throw new TypeError("partition: n must be a positive number");
+  }
+
+  // Determine arity
+  let step, coll;
+  if (maybeColl === undefined) {
+    // 2-arity: partition(n, coll)
+    step = n;
+    coll = stepOrColl;
+  } else {
+    // 3-arity: partition(n, step, coll)
+    step = stepOrColl;
+    coll = maybeColl;
+  }
+
+  if (typeof step !== "number" || step < 1) {
+    throw new TypeError("partition: step must be a positive number");
+  }
+
+  return lazySeq(() => {
+    const s = seq(coll);
+    if (s == null) return null;
+
+    // Take n elements
+    const p = doall(take(n, s));
+
+    // Only include if we got exactly n elements
+    if (count(p) === n) {
+      return cons(p, partition(n, step, drop(step, s)));
+    }
+    return null;
+  });
+}
+
+/**
+ * partitionAll - Like partition, but includes incomplete trailing groups (lazy)
+ *
+ * 2-arity: (partition-all n coll) - step defaults to n
+ * 3-arity: (partition-all n step coll) - explicit step
+ *
+ * Clojure: (partition-all 3 [1 2 3 4 5 6 7]) => ((1 2 3) (4 5 6) (7))
+ */
+export function partitionAll(n, stepOrColl, maybeColl) {
+  if (typeof n !== "number" || n < 1) {
+    throw new TypeError("partitionAll: n must be a positive number");
+  }
+
+  // Determine arity
+  let step, coll;
+  if (maybeColl === undefined) {
+    // 2-arity: partitionAll(n, coll)
+    step = n;
+    coll = stepOrColl;
+  } else {
+    // 3-arity: partitionAll(n, step, coll)
+    step = stepOrColl;
+    coll = maybeColl;
+  }
+
+  if (typeof step !== "number" || step < 1) {
+    throw new TypeError("partitionAll: step must be a positive number");
+  }
+
+  return lazySeq(() => {
+    const s = seq(coll);
+    if (s == null) return null;
+
+    // Take n elements (or whatever's left)
+    const p = doall(take(n, s));
+
+    // Include even if incomplete
+    return cons(p, partitionAll(n, step, drop(step, s)));
+  });
+}
+
+/**
+ * partitionBy - Partitions when function result changes (lazy)
+ *
+ * Clojure: (partition-by odd? [1 1 2 2 3]) => ((1 1) (2 2) (3))
+ */
+export function partitionBy(f, coll) {
+  if (typeof f !== "function") {
+    throw new TypeError("partitionBy: f must be a function");
+  }
+
+  return lazySeq(() => {
+    const s = seq(coll);
+    if (s == null) return null;
+
+    const fst = first(s);
+    const fv = f(fst);
+
+    // Take all elements with same f result
+    const run = doall(cons(fst, takeWhile((x) => {
+      const xv = f(x);
+      // Use === for Clojure's = semantics (strict equality)
+      return fv === xv;
+    }, rest(s))));
+
+    const runCount = count(run);
+    return cons(run, partitionBy(f, drop(runCount, s)));
+  });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 23: TRANSDUCERS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * mapT - Returns a mapping transducer.
+ * When used with transduce, transforms each element by f.
+ *
+ * Clojure: (transduce (map inc) + [1 2 3]) => 9
+ */
+export function mapT(f) {
+  if (typeof f !== "function") {
+    throw new TypeError("mapT: f must be a function");
+  }
+  return (rf) => ({
+    [TRANSDUCER_INIT]: () => rf[TRANSDUCER_INIT](),
+    [TRANSDUCER_STEP]: (result, input) => rf[TRANSDUCER_STEP](result, f(input)),
+    [TRANSDUCER_RESULT]: (result) => rf[TRANSDUCER_RESULT](result),
+  });
+}
+
+/**
+ * filterT - Returns a filtering transducer.
+ * When used with transduce, only passes elements where pred returns truthy.
+ *
+ * Clojure: (transduce (filter even?) conj [] [1 2 3 4]) => [2 4]
+ */
+export function filterT(pred) {
+  if (typeof pred !== "function") {
+    throw new TypeError("filterT: pred must be a function");
+  }
+  return (rf) => ({
+    [TRANSDUCER_INIT]: () => rf[TRANSDUCER_INIT](),
+    [TRANSDUCER_STEP]: (result, input) =>
+      pred(input) ? rf[TRANSDUCER_STEP](result, input) : result,
+    [TRANSDUCER_RESULT]: (result) => rf[TRANSDUCER_RESULT](result),
+  });
+}
+
+/**
+ * takeT - Returns a take transducer.
+ * When used with transduce, takes at most n elements.
+ *
+ * Clojure: (transduce (take 3) conj [] [1 2 3 4 5]) => [1 2 3]
+ */
+export function takeT(n) {
+  if (typeof n !== "number" || n < 0) {
+    throw new TypeError("takeT: n must be a non-negative number");
+  }
+  return (rf) => {
+    let taken = 0;
+    return {
+      [TRANSDUCER_INIT]: () => rf[TRANSDUCER_INIT](),
+      [TRANSDUCER_STEP]: (result, input) => {
+        if (taken < n) {
+          taken++;
+          const r = rf[TRANSDUCER_STEP](result, input);
+          // If we've taken enough, signal early termination
+          return taken >= n ? ensureReduced(r) : r;
+        }
+        return ensureReduced(result);
+      },
+      [TRANSDUCER_RESULT]: (result) => rf[TRANSDUCER_RESULT](result),
+    };
+  };
+}
+
+/**
+ * dropT - Returns a drop transducer.
+ * When used with transduce, drops first n elements.
+ *
+ * Clojure: (transduce (drop 2) conj [] [1 2 3 4 5]) => [3 4 5]
+ */
+export function dropT(n) {
+  if (typeof n !== "number" || n < 0) {
+    throw new TypeError("dropT: n must be a non-negative number");
+  }
+  return (rf) => {
+    let dropped = 0;
+    return {
+      [TRANSDUCER_INIT]: () => rf[TRANSDUCER_INIT](),
+      [TRANSDUCER_STEP]: (result, input) => {
+        if (dropped < n) {
+          dropped++;
+          return result;
+        }
+        return rf[TRANSDUCER_STEP](result, input);
+      },
+      [TRANSDUCER_RESULT]: (result) => rf[TRANSDUCER_RESULT](result),
+    };
+  };
+}
+
+/**
+ * takeWhileT - Returns a take-while transducer.
+ * Takes elements while pred returns truthy, then stops.
+ *
+ * Clojure: (transduce (take-while pos?) conj [] [1 2 -1 3]) => [1 2]
+ */
+export function takeWhileT(pred) {
+  if (typeof pred !== "function") {
+    throw new TypeError("takeWhileT: pred must be a function");
+  }
+  return (rf) => ({
+    [TRANSDUCER_INIT]: () => rf[TRANSDUCER_INIT](),
+    [TRANSDUCER_STEP]: (result, input) =>
+      pred(input) ? rf[TRANSDUCER_STEP](result, input) : reduced(result),
+    [TRANSDUCER_RESULT]: (result) => rf[TRANSDUCER_RESULT](result),
+  });
+}
+
+/**
+ * dropWhileT - Returns a drop-while transducer.
+ * Drops elements while pred returns truthy, then takes the rest.
+ *
+ * Clojure: (transduce (drop-while neg?) conj [] [-1 -2 3 4]) => [3 4]
+ */
+export function dropWhileT(pred) {
+  if (typeof pred !== "function") {
+    throw new TypeError("dropWhileT: pred must be a function");
+  }
+  return (rf) => {
+    let dropping = true;
+    return {
+      [TRANSDUCER_INIT]: () => rf[TRANSDUCER_INIT](),
+      [TRANSDUCER_STEP]: (result, input) => {
+        if (dropping) {
+          if (pred(input)) {
+            return result;
+          }
+          dropping = false;
+        }
+        return rf[TRANSDUCER_STEP](result, input);
+      },
+      [TRANSDUCER_RESULT]: (result) => rf[TRANSDUCER_RESULT](result),
+    };
+  };
+}
+
+/**
+ * distinctT - Returns a distinct transducer.
+ * Removes duplicate elements.
+ *
+ * Clojure: (transduce (distinct) conj [] [1 2 1 3 2]) => [1 2 3]
+ */
+export function distinctT() {
+  return (rf) => {
+    const seen = new Set();
+    return {
+      [TRANSDUCER_INIT]: () => rf[TRANSDUCER_INIT](),
+      [TRANSDUCER_STEP]: (result, input) => {
+        if (seen.has(input)) {
+          return result;
+        }
+        seen.add(input);
+        return rf[TRANSDUCER_STEP](result, input);
+      },
+      [TRANSDUCER_RESULT]: (result) => rf[TRANSDUCER_RESULT](result),
+    };
+  };
+}
+
+/**
+ * partitionAllT - Returns a partition-all transducer.
+ * Partitions input into groups of n, including incomplete final group.
+ *
+ * Clojure: (transduce (partition-all 2) conj [] [1 2 3 4 5]) => [[1 2] [3 4] [5]]
+ */
+export function partitionAllT(n) {
+  if (typeof n !== "number" || n < 1) {
+    throw new TypeError("partitionAllT: n must be a positive number");
+  }
+  return (rf) => {
+    let buffer = [];
+    return {
+      [TRANSDUCER_INIT]: () => rf[TRANSDUCER_INIT](),
+      [TRANSDUCER_STEP]: (result, input) => {
+        buffer.push(input);
+        if (buffer.length === n) {
+          const chunk = buffer;
+          buffer = [];
+          return rf[TRANSDUCER_STEP](result, chunk);
+        }
+        return result;
+      },
+      [TRANSDUCER_RESULT]: (result) => {
+        // Flush any remaining elements
+        if (buffer.length > 0) {
+          result = rf[TRANSDUCER_STEP](result, buffer);
+          buffer = [];
+        }
+        return rf[TRANSDUCER_RESULT](isReduced(result) ? result._val : result);
+      },
+    };
+  };
+}
+
+/**
+ * composeTransducers - Compose multiple transducers left-to-right.
+ * This is the opposite of function composition since transducers
+ * are applied in reverse order when composed with rf.
+ *
+ * Usage: composeTransducers(mapT(inc), filterT(even?))
+ * Equivalent to: (comp (map inc) (filter even?)) in Clojure
+ */
+export function composeTransducers(...xforms) {
+  if (xforms.length === 0) return (rf) => rf;
+  if (xforms.length === 1) return xforms[0];
+
+  // Compose right-to-left to get left-to-right application
+  return (rf) => {
+    let composed = rf;
+    for (let i = xforms.length - 1; i >= 0; i--) {
+      composed = xforms[i](composed);
+    }
+    return composed;
+  };
 }

@@ -13,6 +13,35 @@ import {
   isCons,
   LazySeq as SeqLazySeq,
   ArraySeq,
+  NumericRange,
+  Delay,
+  delay as seqDelay,
+  force as seqForce,
+  isDelay as seqIsDelay,
+  // Transducer infrastructure
+  Reduced,
+  reduced as seqReduced,
+  isReduced as seqIsReduced,
+  unreduced as seqUnreduced,
+  ensureReduced as seqEnsureReduced,
+  toTransformer as seqToTransformer,
+  completing as seqCompleting,
+  TRANSDUCER_INIT,
+  TRANSDUCER_STEP,
+  TRANSDUCER_RESULT,
+  // Chunked sequence infrastructure
+  CHUNK_SIZE,
+  CHUNKED,
+  ArrayChunk,
+  ChunkBuffer,
+  ChunkedCons,
+  chunkCons as seqChunkCons,
+  arrayChunk as seqArrayChunk,
+  isChunked as seqIsChunked,
+  chunkFirst as seqChunkFirst,
+  chunkRest as seqChunkRest,
+  chunkSeq as seqChunkSeq,
+  toChunkedSeq as seqToChunkedSeq,
 } from "./internal/seq-protocol.js";
 import {
   validateFiniteNumber,
@@ -211,13 +240,17 @@ export function groupBy(f, coll) {
 }
 
 /**
- * Checks if a LazySeq has been fully realized
+ * Checks if a LazySeq or Delay has been fully realized
  *
- * @param {*} coll - Collection to check
+ * @param {*} coll - Collection or Delay to check
  * @returns {boolean} True if fully realized
  */
 export function realized(coll) {
   if (coll == null) return true;
+  // Delay (explicit laziness)
+  if (coll instanceof Delay) {
+    return coll._realized;
+  }
   // Old generator-based LazySeq
   if (coll instanceof LazySeq) {
     return coll._exhausted;
@@ -519,3 +552,340 @@ export function __hql_get_op(op) {
 
 // Export lazySeq for creating custom lazy sequences
 export { lazySeq };
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DELAY/FORCE - Explicit laziness primitives
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Creates a Delay - a memoized thunk for explicit lazy evaluation.
+ * The thunk is called at most once, and the result is cached.
+ *
+ * Unlike lazy sequences which represent collections, Delay is for
+ * single deferred values that should be computed only when needed.
+ *
+ * @param {Function} thunk - Zero-arg function returning the delayed value
+ * @returns {Delay} Delay object
+ */
+export const delay = seqDelay;
+
+/**
+ * Forces evaluation of a Delay, or returns the value unchanged if not a Delay.
+ *
+ * @param {*} x - A Delay or any other value
+ * @returns {*} The realized value
+ */
+export const force = seqForce;
+
+/**
+ * Check if a value is a Delay.
+ *
+ * @param {*} x - Value to check
+ * @returns {boolean} True if x is a Delay
+ */
+export const isDelay = seqIsDelay;
+
+/**
+ * Internal function to create a Delay (for HQL delay macro).
+ */
+export function __hql_delay(thunk) {
+  return seqDelay(thunk);
+}
+
+// Export NumericRange for advanced users
+export { NumericRange };
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TRANSDUCERS - Composable algorithmic transformations
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Export transducer infrastructure
+export const reduced = seqReduced;
+export const isReduced = seqIsReduced;
+export const unreduced = seqUnreduced;
+export const ensureReduced = seqEnsureReduced;
+export const toTransformer = seqToTransformer;
+export const completing = seqCompleting;
+
+// Re-export protocol keys for advanced users
+export { TRANSDUCER_INIT, TRANSDUCER_STEP, TRANSDUCER_RESULT };
+
+/**
+ * transduce - Apply a transducer to a collection with a reducing function.
+ *
+ * A transducer is a function that takes a reducing function (rf) and
+ * returns a new reducing function. Transducers allow composable, reusable
+ * transformations that are independent of the source/destination.
+ *
+ * 3-arity: (transduce xform rf coll) - uses rf() for initial value
+ * 4-arity: (transduce xform rf init coll) - explicit initial value
+ *
+ * @param {Function} xform - Transducer function
+ * @param {Function|Object} rf - Reducing function or transformer
+ * @param {*} initOrColl - Initial value (4-arity) or collection (3-arity)
+ * @param {Iterable} [maybeColl] - Collection (4-arity only)
+ * @returns {*} Reduced result
+ */
+export function transduce(xform, rf, initOrColl, maybeColl) {
+  let init, coll;
+
+  if (maybeColl === undefined) {
+    // 3-arity: (transduce xform rf coll)
+    coll = initOrColl;
+    const transformer = seqToTransformer(rf);
+    init = transformer[TRANSDUCER_INIT]();
+  } else {
+    // 4-arity: (transduce xform rf init coll)
+    init = initOrColl;
+    coll = maybeColl;
+  }
+
+  const xrf = xform(seqToTransformer(rf));
+  let acc = init;
+
+  for (const item of coll) {
+    acc = xrf[TRANSDUCER_STEP](acc, item);
+    if (seqIsReduced(acc)) {
+      acc = seqUnreduced(acc);
+      break;
+    }
+  }
+
+  return xrf[TRANSDUCER_RESULT](acc);
+}
+
+/**
+ * into - Pour collection through optional transducer into target.
+ *
+ * 2-arity: (into to from) - No transducer, just conj
+ * 3-arity: (into to xform from) - Apply transducer
+ *
+ * @param {Array|Set|Map} to - Target collection
+ * @param {Function|Iterable} xformOrFrom - Transducer (3-arity) or source (2-arity)
+ * @param {Iterable} [from] - Source collection (3-arity only)
+ * @returns {*} Target collection with added elements
+ */
+export function intoXform(to, xformOrFrom, from) {
+  // Determine the conj function based on target type
+  const conjFn = (acc, x) => {
+    if (Array.isArray(acc)) {
+      acc.push(x);
+      return acc;
+    }
+    if (acc instanceof Set) {
+      acc.add(x);
+      return acc;
+    }
+    if (acc instanceof Map && Array.isArray(x) && x.length === 2) {
+      acc.set(x[0], x[1]);
+      return acc;
+    }
+    // Default: treat as array-like
+    acc.push(x);
+    return acc;
+  };
+
+  if (from === undefined) {
+    // 2-arity: (into to from) - just reduce with conj
+    for (const item of xformOrFrom) {
+      conjFn(to, item);
+    }
+    return to;
+  }
+
+  // 3-arity: (into to xform from)
+  const xform = xformOrFrom;
+  const rf = {
+    [TRANSDUCER_INIT]: () => to,
+    [TRANSDUCER_STEP]: conjFn,
+    [TRANSDUCER_RESULT]: (acc) => acc,
+  };
+
+  return transduce(xform, rf, to, from);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CHUNKED SEQUENCES - 32-element batch processing (like Clojure)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Export chunk size constant
+export { CHUNK_SIZE };
+
+// Export chunk classes for advanced users
+export { ArrayChunk, ChunkBuffer, ChunkedCons };
+
+/**
+ * Create a ChunkedCons from a chunk and lazy rest.
+ *
+ * @param {ArrayChunk} chunk - The chunk of elements
+ * @param {LazySeq|null} rest - Lazy rest of the sequence
+ * @returns {ChunkedCons} Chunked sequence cell
+ */
+export const chunkCons = seqChunkCons;
+
+/**
+ * Create an ArrayChunk from an array (or slice).
+ *
+ * @param {Array} arr - Source array
+ * @param {number} [off=0] - Start offset
+ * @param {number} [end=arr.length] - End offset
+ * @returns {ArrayChunk} Immutable chunk
+ */
+export const arrayChunk = seqArrayChunk;
+
+/**
+ * Check if a sequence supports chunked iteration.
+ *
+ * @param {*} x - Value to check
+ * @returns {boolean} True if chunked
+ */
+export const isChunked = seqIsChunked;
+
+/**
+ * Get the first chunk from a chunked sequence.
+ *
+ * @param {ChunkedCons} s - Chunked sequence
+ * @returns {ArrayChunk|null} First chunk, or null if empty
+ */
+export const chunkFirst = seqChunkFirst;
+
+/**
+ * Get the rest after the first chunk.
+ *
+ * @param {ChunkedCons} s - Chunked sequence
+ * @returns {LazySeq|EMPTY} Rest of sequence
+ */
+export const chunkRest = seqChunkRest;
+
+/**
+ * Convert collection to chunked sequence if beneficial.
+ *
+ * Arrays and NumericRanges are chunked for efficient map/filter.
+ * Other sequences pass through unchanged.
+ *
+ * @param {Iterable|null} coll - Collection to chunk
+ * @returns {ChunkedCons|Seq|null} Chunked or normal sequence
+ */
+export const toChunkedSeq = seqToChunkedSeq;
+
+/**
+ * Chunked map - map preserving chunk boundaries.
+ *
+ * When the input is a chunked sequence, the output preserves
+ * 32-element chunks for better performance.
+ *
+ * @param {Function} f - Mapping function
+ * @param {Iterable} coll - Collection to map over
+ * @returns {ChunkedCons|LazySeq} Chunked or lazy sequence
+ */
+export function chunkedMap(f, coll) {
+  const s = seqToChunkedSeq(coll);
+  if (s == null) return null;
+
+  if (seqIsChunked(s)) {
+    return seqLazySeq(() => {
+      const chunk = s.chunkFirst();
+      const mapped = chunk.toArray().map(f);
+      const newChunk = seqArrayChunk(mapped);
+      const rest = s.chunkRest();
+      if (rest === SEQ_EMPTY || rest == null) {
+        return seqChunkCons(newChunk, null);
+      }
+      return seqChunkCons(newChunk, seqLazySeq(() => chunkedMap(f, rest)));
+    });
+  }
+
+  // Fall back to element-wise for non-chunked
+  return seqLazySeq(() => {
+    const fst = s.first?.();
+    if (fst === undefined && !s.seq?.()) return null;
+    return seqCons(f(fst), seqLazySeq(() => chunkedMap(f, s.rest?.())));
+  });
+}
+
+/**
+ * Chunked filter - filter preserving chunks where possible.
+ *
+ * @param {Function} pred - Predicate function
+ * @param {Iterable} coll - Collection to filter
+ * @returns {LazySeq} Lazy sequence of matching elements
+ */
+export function chunkedFilter(pred, coll) {
+  const s = seqToChunkedSeq(coll);
+  if (s == null) return null;
+
+  if (seqIsChunked(s)) {
+    return seqLazySeq(() => {
+      const chunk = s.chunkFirst();
+      const filtered = chunk.toArray().filter(pred);
+      const rest = s.chunkRest();
+
+      // Create new chunk if we have filtered elements
+      if (filtered.length > 0) {
+        const newChunk = seqArrayChunk(filtered);
+        if (rest === SEQ_EMPTY || rest == null) {
+          return seqChunkCons(newChunk, null);
+        }
+        return seqChunkCons(newChunk, seqLazySeq(() => chunkedFilter(pred, rest)));
+      }
+
+      // No matches in this chunk, continue to rest
+      if (rest === SEQ_EMPTY || rest == null) return null;
+      return chunkedFilter(pred, rest);
+    });
+  }
+
+  // Fall back for non-chunked
+  return seqLazySeq(function filterStep() {
+    let current = s;
+    while (current && current !== SEQ_EMPTY && current.seq?.()) {
+      const fst = current.first();
+      if (pred(fst)) {
+        return seqCons(fst, seqLazySeq(() => chunkedFilter(pred, current.rest())));
+      }
+      current = current.rest();
+    }
+    return null;
+  });
+}
+
+/**
+ * Chunked reduce - reduce with chunk-aware batching.
+ *
+ * When the input is chunked, reduces each chunk efficiently
+ * before moving to the next.
+ *
+ * @param {Function} f - Reducing function (acc, x) => acc
+ * @param {*} init - Initial accumulator value
+ * @param {Iterable} coll - Collection to reduce
+ * @returns {*} Reduced result
+ */
+export function chunkedReduce(f, init, coll) {
+  const s = seqToChunkedSeq(coll);
+  if (s == null) return init;
+
+  let acc = init;
+
+  if (seqIsChunked(s)) {
+    let current = s;
+    while (current && current !== SEQ_EMPTY && current.seq?.()) {
+      const chunk = current.chunkFirst();
+      // Reduce within chunk
+      acc = chunk.reduce(f, acc);
+      if (seqIsReduced(acc)) return seqUnreduced(acc);
+      current = current.chunkRest();
+      // Handle LazySeq rest
+      if (current instanceof SeqLazySeq) current = current._realize?.() ?? current;
+    }
+    return acc;
+  }
+
+  // Fall back for non-chunked
+  let current = s;
+  while (current && current !== SEQ_EMPTY && current.seq?.()) {
+    acc = f(acc, current.first());
+    if (seqIsReduced(acc)) return seqUnreduced(acc);
+    current = current.rest();
+  }
+  return acc;
+}
