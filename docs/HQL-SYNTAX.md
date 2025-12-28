@@ -141,7 +141,7 @@ nil               ; null/undefined
 {"name": "Alice", "age": 30}
 
 ; Set
-#{1 2 3}
+#[1 2 3]
 
 ; Nested
 {user: {name: "Bob" tags: ["admin" "user"]}}

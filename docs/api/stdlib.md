@@ -253,7 +253,7 @@ Returns an empty collection of the same type.
 
 ```lisp
 (empty [1 2 3])                    ;; → []
-(empty #{1 2 3})                   ;; → #{}
+(empty #[1 2 3])                   ;; → #[]
 ```
 
 ---
@@ -264,7 +264,7 @@ Adds item to collection in type-appropriate position.
 
 ```lisp
 (conj [1 2] 3)                     ;; → [1 2 3]
-(conj #{1 2} 3)                    ;; → #{1 2 3}
+(conj #[1 2] 3)                    ;; → #[1 2 3]
 (conj '(1 2) 0)                    ;; → (0 1 2)
 ```
 
@@ -276,7 +276,7 @@ Adds all elements from `from` into `to`.
 
 ```lisp
 (into [] [1 2 3])                  ;; → [1 2 3]
-(into #{} [1 2 2 3])               ;; → #{1 2 3}
+(into #[] [1 2 2 3])               ;; → #[1 2 3]
 (into {} [["a" 1] ["b" 2]])        ;; → {a: 1, b: 2}
 ```
 
