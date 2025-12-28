@@ -1152,75 +1152,159 @@ function transformLoopBody(
 }
 
 /**
- * Check if an IR node tree contains a labeled break or continue statement.
- * This is used to determine if we can wrap a for-of in an IIFE.
- * Labeled break/continue cannot cross function boundaries, so if present,
- * we must not wrap in IIFE.
+ * Module-level storage for for-of label targets.
+ * When a for-of detects labeled break/continue that targets an ancestor label,
+ * it stores the targeted labels here so that the label can later decide
+ * whether to wrap in IIFE.
+ *
+ * This enables proper handling of ANY nesting depth - not just immediate parent.
  */
-function containsLabeledBreakOrContinue(nodes: IR.IRNode[]): boolean {
+const forOfLabelTargets: WeakMap<IR.IRForOfStatement, Set<string>> = new WeakMap();
+
+/**
+ * Collect all labeled break/continue target names from an IR node tree.
+ * Returns a Set of label names that are targeted by break/continue statements.
+ */
+function collectLabeledJumpTargets(nodes: IR.IRNode[]): Set<string> {
+  const targets = new Set<string>();
   for (const node of nodes) {
-    if (hasLabeledJumpInNode(node)) {
-      return true;
-    }
+    collectLabelsFromNode(node, targets);
   }
-  return false;
+  return targets;
 }
 
-function hasLabeledJumpInNode(node: IR.IRNode): boolean {
-  if (!node) return false;
+function collectLabelsFromNode(node: IR.IRNode, targets: Set<string>): void {
+  if (!node) return;
 
-  // Check if this is a labeled break or continue
+  // Collect labeled break targets
   if (node.type === IR.IRNodeType.BreakStatement) {
     const breakStmt = node as IR.IRBreakStatement;
-    if (breakStmt.label) return true;
+    if (breakStmt.label) targets.add(breakStmt.label);
   }
+  // Collect labeled continue targets
   if (node.type === IR.IRNodeType.ContinueStatement) {
     const continueStmt = node as IR.IRContinueStatement;
-    if (continueStmt.label) return true;
+    if (continueStmt.label) targets.add(continueStmt.label);
   }
 
   // Don't recurse into function expressions - they have their own scope
   if (node.type === IR.IRNodeType.FunctionExpression ||
       node.type === IR.IRNodeType.FunctionDeclaration) {
-    return false;
+    return;
   }
 
   // Recurse into child nodes
   if (node.type === IR.IRNodeType.BlockStatement) {
     const block = node as IR.IRBlockStatement;
-    return containsLabeledBreakOrContinue(block.body);
+    for (const child of block.body) {
+      collectLabelsFromNode(child, targets);
+    }
   }
   if (node.type === IR.IRNodeType.IfStatement) {
     const ifStmt = node as IR.IRIfStatement;
-    if (hasLabeledJumpInNode(ifStmt.consequent)) return true;
-    if (ifStmt.alternate && hasLabeledJumpInNode(ifStmt.alternate)) return true;
+    collectLabelsFromNode(ifStmt.consequent, targets);
+    if (ifStmt.alternate) collectLabelsFromNode(ifStmt.alternate, targets);
   }
   if (node.type === IR.IRNodeType.ExpressionStatement) {
     const exprStmt = node as IR.IRExpressionStatement;
-    return hasLabeledJumpInNode(exprStmt.expression);
+    collectLabelsFromNode(exprStmt.expression, targets);
   }
   if (node.type === IR.IRNodeType.ConditionalExpression) {
     const condExpr = node as IR.IRConditionalExpression;
-    if (hasLabeledJumpInNode(condExpr.consequent)) return true;
-    if (hasLabeledJumpInNode(condExpr.alternate)) return true;
+    collectLabelsFromNode(condExpr.consequent, targets);
+    collectLabelsFromNode(condExpr.alternate, targets);
   }
   if (node.type === IR.IRNodeType.WhileStatement) {
     const whileStmt = node as IR.IRWhileStatement;
-    return hasLabeledJumpInNode(whileStmt.body);
+    collectLabelsFromNode(whileStmt.body, targets);
   }
   if (node.type === IR.IRNodeType.ForOfStatement) {
     const forOfStmt = node as IR.IRForOfStatement;
-    return hasLabeledJumpInNode(forOfStmt.body);
+    collectLabelsFromNode(forOfStmt.body, targets);
+  }
+  if (node.type === IR.IRNodeType.ForStatement) {
+    const forStmt = node as IR.IRForStatement;
+    collectLabelsFromNode(forStmt.body, targets);
   }
   if (node.type === IR.IRNodeType.CallExpression) {
     const callExpr = node as IR.IRCallExpression;
     // Check arguments but not callee (callee might be a function expression)
     for (const arg of callExpr.arguments) {
-      if (hasLabeledJumpInNode(arg)) return true;
+      collectLabelsFromNode(arg, targets);
     }
   }
+}
 
-  return false;
+/**
+ * Collect all ForOfStatement nodes from an IR tree (at any depth).
+ * Used by transformLabel to find for-of loops that may need IIFE wrapping.
+ */
+function collectForOfNodes(node: IR.IRNode): IR.IRForOfStatement[] {
+  const results: IR.IRForOfStatement[] = [];
+  collectForOfNodesRecursive(node, results);
+  return results;
+}
+
+function collectForOfNodesRecursive(node: IR.IRNode, results: IR.IRForOfStatement[]): void {
+  if (!node) return;
+
+  // Collect ForOfStatement nodes
+  if (node.type === IR.IRNodeType.ForOfStatement) {
+    results.push(node as IR.IRForOfStatement);
+    // Also recurse into its body (for nested for-of)
+    collectForOfNodesRecursive((node as IR.IRForOfStatement).body, results);
+    return;
+  }
+
+  // IMPORTANT: For IIFEs (CallExpression with FunctionExpression callee),
+  // we DO need to look inside because the labeled break/continue targets
+  // a label outside the IIFE. We need to find these for-ofs so the label
+  // can properly restructure.
+  if (node.type === IR.IRNodeType.CallExpression) {
+    const callExpr = node as IR.IRCallExpression;
+    // Check if this is an IIFE (function expression called immediately)
+    if (callExpr.callee.type === IR.IRNodeType.FunctionExpression) {
+      const funcExpr = callExpr.callee as IR.IRFunctionExpression;
+      // Recurse into the IIFE body to find for-of nodes
+      collectForOfNodesRecursive(funcExpr.body, results);
+    }
+    // Also check arguments
+    for (const arg of callExpr.arguments) {
+      collectForOfNodesRecursive(arg, results);
+    }
+    return;
+  }
+
+  // Don't recurse into standalone function expressions - they have their own scope
+  // (But we DO recurse into IIFEs above)
+  if (node.type === IR.IRNodeType.FunctionExpression ||
+      node.type === IR.IRNodeType.FunctionDeclaration) {
+    return;
+  }
+
+  // Recurse into child nodes
+  if (node.type === IR.IRNodeType.BlockStatement) {
+    for (const child of (node as IR.IRBlockStatement).body) {
+      collectForOfNodesRecursive(child, results);
+    }
+  }
+  if (node.type === IR.IRNodeType.IfStatement) {
+    const ifStmt = node as IR.IRIfStatement;
+    collectForOfNodesRecursive(ifStmt.consequent, results);
+    if (ifStmt.alternate) collectForOfNodesRecursive(ifStmt.alternate, results);
+  }
+  if (node.type === IR.IRNodeType.ExpressionStatement) {
+    collectForOfNodesRecursive((node as IR.IRExpressionStatement).expression, results);
+  }
+  if (node.type === IR.IRNodeType.WhileStatement) {
+    collectForOfNodesRecursive((node as IR.IRWhileStatement).body, results);
+  }
+  if (node.type === IR.IRNodeType.ForStatement) {
+    collectForOfNodesRecursive((node as IR.IRForStatement).body, results);
+  }
+  if (node.type === IR.IRNodeType.LabeledStatement) {
+    collectForOfNodesRecursive((node as IR.IRLabeledStatement).body, results);
+  }
 }
 
 /**
@@ -1376,14 +1460,27 @@ export function transformForOf(
     };
     copyPosition(list, forOfNode);
 
-    // Check if body contains labeled break/continue that would cross IIFE boundary
-    // If so, we can't wrap in IIFE - fall back to statement semantics
-    const hasLabeledJump = containsLabeledBreakOrContinue(bodyStatements);
+    // Check if body contains labeled break/continue targeting ancestor labels.
+    // If any targeted label is in our ancestor chain (loopContextStack),
+    // we can't wrap in IIFE here - the outermost targeted label will handle it.
+    //
+    // GENERAL SOLUTION: This works for ANY nesting depth because:
+    // 1. We collect ALL targeted labels from the body
+    // 2. We check if ANY of them are ancestors (in loopContextStack)
+    // 3. If so, we defer IIFE creation to the label (which will check if it's outermost)
+    const targetedLabels = collectLabeledJumpTargets(bodyStatements);
 
-    if (hasLabeledJump) {
-      // Can't wrap in IIFE due to labeled break/continue
-      // Return as statement (will return undefined, not null)
-      return forOfNode;
+    if (targetedLabels.size > 0) {
+      // Check if any targeted label is in our ancestor chain
+      const ancestorLabelsInScope = new Set(loopContextStack);
+      const hasAncestorTarget = [...targetedLabels].some(label => ancestorLabelsInScope.has(label));
+
+      if (hasAncestorTarget) {
+        // Store the targets so transformLabel can use them later
+        forOfLabelTargets.set(forOfNode, targetedLabels);
+        // Return as statement - the ancestor label will wrap in IIFE
+        return forOfNode;
+      }
     }
 
     // EXPRESSION-EVERYWHERE: Wrap for-of in IIFE that returns null
@@ -1456,6 +1553,23 @@ export function transformForAwaitOf(
  *     }
  *   }
  * }
+ *
+ * EXPRESSION-EVERYWHERE: When this label contains a for-of (at ANY depth) that has
+ * labeled break/continue targeting this label, AND this label is the OUTERMOST
+ * targeted label, we wrap the entire body in an IIFE with this label inside.
+ *
+ * This works for ANY nesting depth:
+ *
+ * (label outer (for-of [x items] (break outer)))
+ * (label outer (do (for-of [x items] (break outer))))
+ * (label outer (if cond (for-of [x items] (break outer))))
+ * (label outer (label inner (for-of [x items] (break outer) (break inner))))
+ *
+ * All generate:
+ * (() => {
+ *   outer: <body with for-of>
+ *   return null;
+ * })()
  */
 export function transformLabel(
   list: ListNode,
@@ -1484,6 +1598,8 @@ export function transformLabel(
   const labelName = sanitizeIdentifier((nameNode as SymbolNode).name);
 
   // Push label context so break/continue can reference it
+  // NOTE: We keep this label in the stack during the needsIIFE check
+  // so we can properly determine if we're the outermost targeted label
   pushLoopContext(labelName);
 
   try {
@@ -1499,6 +1615,102 @@ export function transformLabel(
       );
     }
 
+    // GENERALIZED SOLUTION: Find ALL for-of nodes in the body (at any depth)
+    // and check if any of them target this label. If we're the outermost
+    // targeted label, wrap in IIFE.
+    //
+    // This works for ANY nesting depth because:
+    // 1. collectForOfNodes finds for-of at any depth in the IR tree
+    // 2. forOfLabelTargets tells us which labels each for-of targets
+    // 3. We check the loopContextStack (excluding self) to see if any ancestor is targeted
+    // 4. If no ancestor is targeted but we are, we're the outermost - wrap in IIFE
+    const forOfNodes = collectForOfNodes(body);
+    let needsIIFE = false;
+    let hasAsyncForOf = false;
+
+    for (const forOf of forOfNodes) {
+      const targets = forOfLabelTargets.get(forOf);
+      if (targets && targets.has(labelName)) {
+        // This for-of targets our label
+        // Check if any ANCESTOR label (excluding self) is also targeted
+        // Ancestors are all stack items except the current one (which is us)
+        const ancestorStack = loopContextStack.slice(0, -1);  // Exclude self
+        const ancestorTargeted = ancestorStack.some(ancestor => targets.has(ancestor));
+
+        if (!ancestorTargeted) {
+          // We're the outermost targeted label - we should wrap in IIFE
+          needsIIFE = true;
+          if (forOf.await) {
+            hasAsyncForOf = true;
+          }
+          // Don't break - continue checking to find if any for-await-of exists
+        }
+      }
+    }
+
+    if (needsIIFE) {
+      // Check if body is already an IIFE (e.g., from `do` block)
+      // If so, we need to unwrap it and put its content inside our IIFE with the label
+      let actualBody: IR.IRNode = body;
+      let isBodyAsync = hasAsyncForOf;
+
+      if (body.type === IR.IRNodeType.CallExpression) {
+        const callExpr = body as IR.IRCallExpression;
+        if (callExpr.callee.type === IR.IRNodeType.FunctionExpression) {
+          const funcExpr = callExpr.callee as IR.IRFunctionExpression;
+          // This is an IIFE - unwrap it
+          // We'll use its body as the content for our labeled block
+          actualBody = funcExpr.body;
+          if (funcExpr.async) {
+            isBodyAsync = true;
+          }
+        }
+      }
+
+      // Create labeled block with the (potentially unwrapped) body
+      const labeledBody: IR.IRLabeledStatement = {
+        type: IR.IRNodeType.LabeledStatement,
+        label: labelName,
+        body: actualBody,
+      };
+      copyPosition(list, labeledBody);
+
+      // Create IIFE body: labeled block + return null
+      // Note: if actualBody is already a BlockStatement from an unwrapped IIFE,
+      // we wrap it in the label. The return null is still needed.
+      const iifeBodyStatements: IR.IRNode[] = [labeledBody];
+
+      // ALWAYS add return null AFTER the labeled statement.
+      // This is needed because when `break label` is used, control jumps
+      // past the labeled block to here. If the body also ends with a return,
+      // that handles normal completion, but we still need this one for breaks.
+      iifeBodyStatements.push({
+        type: IR.IRNodeType.ReturnStatement,
+        argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+      } as IR.IRReturnStatement);
+
+      const iifeBody: IR.IRBlockStatement = {
+        type: IR.IRNodeType.BlockStatement,
+        body: iifeBodyStatements,
+      };
+
+      const iife: IR.IRCallExpression = {
+        type: IR.IRNodeType.CallExpression,
+        callee: {
+          type: IR.IRNodeType.FunctionExpression,
+          id: null,
+          params: [],
+          body: iifeBody,
+          async: isBodyAsync,  // async IIFE if any for-await-of is present or inner IIFE was async
+        } as IR.IRFunctionExpression,
+        arguments: [],
+      };
+      copyPosition(list, iife);
+
+      return iife;
+    }
+
+    // Normal case: just wrap body with label (no IIFE needed)
     const node: IR.IRLabeledStatement = {
       type: IR.IRNodeType.LabeledStatement,
       label: labelName,

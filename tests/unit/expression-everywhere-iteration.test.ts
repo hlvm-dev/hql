@@ -388,3 +388,149 @@ Deno.test("switch: generates IIFE-wrapped switch", async () => {
   assertStringIncludes(result.code, "return");
   assertStringIncludes(result.code, ")()"); // IIFE invocation
 });
+
+// ============================================================================
+// LABELED BREAK/CONTINUE WITH FOR-OF - Edge case handling
+// ============================================================================
+
+Deno.test("labeled break: works with for-of (label inside IIFE)", async () => {
+  const code = `
+    (let results [])
+    (label outer
+      (for-of [x [1 2 3 4 5]]
+        (if (=== x 3)
+          (break outer)
+          (results.push x))))
+    results
+  `;
+  // Should break at 3, collecting only [1, 2]
+  assertEquals(await run(code), [1, 2]);
+});
+
+Deno.test("labeled break: for-of with label returns null", async () => {
+  const code = `
+    (let arr [])
+    (let result (label outer
+                  (for-of [x [1 2 3]]
+                    (arr.push x)
+                    (if (=== x 2) (break outer)))))
+    [arr result]
+  `;
+  assertEquals(await run(code), [[1, 2], null]);
+});
+
+Deno.test("labeled break: generates label inside IIFE", async () => {
+  const result = await transpile(`
+    (label outer
+      (for-of [x items]
+        (if (=== x 2) (break outer))))
+  `);
+  // Label should be inside IIFE, not outside
+  // Pattern: (() => { outer: for (const x of ...) { ... }; return null; })()
+  assertStringIncludes(result.code, "outer:");
+  assertStringIncludes(result.code, "for (const");
+  assertStringIncludes(result.code, "return null");
+  assertStringIncludes(result.code, ")()");
+});
+
+Deno.test("labeled continue: works with for-of", async () => {
+  const code = `
+    (let results [])
+    (label outer
+      (for-of [x [1 2 3 4 5]]
+        (if (=== x 3)
+          (continue outer)
+          (results.push x))))
+    results
+  `;
+  // Should skip 3, collecting [1, 2, 4, 5]
+  assertEquals(await run(code), [1, 2, 4, 5]);
+});
+
+Deno.test("labeled break: nested for-of loops", async () => {
+  const code = `
+    (let results [])
+    (label outer
+      (for-of [x [1 2 3]]
+        (for-of [y ["a" "b" "c"]]
+          (if (and (=== x 2) (=== y "b"))
+            (break outer)
+            (results.push (str x y))))))
+    results
+  `;
+  // Should break when x=2, y="b", collecting ["1a", "1b", "1c", "2a"]
+  assertEquals(await run(code), ["1a", "1b", "1c", "2a"]);
+});
+
+// ============================================================================
+// DEEP NESTING TESTS - Verify generalized solution works at any depth
+// ============================================================================
+
+Deno.test("labeled break: for-of inside do block", async () => {
+  const code = `
+    (let results [])
+    (label outer
+      (do
+        (results.push "start")
+        (for-of [x [1 2 3]]
+          (if (=== x 2) (break outer))
+          (results.push x))))
+    results
+  `;
+  assertEquals(await run(code), ["start", 1]);
+});
+
+Deno.test("labeled break: for-of inside if branch", async () => {
+  const code = `
+    (let results [])
+    (label outer
+      (if true
+        (for-of [x [1 2 3]]
+          (if (=== x 2) (break outer))
+          (results.push x))))
+    results
+  `;
+  assertEquals(await run(code), [1]);
+});
+
+Deno.test("labeled break: for-of inside when macro", async () => {
+  const code = `
+    (let results [])
+    (label outer
+      (when true
+        (for-of [x [1 2 3]]
+          (if (=== x 2) (break outer))
+          (results.push x))))
+    results
+  `;
+  assertEquals(await run(code), [1]);
+});
+
+Deno.test("labeled break: multiple nested labels (both targeted)", async () => {
+  const code = `
+    (let results [])
+    (label outer
+      (label inner
+        (for-of [x [1 2 3 4 5]]
+          (if (=== x 2) (continue inner))
+          (if (=== x 4) (break outer))
+          (results.push x))))
+    results
+  `;
+  // x=1 → push, x=2 → continue inner, x=3 → push, x=4 → break outer
+  assertEquals(await run(code), [1, 3]);
+});
+
+Deno.test("labeled break: returns null from deeply nested structure", async () => {
+  const code = `
+    (let result
+      (label outer
+        (do
+          (let arr [])
+          (for-of [x [1 2 3]]
+            (if (=== x 2) (break outer))
+            (arr.push x)))))
+    result
+  `;
+  assertEquals(await run(code), null);
+});

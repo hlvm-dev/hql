@@ -192,12 +192,21 @@ export function transformIf(
       // Otherwise, it's a value-returning if in loop, use expression
     }
 
-    // Check if either branch contains control flow statements (return, throw)
+    // Check if either branch contains statements (not expressions)
     // If so, use IfStatement instead of ConditionalExpression
-    const hasControlFlow = consequent.type === IR.IRNodeType.ReturnStatement ||
-      consequent.type === IR.IRNodeType.ThrowStatement ||
-      alternate.type === IR.IRNodeType.ReturnStatement ||
-      alternate.type === IR.IRNodeType.ThrowStatement;
+    // These are statements and cannot be used in ternary operator
+    const isStatement = (node: IR.IRNode) =>
+      node.type === IR.IRNodeType.ReturnStatement ||
+      node.type === IR.IRNodeType.ThrowStatement ||
+      node.type === IR.IRNodeType.BreakStatement ||
+      node.type === IR.IRNodeType.ContinueStatement ||
+      node.type === IR.IRNodeType.ForOfStatement ||
+      node.type === IR.IRNodeType.ForStatement ||
+      node.type === IR.IRNodeType.WhileStatement ||
+      node.type === IR.IRNodeType.VariableDeclaration ||
+      node.type === IR.IRNodeType.LabeledStatement;
+
+    const hasControlFlow = isStatement(consequent) || isStatement(alternate);
 
     if (hasControlFlow) {
       // Use if statement for control flow
@@ -350,12 +359,30 @@ export function transformDo(
           // - IfStatement: contains recur in loop, has its own return logic
           // - ThrowStatement: early return via throw, shouldn't be wrapped
           // - ReturnStatement: already a return, don't double-wrap
+          // - ForOfStatement, ForStatement, WhileStatement: these are statements,
+          //   not expressions, so they can't be the argument of return.
+          //   They should be followed by a separate return null.
+          // - VariableDeclaration: also a statement, not an expression
           if (
             lastExpr.type === IR.IRNodeType.IfStatement ||
             lastExpr.type === IR.IRNodeType.ThrowStatement ||
             lastExpr.type === IR.IRNodeType.ReturnStatement
           ) {
             bodyStatements.push(lastExpr);
+          } else if (
+            lastExpr.type === IR.IRNodeType.ForOfStatement ||
+            lastExpr.type === IR.IRNodeType.ForStatement ||
+            lastExpr.type === IR.IRNodeType.WhileStatement ||
+            lastExpr.type === IR.IRNodeType.VariableDeclaration
+          ) {
+            // These are statements that can't be returned directly
+            // Push the statement first, then return null
+            bodyStatements.push(lastExpr);
+            bodyStatements.push({
+              type: IR.IRNodeType.ReturnStatement,
+              argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+              position: lastExpr.position,
+            } as IR.IRReturnStatement);
           } else {
             // Create a return statement for the last expression
             bodyStatements.push({
