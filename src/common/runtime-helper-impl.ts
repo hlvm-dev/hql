@@ -39,26 +39,14 @@ export const GET_HELPER = "__hql_get";
 /** Runtime helper for numeric property access */
 export const GET_NUMERIC_HELPER = "__hql_getNumeric";
 
-/** Runtime helper for range generation */
-export const RANGE_HELPER = "__hql_range";
-
 /** Runtime helper for lazy sequences */
 export const LAZY_SEQ_HELPER = "__hql_lazy_seq";
 
-/** Runtime helper for iteration */
-export const FOR_EACH_HELPER = "__hql_for_each";
-
-/** Runtime helper for sequence conversion */
-export const TO_SEQUENCE_HELPER = "__hql_toSequence";
-
-/** Runtime helper for throwing */
-export const THROW_HELPER = "__hql_throw";
+/** Runtime helper for delay (explicit laziness) */
+export const DELAY_HELPER = "__hql_delay";
 
 /** Runtime helper for deep freezing */
 export const DEEP_FREEZE_HELPER = "__hql_deepFreeze";
-
-/** Runtime helper for object pattern matching */
-export const MATCH_OBJ_HELPER = "__hql_match_obj";
 
 /** Runtime helper for get operations (first-class) */
 export const GET_OP_HELPER = "__hql_get_op";

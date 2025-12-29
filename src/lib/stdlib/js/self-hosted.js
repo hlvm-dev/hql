@@ -13,7 +13,7 @@ import {
   TRANSDUCER_STEP,
   TRANSDUCER_RESULT,
 } from "./internal/seq-protocol.js";
-import { seq, first, rest } from "./core.js";
+import { seq, first, rest, chunkedMap, chunkedFilter, chunkedReduce, CHUNK_SIZE } from "./core.js";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 1: CORE SEQUENCE OPERATIONS
@@ -70,8 +70,15 @@ export function map(f, ...colls) {
   }
 
   if (colls.length === 1) {
-    // Single collection - original behavior
+    // Single collection
     const coll = colls[0];
+
+    // Optimization: Use chunked path for large arrays (32+ elements)
+    if (Array.isArray(coll) && coll.length >= CHUNK_SIZE) {
+      return chunkedMap(f, coll);
+    }
+
+    // Standard lazy sequence for other cases
     return lazySeq(() => {
       const s = seq(coll);
       if (s != null) {
@@ -105,6 +112,13 @@ export function filter(pred, coll) {
   if (typeof pred !== "function") {
     throw new TypeError("filter: predicate must be a function, got " + typeof pred);
   }
+
+  // Optimization: Use chunked path for large arrays (32+ elements)
+  if (Array.isArray(coll) && coll.length >= CHUNK_SIZE) {
+    return chunkedFilter(pred, coll);
+  }
+
+  // Standard lazy sequence for other cases
   return lazySeq(() => {
     const s = seq(coll);
     if (s != null) {
@@ -138,11 +152,11 @@ export function reduce(f, initOrColl, maybeColl) {
     throw new TypeError("reduce: reducer must be a function, got " + typeof f);
   }
 
-  let acc, s;
+  let acc, s, coll;
 
   if (maybeColl === undefined) {
     // 2-arity: (reduce f coll)
-    const coll = initOrColl;
+    coll = initOrColl;
     s = seq(coll);
     if (s == null) {
       // Empty collection - call f with no args for identity
@@ -150,13 +164,24 @@ export function reduce(f, initOrColl, maybeColl) {
     }
     acc = first(s);
     s = seq(rest(s));
+
+    // Optimization: Use chunked path for large arrays (after taking first as init)
+    if (Array.isArray(coll) && coll.length >= CHUNK_SIZE) {
+      return chunkedReduce(f, acc, coll.slice(1));
+    }
   } else {
     // 3-arity: (reduce f init coll)
     acc = initOrColl;
-    s = seq(maybeColl);
+    coll = maybeColl;
+    s = seq(coll);
+
+    // Optimization: Use chunked path for large arrays (32+ elements)
+    if (Array.isArray(coll) && coll.length >= CHUNK_SIZE) {
+      return chunkedReduce(f, acc, coll);
+    }
   }
 
-  // Reduce loop with Reduced support
+  // Standard reduce loop with Reduced support
   while (s != null) {
     acc = f(acc, first(s));
     // Check for early termination

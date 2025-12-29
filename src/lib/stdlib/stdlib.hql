@@ -65,7 +65,10 @@
   comp, partial, apply,
 
   ;; Utilities
-  groupBy, keys, doall, realized, lazySeq
+  groupBy, keys, doall, realized, lazySeq,
+
+  ;; Delay/Force primitives (explicit laziness)
+  force, isDelay
 ] from "./js/stdlib.js")
 
 ;; Create alias for range to match runtime behavior
@@ -256,6 +259,124 @@
           (keep f (rest s)))))))
 
 ;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 3B: CONDITIONAL LAZY FUNCTIONS
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; takeWhile - Returns elements while predicate is true (lazy)
+;; Clojure: (take-while pos? [1 2 3 0 -1]) => (1 2 3)
+(fn takeWhile [pred coll]
+  (lazy-seq
+    (when-let [s (seq coll)]
+      (let [f (first s)]
+        (when (pred f)
+          (cons f (takeWhile pred (rest s))))))))
+
+;; dropWhile - Drops elements while predicate is true (lazy)
+;; Clojure: (drop-while pos? [1 2 3 0 -1 2]) => (0 -1 2)
+(fn dropWhile [pred coll]
+  (lazy-seq
+    (loop [s (seq coll)]
+      (if (and s (pred (first s)))
+        (recur (rest s))
+        (when s
+          (cons (first s) (rest s)))))))
+
+;; splitWith - Returns [(takeWhile pred coll) (dropWhile pred coll)]
+(fn splitWith [pred coll]
+  [(doall (takeWhile pred coll)) (doall (dropWhile pred coll))])
+
+;; splitAt - Returns [(take n coll) (drop n coll)]
+(fn splitAt [n coll]
+  [(doall (take n coll)) (doall (drop n coll))])
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 3C: REDUCTION VARIANTS
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; reductions - Returns lazy seq of intermediate reduce values
+;; Clojure: (reductions + [1 2 3 4]) => (1 3 6 10)
+;; Clojure: (reductions + 0 [1 2 3]) => (0 1 3 6)
+(fn reductions [f & args]
+  (let [reductions-with-init
+        (fn reductions-with-init [f init coll]
+          (cons init
+                (lazy-seq
+                  (when-let [s (seq coll)]
+                    (reductions-with-init f (f init (first s)) (rest s))))))]
+    (if (=== (count args) 1)
+      ;; 2-arity: (reductions f coll)
+      (let [coll (first args)]
+        (lazy-seq
+          (when-let [s (seq coll)]
+            (reductions-with-init f (first s) (rest s)))))
+      ;; 3-arity: (reductions f init coll)
+      (reductions-with-init f (first args) (second args)))))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 3D: SEQUENCE COMBINATORS
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; interpose - Inserts separator between elements (lazy)
+;; Clojure: (interpose :x [1 2 3]) => (1 :x 2 :x 3)
+(fn interpose [sep coll]
+  (let [interpose-rest
+        (fn interpose-rest [sep coll]
+          (lazy-seq
+            (when-let [s (seq coll)]
+              (cons sep (cons (first s) (interpose-rest sep (rest s)))))))]
+    (lazy-seq
+      (when-let [s (seq coll)]
+        (cons (first s) (interpose-rest sep (rest s)))))))
+
+;; interleave - Interleaves multiple sequences (lazy)
+;; Clojure: (interleave [1 2 3] [:a :b :c]) => (1 :a 2 :b 3 :c)
+(fn interleave [& colls]
+  (lazy-seq
+    (let [seqs (map seq colls)]
+      (when (every some? seqs)
+        (concat (map first seqs)
+                (apply interleave (map rest seqs)))))))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 3E: PARTITION FAMILY
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; partition - Partitions into groups of n, drops incomplete (lazy)
+;; 2-arity: (partition n coll) - step defaults to n
+;; 3-arity: (partition n step coll) - explicit step
+;; Clojure: (partition 3 [1 2 3 4 5 6 7]) => ((1 2 3) (4 5 6))
+(fn partition [n & args]
+  (let [arg-count (count args)
+        step (if (=== arg-count 1) n (first args))
+        coll (if (=== arg-count 1) (first args) (second args))]
+    (lazy-seq
+      (when-let [s (seq coll)]
+        (let [p (doall (take n s))]
+          (when (=== (count p) n)
+            (cons p (partition n step (drop step s)))))))))
+
+;; partitionAll - Like partition but includes incomplete final group (lazy)
+;; Clojure: (partition-all 3 [1 2 3 4 5 6 7]) => ((1 2 3) (4 5 6) (7))
+(fn partitionAll [n & args]
+  (let [arg-count (count args)
+        step (if (=== arg-count 1) n (first args))
+        coll (if (=== arg-count 1) (first args) (second args))]
+    (lazy-seq
+      (when-let [s (seq coll)]
+        (let [p (doall (take n s))]
+          (cons p (partitionAll n step (drop step s))))))))
+
+;; partitionBy - Partitions when function result changes (lazy)
+;; Clojure: (partition-by odd? [1 1 2 2 3]) => ((1 1) (2 2) (3))
+(fn partitionBy [f coll]
+  (lazy-seq
+    (when-let [s (seq coll)]
+      (let [fst (first s)
+            fv (f fst)
+            run (doall (cons fst (takeWhile (fn [x] (=== (f x) fv)) (rest s))))]
+        (cons run (partitionBy f (drop (count run) s)))))))
+
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ;; PHASE 4: PREDICATES
 ;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -414,6 +535,18 @@
   ;; Map operations (Phase 3 self-hosted)
   mapIndexed, keepIndexed, mapcat, keep,
 
+  ;; Conditional lazy functions (Phase 3B)
+  takeWhile, dropWhile, splitWith, splitAt,
+
+  ;; Reduction variants (Phase 3C)
+  reductions,
+
+  ;; Sequence combinators (Phase 3D)
+  interleave, interpose,
+
+  ;; Partition family (Phase 3E)
+  partition, partitionAll, partitionBy,
+
   ;; Collection protocols (Week 3)
   seq, empty, conj, into,
 
@@ -436,5 +569,9 @@
   comp, partial, apply,
 
   ;; Utilities
-  groupBy, keys, doall, realized, lazySeq
+  groupBy, keys, doall, realized, lazySeq,
+
+  ;; Delay/Force (explicit laziness)
+  ;; Note: 'delay' is a special form, not a function
+  force, isDelay
 ])

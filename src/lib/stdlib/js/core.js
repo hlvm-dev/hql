@@ -134,17 +134,10 @@ export function rest(coll) {
     return new ArraySeq(coll, 1);  // O(1) count/nth operations
   }
 
-  // Generic path for other iterables
-  return lazySeq(function* () {
-    let isFirst = true;
-    for (const item of coll) {
-      if (isFirst) {
-        isFirst = false;
-        continue;
-      }
-      yield item;
-    }
-  });
+  // Generic path: delegate to seq() to maintain optimized structure
+  // This prevents re-wrapping in a new generator (O(N^2) fix)
+  const s = seq(coll);
+  return s ? s.rest() : SEQ_EMPTY;
 }
 
 /**
@@ -267,6 +260,17 @@ export function realized(coll) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
+ * Helper to create a Cons chain from an iterator.
+ * Prevents O(N^2) nesting issues inherent in generator wrappers.
+ */
+function iteratorSeq(iter) {
+  const { value, done } = iter.next();
+  if (done) return null;
+  // Use foundation's Cons/LazySeq for O(1) trampolining
+  return seqCons(value, seqLazySeq(() => iteratorSeq(iter)));
+}
+
+/**
  * Convert any collection to a lazy sequence, or return null for empty/nil
  *
  * Critical behavior: Empty collections return null (not empty LazySeq).
@@ -297,11 +301,9 @@ export function seq(coll) {
     return coll.length === 0 ? null : new ArraySeq(coll, 0);
   }
 
-  // Empty string → null
+  // String: O(1) ArraySeq (treat string as array of chars)
   if (typeof coll === "string") {
-    return coll.length === 0 ? null : lazySeq(function* () {
-      for (const char of coll) yield char;
-    });
+    return coll.length === 0 ? null : new ArraySeq(coll, 0);
   }
 
   // OLD LazySeq: check if empty by realizing first element (nil-punning)
@@ -316,40 +318,23 @@ export function seq(coll) {
 
   // Set: check if empty
   if (coll instanceof Set) {
-    return coll.size === 0 ? null : lazySeq(function* () {
-      for (const item of coll) yield item;
-    });
+    return coll.size === 0 ? null : iteratorSeq(coll[Symbol.iterator]());
   }
 
   // Map: check if empty, yield entries
   if (coll instanceof Map) {
-    return coll.size === 0 ? null : lazySeq(function* () {
-      for (const entry of coll) yield entry;
-    });
+    return coll.size === 0 ? null : iteratorSeq(coll[Symbol.iterator]());
   }
 
-  // Generic iterable (generators, custom iterables): wrap in lazy seq
-  // Must check BEFORE plain object since generators are typeof "object"
+  // Generic iterable (generators, custom iterables): wrap in Cons chain
   if (typeof coll[Symbol.iterator] === "function") {
-    // Create a one-shot wrapper - generators can only be iterated once
-    // We eagerly get the iterator and yield from it lazily
-    const iter = coll[Symbol.iterator]();
-    const first = iter.next();
-    if (first.done) return null;  // Empty iterable → null
-    return lazySeq(function* () {
-      yield first.value;
-      for (const item of { [Symbol.iterator]: () => iter }) {
-        yield item;
-      }
-    });
+    return iteratorSeq(coll[Symbol.iterator]());
   }
 
   // Plain object: check if empty, yield [key, value] entries
   if (typeof coll === "object") {
     const entries = Object.entries(coll);
-    return entries.length === 0 ? null : lazySeq(function* () {
-      for (const entry of entries) yield entry;
-    });
+    return entries.length === 0 ? null : iteratorSeq(entries[Symbol.iterator]());
   }
 
   throw new TypeError(`seq: Cannot create sequence from ${typeof coll}`);

@@ -17,6 +17,7 @@ import {
   HASH_MAP_INTERNAL,
   HASH_MAP_USER,
   LAZY_SEQ_HELPER,
+  DELAY_HELPER,
   GET_HELPER,
   GET_NUMERIC_HELPER,
   GET_OP_HELPER,
@@ -502,6 +503,67 @@ function initializeTransformFactory(): void {
           return {
             type: IR.IRNodeType.CallExpression,
             callee: { type: IR.IRNodeType.Identifier, name: LAZY_SEQ_HELPER } as IR.IRIdentifier,
+            arguments: [{
+              type: IR.IRNodeType.FunctionExpression,
+              id: null,
+              params: [],
+              body: {
+                type: IR.IRNodeType.BlockStatement,
+                body: [{
+                  type: IR.IRNodeType.ReturnStatement,
+                  argument: bodyNode,
+                } as IR.IRReturnStatement],
+              } as IR.IRBlockStatement,
+            } as IR.IRFunctionExpression],
+          } as IR.IRCallExpression;
+        },
+      );
+      // delay special form for explicit laziness (like Clojure)
+      // (delay body) → __hql_delay(() => body)
+      transformFactory.set(
+        "delay",
+        (list, currentDir) => {
+          // Get body expressions (skip the 'delay' symbol)
+          const bodyExprs = list.elements.slice(1);
+
+          // If no body, return call to __hql_delay with null-returning thunk
+          if (bodyExprs.length === 0) {
+            return {
+              type: IR.IRNodeType.CallExpression,
+              callee: { type: IR.IRNodeType.Identifier, name: DELAY_HELPER } as IR.IRIdentifier,
+              arguments: [{
+                type: IR.IRNodeType.FunctionExpression,
+                id: null,
+                params: [],
+                body: {
+                  type: IR.IRNodeType.BlockStatement,
+                  body: [{
+                    type: IR.IRNodeType.ReturnStatement,
+                    argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+                  } as IR.IRReturnStatement],
+                } as IR.IRBlockStatement,
+              } as IR.IRFunctionExpression],
+            } as IR.IRCallExpression;
+          }
+
+          // Transform body - if multiple expressions, use do
+          let bodyNode: IR.IRNode;
+          if (bodyExprs.length === 1) {
+            const transformed = transformNode(bodyExprs[0], currentDir);
+            bodyNode = transformed || { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
+          } else {
+            // Multiple expressions - wrap in do
+            bodyNode = conditionalModule.transformDo(
+              { ...list, elements: [list.elements[0], ...bodyExprs] } as ListNode,
+              currentDir,
+              transformNode,
+            );
+          }
+
+          // Create: __hql_delay(() => { return body; })
+          return {
+            type: IR.IRNodeType.CallExpression,
+            callee: { type: IR.IRNodeType.Identifier, name: DELAY_HELPER } as IR.IRIdentifier,
             arguments: [{
               type: IR.IRNodeType.FunctionExpression,
               id: null,

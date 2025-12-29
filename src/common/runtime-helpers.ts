@@ -10,7 +10,7 @@ import {
   __hql_throw,
   __hql_toSequence,
 } from "./runtime-helper-impl.ts";
-import { __hql_get_op, __hql_lazy_seq } from "../lib/stdlib/js/core.js";
+import { __hql_get_op, __hql_lazy_seq, __hql_delay } from "../lib/stdlib/js/core.js";
 import { STDLIB_PUBLIC_API } from "../lib/stdlib/js/stdlib.js";
 import { gensym as gensymImpl } from "../gensym.ts";
 
@@ -53,6 +53,7 @@ type GlobalHqlHelpers = {
   __hql_deepFreeze?: typeof __hql_deepFreeze;
   __hql_get_op?: typeof __hql_get_op;
   __hql_lazy_seq?: typeof __hql_lazy_seq;
+  __hql_delay?: typeof __hql_delay;
   gensym?: (prefix?: string) => string;
   _?: unknown;
 } & Omit<typeof globalThis, "__hql_get" | "__hql_call" | "__hql_callFn">;
@@ -318,6 +319,11 @@ function ensureHelpers(): void {
   // Self-hosted stdlib foundation: lazy-seq bridge function
   if (typeof globalAny.__hql_lazy_seq !== "function") {
     globalAny.__hql_lazy_seq = __hql_lazy_seq;
+  }
+
+  // Self-hosted stdlib foundation: delay bridge function (explicit laziness)
+  if (typeof globalAny.__hql_delay !== "function") {
+    globalAny.__hql_delay = __hql_delay;
   }
 
   // Add gensym for hygienic macros
