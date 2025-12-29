@@ -119,3 +119,11 @@ hql repl
 ## Contributing
 
 Contributions welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+---
+
+## License
+
+HQL is licensed under the [MIT License](./LICENSE).
+
+This project includes third-party dependencies with their own licenses. See [THIRD-PARTY-LICENSES](./THIRD-PARTY-LICENSES) for details.

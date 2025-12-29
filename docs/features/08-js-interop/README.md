@@ -167,15 +167,15 @@ HQL supports both spaced and spaceless dot notation. **Both compile to identical
 **Example equivalence:**
 ```lisp
 ;; These three are equivalent:
-(data.filter even?.map double.slice 0 5)     ; spaceless
-(data .filter even? .map double .slice 0 5)  ; spaced
+(data.filter isEven.map double.slice 0 5)    ; spaceless
+(data .filter isEven .map double .slice 0 5) ; spaced
 (data                                         ; multiline
-  .filter even?
+  .filter isEven
   .map double
   .slice 0 5)
 ```
 
-All generate: `data.filter(even).map(double).slice(0, 5)`
+All generate: `data.filter(isEven).map(double).slice(0, 5)`
 
 ### Optional Chaining (v2.0)
 
