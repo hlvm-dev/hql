@@ -2,8 +2,7 @@
 // Wraps JavaScript stdlib functions for use at macro-time
 
 import { STDLIB_PUBLIC_API } from "../lib/stdlib/js/index.js";
-import { LazySeq } from "../lib/stdlib/js/internal/lazy-seq.js";
-import { LazySeq as SeqLazySeq, SEQ } from "../lib/stdlib/js/internal/seq-protocol.js";
+import { LazySeq, SEQ } from "../lib/stdlib/js/internal/seq-protocol.js";
 import type { HQLValue, BuiltinFn, Interpreter as IInterpreter, InterpreterEnv } from "./types.ts";
 import { isHQLFunction, isSExp } from "./types.ts";
 import type { Interpreter } from "./interpreter.ts";
@@ -202,16 +201,10 @@ export function jsToHql(value: unknown, maxLength: number = MAX_SEQ_LENGTH): HQL
     return value;
   }
 
-  // Old generator-based LazySeq -> realize to array (with limit)
-  if (value instanceof LazySeq) {
-    const arr = value.toArray(maxLength);
-    return arr.map((item) => jsToHql(item, maxLength)) as HQLValue[];
-  }
-
-  // New seq-protocol LazySeq (and other SEQ types) -> realize to array
+  // LazySeq and other SEQ types -> realize to array (with limit)
   // IMPORTANT: Use take() to limit iteration BEFORE collecting, not after!
   // Array.from() on an infinite sequence will never complete.
-  if (value instanceof SeqLazySeq || (typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[SEQ])) {
+  if (value instanceof LazySeq || (typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[SEQ])) {
     const arr: unknown[] = [];
     let count = 0;
     for (const item of value as Iterable<unknown>) {

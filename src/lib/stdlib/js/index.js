@@ -4,13 +4,13 @@
 import * as Core from "./core.js";
 import * as SelfHosted from "./self-hosted.js";
 
-// Export LazySeq class for advanced users (instanceof checks)
-export { LazySeq } from "./internal/lazy-seq.js";
-
-// Export NumericRange, Delay, and Chunking primitives for advanced users
+// Export LazySeq, NumericRange, Delay, and Chunking primitives for advanced users
+// CONSOLIDATED: All lazy sequences use seq-protocol.js (thunk-based, O(1) rest)
 export {
+  LazySeq,
   NumericRange,
   Delay,
+  isSeq,
   // Chunking infrastructure (32-element batches like Clojure)
   CHUNK_SIZE,
   ArrayChunk,

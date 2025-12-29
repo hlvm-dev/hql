@@ -1,17 +1,17 @@
 // core.js - Bootstrap primitives and non-self-hosted functions
 // Self-hosted functions are in self-hosted.js (transpiled from stdlib.hql)
 
-import { LazySeq, lazySeq } from "./internal/lazy-seq.js";
 import { rangeCore } from "./internal/range-core.js";
 
 // Import Clojure-aligned foundation for lazy-seq support
+// CONSOLIDATED: All lazy sequences use seq-protocol.js (thunk-based, O(1) rest)
 import {
   lazySeq as seqLazySeq,
   cons as seqCons,
   EMPTY as SEQ_EMPTY,
   SEQ,
   isCons,
-  LazySeq as SeqLazySeq,
+  LazySeq,
   ArraySeq,
   NumericRange,
   Delay,
@@ -94,11 +94,6 @@ export function first(coll) {
   // Optimize for arrays
   if (Array.isArray(coll)) {
     return coll.length > 0 ? coll[0] : undefined;
-  }
-
-  // Optimize for old LazySeq
-  if (coll instanceof LazySeq) {
-    return coll.get(0);
   }
 
   // General iterable
@@ -244,12 +239,8 @@ export function realized(coll) {
   if (coll instanceof Delay) {
     return coll._realized;
   }
-  // Old generator-based LazySeq
+  // LazySeq (thunk-based, from seq-protocol.js)
   if (coll instanceof LazySeq) {
-    return coll._exhausted;
-  }
-  // New seq-protocol LazySeq
-  if (coll instanceof SeqLazySeq) {
     return coll._isRealized;
   }
   return true; // Non-lazy collections are always realized
@@ -304,16 +295,6 @@ export function seq(coll) {
   // String: O(1) ArraySeq (treat string as array of chars)
   if (typeof coll === "string") {
     return coll.length === 0 ? null : new ArraySeq(coll, 0);
-  }
-
-  // OLD LazySeq: check if empty by realizing first element (nil-punning)
-  // This is necessary for proper termination in recursive patterns like self-hosted map
-  if (coll instanceof LazySeq) {
-    coll._realize(1);
-    if (coll._exhausted && coll._realized.length === 0) {
-      return null;  // Empty → null for nil-punning
-    }
-    return coll;
   }
 
   // Set: check if empty
@@ -536,7 +517,7 @@ export function __hql_get_op(op) {
 }
 
 // Export lazySeq for creating custom lazy sequences
-export { lazySeq };
+export { seqLazySeq as lazySeq };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // DELAY/FORCE - Explicit laziness primitives
@@ -860,7 +841,7 @@ export function chunkedReduce(f, init, coll) {
       if (seqIsReduced(acc)) return seqUnreduced(acc);
       current = current.chunkRest();
       // Handle LazySeq rest
-      if (current instanceof SeqLazySeq) current = current._realize?.() ?? current;
+      if (current instanceof LazySeq) current = current._realize?.() ?? current;
     }
     return acc;
   }

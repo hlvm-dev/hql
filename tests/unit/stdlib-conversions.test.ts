@@ -40,8 +40,9 @@ Deno.test("vec: from string", () => {
 
 Deno.test("vec: from LazySeq", async () => {
   const { LazySeq } = await import(
-    "../../src/lib/stdlib/js/internal/lazy-seq.js"
+    "../../src/lib/stdlib/js/internal/seq-protocol.js"
   );
+  // New LazySeq accepts generator functions (backwards compat)
   const lazy = new LazySeq(function* () {
     yield 1;
     yield 2;

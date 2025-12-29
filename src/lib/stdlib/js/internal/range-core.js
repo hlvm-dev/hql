@@ -1,8 +1,7 @@
 // range-core.js
 // Shared core implementation of range used by both stdlib and transpiler helpers
 
-import { lazySeq } from "./lazy-seq.js";
-import { NumericRange } from "./seq-protocol.js";
+import { NumericRange, lazySeq, cons } from "./seq-protocol.js";
 
 /**
  * Core range implementation (shared by stdlib.range and __hql_range)
@@ -10,7 +9,7 @@ import { NumericRange } from "./seq-protocol.js";
  * Generates a sequence of numbers from start to end with given step.
  *
  * OPTIMIZATION: Uses NumericRange for finite ranges (O(1) count/nth),
- * falls back to generator-based LazySeq for infinite ranges.
+ * uses Cons-chain LazySeq for infinite ranges (O(1) rest).
  *
  * @param {number} start - Starting number
  * @param {number|undefined} end - Ending number (exclusive), or undefined for infinite sequence
@@ -20,13 +19,9 @@ import { NumericRange } from "./seq-protocol.js";
 export function rangeCore(start, end, step) {
   // Infinite sequence case (no end specified or Infinity)
   if (end === undefined || end === Infinity || end === -Infinity) {
-    return lazySeq(function* () {
-      let i = start;
-      while (true) {
-        yield i;
-        i += step;
-      }
-    });
+    // Use Cons-chain LazySeq (O(1) rest, Clojure-aligned)
+    const makeRange = (n) => lazySeq(() => cons(n, makeRange(n + step)));
+    return makeRange(start);
   }
 
   // Finite range: Use NumericRange for O(1) count/nth

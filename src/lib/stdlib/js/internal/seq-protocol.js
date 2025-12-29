@@ -117,6 +117,17 @@ Cons.prototype[SEQ] = true;
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
+ * Helper: Convert an iterator/generator to a Cons chain.
+ * Used for backwards compatibility with generator-based LazySeq.
+ */
+function iteratorToConsChain(iter) {
+  const { value, done } = iter.next();
+  if (done) return null;
+  // Create Cons with lazy rest (will be realized on demand)
+  return new Cons(value, new LazySeq(() => iteratorToConsChain(iter)));
+}
+
+/**
  * LazySeq - Deferred sequence computation with memoization.
  *
  * Key features:
@@ -138,6 +149,7 @@ export class LazySeq {
   /**
    * Realize with trampolining (like Clojure's sval + unwrap).
    * Unwraps nested LazySeqs iteratively to prevent stack overflow.
+   * Also handles generator functions for backwards compatibility.
    */
   _realize() {
     if (this._isRealized) return this._realized;
@@ -145,14 +157,24 @@ export class LazySeq {
     let result = this._thunk;
     this._thunk = null; // GC: release closure
 
-    // Call thunk
+    // Call thunk (or generator function)
     if (typeof result === "function") result = result();
+
+    // BACKWARDS COMPAT: Handle generators (convert to Cons chain)
+    if (result && typeof result[Symbol.iterator] === "function" && typeof result.next === "function") {
+      // It's a generator/iterator - convert to Cons chain
+      result = iteratorToConsChain(result);
+    }
 
     // TRAMPOLINE: unwrap nested LazySeqs iteratively
     while (result instanceof LazySeq && !result._isRealized) {
       const nested = result._thunk;
       result._thunk = null; // GC
       result = typeof nested === "function" ? nested() : nested;
+      // Handle generators in nested thunks too
+      if (result && typeof result[Symbol.iterator] === "function" && typeof result.next === "function") {
+        result = iteratorToConsChain(result);
+      }
     }
 
     // Get cached value from realized LazySeq

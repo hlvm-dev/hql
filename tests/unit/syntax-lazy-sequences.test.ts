@@ -28,27 +28,36 @@ const {
   rangeGenerator,
   SEQ,
   isSeq,
-  SeqLazySeq,
 } = await import(stdlibPath);
 
-Deno.test("LazySeq: iterator created only once", () => {
-  let iteratorCreateCount = 0;
+// Import first/rest from core for testing LazySeq behavior
+const corePath =
+  new URL("../../src/lib/stdlib/js/core.js", import.meta.url).pathname;
+const { first, rest } = await import(corePath);
+
+// Import nth from self-hosted (it's a self-hosted function)
+const selfHostedPath =
+  new URL("../../src/lib/stdlib/js/self-hosted.js", import.meta.url).pathname;
+const { nth } = await import(selfHostedPath);
+
+Deno.test("LazySeq: thunk called only once (memoization)", () => {
+  let thunkCallCount = 0;
   const seq = new LazySeq(function* () {
-    iteratorCreateCount++;
+    thunkCallCount++;
     yield 10;
     yield 20;
     yield 30;
   });
 
-  seq.get(0);
-  assertEquals(iteratorCreateCount, 1, "Iterator created on first access");
+  first(seq);
+  assertEquals(thunkCallCount, 1, "Thunk called on first access");
 
-  seq.get(1);
-  seq.get(2);
+  first(seq);
+  first(rest(seq));
   assertEquals(
-    iteratorCreateCount,
+    thunkCallCount,
     1,
-    "Iterator NOT re-created on subsequent access",
+    "Thunk NOT re-called on subsequent access",
   );
 });
 
@@ -61,13 +70,13 @@ Deno.test("LazySeq: memoization works", () => {
     }
   });
 
-  seq.get(2); // Computes [0, 2, 4]
+  nth(seq, 2); // Computes [0, 2, 4]
   assertEquals(computeCount, 3);
 
-  seq.get(1); // Uses cache, no new computation
+  nth(seq, 1); // Uses cache, no new computation
   assertEquals(computeCount, 3);
 
-  seq.get(4); // Computes [6, 8]
+  nth(seq, 4); // Computes [6, 8]
   assertEquals(computeCount, 5);
 });
 
@@ -140,12 +149,15 @@ Deno.test("REPL: toString() shows preview (max 20 items)", () => {
   });
 
   const str = seq.toString();
-  assertEquals(seq._realized.length, 20, "Only realizes 20 items");
+  // New implementation uses Cons chains, toString limits to 20 items
   assertEquals(
     str.includes("..."),
     true,
     "Shows '...' for truncated sequences",
   );
+  // Verify it's showing about 20 items by counting spaces (Lisp format: (0 1 2 ...))
+  const itemCount = str.split(" ").length;
+  assertEquals(itemCount >= 20, true, "Shows at least 20 items in preview");
 });
 
 Deno.test("REPL: toString() shows full content for small sequences", () => {
@@ -156,7 +168,8 @@ Deno.test("REPL: toString() shows full content for small sequences", () => {
   });
 
   const str = seq.toString();
-  assertEquals(str, "[1,2,3]");
+  // New implementation uses Lisp format: (1 2 3)
+  assertEquals(str, "(1 2 3)");
   assertEquals(str.includes("..."), false, "No '...' for small sequences");
 });
 
@@ -167,31 +180,36 @@ Deno.test("REPL: infinite sequences don't hang", () => {
   const str = infiniteSeq.toString();
   const end = Date.now();
 
-  assertEquals(infiniteSeq._realized.length, 20, "Limits to 20 items");
+  // New implementation limits toString() to 20 items automatically
   assertEquals((end - start) < 1000, true, "Completes quickly (< 1 second)");
   assertEquals(str.includes("..."), true, "Shows '...' for infinite sequences");
 });
 
-Deno.test("REPL: inspect() returns array with '...' for large sequences", () => {
+Deno.test("REPL: large sequences show preview with ellipsis", () => {
   const seq = lazySeq(function* () {
     for (let i = 0; i < 50; i++) {
       yield i * 2;
     }
   });
 
-  const inspected = seq.inspect();
-  assertEquals(inspected.length, 21, "20 items + '...'");
-  assertEquals(inspected[20], "...");
+  // New implementation: toString() on Cons limits to 20 items
+  const str = seq.toString();
+  assertEquals(str.includes("..."), true, "Shows '...' for large sequences");
+  // Should contain first few items
+  assertEquals(str.includes("0"), true, "Contains first item");
+  assertEquals(str.includes("2"), true, "Contains second item");
 });
 
-Deno.test("REPL: inspect() shows full content for small sequences", () => {
+Deno.test("REPL: small sequences show full content", () => {
   const seq = lazySeq(function* () {
     yield 10;
     yield 20;
   });
 
-  const inspected = seq.inspect();
-  assertEquals(inspected, [10, 20]);
+  // New implementation: toString() shows all items for small sequences
+  const str = seq.toString();
+  assertEquals(str, "(10 20)");
+  assertEquals(str.includes("..."), false, "No ellipsis for small sequences");
 });
 
 Deno.test("REPL: no computation until toString() called", () => {
@@ -206,7 +224,9 @@ Deno.test("REPL: no computation until toString() called", () => {
   assertEquals(computeCount, 0, "No computation before toString()");
 
   seq.toString();
-  assertEquals(computeCount, 20, "Only computes 20 items for preview");
+  // New implementation: Cons.toString() computes 21 items (shows 21st check for ...)
+  assertEquals(computeCount <= 22, true, "Only computes ~20 items for preview");
+  assertEquals(computeCount >= 20, true, "Computes at least 20 items");
 });
 
 Deno.test("map: returns lazy sequence (SEQ protocol)", () => {
