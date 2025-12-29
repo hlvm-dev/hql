@@ -325,9 +325,9 @@ src/lib/stdlib/
 │       │   └── LazySeq, Cons, ArraySeq, EMPTY
 │       │   └── SEQ, COUNTED, INDEXED protocols
 │       │
-│       └── lazy-seq.js           # Generator-based lazy seqs (OLD)
-│           └── Used by range, map, filter in core.js
-│           └── WILL BE DEPRECATED
+       └── lazy-seq.js           # Generator-based lazy seqs (OLD)
+           └── Used by range, map, filter in core.js
+           └── DEPRECATED (Use seq-protocol.js instead)
 ```
 
 ### Data Flow

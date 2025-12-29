@@ -41,8 +41,6 @@ function createColorConfig() {
     bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
     dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
     underline: (s: string) => `\x1b[4m${s}\x1b[0m`,
-    // Legacy alias for compatibility
-    purple: (s: string) => `\x1b[35m${s}\x1b[0m`,
     black: (s: string) => `\x1b[30m${s}\x1b[0m`,
   };
 }

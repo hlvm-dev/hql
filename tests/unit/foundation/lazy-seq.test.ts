@@ -784,4 +784,85 @@ Deno.test("performance: ArraySeq O(1) operations after repeated rest()", () => {
   assertEquals(current.nth(499), 999);
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CHUNK PROPAGATION TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+const { isChunked, ChunkedCons, toChunkedSeq, CHUNK_SIZE } = seqProtocol;
+const core = await import("../../../src/lib/stdlib/js/core.js");
+const { map, filter, reduce } = await import("../../../src/lib/stdlib/js/self-hosted.js");
+
+Deno.test("chunking: toChunkedSeq creates ChunkedCons from large array", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const chunked = toChunkedSeq(arr);
+
+  assertEquals(isChunked(chunked), true, "Result should be chunked");
+  assertEquals(chunked instanceof ChunkedCons, true, "Should be ChunkedCons instance");
+
+  // Verify first chunk has 32 elements
+  const firstChunk = chunked.chunkFirst();
+  assertEquals(firstChunk.count(), CHUNK_SIZE, "First chunk should have 32 elements");
+});
+
+Deno.test("chunking: map propagates through chunked input", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+
+  // First map - should create chunked result
+  const mapped1 = map((x: number) => x * 2, arr);
+  // Result should be a LazySeq wrapping ChunkedCons
+
+  // Second map on chunked result - should also use chunked path
+  const mapped2 = map((x: number) => x + 1, mapped1);
+
+  // Verify correctness
+  const result = [...mapped2];
+  assertEquals(result.length, 100);
+  assertEquals(result[0], 1);    // (0 * 2) + 1 = 1
+  assertEquals(result[1], 3);    // (1 * 2) + 1 = 3
+  assertEquals(result[99], 199); // (99 * 2) + 1 = 199
+});
+
+Deno.test("chunking: filter propagates through chunked input", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+
+  // First filter on large array
+  const filtered1 = filter((x: number) => x % 2 === 0, arr);
+
+  // Second filter on filtered result - should use chunked path if propagated
+  const filtered2 = filter((x: number) => x % 4 === 0, filtered1);
+
+  // Verify correctness
+  const result = [...filtered2];
+  assertEquals(result, [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 96]);
+});
+
+Deno.test("chunking: map -> filter chain works correctly", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+
+  // Chain: map -> filter -> map
+  const result = [...map(
+    (x: number) => x * 10,
+    filter(
+      (x: number) => x > 10,
+      map((x: number) => x + 5, arr)
+    )
+  )];
+
+  // x + 5 > 10 means x > 5, so we start at 6
+  // (6 + 5) * 10 = 110, (7 + 5) * 10 = 120, ...
+  assertEquals(result[0], 110);
+  assertEquals(result.length, 94); // 100 - 6 = 94 elements pass filter
+});
+
+Deno.test("chunking: reduce on chunked sequence works", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+
+  // Map creates chunked result, then reduce should use chunked path
+  const mapped = map((x: number) => x * 2, arr);
+  const sum = reduce((acc: number, x: number) => acc + x, 0, mapped);
+
+  // Sum of 0*2 + 1*2 + ... + 99*2 = 2 * (0 + 1 + ... + 99) = 2 * 4950 = 9900
+  assertEquals(sum, 9900);
+});
+
 console.log("All foundation unit tests defined!");

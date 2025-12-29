@@ -1012,8 +1012,8 @@ obj?.optionalProp     ; Optional chaining
 (dec x)               ; (- x 1)
 (str a b c)           ; String concatenation
 (print & args)        ; console.log
-(empty? coll)         ; Check if empty
-(nil? x)              ; Check if nil
+(isEmpty coll)        ; Check if empty
+(isNil x)             ; Check if nil
 ```
 
 ---

@@ -627,11 +627,14 @@ export class ChunkedCons {
     if (dropped) {
       return new ChunkedCons(dropped, this._rest);
     }
-    // Chunk exhausted, return rest
+    // Chunk exhausted, return rest (the next chunk or sequence)
     const r = this._rest;
     if (!r || r === EMPTY) return EMPTY;
-    // Trampoline through LazySeq
-    if (r instanceof LazySeq) return r.rest();
+    // Realize LazySeq to get the next ChunkedCons (don't skip with .rest()!)
+    if (r instanceof LazySeq) {
+      const realized = r._realize?.() ?? r.seq?.();
+      return realized ?? EMPTY;
+    }
     return r;
   }
 

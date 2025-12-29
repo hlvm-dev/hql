@@ -847,14 +847,14 @@ def greet(name="World"):
 ; ✅ Good: Early returns
 (fn process [data]
   (if (not data) (return null))
-  (if (empty? data) (return []))
+  (if (isEmpty data) (return []))
   ; Main logic
   data)
 
 ; ❌ Avoid: Deep nesting
 (fn process [data]
   (if data
-    (if (not (empty? data))
+    (if (not (isEmpty data))
       ; Main logic
       data
       [])
@@ -877,7 +877,7 @@ def greet(name="World"):
   (and (contains? user.email "@")
        (>= user.age 18)
        (< user.age 120)
-       (not (empty? user.name))
+       (not (isEmpty user.name))
        ...))
 ```
 

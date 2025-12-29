@@ -456,13 +456,6 @@ function parseExpressionByTokenType(token: Token, state: ParserState): SExp {
  * Enhanced Import Statement Processing - Detects and validates import statements
  * Uses a more general approach to check structure without hardcoding specific typos
  */
-// core/src/transpiler/pipeline/parser.ts
-// Only showing the key function that needs updating:
-
-/**
- * Enhanced Import Statement Processing - Detects and validates import statements
- * Uses a more general approach to check structure without hardcoding specific typos
- */
 function parseImportStatement(elements: SExp[]): SList {
   // Check if we're parsing an import statement
   if (

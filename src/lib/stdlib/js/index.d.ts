@@ -372,3 +372,8 @@ export function apply<T>(
  * Creates infinite sequence by repeatedly applying function
  */
 export function iterate<T>(fn: (value: T) => T, init: T): Iterable<T>;
+
+/**
+ * Checks if value implements SEQ protocol
+ */
+export function isSeq(value: any): boolean;

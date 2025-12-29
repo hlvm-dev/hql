@@ -9,6 +9,7 @@ import {
   reduced,
   isReduced,
   ensureReduced,
+  isChunked,
   TRANSDUCER_INIT,
   TRANSDUCER_STEP,
   TRANSDUCER_RESULT,
@@ -73,8 +74,9 @@ export function map(f, ...colls) {
     // Single collection
     const coll = colls[0];
 
-    // Optimization: Use chunked path for large arrays (32+ elements)
-    if (Array.isArray(coll) && coll.length >= CHUNK_SIZE) {
+    // Optimization: Use chunked path for large arrays OR already-chunked seqs
+    // This enables chunk propagation through operation chains
+    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
       return chunkedMap(f, coll);
     }
 
@@ -113,8 +115,9 @@ export function filter(pred, coll) {
     throw new TypeError("filter: predicate must be a function, got " + typeof pred);
   }
 
-  // Optimization: Use chunked path for large arrays (32+ elements)
-  if (Array.isArray(coll) && coll.length >= CHUNK_SIZE) {
+  // Optimization: Use chunked path for large arrays OR already-chunked seqs
+  // This enables chunk propagation through operation chains
+  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
     return chunkedFilter(pred, coll);
   }
 
@@ -165,9 +168,11 @@ export function reduce(f, initOrColl, maybeColl) {
     acc = first(s);
     s = seq(rest(s));
 
-    // Optimization: Use chunked path for large arrays (after taking first as init)
-    if (Array.isArray(coll) && coll.length >= CHUNK_SIZE) {
-      return chunkedReduce(f, acc, coll.slice(1));
+    // Optimization: Use chunked path for large arrays OR already-chunked seqs
+    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+      // For 2-arity, skip first element (already used as init)
+      const restColl = Array.isArray(coll) ? coll.slice(1) : rest(coll);
+      return chunkedReduce(f, acc, restColl);
     }
   } else {
     // 3-arity: (reduce f init coll)
@@ -175,8 +180,8 @@ export function reduce(f, initOrColl, maybeColl) {
     coll = maybeColl;
     s = seq(coll);
 
-    // Optimization: Use chunked path for large arrays (32+ elements)
-    if (Array.isArray(coll) && coll.length >= CHUNK_SIZE) {
+    // Optimization: Use chunked path for large arrays OR already-chunked seqs
+    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
       return chunkedReduce(f, acc, coll);
     }
   }

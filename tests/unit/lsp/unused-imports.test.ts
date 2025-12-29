@@ -264,7 +264,6 @@ Deno.test("UnusedImports - symbol in string still counts as unused", () => {
 
 Deno.test("UnusedImports - symbol in comment still counts as unused", () => {
   const code = `(import [helper] from "./utils.hql")
-; TODO: use helper here
 (print "done")`;
 
   const result = analyzeUnusedImports(code, "test.hql");

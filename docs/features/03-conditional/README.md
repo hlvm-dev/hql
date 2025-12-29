@@ -132,7 +132,7 @@ All conditionals are **expressions** that return values (not statements).
 
 ```lisp
 ; Execute when false
-(unless (empty? list)
+(unless (isEmpty list)
   (print "list has items")
   (process list))
 

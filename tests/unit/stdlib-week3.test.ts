@@ -10,6 +10,7 @@ import {
   empty,
   first,
   into,
+  isSeq,
   LazySeq,
   seq,
 } from "../../src/lib/stdlib/js/index.js";
@@ -42,7 +43,7 @@ Deno.test("seq: undefined returns null", () => {
 
 Deno.test("seq: string returns character sequence", () => {
   const result = seq("abc");
-  assertEquals(result instanceof LazySeq, true);
+  assertEquals(isSeq(result), true);
   assertEquals(doall(result!), ["a", "b", "c"]);
 });
 
@@ -53,7 +54,7 @@ Deno.test("seq: empty string returns null", () => {
 
 Deno.test("seq: Set returns LazySeq", () => {
   const result = seq(new Set([1, 2, 3]));
-  assertEquals(result instanceof LazySeq, true);
+  assertEquals(isSeq(result), true);
   assertEquals(doall(result!), [1, 2, 3]);
 });
 
@@ -64,13 +65,13 @@ Deno.test("seq: empty Set returns null", () => {
 
 Deno.test("seq: Map returns entry sequence", () => {
   const result = seq(new Map([[1, 2], [3, 4]]));
-  assertEquals(result instanceof LazySeq, true);
+  assertEquals(isSeq(result), true);
   assertEquals(doall(result!), [[1, 2], [3, 4]]);
 });
 
 Deno.test("seq: object returns entry sequence", () => {
   const result = seq({ a: 1, b: 2 });
-  assertEquals(result instanceof LazySeq, true);
+  assertEquals(isSeq(result), true);
   const entries = doall(result!);
   assertEquals(entries.length, 2);
   assertEquals(entries[0], ["a", 1]);

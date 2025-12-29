@@ -828,7 +828,7 @@ Swaps the then and else branches:
 (if-not condition then else)
 ; Equivalent to: (if condition else then)
 
-(if-not (empty? list)
+(if-not (isEmpty list)
   (process list)
   (print "empty"))
 ```

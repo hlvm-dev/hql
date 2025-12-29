@@ -76,21 +76,43 @@ hql repl
 
 **Learning:**
 
-- [Learning Guide](./docs/GUIDE.md) - Complete guide from beginner to advanced
 - [Quick Start](./docs/QUICKSTART.md) - 5-minute introduction
+- [Learning Guide](./docs/GUIDE.md) - Complete guide from beginner to advanced
 - [Manual](./docs/MANUAL.md) - Language reference
+
+**Language Reference:**
+
+- [Syntax Reference](./docs/HQL-SYNTAX.md) - Definitive syntax documentation
+- [Quick Reference Card](./docs/REFERENCE.md) - Syntax at a glance
+- [Type System](./docs/TYPE-SYSTEM.md) - TypeScript type annotations
+- [Style Guide](./docs/style-guide.md) - Coding conventions
+
+**API Reference:**
+
+- [Standard Library](./docs/api/stdlib.md) - Sequence operations, collections
+- [Built-ins](./docs/api/builtins.md) - Runtime primitives
+- [Module System](./docs/api/module-system.md) - Import/export resolution
+- [Runtime](./docs/api/runtime.md) - Runtime environment
+
+**Feature Documentation:**
+
+- [Language Features](./docs/features/) - Complete feature specs (17 features)
 
 **Development:**
 
 - [Build Guide](./docs/BUILD.md) - Building from source
 - [Testing Guide](./docs/TESTING.md) - Running and writing tests
 - [Contributing](./CONTRIBUTING.md) - Contribution guidelines
+- [Release Guide](./docs/RELEASING.md) - Creating releases
 
-**Reference:**
+**Tooling:**
 
-- [Standard Library](./docs/api/stdlib.md) - Built-in functions
-- [Language Features](./docs/features/) - Feature documentation
-- [API Reference](./docs/api/) - Complete API
+- [LSP & Editor Support](./docs/LSP.md) - VS Code extension
+- [Error System](./docs/ERROR-SYSTEM.md) - Error reporting and source maps
+
+**Internals:**
+
+- [Self-Hosted Stdlib](./docs/SELF-HOSTED-STDLIB.md) - Stdlib design philosophy
 
 ---
 

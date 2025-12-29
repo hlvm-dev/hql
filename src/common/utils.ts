@@ -328,9 +328,4 @@ export function setWithSanitized<T>(map: Map<string, T>, name: string, value: T)
   }
 }
 
-// ============================================================================
-// Type Annotation Utilities - MOVED TO ../transpiler/tokenizer/type-tokenizer.ts
-// ============================================================================
-// Type-related functions (findTypeAnnotationColon, normalizeType, normalizeArrayType)
-// are now in the dedicated type tokenizer module for proper separation of concerns.
-// Import from "../transpiler/tokenizer/type-tokenizer.ts" instead.
+

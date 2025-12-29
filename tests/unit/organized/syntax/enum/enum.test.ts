@@ -176,7 +176,6 @@ Deno.test("Enum: access associated values from enum instance", async () => {
 // SECTION 4: TYPE INFERENCE WITH DOT NOTATION
 // ============================================================================
 
-// TODO: Dot notation type inference not yet implemented
 // Should allow (install .macOS) instead of (install OS.macOS)
 Deno.test("Enum: dot notation in function parameters", async () => {
   const code = `
@@ -198,7 +197,6 @@ Deno.test("Enum: dot notation in function parameters", async () => {
   assertEquals(result, "Installing on macOS");
 });
 
-// TODO: Dot notation type inference not yet implemented
 // Should allow (checkStatus .ok) instead of (checkStatus StatusCode.ok)
 Deno.test("Enum: dot notation in equality", async () => {
   const code = `

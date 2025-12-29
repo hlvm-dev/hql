@@ -157,7 +157,7 @@ Applies function to each element, returning lazy sequence.
 Returns lazy sequence of elements satisfying predicate.
 
 ```lisp
-(filter even? [1 2 3 4])           ;; → (2 4)
+(filter isEven [1 2 3 4])          ;; → (2 4)
 (filter (fn [x] (> x 5)) [3 6 9])  ;; → (6 9)
 ```
 
@@ -199,7 +199,7 @@ Maps function receiving (index, item) over collection.
 Like mapIndexed but filters nil results.
 
 ```lisp
-(keepIndexed (fn [i x] (if (even? i) x nil)) ["a" "b" "c" "d"])
+(keepIndexed (fn [i x] (if (isEven i) x nil)) ["a" "b" "c" "d"])
 ;; → ("a" "c")
 ```
 
@@ -301,8 +301,8 @@ Returns true if collection is empty.
 Returns first truthy value of (pred item), or nil.
 
 ```lisp
-(some even? [1 3 5])               ;; → nil
-(some even? [1 2 3])               ;; → 2 (first matching item)
+(some isEven [1 3 5])              ;; → nil
+(some isEven [1 2 3])              ;; → 2 (first matching item)
 (some #(> % 5) [1 3 6 9])          ;; → 6
 ```
 
@@ -313,9 +313,9 @@ Returns first truthy value of (pred item), or nil.
 Returns true if predicate returns truthy for all elements.
 
 ```lisp
-(every even? [2 4 6])              ;; → true
-(every even? [2 3 4])              ;; → false
-(every pos? [])                    ;; → true (vacuous truth)
+(every isEven [2 4 6])             ;; → true
+(every isEven [2 3 4])             ;; → false
+(every isPositive [])              ;; → true (vacuous truth)
 ```
 
 ---
@@ -325,8 +325,8 @@ Returns true if predicate returns truthy for all elements.
 Returns true if predicate returns false for all elements.
 
 ```lisp
-(notAny even? [1 3 5])             ;; → true
-(notAny even? [1 2 3])             ;; → false
+(notAny isEven [1 3 5])            ;; → true
+(notAny isEven [1 2 3])            ;; → false
 ```
 
 ---
@@ -336,8 +336,8 @@ Returns true if predicate returns false for all elements.
 Returns true if predicate returns false for at least one element.
 
 ```lisp
-(notEvery even? [2 4 6])           ;; → false
-(notEvery even? [2 3 4])           ;; → true
+(notEvery isEven [2 4 6])          ;; → false
+(notEvery isEven [2 3 4])          ;; → true
 ```
 
 ---
