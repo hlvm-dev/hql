@@ -12,9 +12,22 @@ import {
 import { sanitizeIdentifier } from "../../common/utils.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import { processVectorElements } from "./data-structure.ts";
-import { globalSymbolTable } from "../symbol_table.ts";
+import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
 import { globalMacroRegistry } from "../../imports.ts";
 import { ALL_DECLARATION_BINDING_KEYWORDS_SET } from "../keyword/primitives.ts";
+
+// Module-level symbol table for current import/export processing
+// Set by setCurrentSymbolTable(), used by transformVectorExport/transformVectorImport
+// This enables isolation when context.symbolTable is provided
+let currentSymbolTable: SymbolTable = globalSymbolTable;
+
+/**
+ * Set the symbol table for import/export processing.
+ * Called from hql-ast-to-hql-ir.ts to synchronize with compilation context.
+ */
+export function setCurrentSymbolTable(table: SymbolTable): void {
+  currentSymbolTable = table;
+}
 
 /** Valid export declaration types - cached Set for O(1) lookup */
 const VALID_EXPORT_DECLARATION_TYPES: ReadonlySet<IR.IRNodeType> = new Set([
@@ -280,7 +293,7 @@ export function transformVectorExport(
         const localName = (elem as SymbolNode).name;
 
         // Check if this is a macro - macros should not be exported as runtime values
-        const symbolInfo = globalSymbolTable.get(localName);
+        const symbolInfo = currentSymbolTable.get(localName);
         const isSymbolTableMacro = symbolInfo?.kind === "macro";
         const isRegistryMacro = globalMacroRegistry.has(localName);
         const isMacro = isSymbolTableMacro || isRegistryMacro;
@@ -386,7 +399,7 @@ export function transformVectorImport(
 
           // Check if this symbol is a macro - macros should not be in JS imports
           // Check both symbol table and global macro registry for consistency
-          const symbolInfo = globalSymbolTable.get(symbolName);
+          const symbolInfo = currentSymbolTable.get(symbolName);
           const isSymbolTableMacro = symbolInfo?.kind === "macro";
           const isRegistryMacro = globalMacroRegistry.has(symbolName) ||
                                    globalMacroRegistry.has(sanitizeIdentifier(symbolName));

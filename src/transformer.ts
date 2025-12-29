@@ -16,6 +16,7 @@ import {
   findExternalModuleReferences,
   importSourceRegistry,
 } from "./common/import-utils.ts";
+import type { CompilerContext } from "./transpiler/compiler-context.ts";
 
 /**
  * Options controlling transformation behavior.
@@ -79,13 +80,18 @@ function processImportNodes(ast: HQLNode[], env: Environment): HQLNode[] {
 
 /**
  * Transforms HQL AST nodes through all pipeline phases and outputs TS code.
+ * @param astNodes - The AST nodes to transform
+ * @param currentDir - Current directory for path resolution
+ * @param options - Transformation options
+ * @param env - Optional environment
+ * @param context - Optional compiler context for isolated compilation
  */
-// Update transformAST function in transformer.ts
 export async function transformAST(
   astNodes: HQLNode[],
   currentDir: string,
   options: TransformOptions = {},
   env?: Environment,
+  context?: CompilerContext,
 ): Promise<{ code: string; sourceMap?: string; ir?: unknown }> {
   try {
     const timer = new Timer(logger);
@@ -106,7 +112,7 @@ export async function transformAST(
 
     timer.phase("import processing");
 
-    const ir = transformToIR(imports, currentDir);
+    const ir = transformToIR(imports, currentDir, context);
 
     timer.phase("IR transformation");
 

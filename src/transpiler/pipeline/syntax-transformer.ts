@@ -19,8 +19,9 @@ import { HQLError, perform, TransformError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import type { ListNode, SymbolNode } from "../type/hql_ast.ts";
-import { globalSymbolTable } from "../symbol_table.ts";
+import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
 import type { SymbolKind } from "../symbol_table.ts";
+import { getSymbolTable, type CompilerContext } from "../compiler-context.ts";
 import {
   VECTOR_SYMBOL,
   EMPTY_ARRAY_SYMBOL,
@@ -29,14 +30,22 @@ import {
 // Pre-compiled regex for numeric string check (avoid creating regex in hot path)
 const NUMERIC_STRING_REGEX = /^\d+$/;
 
+// Module-level symbol table for current compilation unit
+// Set by transformSyntax, used by helper functions
+// This enables isolation when context.symbolTable is provided
+let currentSymbolTable: SymbolTable = globalSymbolTable;
+
 /**
  * Main entry point - transforms all syntax sugar into canonical S-expressions
+ * @param ast - The AST to transform
+ * @param context - Optional compiler context for isolated compilation
  */
-export function transformSyntax(ast: SExp[]): SExp[] {
-  // Clear the symbol table at the start if possible
-  if (typeof globalSymbolTable.clear === "function") {
-    globalSymbolTable.clear();
-  }
+export function transformSyntax(ast: SExp[], context?: CompilerContext): SExp[] {
+  // Use context-specific symbol table if provided, otherwise global
+  currentSymbolTable = getSymbolTable(context);
+
+  // Clear the symbol table at the start
+  currentSymbolTable.clear();
 
   const enumDefinitions = new Map<string, SList>();
 
@@ -80,7 +89,7 @@ export function transformSyntax(ast: SExp[]): SExp[] {
 
   logger.debug(
     "=== Symbol Table after Registration phase ===\n" +
-      JSON.stringify(globalSymbolTable.dump(), null, 2),
+      JSON.stringify(currentSymbolTable.dump(), null, 2),
   );
 
   // === Phase 2: Transform nodes ===
@@ -126,7 +135,7 @@ function registerEnum(list: SList, enumDefinitions: Map<string, SList>): void {
             }
           }
         }
-        globalSymbolTable.set({
+        currentSymbolTable.set({
           name: `${enumName}.${caseName}`,
           kind: "enum-case",
           parent: enumName,
@@ -136,7 +145,7 @@ function registerEnum(list: SList, enumDefinitions: Map<string, SList>): void {
         });
       }
     }
-    globalSymbolTable.set({
+    currentSymbolTable.set({
       name: enumName,
       kind: "enum",
       cases,
@@ -172,7 +181,7 @@ function registerClass(list: SList): void {
           if (fieldName.includes(":")) {
             const [name, type] = fieldName.split(":");
             fields.push({ name, type });
-            globalSymbolTable.set({
+            currentSymbolTable.set({
               name: `${typeName}.${name}`,
               kind: "variable",
               parent: typeName,
@@ -182,7 +191,7 @@ function registerClass(list: SList): void {
             });
           } else {
             fields.push({ name: fieldName, type: fieldType });
-            globalSymbolTable.set({
+            currentSymbolTable.set({
               name: `${typeName}.${fieldName}`,
               kind: "variable",
               parent: typeName,
@@ -208,7 +217,7 @@ function registerClass(list: SList): void {
             });
           }
           methods.push({ name: mName, params, returnType });
-          globalSymbolTable.set({
+          currentSymbolTable.set({
             name: `${typeName}.${mName}`,
             kind: "method",
             parent: typeName,
@@ -220,7 +229,7 @@ function registerClass(list: SList): void {
         }
       }
     }
-    globalSymbolTable.set({
+    currentSymbolTable.set({
       name: typeName,
       kind: "class",
       fields,
@@ -246,7 +255,7 @@ function registerFunctionOrMacro(list: SList, head: string): void {
         return { name: "?" };
       });
     }
-    globalSymbolTable.set({
+    currentSymbolTable.set({
       name,
       kind,
       scope: "global",
@@ -264,7 +273,7 @@ function registerBinding(list: SList, bindingKeyword: string): void {
       const varName = (list.elements[1] as SSymbol).name;
       const valueNode = list.elements[2];
       const dataType = inferDataType(valueNode);
-      globalSymbolTable.set({
+      currentSymbolTable.set({
         name: varName,
         kind: "variable",
         type: dataType,
@@ -316,7 +325,7 @@ function registerBinding(list: SList, bindingKeyword: string): void {
             const varName = (bindings.elements[i] as SSymbol).name;
             const valueNode = bindings.elements[i + 1];
             const dataType = inferDataType(valueNode);
-            globalSymbolTable.set({
+            currentSymbolTable.set({
               name: varName,
               kind: "variable",
               type: dataType,
@@ -362,7 +371,7 @@ function registerModuleConstruct(list: SList, head: string): void {
     : undefined;
   if (name) {
     const symbolKind = head as SymbolKind;
-    globalSymbolTable.set({
+    currentSymbolTable.set({
       name,
       kind: symbolKind,
       scope: "global",
@@ -429,7 +438,7 @@ function inferDataType(node: SExp): string {
         if (className === "Map") return "Map";
         if (className.includes("Array")) return "Array";
 
-        const classInfo = globalSymbolTable.get(className);
+        const classInfo = currentSymbolTable.get(className);
         if (classInfo?.kind === "class") {
           return className;
         }
@@ -484,7 +493,7 @@ export function transformNode(
       // Handle collection access: (collection index) with collection type from symbol table
       if (list.elements.length >= 2 && isSymbol(list.elements[0])) {
         const collectionName = (list.elements[0] as SSymbol).name;
-        const collectionInfo = globalSymbolTable.get(collectionName);
+        const collectionInfo = currentSymbolTable.get(collectionName);
 
         if (collectionInfo && collectionInfo.type) {
           logger.debug(

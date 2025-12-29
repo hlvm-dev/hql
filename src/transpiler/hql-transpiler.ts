@@ -81,14 +81,14 @@ export async function transpileToJavascript(
   // Pass context to environment setup
   const env = await setupEnvironment(mergedOptions, context);
   const sexps = parseSource(hqlSource, mergedOptions);
-  const canonicalSexps = transform(sexps, mergedOptions);
+  const canonicalSexps = transform(sexps, mergedOptions, context);
 
   await handleImports(canonicalSexps, env, mergedOptions);
 
   const macroOptions = {};
   const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
   const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
-  const javascript = await transpileHqlAstToJs(hqlAst, mergedOptions, env);
+  const javascript = await transpileHqlAstToJs(hqlAst, mergedOptions, env, context);
 
   if (mergedOptions.baseDir) env.setCurrentFile(null);
 
@@ -146,14 +146,14 @@ export async function transpileToJavascriptWithIR(
   // Pass context to environment setup
   const env = await setupEnvironment(mergedOptions, context);
   const sexps = parseSource(hqlSource, mergedOptions);
-  const canonicalSexps = transform(sexps, mergedOptions);
+  const canonicalSexps = transform(sexps, mergedOptions, context);
 
   await handleImports(canonicalSexps, env, mergedOptions);
 
   const macroOptions = {};
   const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
   const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
-  const javascript = await transpileHqlAstToJsWithIR(hqlAst, mergedOptions, env);
+  const javascript = await transpileHqlAstToJsWithIR(hqlAst, mergedOptions, env, context);
 
   if (mergedOptions.baseDir) env.setCurrentFile(null);
 
@@ -220,7 +220,7 @@ export async function expandHql(
 
   const env = await setupEnvironment(mergedOptions, context);
   const sexps = parseSource(hqlSource, mergedOptions);
-  const canonicalSexps = transform(sexps, mergedOptions);
+  const canonicalSexps = transform(sexps, mergedOptions, context);
 
   await handleImports(canonicalSexps, env, mergedOptions);
 
@@ -293,10 +293,10 @@ function parseSource(source: string, options: ProcessOptions): SExp[] {
 /**
  * Transform parsed S-expressions into canonical form
  */
-function transform(sexps: SExp[], options: ProcessOptions): SExp[] {
+function transform(sexps: SExp[], options: ProcessOptions, context?: CompilerContext): SExp[] {
   if (options.showTiming) logger.startTiming("hql-process", "Syntax transform");
 
-  const canonicalSexps = transformSyntax(sexps);
+  const canonicalSexps = transformSyntax(sexps, context);
 
   if (options.showTiming) logger.endTiming("hql-process", "Syntax transform");
   return canonicalSexps;
@@ -388,6 +388,7 @@ async function transpileHqlAstToJs(
   hqlAst: HQLNode[],
   options: ProcessOptions,
   env?: Environment,
+  context?: CompilerContext,
 ): Promise<TranspileResult> {
   if (options.showTiming) {
     logger.startTiming("hql-process", "JS transformation");
@@ -404,6 +405,7 @@ async function transpileHqlAstToJs(
         sourceContent: options.sourceContent,
       },
       env,
+      context,
     );
 
     if (options.showTiming) {
@@ -430,6 +432,7 @@ async function transpileHqlAstToJsWithIR(
   hqlAst: HQLNode[],
   options: ProcessOptions,
   env?: Environment,
+  context?: CompilerContext,
 ): Promise<TranspileWithIRResult> {
   if (options.showTiming) {
     logger.startTiming("hql-process", "JS transformation");
@@ -446,6 +449,7 @@ async function transpileHqlAstToJsWithIR(
         sourceContent: options.sourceContent,
       },
       env,
+      context,
     );
 
     if (options.showTiming) {

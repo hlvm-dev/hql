@@ -46,6 +46,7 @@ import {
   isSingleExport,
   isVectorExport,
   isVectorImport,
+  setCurrentSymbolTable as setImportExportSymbolTable,
 } from "../syntax/import-export.ts";
 import { FIRST_CLASS_OPERATORS } from "../keyword/primitives.ts";
 
@@ -61,7 +62,13 @@ import * as jsInteropModule from "../syntax/js-interop.ts";
 import * as loopRecurModule from "../syntax/loop-recur.ts";
 import * as primitiveModule from "../syntax/primitive.ts";
 import * as quoteModule from "../syntax/quote.ts";
-import { globalSymbolTable } from "../symbol_table.ts";
+import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
+import { getSymbolTable, type CompilerContext } from "../compiler-context.ts";
+
+// Module-level symbol table for current IR transformation
+// Set by transformToIR, used throughout the transformation
+// This enables isolation when context.symbolTable is provided
+let currentSymbolTable: SymbolTable = globalSymbolTable;
 
 type MetaData = {
   line?: number;
@@ -288,11 +295,20 @@ const transformFactory = new Map<
 /**
  * Transform an array of HQL AST nodes into an IR program.
  * Enhanced with better error handling and logging, now wrapped in `perform`.
+ * @param nodes - AST nodes to transform
+ * @param currentDir - Current directory for path resolution
+ * @param context - Optional compiler context for isolated compilation
  */
 export function transformToIR(
   nodes: HQLNode[],
   currentDir: string,
+  context?: CompilerContext,
 ): IR.IRProgram {
+  // Use context-specific symbol table if provided, otherwise global
+  currentSymbolTable = getSymbolTable(context);
+  // Sync import-export module with current symbol table
+  setImportExportSymbolTable(currentSymbolTable);
+
   if (transformFactory.size === 0) {
     initializeTransformFactory();
   }
@@ -2711,7 +2727,7 @@ function determineCallOrAccess(
 
   // Handle special patterns for (obj arg) expressions
   if (elements.length === 2) {
-    const symbolInfo = globalSymbolTable.get(
+    const symbolInfo = currentSymbolTable.get(
       (firstTransformed as IR.IRIdentifier).name,
     );
 
