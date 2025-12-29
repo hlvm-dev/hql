@@ -798,10 +798,20 @@ export function getIn(m, path, notFound) {
 /** assoc - Associate key with value (returns new map) */
 export function assoc(m, key, value) {
   if (m == null) {
+    // Warn if creating sparse array with large gap (likely a bug)
+    if (typeof key === "number" && key > 1000) {
+      console.warn(`assoc: creating sparse array with index ${key} on nil - likely a bug`);
+    }
     return typeof key === "number" ? ((() => { const a = []; a[key] = value; return a; })()) : { [key]: value };
   }
   if (m instanceof Map) { const r = new Map(m); r.set(key, value); return r; }
-  if (Array.isArray(m)) { const r = [...m]; r[key] = value; return r; }
+  if (Array.isArray(m)) {
+    // Warn if creating large sparse gap (likely a bug)
+    if (typeof key === "number" && key > m.length + 1000) {
+      console.warn(`assoc: creating sparse array gap of ${key - m.length} elements - likely a bug`);
+    }
+    const r = [...m]; r[key] = value; return r;
+  }
   return { ...m, [key]: value };
 }
 

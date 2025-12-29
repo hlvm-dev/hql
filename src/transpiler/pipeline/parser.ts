@@ -68,6 +68,16 @@ interface SourcePosition {
  */
 const MAX_PARSING_DEPTH = 128;
 
+/**
+ * Count Unicode code points in a string (handles emojis and surrogate pairs correctly).
+ * JavaScript's string.length counts UTF-16 code units, not characters.
+ * Example: "👍".length === 2, but countCodePoints("👍") === 1
+ */
+function countCodePoints(str: string): number {
+  // Spread operator iterates over code points, not code units
+  return [...str].length;
+}
+
 const TOKEN_PATTERNS = {
   TEMPLATE_LITERAL: /`(?!\(|\[)(?:[^`\\$]|\\[\s\S]|\$(?!\{)|\$\{(?:[^}\\]|\\[\s\S])*\})*`/y,
   SPREAD_OPERATOR: /\.\.\.(?![a-zA-Z_$])/y,  // ... not followed by identifier (for inline expressions)
@@ -247,14 +257,15 @@ function tokenize(input: string, filePath: string): Token[] {
       tokens.push(token);
     }
 
-    const len = token.value.length;
+    const len = token.value.length;  // UTF-16 length for cursor (byte offset)
     cursor += len;
-    
+
     if (
       token.type !== TokenType.Comment && token.type !== TokenType.Whitespace &&
       token.type !== TokenType.Comma
     ) {
-      column += len;
+      // Use code points for column (handles emojis correctly)
+      column += countCodePoints(token.value);
     }
   }
 
@@ -577,11 +588,74 @@ function parseDotAccess(state: ParserState, dotToken: Token): SExp {
 }
 
 function parseStringLiteral(tokenValue: string): SExp {
-  const str = tokenValue.slice(1, -1).replace(/\\"/g, '"').replace(
-    /\\\\/g,
-    "\\",
-  );
-  return createLiteral(str);
+  const content = tokenValue.slice(1, -1);  // Remove surrounding quotes
+  let result = "";
+  let i = 0;
+
+  while (i < content.length) {
+    if (content[i] === "\\") {
+      i++;
+      if (i >= content.length) break;
+
+      switch (content[i]) {
+        case "n": result += "\n"; break;
+        case "t": result += "\t"; break;
+        case "r": result += "\r"; break;
+        case "\\": result += "\\"; break;
+        case '"': result += '"'; break;
+        case "'": result += "'"; break;
+        case "0": result += "\0"; break;
+        case "b": result += "\b"; break;
+        case "f": result += "\f"; break;
+        case "v": result += "\v"; break;
+        case "x": {
+          // Hex escape: \xNN
+          const hex = content.slice(i + 1, i + 3);
+          if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+            result += String.fromCharCode(parseInt(hex, 16));
+            i += 2;
+          } else {
+            result += "x";  // Invalid escape, keep as-is
+          }
+          break;
+        }
+        case "u": {
+          // Unicode escape: \uNNNN or \u{NNNNNN}
+          if (content[i + 1] === "{") {
+            const endBrace = content.indexOf("}", i + 2);
+            if (endBrace !== -1) {
+              const hex = content.slice(i + 2, endBrace);
+              if (/^[0-9a-fA-F]+$/.test(hex)) {
+                result += String.fromCodePoint(parseInt(hex, 16));
+                i = endBrace;
+              } else {
+                result += "u";
+              }
+            } else {
+              result += "u";
+            }
+          } else {
+            const hex = content.slice(i + 1, i + 5);
+            if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+              result += String.fromCharCode(parseInt(hex, 16));
+              i += 4;
+            } else {
+              result += "u";  // Invalid escape, keep as-is
+            }
+          }
+          break;
+        }
+        default:
+          result += content[i];  // Unknown escape, keep the character
+      }
+      i++;
+    } else {
+      result += content[i];
+      i++;
+    }
+  }
+
+  return createLiteral(result);
 }
 
 function parseTemplateLiteral(
@@ -648,24 +722,53 @@ function parseTemplateLiteral(
       i++;
       if (i < content.length) {
         switch (content[i]) {
-          case "n":
-            currentStr += "\n";
+          case "n": currentStr += "\n"; break;
+          case "t": currentStr += "\t"; break;
+          case "r": currentStr += "\r"; break;
+          case "\\": currentStr += "\\"; break;
+          case "`": currentStr += "`"; break;
+          case "$": currentStr += "$"; break;
+          case "0": currentStr += "\0"; break;
+          case "b": currentStr += "\b"; break;
+          case "f": currentStr += "\f"; break;
+          case "v": currentStr += "\v"; break;
+          case "x": {
+            // Hex escape: \xNN
+            const hex = content.slice(i + 1, i + 3);
+            if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+              currentStr += String.fromCharCode(parseInt(hex, 16));
+              i += 2;
+            } else {
+              currentStr += "x";
+            }
             break;
-          case "t":
-            currentStr += "\t";
+          }
+          case "u": {
+            // Unicode escape: \uNNNN or \u{NNNNNN}
+            if (content[i + 1] === "{") {
+              const endBrace = content.indexOf("}", i + 2);
+              if (endBrace !== -1) {
+                const hex = content.slice(i + 2, endBrace);
+                if (/^[0-9a-fA-F]+$/.test(hex)) {
+                  currentStr += String.fromCodePoint(parseInt(hex, 16));
+                  i = endBrace;
+                } else {
+                  currentStr += "u";
+                }
+              } else {
+                currentStr += "u";
+              }
+            } else {
+              const hex = content.slice(i + 1, i + 5);
+              if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+                currentStr += String.fromCharCode(parseInt(hex, 16));
+                i += 4;
+              } else {
+                currentStr += "u";
+              }
+            }
             break;
-          case "r":
-            currentStr += "\r";
-            break;
-          case "\\":
-            currentStr += "\\";
-            break;
-          case "`":
-            currentStr += "`";
-            break;
-          case "$":
-            currentStr += "$";
-            break;
+          }
           default:
             currentStr += content[i];
         }
