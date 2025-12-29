@@ -1,3 +1,4 @@
+// @ts-self-types="./index.d.ts"
 // index.js - Public API exports for HQL stdlib
 // Auto-injected into HQL runtime
 

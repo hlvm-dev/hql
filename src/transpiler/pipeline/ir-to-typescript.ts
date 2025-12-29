@@ -2783,19 +2783,16 @@ class TSGenerator {
 
   private generateJsMethodAccess(node: IR.IRJsMethodAccess): void {
     // JsMethodAccess needs runtime detection: could be a property or a no-arg method
-    // Generate: (typeof obj.method === 'function' ? obj.method() : obj.method)
-    this.emit("(typeof ");
-    this.generateNode(node.object);
-    this.emit(".", node.position);
+    // Use Arrow IIFE to evaluate object only once (avoids triple evaluation bug)
+    // Generate: ((obj) => typeof obj.method === 'function' ? obj.method() : obj.method)(actualObject)
+    this.emit("((obj) => typeof obj.", node.position);
     this.emit(node.method);
-    this.emit(" === 'function' ? ");
-    this.generateNode(node.object);
-    this.emit(".");
+    this.emit(" === 'function' ? obj.");
     this.emit(node.method);
-    this.emit("() : ");
-    this.generateNode(node.object);
-    this.emit(".");
+    this.emit("() : obj.");
     this.emit(node.method);
+    this.emit(")(");
+    this.generateInExpressionContext(node.object);
     this.emit(")");
   }
 

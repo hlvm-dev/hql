@@ -171,8 +171,17 @@ export function hqlToJs(
       return (...jsArgs: unknown[]) => {
         // Convert JS args to HQL values
         const hqlArgs = jsArgs.map((a) => jsToHql(a)) as HQLValue[];
+
+        // Safe check: verify env and interp are available before calling
+        if (!env || !interp) {
+          throw new Error(
+            `Cannot call builtin function without interpreter context. ` +
+            `Ensure hqlToJs is called with interpreter and environment parameters.`
+          );
+        }
+
         // Call the builtin with proper signature
-        const result = (value as BuiltinFn)(hqlArgs, env!, interp!);
+        const result = (value as BuiltinFn)(hqlArgs, env, interp);
         // Convert result back to JS
         return hqlToJs(result, interp, env);
       };

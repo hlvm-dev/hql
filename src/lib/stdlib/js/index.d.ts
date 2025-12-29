@@ -149,10 +149,10 @@ export function flatten<T>(coll: Iterable<any> | null | undefined): Iterable<T>;
 export function distinct<T>(coll: Iterable<T> | null | undefined): Iterable<T>;
 
 /**
- * Maps function with index
+ * Maps function with index (index is first parameter)
  */
 export function mapIndexed<T, R>(
-  fn: (item: T, index: number) => R,
+  fn: (index: number, item: T) => R,
   coll: Iterable<T> | null | undefined,
 ): Iterable<R>;
 
@@ -165,10 +165,10 @@ export function keep<T, R>(
 ): Iterable<R>;
 
 /**
- * Keeps elements with non-nil indexed results
+ * Keeps elements with non-nil indexed results (index is first parameter)
  */
 export function keepIndexed<T, R>(
-  fn: (item: T, index: number) => R | null | undefined,
+  fn: (index: number, item: T) => R | null | undefined,
   coll: Iterable<T> | null | undefined,
 ): Iterable<R>;
 
@@ -203,6 +203,11 @@ export function groupBy<T, K extends string | number | symbol>(
 export function realize<T>(coll: Iterable<T> | null | undefined): T[];
 
 /**
+ * Forces realization of lazy sequence (alias for realize)
+ */
+export function doall<T>(coll: Iterable<T> | null | undefined): T[];
+
+/**
  * Converts to array
  */
 export function toArray<T>(coll: Iterable<T> | null | undefined): T[];
@@ -216,16 +221,13 @@ export function toSet<T>(coll: Iterable<T> | null | undefined): Set<T>;
  * Creates lazy sequence
  */
 export function seq<T>(
-  coll: Iterable<T> | null | undefined,
+  coll: Iterable<T> | Record<string, any> | null | undefined,
 ): Iterable<T> | null;
 
 /**
- * Conjoins value into collection
+ * Conjoins value into collection (returns same type as input)
  */
-export function conj<T>(
-  coll: Iterable<T> | null | undefined,
-  ...items: T[]
-): T[];
+export function conj<C>(coll: C, ...items: any[]): C extends null | undefined ? any[] : C;
 
 /**
  * Transforms collection into target
@@ -377,3 +379,411 @@ export function iterate<T>(fn: (value: T) => T, init: T): Iterable<T>;
  * Checks if value implements SEQ protocol
  */
 export function isSeq(value: any): boolean;
+
+// ============================================================================
+// LAZY SEQUENCE CLASSES
+// ============================================================================
+
+/**
+ * LazySeq class for lazy sequence operations
+ */
+export class LazySeq<T> implements Iterable<T> {
+  constructor(thunk: () => Iterable<T> | null);
+  [Symbol.iterator](): Iterator<T>;
+}
+
+/**
+ * NumericRange class for numeric ranges
+ */
+export class NumericRange implements Iterable<number> {
+  constructor(start: number, end: number, step?: number);
+  [Symbol.iterator](): Iterator<number>;
+}
+
+/**
+ * Delay class for delayed evaluation
+ */
+export class Delay<T> {
+  constructor(thunk: () => T);
+  deref(): T;
+  isRealized(): boolean;
+}
+
+// ============================================================================
+// ADDITIONAL LAZY CONSTRUCTORS
+// ============================================================================
+
+/**
+ * Creates an infinite sequence of the same value
+ */
+export function repeat<T>(value: T): Iterable<T>;
+
+/**
+ * Creates an infinite sequence by repeatedly calling function
+ */
+export function repeatedly<T>(fn: () => T): Iterable<T>;
+
+// ============================================================================
+// ADDITIONAL PREDICATES
+// ============================================================================
+
+/**
+ * Returns true if value is not nil (not null and not undefined)
+ */
+export function isSome(value: any): boolean;
+
+/**
+ * Checks if value is nil (null or undefined)
+ */
+export function isNil(value: any): boolean;
+
+/**
+ * Checks if number is even
+ */
+export function isEven(n: number): boolean;
+
+/**
+ * Checks if number is odd
+ */
+export function isOdd(n: number): boolean;
+
+/**
+ * Checks if number is zero
+ */
+export function isZero(n: number): boolean;
+
+/**
+ * Checks if number is positive
+ */
+export function isPositive(n: number): boolean;
+
+/**
+ * Checks if number is negative
+ */
+export function isNegative(n: number): boolean;
+
+/**
+ * Checks if value is a number
+ */
+export function isNumber(value: any): value is number;
+
+/**
+ * Checks if value is a string
+ */
+export function isString(value: any): value is string;
+
+/**
+ * Checks if value is a boolean
+ */
+export function isBoolean(value: any): value is boolean;
+
+/**
+ * Checks if value is a function
+ */
+export function isFunction(value: any): value is Function;
+
+/**
+ * Checks if value is an array
+ */
+export function isArray(value: any): value is any[];
+
+// ============================================================================
+// ARITHMETIC
+// ============================================================================
+
+/**
+ * Increment by 1
+ */
+export function inc(n: number): number;
+
+/**
+ * Decrement by 1
+ */
+export function dec(n: number): number;
+
+/**
+ * Add numbers
+ */
+export function add(...nums: number[]): number;
+
+/**
+ * Subtract numbers
+ */
+export function sub(...nums: number[]): number;
+
+/**
+ * Multiply numbers
+ */
+export function mul(...nums: number[]): number;
+
+/**
+ * Divide numbers
+ */
+export function div(...nums: number[]): number;
+
+/**
+ * Modulo operation
+ */
+export function mod(a: number, b: number): number;
+
+// ============================================================================
+// COMPARISON
+// ============================================================================
+
+/**
+ * Equality check
+ */
+export function eq<T>(a: T, b: T): boolean;
+
+/**
+ * Not-equal check
+ */
+export function neq<T>(a: T, b: T): boolean;
+
+/**
+ * Less than
+ */
+export function lt(...nums: number[]): boolean;
+
+/**
+ * Greater than
+ */
+export function gt(...nums: number[]): boolean;
+
+/**
+ * Less than or equal
+ */
+export function lte(...nums: number[]): boolean;
+
+/**
+ * Greater than or equal
+ */
+export function gte(...nums: number[]): boolean;
+
+// ============================================================================
+// ADDITIONAL SEQUENCE OPERATIONS
+// ============================================================================
+
+/**
+ * Returns the next element after first (rest but returns null for empty)
+ */
+export function next<T>(coll: Iterable<T> | null | undefined): Iterable<T> | null;
+
+/**
+ * Returns an empty collection of the same type
+ */
+export function empty<T>(coll: T): T;
+
+/**
+ * Reverses a collection
+ */
+export function reverse<T>(coll: Iterable<T> | null | undefined): T[];
+
+/**
+ * Takes elements while predicate is true
+ */
+export function takeWhile<T>(
+  pred: (item: T) => boolean,
+  coll: Iterable<T> | null | undefined,
+): Iterable<T>;
+
+/**
+ * Drops elements while predicate is true
+ */
+export function dropWhile<T>(
+  pred: (item: T) => boolean,
+  coll: Iterable<T> | null | undefined,
+): Iterable<T>;
+
+/**
+ * Splits collection by predicate
+ */
+export function splitWith<T>(
+  pred: (item: T) => boolean,
+  coll: Iterable<T> | null | undefined,
+): [T[], T[]];
+
+/**
+ * Splits collection at index
+ */
+export function splitAt<T>(
+  n: number,
+  coll: Iterable<T> | null | undefined,
+): [T[], T[]];
+
+/**
+ * Interleaves elements from collections
+ */
+export function interleave<T>(...colls: Iterable<T>[]): Iterable<T>;
+
+/**
+ * Interposes separator between elements
+ */
+export function interpose<T>(sep: T, coll: Iterable<T> | null | undefined): Iterable<T>;
+
+/**
+ * Partitions collection into chunks
+ */
+export function partition<T>(
+  n: number,
+  coll: Iterable<T> | null | undefined,
+): Iterable<T[]>;
+
+/**
+ * Partitions collection into chunks (includes partial final chunk)
+ */
+export function partitionAll<T>(
+  n: number,
+  coll: Iterable<T> | null | undefined,
+): Iterable<T[]>;
+
+/**
+ * Partitions by grouping consecutive elements with same key
+ */
+export function partitionBy<T, K>(
+  fn: (item: T) => K,
+  coll: Iterable<T> | null | undefined,
+): Iterable<T[]>;
+
+/**
+ * Returns intermediate reduction values
+ */
+export function reductions<T, R>(
+  fn: (acc: R, item: T) => R,
+  init: R,
+  coll: Iterable<T> | null | undefined,
+): Iterable<R>;
+
+// ============================================================================
+// SYMBOL/KEYWORD
+// ============================================================================
+
+/**
+ * Creates a symbol
+ */
+export function symbol(name: string): symbol;
+
+/**
+ * Creates a keyword (string prefixed with :)
+ */
+export function keyword(name: string): string;
+
+/**
+ * Returns the name of a symbol or keyword
+ */
+export function name(sym: symbol | string): string;
+
+// ============================================================================
+// TYPE CONVERSIONS
+// ============================================================================
+
+/**
+ * Converts to vector (array)
+ */
+export function vec<T>(coll: Iterable<T> | null | undefined): T[];
+
+/**
+ * Converts to set
+ */
+export function set<T>(coll: Iterable<T> | null | undefined): Set<T>;
+
+// ============================================================================
+// TRANSDUCERS
+// ============================================================================
+
+export type Transducer<T, R> = (
+  reducer: (acc: any, item: R) => any
+) => (acc: any, item: T) => any;
+
+/**
+ * Map transducer
+ */
+export function mapT<T, R>(fn: (item: T) => R): Transducer<T, R>;
+
+/**
+ * Filter transducer
+ */
+export function filterT<T>(pred: (item: T) => boolean): Transducer<T, T>;
+
+/**
+ * Take transducer
+ */
+export function takeT<T>(n: number): Transducer<T, T>;
+
+/**
+ * Drop transducer
+ */
+export function dropT<T>(n: number): Transducer<T, T>;
+
+/**
+ * Take-while transducer
+ */
+export function takeWhileT<T>(pred: (item: T) => boolean): Transducer<T, T>;
+
+/**
+ * Drop-while transducer
+ */
+export function dropWhileT<T>(pred: (item: T) => boolean): Transducer<T, T>;
+
+/**
+ * Distinct transducer
+ */
+export function distinctT<T>(): Transducer<T, T>;
+
+/**
+ * Partition-all transducer
+ */
+export function partitionAllT<T>(n: number): Transducer<T, T[]>;
+
+/**
+ * Composes transducers
+ */
+export function composeTransducers<T, R>(
+  ...xforms: Transducer<any, any>[]
+): Transducer<T, R>;
+
+// ============================================================================
+// CHUNKING INFRASTRUCTURE
+// ============================================================================
+
+/**
+ * Chunk size constant (32 elements)
+ */
+export const CHUNK_SIZE: number;
+
+/**
+ * ArrayChunk class for chunked sequences
+ */
+export class ArrayChunk<T> {
+  constructor(arr: T[], offset?: number, length?: number);
+  count(): number;
+  nth(i: number): T;
+  reduce<R>(fn: (acc: R, item: T) => R, init: R): R;
+}
+
+/**
+ * ChunkBuffer class for building chunks
+ */
+export class ChunkBuffer<T> {
+  constructor();
+  add(item: T): void;
+  chunk(): ArrayChunk<T>;
+  count(): number;
+}
+
+/**
+ * ChunkedCons class for chunked lazy sequences
+ */
+export class ChunkedCons<T> implements Iterable<T> {
+  constructor(chunk: ArrayChunk<T>, rest: Iterable<T> | null);
+  [Symbol.iterator](): Iterator<T>;
+}
+
+// ============================================================================
+// PUBLIC API OBJECT
+// ============================================================================
+
+/**
+ * Object containing all public stdlib functions
+ */
+export const STDLIB_PUBLIC_API: Record<string, (...args: any[]) => any>;

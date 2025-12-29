@@ -442,22 +442,53 @@ export class HQLRuntime {
 
 // Export singleton instance for REPL use
 let _runtime: HQLRuntime | null = null;
+let _runtimePromise: Promise<HQLRuntime> | null = null;
 
 /**
- * Get or create the global HQL runtime
+ * Get or create the global HQL runtime.
+ * Uses Promise-based singleton to prevent race conditions when
+ * multiple concurrent calls arrive before initialization completes.
  */
 export async function getHQLRuntime(): Promise<HQLRuntime> {
-  if (!_runtime) {
-    _runtime = new HQLRuntime();
-    await _runtime.initialize();
+  // Return existing promise if initialization is in progress
+  if (_runtimePromise) {
+    return _runtimePromise;
   }
-  return Promise.resolve(_runtime);
+
+  // Return immediately if already initialized
+  if (_runtime) {
+    return _runtime;
+  }
+
+  // Create and store the initialization promise
+  _runtimePromise = (async () => {
+    const runtime = new HQLRuntime();
+    await runtime.initialize();
+    _runtime = runtime;
+    return runtime;
+  })();
+
+  try {
+    return await _runtimePromise;
+  } finally {
+    // Clear promise after completion (success or failure)
+    _runtimePromise = null;
+  }
 }
 
 /**
  * Reset the global runtime
  */
 export async function resetHQLRuntime(): Promise<void> {
+  // Wait for any in-progress initialization
+  if (_runtimePromise) {
+    try {
+      await _runtimePromise;
+    } catch {
+      // Ignore initialization errors during reset
+    }
+  }
+
   if (_runtime) {
     await _runtime.reset();
   }

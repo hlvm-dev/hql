@@ -62,6 +62,12 @@ interface SourcePosition {
   filePath: string;
 }
 
+/**
+ * Maximum nesting depth for parser to prevent stack overflow from deeply nested structures.
+ * Value of 128 balances allowing legitimate deep nesting while catching recursion bombs.
+ */
+const MAX_PARSING_DEPTH = 128;
+
 const TOKEN_PATTERNS = {
   TEMPLATE_LITERAL: /`(?!\(|\[)(?:[^`\\$]|\\[\s\S]|\$(?!\{)|\$\{(?:[^}\\]|\\[\s\S])*\})*`/y,
   SPREAD_OPERATOR: /\.\.\.(?![a-zA-Z_$])/y,  // ... not followed by identifier (for inline expressions)
@@ -291,7 +297,7 @@ function getTokenTypeForSpecial(value: string): TokenType {
 }
 
 function parseTokens(tokens: Token[], input: string, filePath: string): SExp[] {
-  const state: ParserState = { tokens, currentPos: 0, input, filePath, quasiquoteDepth: 0 };
+  const state: ParserState = { tokens, currentPos: 0, input, filePath, quasiquoteDepth: 0, parsingDepth: 0 };
   const nodes: SExp[] = [];
 
   while (state.currentPos < state.tokens.length) {
@@ -307,6 +313,7 @@ interface ParserState {
   input: string;
   filePath: string;
   quasiquoteDepth: number; // Track nesting depth inside quasiquotes
+  parsingDepth: number; // Track nesting depth for stack overflow protection
 }
 
 /**
@@ -320,6 +327,19 @@ function errorOptions(position: SourcePosition, state: ParserState) {
     filePath: position.filePath,
     source: state.input,
   };
+}
+
+/**
+ * Check if parsing depth exceeds maximum allowed, throw if so.
+ * Prevents stack overflow from deeply nested or malicious input.
+ */
+function checkDepth(state: ParserState, position: SourcePosition): void {
+  if (state.parsingDepth > MAX_PARSING_DEPTH) {
+    throw new ParseError(
+      `Maximum nesting depth exceeded (${MAX_PARSING_DEPTH}). Check for excessively nested structures.`,
+      errorOptions(position, state)
+    );
+  }
 }
 
 function parseExpression(state: ParserState): SExp {
@@ -611,6 +631,7 @@ function parseTemplateLiteral(
             input: exprStr,
             filePath: position.filePath,
             quasiquoteDepth: 0,
+            parsingDepth: 0,  // Reset depth for template interpolation
           };
           const expr = parseExpression(exprState);
           parts.push(expr);
@@ -708,6 +729,10 @@ function parseDotNotation(tokenValue: string): SExp {
  * Enhanced parse list function with special handling for imports and syntax errors
  */
 function parseList(state: ParserState, listStartPos: SourcePosition): SList {
+  // Track nesting depth for stack overflow protection
+  state.parsingDepth++;
+  checkDepth(state, listStartPos);
+
   const elements: SExp[] = [];
 
   // Check if this might be an enum declaration
@@ -895,6 +920,7 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
     listStartPos.column,
   );
 
+  state.parsingDepth--;  // Decrement depth before returning
   return result;
 }
 
@@ -1069,6 +1095,10 @@ function matchNextToken(
 }
 
 function parseVector(state: ParserState, startPos: SourcePosition): SList {
+  // Track nesting depth for stack overflow protection
+  state.parsingDepth++;
+  checkDepth(state, startPos);
+
   const elements: SExp[] = [];
   while (
     state.currentPos < state.tokens.length &&
@@ -1106,10 +1136,15 @@ function parseVector(state: ParserState, startPos: SourcePosition): SList {
     startPos.column,
   );
 
+  state.parsingDepth--;  // Decrement depth before returning
   return result;
 }
 
 function parseMap(state: ParserState, startPos: SourcePosition): SList {
+  // Track nesting depth for stack overflow protection
+  state.parsingDepth++;
+  checkDepth(state, startPos);
+
   const entries: SExp[] = [];
   while (
     state.currentPos < state.tokens.length &&
@@ -1228,10 +1263,15 @@ function parseMap(state: ParserState, startPos: SourcePosition): SList {
     startPos.column,
   );
 
+  state.parsingDepth--;  // Decrement depth before returning
   return result;
 }
 
 function parseSet(state: ParserState, startPos: SourcePosition): SList {
+  // Track nesting depth for stack overflow protection
+  state.parsingDepth++;
+  checkDepth(state, startPos);
+
   const elements: SExp[] = [];
   while (
     state.currentPos < state.tokens.length &&
@@ -1269,6 +1309,7 @@ function parseSet(state: ParserState, startPos: SourcePosition): SList {
     startPos.column,
   );
 
+  state.parsingDepth--;  // Decrement depth before returning
   return result;
 }
 

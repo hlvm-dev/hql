@@ -176,4 +176,9 @@ export function getAllKnownIdentifiers(): string[] {
 }
 
 // Auto-initialize on module load
-initializeIdentifiers().catch(() => {});
+initializeIdentifiers().catch((err) => {
+  // Log but don't throw - fallback to static identifiers will be used
+  if (typeof console !== "undefined" && console.warn) {
+    console.warn("Failed to initialize identifiers dynamically:", err?.message || err);
+  }
+});
