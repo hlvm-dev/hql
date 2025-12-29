@@ -10,6 +10,7 @@ import {
   isReduced,
   ensureReduced,
   isChunked,
+  LazySeq,
   TRANSDUCER_INIT,
   TRANSDUCER_STEP,
   TRANSDUCER_RESULT,
@@ -74,9 +75,10 @@ export function map(f, ...colls) {
     // Single collection
     const coll = colls[0];
 
-    // Optimization: Use chunked path for large arrays OR already-chunked seqs
+    // Optimization: Use chunked path for large arrays, chunked seqs, OR LazySeq
+    // LazySeq may contain chunked content - toChunkedSeq will realize and check
     // This enables chunk propagation through operation chains
-    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll) || coll instanceof LazySeq) {
       return chunkedMap(f, coll);
     }
 
@@ -115,9 +117,10 @@ export function filter(pred, coll) {
     throw new TypeError("filter: predicate must be a function, got " + typeof pred);
   }
 
-  // Optimization: Use chunked path for large arrays OR already-chunked seqs
+  // Optimization: Use chunked path for large arrays, chunked seqs, OR LazySeq
+  // LazySeq may contain chunked content - toChunkedSeq will realize and check
   // This enables chunk propagation through operation chains
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll) || coll instanceof LazySeq) {
     return chunkedFilter(pred, coll);
   }
 
@@ -168,8 +171,8 @@ export function reduce(f, initOrColl, maybeColl) {
     acc = first(s);
     s = seq(rest(s));
 
-    // Optimization: Use chunked path for large arrays OR already-chunked seqs
-    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+    // Optimization: Use chunked path for large arrays, chunked seqs, OR LazySeq
+    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll) || coll instanceof LazySeq) {
       // For 2-arity, skip first element (already used as init)
       const restColl = Array.isArray(coll) ? coll.slice(1) : rest(coll);
       return chunkedReduce(f, acc, restColl);
@@ -180,8 +183,8 @@ export function reduce(f, initOrColl, maybeColl) {
     coll = maybeColl;
     s = seq(coll);
 
-    // Optimization: Use chunked path for large arrays OR already-chunked seqs
-    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+    // Optimization: Use chunked path for large arrays, chunked seqs, OR LazySeq
+    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll) || coll instanceof LazySeq) {
       return chunkedReduce(f, acc, coll);
     }
   }
@@ -244,8 +247,21 @@ export function flatten(coll) {
   });
 }
 
-/** distinct - Removes duplicate elements (lazy) - O(n) time */
+/**
+ * distinct - Removes duplicate elements (lazy) - O(n) time
+ *
+ * WARNING: For infinite sequences, this function maintains an unbounded
+ * Set of seen elements which will grow indefinitely. Use with caution
+ * on infinite sequences or consider using distinctT transducer with
+ * bounded input.
+ *
+ * @param {Iterable} coll - The collection to deduplicate
+ * @returns {LazySeq} Lazy sequence of unique elements
+ */
 export function distinct(coll) {
+  // Handle null/undefined input
+  if (coll == null) return lazySeq(() => null);
+
   const seen = new Set();  // Single mutable set per distinct() call
   function step(s) {
     return lazySeq(() => {
@@ -762,6 +778,10 @@ export function get(m, key, notFound) {
 
 /** getIn - Get value at nested path */
 export function getIn(m, path, notFound) {
+  // Validate path is array-like
+  if (path == null || typeof path.length !== "number") {
+    throw new TypeError("getIn: path must be an array, got " + (path == null ? "null" : typeof path));
+  }
   if (path.length === 0) return m;
   let current = m;
   for (const key of path) {
@@ -787,6 +807,10 @@ export function assoc(m, key, value) {
 
 /** assocIn - Associate value at nested path */
 export function assocIn(m, path, value) {
+  // Validate path is array-like
+  if (path == null || typeof path.length !== "number") {
+    throw new TypeError("assocIn: path must be an array, got " + (path == null ? "null" : typeof path));
+  }
   if (path.length === 0) return value;
   if (path.length === 1) return assoc(m, path[0], value);
   const [key, ...restPath] = path;
@@ -824,6 +848,10 @@ export function update(m, key, fn) {
 /** updateIn - Transform value at nested path with function */
 export function updateIn(m, path, fn) {
   if (typeof fn !== "function") throw new TypeError("updateIn: transform function must be a function");
+  // Validate path is array-like
+  if (path == null || typeof path.length !== "number") {
+    throw new TypeError("updateIn: path must be an array, got " + (path == null ? "null" : typeof path));
+  }
   if (path.length === 0) return fn(m);
   return assocIn(m, path, fn(getIn(m, path)));
 }
@@ -832,11 +860,21 @@ export function updateIn(m, path, fn) {
 export function merge(...maps) {
   const nonNil = maps.filter(m => m != null);
   if (nonNil.length === 0) return {};
+
   if (nonNil[0] instanceof Map) {
     const r = new Map();
-    for (const m of nonNil) if (m instanceof Map) for (const [k, v] of m) r.set(k, v);
+    for (const m of nonNil) {
+      if (m instanceof Map) {
+        for (const [k, v] of m) r.set(k, v);
+      } else if (typeof m === "object") {
+        // Coerce plain objects into Map entries
+        for (const [k, v] of Object.entries(m)) r.set(k, v);
+      }
+      // Skip non-object types silently (matches Clojure behavior)
+    }
     return r;
   }
+
   return Object.assign({}, ...nonNil);
 }
 

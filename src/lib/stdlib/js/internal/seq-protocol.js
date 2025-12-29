@@ -712,11 +712,21 @@ export function chunkSeq(thunk) {
  * Convert collection to chunked sequence if beneficial.
  *
  * Arrays are chunked (efficient for map/filter).
+ * LazySeq is realized to check if it contains chunked content.
  * Other seqs pass through unchanged.
  */
 export function toChunkedSeq(coll) {
   if (coll == null) return null;
   if (isChunked(coll)) return coll;
+
+  // LazySeq: realize and check if content is chunked (enables chunk propagation)
+  if (coll instanceof LazySeq) {
+    const realized = coll._realize?.();
+    if (realized == null) return null;
+    if (isChunked(realized)) return realized;
+    // Not chunked inside, fall through to toSeq
+    return realized;
+  }
 
   // Arrays benefit from chunking
   if (Array.isArray(coll) && coll.length > 0) {
