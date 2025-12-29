@@ -4,6 +4,7 @@
 import type { Environment } from "../environment.ts";
 import type { SExp } from "../s-exp/types.ts";
 import type { MacroFn } from "../environment.ts";
+import { SymbolTable, globalSymbolTable } from "./symbol_table.ts";
 
 /**
  * Macro definition stored in runtime
@@ -74,6 +75,13 @@ export interface CompilerContext {
   baseDir?: string;
 
   /**
+   * Symbol table for this compilation unit.
+   * If provided, enables isolated compilation (parallel builds, LSP).
+   * If not provided, falls back to globalSymbolTable for backwards compatibility.
+   */
+  symbolTable?: SymbolTable;
+
+  /**
    * For future expansion - additional runtime features
    */
   extensions?: Record<string, unknown>;
@@ -90,4 +98,24 @@ export function hasMacroRegistry(
 ): boolean {
   return context?.macroRegistry !== undefined &&
     context.macroRegistry.macros.size > 0;
+}
+
+/**
+ * Get the symbol table for a compilation context.
+ * Returns context-specific table if provided, otherwise falls back to global.
+ * This enables isolated compilation for parallel builds and LSP.
+ */
+export function getSymbolTable(context?: CompilerContext): SymbolTable {
+  return context?.symbolTable ?? globalSymbolTable;
+}
+
+/**
+ * Create a new isolated CompilerContext with its own symbol table.
+ * Use this for parallel compilation or when isolation is needed.
+ */
+export function createIsolatedContext(base?: Partial<CompilerContext>): CompilerContext {
+  return {
+    ...base,
+    symbolTable: new SymbolTable(null, "isolated"),
+  };
 }

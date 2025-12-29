@@ -285,12 +285,13 @@ export class SymbolTable {
 }
 
 /**
- * Global symbol table instance for the whole transpiler.
+ * Global symbol table instance for backwards compatibility.
  *
- * NOTE: This singleton is NOT thread-safe and prevents parallel compilation.
- * For LSP or parallel build scenarios, consider creating isolated SymbolTable
- * instances per compilation unit.
+ * For parallel compilation or LSP scenarios, use getSymbolTable(context)
+ * from compiler-context.ts instead, which returns an isolated table
+ * when context.symbolTable is provided.
  *
- * TODO: Refactor to pass SymbolTable through CompilerContext for isolation.
+ * @see getSymbolTable - Use this instead for new code
+ * @see createIsolatedContext - Create a context with isolated symbol table
  */
 export const globalSymbolTable = new SymbolTable(null, "global");

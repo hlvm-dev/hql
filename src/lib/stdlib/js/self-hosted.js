@@ -795,20 +795,29 @@ export function getIn(m, path, notFound) {
 // PHASE 17: MAP MUTATIONS (immutable)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/** assoc - Associate key with value (returns new map) */
+/** assoc - Associate key with value (returns new map)
+ * For arrays: index must be 0 <= key <= length (Clojure semantics)
+ * Use key === length to append, 0 <= key < length to replace
+ */
 export function assoc(m, key, value) {
   if (m == null) {
-    // Warn if creating sparse array with large gap (likely a bug)
-    if (typeof key === "number" && key > 1000) {
-      console.warn(`assoc: creating sparse array with index ${key} on nil - likely a bug`);
+    // nil + numeric key: create single-element array at index 0 only
+    // For Clojure compatibility, only index 0 is valid on nil
+    if (typeof key === "number") {
+      if (key !== 0) {
+        throw new RangeError(`assoc: index ${key} out of bounds for nil (only 0 is valid)`);
+      }
+      return [value];
     }
-    return typeof key === "number" ? ((() => { const a = []; a[key] = value; return a; })()) : { [key]: value };
+    return { [key]: value };
   }
   if (m instanceof Map) { const r = new Map(m); r.set(key, value); return r; }
   if (Array.isArray(m)) {
-    // Warn if creating large sparse gap (likely a bug)
-    if (typeof key === "number" && key > m.length + 1000) {
-      console.warn(`assoc: creating sparse array gap of ${key - m.length} elements - likely a bug`);
+    // Clojure semantics: index must be 0 <= key <= length
+    if (typeof key === "number") {
+      if (key < 0 || key > m.length) {
+        throw new RangeError(`assoc: index ${key} out of bounds for array of length ${m.length}`);
+      }
     }
     const r = [...m]; r[key] = value; return r;
   }
