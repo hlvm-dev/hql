@@ -790,7 +790,12 @@ Deno.test("performance: ArraySeq O(1) operations after repeated rest()", () => {
 
 const { isChunked, ChunkedCons, toChunkedSeq, CHUNK_SIZE } = seqProtocol;
 const core = await import("../../../src/lib/stdlib/js/core.js");
-const { map, filter, reduce } = await import("../../../src/lib/stdlib/js/self-hosted.js");
+const {
+  map, filter, reduce,
+  take, drop, takeWhile, dropWhile,
+  concat, distinct, mapIndexed, keep,
+  interpose, partition, reductions,
+} = await import("../../../src/lib/stdlib/js/self-hosted.js");
 
 Deno.test("chunking: toChunkedSeq creates ChunkedCons from large array", () => {
   const arr = Array.from({ length: 100 }, (_, i) => i);
@@ -863,6 +868,143 @@ Deno.test("chunking: reduce on chunked sequence works", () => {
 
   // Sum of 0*2 + 1*2 + ... + 99*2 = 2 * (0 + 1 + ... + 99) = 2 * 4950 = 9900
   assertEquals(sum, 9900);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPREHENSIVE CHUNK PROPAGATION TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+Deno.test("chunking: take preserves chunked structure", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const mapped = map((x: number) => x * 2, arr);
+  const taken = take(50, mapped);
+  const result = [...taken];
+
+  assertEquals(result.length, 50);
+  assertEquals(result[0], 0);
+  assertEquals(result[49], 98); // 49 * 2
+});
+
+Deno.test("chunking: drop preserves chunked structure", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const mapped = map((x: number) => x * 2, arr);
+  const dropped = drop(50, mapped);
+  const result = [...dropped];
+
+  assertEquals(result.length, 50);
+  assertEquals(result[0], 100); // 50 * 2
+  assertEquals(result[49], 198); // 99 * 2
+});
+
+Deno.test("chunking: takeWhile preserves chunked structure", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const mapped = map((x: number) => x * 2, arr);
+  const taken = takeWhile((x: number) => x < 100, mapped);
+  const result = [...taken];
+
+  assertEquals(result.length, 50);
+  assertEquals(result[0], 0);
+  assertEquals(result[49], 98);
+});
+
+Deno.test("chunking: dropWhile preserves chunked structure", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const mapped = map((x: number) => x * 2, arr);
+  const dropped = dropWhile((x: number) => x < 100, mapped);
+  const result = [...dropped];
+
+  assertEquals(result.length, 50);
+  assertEquals(result[0], 100);
+});
+
+Deno.test("chunking: concat preserves chunked structure", () => {
+  const arr1 = Array.from({ length: 50 }, (_, i) => i);
+  const arr2 = Array.from({ length: 50 }, (_, i) => i + 50);
+  const concated = concat(arr1, arr2);
+  const result = [...concated];
+
+  assertEquals(result.length, 100);
+  assertEquals(result[0], 0);
+  assertEquals(result[49], 49);
+  assertEquals(result[50], 50);
+  assertEquals(result[99], 99);
+});
+
+Deno.test("chunking: distinct preserves chunked structure", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i % 50);
+  const distincts = distinct(arr);
+  const result = [...distincts];
+
+  assertEquals(result.length, 50);
+  assertEquals(result[0], 0);
+  assertEquals(result[49], 49);
+});
+
+Deno.test("chunking: mapIndexed preserves chunked structure", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const indexed = mapIndexed((i: number, x: number) => i + x, arr);
+  const result = [...indexed];
+
+  assertEquals(result.length, 100);
+  assertEquals(result[0], 0);     // 0 + 0
+  assertEquals(result[50], 100);  // 50 + 50
+  assertEquals(result[99], 198);  // 99 + 99
+});
+
+Deno.test("chunking: keep preserves chunked structure", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const kept = keep((x: number) => x % 2 === 0 ? x * 2 : null, arr);
+  const result = [...kept];
+
+  assertEquals(result.length, 50);
+  assertEquals(result[0], 0);
+  assertEquals(result[25], 100); // 50 * 2
+});
+
+Deno.test("chunking: interpose preserves chunked structure", () => {
+  const arr = Array.from({ length: 50 }, (_, i) => i);
+  const interposed = interpose(-1, arr);
+  const result = [...interposed];
+
+  assertEquals(result.length, 99); // 50 elements + 49 separators
+  assertEquals(result[0], 0);
+  assertEquals(result[1], -1);
+  assertEquals(result[2], 1);
+});
+
+Deno.test("chunking: partition preserves chunked structure", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const partitioned = partition(10, arr);
+  const result = [...partitioned];
+
+  assertEquals(result.length, 10);
+  assertEquals(result[0], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assertEquals(result[9], [90, 91, 92, 93, 94, 95, 96, 97, 98, 99]);
+});
+
+Deno.test("chunking: reductions preserves chunked structure", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const reduced = reductions((acc: number, x: number) => acc + x, 0, arr);
+  const result = [...reduced];
+
+  assertEquals(result.length, 101); // init + 100 elements
+  assertEquals(result[0], 0);       // init
+  assertEquals(result[1], 0);       // 0 + 0
+  assertEquals(result[100], 4950);  // sum of 0..99
+});
+
+Deno.test("chunking: complex chain map -> filter -> take -> drop works", () => {
+  const arr = Array.from({ length: 200 }, (_, i) => i);
+  const result = [...drop(10, take(100, filter((x: number) => x % 2 === 0, map((x: number) => x + 1, arr))))];
+
+  // map: [1, 2, 3, ..., 200]
+  // filter (even): [2, 4, 6, ..., 200] - 100 elements
+  // take 100: [2, 4, 6, ..., 200] - still 100
+  // drop 10: [22, 24, ..., 200] - 90 elements
+
+  assertEquals(result.length, 90);
+  assertEquals(result[0], 22);
+  assertEquals(result[89], 200);
 });
 
 console.log("All foundation unit tests defined!");

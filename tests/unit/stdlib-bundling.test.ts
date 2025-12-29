@@ -395,8 +395,9 @@ Deno.test({
     const sizeKB = output.length / 1024;
     console.log(`Output size: ${sizeKB.toFixed(2)} KB`);
 
-    // The size should be reasonable (under 330KB with all bundling overhead)
-    // Increased from 310KB after adding Phase 3 self-hosted functions (mapIndexed, keepIndexed, mapcat, keep)
-    assertEquals(sizeKB < 330, true, `Output should be under 330KB, got ${sizeKB.toFixed(2)} KB`);
+    // The size should be reasonable (under 400KB with all bundling overhead)
+    // Increased from 310KB after adding Phase 3 self-hosted functions
+    // Increased to 400KB after adding chunked versions of all operations (take, drop, etc.)
+    assertEquals(sizeKB < 400, true, `Output should be under 400KB, got ${sizeKB.toFixed(2)} KB`);
   },
 });
