@@ -176,7 +176,7 @@ function registerClass(list: SList): void {
           isSymbol(el.elements[1])
         ) {
           const fieldName = (el.elements[1] as SSymbol).name;
-          let fieldType = undefined;
+          const fieldType = undefined;
           // Check for typed field: (var name:type value)
           if (fieldName.includes(":")) {
             const [name, type] = fieldName.split(":");

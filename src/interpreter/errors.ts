@@ -1,7 +1,7 @@
 // src/interpreter/errors.ts - Error types for the HQL interpreter
 // Integrated with HQLError system for consistent error handling
 
-import { HQLError, SourceLocation } from "../common/error.ts";
+import { HQLError, type SourceLocation } from "../common/error.ts";
 import { HQLErrorCode } from "../common/error-codes.ts";
 
 /**

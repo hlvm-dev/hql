@@ -134,7 +134,7 @@ export async function initAIRuntime(): Promise<void> {
  * Shutdown AI runtime
  * Call this when CLI exits
  */
-export async function shutdownAIRuntime(): Promise<void> {
+export function shutdownAIRuntime(): void {
   if (aiProcess) {
     try {
       aiProcess.kill("SIGTERM");
@@ -148,7 +148,7 @@ export async function shutdownAIRuntime(): Promise<void> {
 /**
  * Check if AI is available
  */
-export async function isAIAvailable(): Promise<boolean> {
+export function isAIAvailable(): boolean {
   return isAIRunning();
 }
 

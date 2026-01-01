@@ -9,9 +9,9 @@
  */
 
 import {
-  CodeAction,
+  type CodeAction,
   CodeActionKind,
-  TextEdit,
+  type TextEdit,
 } from "npm:vscode-languageserver@9.0.1";
 import type { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import type { UnusedImport, ParsedImport } from "./types.ts";
