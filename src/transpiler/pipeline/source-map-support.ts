@@ -20,6 +20,7 @@ import {
   fromFileUrl as platformFromFileUrl,
 } from "../../platform/platform.ts";
 import { getErrorMessage } from "../../common/utils.ts";
+import { LRUCache } from "../../common/lru-cache.ts";
 
 /**
  * Represents a position in source code (used internally by mapPositionSync)
@@ -39,14 +40,18 @@ interface Position {
  * Cache for loaded source map consumers
  * Key: JavaScript file path
  * Value: SourceMapConsumer instance
+ *
+ * Limited to 500 entries to prevent unbounded memory growth in long-running processes.
  */
-const sourceMapCache = new Map<string, SourceMapConsumer>();
+const sourceMapCache = new LRUCache<string, SourceMapConsumer>(500);
 
 /**
  * Track files that have been warned about cache misses
- * to avoid spamming logs with repeated warnings
+ * to avoid spamming logs with repeated warnings.
+ *
+ * Limited to 1000 entries to prevent unbounded growth.
  */
-const cacheMissWarned = new Set<string>();
+const cacheMissWarned = new LRUCache<string, true>(1000);
 
 /**
  * Preload a source map into the cache (async, non-blocking)
@@ -314,7 +319,7 @@ function loadSourceMapSync(
   // Cache miss - warn once per file to help debugging without spamming logs
   // IMPORTANT: We do NOT perform file I/O here to avoid blocking the event loop
   if (!cacheMissWarned.has(normalizedPath)) {
-    cacheMissWarned.add(normalizedPath);
+    cacheMissWarned.set(normalizedPath, true);
     logger.debug(
       `Source map cache miss for ${normalizedPath}. ` +
       `Call preloadSourceMap() after transpilation to enable source mapping for errors.`

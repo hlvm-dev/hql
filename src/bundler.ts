@@ -56,6 +56,7 @@ import {
 import { transpile, type TranspileOptions } from "./transpiler/index.ts";
 import { fromFileUrl, join } from "./platform/platform.ts";
 import { preloadSourceMap } from "./transpiler/pipeline/source-map-support.ts";
+import { LRUCache } from "./common/lru-cache.ts";
 
 /**
  * Get the path to the stdlib index.js file.
@@ -1286,7 +1287,8 @@ export async function transpileHqlInJs(
  * Old approach: O(n×m²) - can re-traverse same paths multiple times
  * New approach: O(n×m) - each path checked once, results cached
  */
-const circularCheckCache = new Map<string, boolean>();
+// LRU cache to prevent unbounded memory growth in long-running bundler processes
+const circularCheckCache = new LRUCache<string, boolean>(10000);
 
 function checkForCircularDependency(
   source: string,

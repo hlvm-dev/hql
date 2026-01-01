@@ -22,8 +22,10 @@ import type { HQLNode } from "../transpiler/type/hql_ast.ts";
 import { EMBEDDED_MACROS } from "../lib/embedded-macros.ts";
 import { type CompilerContext, hasMacroRegistry } from "./compiler-context.ts";
 import { basename, cwd as platformCwd } from "../platform/platform.ts";
+import { LRUCache } from "../common/lru-cache.ts";
 
-const macroExpressionsCache = new Map<string, SExp[]>();
+// LRU cache with size limit to prevent unbounded memory growth
+const macroExpressionsCache = new LRUCache<string, SExp[]>(1000);
 
 // Cache the fully-initialized base environment with all system macros loaded.
 // This avoids re-parsing and re-expanding system macros on every compilation.

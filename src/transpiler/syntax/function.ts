@@ -42,8 +42,10 @@ import {
 } from "../../common/runtime-helper-impl.ts";
 import { patternToIR } from "../utils/pattern-to-ir.ts";
 import { parsePattern } from "../../s-exp/pattern-parser.ts";
+import { LRUCache } from "../../common/lru-cache.ts";
 
-const fnFunctionRegistry = new Map<string, IR.IRFnFunctionDeclaration>();
+// LRU cache with size limit to prevent unbounded memory growth in long-running processes
+const fnFunctionRegistry = new LRUCache<string, IR.IRFnFunctionDeclaration>(5000);
 
 type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 

@@ -21,15 +21,15 @@ import { transpileHqlInJs } from "../bundler.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { sanitizeIdentifier, getErrorMessage, normalizePath, hyphenToUnderscore } from "./utils.ts";
 import { isHqlFile, isJsFile } from "./import-utils.ts";
+import { LRUCache } from "./lru-cache.ts";
 
 // Cache directory configuration
 const HQL_CACHE_DIR = ".hql-cache";
 const CACHE_VERSION = "1"; // Increment when cache structure changes
 const SHORT_HASH_LENGTH = 8; // SHA-1 hash shortened to 8 hex chars for path readability
 
-// Memory caches
-const contentHashCache = new Map<string, string>();
-const outputPathCache = new Map<string, Map<string, string>>();
+// Memory caches with size limits to prevent unbounded growth in long-running processes
+const contentHashCache = new LRUCache<string, string>(5000);
 
 // Pre-compiled regex patterns for performance (avoid recompilation in hot paths)
 const IMPORT_REGEX = /import\s+.*\s+from\s+['"]([^'"]+)['"]/g;
@@ -41,8 +41,9 @@ const HQL_IMPORT_REGEX = /import\s+.*\s+from\s+['"]([^'"]+\.(hql))['"]/g;
 /**
  * Map of original imports to cached paths
  * This helps resolve imports between cached files
+ * Limited to 5000 entries to prevent unbounded growth
  */
-const importPathMap = new Map<string, string>();
+const importPathMap = new LRUCache<string, string>(5000);
 
 /**
  * Register an import mapping
@@ -705,7 +706,7 @@ export async function clearCache(): Promise<void> {
 
   // Reset in-memory caches too
   contentHashCache.clear();
-  outputPathCache.clear();
+  importPathMap.clear();
 
   // Recreate the cache directory
   await ensureDir(cacheDir);

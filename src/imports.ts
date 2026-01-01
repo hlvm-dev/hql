@@ -60,9 +60,11 @@ import { processVectorElements } from "./transpiler/syntax/data-structure.ts";
 import {
   readTextFile as platformReadTextFile,
 } from "./platform/platform.ts";
+import { LRUCache } from "./common/lru-cache.ts";
 
 // Cache file contents to avoid re-reading the same file for every import
-const fileLineCache = new Map<string, string[] | null>();
+// Limited to 2000 files to prevent unbounded memory growth in long-running processes
+const fileLineCache = new LRUCache<string, string[] | null>(2000);
 
 /**
  * Validate that a resolved import path is safe (no path traversal attack).
