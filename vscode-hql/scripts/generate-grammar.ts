@@ -32,7 +32,7 @@ import {
   THREADING_MACROS,
   DECLARATION_SPECIAL_FORMS,
   MODULE_SYNTAX_KEYWORDS,
-  JS_GLOBAL_NAMES,
+  type JS_GLOBAL_NAMES,
   WORD_LOGICAL_OPERATORS,
   extractMacroNames,
 } from "../../src/common/known-identifiers.ts";

@@ -8,6 +8,14 @@
     "typescript": "npm:typescript@5.3.3",
     "@hlvm/repl": "./vendor/repl/mod.ts"
   },
+  "lint": {
+    "include": ["src/", "tests/", "scripts/", "lsp/"],
+    "exclude": ["**/node_modules/**", "**/vendor/**"],
+    "rules": {
+      "tags": ["recommended"],
+      "exclude": ["no-explicit-any"]
+    }
+  },
   "publish": {
     "exclude": [
       ".hql-cache/",
@@ -34,6 +42,8 @@
     "test:e2e": "deno run -A scripts/run-local-examples-all.ts",
     "test:all": "deno task test:unit && deno task test:binary:quick && deno task test:compat",
     "test:all:binary": "deno task test:unit && deno task test:binary && HQL_TEST_BINARY=1 deno task test:compat",
-    "test:watch": "deno test --allow-all --watch tests/unit/**/*.test.ts"
+    "test:watch": "deno test --allow-all --watch tests/unit/**/*.test.ts",
+    "test:ultimate": "echo '🚀 Running Ultimate HQL Test Suite' && deno task test:unit && deno task test:binary && deno task test:compat && deno task test:e2e && echo '✅ All tests passed!'",
+    "test:ultimate:quick": "echo '🚀 Running Quick Ultimate Test Suite' && deno task test:unit && deno task test:binary:quick && deno task test:e2e && echo '✅ All tests passed!'"
   }
 }

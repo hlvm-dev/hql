@@ -130,7 +130,7 @@
           (binary-search arr target (+ mid 1) high)
           (binary-search arr target low (- mid 1)))))))
 
-(let sorted-arr [1 3 5 7 9 11 13 15 17 19])
+(let (sorted-arr [1 3 5 7 9 11 13 15 17 19])
   (print "search for 7:" (binary-search sorted-arr 7 0 9))    ;; => 3
   (print "search for 15:" (binary-search sorted-arr 15 0 9))  ;; => 7
   (print "search for 4:" (binary-search sorted-arr 4 0 9)))   ;; => -1

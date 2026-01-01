@@ -5,7 +5,6 @@
 import {
   assertEquals,
   assertExists,
-  assertNotEquals,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import { prepareRename, getWordForRename } from "../../../lsp/features/rename.ts";

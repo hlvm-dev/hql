@@ -160,12 +160,24 @@ declare const Object: ObjectConstructor;
 
 // Constructors for built-in types (needed for 'new Error()', 'new Set()', etc.)
 interface ErrorConstructor { new(message?: string): Error; (message?: string): Error; prototype: Error; }
+interface TypeErrorConstructor { new(message?: string): TypeError; (message?: string): TypeError; prototype: TypeError; }
+interface RangeErrorConstructor { new(message?: string): RangeError; (message?: string): RangeError; prototype: RangeError; }
+interface SyntaxErrorConstructor { new(message?: string): SyntaxError; (message?: string): SyntaxError; prototype: SyntaxError; }
+interface ReferenceErrorConstructor { new(message?: string): ReferenceError; (message?: string): ReferenceError; prototype: ReferenceError; }
 interface SetConstructor { new<T>(values?: Iterable<T>): Set<T>; prototype: Set<unknown>; }
 interface MapConstructor { new<K, V>(entries?: Iterable<[K, V]>): Map<K, V>; prototype: Map<unknown, unknown>; }
 interface DateConstructor { new(): Date; new(value: number | string): Date; now(): number; parse(s: string): number; prototype: Date; }
 interface ArrayConstructor { new<T>(...items: T[]): T[]; isArray(arg: unknown): arg is unknown[]; from<T>(iterable: Iterable<T>): T[]; of<T>(...items: T[]): T[]; prototype: unknown[]; }
 interface PromiseConstructor { new<T>(executor: (resolve: (value: T) => void, reject: (reason?: unknown) => void) => void): Promise<T>; resolve<T>(value: T): Promise<T>; reject(reason?: unknown): Promise<never>; all<T>(values: Iterable<Promise<T>>): Promise<T[]>; race<T>(values: Iterable<Promise<T>>): Promise<T>; }
+interface TypeError extends Error { name: "TypeError"; }
+interface RangeError extends Error { name: "RangeError"; }
+interface SyntaxError extends Error { name: "SyntaxError"; }
+interface ReferenceError extends Error { name: "ReferenceError"; }
 declare const Error: ErrorConstructor;
+declare const TypeError: TypeErrorConstructor;
+declare const RangeError: RangeErrorConstructor;
+declare const SyntaxError: SyntaxErrorConstructor;
+declare const ReferenceError: ReferenceErrorConstructor;
 declare const Set: SetConstructor;
 declare const Map: MapConstructor;
 declare const Date: DateConstructor;

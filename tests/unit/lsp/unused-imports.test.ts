@@ -9,9 +9,8 @@
 
 import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
-import { DiagnosticSeverity, CodeActionKind } from "npm:vscode-languageserver@9.0.1";
+import { CodeActionKind } from "npm:vscode-languageserver@9.0.1";
 import {
-  findUnusedImports,
   analyzeUnusedImports,
 } from "../../../lsp/imports/symbol-usage.ts";
 import {

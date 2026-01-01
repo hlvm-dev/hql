@@ -50,12 +50,9 @@ const {
   TRANSDUCER_RESULT,
   // Chunking infrastructure
   CHUNK_SIZE,
-  ArrayChunk,
   ChunkBuffer,
-  ChunkedCons,
   isChunked,
   chunkFirst,
-  chunkRest,
   toChunkedSeq,
   chunkedMap,
   chunkedFilter,

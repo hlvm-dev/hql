@@ -1,6 +1,6 @@
 // Tests for advanced TypeScript features
 // All features are type-level and get erased when compiling to JS
-import { assertStringIncludes, assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { generateTypeScript } from "../../src/transpiler/pipeline/ir-to-typescript.ts";
 import { transformToIR } from "../../src/transpiler/pipeline/hql-ast-to-hql-ir.ts";
 import { parse } from "../../src/transpiler/pipeline/parser.ts";

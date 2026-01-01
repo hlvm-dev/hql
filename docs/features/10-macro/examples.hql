@@ -11,8 +11,8 @@
 
 
 (let my-set #[1, 2, 3, 4, 5])
-(print "Should be true:" (contains? my-set 3))
-(print "Should be false:" (contains? my-set 42))
+(print "Should be true:" (.has my-set 3))
+(print "Should be false:" (.has my-set 42))
 
 ;; Create a vector for testing
 (let my-vector [10, 20, 30, 40, 50])

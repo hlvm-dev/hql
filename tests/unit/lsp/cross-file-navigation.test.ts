@@ -180,7 +180,7 @@ Deno.test("ImportResolver - caches resolutions", () => {
 
 Deno.test("Cross-file - finds exported symbol in target file", () => {
   const index = new ProjectIndex();
-  const resolver = new ImportResolver();
+  const _resolver = new ImportResolver();
 
   // Create mock analysis for the exporting file
   const exportingSymbols = new SymbolTable();

@@ -1,5 +1,5 @@
 // Tests for logical assignment operators (??=, &&=, ||=)
-import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { transpile } from "../../src/transpiler/index.ts";
 
 // ??= (Nullish coalescing assignment)

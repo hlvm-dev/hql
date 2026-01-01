@@ -26,7 +26,6 @@ const {
   doall,
   realized,
   rangeGenerator,
-  SEQ,
   isSeq,
 } = await import(stdlibPath);
 

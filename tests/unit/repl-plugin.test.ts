@@ -14,7 +14,6 @@ import {
   wrapInAsyncExportFunction,
   transformForGlobalThis,
   hqlPlugin,
-  type ExpressionKind,
 } from "../../src/cli/hql-plugin.ts";
 import { parse } from "../../src/transpiler/pipeline/parser.ts";
 import type { SList } from "../../src/s-exp/types.ts";
@@ -309,7 +308,7 @@ function createMockContext(lineNumber: number = 1) {
     setState(key: string, value: unknown) {
       state.set(key, value);
     },
-    async appendToModule(code: string) {
+    appendToModule(code: string) {
       moduleCode += code;
     },
     async reimportModule() {
@@ -492,7 +491,7 @@ Deno.test("hqlPlugin.evaluate: throws on syntax error", async () => {
   let threw = false;
   try {
     await hqlPlugin.evaluate("(+ 1", ctx as any); // Missing closing paren
-  } catch (e) {
+  } catch {
     threw = true;
   }
   assertEquals(threw, true);

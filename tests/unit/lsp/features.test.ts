@@ -13,7 +13,6 @@ import { analyzeDocument } from "../../../lsp/analysis.ts";
 import { getHover } from "../../../lsp/features/hover.ts";
 import { getDefinition } from "../../../lsp/features/definition.ts";
 import { getCompletions } from "../../../lsp/features/completion.ts";
-import type { CompletionContext } from "../../../lsp/features/completion.ts";
 import { getDiagnostics } from "../../../lsp/features/diagnostics.ts";
 
 // ============================================

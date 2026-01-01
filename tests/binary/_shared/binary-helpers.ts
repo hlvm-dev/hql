@@ -141,14 +141,14 @@ export function runCLI(command: string, args: string[] = []): Promise<CommandRes
  * Run an HQL expression and return the result
  * Shorthand for: runCLI("run", [expression])
  */
-export async function runExpression(expression: string): Promise<CommandResult> {
+export function runExpression(expression: string): Promise<CommandResult> {
   return runCLI("run", [expression]);
 }
 
 /**
  * Compile HQL code to JavaScript and return the output
  */
-export async function transpileCode(hqlCode: string): Promise<{ js: string; result: CommandResult }> {
+export function transpileCode(hqlCode: string): Promise<{ js: string; result: CommandResult }> {
   return withTempDir(async (dir) => {
     const inputPath = `${dir}/test.hql`;
     const outputPath = `${dir}/test.js`;
@@ -186,7 +186,7 @@ async function executeCommand(program: string, args: string[]): Promise<CommandR
 }
 
 /** Compile HQL to JS and run with specified runtime */
-async function compileAndRunWith(
+function compileAndRunWith(
   hqlCode: string,
   runtime: "node" | "deno"
 ): Promise<CommandResult> {
@@ -234,7 +234,7 @@ export async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T
 /**
  * Create a temporary HQL project with hql.json
  */
-export async function withTempProject<T>(
+export function withTempProject<T>(
   fn: (dir: string) => Promise<T>,
   options?: { name?: string; version?: string; entry?: string }
 ): Promise<T> {

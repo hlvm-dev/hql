@@ -3,7 +3,7 @@
  * Note: Uses --dry-run to avoid actual publishing
  */
 
-import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
+import { assertEquals } from "https://deno.land/std@0.218.0/assert/mod.ts";
 import { runCLI, withTempDir, withTempProject, USE_BINARY } from "../_shared/binary-helpers.ts";
 
 // Log which mode we're testing

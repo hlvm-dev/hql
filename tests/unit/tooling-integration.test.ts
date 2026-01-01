@@ -93,7 +93,7 @@ Deno.test("Tooling: hql.transpile defaults to generating source maps for string 
   
   // Call without options
   // The fix in js-code-generator.ts ensures generateSourceMap defaults to true
-  const result = await hql.transpile(code);
+  const _result = await hql.transpile(code);
   
   // HQL transpile returns an object { code, sourceMap } by default now if maps are enabled
   // or just string if strictly disabled.
@@ -124,7 +124,7 @@ Deno.test("Tooling: hql.transpile defaults to generating source maps for string 
 // TEST 3: PUBLIC API EXPORTS (Ecosystem Enablement)
 // ============================================================================
 
-Deno.test("Tooling: Public API functions are exported and usable", async () => {
+Deno.test("Tooling: Public API functions are exported and usable", () => {
   // Verify exports exist
   if (typeof mapPosition !== 'function') throw new Error("mapPosition not exported");
   if (typeof loadSourceMap !== 'function') throw new Error("loadSourceMap not exported");

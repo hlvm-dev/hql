@@ -87,7 +87,7 @@ Deno.test("Type Annotations - hasTypeAnnotations detection - positive", async ()
   const result = await transpile(code, { currentFile: "test.hql" });
 
   // Get IR and check
-  const ast = parse(code, "test.hql");
+  const _ast = parse(code, "test.hql");
   // We'd need access to the IR to test hasTypeAnnotations directly
   // For now, just verify transpilation works
   assertStringIncludes(result.code, "function add");

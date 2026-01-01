@@ -19,20 +19,13 @@ import { assertEquals, assertThrows } from "https://deno.land/std@0.208.0/assert
 
 const seqProtocol = await import("../../../src/lib/stdlib/js/internal/seq-protocol.js");
 const {
-  Cons,
-  LazySeq,
-  ArraySeq,
   lazySeq,
   chunkedLazySeq,  // For chunk propagation tests
   cons,
   EMPTY,
   SEQ,
-  COUNTED,
-  INDEXED,
   toSeq,
   isCons,
-  isLazySeq,
-  isSeq,
   isArraySeq,
   isCounted,
   isIndexed,
@@ -95,9 +88,9 @@ function nth(coll: any, index: number, notFound?: any): any {
   throw new Error(`nth: index ${index} out of bounds`);
 }
 
-// Foundation-level count (for testing)
+// Foundation-level count (for testing) - prefixed with underscore as it's reserved for future use
 // deno-lint-ignore no-explicit-any
-function count(coll: any): number {
+function _count(coll: any): number {
   if (coll == null) return 0;
   if (Array.isArray(coll)) return coll.length;
   let n = 0;
@@ -790,7 +783,7 @@ Deno.test("performance: ArraySeq O(1) operations after repeated rest()", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const { isChunked, ChunkedCons, toChunkedSeq, CHUNK_SIZE } = seqProtocol;
-const core = await import("../../../src/lib/stdlib/js/core.js");
+const _core = await import("../../../src/lib/stdlib/js/core.js");
 const {
   map, filter, reduce,
   take, drop, takeWhile, dropWhile,

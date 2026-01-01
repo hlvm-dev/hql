@@ -3,9 +3,9 @@
 
 import { assertEquals, assertThrows } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { Interpreter, createStandardEnv, hqlValueToSExp } from "../../../src/interpreter/index.ts";
-import { InterpreterEnv } from "../../../src/interpreter/environment.ts";
+import type { InterpreterEnv } from "../../../src/interpreter/environment.ts";
 import { parse } from "../../../src/transpiler/pipeline/parser.ts";
-import { sexpToString, createLiteral, createList, type SSymbol, type SList } from "../../../src/s-exp/types.ts";
+import { sexpToString, type SSymbol } from "../../../src/s-exp/types.ts";
 
 // Helper to parse and evaluate an expression
 function evalExpr(code: string, env?: InterpreterEnv) {

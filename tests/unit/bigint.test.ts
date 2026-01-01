@@ -1,5 +1,5 @@
 // Tests for BigInt literal support
-import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { transpile } from "../../src/transpiler/index.ts";
 
 Deno.test("BigInt: basic literal", async () => {

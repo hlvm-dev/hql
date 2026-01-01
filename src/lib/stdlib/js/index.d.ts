@@ -489,7 +489,7 @@ export function isBoolean(value: any): value is boolean;
 /**
  * Checks if value is a function
  */
-export function isFunction(value: any): value is Function;
+export function isFunction(value: unknown): value is (...args: unknown[]) => unknown;
 
 /**
  * Checks if value is an array

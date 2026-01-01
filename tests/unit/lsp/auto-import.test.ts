@@ -13,7 +13,6 @@ import { CodeActionKind } from "npm:vscode-languageserver@9.0.1";
 import type { Diagnostic, CodeActionParams } from "npm:vscode-languageserver@9.0.1";
 import { getCodeActions } from "../../../lsp/features/code-actions.ts";
 import { ProjectIndex } from "../../../lsp/workspace/project-index.ts";
-import { analyzeDocument } from "../../../lsp/analysis.ts";
 import {
   createNewImport,
   calculateRelativePath,
