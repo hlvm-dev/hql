@@ -53,6 +53,11 @@ export const EMPTY = Object.freeze({
   [Symbol.for("nodejs.util.inspect.custom")]() { return "EMPTY"; },
 });
 
+/** Check if a sequence is at its end (null or EMPTY). DRY helper. */
+export function isSeqEnd(x) {
+  return x == null || x === EMPTY;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // CONS: Immutable pair (like Clojure's Cons)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -78,10 +83,10 @@ export class Cons {
 
   *[Symbol.iterator]() {
     let s = this;
-    while (s && s !== EMPTY) {
+    while (!isSeqEnd(s)) {
       // Trampoline: unwrap LazySeq iteratively (O(1) stack)
       while (s instanceof LazySeq) s = s._realize();
-      if (!s || s === EMPTY) break;
+      if (isSeqEnd(s)) break;
 
       // Yield from SEQ types
       if (s[SEQ]) {
@@ -117,14 +122,15 @@ Cons.prototype[SEQ] = true;
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Helper: Convert an iterator/generator to a Cons chain.
- * Used for backwards compatibility with generator-based LazySeq.
+ * Convert an iterator/generator to a Cons chain.
+ * Used for backwards compatibility with generator-based LazySeq
+ * and for converting any iterable to a seq.
+ * DRY: Single definition used by both LazySeq._realize() and toSeq().
  */
-function iteratorToConsChain(iter) {
+function iteratorSeq(iter) {
   const { value, done } = iter.next();
   if (done) return null;
-  // Create Cons with lazy rest (will be realized on demand)
-  return new Cons(value, new LazySeq(() => iteratorToConsChain(iter)));
+  return new Cons(value, new LazySeq(() => iteratorSeq(iter)));
 }
 
 /**
@@ -140,10 +146,11 @@ function iteratorToConsChain(iter) {
  * - _realize(): O(k) where k = nesting depth, but O(1) stack
  */
 export class LazySeq {
-  constructor(thunk) {
+  constructor(thunk, isChunkedSource = false) {
     this._thunk = thunk;
     this._realized = null;
     this._isRealized = false;
+    this._isChunkedSource = isChunkedSource;  // Flag for chunk propagation
   }
 
   /**
@@ -163,7 +170,7 @@ export class LazySeq {
     // BACKWARDS COMPAT: Handle generators (convert to Cons chain)
     if (result && typeof result[Symbol.iterator] === "function" && typeof result.next === "function") {
       // It's a generator/iterator - convert to Cons chain
-      result = iteratorToConsChain(result);
+      result = iteratorSeq(result);
     }
 
     // TRAMPOLINE: unwrap nested LazySeqs iteratively
@@ -173,7 +180,7 @@ export class LazySeq {
       result = typeof nested === "function" ? nested() : nested;
       // Handle generators in nested thunks too
       if (result && typeof result[Symbol.iterator] === "function" && typeof result.next === "function") {
-        result = iteratorToConsChain(result);
+        result = iteratorSeq(result);
       }
     }
 
@@ -629,7 +636,7 @@ export class ChunkedCons {
     }
     // Chunk exhausted, return rest (the next chunk or sequence)
     const r = this._rest;
-    if (!r || r === EMPTY) return EMPTY;
+    if (isSeqEnd(r)) return EMPTY;
     // Realize LazySeq to get the next ChunkedCons (don't skip with .rest()!)
     if (r instanceof LazySeq) {
       const realized = r._realize?.() ?? r.seq?.();
@@ -645,7 +652,7 @@ export class ChunkedCons {
     yield* this._chunk;
     // Then iterate rest
     const r = this._rest;
-    if (r && r !== EMPTY) yield* r;
+    if (!isSeqEnd(r)) yield* r;
   }
 
   toArray() { return [...this]; }
@@ -678,7 +685,25 @@ export function arrayChunk(arr, off = 0, end = arr.length) {
 
 /** Check if value supports chunked iteration. */
 export function isChunked(x) {
-  return x != null && x[CHUNKED] === true;
+  if (x == null) return false;
+  if (x[CHUNKED] === true) return true;
+  // Check if LazySeq is from a chunked operation (enables chunk propagation)
+  if (x instanceof LazySeq && x._isChunkedSource === true) return true;
+  return false;
+}
+
+/** Check if a collection should use chunked operations. DRY helper. */
+export function shouldChunk(coll) {
+  return (Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll);
+}
+
+/**
+ * Check if seq is active (has elements to iterate).
+ * DRY helper for: !isSeqEnd(x) && x.seq?.()
+ * Returns truthy (the seq itself) if active, falsy if exhausted.
+ */
+export function isActiveSeq(x) {
+  return !isSeqEnd(x) && x.seq?.();
 }
 
 /** Get first chunk from chunked seq. */
@@ -697,18 +722,6 @@ export function chunkRest(s) {
 }
 
 /**
- * Create a chunked lazy sequence from a thunk.
- *
- * The thunk should return:
- * - null for empty
- * - ChunkedCons for chunked
- * - Any seq for unchunked
- */
-export function chunkSeq(thunk) {
-  return new LazySeq(thunk);
-}
-
-/**
  * Convert collection to chunked sequence if beneficial.
  *
  * Arrays are chunked (efficient for map/filter).
@@ -717,16 +730,18 @@ export function chunkSeq(thunk) {
  */
 export function toChunkedSeq(coll) {
   if (coll == null) return null;
-  if (isChunked(coll)) return coll;
 
-  // LazySeq: realize and check if content is chunked (enables chunk propagation)
+  // LazySeq: always realize first, even if marked as chunked source
+  // We need the underlying ChunkedCons, not the LazySeq wrapper
   if (coll instanceof LazySeq) {
     const realized = coll._realize?.();
     if (realized == null) return null;
-    if (isChunked(realized)) return realized;
-    // Not chunked inside, fall through to toSeq
+    // Return the realized content (ChunkedCons or Cons or other)
     return realized;
   }
+
+  // Already a ChunkedCons - return directly
+  if (isChunked(coll)) return coll;
 
   // Arrays benefit from chunking
   if (Array.isArray(coll) && coll.length > 0) {
@@ -793,26 +808,26 @@ function rangeToChunkedSeq(range) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ITERATOR SEQ: Wrap iterator as seq
+// PUBLIC API
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Create seq from iterator.
+ * Create seq from iterator. Exported for core.js to reuse.
  * Returns Cons with lazy rest, or null if exhausted.
  */
-function iteratorSeq(iter) {
-  const { value, done } = iter.next();
-  if (done) return null;
-  return new Cons(value, new LazySeq(() => iteratorSeq(iter)));
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// PUBLIC API
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+export { iteratorSeq };
 
 /** Create lazy sequence from thunk. Thunk should return Cons or null. */
 export function lazySeq(thunk) {
   return new LazySeq(thunk);
+}
+
+/**
+ * Create a LazySeq marked as containing chunked content.
+ * Used by chunkedMap, chunkedFilter, etc. to enable chunk propagation.
+ */
+export function chunkedLazySeq(thunk) {
+  return new LazySeq(thunk, true);
 }
 
 /** Create Cons cell. */
@@ -842,6 +857,14 @@ export function isCons(value) {
 /** Check if value is LazySeq. */
 export function isLazySeq(value) {
   return value instanceof LazySeq;
+}
+
+/**
+ * Realize a LazySeq if needed, otherwise return as-is.
+ * DRY helper for the pattern: (x instanceof LazySeq) ? x._realize?.() ?? x : x
+ */
+export function maybeRealize(x) {
+  return (x instanceof LazySeq) ? (x._realize?.() ?? x) : x;
 }
 
 /** Check if value is ArraySeq. */
@@ -920,10 +943,10 @@ export function nth(coll, index, notFound) {
     throw new RangeError(`Index ${index} out of bounds`);
   }
   let s = coll[SEQ] ? coll : toSeq(coll);
-  for (let i = 0; i < index && s && s !== EMPTY; i++) {
+  for (let i = 0; i < index && !isSeqEnd(s); i++) {
     s = s.rest();
   }
-  if (s && s !== EMPTY && s.seq()) return s.first();
+  if (isActiveSeq(s)) return s.first();
   if (hasNotFound) return notFound;
   throw new RangeError(`Index ${index} out of bounds`);
 }

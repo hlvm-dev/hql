@@ -200,8 +200,8 @@ export function hqlToJs(
  * Used when returning from stdlib functions
  */
 export function jsToHql(value: unknown, maxLength: number = MAX_SEQ_LENGTH): HQLValue {
-  // Null/undefined -> nil
-  if (value === null || value === undefined) {
+  // Null/undefined → nil (nil-punning)
+  if (value == null) {
     return null;
   }
 

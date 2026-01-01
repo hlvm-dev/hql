@@ -9,6 +9,7 @@ import { ReplState } from "./state.ts";
 import { formatValue, formatError } from "./formatter.ts";
 import { isCommand, runCommand } from "./commands.ts";
 import { ANSI_COLORS } from "../ansi.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import { version as VERSION } from "../../../mod.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 
@@ -112,7 +113,7 @@ export async function startRepl(): Promise<number> {
       if (error instanceof Error) {
         console.log(formatError(error));
       } else {
-        console.log(`${ANSI_COLORS.RED}Error: ${String(error)}${RESET}`);
+        console.log(`${ANSI_COLORS.RED}Error: ${getErrorMessage(error)}${RESET}`);
       }
     }
   }

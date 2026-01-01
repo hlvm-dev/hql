@@ -7,8 +7,13 @@ import { rangeCore } from "./internal/range-core.js";
 // CONSOLIDATED: All lazy sequences use seq-protocol.js (thunk-based, O(1) rest)
 import {
   lazySeq as seqLazySeq,
+  chunkedLazySeq,  // For chunked operations (enables chunk propagation)
   cons as seqCons,
   EMPTY as SEQ_EMPTY,
+  isSeqEnd,  // DRY helper: x == null || x === EMPTY
+  isActiveSeq,  // DRY helper: !isSeqEnd(x) && x.seq?.()
+  iteratorSeq,  // DRY: shared iterator-to-Cons conversion
+  maybeRealize,  // DRY: realize LazySeq if needed
   SEQ,
   isCons,
   LazySeq,
@@ -19,7 +24,6 @@ import {
   force as seqForce,
   isDelay as seqIsDelay,
   // Transducer infrastructure
-  Reduced,
   reduced as seqReduced,
   isReduced as seqIsReduced,
   unreduced as seqUnreduced,
@@ -31,7 +35,6 @@ import {
   TRANSDUCER_RESULT,
   // Chunked sequence infrastructure
   CHUNK_SIZE,
-  CHUNKED,
   ArrayChunk,
   ChunkBuffer,
   ChunkedCons,
@@ -40,7 +43,6 @@ import {
   isChunked as seqIsChunked,
   chunkFirst as seqChunkFirst,
   chunkRest as seqChunkRest,
-  chunkSeq as seqChunkSeq,
   toChunkedSeq as seqToChunkedSeq,
 } from "./internal/seq-protocol.js";
 import {
@@ -249,17 +251,7 @@ export function realized(coll) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SEQ - Sequence Abstraction (Bootstrap Primitive)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-/**
- * Helper to create a Cons chain from an iterator.
- * Prevents O(N^2) nesting issues inherent in generator wrappers.
- */
-function iteratorSeq(iter) {
-  const { value, done } = iter.next();
-  if (done) return null;
-  // Use foundation's Cons/LazySeq for O(1) trampolining
-  return seqCons(value, seqLazySeq(() => iteratorSeq(iter)));
-}
+// NOTE: iteratorSeq is imported from seq-protocol.js (DRY)
 
 /**
  * Convert any collection to a lazy sequence, or return null for empty/nil
@@ -391,7 +383,7 @@ export function __hql_range(...args) {
  * Convert a value to a sequence (array).
  */
 export function __hql_toSequence(value) {
-  if (value === null || value === undefined) return [];
+  if (value == null) return [];  // nil-punning: null or undefined → empty array
   if (Array.isArray(value)) return value;
   if (typeof value === "number") {
     const result = [];
@@ -749,15 +741,15 @@ export function chunkedMap(f, coll) {
   if (s == null) return null;
 
   if (seqIsChunked(s)) {
-    return seqLazySeq(() => {
+    return chunkedLazySeq(() => {
       const chunk = s.chunkFirst();
       const mapped = chunk.toArray().map(f);
       const newChunk = seqArrayChunk(mapped);
       const rest = s.chunkRest();
-      if (rest === SEQ_EMPTY || rest == null) {
+      if (isSeqEnd(rest)) {
         return seqChunkCons(newChunk, null);
       }
-      return seqChunkCons(newChunk, seqLazySeq(() => chunkedMap(f, rest)));
+      return seqChunkCons(newChunk, chunkedLazySeq(() => chunkedMap(f, rest)));
     });
   }
 
@@ -781,7 +773,7 @@ export function chunkedFilter(pred, coll) {
   if (s == null) return null;
 
   if (seqIsChunked(s)) {
-    return seqLazySeq(() => {
+    return chunkedLazySeq(() => {
       const chunk = s.chunkFirst();
       const filtered = chunk.toArray().filter(pred);
       const rest = s.chunkRest();
@@ -789,14 +781,14 @@ export function chunkedFilter(pred, coll) {
       // Create new chunk if we have filtered elements
       if (filtered.length > 0) {
         const newChunk = seqArrayChunk(filtered);
-        if (rest === SEQ_EMPTY || rest == null) {
+        if (isSeqEnd(rest)) {
           return seqChunkCons(newChunk, null);
         }
-        return seqChunkCons(newChunk, seqLazySeq(() => chunkedFilter(pred, rest)));
+        return seqChunkCons(newChunk, chunkedLazySeq(() => chunkedFilter(pred, rest)));
       }
 
       // No matches in this chunk, continue to rest
-      if (rest === SEQ_EMPTY || rest == null) return null;
+      if (isSeqEnd(rest)) return null;
       return chunkedFilter(pred, rest);
     });
   }
@@ -804,7 +796,7 @@ export function chunkedFilter(pred, coll) {
   // Fall back for non-chunked
   return seqLazySeq(function filterStep() {
     let current = s;
-    while (current && current !== SEQ_EMPTY && current.seq?.()) {
+    while (isActiveSeq(current)) {
       const fst = current.first();
       if (pred(fst)) {
         return seqCons(fst, seqLazySeq(() => chunkedFilter(pred, current.rest())));
@@ -834,21 +826,19 @@ export function chunkedReduce(f, init, coll) {
 
   if (seqIsChunked(s)) {
     let current = s;
-    while (current && current !== SEQ_EMPTY && current.seq?.()) {
+    while (isActiveSeq(current)) {
       const chunk = current.chunkFirst();
       // Reduce within chunk
       acc = chunk.reduce(f, acc);
       if (seqIsReduced(acc)) return seqUnreduced(acc);
-      current = current.chunkRest();
-      // Handle LazySeq rest
-      if (current instanceof LazySeq) current = current._realize?.() ?? current;
+      current = maybeRealize(current.chunkRest());
     }
     return acc;
   }
 
   // Fall back for non-chunked
   let current = s;
-  while (current && current !== SEQ_EMPTY && current.seq?.()) {
+  while (isActiveSeq(current)) {
     acc = f(acc, current.first());
     if (seqIsReduced(acc)) return seqUnreduced(acc);
     current = current.rest();
@@ -869,17 +859,17 @@ export function chunkedTake(n, coll) {
   if (s == null) return null;
 
   if (seqIsChunked(s)) {
-    return seqLazySeq(() => {
+    return chunkedLazySeq(() => {
       const chunk = s.chunkFirst();
       const arr = chunk.toArray();
 
       if (arr.length <= n) {
         // Take whole chunk, continue with rest
         const rest = s.chunkRest();
-        if (rest === SEQ_EMPTY || rest == null) {
+        if (isSeqEnd(rest)) {
           return seqChunkCons(chunk, null);
         }
-        return seqChunkCons(chunk, seqLazySeq(() => chunkedTake(n - arr.length, rest)));
+        return seqChunkCons(chunk, chunkedLazySeq(() => chunkedTake(n - arr.length, rest)));
       } else {
         // Take partial chunk
         const taken = arr.slice(0, n);
@@ -909,24 +899,23 @@ export function chunkedDrop(n, coll) {
   if (s == null) return null;
 
   if (seqIsChunked(s)) {
-    return seqLazySeq(() => {
+    return chunkedLazySeq(() => {
       let current = s;
       let remaining = n;
 
       // Skip whole chunks
-      while (current && current !== SEQ_EMPTY && current.seq?.()) {
+      while (isActiveSeq(current)) {
         const chunk = current.chunkFirst();
         const arr = chunk.toArray();
 
         if (arr.length <= remaining) {
           remaining -= arr.length;
-          current = current.chunkRest();
-          if (current instanceof LazySeq) current = current._realize?.() ?? current;
+          current = maybeRealize(current.chunkRest());
         } else {
           // Drop partial chunk
           const kept = arr.slice(remaining);
           const rest = current.chunkRest();
-          if (rest === SEQ_EMPTY || rest == null) {
+          if (isSeqEnd(rest)) {
             return seqChunkCons(seqArrayChunk(kept), null);
           }
           return seqChunkCons(seqArrayChunk(kept), rest);
@@ -940,7 +929,7 @@ export function chunkedDrop(n, coll) {
   return seqLazySeq(() => {
     let current = s;
     let remaining = n;
-    while (remaining > 0 && current && current !== SEQ_EMPTY && current.seq?.()) {
+    while (remaining > 0 && isActiveSeq(current)) {
       current = current.rest?.();
       remaining--;
     }
@@ -960,7 +949,7 @@ export function chunkedTakeWhile(pred, coll) {
   if (s == null) return null;
 
   if (seqIsChunked(s)) {
-    return seqLazySeq(() => {
+    return chunkedLazySeq(() => {
       const chunk = s.chunkFirst();
       const arr = chunk.toArray();
 
@@ -981,10 +970,10 @@ export function chunkedTakeWhile(pred, coll) {
       if (takeCount === arr.length) {
         // Whole chunk passes, continue with rest
         const rest = s.chunkRest();
-        if (rest === SEQ_EMPTY || rest == null) {
+        if (isSeqEnd(rest)) {
           return seqChunkCons(chunk, null);
         }
-        return seqChunkCons(chunk, seqLazySeq(() => chunkedTakeWhile(pred, rest)));
+        return seqChunkCons(chunk, chunkedLazySeq(() => chunkedTakeWhile(pred, rest)));
       } else {
         // Partial chunk
         const taken = arr.slice(0, takeCount);
@@ -1014,10 +1003,10 @@ export function chunkedDropWhile(pred, coll) {
   if (s == null) return null;
 
   if (seqIsChunked(s)) {
-    return seqLazySeq(() => {
+    return chunkedLazySeq(() => {
       let current = s;
 
-      while (current && current !== SEQ_EMPTY && current.seq?.()) {
+      while (isActiveSeq(current)) {
         const chunk = current.chunkFirst();
         const arr = chunk.toArray();
 
@@ -1040,15 +1029,14 @@ export function chunkedDropWhile(pred, coll) {
           // Partial chunk - keep the rest
           const kept = arr.slice(dropCount);
           const rest = current.chunkRest();
-          if (rest === SEQ_EMPTY || rest == null) {
+          if (isSeqEnd(rest)) {
             return seqChunkCons(seqArrayChunk(kept), null);
           }
           return seqChunkCons(seqArrayChunk(kept), rest);
         }
 
         // Whole chunk dropped, continue with rest
-        current = current.chunkRest();
-        if (current instanceof LazySeq) current = current._realize?.() ?? current;
+        current = maybeRealize(current.chunkRest());
       }
       return null;
     });
@@ -1057,7 +1045,7 @@ export function chunkedDropWhile(pred, coll) {
   // Fall back for non-chunked
   return seqLazySeq(() => {
     let current = s;
-    while (current && current !== SEQ_EMPTY && current.seq?.()) {
+    while (isActiveSeq(current)) {
       const fst = current.first();
       if (!pred(fst)) return current;
       current = current.rest?.();
@@ -1073,7 +1061,7 @@ export function chunkedDropWhile(pred, coll) {
  * @returns {LazySeq} Lazy sequence of concatenated elements
  */
 export function chunkedConcat(...colls) {
-  if (colls.length === 0) return seqLazySeq(() => null);
+  if (colls.length === 0) return chunkedLazySeq(() => null);
 
   function concatSeqs(seqs) {
     if (seqs.length === 0) return null;
@@ -1084,11 +1072,11 @@ export function chunkedConcat(...colls) {
     }
 
     if (seqIsChunked(first)) {
-      return seqLazySeq(() => {
+      return chunkedLazySeq(() => {
         const chunk = first.chunkFirst();
         const rest = first.chunkRest();
 
-        if (rest === SEQ_EMPTY || rest == null) {
+        if (isSeqEnd(rest)) {
           // Move to next collection
           const nextConcat = concatSeqs(seqs.slice(1));
           if (nextConcat == null) {
@@ -1096,7 +1084,7 @@ export function chunkedConcat(...colls) {
           }
           return seqChunkCons(chunk, nextConcat);
         }
-        return seqChunkCons(chunk, seqLazySeq(() => {
+        return seqChunkCons(chunk, chunkedLazySeq(() => {
           const restResult = concatSeqs([rest, ...seqs.slice(1)]);
           return restResult;
         }));
@@ -1114,8 +1102,8 @@ export function chunkedConcat(...colls) {
     });
   }
 
-  // Always wrap in LazySeq so caller can safely call .seq()
-  return seqLazySeq(() => concatSeqs(colls));
+  // Always wrap in chunkedLazySeq so caller can safely call .seq()
+  return chunkedLazySeq(() => concatSeqs(colls));
 }
 
 /**
@@ -1131,7 +1119,7 @@ export function chunkedDistinct(coll) {
   const seen = new Set();
 
   function distinctStep(current) {
-    if (current == null || current === SEQ_EMPTY || !current.seq?.()) return null;
+    if (!isActiveSeq(current)) return null;
 
     if (seqIsChunked(current)) {
       const chunk = current.chunkFirst();
@@ -1145,23 +1133,12 @@ export function chunkedDistinct(coll) {
         }
       }
 
-      const rest = current.chunkRest();
-      if (rest instanceof LazySeq) {
-        const realized = rest._realize?.() ?? rest;
-        if (unique.length > 0) {
-          if (realized == null || realized === SEQ_EMPTY) {
-            return seqChunkCons(seqArrayChunk(unique), null);
-          }
-          return seqChunkCons(seqArrayChunk(unique), seqLazySeq(() => distinctStep(realized)));
-        }
-        return distinctStep(realized);
-      }
-
+      const rest = maybeRealize(current.chunkRest());
       if (unique.length > 0) {
-        if (rest === SEQ_EMPTY || rest == null) {
+        if (isSeqEnd(rest)) {
           return seqChunkCons(seqArrayChunk(unique), null);
         }
-        return seqChunkCons(seqArrayChunk(unique), seqLazySeq(() => distinctStep(rest)));
+        return seqChunkCons(seqArrayChunk(unique), chunkedLazySeq(() => distinctStep(rest)));
       }
       return distinctStep(rest);
     }
@@ -1175,7 +1152,7 @@ export function chunkedDistinct(coll) {
     return distinctStep(current.rest?.());
   }
 
-  return seqLazySeq(() => distinctStep(s));
+  return chunkedLazySeq(() => distinctStep(s));
 }
 
 /**
@@ -1192,26 +1169,17 @@ export function chunkedMapIndexed(f, coll) {
   let idx = 0;
 
   function mapIndexedStep(current) {
-    if (current == null || current === SEQ_EMPTY || !current.seq?.()) return null;
+    if (!isActiveSeq(current)) return null;
 
     if (seqIsChunked(current)) {
       const chunk = current.chunkFirst();
       const arr = chunk.toArray();
       const mapped = arr.map((x) => f(idx++, x));
-      const rest = current.chunkRest();
-
-      if (rest instanceof LazySeq) {
-        const realized = rest._realize?.() ?? rest;
-        if (realized == null || realized === SEQ_EMPTY) {
-          return seqChunkCons(seqArrayChunk(mapped), null);
-        }
-        return seqChunkCons(seqArrayChunk(mapped), seqLazySeq(() => mapIndexedStep(realized)));
-      }
-
-      if (rest === SEQ_EMPTY || rest == null) {
+      const rest = maybeRealize(current.chunkRest());
+      if (isSeqEnd(rest)) {
         return seqChunkCons(seqArrayChunk(mapped), null);
       }
-      return seqChunkCons(seqArrayChunk(mapped), seqLazySeq(() => mapIndexedStep(rest)));
+      return seqChunkCons(seqArrayChunk(mapped), chunkedLazySeq(() => mapIndexedStep(rest)));
     }
 
     // Non-chunked
@@ -1220,7 +1188,7 @@ export function chunkedMapIndexed(f, coll) {
     return seqCons(mapped, seqLazySeq(() => mapIndexedStep(current.rest?.())));
   }
 
-  return seqLazySeq(() => mapIndexedStep(s));
+  return chunkedLazySeq(() => mapIndexedStep(s));
 }
 
 /**
@@ -1235,7 +1203,7 @@ export function chunkedKeep(f, coll) {
   if (s == null) return null;
 
   if (seqIsChunked(s)) {
-    return seqLazySeq(() => {
+    return chunkedLazySeq(() => {
       const chunk = s.chunkFirst();
       const arr = chunk.toArray();
       const kept = [];
@@ -1250,13 +1218,13 @@ export function chunkedKeep(f, coll) {
       const rest = s.chunkRest();
 
       if (kept.length > 0) {
-        if (rest === SEQ_EMPTY || rest == null) {
+        if (isSeqEnd(rest)) {
           return seqChunkCons(seqArrayChunk(kept), null);
         }
-        return seqChunkCons(seqArrayChunk(kept), seqLazySeq(() => chunkedKeep(f, rest)));
+        return seqChunkCons(seqArrayChunk(kept), chunkedLazySeq(() => chunkedKeep(f, rest)));
       }
 
-      if (rest === SEQ_EMPTY || rest == null) return null;
+      if (isSeqEnd(rest)) return null;
       return chunkedKeep(f, rest);
     });
   }
@@ -1264,7 +1232,7 @@ export function chunkedKeep(f, coll) {
   // Fall back for non-chunked
   return seqLazySeq(function keepStep() {
     let current = s;
-    while (current && current !== SEQ_EMPTY && current.seq?.()) {
+    while (isActiveSeq(current)) {
       const fst = current.first();
       const result = f(fst);
       if (result != null) {
@@ -1301,8 +1269,8 @@ export function chunkedMapcat(f, coll) {
       if (seqIsChunked(firstSeq)) {
         const chunk = firstSeq.chunkFirst();
         const rest = firstSeq.chunkRest();
-        const newPending = rest && rest !== SEQ_EMPTY ? [rest, ...restPending] : restPending;
-        return seqChunkCons(chunk, seqLazySeq(() => mapcatStep(current, newPending)));
+        const newPending = !isSeqEnd(rest) ? [rest, ...restPending] : restPending;
+        return seqChunkCons(chunk, chunkedLazySeq(() => mapcatStep(current, newPending)));
       }
 
       // Non-chunked result
@@ -1316,18 +1284,13 @@ export function chunkedMapcat(f, coll) {
     }
 
     // No pending, get next from source
-    if (current == null || current === SEQ_EMPTY || !current.seq?.()) return null;
+    if (!isActiveSeq(current)) return null;
 
     if (seqIsChunked(current)) {
       const chunk = current.chunkFirst();
       const arr = chunk.toArray();
       const results = arr.map(f);
-      const rest = current.chunkRest();
-
-      if (rest instanceof LazySeq) {
-        const realized = rest._realize?.() ?? rest;
-        return mapcatStep(realized, results);
-      }
+      const rest = maybeRealize(current.chunkRest());
       return mapcatStep(rest, results);
     }
 
@@ -1337,7 +1300,7 @@ export function chunkedMapcat(f, coll) {
     return mapcatStep(current.rest?.(), [result]);
   }
 
-  return seqLazySeq(() => mapcatStep(s, []));
+  return chunkedLazySeq(() => mapcatStep(s, []));
 }
 
 /**
@@ -1353,7 +1316,7 @@ export function chunkedPartition(n, coll) {
   if (s == null) return null;
 
   function partitionStep(current, buffer) {
-    if (current == null || current === SEQ_EMPTY || !current.seq?.()) {
+    if (!isActiveSeq(current)) {
       // Return final partition if complete
       if (buffer.length === n) {
         return seqCons(buffer, null);
@@ -1375,21 +1338,12 @@ export function chunkedPartition(n, coll) {
         }
       }
 
-      const rest = current.chunkRest();
-      if (rest instanceof LazySeq) {
-        const realized = rest._realize?.() ?? rest;
-        if (results.length > 0) {
-          // Produce results as a chunk, continue with remaining buffer
-          return seqChunkCons(seqArrayChunk(results), seqLazySeq(() => partitionStep(realized, buf)));
-        }
-        return partitionStep(realized, buf);
-      }
-
+      const rest = maybeRealize(current.chunkRest());
       if (results.length > 0) {
-        if (rest === SEQ_EMPTY || rest == null) {
+        if (isSeqEnd(rest)) {
           return seqChunkCons(seqArrayChunk(results), null);
         }
-        return seqChunkCons(seqArrayChunk(results), seqLazySeq(() => partitionStep(rest, buf)));
+        return seqChunkCons(seqArrayChunk(results), chunkedLazySeq(() => partitionStep(rest, buf)));
       }
       return partitionStep(rest, buf);
     }
@@ -1403,7 +1357,7 @@ export function chunkedPartition(n, coll) {
     return partitionStep(current.rest?.(), buffer);
   }
 
-  return seqLazySeq(() => partitionStep(s, []));
+  return chunkedLazySeq(() => partitionStep(s, []));
 }
 
 /**
@@ -1421,7 +1375,7 @@ export function chunkedInterleave(...colls) {
 
   function interleaveStep(currents, buffer) {
     // Check if any sequence is exhausted
-    if (currents.some(c => c == null || c === SEQ_EMPTY || !c.seq?.())) {
+    if (currents.some(c => !isActiveSeq(c))) {
       // Flush buffer as chunk
       if (buffer.length > 0) {
         return seqChunkCons(seqArrayChunk(buffer), null);
@@ -1445,9 +1399,7 @@ export function chunkedInterleave(...colls) {
           const rest = curr.chunkRest();
           nexts.push(seqChunkCons(restChunk, rest));
         } else {
-          let rest = curr.chunkRest();
-          if (rest instanceof LazySeq) rest = rest._realize?.() ?? rest;
-          nexts.push(rest);
+          nexts.push(maybeRealize(curr.chunkRest()));
         }
       } else {
         newBuffer.push(curr.first());
@@ -1459,13 +1411,13 @@ export function chunkedInterleave(...colls) {
     if (newBuffer.length >= 32) {
       const chunk = seqArrayChunk(newBuffer.slice(0, 32));
       const remaining = newBuffer.slice(32);
-      return seqChunkCons(chunk, seqLazySeq(() => interleaveStep(nexts, remaining)));
+      return seqChunkCons(chunk, chunkedLazySeq(() => interleaveStep(nexts, remaining)));
     }
 
     return interleaveStep(nexts, newBuffer);
   }
 
-  return seqLazySeq(() => interleaveStep(seqs, []));
+  return chunkedLazySeq(() => interleaveStep(seqs, []));
 }
 
 /**
@@ -1482,7 +1434,7 @@ export function chunkedInterpose(sep, coll) {
   let isFirst = true;
 
   function interposeStep(current, buffer) {
-    if (current == null || current === SEQ_EMPTY || !current.seq?.()) {
+    if (!isActiveSeq(current)) {
       if (buffer.length > 0) {
         return seqChunkCons(seqArrayChunk(buffer), null);
       }
@@ -1502,30 +1454,22 @@ export function chunkedInterpose(sep, coll) {
         isFirst = false;
       }
 
-      const rest = current.chunkRest();
+      const rest = maybeRealize(current.chunkRest());
 
       // Emit chunks when buffer is large enough
       if (newBuffer.length >= 32) {
         const chunk = seqArrayChunk(newBuffer.slice(0, 32));
         const remaining = newBuffer.slice(32);
-        if (rest instanceof LazySeq) {
-          const realized = rest._realize?.() ?? rest;
-          return seqChunkCons(chunk, seqLazySeq(() => interposeStep(realized, remaining)));
-        }
-        if (rest === SEQ_EMPTY || rest == null) {
+        if (isSeqEnd(rest)) {
           if (remaining.length > 0) {
             return seqChunkCons(chunk, seqChunkCons(seqArrayChunk(remaining), null));
           }
           return seqChunkCons(chunk, null);
         }
-        return seqChunkCons(chunk, seqLazySeq(() => interposeStep(rest, remaining)));
+        return seqChunkCons(chunk, chunkedLazySeq(() => interposeStep(rest, remaining)));
       }
 
-      if (rest instanceof LazySeq) {
-        const realized = rest._realize?.() ?? rest;
-        return interposeStep(realized, newBuffer);
-      }
-      if (rest === SEQ_EMPTY || rest == null) {
+      if (isSeqEnd(rest)) {
         if (newBuffer.length > 0) {
           return seqChunkCons(seqArrayChunk(newBuffer), null);
         }
@@ -1551,7 +1495,7 @@ export function chunkedInterpose(sep, coll) {
     return interposeStep(current.rest?.(), newBuffer);
   }
 
-  return seqLazySeq(() => interposeStep(s, []));
+  return chunkedLazySeq(() => interposeStep(s, []));
 }
 
 /**
@@ -1568,7 +1512,7 @@ export function chunkedReductions(f, init, coll) {
   function reductionsStep(current, acc, buffer, includeInit) {
     const newBuffer = includeInit ? [acc, ...buffer] : [...buffer];
 
-    if (current == null || current === SEQ_EMPTY || !current.seq?.()) {
+    if (!isActiveSeq(current)) {
       if (newBuffer.length > 0) {
         return seqChunkCons(seqArrayChunk(newBuffer), null);
       }
@@ -1589,30 +1533,22 @@ export function chunkedReductions(f, init, coll) {
         newBuffer.push(currAcc);
       }
 
-      const rest = current.chunkRest();
+      const rest = maybeRealize(current.chunkRest());
 
       // Emit chunk when buffer is large enough
       if (newBuffer.length >= 32) {
         const chunk = seqArrayChunk(newBuffer.slice(0, 32));
         const remaining = newBuffer.slice(32);
-        if (rest instanceof LazySeq) {
-          const realized = rest._realize?.() ?? rest;
-          return seqChunkCons(chunk, seqLazySeq(() => reductionsStep(realized, currAcc, remaining, false)));
-        }
-        if (rest === SEQ_EMPTY || rest == null) {
+        if (isSeqEnd(rest)) {
           if (remaining.length > 0) {
             return seqChunkCons(chunk, seqChunkCons(seqArrayChunk(remaining), null));
           }
           return seqChunkCons(chunk, null);
         }
-        return seqChunkCons(chunk, seqLazySeq(() => reductionsStep(rest, currAcc, remaining, false)));
+        return seqChunkCons(chunk, chunkedLazySeq(() => reductionsStep(rest, currAcc, remaining, false)));
       }
 
-      if (rest instanceof LazySeq) {
-        const realized = rest._realize?.() ?? rest;
-        return reductionsStep(realized, currAcc, newBuffer, false);
-      }
-      if (rest === SEQ_EMPTY || rest == null) {
+      if (isSeqEnd(rest)) {
         if (newBuffer.length > 0) {
           return seqChunkCons(seqArrayChunk(newBuffer), null);
         }
@@ -1638,5 +1574,5 @@ export function chunkedReductions(f, init, coll) {
     return reductionsStep(current.rest?.(), newAcc, newBuffer, false);
   }
 
-  return seqLazySeq(() => reductionsStep(s, init, [], true));
+  return chunkedLazySeq(() => reductionsStep(s, init, [], true));
 }

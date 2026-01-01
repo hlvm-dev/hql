@@ -1,5 +1,5 @@
 import { globalLogger as logger } from "../logger.ts";
-import { isNullish } from "./utils.ts";
+import { isNullish, getErrorMessage } from "./utils.ts";
 import {
   __hql_deepFreeze,
   __hql_for_each,
@@ -82,9 +82,7 @@ function attachMeta(error: Error, meta?: HqlMeta): Error {
       (error as unknown as Record<string, unknown>)[HQL_META_KEY] = meta;
     } catch (inner) {
       logger.debug(
-        `Failed to attach meta to error: ${
-          inner instanceof Error ? inner.message : String(inner)
-        }`,
+        `Failed to attach meta to error: ${getErrorMessage(inner)}`,
       );
     }
   }

@@ -5,18 +5,16 @@ import {
   lazySeq,
   cons,
   SEQ,
-  Reduced,
   reduced,
   isReduced,
   ensureReduced,
-  isChunked,
-  LazySeq,
+  shouldChunk,  // DRY helper: shouldChunk(coll)
   TRANSDUCER_INIT,
   TRANSDUCER_STEP,
   TRANSDUCER_RESULT,
 } from "./internal/seq-protocol.js";
 import {
-  seq, first, rest, CHUNK_SIZE,
+  seq, first, rest,
   chunkedMap, chunkedFilter, chunkedReduce,
   chunkedTake, chunkedDrop, chunkedTakeWhile, chunkedDropWhile,
   chunkedConcat, chunkedDistinct, chunkedMapIndexed, chunkedKeep,
@@ -32,7 +30,7 @@ import {
 export function take(n, coll) {
   // Use chunked path for large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+  if (shouldChunk(coll)) {
     return chunkedTake(n, coll);
   }
 
@@ -51,7 +49,7 @@ export function take(n, coll) {
 export function drop(n, coll) {
   // Use chunked path for large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+  if (shouldChunk(coll)) {
     return chunkedDrop(n, coll);
   }
 
@@ -59,7 +57,7 @@ export function drop(n, coll) {
     let s = seq(coll);
     let remaining = n;
     while (s != null && remaining > 0) {
-      s = seq(rest(s));  // Use seq() for proper nil-punning
+      s = next(s);  // Use next() for idiomatic seq traversal
       remaining--;
     }
     // Must return Cons structure for LazySeq protocol
@@ -94,10 +92,9 @@ export function map(f, ...colls) {
     // Single collection
     const coll = colls[0];
 
-    // Optimization: Use chunked path for large arrays, chunked seqs, OR LazySeq
-    // LazySeq may contain chunked content - toChunkedSeq will realize and check
-    // This enables chunk propagation through operation chains
-    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll) || coll instanceof LazySeq) {
+    // Optimization: Use chunked path for large arrays or already-chunked seqs
+    // isChunked now properly detects LazySeq with _isChunkedSource flag
+    if (shouldChunk(coll)) {
       return chunkedMap(f, coll);
     }
 
@@ -136,10 +133,9 @@ export function filter(pred, coll) {
     throw new TypeError("filter: predicate must be a function, got " + typeof pred);
   }
 
-  // Optimization: Use chunked path for large arrays, chunked seqs, OR LazySeq
-  // LazySeq may contain chunked content - toChunkedSeq will realize and check
-  // This enables chunk propagation through operation chains
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll) || coll instanceof LazySeq) {
+  // Optimization: Use chunked path for large arrays or already-chunked seqs
+  // isChunked now properly detects LazySeq with _isChunkedSource flag
+  if (shouldChunk(coll)) {
     return chunkedFilter(pred, coll);
   }
 
@@ -188,10 +184,11 @@ export function reduce(f, initOrColl, maybeColl) {
       return f();
     }
     acc = first(s);
-    s = seq(rest(s));
+    s = next(s);
 
-    // Optimization: Use chunked path for large arrays, chunked seqs, OR LazySeq
-    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll) || coll instanceof LazySeq) {
+    // Optimization: Use chunked path for large arrays or already-chunked seqs
+    // isChunked now properly detects LazySeq with _isChunkedSource flag
+    if (shouldChunk(coll)) {
       // For 2-arity, skip first element (already used as init)
       const restColl = Array.isArray(coll) ? coll.slice(1) : rest(coll);
       return chunkedReduce(f, acc, restColl);
@@ -202,8 +199,9 @@ export function reduce(f, initOrColl, maybeColl) {
     coll = maybeColl;
     s = seq(coll);
 
-    // Optimization: Use chunked path for large arrays, chunked seqs, OR LazySeq
-    if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll) || coll instanceof LazySeq) {
+    // Optimization: Use chunked path for large arrays or already-chunked seqs
+    // isChunked now properly detects LazySeq with _isChunkedSource flag
+    if (shouldChunk(coll)) {
       return chunkedReduce(f, acc, coll);
     }
   }
@@ -215,7 +213,7 @@ export function reduce(f, initOrColl, maybeColl) {
     if (isReduced(acc)) {
       return acc._val;
     }
-    s = seq(rest(s));
+    s = next(s);
   }
   return acc;
 }
@@ -224,10 +222,7 @@ export function reduce(f, initOrColl, maybeColl) {
 export function concat(...colls) {
   // Use chunked path if any collection is large or already-chunked
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  const shouldChunk = colls.some(c =>
-    (Array.isArray(c) && c.length >= CHUNK_SIZE) || isChunked(c)
-  );
-  if (shouldChunk) {
+  if (colls.some(shouldChunk)) {
     return chunkedConcat(...colls);
   }
 
@@ -292,7 +287,7 @@ export function distinct(coll) {
 
   // Use chunked path for large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+  if (shouldChunk(coll)) {
     return chunkedDistinct(coll);
   }
 
@@ -307,7 +302,7 @@ export function distinct(coll) {
           seen.add(f);
           return cons(f, step(rest(xs)));
         }
-        xs = seq(rest(xs));
+        xs = next(xs);
       }
       return null;
     });
@@ -345,7 +340,7 @@ export function nth(coll, index, notFound) {
   let i = 0;
   while (s != null) {
     if (i === index) return first(s);
-    s = seq(rest(s));
+    s = next(s);
     i++;
   }
   if (hasNotFound) return notFound;
@@ -373,7 +368,7 @@ export function count(coll) {
   let n = 0;
   while (s != null) {
     n++;
-    s = seq(rest(s));
+    s = next(s);
   }
   return n;
 }
@@ -387,7 +382,7 @@ export function last(coll) {
   let result = null;
   while (s != null) {
     result = first(s);
-    s = seq(rest(s));
+    s = next(s);
   }
   return result;
 }
@@ -404,7 +399,7 @@ export function mapIndexed(f, coll) {
 
   // Use chunked path for large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+  if (shouldChunk(coll)) {
     return chunkedMapIndexed(f, coll);
   }
 
@@ -450,7 +445,7 @@ export function mapcat(f, coll) {
 
   // Use chunked path for large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+  if (shouldChunk(coll)) {
     return chunkedMapcat(f, coll);
   }
 
@@ -472,7 +467,7 @@ export function keep(f, coll) {
 
   // Use chunked path for large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+  if (shouldChunk(coll)) {
     return chunkedKeep(f, coll);
   }
 
@@ -508,7 +503,7 @@ export function some(pred, coll) {
   while (s != null) {
     const f = first(s);
     if (pred(f)) return f;
-    s = seq(rest(s));
+    s = next(s);
   }
   return null;
 }
@@ -521,7 +516,7 @@ export function every(pred, coll) {
   let s = seq(coll);
   while (s != null) {
     if (!pred(first(s))) return false;
-    s = seq(rest(s));
+    s = next(s);
   }
   return true;
 }
@@ -534,7 +529,7 @@ export function notAny(pred, coll) {
   let s = seq(coll);
   while (s != null) {
     if (pred(first(s))) return false;
-    s = seq(rest(s));
+    s = next(s);
   }
   return true;
 }
@@ -547,7 +542,7 @@ export function notEvery(pred, coll) {
   let s = seq(coll);
   while (s != null) {
     if (!pred(first(s))) return true;
-    s = seq(rest(s));
+    s = next(s);
   }
   return false;
 }
@@ -1047,7 +1042,7 @@ export function takeWhile(pred, coll) {
 
   // Use chunked path for large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+  if (shouldChunk(coll)) {
     return chunkedTakeWhile(pred, coll);
   }
 
@@ -1074,7 +1069,7 @@ export function dropWhile(pred, coll) {
 
   // Use chunked path for large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+  if (shouldChunk(coll)) {
     return chunkedDropWhile(pred, coll);
   }
 
@@ -1082,7 +1077,7 @@ export function dropWhile(pred, coll) {
     let s = seq(coll);
     // Skip while predicate is true
     while (s != null && pred(first(s))) {
-      s = seq(rest(s));
+      s = next(s);
     }
     // Return remaining elements
     if (s != null) {
@@ -1143,7 +1138,7 @@ export function reductions(f, initOrColl, maybeColl) {
   // 3-arity: (reductions f init coll)
   // Use chunked path for large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if ((Array.isArray(maybeColl) && maybeColl.length >= CHUNK_SIZE) || isChunked(maybeColl)) {
+  if (shouldChunk(maybeColl)) {
     return chunkedReductions(f, initOrColl, maybeColl);
   }
 
@@ -1177,10 +1172,7 @@ export function interleave(...colls) {
 
   // Use chunked path if any collection is large or already-chunked
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  const shouldChunk = colls.some(c =>
-    (Array.isArray(c) && c.length >= CHUNK_SIZE) || isChunked(c)
-  );
-  if (shouldChunk) {
+  if (colls.some(shouldChunk)) {
     return chunkedInterleave(...colls);
   }
 
@@ -1213,7 +1205,7 @@ export function interleave(...colls) {
 export function interpose(sep, coll) {
   // Use chunked path for large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll)) {
+  if (shouldChunk(coll)) {
     return chunkedInterpose(sep, coll);
   }
 
@@ -1275,7 +1267,7 @@ export function partition(n, stepOrColl, maybeColl) {
 
   // Use chunked path for simple case (step = n) with large arrays or already-chunked seqs
   // Note: Don't check instanceof LazySeq to preserve laziness for generator-based seqs
-  if (step === n && ((Array.isArray(coll) && coll.length >= CHUNK_SIZE) || isChunked(coll))) {
+  if (step === n && (shouldChunk(coll))) {
     return chunkedPartition(n, coll);
   }
 

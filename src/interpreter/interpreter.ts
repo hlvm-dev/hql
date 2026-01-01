@@ -22,6 +22,7 @@ import { isHQLFunction, DEFAULT_CONFIG } from "./types.ts";
 import { isTaggedBuiltinFn } from "./stdlib-bridge.ts";
 import { getSpecialForms, type SpecialFormHandler } from "./special-forms.ts";
 import { InterpreterError, MaxCallDepthError, UndefinedSymbolError } from "./errors.ts";
+import { getErrorMessage } from "../common/utils.ts";
 
 /**
  * Tree-walk interpreter for HQL
@@ -61,7 +62,7 @@ export class Interpreter implements IInterpreter {
         if (e instanceof UndefinedSymbolError) {
           throw e;
         }
-        throw new InterpreterError(`Error looking up symbol "${sym.name}": ${e}`);
+        throw new InterpreterError(`Error looking up symbol "${sym.name}": ${getErrorMessage(e)}`);
       }
     }
 

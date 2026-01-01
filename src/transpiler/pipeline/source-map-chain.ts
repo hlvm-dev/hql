@@ -18,6 +18,7 @@ import type { RawSourceMap } from "source-map";
 type AnySourceMapGenerator = any;
 import type { SourceMapping } from "./ir-to-typescript.ts";
 import { globalLogger as logger } from "../../logger.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 
 // ============================================================================
 // Types
@@ -54,7 +55,7 @@ export async function chainSourceMaps(
   try {
     tsToJsMap = JSON.parse(tsToJsMapJson) as RawSourceMap;
   } catch (e: unknown) {
-    logger.warn("[source-map-chain] Failed to parse TS→JS source map:", String(e));
+    logger.warn("[source-map-chain] Failed to parse TS→JS source map:", getErrorMessage(e));
     return createEmptyChainedMap(hqlSourcePath, hqlSource);
   }
 

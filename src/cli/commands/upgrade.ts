@@ -10,6 +10,7 @@
 import { VERSION } from "../../version.ts";
 import { exit as platformExit } from "../../platform/platform.ts";
 import { isNewer } from "../utils/update-check.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 
 const GITHUB_API = "https://api.github.com/repos/hlvm-dev/hql/releases/latest";
 const INSTALL_SCRIPT =
@@ -50,7 +51,7 @@ export async function upgrade(args: string[]): Promise<void> {
       platformExit(1);
     }
   } catch (error) {
-    console.error(`Failed to check for updates: ${error}`);
+    console.error(`Failed to check for updates: ${getErrorMessage(error)}`);
     platformExit(1);
   }
 
@@ -104,7 +105,7 @@ export async function upgrade(args: string[]): Promise<void> {
 
     console.log("\nUpgrade complete! Run 'hql --version' to verify.");
   } catch (error) {
-    console.error(`\nUpgrade failed: ${error}`);
+    console.error(`\nUpgrade failed: ${getErrorMessage(error)}`);
     console.error("\nPlease try running manually:");
     console.error(`  curl -fsSL ${INSTALL_SCRIPT} | sh`);
     platformExit(1);

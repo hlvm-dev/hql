@@ -255,7 +255,7 @@ function wrapImportError(
   if (error instanceof Error) {
     throw error;
   } else {
-    throw new Error(`${context}: ${String(error)}`);
+    throw new Error(`${context}: ${getErrorMessage(error)}`);
   }
 }
 
@@ -1937,7 +1937,7 @@ function processFileExportsAndDefinitions(
           }
 
           // Special handling for HQL files
-          if (filePath.endsWith(".hql")) {
+          if (isHqlFile(filePath)) {
             // Only assign null if not already set (preserve pre-registered values)
             if (moduleExports[name] === undefined) {
               moduleExports[name] = null;

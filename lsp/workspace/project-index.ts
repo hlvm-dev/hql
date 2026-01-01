@@ -235,7 +235,7 @@ export class ProjectIndex {
   /**
    * Find a file in the index that matches a module path
    */
-  private findFileForModule(modulePath: string, fromFile: string): string | null {
+  private findFileForModule(modulePath: string, _fromFile: string): string | null {
     // Extract the filename from the module path
     const moduleFileName = modulePath.replace(/^\.\.?\//, "").replace(/\/$/, "");
 

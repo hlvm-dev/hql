@@ -23,6 +23,7 @@ const {
   LazySeq,
   ArraySeq,
   lazySeq,
+  chunkedLazySeq,  // For chunk propagation tests
   cons,
   EMPTY,
   SEQ,
@@ -1005,6 +1006,93 @@ Deno.test("chunking: complex chain map -> filter -> take -> drop works", () => {
   assertEquals(result.length, 90);
   assertEquals(result[0], 22);
   assertEquals(result[89], 200);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CHUNK PROPAGATION PROTOCOL TESTS (_isChunkedSource flag)
+// ═══════════════════════════════════════════════════════════════════════════
+
+Deno.test("isChunked: returns true for chunkedLazySeq", () => {
+  // chunkedLazySeq creates a LazySeq with _isChunkedSource = true
+  const chunkedLS = chunkedLazySeq(() => null);
+  assertEquals(isChunked(chunkedLS), true, "chunkedLazySeq should be recognized as chunked");
+});
+
+Deno.test("isChunked: returns false for regular lazySeq", () => {
+  // Regular lazySeq has _isChunkedSource = false
+  const regularLS = lazySeq(() => null);
+  assertEquals(isChunked(regularLS), false, "regular lazySeq should NOT be recognized as chunked");
+});
+
+Deno.test("isChunked: generator-based lazySeq is NOT chunked", () => {
+  // Generator-based LazySeq should NOT be chunked (preserves laziness)
+  const generatorLS = lazySeq(function* () {
+    yield 1;
+    yield 2;
+    yield 3;
+  });
+  assertEquals(isChunked(generatorLS), false, "generator-based lazySeq should NOT be chunked");
+});
+
+Deno.test("chunking: map on large array returns chunked LazySeq", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const mapped = map((x: number) => x * 2, arr);
+
+  // The mapped result should be recognized as chunked
+  assertEquals(isChunked(mapped), true, "map on large array should return chunked LazySeq");
+});
+
+Deno.test("chunking: chunk propagation through map -> take chain", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+  const mapped = map((x: number) => x * 2, arr);
+
+  // mapped should be recognized as chunked
+  assertEquals(isChunked(mapped), true, "mapped should be chunked");
+
+  const taken = take(10, mapped);
+  const result = [...taken];
+
+  assertEquals(result.length, 10);
+  assertEquals(result[0], 0);
+  assertEquals(result[9], 18); // 9 * 2
+});
+
+Deno.test("chunking: preserves laziness for generator-based LazySeq", () => {
+  let count = 0;
+  const infinite = lazySeq(function* () {
+    while (true) {
+      count++;
+      yield count;
+    }
+  });
+
+  // Should NOT be chunked - generator-based
+  assertEquals(isChunked(infinite), false, "generator LazySeq should not be chunked");
+
+  const taken = take(5, infinite);
+  assertEquals(count, 0, "Generator should not be realized yet");
+
+  const result = [...taken];
+  assertEquals(result, [1, 2, 3, 4, 5], "Should get first 5 elements");
+  assertEquals(count, 5, "Only 5 elements should be realized");
+});
+
+Deno.test("chunking: map -> filter -> reduce chain uses chunked path", () => {
+  const arr = Array.from({ length: 100 }, (_, i) => i);
+
+  // All three operations should use chunked paths
+  const mapped = map((x: number) => x * 2, arr);
+  assertEquals(isChunked(mapped), true, "mapped should be chunked");
+
+  const filtered = filter((x: number) => x % 4 === 0, mapped);
+  assertEquals(isChunked(filtered), true, "filtered should be chunked");
+
+  // Reduce should work correctly on chunked input
+  const sum = reduce((acc: number, x: number) => acc + x, 0, filtered);
+  // Elements that pass: 0, 4, 8, 12, ... (every 4th number in doubled range)
+  // In original: 0, 2, 4, 6, ... => doubled: 0, 4, 8, 12, ... (every 4th)
+  // Sum of 0, 4, 8, 12, ..., 196 = 4 * (0 + 1 + 2 + ... + 49) = 4 * 1225 = 4900
+  assertEquals(sum, 4900);
 });
 
 console.log("All foundation unit tests defined!");

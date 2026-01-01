@@ -10,6 +10,7 @@ import {
   dirname,
   basename,
 } from "../../platform/platform.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import { hasHelpFlag, getPositionalArgs } from "../utils/common-helpers.ts";
 import { parseCliOptions, applyCliOptions } from "../utils/cli-options.ts";
 import { ensureDenoAvailable } from "../utils/toolchain.ts";
@@ -294,7 +295,7 @@ async function compileForAllPlatforms(
       outputs.push(outputPath);
       console.log(`  [${target}] Done: ${outputName}`);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = getErrorMessage(error);
       errors.push(`${target}: ${msg}`);
       console.error(`  [${target}] Failed: ${msg}`);
     }

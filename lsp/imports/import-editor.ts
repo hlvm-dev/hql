@@ -14,7 +14,7 @@ import {
   TextEdit,
 } from "npm:vscode-languageserver@9.0.1";
 import type { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
-import type { UnusedImport, ParsedImport, LSPRange } from "./types.ts";
+import type { UnusedImport, ParsedImport } from "./types.ts";
 import { findAllImports } from "./import-parser.ts";
 import * as path from "node:path";
 

@@ -2,6 +2,7 @@
 
 import { HQLError, RuntimeError } from "./error.ts";
 import { globalLogger as logger } from "../logger.ts";
+import { getErrorMessage } from "./utils.ts";
 import {
   handleRuntimeError,
   initializeErrorHandling,
@@ -197,9 +198,7 @@ export async function enrichErrorWithContext(
     }
   } catch (readError) {
     logger.debug(
-      `Failed to read source file for context: ${
-        readError instanceof Error ? readError.message : String(readError)
-      }`,
+      `Failed to read source file for context: ${getErrorMessage(readError)}`,
     );
   }
 

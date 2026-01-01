@@ -27,6 +27,7 @@ import {
 } from "../s-exp/types.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { cwd as platformCwd } from "../platform/platform.ts";
+import { getErrorMessage } from "../common/utils.ts";
 import { loadSystemMacros } from "../transpiler/hql-transpiler.ts";
 
 /**
@@ -174,7 +175,7 @@ export class HQLRuntime {
       logger.debug(`Expanded ${macroName} macro`);
       return Promise.resolve(expanded);
     } catch (error) {
-      logger.error(`Error expanding macro ${macroName}: ${error}`);
+      logger.error(`Error expanding macro ${macroName}: ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -276,7 +277,7 @@ export class HQLRuntime {
         }
       }
     } catch (error) {
-      logger.error(`Error processing macros: ${error}`);
+      logger.error(`Error processing macros: ${getErrorMessage(error)}`);
     }
   }
 

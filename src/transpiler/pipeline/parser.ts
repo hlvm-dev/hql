@@ -13,12 +13,7 @@ import {
 } from "../../s-exp/types.ts";
 import { ParseError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
-import {
-  countAngleBracketDepth,
-  countBraceDepth,
-  looksLikeTypeAnnotation,
-  tokenizeType,
-} from "../tokenizer/type-tokenizer.ts";
+import { tokenizeType } from "../tokenizer/type-tokenizer.ts";
 import { HQLErrorCode } from "../../common/error-codes.ts";
 import { attachSourceLocation } from "../../common/syntax-error-handler.ts";
 import { readTextFileSync as platformReadTextFileSync } from "../../platform/platform.ts";

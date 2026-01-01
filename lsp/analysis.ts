@@ -9,11 +9,11 @@
 import { parse } from "../src/transpiler/pipeline/parser.ts";
 import { SymbolTable } from "../src/transpiler/symbol_table.ts";
 import { HQLError } from "../src/common/error.ts";
+import { getErrorMessage } from "../src/common/utils.ts";
 import {
   type SExp,
   type SList,
   type SSymbol,
-  type SLiteral,
   isSymbol,
   isList,
   isLiteral,
@@ -89,8 +89,7 @@ export function analyzeDocument(
       });
     } else {
       // Unknown error - report at beginning of file
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       errors.push({
         message: cleanErrorMessage(message),
         range: {

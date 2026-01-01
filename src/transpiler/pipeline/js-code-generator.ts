@@ -28,6 +28,7 @@ import {
   createSourceMapFromMappings,
   mapTsToHql,
 } from "./source-map-chain.ts";
+import { isHqlFile, isTypeScriptFile } from "../../common/import-utils.ts";
 
 // ============================================================================
 // Helpers
@@ -35,7 +36,7 @@ import {
 
 /** Normalize source file name for TypeScript compilation */
 function normalizeSourceFileName(fileName: string): string {
-  if (fileName.endsWith(".hql") || fileName.endsWith(".ts")) {
+  if (isHqlFile(fileName) || isTypeScriptFile(fileName)) {
     return fileName;
   }
   // REPL paths like "<repl>:1" need a virtual filename

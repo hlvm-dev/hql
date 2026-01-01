@@ -426,7 +426,7 @@ async function processHqlEntryFile(
       sourceMap = JSON.stringify(mapJson);
       logger.debug(`Adjusted source map for ${prependedLines} prepended line(s)`);
     } catch (e) {
-      logger.debug(`Failed to adjust source map: ${e instanceof Error ? e.message : String(e)}`);
+      logger.debug(`Failed to adjust source map: ${getErrorMessage(e)}`);
     }
   }
 
@@ -577,7 +577,7 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
         }
 
         // If an HQL file has a pre-determined cached path, resolve directly to it to break cycles
-        if (args.path.endsWith(".hql")) {
+        if (isHqlFile(args.path)) {
           try {
             const importerDir = args.importer ? dirname(args.importer) : cwd();
             const absCandidate = resolve(importerDir, args.path);
@@ -766,7 +766,7 @@ async function initializeEsbuildWasm(): Promise<void> {
     });
   } catch (error) {
     // If already initialized, that's fine
-    const errorMsg = String(error);
+    const errorMsg = getErrorMessage(error);
     if (errorMsg.includes(ERROR_ALREADY_INITIALIZED) || errorMsg.includes(ERROR_INITIALIZE)) {
       esbuildInitialized = true;
     } else {

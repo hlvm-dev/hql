@@ -241,7 +241,7 @@ Edit this file (\`README.md\`) to add your own project description, usage exampl
     await writeTextFile(readmePath, template);
     console.log("Created README.md template.");
   } catch (error) {
-    logger.warn(`Failed to create README.md: ${error}`);
+    logger.warn(`Failed to create README.md: ${getErrorMessage(error)}`);
   }
 }
 
@@ -457,7 +457,7 @@ export async function updateSourceMetadataFiles(
           `  → Updated source ${metaFile} file with version ${version}`,
         );
       } catch (e) {
-        console.warn(`  → Warning: Could not update source ${metaFile}: ${e}`);
+        console.warn(`  → Warning: Could not update source ${metaFile}: ${getErrorMessage(e)}`);
       }
     }
   }

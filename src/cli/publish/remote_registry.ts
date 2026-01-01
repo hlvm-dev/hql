@@ -1,4 +1,5 @@
 import { globalLogger as logger } from "../../logger.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 
 export async function getNpmLatestVersion(
   name: string,
@@ -37,7 +38,7 @@ export async function getNpmLatestVersion(
     logger.debug && logger.debug(`No versions found for NPM package: ${name}`);
     return null;
   } catch (err) {
-    logger.debug && logger.debug(`Error fetching NPM version: ${err}`);
+    logger.debug && logger.debug(`Error fetching NPM version: ${getErrorMessage(err)}`);
     return null;
   }
 }
@@ -81,7 +82,7 @@ export async function getJsrLatestVersion(
       logger.debug(`No versions found for JSR package: @${scope}/${name}`);
     return null;
   } catch (err) {
-    logger.debug && logger.debug(`Error fetching JSR version: ${err}`);
+    logger.debug && logger.debug(`Error fetching JSR version: ${getErrorMessage(err)}`);
     return null;
   }
 }

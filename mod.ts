@@ -44,7 +44,6 @@ import {
 } from "./src/common/runtime-error-handler.ts";
 import { getErrorConfig } from "./src/common/error-system.ts";
 import type { RawSourceMap } from "npm:source-map@0.6.1";
-import process from "node:process";
 
 // Import embedded packages for binary compilation
 let EMBEDDED_PACKAGES: Record<string, string> = {};

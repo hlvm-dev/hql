@@ -10,6 +10,8 @@
  * Leverages `deno doc --json` for export extraction.
  */
 
+import { getErrorMessage } from "../../src/common/utils.ts";
+
 export interface ModuleExport {
   name: string;
   kind: "function" | "class" | "variable" | "interface" | "type" | "enum" | "namespace";
@@ -173,7 +175,7 @@ export class ModuleAnalyzer {
       return {
         specifier,
         exports: [],
-        error: `Analysis error: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Analysis error: ${getErrorMessage(error)}`,
         cachedAt: Date.now(),
       };
     }
@@ -225,7 +227,7 @@ export class ModuleAnalyzer {
       return {
         specifier,
         exports: [],
-        error: `Import fallback error: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Import fallback error: ${getErrorMessage(error)}`,
         cachedAt: Date.now(),
       };
     }

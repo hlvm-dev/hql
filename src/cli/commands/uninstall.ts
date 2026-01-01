@@ -5,6 +5,7 @@
  */
 
 import { exit as platformExit } from "../../platform/platform.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 
 /**
  * Main uninstall command handler.
@@ -52,7 +53,7 @@ export async function uninstall(args: string[]): Promise<void> {
     await Deno.remove(hqlDir, { recursive: true });
     console.log(`Removed: ${hqlDir}`);
   } catch (error) {
-    console.error(`Failed to remove ${hqlDir}: ${error}`);
+    console.error(`Failed to remove ${hqlDir}: ${getErrorMessage(error)}`);
     platformExit(1);
   }
 

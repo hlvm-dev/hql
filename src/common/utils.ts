@@ -183,25 +183,6 @@ export function escapeRegExp(str: string): string {
 }
 
 /**
- * Create a word-boundary regex pattern for matching a word.
- * Escapes special regex characters and adds word boundaries.
- *
- * @param word - Word to match with word boundaries
- * @param flags - Optional regex flags (e.g., "g", "i")
- * @returns RegExp with word boundaries
- *
- * @example
- * ```typescript
- * const pattern = createWordBoundaryRegex("foo");
- * pattern.test("foo bar"); // true
- * pattern.test("foobar");  // false
- * ```
- */
-export function createWordBoundaryRegex(word: string, flags?: string): RegExp {
-  return new RegExp(`\\b${escapeRegExp(word)}\\b`, flags);
-}
-
-/**
  * Create a regex pattern for matching S-expression function calls.
  * Matches patterns like: (funcName ...)
  *
@@ -250,6 +231,18 @@ export function createJsCallRegex(funcName: string): RegExp {
  */
 export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Ensure a value is an Error object.
+ * If already an Error, returns it unchanged. Otherwise wraps in new Error.
+ * Consolidates the `error instanceof Error ? error : new Error(String(error))` pattern.
+ *
+ * @param error - Any error value (Error, string, unknown)
+ * @returns An Error object
+ */
+export function ensureError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 /**

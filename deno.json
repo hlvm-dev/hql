@@ -34,7 +34,6 @@
     "test:e2e": "deno run -A scripts/run-local-examples-all.ts",
     "test:all": "deno task test:unit && deno task test:binary:quick && deno task test:compat",
     "test:all:binary": "deno task test:unit && deno task test:binary && HQL_TEST_BINARY=1 deno task test:compat",
-    "test:watch": "deno test --allow-all --watch tests/unit/**/*.test.ts",
-    "check:platform": "deno run -A scripts/check-platform.ts"
+    "test:watch": "deno test --allow-all --watch tests/unit/**/*.test.ts"
   }
 }

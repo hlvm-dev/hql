@@ -138,7 +138,7 @@ export class Readline {
   /**
    * Simple line-based reading for non-TTY (piped) input
    */
-  private async readSimple(options: ReadlineOptions): Promise<string | null> {
+  private async readSimple(_options: ReadlineOptions): Promise<string | null> {
     const buf = new Uint8Array(4096);
     let accumulated = "";
 

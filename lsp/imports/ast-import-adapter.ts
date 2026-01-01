@@ -10,7 +10,6 @@ import { parse } from "../../src/transpiler/pipeline/parser.ts";
 import {
   type SExp,
   type SList,
-  type SSymbol,
   isSymbol,
   isList,
   isLiteral,

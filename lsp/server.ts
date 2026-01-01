@@ -59,6 +59,7 @@ import {
   getSemanticTokensCapability,
 } from "./features/semantic-tokens.ts";
 import { getWordAtPosition } from "./utils/position.ts";
+import { getErrorMessage } from "../src/common/utils.ts";
 import {
   ProjectIndex,
   ImportResolver,
@@ -161,7 +162,7 @@ connection.onInitialized(async () => {
         `Indexed ${result.filesIndexed} HQL files in ${result.durationMs}ms`
       );
     } catch (error) {
-      connection.console.error(`Workspace scan failed: ${error}`);
+      connection.console.error(`Workspace scan failed: ${getErrorMessage(error)}`);
     }
   }
 });
@@ -649,7 +650,7 @@ connection.onRenameRequest(async (params: RenameParams) => {
     return await performRename(oldName, newName, workspaceRoots, openDocs);
   } catch (error) {
     // Return null on error - the client will show a generic message
-    connection.console.error(`Rename failed: ${error}`);
+    connection.console.error(`Rename failed: ${getErrorMessage(error)}`);
     return null;
   }
 });

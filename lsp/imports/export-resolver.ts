@@ -90,7 +90,7 @@ export function resolveReExportChain(
  */
 function findMatchingFile(
   modulePath: string,
-  fromFile: string,
+  _fromFile: string,
   index: ProjectIndex
 ): string | null {
   // Extract the filename from the module path

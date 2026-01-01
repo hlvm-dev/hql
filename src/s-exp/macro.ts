@@ -73,8 +73,8 @@ function getPersistentMacroEnv(): InterpreterEnv {
  * - Macro expansion works on S-expression AST nodes, not HQL runtime values
  */
 function sexpToHqlValue(value: unknown): import("../interpreter/types.ts").HQLValue {
-  // If it's already a primitive, return as-is
-  if (value === null || value === undefined) return null;
+  // If it's already a primitive, return as-is (nil-punning: null or undefined → null)
+  if (value == null) return null;
   if (typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
     return value;
   }
@@ -635,7 +635,7 @@ function evaluateSymbol(expr: SSymbol, env: Environment, logger: Logger): SExp {
     return convertJsValueToSExp(value);
   } catch (e) {
     logger.debug(
-      `Symbol lookup failed for '${expr.name}' during macro evaluation: ${e}`,
+      `Symbol lookup failed for '${expr.name}' during macro evaluation: ${getErrorMessage(e)}`,
     );
     return expr;
   }

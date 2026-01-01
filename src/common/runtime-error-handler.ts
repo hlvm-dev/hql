@@ -21,6 +21,7 @@ import { mapPositionSync } from "../transpiler/pipeline/source-map-support.ts";
 import { extractContextLinesFromFile } from "./context-helpers.ts";
 import { findSimilarName } from "./string-similarity.ts";
 import { getAllKnownIdentifiers } from "./known-identifiers.ts";
+import { isHqlFile } from "./import-utils.ts";
 
 // SourceMapConsumer bias constants (from source-map library)
 // GREATEST_LOWER_BOUND = 1: When exact position not found, use closest position before
@@ -356,7 +357,7 @@ export async function resolveRuntimeLocation(
     // When Deno has already applied source maps (frame points to .hql file), trust its mapping.
     // Our source maps are generated with escodegen's standard source-map library using VLQ encoding,
     // which Deno's V8 engine handles correctly. We verified this produces accurate line numbers.
-    if (frame.jsFile.endsWith(".hql")) {
+    if (isHqlFile(frame.jsFile)) {
       return {
         filePath: frame.jsFile,
         line: frame.jsLine,

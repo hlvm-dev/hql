@@ -8,6 +8,7 @@
 import { globalLogger as logger } from "../logger.ts";
 import { dirname, exists, fromFileUrl, join } from "../platform/platform.ts";
 import { copyNeighborFiles, processHqlFile } from "./hql-cache-tracker.ts";
+import { getErrorMessage } from "./utils.ts";
 import { initializeRuntimeHelpers } from "./runtime-helpers.ts";
 import { initAIRuntime } from "../runtime/ai-runtime.ts";
 
@@ -168,7 +169,7 @@ class HqlRuntimeInitializer {
 
       logger.debug("Standard library initialization complete");
     } catch (error) {
-      logger.error(`Error initializing stdlib: ${error}`);
+      logger.error(`Error initializing stdlib: ${getErrorMessage(error)}`);
       throw error; // Re-throw to properly mark initialization as failed
     }
   }

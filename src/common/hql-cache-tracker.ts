@@ -20,6 +20,7 @@ import {
 import { transpileHqlInJs } from "../bundler.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { sanitizeIdentifier, getErrorMessage, normalizePath, hyphenToUnderscore } from "./utils.ts";
+import { isHqlFile, isJsFile } from "./import-utils.ts";
 
 // Cache directory configuration
 const HQL_CACHE_DIR = ".hql-cache";
@@ -207,8 +208,8 @@ export async function getContentHash(filePath: string): Promise<string> {
     contentHashCache.set(filePath, hash);
     return hash;
   } catch (error) {
-    logger.debug(`Error getting content hash for ${filePath}: ${error}`);
-    throw new Error(`Failed to hash ${filePath}: ${error}`);
+    logger.debug(`Error getting content hash for ${filePath}: ${getErrorMessage(error)}`);
+    throw new Error(`Failed to hash ${filePath}: ${getErrorMessage(error)}`);
   }
 }
 
@@ -234,7 +235,7 @@ export async function getCachedPath(
 
   // IMPORTANT: For HQL files, default to preserveRelative unless explicitly set to false
   // This ensures consistent paths across imports
-  if (sourcePath.endsWith(".hql") && options.preserveRelative !== false) {
+  if (isHqlFile(sourcePath) && options.preserveRelative !== false) {
     options.preserveRelative = true;
   }
 
@@ -337,7 +338,7 @@ async function processCachedImports(
         // IMPORTANT: For JS files importing HQL, prefer JS over TS
         let finalPath = mappedPath;
         if (
-          sourcePath.endsWith(".js") && importPath.endsWith(".hql") &&
+          isJsFile(sourcePath) && isHqlFile(importPath) &&
           mappedPath.endsWith(".ts")
         ) {
           const jsPath = mappedPath.replace(/\.ts$/, ".js");
@@ -377,7 +378,7 @@ async function processCachedImports(
       }
 
       // Handle HQL files uniformly, regardless of which file it is
-      if (importPath.endsWith(".hql")) {
+      if (isHqlFile(importPath)) {
         // Generate the cached path for the import
         const importHash = await getContentHash(resolvedOriginalPath);
         const shortHash = importHash.substring(0, SHORT_HASH_LENGTH);
@@ -437,7 +438,7 @@ async function processCachedImports(
         logger.debug(`Resolved import path: ${fullImport} -> ${newImport}`);
       }
     } catch (error) {
-      logger.debug(`Error processing import ${importPath}: ${error}`);
+      logger.debug(`Error processing import ${importPath}: ${getErrorMessage(error)}`);
       // Skip this import if there's an error
       continue;
     }
@@ -537,7 +538,7 @@ export async function copyNeighborFiles(
       logger.debug(`No js directory found at ${jsDir}`);
     }
   } catch (error) {
-    logger.debug(`Error copying neighbor files: ${error}`);
+    logger.debug(`Error copying neighbor files: ${getErrorMessage(error)}`);
   }
 }
 
@@ -576,7 +577,7 @@ export async function needsRegeneration(
     logger.debug(`[CACHE HIT] No changes detected, reusing: ${outputPath}`);
     return false;
   } catch (error) {
-    logger.debug(`Error checking regeneration: ${error}`);
+    logger.debug(`Error checking regeneration: ${getErrorMessage(error)}`);
     return true; // Safer to regenerate on error
   }
 }
@@ -653,7 +654,7 @@ export async function getCacheStats(): Promise<
   try {
     return await getDirStats(cacheDir);
   } catch (error) {
-    logger.debug(`Error getting cache stats: ${error}`);
+    logger.debug(`Error getting cache stats: ${getErrorMessage(error)}`);
     return { files: 0, bytes: 0 };
   }
 }
@@ -683,7 +684,7 @@ async function getDirStats(
       }
     }
   } catch (error) {
-    logger.debug(`Error reading directory ${dir}: ${error}`);
+    logger.debug(`Error reading directory ${dir}: ${getErrorMessage(error)}`);
   }
 
   return { files, bytes };
@@ -699,7 +700,7 @@ export async function clearCache(): Promise<void> {
     await remove(cacheDir, { recursive: true });
     logger.debug(`Cleared cache directory: ${cacheDir}`);
   } catch (error) {
-    logger.debug(`Error clearing cache: ${error}`);
+    logger.debug(`Error clearing cache: ${getErrorMessage(error)}`);
   }
 
   // Reset in-memory caches too
@@ -767,7 +768,7 @@ export async function processJavaScriptFile(filePath: string): Promise<void> {
     registerImportMapping(filePath, cachedPath);
     logger.debug(`Processed JavaScript file ${filePath} -> ${cachedPath}`);
   } catch (error) {
-    logger.debug(`Error processing JavaScript file ${filePath}: ${error}`);
+    logger.debug(`Error processing JavaScript file ${filePath}: ${getErrorMessage(error)}`);
   } finally {
     inProgressJs.delete(filePath);
   }
@@ -1139,7 +1140,7 @@ async function processNestedImports(
       const resolvedImportPath = resolve(originalDir, importPath);
 
       // Check if this import is for an HQL file that needs to be cached
-      if (resolvedImportPath.endsWith(".hql")) {
+      if (isHqlFile(resolvedImportPath)) {
         if (await exists(resolvedImportPath)) {
           // Process the HQL file to ensure it's in the cache
           // This ensures the import chain is processed correctly

@@ -12,6 +12,7 @@ import {
   TransformError,
   TranspilerError,
 } from "../common/error.ts";
+import { getErrorMessage } from "../common/utils.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { reportError } from "../common/error.ts";
 import type { TranspileResult } from "./index.ts";
@@ -520,11 +521,7 @@ export async function loadSystemMacros(
 
     logger.debug("System macros loaded successfully");
   } catch (error) {
-    if (error instanceof Error) {
-      throw new TranspilerError(`Loading system macro files: ${error.message}`);
-    } else {
-      throw new TranspilerError(`Loading system macro files: ${String(error)}`);
-    }
+    throw new TranspilerError(`Loading system macro files: ${getErrorMessage(error)}`);
   }
 }
 

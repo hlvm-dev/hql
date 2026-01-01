@@ -71,7 +71,7 @@ try {
       }
     }
   }
-} catch (e) {
+} catch {
   console.log("⚠️  No packages/ directory found, skipping optional packages.");
 }
 

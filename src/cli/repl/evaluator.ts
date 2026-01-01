@@ -6,9 +6,9 @@
 import { run } from "../../../mod.ts";
 import { parse } from "../../transpiler/pipeline/parser.ts";
 import type { ListNode } from "../../transpiler/type/hql_ast.ts";
-import { isList, isSymbol, sexpToString, type SList, type SSymbol, type SLiteral } from "../../s-exp/types.ts";
+import { isList, isSymbol, sexpToString, type SList, type SSymbol } from "../../s-exp/types.ts";
 import { isVectorImport, isNamespaceImport } from "../../transpiler/syntax/import-export.ts";
-import { sanitizeIdentifier } from "../../common/utils.ts";
+import { sanitizeIdentifier, ensureError } from "../../common/utils.ts";
 import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../../transpiler/keyword/primitives.ts";
 import type { ReplState } from "./state.ts";
 
@@ -28,15 +28,6 @@ type ExpressionKind = "declaration" | "binding" | "expression" | "import";
 interface ExpressionType {
   readonly kind: ExpressionKind;
   readonly name?: string;
-}
-
-/** Clean transpiled JavaScript */
-function cleanJs(js: string, removeSemi = false): string {
-  const cleaned = js
-    .replace(/^['"]use strict['"];\s*/gm, "")
-    .replace(/\/\/# sourceMappingURL=.*$/gm, "")
-    .trim();
-  return removeSemi ? cleaned.replace(/;\s*$/, "") : cleaned;
 }
 
 /** Analyze expression type from AST */
@@ -94,7 +85,7 @@ export async function evaluate(hqlCode: string, state: ReplState): Promise<EvalR
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error : new Error(String(error)),
+      error: ensureError(error),
     };
   }
 }
@@ -138,30 +129,10 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
 
     // Execute the import via run() - it handles EMBEDDED_PACKAGES
     // The run() function in mod.ts properly compiles @hql/* packages
-    const result = await run(hqlCode, {
+    await run(hqlCode, {
       baseDir: Deno.cwd(),
       currentFile: "<repl>",
     });
-
-    // For REPL, we need to also assign to globalThis
-    // The import ran in a separate module context, so we need to re-import
-    // and assign to globalThis for REPL persistence
-    if (names.length > 0) {
-      // Get the path from the import statement
-      const pathNode = list.elements[3] || list.elements[1];
-      if (pathNode && pathNode.type === "literal") {
-        const path = String((pathNode as SLiteral).value);
-
-        // Create assignment code using run()
-        const assignmentCode = names.map(name =>
-          `(let ${name} (js-get __imported_module__ "${name}"))`
-        ).join("\n");
-
-        // This is a bit tricky - we need the import result to be available
-        // For now, just mark the names as bound - the actual binding happens
-        // in the module's global scope via run()
-      }
-    }
 
     // Mark names as declared
     for (const name of names) {
@@ -176,7 +147,7 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error : new Error(String(error)),
+      error: ensureError(error),
     };
   }
 }
@@ -208,7 +179,7 @@ async function handleBinding(hqlCode: string, name: string, state: ReplState): P
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error : new Error(String(error)),
+      error: ensureError(error),
     };
   }
 }
@@ -237,7 +208,7 @@ async function handleDeclaration(hqlCode: string, name: string, state: ReplState
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error : new Error(String(error)),
+      error: ensureError(error),
     };
   }
 }
@@ -245,7 +216,7 @@ async function handleDeclaration(hqlCode: string, name: string, state: ReplState
 /**
  * Handle regular expressions
  */
-async function handleExpression(hqlCode: string, state: ReplState): Promise<EvalResult> {
+async function handleExpression(hqlCode: string, _state: ReplState): Promise<EvalResult> {
   try {
     // Use run() directly - it handles everything including EMBEDDED_PACKAGES
     const result = await run(hqlCode, {
@@ -257,7 +228,7 @@ async function handleExpression(hqlCode: string, state: ReplState): Promise<Eval
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error : new Error(String(error)),
+      error: ensureError(error),
     };
   }
 }

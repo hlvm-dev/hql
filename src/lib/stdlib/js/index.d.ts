@@ -31,12 +31,13 @@ export function cons<T>(
 
 /**
  * Returns the nth element (0-indexed)
+ * When notFound is provided, returns it if index is out of bounds
  */
-export function nth<T>(
+export function nth<T, D = T>(
   coll: Iterable<T> | null | undefined,
   index: number,
-  notFound?: T,
-): T | undefined;
+  notFound?: D,
+): T | D | undefined;
 
 /**
  * Counts elements in a collection
@@ -225,9 +226,17 @@ export function seq<T>(
 ): Iterable<T> | null;
 
 /**
- * Conjoins value into collection (returns same type as input)
+ * Conjoins value into collection
+ * Arrays: appends items, Objects: merges [key, value] pairs,
+ * Sets: adds items, Maps: adds [key, value] pairs, Strings: concatenates
  */
-export function conj<C>(coll: C, ...items: any[]): C extends null | undefined ? any[] : C;
+export function conj<T>(coll: T[], ...items: T[]): T[];
+export function conj(coll: string, ...items: string[]): string;
+export function conj<U>(coll: Set<U>, ...items: U[]): Set<U>;
+export function conj<K, V>(coll: Map<K, V>, ...items: [K, V][]): Map<K, V>;
+export function conj(coll: null | undefined, ...items: unknown[]): unknown[];
+export function conj<T extends Record<string, unknown>>(coll: T, ...items: [string, unknown][]): Record<string, unknown>;
+export function conj(coll: unknown, ...items: unknown[]): unknown;
 
 /**
  * Transforms collection into target
@@ -571,8 +580,16 @@ export function next<T>(coll: Iterable<T> | null | undefined): Iterable<T> | nul
 
 /**
  * Returns an empty collection of the same type
+ * For arrays returns [], for Sets returns new Set(), for Maps returns new Map(),
+ * for strings returns "", for objects returns {}, for null/undefined returns null
  */
-export function empty<T>(coll: T): T;
+export function empty<T extends any[]>(coll: T): T;
+export function empty(coll: string): string;
+export function empty<U>(coll: Set<U>): Set<U>;
+export function empty<K, V>(coll: Map<K, V>): Map<K, V>;
+export function empty(coll: null | undefined): null;
+export function empty<T extends Record<string, unknown>>(coll: T): Partial<T>;
+export function empty(coll: unknown): unknown;
 
 /**
  * Reverses a collection

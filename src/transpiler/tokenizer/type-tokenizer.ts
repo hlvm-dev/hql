@@ -705,9 +705,6 @@ export function normalizeType(type: string): string {
   return type;
 }
 
-// Backward compatibility alias
-export { normalizeType as normalizeArrayType };
-
 // ============================================================================
 // TYPE EXTRACTION FROM SYMBOLS
 // ============================================================================
