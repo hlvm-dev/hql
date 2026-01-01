@@ -148,8 +148,8 @@ export function shutdownAIRuntime(): void {
 /**
  * Check if AI is available
  */
-export function isAIAvailable(): boolean {
-  return isAIRunning();
+export async function isAIAvailable(): Promise<boolean> {
+  return await isAIRunning();
 }
 
 /**
