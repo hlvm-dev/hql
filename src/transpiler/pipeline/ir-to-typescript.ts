@@ -12,21 +12,19 @@
  */
 
 import * as IR from "../type/hql_ir.ts";
-import { globalLogger as logger } from "../../logger.ts";
 import { CodeGenError } from "../../common/error.ts";
 import { applyTCO } from "../optimize/tco-optimizer.ts";
 import { RUNTIME_HELPER_NAMES_SET } from "../../common/runtime-helper-impl.ts";
+import { assertNever } from "../codegen/exhaustive.ts";
+import { CodeBuffer, type SourceMapping } from "../codegen/code-buffer.ts";
+import { Precedence, getExprPrecedence, isRightAssociative } from "../codegen/precedence.ts";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface SourceMapping {
-  generated: { line: number; column: number };
-  original: { line: number; column: number } | null;
-  source: string | null;
-  name: string | null;
-}
+// SourceMapping is imported from code-buffer.ts
+export type { SourceMapping };
 
 export interface TSGeneratorResult {
   code: string;
@@ -37,6 +35,8 @@ export interface TSGeneratorResult {
 interface GeneratorOptions {
   sourceFilePath?: string;
   indent?: string;
+  /** Enable debug comments showing HQL origin (superiority feature) */
+  debug?: boolean;
 }
 
 // ============================================================================
@@ -44,14 +44,9 @@ interface GeneratorOptions {
 // ============================================================================
 
 class TSGenerator {
-  private chunks: string[] = [];
-  private currentLine: number = 1;
-  private currentColumn: number = 0;
-  private mappings: SourceMapping[] = [];
+  // Code buffer for output generation with source map tracking
+  private buf: CodeBuffer;
   private usedHelpers: Set<string> = new Set();
-  private sourceFilePath: string;
-  private indentLevel: number = 0;
-  private indentStr: string;
 
   // Expression-everywhere: track top-level binding names for hoisting
   private topLevelBindingNames: Set<string> = new Set();
@@ -70,66 +65,66 @@ class TSGenerator {
   private inExpressionContext: boolean = false;
 
   constructor(options: GeneratorOptions = {}) {
-    this.sourceFilePath = options.sourceFilePath || "input.hql";
-    this.indentStr = options.indent || "  ";
+    this.buf = new CodeBuffer({
+      sourceFilePath: options.sourceFilePath,
+      indentStr: options.indent,
+      debug: options.debug,
+    });
   }
 
   // ============================================================================
-  // Output Helpers
+  // Output Helpers - delegate to CodeBuffer
   // ============================================================================
 
-  private emit(text: string, irPosition?: IR.SourcePosition): void {
-    // Record mapping if we have a source position
-    if (irPosition && irPosition.line !== undefined) {
-      this.mappings.push({
-        generated: { line: this.currentLine, column: this.currentColumn },
-        original: { line: irPosition.line, column: irPosition.column || 0 },
-        source: irPosition.filePath || this.sourceFilePath,
-        name: null,
-      });
-    }
-
-    // Track position - optimized to avoid character-by-character iteration
-    // Fast path: no newlines (most common case for tokens/identifiers)
-    if (!text.includes("\n")) {
-      this.currentColumn += text.length;
-    } else {
-      // Has newlines - split is well-optimized in V8
-      const lines = text.split("\n");
-      this.currentLine += lines.length - 1;
-      this.currentColumn = lines[lines.length - 1].length;
-    }
-    this.chunks.push(text);
+  private emit(text: string, irPosition?: IR.SourcePosition, name?: string): void {
+    this.buf.write(text, irPosition, name);
   }
 
   private emitLine(text: string = "", irPosition?: IR.SourcePosition): void {
-    if (text) {
-      this.emitIndent();
-      this.emit(text, irPosition);
-    }
-    this.emit("\n");
+    this.buf.writeLine(text, irPosition);
   }
 
   private emitIndent(): void {
-    this.emit(this.indentStr.repeat(this.indentLevel));
+    this.buf.writeIndent();
   }
 
   private indent(): void {
-    this.indentLevel++;
+    this.buf.indent();
   }
 
   private dedent(): void {
-    if (this.indentLevel > 0) this.indentLevel--;
+    this.buf.dedent();
   }
 
   /**
    * Emit items separated by commas - DRY helper for common pattern
    */
   private emitCommaSeparated<T>(items: T[], processor: (item: T) => void): void {
-    for (let i = 0; i < items.length; i++) {
-      if (i > 0) this.emit(", ");
-      processor(items[i]);
-    }
+    this.buf.writeCommaSeparated(items, processor);
+  }
+
+  /**
+   * Write debug comment showing HQL origin (superiority feature).
+   * Only emits when debug mode is enabled.
+   */
+  private emitDebugComment(pos?: IR.SourcePosition, hint?: string): void {
+    this.buf.writeDebugComment(pos, hint);
+  }
+
+  /**
+   * Emit an expression with precedence-aware parenthesization.
+   * Wraps the expression in parentheses only when necessary.
+   *
+   * @param node - The expression node to emit
+   * @param contextPrec - The precedence of the surrounding context
+   */
+  private emitExpr(node: IR.IRNode, contextPrec: Precedence = Precedence.Lowest): void {
+    const nodePrec = getExprPrecedence(node);
+    const needsParens = nodePrec < contextPrec;
+
+    if (needsParens) this.emit("(");
+    this.generateInExpressionContext(node);
+    if (needsParens) this.emit(")");
   }
 
   private trackHelper(name: string): void {
@@ -628,6 +623,49 @@ class TSGenerator {
     return `(${params.join(", ")}) => ${returnType}`;
   }
 
+  /**
+   * Infer TypeScript type from an IR node (for JSON map parameter defaults).
+   * Returns the appropriate TypeScript type string based on the node type.
+   */
+  private inferTypeFromNode(node: IR.IRNode): string {
+    switch (node.type) {
+      case IR.IRNodeType.NumericLiteral:
+        return "number";
+      case IR.IRNodeType.StringLiteral:
+        return "string";
+      case IR.IRNodeType.BooleanLiteral:
+        return "boolean";
+      case IR.IRNodeType.NullLiteral:
+        return "null";
+      case IR.IRNodeType.ArrayExpression:
+        return "unknown[]";
+      case IR.IRNodeType.ObjectExpression:
+        return "Record<string, unknown>";
+      default:
+        return "unknown";
+    }
+  }
+
+  /**
+   * Build TypeScript type annotation for JSON map parameters.
+   * Returns type like: { x?: number; y?: string }
+   */
+  private buildJsonParamsType(
+    params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[],
+    defaultsMap: Map<string, IR.IRNode>
+  ): string {
+    const properties: string[] = [];
+    for (const param of params) {
+      if (param.type === IR.IRNodeType.Identifier) {
+        const paramName = (param as IR.IRIdentifier).name;
+        const defaultVal = defaultsMap.get(paramName);
+        const inferredType = defaultVal ? this.inferTypeFromNode(defaultVal) : "unknown";
+        properties.push(`${paramName}?: ${inferredType}`);
+      }
+    }
+    return `{ ${properties.join("; ")} }`;
+  }
+
   // ============================================================================
   // Main Entry Point
   // ============================================================================
@@ -680,9 +718,10 @@ class TSGenerator {
     // Pop module-level hoisting scope
     this.hoistingStack.pop();
 
+    const result = this.buf.getResult();
     return {
-      code: this.chunks.join(""),
-      mappings: this.mappings,
+      code: result.code,
+      mappings: result.mappings,
       usedHelpers: this.usedHelpers,
     };
   }
@@ -969,8 +1008,28 @@ class TSGenerator {
         this.generateOptionalType(node as IR.IROptionalType);
         break;
 
+      // Structural nodes - handled by parent generators, should never reach generateNode directly
+      case IR.IRNodeType.Program:
+      case IR.IRNodeType.ObjectProperty:
+      case IR.IRNodeType.VariableDeclarator:
+      case IR.IRNodeType.ImportSpecifier:
+      case IR.IRNodeType.ImportNamespaceSpecifier:
+      case IR.IRNodeType.ExportSpecifier:
+      case IR.IRNodeType.SpreadAssignment:
+      case IR.IRNodeType.ClassField:
+      case IR.IRNodeType.ClassMethod:
+      case IR.IRNodeType.ClassConstructor:
+      case IR.IRNodeType.EnumCase:
+      case IR.IRNodeType.CatchClause:
+      case IR.IRNodeType.SwitchCase:
+        throw new CodeGenError(
+          `Structural node '${IR.IRNodeType[node.type]}' should not be passed to generateNode directly`,
+          "generateNode",
+          node
+        );
+
       default:
-        logger.warn(`Unknown IR node type: ${node.type}`);
+        assertNever(node.type, `Unhandled IR node type: ${node.type}`);
     }
   }
 
@@ -1069,7 +1128,7 @@ class TSGenerator {
         this.generateOptionalType(node as IR.IROptionalType);
         break;
       default:
-        logger.warn(`Unknown type expression: ${(node as IR.IRNode).type}`);
+        assertNever(node, `Unhandled type expression: ${(node as IR.IRNode).type}`);
     }
   }
 
@@ -1436,7 +1495,8 @@ class TSGenerator {
   private generateIdentifier(node: IR.IRIdentifier): void {
     // Track if this is a runtime helper
     this.trackHelper(node.name);
-    this.emit(node.name, node.position);
+    // Pass original name for rich source maps (superiority feature)
+    this.emit(node.name, node.position, node.originalName ?? node.name);
   }
 
   // ============================================================================
@@ -1444,11 +1504,30 @@ class TSGenerator {
   // ============================================================================
 
   private generateBinaryExpression(node: IR.IRBinaryExpression): void {
-    this.emit("(", node.position);
-    this.generateInExpressionContext(node.left);
-    this.emit(` ${node.operator} `);
-    this.generateInExpressionContext(node.right);
-    this.emit(")");
+    const prec = getExprPrecedence(node);
+    // For right-associative operators (like **), right operand uses same precedence
+    // For left-associative operators, right operand uses higher precedence
+    const rightPrec = isRightAssociative(node.operator) ? prec : prec + 1;
+
+    // Arrow functions need explicit parentheses in binary expressions
+    // because `(x) => x !== null` parses as `(x) => (x !== null)`, not `((x) => x) !== null`
+    this.emitExprWithArrowParen(node.left, prec);
+    this.emit(` ${node.operator} `, node.position);
+    this.emitExprWithArrowParen(node.right, rightPrec);
+  }
+
+  /**
+   * Emit an expression with precedence handling, plus explicit parens for arrow functions.
+   * Arrow functions bind looser than binary operators in parsing, so they need explicit parens.
+   */
+  private emitExprWithArrowParen(node: IR.IRNode, contextPrec: Precedence): void {
+    if (node.type === IR.IRNodeType.FunctionExpression) {
+      this.emit("(");
+      this.generateInExpressionContext(node);
+      this.emit(")");
+    } else {
+      this.emitExpr(node, contextPrec);
+    }
   }
 
   private generateUnaryExpression(node: IR.IRUnaryExpression): void {
@@ -1457,34 +1536,44 @@ class TSGenerator {
       if (node.operator === "typeof" || node.operator === "void" || node.operator === "delete") {
         this.emit(" ");
       }
-      // Wrap function expressions in parentheses to avoid precedence issues
-      // e.g., typeof (x) => x should be typeof ((x) => x)
-      const needsParens = node.argument.type === IR.IRNodeType.FunctionExpression;
-      if (needsParens) this.emit("(");
-      this.generateInExpressionContext(node.argument);
-      if (needsParens) this.emit(")");
+      // Function expressions need explicit parentheses after typeof/void/delete
+      // because `typeof (x) => x` parses as `(typeof (x)) => x`, not `typeof ((x) => x)`
+      const needsExplicitParens = node.argument.type === IR.IRNodeType.FunctionExpression;
+      if (needsExplicitParens) {
+        this.emit("(");
+        this.generateInExpressionContext(node.argument);
+        this.emit(")");
+      } else {
+        this.emitExpr(node.argument, Precedence.Unary);
+      }
     } else {
-      this.generateInExpressionContext(node.argument);
+      // Postfix operators (++, --)
+      this.emitExpr(node.argument, Precedence.Postfix);
       this.emit(node.operator);
     }
   }
 
   private generateLogicalExpression(node: IR.IRLogicalExpression): void {
-    this.emit("(", node.position);
-    this.generateInExpressionContext(node.left);
-    this.emit(` ${node.operator} `);
-    this.generateInExpressionContext(node.right);
-    this.emit(")");
+    const prec = getExprPrecedence(node);
+    // Logical operators are left-associative, so right operand uses higher precedence
+    const rightPrec = prec + 1;
+
+    // Arrow functions need explicit parentheses in logical expressions
+    this.emitExprWithArrowParen(node.left, prec);
+    this.emit(` ${node.operator} `, node.position);
+    this.emitExprWithArrowParen(node.right, rightPrec);
   }
 
   private generateConditionalExpression(node: IR.IRConditionalExpression): void {
-    this.emit("(", node.position);
-    this.generateInExpressionContext(node.test);
-    this.emit(" ? ");
-    this.generateInExpressionContext(node.consequent);
+    // Conditional is right-associative and has very low precedence
+    // test ? consequent : alternate
+    // test needs higher precedence than conditional
+    // consequent and alternate can be lower (they're inside the ternary)
+    this.emitExprWithArrowParen(node.test, Precedence.Conditional + 1);
+    this.emit(" ? ", node.position);
+    this.emitExprWithArrowParen(node.consequent, Precedence.Assignment);
     this.emit(" : ");
-    this.generateInExpressionContext(node.alternate);
-    this.emit(")");
+    this.emitExprWithArrowParen(node.alternate, Precedence.Conditional);
   }
 
   private generateCallExpression(node: IR.IRCallExpression): void {
@@ -1687,14 +1776,16 @@ class TSGenerator {
   }
 
   private generateAssignmentExpression(node: IR.IRAssignmentExpression): void {
-    this.generateInExpressionContext(node.left);
+    // Assignment is right-associative, so right side uses same precedence
+    this.emitExpr(node.left, Precedence.Assignment);
     this.emit(` ${node.operator} `, node.position);
-    this.generateInExpressionContext(node.right);
+    this.emitExpr(node.right, Precedence.Assignment);
   }
 
   private generateAwaitExpression(node: IR.IRAwaitExpression): void {
     this.emit("await ", node.position);
-    this.generateInExpressionContext(node.argument);
+    // await has unary precedence
+    this.emitExpr(node.argument, Precedence.Unary);
   }
 
   private generateYieldExpression(node: IR.IRYieldExpression): void {
@@ -1707,13 +1798,15 @@ class TSGenerator {
       }
     }
     if (node.argument) {
-      this.generateInExpressionContext(node.argument);
+      // yield has assignment-level precedence
+      this.emitExpr(node.argument, Precedence.Assignment);
     }
   }
 
   private generateSpreadElement(node: IR.IRSpreadElement): void {
     this.emit("...", node.position);
-    this.generateInExpressionContext(node.argument);
+    // spread needs assignment precedence for the argument
+    this.emitExpr(node.argument, Precedence.Assignment);
   }
 
   // ============================================================================
@@ -2126,6 +2219,9 @@ class TSGenerator {
   }
 
   private generateFnFunctionDeclaration(node: IR.IRFnFunctionDeclaration): void {
+    // Debug comment: show HQL origin (superiority feature)
+    this.emitDebugComment(node.position, `(fn ${node.id.name} ...)`);
+
     // Apply Tail Call Optimization for self-recursive functions
     const optimizedNode = applyTCO(node);
 
@@ -2235,6 +2331,9 @@ class TSGenerator {
   }
 
   private generateClassDeclaration(node: IR.IRClassDeclaration): void {
+    // Debug comment: show HQL origin (superiority feature)
+    this.emitDebugComment(node.position, `(class ${node.id.name} ...)`);
+
     // Check if this class was hoisted (appears in expression context)
     const currentScope = this.hoistingStack.length > 0 ? this.currentHoistingSet() : null;
     const isHoisted = currentScope?.has(node.id.name) ||
@@ -2371,9 +2470,16 @@ class TSGenerator {
       this.emit(">");
     }
 
-    this.emit("(");
-    this.generateFnParams(method.params, this.buildDefaultsMap(method.defaults));
-    this.emit(")");
+    // For methods with JSON map parameters, accept single options object with proper typing
+    if (method.hasJsonParams) {
+      const defaultsMap = this.buildDefaultsMap(method.defaults);
+      const optsType = this.buildJsonParamsType(method.params, defaultsMap);
+      this.emit(`(__opts: ${optsType} = {})`);
+    } else {
+      this.emit("(");
+      this.generateFnParams(method.params, this.buildDefaultsMap(method.defaults));
+      this.emit(")");
+    }
 
     // Add return type annotation if present
     if (method.returnType) {
@@ -2381,11 +2487,56 @@ class TSGenerator {
     }
 
     this.emit(" ");
-    this.generateBlockStatement(method.body);
+
+    // For JSON map params, inject validation and destructuring at start of body
+    if (method.hasJsonParams && method.params.length > 0) {
+      this.emit("{\n");
+      this.indent();
+
+      // Runtime validation: throw clear error if non-object is passed
+      this.emitIndent();
+      this.emit("if (__opts !== null && typeof __opts !== \"undefined\" && (typeof __opts !== \"object\" || Array.isArray(__opts))) {\n");
+      this.indent();
+      this.emitIndent();
+      this.emit(`throw new TypeError("${method.name}: expected object argument, got " + typeof __opts);\n`);
+      this.dedent();
+      this.emitIndent();
+      this.emit("}\n");
+
+      // Generate: const { param1 = default1, param2 = default2, ... } = __opts;
+      this.emitIndent();
+      this.emit("const { ");
+      const defaultsMap = this.buildDefaultsMap(method.defaults);
+      method.params.forEach((param, idx) => {
+        if (idx > 0) this.emit(", ");
+        const paramName = (param as IR.IRIdentifier).name;
+        this.emit(paramName);
+        const defaultVal = defaultsMap.get(paramName);
+        if (defaultVal) {
+          this.emit(" = ");
+          this.generateNode(defaultVal);
+        }
+      });
+      this.emit(" } = __opts ?? {};\n");
+
+      // Generate the original body statements (without the outer braces)
+      for (const stmt of method.body.body) {
+        this.generateNode(stmt);
+      }
+
+      this.dedent();
+      this.emitIndent();
+      this.emit("}");
+    } else {
+      this.generateBlockStatement(method.body);
+    }
     this.emit("\n");
   }
 
   private generateEnumDeclaration(node: IR.IREnumDeclaration): void {
+    // Debug comment: show HQL origin (superiority feature)
+    this.emitDebugComment(node.position, `(enum ${node.id.name} ...)`);
+
     // Check if this enum was hoisted (appears in expression context)
     const currentScope = this.hoistingStack.length > 0 ? this.currentHoistingSet() : null;
     const isHoisted = currentScope?.has(node.id.name) ||
@@ -2629,10 +2780,10 @@ class TSGenerator {
     if (node.declaration) {
       // export const/function/class
       // Don't emit indent since we already did
-      const savedIndent = this.indentLevel;
-      this.indentLevel = 0;
+      const savedIndent = this.buf.getIndentLevel();
+      this.buf.setIndentLevel(0);
       this.generateNode(node.declaration);
-      this.indentLevel = savedIndent;
+      this.buf.setIndentLevel(savedIndent);
     } else if (node.specifiers.length > 0) {
       this.emit("{ ");
       for (let i = 0; i < node.specifiers.length; i++) {
@@ -2657,10 +2808,10 @@ class TSGenerator {
     this.emitIndent();
     this.emit("export ", node.position);
     // Don't add indent since we already did
-    const savedIndent = this.indentLevel;
-    this.indentLevel = 0;
+    const savedIndent = this.buf.getIndentLevel();
+    this.buf.setIndentLevel(0);
     this.generateVariableDeclaration(node.declaration);
-    this.indentLevel = savedIndent;
+    this.buf.setIndentLevel(savedIndent);
   }
 
   private generateExportDefaultDeclaration(node: IR.IRExportDefaultDeclaration): void {
