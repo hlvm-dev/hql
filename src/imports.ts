@@ -12,6 +12,7 @@ import {
   extname,
   fromFileUrl,
   resolve,
+  normalize,
 } from "./platform/platform.ts";
 
 // Global registry to track which symbols are macros
@@ -62,6 +63,52 @@ import {
 
 // Cache file contents to avoid re-reading the same file for every import
 const fileLineCache = new Map<string, string[] | null>();
+
+/**
+ * Validate that a resolved import path is safe (no path traversal attack).
+ *
+ * Security: Prevents imports like "../../../../etc/passwd" from escaping
+ * the project directory. Allows:
+ * - Paths within baseDir
+ * - Remote URLs (http://, https://)
+ * - Package imports (@hql/*, npm:*, jsr:*)
+ * - Absolute paths (user explicitly specified)
+ *
+ * @throws ImportError if path escapes baseDir via traversal
+ */
+function validateImportPath(
+  modulePath: string,
+  resolvedPath: string,
+  baseDir: string,
+): void {
+  // Allow remote URLs - they don't access local filesystem
+  if (isRemoteUrl(modulePath) || isRemoteModule(modulePath)) {
+    return;
+  }
+
+  // Allow package imports (@hql/*, npm:*, jsr:*)
+  if (modulePath.startsWith("@") || modulePath.startsWith("npm:") || modulePath.startsWith("jsr:")) {
+    return;
+  }
+
+  // Allow absolute paths - user explicitly specified the full path
+  if (modulePath.startsWith("/")) {
+    return;
+  }
+
+  // For relative paths, verify they don't escape baseDir
+  const normalizedResolved = normalize(resolvedPath);
+  const normalizedBase = normalize(baseDir);
+
+  // Check if resolved path is within baseDir
+  if (!normalizedResolved.startsWith(normalizedBase)) {
+    throw new ImportError(
+      `Import path "${modulePath}" resolves outside project directory. ` +
+      `Path traversal is not allowed for security reasons.`,
+      "import validation",
+    );
+  }
+}
 
 /**
  * Preload file lines into cache asynchronously.
@@ -684,6 +731,7 @@ async function processSimpleImport(
   }
 
   const resolvedPath = resolve(baseDir, modulePath);
+  validateImportPath(modulePath, resolvedPath, baseDir);
 
   logger.debug(
     `Simple import of full module: ${modulePath} => ${resolvedPath}`,
@@ -771,6 +819,7 @@ async function processNamespaceImport(
     }
 
     const resolvedPath = resolve(baseDir, modulePath);
+    validateImportPath(modulePath, resolvedPath, baseDir);
     // First load the module with a consistent internal ID
     const moduleId = generateModuleId(modulePath);
     await loadModule(moduleId, modulePath, resolvedPath, env, options);
@@ -865,6 +914,7 @@ async function processVectorBasedImport(
       await loadHqlModule(moduleId, modulePath, resolvedPath, env, options);
     } else {
       resolvedPath = resolve(baseDir, modulePath);
+      validateImportPath(modulePath, resolvedPath, baseDir);
       // Use a consistent module ID for all import styles
       moduleId = generateModuleId(modulePath);
       await loadModule(moduleId, modulePath, resolvedPath, env, options);
