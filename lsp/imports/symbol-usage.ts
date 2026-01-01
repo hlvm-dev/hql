@@ -27,30 +27,34 @@ export function analyzeUnusedImports(
  * Check if a symbol is used in the document (excluding import/export lines)
  *
  * For multiline imports, importStartLine and importEndLine define the range to skip.
+ * Accepts pre-split lines to avoid repeated text.split() calls (optimization).
  */
 function isSymbolUsed(
-  text: string,
+  lines: string[],
   symbolName: string,
   importStartLine: number,
-  importEndLine?: number
+  importEndLine: number
 ): boolean {
-  const lines = text.split("\n");
-  const endLine = importEndLine ?? importStartLine;
-
   // Check for re-export (symbol is exported)
-  if (isSymbolReExported(text, symbolName)) {
+  if (isSymbolReExported(lines, symbolName)) {
     return true;
   }
 
   // Check for property access on namespace (e.g., math.add)
-  if (isNamespacePropertyAccessed(text, symbolName, importStartLine, endLine)) {
+  if (isNamespacePropertyAccessed(lines, symbolName, importStartLine, importEndLine)) {
     return true;
   }
+
+  // Pre-compile pattern once for use in loop (optimization: compile once, not per line)
+  const symbolPattern = new RegExp(
+    `(?<![a-zA-Z0-9_\\-?!])${escapeRegex(symbolName)}(?![a-zA-Z0-9_\\-?!])`,
+    "g"
+  );
 
   // Look for usages on other lines
   for (let i = 0; i < lines.length; i++) {
     // Skip all lines within the import statement range
-    if (i >= importStartLine && i <= endLine) continue;
+    if (i >= importStartLine && i <= importEndLine) continue;
 
     const line = lines[i];
 
@@ -58,7 +62,7 @@ function isSymbolUsed(
     if (line.trim().startsWith("(export ")) continue;
 
     // Check if symbol is used on this line (not in string or comment)
-    if (isSymbolOnLine(line, symbolName)) {
+    if (isSymbolOnLine(line, symbolName, symbolPattern)) {
       return true;
     }
   }
@@ -68,10 +72,9 @@ function isSymbolUsed(
 
 /**
  * Check if symbol is re-exported
+ * Accepts pre-split lines to avoid repeated text.split() calls (optimization).
  */
-function isSymbolReExported(text: string, symbolName: string): boolean {
-  const lines = text.split("\n");
-
+function isSymbolReExported(lines: string[], symbolName: string): boolean {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("(export ")) continue;
@@ -101,25 +104,27 @@ function isSymbolReExported(text: string, symbolName: string): boolean {
 
 /**
  * Check if a namespace is accessed via property (e.g., math.add)
+ * Accepts pre-split lines to avoid repeated text.split() calls (optimization).
  */
 function isNamespacePropertyAccessed(
-  text: string,
+  lines: string[],
   namespaceName: string,
   importStartLine: number,
   importEndLine: number
 ): boolean {
-  const lines = text.split("\n");
+  // Hoist RegExp outside loop (optimization: compile once, not per line)
+  const pattern = new RegExp(
+    `(?<![a-zA-Z0-9_\\-?!])${escapeRegex(namespaceName)}\\.`,
+    "g"
+  );
 
   for (let i = 0; i < lines.length; i++) {
     // Skip all lines within the import statement range
     if (i >= importStartLine && i <= importEndLine) continue;
 
     const line = lines[i];
-    // Check for pattern: namespaceName.something
-    const pattern = new RegExp(
-      `(?<![a-zA-Z0-9_\\-?!])${escapeRegex(namespaceName)}\\.`,
-      "g"
-    );
+    // Reset lastIndex for reuse of global regex
+    pattern.lastIndex = 0;
 
     // Make sure it's not in a string or comment
     let match;
@@ -135,17 +140,25 @@ function isNamespacePropertyAccessed(
 
 /**
  * Check if a symbol appears on a line (not in string or comment)
+ * Accepts optional pre-compiled pattern for performance when called in loops
  */
-function isSymbolOnLine(line: string, symbolName: string): boolean {
+function isSymbolOnLine(
+  line: string,
+  symbolName: string,
+  precompiledPattern?: RegExp
+): boolean {
   // Skip comment lines
   const trimmed = line.trim();
   if (trimmed.startsWith(";")) return false;
 
-  // Build regex for whole-word match
-  const pattern = new RegExp(
+  // Use pre-compiled pattern if provided, otherwise create one
+  const pattern = precompiledPattern ?? new RegExp(
     `(?<![a-zA-Z0-9_\\-?!])${escapeRegex(symbolName)}(?![a-zA-Z0-9_\\-?!])`,
     "g"
   );
+
+  // Reset lastIndex for reuse of global regex
+  pattern.lastIndex = 0;
 
   let match;
   while ((match = pattern.exec(line)) !== null) {
@@ -202,6 +215,9 @@ export function findUnusedImports(
 ): UnusedImport[] {
   const unusedImports: UnusedImport[] = [];
 
+  // Split text once and reuse (optimization: 3S splits → 1 split)
+  const lines = text.split("\n");
+
   for (const imp of imports) {
     // For multiline imports, we need to skip all lines in the import range
     const importStartLine = imp.range.start.line;
@@ -210,7 +226,7 @@ export function findUnusedImports(
     for (const sym of imp.symbols) {
       const localName = sym.alias ?? sym.name;
 
-      if (!isSymbolUsed(text, localName, importStartLine, importEndLine)) {
+      if (!isSymbolUsed(lines, localName, importStartLine, importEndLine)) {
         unusedImports.push({
           symbolName: localName,
           originalName: sym.alias ? sym.name : undefined,

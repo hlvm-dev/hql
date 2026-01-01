@@ -47,13 +47,16 @@ export class ProjectIndex {
       imports: [],
     };
 
+    // Build Map for O(1) import lookups during indexing (optimization: O(N²) → O(N))
+    const importsByModule = new Map<string, typeof fileIndex.imports[0]>();
+
     // Index all symbols
     for (const symbol of analysis.symbols.getAllSymbols()) {
       // Handle imported symbols
       if (symbol.isImported) {
         // Track the import information
         if (symbol.sourceModule) {
-          this.addImportInfo(fileIndex, symbol);
+          this.addImportInfo(fileIndex, symbol, importsByModule);
         }
 
         // Check if this is a re-export (imported AND exported)
@@ -117,14 +120,17 @@ export class ProjectIndex {
 
   /**
    * Add import information from an imported symbol
+   * Uses Map for O(1) lookup instead of O(N) array.find()
    */
-  private addImportInfo(fileIndex: FileIndex, symbol: SymbolInfo): void {
+  private addImportInfo(
+    fileIndex: FileIndex,
+    symbol: SymbolInfo,
+    importsByModule: Map<string, typeof fileIndex.imports[0]>
+  ): void {
     if (!symbol.sourceModule) return;
 
-    // Find or create import info for this module
-    let importInfo = fileIndex.imports.find(
-      (i) => i.modulePath === symbol.sourceModule
-    );
+    // O(1) Map lookup instead of O(N) array.find()
+    let importInfo = importsByModule.get(symbol.sourceModule);
 
     if (!importInfo) {
       // Check if it's a namespace import
@@ -138,6 +144,7 @@ export class ProjectIndex {
         isNamespaceImport: isNamespace && !symbol.parent,
         namespaceName: isNamespace ? symbol.name : undefined,
       };
+      importsByModule.set(symbol.sourceModule, importInfo);
       fileIndex.imports.push(importInfo);
     }
 

@@ -414,6 +414,7 @@ function getCachedFileLines(filePath?: string): string[] | null {
 
 /**
  * Find line information for an import expression
+ * Optimized: Uses single regex scan per line instead of multiple .includes() calls
  */
 function findImportLineInfo(
   importExpr: SList,
@@ -427,14 +428,25 @@ function findImportLineInfo(
   // Get the import module path to search for
   const modulePath = getModulePathFromImport(importExpr);
 
+  // Escape special regex characters in modulePath
+  const escapedModulePath = modulePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // Pre-compile patterns once (optimization: single regex instead of 4× .includes())
+  // Matches: import [...] from "modulePath" or import [...] from 'modulePath'
+  const vectorImportPattern = new RegExp(
+    `import\\s+\\[([^\\]]+)\\]\\s+from\\s+["']${escapedModulePath}["']`
+  );
+  // Matches: import name from "modulePath"
+  const namespaceImportPattern = new RegExp(
+    `import\\s+\\S+\\s+from\\s+["']${escapedModulePath}["']`
+  );
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Look for vector imports [name1 name2] from "./path"
-    if (
-      line.includes("import") && line.includes("[") &&
-      line.includes("from") && line.includes(modulePath)
-    ) {
+    // Check for vector imports [name1 name2] from "./path"
+    const vectorMatch = vectorImportPattern.exec(line);
+    if (vectorMatch) {
       // Find the specific symbol in the import vector
       const openBracketPos = line.indexOf("[");
       const closeBracketPos = line.indexOf("]");
@@ -471,11 +483,8 @@ function findImportLineInfo(
       };
     }
 
-    // Look for namespace imports: import name from "./path"
-    if (
-      line.includes("import") && line.includes("from") &&
-      line.includes(modulePath)
-    ) {
+    // Check for namespace imports: import name from "./path"
+    if (namespaceImportPattern.test(line)) {
       return {
         line: i + 1,
         column: line.indexOf("import") + 1,
