@@ -140,11 +140,13 @@ Deno.test("Bugfix #2: Macros work correctly under concurrent load", async () => 
   assertEquals(results.length, codes.length);
   results.forEach((result, i) => {
     assertExists(result.code, `Macro code ${i} should transpile`);
-    // Macros should expand to ternary operators
+    // when/unless macros should expand to ternary expressions (condition ? then : else)
+    // Check for the ternary pattern, not just the presence of random keywords
+    const hasTernary = /\?.*:/.test(result.code);
     assertEquals(
-      result.code.includes("?") || result.code.includes("true") || result.code.includes("false"),
+      hasTernary,
       true,
-      `Macro ${i} should expand correctly`
+      `Macro ${i} should expand to ternary expression. Got: ${result.code.slice(0, 100)}`
     );
   });
 });

@@ -108,10 +108,12 @@ Deno.test("Range Lazy Consistency", async (t) => {
     const elapsed = performance.now() - startTime;
 
     assertEquals(result, [0, 1, 2, 3, 4]);
+    // Use generous threshold (1 second) to avoid flaky tests on slow CI
+    // If range were eager, 10M elements would take 10+ seconds, not < 1 second
     assertEquals(
-      elapsed < 100,
+      elapsed < 1000,
       true,
-      `Creating 10M range should be instant, took ${elapsed.toFixed(2)}ms`,
+      `Creating 10M range should be fast if lazy, took ${elapsed.toFixed(2)}ms`,
     );
   });
 

@@ -106,11 +106,13 @@ Deno.test({
     assertExists(result);
     assertEquals(result.specifier, "jsr:@std/path");
 
-    // jsr:@std/path should have some exports
-    if (result.error) {
-      console.log("Note: jsr analysis failed (may be network issue):", result.error);
-      return;
-    }
+    // Fail explicitly on network error instead of silently passing
+    // Set SKIP_NETWORK_TESTS=1 to skip this test if network is unavailable
+    assertEquals(
+      result.error,
+      undefined,
+      `Analysis failed (network issue?): ${result.error}. Set SKIP_NETWORK_TESTS=1 to skip.`
+    );
 
     assertEquals(result.exports.length > 0, true, "Should have exports");
 
@@ -170,10 +172,17 @@ Deno.test({
 
     const result = await analyzer.analyze("jsr:@std/path");
 
-    if (result.error || result.exports.length === 0) {
-      console.log("Skipping structure test due to analysis failure");
-      return;
-    }
+    // Fail explicitly instead of silently passing
+    assertEquals(
+      result.error,
+      undefined,
+      `Analysis failed: ${result.error}. Set SKIP_NETWORK_TESTS=1 to skip.`
+    );
+    assertEquals(
+      result.exports.length > 0,
+      true,
+      "Should have exports to test structure"
+    );
 
     const firstExport = result.exports[0];
     assertExists(firstExport.name, "Export should have name");

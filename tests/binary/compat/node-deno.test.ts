@@ -3,6 +3,8 @@
  *
  * These tests transpile HQL code and execute it in both runtimes to ensure
  * the self-contained output is truly portable.
+ *
+ * NOTE: Tests are properly skipped (not silently passed) when Node.js is unavailable.
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
@@ -15,15 +17,19 @@ import {
 
 console.log(`Testing Node/Deno compatibility in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
 
-// Helper to check if Node.js is available
-async function hasNode(): Promise<boolean> {
-  try {
-    const cmd = new Deno.Command("node", { args: ["--version"] });
-    const { code } = await cmd.output();
-    return code === 0;
-  } catch {
-    return false;
-  }
+// Check for Node.js availability ONCE at module load time
+// This ensures tests are properly marked as ignored, not silently passed
+let NODE_AVAILABLE = false;
+try {
+  const cmd = new Deno.Command("node", { args: ["--version"] });
+  const { code } = await cmd.output();
+  NODE_AVAILABLE = code === 0;
+} catch {
+  NODE_AVAILABLE = false;
+}
+
+if (!NODE_AVAILABLE) {
+  console.log("⚠️  Node.js not available - Node/Deno compatibility tests will be skipped");
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -32,14 +38,10 @@ async function hasNode(): Promise<boolean> {
 
 Deno.test({
   name: "compat: arithmetic - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     // Use print to output result (transpiled code doesn't auto-print)
     const code = "(print (+ 1 2 3 4 5))";
     const [nodeResult, denoResult] = await Promise.all([
@@ -56,14 +58,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: multiplication - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = "(print (* 2 3 4))";
     const [nodeResult, denoResult] = await Promise.all([
       transpileAndRunWithNode(code),
@@ -83,14 +81,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: map - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = "(print (vec (map (fn [x] (* x 2)) [1 2 3])))";
     const [nodeResult, denoResult] = await Promise.all([
       transpileAndRunWithNode(code),
@@ -105,14 +99,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: filter - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = "(print (vec (filter (fn [x] (> x 2)) [1 2 3 4 5])))";
     const [nodeResult, denoResult] = await Promise.all([
       transpileAndRunWithNode(code),
@@ -127,14 +117,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: reduce - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = "(print (reduce add 0 [1 2 3 4 5]))";
     const [nodeResult, denoResult] = await Promise.all([
       transpileAndRunWithNode(code),
@@ -154,14 +140,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: fn definition - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = `
       (const square (fn [x] (* x x)))
       (print (square 7))
@@ -180,14 +162,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: recursive function - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = `
       (const factorial (fn [n]
         (if (lte n 1)
@@ -213,14 +191,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: object operations - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = '(print (get {"name": "Alice", "age": 30} "name"))';
     const [nodeResult, denoResult] = await Promise.all([
       transpileAndRunWithNode(code),
@@ -236,14 +210,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: nested data - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = '(print (getIn {"user": {"profile": {"name": "Bob"}}} ["user" "profile" "name"]))';
     const [nodeResult, denoResult] = await Promise.all([
       transpileAndRunWithNode(code),
@@ -263,14 +233,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: if expression - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = '(print (if (> 5 3) "yes" "no"))';
     const [nodeResult, denoResult] = await Promise.all([
       transpileAndRunWithNode(code),
@@ -286,14 +252,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: let binding - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = "(print (let [x 10 y 20] (+ x y)))";
     const [nodeResult, denoResult] = await Promise.all([
       transpileAndRunWithNode(code),
@@ -313,14 +275,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: complex pipeline - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = `
       (const numbers [1 2 3 4 5 6 7 8 9 10])
       (const evenDoubled (vec (map (fn [x] (* x 2)) (filter (fn [x] (eq 0 (mod x 2))) numbers))))
@@ -341,14 +299,10 @@ Deno.test({
 
 Deno.test({
   name: "compat: function composition - same output in Node and Deno",
+  ignore: !NODE_AVAILABLE,
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    if (!await hasNode()) {
-      console.log("Skipping: Node.js not available");
-      return;
-    }
-
     const code = "(print ((comp inc inc inc) 10))";
     const [nodeResult, denoResult] = await Promise.all([
       transpileAndRunWithNode(code),
