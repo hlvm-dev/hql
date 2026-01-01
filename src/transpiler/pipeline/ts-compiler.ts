@@ -97,6 +97,7 @@ const RUNTIME_HELPER_DECLARATIONS = `
 interface Array<T> {
   length: number;
   [n: number]: T;
+  [Symbol.iterator](): IterableIterator<T>;
   push(...items: T[]): number;
   pop(): T | undefined;
   map<U>(fn: (x: T, i: number) => U): U[];
@@ -156,6 +157,21 @@ declare const console: Console;
 declare const Math: Math;
 declare const JSON: JSON;
 declare const Object: ObjectConstructor;
+
+// Constructors for built-in types (needed for 'new Error()', 'new Set()', etc.)
+interface ErrorConstructor { new(message?: string): Error; (message?: string): Error; prototype: Error; }
+interface SetConstructor { new<T>(values?: Iterable<T>): Set<T>; prototype: Set<unknown>; }
+interface MapConstructor { new<K, V>(entries?: Iterable<[K, V]>): Map<K, V>; prototype: Map<unknown, unknown>; }
+interface DateConstructor { new(): Date; new(value: number | string): Date; now(): number; parse(s: string): number; prototype: Date; }
+interface ArrayConstructor { new<T>(...items: T[]): T[]; isArray(arg: unknown): arg is unknown[]; from<T>(iterable: Iterable<T>): T[]; of<T>(...items: T[]): T[]; prototype: unknown[]; }
+interface PromiseConstructor { new<T>(executor: (resolve: (value: T) => void, reject: (reason?: unknown) => void) => void): Promise<T>; resolve<T>(value: T): Promise<T>; reject(reason?: unknown): Promise<never>; all<T>(values: Iterable<Promise<T>>): Promise<T[]>; race<T>(values: Iterable<Promise<T>>): Promise<T>; }
+declare const Error: ErrorConstructor;
+declare const Set: SetConstructor;
+declare const Map: MapConstructor;
+declare const Date: DateConstructor;
+declare const Array: ArrayConstructor;
+declare const Promise: PromiseConstructor;
+
 declare function parseInt(s: string, radix?: number): number;
 declare function parseFloat(s: string): number;
 declare function isNaN(x: number): boolean;
@@ -270,6 +286,8 @@ declare function __hql_range(...args: number[]): number[];
 
 declare function __hql_toSequence(value: unknown): unknown[];
 
+declare function __hql_toIterable(value: unknown): Iterable<unknown>;
+
 declare function __hql_for_each<T>(bindingName: string, sequence: Iterable<T>, body: (item: T) => void): void;
 
 declare function __hql_throw(value: unknown): never;
@@ -277,6 +295,143 @@ declare function __hql_throw(value: unknown): never;
 declare function __hql_deepFreeze<T>(obj: T): T;
 
 declare function __hql_match_obj(val: unknown, pattern: unknown[]): boolean;
+
+// ============================================================================
+// HQL Standard Library Functions
+// ============================================================================
+// These are auto-injected at runtime but need declarations for type checking
+
+// Collection functions
+declare function first<T>(coll: Iterable<T> | null | undefined): T | undefined;
+declare function rest<T>(coll: Iterable<T> | null | undefined): Iterable<T>;
+declare function cons<T>(item: T, coll: Iterable<T> | null | undefined): Iterable<T>;
+declare function nth<T>(coll: Iterable<T> | null | undefined, index: number, notFound?: T): T | undefined;
+declare function count(coll: Iterable<any> | null | undefined): number;
+declare function second<T>(coll: Iterable<T> | null | undefined): T | undefined;
+declare function last<T>(coll: Iterable<T> | null | undefined): T | undefined;
+declare function isEmpty(coll: Iterable<any> | null | undefined): boolean;
+declare function some<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): boolean;
+declare function every<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): boolean;
+declare function notAny<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): boolean;
+declare function notEvery<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): boolean;
+declare function take<T>(n: number, coll: Iterable<T> | null | undefined): Iterable<T>;
+declare function drop<T>(n: number, coll: Iterable<T> | null | undefined): Iterable<T>;
+declare function takeWhile<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): Iterable<T>;
+declare function dropWhile<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): Iterable<T>;
+
+// Transformation functions
+declare function map<T, R>(fn: (item: T) => R, coll: Iterable<T> | null | undefined): Iterable<R>;
+declare function filter<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): Iterable<T>;
+declare function reduce<T, R>(fn: (acc: R, item: T) => R, init: R, coll: Iterable<T> | null | undefined): R;
+declare function concat<T>(...colls: (Iterable<T> | null | undefined)[]): Iterable<T>;
+declare function flatten<T>(coll: Iterable<any> | null | undefined): Iterable<T>;
+declare function distinct<T>(coll: Iterable<T> | null | undefined): Iterable<T>;
+declare function mapIndexed<T, R>(fn: (i: number, item: T) => R, coll: Iterable<T> | null | undefined): Iterable<R>;
+declare function keep<T, R>(fn: (item: T) => R | null | undefined, coll: Iterable<T> | null | undefined): Iterable<R>;
+declare function mapcat<T, R>(fn: (item: T) => Iterable<R>, coll: Iterable<T> | null | undefined): Iterable<R>;
+declare function reverse<T>(coll: Iterable<T> | null | undefined): T[];
+
+// Realization functions
+declare function vec<T>(coll: Iterable<T> | null | undefined): T[];
+declare function realize<T>(coll: Iterable<T> | null | undefined): T[];
+declare function doall<T>(coll: Iterable<T> | null | undefined): T[];
+declare function toArray<T>(coll: Iterable<T> | null | undefined): T[];
+declare function toSet<T>(coll: Iterable<T> | null | undefined): Set<T>;
+
+// Sequence generators
+declare function range(end?: number): Iterable<number>;
+declare function range(start: number, end: number, step?: number): Iterable<number>;
+declare function iterate<T>(fn: (value: T) => T, init: T): Iterable<T>;
+declare function repeat<T>(value: T): Iterable<T>;
+declare function repeatedly<T>(fn: () => T): Iterable<T>;
+declare function cycle<T>(coll: Iterable<T> | null | undefined): Iterable<T>;
+
+// Seq operations
+declare function seq<T>(coll: Iterable<T> | null | undefined): Iterable<T> | null;
+declare function conj<T>(coll: T[] | null | undefined, ...items: T[]): T[];
+declare function into<T>(target: any, from: Iterable<T> | null | undefined): any;
+declare function next<T>(coll: Iterable<T> | null | undefined): Iterable<T> | null;
+declare function empty(coll: any): any;
+
+// Map operations (using HQL-specific names to avoid conflicts)
+// Note: get, keys, vals conflict with common JS idioms - use getIn, assoc, etc.
+declare function getIn(obj: any, keys: any[]): any;
+declare function assoc(map: any, key: any, value: any): any;
+declare function assocIn(map: any, keys: any[], value: any): any;
+declare function dissoc(map: any, ...keys: any[]): any;
+declare function updateIn(map: any, keys: any[], fn: (v: any) => any): any;
+declare function merge(...maps: any[]): any;
+
+// Grouping
+declare function groupBy<T, K>(fn: (item: T) => K, coll: Iterable<T> | null | undefined): Map<K, T[]>;
+declare function partitionBy<T, K>(fn: (item: T) => K, coll: Iterable<T> | null | undefined): Iterable<T[]>;
+declare function partition<T>(n: number, coll: Iterable<T> | null | undefined): Iterable<T[]>;
+declare function partitionAll<T>(n: number, coll: Iterable<T> | null | undefined): Iterable<T[]>;
+declare function splitAt<T>(n: number, coll: Iterable<T> | null | undefined): [T[], Iterable<T>];
+declare function splitWith<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): [T[], Iterable<T>];
+
+// Higher-order functions (prefixed with __ to avoid conflicts with user code)
+declare function comp<T>(...fns: ((arg: any) => any)[]): (arg: T) => any;
+declare function partial<T extends (...args: any[]) => any>(fn: T, ...args: any[]): (...rest: any[]) => any;
+declare function zip<T>(...arrays: Iterable<T>[]): Iterable<T[]>;
+declare function zipWith<T, R>(fn: (...args: T[]) => R, ...arrays: Iterable<T>[]): Iterable<R>;
+declare function juxt<T, R>(...fns: ((x: T) => R)[]): (x: T) => R[];
+declare function constantly<T>(x: T): () => T;
+declare function complement<T extends (...args: any[]) => boolean>(fn: T): T;
+// Note: identity, apply are common user function names - not declared to avoid conflicts
+
+// Predicates
+declare function isSeq(value: any): boolean;
+declare function isSome(value: any): boolean;
+declare function isNil(value: any): boolean;
+declare function isEven(n: number): boolean;
+declare function isOdd(n: number): boolean;
+declare function isZero(n: number): boolean;
+declare function isPositive(n: number): boolean;
+declare function isNegative(n: number): boolean;
+declare function isNumber(value: any): value is number;
+declare function isString(value: any): value is string;
+declare function isBoolean(value: any): value is boolean;
+declare function isFunction(value: any): value is Function;
+declare function isArray(value: any): value is any[];
+declare function isMap(value: any): boolean;
+declare function isSet(value: any): boolean;
+declare function isVector(value: any): boolean;
+declare function isList(value: any): boolean;
+declare function isColl(value: any): boolean;
+declare function isAssociative(value: any): boolean;
+declare function isSequential(value: any): boolean;
+declare function isReduced(value: any): boolean;
+
+// Arithmetic helpers (HQL-specific, avoiding common user names)
+// Note: add, sub, mul, div are common user function names - not declared
+declare function inc(n: number): number;
+declare function dec(n: number): number;
+declare function mod(a: number, b: number): number;
+
+// Comparison (HQL-specific, min/max already in Math interface)
+declare function eq<T>(a: T, b: T): boolean;
+declare function neq<T>(a: T, b: T): boolean;
+declare function lt(...nums: number[]): boolean;
+declare function gt(...nums: number[]): boolean;
+declare function lte(...nums: number[]): boolean;
+declare function gte(...nums: number[]): boolean;
+declare function compare(a: any, b: any): number;
+
+// Transducers
+declare function transduce<T, R, A>(xform: any, rf: (acc: A, item: R) => A, init: A, coll: Iterable<T>): A;
+declare function eduction<T, R>(xform: any, coll: Iterable<T>): Iterable<R>;
+declare function completing<A, R>(rf: (acc: A, item: any) => A, cf?: (acc: A) => R): any;
+declare function reduced<T>(value: T): any;
+declare function unreduced<T>(value: any): T;
+
+// String functions (HQL-specific, avoiding conflicts with common names)
+// Note: split, join, replace, includes conflict with JS builtins - not declared
+declare function str(...args: any[]): string;
+declare function subs(s: string, start: number, end?: number): string;
+declare function upperCase(s: string): string;
+declare function lowerCase(s: string): string;
+declare function blankQ(s: string | null | undefined): boolean;
 `;
 
 /**

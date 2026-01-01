@@ -1308,6 +1308,85 @@ function collectForOfNodesRecursive(node: IR.IRNode, results: IR.IRForOfStatemen
 }
 
 /**
+ * Check if IR body contains any return statements.
+ * Used to determine if for-of should skip IIFE wrapping.
+ * Returns true if any return statement is found (at any depth, excluding nested functions).
+ */
+function containsReturnInBody(nodes: IR.IRNode[]): boolean {
+  for (const node of nodes) {
+    if (hasReturnStatement(node)) return true;
+  }
+  return false;
+}
+
+function hasReturnStatement(node: IR.IRNode): boolean {
+  if (!node) return false;
+
+  // Direct return statement
+  if (node.type === IR.IRNodeType.ReturnStatement) {
+    return true;
+  }
+
+  // Don't recurse into function expressions - they have their own scope
+  if (node.type === IR.IRNodeType.FunctionExpression ||
+      node.type === IR.IRNodeType.FunctionDeclaration) {
+    return false;
+  }
+
+  // Check in block statements
+  if (node.type === IR.IRNodeType.BlockStatement) {
+    const block = node as IR.IRBlockStatement;
+    return block.body.some(hasReturnStatement);
+  }
+
+  // Check in if statements
+  if (node.type === IR.IRNodeType.IfStatement) {
+    const ifStmt = node as IR.IRIfStatement;
+    return hasReturnStatement(ifStmt.consequent) ||
+           (ifStmt.alternate ? hasReturnStatement(ifStmt.alternate) : false);
+  }
+
+  // Check in expression statements (may contain IIFEs)
+  if (node.type === IR.IRNodeType.ExpressionStatement) {
+    const exprStmt = node as IR.IRExpressionStatement;
+    // Don't recurse into IIFEs - return inside IIFE is scoped to IIFE
+    if (exprStmt.expression.type === IR.IRNodeType.CallExpression) {
+      const call = exprStmt.expression as IR.IRCallExpression;
+      if (call.callee.type === IR.IRNodeType.FunctionExpression) {
+        return false; // IIFE - don't look inside
+      }
+    }
+    return hasReturnStatement(exprStmt.expression);
+  }
+
+  // Check in while/for loops
+  if (node.type === IR.IRNodeType.WhileStatement) {
+    return hasReturnStatement((node as IR.IRWhileStatement).body);
+  }
+  if (node.type === IR.IRNodeType.ForStatement) {
+    return hasReturnStatement((node as IR.IRForStatement).body);
+  }
+  if (node.type === IR.IRNodeType.ForOfStatement) {
+    return hasReturnStatement((node as IR.IRForOfStatement).body);
+  }
+
+  // Check in labeled statements
+  if (node.type === IR.IRNodeType.LabeledStatement) {
+    return hasReturnStatement((node as IR.IRLabeledStatement).body);
+  }
+
+  // Check in try/catch
+  if (node.type === IR.IRNodeType.TryStatement) {
+    const tryStmt = node as IR.IRTryStatement;
+    return hasReturnStatement(tryStmt.block) ||
+           (tryStmt.handler ? hasReturnStatement(tryStmt.handler.body) : false) ||
+           (tryStmt.finalizer ? hasReturnStatement(tryStmt.finalizer) : false);
+  }
+
+  return false;
+}
+
+/**
  * Check if a node contains any break/continue statements targeting a specific label.
  * Used for expression-everywhere: labels must return a value even without for-of.
  */
@@ -1543,6 +1622,15 @@ export function transformForOf(
         // Return as statement - the ancestor label will wrap in IIFE
         return forOfNode;
       }
+    }
+
+    // Check if body contains return statements - if so, DON'T wrap in IIFE
+    // because return needs to escape to the outer function, not the IIFE.
+    // This is critical for (for [x coll] (if test (return x))) patterns.
+    const bodyContainsReturn = containsReturnInBody(bodyStatements);
+    if (bodyContainsReturn) {
+      // Return the raw for-of statement without IIFE wrapper
+      return forOfNode;
     }
 
     // EXPRESSION-EVERYWHERE: Wrap for-of in IIFE that returns null

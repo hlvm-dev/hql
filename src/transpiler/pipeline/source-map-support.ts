@@ -17,7 +17,6 @@ import { globalLogger as logger } from "../../logger.ts";
 import {
   getEnv as platformGetEnv,
   readTextFile as platformReadTextFile,
-  readTextFileSync as platformReadTextFileSync,
   fromFileUrl as platformFromFileUrl,
 } from "../../platform/platform.ts";
 import { getErrorMessage } from "../../common/utils.ts";
@@ -44,6 +43,37 @@ interface Position {
 const sourceMapCache = new Map<string, SourceMapConsumer>();
 
 /**
+ * Track files that have been warned about cache misses
+ * to avoid spamming logs with repeated warnings
+ */
+const cacheMissWarned = new Set<string>();
+
+/**
+ * Preload a source map into the cache (async, non-blocking)
+ *
+ * This function should be called immediately after transpilation
+ * to ensure source maps are cached before any errors occur.
+ * This prevents blocking I/O during error handling.
+ *
+ * @param jsFilePath - Path to the JavaScript file
+ * @returns Promise that resolves when source map is cached (or not found)
+ *
+ * @example
+ * // After transpiling HQL to JS:
+ * await preloadSourceMap("/tmp/output.js");
+ * // Now any errors will use cached source maps (no blocking I/O)
+ */
+export async function preloadSourceMap(jsFilePath: string): Promise<void> {
+  try {
+    await loadSourceMap(jsFilePath);
+    logger.debug(`Preloaded source map for: ${jsFilePath}`);
+  } catch (error) {
+    // Preloading is best-effort - don't fail if source map doesn't exist
+    logger.debug(`Could not preload source map for ${jsFilePath}: ${getErrorMessage(error)}`);
+  }
+}
+
+/**
  * Clear the source map cache for a specific file or all files
  * 
  * Use this when a file has been recompiled and its source map
@@ -58,8 +88,9 @@ export function invalidateSourceMapCache(jsFilePath?: string): void {
     if (jsFilePath.startsWith("file://")) {
       try {
         normalizedPath = platformFromFileUrl(jsFilePath);
-      } catch {
-        // Ignore conversion errors for non-standard URLs
+      } catch (error) {
+        // Log conversion errors for debugging - non-standard URLs may indicate issues
+        logger.debug(`Failed to convert file URL ${jsFilePath}: ${getErrorMessage(error)}`);
       }
     }
     
@@ -227,15 +258,24 @@ export async function mapPosition(
 }
 
 /**
- * Load a source map from a .js.map file (synchronous version)
+ * Load a source map from cache (synchronous, cache-only version)
  *
  * This is the synchronous version of loadSourceMap(), used by
  * Error.prepareStackTrace which must be synchronous in V8.
  *
+ * IMPORTANT: This function is cache-only and will NOT perform file I/O.
+ * To ensure source maps are available, call preloadSourceMap() after
+ * transpilation. If a source map is not cached, this function returns null
+ * and logs a warning (once per file).
+ *
  * @param jsFilePath - Path to the JavaScript file
- * @returns SourceMapConsumer instance, or null if source map not found
+ * @returns SourceMapConsumer instance from cache, or null if not cached
  *
  * @example
+ * // First, preload the source map (async, non-blocking):
+ * await preloadSourceMap("/tmp/output.js");
+ *
+ * // Later, in error handling (sync, cache-only):
  * const consumer = loadSourceMapSync("/tmp/output.js");
  * if (consumer) {
  *   const original = consumer.originalPositionFor({ line: 10, column: 5 });
@@ -244,7 +284,7 @@ export async function mapPosition(
 function loadSourceMapSync(
   jsFilePath: string,
 ): SourceMapConsumer | null {
-  const DEBUG = Deno.env.get("HQL_DEBUG_ERROR") === "1";
+  const DEBUG = platformGetEnv("HQL_DEBUG_ERROR") === "1";
 
   // Normalize file path - convert file:// URLs to regular paths
   let normalizedPath = jsFilePath;
@@ -262,7 +302,7 @@ function loadSourceMapSync(
     console.log("[loadSourceMapSync] Normalized path:", normalizedPath);
   }
 
-  // Check cache first
+  // Check cache - this is now the ONLY source of data (no file I/O)
   if (sourceMapCache.has(normalizedPath)) {
     logger.debug(`Source map cache hit (sync): ${normalizedPath}`);
     if (DEBUG) {
@@ -271,99 +311,20 @@ function loadSourceMapSync(
     return sourceMapCache.get(normalizedPath)!;
   }
 
-  // Attempt to load .js.map file synchronously
-  const mapFilePath = normalizedPath + ".map";
-
-  if (DEBUG) {
-    console.log("[loadSourceMapSync] Trying external map:", mapFilePath);
-  }
-
-  try {
-    logger.debug(`Loading source map (sync) from ${mapFilePath}`);
-
-    // Use synchronous file read
-    const mapContent = platformReadTextFileSync(mapFilePath);
-    const mapJson = JSON.parse(mapContent);
-
-    if (DEBUG) {
-      console.log("[loadSourceMapSync] Loaded external map, sources:", mapJson.sources);
-    }
-
-    // Create SourceMapConsumer synchronously
-    // In source-map@0.6.1, the constructor is synchronous and returns the instance directly
-    const consumer = new SourceMapConsumer(mapJson);
-
-    // Cache for future use
-    sourceMapCache.set(normalizedPath, consumer);
-
-    logger.debug(`Source map loaded and cached (sync): ${normalizedPath}`);
-
-    return consumer;
-  } catch (error) {
-    if (DEBUG) {
-      console.log("[loadSourceMapSync] External map failed:", getErrorMessage(error));
-    }
+  // Cache miss - warn once per file to help debugging without spamming logs
+  // IMPORTANT: We do NOT perform file I/O here to avoid blocking the event loop
+  if (!cacheMissWarned.has(normalizedPath)) {
+    cacheMissWarned.add(normalizedPath);
     logger.debug(
-      `Failed to load external source map for ${normalizedPath}: ${
-        getErrorMessage(error)
-      }`,
+      `Source map cache miss for ${normalizedPath}. ` +
+      `Call preloadSourceMap() after transpilation to enable source mapping for errors.`
     );
-  }
-
-  // If external .map file not found, try to extract inline source map from JS file
-  if (DEBUG) {
-    console.log("[loadSourceMapSync] Trying inline source map from:", normalizedPath);
-  }
-
-  try {
-    logger.debug(`Checking for inline source map in ${normalizedPath}`);
-
-    const jsContent = platformReadTextFileSync(normalizedPath);
-
     if (DEBUG) {
-      console.log("[loadSourceMapSync] File read, length:", jsContent.length);
+      console.log(
+        "[loadSourceMapSync] Cache miss! Source map not preloaded for:",
+        normalizedPath
+      );
     }
-
-    const sourceMapMatch = jsContent.match(
-      /\/\/# sourceMappingURL=data:application\/json;base64,([A-Za-z0-9+/=]+)/
-    );
-
-    if (sourceMapMatch && sourceMapMatch[1]) {
-      logger.debug(`Found inline source map in ${normalizedPath}`);
-
-      if (DEBUG) {
-        console.log("[loadSourceMapSync] Found inline source map!");
-      }
-
-      // Decode base64 source map
-      const base64 = sourceMapMatch[1];
-      const decoded = atob(base64);
-      const mapJson = JSON.parse(decoded);
-
-      if (DEBUG) {
-        console.log("[loadSourceMapSync] Inline map sources:", mapJson.sources);
-      }
-
-      const consumer = new SourceMapConsumer(mapJson);
-      sourceMapCache.set(normalizedPath, consumer);
-
-      logger.debug(`Inline source map loaded and cached (sync): ${normalizedPath}`);
-
-      return consumer;
-    } else {
-      if (DEBUG) {
-        console.log("[loadSourceMapSync] No inline source map found in file");
-      }
-    }
-  } catch (error) {
-    if (DEBUG) {
-      console.log("[loadSourceMapSync] Inline map failed:", getErrorMessage(error));
-    }
-    logger.debug(
-      `Failed to load inline source map for ${normalizedPath}: ${
-        getErrorMessage(error)
-      }`,
-    );
   }
 
   return null;

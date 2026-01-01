@@ -8,6 +8,7 @@ import {
   __hql_match_obj,
   __hql_range,
   __hql_throw,
+  __hql_toIterable,
   __hql_toSequence,
 } from "./runtime-helper-impl.ts";
 import { __hql_get_op, __hql_lazy_seq, __hql_delay } from "../lib/stdlib/js/core.js";
@@ -46,6 +47,7 @@ type GlobalHqlHelpers = {
   ) => unknown;
   __hql_range?: typeof __hql_range;
   __hql_toSequence?: typeof __hql_toSequence;
+  __hql_toIterable?: typeof __hql_toIterable;
   __hql_for_each?: typeof __hql_for_each;
   __hql_hash_map?: typeof __hql_hash_map;
   __hql_match_obj?: typeof __hql_match_obj;
@@ -285,6 +287,10 @@ function ensureHelpers(): void {
 
   if (typeof globalAny.__hql_toSequence !== "function") {
     globalAny.__hql_toSequence = __hql_toSequence;
+  }
+
+  if (typeof globalAny.__hql_toIterable !== "function") {
+    globalAny.__hql_toIterable = __hql_toIterable;
   }
 
   if (typeof globalAny.__hql_for_each !== "function") {

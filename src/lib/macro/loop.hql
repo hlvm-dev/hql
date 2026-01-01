@@ -61,6 +61,9 @@
 ;; for loop - enhanced iteration with multiple syntaxes
 ;; Handle [] syntax: (for [x coll]) is parsed as (for (vector x coll))
 ;; Strip the "vector" prefix to normalize both () and [] syntax
+;;
+;; IMPORTANT: Uses for-of internally (not __hql_for_each with callback)
+;; so that return/break/continue work correctly from the enclosing function.
 (macro for [binding & body]
   (let (normalized-binding
          (if (symbol? (%first binding))
@@ -76,16 +79,15 @@
           first-elem (%first spec))
     (cond
       ;; Error: empty spec
-      ;; Error: empty spec
       ((=== spec-count 0)
        `(throw (str "Invalid 'for' loop binding: " '~binding)))
 
-      ;; Collection iteration: (for (x coll) ...)
+      ;; Collection/count iteration: (for (x coll) ...) or (for (i n) ...)
+      ;; Uses for-of with __hql_toIterable to handle both collections and numbers
+      ;; Numbers are converted to range(0, n) at runtime
       ((=== spec-count 1)
-       `(__hql_for_each ~first-elem
-          (fn [~var]
-            (do
-              ~@body))))
+       `(for-of [~var (__hql_toIterable ~first-elem)]
+          ~@body))
 
       ;; spec-count is 2 - could be positional OR named "to:"
       ((=== spec-count 2)
@@ -94,24 +96,18 @@
            (if (=== (name first-elem) "to:")
                ;; Named form: (for (i to: end) ...)
                (let (end (%nth spec 1))
-                 `(__hql_for_each (__hql_range 0 ~end)
-                    (fn [~var]
-                      (do
-                        ~@body))))
+                 `(for-of [~var (__hql_range 0 ~end)]
+                    ~@body))
                ;; Positional form: (for (i start end) ...)
                (let (start first-elem
                      end (%nth spec 1))
-                 `(__hql_for_each (__hql_range ~start ~end)
-                    (fn [~var]
-                      (do
-                        ~@body)))))
+                 `(for-of [~var (__hql_range ~start ~end)]
+                    ~@body)))
            ;; Positional form: (for (i start end) ...)
            (let (start first-elem
                  end (%nth spec 1))
-             `(__hql_for_each (__hql_range ~start ~end)
-                (fn [~var]
-                  (do
-                    ~@body))))))
+             `(for-of [~var (__hql_range ~start ~end)]
+                ~@body))))
 
       ;; spec-count is 3 - could be positional OR named with step
       ((=== spec-count 3)
@@ -119,10 +115,8 @@
        (let (start first-elem
              end (%nth spec 1)
              step (%nth spec 2))
-         `(__hql_for_each (__hql_range ~start ~end ~step)
-            (fn [~var]
-              (do
-                ~@body)))))
+         `(for-of [~var (__hql_range ~start ~end ~step)]
+            ~@body)))
 
       ;; spec-count is 4 - must be named "to: end by: step" OR "from: start to: end"
       ((=== spec-count 4)
@@ -133,10 +127,8 @@
                    (if (=== (name (%nth spec 2)) "by:")
                        (let (end (%nth spec 1)
                              step (%nth spec 3))
-                         `(__hql_for_each (__hql_range 0 ~end ~step)
-                            (fn [~var]
-                              (do
-                                ~@body))))
+                         `(for-of [~var (__hql_range 0 ~end ~step)]
+                            ~@body))
                        `(throw (str "Invalid 'for' loop binding: " '~binding)))
                    `(throw (str "Invalid 'for' loop binding: " '~binding)))
                (if (=== (name first-elem) "from:")
@@ -145,10 +137,8 @@
                        (if (=== (name (%nth spec 2)) "to:")
                            (let (start (%nth spec 1)
                                  end (%nth spec 3))
-                             `(__hql_for_each (__hql_range ~start ~end)
-                                (fn [~var]
-                                  (do
-                                    ~@body))))
+                             `(for-of [~var (__hql_range ~start ~end)]
+                                ~@body))
                            `(throw (str "Invalid 'for' loop binding: " '~binding)))
                        `(throw (str "Invalid 'for' loop binding: " '~binding)))
                    `(throw (str "Invalid 'for' loop binding: " '~binding))))
@@ -165,10 +155,8 @@
                                (let (start (%nth spec 1)
                                      end (%nth spec 3)
                                      step (%nth spec 5))
-                                 `(__hql_for_each (__hql_range ~start ~end ~step)
-                                    (fn [~var]
-                                      (do
-                                        ~@body))))
+                                 `(for-of [~var (__hql_range ~start ~end ~step)]
+                                    ~@body))
                                `(throw (str "Invalid 'for' loop binding: " '~binding)))
                            `(throw (str "Invalid 'for' loop binding: " '~binding)))
                        `(throw (str "Invalid 'for' loop binding: " '~binding)))

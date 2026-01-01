@@ -859,13 +859,11 @@ export function transformSwitch(
             test: condition,
             consequent: value,
             alternate: result,
+            position: list.position,
           } as IR.IRConditionalExpression;
         }
 
-        // Copy position from the original list
-        if ((list as any).position) {
-          (result as any).position = (list as any).position;
-        }
+        // Position is already included in the final ternary expression above
         return result;
       }
 
@@ -1054,14 +1052,11 @@ export function transformCase(
           test: condition,
           consequent: value,
           alternate: result,
+          position: list.position,
         } as IR.IRConditionalExpression;
       }
 
-      // Copy position from the original list
-      if ((list as any).position) {
-        (result as any).position = (list as any).position;
-      }
-
+      // Position is already included in the final ternary expression above
       return result;
     },
     "transformCase",

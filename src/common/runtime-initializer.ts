@@ -54,9 +54,10 @@ class HqlRuntimeInitializer {
     // Initialize AI runtime (checks if Ollama is running, starts if embedded)
     try {
       await initAIRuntime();
-    } catch {
+    } catch (error) {
       // AI initialization is optional - don't fail if it doesn't work
-      logger.debug("AI runtime not available (optional)");
+      // Log the actual error for debugging purposes
+      logger.debug(`AI runtime not available (optional): ${getErrorMessage(error)}`);
     }
 
     logger.debug("HQL runtime initialization complete");
@@ -125,8 +126,9 @@ class HqlRuntimeInitializer {
     try {
       const embeddedModule = await import("../embedded-packages.ts");
       embeddedStdlib = embeddedModule.EMBEDDED_PACKAGES?.["@hql/lib/stdlib/stdlib.hql"];
-    } catch {
-      // No embedded packages available
+    } catch (error) {
+      // No embedded packages available - this is expected in development mode
+      logger.debug(`No embedded packages available: ${getErrorMessage(error)}`);
     }
 
     // If stdlib is embedded, we're done (no file processing needed)

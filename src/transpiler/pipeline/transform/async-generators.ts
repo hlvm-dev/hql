@@ -1,0 +1,412 @@
+/**
+ * Async/Await and Generator Function Transformations
+ *
+ * This module handles:
+ * - async/await expressions
+ * - Generator functions (fn*)
+ * - yield/yield* expressions
+ * - Await detection in IR trees
+ */
+
+import * as IR from "../../type/hql_ir.ts";
+import type { HQLNode, ListNode, SymbolNode } from "../../type/hql_ast.ts";
+import {
+  perform,
+  TransformError,
+  ValidationError,
+} from "../../../common/error.ts";
+import { validateTransformed } from "../../utils/validation-helpers.ts";
+import * as functionModule from "../../syntax/function.ts";
+import { processFunctionBody } from "../../syntax/function.ts";
+import * as jsInteropModule from "../../syntax/js-interop.ts";
+
+// Type for transform node function passed from main module
+export type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
+
+// Type for metadata returned from extractMeta
+type MetaData = {
+  line?: number;
+  column?: number;
+  filePath?: string;
+  [key: string]: unknown;
+};
+
+// Import helper functions that will be provided by the main module
+// These are set via initHelpers to avoid circular dependency issues
+let _setAsyncFlag: (node: IR.IRNode | null) => void;
+let _extractMeta: (node: HQLNode | null | undefined) => MetaData | undefined;
+let _copyPosition: (source: HQLNode, target: IR.IRNode) => void;
+
+/**
+ * Initialize helper functions from the main module.
+ * Must be called before using any transform functions.
+ */
+export function initHelpers(helpers: {
+  setAsyncFlag: (node: IR.IRNode | null) => void;
+  extractMeta: (node: HQLNode | null | undefined) => MetaData | undefined;
+  copyPosition: (source: HQLNode, target: IR.IRNode) => void;
+}): void {
+  _setAsyncFlag = helpers.setAsyncFlag;
+  _extractMeta = helpers.extractMeta;
+  _copyPosition = helpers.copyPosition;
+}
+
+/**
+ * Transform async function wrapper: (async fn ...) or (async fn* ...)
+ */
+export function transformAsync(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRNode | null {
+  return perform(
+    () => {
+      if (list.elements.length < 2) {
+        throw new ValidationError(
+          "async requires a function form",
+          "async",
+          "(async fn ...) or (async fn* ...)",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      const target = list.elements[1];
+      const targetName = target.type === "symbol" ? (target as SymbolNode).name : "";
+      const isGenerator = targetName === "fn*";
+      const isRegularFn = targetName === "fn";
+
+      if (!isGenerator && !isRegularFn) {
+        throw new ValidationError(
+          "async currently supports 'fn' and 'fn*' definitions",
+          "async",
+          "fn or fn*",
+          target.type === "symbol" ? targetName : target.type,
+        );
+      }
+
+      const fnList: ListNode = {
+        type: "list",
+        elements: list.elements.slice(1),
+      };
+
+      let transformed: IR.IRNode;
+      if (isGenerator) {
+        // Async generator: (async fn* name [params] body...)
+        transformed = transformGeneratorFn(fnList, currentDir, transformNode, processFunctionBody);
+      } else {
+        // Regular async function: (async fn name [params] body...)
+        transformed = functionModule.transformFn(
+          fnList,
+          currentDir,
+          transformNode,
+          processFunctionBody,
+        );
+      }
+
+      _setAsyncFlag(transformed);
+
+      return transformed;
+    },
+    "transformAsync",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform await expression: (await expr)
+ */
+export function transformAwait(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRNode {
+  return perform(
+    () => {
+      if (list.elements.length !== 2) {
+        throw new ValidationError(
+          "await requires exactly one argument",
+          "await",
+          "1 argument",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      const argument = validateTransformed(
+        transformNode(list.elements[1], currentDir),
+        "await",
+        "await operand",
+      );
+
+      return {
+        type: IR.IRNodeType.AwaitExpression,
+        argument,
+      } as IR.IRAwaitExpression;
+    },
+    "transformAwait",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform a generator function: (fn* name [params] body...) or (fn* [params] body...)
+ */
+export function transformGeneratorFn(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+  processFnBody: (body: HQLNode[], dir: string) => IR.IRNode[],
+): IR.IRNode {
+  return perform(
+    () => {
+      // Transform as regular fn, then set generator flag
+      const transformed = functionModule.transformFn(
+        list,
+        currentDir,
+        transformNode,
+        processFnBody,
+      );
+
+      // Set generator flag on the function based on its type
+      if (transformed.type === IR.IRNodeType.FunctionExpression) {
+        (transformed as IR.IRFunctionExpression).generator = true;
+      } else if (transformed.type === IR.IRNodeType.FunctionDeclaration) {
+        (transformed as IR.IRFunctionDeclaration).generator = true;
+      } else if (transformed.type === IR.IRNodeType.FnFunctionDeclaration) {
+        // Named fn function
+        (transformed as IR.IRFnFunctionDeclaration).generator = true;
+      } else if (transformed.type === IR.IRNodeType.VariableDeclaration) {
+        // Named function becomes variable declaration with function expression
+        const decl = transformed as IR.IRVariableDeclaration;
+        if (decl.declarations[0]?.init?.type === IR.IRNodeType.FunctionExpression) {
+          (decl.declarations[0].init as IR.IRFunctionExpression).generator = true;
+        }
+      }
+
+      return transformed;
+    },
+    "transformGeneratorFn",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform yield expression: (yield value)
+ */
+export function transformYield(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRNode {
+  return perform(
+    () => {
+      // yield can have 0 or 1 argument
+      if (list.elements.length > 2) {
+        throw new ValidationError(
+          "yield takes at most one argument",
+          "yield",
+          "0 or 1 argument",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      let argument: IR.IRNode | null = null;
+      if (list.elements.length === 2) {
+        argument = validateTransformed(
+          transformNode(list.elements[1], currentDir),
+          "yield",
+          "yield operand",
+        );
+      }
+
+      const node: IR.IRYieldExpression = {
+        type: IR.IRNodeType.YieldExpression,
+        argument,
+        delegate: false,
+      };
+      _copyPosition(list, node);
+      return node;
+    },
+    "transformYield",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform yield* expression: (yield* iterator)
+ */
+export function transformYieldDelegate(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRNode {
+  return perform(
+    () => {
+      if (list.elements.length !== 2) {
+        throw new ValidationError(
+          "yield* requires exactly one argument",
+          "yield*",
+          "1 argument",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      const argument = validateTransformed(
+        transformNode(list.elements[1], currentDir),
+        "yield*",
+        "yield* operand",
+      );
+
+      const node: IR.IRYieldExpression = {
+        type: IR.IRNodeType.YieldExpression,
+        argument,
+        delegate: true,
+      };
+      _copyPosition(list, node);
+      return node;
+    },
+    "transformYieldDelegate",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Transform js-method access: (js-method obj methodName)
+ */
+export function transformJsMethod(
+  list: ListNode,
+  currentDir: string,
+  transformNodeFunc: TransformNodeFn,
+): IR.IRNode | null {
+  return perform(
+    () => {
+      if (list.elements.length !== 3) {
+        throw new ValidationError(
+          `js-method requires exactly 2 arguments, got ${
+            list.elements.length - 1
+          }`,
+          "js-method",
+          "2 arguments",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      const object = validateTransformed(
+        transformNodeFunc(list.elements[1], currentDir),
+        "js-method",
+        "Object",
+      );
+
+      const methodName = jsInteropModule.extractSymbolOrLiteralName(
+        list.elements[2],
+        "js-method",
+        "Method name must be a string literal or symbol",
+      );
+
+      // Create a JsMethodAccess node with position for source map accuracy
+      const meta = _extractMeta(list);
+      return {
+        type: IR.IRNodeType.JsMethodAccess,
+        object,
+        method: methodName,
+        position: meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined,
+      } as IR.IRJsMethodAccess;
+    },
+    "transformJsMethod",
+    TransformError,
+    [list],
+  );
+}
+
+/**
+ * Check if an IR node or its descendants contain an await expression
+ */
+export function containsAwait(node: IR.IRNode | null): boolean {
+  if (!node) return false;
+
+  // Direct match
+  if (node.type === IR.IRNodeType.AwaitExpression) {
+    return true;
+  }
+
+  // Recursively check common node types
+  switch (node.type) {
+    case IR.IRNodeType.BlockStatement:
+      return (node as IR.IRBlockStatement).body.some(containsAwait);
+
+    case IR.IRNodeType.ExpressionStatement:
+      return containsAwait((node as IR.IRExpressionStatement).expression);
+
+    case IR.IRNodeType.ReturnStatement:
+      return containsAwait((node as IR.IRReturnStatement).argument || null);
+
+    case IR.IRNodeType.CallExpression: {
+      const call = node as IR.IRCallExpression;
+      return containsAwait(call.callee as IR.IRNode) ||
+        call.arguments.some(containsAwait);
+    }
+
+    case IR.IRNodeType.BinaryExpression: {
+      const bin = node as IR.IRBinaryExpression;
+      return containsAwait(bin.left) || containsAwait(bin.right);
+    }
+
+    case IR.IRNodeType.UnaryExpression:
+      return containsAwait((node as IR.IRUnaryExpression).argument);
+
+    case IR.IRNodeType.ConditionalExpression: {
+      const cond = node as IR.IRConditionalExpression;
+      return containsAwait(cond.test) ||
+        containsAwait(cond.consequent) ||
+        containsAwait(cond.alternate);
+    }
+
+    case IR.IRNodeType.ArrayExpression:
+      return (node as IR.IRArrayExpression).elements.some(containsAwait);
+
+    case IR.IRNodeType.ObjectExpression:
+      return (node as IR.IRObjectExpression).properties.some((prop) => {
+        if (prop.type === IR.IRNodeType.ObjectProperty) {
+          return containsAwait((prop as IR.IRObjectProperty).value);
+        }
+        return false;
+      });
+
+    case IR.IRNodeType.MemberExpression: {
+      const member = node as IR.IRMemberExpression;
+      return containsAwait(member.object) || containsAwait(member.property);
+    }
+
+    case IR.IRNodeType.TryStatement: {
+      const tryStmt = node as IR.IRTryStatement;
+      return containsAwait(tryStmt.block) ||
+        (tryStmt.handler ? containsAwait(tryStmt.handler.body) : false) ||
+        (tryStmt.finalizer ? containsAwait(tryStmt.finalizer) : false);
+    }
+
+    case IR.IRNodeType.CatchClause:
+      return containsAwait((node as IR.IRCatchClause).body);
+
+    case IR.IRNodeType.IfStatement: {
+      const ifStmt = node as IR.IRIfStatement;
+      return containsAwait(ifStmt.test) ||
+        containsAwait(ifStmt.consequent) ||
+        (ifStmt.alternate ? containsAwait(ifStmt.alternate) : false);
+    }
+
+    case IR.IRNodeType.VariableDeclaration:
+      return (node as IR.IRVariableDeclaration).declarations.some(
+        containsAwait,
+      );
+
+    case IR.IRNodeType.VariableDeclarator:
+      return containsAwait((node as IR.IRVariableDeclarator).init || null);
+
+    default:
+      return false;
+  }
+}

@@ -55,6 +55,7 @@ import {
 } from "./common/hql-cache-tracker.ts";
 import { transpile, type TranspileOptions } from "./transpiler/index.ts";
 import { fromFileUrl, join } from "./platform/platform.ts";
+import { preloadSourceMap } from "./transpiler/pipeline/source-map-support.ts";
 
 /**
  * Get the path to the stdlib index.js file.
@@ -456,6 +457,10 @@ async function processHqlEntryFile(
     const filename = tsOutputPath.split('/').pop() || 'output.ts';
     const jsCodeWithMap = `${jsCode}\n//# sourceMappingURL=${filename}.map`;
     await writeTextFile(tsOutputPath, jsCodeWithMap);
+
+    // Preload source map into cache for error handling (non-blocking)
+    // This ensures source maps are available during Error.prepareStackTrace
+    await preloadSourceMap(tsOutputPath);
   }
 
   return { tsOutputPath, sourceMap };
@@ -588,8 +593,9 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
             if (mapped) {
               return { path: mapped, namespace: "file" };
             }
-          } catch {
-            // fall through to normal resolution
+          } catch (error) {
+            // Log and fall through to normal resolution
+            logger.debug(`Cache lookup failed for ${args.path}, falling back to normal resolution: ${getErrorMessage(error)}`);
           }
         }
 

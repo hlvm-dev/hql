@@ -62,6 +62,9 @@ import * as jsInteropModule from "../syntax/js-interop.ts";
 import * as loopRecurModule from "../syntax/loop-recur.ts";
 import * as primitiveModule from "../syntax/primitive.ts";
 import * as quoteModule from "../syntax/quote.ts";
+import * as asyncGeneratorsModule from "./transform/async-generators.ts";
+import * as tryCatchModule from "./transform/try-catch.ts";
+import * as literalsModule from "./transform/literals.ts";
 import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
 import { getSymbolTable, type CompilerContext } from "../compiler-context.ts";
 
@@ -340,6 +343,19 @@ export function transformToIR(
  * Initialize the transform factory with handlers for each operation
  */
 function initializeTransformFactory(): void {
+  // Initialize the async-generators module with helper functions
+  asyncGeneratorsModule.initHelpers({
+    setAsyncFlag,
+    extractMeta,
+    copyPosition,
+  });
+
+  // Initialize the try-catch module with helper functions
+  tryCatchModule.initHelpers({
+    extractMeta,
+    isExpressionResult,
+  });
+
   perform(
     () => {
       transformFactory.set(
@@ -401,16 +417,16 @@ function initializeTransformFactory(): void {
       transformFactory.set(
         "fn*",
         (list, currentDir) =>
-          transformGeneratorFn(list, currentDir, transformNode, processFunctionBody),
+          asyncGeneratorsModule.transformGeneratorFn(list, currentDir, transformNode, processFunctionBody),
       );
       // Yield expression: (yield value) or (yield* iterator)
       transformFactory.set(
         "yield",
-        (list, currentDir) => transformYield(list, currentDir, transformNode),
+        (list, currentDir) => asyncGeneratorsModule.transformYield(list, currentDir, transformNode),
       );
       transformFactory.set(
         "yield*",
-        (list, currentDir) => transformYieldDelegate(list, currentDir, transformNode),
+        (list, currentDir) => asyncGeneratorsModule.transformYieldDelegate(list, currentDir, transformNode),
       );
       transformFactory.set(
         "=>",
@@ -424,13 +440,13 @@ function initializeTransformFactory(): void {
       );
       transformFactory.set(
         "async",
-        (list, currentDir) => transformAsync(list, currentDir, transformNode),
+        (list, currentDir) => asyncGeneratorsModule.transformAsync(list, currentDir, transformNode),
       );
       // Note: `range` is no longer a special form - it's a stdlib function
       // available globally via STDLIB_PUBLIC_API injection in runtime-helpers.ts
       transformFactory.set(
         "await",
-        (list, currentDir) => transformAwait(list, currentDir, transformNode),
+        (list, currentDir) => asyncGeneratorsModule.transformAwait(list, currentDir, transformNode),
       );
       transformFactory.set(
         "const",
@@ -466,7 +482,7 @@ function initializeTransformFactory(): void {
       transformFactory.set(
         "template-literal",
         (list, currentDir) =>
-          transformTemplateLiteral(list, currentDir),
+          literalsModule.transformTemplateLiteral(list, currentDir, transformNode),
       );
       transformFactory.set(
         "do",
@@ -597,7 +613,7 @@ function initializeTransformFactory(): void {
       );
       transformFactory.set(
         "try",
-        (list, currentDir) => transformTry(list, currentDir, transformNode),
+        (list, currentDir) => tryCatchModule.transformTry(list, currentDir, transformNode),
       );
       transformFactory.set(
         "loop",
@@ -1781,7 +1797,7 @@ function initializeTransformFactory(): void {
       transformFactory.set(
         "js-method",
         (list: ListNode, currentDir: string) => {
-          return transformJsMethod(list, currentDir, transformNode);
+          return asyncGeneratorsModule.transformJsMethod(list, currentDir, transformNode);
         },
       );
     },
@@ -1790,605 +1806,18 @@ function initializeTransformFactory(): void {
   );
 }
 
-// Correct version of transformJsMethod with proper handling of transformNode
-export function transformJsMethod(
-  list: ListNode,
-  currentDir: string,
-  transformNodeFunc: TransformNodeFn,
-): IR.IRNode | null {
-  return perform(
-    () => {
-      if (list.elements.length !== 3) {
-        throw new ValidationError(
-          `js-method requires exactly 2 arguments, got ${
-            list.elements.length - 1
-          }`,
-          "js-method",
-          "2 arguments",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+// Re-export transformJsMethod from the async-generators module for backwards compatibility
+export const transformJsMethod = asyncGeneratorsModule.transformJsMethod;
 
-      const object = validateTransformed(
-        transformNodeFunc(list.elements[1], currentDir),
-        "js-method",
-        "Object",
-      );
+// Re-export containsAwait for any external usage
+export const containsAwait = asyncGeneratorsModule.containsAwait;
 
-      const methodName = jsInteropModule.extractSymbolOrLiteralName(
-        list.elements[2],
-        "js-method",
-        "Method name must be a string literal or symbol",
-      );
+// Re-export buildBlockFromExpressions for any external usage
+export const buildBlockFromExpressions = tryCatchModule.buildBlockFromExpressions;
 
-      // Create a JsMethodAccess node with position for source map accuracy
-      const meta = extractMeta(list);
-      return {
-        type: IR.IRNodeType.JsMethodAccess,
-        object,
-        method: methodName,
-        position: meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined,
-      } as IR.IRJsMethodAccess;
-    },
-    "transformJsMethod",
-    TransformError,
-    [list],
-  );
-}
-
-function transformAsync(
-  list: ListNode,
-  currentDir: string,
-  transformNode: TransformNodeFn,
-): IR.IRNode | null {
-  return perform(
-    () => {
-      if (list.elements.length < 2) {
-        throw new ValidationError(
-          "async requires a function form",
-          "async",
-          "(async fn ...) or (async fn* ...)",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
-
-      const target = list.elements[1];
-      const targetName = target.type === "symbol" ? (target as SymbolNode).name : "";
-      const isGenerator = targetName === "fn*";
-      const isRegularFn = targetName === "fn";
-
-      if (!isGenerator && !isRegularFn) {
-        throw new ValidationError(
-          "async currently supports 'fn' and 'fn*' definitions",
-          "async",
-          "fn or fn*",
-          target.type === "symbol" ? targetName : target.type,
-        );
-      }
-
-      const fnList: ListNode = {
-        type: "list",
-        elements: list.elements.slice(1),
-      };
-
-      let transformed: IR.IRNode;
-      if (isGenerator) {
-        // Async generator: (async fn* name [params] body...)
-        transformed = transformGeneratorFn(fnList, currentDir, transformNode, processFunctionBody);
-      } else {
-        // Regular async function: (async fn name [params] body...)
-        transformed = functionModule.transformFn(
-          fnList,
-          currentDir,
-          transformNode,
-          processFunctionBody,
-        );
-      }
-
-      setAsyncFlag(transformed);
-
-      return transformed;
-    },
-    "transformAsync",
-    TransformError,
-    [list],
-  );
-}
-
-function transformAwait(
-  list: ListNode,
-  currentDir: string,
-  transformNode: TransformNodeFn,
-): IR.IRNode {
-  return perform(
-    () => {
-      if (list.elements.length !== 2) {
-        throw new ValidationError(
-          "await requires exactly one argument",
-          "await",
-          "1 argument",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
-
-      const argument = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "await",
-        "await operand",
-      );
-
-      return {
-        type: IR.IRNodeType.AwaitExpression,
-        argument,
-      } as IR.IRAwaitExpression;
-    },
-    "transformAwait",
-    TransformError,
-    [list],
-  );
-}
-
-/**
- * Transform a generator function: (fn* name [params] body...) or (fn* [params] body...)
- */
-function transformGeneratorFn(
-  list: ListNode,
-  currentDir: string,
-  transformNode: TransformNodeFn,
-  processFunctionBody: (body: HQLNode[], dir: string) => IR.IRNode[],
-): IR.IRNode {
-  return perform(
-    () => {
-      // Transform as regular fn, then set generator flag
-      const transformed = functionModule.transformFn(
-        list,
-        currentDir,
-        transformNode,
-        processFunctionBody,
-      );
-
-      // Set generator flag on the function based on its type
-      if (transformed.type === IR.IRNodeType.FunctionExpression) {
-        (transformed as IR.IRFunctionExpression).generator = true;
-      } else if (transformed.type === IR.IRNodeType.FunctionDeclaration) {
-        (transformed as IR.IRFunctionDeclaration).generator = true;
-      } else if (transformed.type === IR.IRNodeType.FnFunctionDeclaration) {
-        // Named fn function
-        (transformed as IR.IRFnFunctionDeclaration).generator = true;
-      } else if (transformed.type === IR.IRNodeType.VariableDeclaration) {
-        // Named function becomes variable declaration with function expression
-        const decl = transformed as IR.IRVariableDeclaration;
-        if (decl.declarations[0]?.init?.type === IR.IRNodeType.FunctionExpression) {
-          (decl.declarations[0].init as IR.IRFunctionExpression).generator = true;
-        }
-      }
-
-      return transformed;
-    },
-    "transformGeneratorFn",
-    TransformError,
-    [list],
-  );
-}
-
-/**
- * Transform yield expression: (yield value)
- */
-function transformYield(
-  list: ListNode,
-  currentDir: string,
-  transformNode: TransformNodeFn,
-): IR.IRNode {
-  return perform(
-    () => {
-      // yield can have 0 or 1 argument
-      if (list.elements.length > 2) {
-        throw new ValidationError(
-          "yield takes at most one argument",
-          "yield",
-          "0 or 1 argument",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
-
-      let argument: IR.IRNode | null = null;
-      if (list.elements.length === 2) {
-        argument = validateTransformed(
-          transformNode(list.elements[1], currentDir),
-          "yield",
-          "yield operand",
-        );
-      }
-
-      const node: IR.IRYieldExpression = {
-        type: IR.IRNodeType.YieldExpression,
-        argument,
-        delegate: false,
-      };
-      copyPosition(list, node);
-      return node;
-    },
-    "transformYield",
-    TransformError,
-    [list],
-  );
-}
-
-/**
- * Transform yield* expression: (yield* iterator)
- */
-function transformYieldDelegate(
-  list: ListNode,
-  currentDir: string,
-  transformNode: TransformNodeFn,
-): IR.IRNode {
-  return perform(
-    () => {
-      if (list.elements.length !== 2) {
-        throw new ValidationError(
-          "yield* requires exactly one argument",
-          "yield*",
-          "1 argument",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
-
-      const argument = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "yield*",
-        "yield* operand",
-      );
-
-      const node: IR.IRYieldExpression = {
-        type: IR.IRNodeType.YieldExpression,
-        argument,
-        delegate: true,
-      };
-      copyPosition(list, node);
-      return node;
-    },
-    "transformYieldDelegate",
-    TransformError,
-    [list],
-  );
-}
-
-/**
- * Check if an IR node or its descendants contain an await expression
- */
-function containsAwait(node: IR.IRNode | null): boolean {
-  if (!node) return false;
-
-  // Direct match
-  if (node.type === IR.IRNodeType.AwaitExpression) {
-    return true;
-  }
-
-  // Recursively check common node types
-  switch (node.type) {
-    case IR.IRNodeType.BlockStatement:
-      return (node as IR.IRBlockStatement).body.some(containsAwait);
-
-    case IR.IRNodeType.ExpressionStatement:
-      return containsAwait((node as IR.IRExpressionStatement).expression);
-
-    case IR.IRNodeType.ReturnStatement:
-      return containsAwait((node as IR.IRReturnStatement).argument || null);
-
-    case IR.IRNodeType.CallExpression: {
-      const call = node as IR.IRCallExpression;
-      return containsAwait(call.callee as IR.IRNode) ||
-        call.arguments.some(containsAwait);
-    }
-
-    case IR.IRNodeType.BinaryExpression: {
-      const bin = node as IR.IRBinaryExpression;
-      return containsAwait(bin.left) || containsAwait(bin.right);
-    }
-
-    case IR.IRNodeType.UnaryExpression:
-      return containsAwait((node as IR.IRUnaryExpression).argument);
-
-    case IR.IRNodeType.ConditionalExpression: {
-      const cond = node as IR.IRConditionalExpression;
-      return containsAwait(cond.test) ||
-        containsAwait(cond.consequent) ||
-        containsAwait(cond.alternate);
-    }
-
-    case IR.IRNodeType.ArrayExpression:
-      return (node as IR.IRArrayExpression).elements.some(containsAwait);
-
-    case IR.IRNodeType.ObjectExpression:
-      return (node as IR.IRObjectExpression).properties.some((prop) => {
-        if (prop.type === IR.IRNodeType.ObjectProperty) {
-          return containsAwait((prop as IR.IRObjectProperty).value);
-        }
-        return false;
-      });
-
-    case IR.IRNodeType.MemberExpression: {
-      const member = node as IR.IRMemberExpression;
-      return containsAwait(member.object) || containsAwait(member.property);
-    }
-
-    case IR.IRNodeType.TryStatement: {
-      const tryStmt = node as IR.IRTryStatement;
-      return containsAwait(tryStmt.block) ||
-        (tryStmt.handler ? containsAwait(tryStmt.handler.body) : false) ||
-        (tryStmt.finalizer ? containsAwait(tryStmt.finalizer) : false);
-    }
-
-    case IR.IRNodeType.CatchClause:
-      return containsAwait((node as IR.IRCatchClause).body);
-
-    case IR.IRNodeType.IfStatement: {
-      const ifStmt = node as IR.IRIfStatement;
-      return containsAwait(ifStmt.test) ||
-        containsAwait(ifStmt.consequent) ||
-        (ifStmt.alternate ? containsAwait(ifStmt.alternate) : false);
-    }
-
-    case IR.IRNodeType.VariableDeclaration:
-      return (node as IR.IRVariableDeclaration).declarations.some(
-        containsAwait,
-      );
-
-    case IR.IRNodeType.VariableDeclarator:
-      return containsAwait((node as IR.IRVariableDeclarator).init || null);
-
-    default:
-      return false;
-  }
-}
-
-function transformTry(
-  list: ListNode,
-  currentDir: string,
-  transformNode: TransformNodeFn,
-): IR.IRNode {
-  return perform(
-    () => {
-      if (list.elements.length < 2) {
-        throw new ValidationError(
-          "try requires a body",
-          "try",
-          "body expressions",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
-
-      const clauses = list.elements.slice(1);
-      const bodyForms: HQLNode[] = [];
-      let index = 0;
-
-      const isClause = (expr: HQLNode, name: string): boolean =>
-        expr.type === "list" && expr.elements.length > 0 &&
-        expr.elements[0].type === "symbol" &&
-        ((expr.elements[0] as SymbolNode).name === name);
-
-      while (index < clauses.length) {
-        const current = clauses[index];
-        if (isClause(current, "catch") || isClause(current, "finally")) {
-          break;
-        }
-        bodyForms.push(current);
-        index++;
-      }
-
-      if (bodyForms.length === 0) {
-        throw new ValidationError(
-          "try requires at least one body expression",
-          "try",
-          "body expression",
-          "none",
-        );
-      }
-
-      const tryBlock = buildBlockFromExpressions(
-        bodyForms,
-        currentDir,
-        transformNode,
-        true,
-      );
-
-      let handler: IR.IRCatchClause | null = null;
-      let finalizer: IR.IRBlockStatement | null = null;
-
-      while (index < clauses.length) {
-        const clause = clauses[index];
-        if (
-          clause.type !== "list" || clause.elements.length === 0 ||
-          clause.elements[0].type !== "symbol"
-        ) {
-          throw new ValidationError(
-            "Invalid clause in try",
-            "try clause",
-            "catch/finally",
-            JSON.stringify(clause),
-          );
-        }
-
-        const clauseName = (clause.elements[0] as SymbolNode).name;
-        if (clauseName === "catch") {
-          if (handler) {
-            throw new ValidationError(
-              "Multiple catch clauses are not supported",
-              "try",
-              "single catch",
-              "multiple",
-            );
-          }
-
-          let bodyStart = 1;
-          let param: IR.IRIdentifier | null = null;
-          if (
-            clause.elements.length > 1 && clause.elements[1].type === "symbol"
-          ) {
-            const paramName = sanitizeIdentifier(
-              (clause.elements[1] as SymbolNode).name,
-            );
-            param = { type: IR.IRNodeType.Identifier, name: paramName };
-            bodyStart = 2;
-          } else if (
-            clause.elements.length > 1 && clause.elements[1].type === "literal"
-          ) {
-            const paramName = sanitizeIdentifier(
-              String((clause.elements[1] as LiteralNode).value),
-            );
-            param = { type: IR.IRNodeType.Identifier, name: paramName };
-            bodyStart = 2;
-          }
-
-          const catchBodyForms = clause.elements.slice(bodyStart);
-          if (catchBodyForms.length === 0) {
-            throw new ValidationError(
-              "catch requires a body",
-              "catch",
-              "body expressions",
-              "none",
-            );
-          }
-
-          // Extract position from catch clause
-          const catchMeta = extractMeta(clause);
-          const catchPosition = catchMeta ? { line: catchMeta.line, column: catchMeta.column, filePath: catchMeta.filePath } : undefined;
-
-          handler = {
-            type: IR.IRNodeType.CatchClause,
-            param,
-            body: buildBlockFromExpressions(
-              catchBodyForms,
-              currentDir,
-              transformNode,
-              true,
-            ),
-            position: catchPosition, // Add position
-          };
-        } else if (clauseName === "finally") {
-          if (finalizer) {
-            throw new ValidationError(
-              "Multiple finally clauses are not supported",
-              "try",
-              "single finally",
-              "multiple",
-            );
-          }
-
-          const finallyForms = clause.elements.slice(1);
-          if (finallyForms.length === 0) {
-            throw new ValidationError(
-              "finally requires a body",
-              "finally",
-              "body expressions",
-              "none",
-            );
-          }
-
-          finalizer = buildBlockFromExpressions(
-            finallyForms,
-            currentDir,
-            transformNode,
-            false,
-          );
-        } else {
-          throw new ValidationError(
-            `Unknown clause '${clauseName}' in try statement`,
-            "try",
-            "catch/finally",
-            clauseName,
-          );
-        }
-
-        index++;
-      }
-
-      // Extract position from the 'try' list
-      const listMeta = extractMeta(list);
-      const listPosition = listMeta ? { line: listMeta.line, column: listMeta.column, filePath: listMeta.filePath } : undefined;
-
-      const tryStatement: IR.IRTryStatement = {
-        type: IR.IRNodeType.TryStatement,
-        block: tryBlock,
-        handler,
-        finalizer,
-        position: listPosition, // Add position
-      };
-
-      // BUGFIX: Detect if try/catch/finally contain await expressions
-      // If they do, the wrapper IIFE must be async
-      const needsAsync = containsAwait(tryBlock) ||
-        (handler ? containsAwait(handler.body) : false) ||
-        (finalizer ? containsAwait(finalizer) : false);
-
-      // The IIFE needs to contain just the try statement
-      // ESTree/escodegen should handle this properly without a return
-      const functionBody: IR.IRBlockStatement = {
-        type: IR.IRNodeType.BlockStatement,
-        body: [tryStatement],
-        position: listPosition, // Add position
-      };
-
-      const functionExpression: IR.IRFunctionExpression = {
-        type: IR.IRNodeType.FunctionExpression,
-        id: null,
-        params: [],
-        body: functionBody,
-        async: needsAsync, // BUGFIX: Mark as async if contains await
-        position: listPosition, // Add position
-      };
-
-      return {
-        type: IR.IRNodeType.CallExpression,
-        callee: functionExpression,
-        arguments: [],
-        position: listPosition, // Add position
-      } as IR.IRCallExpression;
-    },
-    "transformTry",
-    TransformError,
-    [list],
-  );
-}
-
-function buildBlockFromExpressions(
-  expressions: HQLNode[],
-  currentDir: string,
-  transformNode: TransformNodeFn,
-  ensureReturn = false,
-): IR.IRBlockStatement {
-  const statements: IR.IRNode[] = [];
-  const lastIndex = expressions.length - 1;
-
-  expressions.forEach((expr, index) => {
-    const transformed = transformNode(expr, currentDir);
-    if (!transformed) return;
-
-    const isLast = index === lastIndex;
-
-    if (ensureReturn && isLast && isExpressionResult(transformed)) {
-      statements.push({
-        type: IR.IRNodeType.ReturnStatement,
-        argument: transformed,
-      } as IR.IRReturnStatement);
-      return;
-    }
-
-    if (isExpressionResult(transformed)) {
-      statements.push({
-        type: IR.IRNodeType.ExpressionStatement,
-        expression: transformed,
-      } as IR.IRExpressionStatement);
-    } else {
-      statements.push(transformed);
-    }
-  });
-
-  return {
-    type: IR.IRNodeType.BlockStatement,
-    body: statements,
-  };
-}
+// Re-export literal transforms for any external usage
+export const transformLiteral = literalsModule.transformLiteral;
+export const transformTemplateLiteral = literalsModule.transformTemplateLiteral;
 
 export function isExpressionResult(node: IR.IRNode): boolean {
   switch (node.type) {
@@ -2442,7 +1871,7 @@ export function transformNode(
       let result: IR.IRNode | null;
       switch (node.type) {
         case "literal":
-          result = transformLiteral(node as LiteralNode);
+          result = literalsModule.transformLiteral(node as LiteralNode);
           break;
         case "symbol":
           result = transformSymbol(node as SymbolNode);
@@ -2870,100 +2299,6 @@ function createCallExpression(
     callee: callee,
     arguments: args,
   } as IR.IRCallExpression;
-}
-
-/**
- * Transform a literal node to its IR representation.
- */
-function transformLiteral(lit: LiteralNode): IR.IRNode {
-  return perform(
-    () => {
-      const value = lit.value;
-
-      if (value === null) {
-        return { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
-      }
-
-      if (typeof value === "boolean") {
-        return {
-          type: IR.IRNodeType.BooleanLiteral,
-          value,
-        } as IR.IRBooleanLiteral;
-      }
-
-      if (typeof value === "number") {
-        return {
-          type: IR.IRNodeType.NumericLiteral,
-          value,
-        } as IR.IRNumericLiteral;
-      }
-
-      return {
-        type: IR.IRNodeType.StringLiteral,
-        value: String(value),
-      } as IR.IRStringLiteral;
-    },
-    "transformLiteral",
-    TransformError,
-    [lit],
-  );
-}
-
-/**
- * Transform a template literal (template-literal "str1" expr1 "str2" ...)
- * Parser produces: (template-literal <string-parts-and-expressions>)
- */
-function transformTemplateLiteral(
-  list: ListNode,
-  currentDir: string,
-): IR.IRNode {
-  return perform(
-    () => {
-      // list.elements[0] is the "template-literal" symbol
-      // Rest are alternating string literals and expressions
-      const parts = list.elements.slice(1);
-
-      if (parts.length === 0) {
-        // Empty template literal
-        return { type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral;
-      }
-
-      const quasis: IR.IRNode[] = [];
-      const expressions: IR.IRNode[] = [];
-
-      for (let i = 0; i < parts.length; i++) {
-        const part = parts[i];
-        const transformed = transformNode(part, currentDir);
-        if (!transformed) continue;
-
-        // Strings go to quasis, everything else is an expression
-        if (part.type === "literal" && typeof (part as LiteralNode).value === "string") {
-          quasis.push(transformed);
-        } else {
-          // Before adding an expression, ensure we have a quasi
-          if (quasis.length === expressions.length) {
-            // Add empty string quasi
-            quasis.push({ type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral);
-          }
-          expressions.push(transformed);
-        }
-      }
-
-      // Ensure we have one more quasi than expressions (JS template literal requirement)
-      if (quasis.length === expressions.length) {
-        quasis.push({ type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral);
-      }
-
-      return {
-        type: IR.IRNodeType.TemplateLiteral,
-        quasis,
-        expressions,
-      } as IR.IRTemplateLiteral;
-    },
-    "transformTemplateLiteral",
-    TransformError,
-    [list],
-  );
 }
 
 // FIRST_CLASS_OPERATORS imported from ../keyword/primitives.ts (single source of truth)

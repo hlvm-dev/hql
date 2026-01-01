@@ -58,11 +58,29 @@ import {
 import { processVectorElements } from "./transpiler/syntax/data-structure.ts";
 import {
   readTextFile as platformReadTextFile,
-  readTextFileSync as platformReadTextFileSync,
 } from "./platform/platform.ts";
 
 // Cache file contents to avoid re-reading the same file for every import
 const fileLineCache = new Map<string, string[] | null>();
+
+/**
+ * Preload file lines into cache asynchronously.
+ * Must be called before getCachedFileLines to avoid sync I/O.
+ */
+async function preloadFileLines(filePath: string): Promise<void> {
+  if (fileLineCache.has(filePath)) return;
+
+  try {
+    const fileContent = await platformReadTextFile(filePath);
+    const lines = fileContent.split("\n");
+    fileLineCache.set(filePath, lines);
+    logger.debug(`Preloaded file lines for: ${filePath}`);
+  } catch (error) {
+    const message = getErrorMessage(error);
+    logger.debug(`Could not preload file lines for ${filePath}: ${message}`);
+    fileLineCache.set(filePath, null);
+  }
+}
 
 // Generate a consistent internal module name from a path
 function generateModuleId(modulePath: string): string {
@@ -125,6 +143,8 @@ export async function processImports(
       env.setCurrentFile(options.currentFile);
       logger.debug(`Processing imports in file: ${options.currentFile}`);
       inProgressFiles.add(options.currentFile);
+      // Preload file lines for error reporting (avoids sync I/O later)
+      await preloadFileLines(options.currentFile);
     }
 
     // Initialize temp directory and analyze imports
@@ -390,26 +410,12 @@ async function processImportBatch(
 }
 
 /**
- * Fetch cached lines for a file, reading from disk only once.
+ * Fetch cached lines for a file (cache-only, no sync I/O).
+ * Returns null if file is not in cache - call preloadFileLines() first.
  */
 function getCachedFileLines(filePath?: string): string[] | null {
   if (!filePath) return null;
-  if (fileLineCache.has(filePath)) {
-    return fileLineCache.get(filePath)!;
-  }
-
-  try {
-    const fileContent = platformReadTextFileSync(filePath);
-    const lines = fileContent.split("\n");
-    fileLineCache.set(filePath, lines);
-    return lines;
-  } catch (error) {
-    const message = getErrorMessage(error);
-    logger.debug(`Error caching file lines for ${filePath}: ${message}`);
-    fileLineCache.set(filePath, null);
-  }
-
-  return null;
+  return fileLineCache.get(filePath) ?? null;
 }
 
 /**

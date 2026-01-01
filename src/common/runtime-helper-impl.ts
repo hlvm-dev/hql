@@ -137,6 +137,28 @@ export function __hql_toSequence(value: unknown): unknown[] {
   return [];
 }
 
+/**
+ * Convert a value to an iterable for use with for-of loops.
+ * - Numbers are converted to range(0, n)
+ * - Iterables are returned as-is
+ * - null/undefined returns empty array
+ */
+export function __hql_toIterable(value: unknown): Iterable<unknown> {
+  if (value == null) return [];
+  // If already iterable, return as-is
+  if (
+    typeof (value as Iterable<unknown>)[Symbol.iterator] === "function"
+  ) {
+    return value as Iterable<unknown>;
+  }
+  // Numbers become range(0, n)
+  if (typeof value === "number") {
+    return __hql_range(0, value);
+  }
+  // Fallback to empty
+  return [];
+}
+
 export function __hql_for_each(
   sequence: unknown,
   iteratee: (item: unknown, index: number) => unknown,
@@ -283,6 +305,7 @@ export const runtimeHelperImplementations = {
   __hql_getNumeric,
   __hql_range,
   __hql_toSequence,
+  __hql_toIterable,
   __hql_for_each,
   __hql_hash_map,
   __hql_throw,
