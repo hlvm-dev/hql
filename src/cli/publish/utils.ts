@@ -245,8 +245,6 @@ Edit this file (\`README.md\`) to add your own project description, usage exampl
   }
 }
 
-// Alias for backward compatibility
-export const ensureReadmeExists = ensureReadme;
 
 /**
  * Detect existing metadata files

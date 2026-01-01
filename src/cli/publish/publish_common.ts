@@ -10,7 +10,7 @@ import {
   join,
 } from "../../platform/platform.ts";
 import {
-  ensureReadmeExists,
+  ensureReadme,
   getCachedBuild,
   incrementPatchVersion,
   type MetadataFileType,
@@ -284,7 +284,7 @@ export async function publishPackage(
     const { packageName, packageVersion, config: newConfig } = await publisher
       .determinePackageInfo(distDir, options, config); // Pass config
 
-    await ensureReadmeExists(distDir, newConfig); // Pass newConfig
+    await ensureReadme(distDir, newConfig);
 
     if (options.dryRun) {
       console.log(
