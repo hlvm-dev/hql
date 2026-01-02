@@ -11,6 +11,8 @@ import {
   __hql_toIterable,
   __hql_toSequence,
   __hql_trampoline,
+  __hql_trampoline_gen,
+  GEN_THUNK_SYMBOL,
 } from "./runtime-helper-impl.ts";
 import { __hql_get_op, __hql_lazy_seq, __hql_delay } from "../lib/stdlib/js/core.js";
 import { STDLIB_PUBLIC_API } from "../lib/stdlib/js/stdlib.js";
@@ -55,6 +57,8 @@ type GlobalHqlHelpers = {
   __hql_throw?: typeof __hql_throw;
   __hql_deepFreeze?: typeof __hql_deepFreeze;
   __hql_trampoline?: typeof __hql_trampoline;
+  __hql_trampoline_gen?: typeof __hql_trampoline_gen;
+  __hql_gen_thunk_symbol?: typeof GEN_THUNK_SYMBOL;
   __hql_get_op?: typeof __hql_get_op;
   __hql_lazy_seq?: typeof __hql_lazy_seq;
   __hql_delay?: typeof __hql_delay;
@@ -320,6 +324,16 @@ function ensureHelpers(): void {
   // Trampoline for mutual recursion TCO
   if (typeof globalAny.__hql_trampoline !== "function") {
     globalAny.__hql_trampoline = __hql_trampoline;
+  }
+
+  // Generator trampoline for mutual recursion TCO
+  if (typeof globalAny.__hql_trampoline_gen !== "function") {
+    globalAny.__hql_trampoline_gen = __hql_trampoline_gen;
+  }
+
+  // Generator thunk symbol for tagged thunks
+  if (!globalAny.__hql_gen_thunk_symbol) {
+    globalAny.__hql_gen_thunk_symbol = GEN_THUNK_SYMBOL;
   }
 
   // First-class operators: allows (reduce + 0 nums) by converting operator symbols to functions

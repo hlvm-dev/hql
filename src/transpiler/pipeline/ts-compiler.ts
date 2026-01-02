@@ -143,6 +143,12 @@ interface Iterable<T> { }
 interface Iterator<T> { next(): IteratorResult<T>; }
 interface IteratorResult<T> { done: boolean; value: T; }
 interface IterableIterator<T> extends Iterator<T> { }
+interface Generator<T = unknown, TReturn = unknown, TNext = unknown> extends Iterator<T> {
+  next(...args: [] | [TNext]): IteratorResult<T>;
+  return(value: TReturn): IteratorResult<T>;
+  throw(e: unknown): IteratorResult<T>;
+  [Symbol.iterator](): Generator<T, TReturn, TNext>;
+}
 interface PromiseLike<T> { then<R>(onfulfilled?: (value: T) => R | PromiseLike<R>): PromiseLike<R>; }
 interface Promise<T> { then<R>(fn: (x: T) => R | Promise<R>): Promise<R>; catch(fn: (e: unknown) => unknown): Promise<T>; finally(fn: () => void): Promise<T>; }
 interface Error { name: string; message: string; stack?: string; }
@@ -307,6 +313,10 @@ declare function __hql_throw(value: unknown): never;
 declare function __hql_deepFreeze<T>(obj: T): T;
 
 declare function __hql_trampoline<T>(thunk: () => T): T;
+
+declare function __hql_trampoline_gen<T>(createInitial: () => Generator<T, T, unknown>): Generator<T, T, unknown>;
+
+declare const __hql_gen_thunk_symbol: unique symbol;
 
 declare function __hql_match_obj(val: unknown, pattern: unknown[]): boolean;
 

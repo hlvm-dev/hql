@@ -108,8 +108,10 @@ function validateImportPath(
   }
 
   // For relative paths, verify they don't escape baseDir
+  // Use resolve() instead of normalize() for baseDir to handle "." correctly
+  // resolve(".") returns the absolute cwd, while normalize(".") returns "."
   const normalizedResolved = normalize(resolvedPath);
-  const normalizedBase = normalize(baseDir);
+  const normalizedBase = normalize(resolve(baseDir));
 
   // Ensure base path ends with separator for proper boundary check
   // This prevents "/Users/project-backup" from matching "/Users/project"

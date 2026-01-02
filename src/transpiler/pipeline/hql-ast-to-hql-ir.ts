@@ -1836,6 +1836,7 @@ export function isExpressionResult(node: IR.IRNode): boolean {
     case IR.IRNodeType.BooleanLiteral:
     case IR.IRNodeType.NullLiteral:
     case IR.IRNodeType.AwaitExpression:
+    case IR.IRNodeType.YieldExpression:
     case IR.IRNodeType.AssignmentExpression:
     case IR.IRNodeType.InteropIIFE:
     case IR.IRNodeType.JsMethodAccess:

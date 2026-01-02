@@ -54,6 +54,12 @@ export const GET_OP_HELPER = "__hql_get_op";
 /** Runtime helper for mutual recursion TCO (trampoline) */
 export const TRAMPOLINE_HELPER = "__hql_trampoline";
 
+/** Runtime helper for generator mutual recursion TCO */
+export const TRAMPOLINE_GEN_HELPER = "__hql_trampoline_gen";
+
+/** Symbol for tagged generator thunks */
+export const GEN_THUNK_SYMBOL = Symbol.for("__hql_gen_thunk");
+
 export function __hql_get(
   obj: unknown,
   key: unknown,
@@ -334,6 +340,54 @@ export function __hql_trampoline<T>(thunk: () => T | (() => T)): T {
   return result;
 }
 
+/**
+ * Generator trampoline for mutual recursion TCO.
+ * Handles generators that return tagged thunks instead of using yield*.
+ *
+ * Usage: Mutual recursive generators return { [Symbol.for("__hql_gen_thunk")]: true, next: () => gen() }
+ * instead of using yield* (which would grow the stack).
+ *
+ * @example
+ * const gen_a = function*(n) {
+ *   if (n === 0) return "done";
+ *   return { [Symbol.for("__hql_gen_thunk")]: true, next: () => gen_b(n - 1) };
+ * };
+ * for (const v of __hql_trampoline_gen(() => gen_a(10000))) { ... }
+ */
+export function* __hql_trampoline_gen<T>(
+  createInitial: () => Generator<T, T, unknown>
+): Generator<T, T, unknown> {
+  const GEN_THUNK = Symbol.for("__hql_gen_thunk");
+  let current = createInitial();
+  while (true) {
+    const result = current.next();
+    if (result.done) {
+      // Check if return value is a generator thunk
+      const val = result.value as unknown;
+      if (
+        val !== null &&
+        typeof val === "object" &&
+        (val as Record<symbol, unknown>)[GEN_THUNK]
+      ) {
+        current = ((val as { next: () => Generator<T, T, unknown> }).next)();
+        continue;
+      }
+      return result.value;
+    }
+    // Check if yielded value is a generator thunk
+    const yieldVal = result.value as unknown;
+    if (
+      yieldVal !== null &&
+      typeof yieldVal === "object" &&
+      (yieldVal as Record<symbol, unknown>)[GEN_THUNK]
+    ) {
+      current = ((yieldVal as { next: () => Generator<T, T, unknown> }).next)();
+      continue;
+    }
+    yield result.value;
+  }
+}
+
 export const runtimeHelperImplementations = {
   __hql_get,
   __hql_getNumeric,
@@ -346,6 +400,7 @@ export const runtimeHelperImplementations = {
   __hql_deepFreeze,
   __hql_match_obj,
   __hql_trampoline,
+  __hql_trampoline_gen,
 };
 
 /**

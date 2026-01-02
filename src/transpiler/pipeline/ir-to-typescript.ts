@@ -52,6 +52,8 @@ class TSGenerator {
   // Mutual recursion TCO: track functions in mutual recursion groups
   private mutualRecursionGroups: MutualRecursionGroup[] = [];
   private mutualRecursionFunctions: Set<string> = new Set();
+  // Track generator functions in mutual recursion (need __hql_trampoline_gen)
+  private mutualRecursionGenerators: Set<string> = new Set();
   // Track if we're currently generating inside a mutual recursion function
   private insideMutualRecursionFunction: boolean = false;
 
@@ -687,6 +689,10 @@ class TSGenerator {
     for (const group of mutualGroups) {
       for (const funcName of group.members) {
         this.mutualRecursionFunctions.add(funcName);
+        // Track generator functions for __hql_trampoline_gen usage
+        if (group.hasGenerators) {
+          this.mutualRecursionGenerators.add(funcName);
+        }
       }
     }
 
@@ -1605,9 +1611,14 @@ class TSGenerator {
       !this.insideMutualRecursionFunction;
 
     if (shouldWrapWithTrampoline) {
-      // Wrap with trampoline: __hql_trampoline(() => fn(args))
-      this.usedHelpers.add("__hql_trampoline");
-      this.emit("__hql_trampoline(() => ");
+      // Use __hql_trampoline_gen for generators, __hql_trampoline for sync functions
+      if (this.mutualRecursionGenerators.has(calleeName!)) {
+        this.usedHelpers.add("__hql_trampoline_gen");
+        this.emit("__hql_trampoline_gen(() => ");
+      } else {
+        this.usedHelpers.add("__hql_trampoline");
+        this.emit("__hql_trampoline(() => ");
+      }
     }
 
     // If callee is a function/class expression or declaration, wrap it in parentheses for IIFE
