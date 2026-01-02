@@ -32,6 +32,11 @@ export class LRUCache<K, V> {
    * @param value The value to store
    */
   set(key: K, value: V): void {
+    // If maxSize is invalid (0, negative, or NaN), don't store anything
+    if (!(this.maxSize > 0)) {
+      return;
+    }
+
     // If key already exists, refresh it
     if (this.cache.has(key)) {
       this.cache.delete(key);

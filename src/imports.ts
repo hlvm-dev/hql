@@ -83,6 +83,15 @@ function validateImportPath(
   resolvedPath: string,
   baseDir: string,
 ): void {
+  // Security: Reject paths containing null bytes (defense-in-depth)
+  // Null bytes can be used in path truncation attacks on some systems
+  if (modulePath.includes("\x00") || resolvedPath.includes("\x00")) {
+    throw new ImportError(
+      `Import path contains null byte. This is not allowed for security reasons.`,
+      "import validation",
+    );
+  }
+
   // Allow remote URLs - they don't access local filesystem
   if (isRemoteUrl(modulePath) || isRemoteModule(modulePath)) {
     return;
