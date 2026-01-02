@@ -14,6 +14,7 @@
 import * as IR from "../type/hql_ir.ts";
 import { CodeGenError } from "../../common/error.ts";
 import { applyTCO } from "../optimize/tco-optimizer.ts";
+import { applyMutualTCO, type MutualRecursionGroup } from "../optimize/mutual-tco-optimizer.ts";
 import { RUNTIME_HELPER_NAMES_SET } from "../../common/runtime-helper-impl.ts";
 import { assertNever } from "../codegen/exhaustive.ts";
 import { CodeBuffer, type SourceMapping } from "../codegen/code-buffer.ts";
@@ -47,6 +48,12 @@ class TSGenerator {
   // Code buffer for output generation with source map tracking
   private buf: CodeBuffer;
   private usedHelpers: Set<string> = new Set();
+
+  // Mutual recursion TCO: track functions in mutual recursion groups
+  private mutualRecursionGroups: MutualRecursionGroup[] = [];
+  private mutualRecursionFunctions: Set<string> = new Set();
+  // Track if we're currently generating inside a mutual recursion function
+  private insideMutualRecursionFunction: boolean = false;
 
   // Expression-everywhere: track top-level binding names for hoisting
   private topLevelBindingNames: Set<string> = new Set();
@@ -674,13 +681,25 @@ class TSGenerator {
     // Push module-level hoisting scope
     this.hoistingStack.push(new Set());
 
+    // Pass 0: Apply mutual recursion TCO (transforms program body)
+    const { statements: transformedBody, mutualGroups } = applyMutualTCO(program.body);
+    this.mutualRecursionGroups = mutualGroups;
+    for (const group of mutualGroups) {
+      for (const funcName of group.members) {
+        this.mutualRecursionFunctions.add(funcName);
+      }
+    }
+
+    // Use transformed body for subsequent passes
+    const body = transformedBody;
+
     // Pass 1: Collect all top-level binding names (direct declarations)
-    for (const node of program.body) {
+    for (const node of body) {
       this.collectTopLevelNames(node);
     }
 
     // Pass 1b: Collect nested hoistable names (variables in expression positions)
-    for (const node of program.body) {
+    for (const node of body) {
       this.collectHoistableNames(node, false);
     }
 
@@ -711,7 +730,7 @@ class TSGenerator {
     }
 
     // Pass 2: Generate expressions (with isTopLevel = true)
-    for (const node of program.body) {
+    for (const node of body) {
       this.generateNode(node);
     }
 
@@ -1577,6 +1596,20 @@ class TSGenerator {
   }
 
   private generateCallExpression(node: IR.IRCallExpression): void {
+    // Check if this is a call to a mutual recursion function from outside the group
+    const calleeName = node.callee.type === IR.IRNodeType.Identifier
+      ? (node.callee as IR.IRIdentifier).name
+      : null;
+    const shouldWrapWithTrampoline = calleeName !== null &&
+      this.mutualRecursionFunctions.has(calleeName) &&
+      !this.insideMutualRecursionFunction;
+
+    if (shouldWrapWithTrampoline) {
+      // Wrap with trampoline: __hql_trampoline(() => fn(args))
+      this.usedHelpers.add("__hql_trampoline");
+      this.emit("__hql_trampoline(() => ");
+    }
+
     // If callee is a function/class expression or declaration, wrap it in parentheses for IIFE
     // Cast to number for comparison since callee type might be a declaration type
     const calleeType = node.callee.type as unknown as number;
@@ -1591,6 +1624,10 @@ class TSGenerator {
     this.emit("(", node.position);
     this.emitCommaSeparated(node.arguments, (arg) => this.generateInExpressionContext(arg));
     this.emit(")");
+
+    if (shouldWrapWithTrampoline) {
+      this.emit(")");
+    }
   }
 
   private generateMemberExpression(node: IR.IRMemberExpression): void {
@@ -2223,7 +2260,14 @@ class TSGenerator {
     this.emitDebugComment(node.position, `(fn ${node.id.name} ...)`);
 
     // Apply Tail Call Optimization for self-recursive functions
+    // (Note: Mutual TCO is already applied at module level in generate())
     const optimizedNode = applyTCO(node);
+
+    // Track if we're inside a mutual recursion function
+    const wasInsideMutualRecursion = this.insideMutualRecursionFunction;
+    if (this.mutualRecursionFunctions.has(optimizedNode.id.name)) {
+      this.insideMutualRecursionFunction = true;
+    }
 
     // Check if this function was hoisted (appears in expression context)
     const currentScope = this.hoistingStack.length > 0 ? this.currentHoistingSet() : null;
@@ -2233,6 +2277,7 @@ class TSGenerator {
     // Expression-everywhere: hoisted functions become assignment expressions
     if (isHoisted) {
       this.generateFnAsAssignment(optimizedNode);
+      this.insideMutualRecursionFunction = wasInsideMutualRecursion;
       return;
     }
 
@@ -2272,6 +2317,9 @@ class TSGenerator {
     this.emit(" ");
     this.generateBlockStatement(optimizedNode.body);
     this.emit("\n");
+
+    // Restore mutual recursion tracking
+    this.insideMutualRecursionFunction = wasInsideMutualRecursion;
   }
 
   /**

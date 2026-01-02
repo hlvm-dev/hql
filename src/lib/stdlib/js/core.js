@@ -453,6 +453,26 @@ export function __hql_deepFreeze(obj) {
   return obj;
 }
 
+/**
+ * Trampoline for mutual recursion TCO.
+ * Executes thunks until a non-function value is returned.
+ *
+ * @param {function} thunk - Initial thunk to execute
+ * @returns {*} Final non-function result
+ *
+ * @example
+ * const is_even = (n) => n === 0 ? true : () => is_odd(n - 1);
+ * const is_odd = (n) => n === 0 ? false : () => is_even(n - 1);
+ * __hql_trampoline(() => is_even(10000)) // → true (no stack overflow)
+ */
+export function __hql_trampoline(thunk) {
+  let result = thunk();
+  while (typeof result === "function") {
+    result = result();
+  }
+  return result;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // FIRST-CLASS OPERATORS (single source of truth)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

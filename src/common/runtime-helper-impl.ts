@@ -51,6 +51,9 @@ export const DEEP_FREEZE_HELPER = "__hql_deepFreeze";
 /** Runtime helper for get operations (first-class) */
 export const GET_OP_HELPER = "__hql_get_op";
 
+/** Runtime helper for mutual recursion TCO (trampoline) */
+export const TRAMPOLINE_HELPER = "__hql_trampoline";
+
 export function __hql_get(
   obj: unknown,
   key: unknown,
@@ -260,6 +263,17 @@ export function __hql_deepFreeze<T>(obj: T, visited?: WeakSet<object>): T {
     return obj;
   }
 
+  // Skip freezing for Generator objects (they need mutable internal state for .next())
+  // deno-lint-ignore no-explicit-any
+  const anyObj = obj as any;
+  if (
+    typeof anyObj.next === "function" &&
+    typeof anyObj[Symbol.iterator] === "function" &&
+    anyObj[Symbol.iterator]() === anyObj
+  ) {
+    return obj;
+  }
+
   // Already frozen objects can be returned as-is
   if (Object.isFrozen(obj)) {
     return obj;
@@ -300,6 +314,26 @@ export function __hql_deepFreeze<T>(obj: T, visited?: WeakSet<object>): T {
   return obj;
 }
 
+/**
+ * Trampoline for mutual recursion TCO.
+ * Executes thunks until a non-function value is returned.
+ *
+ * Usage: Mutual recursive functions return thunks instead of making direct calls.
+ * The trampoline wraps the initial call and bounces until done.
+ *
+ * @example
+ * const is_even = (n) => n === 0 ? true : () => is_odd(n - 1);
+ * const is_odd = (n) => n === 0 ? false : () => is_even(n - 1);
+ * __hql_trampoline(() => is_even(10000)) // → true (no stack overflow)
+ */
+export function __hql_trampoline<T>(thunk: () => T | (() => T)): T {
+  let result = thunk();
+  while (typeof result === "function") {
+    result = (result as () => T | (() => T))();
+  }
+  return result;
+}
+
 export const runtimeHelperImplementations = {
   __hql_get,
   __hql_getNumeric,
@@ -311,6 +345,7 @@ export const runtimeHelperImplementations = {
   __hql_throw,
   __hql_deepFreeze,
   __hql_match_obj,
+  __hql_trampoline,
 };
 
 /**

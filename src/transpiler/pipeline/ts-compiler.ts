@@ -306,6 +306,8 @@ declare function __hql_throw(value: unknown): never;
 
 declare function __hql_deepFreeze<T>(obj: T): T;
 
+declare function __hql_trampoline<T>(thunk: () => T): T;
+
 declare function __hql_match_obj(val: unknown, pattern: unknown[]): boolean;
 
 // ============================================================================

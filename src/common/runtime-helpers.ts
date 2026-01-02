@@ -10,6 +10,7 @@ import {
   __hql_throw,
   __hql_toIterable,
   __hql_toSequence,
+  __hql_trampoline,
 } from "./runtime-helper-impl.ts";
 import { __hql_get_op, __hql_lazy_seq, __hql_delay } from "../lib/stdlib/js/core.js";
 import { STDLIB_PUBLIC_API } from "../lib/stdlib/js/stdlib.js";
@@ -53,6 +54,7 @@ type GlobalHqlHelpers = {
   __hql_match_obj?: typeof __hql_match_obj;
   __hql_throw?: typeof __hql_throw;
   __hql_deepFreeze?: typeof __hql_deepFreeze;
+  __hql_trampoline?: typeof __hql_trampoline;
   __hql_get_op?: typeof __hql_get_op;
   __hql_lazy_seq?: typeof __hql_lazy_seq;
   __hql_delay?: typeof __hql_delay;
@@ -313,6 +315,11 @@ function ensureHelpers(): void {
   // This ensures REPL and transpiled code have identical behavior
   if (typeof globalAny.__hql_deepFreeze !== "function") {
     globalAny.__hql_deepFreeze = __hql_deepFreeze;
+  }
+
+  // Trampoline for mutual recursion TCO
+  if (typeof globalAny.__hql_trampoline !== "function") {
+    globalAny.__hql_trampoline = __hql_trampoline;
   }
 
   // First-class operators: allows (reduce + 0 nums) by converting operator symbols to functions
