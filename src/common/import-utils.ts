@@ -2,8 +2,10 @@
 import { type HQLNode, isImportNode } from "../transpiler/type/hql_ast.ts";
 import type { Environment } from "../environment.ts";
 import { globalLogger, type Logger } from "../logger.ts";
+import { LRUCache } from "./lru-cache.ts";
 
-export const importSourceRegistry = new Map<string, string>();
+// LRU cache to prevent unbounded memory growth in long-running processes (LSP, watch mode)
+export const importSourceRegistry = new LRUCache<string, string>(5000);
 
 /**
  * Check if a path is a remote URL

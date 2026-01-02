@@ -102,8 +102,18 @@ function validateImportPath(
   const normalizedResolved = normalize(resolvedPath);
   const normalizedBase = normalize(baseDir);
 
-  // Check if resolved path is within baseDir
-  if (!normalizedResolved.startsWith(normalizedBase)) {
+  // Ensure base path ends with separator for proper boundary check
+  // This prevents "/Users/project-backup" from matching "/Users/project"
+  const baseDirWithSep = normalizedBase.endsWith("/")
+    ? normalizedBase
+    : normalizedBase + "/";
+
+  // Check if resolved path is within baseDir (with proper path boundary)
+  // Allow exact match (resolvedPath === baseDir) or proper subdirectory
+  const isWithinBase = normalizedResolved === normalizedBase ||
+    normalizedResolved.startsWith(baseDirWithSep);
+
+  if (!isWithinBase) {
     throw new ImportError(
       `Import path "${modulePath}" resolves outside project directory. ` +
       `Path traversal is not allowed for security reasons.`,
