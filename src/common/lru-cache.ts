@@ -42,9 +42,11 @@ export class LRUCache<K, V> {
       this.cache.delete(key);
     } // If we're at capacity, remove the oldest entry (first in iteration order)
     else if (this.cache.size >= this.maxSize) {
-      const oldestKey = this.cache.keys().next().value;
-      if (oldestKey !== undefined) {
-        this.cache.delete(oldestKey);
+      // Use .done to check if iterator has entries, not value !== undefined
+      // This correctly handles `undefined` as a valid key
+      const oldest = this.cache.keys().next();
+      if (!oldest.done) {
+        this.cache.delete(oldest.value);
       }
     }
 
