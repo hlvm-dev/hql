@@ -33,7 +33,7 @@ import {
 } from "./src/platform/platform.ts";
 import * as acorn from "npm:acorn@8.11.3";
 import { sexpToString } from "./src/s-exp/types.ts";
-import { installSourceMapSupport } from "./src/transpiler/pipeline/source-map-support.ts";
+import { installSourceMapSupport, preloadSourceMap } from "./src/transpiler/pipeline/source-map-support.ts";
 import {
   transformStackTrace,
   withTransformedStackTraces,
@@ -697,6 +697,10 @@ export async function run(
         basename(mapPath)
       }`;
       await platformWriteTextFile(outPath, codeWithSourceMap);
+
+      // Preload source map into cache for error handling
+      // This ensures source maps are available during Error.prepareStackTrace
+      await preloadSourceMap(outPath);
     } else {
       await platformWriteTextFile(outPath, compiledJs);
     }
@@ -751,6 +755,9 @@ export async function run(
       basename(mapPath)
     }`;
     await platformWriteTextFile(outPath, codeWithSourceMap);
+
+    // Preload source map into cache for error handling
+    await preloadSourceMap(outPath);
 
     try {
       // Set runtime context for better error location resolution
@@ -1108,13 +1115,16 @@ async function compileHqlModule(
       const mapJson = JSON.parse(sourceMap);
       mapJson.file = outputPath;
       await platformWriteTextFile(mapPath, JSON.stringify(mapJson));
-      
+
       const codeWithMap = `${processed.code}\n//# sourceMappingURL=${basename(mapPath)}`;
       await platformWriteTextFile(outputPath, codeWithMap);
+
+      // Preload source map into cache for error handling
+      await preloadSourceMap(outputPath);
     } else {
       await platformWriteTextFile(outputPath, processed.code);
     }
-    
+
     return outputPath;
   })();
 
