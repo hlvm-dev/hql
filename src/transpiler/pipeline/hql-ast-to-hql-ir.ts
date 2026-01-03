@@ -1800,6 +1800,88 @@ function initializeTransformFactory(): void {
           return asyncGeneratorsModule.transformJsMethod(list, currentDir, transformNode);
         },
       );
+      // method-call: (.foo obj args) transforms to obj.foo(args)
+      transformFactory.set(
+        "method-call",
+        (list: ListNode, currentDir: string) => {
+          return classModule.transformMethodCall(list, currentDir, transformNode);
+        },
+      );
+      // optional-method-call: (.?foo obj args) transforms to obj?.foo(args)
+      transformFactory.set(
+        "optional-method-call",
+        (list: ListNode, currentDir: string) => {
+          return classModule.transformOptionalMethodCall(list, currentDir, transformNode);
+        },
+      );
+      // optional-js-method: (.?foo obj) transforms to obj?.foo (property access)
+      transformFactory.set(
+        "optional-js-method",
+        (list: ListNode, currentDir: string) => {
+          if (list.elements.length < 3) {
+            throw new ValidationError(
+              "optional-js-method requires an object and method name",
+              "optional-js-method",
+              "at least 2 arguments",
+              `${list.elements.length - 1} arguments`,
+            );
+          }
+          const object = validateTransformed(
+            transformNode(list.elements[1], currentDir),
+            "optional-js-method",
+            "Object",
+          );
+          const methodSpec = list.elements[2];
+          let methodName: string;
+          if (methodSpec.type === "literal") {
+            methodName = String((methodSpec as LiteralNode).value);
+          } else if (methodSpec.type === "symbol") {
+            methodName = (methodSpec as SymbolNode).name;
+          } else {
+            throw new ValidationError(
+              "Method name must be a string literal or symbol",
+              "optional-js-method",
+              "string literal or symbol",
+              methodSpec.type,
+            );
+          }
+          // If there are more elements, it's a method call with arguments
+          if (list.elements.length > 3) {
+            const args = transformElements(
+              list.elements.slice(3),
+              currentDir,
+              transformNode,
+              "optional-js-method argument",
+              "Argument",
+            );
+            return {
+              type: IR.IRNodeType.OptionalCallExpression,
+              callee: {
+                type: IR.IRNodeType.OptionalMemberExpression,
+                object,
+                property: { type: IR.IRNodeType.Identifier, name: methodName } as IR.IRIdentifier,
+                computed: false,
+                optional: true,
+              } as IR.IROptionalMemberExpression,
+              arguments: args,
+              optional: false,
+            } as IR.IROptionalCallExpression;
+          }
+          // Otherwise, it's just property access (or zero-arg method call)
+          return {
+            type: IR.IRNodeType.OptionalCallExpression,
+            callee: {
+              type: IR.IRNodeType.OptionalMemberExpression,
+              object,
+              property: { type: IR.IRNodeType.Identifier, name: methodName } as IR.IRIdentifier,
+              computed: false,
+              optional: true,
+            } as IR.IROptionalMemberExpression,
+            arguments: [],
+            optional: false,
+          } as IR.IROptionalCallExpression;
+        },
+      );
     },
     "initializeTransformFactory",
     TransformError,
@@ -1913,8 +1995,10 @@ function transformList(list: ListNode, currentDir: string): IR.IRNode | null {
   const first = list.elements[0];
 
   // Handle dot method calls (object.method(...))
+  // BUT NOT optional chaining (.?foo) - those go through transformBasedOnOperator
   if (
     first.type === "symbol" && (first as SymbolNode).name.startsWith(".") &&
+    !(first as SymbolNode).name.startsWith(".?") &&
     list.elements.length >= 2
   ) {
     return transformDotMethodCall(list, currentDir);
@@ -1996,7 +2080,11 @@ function transformBasedOnOperator(
   op: string,
   currentDir: string,
 ): IR.IRNode | null {
-  // First check if this is a method call
+  // First check if this is an optional method call (.?foo)
+  if (op.startsWith(".?")) {
+    return classModule.transformOptionalMethodCall(list, currentDir, transformNode);
+  }
+  // Then check if this is a regular method call (.foo)
   if (op.startsWith(".")) {
     return classModule.transformMethodCall(list, currentDir, transformNode);
   }

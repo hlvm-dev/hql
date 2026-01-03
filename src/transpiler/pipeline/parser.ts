@@ -82,6 +82,9 @@ const TOKEN_PATTERNS = {
   TYPE_ANNOTATION: /:[a-zA-Z_$][a-zA-Z0-9_$<>,|&?]*(\[\])?(?=[\s\)\]\}]|$)/y,
   // Inline object type annotation: :{...} (e.g., :{name:string, age:number})
   TYPE_INLINE_OBJECT: /:\{/y,
+  // Optional chaining method call: .?identifier (e.g., .?foo, .?bar-baz)
+  // Must be checked before SPECIAL_TOKENS to prevent . from being split off
+  OPTIONAL_METHOD: /\.\?[a-zA-Z_$][a-zA-Z0-9_$-]*/y,
   SPECIAL_TOKENS: /(#\[|\(|\)|\[|\]|\{|\}|\.|\:|,|'|`|~@|~)/y,
   STRING: /"(?:\\.|[^\\"])*"/y,
   COMMENT: /(;.*|\/\/.*|\/\*[\s\S]*?\*\/)/y,
@@ -979,6 +982,11 @@ function matchNextToken(
       return { type: TokenType.Symbol, value, position };
     }
   }
+
+  // Check for optional chaining method call (.?identifier)
+  // Must be before SPECIAL_TOKENS to prevent . from being split off
+  match = matchAtCursor(TOKEN_PATTERNS.OPTIONAL_METHOD);
+  if (match) return { type: TokenType.Symbol, value: match[0], position };
 
   // Then check for special tokens
   match = matchAtCursor(TOKEN_PATTERNS.SPECIAL_TOKENS);

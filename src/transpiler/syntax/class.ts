@@ -377,6 +377,128 @@ export function transformMethodCall(
   );
 }
 
+/**
+ * Transform an optional method call to obj?.foo(args)
+ * Handles two forms:
+ * 1. Direct: (.?foo obj args...) - method name is in the operator symbol
+ * 2. Normalized: (optional-method-call obj "foo" args...) - method name is a separate element
+ */
+export function transformOptionalMethodCall(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+): IR.IRNode {
+  return perform(
+    () => {
+      const firstElement = list.elements[0];
+      const op = firstElement.type === "symbol" ? (firstElement as SymbolNode).name : "";
+
+      // Check if this is the direct form: (.?foo obj args...)
+      if (op.startsWith(".?")) {
+        if (list.elements.length < 2) {
+          throw new ValidationError(
+            "optional method call requires at least an object",
+            "optional-method-call",
+            "at least 1 argument",
+            `${list.elements.length - 1} arguments`,
+          );
+        }
+
+        const methodName = op.substring(2); // Remove ".?"
+        const object = validateTransformed(
+          transformNode(list.elements[1], currentDir),
+          "optional-method-call",
+          "Object",
+        );
+
+        const args = transformElements(
+          list.elements.slice(2),
+          currentDir,
+          transformNode,
+          "optional-method-call argument",
+          "Argument",
+        );
+
+        return {
+          type: IR.IRNodeType.OptionalCallExpression,
+          callee: {
+            type: IR.IRNodeType.OptionalMemberExpression,
+            object,
+            property: {
+              type: IR.IRNodeType.Identifier,
+              name: methodName,
+            } as IR.IRIdentifier,
+            computed: false,
+            optional: true,
+          } as IR.IROptionalMemberExpression,
+          arguments: args,
+          optional: false,
+        } as IR.IROptionalCallExpression;
+      }
+
+      // Normalized form: (optional-method-call obj "foo" args...)
+      if (list.elements.length < 3) {
+        throw new ValidationError(
+          "optional-method-call requires at least an object and method name",
+          "optional-method-call",
+          "at least 2 arguments",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+
+      const object = validateTransformed(
+        transformNode(list.elements[1], currentDir),
+        "optional-method-call",
+        "Object",
+      );
+
+      let methodName: string;
+      const methodSpec = list.elements[2];
+      const methodSpecType = methodSpec.type;
+
+      if (methodSpecType === "literal") {
+        methodName = String((methodSpec as LiteralNode).value);
+      } else if (methodSpecType === "symbol") {
+        methodName = (methodSpec as SymbolNode).name;
+      } else {
+        throw new ValidationError(
+          "Method name must be a string literal or symbol",
+          "optional-method-call",
+          "string literal or symbol",
+          methodSpecType,
+        );
+      }
+
+      const args = transformElements(
+        list.elements.slice(3),
+        currentDir,
+        transformNode,
+        "optional-method-call argument",
+        "Argument",
+      );
+
+      return {
+        type: IR.IRNodeType.OptionalCallExpression,
+        callee: {
+          type: IR.IRNodeType.OptionalMemberExpression,
+          object,
+          property: {
+            type: IR.IRNodeType.Identifier,
+            name: methodName,
+          } as IR.IRIdentifier,
+          computed: false,
+          optional: true,
+        } as IR.IROptionalMemberExpression,
+        arguments: args,
+        optional: false,
+      } as IR.IROptionalCallExpression;
+    },
+    "transformOptionalMethodCall",
+    TransformError,
+    [list],
+  );
+}
+
 function parseClassMethodParameters(
   paramsNode: ListNode,
   currentDir: string,

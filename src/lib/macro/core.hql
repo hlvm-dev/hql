@@ -206,39 +206,64 @@
 ;; Core control flow
 ;; ----------------------------------------
 
+;; cond - Supports BOTH syntaxes:
+;; Grouped syntax: (cond ((< x 0) "neg") ((> x 0) "pos") (true "zero"))
+;; Flat syntax:    (cond (< x 0) "neg" (> x 0) "pos" :else "zero")
+;; Detection: If first clause is a list with exactly 2 elements, use grouped syntax.
+;; NOTE: Uses nested if instead of && to avoid circular dependency (and macro uses cond)
 (macro cond [& clauses]
   (if (%empty? clauses)
       nil
-      (let (first-clause (%first clauses)
-            rest-clauses (%rest clauses)
-            first-el (%first first-clause))
-        ;; Check if first clause is a list (e.g., (else expr))
-        ;; If we can extract a first element, it's a list
-        (if (=== first-el nil)
-            ;; Flat syntax: test result test result...
-            (if (%empty? rest-clauses)
-                (throw "cond requires result expression for test")
-                (let (test first-clause
-                      result (%first rest-clauses)
-                      remaining (%rest rest-clauses))
-                  (if (%empty? remaining)
-                      `(if ~test ~result nil)
-                      `(if ~test ~result (cond ~@remaining)))))
-            ;; List clause syntax: ((test) result)
-            (let (test first-el
-                  result (%first (%rest first-clause)))
-              ;; Check if test is the symbol 'else' - if so, return result directly
-              (if (symbol? test)
-                  (if (=== (name test) "else")
-                      result
-                      ;; Otherwise generate if expression
-                      (if (%empty? rest-clauses)
+      ;; Detect syntax based on first clause
+      (let (first-clause (%first clauses))
+        ;; Grouped syntax: first clause is a list with 2 elements like ((< x 0) "result")
+        ;; Use nested if instead of && to avoid circular dependency
+        (if (list? first-clause)
+            (if (=== (%length first-clause) 2)
+                ;; Grouped syntax: each clause is (test result)
+                (let (test (%first first-clause)
+                      result (%first (%rest first-clause))
+                      remaining (%rest clauses))
+                  (if (symbol? test)
+                      (if (=== (name test) "else")
+                          result
+                          (if (%empty? remaining)
+                              `(if ~test ~result nil)
+                              `(if ~test ~result (cond ~@remaining))))
+                      (if (%empty? remaining)
                           `(if ~test ~result nil)
-                          `(if ~test ~result (cond ~@rest-clauses))))
-                  ;; test is not a symbol, generate if expression
-                  (if (%empty? rest-clauses)
-                      `(if ~test ~result nil)
-                      `(if ~test ~result (cond ~@rest-clauses)))))))))
+                          `(if ~test ~result (cond ~@remaining)))))
+                ;; List but not 2 elements - treat as flat syntax
+                (if (%empty? (%rest clauses))
+                    first-clause
+                    (let (test first-clause
+                          result (%first (%rest clauses))
+                          remaining (%rest (%rest clauses)))
+                      (if (symbol? test)
+                          (if (=== (name test) "else")
+                              result
+                              (if (%empty? remaining)
+                                  `(if ~test ~result nil)
+                                  `(if ~test ~result (cond ~@remaining))))
+                          (if (%empty? remaining)
+                              `(if ~test ~result nil)
+                              `(if ~test ~result (cond ~@remaining)))))))
+            ;; Not a list - flat syntax: test1 result1 test2 result2 ...
+            (if (%empty? (%rest clauses))
+                ;; Single element - just return it (handles :else or true at end)
+                first-clause
+                (let (test first-clause
+                      result (%first (%rest clauses))
+                      remaining (%rest (%rest clauses)))
+                  (if (symbol? test)
+                      (if (=== (name test) "else")
+                          result
+                          (if (%empty? remaining)
+                              `(if ~test ~result nil)
+                              `(if ~test ~result (cond ~@remaining))))
+                      (if (%empty? remaining)
+                          `(if ~test ~result nil)
+                          `(if ~test ~result (cond ~@remaining))))))))))
 
 ;; NOTE: `do` is a kernel primitive, not a macro
 ;; It needs to create an IIFE with BlockStatement to handle both statements and expressions

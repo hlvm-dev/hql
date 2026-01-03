@@ -400,9 +400,11 @@ declare function partial<T extends (...args: any[]) => any>(fn: T, ...args: any[
 declare function zip<T>(...arrays: Iterable<T>[]): Iterable<T[]>;
 declare function zipWith<T, R>(fn: (...args: T[]) => R, ...arrays: Iterable<T>[]): Iterable<R>;
 declare function juxt<T, R>(...fns: ((x: T) => R)[]): (x: T) => R[];
-declare function constantly<T>(x: T): () => T;
+declare function constantly<T>(x: T): (...args: any[]) => T;
 declare function complement<T extends (...args: any[]) => boolean>(fn: T): T;
-// Note: identity, apply are common user function names - not declared to avoid conflicts
+declare function apply<T, R>(fn: (...args: T[]) => R, args: T[]): R;
+declare function vals<T>(obj: Record<string, T> | Map<any, T> | null | undefined): T[];
+declare function zipmap<K extends string, V>(keys: Iterable<K>, vals: Iterable<V>): Record<K, V>;
 
 // Predicates
 declare function isSeq(value: any): boolean;

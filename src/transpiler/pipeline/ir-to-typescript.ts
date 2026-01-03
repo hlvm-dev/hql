@@ -1678,11 +1678,19 @@ class TSGenerator {
   }
 
   /**
-   * Generate optional call expression: func?.() or obj.method?.()
+   * Generate optional call expression: func?.() or obj?.method()
+   * If node.optional is true, generate func?.()
+   * If node.optional is false but callee is optional, generate obj?.method()
    */
   private generateOptionalCallExpression(node: IR.IROptionalCallExpression): void {
     this.generateInExpressionContext(node.callee);
-    this.emit("?.(", node.position);
+    // Only add ?. for the call if the call itself is optional
+    // When optional is false, just use regular call parens (the callee handles optional member access)
+    if (node.optional) {
+      this.emit("?.(", node.position);
+    } else {
+      this.emit("(", node.position);
+    }
     this.emitCommaSeparated(node.arguments, (arg) => this.generateInExpressionContext(arg));
     this.emit(")");
   }
