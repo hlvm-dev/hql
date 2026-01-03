@@ -12,7 +12,7 @@ import { filePathToUri } from "../documents.ts";
 /**
  * Reference location with additional context
  */
-export interface ReferenceResult {
+interface ReferenceResult {
   location: Location;
   isDefinition: boolean;
   context?: string; // Line of code containing the reference

@@ -51,12 +51,6 @@ export const DEEP_FREEZE_HELPER = "__hql_deepFreeze";
 /** Runtime helper for get operations (first-class) */
 export const GET_OP_HELPER = "__hql_get_op";
 
-/** Runtime helper for mutual recursion TCO (trampoline) */
-export const TRAMPOLINE_HELPER = "__hql_trampoline";
-
-/** Runtime helper for generator mutual recursion TCO */
-export const TRAMPOLINE_GEN_HELPER = "__hql_trampoline_gen";
-
 /** Symbol for tagged generator thunks */
 export const GEN_THUNK_SYMBOL = Symbol.for("__hql_gen_thunk");
 

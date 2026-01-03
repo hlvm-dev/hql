@@ -83,39 +83,6 @@ export async function writeJSONFile(
   }
 }
 
-/**
- * Verify that the entry file is a valid HQL module
- */
-export async function verifyEntryFile(entryPath: string): Promise<boolean> {
-  try {
-    if (!(await exists(entryPath))) {
-      console.error(`Entry file not found: ${entryPath}`);
-      return false;
-    }
-
-    const content = await readTextFile(entryPath);
-    try {
-      // Try to parse to ensure valid HQL
-      parse(content, entryPath);
-      return true;
-    } catch (error) {
-      console.error(
-        `Entry file contains syntax errors: ${
-          getErrorMessage(error)
-        }`,
-      );
-      return false;
-    }
-  } catch (error) {
-    console.error(
-      `Error verifying entry file: ${
-        getErrorMessage(error)
-      }`,
-    );
-    return false;
-  }
-}
-
 /** Metadata file info */
 interface MetadataFile {
   path: string;

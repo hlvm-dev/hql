@@ -214,18 +214,3 @@ function createEmptyChainedMap(
   };
 }
 
-/**
- * Serialize a RawSourceMap to JSON with the source map comment.
- */
-export function serializeSourceMap(map: RawSourceMap): string {
-  return JSON.stringify(map);
-}
-
-/**
- * Create an inline source map comment for embedding in JavaScript.
- */
-export function createInlineSourceMapComment(map: RawSourceMap): string {
-  const json = JSON.stringify(map);
-  const base64 = btoa(json);
-  return `//# sourceMappingURL=data:application/json;base64,${base64}`;
-}

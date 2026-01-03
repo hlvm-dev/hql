@@ -646,52 +646,6 @@ export async function createTempDir(
 }
 
 /**
- * Get estimated cache size
- */
-export async function getCacheStats(): Promise<
-  { files: number; bytes: number }
-> {
-  const cacheDir = await getCacheDir();
-  try {
-    return await getDirStats(cacheDir);
-  } catch (error) {
-    logger.debug(`Error getting cache stats: ${getErrorMessage(error)}`);
-    return { files: 0, bytes: 0 };
-  }
-}
-
-async function getDirStats(
-  dir: string,
-): Promise<{ files: number; bytes: number }> {
-  let files = 0;
-  let bytes = 0;
-
-  try {
-    for await (const entry of readDir(dir)) {
-      const entryPath = join(dir, entry.name);
-
-      if (entry.isDirectory) {
-        const subStats = await getDirStats(entryPath);
-        files += subStats.files;
-        bytes += subStats.bytes;
-      } else if (entry.isFile) {
-        files++;
-        try {
-          const entryStat = await stat(entryPath);
-          bytes += entryStat.size;
-        } catch {
-          // Ignore errors for individual files
-        }
-      }
-    }
-  } catch (error) {
-    logger.debug(`Error reading directory ${dir}: ${getErrorMessage(error)}`);
-  }
-
-  return { files, bytes };
-}
-
-/**
  * Clear cache
  * This function removes all cached files to force regeneration
  */

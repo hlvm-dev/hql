@@ -194,16 +194,6 @@ export function getExprPrecedence(node: IR.IRNode): Precedence {
 }
 
 /**
- * Get the precedence level for a binary/logical operator.
- *
- * @param operator - The operator string
- * @returns The precedence level of the operator
- */
-export function getOperatorPrecedence(operator: string): Precedence {
-  return BINARY_OP_PRECEDENCE[operator] ?? Precedence.Primary;
-}
-
-/**
  * Check if an operator is right-associative.
  * Right-associative operators: ** and all assignment operators.
  *

@@ -592,16 +592,6 @@ export function applyMutualTCO(
 }
 
 /**
- * Check if a function is in a mutual recursion group
- */
-export function isInMutualRecursionGroup(
-  funcName: string,
-  groups: MutualRecursionGroup[]
-): boolean {
-  return groups.some(group => group.members.has(funcName));
-}
-
-/**
  * Get the mutual recursion group for a function
  */
 export function getMutualRecursionGroup(

@@ -1,7 +1,7 @@
 // src/transpiler/hql_ast.ts
 export type HQLNode = LiteralNode | SymbolNode | ListNode;
 
-export interface Position {
+interface Position {
   line: number;
   column: number;
   filePath?: string;
