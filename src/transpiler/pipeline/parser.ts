@@ -19,6 +19,8 @@ import { attachSourceLocation } from "../../common/syntax-error-handler.ts";
 import { readTextFileSync as platformReadTextFileSync } from "../../platform/platform.ts";
 import { FOR_LOOP_SYNTAX_KEYWORDS_SET } from "../../common/known-identifiers.ts";
 import { VECTOR_SYMBOL, EMPTY_ARRAY_SYMBOL } from "../../common/runtime-helper-impl.ts";
+import { processEscapeSequences, processSingleEscape } from "../utils/escape-sequences.ts";
+import { PARSER_LIMITS } from "../constants/index.ts";
 
 enum TokenType {
   LeftParen,
@@ -57,11 +59,8 @@ interface SourcePosition {
   filePath: string;
 }
 
-/**
- * Maximum nesting depth for parser to prevent stack overflow from deeply nested structures.
- * Value of 128 balances allowing legitimate deep nesting while catching recursion bombs.
- */
-const MAX_PARSING_DEPTH = 128;
+// Use centralized constants for depth limits
+const { MAX_PARSING_DEPTH, MAX_QUASIQUOTE_DEPTH } = PARSER_LIMITS;
 
 /**
  * Count Unicode code points in a string (handles emojis and surrogate pairs correctly).
@@ -348,6 +347,19 @@ function checkDepth(state: ParserState, position: SourcePosition): void {
   }
 }
 
+/**
+ * Check if quasiquote depth exceeds maximum allowed, throw if so.
+ * Prevents resource exhaustion from deeply nested quasiquotes.
+ */
+function checkQuasiquoteDepth(state: ParserState, position: SourcePosition): void {
+  if (state.quasiquoteDepth > MAX_QUASIQUOTE_DEPTH) {
+    throw new ParseError(
+      `Maximum quasiquote nesting depth exceeded (${MAX_QUASIQUOTE_DEPTH}). Simplify your macro templates.`,
+      errorOptions(position, state)
+    );
+  }
+}
+
 function parseExpression(state: ParserState): SExp {
   if (state.currentPos >= state.tokens.length) {
     const lastPos = state.tokens.length > 0
@@ -403,6 +415,7 @@ function parseExpressionByTokenType(token: Token, state: ParserState): SExp {
     }
     case TokenType.Backtick: {
       state.quasiquoteDepth++;
+      checkQuasiquoteDepth(state, token.position); // Prevent deeply nested quasiquotes
       const expr = parseExpression(state);
       state.quasiquoteDepth--;
       result = createList(createSymbol("quasiquote"), expr);
@@ -584,72 +597,8 @@ function parseDotAccess(state: ParserState, dotToken: Token): SExp {
 
 function parseStringLiteral(tokenValue: string): SExp {
   const content = tokenValue.slice(1, -1);  // Remove surrounding quotes
-  let result = "";
-  let i = 0;
-
-  while (i < content.length) {
-    if (content[i] === "\\") {
-      i++;
-      if (i >= content.length) break;
-
-      switch (content[i]) {
-        case "n": result += "\n"; break;
-        case "t": result += "\t"; break;
-        case "r": result += "\r"; break;
-        case "\\": result += "\\"; break;
-        case '"': result += '"'; break;
-        case "'": result += "'"; break;
-        case "0": result += "\0"; break;
-        case "b": result += "\b"; break;
-        case "f": result += "\f"; break;
-        case "v": result += "\v"; break;
-        case "x": {
-          // Hex escape: \xNN
-          const hex = content.slice(i + 1, i + 3);
-          if (/^[0-9a-fA-F]{2}$/.test(hex)) {
-            result += String.fromCharCode(parseInt(hex, 16));
-            i += 2;
-          } else {
-            result += "x";  // Invalid escape, keep as-is
-          }
-          break;
-        }
-        case "u": {
-          // Unicode escape: \uNNNN or \u{NNNNNN}
-          if (content[i + 1] === "{") {
-            const endBrace = content.indexOf("}", i + 2);
-            if (endBrace !== -1) {
-              const hex = content.slice(i + 2, endBrace);
-              if (/^[0-9a-fA-F]+$/.test(hex)) {
-                result += String.fromCodePoint(parseInt(hex, 16));
-                i = endBrace;
-              } else {
-                result += "u";
-              }
-            } else {
-              result += "u";
-            }
-          } else {
-            const hex = content.slice(i + 1, i + 5);
-            if (/^[0-9a-fA-F]{4}$/.test(hex)) {
-              result += String.fromCharCode(parseInt(hex, 16));
-              i += 4;
-            } else {
-              result += "u";  // Invalid escape, keep as-is
-            }
-          }
-          break;
-        }
-        default:
-          result += content[i];  // Unknown escape, keep the character
-      }
-      i++;
-    } else {
-      result += content[i];
-      i++;
-    }
-  }
-
+  // Use shared escape sequence processor (eliminates 60+ lines of duplicate code)
+  const result = processEscapeSequences(content);
   return createLiteral(result);
 }
 
@@ -713,61 +662,13 @@ function parseTemplateLiteral(
         }
       }
     } else if (content[i] === "\\") {
-      // Handle escape sequences
+      // Handle escape sequences using shared utility (eliminates 50+ lines of duplication)
       i++;
       if (i < content.length) {
-        switch (content[i]) {
-          case "n": currentStr += "\n"; break;
-          case "t": currentStr += "\t"; break;
-          case "r": currentStr += "\r"; break;
-          case "\\": currentStr += "\\"; break;
-          case "`": currentStr += "`"; break;
-          case "$": currentStr += "$"; break;
-          case "0": currentStr += "\0"; break;
-          case "b": currentStr += "\b"; break;
-          case "f": currentStr += "\f"; break;
-          case "v": currentStr += "\v"; break;
-          case "x": {
-            // Hex escape: \xNN
-            const hex = content.slice(i + 1, i + 3);
-            if (/^[0-9a-fA-F]{2}$/.test(hex)) {
-              currentStr += String.fromCharCode(parseInt(hex, 16));
-              i += 2;
-            } else {
-              currentStr += "x";
-            }
-            break;
-          }
-          case "u": {
-            // Unicode escape: \uNNNN or \u{NNNNNN}
-            if (content[i + 1] === "{") {
-              const endBrace = content.indexOf("}", i + 2);
-              if (endBrace !== -1) {
-                const hex = content.slice(i + 2, endBrace);
-                if (/^[0-9a-fA-F]+$/.test(hex)) {
-                  currentStr += String.fromCodePoint(parseInt(hex, 16));
-                  i = endBrace;
-                } else {
-                  currentStr += "u";
-                }
-              } else {
-                currentStr += "u";
-              }
-            } else {
-              const hex = content.slice(i + 1, i + 5);
-              if (/^[0-9a-fA-F]{4}$/.test(hex)) {
-                currentStr += String.fromCharCode(parseInt(hex, 16));
-                i += 4;
-              } else {
-                currentStr += "u";
-              }
-            }
-            break;
-          }
-          default:
-            currentStr += content[i];
-        }
-        i++;
+        const escapeChar = content[i];
+        const result = processSingleEscape(escapeChar, content.slice(i + 1));
+        currentStr += result.value;
+        i += 1 + result.consumed;
       }
     } else {
       currentStr += content[i];

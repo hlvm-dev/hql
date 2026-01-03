@@ -27,6 +27,10 @@ import {
 } from "../../common/sexp-utils.ts";
 import { DEEP_FREEZE_HELPER } from "../../common/runtime-helper-impl.ts";
 import { copyPosition, isExpressionResult } from "../pipeline/hql-ast-to-hql-ir.ts";
+import {
+  containsAwaitExpression,
+  containsYieldExpression,
+} from "../utils/ir-tree-walker.ts";
 
 /**
  * Options for binding transformation
@@ -230,19 +234,43 @@ function transformBinding(
         return node;
       });
 
-      return {
+      // Check if body contains await/yield - IIFE needs to be async/generator
+      const bodyBlock: IR.IRBlockStatement = {
+        type: IR.IRNodeType.BlockStatement,
+        body: [variableDecl, ...bodyStmts],
+      };
+      const hasAwaits = containsAwaitExpression(bodyBlock);
+      const hasYields = containsYieldExpression(bodyBlock);
+
+      const iife: IR.IRCallExpression = {
         type: IR.IRNodeType.CallExpression,
         callee: {
           type: IR.IRNodeType.FunctionExpression,
           id: null,
           params: [],
-          body: {
-            type: IR.IRNodeType.BlockStatement,
-            body: [variableDecl, ...bodyStmts],
-          } as IR.IRBlockStatement,
+          body: bodyBlock,
+          async: hasAwaits,
+          generator: hasYields,
         } as IR.IRFunctionExpression,
         arguments: [],
-      } as IR.IRCallExpression;
+      };
+
+      // For generator IIFEs, wrap in yield*; for async, wrap in await
+      if (hasYields) {
+        return {
+          type: IR.IRNodeType.YieldExpression,
+          argument: iife,
+          delegate: true,
+        } as IR.IRYieldExpression;
+      }
+      if (hasAwaits) {
+        return {
+          type: IR.IRNodeType.AwaitExpression,
+          argument: iife,
+        } as IR.IRAwaitExpression;
+      }
+
+      return iife;
     }
 
     return variableDecl;
@@ -477,19 +505,43 @@ function processBindings(
   });
 
   // Create an IIFE to contain our block of code
-  return {
+  // Check if body contains await/yield - IIFE needs to be async/generator
+  const bodyBlock: IR.IRBlockStatement = {
+    type: IR.IRNodeType.BlockStatement,
+    body: [...variableDeclarations, ...bodyStmts],
+  };
+  const hasAwaits = containsAwaitExpression(bodyBlock);
+  const hasYields = containsYieldExpression(bodyBlock);
+
+  const iife: IR.IRCallExpression = {
     type: IR.IRNodeType.CallExpression,
     callee: {
       type: IR.IRNodeType.FunctionExpression,
       id: null,
       params: [],
-      body: {
-        type: IR.IRNodeType.BlockStatement,
-        body: [...variableDeclarations, ...bodyStmts],
-      } as IR.IRBlockStatement,
+      body: bodyBlock,
+      async: hasAwaits,
+      generator: hasYields,
     } as IR.IRFunctionExpression,
     arguments: [],
-  } as IR.IRCallExpression;
+  };
+
+  // For generator IIFEs, wrap in yield*; for async, wrap in await
+  if (hasYields) {
+    return {
+      type: IR.IRNodeType.YieldExpression,
+      argument: iife,
+      delegate: true,
+    } as IR.IRYieldExpression;
+  }
+  if (hasAwaits) {
+    return {
+      type: IR.IRNodeType.AwaitExpression,
+      argument: iife,
+    } as IR.IRAwaitExpression;
+  }
+
+  return iife;
 }
 
 /**

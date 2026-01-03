@@ -42,8 +42,20 @@ interface Position {
  * Value: SourceMapConsumer instance
  *
  * Limited to 500 entries to prevent unbounded memory growth in long-running processes.
+ * Uses onEvict callback to properly destroy SourceMapConsumer WASM resources when evicted.
  */
-const sourceMapCache = new LRUCache<string, SourceMapConsumer>(500);
+const sourceMapCache = new LRUCache<string, SourceMapConsumer>(
+  500,
+  (_key, consumer) => {
+    // SourceMapConsumer allocates WASM memory that must be explicitly freed
+    // The destroy() method exists at runtime but isn't in the type definitions
+    try {
+      (consumer as unknown as { destroy(): void }).destroy();
+    } catch {
+      // Ignore errors during cleanup - consumer may already be destroyed
+    }
+  }
+);
 
 /**
  * Track files that have been warned about cache misses

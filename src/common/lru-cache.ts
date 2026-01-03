@@ -5,9 +5,16 @@
 export class LRUCache<K, V> {
   private cache = new Map<K, V>();
   private maxSize: number;
+  private onEvict?: (key: K, value: V) => void;
 
-  constructor(maxSize = 1000) {
+  /**
+   * Create a new LRU cache
+   * @param maxSize Maximum number of entries (default: 1000)
+   * @param onEvict Optional callback called when an entry is evicted (for cleanup)
+   */
+  constructor(maxSize = 1000, onEvict?: (key: K, value: V) => void) {
     this.maxSize = maxSize;
+    this.onEvict = onEvict;
   }
 
   /**
@@ -46,7 +53,15 @@ export class LRUCache<K, V> {
       // This correctly handles `undefined` as a valid key
       const oldest = this.cache.keys().next();
       if (!oldest.done) {
-        this.cache.delete(oldest.value);
+        const oldestKey = oldest.value;
+        // Call onEvict callback before deletion for resource cleanup
+        if (this.onEvict) {
+          const oldestValue = this.cache.get(oldestKey);
+          if (oldestValue !== undefined) {
+            this.onEvict(oldestKey, oldestValue);
+          }
+        }
+        this.cache.delete(oldestKey);
       }
     }
 
@@ -63,15 +78,28 @@ export class LRUCache<K, V> {
 
   /**
    * Remove a key from the cache
+   * @param key The cache key
+   * @param skipOnEvict If true, don't call onEvict callback (used internally when value is being replaced)
    */
-  delete(key: K): boolean {
+  delete(key: K, skipOnEvict = false): boolean {
+    if (this.onEvict && !skipOnEvict && this.cache.has(key)) {
+      const value = this.cache.get(key);
+      if (value !== undefined) {
+        this.onEvict(key, value);
+      }
+    }
     return this.cache.delete(key);
   }
 
   /**
-   * Clear the entire cache
+   * Clear the entire cache, calling onEvict for each entry
    */
   clear(): void {
+    if (this.onEvict) {
+      for (const [key, value] of this.cache) {
+        this.onEvict(key, value);
+      }
+    }
     this.cache.clear();
   }
 

@@ -11,6 +11,14 @@ import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
 import { ARITHMETIC_OPS_SET } from "../keyword/primitives.ts";
 import { VECTOR_SYMBOL, EMPTY_ARRAY_SYMBOL } from "../../common/runtime-helper-impl.ts";
+import {
+  containsAwaitExpression,
+  containsYieldExpression,
+  containsReturnInScope,
+  containsJumpToLabel,
+  collectJumpTargets,
+  collectForOfStatementsInScope,
+} from "../utils/ir-tree-walker.ts";
 
 // Stack to track the current loop context for recur targeting
 const loopContextStack: string[] = [];
@@ -239,26 +247,49 @@ export function transformLoop(
         arguments: initialValues,
       };
 
+      // Check if loop body contains await/yield for async/generator IIFE
+      const hasAwaits = containsAwaitExpression(bodyBlock);
+      const hasYields = containsYieldExpression(bodyBlock);
+
+      const iifeBody: IR.IRBlockStatement = {
+        type: IR.IRNodeType.BlockStatement,
+        body: [
+          loopFunc,
+          {
+            type: IR.IRNodeType.ReturnStatement,
+            argument: initialCall,
+          } as IR.IRReturnStatement,
+        ],
+      };
+
       const iife: IR.IRCallExpression = {
         type: IR.IRNodeType.CallExpression,
         callee: {
           type: IR.IRNodeType.FunctionExpression,
           id: null,
           params: [],
-          body: {
-            type: IR.IRNodeType.BlockStatement,
-            body: [
-              loopFunc,
-              {
-                type: IR.IRNodeType.ReturnStatement,
-                argument: initialCall,
-              } as IR.IRReturnStatement,
-            ],
-          } as IR.IRBlockStatement,
-        },
+          body: iifeBody,
+          async: hasAwaits,
+          generator: hasYields,
+        } as IR.IRFunctionExpression,
         arguments: [],
       };
 
+      // For generator IIFEs, wrap the call in yield*
+      // For async IIFEs, wrap the call in await
+      if (hasYields) {
+        return {
+          type: IR.IRNodeType.YieldExpression,
+          delegate: true,
+          argument: iife,
+        } as IR.IRYieldExpression;
+      }
+      if (hasAwaits) {
+        return {
+          type: IR.IRNodeType.AwaitExpression,
+          argument: iife,
+        } as IR.IRAwaitExpression;
+      }
       return iife;
     } finally {
       // Always pop the loop context, even on error
@@ -913,6 +944,14 @@ function transformSimpleLoop(
     argument: returnValue,
   } as IR.IRReturnStatement);
 
+  // Check if loop body contains await/yield for async/generator IIFE
+  const iifeBlockBody: IR.IRBlockStatement = {
+    type: IR.IRNodeType.BlockStatement,
+    body: iifeBody,
+  };
+  const hasAwaits = containsAwaitExpression(iifeBlockBody);
+  const hasYields = containsYieldExpression(iifeBlockBody);
+
   // Create IIFE
   const iife: IR.IRCallExpression = {
     type: IR.IRNodeType.CallExpression,
@@ -920,14 +959,28 @@ function transformSimpleLoop(
       type: IR.IRNodeType.FunctionExpression,
       id: null,
       params: [],
-      body: {
-        type: IR.IRNodeType.BlockStatement,
-        body: iifeBody,
-      } as IR.IRBlockStatement,
-    },
+      body: iifeBlockBody,
+      async: hasAwaits,
+      generator: hasYields,
+    } as IR.IRFunctionExpression,
     arguments: [],
   };
 
+  // For generator IIFEs, wrap the call in yield*
+  // For async IIFEs, wrap the call in await
+  if (hasYields) {
+    return {
+      type: IR.IRNodeType.YieldExpression,
+      delegate: true,
+      argument: iife,
+    } as IR.IRYieldExpression;
+  }
+  if (hasAwaits) {
+    return {
+      type: IR.IRNodeType.AwaitExpression,
+      argument: iife,
+    } as IR.IRAwaitExpression;
+  }
   return iife;
 }
 
@@ -1161,291 +1214,54 @@ function transformLoopBody(
  */
 const forOfLabelTargets: WeakMap<IR.IRForOfStatement, Set<string>> = new WeakMap();
 
+// ============================================================================
+// Scope-aware tree walking utilities (using generic ir-tree-walker)
+// These functions use the generic walker instead of brittle switch-case patterns.
+// ============================================================================
+
 /**
- * Collect all labeled break/continue target names from an IR node tree.
- * Returns a Set of label names that are targeted by break/continue statements.
+ * Collect all labeled break/continue target names from IR nodes.
+ * Uses generic tree walker - automatically handles ALL IR node types.
  */
 function collectLabeledJumpTargets(nodes: IR.IRNode[]): Set<string> {
   const targets = new Set<string>();
   for (const node of nodes) {
-    collectLabelsFromNode(node, targets);
+    const nodeTargets = collectJumpTargets(node);
+    for (const target of nodeTargets) {
+      targets.add(target);
+    }
   }
   return targets;
 }
 
-function collectLabelsFromNode(node: IR.IRNode, targets: Set<string>): void {
-  if (!node) return;
-
-  // Collect labeled break targets
-  if (node.type === IR.IRNodeType.BreakStatement) {
-    const breakStmt = node as IR.IRBreakStatement;
-    if (breakStmt.label) targets.add(breakStmt.label);
-  }
-  // Collect labeled continue targets
-  if (node.type === IR.IRNodeType.ContinueStatement) {
-    const continueStmt = node as IR.IRContinueStatement;
-    if (continueStmt.label) targets.add(continueStmt.label);
-  }
-
-  // Don't recurse into function expressions - they have their own scope
-  if (node.type === IR.IRNodeType.FunctionExpression ||
-      node.type === IR.IRNodeType.FunctionDeclaration) {
-    return;
-  }
-
-  // Recurse into child nodes
-  if (node.type === IR.IRNodeType.BlockStatement) {
-    const block = node as IR.IRBlockStatement;
-    for (const child of block.body) {
-      collectLabelsFromNode(child, targets);
-    }
-  }
-  if (node.type === IR.IRNodeType.IfStatement) {
-    const ifStmt = node as IR.IRIfStatement;
-    collectLabelsFromNode(ifStmt.consequent, targets);
-    if (ifStmt.alternate) collectLabelsFromNode(ifStmt.alternate, targets);
-  }
-  if (node.type === IR.IRNodeType.ExpressionStatement) {
-    const exprStmt = node as IR.IRExpressionStatement;
-    collectLabelsFromNode(exprStmt.expression, targets);
-  }
-  if (node.type === IR.IRNodeType.ConditionalExpression) {
-    const condExpr = node as IR.IRConditionalExpression;
-    collectLabelsFromNode(condExpr.consequent, targets);
-    collectLabelsFromNode(condExpr.alternate, targets);
-  }
-  if (node.type === IR.IRNodeType.WhileStatement) {
-    const whileStmt = node as IR.IRWhileStatement;
-    collectLabelsFromNode(whileStmt.body, targets);
-  }
-  if (node.type === IR.IRNodeType.ForOfStatement) {
-    const forOfStmt = node as IR.IRForOfStatement;
-    collectLabelsFromNode(forOfStmt.body, targets);
-  }
-  if (node.type === IR.IRNodeType.ForStatement) {
-    const forStmt = node as IR.IRForStatement;
-    collectLabelsFromNode(forStmt.body, targets);
-  }
-  if (node.type === IR.IRNodeType.CallExpression) {
-    const callExpr = node as IR.IRCallExpression;
-    // Check arguments but not callee (callee might be a function expression)
-    for (const arg of callExpr.arguments) {
-      collectLabelsFromNode(arg, targets);
-    }
-  }
-}
-
 /**
  * Collect all ForOfStatement nodes from an IR tree (at any depth).
- * Used by transformLabel to find for-of loops that may need IIFE wrapping.
+ * Uses generic tree walker with lookInsideIIFEs option.
  */
 function collectForOfNodes(node: IR.IRNode): IR.IRForOfStatement[] {
-  const results: IR.IRForOfStatement[] = [];
-  collectForOfNodesRecursive(node, results);
-  return results;
-}
-
-function collectForOfNodesRecursive(node: IR.IRNode, results: IR.IRForOfStatement[]): void {
-  if (!node) return;
-
-  // Collect ForOfStatement nodes
-  if (node.type === IR.IRNodeType.ForOfStatement) {
-    results.push(node as IR.IRForOfStatement);
-    // Also recurse into its body (for nested for-of)
-    collectForOfNodesRecursive((node as IR.IRForOfStatement).body, results);
-    return;
-  }
-
-  // IMPORTANT: For IIFEs (CallExpression with FunctionExpression callee),
-  // we DO need to look inside because the labeled break/continue targets
-  // a label outside the IIFE. We need to find these for-ofs so the label
-  // can properly restructure.
-  if (node.type === IR.IRNodeType.CallExpression) {
-    const callExpr = node as IR.IRCallExpression;
-    // Check if this is an IIFE (function expression called immediately)
-    if (callExpr.callee.type === IR.IRNodeType.FunctionExpression) {
-      const funcExpr = callExpr.callee as IR.IRFunctionExpression;
-      // Recurse into the IIFE body to find for-of nodes
-      collectForOfNodesRecursive(funcExpr.body, results);
-    }
-    // Also check arguments
-    for (const arg of callExpr.arguments) {
-      collectForOfNodesRecursive(arg, results);
-    }
-    return;
-  }
-
-  // Don't recurse into standalone function expressions - they have their own scope
-  // (But we DO recurse into IIFEs above)
-  if (node.type === IR.IRNodeType.FunctionExpression ||
-      node.type === IR.IRNodeType.FunctionDeclaration) {
-    return;
-  }
-
-  // Recurse into child nodes
-  if (node.type === IR.IRNodeType.BlockStatement) {
-    for (const child of (node as IR.IRBlockStatement).body) {
-      collectForOfNodesRecursive(child, results);
-    }
-  }
-  if (node.type === IR.IRNodeType.IfStatement) {
-    const ifStmt = node as IR.IRIfStatement;
-    collectForOfNodesRecursive(ifStmt.consequent, results);
-    if (ifStmt.alternate) collectForOfNodesRecursive(ifStmt.alternate, results);
-  }
-  if (node.type === IR.IRNodeType.ExpressionStatement) {
-    collectForOfNodesRecursive((node as IR.IRExpressionStatement).expression, results);
-  }
-  if (node.type === IR.IRNodeType.WhileStatement) {
-    collectForOfNodesRecursive((node as IR.IRWhileStatement).body, results);
-  }
-  if (node.type === IR.IRNodeType.ForStatement) {
-    collectForOfNodesRecursive((node as IR.IRForStatement).body, results);
-  }
-  if (node.type === IR.IRNodeType.LabeledStatement) {
-    collectForOfNodesRecursive((node as IR.IRLabeledStatement).body, results);
-  }
+  return collectForOfStatementsInScope(node, { lookInsideIIFEs: true });
 }
 
 /**
- * Check if IR body contains any return statements.
- * Used to determine if for-of should skip IIFE wrapping.
- * Returns true if any return statement is found (at any depth, excluding nested functions).
+ * Check if IR body contains any return statements in scope.
+ * Uses generic tree walker - stops at function boundaries and IIFEs.
  */
 function containsReturnInBody(nodes: IR.IRNode[]): boolean {
   for (const node of nodes) {
-    if (hasReturnStatement(node)) return true;
-  }
-  return false;
-}
-
-function hasReturnStatement(node: IR.IRNode): boolean {
-  if (!node) return false;
-
-  // Direct return statement
-  if (node.type === IR.IRNodeType.ReturnStatement) {
-    return true;
-  }
-
-  // Don't recurse into function expressions - they have their own scope
-  if (node.type === IR.IRNodeType.FunctionExpression ||
-      node.type === IR.IRNodeType.FunctionDeclaration) {
-    return false;
-  }
-
-  // Check in block statements
-  if (node.type === IR.IRNodeType.BlockStatement) {
-    const block = node as IR.IRBlockStatement;
-    return block.body.some(hasReturnStatement);
-  }
-
-  // Check in if statements
-  if (node.type === IR.IRNodeType.IfStatement) {
-    const ifStmt = node as IR.IRIfStatement;
-    return hasReturnStatement(ifStmt.consequent) ||
-           (ifStmt.alternate ? hasReturnStatement(ifStmt.alternate) : false);
-  }
-
-  // Check in expression statements (may contain IIFEs)
-  if (node.type === IR.IRNodeType.ExpressionStatement) {
-    const exprStmt = node as IR.IRExpressionStatement;
-    // Don't recurse into IIFEs - return inside IIFE is scoped to IIFE
-    if (exprStmt.expression.type === IR.IRNodeType.CallExpression) {
-      const call = exprStmt.expression as IR.IRCallExpression;
-      if (call.callee.type === IR.IRNodeType.FunctionExpression) {
-        return false; // IIFE - don't look inside
-      }
+    // Don't look inside IIFEs - return inside IIFE is scoped to IIFE
+    if (containsReturnInScope(node, { lookInsideIIFEs: false })) {
+      return true;
     }
-    return hasReturnStatement(exprStmt.expression);
   }
-
-  // Check in while/for loops
-  if (node.type === IR.IRNodeType.WhileStatement) {
-    return hasReturnStatement((node as IR.IRWhileStatement).body);
-  }
-  if (node.type === IR.IRNodeType.ForStatement) {
-    return hasReturnStatement((node as IR.IRForStatement).body);
-  }
-  if (node.type === IR.IRNodeType.ForOfStatement) {
-    return hasReturnStatement((node as IR.IRForOfStatement).body);
-  }
-
-  // Check in labeled statements
-  if (node.type === IR.IRNodeType.LabeledStatement) {
-    return hasReturnStatement((node as IR.IRLabeledStatement).body);
-  }
-
-  // Check in try/catch
-  if (node.type === IR.IRNodeType.TryStatement) {
-    const tryStmt = node as IR.IRTryStatement;
-    return hasReturnStatement(tryStmt.block) ||
-           (tryStmt.handler ? hasReturnStatement(tryStmt.handler.body) : false) ||
-           (tryStmt.finalizer ? hasReturnStatement(tryStmt.finalizer) : false);
-  }
-
   return false;
 }
 
 /**
  * Check if a node contains any break/continue statements targeting a specific label.
- * Used for expression-everywhere: labels must return a value even without for-of.
+ * Uses generic tree walker with lookInsideIIFEs option.
  */
 function hasBreakOrContinueTargeting(node: IR.IRNode, labelName: string): boolean {
-  if (!node) return false;
-
-  // Check BreakStatement
-  if (node.type === IR.IRNodeType.BreakStatement) {
-    const breakStmt = node as IR.IRBreakStatement;
-    return breakStmt.label === labelName;
-  }
-
-  // Check ContinueStatement
-  if (node.type === IR.IRNodeType.ContinueStatement) {
-    const continueStmt = node as IR.IRContinueStatement;
-    return continueStmt.label === labelName;
-  }
-
-  // Don't recurse into function expressions - they have their own scope
-  if (node.type === IR.IRNodeType.FunctionExpression ||
-      node.type === IR.IRNodeType.FunctionDeclaration) {
-    return false;
-  }
-
-  // Recurse into child nodes
-  if (node.type === IR.IRNodeType.BlockStatement) {
-    return (node as IR.IRBlockStatement).body.some(child => hasBreakOrContinueTargeting(child, labelName));
-  }
-  if (node.type === IR.IRNodeType.IfStatement) {
-    const ifStmt = node as IR.IRIfStatement;
-    return hasBreakOrContinueTargeting(ifStmt.consequent, labelName) ||
-           (ifStmt.alternate ? hasBreakOrContinueTargeting(ifStmt.alternate, labelName) : false);
-  }
-  if (node.type === IR.IRNodeType.ExpressionStatement) {
-    return hasBreakOrContinueTargeting((node as IR.IRExpressionStatement).expression, labelName);
-  }
-  if (node.type === IR.IRNodeType.ForOfStatement) {
-    return hasBreakOrContinueTargeting((node as IR.IRForOfStatement).body, labelName);
-  }
-  if (node.type === IR.IRNodeType.WhileStatement) {
-    return hasBreakOrContinueTargeting((node as IR.IRWhileStatement).body, labelName);
-  }
-  if (node.type === IR.IRNodeType.ForStatement) {
-    return hasBreakOrContinueTargeting((node as IR.IRForStatement).body, labelName);
-  }
-  if (node.type === IR.IRNodeType.LabeledStatement) {
-    return hasBreakOrContinueTargeting((node as IR.IRLabeledStatement).body, labelName);
-  }
-  if (node.type === IR.IRNodeType.CallExpression) {
-    const callExpr = node as IR.IRCallExpression;
-    // Check if this is an IIFE - need to look inside
-    if (callExpr.callee.type === IR.IRNodeType.FunctionExpression) {
-      const funcExpr = callExpr.callee as IR.IRFunctionExpression;
-      return hasBreakOrContinueTargeting(funcExpr.body, labelName);
-    }
-    return callExpr.arguments.some(arg => hasBreakOrContinueTargeting(arg, labelName));
-  }
-
-  return false;
+  return containsJumpToLabel(node, labelName, { lookInsideIIFEs: true });
 }
 
 /**
@@ -1651,6 +1467,10 @@ export function transformForOf(
       ],
     };
 
+    // Check if body contains await/yield (beyond for-await-of itself)
+    const hasAwaits = isAwait || containsAwaitExpression(forOfNode.body);
+    const hasYields = containsYieldExpression(forOfNode.body);
+
     const iife: IR.IRCallExpression = {
       type: IR.IRNodeType.CallExpression,
       callee: {
@@ -1658,12 +1478,32 @@ export function transformForOf(
         id: null,
         params: [],
         body: iifeBody,
-        async: isAwait,  // async IIFE for for-await-of
+        async: hasAwaits,
+        generator: hasYields,
       } as IR.IRFunctionExpression,
       arguments: [],
     };
     copyPosition(list, iife);
 
+    // For generator IIFEs, wrap the call in yield*
+    // For async IIFEs, wrap the call in await
+    if (hasYields) {
+      const yieldExpr: IR.IRYieldExpression = {
+        type: IR.IRNodeType.YieldExpression,
+        delegate: true,
+        argument: iife,
+      };
+      copyPosition(list, yieldExpr);
+      return yieldExpr;
+    }
+    if (hasAwaits) {
+      const awaitExpr: IR.IRAwaitExpression = {
+        type: IR.IRNodeType.AwaitExpression,
+        argument: iife,
+      };
+      copyPosition(list, awaitExpr);
+      return awaitExpr;
+    }
     return iife;
   } finally {
     popLoopContext();
@@ -1809,6 +1649,7 @@ export function transformLabel(
       // If so, we need to unwrap it and put its content inside our IIFE with the label
       let actualBody: IR.IRNode = body;
       let isBodyAsync = hasAsyncForOf;
+      let isBodyGenerator = false;
 
       if (body.type === IR.IRNodeType.CallExpression) {
         const callExpr = body as IR.IRCallExpression;
@@ -1820,7 +1661,18 @@ export function transformLabel(
           if (funcExpr.async) {
             isBodyAsync = true;
           }
+          if (funcExpr.generator) {
+            isBodyGenerator = true;
+          }
         }
+      }
+
+      // Also check if the body contains await/yield that wasn't from an IIFE
+      if (!isBodyAsync && containsAwaitExpression(actualBody)) {
+        isBodyAsync = true;
+      }
+      if (!isBodyGenerator && containsYieldExpression(actualBody)) {
+        isBodyGenerator = true;
       }
 
       // Create labeled block with the (potentially unwrapped) body
@@ -1857,11 +1709,27 @@ export function transformLabel(
           id: null,
           params: [],
           body: iifeBody,
-          async: isBodyAsync,  // async IIFE if any for-await-of is present or inner IIFE was async
+          async: isBodyAsync,
+          generator: isBodyGenerator,
         } as IR.IRFunctionExpression,
         arguments: [],
       };
       copyPosition(list, iife);
+
+      // For generator IIFEs, wrap in yield*; for async, wrap in await
+      if (isBodyGenerator) {
+        return {
+          type: IR.IRNodeType.YieldExpression,
+          argument: iife,
+          delegate: true,
+        } as IR.IRYieldExpression;
+      }
+      if (isBodyAsync) {
+        return {
+          type: IR.IRNodeType.AwaitExpression,
+          argument: iife,
+        } as IR.IRAwaitExpression;
+      }
 
       return iife;
     }

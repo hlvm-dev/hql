@@ -14,6 +14,7 @@ import * as IR from "../type/hql_ir.ts";
 import { ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { globalLogger as logger } from "../../logger.ts";
+import { forEachNode } from "../utils/ir-tree-walker.ts";
 
 /**
  * Represents a scope in the program
@@ -130,110 +131,33 @@ function extractIdentifiersFromPattern(pattern: IR.IRNode): string[] {
 /**
  * Check for TDZ violations in an expression
  * Throws error if expression references a variable declared later in the same scope
+ *
+ * Uses generic tree walker - automatically handles ALL IR node types.
  */
 function checkTDZInExpression(scope: Scope, node: IR.IRNode): void {
-  // Skip null/undefined nodes
   if (!node) return;
 
-  // Check identifier references
-  if (node.type === IR.IRNodeType.Identifier) {
-    const identifier = node as IR.IRIdentifier;
-    const name = identifier.name;
+  // Use generic tree walker to visit all nodes and check identifiers
+  forEachNode(node, (n) => {
+    if (n.type === IR.IRNodeType.Identifier) {
+      const identifier = n as IR.IRIdentifier;
+      const name = identifier.name;
 
-    // Check if this variable is declared later in the current scope (TDZ violation)
-    const declIndex = getDeclarationIndex(scope, name);
-    if (declIndex !== undefined && declIndex > scope.currentStatementIndex) {
-      throw new ValidationError(
-        `Cannot access '${name}' before initialization (declared later in the same scope)`,
-        "Temporal Dead Zone violation",
-        {
-          filePath: identifier.position?.filePath || "unknown",
-          line: identifier.position?.line,
-          column: identifier.position?.column,
-        }
-      );
-    }
-  }
-
-  // Recursively check nested expressions
-  switch (node.type) {
-    case IR.IRNodeType.CallExpression: {
-      const call = node as IR.IRCallExpression;
-      checkTDZInExpression(scope, call.callee as IR.IRNode);
-      for (const arg of call.arguments) {
-        checkTDZInExpression(scope, arg);
+      // Check if this variable is declared later in the current scope (TDZ violation)
+      const declIndex = getDeclarationIndex(scope, name);
+      if (declIndex !== undefined && declIndex > scope.currentStatementIndex) {
+        throw new ValidationError(
+          `Cannot access '${name}' before initialization (declared later in the same scope)`,
+          "Temporal Dead Zone violation",
+          {
+            filePath: identifier.position?.filePath || "unknown",
+            line: identifier.position?.line,
+            column: identifier.position?.column,
+          }
+        );
       }
-      break;
     }
-
-    case IR.IRNodeType.MemberExpression: {
-      const member = node as IR.IRMemberExpression;
-      checkTDZInExpression(scope, member.object);
-      if (member.computed) {
-        checkTDZInExpression(scope, member.property);
-      }
-      break;
-    }
-
-    case IR.IRNodeType.BinaryExpression: {
-      const binary = node as IR.IRBinaryExpression;
-      checkTDZInExpression(scope, binary.left);
-      checkTDZInExpression(scope, binary.right);
-      break;
-    }
-
-    case IR.IRNodeType.UnaryExpression: {
-      const unary = node as IR.IRUnaryExpression;
-      checkTDZInExpression(scope, unary.argument);
-      break;
-    }
-
-    case IR.IRNodeType.ConditionalExpression: {
-      const cond = node as IR.IRConditionalExpression;
-      checkTDZInExpression(scope, cond.test);
-      checkTDZInExpression(scope, cond.consequent);
-      checkTDZInExpression(scope, cond.alternate);
-      break;
-    }
-
-    case IR.IRNodeType.ArrayExpression: {
-      const array = node as IR.IRArrayExpression;
-      for (const element of array.elements) {
-        checkTDZInExpression(scope, element);
-      }
-      break;
-    }
-
-    case IR.IRNodeType.ObjectExpression: {
-      const obj = node as IR.IRObjectExpression;
-      for (const prop of obj.properties) {
-        if (prop.type === IR.IRNodeType.ObjectProperty) {
-          const objProp = prop as IR.IRObjectProperty;
-          checkTDZInExpression(scope, objProp.value);
-        } else if (prop.type === IR.IRNodeType.SpreadAssignment) {
-          const spread = prop as IR.IRSpreadAssignment;
-          checkTDZInExpression(scope, spread.expression);
-        }
-      }
-      break;
-    }
-
-    case IR.IRNodeType.NewExpression: {
-      const newExpr = node as IR.IRNewExpression;
-      checkTDZInExpression(scope, newExpr.callee);
-      for (const arg of newExpr.arguments) {
-        checkTDZInExpression(scope, arg);
-      }
-      break;
-    }
-
-    case IR.IRNodeType.AssignmentExpression: {
-      const assign = node as IR.IRAssignmentExpression;
-      checkTDZInExpression(scope, assign.left);
-      checkTDZInExpression(scope, assign.right);
-      break;
-    }
-  }
+  });
 }
 
 /**

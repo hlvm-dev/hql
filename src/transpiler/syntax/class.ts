@@ -10,7 +10,7 @@ import {
   ValidationError,
 } from "../../common/error.ts";
 import { getErrorMessage, sanitizeIdentifier } from "../../common/utils.ts";
-import { extractAndNormalizeType } from "../tokenizer/type-tokenizer.ts";
+import { extractAndNormalizeType, splitTypeParameters } from "../tokenizer/type-tokenizer.ts";
 import {
   transformElements,
   transformNonNullElements,
@@ -114,12 +114,14 @@ export function transformClass(
     let className = (nameNode as SymbolNode).name;
 
     // Extract generic type parameters from class name (e.g., "Box<T>" -> name="Box", typeParameters=["T"])
+    // Use depth-aware splitTypeParameters to correctly handle nested generics like Box<Record<string,number>,Array<T>>
     let typeParameters: string[] | undefined;
     const nameParts = className.match(/^([^<]+)(?:<(.+)>)?$/);
     if (nameParts) {
       className = nameParts[1];
       if (nameParts[2]) {
-        typeParameters = nameParts[2].split(",").map((s) => s.trim());
+        // Use splitTypeParameters instead of naive split(",") to handle nested types correctly
+        typeParameters = splitTypeParameters(nameParts[2]);
       }
     }
 

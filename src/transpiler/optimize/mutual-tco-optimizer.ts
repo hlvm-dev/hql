@@ -32,6 +32,7 @@
  */
 
 import * as IR from "../type/hql_ir.ts";
+import { findTailCallsToFunctions } from "./tail-position-analyzer.ts";
 
 // ============================================================================
 // Types
@@ -69,161 +70,6 @@ function isCallTo(node: IR.IRNode, funcNames: Set<string>): string | null {
   return null;
 }
 
-/**
- * Find all tail calls in a function body to known functions
- *
- * @param body - The function body
- * @param funcName - The name of the function being analyzed
- * @param knownFunctions - Set of all known function names
- * @param includeSelfCalls - If true, include self-calls (for generators that need TCO)
- */
-function findTailCalls(
-  body: IR.IRBlockStatement,
-  funcName: string,
-  knownFunctions: Set<string>,
-  includeSelfCalls: boolean = false
-): Set<string> {
-  const tailCalls = new Set<string>();
-
-  function checkTailPosition(node: IR.IRNode, inTailPosition: boolean): void {
-    switch (node.type) {
-      case IR.IRNodeType.BlockStatement: {
-        const stmts = (node as IR.IRBlockStatement).body;
-        stmts.forEach((stmt, i) => {
-          checkTailPosition(stmt, inTailPosition && i === stmts.length - 1);
-        });
-        break;
-      }
-
-      case IR.IRNodeType.ReturnStatement: {
-        const arg = (node as IR.IRReturnStatement).argument;
-        if (arg) checkExpr(arg, true);
-        break;
-      }
-
-      case IR.IRNodeType.IfStatement: {
-        const ifStmt = node as IR.IRIfStatement;
-        checkExpr(ifStmt.test, false);
-        checkTailPosition(ifStmt.consequent, inTailPosition);
-        if (ifStmt.alternate) checkTailPosition(ifStmt.alternate, inTailPosition);
-        break;
-      }
-
-      case IR.IRNodeType.ExpressionStatement: {
-        const expr = (node as IR.IRExpressionStatement).expression;
-        // For generators: expression statement with yield* in tail position
-        if (inTailPosition && expr.type === IR.IRNodeType.YieldExpression) {
-          const yieldExpr = expr as IR.IRYieldExpression;
-          if (yieldExpr.delegate && yieldExpr.argument) {
-            checkExpr(yieldExpr.argument, true);
-          }
-        } else {
-          checkExpr(expr, false);
-        }
-        break;
-      }
-
-      case IR.IRNodeType.VariableDeclaration:
-        (node as IR.IRVariableDeclaration).declarations.forEach(d => {
-          if (d.init) checkExpr(d.init, false);
-        });
-        break;
-    }
-  }
-
-  function checkExpr(node: IR.IRNode, inTailPosition: boolean): void {
-    const calledFunc = isCallTo(node, knownFunctions);
-    if (calledFunc !== null && inTailPosition) {
-      // For generators/async: include self-calls (they need trampoline TCO)
-      // For sync: exclude self-calls (handled by while-loop TCO optimizer)
-      if (calledFunc !== funcName || includeSelfCalls) {
-        tailCalls.add(calledFunc);
-      }
-    }
-
-    switch (node.type) {
-      case IR.IRNodeType.ConditionalExpression: {
-        const cond = node as IR.IRConditionalExpression;
-        checkExpr(cond.test, false);
-        checkExpr(cond.consequent, inTailPosition);
-        checkExpr(cond.alternate, inTailPosition);
-        break;
-      }
-
-      case IR.IRNodeType.BinaryExpression: {
-        const bin = node as IR.IRBinaryExpression;
-        checkExpr(bin.left, false);
-        checkExpr(bin.right, false);
-        break;
-      }
-
-      case IR.IRNodeType.UnaryExpression:
-        checkExpr((node as IR.IRUnaryExpression).argument, false);
-        break;
-
-      case IR.IRNodeType.CallExpression: {
-        const call = node as IR.IRCallExpression;
-        call.arguments.forEach(arg => checkExpr(arg, false));
-
-        // Check for IIFE in tail position - look inside for tail calls
-        // Pattern: (() => { ... return tailCall(); })()
-        if (inTailPosition &&
-            call.arguments.length === 0 &&
-            call.callee.type === IR.IRNodeType.FunctionExpression) {
-          const iife = call.callee as IR.IRFunctionExpression;
-          if (iife.params.length === 0 && iife.body) {
-            // Analyze IIFE body for tail calls
-            checkTailPosition(iife.body, true);
-          }
-        }
-        break;
-      }
-
-      case IR.IRNodeType.ArrayExpression:
-        (node as IR.IRArrayExpression).elements.forEach(el => {
-          if (el) checkExpr(el, false);
-        });
-        break;
-
-      case IR.IRNodeType.MemberExpression: {
-        const mem = node as IR.IRMemberExpression;
-        checkExpr(mem.object, false);
-        if (mem.computed) checkExpr(mem.property, false);
-        break;
-      }
-
-      case IR.IRNodeType.YieldExpression: {
-        // For generators: yield* call() is a tail call
-        const yieldExpr = node as IR.IRYieldExpression;
-        if (yieldExpr.delegate && yieldExpr.argument) {
-          checkExpr(yieldExpr.argument, inTailPosition);
-        }
-        break;
-      }
-
-      case IR.IRNodeType.AwaitExpression: {
-        // For async: await call() is a tail call
-        const awaitExpr = node as IR.IRAwaitExpression;
-        if (awaitExpr.argument) {
-          checkExpr(awaitExpr.argument, inTailPosition);
-        }
-        break;
-      }
-
-      case IR.IRNodeType.SequenceExpression: {
-        // For SequenceExpression (from do blocks): last expression inherits tail position
-        const seqExpr = node as IR.IRSequenceExpression;
-        seqExpr.expressions.forEach((expr, i) => {
-          checkExpr(expr, inTailPosition && i === seqExpr.expressions.length - 1);
-        });
-        break;
-      }
-    }
-  }
-
-  checkTailPosition(body, true);
-  return tailCalls;
-}
 
 /**
  * Find strongly connected components using Tarjan's algorithm
@@ -680,6 +526,11 @@ export function applyMutualTCO(
   for (const stmt of statements) {
     if (stmt.type === IR.IRNodeType.FnFunctionDeclaration) {
       const fn = stmt as IR.IRFnFunctionDeclaration;
+      // Skip async functions - they don't need TCO because await naturally breaks the stack
+      // Each await suspends execution and starts fresh, so no stack overflow possible
+      if (fn.async) {
+        continue;
+      }
       const name = fn.id.name;
       functionNames.add(name);
       functions.set(name, {
@@ -695,8 +546,10 @@ export function applyMutualTCO(
   // For generators: include self-calls (they need trampoline TCO since yield* grows stack)
   // For sync: exclude self-calls (handled by while-loop TCO optimizer)
   for (const [name, info] of functions) {
-    const includeSelfCalls = info.isGenerator;
-    info.tailCallsTo = findTailCalls(info.node.body, name, functionNames, includeSelfCalls);
+    info.tailCallsTo = findTailCallsToFunctions(info.node.body, name, functionNames, {
+      includeSelfCalls: info.isGenerator,
+      treatYieldDelegateAsTail: info.isGenerator
+    });
   }
 
   // Step 3: Find mutual recursion groups (SCCs with size > 1, or single with self-tail-call)

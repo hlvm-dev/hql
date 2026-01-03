@@ -18,9 +18,10 @@
  */
 
 import * as IR from "../type/hql_ir.ts";
+import { checkTailRecursion } from "./tail-position-analyzer.ts";
 
 // ============================================================================
-// Detection: Single-pass tail recursion analysis
+// Detection: Uses shared tail-position-analyzer utility
 // ============================================================================
 
 /**
@@ -35,104 +36,15 @@ function isRecursiveCall(node: IR.IRNode, funcName: string): boolean {
 }
 
 /**
- * Check if function body has tail-recursive calls (single-pass analysis)
+ * Check if function body has tail-recursive calls.
+ * Uses shared tail-position-analyzer utility.
  *
  * Returns true if:
  * - Function contains recursive calls
  * - ALL recursive calls are in tail position
  */
 function hasTailRecursion(body: IR.IRBlockStatement, funcName: string): boolean {
-  let hasRecursion = false;
-  let allTailCalls = true;
-
-  function checkTailPosition(node: IR.IRNode, inTailPosition: boolean): void {
-    switch (node.type) {
-      case IR.IRNodeType.BlockStatement: {
-        const stmts = (node as IR.IRBlockStatement).body;
-        stmts.forEach((stmt, i) => {
-          // Only last statement is in tail position
-          checkTailPosition(stmt, inTailPosition && i === stmts.length - 1);
-        });
-        break;
-      }
-
-      case IR.IRNodeType.ReturnStatement: {
-        const arg = (node as IR.IRReturnStatement).argument;
-        if (arg) checkExpr(arg, true);
-        break;
-      }
-
-      case IR.IRNodeType.IfStatement: {
-        const ifStmt = node as IR.IRIfStatement;
-        checkExpr(ifStmt.test, false);
-        checkTailPosition(ifStmt.consequent, inTailPosition);
-        if (ifStmt.alternate) checkTailPosition(ifStmt.alternate, inTailPosition);
-        break;
-      }
-
-      case IR.IRNodeType.ExpressionStatement:
-        checkExpr((node as IR.IRExpressionStatement).expression, false);
-        break;
-
-      case IR.IRNodeType.VariableDeclaration:
-        (node as IR.IRVariableDeclaration).declarations.forEach(d => {
-          if (d.init) checkExpr(d.init, false);
-        });
-        break;
-    }
-  }
-
-  function checkExpr(node: IR.IRNode, inTailPosition: boolean): void {
-    if (isRecursiveCall(node, funcName)) {
-      hasRecursion = true;
-      if (!inTailPosition) allTailCalls = false;
-      // Check arguments (not in tail position)
-      (node as IR.IRCallExpression).arguments.forEach(arg => checkExpr(arg, false));
-      return;
-    }
-
-    switch (node.type) {
-      case IR.IRNodeType.ConditionalExpression: {
-        const cond = node as IR.IRConditionalExpression;
-        checkExpr(cond.test, false);
-        checkExpr(cond.consequent, inTailPosition);
-        checkExpr(cond.alternate, inTailPosition);
-        break;
-      }
-
-      case IR.IRNodeType.BinaryExpression: {
-        const bin = node as IR.IRBinaryExpression;
-        checkExpr(bin.left, false);
-        checkExpr(bin.right, false);
-        break;
-      }
-
-      case IR.IRNodeType.UnaryExpression:
-        checkExpr((node as IR.IRUnaryExpression).argument, false);
-        break;
-
-      case IR.IRNodeType.CallExpression: {
-        const call = node as IR.IRCallExpression;
-        call.arguments.forEach(arg => checkExpr(arg, false));
-        break;
-      }
-
-      case IR.IRNodeType.ArrayExpression:
-        (node as IR.IRArrayExpression).elements.forEach(el => {
-          if (el) checkExpr(el, false);
-        });
-        break;
-
-      case IR.IRNodeType.MemberExpression: {
-        const mem = node as IR.IRMemberExpression;
-        checkExpr(mem.object, false);
-        if (mem.computed) checkExpr(mem.property, false);
-        break;
-      }
-    }
-  }
-
-  checkTailPosition(body, true);
+  const { hasRecursion, allTailCalls } = checkTailRecursion(body, funcName);
   return hasRecursion && allTailCalls;
 }
 

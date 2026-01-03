@@ -20,6 +20,10 @@ import {
   isInsideIIFE,
 } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { createEarlyReturnObject } from "../utils/return-helpers.ts";
+import {
+  containsAwaitExpression,
+  containsYieldExpression,
+} from "../utils/ir-tree-walker.ts";
 
 /**
  * Check if an HQL AST node contains a return statement
@@ -427,8 +431,12 @@ export function transformDo(
       // Get position for block from first body statement
       const blockPosition = bodyStatements.length > 0 ? bodyStatements[0].position : listPosition;
 
-      // Return an IIFE (Immediately Invoked Function Expression)
-      return {
+      // Check if the IIFE body contains any yield or await expressions
+      // If so, we need to make the IIFE a generator/async and wrap appropriately
+      const hasYields = bodyStatements.some(containsYieldExpression);
+      const hasAwaits = bodyStatements.some(containsAwaitExpression);
+
+      const iifeCall: IR.IRCallExpression = {
         type: IR.IRNodeType.CallExpression,
         callee: {
           type: IR.IRNodeType.FunctionExpression,
@@ -439,11 +447,36 @@ export function transformDo(
             body: bodyStatements,
             position: blockPosition,
           } as IR.IRBlockStatement,
+          generator: hasYields, // Make it a generator if yields are present
+          async: hasAwaits, // Make it async if awaits are present (can be async generator)
           position: listPosition,
         } as IR.IRFunctionExpression,
         arguments: [],
         position: listPosition,
-      } as IR.IRCallExpression;
+      };
+
+      // If yields are present, wrap the IIFE call with yield*
+      // This delegates to the generator IIFE, properly handling all yields
+      if (hasYields) {
+        return {
+          type: IR.IRNodeType.YieldExpression,
+          delegate: true,
+          argument: iifeCall,
+          position: listPosition,
+        } as IR.IRYieldExpression;
+      }
+
+      // If awaits are present, wrap the IIFE call with await
+      // This awaits the async IIFE, properly handling all awaits
+      if (hasAwaits) {
+        return {
+          type: IR.IRNodeType.AwaitExpression,
+          argument: iifeCall,
+          position: listPosition,
+        } as IR.IRAwaitExpression;
+      }
+
+      return iifeCall;
     },
     "transformDo",
     TransformError,
@@ -877,19 +910,41 @@ export function transformSwitch(
 
       // EXPRESSION-EVERYWHERE: Wrap in IIFE to make switch an expression
       // (() => { switch(expr) { case v1: return r1; ... } })()
+      // Check if switch contains await/yield - IIFE needs to be async/generator
+      const switchBody: IR.IRBlockStatement = {
+        type: IR.IRNodeType.BlockStatement,
+        body: [switchStmt],
+      };
+      const hasYields = containsYieldExpression(switchBody);
+      const hasAwaits = containsAwaitExpression(switchBody);
+
       const iife: IR.IRCallExpression = {
         type: IR.IRNodeType.CallExpression,
         callee: {
           type: IR.IRNodeType.FunctionExpression,
           id: null,
           params: [],
-          body: {
-            type: IR.IRNodeType.BlockStatement,
-            body: [switchStmt],
-          } as IR.IRBlockStatement,
+          body: switchBody,
+          async: hasAwaits,
+          generator: hasYields,
         } as IR.IRFunctionExpression,
         arguments: [],
       };
+
+      // For generator IIFEs, wrap in yield*; for async, wrap in await
+      if (hasYields) {
+        return {
+          type: IR.IRNodeType.YieldExpression,
+          argument: iife,
+          delegate: true,
+        } as IR.IRYieldExpression;
+      }
+      if (hasAwaits) {
+        return {
+          type: IR.IRNodeType.AwaitExpression,
+          argument: iife,
+        } as IR.IRAwaitExpression;
+      }
 
       return iife;
     },

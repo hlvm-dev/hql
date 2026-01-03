@@ -95,6 +95,53 @@ export function countParenDepth(text: string): number {
 }
 
 // ============================================================================
+// TYPE PARAMETER SPLITTING
+// ============================================================================
+
+/**
+ * Split a type parameter string respecting bracket nesting.
+ * Unlike simple string.split(","), this correctly handles nested types.
+ *
+ * Example:
+ * - Input: "Record<string,number>,Array<T>"
+ * - Output: ["Record<string,number>", "Array<T>"]
+ *
+ * Without depth-aware splitting, we'd incorrectly get:
+ * - ["Record<string", "number>", "Array<T>"]
+ *
+ * @param typeParamString - The type parameter string (without surrounding brackets)
+ * @returns Array of individual type parameters
+ */
+export function splitTypeParameters(typeParamString: string): string[] {
+  const params: string[] = [];
+  let current = "";
+  let depth = 0;
+
+  for (const char of typeParamString) {
+    if (char === "<" || char === "(" || char === "[" || char === "{") {
+      depth++;
+      current += char;
+    } else if (char === ">" || char === ")" || char === "]" || char === "}") {
+      depth--;
+      current += char;
+    } else if (char === "," && depth === 0) {
+      // Only split on comma when at depth 0 (not inside nested brackets)
+      params.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  // Don't forget the last parameter
+  if (current.trim()) {
+    params.push(current.trim());
+  }
+
+  return params;
+}
+
+// ============================================================================
 // BALANCED BRACKET SCANNING
 // ============================================================================
 

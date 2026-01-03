@@ -14,7 +14,7 @@
 import * as IR from "../type/hql_ir.ts";
 import { CodeGenError } from "../../common/error.ts";
 import { applyTCO } from "../optimize/tco-optimizer.ts";
-import { applyMutualTCO, type MutualRecursionGroup } from "../optimize/mutual-tco-optimizer.ts";
+import { applyMutualTCO, getMutualRecursionGroup, type MutualRecursionGroup } from "../optimize/mutual-tco-optimizer.ts";
 import { RUNTIME_HELPER_NAMES_SET } from "../../common/runtime-helper-impl.ts";
 import { assertNever } from "../codegen/exhaustive.ts";
 import { CodeBuffer, type SourceMapping } from "../codegen/code-buffer.ts";
@@ -54,8 +54,8 @@ class TSGenerator {
   private mutualRecursionFunctions: Set<string> = new Set();
   // Track generator functions in mutual recursion (need __hql_trampoline_gen)
   private mutualRecursionGenerators: Set<string> = new Set();
-  // Track if we're currently generating inside a mutual recursion function
-  private insideMutualRecursionFunction: boolean = false;
+  // Track current mutual recursion group we are generating inside
+  private currentMutualRecursionGroup: MutualRecursionGroup | null = null;
 
   // Expression-everywhere: track top-level binding names for hoisting
   private topLevelBindingNames: Set<string> = new Set();
@@ -1606,9 +1606,18 @@ class TSGenerator {
     const calleeName = node.callee.type === IR.IRNodeType.Identifier
       ? (node.callee as IR.IRIdentifier).name
       : null;
-    const shouldWrapWithTrampoline = calleeName !== null &&
-      this.mutualRecursionFunctions.has(calleeName) &&
-      !this.insideMutualRecursionFunction;
+    
+    // Check if callee is a mutual recursive function
+    const isMutualRecursive = calleeName !== null && this.mutualRecursionFunctions.has(calleeName);
+    
+    // Check if we should wrap with trampoline
+    // Wrap if:
+    // 1. It IS a mutual recursive function
+    // 2. AND (We are NOT inside a mutual recursion group OR The callee is NOT in the current group)
+    const shouldWrapWithTrampoline = isMutualRecursive && (
+      this.currentMutualRecursionGroup === null ||
+      !this.currentMutualRecursionGroup.members.has(calleeName!)
+    );
 
     if (shouldWrapWithTrampoline) {
       // Use __hql_trampoline_gen for generators, __hql_trampoline for sync functions
@@ -2274,10 +2283,12 @@ class TSGenerator {
     // (Note: Mutual TCO is already applied at module level in generate())
     const optimizedNode = applyTCO(node);
 
-    // Track if we're inside a mutual recursion function
-    const wasInsideMutualRecursion = this.insideMutualRecursionFunction;
-    if (this.mutualRecursionFunctions.has(optimizedNode.id.name)) {
-      this.insideMutualRecursionFunction = true;
+    // Track if we're currently generating inside a mutual recursion function
+    const previousGroup = this.currentMutualRecursionGroup;
+    const currentGroup = getMutualRecursionGroup(optimizedNode.id.name, this.mutualRecursionGroups);
+    
+    if (currentGroup) {
+      this.currentMutualRecursionGroup = currentGroup;
     }
 
     // Check if this function was hoisted (appears in expression context)
@@ -2288,7 +2299,7 @@ class TSGenerator {
     // Expression-everywhere: hoisted functions become assignment expressions
     if (isHoisted) {
       this.generateFnAsAssignment(optimizedNode);
-      this.insideMutualRecursionFunction = wasInsideMutualRecursion;
+      this.currentMutualRecursionGroup = previousGroup;
       return;
     }
 
@@ -2330,7 +2341,7 @@ class TSGenerator {
     this.emit("\n");
 
     // Restore mutual recursion tracking
-    this.insideMutualRecursionFunction = wasInsideMutualRecursion;
+    this.currentMutualRecursionGroup = previousGroup;
   }
 
   /**
@@ -2993,15 +3004,17 @@ class TSGenerator {
 
   private generateJsMethodAccess(node: IR.IRJsMethodAccess): void {
     // JsMethodAccess needs runtime detection: could be a property or a no-arg method
-    // Use Arrow IIFE to evaluate object only once (avoids triple evaluation bug)
-    // Generate: ((obj) => typeof obj.method === 'function' ? obj.method() : obj.method)(actualObject)
-    this.emit("((obj) => typeof obj.", node.position);
+    // Use regular function IIFE (NOT arrow) to preserve `this` binding in method calls
+    // Arrow functions lexically bind `this`, breaking method calls that depend on `this`
+    // Use .call(obj) to explicitly bind `this` to the object when invoking the method
+    // Generate: (function(obj) { return typeof obj.method === 'function' ? obj.method.call(obj) : obj.method; })(actualObject)
+    this.emit("(function(obj) { return typeof obj.", node.position);
     this.emit(node.method);
     this.emit(" === 'function' ? obj.");
     this.emit(node.method);
-    this.emit("() : obj.");
+    this.emit(".call(obj) : obj.");
     this.emit(node.method);
-    this.emit(")(");
+    this.emit("; })(");
     this.generateInExpressionContext(node.object);
     this.emit(")");
   }

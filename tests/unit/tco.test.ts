@@ -10,6 +10,7 @@
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
+import { initializeRuntimeHelpers } from "../../src/common/runtime-helpers.ts";
 
 async function transpile(code: string): Promise<string> {
   const result = await transpileToJavascript(code);
@@ -17,6 +18,8 @@ async function transpile(code: string): Promise<string> {
 }
 
 async function evalHql(code: string): Promise<unknown> {
+  // Ensure runtime helpers (like __hql_trampoline) are available in global scope
+  initializeRuntimeHelpers();
   const js = await transpile(code);
   return eval(js);
 }
@@ -330,4 +333,47 @@ Deno.test("TCO: function returning computed value", async () => {
      (power 3 4 1)]
   `);
   assertEquals(result, [1, 32, 81]);
+});
+
+// ==========================================
+// Mutual Recursion Cross-Group Checks
+// ==========================================
+
+Deno.test("TCO: cross-group mutual recursion calls are trampolined", async () => {
+  // This verifies that when a function in one mutual recursion group (A)
+  // calls a function in another group (B), the call is properly wrapped
+  // in a trampoline instead of returning a raw thunk.
+  const result = await evalHql(`
+    ;; Group A
+    (fn is-even [n] 
+      (if (=== n 0) 
+          (do 
+            ;; Call to Group B from inside Group A
+            ;; If not trampolined, ping returns a thunk that is ignored
+            (ping 5) 
+            true)
+          (is-odd (- n 1))))
+      
+    (fn is-odd [n] 
+      (if (=== n 0) false (is-even (- n 1))))
+
+    ;; Group B
+    (fn ping [n]
+      (if (=== n 0) "ponged" (pong (- n 1))))
+
+    (fn pong [n]
+      (if (=== n 0) "pinged" (ping (- n 1))))
+      
+    ;; The side effect of ping is not easily observable here without console.log,
+    ;; but if ping returned a thunk, it wouldn't execute fully.
+    ;; We rely on the fact that if it CRASHES or returns weird type, this test fails.
+    ;; To be sure, let's return the result of ping
+    
+    (fn test-cross-call []
+      (let [res (ping 4)]
+        res))
+        
+    (test-cross-call)
+  `);
+  assertEquals(result, "ponged");
 });

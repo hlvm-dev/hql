@@ -15,9 +15,12 @@ import {
   isSpreadOperator,
   transformSpreadOperator,
 } from "../utils/validation-helpers.ts";
-
-const IDENTIFIER_REGEX = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
-const PRIVATE_IDENTIFIER_REGEX = /^#[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+import {
+  resolveMemberProperty,
+  createMemberExpression,
+  IDENTIFIER_REGEX,
+  PRIVATE_IDENTIFIER_REGEX,
+} from "../utils/member-expression.ts";
 
 /**
  * Transform arguments, handling spread operators.
@@ -66,32 +69,7 @@ function getLiteralString(node: HQLNode): string | null {
   return null;
 }
 
-function resolveMemberProperty(
-  property: IR.IRNode,
-  isLiteralKey = false,
-): { property: IR.IRNode; computed: boolean } {
-  // If the property is an Identifier from a variable reference (not a literal),
-  // we need computed access (obj[key]) to use the variable's value
-  if (property.type === IR.IRNodeType.Identifier && !isLiteralKey) {
-    return { property, computed: true };
-  }
-
-  if (property.type === IR.IRNodeType.StringLiteral) {
-    const keyValue = (property as IR.IRStringLiteral).value;
-    // Handle regular identifiers and private field identifiers (#name)
-    if (IDENTIFIER_REGEX.test(keyValue) || PRIVATE_IDENTIFIER_REGEX.test(keyValue)) {
-      return {
-        property: {
-          type: IR.IRNodeType.Identifier,
-          name: keyValue,
-        } as IR.IRIdentifier,
-        computed: false,
-      };
-    }
-  }
-
-  return { property, computed: true };
-}
+// resolveMemberProperty is now imported from ../utils/member-expression.ts
 
 export function extractSymbolOrLiteralName(
   node: HQLNode,

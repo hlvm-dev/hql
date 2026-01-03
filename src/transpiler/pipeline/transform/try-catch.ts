@@ -16,6 +16,7 @@ import {
 } from "../../../common/error.ts";
 import { sanitizeIdentifier } from "../../../common/utils.ts";
 import { containsAwait } from "./async-generators.ts";
+import { containsYieldExpression } from "../../utils/ir-tree-walker.ts";
 
 // Type for transform node function passed from main module
 export type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
@@ -222,11 +223,15 @@ export function transformTry(
         position: listPosition,
       };
 
-      // BUGFIX: Detect if try/catch/finally contain await expressions
-      // If they do, the wrapper IIFE must be async
+      // BUGFIX: Detect if try/catch/finally contain await/yield expressions
+      // If they do, the wrapper IIFE must be async/generator
       const needsAsync = containsAwait(tryBlock) ||
         (handler ? containsAwait(handler.body) : false) ||
         (finalizer ? containsAwait(finalizer) : false);
+
+      const needsGenerator = containsYieldExpression(tryBlock) ||
+        (handler ? containsYieldExpression(handler.body) : false) ||
+        (finalizer ? containsYieldExpression(finalizer) : false);
 
       // The IIFE needs to contain just the try statement
       const functionBody: IR.IRBlockStatement = {
@@ -241,15 +246,35 @@ export function transformTry(
         params: [],
         body: functionBody,
         async: needsAsync,
+        generator: needsGenerator,
         position: listPosition,
       };
 
-      return {
+      const iife: IR.IRCallExpression = {
         type: IR.IRNodeType.CallExpression,
         callee: functionExpression,
         arguments: [],
         position: listPosition,
-      } as IR.IRCallExpression;
+      };
+
+      // For generator IIFEs, wrap the call in yield*
+      // For async IIFEs, wrap the call in await
+      if (needsGenerator) {
+        return {
+          type: IR.IRNodeType.YieldExpression,
+          delegate: true,
+          argument: iife,
+          position: listPosition,
+        } as IR.IRYieldExpression;
+      }
+      if (needsAsync) {
+        return {
+          type: IR.IRNodeType.AwaitExpression,
+          argument: iife,
+          position: listPosition,
+        } as IR.IRAwaitExpression;
+      }
+      return iife;
     },
     "transformTry",
     TransformError,
