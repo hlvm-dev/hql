@@ -452,6 +452,9 @@ export async function resolveRuntimeLocation(
   };
 }
 
+// Recursion guard: prevents infinite loop if error handler throws during handling
+let isHandlingError = false;
+
 /**
  * Enhanced error handling for runtime errors
  * @returns The RuntimeError that should be thrown, or the original error if handling failed
@@ -464,6 +467,13 @@ export async function handleRuntimeError(
     showInternalErrors?: boolean;
   } = {},
 ): Promise<RuntimeError> {
+  // Prevent infinite recursion if error occurs during error handling
+  if (isHandlingError) {
+    console.error("[HQL] Critical: Error in error handler:", error.message);
+    return new RuntimeError(error.message, { originalError: error });
+  }
+  isHandlingError = true;
+
   const debugOutput = Boolean(
     options.debug || options.verboseErrors || options.showInternalErrors,
   );
@@ -600,6 +610,8 @@ export async function handleRuntimeError(
       filePath: runtimeContext.currentHqlFile,
       originalError: error,
     });
+  } finally {
+    isHandlingError = false;
   }
 }
 

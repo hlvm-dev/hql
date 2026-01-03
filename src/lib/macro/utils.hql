@@ -43,3 +43,23 @@
 
 (macro max [& args]
   `(Math.max ~@args))
+
+;; with-gensyms: Hygiene helper for macro writers
+;; Binds each name to a unique gensym for safe macro expansion.
+;;
+;; Usage:
+;;   (macro my-swap [a b]
+;;     (with-gensyms [tmp]
+;;       `(let (~tmp ~a)
+;;          (set! ~a ~b)
+;;          (set! ~b ~tmp))))
+;;
+;; Each name in the vector gets bound to (gensym "name"), making the
+;; macro hygienic by avoiding variable capture.
+(macro with-gensyms [names & body]
+  `(let ~(apply vector
+           (apply concat
+             (map (fn [n]
+                    [n `(gensym ~(if (symbol? n) (name n) "g"))])
+                  names)))
+     ~@body))
