@@ -285,6 +285,47 @@ HQL bindings have the same semantics as JavaScript:
   (reduce + first rest))
 ```
 
+### Multi-arity Functions
+
+Functions can have multiple arities (parameter lists), dispatching based on argument count:
+
+```clojure
+; Named multi-arity function
+(fn greet
+  ([] "Hello!")
+  ([name] (+ "Hello, " name "!"))
+  ([first last] (+ "Hello, " first " " last "!")))
+
+(greet)           ; → "Hello!"
+(greet "Alice")   ; → "Hello, Alice!"
+(greet "Alice" "Smith") ; → "Hello, Alice Smith!"
+
+; Anonymous multi-arity
+(let handler (fn
+  ([] (handle-empty))
+  ([x] (handle-one x))
+  ([x y] (handle-two x y))))
+
+; Multi-arity with rest parameters (catch-all)
+(fn variadic
+  ([x] (+ "one: " x))
+  ([x y & more] (+ "two+: " x " " y " " (vec more))))
+
+; Async multi-arity
+(async fn fetch-data
+  ([url] (await (fetch-data url {})))
+  ([url opts] (await (js/fetch url opts))))
+
+; Generator multi-arity
+(fn* range-gen
+  ([end] (yield* (range-gen 0 end)))
+  ([start end]
+    (var i start)
+    (while (< i end)
+      (yield i)
+      (= i (+ i 1)))))
+```
+
 ### Return
 
 ```clojure

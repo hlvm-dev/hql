@@ -243,10 +243,17 @@ export function setRuntimeContext(
   }
 }
 
+// Guard to prevent duplicate event listener registration
+let errorHandlerInstalled = false;
+
 /**
  * Global error handler for runtime errors
  */
 function installGlobalErrorHandler(): void {
+  // Prevent duplicate registration (important for tests and REPL restarts)
+  if (errorHandlerInstalled) return;
+  errorHandlerInstalled = true;
+
   // Save the original console.error
   const originalConsoleError = console.error;
 

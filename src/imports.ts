@@ -17,7 +17,18 @@ import {
 
 // Global registry to track which symbols are macros
 // This persists across file compilations so transpilation can filter them
-export const globalMacroRegistry = new Set<string>();
+// Uses LRUCache to bound memory in long-running processes (10000 macros max)
+// High limit because macros are essential for correctness and typical projects have < 1000
+const globalMacroRegistryCache = new LRUCache<string, true>(10000);
+
+// Export a Set-like interface for backward compatibility
+export const globalMacroRegistry = {
+  add(name: string): void { globalMacroRegistryCache.set(name, true); },
+  has(name: string): boolean { return globalMacroRegistryCache.has(name); },
+  delete(name: string): boolean { return globalMacroRegistryCache.delete(name); },
+  clear(): void { globalMacroRegistryCache.clear(); },
+  get size(): number { return globalMacroRegistryCache.size; },
+};
 
 import {
   createTempDirIfNeeded,

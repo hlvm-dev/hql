@@ -17,7 +17,7 @@ const embeddedMacros: Record<string, string> = {};
 const coreLibPath = fromFileUrl(new URL("../src/lib", import.meta.url));
 
 for await (const entry of walk(coreLibPath, {
-  exts: [".hql"],
+  exts: [".hql", ".js"],
   followSymlinks: false,
 })) {
   if (entry.isFile) {

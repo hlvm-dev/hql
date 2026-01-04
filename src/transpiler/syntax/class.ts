@@ -419,20 +419,29 @@ export function transformOptionalMethodCall(
           "Argument",
         );
 
+        // Use computed property access for method names with special characters (hyphens, etc.)
+        // This generates obj?.["method-name"]() instead of obj?.method-name()
+        const needsComputed = /[^a-zA-Z0-9_$]/.test(methodName);
+
         return {
           type: IR.IRNodeType.OptionalCallExpression,
           callee: {
             type: IR.IRNodeType.OptionalMemberExpression,
             object,
-            property: {
-              type: IR.IRNodeType.Identifier,
-              name: methodName,
-            } as IR.IRIdentifier,
-            computed: false,
+            property: needsComputed
+              ? {
+                  type: IR.IRNodeType.StringLiteral,
+                  value: methodName,
+                } as IR.IRStringLiteral
+              : {
+                  type: IR.IRNodeType.Identifier,
+                  name: methodName,
+                } as IR.IRIdentifier,
+            computed: needsComputed,
             optional: true,
           } as IR.IROptionalMemberExpression,
           arguments: args,
-          optional: false,
+          optional: true, // Generate obj?.method?.() for full optional chaining
         } as IR.IROptionalCallExpression;
       }
 
@@ -477,20 +486,28 @@ export function transformOptionalMethodCall(
         "Argument",
       );
 
+      // Use computed property access for method names with special characters (hyphens, etc.)
+      const needsComputed = /[^a-zA-Z0-9_$]/.test(methodName);
+
       return {
         type: IR.IRNodeType.OptionalCallExpression,
         callee: {
           type: IR.IRNodeType.OptionalMemberExpression,
           object,
-          property: {
-            type: IR.IRNodeType.Identifier,
-            name: methodName,
-          } as IR.IRIdentifier,
-          computed: false,
+          property: needsComputed
+            ? {
+                type: IR.IRNodeType.StringLiteral,
+                value: methodName,
+              } as IR.IRStringLiteral
+            : {
+                type: IR.IRNodeType.Identifier,
+                name: methodName,
+              } as IR.IRIdentifier,
+          computed: needsComputed,
           optional: true,
         } as IR.IROptionalMemberExpression,
         arguments: args,
-        optional: false,
+        optional: true, // Generate obj?.method?.() for full optional chaining
       } as IR.IROptionalCallExpression;
     },
     "transformOptionalMethodCall",

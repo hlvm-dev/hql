@@ -17,6 +17,19 @@ import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../transpiler/keyword/pr
 const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
 const BINDING_OPS: Set<string> = new Set(BINDING_KEYWORDS);
 
+// Security: Block prototype pollution via reserved property names
+const BLOCKED_GLOBAL_NAMES = new Set([
+  '__proto__', 'constructor', 'prototype',
+  '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__'
+]);
+
+/** Validate that a name is safe to use as a globalThis property */
+function assertSafeGlobalName(name: string): void {
+  if (BLOCKED_GLOBAL_NAMES.has(name)) {
+    throw new Error(`Cannot use reserved name "${name}" as import binding`);
+  }
+}
+
 // Type definitions
 export type ExpressionKind = "declaration" | "binding" | "expression" | "import";
 
@@ -213,29 +226,36 @@ async function handleImport(
       }
 
       const sanitized = sanitizeIdentifier(localName);
-      assignments.push(`globalThis["${sanitized}"] = __mod["${elem.name}"];`);
+      assertSafeGlobalName(sanitized);  // Security: block prototype pollution
+      assignments.push(`globalThis[${JSON.stringify(sanitized)}] = __mod[${JSON.stringify(elem.name)}];`);
       declaredNames.add(sanitized);
     }
 
-    dynamicImportCode = `const __mod = await import("${path}");
+    // Security: Use JSON.stringify to prevent code injection via malicious paths
+    dynamicImportCode = `const __mod = await import(${JSON.stringify(path)});
       ${assignments.join("\n      ")}`;
 
   } else if (isNamespaceImport(list as unknown as ListNode)) {
     // (import name from "path")
     const localName = sanitizeIdentifier((list.elements[1] as SSymbol).name);
+    assertSafeGlobalName(localName);  // Security: block prototype pollution
     const path = String((list.elements[3] as SLiteral).value);
-    dynamicImportCode = `const __mod = await import("${path}"); globalThis["${localName}"] = __mod;`;
+    // Security: Use JSON.stringify to prevent code injection
+    dynamicImportCode = `const __mod = await import(${JSON.stringify(path)}); globalThis[${JSON.stringify(localName)}] = __mod;`;
     declaredNames.add(localName);
 
   } else if (list.elements.length === 2 && list.elements[1].type === "literal") {
     // (import "path") - side effect only
-    dynamicImportCode = `await import("${String((list.elements[1] as SLiteral).value)}");`;
+    const importPath = String((list.elements[1] as SLiteral).value);
+    // Security: Use JSON.stringify to prevent code injection
+    dynamicImportCode = `await import(${JSON.stringify(importPath)});`;
 
   } else {
     // Fallback for complex imports
     const match = cleanJs(await transpileHql(sexpToString(list)), true).match(/import\s+['"]([^'"]+)['"]/);
     if (!match) throw new Error("Unsupported import syntax in REPL");
-    dynamicImportCode = `await import("${match[1]}");`;
+    // Security: Use JSON.stringify to prevent code injection
+    dynamicImportCode = `await import(${JSON.stringify(match[1])});`;
   }
 
   return wrapInAsyncExportFunction(exportName, dynamicImportCode, comment);

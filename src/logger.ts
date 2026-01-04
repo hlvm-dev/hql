@@ -2,6 +2,7 @@
  * Enhanced logger module with improved namespace support and timing
  */
 import { getErrorMessage } from "./common/utils.ts";
+import { LRUCache } from "./common/lru-cache.ts";
 
 export interface LogOptions {
   text: string;
@@ -59,8 +60,8 @@ export class Logger {
     return this.enabled;
   }
 
-  /** Timing data for performance tracking */
-  private timingData = new Map<string, TimingData>();
+  /** Timing data for performance tracking (bounded to prevent memory leaks) */
+  private timingData = new LRUCache<string, TimingData>(500);
 
   /** Whether to show timing information */
   private showTiming: boolean = false;

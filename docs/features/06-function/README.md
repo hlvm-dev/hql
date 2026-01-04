@@ -808,9 +808,15 @@ def greet(name="World"):
   ([] (greet "World"))
   ([name] (str "Hello, " name "!")))
 
-;; HQL (JSON map params instead of multi-arity)
+;; HQL - multi-arity supported!
 (fn add [a b] (+ a b))
-(fn greet {"name": "World"} (+ "Hello, " name "!"))
+(fn greet
+  ([] (greet "World"))
+  ([name] (+ "Hello, " name "!")))
+
+;; HQL - also supports JSON map params for config-style functions
+(fn connect {"host": "localhost", "port": 8080}
+  (+ host ":" port))
 ```
 
 ## Best Practices

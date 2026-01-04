@@ -72,6 +72,8 @@ const SELF_HOSTED_FUNCTIONS = new Set([
   // Phase 23: Transducers
   "mapT", "filterT", "takeT", "dropT", "takeWhileT", "dropWhileT",
   "distinctT", "partitionAllT", "composeTransducers",
+  // Phase 24: Function Utilities
+  "identity", "constantly", "vals", "juxt", "zipmap",
 ]);
 
 export const STDLIB_PUBLIC_API = Object.fromEntries(

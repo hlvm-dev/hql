@@ -54,6 +54,7 @@ const HYPHEN_REGEX = /-/g;
 const CAMEL_CASE_REGEX = /-([a-z])/g;
 const VALID_START_REGEX = /^[a-zA-Z_$]/;
 const INVALID_CHARS_REGEX = /[^a-zA-Z0-9_$]/g;
+const QUESTION_MARK_REGEX = /\?/g;
 
 export function sanitizeIdentifier(
   name: string,
@@ -99,6 +100,10 @@ function sanitizeBasicIdentifier(
   if (!VALID_START_REGEX.test(sanitized)) {
     sanitized = `_${sanitized}`;
   }
+
+  // Convert Lisp-style predicate suffix (?) to _QMARK_ for JS compatibility
+  // e.g., nil? -> nil_QMARK_, empty? -> empty_QMARK_
+  sanitized = sanitized.replace(QUESTION_MARK_REGEX, "_QMARK_");
 
   // Remove any remaining invalid characters - uses cached regex
   sanitized = sanitized.replace(INVALID_CHARS_REGEX, "");

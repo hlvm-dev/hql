@@ -52,7 +52,7 @@
 ### Control Flow
 ```clojure
 (if cond then else)              ; cond ? then : else
-(cond ((c1) r1) (else r2))       ; c1 ? r1 : r2
+(cond ((> x 0) r1) (else r2))    ; x > 0 ? r1 : r2
 (when cond body)                 ; if (cond) { body }
 (unless cond body)               ; if (!cond) { body }
 (switch x (case 1 a) (default b)); switch(x) { case 1: a; default: b }
@@ -109,7 +109,8 @@
 (and a b) (or a b) (not a)       ; logical
 (?? a b)                         ; a ?? b
 (??= x v) (&&= x v) (||= x v)    ; logical assignment
-obj?.prop                        ; optional chaining
+obj?.prop                        ; optional chaining (property)
+(.?method obj arg)               ; optional chaining (method call)
 123n                             ; BigInt
 ```
 

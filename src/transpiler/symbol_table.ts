@@ -72,10 +72,12 @@ export class SymbolTable {
   private table: Map<string, SymbolInfo> = new Map();
   private parent: SymbolTable | null;
   private scopeName: string; // Track current scope name for better debugging
+  private maxSize: number; // Limit to prevent unbounded growth in long-running processes
 
-  constructor(parent: SymbolTable | null = null, scopeName: string = "global") {
+  constructor(parent: SymbolTable | null = null, scopeName: string = "global", maxSize: number = 50000) {
     this.parent = parent;
     this.scopeName = scopeName;
+    this.maxSize = maxSize;
   }
 
   /**
@@ -87,6 +89,16 @@ export class SymbolTable {
         symbol.type ? " (" + symbol.type + ")" : ""
       }`,
     );
+
+    // Bound memory: evict oldest entries when limit exceeded
+    // This is a simple FIFO eviction (Map maintains insertion order)
+    if (this.table.size >= this.maxSize && !this.table.has(symbol.name)) {
+      const firstKey = this.table.keys().next().value;
+      if (firstKey !== undefined) {
+        this.table.delete(firstKey);
+      }
+    }
+
     this.table.set(symbol.name, symbol);
     return symbol; // Return for chaining
   }

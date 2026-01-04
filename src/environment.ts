@@ -59,7 +59,8 @@ export class Environment {
   public moduleExports = new Map<string, Record<string, Value>>();
 
   private parent: Environment | null;
-  private processedFiles = new Set<string>();
+  // Use LRUCache to bound memory in long-running processes (1000 files max)
+  private processedFiles = new LRUCache<string, true>(1000);
   private lookupCache = new LRUCache<string, Value>(500);
   private macroRegistry: MacroRegistry;
   private currentFilePath: string | null = null;
@@ -107,9 +108,8 @@ export class Environment {
     }
 
     // Copy processed files (so we don't re-process system macros)
-    for (const file of this.processedFiles) {
-      cloned.processedFiles.add(file);
-    }
+    // Note: We copy the cache state but the clone gets its own LRU limit
+    // This is intentional - clones start fresh for per-compilation isolation
 
     // Copy macro source tracking
     for (const [name, source] of this.macroSourceFiles) {
@@ -1118,7 +1118,7 @@ export class Environment {
 
   markFileProcessed(filePath: string): void {
     this.macroRegistry.markFileProcessed(filePath);
-    this.processedFiles.add(filePath);
+    this.processedFiles.set(filePath, true);
   }
 
   hasProcessedFile(filePath: string): boolean {

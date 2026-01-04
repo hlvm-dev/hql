@@ -237,14 +237,32 @@ export function transformLoop(
         body: bodyBlock,
       };
 
-      // Create initial function call with binding values
+      // Create IIFE parameters to capture initial values in outer scope
+      // This fixes the scoping issue where (loop [n n ...]) would fail
+      // because the initial value 'n' would reference the loop param instead of outer 'n'
+      const iifeParams: IR.IRIdentifier[] = [];
+      const iifeCallArgs: IR.IRNode[] = [];
+
+      for (let i = 0; i < initialValues.length; i++) {
+        const initParamName = `__init_${i}`;
+        iifeParams.push({
+          type: IR.IRNodeType.Identifier,
+          name: initParamName,
+        } as IR.IRIdentifier);
+        iifeCallArgs.push(initialValues[i]);
+      }
+
+      // Create initial function call using IIFE params (which capture outer scope values)
       const initialCall: IR.IRCallExpression = {
         type: IR.IRNodeType.CallExpression,
         callee: {
           type: IR.IRNodeType.Identifier,
           name: loopId,
         },
-        arguments: initialValues,
+        arguments: iifeParams.map(p => ({
+          type: IR.IRNodeType.Identifier,
+          name: p.name,
+        } as IR.IRIdentifier)),
       };
 
       // Check if loop body contains await/yield for async/generator IIFE
@@ -267,12 +285,12 @@ export function transformLoop(
         callee: {
           type: IR.IRNodeType.FunctionExpression,
           id: null,
-          params: [],
+          params: iifeParams,
           body: iifeBody,
           async: hasAwaits,
           generator: hasYields,
         } as IR.IRFunctionExpression,
-        arguments: [],
+        arguments: iifeCallArgs,
       };
 
       // For generator IIFEs, wrap the call in yield*
@@ -914,22 +932,41 @@ function transformSimpleLoop(
     : { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
 
   // Build IIFE:
-  // (() => {
-  //   let i = 0; let sum = 0;
+  // ((__init_0, __init_1) => {
+  //   let i = __init_0; let sum = __init_1;
   //   while (test) { body }
   //   return returnValue;
-  // })()
+  // })(0, 0)
+  //
+  // This fixes the scoping issue where (loop [n n ...]) would fail
+  // because let n = n would reference the variable being declared
+
+  // Create IIFE parameters to capture initial values in outer scope
+  const iifeParams: IR.IRIdentifier[] = [];
+  const iifeCallArgs: IR.IRNode[] = [];
+
+  for (let i = 0; i < initialValues.length; i++) {
+    const initParamName = `__init_${i}`;
+    iifeParams.push({
+      type: IR.IRNodeType.Identifier,
+      name: initParamName,
+    } as IR.IRIdentifier);
+    iifeCallArgs.push(initialValues[i]);
+  }
 
   const iifeBody: IR.IRNode[] = [];
 
-  // Add variable declarations
+  // Add variable declarations using IIFE params (not original initial values)
   for (let i = 0; i < params.length; i++) {
     iifeBody.push({
       type: IR.IRNodeType.VariableDeclaration,
       declarations: [{
         type: IR.IRNodeType.VariableDeclarator,
         id: params[i],
-        init: initialValues[i],
+        init: {
+          type: IR.IRNodeType.Identifier,
+          name: iifeParams[i].name,
+        } as IR.IRIdentifier,
       }],
       kind: "let",
     } as IR.IRVariableDeclaration);
@@ -952,18 +989,18 @@ function transformSimpleLoop(
   const hasAwaits = containsAwaitExpression(iifeBlockBody);
   const hasYields = containsYieldExpression(iifeBlockBody);
 
-  // Create IIFE
+  // Create IIFE with parameters
   const iife: IR.IRCallExpression = {
     type: IR.IRNodeType.CallExpression,
     callee: {
       type: IR.IRNodeType.FunctionExpression,
       id: null,
-      params: [],
+      params: iifeParams,
       body: iifeBlockBody,
       async: hasAwaits,
       generator: hasYields,
     } as IR.IRFunctionExpression,
-    arguments: [],
+    arguments: iifeCallArgs,
   };
 
   // For generator IIFEs, wrap the call in yield*

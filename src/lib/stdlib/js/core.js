@@ -481,11 +481,31 @@ export function __hql_trampoline(thunk) {
 // (map * [1 2 3] [4 5 6]) => __hql_get_op("*") returns the * function
 
 const __HQL_OPERATORS = {
-  // Arithmetic
-  "+": (a, b) => a + b,
-  "-": (a, b) => a - b,
-  "*": (a, b) => a * b,
-  "/": (a, b) => a / b,
+  // Arithmetic - variadic versions for use with apply/reduce
+  "+": (...nums) => {
+    let sum = 0;
+    for (const n of nums) sum += n;
+    return sum;
+  },
+  "-": (...nums) => {
+    if (nums.length === 0) return 0;
+    if (nums.length === 1) return -nums[0];
+    let result = nums[0];
+    for (let i = 1; i < nums.length; i++) result -= nums[i];
+    return result;
+  },
+  "*": (...nums) => {
+    let product = 1;
+    for (const n of nums) product *= n;
+    return product;
+  },
+  "/": (...nums) => {
+    if (nums.length === 0) return 1;
+    if (nums.length === 1) return 1 / nums[0];
+    let result = nums[0];
+    for (let i = 1; i < nums.length; i++) result /= nums[i];
+    return result;
+  },
   "%": (a, b) => a % b,
   "**": (a, b) => a ** b,
 

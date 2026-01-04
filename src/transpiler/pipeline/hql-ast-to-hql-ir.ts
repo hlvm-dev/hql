@@ -2245,6 +2245,21 @@ function determineCallOrAccess(
 
   // Handle special patterns for (obj arg) expressions
   if (elements.length === 2) {
+    // Check if first element is a js/ prefixed symbol - always treat as function call
+    // This prevents js/Promise.resolve(42) from being treated as collection access
+    const firstElement = elements[0];
+    const isJsInterop = firstElement.type === "symbol" &&
+      (firstElement as SymbolNode).name.startsWith("js/");
+
+    if (isJsInterop) {
+      return createCallExpression(
+        list,
+        currentDir,
+        transformNode,
+        firstTransformed,
+      );
+    }
+
     const symbolInfo = currentSymbolTable.get(
       (firstTransformed as IR.IRIdentifier).name,
     );
@@ -2572,25 +2587,35 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
       }
 
       // Exclude spread operators (...identifier) from dot notation handling
+      // Handle chained property access: myobj.a.b.c -> myobj.a.b.c (not myobj["a.b.c"])
       if (name.includes(".") && !name.startsWith("js/") && !name.startsWith("...")) {
         const parts = name.split(".");
+        const meta = extractMeta(sym);
+        const position = meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined;
+
+        // Build base identifier
         const baseObjectName = sanitizeIdentifier(parts[0]);
         const objectName = baseObjectName === "self" ? "this" : baseObjectName;
-        const propertyName = parts.slice(1).join(".");
-        // Include position from the source symbol for accurate error mapping
-        const meta = extractMeta(sym);
-        return {
-          type: IR.IRNodeType.InteropIIFE,
-          object: {
-            type: IR.IRNodeType.Identifier,
-            name: objectName,
-          } as IR.IRIdentifier,
-          property: {
-            type: IR.IRNodeType.StringLiteral,
-            value: propertyName,
-          } as IR.IRStringLiteral,
-          position: meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined,
-        } as IR.IRInteropIIFE;
+        let result: IR.IRNode = {
+          type: IR.IRNodeType.Identifier,
+          name: objectName,
+        } as IR.IRIdentifier;
+
+        // Chain member expressions for each property in the path
+        for (let i = 1; i < parts.length; i++) {
+          result = {
+            type: IR.IRNodeType.MemberExpression,
+            object: result,
+            property: {
+              type: IR.IRNodeType.Identifier,
+              name: parts[i],
+            } as IR.IRIdentifier,
+            computed: false,
+            position,
+          } as IR.IRMemberExpression;
+        }
+
+        return result;
       }
 
       if (name.startsWith("js/")) {

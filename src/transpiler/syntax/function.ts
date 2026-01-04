@@ -36,6 +36,7 @@ import {
   wrapWithEarlyReturnHandler,
 } from "../utils/return-helpers.ts";
 import {
+  EMPTY_ARRAY_SYMBOL,
   HASH_MAP_INTERNAL,
   HASH_MAP_USER,
   VECTOR_SYMBOL,
@@ -295,9 +296,31 @@ export function getFnFunction(
 }
 
 /**
+ * Check if a node is a multi-arity clause: ([] body...) or ([params...] body...)
+ * A multi-arity clause is a list where the first element is a vector (parameter list)
+ */
+function isMultiArityClause(node: HQLNode): boolean {
+  if (node.type !== "list") return false;
+  const list = node as ListNode;
+  if (list.elements.length < 2) return false; // Need at least params and body
+  const firstElem = list.elements[0];
+  if (firstElem.type !== "list") return false;
+  const paramList = firstElem as ListNode;
+  // Check if it's a vector: can be "vector", "empty-array", or "[]"
+  if (paramList.elements.length === 0) return false;
+  if (paramList.elements[0].type !== "symbol") return false;
+  const firstSym = paramList.elements[0] as SymbolNode;
+  return firstSym.name === VECTOR_SYMBOL ||
+         firstSym.name === EMPTY_ARRAY_SYMBOL ||
+         firstSym.name === "[]";
+}
+
+/**
  * Transform an fn function - supports both named and anonymous functions.
  * Named: (fn name [params] body...)
  * Anonymous: (fn [params] body...)
+ * Multi-arity named: (fn name ([] body1) ([x] body2) ([x y] body3))
+ * Multi-arity anonymous: (fn ([] body1) ([x] body2))
  */
 export function transformFn(
   list: ListNode,
@@ -322,7 +345,18 @@ export function transformFn(
 
     // Dispatch based on second element type
     if (secondElement.type === "symbol") {
-      // Named function: (fn name [params] body...)
+      // Named function - check if multi-arity
+      // Multi-arity: (fn name ([] body1) ([x] body2)...)
+      if (list.elements.length >= 3 && isMultiArityClause(list.elements[2])) {
+        return transformMultiArityFn(
+          list,
+          currentDir,
+          transformNode,
+          processFunctionBody,
+          true, // isNamed
+        );
+      }
+      // Single-arity named function: (fn name [params] body...)
       return transformNamedFn(
         list,
         currentDir,
@@ -330,7 +364,17 @@ export function transformFn(
         processFunctionBody,
       );
     } else if (secondElement.type === "list") {
-      // Anonymous function: (fn [params] body...)
+      // Check if this is multi-arity anonymous: (fn ([] body1) ([x] body2)...)
+      if (isMultiArityClause(secondElement)) {
+        return transformMultiArityFn(
+          list,
+          currentDir,
+          transformNode,
+          processFunctionBody,
+          false, // isNamed
+        );
+      }
+      // Single-arity anonymous function: (fn [params] body...)
       return transformAnonymousFn(
         list,
         currentDir,
@@ -358,6 +402,329 @@ export function transformFn(
       "transformation",
       list,
     );
+  }
+}
+
+/**
+ * Transform a multi-arity function definition
+ * Syntax: (fn name ([] body0) ([x] body1) ([x y] body2))
+ * Or anonymous: (fn ([] body0) ([x] body1))
+ *
+ * Generates JavaScript with switch on arguments.length:
+ * function name(...__args) {
+ *   switch(__args.length) {
+ *     case 0: return body0;
+ *     case 1: { const x = __args[0]; return body1; }
+ *     case 2: { const x = __args[0], y = __args[1]; return body2; }
+ *     default: throw new Error("No matching arity");
+ *   }
+ * }
+ */
+function transformMultiArityFn(
+  list: ListNode,
+  currentDir: string,
+  transformNode: TransformNodeFn,
+  processFunctionBody: (body: HQLNode[], dir: string) => IR.IRNode[],
+  isNamed: boolean,
+): IR.IRNode {
+  const argsIdentifier = "__args";
+
+  // Extract function name and arity clauses
+  let funcName: string | null = null;
+  let funcId: IR.IRIdentifier | null = null;
+  let arityClauses: ListNode[];
+
+  if (isNamed) {
+    const funcNameNode = list.elements[1] as SymbolNode;
+    funcName = funcNameNode.name;
+    funcId = {
+      type: IR.IRNodeType.Identifier,
+      name: sanitizeIdentifier(funcName),
+    };
+    copyPosition(funcNameNode, funcId);
+    arityClauses = list.elements.slice(2) as ListNode[];
+  } else {
+    arityClauses = list.elements.slice(1) as ListNode[];
+  }
+
+  // Validate all clauses are multi-arity format
+  for (let i = 0; i < arityClauses.length; i++) {
+    if (!isMultiArityClause(arityClauses[i])) {
+      throw new ValidationError(
+        `Invalid arity clause at position ${i + 1}. Expected ([params...] body...)`,
+        "multi-arity fn",
+        "([params...] body...)",
+        arityClauses[i].type,
+      );
+    }
+  }
+
+  // Parse each arity clause to extract: { arity, hasRest, params, body }
+  // Supports both simple symbol params and destructuring patterns
+  interface ArityInfo {
+    arity: number;
+    hasRest: boolean;
+    params: Array<{ type: "symbol"; name: string } | { type: "pattern"; node: HQLNode; index: number }>;
+    restParam: string | null;
+    bodyExprs: HQLNode[];
+  }
+
+  const arities: ArityInfo[] = [];
+
+  for (const clause of arityClauses) {
+    const paramList = clause.elements[0] as ListNode;
+    const bodyExprs = clause.elements.slice(1);
+
+    // Parse parameters from vector (skip "vector" symbol at index 0)
+    const paramElements = paramList.elements.slice(1);
+    const params: ArityInfo["params"] = [];
+    let hasRest = false;
+    let restParam: string | null = null;
+    let paramIndex = 0;
+
+    for (let i = 0; i < paramElements.length; i++) {
+      const elem = paramElements[i];
+      if (elem.type === "symbol") {
+        const sym = (elem as SymbolNode).name;
+        if (sym === "&") {
+          // Rest parameter follows
+          hasRest = true;
+          if (i + 1 < paramElements.length) {
+            const restElem = paramElements[i + 1];
+            if (restElem.type === "symbol") {
+              restParam = (restElem as SymbolNode).name;
+            }
+          }
+          break;
+        } else if (sym.startsWith("...")) {
+          // JS-style rest param
+          hasRest = true;
+          restParam = sym.slice(3);
+          break;
+        } else {
+          // Extract param name without type annotation
+          const { name: paramNameWithoutType } = extractAndNormalizeType(sym);
+          params.push({ type: "symbol", name: paramNameWithoutType });
+          paramIndex++;
+        }
+      } else if (elem.type === "list") {
+        // Destructuring pattern parameter (e.g., [x y] or {a b})
+        params.push({ type: "pattern", node: elem, index: paramIndex });
+        paramIndex++;
+      }
+    }
+
+    arities.push({
+      arity: params.length,
+      hasRest,
+      params,
+      restParam,
+      bodyExprs,
+    });
+  }
+
+  // Sort arities: rest-param arities go last (they catch "N or more" args)
+  // For fixed arities, sort by arity ascending
+  arities.sort((a, b) => {
+    if (a.hasRest && !b.hasRest) return 1;
+    if (!a.hasRest && b.hasRest) return -1;
+    return a.arity - b.arity;
+  });
+
+  // Generate switch cases
+  const switchCases: IR.IRSwitchCase[] = [];
+
+  for (const arityInfo of arities) {
+    const caseBody: IR.IRNode[] = [];
+
+    // Destructure parameters from __args
+    for (const param of arityInfo.params) {
+      if (param.type === "symbol") {
+        // Simple symbol parameter: const paramName = __args[i];
+        const paramIndex = arityInfo.params.indexOf(param);
+        caseBody.push({
+          type: IR.IRNodeType.VariableDeclaration,
+          kind: "const",
+          declarations: [{
+            type: IR.IRNodeType.VariableDeclarator,
+            id: {
+              type: IR.IRNodeType.Identifier,
+              name: sanitizeIdentifier(param.name),
+            } as IR.IRIdentifier,
+            init: {
+              type: IR.IRNodeType.MemberExpression,
+              object: { type: IR.IRNodeType.Identifier, name: argsIdentifier } as IR.IRIdentifier,
+              property: { type: IR.IRNodeType.NumericLiteral, value: paramIndex } as IR.IRNumericLiteral,
+              computed: true,
+            } as IR.IRMemberExpression,
+          }],
+        } as IR.IRVariableDeclaration);
+      } else {
+        // Destructuring pattern parameter: const [x, y] = __args[i];
+        // Use the existing pattern parsing infrastructure
+        const patternNode = param.node as ListNode;
+        const parsedPattern = parsePattern(patternNode);
+        const irPattern = patternToIR(parsedPattern, transformNode, currentDir);
+
+        if (irPattern) {
+          caseBody.push({
+            type: IR.IRNodeType.VariableDeclaration,
+            kind: "const",
+            declarations: [{
+              type: IR.IRNodeType.VariableDeclarator,
+              id: irPattern,
+              init: {
+                type: IR.IRNodeType.MemberExpression,
+                object: { type: IR.IRNodeType.Identifier, name: argsIdentifier } as IR.IRIdentifier,
+                property: { type: IR.IRNodeType.NumericLiteral, value: param.index } as IR.IRNumericLiteral,
+                computed: true,
+              } as IR.IRMemberExpression,
+            }],
+          } as IR.IRVariableDeclaration);
+        }
+      }
+    }
+
+    // Handle rest parameter if present
+    if (arityInfo.hasRest && arityInfo.restParam) {
+      // const restParam = __args.slice(arity);
+      caseBody.push({
+        type: IR.IRNodeType.VariableDeclaration,
+        kind: "const",
+        declarations: [{
+          type: IR.IRNodeType.VariableDeclarator,
+          id: {
+            type: IR.IRNodeType.Identifier,
+            name: sanitizeIdentifier(arityInfo.restParam),
+          } as IR.IRIdentifier,
+          init: {
+            type: IR.IRNodeType.CallExpression,
+            callee: {
+              type: IR.IRNodeType.MemberExpression,
+              object: { type: IR.IRNodeType.Identifier, name: argsIdentifier } as IR.IRIdentifier,
+              property: { type: IR.IRNodeType.Identifier, name: "slice" } as IR.IRIdentifier,
+              computed: false,
+            } as IR.IRMemberExpression,
+            arguments: [{ type: IR.IRNodeType.NumericLiteral, value: arityInfo.arity } as IR.IRNumericLiteral],
+          } as IR.IRCallExpression,
+        }],
+      } as IR.IRVariableDeclaration);
+    }
+
+    // Process body
+    const bodyNodes = processFunctionBody(arityInfo.bodyExprs, currentDir);
+    caseBody.push(...bodyNodes);
+
+    if (arityInfo.hasRest) {
+      // For rest params, use default case (matches N or more args)
+      // But we need a conditional check: if (__args.length >= arity)
+      // Actually, for proper handling we should use an if statement inside default
+      // Or we can use a simple approach: if this is the only rest arity, use default
+      // For now, use default case for rest param
+      switchCases.push({
+        type: IR.IRNodeType.SwitchCase,
+        test: null, // default case
+        consequent: [{
+          type: IR.IRNodeType.BlockStatement,
+          body: caseBody,
+        } as IR.IRBlockStatement],
+      } as IR.IRSwitchCase);
+    } else {
+      // Fixed arity case
+      switchCases.push({
+        type: IR.IRNodeType.SwitchCase,
+        test: { type: IR.IRNodeType.NumericLiteral, value: arityInfo.arity } as IR.IRNumericLiteral,
+        consequent: [{
+          type: IR.IRNodeType.BlockStatement,
+          body: caseBody,
+        } as IR.IRBlockStatement],
+      } as IR.IRSwitchCase);
+    }
+  }
+
+  // If no rest arity, add default case that throws error
+  const hasRestArity = arities.some(a => a.hasRest);
+  if (!hasRestArity) {
+    const errorMessage = funcName
+      ? `No matching arity for function '${funcName}' with `
+      : "No matching arity with ";
+
+    switchCases.push({
+      type: IR.IRNodeType.SwitchCase,
+      test: null, // default
+      consequent: [{
+        type: IR.IRNodeType.ThrowStatement,
+        argument: {
+          type: IR.IRNodeType.NewExpression,
+          callee: { type: IR.IRNodeType.Identifier, name: "Error" } as IR.IRIdentifier,
+          arguments: [{
+            type: IR.IRNodeType.BinaryExpression,
+            operator: "+",
+            left: { type: IR.IRNodeType.StringLiteral, value: errorMessage } as IR.IRStringLiteral,
+            right: {
+              type: IR.IRNodeType.BinaryExpression,
+              operator: "+",
+              left: {
+                type: IR.IRNodeType.MemberExpression,
+                object: { type: IR.IRNodeType.Identifier, name: argsIdentifier } as IR.IRIdentifier,
+                property: { type: IR.IRNodeType.Identifier, name: "length" } as IR.IRIdentifier,
+                computed: false,
+              } as IR.IRMemberExpression,
+              right: { type: IR.IRNodeType.StringLiteral, value: " arguments" } as IR.IRStringLiteral,
+            } as IR.IRBinaryExpression,
+          } as IR.IRBinaryExpression],
+        } as IR.IRNewExpression,
+      } as IR.IRThrowStatement],
+    } as IR.IRSwitchCase);
+  }
+
+  // Create switch statement
+  const switchStmt: IR.IRSwitchStatement = {
+    type: IR.IRNodeType.SwitchStatement,
+    discriminant: {
+      type: IR.IRNodeType.MemberExpression,
+      object: { type: IR.IRNodeType.Identifier, name: argsIdentifier } as IR.IRIdentifier,
+      property: { type: IR.IRNodeType.Identifier, name: "length" } as IR.IRIdentifier,
+      computed: false,
+    } as IR.IRMemberExpression,
+    cases: switchCases,
+  };
+
+  // Create rest parameter for the function
+  const restParam: IR.IRIdentifier = {
+    type: IR.IRNodeType.Identifier,
+    name: `...${argsIdentifier}`,
+  };
+
+  // Create function body
+  const functionBody: IR.IRBlockStatement = {
+    type: IR.IRNodeType.BlockStatement,
+    body: [switchStmt],
+  };
+
+  if (isNamed && funcId) {
+    // Named function declaration
+    const fnDecl: IR.IRFnFunctionDeclaration = {
+      type: IR.IRNodeType.FnFunctionDeclaration,
+      id: funcId,
+      params: [restParam],
+      defaults: [],
+      body: functionBody,
+      usesJsonMapParams: false,
+    };
+
+    // Register in function registry
+    registerFnFunction(funcName!, fnDecl);
+    return fnDecl;
+  } else {
+    // Anonymous function expression
+    return {
+      type: IR.IRNodeType.FunctionExpression,
+      id: null,
+      params: [restParam],
+      body: functionBody,
+      usesThis: false,
+    } as IR.IRFunctionExpression;
   }
 }
 

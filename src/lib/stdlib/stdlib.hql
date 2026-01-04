@@ -518,6 +518,36 @@
     []
     (.. (js-call Array.from coll) (reverse))))
 
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+;; PHASE 11: FUNCTION UTILITIES
+;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+;; identity - Returns its argument unchanged
+(fn identity [x] x)
+
+;; constantly - Returns a function that always returns x
+(fn constantly [x]
+  (fn [& _] x))
+
+;; vals - Get values from an object/map
+(fn vals [m]
+  (if (nil? m)
+    []
+    (js-call Object.values m)))
+
+;; juxt - Juxtaposition: returns fn that calls all fns on same args
+(fn juxt [& fns]
+  (fn [& args]
+    (map (fn [f] (apply f args)) fns)))
+
+;; zipmap - Create map from keys and values
+(fn zipmap [ks vs]
+  (loop [keys (seq ks) values (seq vs) result {}]
+    (if (and keys values)
+      (recur (next keys) (next values)
+             (assoc result (first keys) (first values)))
+      result)))
+
 ;; Export all functions
 (export [
   ;; Sequence primitives (Lisp Trinity)
@@ -570,6 +600,9 @@
 
   ;; Utilities
   groupBy, keys, doall, realized, lazySeq,
+
+  ;; Function utilities (Phase 11)
+  identity, constantly, vals, juxt, zipmap,
 
   ;; Delay/Force (explicit laziness)
   ;; Note: 'delay' is a special form, not a function

@@ -280,10 +280,12 @@ declare function boolean_QMARK_(x: unknown): x is boolean;
 declare function array_QMARK_(x: unknown): x is unknown[];
 declare function object_QMARK_(x: unknown): x is object;
 declare function fn_QMARK_(x: unknown): x is Function;
+declare function empty_QMARK_(x: unknown): boolean;
 
 // Math operations
 declare function inc(x: number): number;
 declare function dec(x: number): number;
+declare function abs(x: number): number;
 declare function mod(a: number, b: number): number;
 declare function quot(a: number, b: number): number;
 declare function rem(a: number, b: number): number;

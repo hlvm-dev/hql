@@ -567,6 +567,18 @@ export function isString(x) { return typeof x === "string"; }
 export function isBoolean(x) { return typeof x === "boolean"; }
 export function isFunction(x) { return typeof x === "function"; }
 export function isArray(x) { return Array.isArray(x); }
+export function isObject(x) { return x !== null && typeof x === "object" && !Array.isArray(x); }
+
+// Lisp-style predicate aliases (with ? suffix)
+// These map `nil?` -> `nil_QMARK_` via sanitizeIdentifier
+export { isNil as nil_QMARK_ };
+export { isNumber as number_QMARK_ };
+export { isString as string_QMARK_ };
+export { isBoolean as boolean_QMARK_ };
+export { isArray as array_QMARK_ };
+export { isObject as object_QMARK_ };
+export { isFunction as fn_QMARK_ };
+export { isEmpty as empty_QMARK_ };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 6: ARITHMETIC
@@ -574,6 +586,7 @@ export function isArray(x) { return Array.isArray(x); }
 
 export function inc(x) { return x + 1; }
 export function dec(x) { return x - 1; }
+export function abs(x) { return Math.abs(x); }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 7: COMPARISON
@@ -1573,4 +1586,58 @@ export function composeTransducers(...xforms) {
     }
     return composed;
   };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 24: FUNCTION UTILITIES
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** identity - Returns its argument unchanged */
+export function identity(x) {
+  return x;
+}
+
+/** constantly - Returns a function that always returns x, ignoring any arguments */
+export function constantly(x) {
+  return function(..._args) {
+    return x;
+  };
+}
+
+/** vals - Get values from an object/map */
+export function vals(m) {
+  if (m == null) return [];
+  if (m instanceof Map) return Array.from(m.values());
+  return Object.values(m);
+}
+
+/**
+ * juxt - Juxtaposition: returns a fn that calls all fns on same args
+ * Returns a vector of results.
+ * Clojure: ((juxt inc dec) 5) => [6 4]
+ */
+export function juxt(...fns) {
+  for (let i = 0; i < fns.length; i++) {
+    if (typeof fns[i] !== "function") {
+      throw new TypeError(`juxt: argument ${i + 1} must be a function`);
+    }
+  }
+  return function(...args) {
+    return fns.map(f => f(...args));
+  };
+}
+
+/**
+ * zipmap - Create map from keys and values
+ * Clojure: (zipmap [:a :b :c] [1 2 3]) => {:a 1, :b 2, :c 3}
+ */
+export function zipmap(ks, vs) {
+  const result = {};
+  const keys = ks == null ? [] : Array.from(ks);
+  const values = vs == null ? [] : Array.from(vs);
+  const len = Math.min(keys.length, values.length);
+  for (let i = 0; i < len; i++) {
+    result[keys[i]] = values[i];
+  }
+  return result;
 }

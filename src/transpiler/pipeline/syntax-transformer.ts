@@ -1249,14 +1249,19 @@ function transformDotChainForm(
       for (let i = 0; i < methodGroups.length; i++) {
         const { method, args } = methodGroups[i];
         const methodName = (method as SymbolNode).name;
-        const methodNameWithoutDot = methodName.substring(1);
+
+        // Handle optional chaining: .?foo -> optional method call
+        const isOptional = methodName.startsWith(".?");
+        const methodNameWithoutDot = isOptional
+          ? methodName.substring(2)  // Skip ".?"
+          : methodName.substring(1); // Skip "."
 
         // Determine how to handle this dot-chain element
         if (args.length > 0) {
           // Has arguments - definitely a method call
           // Use createListFrom with method as source to preserve _meta
           result = createListFrom(method as SExp, [
-            createSymbol("method-call"),
+            createSymbol(isOptional ? "optional-method-call" : "method-call"),
             result,
             createLiteral(methodNameWithoutDot),
             ...args,
@@ -1264,7 +1269,7 @@ function transformDotChainForm(
         } else if (i < methodGroups.length - 1) {
           // No arguments but not the last in chain - treat as a JS method with runtime check
           result = createListFrom(method as SExp, [
-            createSymbol("js-method"),
+            createSymbol(isOptional ? "optional-js-method" : "js-method"),
             result,
             createLiteral(methodNameWithoutDot),
           ]);
@@ -1274,7 +1279,7 @@ function transformDotChainForm(
           // Note: (p.greet) syntax (dotted symbol) is handled separately in
           // transformDotNotation (js-interop.ts) which creates a method call
           result = createListFrom(method as SExp, [
-            createSymbol("js-method"),
+            createSymbol(isOptional ? "optional-js-method" : "js-method"),
             result,
             createLiteral(methodNameWithoutDot),
           ]);
