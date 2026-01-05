@@ -13,6 +13,7 @@ import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../../transpiler/keyword
 import { extractTypeFromSymbol } from "../../transpiler/tokenizer/type-tokenizer.ts";
 import type { ReplState } from "./state.ts";
 import { appendToMemory } from "./memory.ts";
+import { evaluateJS, extractJSBindings } from "./js-eval.ts";
 
 // Constants
 const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
@@ -111,15 +112,41 @@ function analyzeExpression(ast: SList): ExpressionType {
 }
 
 /**
- * Evaluate HQL code in REPL context
- * Uses run() from mod.ts which properly handles EMBEDDED_PACKAGES
+ * Evaluate code in REPL context.
+ * In jsMode, input not starting with '(' is evaluated as JavaScript.
+ * Uses run() from mod.ts which properly handles EMBEDDED_PACKAGES.
  */
-export async function evaluate(hqlCode: string, state: ReplState): Promise<EvalResult> {
+export async function evaluate(
+  hqlCode: string,
+  state: ReplState,
+  jsMode: boolean = false
+): Promise<EvalResult> {
   const trimmed = hqlCode.trim();
   if (!trimmed) {
     return { success: true, suppressOutput: true };
   }
 
+  // JavaScript mode: if input doesn't start with '(', evaluate as JavaScript
+  if (jsMode && !trimmed.startsWith("(")) {
+    try {
+      // Extract bindings for state tracking
+      const bindings = extractJSBindings(hqlCode);
+
+      // Evaluate JavaScript (transforms to persist to globalThis)
+      const result = evaluateJS(hqlCode);
+
+      // Track bindings in REPL state for autocompletion
+      for (const name of bindings) {
+        state.addBinding(name);
+      }
+
+      return { success: true, value: result };
+    } catch (error) {
+      return { success: false, error: ensureError(error) };
+    }
+  }
+
+  // HQL evaluation
   try {
     const ast = parse(hqlCode, "<repl>");
     if (ast.length === 0) {

@@ -116,9 +116,17 @@ function streamSyncIterator(iterator: IterableIterator<unknown>): void {
 }
 
 /**
+ * REPL configuration options
+ */
+export interface ReplOptions {
+  /** Enable JavaScript polyglot mode (--js flag) */
+  jsMode?: boolean;
+}
+
+/**
  * Print welcome banner
  */
-function printBanner(): void {
+function printBanner(jsMode: boolean = false): void {
   console.log(`
 ${BOLD}${PURPLE}██╗  ██╗ ██████╗ ██╗     ${RESET}
 ${BOLD}${PURPLE}██║  ██║██╔═══██╗██║     ${RESET}
@@ -128,8 +136,22 @@ ${BOLD}${PURPLE}██║  ██║╚██████╔╝█████�
 ${BOLD}${PURPLE}╚═╝  ╚═╝ ╚══▀▀═╝ ╚══════╝${RESET}
 
 ${DIM_GRAY}Version ${VERSION} • Lisp-like language for modern JavaScript${RESET}
+`);
 
-${GREEN}Quick Start:${RESET}
+  if (jsMode) {
+    // Polyglot mode banner
+    console.log(`${GREEN}Mode:${RESET} ${CYAN}HQL + JavaScript${RESET} ${DIM_GRAY}(polyglot)${RESET}`);
+    console.log(`${DIM_GRAY}  (expr) → HQL    |    expr → JavaScript${RESET}
+`);
+    console.log(`${GREEN}Examples:${RESET}
+  ${CYAN}let x = 10${RESET}                 ${DIM_GRAY}→ JavaScript variable${RESET}
+  ${CYAN}(+ x 5)${RESET}                    ${DIM_GRAY}→ HQL using JS var${RESET}
+  ${CYAN}const add = (a,b) => a+b${RESET}   ${DIM_GRAY}→ JS arrow function${RESET}
+  ${CYAN}(add 3 4)${RESET}                  ${DIM_GRAY}→ HQL calling JS fn${RESET}
+`);
+  } else {
+    // Pure HQL mode banner
+    console.log(`${GREEN}Quick Start:${RESET}
   ${CYAN}(+ 1 2)${RESET}                    ${DIM_GRAY}→ Simple math${RESET}
   ${CYAN}(fn add [x y] (+ x y))${RESET}    ${DIM_GRAY}→ Define function${RESET}
   ${CYAN}(add 10 20)${RESET}                ${DIM_GRAY}→ Call function${RESET}
@@ -137,19 +159,25 @@ ${GREEN}Quick Start:${RESET}
 ${GREEN}AI (requires @hql/ai):${RESET}
   ${CYAN}(import [ask] from "@hql/ai")${RESET}
   ${CYAN}(await (ask "Hello"))${RESET}      ${DIM_GRAY}→ AI response${RESET}
-
-${YELLOW}Commands:${RESET} ${DIM_GRAY}.help | .clear | .reset${RESET}
-${YELLOW}Exit:${RESET}     ${DIM_GRAY}Ctrl+C | Ctrl+D | .exit${RESET}
 `);
+  }
+
+  console.log(`${YELLOW}Commands:${RESET} ${DIM_GRAY}.help | .clear | .reset${RESET}
+${YELLOW}Exit:${RESET}     ${DIM_GRAY}Ctrl+C | Ctrl+D | .exit${RESET}`);
 }
 
 /**
  * Start the REPL
  */
-export async function startRepl(): Promise<number> {
+export async function startRepl(options: ReplOptions = {}): Promise<number> {
+  const { jsMode = false } = options;
   const state = new ReplState();
   const readline = new Readline();
   const startTime = Date.now();
+
+  // Prompts based on mode
+  const prompt = jsMode ? "js> " : "hql> ";
+  const continuationPrompt = jsMode ? "..  " : "...  ";
 
   // Initialize runtime (including AI if available)
   await initializeRuntime();
@@ -163,7 +191,7 @@ export async function startRepl(): Promise<number> {
     // Load memory with state flag to prevent re-persisting
     state.setLoadingMemory(true);
     memoryLoadResult = await loadMemory(async (code: string) => {
-      const result = await evaluate(code, state);
+      const result = await evaluate(code, state, jsMode);
       return { success: result.success, error: result.error };
     });
     state.setLoadingMemory(false);
@@ -172,7 +200,7 @@ export async function startRepl(): Promise<number> {
     // Silently continue if memory loading fails
   }
 
-  printBanner();
+  printBanner(jsMode);
 
   // Show memory status if definitions were loaded
   if (memoryLoadResult.count > 0) {
@@ -194,8 +222,8 @@ export async function startRepl(): Promise<number> {
   while (true) {
     try {
       const input = await readline.readline({
-        prompt: "hql> ",
-        continuationPrompt: "...  ",
+        prompt,
+        continuationPrompt,
         history: state.history,
         userBindings: new Set(state.getBindings()),
         signatures: state.getSignatures(),
@@ -224,8 +252,8 @@ export async function startRepl(): Promise<number> {
         continue;
       }
 
-      // Evaluate HQL
-      const result = await evaluate(input, state);
+      // Evaluate code (HQL or JavaScript depending on mode)
+      const result = await evaluate(input, state, jsMode);
 
       if (result.success) {
         if (!result.suppressOutput && result.value !== undefined) {
@@ -268,11 +296,22 @@ USAGE:
   hql repl [options]
 
 OPTIONS:
+  --js              Enable JavaScript polyglot mode (HQL + JS)
   --help, -h        Show this help
   --version         Show version
 
+MODES:
+  hql repl          Pure HQL mode (default)
+  hql repl --js     Polyglot mode - mix HQL and JavaScript
+
+POLYGLOT MODE (--js):
+  Input starting with ( is evaluated as HQL.
+  All other input is evaluated as JavaScript.
+  Both languages share variables via globalThis.
+
 EXAMPLES:
-  hql repl          Start interactive REPL
+  hql repl              Start pure HQL REPL
+  hql repl --js         Start polyglot REPL (HQL + JavaScript)
 `);
     return 0;
   }
@@ -282,7 +321,10 @@ EXAMPLES:
     return 0;
   }
 
-  return await startRepl();
+  // Parse --js flag for polyglot mode
+  const jsMode = args.includes("--js");
+
+  return await startRepl({ jsMode });
 }
 
 // Run if executed directly
