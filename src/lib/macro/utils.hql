@@ -51,8 +51,8 @@
 ;;   (macro my-swap [a b]
 ;;     (with-gensyms [tmp]
 ;;       `(let (~tmp ~a)
-;;          (set! ~a ~b)
-;;          (set! ~b ~tmp))))
+;;          (= ~a ~b)
+;;          (= ~b ~tmp))))
 ;;
 ;; Each name in the vector gets bound to (gensym "name"), making the
 ;; macro hygienic by avoiding variable capture.

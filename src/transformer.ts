@@ -36,6 +36,8 @@ export interface TransformOptions {
   failOnTypeErrors?: boolean;
   /** Show type checking warnings (default: false - suppress noisy warnings) */
   showTypeWarnings?: boolean;
+  /** Suppress TS2304 "Cannot find name" errors (for REPL where bindings are on globalThis) */
+  suppressUnknownNameErrors?: boolean;
 }
 
 /**
@@ -151,16 +153,42 @@ export async function transformAST(
       // - TS1375 "await only allowed in module" - Deno supports top-level await, TS quirk
       // - TS2318 "Cannot find global type" - noLib: true limitation
       // - TS2307 "Cannot find module '@hql/*'" - embedded packages aren't real modules
-      // - TS2339 "Property does not exist on type" - dynamic globalThis in REPL
-      // - TS2304 "Cannot find name" - dynamic globals defined at runtime
       // HQL philosophy: types are opt-in, not mandatory. Runtime behavior is correct.
-      const TS_INFRASTRUCTURE_ERRORS = new Set([1375, 2318, 2307, 2339, 2304]);
+      const TS_INFRASTRUCTURE_ERRORS = new Set([1375, 2318, 2307]);
+
+      // Dynamic runtime errors - only suppress if they mention globalThis or runtime helpers
+      const DYNAMIC_RUNTIME_PATTERNS = [
+        /globalThis/i,
+        /__hql_/,  // Internal HQL helpers
+        /Cannot find name '(console|print|globalThis|Deno|process)'/,
+      ];
 
       for (const err of result.typeErrors) {
         // Skip TypeScript infrastructure errors
         if (TS_INFRASTRUCTURE_ERRORS.has(err.code)) {
           continue;
         }
+
+        // TS2304 "Cannot find name" - suppress in REPL mode (bindings are on globalThis)
+        // or if it's about dynamic runtime variables
+        if (err.code === 2304) {
+          if (options.suppressUnknownNameErrors) {
+            continue;  // REPL mode: all unknown names are likely globalThis bindings
+          }
+          const isDynamicRuntime = DYNAMIC_RUNTIME_PATTERNS.some(pattern => pattern.test(err.message));
+          if (isDynamicRuntime) {
+            continue;
+          }
+        }
+
+        // TS2339 "Property does not exist" - only skip for dynamic runtime
+        if (err.code === 2339) {
+          const isDynamicRuntime = DYNAMIC_RUNTIME_PATTERNS.some(pattern => pattern.test(err.message));
+          if (isDynamicRuntime) {
+            continue;
+          }
+        }
+
         // Skip errors from internal @hql/* packages (not user code)
         const errorFile = err.file || "";
         if (errorFile.startsWith("@hql/") || errorFile.includes("/@hql/")) {

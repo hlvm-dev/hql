@@ -99,6 +99,8 @@ export interface TranspileOptions extends Record<string, unknown> {
   currentFile?: string;
   generateSourceMap?: boolean;
   sourceContent?: string;
+  /** Suppress TS2304 "Cannot find name" errors (for REPL where bindings are on globalThis) */
+  suppressUnknownNameErrors?: boolean;
 }
 
 export interface RunOptions extends TranspileOptions {
@@ -418,6 +420,9 @@ export async function transpile(
         statement.type !== 'EmptyStatement'
       );
 
+    // Inner IIFE must be async if code uses await (detected by needsConsumeAsyncIter)
+    const innerFnKeyword = needsConsumeAsyncIter ? "async function" : "function";
+
     if (hasStatements) {
       const precedingStatements = statements.slice(0, -1);
       const lastStatement = statements[statements.length - 1];
@@ -467,7 +472,7 @@ export async function transpile(
       const wrappedCode = `
 (function() {${runtimeFunctions}
 
-  return (function() {
+  return (${innerFnKeyword}() {
 ${useStrictDirective}${
         formattedPreceding ? formattedPreceding + "\n" : ""
       }${formattedLast}
@@ -489,7 +494,7 @@ ${useStrictDirective}${
 (function() {${runtimeFunctions}
 
   // Execute the transpiled code and ensure the last expression value is returned
-  return (function() {
+  return (${innerFnKeyword}() {
 ${useStrictDirective}    return (
 ${formattedExpression}
     );

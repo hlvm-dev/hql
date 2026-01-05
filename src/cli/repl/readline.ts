@@ -75,17 +75,25 @@ export interface ReadlineOptions {
 export function isBalanced(input: string): boolean {
   let parens = 0, brackets = 0, braces = 0;
   let inString = false, escape = false;
+  let inComment = false;
 
   for (const ch of input) {
+    // Handle escape sequences in strings
     if (escape) { escape = false; continue; }
-    if (ch === '\\') { escape = true; continue; }
+
+    // Newline ends line comments
+    if (inComment) {
+      if (ch === '\n') inComment = false;
+      continue;
+    }
+
+    if (ch === '\\' && inString) { escape = true; continue; }
     if (ch === '"') { inString = !inString; continue; }
     if (inString) continue;
 
-    // Skip line comments
+    // Start of line comment
     if (ch === ';') {
-      const idx = input.indexOf('\n', input.indexOf(ch));
-      if (idx === -1) break; // Rest is comment
+      inComment = true;
       continue;
     }
 
@@ -199,6 +207,11 @@ export class Readline {
   }
 
   private enterPlaceholderMode(funcName: string, params: string[], startPos: number): void {
+    // Safety check: don't enter placeholder mode with no params
+    if (params.length === 0) {
+      return;
+    }
+
     this.placeholders = [];
     let pos = startPos;
 
@@ -237,9 +250,10 @@ export class Readline {
       this.cursorPos = ph.touched ? ph.start + ph.length : ph.start;
       return true;
     } else {
-      // Last placeholder - exit and move cursor to end
+      // Last placeholder - exit and move cursor to end of display line
       this.exitPlaceholderMode();
-      this.cursorPos = this.currentLine.length;
+      const newlinePos = this.currentLine.indexOf('\n');
+      this.cursorPos = newlinePos !== -1 ? newlinePos : this.currentLine.length;
       return false;
     }
   }
@@ -331,6 +345,31 @@ export class Readline {
       return { action: KeyAction.Continue };
     }
 
+    // OPTIMIZATION: Batch consecutive printable characters (for paste performance)
+    // Collect all printable chars before any control/escape sequence
+    let batchedChars = "";
+    let i = offset;
+
+    while (i < key.length) {
+      const code = key[i];
+
+      // Stop batching on control chars, escape sequences, or newlines
+      if (code === 0x1b || code < PRINTABLE_START || code >= PRINTABLE_END ||
+          code === ControlChar.ENTER.charCodeAt(0) || code === 0x0a) {
+        break;
+      }
+
+      batchedChars += String.fromCharCode(code);
+      i++;
+    }
+
+    // If we collected batched characters, insert them all at once
+    if (batchedChars.length > 0) {
+      await this.insertCharsBatched(batchedChars);
+      // Continue processing from where we stopped
+      return await this.processKeyBytes(key, i);
+    }
+
     const code = key[offset];
 
     // Handle escape sequences (arrow keys: ESC [ A/B/C/D)
@@ -376,23 +415,36 @@ export class Readline {
       this.clearCompletions();
     }
 
-    // Enter - exit placeholder mode and submit
-    // For paste with newlines, submit current line and stop processing
+    // Enter - handle line completion (supports multi-line paste)
     if (code === ControlChar.ENTER.charCodeAt(0) || code === 0x0a) {
       this.exitPlaceholderMode();
-      await this.write("\n");
-      const line = this.currentLine;
-      return { action: KeyAction.Submit, value: line };
+
+      // Check if there are more bytes to process (multi-line paste)
+      const hasMoreBytes = offset + 1 < key.length;
+
+      if (hasMoreBytes) {
+        // Multi-line paste: accumulate current line and continue processing
+        // This preserves the remaining pasted content instead of losing it
+        this.lines.push(this.currentLine);
+        this.currentLine = "";
+        this.cursorPos = 0;
+        this.suggestion = null;
+        this.clearCompletions();
+        // Show newline and continuation prompt for visual feedback
+        await this.write("\n" + this.continuationPrompt);
+        // Continue processing remaining pasted bytes
+        return await this.processKeyBytes(key, offset + 1);
+      } else {
+        // Single Enter or end of paste: submit for balance check
+        await this.write("\n");
+        const line = this.currentLine;
+        return { action: KeyAction.Submit, value: line };
+      }
     }
 
     // Control keys
     if (await this.handleControlKey(code)) {
       return await this.processKeyBytes(key, offset + 1);
-    }
-
-    // Printable characters (including pasted text)
-    if (this.isPrintable(code)) {
-      await this.insertChar(String.fromCharCode(code));
     }
 
     // Process remaining bytes (for paste support)
@@ -411,7 +463,9 @@ export class Readline {
         // Accept suggestion if available, then jump to end
         if (this.suggestion && this.cursorPos === this.currentLine.length) {
           this.currentLine = acceptSuggestion(this.currentLine, this.suggestion);
-          this.cursorPos = this.currentLine.length;
+          // For multi-line suggestions, cursor goes to end of first line
+          const newlinePos = this.currentLine.indexOf('\n');
+          this.cursorPos = newlinePos !== -1 ? newlinePos : this.currentLine.length;
           this.suggestion = null;
         }
         await this.jumpToEnd();
@@ -459,7 +513,9 @@ export class Readline {
         // Accept suggestion if at end of line
         if (this.cursorPos >= this.currentLine.length && this.suggestion) {
           this.currentLine = acceptSuggestion(this.currentLine, this.suggestion);
-          this.cursorPos = this.currentLine.length;
+          // For multi-line suggestions, cursor goes to end of first line
+          const newlinePos = this.currentLine.indexOf('\n');
+          this.cursorPos = newlinePos !== -1 ? newlinePos : this.currentLine.length;
           this.suggestion = null;
           await this.redrawLine();
         } else {
@@ -495,7 +551,9 @@ export class Readline {
       }
     }
 
-    this.cursorPos = this.currentLine.length;
+    // For multi-line entries, cursor goes to end of first line (display line)
+    const newlinePos = this.currentLine.indexOf('\n');
+    this.cursorPos = newlinePos !== -1 ? newlinePos : this.currentLine.length;
     await this.redrawLine();
   }
 
@@ -507,7 +565,10 @@ export class Readline {
   }
 
   private async moveCursorRight(): Promise<void> {
-    if (this.cursorPos < this.currentLine.length) {
+    // For multi-line content, don't move past end of first line
+    const newlinePos = this.currentLine.indexOf('\n');
+    const maxPos = newlinePos !== -1 ? newlinePos : this.currentLine.length;
+    if (this.cursorPos < maxPos) {
       this.cursorPos++;
       await this.write("\x1b[C");
     }
@@ -519,7 +580,9 @@ export class Readline {
   }
 
   private async jumpToEnd(): Promise<void> {
-    this.cursorPos = this.currentLine.length;
+    // For multi-line content, jump to end of first line (display line)
+    const newlinePos = this.currentLine.indexOf('\n');
+    this.cursorPos = newlinePos !== -1 ? newlinePos : this.currentLine.length;
     await this.redrawLine();
   }
 
@@ -602,6 +665,31 @@ export class Readline {
       this.currentLine.slice(this.cursorPos);
     this.cursorPos++;
     await this.redrawLine();
+  }
+
+  /**
+   * Insert multiple characters at once (for paste performance).
+   * Only redraws ONCE after all characters are inserted.
+   */
+  private async insertCharsBatched(chars: string): Promise<void> {
+    if (chars.length === 0) return;
+
+    // In placeholder mode, handle each character
+    if (this.isInPlaceholderMode()) {
+      for (const char of chars) {
+        this.replaceCurrentPlaceholder(char);
+      }
+    } else {
+      // Batch insert all at once
+      this.currentLine =
+        this.currentLine.slice(0, this.cursorPos) +
+        chars +
+        this.currentLine.slice(this.cursorPos);
+      this.cursorPos += chars.length;
+    }
+
+    this.clearCompletions();
+    await this.redrawLine();  // Only ONE redraw for entire paste
   }
 
   // ============================================================
@@ -730,6 +818,12 @@ export class Readline {
    * Insert function name with placeholder arguments
    */
   private async insertFunctionWithPlaceholders(funcName: string, params: string[]): Promise<void> {
+    // Safety check: need at least one parameter
+    if (params.length === 0) {
+      await this.insertChar(" ");
+      return;
+    }
+
     // Build the placeholder text: "param1 param2)"
     const paramsText = params.join(" ") + ")";
     const startPos = this.cursorPos + 1; // +1 for the space we're about to insert
@@ -750,6 +844,11 @@ export class Readline {
    * For case: (ask |) → Tab → (ask prompt)
    */
   private async insertArgumentPlaceholders(params: string[]): Promise<void> {
+    // Safety check: need at least one parameter
+    if (params.length === 0) {
+      return;
+    }
+
     // Build the placeholder text: "param1 param2)"
     const paramsText = params.join(" ") + ")";
     const startPos = this.cursorPos; // Cursor is already after space
@@ -783,6 +882,12 @@ export class Readline {
   }
 
   private async applyCycledCompletion(): Promise<void> {
+    // Safety check: ensure we have valid completions
+    if (this.completions.length === 0 || this.completionIndex < 0 || this.completionIndex >= this.completions.length) {
+      this.clearCompletions();
+      return;
+    }
+
     // Replace current completion with next one
     const item = this.completions[this.completionIndex];
     // Restore to original state then apply new completion
@@ -796,6 +901,11 @@ export class Readline {
   }
 
   private async applySelectedCompletion(item: CompletionItem): Promise<void> {
+    // Safety check: ensure item is valid
+    if (!item || !item.text) {
+      return;
+    }
+
     const result = applyCompletion(this.currentLine, this.cursorPos, item);
     this.currentLine = result.line;
     this.cursorPos = result.cursorPos;
@@ -894,11 +1004,29 @@ export class Readline {
 
   private async redrawLine(): Promise<void> {
     const prompt = this.lines.length > 0 ? this.continuationPrompt : this.currentPrompt;
-    const highlighted = this.getHighlightedLine();
 
-    // Update autosuggestion (only when cursor at end of line)
+    // Handle multi-line currentLine (from history navigation or suggestion acceptance)
+    // Display only first line with "..." indicator to prevent terminal corruption
+    let displayLine = this.currentLine;
+    let multiLineIndicator = "";
+    const newlinePos = this.currentLine.indexOf('\n');
+    if (newlinePos !== -1) {
+      displayLine = this.currentLine.slice(0, newlinePos);
+      multiLineIndicator = DIM_GRAY + ' ...' + RESET;
+    }
+
+    // Get highlighted version of display line
+    let matchPos: number | null = null;
+    if (this.cursorPos > 0 && this.cursorPos <= displayLine.length) {
+      matchPos = findMatchingParen(displayLine, this.cursorPos - 1);
+    }
+    const highlighted = this.isInPlaceholderMode()
+      ? this.getHighlightedLineWithPlaceholders()
+      : highlight(displayLine, matchPos);
+
+    // Update autosuggestion (only when cursor at end and single-line content)
     let ghostText = "";
-    if (this.cursorPos === this.currentLine.length) {
+    if (newlinePos === -1 && this.cursorPos === this.currentLine.length) {
       this.suggestion = findSuggestion(this.currentLine, this.history);
       if (this.suggestion) {
         ghostText = DIM_GRAY + this.suggestion.ghost + RESET;
@@ -907,13 +1035,14 @@ export class Readline {
       this.suggestion = null;
     }
 
-    // Calculate cursor movement
-    const displayLength = this.currentLine.length + (this.suggestion?.ghost.length || 0);
-    const moveBack = displayLength - this.cursorPos;
+    // Calculate cursor movement (based on display line, not full currentLine)
+    const effectiveCursorPos = Math.min(this.cursorPos, displayLine.length);
+    const displayLength = displayLine.length + (this.suggestion?.ghost.length || 0);
+    const moveBack = displayLength - effectiveCursorPos;
     const cursorMove = moveBack > 0 ? `\x1b[${moveBack}D` : "";
 
     await this.write(
-      `${ANSI_CARRIAGE_RETURN}${ANSI_CLEAR_LINE}${prompt}${highlighted}${ghostText}${cursorMove}`
+      `${ANSI_CARRIAGE_RETURN}${ANSI_CLEAR_LINE}${prompt}${highlighted}${multiLineIndicator}${ghostText}${cursorMove}`
     );
   }
 

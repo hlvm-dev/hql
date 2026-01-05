@@ -10,13 +10,18 @@ import { isList, isSymbol, sexpToString, type SList, type SSymbol } from "../../
 import { isVectorImport, isNamespaceImport } from "../../transpiler/syntax/import-export.ts";
 import { sanitizeIdentifier, ensureError } from "../../common/utils.ts";
 import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../../transpiler/keyword/primitives.ts";
+import { extractTypeFromSymbol } from "../../transpiler/tokenizer/type-tokenizer.ts";
 import type { ReplState } from "./state.ts";
 import { appendToMemory } from "./memory.ts";
 
 // Constants
 const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
 const BINDING_OPS: Set<string> = new Set(BINDING_KEYWORDS);
-const REPL_RUN_OPTIONS = { baseDir: Deno.cwd(), currentFile: "<repl>" } as const;
+const REPL_RUN_OPTIONS = {
+  baseDir: Deno.cwd(),
+  currentFile: "<repl>",
+  suppressUnknownNameErrors: true,  // REPL bindings are on globalThis, not known to TypeScript
+} as const;
 
 export interface EvalResult {
   success: boolean;
@@ -31,6 +36,45 @@ interface ExpressionType {
   readonly kind: ExpressionKind;
   readonly name?: string;
   readonly operator?: string;
+}
+
+/**
+ * Extract just the identifier name from a symbol that may include type annotations and/or generics.
+ * Examples:
+ *   "greet" -> "greet"
+ *   "greet:string" -> "greet"
+ *   "identity<T>" -> "identity"
+ *   "identity<T>:T" -> "identity"
+ */
+function extractIdentifierName(symbolName: string): string {
+  // First remove type annotation (e.g., "greet:string" -> "greet")
+  const { name: withoutType } = extractTypeFromSymbol(symbolName);
+
+  // Then remove generic parameters (e.g., "identity<T>" -> "identity")
+  const genericMatch = withoutType.match(/^([^<]+)/);
+  return genericMatch ? genericMatch[1] : withoutType;
+}
+
+/**
+ * Extract function parameters from a fn/defn/async fn declaration
+ */
+function extractFnParams(expr: SList, operator: string): string[] | undefined {
+  const isAsyncFn = operator.startsWith("async ");
+  const isFnLike = operator === "fn" || operator === "defn" || operator === "async fn" || operator === "async fn*";
+
+  if (!isFnLike) return undefined;
+
+  const paramsIndex = isAsyncFn ? 3 : 2;
+  const minLength = isAsyncFn ? 4 : 3;
+
+  if (expr.elements.length < minLength) return undefined;
+
+  const paramsNode = expr.elements[paramsIndex];
+  if (!isList(paramsNode)) return undefined;
+
+  return paramsNode.elements
+    .filter((el): el is SSymbol => isSymbol(el) && el.name !== "vector" && el.name !== "empty-array")
+    .map(el => el.name);
 }
 
 /** Analyze expression type from AST */
@@ -50,14 +94,16 @@ function analyzeExpression(ast: SList): ExpressionType {
       if (targetName === "fn" || targetName === "fn*") {
         // For (async fn name ...) or (async fn* name ...), name is at elements[2]
         const nameEl = ast.elements[2];
-        const name = nameEl && isSymbol(nameEl) ? nameEl.name : undefined;
+        // Extract just the identifier name, stripping type annotations and generics
+        const name = nameEl && isSymbol(nameEl) ? extractIdentifierName(nameEl.name) : undefined;
         return { kind: "declaration", name, operator: "async " + targetName };
       }
     }
   }
 
   const el = ast.elements[1];
-  const name = el && isSymbol(el) ? el.name : undefined;
+  // Extract just the identifier name, stripping type annotations and generics
+  const name = el && isSymbol(el) ? extractIdentifierName(el.name) : undefined;
 
   if (DECLARATION_OPS.has(op)) return { kind: "declaration", name, operator: op };
   if (BINDING_OPS.has(op) && ast.elements.length >= 3) return { kind: "binding", name, operator: op };
@@ -80,6 +126,79 @@ export async function evaluate(hqlCode: string, state: ReplState): Promise<EvalR
       return { success: true, suppressOutput: true };
     }
 
+    // Handle multiple expressions: build code that evaluates all and returns last
+    if (ast.length > 1) {
+      // Collect metadata and build transformed code
+      const codeParts: string[] = [];
+      const bindingNames: Array<{ name: string; operator: string }> = [];
+      const declarationNames: Array<{ name: string; operator: string; params?: string[]; source: string }> = [];
+
+      for (const expr of ast as SList[]) {
+        const exprType = analyzeExpression(expr);
+        const exprCode = sexpToString(expr);
+
+        if (exprType.kind === "import") {
+          // Handle imports separately first - they must run before other code
+          const importResult = await handleImport(expr, state);
+          if (!importResult.success) return importResult;
+        } else if (exprType.kind === "binding" && exprType.name) {
+          // Convert def/let/var to let and persist to globalThis
+          const valueExpr = expr.elements.length >= 3 ? sexpToString(expr.elements[2]) : "nil";
+          const jsName = sanitizeIdentifier(exprType.name);
+          codeParts.push(`(let ${jsName} ${valueExpr})`);
+          codeParts.push(`(js-set globalThis "${jsName}" ${jsName})`);
+          bindingNames.push({ name: exprType.name, operator: exprType.operator || "let" });
+        } else if (exprType.kind === "declaration" && exprType.name) {
+          const op = exprType.operator || "fn";
+          const params = extractFnParams(expr, op);
+          const jsName = sanitizeIdentifier(exprType.name);
+          codeParts.push(exprCode);
+          codeParts.push(`(js-set globalThis "${jsName}" ${jsName})`);
+          declarationNames.push({ name: exprType.name, operator: op, params, source: exprCode });
+        } else {
+          // Regular expression - just add it
+          codeParts.push(exprCode);
+        }
+      }
+
+      const wrappedCode = codeParts.join("\n");
+
+      try {
+        const result = await run(wrappedCode, REPL_RUN_OPTIONS);
+
+        // Register all bindings with the state
+        for (const { name, operator } of bindingNames) {
+          state.addBinding(name);
+          // Persist def bindings to memory
+          if (operator === "def" && !state.isLoadingMemory) {
+            try {
+              // Get the actual value from globalThis for memory persistence
+              const value = (globalThis as Record<string, unknown>)[sanitizeIdentifier(name)];
+              await appendToMemory(name, "def", value);
+            } catch { /* ignore persistence errors */ }
+          }
+        }
+        for (const { name, operator, params, source } of declarationNames) {
+          if (params) {
+            state.addFunction(name, params);
+          } else {
+            state.addBinding(name);
+          }
+          // Persist defn declarations to memory
+          if (operator === "defn" && !state.isLoadingMemory) {
+            try {
+              await appendToMemory(name, "defn", source);
+            } catch { /* ignore */ }
+          }
+        }
+
+        return { success: true, value: result };
+      } catch (error) {
+        return { success: false, error: ensureError(error) };
+      }
+    }
+
+    // Single expression handling (unchanged)
     const firstExpr = ast[0] as SList;
     const exprType = analyzeExpression(firstExpr);
 
@@ -96,27 +215,8 @@ export async function evaluate(hqlCode: string, state: ReplState): Promise<EvalR
 
     // Handle declarations (fn/defn/class) - persist to globalThis
     if (exprType.kind === "declaration" && exprType.name) {
-      // Extract function params for fn/defn/async fn/async fn*
-      let params: string[] | undefined;
       const op = exprType.operator || "fn";
-      const isAsyncFn = op.startsWith("async ");
-      const isFnLike = op === "fn" || op === "defn" || op === "async fn" || op === "async fn*";
-
-      if (isFnLike) {
-        // For async declarations: (async fn name [params] ...) - params at index 3
-        // For regular: (fn name [params] ...) - params at index 2
-        const paramsIndex = isAsyncFn ? 3 : 2;
-        const minLength = isAsyncFn ? 4 : 3;
-
-        if (firstExpr.elements.length >= minLength) {
-          const paramsNode = firstExpr.elements[paramsIndex];
-          if (isList(paramsNode)) {
-            params = paramsNode.elements
-              .filter((el): el is SSymbol => isSymbol(el) && el.name !== "vector" && el.name !== "empty-array")
-              .map(el => el.name);
-          }
-        }
-      }
+      const params = extractFnParams(firstExpr, op);
       return await handleDeclaration(hqlCode, exprType.name, op, state, params);
     }
 

@@ -26,7 +26,7 @@ export interface Suggestion {
  * Algorithm (fish-style):
  * 1. Search history from most recent to oldest
  * 2. Find first entry that starts with current input
- * 3. Return the suffix as ghost text
+ * 3. Return the suffix as ghost text (first line only for multi-line)
  *
  * @param currentLine - Current input line
  * @param history - Command history (most recent last)
@@ -48,9 +48,16 @@ export function findSuggestion(
 
     // Check prefix match (case-sensitive)
     if (entry.startsWith(currentLine)) {
+      // For multi-line history entries, only suggest the first line
+      // This prevents terminal rendering issues (ANSI_CLEAR_LINE only clears one line)
+      let ghost = entry.slice(currentLine.length);
+      const newlinePos = ghost.indexOf('\n');
+      if (newlinePos !== -1) {
+        ghost = ghost.slice(0, newlinePos) + ' ...';
+      }
       return {
         full: entry,
-        ghost: entry.slice(currentLine.length),
+        ghost,
       };
     }
   }
@@ -63,13 +70,15 @@ export function findSuggestion(
  *
  * @param currentLine - Current input line
  * @param suggestion - The suggestion to accept
- * @returns The full accepted text
+ * @returns The full accepted text (uses full entry, not truncated ghost)
  */
 export function acceptSuggestion(
-  currentLine: string,
+  _currentLine: string,
   suggestion: Suggestion
 ): string {
-  return currentLine + suggestion.ghost;
+  // Use the full entry, not currentLine + ghost, because ghost may be truncated
+  // for multi-line entries (shows "..." for display but accepts full text)
+  return suggestion.full;
 }
 
 /**

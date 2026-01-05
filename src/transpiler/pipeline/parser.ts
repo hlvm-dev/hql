@@ -13,7 +13,7 @@ import {
 } from "../../s-exp/types.ts";
 import { ParseError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
-import { tokenizeType } from "../tokenizer/type-tokenizer.ts";
+import { tokenizeType, countAngleBracketDepth } from "../tokenizer/type-tokenizer.ts";
 import { HQLErrorCode } from "../../common/error-codes.ts";
 import { attachSourceLocation } from "../../common/syntax-error-handler.ts";
 import { readTextFileSync as platformReadTextFileSync } from "../../platform/platform.ts";
@@ -1024,10 +1024,50 @@ function matchNextToken(
       return { type: TokenType.Number, value, position };
     }
 
+    // Handle unbalanced generics: if symbol contains '<' but no matching '>'
+    // This happens when multi-generic parameters like <T,U> get split at the comma
+    // Example: "identity<T,U>" gets matched as "identity<T" because comma stops SYMBOL regex
+    // We need to continue scanning to find the balanced '>'
+    // IMPORTANT: Only handle if there's an identifier before '<' (not if it starts with '<' like less-than operator)
+    const anglePos = value.indexOf('<');
+    const initialDepth = anglePos > 0 ? countAngleBracketDepth(value) : 0;
+    if (initialDepth > 0) {
+      let pos = cursor + value.length;
+      let depth = initialDepth;
+
+      // Continue scanning until we balance the angle brackets
+      while (pos < input.length && depth > 0) {
+        const char = input[pos];
+        if (char === '<') {
+          depth++;
+        } else if (char === '>') {
+          depth--;
+        } else if (/[\s\(\)\[\]\{\}]/.test(char) && depth === 0) {
+          // Stop at delimiters only when depth is 0
+          break;
+        }
+        pos++;
+      }
+
+      // Include any type annotation that follows (e.g., identity<T,U>:ReturnType)
+      value = input.slice(cursor, pos);
+
+      // Now check if there's a type annotation after the generic
+      if (pos < input.length && input[pos] === ':' && !/\s/.test(input[pos + 1] || '')) {
+        const typeResult = tokenizeType(input, pos + 1);
+        if (typeResult.type.length > 0 && typeResult.isValid) {
+          value = input.slice(cursor, typeResult.endIndex);
+          return { type: TokenType.Symbol, value, position };
+        }
+      }
+
+      return { type: TokenType.Symbol, value, position };
+    }
+
     // Check for inline type annotations that use special characters: {}, (), [], spaces, |, &, etc.
     // When SYMBOL regex matches "x:" or "x:?", we scan the following type using the dedicated tokenizer.
     // This supports full TypeScript type syntax including spaces: "x: number | string"
-    const nextCharPos = cursor + value.length;
+    let nextCharPos = cursor + value.length;
     // Fix: Do not check value.endsWith('?') to avoid breaking predicates like 'empty? args'
     // Optional parameters 'x?: type' work because 'x?:' is matched as a symbol ending with ':'
     const canStartComplexType = value.endsWith(':');
@@ -1043,6 +1083,22 @@ function matchNextToken(
         // We include the full slice to maintain cursor alignment
         value = input.slice(cursor, typeResult.endIndex);
         return { type: TokenType.Symbol, value, position };
+      }
+    }
+
+    // Handle array type suffix: if symbol looks like a type annotation (contains ':')
+    // and next two chars are '[]', consume them as part of the type
+    // Example: "x:number[]" should be one token, not "x:number" + "[]"
+    if (value.includes(':') && !value.endsWith(':')) {
+      nextCharPos = cursor + value.length;
+      // Check for multiple array suffixes (e.g., number[][])
+      while (
+        nextCharPos + 1 < input.length &&
+        input[nextCharPos] === '[' &&
+        input[nextCharPos + 1] === ']'
+      ) {
+        value += '[]';
+        nextCharPos += 2;
       }
     }
 

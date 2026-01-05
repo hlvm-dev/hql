@@ -8,15 +8,15 @@ Deno.test("Edge Case Verification: Labeled break across IIFE boundary", async ()
       (for-of [x [1 2 3]]
         (if (=== x 2)
           (break outer)
-          (set! result x))))
+          (= result x))))
     result
   `;
 
-  // Labeled break works - the loop breaks early, leaving result as "default"
-  // (The first iteration sets result to 1, but the break happens before that
-  // since x===2 is checked. Actually on x=1, the else branch runs setting result=1.
-  // On x=2, break outer executes. So result should be 1, not "default".)
-  // But empirically the code returns "default", so we assert that behavior.
+  // Labeled break works correctly:
+  // - x=1: else branch runs, sets result=1
+  // - x=2: if branch runs, break outer exits the loop
+  // - x=3: never reached
+  // Result: 1 (the value set on first iteration before break)
   const result = await run(code);
-  assertEquals(result, "default");
+  assertEquals(result, 1);
 });

@@ -43,6 +43,8 @@ interface ProcessOptions {
   generateSourceMap?: boolean;
   /** Original HQL source code for embedding in source map */
   sourceContent?: string;
+  /** Suppress TS2304 "Cannot find name" errors (for REPL where bindings are on globalThis) */
+  suppressUnknownNameErrors?: boolean;
 }
 
 /**
@@ -406,6 +408,7 @@ async function transpileHqlAstToJs(
         currentFile: options.currentFile,
         generateSourceMap: options.generateSourceMap,
         sourceContent: options.sourceContent,
+        suppressUnknownNameErrors: options.suppressUnknownNameErrors,
       },
       env,
       context,
@@ -450,6 +453,7 @@ async function transpileHqlAstToJsWithIR(
         currentFile: options.currentFile,
         generateSourceMap: options.generateSourceMap,
         sourceContent: options.sourceContent,
+        suppressUnknownNameErrors: options.suppressUnknownNameErrors,
       },
       env,
       context,

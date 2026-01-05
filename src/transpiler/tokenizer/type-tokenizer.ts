@@ -749,6 +749,28 @@ export function normalizeType(type: string): string {
     return `Array<${elementType}>`;
   }
 
+  // 4. Handle HQL function type syntax: (fn [params] ReturnType) → (params) => ReturnType
+  //    Also handles (-> [params] ReturnType) syntax
+  const fnTypeMatch = type.match(/^\((fn|->)\s+\[([^\]]*)\]\s+(.+)\)$/);
+  if (fnTypeMatch) {
+    const paramTypesStr = fnTypeMatch[2].trim();
+    const returnType = normalizeType(fnTypeMatch[3].trim());
+
+    if (!paramTypesStr) {
+      // No parameters: () => ReturnType
+      return `() => ${returnType}`;
+    }
+
+    // Split parameter types on whitespace (HQL uses space-separated types in vectors)
+    const paramTypes = paramTypesStr.split(/\s+/).filter(Boolean);
+    const tsParams = paramTypes.map((paramType, index) => {
+      const normalizedType = normalizeType(paramType);
+      return `arg${index}: ${normalizedType}`;
+    });
+
+    return `(${tsParams.join(", ")}) => ${returnType}`;
+  }
+
   return type;
 }
 

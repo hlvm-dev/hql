@@ -60,20 +60,29 @@ async function streamAsyncIterator(iterator: AsyncIterableIterator<unknown>): Pr
   const encoder = new TextEncoder();
   let hasOutput = false;
 
-  for await (const chunk of iterator) {
-    hasOutput = true;
-    if (typeof chunk === "string") {
-      // String chunks: write directly (no newline) for streaming effect
-      Deno.stdout.writeSync(encoder.encode(chunk));
-    } else {
-      // Non-string values: format and print with newline
-      console.log(formatValue(chunk));
+  try {
+    for await (const chunk of iterator) {
+      hasOutput = true;
+      if (typeof chunk === "string") {
+        // String chunks: write directly (no newline) for streaming effect
+        Deno.stdout.writeSync(encoder.encode(chunk));
+      } else {
+        // Non-string values: format and print with newline
+        console.log(formatValue(chunk));
+      }
     }
-  }
 
-  // Add trailing newline if we streamed strings
-  if (hasOutput) {
-    Deno.stdout.writeSync(encoder.encode("\n"));
+    // Add trailing newline if we streamed strings
+    if (hasOutput) {
+      Deno.stdout.writeSync(encoder.encode("\n"));
+    }
+  } catch (error) {
+    // Ensure newline after partial output before showing error
+    if (hasOutput) {
+      Deno.stdout.writeSync(encoder.encode("\n"));
+    }
+    // Re-throw to be caught by outer error handler
+    throw error;
   }
 }
 
@@ -84,17 +93,25 @@ function streamSyncIterator(iterator: IterableIterator<unknown>): void {
   const encoder = new TextEncoder();
   let hasOutput = false;
 
-  for (const chunk of iterator) {
-    hasOutput = true;
-    if (typeof chunk === "string") {
-      Deno.stdout.writeSync(encoder.encode(chunk));
-    } else {
-      console.log(formatValue(chunk));
+  try {
+    for (const chunk of iterator) {
+      hasOutput = true;
+      if (typeof chunk === "string") {
+        Deno.stdout.writeSync(encoder.encode(chunk));
+      } else {
+        console.log(formatValue(chunk));
+      }
     }
-  }
 
-  if (hasOutput) {
-    Deno.stdout.writeSync(encoder.encode("\n"));
+    if (hasOutput) {
+      Deno.stdout.writeSync(encoder.encode("\n"));
+    }
+  } catch (error) {
+    // Ensure newline after partial output before showing error
+    if (hasOutput) {
+      Deno.stdout.writeSync(encoder.encode("\n"));
+    }
+    throw error;
   }
 }
 
