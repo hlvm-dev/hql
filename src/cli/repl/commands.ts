@@ -5,6 +5,7 @@
 
 import { ANSI_COLORS } from "../ansi.ts";
 import type { ReplState } from "./state.ts";
+import { getMemoryStats, forgetFromMemory, compactMemory, getMemoryNames } from "./memory.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -22,6 +23,12 @@ ${BOLD}HQL REPL Commands:${RESET}
   ${CYAN}.bindings${RESET}  Show all bound names
   ${CYAN}.history${RESET}   Show command history
   ${CYAN}.exit${RESET}      Exit the REPL (or use Ctrl+D)
+
+${BOLD}Memory (auto-persist def/defn):${RESET}
+
+  ${CYAN}.memory${RESET}    Show memory file location and stats
+  ${CYAN}.forget${RESET}    Remove a definition from memory (usage: .forget name)
+  ${CYAN}.compact${RESET}   Manually trigger memory compaction
 
 ${BOLD}Keyboard Shortcuts:${RESET}
 
@@ -108,6 +115,57 @@ export const commands: Record<string, Command> = {
     handler: () => {
       console.log("\nGoodbye!");
       Deno.exit(0);
+    },
+  },
+
+  ".memory": {
+    description: "Show memory file location and stats",
+    handler: async () => {
+      const stats = await getMemoryStats();
+      if (stats) {
+        console.log(`${BOLD}Memory:${RESET}`);
+        console.log(`  ${CYAN}Location:${RESET} ${stats.path}`);
+        console.log(`  ${CYAN}Definitions:${RESET} ${stats.count}`);
+        console.log(`  ${CYAN}Size:${RESET} ${stats.size} bytes`);
+        if (stats.count > 0) {
+          const names = await getMemoryNames();
+          console.log(`  ${CYAN}Names:${RESET} ${names.join(", ")}`);
+        }
+      } else {
+        console.log(`${YELLOW}Could not read memory file.${RESET}`);
+      }
+    },
+  },
+
+  ".forget": {
+    description: "Remove a definition from memory",
+    handler: async (_state: ReplState, args: string) => {
+      const name = args.trim();
+      if (!name) {
+        console.log(`${YELLOW}Usage: .forget <name>${RESET}`);
+        console.log(`${DIM_GRAY}Example: .forget myFunction${RESET}`);
+        return;
+      }
+
+      const removed = await forgetFromMemory(name);
+      if (removed) {
+        console.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
+        console.log(`${DIM_GRAY}Note: The binding still exists in this session. Use .reset to clear all bindings.${RESET}`);
+      } else {
+        console.log(`${YELLOW}'${name}' not found in memory.${RESET}`);
+      }
+    },
+  },
+
+  ".compact": {
+    description: "Manually trigger memory compaction",
+    handler: async () => {
+      const result = await compactMemory();
+      if (result.before === result.after) {
+        console.log(`${DIM_GRAY}Memory already compact (${result.after} definitions).${RESET}`);
+      } else {
+        console.log(`${GREEN}Compacted memory: ${result.before} → ${result.after} definitions.${RESET}`);
+      }
     },
   },
 };

@@ -413,6 +413,17 @@ function initializeTransformFactory(): void {
             processFunctionBody,
           ),
       );
+      // defn is an alias for fn (used for REPL memory persistence)
+      transformFactory.set(
+        "defn",
+        (list, currentDir) =>
+          functionModule.transformFn(
+            list,
+            currentDir,
+            transformNode,
+            processFunctionBody,
+          ),
+      );
       // Generator function: (fn* name [params] body...) or (fn* [params] body...)
       transformFactory.set(
         "fn*",
@@ -450,6 +461,12 @@ function initializeTransformFactory(): void {
       );
       transformFactory.set(
         "const",
+        (list, currentDir) =>
+          bindingModule.transformConst(list, currentDir, transformNode),
+      );
+      // def is an alias for const (used for REPL memory persistence)
+      transformFactory.set(
+        "def",
         (list, currentDir) =>
           bindingModule.transformConst(list, currentDir, transformNode),
       );
@@ -2260,43 +2277,16 @@ function determineCallOrAccess(
       );
     }
 
-    const symbolInfo = currentSymbolTable.get(
-      (firstTransformed as IR.IRIdentifier).name,
-    );
-
-    if (symbolInfo?.kind == "function") {
-      return createCallExpression(
-        list,
-        currentDir,
-        transformNode,
-        firstTransformed,
-      );
-    }
-
+    // In Lisp semantics, (symbol args...) is ALWAYS a function call.
+    // Property access must use explicit syntax: obj.key, (js-get obj "key"), or (get obj "key")
+    //
+    // Previously, this code tried to "guess" intent by treating (symbol "string") as property access,
+    // but this was semantically incorrect and caused bugs with imported functions like:
+    //   (ask "hello") -> incorrectly became __hql_get(ask, "hello") instead of ask("hello")
+    //
+    // The only exception is numeric indexing for array-like access patterns like (arr 0),
+    // which uses a runtime helper that tries array access first, then function call.
     const secondElement = elements[1];
-
-    // Special case 1: Property access with string literals (person "hobbies") -> get(person, "hobbies")
-    const isStringLiteral = (secondElement.type === "literal" &&
-      typeof (secondElement as LiteralNode).value === "string") ||
-      (secondElement.type === "symbol" &&
-        (secondElement as SymbolNode).name.startsWith('"'));
-
-    if (isStringLiteral) {
-      const keyTransformed = transformNode(secondElement, currentDir);
-      if (!keyTransformed) {
-        throw new TransformError(
-          "Key transformed to null",
-          JSON.stringify(list),
-          "Function or collection access",
-        );
-      }
-
-      // Generate property access via get function
-      return createPropertyAccessWithFallback(firstTransformed, keyTransformed);
-    }
-
-    // Special case 2: Handle numeric indexing patterns - (obj 0) expressions
-    // Example: For constructs like (entry 0), (array 1), etc.
     const isNumberLiteral = secondElement.type === "literal" &&
       typeof (secondElement as LiteralNode).value === "number";
 
@@ -2306,22 +2296,20 @@ function determineCallOrAccess(
         throw new TransformError(
           "Key transformed to null",
           JSON.stringify(list),
-          "Function or collection access",
+          "Numeric indexing",
         );
       }
-
-      // Create a numeric fallback that tries both array access and function call
-      // This resolves the ambiguity at runtime without using any hacks or heuristics
+      // Numeric indexing: (arr 0) -> try array access first, then function call
       return createNumericAccessWithFallback(firstTransformed, keyTransformed);
-    } else {
-      // For non-numeric cases (including function calls)
-      return createCallExpression(
-        list,
-        currentDir,
-        transformNode,
-        firstTransformed,
-      );
     }
+
+    // All other cases: treat as function call (correct Lisp semantics)
+    return createCallExpression(
+      list,
+      currentDir,
+      transformNode,
+      firstTransformed,
+    );
   }
 
   // Default case: treat as a function call

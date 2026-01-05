@@ -77,7 +77,7 @@ export function processUnicodeEscape(content: string): EscapeResult | null {
       if (UNICODE_EXTENDED_REGEX.test(hex)) {
         return {
           value: String.fromCodePoint(parseInt(hex, 16)),
-          consumed: endBrace,  // Includes the closing brace position
+          consumed: endBrace + 1,  // Include the closing brace itself
         };
       }
     }

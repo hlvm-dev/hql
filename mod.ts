@@ -143,6 +143,7 @@ export async function transpile(
     result.code.includes("__hql_for_each(");
   const needsDeepFreeze = result.code.includes("__hql_deepFreeze(");
   const needsMatchObj = result.code.includes("__hql_match_obj(");
+  const needsConsumeAsyncIter = result.code.includes("__hql_consume_async_iter(");
 
   // If source maps are requested, inject helpers WITHOUT IIFE wrapping
   if (options.generateSourceMap && result.sourceMap) {
@@ -194,6 +195,12 @@ export async function transpile(
     if (needsMatchObj) {
       helperSnippets.push(
         `const __hql_match_obj = ${getRuntimeHelperSource("__hql_match_obj")};`,
+      );
+    }
+
+    if (needsConsumeAsyncIter) {
+      helperSnippets.push(
+        `const __hql_consume_async_iter = ${getRuntimeHelperSource("__hql_consume_async_iter")};`,
       );
     }
 
@@ -311,7 +318,7 @@ export async function transpile(
     !hasExports &&
     !hasImports &&
     (needsGet || needsRange || needsSequence || needsThrow || needsHashMap ||
-      needsDeepFreeze || needsMatchObj)
+      needsDeepFreeze || needsMatchObj || needsConsumeAsyncIter)
   ) {
     const helperSnippets: string[] = [];
 
@@ -364,6 +371,12 @@ export async function transpile(
       );
     }
 
+    if (needsConsumeAsyncIter) {
+      helperSnippets.push(
+        `const __hql_consume_async_iter = ${getRuntimeHelperSource("__hql_consume_async_iter")};`,
+      );
+    }
+
     // Use an IIFE to avoid polluting scope and handle redeclaration
     const runtimeFunctions = helperSnippets.length
       ? `\n${helperSnippets.join("\n")}\n`
@@ -392,9 +405,10 @@ export async function transpile(
     }
 
     const ast = acorn.parse(codeWithoutStrict, {
-      ecmaVersion: 2020,
+      ecmaVersion: 2022,
       sourceType: "module",
-      locations: true
+      locations: true,
+      allowAwaitOutsideFunction: true,
     }) as unknown as { body: AcornNode[] };
 
     const statements = ast.body;
@@ -483,7 +497,7 @@ ${formattedExpression}
 })()`;
       return wrappedCode;
     }
-  } else if ((hasExports || hasImports) && (needsGet || needsRange || needsSequence || needsThrow || needsHashMap || needsDeepFreeze || needsMatchObj)) {
+  } else if ((hasExports || hasImports) && (needsGet || needsRange || needsSequence || needsThrow || needsHashMap || needsDeepFreeze || needsMatchObj || needsConsumeAsyncIter)) {
     // Code has ES module exports/imports AND needs helpers
     // Prepend helpers WITHOUT wrapping (like source map mode)
     const helperSnippets: string[] = [];
@@ -536,6 +550,12 @@ ${formattedExpression}
       );
     }
 
+    if (needsConsumeAsyncIter) {
+      helperSnippets.push(
+        `const __hql_consume_async_iter = ${getRuntimeHelperSource("__hql_consume_async_iter")};`,
+      );
+    }
+
     // Prepend helpers to code WITHOUT wrapping
     return helperSnippets.length > 0
       ? `${helperSnippets.join("\n")}\n\n${result.code}`
@@ -561,9 +581,10 @@ function wrapCodeForModuleExport(code: string): string {
 
   try {
     const ast = acorn.parse(code, {
-      ecmaVersion: 2020,
+      ecmaVersion: 2022,
       sourceType: "module",
       locations: true,
+      allowAwaitOutsideFunction: true,
     }) as unknown as { body: AcornNode[] };
 
     const statements = ast.body;
@@ -597,8 +618,26 @@ function wrapCodeForModuleExport(code: string): string {
       return `export default (async () => {\n${returnStmt}\n})();`;
     }
   } catch {
-    // If parsing fails, wrap the whole code and return undefined
-    return `export default (async () => {\n${code}\nreturn undefined;\n})();`;
+    // If parsing fails (shouldn't happen with ES2022+), try to intelligently wrap the code
+    // Find the last semicolon-terminated statement and extract it as the return value
+    const trimmed = code.trim();
+    const lastSemiIdx = trimmed.lastIndexOf(';');
+    if (lastSemiIdx > 0) {
+      // Find the start of the last statement by searching backwards for newline or start
+      let stmtStart = lastSemiIdx;
+      while (stmtStart > 0 && trimmed[stmtStart - 1] !== '\n' && trimmed[stmtStart - 1] !== ';') {
+        stmtStart--;
+      }
+      const precedingCode = trimmed.slice(0, stmtStart).trim();
+      const lastExpr = trimmed.slice(stmtStart, lastSemiIdx).trim();
+      if (precedingCode) {
+        return `export default (async () => {\n${precedingCode}\nreturn ${lastExpr};\n})();`;
+      } else {
+        return `export default (async () => {\nreturn ${lastExpr};\n})();`;
+      }
+    }
+    // Fallback: wrap entire code and return it
+    return `export default (async () => {\nreturn ${trimmed.replace(/;$/, '')};\n})();`;
   }
 }
 

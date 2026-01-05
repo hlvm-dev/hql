@@ -749,6 +749,15 @@ function transformNamedFn(
   const funcNameNode = list.elements[1] as SymbolNode;
   let funcName = funcNameNode.name;
 
+  // Extract return type annotation from function name FIRST (e.g., "add:number" -> name="add", returnType="number")
+  // Must happen before generic extraction since we could have "identity<T>:T"
+  let returnType: string | undefined;
+  const { name: nameWithoutReturnType, type: nameReturnType } = extractAndNormalizeType(funcName);
+  funcName = nameWithoutReturnType;
+  if (nameReturnType) {
+    returnType = nameReturnType;
+  }
+
   // Extract generic type parameters from function name (e.g., "identity<T>" -> name="identity", typeParameters=["T"])
   let typeParameters: string[] | undefined;
   const nameParts = funcName.match(/^([^<]+)(?:<(.+)>)?$/);
@@ -780,8 +789,9 @@ function transformNamedFn(
   );
 
   // Check for return type annotation after parameter list
-  // Syntax: (fn name [params]: ReturnType body)
-  let returnType: string | undefined;
+  // Syntax: (fn name [params] :ReturnType body)
+  // Note: returnType may already be set from function name (e.g., "add:number")
+  // The post-params annotation takes precedence if both are specified
   let bodyStartIndex = 3;
 
   if (list.elements.length > 3) {

@@ -148,9 +148,13 @@ export async function transformAST(
     // Type errors are non-fatal warnings - code still runs but may have issues
     if (result.typeErrors && result.typeErrors.length > 0 && options.showTypeWarnings !== false) {
       // Infrastructure errors that are NOT user code issues:
+      // - TS1375 "await only allowed in module" - Deno supports top-level await, TS quirk
       // - TS2318 "Cannot find global type" - noLib: true limitation
       // - TS2307 "Cannot find module '@hql/*'" - embedded packages aren't real modules
-      const TS_INFRASTRUCTURE_ERRORS = new Set([2318, 2307]);
+      // - TS2339 "Property does not exist on type" - dynamic globalThis in REPL
+      // - TS2304 "Cannot find name" - dynamic globals defined at runtime
+      // HQL philosophy: types are opt-in, not mandatory. Runtime behavior is correct.
+      const TS_INFRASTRUCTURE_ERRORS = new Set([1375, 2318, 2307, 2339, 2304]);
 
       for (const err of result.typeErrors) {
         // Skip TypeScript infrastructure errors

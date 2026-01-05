@@ -109,4 +109,33 @@ export class LRUCache<K, V> {
   get size(): number {
     return this.cache.size;
   }
+
+  /**
+   * Iterate over all entries in the cache
+   * Note: Iteration order is from oldest to newest
+   */
+  entries(): IterableIterator<[K, V]> {
+    return this.cache.entries();
+  }
+
+  /**
+   * Iterate over all keys in the cache
+   */
+  keys(): IterableIterator<K> {
+    return this.cache.keys();
+  }
+
+  /**
+   * Iterate over all values in the cache
+   */
+  values(): IterableIterator<V> {
+    return this.cache.values();
+  }
+
+  /**
+   * Make the cache iterable with for...of
+   */
+  [Symbol.iterator](): IterableIterator<[K, V]> {
+    return this.cache[Symbol.iterator]();
+  }
 }

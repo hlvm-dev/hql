@@ -68,11 +68,14 @@ export class Environment {
   public logger: Logger;
 
   // Track which file each user macro belongs to: macroName -> sourceFile
-  private macroSourceFiles = new Map<string, string>();
+  // Bounded to prevent memory leak in long-running processes (5000 macros max)
+  private macroSourceFiles = new LRUCache<string, string>(5000);
   // Track which macros are exported from each file: sourceFile -> Set<macroName>
-  private exportedMacros = new Map<string, Set<string>>();
+  // Bounded (2000 files max) - each value is a Set of macro names
+  private exportedMacros = new LRUCache<string, Set<string>>(2000);
   // Track which macros have been imported into the current file: macroName -> true
-  private importedMacros = new Set<string>();
+  // Bounded (5000 macros max) - wrapped as LRU with boolean values
+  private importedMacros = new LRUCache<string, true>(5000);
 
   /**
    * Create a standard environment with built-ins loaded.
@@ -912,7 +915,12 @@ export class Environment {
    * Mark a macro name as imported (for aliases where we've already verified the original)
    */
   markMacroImported(macroName: string): void {
-    addWithSanitized(this.importedMacros, macroName);
+    // Add both original and sanitized names to LRUCache
+    this.importedMacros.set(macroName, true);
+    const sanitized = hyphenToUnderscore(macroName);
+    if (sanitized !== macroName) {
+      this.importedMacros.set(sanitized, true);
+    }
     this.logger.debug(`Marked macro ${macroName} as imported (alias)`);
   }
 
@@ -950,8 +958,12 @@ export class Environment {
       }
     }
 
-    // Mark as imported in current scope
-    addWithSanitized(this.importedMacros, macroName);
+    // Mark as imported in current scope (LRUCache uses .set())
+    this.importedMacros.set(macroName, true);
+    const sanitized = hyphenToUnderscore(macroName);
+    if (sanitized !== macroName) {
+      this.importedMacros.set(sanitized, true);
+    }
 
     this.logger.debug(`Imported macro ${macroName} from ${sourceFile}`);
     return true;

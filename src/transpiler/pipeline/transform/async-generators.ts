@@ -115,6 +115,16 @@ export function transformAsync(
 
 /**
  * Transform await expression: (await expr)
+ *
+ * IMPORTANT: HQL await has enhanced semantics for async iterators.
+ * When awaiting an async generator/iterator, it automatically consumes
+ * the entire stream and returns the concatenated result.
+ *
+ * This enables a single function to support both modes:
+ * - (ask "hello")         → returns async iterator → REPL streams live
+ * - (await (ask "hello")) → consumes iterator → returns full string
+ *
+ * Implementation: wraps argument in __hql_consume_async_iter runtime helper
  */
 export function transformAwait(
   list: ListNode,
@@ -138,9 +148,23 @@ export function transformAwait(
         "await operand",
       );
 
+      // Wrap argument in __hql_consume_async_iter helper
+      // This helper:
+      // 1. Awaits the value (handles Promises)
+      // 2. If result is async iterator, consumes it and returns concatenated string
+      // 3. Otherwise returns the awaited value unchanged
+      const wrappedArgument: IR.IRCallExpression = {
+        type: IR.IRNodeType.CallExpression,
+        callee: {
+          type: IR.IRNodeType.Identifier,
+          name: "__hql_consume_async_iter",
+        } as IR.IRIdentifier,
+        arguments: [argument],
+      };
+
       return {
         type: IR.IRNodeType.AwaitExpression,
-        argument,
+        argument: wrappedArgument,
       } as IR.IRAwaitExpression;
     },
     "transformAwait",

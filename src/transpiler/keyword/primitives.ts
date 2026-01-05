@@ -101,6 +101,7 @@ export const KERNEL_PRIMITIVES = new Set([
   "const",  // v2.0: Immutable binding
   "let",    // v2.0: Mutable block-scoped binding (changed from immutable)
   "var",    // Function-scoped binding (unchanged)
+  "def",    // Global immutable binding (persists in REPL memory)
   // "set!" removed - now the "=" operator in PRIMITIVE_OPS
   "quasiquote",
   "unquote",
@@ -173,12 +174,12 @@ export const ALL_OPERATOR_NAMES = [...PRIMITIVE_OPS] as const;
 /**
  * Declaration keywords - forms that declare new named entities.
  */
-export const DECLARATION_KEYWORDS = ["fn", "function", "class", "enum"] as const;
+export const DECLARATION_KEYWORDS = ["fn", "function", "defn", "class", "enum"] as const;
 
 /**
  * Binding keywords - forms that bind values to names.
  */
-export const BINDING_KEYWORDS = ["let", "var", "const"] as const;
+export const BINDING_KEYWORDS = ["let", "var", "const", "def"] as const;
 
 /**
  * All declaration and binding keywords combined.

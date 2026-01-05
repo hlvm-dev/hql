@@ -51,6 +51,9 @@ export const DEEP_FREEZE_HELPER = "__hql_deepFreeze";
 /** Runtime helper for get operations (first-class) */
 export const GET_OP_HELPER = "__hql_get_op";
 
+/** Runtime helper for consuming async iterators in await expressions */
+export const CONSUME_ASYNC_ITER_HELPER = "__hql_consume_async_iter";
+
 /** Symbol for tagged generator thunks */
 export const GEN_THUNK_SYMBOL = Symbol.for("__hql_gen_thunk");
 
@@ -382,6 +385,45 @@ export function* __hql_trampoline_gen<T>(
   }
 }
 
+/**
+ * Consume async iterator and return concatenated result.
+ *
+ * This is the core of HQL's enhanced await semantics:
+ * - (await async-gen) → consumes all yields, returns concatenated string
+ * - (async-gen) → returns the iterator for streaming
+ *
+ * This enables ONE function to support both completion and streaming modes,
+ * determined by how the caller uses it.
+ *
+ * @example
+ * // In HQL:
+ * (ask "hello")         ; → Returns async iterator, REPL streams live
+ * (await (ask "hello")) ; → Consumes iterator, returns full string "Hello..."
+ */
+export async function __hql_consume_async_iter(value: unknown): Promise<unknown> {
+  // First await the value (handles Promises that resolve to async iterators)
+  const awaited = await value;
+
+  // Check if it's an async iterator
+  if (
+    awaited !== null &&
+    typeof awaited === "object" &&
+    Symbol.asyncIterator in awaited
+  ) {
+    // Consume the async iterator and concatenate results
+    let result = "";
+    const iter = awaited as AsyncIterable<unknown>;
+    for await (const chunk of iter) {
+      // Convert each chunk to string and concatenate
+      result += String(chunk);
+    }
+    return result;
+  }
+
+  // Not an async iterator - return as-is
+  return awaited;
+}
+
 export const runtimeHelperImplementations = {
   __hql_get,
   __hql_getNumeric,
@@ -395,6 +437,7 @@ export const runtimeHelperImplementations = {
   __hql_match_obj,
   __hql_trampoline,
   __hql_trampoline_gen,
+  __hql_consume_async_iter,
 };
 
 /**

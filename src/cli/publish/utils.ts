@@ -299,16 +299,17 @@ export function incrementPatchVersion(version: string): string {
     return "0.0.1";
   }
 
-  try {
-    const major = parseInt(parts[0], 10);
-    const minor = parseInt(parts[1], 10);
-    let patch = parseInt(parts[2], 10);
-    patch++;
+  const major = parseInt(parts[0], 10);
+  const minor = parseInt(parts[1], 10);
+  let patch = parseInt(parts[2], 10);
 
-    return `${major}.${minor}.${patch}`;
-  } catch {
+  // parseInt returns NaN for non-numeric input (doesn't throw)
+  if (Number.isNaN(major) || Number.isNaN(minor) || Number.isNaN(patch)) {
     return "0.0.1";
   }
+
+  patch++;
+  return `${major}.${minor}.${patch}`;
 }
 
 export function getCachedBuild(

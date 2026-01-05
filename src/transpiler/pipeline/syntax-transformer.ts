@@ -65,11 +65,13 @@ export function transformSyntax(ast: SExp[], context?: CompilerContext): SExp[] 
         registerClass(list);
         break;
       case "fn":
+      case "defn":
       case "macro":
         registerFunctionOrMacro(list, head);
         break;
       case "let":
       case "var":
+      case "def":
         registerBinding(list, head);
         break;
       case "module":
@@ -614,6 +616,7 @@ export function transformNode(
       // Handle specific syntactic transformations
       switch (op) {
         case "fn":
+        case "defn":
           return transformFnSyntax(normalizedList, enumDefinitions, logger);
         // Handle macro specially to fix parameter list parsing
         case "macro":
@@ -624,9 +627,10 @@ export function transformNode(
         case "when":
         case "unless":
           return transformSpecialForm(normalizedList, enumDefinitions, logger);
-        // Enhanced let/var handling with better error reporting
+        // Enhanced let/var/def handling with better error reporting
         case "let":
         case "var":
+        case "def":
           return transformLetExpr(normalizedList, enumDefinitions, logger);
         default:
           // Recursively transform elements for non-special forms

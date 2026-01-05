@@ -5,14 +5,33 @@
 
 export class ReplState {
   private bindings = new Set<string>();
+  private signatures = new Map<string, string[]>();  // function name -> param names
   private _history: string[] = [];
   private _lineNumber = 0;
   private importedModules = new Set<string>();
+  private _isLoadingMemory = false;
 
   /** Add a binding name */
   addBinding(name: string): void {
     this.bindings.add(name);
     (globalThis as Record<string, unknown>)[name] = (globalThis as Record<string, unknown>)[name];
+  }
+
+  /** Add a function with its parameter names */
+  addFunction(name: string, params: string[]): void {
+    this.bindings.add(name);
+    this.signatures.set(name, params);
+    (globalThis as Record<string, unknown>)[name] = (globalThis as Record<string, unknown>)[name];
+  }
+
+  /** Get function signature (param names) */
+  getSignature(name: string): string[] | undefined {
+    return this.signatures.get(name);
+  }
+
+  /** Get all signatures */
+  getSignatures(): Map<string, string[]> {
+    return this.signatures;
   }
 
   /** Check if a name is bound */
@@ -58,6 +77,16 @@ export class ReplState {
     this.importedModules.add(path);
   }
 
+  /** Check if currently loading from memory.hql */
+  get isLoadingMemory(): boolean {
+    return this._isLoadingMemory;
+  }
+
+  /** Set loading memory flag (prevents re-persisting loaded definitions) */
+  setLoadingMemory(loading: boolean): void {
+    this._isLoadingMemory = loading;
+  }
+
   /** Reset REPL state */
   reset(): void {
     // Clear globalThis bindings
@@ -65,6 +94,7 @@ export class ReplState {
       delete (globalThis as Record<string, unknown>)[name];
     }
     this.bindings.clear();
+    this.signatures.clear();
     this.importedModules.clear();
     this._lineNumber = 0;
     // Keep history

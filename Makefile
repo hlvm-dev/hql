@@ -23,7 +23,7 @@ install: build
 	@echo "✅ Installed! Try: hql --version"
 
 # Build and launch REPL immediately
-fast: build
+repl: build
 	@echo "🚀 Launching REPL..."
 	@./$(BINARY) repl
 
@@ -132,7 +132,7 @@ help:
 	@echo ""
 	@echo "Commands:"
 	@echo "  make              - Build for current computer"
-	@echo "  make fast         - Build and launch REPL"
+	@echo "  make repl         - Build and launch REPL"
 	@echo "  make install      - Install system-wide"
 	@echo "  make test         - Build and test"
 	@echo "  make all          - Build for all platforms"
@@ -149,6 +149,6 @@ help:
 	@echo "  make build-linux"
 	@echo "  make build-windows"
 
-.PHONY: build install fast test all clean help
+.PHONY: build install repl test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows
 .PHONY: build-ai setup-ai test-ai
