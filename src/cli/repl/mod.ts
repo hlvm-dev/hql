@@ -19,6 +19,7 @@ import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { compactMemory, loadMemory, getMemoryFilePath, getMemoryNames, forgetFromMemory, getDefinitionSource } from "./memory.ts";
 import { getFileIndex } from "./file-search.ts";
 import { resolveAtMentions } from "./mention-resolver.ts";
+import { renderMarkdown, hasMarkdown } from "./markdown.ts";
 
 const {
   BOLD,
@@ -54,66 +55,88 @@ function isSyncIterator(value: unknown): value is IterableIterator<unknown> {
 }
 
 /**
- * Stream async iterator values to stdout in real-time.
- * This enables live streaming for AI responses, generators, etc.
- * Returns the concatenated string result (for string yields) or last value.
+ * Collect async iterator and render with markdown formatting.
+ * Shows a spinner while collecting, then renders nicely formatted output.
  */
 async function streamAsyncIterator(iterator: AsyncIterableIterator<unknown>): Promise<void> {
   const encoder = new TextEncoder();
-  let hasOutput = false;
+  let buffer = "";
+  let hasStringOutput = false;
+
+  // Spinner animation
+  const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  let spinnerIdx = 0;
+  let spinnerInterval: number | null = null;
 
   try {
+    // Start spinner
+    Deno.stdout.writeSync(encoder.encode(`${DIM_GRAY}${spinnerFrames[0]} thinking...${RESET}`));
+    spinnerInterval = setInterval(() => {
+      spinnerIdx = (spinnerIdx + 1) % spinnerFrames.length;
+      Deno.stdout.writeSync(encoder.encode(`\r${DIM_GRAY}${spinnerFrames[spinnerIdx]} thinking...${RESET}`));
+    }, 80);
+
     for await (const chunk of iterator) {
-      hasOutput = true;
       if (typeof chunk === "string") {
-        // String chunks: write directly (no newline) for streaming effect
-        Deno.stdout.writeSync(encoder.encode(chunk));
+        hasStringOutput = true;
+        buffer += chunk;
       } else {
-        // Non-string values: format and print with newline
+        // Non-string values: format and print
+        if (spinnerInterval) {
+          clearInterval(spinnerInterval);
+          spinnerInterval = null;
+          Deno.stdout.writeSync(encoder.encode("\r\x1b[2K")); // Clear spinner line
+        }
         console.log(formatValue(chunk));
       }
     }
 
-    // Add trailing newline if we streamed strings
-    if (hasOutput) {
-      Deno.stdout.writeSync(encoder.encode("\n"));
+    // Stop spinner and clear line
+    if (spinnerInterval) {
+      clearInterval(spinnerInterval);
+      Deno.stdout.writeSync(encoder.encode("\r\x1b[2K"));
+    }
+
+    // Render collected string with markdown
+    if (hasStringOutput && buffer.length > 0) {
+      if (hasMarkdown(buffer)) {
+        console.log(renderMarkdown(buffer.trim()));
+      } else {
+        console.log(buffer);
+      }
     }
   } catch (error) {
-    // Ensure newline after partial output before showing error
-    if (hasOutput) {
-      Deno.stdout.writeSync(encoder.encode("\n"));
+    if (spinnerInterval) {
+      clearInterval(spinnerInterval);
+      Deno.stdout.writeSync(encoder.encode("\r\x1b[2K"));
     }
-    // Re-throw to be caught by outer error handler
     throw error;
   }
 }
 
 /**
- * Stream sync iterator values to stdout.
+ * Collect sync iterator and render with markdown formatting.
  */
 function streamSyncIterator(iterator: IterableIterator<unknown>): void {
-  const encoder = new TextEncoder();
-  let hasOutput = false;
+  let buffer = "";
+  let hasStringOutput = false;
 
-  try {
-    for (const chunk of iterator) {
-      hasOutput = true;
-      if (typeof chunk === "string") {
-        Deno.stdout.writeSync(encoder.encode(chunk));
-      } else {
-        console.log(formatValue(chunk));
-      }
+  for (const chunk of iterator) {
+    if (typeof chunk === "string") {
+      hasStringOutput = true;
+      buffer += chunk;
+    } else {
+      console.log(formatValue(chunk));
     }
+  }
 
-    if (hasOutput) {
-      Deno.stdout.writeSync(encoder.encode("\n"));
+  // Render collected string with markdown
+  if (hasStringOutput && buffer.length > 0) {
+    if (hasMarkdown(buffer)) {
+      console.log(renderMarkdown(buffer.trim()));
+    } else {
+      console.log(buffer);
     }
-  } catch (error) {
-    // Ensure newline after partial output before showing error
-    if (hasOutput) {
-      Deno.stdout.writeSync(encoder.encode("\n"));
-    }
-    throw error;
   }
 }
 
@@ -464,7 +487,12 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
           }
           // Regular value - format and print
           else {
-            console.log(formatValue(value));
+            // For string values with markdown (typically AI responses), render nicely
+            if (typeof value === "string" && hasMarkdown(value)) {
+              console.log(renderMarkdown(value));
+            } else {
+              console.log(formatValue(value));
+            }
           }
         }
       } else if (result.error) {
