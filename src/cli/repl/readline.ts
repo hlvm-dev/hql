@@ -12,6 +12,18 @@ import {
   applyCompletion,
   type CompletionItem,
 } from "./completer.ts";
+import {
+  createMentionState,
+  activateMention,
+  deactivateMention,
+  updateQuery,
+  navigateUp,
+  navigateDown,
+  getInsertText,
+  renderDropdown,
+  clearDropdown,
+  type MentionState,
+} from "./mention-mode.ts";
 
 const { DIM_GRAY, CYAN, RESET } = ANSI_COLORS;
 
@@ -136,6 +148,9 @@ export class Readline {
   private placeholders: Array<{ start: number; length: number; text: string; touched: boolean }> = [];
   private placeholderIndex = -1;
 
+  // @ mention mode state (file search)
+  private mentionState: MentionState = createMentionState();
+
   /**
    * Read a complete (possibly multi-line) input
    */
@@ -194,6 +209,7 @@ export class Readline {
     this.suggestion = null;
     this.clearCompletions();
     this.exitPlaceholderMode();
+    deactivateMention(this.mentionState);
   }
 
   // ============================================================
@@ -235,6 +251,96 @@ export class Readline {
   private exitPlaceholderMode(): void {
     this.placeholders = [];
     this.placeholderIndex = -1;
+  }
+
+  // ============================================================
+  // @ Mention Mode Helpers
+  // ============================================================
+
+  /**
+   * Check if @ should activate mention mode based on context
+   * Only activates at start of line, after whitespace, or after opener chars
+   */
+  private shouldActivateMention(ch: string): boolean {
+    if (ch !== "@") return false;
+    if (this.cursorPos === 0) return true; // Start of line
+
+    const prevChar = this.currentLine[this.cursorPos - 1];
+    return /[\s\(\[\{]/.test(prevChar); // After whitespace or opener
+  }
+
+  /**
+   * Check if cursor is inside a string literal
+   * Prevents @ activation inside strings like "user@email.com"
+   */
+  private isInsideString(): boolean {
+    let inString = false;
+    let stringChar = "";
+    for (let i = 0; i < this.cursorPos; i++) {
+      const ch = this.currentLine[i];
+      if ((ch === '"' || ch === "'") && (i === 0 || this.currentLine[i - 1] !== "\\")) {
+        if (!inString) {
+          inString = true;
+          stringChar = ch;
+        } else if (ch === stringChar) {
+          inString = false;
+        }
+      }
+    }
+    return inString;
+  }
+
+  /**
+   * Handle mention mode selection (Tab or Enter to confirm)
+   */
+  private async confirmMentionSelection(): Promise<boolean> {
+    if (!this.mentionState.active) return false;
+
+    const insertText = getInsertText(this.mentionState);
+    if (insertText) {
+      // Replace @query with "path"
+      const atPos = this.mentionState.atPosition;
+      const beforeAt = this.currentLine.slice(0, atPos);
+      const afterCursor = this.currentLine.slice(this.cursorPos);
+      this.currentLine = beforeAt + insertText + afterCursor;
+      this.cursorPos = atPos + insertText.length;
+    }
+
+    await this.write(clearDropdown(this.mentionState));
+    deactivateMention(this.mentionState);
+    await this.redrawLine();
+    return true;
+  }
+
+  /**
+   * Cancel mention mode and clean up dropdown
+   */
+  private async cancelMention(): Promise<void> {
+    if (!this.mentionState.active) return;
+    await this.write(clearDropdown(this.mentionState));
+    deactivateMention(this.mentionState);
+  }
+
+  /**
+   * Update mention query and refresh dropdown
+   */
+  private async updateMentionQuery(): Promise<void> {
+    if (!this.mentionState.active) return;
+
+    const query = this.currentLine.slice(this.mentionState.atPosition + 1, this.cursorPos);
+    await updateQuery(this.mentionState, query);
+
+    await this.write(clearDropdown(this.mentionState));
+    await this.write(renderDropdown(this.mentionState, this.getTerminalWidth()));
+    await this.redrawLine(); // Fix cursor position after dropdown render
+  }
+
+  private getTerminalWidth(): number {
+    try {
+      return Deno.consoleSize().columns;
+    } catch {
+      return 80;
+    }
   }
 
   private nextPlaceholder(): boolean {
@@ -376,6 +482,11 @@ export class Readline {
         break;
       }
 
+      // Stop batching on @ to handle mention mode activation
+      if (code === 0x40) { // '@'
+        break;
+      }
+
       batchedChars += String.fromCharCode(code);
       i++;
     }
@@ -383,8 +494,38 @@ export class Readline {
     // If we collected batched characters, insert them all at once
     if (batchedChars.length > 0) {
       await this.insertCharsBatched(batchedChars);
+
+      // Update mention query if active
+      if (this.mentionState.active) {
+        await this.updateMentionQuery();
+      }
+
       // Continue processing from where we stopped
       return await this.processKeyBytes(key, i);
+    }
+
+    // Handle @ character for mention mode
+    if (key[offset] === 0x40) { // '@'
+      const ch = "@";
+      if (this.shouldActivateMention(ch) && !this.isInsideString()) {
+        // Insert @ and activate mention mode
+        await this.insertChar(ch);
+        activateMention(this.mentionState, this.cursorPos - 1);
+
+        // Initial search (empty query shows recent files)
+        await updateQuery(this.mentionState, "");
+        await this.write(renderDropdown(this.mentionState, this.getTerminalWidth()));
+        await this.redrawLine(); // Fix cursor position after dropdown render
+      } else {
+        // Just insert @ normally (inside string or after identifier)
+        await this.insertChar(ch);
+
+        // If in mention mode, update query
+        if (this.mentionState.active) {
+          await this.updateMentionQuery();
+        }
+      }
+      return await this.processKeyBytes(key, offset + 1);
     }
 
     const code = key[offset];
@@ -404,8 +545,11 @@ export class Readline {
       return await this.processKeyBytes(key, offset + 3);
     }
 
-    // Skip lone escape
+    // Handle lone escape - cancel mention mode if active
     if (code === 0x1b) {
+      if (this.mentionState.active) {
+        await this.cancelMention();
+      }
       return await this.processKeyBytes(key, offset + 1);
     }
 
@@ -420,6 +564,12 @@ export class Readline {
 
     // Ctrl+C
     if (code === ControlChar.CTRL_C.charCodeAt(0)) {
+      // Cancel mention mode first if active
+      if (this.mentionState.active) {
+        await this.cancelMention();
+        return await this.processKeyBytes(key, offset + 1);
+      }
+
       if (this.lastWasCtrlC) {
         await this.write("\n");
         return { action: KeyAction.Exit };
@@ -442,6 +592,12 @@ export class Readline {
 
     // Enter - handle line completion (supports multi-line paste)
     if (code === ControlChar.ENTER.charCodeAt(0) || code === 0x0a) {
+      // Mention mode: confirm selection
+      if (this.mentionState.active) {
+        await this.confirmMentionSelection();
+        return await this.processKeyBytes(key, offset + 1);
+      }
+
       this.exitPlaceholderMode();
 
       // Check if there are more bytes to process (multi-line paste)
@@ -517,6 +673,11 @@ export class Readline {
         return true;
 
       case ControlChar.TAB.charCodeAt(0):
+        // Mention mode: confirm selection (priority over completion)
+        if (this.mentionState.active) {
+          await this.confirmMentionSelection();
+          return true;
+        }
         await this.handleTab();
         return true;
 
@@ -526,6 +687,25 @@ export class Readline {
   }
 
   private async handleArrowKey(key: string): Promise<void> {
+    // Mention mode: navigate dropdown (priority)
+    if (this.mentionState.active) {
+      if (key === ArrowKey.Up) {
+        navigateUp(this.mentionState);
+        await this.write(clearDropdown(this.mentionState));
+        await this.write(renderDropdown(this.mentionState, this.getTerminalWidth()));
+        await this.redrawLine(); // Fix cursor position
+        return;
+      } else if (key === ArrowKey.Down) {
+        navigateDown(this.mentionState);
+        await this.write(clearDropdown(this.mentionState));
+        await this.write(renderDropdown(this.mentionState, this.getTerminalWidth()));
+        await this.redrawLine(); // Fix cursor position
+        return;
+      }
+      // Left/Right arrows cancel mention mode
+      await this.cancelMention();
+    }
+
     // Exit placeholder mode on arrow keys
     this.exitPlaceholderMode();
 
@@ -650,6 +830,29 @@ export class Readline {
 
   private async handleBackspace(): Promise<void> {
     if (this.cursorPos > 0) {
+      // Mention mode: handle backspace
+      if (this.mentionState.active) {
+        // Check if we're about to delete the @ itself
+        if (this.cursorPos === this.mentionState.atPosition + 1) {
+          // Deleting @ - cancel mention mode first
+          await this.write(clearDropdown(this.mentionState));
+          deactivateMention(this.mentionState);
+        }
+
+        // Do normal backspace
+        this.currentLine =
+          this.currentLine.slice(0, this.cursorPos - 1) +
+          this.currentLine.slice(this.cursorPos);
+        this.cursorPos--;
+        await this.redrawLine();
+
+        // Update query if still in mention mode
+        if (this.mentionState.active) {
+          await this.updateMentionQuery();
+        }
+        return;
+      }
+
       // In placeholder mode, handle backspace specially
       if (this.isInPlaceholderMode()) {
         const ph = this.placeholders[this.placeholderIndex];

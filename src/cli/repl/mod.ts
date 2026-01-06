@@ -17,6 +17,8 @@ import { getErrorMessage } from "../../common/utils.ts";
 import { version as VERSION, run } from "../../../mod.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { compactMemory, loadMemory, getMemoryFilePath, getMemoryNames, forgetFromMemory, getDefinitionSource } from "./memory.ts";
+import { getFileIndex } from "./file-search.ts";
+import { resolveAtMentions } from "./mention-resolver.ts";
 
 const {
   BOLD,
@@ -172,6 +174,9 @@ export async function startRepl(options: ReplOptions = {}): Promise<number> {
   const state = new ReplState();
   const readline = new Readline();
   const startTime = Date.now();
+
+  // Pre-index files in background for @ mention feature (fire and forget)
+  getFileIndex().catch(() => {}); // Ignore errors, just warm the cache
 
   // Prompts based on mode
   const prompt = jsMode ? "js> " : "hql> ";
@@ -434,8 +439,11 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
         continue;
       }
 
+      // Resolve @ mentions to actual file/directory content
+      const resolvedInput = await resolveAtMentions(input);
+
       // Evaluate code (HQL or JavaScript depending on mode)
-      const result = await evaluate(input, state, jsMode);
+      const result = await evaluate(resolvedInput, state, jsMode);
 
       if (result.success) {
         if (!result.suppressOutput && result.value !== undefined) {
