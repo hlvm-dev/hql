@@ -23,7 +23,7 @@ import { renderMarkdown, hasMarkdown } from "./markdown.ts";
 
 const {
   BOLD,
-  PURPLE,
+  SICP_PURPLE,
   CYAN,
   GREEN,
   YELLOW,
@@ -55,60 +55,36 @@ function isSyncIterator(value: unknown): value is IterableIterator<unknown> {
 }
 
 /**
- * Collect async iterator and render with markdown formatting.
- * Shows a spinner while collecting, then renders nicely formatted output.
+ * Stream async iterator output live to terminal.
+ * Prints each chunk as it arrives for real-time AI responses.
  */
 async function streamAsyncIterator(iterator: AsyncIterableIterator<unknown>): Promise<void> {
   const encoder = new TextEncoder();
-  let buffer = "";
-  let hasStringOutput = false;
-
-  // Spinner animation
-  const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-  let spinnerIdx = 0;
-  let spinnerInterval: number | null = null;
+  let hasOutput = false;
 
   try {
-    // Start spinner
-    Deno.stdout.writeSync(encoder.encode(`${DIM_GRAY}${spinnerFrames[0]} thinking...${RESET}`));
-    spinnerInterval = setInterval(() => {
-      spinnerIdx = (spinnerIdx + 1) % spinnerFrames.length;
-      Deno.stdout.writeSync(encoder.encode(`\r${DIM_GRAY}${spinnerFrames[spinnerIdx]} thinking...${RESET}`));
-    }, 80);
-
     for await (const chunk of iterator) {
       if (typeof chunk === "string") {
-        hasStringOutput = true;
-        buffer += chunk;
+        // Print chunk immediately for live streaming
+        Deno.stdout.writeSync(encoder.encode(chunk));
+        hasOutput = true;
       } else {
         // Non-string values: format and print
-        if (spinnerInterval) {
-          clearInterval(spinnerInterval);
-          spinnerInterval = null;
-          Deno.stdout.writeSync(encoder.encode("\r\x1b[2K")); // Clear spinner line
+        if (hasOutput) {
+          Deno.stdout.writeSync(encoder.encode("\n"));
         }
         console.log(formatValue(chunk));
+        hasOutput = true;
       }
     }
 
-    // Stop spinner and clear line
-    if (spinnerInterval) {
-      clearInterval(spinnerInterval);
-      Deno.stdout.writeSync(encoder.encode("\r\x1b[2K"));
-    }
-
-    // Render collected string with markdown
-    if (hasStringOutput && buffer.length > 0) {
-      if (hasMarkdown(buffer)) {
-        console.log(renderMarkdown(buffer.trim()));
-      } else {
-        console.log(buffer);
-      }
+    // Add newline at end if we had output
+    if (hasOutput) {
+      Deno.stdout.writeSync(encoder.encode("\n"));
     }
   } catch (error) {
-    if (spinnerInterval) {
-      clearInterval(spinnerInterval);
-      Deno.stdout.writeSync(encoder.encode("\r\x1b[2K"));
+    if (hasOutput) {
+      Deno.stdout.writeSync(encoder.encode("\n"));
     }
     throw error;
   }
@@ -153,12 +129,12 @@ export interface ReplOptions {
  */
 function printBanner(jsMode: boolean = false): void {
   console.log(`
-${BOLD}${PURPLE}██╗  ██╗ ██████╗ ██╗     ${RESET}
-${BOLD}${PURPLE}██║  ██║██╔═══██╗██║     ${RESET}
-${BOLD}${PURPLE}███████║██║   ██║██║     ${RESET}
-${BOLD}${PURPLE}██╔══██║██║▄▄ ██║██║     ${RESET}
-${BOLD}${PURPLE}██║  ██║╚██████╔╝███████╗${RESET}
-${BOLD}${PURPLE}╚═╝  ╚═╝ ╚══▀▀═╝ ╚══════╝${RESET}
+${BOLD}${SICP_PURPLE}██╗  ██╗ ██████╗ ██╗     ${RESET}
+${BOLD}${SICP_PURPLE}██║  ██║██╔═══██╗██║     ${RESET}
+${BOLD}${SICP_PURPLE}███████║██║   ██║██║     ${RESET}
+${BOLD}${SICP_PURPLE}██╔══██║██║▄▄ ██║██║     ${RESET}
+${BOLD}${SICP_PURPLE}██║  ██║╚██████╔╝███████╗${RESET}
+${BOLD}${SICP_PURPLE}╚═╝  ╚═╝ ╚══▀▀═╝ ╚══════╝${RESET}
 
 ${DIM_GRAY}Version ${VERSION} • Lisp-like language for modern JavaScript${RESET}
 `);
@@ -201,9 +177,9 @@ export async function startRepl(options: ReplOptions = {}): Promise<number> {
   // Pre-index files in background for @ mention feature (fire and forget)
   getFileIndex().catch(() => {}); // Ignore errors, just warm the cache
 
-  // Prompts based on mode
-  const prompt = jsMode ? "js> " : "hql> ";
-  const continuationPrompt = jsMode ? "..  " : "...  ";
+  // Prompts based on mode (SICP purple theme)
+  const prompt = jsMode ? `${BOLD}${SICP_PURPLE}js>${RESET} ` : `${BOLD}${SICP_PURPLE}hql>${RESET} `;
+  const continuationPrompt = jsMode ? `${DIM_GRAY}..${RESET}  ` : `${DIM_GRAY}...${RESET}  `;
 
   // Initialize runtime (including AI if available)
   await initializeRuntime();
@@ -522,12 +498,14 @@ USAGE:
 
 OPTIONS:
   --js              Enable JavaScript polyglot mode (HQL + JS)
+  --ink             Use new Ink-based REPL (experimental)
   --help, -h        Show this help
   --version         Show version
 
 MODES:
   hql repl          Pure HQL mode (default)
   hql repl --js     Polyglot mode - mix HQL and JavaScript
+  hql repl --ink    Ink-based REPL with enhanced UI
 
 POLYGLOT MODE (--js):
   Input starting with ( is evaluated as HQL.
@@ -537,6 +515,7 @@ POLYGLOT MODE (--js):
 EXAMPLES:
   hql repl              Start pure HQL REPL
   hql repl --js         Start polyglot REPL (HQL + JavaScript)
+  hql repl --ink        Start Ink-based REPL (experimental)
 `);
     return 0;
   }
@@ -544,6 +523,14 @@ EXAMPLES:
   if (args.includes("--version")) {
     console.log(`HQL REPL v${VERSION}`);
     return 0;
+  }
+
+  // Use Ink-based REPL if --ink flag is present
+  if (args.includes("--ink")) {
+    // Dynamic import to avoid loading Ink dependencies unless needed
+    const { startInkRepl } = await import("../repl-ink/index.tsx");
+    const jsMode = args.includes("--js");
+    return await startInkRepl({ jsMode });
   }
 
   // Parse --js flag for polyglot mode

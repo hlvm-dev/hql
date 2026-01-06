@@ -2,6 +2,7 @@
  * Shared ANSI color codes for CLI components.
  */
 export const ANSI_COLORS = {
+  SICP_PURPLE: "\x1b[38;2;102;51;153m",  // #663399 - SICP book cover purple
   DARK_PURPLE: "\x1b[38;2;128;54;146m",
   PURPLE: "\x1b[35m",
   CYAN: "\x1b[36m",
@@ -15,3 +16,24 @@ export const ANSI_COLORS = {
 } as const;
 
 export type AnsiColor = typeof ANSI_COLORS[keyof typeof ANSI_COLORS];
+
+/**
+ * Terminal control sequences for screen manipulation.
+ */
+export const ANSI_CONTROLS = {
+  CLEAR_SCREEN: "\x1b[2J",      // Clear entire screen
+  CLEAR_SCROLLBACK: "\x1b[3J",  // Clear scrollback buffer (iTerm2, Terminal.app)
+  CURSOR_HOME: "\x1b[H",        // Move cursor to top-left
+  CLEAR_LINE: "\x1b[K",         // Clear from cursor to end of line
+} as const;
+
+/**
+ * Clear terminal screen and scrollback buffer.
+ * Used for Ctrl+L and Cmd+K screen clear in REPL.
+ */
+export function clearTerminal(): void {
+  const encoder = new TextEncoder();
+  Deno.stdout.writeSync(encoder.encode(
+    ANSI_CONTROLS.CLEAR_SCROLLBACK + ANSI_CONTROLS.CLEAR_SCREEN + ANSI_CONTROLS.CURSOR_HOME
+  ));
+}

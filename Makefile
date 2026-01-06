@@ -27,6 +27,11 @@ repl: build
 	@echo "🚀 Launching REPL..."
 	@./$(BINARY) repl
 
+# Build and launch Ink REPL (experimental - better AI streaming)
+ink: build
+	@echo "🚀 Launching Ink REPL..."
+	@./$(BINARY) repl --ink
+
 # Test it works
 test: build
 	@echo "🧪 Testing HQL binary..."
@@ -133,6 +138,7 @@ help:
 	@echo "Commands:"
 	@echo "  make              - Build for current computer"
 	@echo "  make repl         - Build and launch REPL"
+	@echo "  make ink          - Build and launch Ink REPL (experimental)"
 	@echo "  make install      - Install system-wide"
 	@echo "  make test         - Build and test"
 	@echo "  make all          - Build for all platforms"
@@ -149,6 +155,6 @@ help:
 	@echo "  make build-linux"
 	@echo "  make build-windows"
 
-.PHONY: build install repl test all clean help
+.PHONY: build install repl ink test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows
 .PHONY: build-ai setup-ai test-ai

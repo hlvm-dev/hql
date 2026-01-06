@@ -5,7 +5,7 @@
 
 import { ANSI_COLORS } from "../ansi.ts";
 
-const { CYAN, GREEN, YELLOW, RED, DIM_GRAY, RESET } = ANSI_COLORS;
+const { CYAN, YELLOW, RED, DIM_GRAY, RESET } = ANSI_COLORS;
 
 /** Format a value for display */
 export function formatValue(value: unknown, depth = 0): string {
@@ -13,7 +13,7 @@ export function formatValue(value: unknown, depth = 0): string {
   if (value === null) return `${DIM_GRAY}nil${RESET}`;
 
   if (typeof value === "string") {
-    return `${GREEN}"${escapeString(value)}"${RESET}`;
+    return `${RED}"${escapeString(value)}"${RESET}`;
   }
 
   if (typeof value === "number") {

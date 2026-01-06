@@ -18,7 +18,7 @@ import {
   extractMacroNames,
 } from "../../common/known-identifiers.ts";
 
-const { DARK_PURPLE, CYAN, GREEN, YELLOW, DIM_GRAY, BOLD, RESET } = ANSI_COLORS;
+const { SICP_PURPLE, CYAN, RED, YELLOW, DIM_GRAY, BOLD, RESET } = ANSI_COLORS;
 
 // ============================================================
 // Token Types
@@ -28,6 +28,7 @@ export type TokenType =
   | "string"
   | "number"
   | "keyword"
+  | "macro"      // Distinct from keyword - signals non-standard evaluation
   | "operator"
   | "comment"
   | "boolean"
@@ -52,17 +53,40 @@ export interface Token {
 // Pre-computed Sets for O(1) Lookup
 // ============================================================
 
+// Macros: Threading, quote system, utility macros, type predicates
+// These get RED color to distinguish from keywords (signals non-standard evaluation)
+const MACRO_SET: ReadonlySet<string> = new Set([
+  // Threading macros
+  ...THREADING_MACROS,
+  // Quote system
+  "quote", "quasiquote", "unquote", "unquote-splicing",
+  // Word logical operators (macros, not primitives)
+  ...WORD_LOGICAL_OPERATORS,
+  // Utility macros from embedded macros
+  "inc", "dec", "str", "print",
+  "when-let", "if-let", "if-not", "when-not",
+  "doto", "xor", "min", "max", "with-gensyms",
+  // Type predicates (macros)
+  "isNull", "isUndefined", "isNil", "isDefined", "notNil",
+  "isString", "isNumber", "isBoolean", "isFunction", "isSymbol",
+  "isArray", "isObject",
+  // Other utility macros
+  "isEmpty", "hasElements", "isEmptyList", "contains",
+]);
+
 // Keywords: control flow, declarations, bindings, kernel primitives
+// These get SICP_PURPLE color
 const KEYWORD_SET: ReadonlySet<string> = new Set([
   ...CONTROL_FLOW_KEYWORDS,
   ...DECLARATION_KEYWORDS,
   ...BINDING_KEYWORDS,
   ...KERNEL_PRIMITIVES,
-  ...THREADING_MACROS,
-  ...WORD_LOGICAL_OPERATORS,
-  ...extractMacroNames(),
   "fn", "function", "defn", "macro", "import", "export", "new",
-  "async", "from", "as",
+  "async", "from", "as", "this",
+  // Generator and async forms
+  "fn*", "yield", "yield*",
+  // Loop control
+  "label", "break", "continue",
 ]);
 
 // Operators from primitives.ts
@@ -200,6 +224,7 @@ function isDelimiter(ch: string): boolean {
 }
 
 function classifySymbol(value: string): TokenType {
+  if (MACRO_SET.has(value)) return "macro";  // Check macros first (RED)
   if (KEYWORD_SET.has(value)) return "keyword";
   if (OPERATOR_SET.has(value)) return "operator";
   if (BOOLEAN_SET.has(value)) return "boolean";
@@ -213,24 +238,40 @@ function classifySymbol(value: string): TokenType {
 
 /**
  * Color map for token types.
- * Matches conventions from formatter.ts:
- * - Strings: GREEN
+ * SICP Theme (Structure and Interpretation of Computer Programs):
+ * - Keywords: SICP_PURPLE (#663399) - special forms, control flow
+ * - Macros: RED - threading, quote, utility macros (distinct from keywords)
+ * - Strings: RED (SICP accent color)
  * - Numbers: CYAN
  * - Booleans: YELLOW
  * - Nil/null: DIM_GRAY
+ * - Delimiters: DIM_GRAY (subtle)
+ * - Function calls: SICP_PURPLE (symbols in function position)
  */
 const TOKEN_COLORS: Partial<Record<TokenType, string>> = {
-  string: GREEN,
+  string: RED,
   number: CYAN,
-  keyword: DARK_PURPLE,
+  keyword: SICP_PURPLE,
+  macro: RED,           // Macros get red (SICP accent) - distinct from keywords
   operator: CYAN,
   comment: DIM_GRAY,
   boolean: YELLOW,
   nil: DIM_GRAY,
+  // Delimiters - subtle gray to fade into background
+  "open-paren": DIM_GRAY,
+  "close-paren": DIM_GRAY,
+  "open-bracket": DIM_GRAY,
+  "close-bracket": DIM_GRAY,
+  "open-brace": DIM_GRAY,
+  "close-brace": DIM_GRAY,
 };
+
+// Color for symbols in function position (after open paren)
+const FUNCTION_CALL_COLOR = SICP_PURPLE;
 
 /**
  * Highlight input string with ANSI colors.
+ * Uses context-aware highlighting for function position detection.
  *
  * @param input - Raw input string
  * @param matchPos - Optional position of matching paren to highlight
@@ -242,8 +283,39 @@ export function highlight(input: string, matchPos: number | null = null): string
   const tokens = tokenize(input);
   let result = "";
 
-  for (const token of tokens) {
-    const color = TOKEN_COLORS[token.type];
+  // Pre-compute which tokens are in function position (after open-paren, skipping whitespace)
+  const functionPositionTokens = new Set<number>();
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    // Only symbols and operators can be in function position
+    if (token.type !== "symbol" && token.type !== "operator") continue;
+
+    // Look back to find the previous non-whitespace token
+    for (let j = i - 1; j >= 0; j--) {
+      if (tokens[j].type === "whitespace") continue;
+      if (tokens[j].type === "open-paren") {
+        functionPositionTokens.add(i);
+      }
+      break;
+    }
+  }
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const isFunctionPosition = functionPositionTokens.has(i);
+
+    // Determine color with priority:
+    // 1. Macros ALWAYS stay red (even in function position) - signals non-standard evaluation
+    // 2. Function position gets purple (for user-defined functions, operators)
+    // 3. Otherwise use token type color
+    let color: string | undefined;
+    if (token.type === "macro") {
+      color = TOKEN_COLORS.macro;  // Always red
+    } else if (isFunctionPosition) {
+      color = FUNCTION_CALL_COLOR;  // Purple for function position
+    } else {
+      color = TOKEN_COLORS[token.type];
+    }
 
     // Check if this token contains the matching paren position
     if (matchPos !== null && token.start <= matchPos && matchPos < token.end) {
