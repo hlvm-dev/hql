@@ -15,24 +15,32 @@ export interface Command {
 }
 
 const helpText = `
-${BOLD}HQL REPL Commands:${RESET}
+${BOLD}HQL REPL Functions:${RESET}
 
-  ${CYAN}.help${RESET}      Show this help message
-  ${CYAN}.clear${RESET}     Clear the screen
-  ${CYAN}.reset${RESET}     Reset REPL state (clear all bindings)
-  ${CYAN}.bindings${RESET}  Show all bound names
-  ${CYAN}.history${RESET}   Show command history
-  ${CYAN}.exit${RESET}      Exit the REPL (or use Ctrl+D)
+  ${CYAN}(memory)${RESET}         List all saved definitions
+  ${CYAN}(forget "x")${RESET}     Remove definition from memory
+  ${CYAN}(inspect x)${RESET}      Show source code (fast, no AI)
+  ${CYAN}(describe x)${RESET}     Source + AI explanation & examples
+  ${CYAN}(help)${RESET}           Show this help
+  ${CYAN}(exit)${RESET}           Exit the REPL
+  ${CYAN}(clear)${RESET}          Clear the screen
 
 ${BOLD}Memory (auto-persist def/defn):${RESET}
 
-  ${CYAN}.memory${RESET}    Show memory file location and stats
-  ${CYAN}.forget${RESET}    Remove a definition from memory (usage: .forget name)
-  ${CYAN}.compact${RESET}   Manually trigger memory compaction
+  Definitions are automatically saved to ~/.hql/memory.hql
+  They persist across sessions. No explicit save needed.
+
+${BOLD}Dot Commands (aliases):${RESET}
+
+  ${DIM_GRAY}.help .clear .reset .bindings .history .exit${RESET}
+  ${DIM_GRAY}.memory .forget .compact${RESET}
 
 ${BOLD}Keyboard Shortcuts:${RESET}
 
+  ${YELLOW}Tab${RESET}        Complete / cycle forward through options
+  ${YELLOW}Shift+Tab${RESET}  Cycle backward through options
   ${YELLOW}Up/Down${RESET}    Navigate history
+  ${YELLOW}→ / End${RESET}    Accept ghost suggestion
   ${YELLOW}Ctrl+C${RESET}     Cancel current input (twice to exit)
   ${YELLOW}Ctrl+D${RESET}     Exit REPL
   ${YELLOW}Ctrl+A${RESET}     Jump to start of line
@@ -40,14 +48,15 @@ ${BOLD}Keyboard Shortcuts:${RESET}
   ${YELLOW}Ctrl+U${RESET}     Delete to start of line
   ${YELLOW}Ctrl+K${RESET}     Delete to end of line
   ${YELLOW}Ctrl+W${RESET}     Delete word backward
+  ${YELLOW}Ctrl+L${RESET}     Clear screen
 
 ${BOLD}Examples:${RESET}
 
-  ${DIM_GRAY}; Basic math${RESET}
-  ${GREEN}(+ 1 2 3)${RESET}
+  ${DIM_GRAY}; Define a persistent value${RESET}
+  ${GREEN}(def name "seoksoon")${RESET}
 
-  ${DIM_GRAY}; Define a function${RESET}
-  ${GREEN}(fn greet [name] (str "Hello, " name "!"))${RESET}
+  ${DIM_GRAY}; Define a persistent function${RESET}
+  ${GREEN}(defn greet [name] (str "Hello, " name "!"))${RESET}
 
   ${DIM_GRAY}; Use AI (requires embedded @hql/ai)${RESET}
   ${GREEN}(import [ask] from "@hql/ai")${RESET}

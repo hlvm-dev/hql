@@ -353,3 +353,12 @@ export async function getMemoryNames(): Promise<string[]> {
   const definitions = await readAndParseMemory();
   return definitions.map(d => d.name);
 }
+
+/**
+ * Get the source code for a specific definition by name
+ */
+export async function getDefinitionSource(name: string): Promise<string | null> {
+  const definitions = await readAndParseMemory();
+  const def = definitions.find(d => d.name === name);
+  return def?.code ?? null;
+}

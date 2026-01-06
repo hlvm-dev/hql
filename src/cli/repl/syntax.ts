@@ -275,7 +275,6 @@ export function highlight(input: string, matchPos: number | null = null): string
 // Paren Matching
 // ============================================================
 
-const OPEN_TO_CLOSE: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
 const CLOSE_TO_OPEN: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
 
 /**

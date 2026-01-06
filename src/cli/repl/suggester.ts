@@ -1,9 +1,11 @@
 /**
  * HQL REPL Suggester - Fish-style Autosuggestions
  *
- * Provides ghost-text suggestions from command history.
+ * Provides ghost-text suggestions from command history AND user bindings.
  * Shows gray text after cursor, accept with → or End.
  */
+
+import { getWordAtCursor } from "./completer.ts";
 
 // ============================================================
 // Types
@@ -16,49 +18,46 @@ export interface Suggestion {
   readonly ghost: string;
 }
 
-// ============================================================
-// Suggestion Functions
-// ============================================================
-
 /**
- * Find autosuggestion for current input from history.
+ * Find autosuggestion for current input from history AND bindings.
  *
- * Algorithm (fish-style):
- * 1. Search history from most recent to oldest
- * 2. Find first entry that starts with current input
+ * Algorithm:
+ * 1. First check if current word matches any binding (inline completion)
+ * 2. Then search history from most recent to oldest
  * 3. Return the suffix as ghost text (first line only for multi-line)
- *
- * @param currentLine - Current input line
- * @param history - Command history (most recent last)
- * @returns Suggestion or null if no match
  */
 export function findSuggestion(
   currentLine: string,
-  history: readonly string[]
+  history: readonly string[],
+  bindings?: ReadonlySet<string>
 ): Suggestion | null {
-  // Don't suggest for empty input
   if (currentLine.length === 0) return null;
+
+  // Check for binding completion (inline word completion)
+  if (bindings && bindings.size > 0) {
+    const { word, start } = getWordAtCursor(currentLine, currentLine.length);
+
+    if (word.length >= 2) {
+      // Find first matching binding (sorted for consistency)
+      for (const binding of [...bindings].sort()) {
+        if (binding.startsWith(word) && binding !== word) {
+          const prefix = currentLine.slice(0, start);
+          return { full: prefix + binding, ghost: binding.slice(word.length) };
+        }
+      }
+    }
+  }
 
   // Search history backwards (most recent first)
   for (let i = history.length - 1; i >= 0; i--) {
     const entry = history[i];
-
-    // Skip if entry is same as current input
     if (entry === currentLine) continue;
 
-    // Check prefix match (case-sensitive)
     if (entry.startsWith(currentLine)) {
-      // For multi-line history entries, only suggest the first line
-      // This prevents terminal rendering issues (ANSI_CLEAR_LINE only clears one line)
       let ghost = entry.slice(currentLine.length);
       const newlinePos = ghost.indexOf('\n');
-      if (newlinePos !== -1) {
-        ghost = ghost.slice(0, newlinePos) + ' ...';
-      }
-      return {
-        full: entry,
-        ghost,
-      };
+      if (newlinePos !== -1) ghost = ghost.slice(0, newlinePos) + ' ...';
+      return { full: entry, ghost };
     }
   }
 
@@ -67,40 +66,7 @@ export function findSuggestion(
 
 /**
  * Accept the suggestion, returning the full suggested text.
- *
- * @param currentLine - Current input line
- * @param suggestion - The suggestion to accept
- * @returns The full accepted text (uses full entry, not truncated ghost)
  */
-export function acceptSuggestion(
-  _currentLine: string,
-  suggestion: Suggestion
-): string {
-  // Use the full entry, not currentLine + ghost, because ghost may be truncated
-  // for multi-line entries (shows "..." for display but accepts full text)
+export function acceptSuggestion(_currentLine: string, suggestion: Suggestion): string {
   return suggestion.full;
-}
-
-/**
- * Accept only the first word of the suggestion.
- * Useful for Alt+→ partial accept.
- *
- * @param currentLine - Current input line
- * @param suggestion - The suggestion
- * @returns The input with first word of suggestion appended
- */
-export function acceptFirstWord(
-  currentLine: string,
-  suggestion: Suggestion
-): string {
-  const ghost = suggestion.ghost;
-
-  // Find end of first word in ghost text
-  let end = 0;
-  // Skip leading spaces
-  while (end < ghost.length && ghost[end] === " ") end++;
-  // Find end of word
-  while (end < ghost.length && ghost[end] !== " ") end++;
-
-  return currentLine + ghost.slice(0, end);
 }

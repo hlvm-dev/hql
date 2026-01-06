@@ -10,7 +10,6 @@ import {
   getCompletions,
   getWordAtCursor,
   applyCompletion,
-  formatCompletionItem,
   type CompletionItem,
 } from "./completer.ts";
 
@@ -25,6 +24,7 @@ const enum ControlChar {
   CTRL_D = "\x04",
   CTRL_E = "\x05",
   CTRL_K = "\x0b",
+  CTRL_L = "\x0c",
   CTRL_U = "\x15",
   CTRL_W = "\x17",
   TAB = "\x09",
@@ -206,7 +206,7 @@ export class Readline {
            this.placeholderIndex < this.placeholders.length;
   }
 
-  private enterPlaceholderMode(funcName: string, params: string[], startPos: number): void {
+  private enterPlaceholderMode(params: string[], startPos: number): void {
     // Safety check: don't enter placeholder mode with no params
     if (params.length === 0) {
       return;
@@ -256,6 +256,23 @@ export class Readline {
       this.cursorPos = newlinePos !== -1 ? newlinePos : this.currentLine.length;
       return false;
     }
+  }
+
+  private previousPlaceholder(): boolean {
+    if (!this.isInPlaceholderMode()) {
+      this.exitPlaceholderMode();
+      return false;
+    }
+
+    if (this.placeholderIndex > 0) {
+      this.placeholderIndex--;
+      const ph = this.placeholders[this.placeholderIndex];
+      // Position at start of placeholder, or at end if it's been touched
+      this.cursorPos = ph.touched ? ph.start + ph.length : ph.start;
+      return true;
+    }
+    // Already at first placeholder - stay there
+    return false;
   }
 
   private replaceCurrentPlaceholder(char: string): void {
@@ -372,10 +389,18 @@ export class Readline {
 
     const code = key[offset];
 
-    // Handle escape sequences (arrow keys: ESC [ A/B/C/D)
+    // Handle escape sequences (arrow keys: ESC [ A/B/C/D, Shift+Tab: ESC [ Z)
     if (code === 0x1b && offset + 2 < key.length && key[offset + 1] === 0x5b) {
-      await this.handleArrowKey(String.fromCharCode(key[offset + 2]));
-      // Process remaining bytes after escape sequence
+      const thirdByte = key[offset + 2];
+
+      // Shift+Tab: ESC [ Z (0x5a = 'Z')
+      if (thirdByte === 0x5a) {
+        await this.handleShiftTab();
+        return await this.processKeyBytes(key, offset + 3);
+      }
+
+      // Arrow keys: ESC [ A/B/C/D
+      await this.handleArrowKey(String.fromCharCode(thirdByte));
       return await this.processKeyBytes(key, offset + 3);
     }
 
@@ -477,6 +502,10 @@ export class Readline {
 
       case ControlChar.CTRL_K.charCodeAt(0):
         await this.deleteToEnd();
+        return true;
+
+      case ControlChar.CTRL_L.charCodeAt(0):
+        await this.clearScreen();
         return true;
 
       case ControlChar.CTRL_W.charCodeAt(0):
@@ -599,6 +628,12 @@ export class Readline {
     await this.redrawLine();
   }
 
+  private async clearScreen(): Promise<void> {
+    // Clear terminal and redraw prompt with current input
+    await this.write("\x1b[2J\x1b[H");  // Clear screen + move cursor to home
+    await this.redrawLine();
+  }
+
   private async deleteWord(): Promise<void> {
     this.exitPlaceholderMode();
     const before = this.currentLine.slice(0, this.cursorPos);
@@ -696,6 +731,26 @@ export class Readline {
   // Tab Completion
   // ============================================================
 
+  /**
+   * Handle Shift+Tab - reverse cycle through completions
+   */
+  private async handleShiftTab(): Promise<void> {
+    // In placeholder mode, go to previous placeholder
+    if (this.isInPlaceholderMode()) {
+      this.previousPlaceholder();
+      await this.redrawLine();
+      return;
+    }
+
+    // Only reverse cycle if we're already showing completions
+    if (this.showingCompletions && this.completions.length > 0) {
+      // Decrement with wrap-around
+      this.completionIndex = (this.completionIndex - 1 + this.completions.length) % this.completions.length;
+      await this.applyCycledCompletion();
+    }
+    // If not in completion mode, Shift+Tab does nothing (unlike Tab which starts completion)
+  }
+
   private async handleTab(): Promise<void> {
     // Handle placeholder mode navigation
     if (this.isInPlaceholderMode()) {
@@ -705,27 +760,20 @@ export class Readline {
     }
 
     if (this.showingCompletions) {
-      // Check if current word is a function - if so, insert placeholders instead of cycling
-      const { word } = getWordAtCursor(this.currentLine, this.cursorPos);
-      if (this.userBindings.has(word)) {
-        const signature = this.signatures.get(word);
-        if (signature && signature.length > 0) {
-          this.clearCompletions();
-          await this.insertFunctionWithPlaceholders(word, signature);
-          return;
-        }
-      }
-
-      // Otherwise, cycle through completions
+      // When cycling, ONLY cycle - no placeholder insertion
+      // User can press Space/Enter to accept, then Tab again for placeholders
       this.completionIndex = (this.completionIndex + 1) % this.completions.length;
       await this.applyCycledCompletion();
     } else {
       // Start new completion
       const { word, start } = getWordAtCursor(this.currentLine, this.cursorPos);
 
-      // FIRST: Check if word is an exact match function - insert placeholders immediately
-      // This takes priority over finding longer completions (e.g., "add" vs "adder")
-      if (word.length > 0 && this.userBindings.has(word)) {
+      // Check if we're at function position (right after opening paren)
+      const isAtFunctionPosition = start > 0 && this.currentLine[start - 1] === '(';
+
+      // Only insert placeholders if word is exact function match AND at function position
+      // e.g., "(add4|" → insert placeholders, but "(forget add4|" → don't (add4 is argument)
+      if (isAtFunctionPosition && word.length > 0 && this.userBindings.has(word)) {
         const signature = this.signatures.get(word);
         if (signature && signature.length > 0) {
           await this.insertFunctionWithPlaceholders(word, signature);
@@ -743,17 +791,18 @@ export class Readline {
           return;
         }
 
-        // Only cycle through bindings if we're at FUNCTION position (right after open paren)
-        // NOT in argument position (after function name + space)
-        const isAtFunctionPosition = start > 0 && this.currentLine[start - 1] === '(';
-
         if (isAtFunctionPosition && this.userBindings.size > 0) {
-          // Cycle through all user bindings - user is choosing a function to call
-          this.completions = [...this.userBindings].sort().map(name => ({
-            text: name,
-            type: "variable" as const,
-          }));
-          if (this.completions.length > 0) {
+          // Cycle through user bindings that match the prefix
+          // Filter by prefix to avoid cycling through unrelated bindings
+          const matchingBindings = [...this.userBindings]
+            .filter(name => word.length === 0 || name.startsWith(word))
+            .sort();
+
+          if (matchingBindings.length > 0) {
+            this.completions = matchingBindings.map(name => ({
+              text: name,
+              type: "variable" as const,
+            }));
             this.showingCompletions = true;
             this.completionIndex = 0;
             this.completionStart = start;
@@ -779,19 +828,22 @@ export class Readline {
       }
 
       if (this.completions.length === 1) {
-        // Single match - check if it's a function with signature
+        // Single match
         const funcName = this.completions[0].text;
-        const signature = this.signatures.get(funcName);
-
         await this.applySelectedCompletion(this.completions[0]);
 
-        if (signature && signature.length > 0) {
-          // Insert function with placeholder params
-          await this.insertFunctionWithPlaceholders(funcName, signature);
-        } else {
-          // Just add space for non-function bindings
-          await this.insertChar(" ");
+        // Only insert placeholders if at function position (right after `(`)
+        // e.g., "(ad|" Tab → "(add4 x y z a)" but "(forget ad|" Tab → "(forget add4 "
+        if (isAtFunctionPosition) {
+          const signature = this.signatures.get(funcName);
+          if (signature && signature.length > 0) {
+            await this.insertFunctionWithPlaceholders(funcName, signature);
+            this.clearCompletions();
+            return;
+          }
         }
+        // Not at function position or no signature - just add space
+        await this.insertChar(" ");
         this.clearCompletions();
       } else {
         // Multiple matches - try common prefix first
@@ -815,53 +867,37 @@ export class Readline {
   }
 
   /**
-   * Insert function name with placeholder arguments
+   * Insert placeholder arguments for a function
+   * @param params - parameter names to insert as placeholders
+   * @param insertLeadingSpace - whether to insert a space before placeholders
    */
-  private async insertFunctionWithPlaceholders(funcName: string, params: string[]): Promise<void> {
-    // Safety check: need at least one parameter
+  private async insertPlaceholders(params: string[], insertLeadingSpace: boolean): Promise<void> {
     if (params.length === 0) {
-      await this.insertChar(" ");
+      if (insertLeadingSpace) await this.insertChar(" ");
       return;
     }
 
-    // Build the placeholder text: "param1 param2)"
+    const prefix = insertLeadingSpace ? " " : "";
     const paramsText = params.join(" ") + ")";
-    const startPos = this.cursorPos + 1; // +1 for the space we're about to insert
+    const startPos = this.cursorPos + prefix.length;
 
-    // Insert space and params
     this.currentLine =
       this.currentLine.slice(0, this.cursorPos) +
-      " " + paramsText +
+      prefix + paramsText +
       this.currentLine.slice(this.cursorPos);
 
-    // Enter placeholder mode
-    this.enterPlaceholderMode(funcName, params, startPos);
+    this.enterPlaceholderMode(params, startPos);
     await this.redrawLine();
   }
 
-  /**
-   * Insert just argument placeholders (when function name already typed)
-   * For case: (ask |) → Tab → (ask prompt)
-   */
+  /** Insert placeholders after function name: (func| → (func x y z) */
+  private async insertFunctionWithPlaceholders(_funcName: string, params: string[]): Promise<void> {
+    await this.insertPlaceholders(params, true);
+  }
+
+  /** Insert placeholders at cursor: (func | → (func x y z) */
   private async insertArgumentPlaceholders(params: string[]): Promise<void> {
-    // Safety check: need at least one parameter
-    if (params.length === 0) {
-      return;
-    }
-
-    // Build the placeholder text: "param1 param2)"
-    const paramsText = params.join(" ") + ")";
-    const startPos = this.cursorPos; // Cursor is already after space
-
-    // Insert params at cursor
-    this.currentLine =
-      this.currentLine.slice(0, this.cursorPos) +
-      paramsText +
-      this.currentLine.slice(this.cursorPos);
-
-    // Enter placeholder mode
-    this.enterPlaceholderMode("", params, startPos);
-    await this.redrawLine();
+    await this.insertPlaceholders(params, false);
   }
 
   /**
@@ -925,33 +961,6 @@ export class Readline {
   // ============================================================
   // Core Display
   // ============================================================
-
-  private isArrowKey(key: Uint8Array): boolean {
-    return key.length === 3 &&
-           key[0] === ControlChar.ESCAPE.charCodeAt(0) &&
-           key[1] === "[".charCodeAt(0);
-  }
-
-  private isPrintable(code: number): boolean {
-    return code >= PRINTABLE_START && code < PRINTABLE_END;
-  }
-
-  /**
-   * Get highlighted line with paren matching and placeholder rendering
-   */
-  private getHighlightedLine(): string {
-    // If in placeholder mode, render placeholders in gray
-    if (this.isInPlaceholderMode()) {
-      return this.getHighlightedLineWithPlaceholders();
-    }
-
-    // Find matching paren if cursor is after a closing delimiter
-    let matchPos: number | null = null;
-    if (this.cursorPos > 0) {
-      matchPos = findMatchingParen(this.currentLine, this.cursorPos - 1);
-    }
-    return highlight(this.currentLine, matchPos);
-  }
 
   /**
    * Get highlighted line with placeholders shown in gray
@@ -1027,7 +1036,7 @@ export class Readline {
     // Update autosuggestion (only when cursor at end and single-line content)
     let ghostText = "";
     if (newlinePos === -1 && this.cursorPos === this.currentLine.length) {
-      this.suggestion = findSuggestion(this.currentLine, this.history);
+      this.suggestion = findSuggestion(this.currentLine, this.history, this.userBindings);
       if (this.suggestion) {
         ghostText = DIM_GRAY + this.suggestion.ghost + RESET;
       }

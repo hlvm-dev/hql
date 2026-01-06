@@ -14,9 +14,9 @@ import { formatValue, formatError } from "./formatter.ts";
 import { isCommand, runCommand } from "./commands.ts";
 import { ANSI_COLORS } from "../ansi.ts";
 import { getErrorMessage } from "../../common/utils.ts";
-import { version as VERSION } from "../../../mod.ts";
+import { version as VERSION, run } from "../../../mod.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
-import { compactMemory, loadMemory, getMemoryFilePath } from "./memory.ts";
+import { compactMemory, loadMemory, getMemoryFilePath, getMemoryNames, forgetFromMemory, getDefinitionSource } from "./memory.ts";
 
 const {
   BOLD,
@@ -162,8 +162,6 @@ ${GREEN}AI (requires @hql/ai):${RESET}
 `);
   }
 
-  console.log(`${YELLOW}Commands:${RESET} ${DIM_GRAY}.help | .clear | .reset${RESET}
-${YELLOW}Exit:${RESET}     ${DIM_GRAY}Ctrl+C | Ctrl+D | .exit${RESET}`);
 }
 
 /**
@@ -181,6 +179,32 @@ export async function startRepl(options: ReplOptions = {}): Promise<number> {
 
   // Initialize runtime (including AI if available)
   await initializeRuntime();
+
+  // Auto-import AI module (battery-included)
+  // Import as namespace, then spread all function exports onto globalThis
+  const aiExports: string[] = [];
+  try {
+    await run(`
+      (import ai from "@hql/ai")
+      (js-set globalThis "__hql_ai_module__" ai)
+    `, { baseDir: Deno.cwd(), currentFile: "<repl>", suppressUnknownNameErrors: true });
+
+    const globalAny = globalThis as unknown as Record<string, unknown>;
+    const aiModule = globalAny.__hql_ai_module__ as Record<string, unknown> | undefined;
+
+    if (aiModule && typeof aiModule === "object") {
+      for (const [name, value] of Object.entries(aiModule)) {
+        if (typeof value === "function") {
+          globalAny[name] = value;
+          state.addBinding(name);
+          aiExports.push(name);
+        }
+      }
+    }
+    delete globalAny.__hql_ai_module__;
+  } catch {
+    // AI module not available - continue without it
+  }
 
   // Load persisted memory from ~/.hql/memory.hql
   let memoryLoadResult = { count: 0, errors: [] as string[] };
@@ -200,12 +224,170 @@ export async function startRepl(options: ReplOptions = {}): Promise<number> {
     // Silently continue if memory loading fails
   }
 
+  // Register REPL functions on globalThis for consistent Lisp-style interface
+  const globalAny = globalThis as unknown as Record<string, unknown>;
+
+  globalAny.memory = async () => {
+    // Single file read - get names and derive count
+    const names = await getMemoryNames();
+    return { count: names.length, names, path: getMemoryFilePath() };
+  };
+
+  globalAny.forget = async (name: string) => {
+    const removed = await forgetFromMemory(name);
+    if (removed) {
+      console.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
+    } else {
+      console.log(`${YELLOW}'${name}' not found in memory.${RESET}`);
+    }
+    return removed;
+  };
+
+  // inspect: Fast, deterministic source code lookup
+  globalAny.inspect = async (value: unknown) => {
+    const type = typeof value;
+
+    // For functions: show source from memory if available
+    if (type === "function") {
+      const fn = value as ((...args: unknown[]) => unknown) & { name: string };
+      const name = fn.name || "<anonymous>";
+      const source = await getDefinitionSource(name);
+
+      console.log(`${CYAN}${name}${RESET}: ${DIM_GRAY}function${RESET}`);
+      if (source) {
+        console.log(`${DIM_GRAY}${source}${RESET}`);
+      }
+      return { name, type: "function", source };
+    }
+
+    // For strings: check if it's a definition name (user might want source lookup)
+    if (type === "string") {
+      const source = await getDefinitionSource(value as string);
+      if (source) {
+        console.log(`${CYAN}${value}${RESET}:`);
+        console.log(`${DIM_GRAY}${source}${RESET}`);
+        return { name: value, type: "definition", source };
+      }
+      // Not a definition - fall through to show as string value
+    }
+
+    // For all other values: show type and value
+    console.log(`${CYAN}<value>${RESET}: ${DIM_GRAY}${type}${RESET}`);
+    if (value !== null && value !== undefined) {
+      try {
+        console.log(`${DIM_GRAY}${JSON.stringify(value, null, 2)}${RESET}`);
+      } catch {
+        console.log(`${DIM_GRAY}[non-serializable]${RESET}`);
+      }
+    }
+    return { name: null, type, source: null };
+  };
+
+  // describe: inspect + AI-generated explanation and examples
+  globalAny.describe = async (value: unknown) => {
+    // First run inspect to show source code
+    const info = await (globalAny.inspect as (v: unknown) => Promise<{ name: string | null; type: string; source?: string | null }>)(value);
+
+    // If no source available, nothing more to explain
+    if (!info.source) {
+      return { ...info, explanation: null };
+    }
+
+    // Check if AI (ask function) is available (auto-imported at startup)
+    const ask = globalAny.ask as ((prompt: string) => Promise<unknown>) | undefined;
+    if (typeof ask !== "function") {
+      console.log(`\n${YELLOW}AI not available. Check @hql/ai installation and API key.${RESET}`);
+      return { ...info, explanation: null };
+    }
+
+    // Generate AI explanation
+    console.log(`\n${CYAN}── AI Explanation ──${RESET}\n`);
+
+    const prompt = `You are explaining an HQL function. HQL is a Lisp-like language that compiles to JavaScript.
+
+Here is the function source code:
+${info.source}
+
+Provide:
+1. A brief explanation of what this function does (1-2 sentences)
+2. 2-3 example usages in HQL syntax
+
+Keep the response concise. Use HQL syntax (parentheses, prefix notation) for examples.`;
+
+    try {
+      const response = await ask(prompt);
+
+      // Handle async iterator (streaming response)
+      if (response && typeof (response as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function") {
+        const encoder = new TextEncoder();
+        let explanation = "";
+        for await (const chunk of response as AsyncIterable<unknown>) {
+          if (typeof chunk === "string") {
+            Deno.stdout.writeSync(encoder.encode(chunk));
+            explanation += chunk;
+          }
+        }
+        console.log(); // Final newline
+        return { ...info, explanation };
+      } else if (typeof response === "string") {
+        console.log(response);
+        return { ...info, explanation: response };
+      } else {
+        console.log(String(response));
+        return { ...info, explanation: String(response) };
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.log(`${YELLOW}AI error: ${errMsg}${RESET}`);
+      return { ...info, explanation: null };
+    }
+  };
+
+  globalAny.help = () => {
+    // Import is already at top of file, use runCommand
+    runCommand(".help", state);
+    return null;
+  };
+
+  globalAny.exit = () => {
+    console.log("\nGoodbye!");
+    Deno.exit(0);
+  };
+
+  globalAny.clear = () => {
+    console.clear();
+    return null;
+  };
+
+  // Register REPL helper functions for tab completion
+  const replHelpers = ["memory", "forget", "inspect", "describe", "help", "exit", "clear"];
+  for (const name of replHelpers) {
+    state.addBinding(name);
+  }
+
   printBanner(jsMode);
 
-  // Show memory status if definitions were loaded
-  if (memoryLoadResult.count > 0) {
-    console.log(`${GREEN}Memory:${RESET} ${DIM_GRAY}Loaded ${memoryLoadResult.count} definition${memoryLoadResult.count === 1 ? "" : "s"} from ${getMemoryFilePath()}${RESET}`);
+  // Show memory status with names (Option A style)
+  const memoryNames = await getMemoryNames();
+  if (memoryNames.length > 0) {
+    const displayNames = memoryNames.length <= 5
+      ? memoryNames.join(", ")
+      : `${memoryNames.slice(0, 5).join(", ")}... +${memoryNames.length - 5} more`;
+    console.log(`${GREEN}Memory:${RESET} ${displayNames} (${memoryNames.length} definition${memoryNames.length === 1 ? "" : "s"})`);
+  } else {
+    console.log(`${GREEN}Memory:${RESET} ${DIM_GRAY}empty — def/defn auto-save here${RESET}`);
   }
+
+  // Show AI status
+  if (aiExports.length > 0) {
+    console.log(`${GREEN}AI:${RESET} ${aiExports.join(", ")} ${DIM_GRAY}(auto-imported from @hql/ai)${RESET}`);
+  } else {
+    console.log(`${GREEN}AI:${RESET} ${DIM_GRAY}not available — install @hql/ai${RESET}`);
+  }
+
+  // Show function commands (consistent Lisp style)
+  console.log(`${DIM_GRAY}(memory) | (forget "x") | (inspect x) | (describe x) AI | (help)${RESET}`);
+
   if (memoryLoadResult.errors.length > 0) {
     console.log(`${YELLOW}Memory warnings:${RESET}`);
     for (const err of memoryLoadResult.errors.slice(0, 3)) {
@@ -257,17 +439,24 @@ export async function startRepl(options: ReplOptions = {}): Promise<number> {
 
       if (result.success) {
         if (!result.suppressOutput && result.value !== undefined) {
+          let value = result.value;
+
+          // Auto-await promises for better UX (no need to type (await ...) in REPL)
+          if (value instanceof Promise) {
+            value = await value;
+          }
+
           // Check for async iterator (from async generators) - stream in real-time
-          if (isAsyncIterator(result.value)) {
-            await streamAsyncIterator(result.value);
+          if (isAsyncIterator(value)) {
+            await streamAsyncIterator(value);
           }
           // Check for sync iterator (from generators) - stream immediately
-          else if (isSyncIterator(result.value)) {
-            streamSyncIterator(result.value);
+          else if (isSyncIterator(value)) {
+            streamSyncIterator(value);
           }
           // Regular value - format and print
           else {
-            console.log(formatValue(result.value));
+            console.log(formatValue(value));
           }
         }
       } else if (result.error) {

@@ -460,6 +460,14 @@ declare function subs(s: string, start: number, end?: number): string;
 declare function upperCase(s: string): string;
 declare function lowerCase(s: string): string;
 declare function blankQ(s: string | null | undefined): boolean;
+
+// REPL functions (available in REPL context)
+declare function memory(): Promise<{count: number, names: string[], path: string}>;
+declare function forget(name: string): Promise<boolean>;
+declare function describe(name: string): {name: string, type: string, value: unknown} | null;
+declare function help(): null;
+declare function exit(): never;
+declare function clear(): null;
 `;
 
 /**

@@ -326,7 +326,7 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
  * Handle binding (let/var/def) statements
  * For "def" operator: also persist evaluated value to memory.hql
  */
-async function handleBinding(hqlCode: string, ast: SList, name: string, operator: string, state: ReplState): Promise<EvalResult> {
+async function handleBinding(_hqlCode: string, ast: SList, name: string, operator: string, state: ReplState): Promise<EvalResult> {
   try {
     // Extract value expression from already-parsed AST (no re-parsing!)
     const valueExpr = sexpToString(ast.elements[2]);

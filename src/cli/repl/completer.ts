@@ -27,7 +27,9 @@ export type CompletionType =
   | "operator"
   | "macro"
   | "function"
-  | "variable";
+  | "variable"
+  | "file"
+  | "directory";
 
 export interface CompletionItem {
   /** The completion text */
@@ -83,7 +85,8 @@ export function getWordAtCursor(
   };
 }
 
-function isWordBoundary(ch: string): boolean {
+/** Check if character is a word boundary (shared by completer and suggester) */
+export function isWordBoundary(ch: string): boolean {
   return /[\s\(\)\[\]\{\}"',;]/.test(ch);
 }
 
@@ -152,39 +155,16 @@ export function getCompletions(
 
 /**
  * Apply a completion to the input line.
- *
- * @param line - Current input line
- * @param cursorPos - Current cursor position
- * @param completion - The completion to apply
- * @returns New line and cursor position
  */
 export function applyCompletion(
   line: string,
   cursorPos: number,
   completion: CompletionItem
 ): { line: string; cursorPos: number } {
-  const { word, start } = getWordAtCursor(line, cursorPos);
+  const { word } = getWordAtCursor(line, cursorPos);
   const suffix = completion.text.slice(word.length);
-
-  const newLine =
-    line.slice(0, cursorPos) +
-    suffix +
-    line.slice(cursorPos);
-
   return {
-    line: newLine,
+    line: line.slice(0, cursorPos) + suffix + line.slice(cursorPos),
     cursorPos: cursorPos + suffix.length,
   };
-}
-
-/**
- * Format completion item for display.
- *
- * @param item - The completion item
- * @returns Formatted string for display
- */
-export function formatCompletionItem(item: CompletionItem): string {
-  const typeStr = item.type.padEnd(10);
-  const sig = item.signature || "";
-  return `  ${item.text.padEnd(20)} ${typeStr} ${sig}`;
 }
