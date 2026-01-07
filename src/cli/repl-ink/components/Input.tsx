@@ -3,13 +3,20 @@
  * Full keyboard handling with syntax highlighting, completions, history
  */
 
-import React, { useState, useEffect, useCallback } from "npm:react@18";
+import React, { useState, useEffect, useCallback, useRef } from "npm:react@18";
 import { Text, Box, useInput } from "npm:ink@5";
-import { highlight, findMatchingParen } from "../../repl/syntax.ts";
-import { isBalanced } from "../../repl/syntax.ts";
+import { highlight, findMatchingParen, isBalanced } from "../../repl/syntax.ts";
 import { getCompletions, getWordAtCursor, applyCompletion, type CompletionItem } from "../../repl/completer.ts";
 import { findSuggestion, acceptSuggestion, type Suggestion } from "../../repl/suggester.ts";
-import { searchFiles, type FileMatch } from "../../repl/file-search.ts";
+import { shouldTabAcceptSuggestion } from "../../repl/tab-logic.ts";
+import { searchFiles, unescapeShellPath, type FileMatch } from "../../repl/file-search.ts";
+import { calculateWordBackPosition, calculateWordForwardPosition } from "../../repl/keyboard.ts";
+import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, type Attachment } from "../../repl/attachment.ts";
+import { useAttachments } from "../hooks/useAttachments.ts";
+
+// Option+Enter detection timeout (ms)
+// Terminal sends ESC (0x1b) followed by Enter (0x0d) for Option+Enter
+const ESCAPE_MODIFIER_TIMEOUT = 100;
 
 // Placeholder for function parameter completion
 interface Placeholder {
@@ -22,7 +29,7 @@ interface Placeholder {
 interface InputProps {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: (value: string) => void;
+  onSubmit: (value: string, attachments?: Attachment[]) => void;
   jsMode?: boolean;
   disabled?: boolean;
   history: string[];
@@ -59,10 +66,25 @@ export function Input({
   const [atMentionMatches, setAtMentionMatches] = useState<FileMatch[]>([]);
   const [atMentionIndex, setAtMentionIndex] = useState(0);
   const [atMentionStart, setAtMentionStart] = useState(0);
+  const [atMentionLoading, setAtMentionLoading] = useState(false);
+
+  // Attachment management
+  const {
+    attachments,
+    addAttachmentWithId,
+    reserveNextId,
+    clearAttachments,
+    lastError: attachmentError,
+  } = useAttachments();
+
 
   // Placeholder mode state for function parameter completion
   const [placeholders, setPlaceholders] = useState<Placeholder[]>([]);
   const [placeholderIndex, setPlaceholderIndex] = useState(-1);
+
+  // Option+Enter detection: ESC followed by Enter within timeout
+  const [escapePressed, setEscapePressed] = useState(false);
+  const escapeTimeoutRef = useRef<number | null>(null);
 
   // Update cursor pos when value changes externally
   useEffect(() => {
@@ -81,6 +103,7 @@ export function Input({
     }
   }, [value, cursorPos, history, userBindings, atMentionMode]);
 
+
   // Detect @mention mode and search files
   useEffect(() => {
     // Find the last @ before cursor
@@ -95,9 +118,16 @@ export function Input({
       return;
     }
 
-    // Check if @ is followed by valid path characters (no spaces)
+    // Check if @ is followed by valid path characters
     const queryPart = beforeCursor.slice(lastAt + 1);
-    if (queryPart.includes(" ") || queryPart.includes(")") || queryPart.includes("\"")) {
+
+    // For absolute paths (starting with / or ~), allow spaces in filenames
+    const isAbsolutePath = queryPart.startsWith("/") || queryPart.startsWith("~");
+
+    // Exit @mention if:
+    // - Not absolute path AND has space (regular query can't have spaces)
+    // - Has ) or " (these end the @mention for code expressions)
+    if ((!isAbsolutePath && queryPart.includes(" ")) || queryPart.includes(")") || queryPart.includes("\"")) {
       if (atMentionMode) {
         setAtMentionMode(false);
         setAtMentionMatches([]);
@@ -108,6 +138,7 @@ export function Input({
     // We're in @mention mode - search files
     setAtMentionMode(true);
     setAtMentionStart(lastAt);
+    setAtMentionLoading(true);
 
     // Debounced search
     const timeoutId = setTimeout(async () => {
@@ -116,7 +147,9 @@ export function Input({
         setAtMentionMatches(matches);
         setAtMentionIndex(0);
       } catch {
-        setAtMentionMatches([]);
+        // Keep previous matches on error (don't flash empty)
+      } finally {
+        setAtMentionLoading(false);
       }
     }, 50);
 
@@ -129,16 +162,39 @@ export function Input({
     setAtMentionMatches([]);
     setAtMentionIndex(0);
     setAtMentionStart(0);
+    setAtMentionLoading(false);
   }, []);
 
   // Helper: apply @mention selection
   const applyAtMention = useCallback((match: FileMatch) => {
-    const path = match.path;
-    const newValue = value.slice(0, atMentionStart) + "@" + path + value.slice(cursorPos);
-    onChange(newValue);
-    setCursorPos(atMentionStart + 1 + path.length);
-    clearAtMention();
-  }, [value, cursorPos, atMentionStart, onChange, clearAtMention]);
+    // Unescape shell-escaped paths for actual file operations
+    const cleanPath = unescapeShellPath(match.path);
+
+    // Check if this is a media file
+    if (isSupportedMedia(cleanPath)) {
+      // ZERO-BLINK: Synchronously compute placeholder and insert it INSTANTLY
+      // 1. Reserve ID synchronously
+      const id = reserveNextId();
+      // 2. Compute display name synchronously (no file I/O needed)
+      const mimeType = detectMimeType(cleanPath);
+      const type = getAttachmentType(mimeType);
+      const displayName = getDisplayName(type, id);
+      // 3. Insert placeholder IMMEDIATELY
+      const newValue = value.slice(0, atMentionStart) + displayName + " " + value.slice(cursorPos);
+      onChange(newValue);
+      setCursorPos(atMentionStart + displayName.length + 1);
+      // 4. Clear @mention state
+      clearAtMention();
+      // 5. Process file in background (fire-and-forget)
+      addAttachmentWithId(cleanPath, id);
+    } else {
+      // Not a media file - use standard @path reference
+      const newValue = value.slice(0, atMentionStart) + "@" + cleanPath + " " + value.slice(cursorPos);
+      onChange(newValue);
+      setCursorPos(atMentionStart + 1 + cleanPath.length + 1);
+      clearAtMention();
+    }
+  }, [value, cursorPos, atMentionStart, onChange, clearAtMention, reserveNextId, addAttachmentWithId]);
 
   // Helper: check if in placeholder mode
   const isInPlaceholderMode = useCallback(() => {
@@ -150,6 +206,36 @@ export function Input({
     setPlaceholders([]);
     setPlaceholderIndex(-1);
   }, []);
+
+  // Helper: exit placeholder mode AND remove untouched placeholders from value
+  // Called when user types ')' or other exit-triggering characters
+  const exitPlaceholderModeAndCleanup = useCallback(() => {
+    if (placeholders.length === 0) {
+      exitPlaceholderMode();
+      return value;
+    }
+
+    // Remove all untouched placeholders from the value (from end to start to preserve indices)
+    let newValue = value;
+    let adjustment = 0;
+
+    // Process placeholders in reverse order to maintain correct indices
+    for (let i = placeholders.length - 1; i >= 0; i--) {
+      const ph = placeholders[i];
+      if (!ph.touched) {
+        // Remove this untouched placeholder (and preceding space if exists)
+        const removeStart = ph.start > 0 && newValue[ph.start - 1] === ' ' ? ph.start - 1 : ph.start;
+        const removeEnd = ph.start + ph.length;
+        newValue = newValue.slice(0, removeStart) + newValue.slice(removeEnd);
+        if (i <= placeholderIndex) {
+          adjustment += (removeEnd - removeStart);
+        }
+      }
+    }
+
+    exitPlaceholderMode();
+    return newValue;
+  }, [value, placeholders, placeholderIndex, exitPlaceholderMode]);
 
   // Helper: enter placeholder mode after completing a function
   const enterPlaceholderMode = useCallback((params: string[], startPos: number) => {
@@ -201,6 +287,13 @@ export function Input({
     return false;
   }, [placeholders, placeholderIndex]);
 
+  // Helper: shift subsequent placeholder positions by delta (DRY - used in 3 places)
+  const shiftPlaceholders = (arr: Placeholder[], fromIndex: number, delta: number): void => {
+    for (let i = fromIndex; i < arr.length; i++) {
+      arr[i] = { ...arr[i], start: arr[i].start + delta };
+    }
+  };
+
   // Helper: replace current placeholder with typed character
   const replaceCurrentPlaceholder = useCallback((char: string) => {
     if (placeholderIndex < 0 || placeholderIndex >= placeholders.length) return;
@@ -220,9 +313,7 @@ export function Input({
 
       // Shift subsequent placeholders
       const delta = char.length - ph.length;
-      for (let i = placeholderIndex + 1; i < updated.length; i++) {
-        updated[i] = { ...updated[i], start: updated[i].start + delta };
-      }
+      shiftPlaceholders(updated, placeholderIndex + 1, delta);
 
       setPlaceholders(updated);
       setCursorPos(ph.start + char.length);
@@ -236,9 +327,7 @@ export function Input({
       updated[placeholderIndex] = { ...ph, length: ph.length + char.length };
 
       // Shift subsequent placeholders
-      for (let i = placeholderIndex + 1; i < updated.length; i++) {
-        updated[i] = { ...updated[i], start: updated[i].start + char.length };
-      }
+      shiftPlaceholders(updated, placeholderIndex + 1, char.length);
 
       setPlaceholders(updated);
       setCursorPos(cursorPos + 1);
@@ -264,9 +353,7 @@ export function Input({
     updated[placeholderIndex] = { ...ph, length: ph.length - 1, touched: true };
 
     // Shift subsequent placeholders
-    for (let i = placeholderIndex + 1; i < updated.length; i++) {
-      updated[i] = { ...updated[i], start: updated[i].start - 1 };
-    }
+    shiftPlaceholders(updated, placeholderIndex + 1, -1);
 
     setPlaceholders(updated);
     setCursorPos(cursorPos - 1);
@@ -302,6 +389,39 @@ export function Input({
     setOriginalWord("");
   }, []);
 
+  // Helper: reset state after submit (DRY helper)
+  const resetAfterSubmit = useCallback(() => {
+    setHistoryIndex(-1);
+    setTempInput("");
+    clearCompletions();
+    clearAtMention();
+    clearAttachments();
+  }, [clearCompletions, clearAtMention, clearAttachments]);
+
+  // Helper: clear escape timeout (DRY helper)
+  const clearEscapeTimeout = useCallback(() => {
+    if (escapeTimeoutRef.current) {
+      clearTimeout(escapeTimeoutRef.current);
+      escapeTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Helper: reset escape state (DRY helper)
+  const resetEscapeState = useCallback(() => {
+    setEscapePressed(false);
+    clearEscapeTimeout();
+  }, [clearEscapeTimeout]);
+
+  // Helper: accept and apply suggestion (DRY helper)
+  const acceptAndApplySuggestion = useCallback(() => {
+    if (!suggestion) return false;
+    const accepted = acceptSuggestion(suggestion);
+    onChange(accepted);
+    setCursorPos(accepted.length);
+    setSuggestion(null);
+    return true;
+  }, [suggestion, onChange]);
+
   // Helper: delete word backward (Ctrl+W)
   const deleteWord = useCallback(() => {
     const before = value.slice(0, cursorPos);
@@ -316,24 +436,14 @@ export function Input({
     clearCompletions();
   }, [value, cursorPos, onChange, clearCompletions]);
 
-  // Helper: move word backward (Alt+Left)
+  // Helper: move word backward (Option+Left on macOS, Ctrl+Left on Windows/Linux)
   const moveWordBack = useCallback(() => {
-    let pos = cursorPos;
-    // Skip whitespace
-    while (pos > 0 && value[pos - 1] === " ") pos--;
-    // Move to start of word
-    while (pos > 0 && value[pos - 1] !== " ") pos--;
-    setCursorPos(pos);
+    setCursorPos(calculateWordBackPosition(value, cursorPos));
   }, [value, cursorPos]);
 
-  // Helper: move word forward (Alt+Right)
+  // Helper: move word forward (Option+Right on macOS, Ctrl+Right on Windows/Linux)
   const moveWordForward = useCallback(() => {
-    let pos = cursorPos;
-    // Skip current word
-    while (pos < value.length && value[pos] !== " ") pos++;
-    // Skip whitespace
-    while (pos < value.length && value[pos] === " ") pos++;
-    setCursorPos(pos);
+    setCursorPos(calculateWordForwardPosition(value, cursorPos));
   }, [value, cursorPos]);
 
   // Helper: navigate history
@@ -386,26 +496,13 @@ export function Input({
       // Start new completion
       const { word, start } = getWordAtCursor(value, cursorPos);
 
-      // Case 1: (add3| - cursor right after function name with no space
-      const isAtFunctionPosition = start > 0 && value[start - 1] === '(';
-
-      if (isAtFunctionPosition && signatures.has(word)) {
-        const params = signatures.get(word)!;
-        if (params.length > 0) {
-          // Insert function parameters as placeholders: (add4| → (add4 x y z a)
-          const paramsText = " " + params.join(" ") + ")";
-          const newValue = value.slice(0, cursorPos) + paramsText + value.slice(cursorPos);
-          onChange(newValue);
-          enterPlaceholderMode(params, cursorPos + 1); // +1 for leading space
-          return;
-        }
-      }
-
-      // Case 2: (add3 | - cursor after space, look back to find function name
+      // Param insertion ONLY when cursor is after space: (ask |
+      // When there's a word like (ask|, it should cycle through completions instead
       if (word === '') {
         const beforeCursor = value.slice(0, cursorPos);
         // Match pattern: (funcName followed by whitespace at cursor position
-        const match = beforeCursor.match(/\((\w+)\s+$/);
+        // Use [\w-]+ to support HQL identifiers with hyphens (e.g., map-indexed, take-while)
+        const match = beforeCursor.match(/\(([\w-]+)\s+$/);
         if (match) {
           const funcName = match[1];
           if (signatures.has(funcName)) {
@@ -464,14 +561,141 @@ export function Input({
   useInput((input, key) => {
     if (disabled) return;
 
-    // Placeholder mode handling (highest priority)
-    if (isInPlaceholderMode()) {
-      // Escape exits placeholder mode
-      if (key.escape) {
-        exitPlaceholderMode();
+    // ============================================================
+    // Word Navigation (Cross-Platform)
+    // ============================================================
+    // macOS: Option+Arrow sends ESC+b/f (input='b'/'f', meta=true)
+    // Linux: Alt+Arrow sends ESC+b/f or modified arrows (meta=true)
+    // Windows: Ctrl+Arrow sends ctrl=true with arrow keys
+    // ============================================================
+
+    // Ctrl+Arrow: Word navigation (Windows/Linux standard)
+    if (key.ctrl) {
+      if (key.leftArrow) {
+        moveWordBack();
+        return;
+      }
+      if (key.rightArrow) {
+        moveWordForward();
+        return;
+      }
+    }
+
+    // Meta+key: Word navigation (macOS Option, Linux Alt)
+    if (key.meta) {
+      // ESC+b/f style (macOS Option+Arrow, Linux Alt+Arrow)
+      if (input === 'b') {
+        moveWordBack();
+        return;
+      }
+      if (input === 'f') {
+        moveWordForward();
+        return;
+      }
+      // Modified arrow style (some terminals)
+      if (key.leftArrow) {
+        moveWordBack();
+        return;
+      }
+      if (key.rightArrow) {
+        moveWordForward();
+        return;
+      }
+      // Option+Enter / Alt+Enter: insert newline (multi-line input)
+      if (key.return) {
+        insertAt("\n");
+        return;
+      }
+    }
+
+    // ESC-based sequences (FALLBACK for some terminals)
+    // Some terminals may send ESC sequences instead of meta
+
+    // CASE 1: ESC + key in SAME event (key.escape true with other keys/input)
+    if (key.escape) {
+      // Check for ESC + arrow in same event (Option+Arrow)
+      if (key.leftArrow) {
+        moveWordBack();
+        return;
+      }
+      if (key.rightArrow) {
+        moveWordForward();
+        return;
+      }
+      // Check for ESC + b/f in same event (readline-style word nav)
+      if (input === 'b') {
+        moveWordBack();
+        return;
+      }
+      if (input === 'f') {
+        moveWordForward();
+        return;
+      }
+      // Check for ESC + Enter in same event (Option+Enter)
+      if (key.return) {
+        insertAt("\n");
         return;
       }
 
+      // Pure ESC key (no combination) - handle special modes or start detection
+      // In placeholder mode: ESC exits placeholder mode
+      if (isInPlaceholderMode()) {
+        exitPlaceholderMode();
+        return;
+      }
+      // In @mention mode: ESC cancels @mention
+      if (atMentionMode && atMentionMatches.length > 0) {
+        clearAtMention();
+        return;
+      }
+      // Start Option+key detection for NEXT event (two-event sequence)
+      setEscapePressed(true);
+      clearEscapeTimeout();
+      escapeTimeoutRef.current = setTimeout(() => {
+        setEscapePressed(false);
+        escapeTimeoutRef.current = null;
+      }, ESCAPE_MODIFIER_TIMEOUT) as unknown as number;
+      return;
+    }
+
+    // CASE 2: ESC was pressed in PREVIOUS event (two-event sequence)
+    if (escapePressed) {
+      // Option+Left: word back
+      if (key.leftArrow) {
+        resetEscapeState();
+        moveWordBack();
+        return;
+      }
+      // Option+Right: word forward
+      if (key.rightArrow) {
+        resetEscapeState();
+        moveWordForward();
+        return;
+      }
+      // Readline-style ESC+b: word back
+      if (input === 'b') {
+        resetEscapeState();
+        moveWordBack();
+        return;
+      }
+      // Readline-style ESC+f: word forward
+      if (input === 'f') {
+        resetEscapeState();
+        moveWordForward();
+        return;
+      }
+      // Option+Enter: insert newline
+      if (key.return) {
+        resetEscapeState();
+        insertAt("\n");
+        return;
+      }
+      // Clear escape state on any other key
+      resetEscapeState();
+    }
+
+    // Placeholder mode handling (highest priority)
+    if (isInPlaceholderMode()) {
       // Tab navigates placeholders
       if (key.tab) {
         if (key.shift) {
@@ -486,11 +710,8 @@ export function Input({
       if (key.return) {
         if (value.trim() && isBalanced(value)) {
           exitPlaceholderMode();
-          onSubmit(value.trim());
-          setHistoryIndex(-1);
-          setTempInput("");
-          clearCompletions();
-          clearAtMention();
+          onSubmit(value.trim(), attachments.length > 0 ? attachments : undefined);
+          resetAfterSubmit();
         }
         return;
       }
@@ -502,8 +723,19 @@ export function Input({
         }
       }
 
-      // Character input replaces placeholder
+      // Character input in placeholder mode
       if (input && !key.ctrl && !key.meta) {
+        // Special case: ')' exits placeholder mode and removes untouched placeholders
+        // The closing ')' was already inserted when entering placeholder mode
+        if (input === ')') {
+          const cleanedValue = exitPlaceholderModeAndCleanup();
+          // Find the position of the existing ')' - it's right after the last content
+          // After cleanup, untouched placeholders are removed but ')' remains
+          const closingParenPos = cleanedValue.lastIndexOf(')');
+          onChange(cleanedValue);
+          setCursorPos(closingParenPos + 1);
+          return;
+        }
         replaceCurrentPlaceholder(input);
         return;
       }
@@ -519,24 +751,41 @@ export function Input({
         setAtMentionIndex((prev: number) => (prev + 1) % atMentionMatches.length);
         return;
       }
-      if (key.tab || key.return) {
-        applyAtMention(atMentionMatches[atMentionIndex]);
+      // Tab: drill into directory (navigate deeper) or select file
+      if (key.tab) {
+        const match = atMentionMatches[atMentionIndex];
+        if (match.isDirectory) {
+          // Drill into directory: update input and trigger new search
+          const newQuery = match.path;
+          const newValue = value.slice(0, atMentionStart) + "@" + newQuery + value.slice(cursorPos);
+          onChange(newValue);
+          setCursorPos(atMentionStart + 1 + newQuery.length);
+          // Don't clear @mention mode - let the effect trigger new search
+          setAtMentionIndex(0); // Reset selection to first item
+        } else {
+          // File: apply and close dropdown
+          applyAtMention(match);
+        }
         return;
       }
-      if (key.escape) {
-        clearAtMention();
+      // Enter: always select item and complete @mention
+      if (key.return) {
+        applyAtMention(atMentionMatches[atMentionIndex]);
         return;
       }
     }
 
-    // Enter - submit if balanced
+    // Enter - submit if balanced OR if it's an @mention query
     if (key.return) {
-      if (value.trim() && isBalanced(value)) {
-        onSubmit(value.trim());
-        setHistoryIndex(-1);
-        setTempInput("");
-        clearCompletions();
-        clearAtMention();
+      const trimmed = value.trim();
+
+      // Allow submission for @mention queries without balanced parens check
+      const hasAtMention = trimmed.startsWith("@") || trimmed.includes(" @");
+      // Allow submission if we have attachments (e.g., "[Image #1] describe this")
+      const hasAttachments = attachments.length > 0;
+      if (trimmed && (isBalanced(trimmed) || hasAtMention || hasAttachments)) {
+        onSubmit(trimmed, attachments.length > 0 ? attachments : undefined);
+        resetAfterSubmit();
       }
       return;
     }
@@ -546,7 +795,27 @@ export function Input({
       if (key.shift) {
         handleShiftTab();
       } else {
-        handleTab();
+        // Check if we're at a function parameter position (HIGHEST PRIORITY)
+        const { word: tabWord, start: tabStart } = getWordAtCursor(value, cursorPos);
+
+        // Case 1: (add3| - right after function name
+        const isAtFuncPosition = tabStart > 0 && value[tabStart - 1] === '(' && signatures.has(tabWord);
+
+        // Case 2: (add3 | - after space following function name
+        let isAfterFuncSpace = false;
+        if (tabWord === '') {
+          const match = value.slice(0, cursorPos).match(/\((\w+)\s+$/);
+          isAfterFuncSpace = match !== null && signatures.has(match[1]);
+        }
+
+        // Function param completion has priority over suggestion acceptance
+        if (isAtFuncPosition || isAfterFuncSpace) {
+          handleTab();  // Will handle function param insertion
+        } else if (shouldTabAcceptSuggestion(suggestion, cursorPos, value.length, showingCompletions)) {
+          acceptAndApplySuggestion();
+        } else {
+          handleTab();
+        }
       }
       return;
     }
@@ -565,27 +834,17 @@ export function Input({
       navigateHistory(1);
       return;
     }
+    // Left/Right arrows (simple movement - modifiers handled earlier)
     if (key.leftArrow) {
-      if (key.meta || key.ctrl) {
-        // Alt/Ctrl + Left - word back
-        moveWordBack();
-      } else if (cursorPos > 0) {
-        setCursorPos(cursorPos - 1);
-      }
+      if (cursorPos > 0) setCursorPos(cursorPos - 1);
       return;
     }
     if (key.rightArrow) {
-      if (key.meta || key.ctrl) {
-        // Alt/Ctrl + Right - word forward
-        moveWordForward();
-      } else if (cursorPos < value.length) {
+      if (cursorPos < value.length) {
         setCursorPos(cursorPos + 1);
-      } else if (suggestion && cursorPos === value.length) {
-        // Accept suggestion
-        const accepted = acceptSuggestion(value, suggestion);
-        onChange(accepted);
-        setCursorPos(accepted.length);
-        setSuggestion(null);
+      } else if (suggestion) {
+        // At end with suggestion: accept ghost text
+        acceptAndApplySuggestion();
       }
       return;
     }
@@ -598,10 +857,7 @@ export function Input({
           return;
         case "e": // End of line (also accept suggestion)
           if (suggestion && cursorPos === value.length) {
-            const accepted = acceptSuggestion(value, suggestion);
-            onChange(accepted);
-            setCursorPos(accepted.length);
-            setSuggestion(null);
+            acceptAndApplySuggestion();
           } else {
             setCursorPos(value.length);
           }
@@ -635,6 +891,28 @@ export function Input({
 
     // Regular character input
     if (input && !key.ctrl && !key.meta) {
+      // INTERCEPT: Check if this is a pasted media file path (before it reaches state)
+      // Paste is detected by: long input + absolute path + media extension
+      if (input.length > 15) {
+        const cleanInput = input.replace(/\\ /g, " ").replace(/\\'/g, "'").replace(/\\"/g, '"').trim();
+        const isAbsolutePath = cleanInput.startsWith("/") || cleanInput.startsWith("~");
+
+        if (isAbsolutePath && isSupportedMedia(cleanInput)) {
+          // ZERO-BLINK: Synchronously compute placeholder and insert it INSTANTLY
+          // 1. Reserve ID synchronously
+          const id = reserveNextId();
+          // 2. Compute display name synchronously (no file I/O needed)
+          const mimeType = detectMimeType(cleanInput);
+          const type = getAttachmentType(mimeType);
+          const displayName = getDisplayName(type, id);
+          // 3. Insert placeholder IMMEDIATELY - user sees [Image #1] instantly!
+          insertAt(displayName + " ");
+          // 4. Process file in background (fire-and-forget) - no await, no loading
+          addAttachmentWithId(cleanInput, id);
+          return; // Don't insert the raw path
+        }
+      }
+
       insertAt(input);
     }
   }, { isActive: !disabled });
@@ -652,87 +930,144 @@ export function Input({
   const RESET = "\x1b[0m";
 
   // Helper: render text with placeholder highlighting
+  // OPTIMIZED: O(n) single pass instead of O(n²) nested loops
   const renderWithPlaceholders = (text: string, startOffset: number): string => {
     if (!isInPlaceholderMode() || placeholders.length === 0) {
       return highlight(text, startOffset === 0 ? matchPos : null);
     }
 
+    // Filter placeholders that overlap with this text range [startOffset, startOffset + text.length)
+    const endOffset = startOffset + text.length;
+    const relevantPhs = placeholders
+      .map((ph: Placeholder, idx: number) => ({ ph, idx }))
+      .filter(({ ph }: { ph: Placeholder }) => ph.start < endOffset && ph.start + ph.length > startOffset);
+
+    if (relevantPhs.length === 0) {
+      return highlight(text, startOffset === 0 ? matchPos : null);
+    }
+
+    // Build result in single pass through text, iterating placeholders once
     let result = "";
-    let pos = startOffset;
     let textPos = 0;
+    let phIdx = 0;
 
     while (textPos < text.length) {
-      // Find if current position is inside a placeholder
-      let foundPh: Placeholder | null = null;
-      let foundPhIndex = -1;
+      const pos = startOffset + textPos;
 
-      for (let i = 0; i < placeholders.length; i++) {
-        const ph = placeholders[i];
-        if (pos >= ph.start && pos < ph.start + ph.length) {
-          foundPh = ph;
-          foundPhIndex = i;
-          break;
-        }
+      // Skip placeholders that end before current position
+      while (phIdx < relevantPhs.length &&
+             relevantPhs[phIdx].ph.start + relevantPhs[phIdx].ph.length <= pos) {
+        phIdx++;
       }
 
-      if (foundPh) {
-        // We're inside a placeholder - render with appropriate color
-        const phStartInText = foundPh.start - startOffset;
-        const phEndInText = foundPh.start + foundPh.length - startOffset;
+      // Check if current position is inside a placeholder
+      if (phIdx < relevantPhs.length) {
+        const { ph, idx: originalIdx } = relevantPhs[phIdx];
 
-        // Text before placeholder (if any)
-        if (phStartInText > textPos) {
-          result += highlight(text.slice(textPos, phStartInText), null);
-        }
-
-        // Placeholder text with styling
-        const phTextStart = Math.max(0, phStartInText);
-        const phTextEnd = Math.min(text.length, phEndInText);
-        const phText = text.slice(phTextStart, phTextEnd);
-
-        if (foundPh.touched) {
-          result += highlight(phText, null);  // Normal highlighting for touched
-        } else if (foundPhIndex === placeholderIndex) {
-          result += CYAN + phText + RESET;    // Active = CYAN
-        } else {
-          result += DIM_GRAY + phText + RESET; // Inactive = DIM_GRAY
-        }
-
-        textPos = phTextEnd;
-        pos = startOffset + textPos;
-      } else {
-        // Not in a placeholder - find next placeholder or end
-        let nextPhStart = text.length + startOffset;
-        for (const ph of placeholders) {
-          if (ph.start > pos && ph.start < nextPhStart) {
-            nextPhStart = ph.start;
+        if (pos >= ph.start && pos < ph.start + ph.length) {
+          // Inside placeholder - render text before it first (if any)
+          const phStartInText = Math.max(0, ph.start - startOffset);
+          if (phStartInText > textPos) {
+            result += highlight(text.slice(textPos, phStartInText), textPos === 0 && startOffset === 0 ? matchPos : null);
           }
+
+          // Render placeholder text with styling
+          const phEndInText = Math.min(text.length, ph.start + ph.length - startOffset);
+          const phText = text.slice(Math.max(textPos, phStartInText), phEndInText);
+
+          if (ph.touched) {
+            result += highlight(phText, null);
+          } else if (originalIdx === placeholderIndex) {
+            result += CYAN + phText + RESET;
+          } else {
+            result += DIM_GRAY + phText + RESET;
+          }
+
+          textPos = phEndInText;
+          continue;
         }
 
-        const endPos = Math.min(text.length, nextPhStart - startOffset);
-        result += highlight(text.slice(textPos, endPos), textPos === 0 && startOffset === 0 ? matchPos : null);
-        textPos = endPos;
-        pos = startOffset + textPos;
+        // Not in placeholder - render text up to next placeholder
+        const nextPhStart = Math.min(text.length, ph.start - startOffset);
+        result += highlight(text.slice(textPos, nextPhStart), textPos === 0 && startOffset === 0 ? matchPos : null);
+        textPos = nextPhStart;
+      } else {
+        // No more placeholders - render rest of text
+        result += highlight(text.slice(textPos), textPos === 0 && startOffset === 0 ? matchPos : null);
+        break;
       }
     }
 
     return result;
   };
 
-  // Split at cursor position for cursor display
-  const beforeCursor = value.slice(0, cursorPos);
-  const afterCursor = value.slice(cursorPos);
+  // Multi-line support: split value by newlines
+  const lines = value.split("\n");
+
+  // Calculate cursor line and column
+  let cursorLine = 0;
+  let cursorCol = cursorPos;
+  let charCount = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lineLen = lines[i].length;
+    if (charCount + lineLen >= cursorPos) {
+      cursorLine = i;
+      cursorCol = cursorPos - charCount;
+      break;
+    }
+    charCount += lineLen + 1; // +1 for newline
+  }
+
+  // Render a single line with cursor if applicable
+  const renderLine = (line: string, lineIndex: number, lineStartOffset: number): React.ReactNode => {
+    const isCurrentLine = lineIndex === cursorLine;
+    const prompt = lineIndex === 0 ? (jsMode ? "js>" : "hql>") : "...";
+
+    if (!isCurrentLine) {
+      // No cursor on this line
+      return (
+        <Box key={lineIndex}>
+          <Text color="#663399" bold>{prompt} </Text>
+          <Text>{renderWithPlaceholders(line, lineStartOffset)}</Text>
+        </Box>
+      );
+    }
+
+    // This line has the cursor
+    const beforeCursor = line.slice(0, cursorCol);
+    const charAtCursor = line[cursorCol] || " ";
+    const afterCursor = line.slice(cursorCol + 1);
+
+    return (
+      <Box key={lineIndex}>
+        <Text color="#663399" bold>{prompt} </Text>
+        <Text>{renderWithPlaceholders(beforeCursor, lineStartOffset)}</Text>
+        <Text backgroundColor="white" color="black">{charAtCursor}</Text>
+        <Text>{renderWithPlaceholders(afterCursor, lineStartOffset + cursorCol + 1)}</Text>
+        {lineIndex === lines.length - 1 && ghostText && <Text dimColor>{ghostText}</Text>}
+      </Box>
+    );
+  };
+
+  // Calculate line start offsets
+  let offset = 0;
+  const lineElements: React.ReactNode[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    lineElements.push(renderLine(lines[i], i, offset));
+    offset += lines[i].length + 1; // +1 for newline
+  }
 
   return (
     <Box flexDirection="column">
-      {/* Input line */}
-      <Box>
-        <Text color="#663399" bold>{jsMode ? "js>" : "hql>"} </Text>
-        <Text>{renderWithPlaceholders(beforeCursor, 0)}</Text>
-        <Text backgroundColor="white" color="black">{afterCursor[0] || " "}</Text>
-        <Text>{renderWithPlaceholders(afterCursor.slice(1), cursorPos + 1)}</Text>
-        {ghostText && <Text dimColor>{ghostText}</Text>}
-      </Box>
+      {/* Show attachment error only */}
+      {attachmentError && (
+        <Box>
+          <Text color="red">⚠ {attachmentError.message}</Text>
+        </Box>
+      )}
+
+      {/* Input lines */}
+      {lineElements}
 
       {/* Placeholder mode hint */}
       {isInPlaceholderMode() && (
@@ -742,8 +1077,11 @@ export function Input({
       )}
 
       {/* @mention dropdown */}
-      {atMentionMode && atMentionMatches.length > 0 && (
+      {atMentionMode && (atMentionMatches.length > 0 || atMentionLoading) && (
         <Box flexDirection="column" marginLeft={5}>
+          {atMentionLoading && atMentionMatches.length === 0 && (
+            <Text dimColor>Searching...</Text>
+          )}
           {atMentionMatches.map((match: FileMatch, i: number) => (
             <Box key={match.path}>
               <Text color={i === atMentionIndex ? "cyan" : undefined} inverse={i === atMentionIndex}>
@@ -752,9 +1090,12 @@ export function Input({
               </Text>
             </Box>
           ))}
-          <Text dimColor>  ↑↓ navigate • Tab/Enter select • Esc cancel</Text>
+          {atMentionMatches.length > 0 && (
+            <Text dimColor>  ↑↓ navigate • Tab/Enter select • Esc cancel</Text>
+          )}
         </Box>
       )}
+
     </Box>
   );
 }

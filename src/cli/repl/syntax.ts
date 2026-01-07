@@ -284,20 +284,20 @@ export function highlight(input: string, matchPos: number | null = null): string
   let result = "";
 
   // Pre-compute which tokens are in function position (after open-paren, skipping whitespace)
+  // OPTIMIZED: Single forward pass O(n) instead of O(n²) backward scans
   const functionPositionTokens = new Set<number>();
+  let lastNonWhitespaceType: string | null = null;
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
-    // Only symbols and operators can be in function position
-    if (token.type !== "symbol" && token.type !== "operator") continue;
+    if (token.type === "whitespace") continue;
 
-    // Look back to find the previous non-whitespace token
-    for (let j = i - 1; j >= 0; j--) {
-      if (tokens[j].type === "whitespace") continue;
-      if (tokens[j].type === "open-paren") {
-        functionPositionTokens.add(i);
-      }
-      break;
+    // Check if this token is in function position (right after open-paren)
+    if ((token.type === "symbol" || token.type === "operator") &&
+        lastNonWhitespaceType === "open-paren") {
+      functionPositionTokens.add(i);
     }
+
+    lastNonWhitespaceType = token.type;
   }
 
   for (let i = 0; i < tokens.length; i++) {

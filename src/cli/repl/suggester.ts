@@ -8,6 +8,22 @@
 import { getWordAtCursor } from "./completer.ts";
 
 // ============================================================
+// Binding Sort Cache (avoids O(n log n) sort on every keystroke)
+// ============================================================
+
+let _cachedSortedBindings: string[] | null = null;
+let _lastBindingsRef: ReadonlySet<string> | null = null;
+
+function getSortedBindings(bindings: ReadonlySet<string>): string[] {
+  // Only re-sort if bindings Set reference changed
+  if (bindings !== _lastBindingsRef) {
+    _cachedSortedBindings = [...bindings].sort();
+    _lastBindingsRef = bindings;
+  }
+  return _cachedSortedBindings!;
+}
+
+// ============================================================
 // Types
 // ============================================================
 
@@ -38,8 +54,8 @@ export function findSuggestion(
     const { word, start } = getWordAtCursor(currentLine, currentLine.length);
 
     if (word.length >= 2) {
-      // Find first matching binding (sorted for consistency)
-      for (const binding of [...bindings].sort()) {
+      // Find first matching binding (sorted for consistency, cached)
+      for (const binding of getSortedBindings(bindings)) {
         if (binding.startsWith(word) && binding !== word) {
           const prefix = currentLine.slice(0, start);
           return { full: prefix + binding, ghost: binding.slice(word.length) };
@@ -67,6 +83,6 @@ export function findSuggestion(
 /**
  * Accept the suggestion, returning the full suggested text.
  */
-export function acceptSuggestion(_currentLine: string, suggestion: Suggestion): string {
+export function acceptSuggestion(suggestion: Suggestion): string {
   return suggestion.full;
 }

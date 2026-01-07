@@ -13,6 +13,7 @@ import { useInitialization } from "../hooks/useInitialization.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { clearTerminal } from "../../ansi.ts";
+import type { Attachment } from "../../repl/attachment.ts";
 
 interface HistoryEntry {
   id: number;
@@ -40,8 +41,9 @@ export function App({ jsMode: initialJsMode = false, showBanner = true }: AppPro
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [nextId, setNextId] = useState(1);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
+  const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
 
-  const handleSubmit = useCallback(async (code: string) => {
+  const handleSubmit = useCallback(async (code: string, attachments?: Attachment[]) => {
     if (!code.trim()) return;
     setIsEvaluating(true);
 
@@ -57,9 +59,9 @@ export function App({ jsMode: initialJsMode = false, showBanner = true }: AppPro
       return;
     }
 
-    // Evaluate
+    // Evaluate (with optional attachments)
     try {
-      const result = await repl.evaluate(code);
+      const result = await repl.evaluate(code, attachments);
       setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result }]);
       setNextId((n: number) => n + 1);
     } catch (error) {
@@ -85,14 +87,15 @@ export function App({ jsMode: initialJsMode = false, showBanner = true }: AppPro
       // Then clear React state
       setHistory([]);
       setNextId(1);
-      setClearKey(k => k + 1); // Force full re-render
+      setHasBeenCleared(true); // Hide banner after clear
+      setClearKey((k: number) => k + 1); // Force full re-render
     }
   });
 
   return (
     <Box key={clearKey} flexDirection="column" paddingX={1}>
-      {/* Always show banner (not just when history.length === 0) */}
-      {showBanner && (
+      {/* Show banner only initially, hide after Ctrl+L clear */}
+      {showBanner && !hasBeenCleared && (
         <Banner
           jsMode={repl.jsMode}
           loading={init.loading}

@@ -297,9 +297,78 @@ function fuzzyMatch(query: string, target: string): { score: number; indices: nu
 // ============================================================
 
 /**
+ * Unescape shell-escaped path (e.g., "file\ name.png" -> "file name.png")
+ */
+export function unescapeShellPath(path: string): string {
+  return path
+    .replace(/\\ /g, " ")      // backslash-space -> space
+    .replace(/\\'/g, "'")      // backslash-quote -> quote
+    .replace(/\\"/g, '"')      // backslash-doublequote -> doublequote
+    .replace(/\\\\/g, "\\");   // double-backslash -> single backslash
+}
+
+/**
+ * Check if a path exists and return its info
+ */
+async function checkAbsolutePath(path: string): Promise<FileMatch | null> {
+  // Unescape shell-escaped paths before checking filesystem
+  const cleanPath = unescapeShellPath(path);
+
+  try {
+    const stat = await Deno.stat(cleanPath);
+    return {
+      path: cleanPath,  // Return the clean path, not the escaped one
+      isDirectory: stat.isDirectory,
+      score: 1000, // High score for exact path match
+      matchIndices: [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Search for files and directories matching the query
  */
 export async function searchFiles(query: string, maxResults = 12): Promise<FileMatch[]> {
+  // Handle absolute paths (e.g., /Users/..., /var/..., ~/...)
+  if (query.startsWith("/") || query.startsWith("~")) {
+    // First unescape any shell-escaped characters
+    const unescapedQuery = unescapeShellPath(query);
+    const expandedPath = unescapedQuery.startsWith("~")
+      ? unescapedQuery.replace(/^~/, Deno.env.get("HOME") || "")
+      : unescapedQuery;
+
+    const match = await checkAbsolutePath(expandedPath);
+    if (match) {
+      return [match];
+    }
+
+    // If exact path not found, try to complete partial path
+    const parentDir = expandedPath.substring(0, expandedPath.lastIndexOf("/")) || "/";
+    const partial = expandedPath.substring(expandedPath.lastIndexOf("/") + 1);
+
+    try {
+      const results: FileMatch[] = [];
+      for await (const entry of Deno.readDir(parentDir)) {
+        if (partial && !entry.name.toLowerCase().includes(partial.toLowerCase())) {
+          continue;
+        }
+        const fullPath = parentDir === "/" ? `/${entry.name}` : `${parentDir}/${entry.name}`;
+        results.push({
+          path: fullPath,
+          isDirectory: entry.isDirectory,
+          score: entry.name.toLowerCase().startsWith(partial.toLowerCase()) ? 100 : 50,
+          matchIndices: [],
+        });
+      }
+      results.sort((a, b) => b.score - a.score);
+      return results.slice(0, maxResults);
+    } catch {
+      return [];
+    }
+  }
+
   const index = await getFileIndex();
   const results: FileMatch[] = [];
 
@@ -315,36 +384,43 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
     return results.slice(0, maxResults);
   }
 
-  // Search directories
-  for (const dir of index.dirs) {
-    const match = fuzzyMatch(query, dir);
+  // OPTIMIZED: Combined loop + maintain top-k results only
+  // This avoids sorting potentially thousands of results when we only need top maxResults
+  // Time complexity: O(n log k) instead of O(n log n) where n=files+dirs, k=maxResults
+  const allEntries: Array<{ path: string; isDir: boolean }> = [
+    ...index.dirs.map(path => ({ path, isDir: true })),
+    ...index.files.map(path => ({ path, isDir: false })),
+  ];
+
+  // Keep only top maxResults using insertion sort (efficient for small k)
+  // For k=10-20, this is faster than sorting all results
+  for (const entry of allEntries) {
+    const match = fuzzyMatch(query, entry.path);
     if (match) {
-      results.push({
-        path: dir,
-        isDirectory: true,
-        score: match.score + 10, // Slight bonus for directories
+      const result: FileMatch = {
+        path: entry.path,
+        isDirectory: entry.isDir,
+        score: match.score + (entry.isDir ? 10 : 0),
         matchIndices: match.indices,
-      });
+      };
+
+      // Insert into results maintaining sorted order (top-k)
+      if (results.length < maxResults) {
+        // Not full yet - insert in sorted position
+        let insertIdx = results.findIndex(r => r.score < result.score);
+        if (insertIdx === -1) insertIdx = results.length;
+        results.splice(insertIdx, 0, result);
+      } else if (result.score > results[results.length - 1].score) {
+        // Better than worst in top-k - replace it
+        let insertIdx = results.findIndex(r => r.score < result.score);
+        results.splice(insertIdx, 0, result);
+        results.pop(); // Remove worst
+      }
+      // Otherwise: score too low, skip
     }
   }
 
-  // Search files
-  for (const file of index.files) {
-    const match = fuzzyMatch(query, file);
-    if (match) {
-      results.push({
-        path: file,
-        isDirectory: false,
-        score: match.score,
-        matchIndices: match.indices,
-      });
-    }
-  }
-
-  // Sort by score descending
-  results.sort((a, b) => b.score - a.score);
-
-  return results.slice(0, maxResults);
+  return results;
 }
 
 /**

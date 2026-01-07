@@ -27,17 +27,13 @@ export type CompletionType =
   | "operator"
   | "macro"
   | "function"
-  | "variable"
-  | "file"
-  | "directory";
+  | "variable";
 
 export interface CompletionItem {
   /** The completion text */
   readonly text: string;
   /** Type of identifier */
   readonly type: CompletionType;
-  /** Optional signature/description */
-  readonly signature?: string;
 }
 
 // ============================================================
@@ -85,9 +81,19 @@ export function getWordAtCursor(
   };
 }
 
+/** Pre-computed set for O(1) word boundary check */
+const WORD_BOUNDARY_CHARS: ReadonlySet<string> = new Set([
+  ' ', '\t', '\n', '\r',
+  '(', ')',
+  '[', ']',
+  '{', '}',
+  '"', "'",
+  ',', ';'
+]);
+
 /** Check if character is a word boundary (shared by completer and suggester) */
 export function isWordBoundary(ch: string): boolean {
-  return /[\s\(\)\[\]\{\}"',;]/.test(ch);
+  return WORD_BOUNDARY_CHARS.has(ch);
 }
 
 /**
@@ -116,6 +122,7 @@ export function getCompletions(
 
   const allIdentifiers = getAllKnownIdentifiers();
   const results: CompletionItem[] = [];
+  const seen = new Set<string>();  // O(1) deduplication
 
   // Add matching known identifiers
   for (const id of allIdentifiers) {
@@ -124,14 +131,14 @@ export function getCompletions(
         text: id,
         type: classifyIdentifier(id, userBindings),
       });
+      seen.add(id);
     }
   }
 
-  // Add matching user bindings
+  // Add matching user bindings (skip if already in results)
   for (const binding of userBindings) {
     if (binding.startsWith(prefix) && binding !== prefix) {
-      // Check if already added from known identifiers
-      if (!results.some(r => r.text === binding)) {
+      if (!seen.has(binding)) {  // O(1) lookup instead of O(n)
         results.push({
           text: binding,
           type: "variable",

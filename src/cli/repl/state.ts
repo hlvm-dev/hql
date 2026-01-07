@@ -3,6 +3,92 @@
  * Tracks bindings, history, and line numbers
  */
 
+/**
+ * Extract parameter names from a JavaScript function.
+ * Uses Function.toString() and regex parsing.
+ *
+ * Works with:
+ * - Regular functions: function foo(a, b, c) {}
+ * - Arrow functions: (a, b, c) => {} or a => {}
+ * - Async functions: async function foo(a, b) {}
+ * - Methods: { foo(a, b) {} }
+ *
+ * @param fn - The function to extract parameters from
+ * @returns Array of parameter names (without defaults, destructuring simplified)
+ */
+function extractJsFunctionParams(fn: (...args: unknown[]) => unknown): string[] {
+  const fnStr = fn.toString();
+
+  // Match function parameters between first ( and )
+  // Handles ALL function forms:
+  // - function foo(params)
+  // - function* foo(params)        <- generator
+  // - async function foo(params)
+  // - async function* foo(params)  <- async generator (like AI's `ask`)
+  // - (params) => ...
+  // - x => ...
+  const match = fnStr.match(/^(?:async\s+)?(?:function\s*\*?\s*\w*\s*)?\(([^)]*)\)|^(\w+)\s*=>/);
+
+  if (!match) return [];
+
+  // Get the params string (either from parens or single arrow param)
+  const paramsStr = match[1] ?? match[2];
+  if (!paramsStr || !paramsStr.trim()) return [];
+
+  // If single arrow param (no parens)
+  if (match[2]) {
+    return [match[2].trim()];
+  }
+
+  // Parse comma-separated params, handling defaults and destructuring
+  const params: string[] = [];
+  let depth = 0;
+  let current = "";
+
+  for (const char of paramsStr) {
+    if (char === "{" || char === "[" || char === "(") depth++;
+    else if (char === "}" || char === "]" || char === ")") depth--;
+    else if (char === "," && depth === 0) {
+      const param = extractParamName(current.trim());
+      if (param) params.push(param);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+
+  // Don't forget the last param
+  const lastParam = extractParamName(current.trim());
+  if (lastParam) params.push(lastParam);
+
+  return params;
+}
+
+/**
+ * Extract just the parameter name from a param string.
+ * Handles: "x", "x = 5", "{ a, b }", "[a, b]", "...rest"
+ */
+function extractParamName(paramStr: string): string | null {
+  if (!paramStr) return null;
+
+  // Rest parameter: ...rest -> rest
+  if (paramStr.startsWith("...")) {
+    return paramStr.slice(3).split("=")[0].trim();
+  }
+
+  // Destructuring: { a, b } -> "opts" (generic name)
+  if (paramStr.startsWith("{")) return "opts";
+
+  // Array destructuring: [a, b] -> "arr" (generic name)
+  if (paramStr.startsWith("[")) return "arr";
+
+  // Default value: x = 5 -> x
+  const name = paramStr.split("=")[0].trim();
+
+  // Type annotation (TypeScript): x: string -> x
+  return name.split(":")[0].trim();
+}
+
 export class ReplState {
   private bindings = new Set<string>();
   private signatures = new Map<string, string[]>();  // function name -> param names
@@ -22,6 +108,19 @@ export class ReplState {
     this.bindings.add(name);
     this.signatures.set(name, params);
     (globalThis as Record<string, unknown>)[name] = (globalThis as Record<string, unknown>)[name];
+  }
+
+  /**
+   * Add a JavaScript function and automatically extract its parameter names.
+   * Works for any JS function - extracts params via Function.toString() parsing.
+   */
+  addJsFunction(name: string, fn: (...args: unknown[]) => unknown): void {
+    this.bindings.add(name);
+    const params = extractJsFunctionParams(fn);
+    if (params.length > 0) {
+      this.signatures.set(name, params);
+    }
+    (globalThis as Record<string, unknown>)[name] = fn;
   }
 
   /** Get function signature (param names) */
@@ -98,5 +197,6 @@ export class ReplState {
     this.importedModules.clear();
     this._lineNumber = 0;
     // Keep history
+    // Note: Stdlib signatures will be re-registered on next initialization
   }
 }

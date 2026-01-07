@@ -11,7 +11,7 @@
  * With Ink/React, the smoothest approach is raw streaming + final format.
  */
 
-import { useState, useEffect, useRef } from "npm:react@18";
+import { useState, useEffect, useRef, useCallback } from "npm:react@18";
 
 interface UseStreamingOptions {
   /** Throttle interval for display updates in ms (default: 100) */
@@ -27,6 +27,10 @@ interface UseStreamingReturn {
   isStreaming: boolean;
   /** Stream has completed */
   isDone: boolean;
+  /** Timestamp when streaming started */
+  startTime: number;
+  /** Cancel the stream */
+  cancel: () => void;
 }
 
 /**
@@ -42,22 +46,42 @@ export function useStreaming(
   const [displayText, setDisplayText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isDone, setIsDone] = useState(false);
+  const [startTime, setStartTime] = useState(0);
 
   // Use refs to avoid re-renders during streaming
   const bufferRef = useRef("");
   const lastUpdateRef = useRef(0);
   const pendingUpdateRef = useRef<number | null>(null);
+  const cancelledRef = useRef(false);
+
+  // Cancel function exposed to caller
+  const cancel = useCallback(() => {
+    if (cancelledRef.current) return;
+    cancelledRef.current = true;
+
+    // Clear any pending update
+    if (pendingUpdateRef.current) {
+      clearTimeout(pendingUpdateRef.current);
+      pendingUpdateRef.current = null;
+    }
+
+    // Final update with what we have
+    setDisplayText(bufferRef.current + "\n\n[Cancelled]");
+    setIsStreaming(false);
+    setIsDone(true);
+  }, []);
 
   useEffect(() => {
     if (!iterator) return;
 
-    let cancelled = false;
+    cancelledRef.current = false;
 
     // Reset state
     bufferRef.current = "";
     setDisplayText("");
     setIsStreaming(true);
     setIsDone(false);
+    setStartTime(Date.now());
 
     // Throttled update function
     const scheduleUpdate = () => {
@@ -71,7 +95,7 @@ export function useStreaming(
       } else if (!pendingUpdateRef.current) {
         // Schedule update
         pendingUpdateRef.current = setTimeout(() => {
-          if (!cancelled) {
+          if (!cancelledRef.current) {
             setDisplayText(bufferRef.current);
             lastUpdateRef.current = Date.now();
           }
@@ -83,7 +107,7 @@ export function useStreaming(
     (async () => {
       try {
         for await (const chunk of iterator) {
-          if (cancelled) break;
+          if (cancelledRef.current) break;
 
           const content = typeof chunk === "string"
             ? chunk
@@ -98,7 +122,7 @@ export function useStreaming(
         // Stream interrupted
       }
 
-      if (!cancelled) {
+      if (!cancelledRef.current) {
         // Clear any pending update
         if (pendingUpdateRef.current) {
           clearTimeout(pendingUpdateRef.current);
@@ -113,7 +137,7 @@ export function useStreaming(
     })();
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
       if (pendingUpdateRef.current) {
         clearTimeout(pendingUpdateRef.current);
       }
@@ -125,5 +149,7 @@ export function useStreaming(
     displayText,
     isStreaming,
     isDone,
+    startTime,
+    cancel,
   };
 }

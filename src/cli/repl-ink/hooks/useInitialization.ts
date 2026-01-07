@@ -47,6 +47,19 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
         // Initialize runtime
         await initializeRuntime();
 
+        // Register ALL stdlib functions with auto-extracted signatures
+        // This is the fundamental fix - no hardcoding needed
+        try {
+          const stdlib = await import("../../../lib/stdlib/js/index.js") as Record<string, unknown>;
+          for (const [name, value] of Object.entries(stdlib)) {
+            if (typeof value === "function" && !name.startsWith("_")) {
+              state.addJsFunction(name, value as (...args: unknown[]) => unknown);
+            }
+          }
+        } catch {
+          // Stdlib not available - continue without signatures
+        }
+
         // Auto-import AI module
         const loadedAiExports: string[] = [];
         try {
@@ -61,8 +74,8 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
           if (aiModule && typeof aiModule === "object") {
             for (const [name, value] of Object.entries(aiModule)) {
               if (typeof value === "function") {
-                globalAny[name] = value;
-                state.addBinding(name);
+                // Use addJsFunction to auto-extract parameter names for Tab completion
+                state.addJsFunction(name, value as (...args: unknown[]) => unknown);
                 loadedAiExports.push(name);
               }
             }
@@ -236,9 +249,14 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
     return null;
   };
 
-  // Register for tab completion
+  // Register for tab completion with auto-extracted parameter names
   const helperNames = ["memory", "forget", "inspect", "describe", "help", "exit", "clear"];
   for (const name of helperNames) {
-    state.addBinding(name);
+    const fn = globalAny[name];
+    if (typeof fn === "function") {
+      state.addJsFunction(name, fn as (...args: unknown[]) => unknown);
+    } else {
+      state.addBinding(name);
+    }
   }
 }

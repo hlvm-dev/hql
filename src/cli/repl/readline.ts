@@ -4,7 +4,7 @@
  */
 
 import { ANSI_COLORS } from "../ansi.ts";
-import { highlight, findMatchingParen } from "./syntax.ts";
+import { highlight, findMatchingParen, isBalanced } from "./syntax.ts";
 import { findSuggestion, acceptSuggestion, type Suggestion } from "./suggester.ts";
 import {
   getCompletions,
@@ -81,44 +81,8 @@ export interface ReadlineOptions {
   signatures?: Map<string, string[]>;
 }
 
-/**
- * Check if S-expression input is balanced (all parens/brackets closed)
- */
-export function isBalanced(input: string): boolean {
-  let parens = 0, brackets = 0, braces = 0;
-  let inString = false, escape = false;
-  let inComment = false;
-
-  for (const ch of input) {
-    // Handle escape sequences in strings
-    if (escape) { escape = false; continue; }
-
-    // Newline ends line comments
-    if (inComment) {
-      if (ch === '\n') inComment = false;
-      continue;
-    }
-
-    if (ch === '\\' && inString) { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
-
-    // Start of line comment
-    if (ch === ';') {
-      inComment = true;
-      continue;
-    }
-
-    if (ch === '(') parens++;
-    if (ch === ')') parens--;
-    if (ch === '[') brackets++;
-    if (ch === ']') brackets--;
-    if (ch === '{') braces++;
-    if (ch === '}') braces--;
-  }
-
-  return parens === 0 && brackets === 0 && braces === 0;
-}
+// Re-export isBalanced from syntax.ts for backwards compatibility
+export { isBalanced } from "./syntax.ts";
 
 export class Readline {
   private history: string[] = [];
@@ -206,6 +170,7 @@ export class Readline {
     this.currentLine = "";
     this.cursorPos = 0;
     this.historyIndex = -1;
+    this.lastWasCtrlC = false;  // Reset Ctrl+C flag
     this.suggestion = null;
     this.clearCompletions();
     this.exitPlaceholderMode();
@@ -319,6 +284,15 @@ export class Readline {
     if (!this.mentionState.active) return;
     await this.write(clearDropdown(this.mentionState));
     deactivateMention(this.mentionState);
+  }
+
+  /**
+   * Refresh mention dropdown display (DRY helper)
+   */
+  private async refreshMentionDropdown(): Promise<void> {
+    await this.write(clearDropdown(this.mentionState));
+    await this.write(renderDropdown(this.mentionState, this.getTerminalWidth()));
+    await this.redrawLine();
   }
 
   /**
@@ -643,7 +617,7 @@ export class Readline {
         this.exitPlaceholderMode();
         // Accept suggestion if available, then jump to end
         if (this.suggestion && this.cursorPos === this.currentLine.length) {
-          this.currentLine = acceptSuggestion(this.currentLine, this.suggestion);
+          this.currentLine = acceptSuggestion(this.suggestion);
           // For multi-line suggestions, cursor goes to end of first line
           const newlinePos = this.currentLine.indexOf('\n');
           this.cursorPos = newlinePos !== -1 ? newlinePos : this.currentLine.length;
@@ -691,15 +665,11 @@ export class Readline {
     if (this.mentionState.active) {
       if (key === ArrowKey.Up) {
         navigateUp(this.mentionState);
-        await this.write(clearDropdown(this.mentionState));
-        await this.write(renderDropdown(this.mentionState, this.getTerminalWidth()));
-        await this.redrawLine(); // Fix cursor position
+        await this.refreshMentionDropdown();
         return;
       } else if (key === ArrowKey.Down) {
         navigateDown(this.mentionState);
-        await this.write(clearDropdown(this.mentionState));
-        await this.write(renderDropdown(this.mentionState, this.getTerminalWidth()));
-        await this.redrawLine(); // Fix cursor position
+        await this.refreshMentionDropdown();
         return;
       }
       // Left/Right arrows cancel mention mode
@@ -721,7 +691,7 @@ export class Readline {
       case ArrowKey.Right:
         // Accept suggestion if at end of line
         if (this.cursorPos >= this.currentLine.length && this.suggestion) {
-          this.currentLine = acceptSuggestion(this.currentLine, this.suggestion);
+          this.currentLine = acceptSuggestion(this.suggestion);
           // For multi-line suggestions, cursor goes to end of first line
           const newlinePos = this.currentLine.indexOf('\n');
           this.cursorPos = newlinePos !== -1 ? newlinePos : this.currentLine.length;

@@ -3,10 +3,11 @@
  */
 
 import React from "npm:react@18";
-import { Text, Box } from "npm:ink@5";
+import { Text, Box, useInput } from "npm:ink@5";
 import type { EvalResult } from "../types.ts";
 import { renderMarkdown, hasMarkdown } from "../../repl/markdown.ts";
 import { useStreaming } from "../hooks/useStreaming.ts";
+import { StreamingStatus } from "./StreamingStatus.tsx";
 
 // SICP Theme colors
 const C = { CYAN: "\x1b[36m", YELLOW: "\x1b[33m", RED: "\x1b[31m", DIM: "\x1b[90m", RESET: "\x1b[0m" };
@@ -32,12 +33,29 @@ export function Output({ result }: { result: EvalResult }): React.ReactElement |
 function StreamingOutput({ iterator }: { iterator: AsyncIterableIterator<string> }): React.ReactElement {
   // Higher throttle (100ms) = fewer re-renders = smoother streaming
   // Markdown is only applied at end to avoid structural jumps
-  const { displayText, isDone } = useStreaming(iterator, { renderInterval: 100 });
+  const { displayText, isDone, isStreaming, startTime, cancel } = useStreaming(iterator, { renderInterval: 100 });
+
+  // Handle escape key to cancel streaming
+  useInput((_char, key) => {
+    if (key.escape && isStreaming) {
+      cancel();
+    }
+  });
 
   return (
     <Box flexDirection="column">
-      <Text>{displayText}</Text>
-      {!isDone && <Text color="gray">▋</Text>}
+      {isStreaming && (
+        <StreamingStatus
+          isStreaming={isStreaming}
+          startTime={startTime}
+        />
+      )}
+      {displayText && (
+        <Text>
+          {isDone && hasMarkdown(displayText) ? renderMarkdown(displayText) : displayText}
+        </Text>
+      )}
+      {isStreaming && !displayText && <Text color="gray">▋</Text>}
     </Box>
   );
 }

@@ -152,7 +152,8 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
     }
 
     // Found a definition start - try to extract the complete expression
-    let currentCode = "";
+    // OPTIMIZED: Use array + join instead of O(n²) string concatenation
+    const codeLines: string[] = [];
     let parenDepth = 0;
     let foundNextDef = false;
 
@@ -162,7 +163,7 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
 
       // Skip empty lines and comments within multi-line expressions
       if (j > i && (currentTrimmed === "" || currentTrimmed.startsWith(";"))) {
-        currentCode += "\n" + currentLine;
+        codeLines.push(currentLine);
         continue;
       }
 
@@ -174,7 +175,7 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
         break;
       }
 
-      currentCode += (currentCode ? "\n" : "") + currentLine;
+      codeLines.push(currentLine);
 
       // Count parens (doesn't handle parens inside strings, but good enough)
       for (const char of currentLine) {
@@ -188,6 +189,8 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
         break;
       }
     }
+
+    const currentCode = codeLines.join("\n");
 
     // If we found a next def without closing, skip this malformed expression
     if (foundNextDef) {
