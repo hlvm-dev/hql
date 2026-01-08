@@ -11,12 +11,41 @@ import { findSuggestion, acceptSuggestion, type Suggestion } from "../../repl/su
 import { shouldTabAcceptSuggestion } from "../../repl/tab-logic.ts";
 import { searchFiles, unescapeShellPath, type FileMatch } from "../../repl/file-search.ts";
 import { calculateWordBackPosition, calculateWordForwardPosition } from "../../repl/keyboard.ts";
-import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, type Attachment } from "../../repl/attachment.ts";
-import { useAttachments } from "../hooks/useAttachments.ts";
+import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, shouldCollapseText, type Attachment, type TextAttachment } from "../../repl/attachment.ts";
+import { useAttachments, type AnyAttachment } from "../hooks/useAttachments.ts";
 
 // Option+Enter detection timeout (ms)
 // Terminal sends ESC (0x1b) followed by Enter (0x0d) for Option+Enter
-const ESCAPE_MODIFIER_TIMEOUT = 100;
+// ESC sequences arrive within ~5-10ms, so 25ms is enough to detect them
+// while feeling instant to humans (perception threshold is ~50-100ms)
+const ESCAPE_MODIFIER_TIMEOUT = 25;
+
+// Paste detection: only buffer when we have definite paste indicators
+// Multi-char input or newlines START buffering
+// Rapid input CONTINUES buffering for char-by-char pastes
+// Single char typing is ALWAYS immediate (never buffered)
+//
+// Two thresholds for different purposes:
+// - CONTINUE: Detect if input is part of ongoing paste (char-by-char paste detection)
+// - PROCESS_DELAY: Wait for more chunks before processing (terminal paste timing varies)
+const PASTE_CONTINUE_THRESHOLD_MS = 50;   // Char-by-char paste arrives < 50ms apart
+const PASTE_PROCESS_DELAY_MS = 150;       // Wait 150ms for more chunks before processing
+
+// ANSI color codes - defined outside component to avoid recreation on every render
+const ANSI = {
+  CYAN: "\x1b[36m",
+  DIM_GRAY: "\x1b[90m",
+  RESET: "\x1b[0m",
+} as const;
+
+// Fast newline check - avoids regex compilation on every keystroke
+function hasNewlineChars(str: string): boolean {
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    if (ch === 10 || ch === 13) return true;  // \n or \r
+  }
+  return false;
+}
 
 // Placeholder for function parameter completion
 interface Placeholder {
@@ -29,11 +58,11 @@ interface Placeholder {
 interface InputProps {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: (value: string, attachments?: Attachment[]) => void;
+  onSubmit: (value: string, attachments?: AnyAttachment[]) => void;
   jsMode?: boolean;
   disabled?: boolean;
   history: string[];
-  userBindings: Set<string>;
+  userBindings: ReadonlySet<string>;
   signatures: Map<string, string[]>;
 }
 
@@ -72,6 +101,7 @@ export function Input({
   const {
     attachments,
     addAttachmentWithId,
+    addTextAttachment,
     reserveNextId,
     clearAttachments,
     lastError: attachmentError,
@@ -85,6 +115,11 @@ export function Input({
   // Option+Enter detection: ESC followed by Enter within timeout
   const [escapePressed, setEscapePressed] = useState(false);
   const escapeTimeoutRef = useRef<number | null>(null);
+
+  // Paste detection: buffer rapid inputs and process together
+  const pasteBufferRef = useRef<string>("");
+  const pasteTimeoutRef = useRef<number | null>(null);
+  const lastInputTimeRef = useRef<number>(0);
 
   // Update cursor pos when value changes externally
   useEffect(() => {
@@ -103,6 +138,14 @@ export function Input({
     }
   }, [value, cursorPos, history, userBindings, atMentionMode]);
 
+  // Cleanup paste timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (pasteTimeoutRef.current) {
+        clearTimeout(pasteTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Detect @mention mode and search files
   useEffect(() => {
@@ -562,6 +605,43 @@ export function Input({
     if (disabled) return;
 
     // ============================================================
+    // FAST PATH: Single character typing (most common case)
+    // Skip ALL checks for simple character input - maximum speed
+    // ============================================================
+    if (input &&
+        input.length === 1 &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.escape &&
+        !key.return &&
+        !key.tab &&
+        !key.backspace &&
+        !key.delete &&
+        !key.upArrow &&
+        !key.downArrow &&
+        !key.leftArrow &&
+        !key.rightArrow &&
+        !escapePressed &&
+        pasteBufferRef.current.length === 0) {
+      // Placeholder mode: replace placeholder with typed char
+      if (placeholders.length > 0 && placeholderIndex >= 0) {
+        if (input === ')') {
+          const cleanedValue = exitPlaceholderModeAndCleanup();
+          const closingParenPos = cleanedValue.lastIndexOf(')');
+          onChange(cleanedValue);
+          setCursorPos(closingParenPos + 1);
+        } else {
+          replaceCurrentPlaceholder(input);
+        }
+        return;
+      }
+      // Normal typing: direct insert, no paste detection needed
+      lastInputTimeRef.current = Date.now();
+      insertAt(input);
+      return;
+    }
+
+    // ============================================================
     // Word Navigation (Cross-Platform)
     // ============================================================
     // macOS: Option+Arrow sends ESC+b/f (input='b'/'f', meta=true)
@@ -649,11 +729,19 @@ export function Input({
         return;
       }
       // Start Option+key detection for NEXT event (two-event sequence)
+      // If no follow-up key within timeout, clear input (Claude Code behavior)
       setEscapePressed(true);
       clearEscapeTimeout();
       escapeTimeoutRef.current = setTimeout(() => {
         setEscapePressed(false);
         escapeTimeoutRef.current = null;
+        // ESC alone (no follow-up key) → clear input like Claude Code
+        if (value.length > 0) {
+          onChange("");
+          setCursorPos(0);
+          clearCompletions();
+          clearAttachments();
+        }
       }, ESCAPE_MODIFIER_TIMEOUT) as unknown as number;
       return;
     }
@@ -872,11 +960,7 @@ export function Input({
         case "k": // Delete to end
           onChange(value.slice(0, cursorPos));
           return;
-        case "d": // EOF on empty
-          if (value === "") {
-            // Would exit - handled by App
-          }
-          return;
+        // Note: Ctrl+D (EOF) is handled at the App level, not here
       }
       return;
     }
@@ -889,30 +973,83 @@ export function Input({
       return;
     }
 
-    // Regular character input
+    // Regular character input with paste detection
     if (input && !key.ctrl && !key.meta) {
-      // INTERCEPT: Check if this is a pasted media file path (before it reaches state)
-      // Paste is detected by: long input + absolute path + media extension
-      if (input.length > 15) {
-        const cleanInput = input.replace(/\\ /g, " ").replace(/\\'/g, "'").replace(/\\"/g, '"').trim();
-        const isAbsolutePath = cleanInput.startsWith("/") || cleanInput.startsWith("~");
+      const now = Date.now();
+      const timeSinceLastInput = now - lastInputTimeRef.current;
+      lastInputTimeRef.current = now;
 
-        if (isAbsolutePath && isSupportedMedia(cleanInput)) {
-          // ZERO-BLINK: Synchronously compute placeholder and insert it INSTANTLY
-          // 1. Reserve ID synchronously
+      // Helper: process text that might need collapsing
+      const processTextInput = (text: string) => {
+        // Check for media file path
+        const cleanText = text.replace(/\\ /g, " ").replace(/\\'/g, "'").replace(/\\"/g, '"').trim();
+        const isAbsolutePath = cleanText.startsWith("/") || cleanText.startsWith("~");
+
+        if (isAbsolutePath && isSupportedMedia(cleanText)) {
           const id = reserveNextId();
-          // 2. Compute display name synchronously (no file I/O needed)
-          const mimeType = detectMimeType(cleanInput);
+          const mimeType = detectMimeType(cleanText);
           const type = getAttachmentType(mimeType);
           const displayName = getDisplayName(type, id);
-          // 3. Insert placeholder IMMEDIATELY - user sees [Image #1] instantly!
           insertAt(displayName + " ");
-          // 4. Process file in background (fire-and-forget) - no await, no loading
-          addAttachmentWithId(cleanInput, id);
-          return; // Don't insert the raw path
+          addAttachmentWithId(cleanText, id);
+          return;
         }
+
+        // Check for large text paste that should collapse
+        if (shouldCollapseText(text)) {
+          const textAttachment = addTextAttachment(text);
+          insertAt(textAttachment.displayName + " ");
+          return;
+        }
+
+        // Normal text - insert directly
+        insertAt(text);
+      };
+
+      // Helper: process accumulated paste buffer
+      const processPasteBuffer = () => {
+        const buffer = pasteBufferRef.current;
+        pasteBufferRef.current = "";
+        if (buffer) {
+          processTextInput(buffer);
+        }
+      };
+
+      // Paste detection - ONLY buffer on definite paste indicators:
+      // - Multi-char input (terminal sent batch) → START buffer
+      // - Has newlines (definitely paste) → START buffer
+      // - Already buffering + rapid input (< 30ms) → CONTINUE buffer
+      // Single char typing is ALWAYS immediate (never triggers buffering)
+      const hasNewlines = hasNewlineChars(input);
+      const isMultiChar = input.length > 1;
+      const isBuffering = pasteBufferRef.current.length > 0;
+      const isRapidInput = timeSinceLastInput < PASTE_CONTINUE_THRESHOLD_MS;
+
+      // START buffer only on definite paste, CONTINUE only if rapid
+      const shouldStartBuffer = hasNewlines || isMultiChar;
+      const shouldContinueBuffer = isBuffering && isRapidInput;
+      const shouldBuffer = shouldStartBuffer || shouldContinueBuffer;
+
+      if (shouldBuffer) {
+        // Accumulate in paste buffer
+        pasteBufferRef.current += input;
+
+        // Clear existing timeout
+        if (pasteTimeoutRef.current) {
+          clearTimeout(pasteTimeoutRef.current);
+        }
+
+        // Set new debounce timeout - wait for more chunks before processing
+        // 150ms is long enough for slow terminal paste chunks, but short enough to feel responsive
+        pasteTimeoutRef.current = setTimeout(() => {
+          pasteTimeoutRef.current = null;
+          processPasteBuffer();
+        }, PASTE_PROCESS_DELAY_MS) as unknown as number;
+
+        return;
       }
 
+      // Single character, not rapid, no buffer - insert directly
       insertAt(input);
     }
   }, { isActive: !disabled });
@@ -923,11 +1060,6 @@ export function Input({
     : null;
 
   const ghostText = suggestion ? suggestion.ghost : "";
-
-  // ANSI colors for placeholder highlighting
-  const CYAN = "\x1b[36m";
-  const DIM_GRAY = "\x1b[90m";
-  const RESET = "\x1b[0m";
 
   // Helper: render text with placeholder highlighting
   // OPTIMIZED: O(n) single pass instead of O(n²) nested loops
@@ -978,9 +1110,9 @@ export function Input({
           if (ph.touched) {
             result += highlight(phText, null);
           } else if (originalIdx === placeholderIndex) {
-            result += CYAN + phText + RESET;
+            result += ANSI.CYAN + phText + ANSI.RESET;
           } else {
-            result += DIM_GRAY + phText + RESET;
+            result += ANSI.DIM_GRAY + phText + ANSI.RESET;
           }
 
           textPos = phEndInText;

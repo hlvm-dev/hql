@@ -207,15 +207,6 @@ export function renderSeparator(width = 60): string {
 }
 
 /**
- * Render an AI response with nice formatting
- * Adds a subtle header and renders markdown
- */
-export function renderAIResponse(text: string, width = 80): string {
-  const rendered = renderMarkdown(text, width);
-  return rendered;
-}
-
-/**
  * Check if text looks like it contains markdown
  */
 export function hasMarkdown(text: string): boolean {

@@ -13,7 +13,7 @@ import { useInitialization } from "../hooks/useInitialization.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { clearTerminal } from "../../ansi.ts";
-import type { Attachment } from "../../repl/attachment.ts";
+import type { AnyAttachment } from "../hooks/useAttachments.ts";
 
 interface HistoryEntry {
   id: number;
@@ -43,7 +43,7 @@ export function App({ jsMode: initialJsMode = false, showBanner = true }: AppPro
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
 
-  const handleSubmit = useCallback(async (code: string, attachments?: Attachment[]) => {
+  const handleSubmit = useCallback(async (code: string, attachments?: AnyAttachment[]) => {
     if (!code.trim()) return;
     setIsEvaluating(true);
 
@@ -77,7 +77,7 @@ export function App({ jsMode: initialJsMode = false, showBanner = true }: AppPro
     setInput("");
   }, [repl, nextId, exit]);
 
-  // Global shortcuts (Ctrl+C exit, Ctrl+L clear)
+  // Global shortcuts (Ctrl+C exit, Ctrl+L clear, ESC cancel)
   // Note: Cmd+K is intercepted by terminal emulator, use Ctrl+L instead
   useInput((char, key) => {
     if (key.ctrl && char === "c") exit();
@@ -89,6 +89,12 @@ export function App({ jsMode: initialJsMode = false, showBanner = true }: AppPro
       setNextId(1);
       setHasBeenCleared(true); // Hide banner after clear
       setClearKey((k: number) => k + 1); // Force full re-render
+    }
+    // ESC during evaluation: cancel/interrupt (Claude Code behavior)
+    if (key.escape && isEvaluating) {
+      setIsEvaluating(false);
+      // Note: The actual async evaluation may continue in background
+      // but UI will be responsive again
     }
   });
 
@@ -125,7 +131,7 @@ export function App({ jsMode: initialJsMode = false, showBanner = true }: AppPro
         jsMode={repl.jsMode}
         disabled={isEvaluating || init.loading}
         history={stateRef.current.history}
-        userBindings={new Set(stateRef.current.getBindings())}
+        userBindings={stateRef.current.getBindingsSet()}
         signatures={stateRef.current.getSignatures()}
       />
 

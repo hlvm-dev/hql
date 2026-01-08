@@ -7,21 +7,28 @@
  * - Clear attachments after submit
  */
 
-import { useState, useCallback } from "npm:react@18";
+import { useState, useCallback, useRef } from "npm:react@18";
 import {
   type Attachment,
+  type TextAttachment,
   type AttachmentError,
   createAttachment,
+  createTextAttachment,
   isAttachment,
 } from "../../repl/attachment.ts";
 
+/** Union type for all attachment types */
+export type AnyAttachment = Attachment | TextAttachment;
+
 export interface UseAttachmentsReturn {
-  /** Current list of attachments */
-  attachments: Attachment[];
+  /** Current list of attachments (media and text) */
+  attachments: AnyAttachment[];
   /** Add a new attachment from file path */
   addAttachment: (path: string) => Promise<Attachment | AttachmentError>;
   /** Add attachment with pre-reserved ID (for instant placeholder) */
   addAttachmentWithId: (path: string, id: number) => Promise<Attachment | AttachmentError>;
+  /** Add a text attachment (for large pasted text) */
+  addTextAttachment: (content: string) => TextAttachment;
   /** Reserve the next ID synchronously (for instant placeholder insertion) */
   reserveNextId: () => number;
   /** Remove an attachment by ID */
@@ -40,18 +47,22 @@ export interface UseAttachmentsReturn {
  * React hook for managing REPL attachments
  */
 export function useAttachments(): UseAttachmentsReturn {
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [nextId, setNextId] = useState(1);
+  const [attachments, setAttachments] = useState<AnyAttachment[]>([]);
+  // Use ref for nextId to avoid useCallback dependency issues and ensure
+  // synchronous access to current value (no stale closure problems)
+  const nextIdRef = useRef(1);
   const [lastError, setLastError] = useState<AttachmentError | null>(null);
 
   /**
    * Reserve the next ID synchronously - for instant placeholder insertion
+   * Uses ref instead of state to avoid closure issues and ensure
+   * rapid successive calls get unique IDs
    */
   const reserveNextId = useCallback((): number => {
-    const id = nextId;
-    setNextId((n: number) => n + 1);
+    const id = nextIdRef.current;
+    nextIdRef.current += 1;
     return id;
-  }, [nextId]);
+  }, []);  // No dependencies - always returns current ref value
 
   /**
    * Add attachment with a specific ID (used after reserveNextId)
@@ -62,7 +73,7 @@ export function useAttachments(): UseAttachmentsReturn {
     const result = await createAttachment(path, id);
 
     if (isAttachment(result)) {
-      setAttachments((prev: Attachment[]) => [...prev, result]);
+      setAttachments((prev: AnyAttachment[]) => [...prev, result]);
     } else {
       setLastError(result);
     }
@@ -79,10 +90,20 @@ export function useAttachments(): UseAttachmentsReturn {
   }, [reserveNextId, addAttachmentWithId]);
 
   /**
+   * Add a text attachment for large pasted text (synchronous for instant UI)
+   */
+  const addTextAttachment = useCallback((content: string): TextAttachment => {
+    const id = reserveNextId();
+    const textAttachment = createTextAttachment(content, id);
+    setAttachments((prev: AnyAttachment[]) => [...prev, textAttachment]);
+    return textAttachment;
+  }, [reserveNextId]);
+
+  /**
    * Remove an attachment by ID
    */
   const removeAttachment = useCallback((id: number) => {
-    setAttachments((prev: Attachment[]) => prev.filter((a: Attachment) => a.id !== id));
+    setAttachments((prev: AnyAttachment[]) => prev.filter((a: AnyAttachment) => a.id !== id));
   }, []);
 
   /**
@@ -90,27 +111,28 @@ export function useAttachments(): UseAttachmentsReturn {
    */
   const clearAttachments = useCallback(() => {
     setAttachments([]);
-    setNextId(1);
+    nextIdRef.current = 1;  // Reset ID counter
     setLastError(null);
   }, []);
 
   /**
    * Get combined display text for all attachments
-   * Example: "[Image #1] [PDF #2]"
+   * Example: "[Image #1] [Pasted text #2 +183 lines]"
    */
   const getDisplayText = useCallback((): string => {
-    return attachments.map((a: Attachment) => a.displayName).join(" ");
+    return attachments.map((a: AnyAttachment) => a.displayName).join(" ");
   }, [attachments]);
 
   return {
     attachments,
     addAttachment,
     addAttachmentWithId,
+    addTextAttachment,
     reserveNextId,
     removeAttachment,
     clearAttachments,
     getDisplayText,
-    nextId,
+    nextId: nextIdRef.current,
     lastError,
   };
 }

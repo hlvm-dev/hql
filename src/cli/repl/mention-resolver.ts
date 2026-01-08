@@ -10,6 +10,8 @@
  *   (ask @file.ts) →  (ask "...file content...")
  */
 
+import { escapeString } from "./string-utils.ts";
+
 /**
  * Resolve all @ mentions in input to their actual content
  */
@@ -151,12 +153,7 @@ async function resolveFile(path: string): Promise<string> {
     const content = await Deno.readTextFile(path);
 
     // Escape quotes and newlines for string literal
-    const escaped = content
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"')
-      .replace(/\n/g, "\\n")
-      .replace(/\r/g, "\\r")
-      .replace(/\t/g, "\\t");
+    const escaped = escapeString(content);
 
     // Truncate if too long (for REPL usability)
     const maxLen = 10000;
@@ -170,10 +167,3 @@ async function resolveFile(path: string): Promise<string> {
   }
 }
 
-/**
- * Check if input contains any @ mentions
- */
-export function hasAtMentions(input: string): boolean {
-  const mentions = findMentions(input);
-  return mentions.length > 0;
-}

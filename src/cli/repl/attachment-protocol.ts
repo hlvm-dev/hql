@@ -10,7 +10,10 @@
  * 3. Helper functions for converting attachments to content blocks
  */
 
-import type { Attachment, AttachmentType } from "./attachment.ts";
+import type { Attachment, TextAttachment, AttachmentType } from "./attachment.ts";
+
+/** Union type for all attachment types */
+export type AnyAttachment = Attachment | TextAttachment;
 
 // ============================================================================
 // Content Block Types (API Format)
@@ -62,9 +65,18 @@ export interface FileContent {
 }
 
 /**
+ * Pasted text content block (for collapsed text pastes)
+ */
+export interface PastedTextContent {
+  type: "pasted_text";
+  text: string;
+  line_count: number;
+}
+
+/**
  * All possible content block types
  */
-export type ContentBlock = TextContent | ImageContent | DocumentContent | FileContent;
+export type ContentBlock = TextContent | ImageContent | DocumentContent | FileContent | PastedTextContent;
 
 // ============================================================================
 // Backend Protocol Interface
@@ -92,7 +104,7 @@ export interface AttachmentBackend {
    * Format attachments + text for API call
    * Returns the formatted message structure expected by this backend
    */
-  formatForApi(attachments: Attachment[], text: string): unknown;
+  formatForApi(attachments: AnyAttachment[], text: string): unknown;
 }
 
 // ============================================================================
@@ -100,9 +112,26 @@ export interface AttachmentBackend {
 // ============================================================================
 
 /**
+ * Check if attachment is a text attachment
+ */
+function isTextAttachment(attachment: AnyAttachment): attachment is TextAttachment {
+  return attachment.type === "text" && "content" in attachment;
+}
+
+/**
  * Convert a single attachment to a content block
  */
-export function attachmentToContentBlock(attachment: Attachment): ContentBlock {
+export function attachmentToContentBlock(attachment: AnyAttachment): ContentBlock {
+  // Handle text attachments (pasted text)
+  if (isTextAttachment(attachment)) {
+    return {
+      type: "pasted_text",
+      text: attachment.content,
+      line_count: attachment.lineCount,
+    };
+  }
+
+  // Handle media attachments
   switch (attachment.type) {
     case "image":
       return {
@@ -150,7 +179,7 @@ export function attachmentToContentBlock(attachment: Attachment): ContentBlock {
  */
 export function attachmentsToContentBlocks(
   text: string,
-  attachments: Attachment[]
+  attachments: AnyAttachment[]
 ): ContentBlock[] {
   const blocks: ContentBlock[] = [];
 
@@ -176,19 +205,28 @@ export function attachmentsToContentBlocks(
  * Transforms: "[Image #1] What's in this?"
  * To: "<image 1: screenshot.png> What's in this?"
  *
+ * For pasted text: "[Pasted text #1 +183 lines]"
+ * To: "<pasted_text 1: 183 lines>"
+ *
  * Useful for backends that don't support multimodal content
  */
 export function replaceAttachmentPlaceholders(
   text: string,
-  attachments: Attachment[]
+  attachments: AnyAttachment[]
 ): string {
   let result = text;
 
   for (const attachment of attachments) {
-    // Match [Image #1], [PDF #2], etc.
+    // Match [Image #1], [PDF #2], [Pasted text #1 +N lines], etc.
     const placeholder = attachment.displayName;
-    const description = `<${attachment.type} ${attachment.id}: ${attachment.fileName}>`;
-    result = result.replace(placeholder, description);
+
+    if (isTextAttachment(attachment)) {
+      const description = `<pasted_text ${attachment.id}: ${attachment.lineCount} lines>`;
+      result = result.replace(placeholder, description);
+    } else {
+      const description = `<${attachment.type} ${attachment.id}: ${attachment.fileName}>`;
+      result = result.replace(placeholder, description);
+    }
   }
 
   return result;
@@ -212,23 +250,42 @@ export class StubBackend implements AttachmentBackend {
     return ["*/*"]; // Accept all
   }
 
-  formatForApi(attachments: Attachment[], text: string): unknown {
+  formatForApi(attachments: AnyAttachment[], text: string): unknown {
     // Just return a structured object for inspection
     return {
       backend: "stub",
       text,
-      attachments: attachments.map((a) => ({
-        id: a.id,
-        type: a.type,
-        displayName: a.displayName,
-        fileName: a.fileName,
-        mimeType: a.mimeType,
-        size: a.size,
-        // Don't include base64Data in logs - too large
-        hasData: !!a.base64Data,
-      })),
+      attachments: attachments.map((a) => {
+        if (isTextAttachment(a)) {
+          return {
+            id: a.id,
+            type: a.type,
+            displayName: a.displayName,
+            lineCount: a.lineCount,
+            size: a.size,
+            // Truncate content in logs
+            contentPreview: a.content.slice(0, 100) + (a.content.length > 100 ? "..." : ""),
+          };
+        }
+        return {
+          id: a.id,
+          type: a.type,
+          displayName: a.displayName,
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+          size: a.size,
+          // Don't include base64Data in logs - too large
+          hasData: !!a.base64Data,
+        };
+      }),
       contentBlocks: attachmentsToContentBlocks(text, attachments).map((block) => {
         if (block.type === "text") return block;
+        if (block.type === "pasted_text") {
+          return {
+            ...block,
+            text: block.text.slice(0, 100) + (block.text.length > 100 ? "..." : ""),
+          };
+        }
         // Truncate base64 data in logs
         return {
           ...block,

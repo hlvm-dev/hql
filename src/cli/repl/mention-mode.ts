@@ -106,7 +106,7 @@ function highlightMatches(path: string, indices: number[]): string {
 /**
  * Format a single dropdown row
  */
-function formatRow(match: FileMatch, isSelected: boolean, _width: number): string {
+function formatRow(match: FileMatch, isSelected: boolean): string {
   const icon = match.isDirectory ? "📁" : "📄";
   const prefix = isSelected ? `${CYAN}❯ ` : "  ";
 
@@ -140,7 +140,7 @@ export function formatDropdown(state: MentionState, terminalWidth = 80): string[
   // Results
   const visibleMatches = state.matches.slice(0, MAX_VISIBLE_RESULTS);
   for (let i = 0; i < visibleMatches.length; i++) {
-    lines.push(formatRow(visibleMatches[i], i === state.selectedIndex, terminalWidth));
+    lines.push(formatRow(visibleMatches[i], i === state.selectedIndex));
   }
 
   // Show if there are more results

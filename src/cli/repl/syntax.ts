@@ -233,6 +233,23 @@ function classifySymbol(value: string): TokenType {
 }
 
 // ============================================================
+// Tokenization Memoization
+// ============================================================
+
+// Simple single-entry cache for tokenization
+// Avoids repeated tokenization of the same input during a single render cycle
+let _lastTokenizeInput: string | null = null;
+let _cachedTokens: Token[] | null = null;
+
+function tokenizeCached(input: string): Token[] {
+  if (input !== _lastTokenizeInput) {
+    _lastTokenizeInput = input;
+    _cachedTokens = tokenize(input);
+  }
+  return _cachedTokens!;
+}
+
+// ============================================================
 // Syntax Highlighter
 // ============================================================
 
@@ -280,7 +297,7 @@ const FUNCTION_CALL_COLOR = SICP_PURPLE;
 export function highlight(input: string, matchPos: number | null = null): string {
   if (input.length === 0) return "";
 
-  const tokens = tokenize(input);
+  const tokens = tokenizeCached(input);
   let result = "";
 
   // Pre-compute which tokens are in function position (after open-paren, skipping whitespace)
@@ -398,7 +415,7 @@ export function findMatchingParen(input: string, cursorPos: number): number | nu
  * More accurate than the simple version in readline.ts because it uses the tokenizer.
  */
 export function isBalanced(input: string): boolean {
-  const tokens = tokenize(input);
+  const tokens = tokenizeCached(input);
   let parens = 0, brackets = 0, braces = 0;
 
   for (const token of tokens) {

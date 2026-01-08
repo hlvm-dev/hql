@@ -8,8 +8,7 @@ import { ReplState } from "../../repl/state.ts";
 import { evaluate as hqlEvaluate } from "../../repl/evaluator.ts";
 import { resolveAtMentions } from "../../repl/mention-resolver.ts";
 import type { EvalResult } from "../types.ts";
-import type { Attachment } from "../../repl/attachment.ts";
-import { attachmentsToContentBlocks } from "../../repl/attachment-protocol.ts";
+import { attachmentsToContentBlocks, type AnyAttachment } from "../../repl/attachment-protocol.ts";
 
 interface UseReplOptions {
   jsMode?: boolean;
@@ -18,7 +17,7 @@ interface UseReplOptions {
 
 export interface UseReplReturn {
   jsMode: boolean;
-  evaluate: (code: string, attachments?: Attachment[]) => Promise<EvalResult>;
+  evaluate: (code: string, attachments?: AnyAttachment[]) => Promise<EvalResult>;
   setJsMode: (mode: boolean) => void;
   reset: () => void;
   state: ReplState;
@@ -29,7 +28,7 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
   const stateRef = useRef<ReplState>(providedState || new ReplState());
   const [jsMode, setJsMode] = useState(initialJsMode);
 
-  const evaluate = useCallback(async (code: string, attachments?: Attachment[]): Promise<EvalResult> => {
+  const evaluate = useCallback(async (code: string, attachments?: AnyAttachment[]): Promise<EvalResult> => {
     const state = stateRef.current;
     const trimmed = code.trim();
 
@@ -55,7 +54,8 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
         void contentBlocks; // Suppress unused variable warning
       }
 
-      return await hqlEvaluate(resolvedCode, state, jsMode);
+      // Pass attachments to evaluator for paste-N variable registration
+      return await hqlEvaluate(resolvedCode, state, jsMode, attachments);
     } catch (error) {
       return {
         success: false,

@@ -14,7 +14,7 @@ import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 // Types
 // ============================================================================
 
-export type AttachmentType = "image" | "video" | "audio" | "document" | "file";
+export type AttachmentType = "image" | "video" | "audio" | "document" | "file" | "text";
 
 export interface AttachmentMetadata {
   width?: number;
@@ -33,6 +33,16 @@ export interface Attachment {
   base64Data: string;
   size: number;
   metadata?: AttachmentMetadata;
+}
+
+/** Text attachment for pasted text content */
+export interface TextAttachment {
+  id: number;
+  type: "text";
+  displayName: string;
+  content: string;
+  lineCount: number;
+  size: number;
 }
 
 export interface AttachmentError {
@@ -137,6 +147,7 @@ const SIZE_LIMITS: Record<AttachmentType, number> = {
   audio: 50 * 1024 * 1024,     // 50 MB
   document: 50 * 1024 * 1024,  // 50 MB
   file: 10 * 1024 * 1024,      // 10 MB (generic)
+  text: 1 * 1024 * 1024,       // 1 MB (pasted text)
 };
 
 /** Display name prefixes per type */
@@ -146,7 +157,18 @@ const TYPE_DISPLAY: Record<AttachmentType, string> = {
   audio: "Audio",
   document: "PDF",
   file: "File",
+  text: "Pasted text",
 };
+
+// ============================================================================
+// Text Paste Detection Constants
+// ============================================================================
+
+/** Minimum number of lines to trigger text collapse */
+export const TEXT_COLLAPSE_MIN_LINES = 5;
+
+/** Minimum character count to trigger text collapse */
+export const TEXT_COLLAPSE_MIN_CHARS = 300;
 
 /** Supported media file extensions (for quick check) */
 const MEDIA_EXTENSIONS = new Set(Object.keys(EXT_TO_MIME));
@@ -314,4 +336,78 @@ export function isAttachmentError(result: Attachment | AttachmentError): result 
 export function formatAttachmentDetail(attachment: Attachment): string {
   const size = formatFileSize(attachment.size);
   return `[${TYPE_DISPLAY[attachment.type]} #${attachment.id}: ${attachment.fileName} (${size})]`;
+}
+
+// ============================================================================
+// Text Attachment Functions
+// ============================================================================
+
+/**
+ * Check if pasted text should be collapsed
+ * Returns true if text has multiple lines AND exceeds thresholds
+ *
+ * Key insight: Single lines should NEVER be collapsed, even if very long.
+ * Terminal pastes often arrive line-by-line, so we need the newline check
+ * to distinguish a genuine multi-line paste from sequential single lines.
+ */
+export function shouldCollapseText(text: string): boolean {
+  // Handle all newline formats: \n (Unix), \r\n (Windows), \r (old Mac)
+  const lineCount = text.split(/\r?\n|\r/).length;
+
+  // CRITICAL: Must have actual newlines to be a "pasted text block"
+  // Single lines (even if 1000+ chars) should be inserted directly
+  if (lineCount < 2) {
+    return false;
+  }
+
+  // Multi-line paste: collapse if enough lines OR enough total chars
+  return lineCount >= TEXT_COLLAPSE_MIN_LINES || text.length >= TEXT_COLLAPSE_MIN_CHARS;
+}
+
+/**
+ * Count lines handling all newline formats
+ */
+export function countLines(text: string): number {
+  return text.split(/\r?\n|\r/).length;
+}
+
+/**
+ * Generate display name for pasted text: [Pasted text #1 +183 lines]
+ */
+export function getTextDisplayName(id: number, lineCount: number): string {
+  return `[Pasted text #${id} +${lineCount} lines]`;
+}
+
+/**
+ * Create a text attachment from pasted content
+ */
+export function createTextAttachment(content: string, id: number): TextAttachment {
+  const lineCount = countLines(content);
+  const size = new TextEncoder().encode(content).length;
+
+  return {
+    id,
+    type: "text",
+    displayName: getTextDisplayName(id, lineCount),
+    content,
+    lineCount,
+    size,
+  };
+}
+
+/**
+ * Get a preview of text attachment content
+ */
+export function getTextAttachmentPreview(attachment: TextAttachment, maxLines = 5): string {
+  const lines = attachment.content.split(/\r?\n|\r/);
+  const preview = lines.slice(0, maxLines).join("\n");
+  const remaining = lines.length - maxLines;
+  return remaining > 0 ? `${preview}\n... +${remaining} more lines` : preview;
+}
+
+/**
+ * Check if a result is a text attachment
+ */
+export function isTextAttachment(result: Attachment | TextAttachment | AttachmentError): result is TextAttachment {
+  return "type" in result && result.type === "text" && "content" in result;
 }

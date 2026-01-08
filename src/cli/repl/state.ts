@@ -3,6 +3,8 @@
  * Tracks bindings, history, and line numbers
  */
 
+import { getGlobalRecord } from "./string-utils.ts";
+
 /**
  * Extract parameter names from a JavaScript function.
  * Uses Function.toString() and regex parsing.
@@ -100,14 +102,16 @@ export class ReplState {
   /** Add a binding name */
   addBinding(name: string): void {
     this.bindings.add(name);
-    (globalThis as Record<string, unknown>)[name] = (globalThis as Record<string, unknown>)[name];
+    const g = getGlobalRecord();
+    g[name] = g[name];
   }
 
   /** Add a function with its parameter names */
   addFunction(name: string, params: string[]): void {
     this.bindings.add(name);
     this.signatures.set(name, params);
-    (globalThis as Record<string, unknown>)[name] = (globalThis as Record<string, unknown>)[name];
+    const g = getGlobalRecord();
+    g[name] = g[name];
   }
 
   /**
@@ -120,7 +124,7 @@ export class ReplState {
     if (params.length > 0) {
       this.signatures.set(name, params);
     }
-    (globalThis as Record<string, unknown>)[name] = fn;
+    getGlobalRecord()[name] = fn;
   }
 
   /** Get function signature (param names) */
@@ -138,9 +142,14 @@ export class ReplState {
     return this.bindings.has(name);
   }
 
-  /** Get all binding names */
+  /** Get all binding names as array */
   getBindings(): string[] {
     return Array.from(this.bindings);
+  }
+
+  /** Get bindings Set directly (for stable reference - avoids allocation) */
+  getBindingsSet(): ReadonlySet<string> {
+    return this.bindings;
   }
 
   /** Get command history */
@@ -189,8 +198,9 @@ export class ReplState {
   /** Reset REPL state */
   reset(): void {
     // Clear globalThis bindings
+    const g = getGlobalRecord();
     for (const name of this.bindings) {
-      delete (globalThis as Record<string, unknown>)[name];
+      delete g[name];
     }
     this.bindings.clear();
     this.signatures.clear();

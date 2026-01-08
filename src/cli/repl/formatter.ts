@@ -4,6 +4,7 @@
  */
 
 import { ANSI_COLORS } from "../ansi.ts";
+import { escapeString } from "./string-utils.ts";
 
 const { CYAN, YELLOW, RED, DIM_GRAY, RESET } = ANSI_COLORS;
 
@@ -112,23 +113,4 @@ export function formatError(error: Error): string {
   return result;
 }
 
-/** Escape special characters in strings */
-function escapeString(s: string): string {
-  return s
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t");
-}
 
-/** Format timing information */
-export function formatTiming(ms: number): string {
-  if (ms < 1) {
-    return `${DIM_GRAY}${(ms * 1000).toFixed(0)}μs${RESET}`;
-  }
-  if (ms < 1000) {
-    return `${DIM_GRAY}${ms.toFixed(0)}ms${RESET}`;
-  }
-  return `${DIM_GRAY}${(ms / 1000).toFixed(2)}s${RESET}`;
-}

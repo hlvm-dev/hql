@@ -14,6 +14,12 @@ import { extractTypeFromSymbol } from "../../transpiler/tokenizer/type-tokenizer
 import type { ReplState } from "./state.ts";
 import { appendToMemory } from "./memory.ts";
 import { evaluateJS, extractJSBindings } from "./js-eval.ts";
+import {
+  registerAttachments,
+  preprocessCode,
+  recordUserInput,
+} from "./context.ts";
+import type { AnyAttachment } from "./attachment-protocol.ts";
 
 // Constants
 const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
@@ -115,25 +121,49 @@ function analyzeExpression(ast: SList): ExpressionType {
  * Evaluate code in REPL context.
  * In jsMode, input not starting with '(' is evaluated as JavaScript.
  * Uses run() from mod.ts which properly handles EMBEDDED_PACKAGES.
+ *
+ * @param hqlCode - The code to evaluate
+ * @param state - REPL state for tracking bindings
+ * @param jsMode - Whether to evaluate as JavaScript
+ * @param attachments - Optional attachments (pasted text, images, etc.)
  */
 export async function evaluate(
   hqlCode: string,
   state: ReplState,
-  jsMode: boolean = false
+  jsMode: boolean = false,
+  attachments?: AnyAttachment[]
 ): Promise<EvalResult> {
   const trimmed = hqlCode.trim();
   if (!trimmed) {
     return { success: true, suppressOutput: true };
   }
 
+  // Register any text attachments as paste-N variables
+  if (attachments && attachments.length > 0) {
+    registerAttachments(attachments);
+
+    // Register paste-N bindings for autocomplete
+    for (const att of attachments) {
+      if (att.type === "text") {
+        state.addBinding(`paste-${att.id}`);
+      }
+    }
+  }
+
+  // Preprocess code: transform [Pasted text #N] → paste-N
+  const processedCode = preprocessCode(trimmed);
+
+  // Record user input for conversation context
+  recordUserInput(processedCode);
+
   // JavaScript mode: if input doesn't start with '(', evaluate as JavaScript
-  if (jsMode && !trimmed.startsWith("(")) {
+  if (jsMode && !processedCode.startsWith("(")) {
     try {
       // Extract bindings for state tracking
-      const bindings = extractJSBindings(hqlCode);
+      const bindings = extractJSBindings(processedCode);
 
       // Evaluate JavaScript (transforms to persist to globalThis)
-      const result = evaluateJS(hqlCode);
+      const result = evaluateJS(processedCode);
 
       // Track bindings in REPL state for autocompletion
       for (const name of bindings) {
@@ -148,7 +178,7 @@ export async function evaluate(
 
   // HQL evaluation
   try {
-    const ast = parse(hqlCode, "<repl>");
+    const ast = parse(processedCode, "<repl>");
     if (ast.length === 0) {
       return { success: true, suppressOutput: true };
     }

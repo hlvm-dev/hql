@@ -42,15 +42,17 @@ const SKIP_DIRS = new Set([
   ".idea", ".vscode", ".vs", "out", "bin", "obj",
 ]);
 
-// File patterns to skip
-const SKIP_PATTERNS = [
-  /\.min\.js$/,
-  /\.map$/,
-  /\.lock$/,
-  /package-lock\.json$/,
-  /yarn\.lock$/,
-  /\.d\.ts$/,
-];
+// File patterns to skip - using string checks for performance (no regex compilation)
+const SKIP_EXTENSIONS = new Set(['.min.js', '.map', '.lock', '.d.ts']);
+const SKIP_EXACT_NAMES = new Set(['package-lock.json', 'yarn.lock']);
+
+function shouldSkipFile(name: string): boolean {
+  if (SKIP_EXACT_NAMES.has(name)) return true;
+  for (const ext of SKIP_EXTENSIONS) {
+    if (name.endsWith(ext)) return true;
+  }
+  return false;
+}
 
 // ============================================================
 // Cache
@@ -168,7 +170,7 @@ async function indexDirectory(baseDir: string): Promise<FileIndex> {
           await walk(`${dir}/${entry.name}`, relativePath, depth + 1);
         } else {
           // Skip known bad file patterns
-          if (SKIP_PATTERNS.some(p => p.test(entry.name))) continue;
+          if (shouldSkipFile(entry.name)) continue;
 
           files.push(relativePath);
         }
@@ -292,6 +294,25 @@ function fuzzyMatch(query: string, target: string): { score: number; indices: nu
   return { score, indices };
 }
 
+/**
+ * Binary search to find insertion index in a descending-sorted array.
+ * Returns the index where `score` should be inserted to maintain descending order.
+ * O(log n) instead of O(n) linear search.
+ */
+function binarySearchInsertIdx(results: FileMatch[], score: number): number {
+  let lo = 0;
+  let hi = results.length;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (results[mid].score >= score) {
+      lo = mid + 1;  // Search right half (lower scores)
+    } else {
+      hi = mid;      // Search left half (higher scores)
+    }
+  }
+  return lo;
+}
+
 // ============================================================
 // Search API
 // ============================================================
@@ -405,14 +426,14 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
       };
 
       // Insert into results maintaining sorted order (top-k)
+      // Uses O(log k) binary search instead of O(k) linear findIndex
       if (results.length < maxResults) {
         // Not full yet - insert in sorted position
-        let insertIdx = results.findIndex(r => r.score < result.score);
-        if (insertIdx === -1) insertIdx = results.length;
+        const insertIdx = binarySearchInsertIdx(results, result.score);
         results.splice(insertIdx, 0, result);
       } else if (result.score > results[results.length - 1].score) {
         // Better than worst in top-k - replace it
-        let insertIdx = results.findIndex(r => r.score < result.score);
+        const insertIdx = binarySearchInsertIdx(results, result.score);
         results.splice(insertIdx, 0, result);
         results.pop(); // Remove worst
       }
