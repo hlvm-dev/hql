@@ -1,5 +1,9 @@
 // core/src/common/error-system.ts - Improved error reporting
 
+// Pre-compiled patterns for error location inference
+const TYPO_FOM_REGEX = /\bfom\b/;
+const ALPHANUMERIC_REGEX = /[a-zA-Z0-9_]/;
+
 import { HQLError, RuntimeError } from "./error.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { getErrorMessage } from "./utils.ts";
@@ -223,8 +227,8 @@ function inferErrorLocationFromMessage(
       const line = lines[i];
       if (line.includes("import")) {
         // Check for common import typos
-        if (errorMsg.includes("invalid") && line.match(/\bfom\b/)) {
-          const pos = line.search(/\bfom\b/);
+        if (errorMsg.includes("invalid") && TYPO_FOM_REGEX.test(line)) {
+          const pos = line.search(TYPO_FOM_REGEX);
           error.sourceLocation.line = i + 1;
           error.sourceLocation.column = pos + 1;
 
@@ -282,7 +286,7 @@ function inferErrorLocationFromMessage(
  * Check if a character is alphanumeric or underscore
  */
 function isAlphaNumeric(char: string): boolean {
-  return /[a-zA-Z0-9_]/.test(char);
+  return ALPHANUMERIC_REGEX.test(char);
 }
 
 // Re-export setRuntimeContext as setErrorContext for cleaner API

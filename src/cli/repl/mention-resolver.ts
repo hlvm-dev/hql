@@ -11,6 +11,10 @@
  */
 
 import { escapeString } from "./string-utils.ts";
+import { MAX_SEQ_LENGTH } from "../../common/limits.ts";
+
+// Pre-compiled regex patterns (avoid repeated compilation)
+const MENTION_PATH_REGEX = /^@([a-zA-Z0-9_\-./]+)/;
 
 /**
  * Resolve all @ mentions in input to their actual content
@@ -34,11 +38,10 @@ export async function resolveAtMentions(input: string): Promise<string> {
   }
 
   // Replace all mentions with resolved content
+  // Using replaceAll avoids creating new RegExp objects per iteration
   let result = input;
   for (const [mention, resolved] of replacements) {
-    // Escape the mention for regex (handle special chars like .)
-    const escaped = mention.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    result = result.replace(new RegExp(escaped, "g"), resolved);
+    result = result.replaceAll(mention, resolved);
   }
 
   return result;
@@ -76,8 +79,8 @@ function findMentions(input: string): string[] {
 
     // Check for @ mention
     if (ch === "@") {
-      // Extract the path after @
-      const match = input.slice(i).match(/^@([a-zA-Z0-9_\-./]+)/);
+      // Extract the path after @ (uses module-level pre-compiled regex)
+      const match = input.slice(i).match(MENTION_PATH_REGEX);
       if (match) {
         mentions.push(match[0]); // Include the @
         i += match[0].length;
@@ -156,9 +159,8 @@ async function resolveFile(path: string): Promise<string> {
     const escaped = escapeString(content);
 
     // Truncate if too long (for REPL usability)
-    const maxLen = 10000;
-    if (escaped.length > maxLen) {
-      return `"${escaped.slice(0, maxLen)}\\n... [truncated, ${content.length} chars total]"`;
+    if (escaped.length > MAX_SEQ_LENGTH) {
+      return `"${escaped.slice(0, MAX_SEQ_LENGTH)}\\n... [truncated, ${content.length} chars total]"`;
     }
 
     return `"${escaped}"`;

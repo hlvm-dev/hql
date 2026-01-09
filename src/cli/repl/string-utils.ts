@@ -6,14 +6,23 @@
 /**
  * Escape special characters in a string for HQL/JSON string literals.
  * Handles: backslash, double quotes, newlines, carriage returns, tabs
+ *
+ * Optimized: Single-pass O(n) with array buffer for efficient string building
  */
 export function escapeString(s: string): string {
-  return s
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t");
+  const parts: string[] = [];
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    switch (ch) {
+      case "\\": parts.push("\\\\"); break;
+      case '"':  parts.push('\\"'); break;
+      case "\n": parts.push("\\n"); break;
+      case "\r": parts.push("\\r"); break;
+      case "\t": parts.push("\\t"); break;
+      default:   parts.push(ch);
+    }
+  }
+  return parts.join("");
 }
 
 /**

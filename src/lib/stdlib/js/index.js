@@ -74,6 +74,8 @@ const SELF_HOSTED_FUNCTIONS = new Set([
   "distinctT", "partitionAllT", "composeTransducers",
   // Phase 24: Function Utilities
   "identity", "constantly", "vals", "juxt", "zipmap",
+  // Phase 25: Sorting
+  "sort", "sortBy",
 ]);
 
 export const STDLIB_PUBLIC_API = Object.fromEntries(

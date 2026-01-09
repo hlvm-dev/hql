@@ -1,387 +1,446 @@
 /**
- * Unit tests for REPL context management
- * Tests paste variables, conversation context, and syntax transformation
+ * Unit tests for REPL context system
+ * Tests pure data structure approach: pastes, attachments, conversation
  */
-
-import { assertEquals, assert } from "jsr:@std/assert";
+import { assertEquals, assert, assertExists } from "jsr:@std/assert";
 import {
-  // Context management
-  getContext,
-  resetContext,
-  // Paste variables
-  registerPaste,
-  registerAttachments,
+  // Types
+  type Paste,
+  type MediaAttachment,
+  type ConversationTurn,
+  // Paste operations
+  addPaste,
+  getPastes,
   getPaste,
-  getPasteIds,
-  // Conversation
-  recordUserInput,
-  recordAssistantResponse,
-  formatConversation,
+  // Attachment operations
+  addAttachment,
+  getAttachments,
+  getAttachment,
+  // Conversation operations
+  addConversationTurn,
   getConversation,
-  // Syntax transformation
-  transformPasteReferences,
-  transformContextReferences,
-  preprocessCode,
-  // Code generation
-  generatePasteBindings,
-  generateContextBindings,
-  escapeHqlString,
+  // Context management
+  resetContext,
+  initContext,
+  // Language detection
+  detectLanguage,
 } from "./context.ts";
-import { createTextAttachment } from "./attachment.ts";
-import type { AnyAttachment } from "./attachment-protocol.ts";
+import { getGlobalRecord } from "./string-utils.ts";
 
-// ============================================================================
-// Setup & Teardown
-// ============================================================================
-
-function setup() {
+// Reset context before each test
+function setup(): void {
   resetContext();
 }
 
 // ============================================================================
-// Paste Variables Tests
+// Paste Tests
 // ============================================================================
 
-Deno.test("registerPaste - registers paste and makes accessible", () => {
+Deno.test("pastes: add creates entry with correct structure", () => {
   setup();
-  const attachment = createTextAttachment("Hello, World!", 1);
-  registerPaste(attachment);
+  const paste = addPaste("const x = 1;");
 
-  assertEquals(getPaste(1), "Hello, World!");
-  assert(getPasteIds().includes(1));
+  assertEquals(paste.id, 0);
+  assertEquals(paste.content, "const x = 1;");
+  assertEquals(paste.lang, "javascript");
+  assertEquals(paste.lines, 1);
+  assertEquals(paste.chars, 12);
+  assert(paste.time > 0);
+  assert(paste.time <= Date.now());
 });
 
-Deno.test("registerPaste - sets on globalThis", () => {
+Deno.test("pastes: sequential IDs starting from 0", () => {
   setup();
-  const attachment = createTextAttachment("Test content", 1);
-  registerPaste(attachment);
+  const p0 = addPaste("first");
+  const p1 = addPaste("second");
+  const p2 = addPaste("third");
 
-  const g = globalThis as Record<string, unknown>;
-  assertEquals(g["paste-1"], "Test content");
-  assertEquals(g["paste_1"], "Test content");
+  assertEquals(p0.id, 0);
+  assertEquals(p1.id, 1);
+  assertEquals(p2.id, 2);
 });
 
-Deno.test("registerPaste - multiple pastes with unique IDs", () => {
+Deno.test("pastes: line count computed correctly", () => {
   setup();
-  registerPaste(createTextAttachment("First paste", 1));
-  registerPaste(createTextAttachment("Second paste", 2));
-  registerPaste(createTextAttachment("Third paste", 3));
 
-  assertEquals(getPaste(1), "First paste");
-  assertEquals(getPaste(2), "Second paste");
-  assertEquals(getPaste(3), "Third paste");
-  assertEquals(getPasteIds().sort(), [1, 2, 3]);
+  // Single line
+  assertEquals(addPaste("hello").lines, 1);
+
+  // Multiple lines with \n
+  assertEquals(addPaste("a\nb\nc").lines, 3);
+
+  // Multiple lines with \r\n (Windows)
+  assertEquals(addPaste("a\r\nb\r\nc").lines, 3);
+
+  // Multiple lines with \r (old Mac)
+  assertEquals(addPaste("a\rb\rc").lines, 3);
+
+  // Empty lines count
+  assertEquals(addPaste("a\n\n\nb").lines, 4);
 });
 
-Deno.test("registerAttachments - filters text attachments only", () => {
+Deno.test("pastes: getPastes returns all pastes", () => {
   setup();
-  const textAtt = createTextAttachment("Text content\nLine 2\nLine 3\nLine 4\nLine 5", 1);
+  addPaste("one");
+  addPaste("two");
+  addPaste("three");
 
-  // Mock a media attachment (simplified)
-  const mediaAtt = {
-    id: 2,
-    type: "image" as const,
-    displayName: "[Image #2]",
-    path: "/test.png",
-    fileName: "test.png",
-    mimeType: "image/png",
-    base64Data: "abc123",
-    size: 100,
-  };
-
-  registerAttachments([textAtt, mediaAtt] as AnyAttachment[]);
-
-  assertEquals(getPaste(1), "Text content\nLine 2\nLine 3\nLine 4\nLine 5");
-  assertEquals(getPaste(2), undefined); // Media not registered as paste
+  const pastes = getPastes();
+  assertEquals(pastes.length, 3);
+  assertEquals(pastes[0].content, "one");
+  assertEquals(pastes[1].content, "two");
+  assertEquals(pastes[2].content, "three");
 });
 
-Deno.test("resetContext - clears all pastes", () => {
+Deno.test("pastes: getPaste by ID", () => {
   setup();
-  registerPaste(createTextAttachment("Test", 1));
-  registerPaste(createTextAttachment("Test 2", 2));
+  addPaste("first");
+  addPaste("second");
+
+  const p0 = getPaste(0);
+  const p1 = getPaste(1);
+  const p99 = getPaste(99);
+
+  assertExists(p0);
+  assertEquals(p0.content, "first");
+  assertExists(p1);
+  assertEquals(p1.content, "second");
+  assertEquals(p99, undefined);
+});
+
+Deno.test("pastes: accessible from globalThis", () => {
+  setup();
+  addPaste("test content");
+
+  const g = getGlobalRecord();
+  const pastes = g["pastes"] as Paste[];
+
+  assertExists(pastes);
+  assertEquals(pastes.length, 1);
+  assertEquals(pastes[0].content, "test content");
+});
+
+Deno.test("pastes: filter by language", () => {
+  setup();
+  addPaste("const x = 1;", "javascript");
+  addPaste("SELECT * FROM users", "sql");
+  addPaste("let y = 2;", "javascript");
+
+  const pastes = getPastes();
+  const jsPastes = pastes.filter((p) => p.lang === "javascript");
+
+  assertEquals(jsPastes.length, 2);
+  assertEquals(jsPastes[0].content, "const x = 1;");
+  assertEquals(jsPastes[1].content, "let y = 2;");
+});
+
+Deno.test("pastes: map to extract content", () => {
+  setup();
+  addPaste("one");
+  addPaste("two");
+  addPaste("three");
+
+  const contents = getPastes().map((p) => p.content);
+  assertEquals(contents, ["one", "two", "three"]);
+});
+
+// ============================================================================
+// Attachment Tests
+// ============================================================================
+
+Deno.test("attachments: add image with correct metadata", () => {
+  setup();
+  const att = addAttachment(
+    "image",
+    "screenshot.png",
+    "/path/to/screenshot.png",
+    "image/png",
+    102400
+  );
+
+  assertEquals(att.id, 0);
+  assertEquals(att.type, "image");
+  assertEquals(att.name, "screenshot.png");
+  assertEquals(att.path, "/path/to/screenshot.png");
+  assertEquals(att.mime, "image/png");
+  assertEquals(att.size, 102400);
+  assert(att.time > 0);
+});
+
+Deno.test("attachments: add various types", () => {
+  setup();
+  const video = addAttachment("video", "movie.mp4", "/path/movie.mp4", "video/mp4", 5000000);
+  const audio = addAttachment("audio", "song.mp3", "/path/song.mp3", "audio/mpeg", 3000000);
+  const doc = addAttachment("document", "report.pdf", "/path/report.pdf", "application/pdf", 500000);
+
+  assertEquals(video.type, "video");
+  assertEquals(audio.type, "audio");
+  assertEquals(doc.type, "document");
+});
+
+Deno.test("attachments: sequential IDs starting from 0", () => {
+  setup();
+  const a0 = addAttachment("image", "a.png", "/a.png", "image/png", 100);
+  const a1 = addAttachment("video", "b.mp4", "/b.mp4", "video/mp4", 200);
+
+  assertEquals(a0.id, 0);
+  assertEquals(a1.id, 1);
+});
+
+Deno.test("attachments: getAttachments returns all", () => {
+  setup();
+  addAttachment("image", "a.png", "/a.png", "image/png", 100);
+  addAttachment("video", "b.mp4", "/b.mp4", "video/mp4", 200);
+
+  const atts = getAttachments();
+  assertEquals(atts.length, 2);
+});
+
+Deno.test("attachments: getAttachment by ID", () => {
+  setup();
+  addAttachment("image", "a.png", "/a.png", "image/png", 100);
+  addAttachment("video", "b.mp4", "/b.mp4", "video/mp4", 200);
+
+  const a0 = getAttachment(0);
+  const a1 = getAttachment(1);
+  const a99 = getAttachment(99);
+
+  assertExists(a0);
+  assertEquals(a0.name, "a.png");
+  assertExists(a1);
+  assertEquals(a1.name, "b.mp4");
+  assertEquals(a99, undefined);
+});
+
+Deno.test("attachments: accessible from globalThis", () => {
+  setup();
+  addAttachment("image", "test.png", "/test.png", "image/png", 100);
+
+  const g = getGlobalRecord();
+  const atts = g["attachments"] as MediaAttachment[];
+
+  assertExists(atts);
+  assertEquals(atts.length, 1);
+  assertEquals(atts[0].name, "test.png");
+});
+
+Deno.test("attachments: filter by type", () => {
+  setup();
+  addAttachment("image", "a.png", "/a.png", "image/png", 100);
+  addAttachment("video", "b.mp4", "/b.mp4", "video/mp4", 200);
+  addAttachment("image", "c.jpg", "/c.jpg", "image/jpeg", 150);
+
+  const images = getAttachments().filter((a) => a.type === "image");
+  assertEquals(images.length, 2);
+});
+
+// ============================================================================
+// Conversation Tests
+// ============================================================================
+
+Deno.test("conversation: add user turn", () => {
+  setup();
+  const turn = addConversationTurn("user", "Hello, world!");
+
+  assertEquals(turn.role, "user");
+  assertEquals(turn.content, "Hello, world!");
+  assert(turn.time > 0);
+});
+
+Deno.test("conversation: add assistant turn", () => {
+  setup();
+  const turn = addConversationTurn("assistant", "Hi there!");
+
+  assertEquals(turn.role, "assistant");
+  assertEquals(turn.content, "Hi there!");
+});
+
+Deno.test("conversation: multiple turns maintain order", () => {
+  setup();
+  addConversationTurn("user", "Question 1");
+  addConversationTurn("assistant", "Answer 1");
+  addConversationTurn("user", "Question 2");
+  addConversationTurn("assistant", "Answer 2");
+
+  const conv = getConversation();
+  assertEquals(conv.length, 4);
+  assertEquals(conv[0].role, "user");
+  assertEquals(conv[0].content, "Question 1");
+  assertEquals(conv[1].role, "assistant");
+  assertEquals(conv[1].content, "Answer 1");
+  assertEquals(conv[2].role, "user");
+  assertEquals(conv[3].role, "assistant");
+});
+
+Deno.test("conversation: accessible from globalThis", () => {
+  setup();
+  addConversationTurn("user", "test message");
+
+  const g = getGlobalRecord();
+  const conv = g["conversation"] as ConversationTurn[];
+
+  assertExists(conv);
+  assertEquals(conv.length, 1);
+  assertEquals(conv[0].content, "test message");
+});
+
+Deno.test("conversation: filter by role", () => {
+  setup();
+  addConversationTurn("user", "Q1");
+  addConversationTurn("assistant", "A1");
+  addConversationTurn("user", "Q2");
+  addConversationTurn("assistant", "A2");
+  addConversationTurn("user", "Q3");
+
+  const userTurns = getConversation().filter((t) => t.role === "user");
+  assertEquals(userTurns.length, 3);
+
+  const assistantTurns = getConversation().filter((t) => t.role === "assistant");
+  assertEquals(assistantTurns.length, 2);
+});
+
+// ============================================================================
+// Context Management Tests
+// ============================================================================
+
+Deno.test("resetContext: clears all vectors", () => {
+  setup();
+  addPaste("test");
+  addAttachment("image", "test.png", "/test.png", "image/png", 100);
+  addConversationTurn("user", "hello");
+
+  assertEquals(getPastes().length, 1);
+  assertEquals(getAttachments().length, 1);
+  assertEquals(getConversation().length, 1);
 
   resetContext();
 
-  assertEquals(getPaste(1), undefined);
-  assertEquals(getPaste(2), undefined);
-  assertEquals(getPasteIds().length, 0);
+  assertEquals(getPastes().length, 0);
+  assertEquals(getAttachments().length, 0);
+  assertEquals(getConversation().length, 0);
+});
+
+Deno.test("resetContext: clears globalThis vectors", () => {
+  setup();
+  addPaste("test");
+
+  const g = getGlobalRecord();
+  assertEquals((g["pastes"] as Paste[]).length, 1);
+
+  resetContext();
+
+  assertEquals((g["pastes"] as Paste[]).length, 0);
+});
+
+Deno.test("initContext: initializes empty vectors on globalThis", () => {
+  // Clear globalThis first
+  const g = getGlobalRecord();
+  delete g["pastes"];
+  delete g["attachments"];
+  delete g["conversation"];
+
+  initContext();
+
+  assertExists(g["pastes"]);
+  assertExists(g["attachments"]);
+  assertExists(g["conversation"]);
 });
 
 // ============================================================================
-// Conversation Context Tests
+// Language Detection Tests
 // ============================================================================
 
-Deno.test("recordUserInput - stores input and updates globalThis", () => {
-  setup();
-  recordUserInput("What is 2 + 2?");
-
-  const ctx = getContext();
-  assertEquals(ctx.lastInput, "What is 2 + 2?");
-
-  const g = globalThis as Record<string, unknown>;
-  assertEquals(g["last-input"], "What is 2 + 2?");
-  assertEquals(g["last_input"], "What is 2 + 2?");
+Deno.test("detectLanguage: HQL", () => {
+  assertEquals(detectLanguage("(def x 1)"), "hql");
+  assertEquals(detectLanguage("(defn greet [name] (str \"Hello, \" name))"), "hql");
+  assertEquals(detectLanguage("(let x 1)"), "hql");
 });
 
-Deno.test("recordAssistantResponse - stores response and updates globalThis", () => {
-  setup();
-  recordAssistantResponse("The answer is 4.");
-
-  const ctx = getContext();
-  assertEquals(ctx.lastResponse, "The answer is 4.");
-
-  const g = globalThis as Record<string, unknown>;
-  assertEquals(g["last-response"], "The answer is 4.");
-  assertEquals(g["last_response"], "The answer is 4.");
+Deno.test("detectLanguage: JavaScript", () => {
+  assertEquals(detectLanguage("const x = 1;"), "javascript");
+  assertEquals(detectLanguage("let y = 2;"), "javascript");
+  assertEquals(detectLanguage("function foo() {}"), "javascript");
+  assertEquals(detectLanguage("const fn = () => { return 1; }"), "javascript");
 });
 
-Deno.test("conversation history - tracks multiple turns", () => {
-  setup();
-  recordUserInput("Hello");
-  recordAssistantResponse("Hi there!");
-  recordUserInput("What's the weather?");
-  recordAssistantResponse("I'm not sure, I can't check weather.");
-
-  const conversation = getConversation();
-  assertEquals(conversation.length, 4);
-  assertEquals(conversation[0].role, "user");
-  assertEquals(conversation[0].content, "Hello");
-  assertEquals(conversation[1].role, "assistant");
-  assertEquals(conversation[1].content, "Hi there!");
-  assertEquals(conversation[2].role, "user");
-  assertEquals(conversation[3].role, "assistant");
+Deno.test("detectLanguage: TypeScript", () => {
+  assertEquals(detectLanguage("const x: number = 1;"), "typescript");
+  assertEquals(detectLanguage("interface User { name: string; }"), "typescript");
+  assertEquals(detectLanguage("type ID = string | number;"), "typescript");
 });
 
-Deno.test("formatConversation - formats as readable string", () => {
-  setup();
-  recordUserInput("Question 1");
-  recordAssistantResponse("Answer 1");
-  recordUserInput("Question 2");
-
-  const formatted = formatConversation();
-  assert(formatted.includes("User: Question 1"));
-  assert(formatted.includes("Assistant: Answer 1"));
-  assert(formatted.includes("User: Question 2"));
+Deno.test("detectLanguage: Python", () => {
+  assertEquals(detectLanguage("def hello():"), "python");
+  assertEquals(detectLanguage("class MyClass:"), "python");
+  assertEquals(detectLanguage("import os"), "python");
 });
 
-Deno.test("conversation global - available on globalThis", () => {
-  setup();
-  recordUserInput("Test input");
-  recordAssistantResponse("Test response");
+Deno.test("detectLanguage: SQL", () => {
+  assertEquals(detectLanguage("SELECT * FROM users"), "sql");
+  assertEquals(detectLanguage("INSERT INTO table VALUES (1, 2)"), "sql");
+  assertEquals(detectLanguage("CREATE TABLE test (id INT)"), "sql");
+});
 
-  const g = globalThis as Record<string, unknown>;
-  const conv = g["conversation"] as string;
-  assert(conv.includes("User: Test input"));
-  assert(conv.includes("Assistant: Test response"));
+Deno.test("detectLanguage: JSON", () => {
+  assertEquals(detectLanguage('{"name": "test"}'), "json");
+  assertEquals(detectLanguage('[1, 2, 3]'), "json");
+});
+
+Deno.test("detectLanguage: unknown", () => {
+  assertEquals(detectLanguage("just some random text"), "unknown");
+  assertEquals(detectLanguage(""), "unknown");
 });
 
 // ============================================================================
-// Syntax Transformation Tests
+// Edge Cases
 // ============================================================================
 
-Deno.test("transformPasteReferences - basic transformation", () => {
-  assertEquals(
-    transformPasteReferences("[Pasted text #1 +245 lines]"),
-    "paste-1"
-  );
-});
-
-Deno.test("transformPasteReferences - multiple pastes", () => {
-  assertEquals(
-    transformPasteReferences("[Pasted text #1 +10 lines] [Pasted text #2 +20 lines]"),
-    "paste-1 paste-2"
-  );
-});
-
-Deno.test("transformPasteReferences - in function call", () => {
-  assertEquals(
-    transformPasteReferences("(ask [Pasted text #1 +245 lines])"),
-    "(ask paste-1)"
-  );
-});
-
-Deno.test("transformPasteReferences - without line count", () => {
-  assertEquals(
-    transformPasteReferences("[Pasted text #3]"),
-    "paste-3"
-  );
-});
-
-Deno.test("transformPasteReferences - case insensitive", () => {
-  assertEquals(
-    transformPasteReferences("[PASTED TEXT #1 +100 LINES]"),
-    "paste-1"
-  );
-});
-
-Deno.test("transformPasteReferences - preserves other text", () => {
-  assertEquals(
-    transformPasteReferences("(analyze [Pasted text #1 +50 lines] and summarize)"),
-    "(analyze paste-1 and summarize)"
-  );
-});
-
-Deno.test("transformContextReferences - last-response", () => {
-  assertEquals(
-    transformContextReferences("[last-response]"),
-    "last-response"
-  );
-});
-
-Deno.test("transformContextReferences - last-input", () => {
-  assertEquals(
-    transformContextReferences("[last-input]"),
-    "last-input"
-  );
-});
-
-Deno.test("transformContextReferences - conversation", () => {
-  assertEquals(
-    transformContextReferences("[conversation]"),
-    "conversation"
-  );
-});
-
-Deno.test("transformContextReferences - snake_case variants", () => {
-  assertEquals(
-    transformContextReferences("[last_response] [last_input]"),
-    "last-response last-input"
-  );
-});
-
-Deno.test("preprocessCode - combines all transformations", () => {
-  assertEquals(
-    preprocessCode("(ask [Pasted text #1 +100 lines] [last-response])"),
-    "(ask paste-1 last-response)"
-  );
-});
-
-Deno.test("preprocessCode - complex example", () => {
-  const input = "(fn analyze [] (str [Pasted text #1 +50 lines] \"\\n\" [Pasted text #2 +30 lines] \"\\nContext: \" [conversation]))";
-  const expected = "(fn analyze [] (str paste-1 \"\\n\" paste-2 \"\\nContext: \" conversation))";
-  assertEquals(preprocessCode(input), expected);
-});
-
-// ============================================================================
-// Code Generation Tests
-// ============================================================================
-
-Deno.test("escapeHqlString - escapes special characters", () => {
-  assertEquals(escapeHqlString('Hello "World"'), 'Hello \\"World\\"');
-  assertEquals(escapeHqlString("Line1\nLine2"), "Line1\\nLine2");
-  assertEquals(escapeHqlString("Tab\there"), "Tab\\there");
-  assertEquals(escapeHqlString("Back\\slash"), "Back\\\\slash");
-});
-
-Deno.test("generatePasteBindings - generates HQL def statements", () => {
+Deno.test("edge: unicode content preserved", () => {
   setup();
-  registerPaste(createTextAttachment("Simple text", 1));
-  registerPaste(createTextAttachment("Another paste", 2));
+  const paste = addPaste("こんにちは 世界 🌍");
 
-  const bindings = generatePasteBindings();
-  assert(bindings.includes('(def paste-1 "Simple text")'));
-  assert(bindings.includes('(def paste-2 "Another paste")'));
+  assertEquals(paste.content, "こんにちは 世界 🌍");
+  // JS string.length counts UTF-16 code units (emoji = 2)
+  assertEquals(paste.chars, "こんにちは 世界 🌍".length);
 });
 
-Deno.test("generatePasteBindings - escapes content properly", () => {
+Deno.test("edge: empty paste handled", () => {
   setup();
-  registerPaste(createTextAttachment('Text with "quotes" and\nnewlines', 1));
+  const paste = addPaste("");
 
-  const bindings = generatePasteBindings();
-  assert(bindings.includes('paste-1'));
-  assert(bindings.includes('\\"quotes\\"'));
-  assert(bindings.includes('\\n'));
+  assertEquals(paste.content, "");
+  assertEquals(paste.lines, 1);
+  assertEquals(paste.chars, 0);
 });
 
-Deno.test("generateContextBindings - generates context def statements", () => {
+Deno.test("edge: large content (1MB)", () => {
   setup();
-  recordUserInput("User question");
-  recordAssistantResponse("AI response");
+  const largeContent = "x".repeat(1024 * 1024);
+  const paste = addPaste(largeContent);
 
-  const bindings = generateContextBindings();
-  assert(bindings.includes('(def last-input "User question")'));
-  assert(bindings.includes('(def last-response "AI response")'));
-  assert(bindings.includes('(def conversation'));
+  assertEquals(paste.content.length, 1024 * 1024);
+  assertEquals(paste.chars, 1024 * 1024);
 });
 
-// ============================================================================
-// Integration Tests
-// ============================================================================
-
-Deno.test("integration - full workflow", () => {
+Deno.test("edge: special characters in content", () => {
   setup();
+  const content = 'line1\n"quoted"\t\\path\r\nend';
+  const paste = addPaste(content);
 
-  // Simulate pasting code
-  const codeContent = `function hello() {
-  console.log("Hello, World!");
-}
-
-hello();`;
-  registerPaste(createTextAttachment(codeContent, 1));
-
-  // Simulate conversation
-  recordUserInput("(ask paste-1 \"explain this code\")");
-  recordAssistantResponse("This is a JavaScript function that prints Hello World.");
-
-  // Verify pastes are accessible
-  assertEquals(getPaste(1), codeContent);
-
-  // Verify conversation is tracked
-  const conversation = getConversation();
-  assertEquals(conversation.length, 2);
-
-  // Verify syntax transformation works
-  const transformed = preprocessCode("(ask [Pasted text #1 +5 lines] [last-response])");
-  assertEquals(transformed, "(ask paste-1 last-response)");
-
-  // Verify globalThis has all values
-  const g = globalThis as Record<string, unknown>;
-  assertEquals(g["paste-1"], codeContent);
-  assert((g["last-input"] as string).includes("paste-1"));
-  assert((g["last-response"] as string).includes("JavaScript"));
+  assertEquals(paste.content, content);
 });
 
-Deno.test("integration - multiple pastes in same session", () => {
+Deno.test("edge: conversation with empty content", () => {
   setup();
+  const turn = addConversationTurn("user", "");
 
-  // Simulate multiple pastes
-  const paste1 = "const x = 1;\nconst y = 2;\nconst z = x + y;\nconsole.log(z);\n// done";
-  const paste2 = "def add(a, b):\n    return a + b\n\nprint(add(1, 2))\n# Python";
-  const paste3 = "SELECT * FROM users\nWHERE active = true\nORDER BY name\nLIMIT 10;\n-- SQL";
-
-  registerPaste(createTextAttachment(paste1, 1));
-  registerPaste(createTextAttachment(paste2, 2));
-  registerPaste(createTextAttachment(paste3, 3));
-
-  // All should be accessible
-  assertEquals(getPaste(1), paste1);
-  assertEquals(getPaste(2), paste2);
-  assertEquals(getPaste(3), paste3);
-
-  // Code transformation should work for all
-  const code = "(compare [Pasted text #1 +5 lines] [Pasted text #2 +5 lines] [Pasted text #3 +5 lines])";
-  const expected = "(compare paste-1 paste-2 paste-3)";
-  assertEquals(preprocessCode(code), expected);
+  assertEquals(turn.content, "");
 });
 
-Deno.test("integration - paste with special characters", () => {
+Deno.test("edge: timestamps are sequential", () => {
   setup();
+  const p1 = addPaste("first");
+  const p2 = addPaste("second");
 
-  const specialContent = `const msg = "Hello, \"World\"!";
-const path = "C:\\Users\\test";
-const multiline = \`
-  Line 1
-  Line 2
-\`;`;
-
-  registerPaste(createTextAttachment(specialContent, 1));
-
-  // Should be stored correctly
-  assertEquals(getPaste(1), specialContent);
-
-  // Generated binding should escape properly
-  const binding = generatePasteBindings();
-  assert(binding.includes("paste-1"));
-  // Should have escaped quotes
-  assert(binding.includes('\\"World\\"'));
+  assert(p2.time >= p1.time);
 });

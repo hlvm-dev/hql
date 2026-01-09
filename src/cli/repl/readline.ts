@@ -27,6 +27,10 @@ import {
 
 const { DIM_GRAY, CYAN, RESET } = ANSI_COLORS;
 
+// Pre-compiled regex patterns (avoid compilation in hot paths)
+/** Matches whitespace or opener characters for @ mention activation */
+const MENTION_ACTIVATION_REGEX = /[\s\(\[\{]/;
+
 // Control characters
 const enum ControlChar {
   ESCAPE = "\x1b",
@@ -231,7 +235,7 @@ export class Readline {
     if (this.cursorPos === 0) return true; // Start of line
 
     const prevChar = this.currentLine[this.cursorPos - 1];
-    return /[\s\(\[\{]/.test(prevChar); // After whitespace or opener
+    return MENTION_ACTIVATION_REGEX.test(prevChar); // After whitespace or opener
   }
 
   /**

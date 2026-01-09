@@ -14,9 +14,7 @@ import {
   isList,
   isLiteral,
 } from "../s-exp/types.ts";
-
-// Maximum length when realizing lazy sequences
-const MAX_SEQ_LENGTH = 10000;
+import { MAX_SEQ_LENGTH } from "../common/limits.ts";
 
 /** Marker symbol to identify wrapped BuiltinFn functions */
 export const BUILTIN_MARKER = Symbol.for("hql-builtin-fn");

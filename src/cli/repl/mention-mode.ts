@@ -74,33 +74,34 @@ export function createMentionState(): MentionState {
 
 /**
  * Highlight matched characters in a path
+ * Uses array.push + join for efficient string building
  */
 function highlightMatches(path: string, indices: number[]): string {
   if (indices.length === 0) return path;
 
   const indexSet = new Set(indices);
-  let result = "";
+  const parts: string[] = [];
   let inHighlight = false;
 
   for (let i = 0; i < path.length; i++) {
     const shouldHighlight = indexSet.has(i);
 
     if (shouldHighlight && !inHighlight) {
-      result += YELLOW;
+      parts.push(YELLOW);
       inHighlight = true;
     } else if (!shouldHighlight && inHighlight) {
-      result += RESET;
+      parts.push(RESET);
       inHighlight = false;
     }
 
-    result += path[i];
+    parts.push(path[i]);
   }
 
   if (inHighlight) {
-    result += RESET;
+    parts.push(RESET);
   }
 
-  return result;
+  return parts.join("");
 }
 
 /**

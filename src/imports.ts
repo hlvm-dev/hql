@@ -5,7 +5,7 @@ import type { Environment, Value } from "./environment.ts";
 import type { MacroFn } from "./environment.ts";
 import { evaluateForMacro, expandMacros } from "./s-exp/macro.ts";
 import { parse } from "./transpiler/pipeline/parser.ts";
-import { readFile, sanitizeIdentifier, getErrorMessage, isObjectValue } from "./common/utils.ts";
+import { escapeRegExp, readFile, sanitizeIdentifier, getErrorMessage, isObjectValue } from "./common/utils.ts";
 import {
   basename,
   dirname,
@@ -15,11 +15,13 @@ import {
   normalize,
 } from "./platform/platform.ts";
 
+import { DEFAULT_LRU_CACHE_SIZE } from "./common/limits.ts";
+
 // Global registry to track which symbols are macros
 // This persists across file compilations so transpilation can filter them
-// Uses LRUCache to bound memory in long-running processes (10000 macros max)
+// Uses LRUCache to bound memory in long-running processes
 // High limit because macros are essential for correctness and typical projects have < 1000
-const globalMacroRegistryCache = new LRUCache<string, true>(10000);
+const globalMacroRegistryCache = new LRUCache<string, true>(DEFAULT_LRU_CACHE_SIZE);
 
 // Export a Set-like interface for backward compatibility
 export const globalMacroRegistry = {
@@ -550,8 +552,8 @@ function findImportLineInfo(
   // Get the import module path to search for
   const modulePath = getModulePathFromImport(importExpr);
 
-  // Escape special regex characters in modulePath
-  const escapedModulePath = modulePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Escape special regex characters in modulePath (using DRY utility)
+  const escapedModulePath = escapeRegExp(modulePath);
 
   // Pre-compile patterns once (optimization: single regex instead of 4× .includes())
   // Matches: import [...] from "modulePath" or import [...] from 'modulePath'

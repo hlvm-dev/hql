@@ -1,72 +1,20 @@
 /**
  * Unit tests for HQL REPL Completer
- * Tests: getWordAtCursor, isWordBoundary, getCompletions, applyCompletion
+ * Tests: getWordAtCursor, getCompletions, applyCompletion
+ *
+ * Note: Word boundary behavior is tested implicitly through getWordAtCursor tests.
  */
 
 import { assertEquals, assert } from "jsr:@std/assert";
 import {
   getWordAtCursor,
-  isWordBoundary,
   getCompletions,
   applyCompletion,
 } from "../../../src/cli/repl/completer.ts";
 
 // ============================================================
-// isWordBoundary()
-// ============================================================
-
-Deno.test("isWordBoundary: space is boundary", () => {
-  assertEquals(isWordBoundary(" "), true);
-});
-
-Deno.test("isWordBoundary: parentheses are boundaries", () => {
-  assertEquals(isWordBoundary("("), true);
-  assertEquals(isWordBoundary(")"), true);
-});
-
-Deno.test("isWordBoundary: brackets are boundaries", () => {
-  assertEquals(isWordBoundary("["), true);
-  assertEquals(isWordBoundary("]"), true);
-});
-
-Deno.test("isWordBoundary: braces are boundaries", () => {
-  assertEquals(isWordBoundary("{"), true);
-  assertEquals(isWordBoundary("}"), true);
-});
-
-Deno.test("isWordBoundary: quotes are boundaries", () => {
-  assertEquals(isWordBoundary('"'), true);
-  assertEquals(isWordBoundary("'"), true);
-});
-
-Deno.test("isWordBoundary: semicolon is boundary", () => {
-  assertEquals(isWordBoundary(";"), true);
-});
-
-Deno.test("isWordBoundary: comma is boundary", () => {
-  assertEquals(isWordBoundary(","), true);
-});
-
-Deno.test("isWordBoundary: letters are NOT boundaries", () => {
-  assertEquals(isWordBoundary("a"), false);
-  assertEquals(isWordBoundary("Z"), false);
-});
-
-Deno.test("isWordBoundary: numbers are NOT boundaries", () => {
-  assertEquals(isWordBoundary("0"), false);
-  assertEquals(isWordBoundary("9"), false);
-});
-
-Deno.test("isWordBoundary: hyphen is NOT boundary (Lisp names)", () => {
-  assertEquals(isWordBoundary("-"), false);
-});
-
-Deno.test("isWordBoundary: underscore is NOT boundary", () => {
-  assertEquals(isWordBoundary("_"), false);
-});
-
-// ============================================================
 // getWordAtCursor()
+// (Also implicitly tests word boundary detection)
 // ============================================================
 
 Deno.test("getWordAtCursor: empty line returns empty word", () => {

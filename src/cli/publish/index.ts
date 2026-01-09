@@ -11,6 +11,7 @@ import { publishJSR } from "./publish_jsr.ts";
 import { printPublishSummary, type PublishSummary } from "./publish_summary.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import { getErrorMessage } from "../../common/utils.ts";
+import { SEMVER_REGEX } from "../commands/shared.ts";
 import {
   detectMetadataFiles,
   getPlatformsFromArgs,
@@ -98,7 +99,7 @@ function parsePublishArgs(args: string[]): PublishOptions {
 
   for (let i = 1; i < parsed._.length; i++) {
     const arg = String(parsed._[i]);
-    if (/^\d+\.\d+\.\d+$/.test(arg)) {
+    if (SEMVER_REGEX.test(arg)) {
       version = arg;
       logger.debug &&
         logger.debug(`Found version parameter: ${version} at position ${i}`);
@@ -106,7 +107,7 @@ function parsePublishArgs(args: string[]): PublishOptions {
     }
   }
 
-  if (version && !/^\d+\.\d+\.\d+$/.test(version)) {
+  if (version && !SEMVER_REGEX.test(version)) {
     console.error(`\n❌ Invalid version format: ${version}. Expected "X.Y.Z"`);
     exit(1);
   }

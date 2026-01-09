@@ -86,6 +86,10 @@ interface MetaCarrier {
 
 type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 
+// Pre-compiled regex for extracting generic type parameters (required format)
+// Pattern: "Array<T>" matches, but "Array" does not (unlike GENERIC_NAME_REGEX)
+const GENERIC_TYPE_PARAMS_REGEX = /^([^<]+)<(.+)>$/;
+
 /**
  * Check if an IR node is an expression (not a statement/declaration)
  * Expressions need to be wrapped in ExpressionStatement at the top level
@@ -321,7 +325,7 @@ export function transformToIR(
 
   const body: IR.IRNode[] = [];
   for (let i = 0; i < nodes.length; i++) {
-    const ir = transformNode(nodes[i], currentDir);
+    const ir = transformHQLNodeToIR(nodes[i], currentDir);
     if (ir) {
       // Wrap expressions in ExpressionStatement when at top level
       // Statements can be added directly
@@ -361,47 +365,47 @@ function initializeTransformFactory(): void {
       transformFactory.set(
         "quote",
         (list, currentDir) =>
-          quoteModule.transformQuote(list, currentDir, transformNode),
+          quoteModule.transformQuote(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "quasiquote",
         (list, currentDir) =>
-          quoteModule.transformQuasiquote(list, currentDir, transformNode),
+          quoteModule.transformQuasiquote(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "unquote",
         (list, currentDir) =>
-          quoteModule.transformUnquote(list, currentDir, transformNode),
+          quoteModule.transformUnquote(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "unquote-splicing",
         (list, currentDir) =>
-          quoteModule.transformUnquoteSplicing(list, currentDir, transformNode),
+          quoteModule.transformUnquoteSplicing(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         VECTOR_SYMBOL,
         (list, currentDir) =>
-          dataStructureModule.transformVector(list, currentDir, transformNode),
+          dataStructureModule.transformVector(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "hash-set",
         (list, currentDir) =>
-          dataStructureModule.transformHashSet(list, currentDir, transformNode),
+          dataStructureModule.transformHashSet(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         HASH_MAP_USER,
         (list, currentDir) =>
-          dataStructureModule.transformHashMap(list, currentDir, transformNode),
+          dataStructureModule.transformHashMap(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         HASH_MAP_INTERNAL,
         (list, currentDir) =>
-          dataStructureModule.transformHashMap(list, currentDir, transformNode),
+          dataStructureModule.transformHashMap(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "new",
         (list, currentDir) =>
-          dataStructureModule.transformNew(list, currentDir, transformNode),
+          dataStructureModule.transformNew(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "fn",
@@ -409,7 +413,7 @@ function initializeTransformFactory(): void {
           functionModule.transformFn(
             list,
             currentDir,
-            transformNode,
+            transformHQLNodeToIR,
             processFunctionBody,
           ),
       );
@@ -420,7 +424,7 @@ function initializeTransformFactory(): void {
           functionModule.transformFn(
             list,
             currentDir,
-            transformNode,
+            transformHQLNodeToIR,
             processFunctionBody,
           ),
       );
@@ -428,16 +432,16 @@ function initializeTransformFactory(): void {
       transformFactory.set(
         "fn*",
         (list, currentDir) =>
-          asyncGeneratorsModule.transformGeneratorFn(list, currentDir, transformNode, processFunctionBody),
+          asyncGeneratorsModule.transformGeneratorFn(list, currentDir, transformHQLNodeToIR, processFunctionBody),
       );
       // Yield expression: (yield value) or (yield* iterator)
       transformFactory.set(
         "yield",
-        (list, currentDir) => asyncGeneratorsModule.transformYield(list, currentDir, transformNode),
+        (list, currentDir) => asyncGeneratorsModule.transformYield(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "yield*",
-        (list, currentDir) => asyncGeneratorsModule.transformYieldDelegate(list, currentDir, transformNode),
+        (list, currentDir) => asyncGeneratorsModule.transformYieldDelegate(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "=>",
@@ -445,40 +449,40 @@ function initializeTransformFactory(): void {
           functionModule.transformArrowLambda(
             list,
             currentDir,
-            transformNode,
+            transformHQLNodeToIR,
             processFunctionBody,
           ),
       );
       transformFactory.set(
         "async",
-        (list, currentDir) => asyncGeneratorsModule.transformAsync(list, currentDir, transformNode),
+        (list, currentDir) => asyncGeneratorsModule.transformAsync(list, currentDir, transformHQLNodeToIR),
       );
       // Note: `range` is no longer a special form - it's a stdlib function
       // available globally via STDLIB_PUBLIC_API injection in runtime-helpers.ts
       transformFactory.set(
         "await",
-        (list, currentDir) => asyncGeneratorsModule.transformAwait(list, currentDir, transformNode),
+        (list, currentDir) => asyncGeneratorsModule.transformAwait(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "const",
         (list, currentDir) =>
-          bindingModule.transformConst(list, currentDir, transformNode),
+          bindingModule.transformConst(list, currentDir, transformHQLNodeToIR),
       );
       // def is an alias for const (used for REPL memory persistence)
       transformFactory.set(
         "def",
         (list, currentDir) =>
-          bindingModule.transformConst(list, currentDir, transformNode),
+          bindingModule.transformConst(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "let",
         (list, currentDir) =>
-          bindingModule.transformLet(list, currentDir, transformNode),
+          bindingModule.transformLet(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "var",
         (list, currentDir) =>
-          bindingModule.transformVar(list, currentDir, transformNode),
+          bindingModule.transformVar(list, currentDir, transformHQLNodeToIR),
       );
       // "set!" removed - now handled by "=" operator in primitive.ts
       transformFactory.set(
@@ -487,24 +491,24 @@ function initializeTransformFactory(): void {
           conditionalModule.transformIf(
             list,
             currentDir,
-            transformNode,
+            transformHQLNodeToIR,
             loopRecurModule.hasLoopContext,
           ),
       );
       transformFactory.set(
         "?",
         (list, currentDir) =>
-          conditionalModule.transformTernary(list, currentDir, transformNode),
+          conditionalModule.transformTernary(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "template-literal",
         (list, currentDir) =>
-          literalsModule.transformTemplateLiteral(list, currentDir, transformNode),
+          literalsModule.transformTemplateLiteral(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "do",
         (list, currentDir) =>
-          conditionalModule.transformDo(list, currentDir, transformNode),
+          conditionalModule.transformDo(list, currentDir, transformHQLNodeToIR),
       );
       // lazy-seq special form for self-hosted stdlib (Clojure-style lazy sequences)
       // (lazy-seq body) → __hql_lazy_seq(() => body)
@@ -537,14 +541,14 @@ function initializeTransformFactory(): void {
           // Transform body - if multiple expressions, use do
           let bodyNode: IR.IRNode;
           if (bodyExprs.length === 1) {
-            const transformed = transformNode(bodyExprs[0], currentDir);
+            const transformed = transformHQLNodeToIR(bodyExprs[0], currentDir);
             bodyNode = transformed || { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
           } else {
             // Multiple expressions - wrap in do
             bodyNode = conditionalModule.transformDo(
               { ...list, elements: [list.elements[0], ...bodyExprs] } as ListNode,
               currentDir,
-              transformNode,
+              transformHQLNodeToIR,
             );
           }
 
@@ -598,14 +602,14 @@ function initializeTransformFactory(): void {
           // Transform body - if multiple expressions, use do
           let bodyNode: IR.IRNode;
           if (bodyExprs.length === 1) {
-            const transformed = transformNode(bodyExprs[0], currentDir);
+            const transformed = transformHQLNodeToIR(bodyExprs[0], currentDir);
             bodyNode = transformed || { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
           } else {
             // Multiple expressions - wrap in do
             bodyNode = conditionalModule.transformDo(
               { ...list, elements: [list.elements[0], ...bodyExprs] } as ListNode,
               currentDir,
-              transformNode,
+              transformHQLNodeToIR,
             );
           }
 
@@ -630,100 +634,100 @@ function initializeTransformFactory(): void {
       );
       transformFactory.set(
         "try",
-        (list, currentDir) => tryCatchModule.transformTry(list, currentDir, transformNode),
+        (list, currentDir) => tryCatchModule.transformTry(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "loop",
         (list, currentDir) =>
-          loopRecurModule.transformLoop(list, currentDir, transformNode),
+          loopRecurModule.transformLoop(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "recur",
         (list, currentDir) =>
-          loopRecurModule.transformRecur(list, currentDir, transformNode),
+          loopRecurModule.transformRecur(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "continue",
         (list, currentDir) =>
-          loopRecurModule.transformContinue(list, currentDir, transformNode),
+          loopRecurModule.transformContinue(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "break",
         (list, currentDir) =>
-          loopRecurModule.transformBreak(list, currentDir, transformNode),
+          loopRecurModule.transformBreak(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "for-of",
         (list, currentDir) =>
-          loopRecurModule.transformForOf(list, currentDir, transformNode),
+          loopRecurModule.transformForOf(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "for-await-of",
         (list, currentDir) =>
-          loopRecurModule.transformForAwaitOf(list, currentDir, transformNode),
+          loopRecurModule.transformForAwaitOf(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "label",
         (list, currentDir) =>
-          loopRecurModule.transformLabel(list, currentDir, transformNode),
+          loopRecurModule.transformLabel(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "return",
         (list, currentDir) =>
-          conditionalModule.transformReturn(list, currentDir, transformNode),
+          conditionalModule.transformReturn(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "throw",
         (list, currentDir) =>
-          conditionalModule.transformThrow(list, currentDir, transformNode),
+          conditionalModule.transformThrow(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "switch",
         (list, currentDir) =>
-          conditionalModule.transformSwitch(list, currentDir, transformNode),
+          conditionalModule.transformSwitch(list, currentDir, transformHQLNodeToIR),
       );
       // case: Expression-based switch (Clojure-style, returns values)
       transformFactory.set(
         "case",
         (list, currentDir) =>
-          conditionalModule.transformCase(list, currentDir, transformNode),
+          conditionalModule.transformCase(list, currentDir, transformHQLNodeToIR),
       );
 
       transformFactory.set(
         "js-new",
         (list, currentDir) =>
-          jsInteropModule.transformJsNew(list, currentDir, transformNode),
+          jsInteropModule.transformJsNew(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "js-get",
         (list, currentDir) =>
-          jsInteropModule.transformJsGet(list, currentDir, transformNode),
+          jsInteropModule.transformJsGet(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "js-call",
         (list, currentDir) =>
-          jsInteropModule.transformJsCall(list, currentDir, transformNode),
+          jsInteropModule.transformJsCall(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "js-get-invoke",
         (list, currentDir) =>
-          jsInteropModule.transformJsGetInvoke(list, currentDir, transformNode),
+          jsInteropModule.transformJsGetInvoke(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "js-set",
         (list, currentDir) =>
-          jsInteropModule.transformJsSet(list, currentDir, transformNode),
+          jsInteropModule.transformJsSet(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "class",
         (list, currentDir) =>
-          classModule.transformClass(list, currentDir, transformNode),
+          classModule.transformClass(list, currentDir, transformHQLNodeToIR),
       );
       // method-call is now a macro that expands to js-call
       transformFactory.set(
         "enum",
         (list, currentDir) =>
-          enumModule.transformEnumDeclaration(list, currentDir, transformNode),
+          enumModule.transformEnumDeclaration(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "import",
@@ -760,7 +764,7 @@ function initializeTransformFactory(): void {
         "export",
         (list, currentDir) => {
           if (importExportModule.isDeclarationExport(list)) {
-            return importExportModule.transformDeclarationExport(list, currentDir, transformNode);
+            return importExportModule.transformDeclarationExport(list, currentDir, transformHQLNodeToIR);
           }
           if (importExportModule.isSingleExport(list)) {
             return importExportModule.transformSingleExport(list);
@@ -769,7 +773,7 @@ function initializeTransformFactory(): void {
             return importExportModule.transformVectorExport(list, currentDir);
           }
           if (isDefaultExport(list)) {
-            return importExportModule.transformDefaultExport(list, currentDir, transformNode);
+            return importExportModule.transformDefaultExport(list, currentDir, transformHQLNodeToIR);
           }
           throw new ValidationError(
             "Invalid export statement format",
@@ -791,7 +795,7 @@ function initializeTransformFactory(): void {
               `${list.elements.length - 1} arguments`,
             );
           }
-          const sourceNode = transformNode(list.elements[1], currentDir);
+          const sourceNode = transformHQLNodeToIR(list.elements[1], currentDir);
           if (!sourceNode) {
             throw new ValidationError(
               "import-dynamic source cannot be null",
@@ -877,7 +881,7 @@ function initializeTransformFactory(): void {
         if (node.type === "symbol") {
           const name = (node as SymbolNode).name;
           // Check for generic syntax in symbol: Array<T>
-          const genericMatch = name.match(/^([^<]+)<(.+)>$/);
+          const genericMatch = name.match(GENERIC_TYPE_PARAMS_REGEX);
           if (genericMatch) {
             const baseName = genericMatch[1];
             const args = genericMatch[2].split(",").map((s) => s.trim());
@@ -1217,7 +1221,7 @@ function initializeTransformFactory(): void {
         // Parse generic parameters from name like "Name<T, U>"
         let name = fullName;
         let typeParameters: string[] | undefined;
-        const genericMatch = fullName.match(/^([^<]+)<(.+)>$/);
+        const genericMatch = fullName.match(GENERIC_TYPE_PARAMS_REGEX);
         if (genericMatch) {
           name = genericMatch[1];
           typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
@@ -1284,7 +1288,7 @@ function initializeTransformFactory(): void {
           // Parse generic parameters from name like "Name<T, U>"
           let name = fullName;
           let typeParameters: string[] | undefined;
-          const genericMatch = fullName.match(/^([^<]+)<(.+)>$/);
+          const genericMatch = fullName.match(GENERIC_TYPE_PARAMS_REGEX);
           if (genericMatch) {
             name = genericMatch[1];
             typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
@@ -1375,7 +1379,7 @@ function initializeTransformFactory(): void {
             (elements[idx] as SymbolNode).name === "extends"
           ) {
             idx++;
-            superClass = transformNode(elements[idx], currentDir) ?? undefined;
+            superClass = transformHQLNodeToIR(elements[idx], currentDir) ?? undefined;
             idx++;
           }
 
@@ -1398,7 +1402,7 @@ function initializeTransformFactory(): void {
           // Skip the "vector" symbol at index 0
           const vectorElements = (bodyNode as ListNode).elements.slice(1);
           for (const member of vectorElements) {
-            const transformed = transformNode(member, currentDir);
+            const transformed = transformHQLNodeToIR(member, currentDir);
             if (transformed !== null) {
               body.push(transformed);
             }
@@ -1696,7 +1700,7 @@ function initializeTransformFactory(): void {
           // Skip "vector" symbol at index 0
           const vectorElements = (bodyNode as ListNode).elements.slice(1);
           for (const member of vectorElements) {
-            const transformed = transformNode(member, currentDir);
+            const transformed = transformHQLNodeToIR(member, currentDir);
             if (transformed !== null) {
               body.push(transformed);
             }
@@ -1797,7 +1801,7 @@ function initializeTransformFactory(): void {
             );
           }
 
-          const expression = transformNode(elements[0], currentDir);
+          const expression = transformHQLNodeToIR(elements[0], currentDir);
 
           return {
             type: IR.IRNodeType.Decorator,
@@ -1809,26 +1813,26 @@ function initializeTransformFactory(): void {
       transformFactory.set(
         "get",
         (list, currentDir) =>
-          dataStructureModule.transformGet(list, currentDir, transformNode),
+          dataStructureModule.transformGet(list, currentDir, transformHQLNodeToIR),
       );
       transformFactory.set(
         "js-method",
         (list: ListNode, currentDir: string) => {
-          return asyncGeneratorsModule.transformJsMethod(list, currentDir, transformNode);
+          return asyncGeneratorsModule.transformJsMethod(list, currentDir, transformHQLNodeToIR);
         },
       );
       // method-call: (.foo obj args) transforms to obj.foo(args)
       transformFactory.set(
         "method-call",
         (list: ListNode, currentDir: string) => {
-          return classModule.transformMethodCall(list, currentDir, transformNode);
+          return classModule.transformMethodCall(list, currentDir, transformHQLNodeToIR);
         },
       );
       // optional-method-call: (.?foo obj args) transforms to obj?.foo(args)
       transformFactory.set(
         "optional-method-call",
         (list: ListNode, currentDir: string) => {
-          return classModule.transformOptionalMethodCall(list, currentDir, transformNode);
+          return classModule.transformOptionalMethodCall(list, currentDir, transformHQLNodeToIR);
         },
       );
       // optional-js-method: (.?foo obj) transforms to obj?.foo (property access)
@@ -1844,7 +1848,7 @@ function initializeTransformFactory(): void {
             );
           }
           const object = validateTransformed(
-            transformNode(list.elements[1], currentDir),
+            transformHQLNodeToIR(list.elements[1], currentDir),
             "optional-js-method",
             "Object",
           );
@@ -1867,7 +1871,7 @@ function initializeTransformFactory(): void {
             const args = transformElements(
               list.elements.slice(3),
               currentDir,
-              transformNode,
+              transformHQLNodeToIR,
               "optional-js-method argument",
               "Argument",
             );
@@ -1950,7 +1954,7 @@ export function isExpressionResult(node: IR.IRNode): boolean {
 /**
  * Transform a single HQL node to its IR representation.
  */
-export function transformNode(
+export function transformHQLNodeToIR(
   node: HQLNode,
   currentDir: string,
 ): IR.IRNode | null {
@@ -1987,7 +1991,7 @@ export function transformNode(
       }
       return copyPosition(node, result);
     },
-    "transformNode",
+    "transformHQLNodeToIR",
     TransformError,
     [node],
   );
@@ -2005,7 +2009,7 @@ function transformList(list: ListNode, currentDir: string): IR.IRNode | null {
   const jsGetInvokeResult = jsInteropModule.transformJsGetInvokeSpecialCase(
     list,
     currentDir,
-    transformNode,
+    transformHQLNodeToIR,
   );
   if (jsGetInvokeResult) return jsGetInvokeResult;
 
@@ -2053,7 +2057,7 @@ function transformDotMethodCall(list: ListNode, currentDir: string): IR.IRNode {
 
   // The object is the SECOND element (after the method name)
   const object = validateTransformed(
-    transformNode(list.elements[1], currentDir),
+    transformHQLNodeToIR(list.elements[1], currentDir),
     "method call object",
     "Object in method call",
   );
@@ -2063,10 +2067,10 @@ function transformDotMethodCall(list: ListNode, currentDir: string): IR.IRNode {
   const args: IR.IRNode[] = [];
   for (const arg of list.elements.slice(2)) {
     if (isSpreadOperator(arg)) {
-      args.push(transformSpreadOperator(arg, currentDir, transformNode, "spread in method call"));
+      args.push(transformSpreadOperator(arg, currentDir, transformHQLNodeToIR, "spread in method call"));
     } else {
       args.push(validateTransformed(
-        transformNode(arg, currentDir),
+        transformHQLNodeToIR(arg, currentDir),
         "method argument",
         "Method argument",
       ));
@@ -2099,18 +2103,18 @@ function transformBasedOnOperator(
 ): IR.IRNode | null {
   // First check if this is an optional method call (.?foo)
   if (op.startsWith(".?")) {
-    return classModule.transformOptionalMethodCall(list, currentDir, transformNode);
+    return classModule.transformOptionalMethodCall(list, currentDir, transformHQLNodeToIR);
   }
   // Then check if this is a regular method call (.foo)
   if (op.startsWith(".")) {
-    return classModule.transformMethodCall(list, currentDir, transformNode);
+    return classModule.transformMethodCall(list, currentDir, transformHQLNodeToIR);
   }
 
   // Check for import/export forms which have special handling
   // Declaration exports must be checked BEFORE vector exports
   // because both have list as second element
   if (isDeclarationExport(list)) {
-    return importExportModule.transformDeclarationExport(list, currentDir, transformNode);
+    return importExportModule.transformDeclarationExport(list, currentDir, transformHQLNodeToIR);
   }
   if (isSingleExport(list)) {
     return importExportModule.transformSingleExport(list);
@@ -2119,7 +2123,7 @@ function transformBasedOnOperator(
     return importExportModule.transformVectorExport(list, currentDir);
   }
   if (isDefaultExport(list)) {
-    return importExportModule.transformDefaultExport(list, currentDir, transformNode);
+    return importExportModule.transformDefaultExport(list, currentDir, transformHQLNodeToIR);
   }
 
   if (isVectorImport(list)) {
@@ -2132,7 +2136,7 @@ function transformBasedOnOperator(
 
   // Handle optional chaining method calls (obj?.greet "World")
   if (op.includes("?.") && !op.startsWith("js/") && !op.startsWith("...")) {
-    return transformOptionalChainMethodCall(list, op, currentDir, transformNode);
+    return transformOptionalChainMethodCall(list, op, currentDir, transformHQLNodeToIR);
   }
 
   // Handle dot notation for property access (obj.prop)
@@ -2141,7 +2145,7 @@ function transformBasedOnOperator(
       list,
       op,
       currentDir,
-      transformNode,
+      transformHQLNodeToIR,
     );
   }
 
@@ -2154,7 +2158,7 @@ function transformBasedOnOperator(
       fnDef,
       list.elements.slice(1),
       currentDir,
-      transformNode,
+      transformHQLNodeToIR,
       list, // Pass source list for position extraction
     );
   }
@@ -2178,13 +2182,13 @@ function transformBasedOnOperator(
     return primitiveModule.transformPrimitiveOp(
       list,
       currentDir,
-      transformNode,
+      transformHQLNodeToIR,
     );
   }
 
   // This is the critical part - determine if this is a function call or collection access
   if (!isBuiltInOperator(op)) {
-    return determineCallOrAccess(list, currentDir, transformNode);
+    return determineCallOrAccess(list, currentDir, transformHQLNodeToIR);
   }
 
   // Fallback to standard function call
@@ -2214,7 +2218,7 @@ function isBuiltInOperator(op: string): boolean {
 function determineCallOrAccess(
   list: ListNode,
   currentDir: string,
-  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  transformHQLNodeToIR: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
   const elements = list.elements;
 
@@ -2238,7 +2242,7 @@ function determineCallOrAccess(
       } as IR.IRCallExpression;
     } else {
       // Otherwise, just transform the single element (for e.g., nested list)
-      const singleElement = transformNode(only, currentDir);
+      const singleElement = transformHQLNodeToIR(only, currentDir);
       if (!singleElement) {
         throw new TransformError(
           "Single element transformed to null",
@@ -2251,7 +2255,7 @@ function determineCallOrAccess(
   }
 
   // Transform the first element
-  const firstTransformed = transformNode(elements[0], currentDir);
+  const firstTransformed = transformHQLNodeToIR(elements[0], currentDir);
   if (!firstTransformed) {
     throw new TransformError(
       "First element transformed to null",
@@ -2272,7 +2276,7 @@ function determineCallOrAccess(
       return createCallExpression(
         list,
         currentDir,
-        transformNode,
+        transformHQLNodeToIR,
         firstTransformed,
       );
     }
@@ -2291,7 +2295,7 @@ function determineCallOrAccess(
       typeof (secondElement as LiteralNode).value === "number";
 
     if (isNumberLiteral) {
-      const keyTransformed = transformNode(secondElement, currentDir);
+      const keyTransformed = transformHQLNodeToIR(secondElement, currentDir);
       if (!keyTransformed) {
         throw new TransformError(
           "Key transformed to null",
@@ -2307,7 +2311,7 @@ function determineCallOrAccess(
     return createCallExpression(
       list,
       currentDir,
-      transformNode,
+      transformHQLNodeToIR,
       firstTransformed,
     );
   }
@@ -2316,7 +2320,7 @@ function determineCallOrAccess(
   return createCallExpression(
     list,
     currentDir,
-    transformNode,
+    transformHQLNodeToIR,
     firstTransformed,
   );
 }
@@ -2363,7 +2367,7 @@ function createNumericAccessWithFallback(
 function createCallExpression(
   list: ListNode,
   currentDir: string,
-  transformNode: TransformNodeFn,
+  transformHQLNodeToIR: TransformNodeFn,
   callee: IR.IRNode,
 ): IR.IRCallExpression {
   const args: IR.IRNode[] = [];
@@ -2372,9 +2376,9 @@ function createCallExpression(
 
     // Check if this argument is a spread operator (...args or (... expr))
     if (isSpreadOperator(elem)) {
-      args.push(transformSpreadOperator(elem, currentDir, transformNode, "spread in function call"));
+      args.push(transformSpreadOperator(elem, currentDir, transformHQLNodeToIR, "spread in function call"));
     } else {
-      const arg = transformNode(elem, currentDir);
+      const arg = transformHQLNodeToIR(elem, currentDir);
       if (!arg) {
         throw new TransformError(
           `Argument ${i} transformed to null`,
@@ -2512,7 +2516,7 @@ function transformOptionalChainMethodCall(
   list: ListNode,
   op: string,
   currentDir: string,
-  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  transformHQLNodeToIR: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
   return perform(
     () => {
@@ -2522,7 +2526,7 @@ function transformOptionalChainMethodCall(
       // Transform arguments
       const args: IR.IRNode[] = [];
       for (let i = 1; i < list.elements.length; i++) {
-        const argResult = transformNode(list.elements[i], currentDir);
+        const argResult = transformHQLNodeToIR(list.elements[i], currentDir);
         if (argResult) {
           args.push(argResult);
         }
@@ -2632,7 +2636,7 @@ function transformNestedList(list: ListNode, currentDir: string): IR.IRNode {
   return perform(
     () => {
       const innerExpr = validateTransformed(
-        transformNode(list.elements[0], currentDir),
+        transformHQLNodeToIR(list.elements[0], currentDir),
         "nested list",
         "Inner list",
       );
@@ -2652,7 +2656,7 @@ function transformNestedList(list: ListNode, currentDir: string): IR.IRNode {
           const args = transformElements(
             list.elements.slice(1),
             currentDir,
-            transformNode,
+            transformHQLNodeToIR,
             "function argument",
             "Argument",
           );
@@ -2677,7 +2681,7 @@ function transformNestedList(list: ListNode, currentDir: string): IR.IRNode {
           const args = transformElements(
             list.elements.slice(1),
             currentDir,
-            transformNode,
+            transformHQLNodeToIR,
             "function argument",
             "Argument",
           );
@@ -2716,7 +2720,7 @@ function transformNestedMethodCall(
   const methodName = (list.elements[1] as SymbolNode).name.substring(1);
   const args = list.elements.slice(2).map((arg) =>
     validateTransformed(
-      transformNode(arg, currentDir),
+      transformHQLNodeToIR(arg, currentDir),
       "method argument",
       "Argument",
     )

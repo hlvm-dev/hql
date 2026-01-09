@@ -22,6 +22,7 @@ import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/sour
 import {
   parseJsonMapParameters,
   parseParametersWithDefaults,
+  GENERIC_NAME_REGEX,
 } from "./function.ts";
 import {
   HASH_MAP_INTERNAL,
@@ -36,6 +37,11 @@ interface MemberExpressionOptions {
 
 
 type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
+
+// Pre-compiled regex patterns for hot paths (avoid compilation per call)
+/** Matches non-identifier characters that require computed property access */
+const SPECIAL_CHAR_REGEX = /[^a-zA-Z0-9_$]/;
+// GENERIC_NAME_REGEX imported from function.ts (single source of truth)
 
 /**
  * Check if an IR node needs to be wrapped in an ExpressionStatement.
@@ -116,7 +122,7 @@ export function transformClass(
     // Extract generic type parameters from class name (e.g., "Box<T>" -> name="Box", typeParameters=["T"])
     // Use depth-aware splitTypeParameters to correctly handle nested generics like Box<Record<string,number>,Array<T>>
     let typeParameters: string[] | undefined;
-    const nameParts = className.match(/^([^<]+)(?:<(.+)>)?$/);
+    const nameParts = className.match(GENERIC_NAME_REGEX);
     if (nameParts) {
       className = nameParts[1];
       if (nameParts[2]) {
@@ -421,7 +427,7 @@ export function transformOptionalMethodCall(
 
         // Use computed property access for method names with special characters (hyphens, etc.)
         // This generates obj?.["method-name"]() instead of obj?.method-name()
-        const needsComputed = /[^a-zA-Z0-9_$]/.test(methodName);
+        const needsComputed = SPECIAL_CHAR_REGEX.test(methodName);
 
         return {
           type: IR.IRNodeType.OptionalCallExpression,
@@ -487,7 +493,7 @@ export function transformOptionalMethodCall(
       );
 
       // Use computed property access for method names with special characters (hyphens, etc.)
-      const needsComputed = /[^a-zA-Z0-9_$]/.test(methodName);
+      const needsComputed = SPECIAL_CHAR_REGEX.test(methodName);
 
       return {
         type: IR.IRNodeType.OptionalCallExpression,

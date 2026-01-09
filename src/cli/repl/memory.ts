@@ -8,6 +8,7 @@ import { parse } from "../../transpiler/pipeline/parser.ts";
 import { isList, isSymbol, type SList, type SSymbol } from "../../s-exp/types.ts";
 import { join } from "jsr:@std/path@1";
 import { ensureDir } from "jsr:@std/fs@1";
+import { escapeString } from "./string-utils.ts";
 
 // ============================================================
 // Constants
@@ -46,14 +47,8 @@ export function serializeValue(value: unknown, seen: WeakSet<object> = new WeakS
   }
 
   if (type === "string") {
-    // Escape special characters in strings
-    const escaped = (value as string)
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"')
-      .replace(/\n/g, "\\n")
-      .replace(/\r/g, "\\r")
-      .replace(/\t/g, "\\t");
-    return `"${escaped}"`;
+    // Use shared escape function (single source of truth)
+    return `"${escapeString(value as string)}"`;
   }
 
   if (type === "function") {

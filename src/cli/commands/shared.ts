@@ -5,6 +5,14 @@ import {
   getEnv as platformGetEnv,
 } from "../../platform/platform.ts";
 
+// Pre-compiled patterns for sanitizePackageName
+const NON_ALPHANUMERIC_HYPHEN_REGEX = /[^a-z0-9-]/g;
+const MULTIPLE_HYPHEN_REGEX = /-+/g;
+const LEADING_TRAILING_HYPHEN_REGEX = /^-|-$/g;
+
+// Pre-compiled semver validation pattern (exported for reuse)
+export const SEMVER_REGEX = /^\d+\.\d+\.\d+$/;
+
 /**
  * Generate smart default package name from directory and username
  */
@@ -17,9 +25,9 @@ export function generateDefaultPackageName(): string {
   // Sanitize directory name (replace spaces/special chars with hyphens)
   const sanitizedDirName = dirName
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(NON_ALPHANUMERIC_HYPHEN_REGEX, "-")
+    .replace(MULTIPLE_HYPHEN_REGEX, "-")
+    .replace(LEADING_TRAILING_HYPHEN_REGEX, "");
 
   return `@${username}/${sanitizedDirName}`;
 }
@@ -42,7 +50,7 @@ export function validatePackageName(name: string): void {
  * @throws {Error} If version is invalid
  */
 export function validateVersion(version: string): void {
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+  if (!SEMVER_REGEX.test(version)) {
     console.error(`\n❌ Invalid version format: ${version}`);
     console.error(`Expected format: X.Y.Z (e.g., 0.0.1)`);
     platformExit(1);

@@ -208,13 +208,4 @@ export function isRightAssociative(operator: string): boolean {
   return operator === "**" || operator.endsWith("=");
 }
 
-/**
- * Determine if an expression needs parentheses in a given context.
- *
- * @param exprPrec - Precedence of the expression
- * @param contextPrec - Precedence of the surrounding context
- * @returns True if parentheses are needed
- */
-export function needsParens(exprPrec: Precedence, contextPrec: Precedence): boolean {
-  return exprPrec < contextPrec;
-}
+// Note: needsParens was removed as it was never imported - callers use inline `nodePrec < contextPrec`

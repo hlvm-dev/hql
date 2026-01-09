@@ -6,13 +6,25 @@
 import React, { useState, useEffect, useCallback, useRef } from "npm:react@18";
 import { Text, Box, useInput } from "npm:ink@5";
 import { highlight, findMatchingParen, isBalanced } from "../../repl/syntax.ts";
-import { getCompletions, getWordAtCursor, applyCompletion, type CompletionItem } from "../../repl/completer.ts";
 import { findSuggestion, acceptSuggestion, type Suggestion } from "../../repl/suggester.ts";
 import { shouldTabAcceptSuggestion } from "../../repl/tab-logic.ts";
-import { searchFiles, unescapeShellPath, type FileMatch } from "../../repl/file-search.ts";
 import { calculateWordBackPosition, calculateWordForwardPosition } from "../../repl/keyboard.ts";
 import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, shouldCollapseText, type Attachment, type TextAttachment } from "../../repl/attachment.ts";
+import { unescapeShellPath } from "../../repl/file-search.ts";
 import { useAttachments, type AnyAttachment } from "../hooks/useAttachments.ts";
+import { ANSI_COLORS } from "../../ansi.ts";
+
+// Unified Completion System
+import {
+  useCompletion,
+  Dropdown,
+  calculateScrollWindow,
+  hasItemsAbove,
+  hasItemsBelow,
+  type CompletionItem,
+  type CompletionAction,
+  type ApplyContext,
+} from "../completion/index.ts";
 
 // Option+Enter detection timeout (ms)
 // Terminal sends ESC (0x1b) followed by Enter (0x0d) for Option+Enter
@@ -28,15 +40,11 @@ const ESCAPE_MODIFIER_TIMEOUT = 25;
 // Two thresholds for different purposes:
 // - CONTINUE: Detect if input is part of ongoing paste (char-by-char paste detection)
 // - PROCESS_DELAY: Wait for more chunks before processing (terminal paste timing varies)
-const PASTE_CONTINUE_THRESHOLD_MS = 50;   // Char-by-char paste arrives < 50ms apart
-const PASTE_PROCESS_DELAY_MS = 150;       // Wait 150ms for more chunks before processing
+const PASTE_CONTINUE_THRESHOLD_MS = 100;  // Char-by-char paste arrives < 100ms apart (increased for slow terminals)
+const PASTE_PROCESS_DELAY_MS = 300;       // Wait 300ms for more chunks before processing (increased for slow terminals)
 
-// ANSI color codes - defined outside component to avoid recreation on every render
-const ANSI = {
-  CYAN: "\x1b[36m",
-  DIM_GRAY: "\x1b[90m",
-  RESET: "\x1b[0m",
-} as const;
+// Destructure needed colors (imported from ansi.ts - Single Source of Truth)
+const { CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
 // Fast newline check - avoids regex compilation on every keystroke
 function hasNewlineChars(str: string): boolean {
@@ -64,6 +72,7 @@ interface InputProps {
   history: string[];
   userBindings: ReadonlySet<string>;
   signatures: Map<string, string[]>;
+  docstrings: ReadonlyMap<string, string>;
 }
 
 export function Input({
@@ -75,27 +84,22 @@ export function Input({
   history,
   userBindings,
   signatures,
+  docstrings,
 }: InputProps): React.ReactElement {
   const [cursorPos, setCursorPos] = useState(value.length);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [tempInput, setTempInput] = useState("");
 
-  // Completion state
-  const [completions, setCompletions] = useState<CompletionItem[]>([]);
-  const [completionIndex, setCompletionIndex] = useState(-1);
-  const [showingCompletions, setShowingCompletions] = useState(false);
-  const [completionStart, setCompletionStart] = useState(0);
-  const [originalWord, setOriginalWord] = useState("");
-
-  // Autosuggestion
+  // Autosuggestion (ghost text - separate from completion)
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
 
-  // @mention file search state
-  const [atMentionMode, setAtMentionMode] = useState(false);
-  const [atMentionMatches, setAtMentionMatches] = useState<FileMatch[]>([]);
-  const [atMentionIndex, setAtMentionIndex] = useState(0);
-  const [atMentionStart, setAtMentionStart] = useState(0);
-  const [atMentionLoading, setAtMentionLoading] = useState(false);
+  // Unified Completion System (replaces legacy completion + @mention state)
+  const completion = useCompletion({
+    userBindings,
+    signatures,
+    docstrings,
+    debounceMs: 50,
+  });
 
   // Attachment management
   const {
@@ -130,13 +134,14 @@ export function Input({
 
   // Update suggestion when value changes
   useEffect(() => {
-    if (cursorPos === value.length && value.length > 0 && !atMentionMode) {
+    // Don't show ghost text suggestion when completion dropdown is visible
+    if (cursorPos === value.length && value.length > 0 && !completion.isVisible) {
       const found = findSuggestion(value, history, userBindings);
       setSuggestion(found);
     } else {
       setSuggestion(null);
     }
-  }, [value, cursorPos, history, userBindings, atMentionMode]);
+  }, [value, cursorPos, history, userBindings, completion.isVisible]);
 
   // Cleanup paste timeout on unmount
   useEffect(() => {
@@ -147,97 +152,55 @@ export function Input({
     };
   }, []);
 
-  // Detect @mention mode and search files
+  // NOTE: Placeholder validation is handled by explicit exit paths (Escape, backspace, character input)
+  // which now cleanup untouched placeholders. No need for useEffect validation.
+
+  // Auto-trigger completion for @mention and /command
+  // KEY FIX: Skip during active session to allow Tab cycling without interference
+  // NOTE: We use refs/stable callbacks to avoid infinite loops from state changes
+  const triggerCompletionRef = useRef(completion.triggerCompletion);
+  const dropdownCloseRef = useRef(completion.dropdown.close);
+  triggerCompletionRef.current = completion.triggerCompletion;
+  dropdownCloseRef.current = completion.dropdown.close;
+
   useEffect(() => {
-    // Find the last @ before cursor
-    const beforeCursor = value.slice(0, cursorPos);
-    const lastAt = beforeCursor.lastIndexOf("@");
-
-    if (lastAt === -1) {
-      if (atMentionMode) {
-        setAtMentionMode(false);
-        setAtMentionMatches([]);
-      }
+    // Skip auto-trigger ONLY for symbol provider (Tab cycling)
+    // For @mention and /command, we WANT to update as user types
+    if (completion.dropdown.state.sessionActive && completion.activeProviderId === "symbol") {
       return;
     }
 
-    // Check if @ is followed by valid path characters
-    const queryPart = beforeCursor.slice(lastAt + 1);
+    const textBefore = value.slice(0, cursorPos);
 
-    // For absolute paths (starting with / or ~), allow spaces in filenames
-    const isAbsolutePath = queryPart.startsWith("/") || queryPart.startsWith("~");
-
-    // Exit @mention if:
-    // - Not absolute path AND has space (regular query can't have spaces)
-    // - Has ) or " (these end the @mention for code expressions)
-    if ((!isAbsolutePath && queryPart.includes(" ")) || queryPart.includes(")") || queryPart.includes("\"")) {
-      if (atMentionMode) {
-        setAtMentionMode(false);
-        setAtMentionMatches([]);
+    // @mention triggers FileProvider
+    const lastAt = textBefore.lastIndexOf("@");
+    if (lastAt >= 0) {
+      const queryPart = textBefore.slice(lastAt + 1);
+      const isAbsolutePath = queryPart.startsWith("/") || queryPart.startsWith("~");
+      // Valid @mention context: no spaces (unless absolute path), no ) or "
+      if ((!queryPart.includes(" ") || isAbsolutePath) && !queryPart.includes(")") && !queryPart.includes("\"")) {
+        const charBefore = lastAt === 0 ? " " : textBefore[lastAt - 1];
+        if (charBefore === " " || charBefore === "\t" || charBefore === "(" || charBefore === "[" || lastAt === 0) {
+          triggerCompletionRef.current(value, cursorPos);
+          return;
+        }
       }
+    }
+
+    // /command triggers CommandProvider (only at start)
+    if (textBefore.trimStart().startsWith("/") && !textBefore.includes(" ")) {
+      triggerCompletionRef.current(value, cursorPos);
       return;
     }
 
-    // We're in @mention mode - search files
-    setAtMentionMode(true);
-    setAtMentionStart(lastAt);
-    setAtMentionLoading(true);
-
-    // Debounced search
-    const timeoutId = setTimeout(async () => {
-      try {
-        const matches = await searchFiles(queryPart, 8);
-        setAtMentionMatches(matches);
-        setAtMentionIndex(0);
-      } catch {
-        // Keep previous matches on error (don't flash empty)
-      } finally {
-        setAtMentionLoading(false);
-      }
-    }, 50);
-
-    return () => clearTimeout(timeoutId);
-  }, [value, cursorPos, atMentionMode]);
-
-  // Helper: clear @mention state
-  const clearAtMention = useCallback(() => {
-    setAtMentionMode(false);
-    setAtMentionMatches([]);
-    setAtMentionIndex(0);
-    setAtMentionStart(0);
-    setAtMentionLoading(false);
-  }, []);
-
-  // Helper: apply @mention selection
-  const applyAtMention = useCallback((match: FileMatch) => {
-    // Unescape shell-escaped paths for actual file operations
-    const cleanPath = unescapeShellPath(match.path);
-
-    // Check if this is a media file
-    if (isSupportedMedia(cleanPath)) {
-      // ZERO-BLINK: Synchronously compute placeholder and insert it INSTANTLY
-      // 1. Reserve ID synchronously
-      const id = reserveNextId();
-      // 2. Compute display name synchronously (no file I/O needed)
-      const mimeType = detectMimeType(cleanPath);
-      const type = getAttachmentType(mimeType);
-      const displayName = getDisplayName(type, id);
-      // 3. Insert placeholder IMMEDIATELY
-      const newValue = value.slice(0, atMentionStart) + displayName + " " + value.slice(cursorPos);
-      onChange(newValue);
-      setCursorPos(atMentionStart + displayName.length + 1);
-      // 4. Clear @mention state
-      clearAtMention();
-      // 5. Process file in background (fire-and-forget)
-      addAttachmentWithId(cleanPath, id);
-    } else {
-      // Not a media file - use standard @path reference
-      const newValue = value.slice(0, atMentionStart) + "@" + cleanPath + " " + value.slice(cursorPos);
-      onChange(newValue);
-      setCursorPos(atMentionStart + 1 + cleanPath.length + 1);
-      clearAtMention();
+    // Close dropdown when context ends
+    // For file/command: close when pattern no longer matches
+    // For symbol: already handled by sessionActive check above
+    if (completion.activeProviderId === "file" || completion.activeProviderId === "command") {
+      dropdownCloseRef.current();
     }
-  }, [value, cursorPos, atMentionStart, onChange, clearAtMention, reserveNextId, addAttachmentWithId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, cursorPos]);
 
   // Helper: check if in placeholder mode
   const isInPlaceholderMode = useCallback(() => {
@@ -301,6 +264,47 @@ export function Input({
     setPlaceholderIndex(0);
     setCursorPos(newPlaceholders[0].start);
   }, []);
+
+  // Helper: execute completion action (GENERIC - uses item.applyAction)
+  // This replaces the old applyCompletionSelection with provider-defined behavior
+  const executeCompletionAction = useCallback((item: CompletionItem, action: CompletionAction) => {
+    const context: ApplyContext = {
+      text: completion.dropdown.state.originalText,
+      cursorPosition: completion.dropdown.state.originalCursor,
+      anchorPosition: completion.dropdown.state.anchorPosition,
+    };
+
+    // Let the item define how to apply the action
+    const result = item.applyAction(action, context);
+
+    // Handle side effects from providers
+    if (result.sideEffect?.type === "ADD_ATTACHMENT") {
+      // Media file attachment
+      const id = reserveNextId();
+      const mimeType = detectMimeType(result.sideEffect.path);
+      const type = getAttachmentType(mimeType);
+      const displayName = getDisplayName(type, id);
+      // Replace {{ATTACHMENT}} placeholder with actual display name
+      const finalText = result.text.replace("{{ATTACHMENT}}", displayName);
+      onChange(finalText);
+      const placeholderLen = "{{ATTACHMENT}}".length;
+      setCursorPos(result.cursorPosition - placeholderLen + displayName.length);
+      addAttachmentWithId(result.sideEffect.path, id);
+    } else if (result.sideEffect?.type === "ENTER_PLACEHOLDER_MODE") {
+      // Function param completion
+      onChange(result.text);
+      enterPlaceholderMode(result.sideEffect.params, result.sideEffect.startPos);
+    } else {
+      // Normal completion
+      onChange(result.text);
+      setCursorPos(result.cursorPosition);
+    }
+
+    // Close dropdown if instructed
+    if (result.closeDropdown) {
+      completion.dropdown.close();
+    }
+  }, [completion, onChange, reserveNextId, addAttachmentWithId, enterPlaceholderMode]);
 
   // Helper: move to next placeholder (Tab)
   const nextPlaceholder = useCallback(() => {
@@ -391,6 +395,15 @@ export function Input({
     const newValue = value.slice(0, cursorPos - 1) + value.slice(cursorPos);
     onChange(newValue);
 
+    // FIX: Exit placeholder mode if value becomes empty or just parens/whitespace
+    const trimmedNew = newValue.replace(/[\s()]/g, "");
+    if (trimmedNew.length === 0) {
+      setPlaceholders([]);
+      setPlaceholderIndex(-1);
+      setCursorPos(cursorPos - 1);
+      return true;
+    }
+
     // Update placeholder length
     const updated = [...placeholders];
     updated[placeholderIndex] = { ...ph, length: ph.length - 1, touched: true };
@@ -410,7 +423,6 @@ export function Input({
     const newValue = value.slice(0, cursorPos) + text + value.slice(cursorPos);
     onChange(newValue);
     setCursorPos(cursorPos + text.length);
-    clearCompletions();
   }, [value, cursorPos, onChange]);
 
   // Helper: delete n chars before cursor
@@ -419,27 +431,16 @@ export function Input({
       const newValue = value.slice(0, cursorPos - n) + value.slice(cursorPos);
       onChange(newValue);
       setCursorPos(cursorPos - n);
-      clearCompletions();
     }
   }, [value, cursorPos, onChange]);
-
-  // Helper: clear completions
-  const clearCompletions = useCallback(() => {
-    setCompletions([]);
-    setCompletionIndex(-1);
-    setShowingCompletions(false);
-    setCompletionStart(0);
-    setOriginalWord("");
-  }, []);
 
   // Helper: reset state after submit (DRY helper)
   const resetAfterSubmit = useCallback(() => {
     setHistoryIndex(-1);
     setTempInput("");
-    clearCompletions();
-    clearAtMention();
+    completion.dropdown.close();
     clearAttachments();
-  }, [clearCompletions, clearAtMention, clearAttachments]);
+  }, [completion.dropdown, clearAttachments]);
 
   // Helper: clear escape timeout (DRY helper)
   const clearEscapeTimeout = useCallback(() => {
@@ -476,8 +477,7 @@ export function Input({
     const newValue = before.slice(0, pos) + value.slice(cursorPos);
     onChange(newValue);
     setCursorPos(pos);
-    clearCompletions();
-  }, [value, cursorPos, onChange, clearCompletions]);
+  }, [value, cursorPos, onChange]);
 
   // Helper: move word backward (Option+Left on macOS, Ctrl+Left on Windows/Linux)
   const moveWordBack = useCallback(() => {
@@ -523,82 +523,30 @@ export function Input({
     }
   }, [history, historyIndex, tempInput, value, onChange]);
 
-  // Helper: handle tab completion
-  const handleTab = useCallback(() => {
-    if (showingCompletions) {
-      // Cycle through completions
-      const newIndex = (completionIndex + 1) % completions.length;
-      setCompletionIndex(newIndex);
-
-      // Restore original and apply new completion
-      const restored = value.slice(0, completionStart) + originalWord + value.slice(cursorPos);
-      const result = applyCompletion(restored, completionStart + originalWord.length, completions[newIndex]);
-      onChange(result.line);
-      setCursorPos(result.cursorPos);
-    } else {
-      // Start new completion
-      const { word, start } = getWordAtCursor(value, cursorPos);
-
-      // Param insertion ONLY when cursor is after space: (ask |
-      // When there's a word like (ask|, it should cycle through completions instead
-      if (word === '') {
-        const beforeCursor = value.slice(0, cursorPos);
-        // Match pattern: (funcName followed by whitespace at cursor position
-        // Use [\w-]+ to support HQL identifiers with hyphens (e.g., map-indexed, take-while)
-        const match = beforeCursor.match(/\(([\w-]+)\s+$/);
-        if (match) {
-          const funcName = match[1];
-          if (signatures.has(funcName)) {
-            const params = signatures.get(funcName)!;
-            if (params.length > 0) {
-              // Insert placeholders (no leading space - already have one)
-              const paramsText = params.join(" ") + ")";
-              const newValue = value.slice(0, cursorPos) + paramsText + value.slice(cursorPos);
-              onChange(newValue);
-              enterPlaceholderMode(params, cursorPos); // cursor is already after space
-              return;
-            }
-          }
+  // Helper: handle tab completion when dropdown is NOT visible
+  // Opens dropdown and selects first item (no auto-apply - use Tab again to confirm)
+  const handleTab = useCallback(async () => {
+    // Special case: Param insertion when cursor is after function name + space: (ask |
+    const beforeCursor = value.slice(0, cursorPos);
+    const match = beforeCursor.match(/\(([\w-]+)\s+$/);
+    if (match) {
+      const funcName = match[1];
+      if (signatures.has(funcName)) {
+        const params = signatures.get(funcName)!;
+        if (params.length > 0) {
+          const paramsText = params.join(" ") + ")";
+          const newValue = value.slice(0, cursorPos) + paramsText + value.slice(cursorPos);
+          onChange(newValue);
+          enterPlaceholderMode(params, cursorPos);
+          return;
         }
       }
-
-      const items = getCompletions(word, userBindings);
-
-      if (items.length === 0) return;
-
-      if (items.length === 1) {
-        // Single match - apply directly
-        const result = applyCompletion(value, cursorPos, items[0]);
-        onChange(result.line + " ");
-        setCursorPos(result.cursorPos + 1);
-      } else {
-        // Multiple matches - start cycling
-        setCompletions(items);
-        setCompletionIndex(0);
-        setShowingCompletions(true);
-        setCompletionStart(start);
-        setOriginalWord(word);
-
-        const result = applyCompletion(value, cursorPos, items[0]);
-        onChange(result.line);
-        setCursorPos(result.cursorPos);
-      }
     }
-  }, [value, cursorPos, userBindings, showingCompletions, completions, completionIndex, completionStart, originalWord, onChange, signatures, enterPlaceholderMode]);
 
-  // Helper: handle shift+tab (reverse cycle)
-  const handleShiftTab = useCallback(() => {
-    if (showingCompletions && completions.length > 0) {
-      const newIndex = (completionIndex - 1 + completions.length) % completions.length;
-      setCompletionIndex(newIndex);
-
-      // Restore original and apply new completion
-      const restored = value.slice(0, completionStart) + originalWord + value.slice(cursorPos);
-      const result = applyCompletion(restored, completionStart + originalWord.length, completions[newIndex]);
-      onChange(result.line);
-      setCursorPos(result.cursorPos);
-    }
-  }, [value, cursorPos, showingCompletions, completions, completionIndex, completionStart, originalWord, onChange]);
+    // Trigger completion and open dropdown (first item selected, NOT applied)
+    // User must press Tab again to confirm and apply the selection
+    await completion.triggerCompletion(value, cursorPos, true);
+  }, [value, cursorPos, completion, signatures, onChange, enterPlaceholderMode]);
 
   // Main input handler
   useInput((input, key) => {
@@ -718,14 +666,16 @@ export function Input({
       }
 
       // Pure ESC key (no combination) - handle special modes or start detection
-      // In placeholder mode: ESC exits placeholder mode
+      // In placeholder mode: ESC exits AND removes untouched placeholders (they're hints, not real text)
       if (isInPlaceholderMode()) {
-        exitPlaceholderMode();
+        const cleanedValue = exitPlaceholderModeAndCleanup();
+        onChange(cleanedValue);
+        setCursorPos(Math.min(cursorPos, cleanedValue.length));
         return;
       }
-      // In @mention mode: ESC cancels @mention
-      if (atMentionMode && atMentionMatches.length > 0) {
-        clearAtMention();
+      // In completion mode: ESC closes dropdown
+      if (completion.isVisible) {
+        completion.dropdown.close();
         return;
       }
       // Start Option+key detection for NEXT event (two-event sequence)
@@ -739,7 +689,7 @@ export function Input({
         if (value.length > 0) {
           onChange("");
           setCursorPos(0);
-          clearCompletions();
+          completion.dropdown.close();
           clearAttachments();
         }
       }, ESCAPE_MODIFIER_TIMEOUT) as unknown as number;
@@ -809,6 +759,23 @@ export function Input({
         if (backspaceInPlaceholder()) {
           return;
         }
+        // FIX: If backspace is outside placeholder bounds, cleanup untouched placeholders
+        // (they're hints, not real text) and then perform backspace on cleaned value
+        const cleanedValue = exitPlaceholderModeAndCleanup();
+
+        // Adjust cursor position for cleaned value
+        const newCursor = Math.min(cursorPos, cleanedValue.length);
+
+        // Perform backspace on cleaned value
+        if (newCursor > 0) {
+          const afterBackspace = cleanedValue.slice(0, newCursor - 1) + cleanedValue.slice(newCursor);
+          onChange(afterBackspace);
+          setCursorPos(newCursor - 1);
+        } else {
+          onChange(cleanedValue);
+          setCursorPos(0);
+        }
+        return;
       }
 
       // Character input in placeholder mode
@@ -824,41 +791,62 @@ export function Input({
           setCursorPos(closingParenPos + 1);
           return;
         }
-        replaceCurrentPlaceholder(input);
-        return;
+
+        // FIX: Check if cursor is within the current placeholder bounds
+        // If not, cleanup untouched placeholders (they're hints, not real text) and insert normally
+        const ph = placeholders[placeholderIndex];
+        const cursorInPlaceholder = ph && cursorPos >= ph.start && cursorPos <= ph.start + ph.length;
+        if (!cursorInPlaceholder) {
+          const cleanedValue = exitPlaceholderModeAndCleanup();
+          // Adjust cursor for cleaned value and insert character
+          const newCursor = Math.min(cursorPos, cleanedValue.length);
+          const newValue = cleanedValue.slice(0, newCursor) + input + cleanedValue.slice(newCursor);
+          onChange(newValue);
+          setCursorPos(newCursor + input.length);
+          return;
+        } else {
+          replaceCurrentPlaceholder(input);
+          return;
+        }
       }
     }
 
-    // @mention mode navigation
-    if (atMentionMode && atMentionMatches.length > 0) {
+    // Completion dropdown navigation (unified for @mention, symbols, commands)
+    // GENERIC: Uses item.availableActions and executeCompletionAction
+    if (completion.isVisible) {
+      const selectedItem = completion.dropdown.selectedItem;
+
       if (key.upArrow) {
-        setAtMentionIndex((prev: number) => (prev - 1 + atMentionMatches.length) % atMentionMatches.length);
+        // Navigate UP: visual selection only (no auto-apply)
+        completion.dropdown.selectPrev();
         return;
       }
       if (key.downArrow) {
-        setAtMentionIndex((prev: number) => (prev + 1) % atMentionMatches.length);
+        // Navigate DOWN: visual selection only (no auto-apply)
+        completion.dropdown.selectNext();
         return;
       }
-      // Tab: drill into directory (navigate deeper) or select file
-      if (key.tab) {
-        const match = atMentionMatches[atMentionIndex];
-        if (match.isDirectory) {
-          // Drill into directory: update input and trigger new search
-          const newQuery = match.path;
-          const newValue = value.slice(0, atMentionStart) + "@" + newQuery + value.slice(cursorPos);
-          onChange(newValue);
-          setCursorPos(atMentionStart + 1 + newQuery.length);
-          // Don't clear @mention mode - let the effect trigger new search
-          setAtMentionIndex(0); // Reset selection to first item
-        } else {
-          // File: apply and close dropdown
-          applyAtMention(match);
-        }
+      if (key.escape) {
+        // Cancel and close dropdown
+        completion.dropdown.close();
         return;
       }
-      // Enter: always select item and complete @mention
-      if (key.return) {
-        applyAtMention(atMentionMatches[atMentionIndex]);
+
+      // Tab: DRILL if available, else SELECT
+      // - Directories: drill in (keep dropdown open)
+      // - Functions with params: select + params (enter placeholder mode)
+      // - Others: simple select
+      if (key.tab && selectedItem) {
+        const action: CompletionAction = selectedItem.availableActions.includes("DRILL")
+          ? "DRILL"
+          : "SELECT";
+        executeCompletionAction(selectedItem, action);
+        return;
+      }
+
+      // Enter: always SELECT (choose and close)
+      if (key.return && selectedItem) {
+        executeCompletionAction(selectedItem, "SELECT");
         return;
       }
     }
@@ -878,42 +866,19 @@ export function Input({
       return;
     }
 
-    // Tab - completion (only when not in @mention mode)
-    if (key.tab && !atMentionMode) {
-      if (key.shift) {
-        handleShiftTab();
+    // Tab - open completion dropdown (when not already visible)
+    if (key.tab) {
+      // Ghost text suggestion takes priority when at end of line
+      if (shouldTabAcceptSuggestion(suggestion, cursorPos, value.length, completion.isVisible)) {
+        acceptAndApplySuggestion();
       } else {
-        // Check if we're at a function parameter position (HIGHEST PRIORITY)
-        const { word: tabWord, start: tabStart } = getWordAtCursor(value, cursorPos);
-
-        // Case 1: (add3| - right after function name
-        const isAtFuncPosition = tabStart > 0 && value[tabStart - 1] === '(' && signatures.has(tabWord);
-
-        // Case 2: (add3 | - after space following function name
-        let isAfterFuncSpace = false;
-        if (tabWord === '') {
-          const match = value.slice(0, cursorPos).match(/\((\w+)\s+$/);
-          isAfterFuncSpace = match !== null && signatures.has(match[1]);
-        }
-
-        // Function param completion has priority over suggestion acceptance
-        if (isAtFuncPosition || isAfterFuncSpace) {
-          handleTab();  // Will handle function param insertion
-        } else if (shouldTabAcceptSuggestion(suggestion, cursorPos, value.length, showingCompletions)) {
-          acceptAndApplySuggestion();
-        } else {
-          handleTab();
-        }
+        // Open dropdown (Shift+Tab same as Tab when dropdown not visible)
+        handleTab();
       }
       return;
     }
 
-    // Clear completions on most keys (except Tab)
-    if (!key.tab) {
-      clearCompletions();
-    }
-
-    // Arrow keys
+    // Arrow keys (when dropdown not visible)
     if (key.upArrow) {
       navigateHistory(-1);
       return;
@@ -967,6 +932,11 @@ export function Input({
 
     // Backspace
     if (key.backspace || key.delete) {
+      // Close dropdown on text modification - but ONLY for symbol provider
+      // For @mention (file) and /command providers, let auto-trigger update naturally
+      if (completion.isVisible && completion.activeProviderId === "symbol") {
+        completion.dropdown.close();
+      }
       if (cursorPos > 0) {
         deleteBack(1);
       }
@@ -975,14 +945,24 @@ export function Input({
 
     // Regular character input with paste detection
     if (input && !key.ctrl && !key.meta) {
+      // Close dropdown on character input - but ONLY for symbol provider
+      // For @mention (file) and /command providers, let auto-trigger update naturally
+      if (completion.isVisible && completion.activeProviderId === "symbol") {
+        completion.dropdown.close();
+      }
+
       const now = Date.now();
       const timeSinceLastInput = now - lastInputTimeRef.current;
       lastInputTimeRef.current = now;
 
       // Helper: process text that might need collapsing
       const processTextInput = (text: string) => {
+        // Normalize line endings: \r\n -> \n, \r -> \n
+        // Terminal.app sends \r for newlines in paste, which would overwrite text!
+        const normalizedText = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
         // Check for media file path
-        const cleanText = text.replace(/\\ /g, " ").replace(/\\'/g, "'").replace(/\\"/g, '"').trim();
+        const cleanText = normalizedText.replace(/\\ /g, " ").replace(/\\'/g, "'").replace(/\\"/g, '"').trim();
         const isAbsolutePath = cleanText.startsWith("/") || cleanText.startsWith("~");
 
         if (isAbsolutePath && isSupportedMedia(cleanText)) {
@@ -996,14 +976,14 @@ export function Input({
         }
 
         // Check for large text paste that should collapse
-        if (shouldCollapseText(text)) {
-          const textAttachment = addTextAttachment(text);
+        if (shouldCollapseText(normalizedText)) {
+          const textAttachment = addTextAttachment(normalizedText);
           insertAt(textAttachment.displayName + " ");
           return;
         }
 
         // Normal text - insert directly
-        insertAt(text);
+        insertAt(normalizedText);
       };
 
       // Helper: process accumulated paste buffer
@@ -1040,7 +1020,6 @@ export function Input({
         }
 
         // Set new debounce timeout - wait for more chunks before processing
-        // 150ms is long enough for slow terminal paste chunks, but short enough to feel responsive
         pasteTimeoutRef.current = setTimeout(() => {
           pasteTimeoutRef.current = null;
           processPasteBuffer();
@@ -1049,7 +1028,18 @@ export function Input({
         return;
       }
 
-      // Single character, not rapid, no buffer - insert directly
+      // Not buffering - but clear any STALE buffer content first!
+      // This can happen if paste was interrupted or timed out incorrectly
+      if (pasteBufferRef.current) {
+        // Discard stale buffer (it's corrupted/incomplete from failed paste)
+        pasteBufferRef.current = "";
+        if (pasteTimeoutRef.current) {
+          clearTimeout(pasteTimeoutRef.current);
+          pasteTimeoutRef.current = null;
+        }
+      }
+
+      // Single character - insert directly
       insertAt(input);
     }
   }, { isActive: !disabled });
@@ -1110,9 +1100,9 @@ export function Input({
           if (ph.touched) {
             result += highlight(phText, null);
           } else if (originalIdx === placeholderIndex) {
-            result += ANSI.CYAN + phText + ANSI.RESET;
+            result += CYAN + phText + RESET;
           } else {
-            result += ANSI.DIM_GRAY + phText + ANSI.RESET;
+            result += DIM_GRAY + phText + RESET;
           }
 
           textPos = phEndInText;
@@ -1201,32 +1191,37 @@ export function Input({
       {/* Input lines */}
       {lineElements}
 
-      {/* Placeholder mode hint */}
+      {/* Placeholder mode hint - shows current parameter context */}
       {isInPlaceholderMode() && (
         <Box marginLeft={5}>
-          <Text dimColor>Tab: next param • Shift+Tab: prev • Esc: exit</Text>
+          <Text dimColor>
+            {placeholderIndex >= 0 && placeholderIndex < placeholders.length && (
+              <Text color="cyan">{placeholders[placeholderIndex].text}</Text>
+            )}
+            {placeholderIndex >= 0 && placeholderIndex < placeholders.length && " "}
+            ({placeholderIndex + 1}/{placeholders.length}) • Tab: next • Shift+Tab: prev • Esc: exit
+          </Text>
         </Box>
       )}
 
-      {/* @mention dropdown */}
-      {atMentionMode && (atMentionMatches.length > 0 || atMentionLoading) && (
-        <Box flexDirection="column" marginLeft={5}>
-          {atMentionLoading && atMentionMatches.length === 0 && (
-            <Text dimColor>Searching...</Text>
-          )}
-          {atMentionMatches.map((match: FileMatch, i: number) => (
-            <Box key={match.path}>
-              <Text color={i === atMentionIndex ? "cyan" : undefined} inverse={i === atMentionIndex}>
-                {match.isDirectory ? "📁 " : "📄 "}
-                {match.path}
-              </Text>
-            </Box>
-          ))}
-          {atMentionMatches.length > 0 && (
-            <Text dimColor>  ↑↓ navigate • Tab/Enter select • Esc cancel</Text>
-          )}
-        </Box>
-      )}
+      {/* Unified completion dropdown (@mention, symbols, commands) */}
+      {completion.isVisible && (() => {
+        const scrollWindow = calculateScrollWindow(
+          completion.dropdown.state.selectedIndex,
+          completion.dropdown.state.items.length
+        );
+        return (
+          <Dropdown
+            items={completion.dropdown.state.items}
+            selectedIndex={completion.dropdown.state.selectedIndex}
+            scrollWindow={scrollWindow}
+            hasMoreAbove={hasItemsAbove(scrollWindow)}
+            hasMoreBelow={hasItemsBelow(scrollWindow, completion.dropdown.state.items.length)}
+            helpText={completion.activeProviderHelpText}
+            isLoading={completion.dropdown.state.isLoading}
+          />
+        );
+      })()}
 
     </Box>
   );

@@ -22,7 +22,7 @@ import {
   extractMeta,
   getIIFEDepth,
   setIIFEDepth,
-  transformNode,
+  transformHQLNodeToIR,
   isExpressionResult,
 } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
@@ -49,6 +49,11 @@ import { LRUCache } from "../../common/lru-cache.ts";
 const fnFunctionRegistry = new LRUCache<string, IR.IRFnFunctionDeclaration>(5000);
 
 type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
+
+// Pre-compiled regex for extracting generic type parameters from names
+// e.g., "identity<T>" -> name="identity", typeParameters=["T"]
+// Exported for use by class.ts (single source of truth)
+export const GENERIC_NAME_REGEX = /^([^<]+)(?:<(.+)>)?$/;
 
 /**
  * Helper function to check if a node is already a control flow statement
@@ -109,7 +114,7 @@ export function processFunctionBody(
 
         // Process all expressions except the last one
         for (let i = 0; i < bodyExprs.length - 1; i++) {
-          const expr = transformNode(bodyExprs[i], currentDir);
+          const expr = transformHQLNodeToIR(bodyExprs[i], currentDir);
           if (expr) {
             if (isExpressionResult(expr)) {
               // Wrap in ExpressionStatement, inheriting position from the expression
@@ -126,7 +131,7 @@ export function processFunctionBody(
         }
 
         // Process the last expression specially - wrap it in a return statement
-        const lastExpr = transformNode(
+        const lastExpr = transformHQLNodeToIR(
           bodyExprs[bodyExprs.length - 1],
           currentDir,
         );
@@ -218,10 +223,10 @@ function transformArgsWithSpread(
 ): IR.IRNode[] {
   return args.map((arg) => {
     if (isSpreadOperator(arg)) {
-      return transformSpreadOperator(arg, currentDir, transformNode, "spread in function call");
+      return transformSpreadOperator(arg, currentDir, transformHQLNodeToIR, "spread in function call");
     }
     return validateTransformed(
-      transformNode(arg, currentDir),
+      transformHQLNodeToIR(arg, currentDir),
       "function argument",
       "Function argument",
     );
@@ -264,7 +269,7 @@ export function transformStandardFunctionCall(
 
       // Handle function expression calls
       const callee = validateTransformed(
-        transformNode(first, currentDir),
+        transformHQLNodeToIR(first, currentDir),
         "function call",
         "Function callee",
       );
@@ -760,7 +765,7 @@ function transformNamedFn(
 
   // Extract generic type parameters from function name (e.g., "identity<T>" -> name="identity", typeParameters=["T"])
   let typeParameters: string[] | undefined;
-  const nameParts = funcName.match(/^([^<]+)(?:<(.+)>)?$/);
+  const nameParts = funcName.match(GENERIC_NAME_REGEX);
   if (nameParts) {
     funcName = nameParts[1];
     if (nameParts[2]) {

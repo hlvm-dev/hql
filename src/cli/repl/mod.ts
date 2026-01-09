@@ -403,7 +403,7 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
   }
 
   const initTime = Date.now() - startTime;
-  console.log(`${DIM_GRAY}Ready in ${initTime}ms${RESET}\n`);
+  console.log(`${DIM_GRAY}Ready in ${initTime}ms${RESET}`);
 
   while (true) {
     try {

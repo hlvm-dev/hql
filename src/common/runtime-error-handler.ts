@@ -1,13 +1,22 @@
 // core/src/common/runtime-error-handler.ts - Enhanced version
 // Maps JavaScript runtime errors back to HQL source locations with improved accuracy
 
+// Pre-compiled newline pattern for line splitting
+const LINE_SPLIT_REGEX = /\r?\n/;
+
 import { globalErrorReporter, HQLError, RuntimeError } from "./error.ts";
 import { globalLogger as logger } from "../logger.ts";
-import {
-  createJsCallRegex,
-  createSExpCallRegex,
-  escapeRegExp,
-} from "./utils.ts";
+import { escapeRegExp } from "./utils.ts";
+
+// Internal helper functions for matching function calls in source code
+// (moved from utils.ts since only used here)
+function createSExpCallRegex(funcName: string): RegExp {
+  return new RegExp(`\\(\\s*${escapeRegExp(funcName)}\\b`);
+}
+
+function createJsCallRegex(funcName: string): RegExp {
+  return new RegExp(`\\b${escapeRegExp(funcName)}\\s*\\(`);
+}
 import { type RawSourceMap, SourceMapConsumer } from "npm:source-map@0.6.1";
 import {
   dirname,
@@ -62,7 +71,7 @@ async function readFileLines(
 
   try {
     const content = await readTextFile(filePath);
-    return content.split(/\r?\n/);
+    return content.split(LINE_SPLIT_REGEX);
   } catch {
     return null;
   }

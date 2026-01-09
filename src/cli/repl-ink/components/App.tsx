@@ -14,6 +14,7 @@ import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { clearTerminal } from "../../ansi.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
+import { resetContext } from "../../repl/context.ts";
 
 interface HistoryEntry {
   id: number;
@@ -114,7 +115,7 @@ export function App({ jsMode: initialJsMode = false, showBanner = true }: AppPro
 
       {/* History of inputs and outputs */}
       {history.map((entry: HistoryEntry) => (
-        <Box key={entry.id} flexDirection="column" marginBottom={1}>
+        <Box key={entry.id} flexDirection="column">
           <Box>
             <Text color="#663399" bold>{repl.jsMode ? "js>" : "hql>"} </Text>
             <Text>{entry.input}</Text>
@@ -133,6 +134,7 @@ export function App({ jsMode: initialJsMode = false, showBanner = true }: AppPro
         history={stateRef.current.history}
         userBindings={stateRef.current.getBindingsSet()}
         signatures={stateRef.current.getSignatures()}
+        docstrings={stateRef.current.getDocstrings()}
       />
 
       {isEvaluating && <Text dimColor>...</Text>}
@@ -144,7 +146,7 @@ function handleCommand(cmd: string, repl: ReturnType<typeof useRepl>, exit: () =
   switch (cmd.trim().toLowerCase()) {
     case ".help": return ".help .clear .reset .js .hql .exit";
     case ".clear": return null;
-    case ".reset": repl.reset(); return "reset";
+    case ".reset": repl.reset(); resetContext(); return "reset";
     case ".js": repl.setJsMode(true); return "js mode";
     case ".hql": repl.setJsMode(false); return "hql mode";
     case ".exit": case ".quit": exit(); return null;

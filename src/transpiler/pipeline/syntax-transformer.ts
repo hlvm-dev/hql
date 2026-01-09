@@ -98,7 +98,7 @@ export function transformSyntax(ast: SExp[], context?: CompilerContext): SExp[] 
   const transformed: SExp[] = [];
   for (const node of ast) {
     try {
-      transformed.push(transformNode(node, enumDefinitions, logger));
+      transformed.push(transformSExpNode(node, enumDefinitions, logger));
     } catch (error) {
       if (error instanceof HQLError) {
         throw error;
@@ -461,7 +461,7 @@ function inferDataType(node: SExp): string {
 /**
  * Transform a single node, dispatching to specific handlers based on type
  */
-export function transformNode(
+export function transformSExpNode(
   node: SExp | null,
   enumDefinitions: Map<string, SList>,
   logger: Logger,
@@ -573,7 +573,7 @@ export function transformNode(
               list.elements[0], // enum keyword
               combinedName, // Name:Type
               ...list.elements.slice(4).map((elem) =>
-                transformNode(elem, enumDefinitions, logger)
+                transformSExpNode(elem, enumDefinitions, logger)
               ),
             ],
           };
@@ -605,7 +605,7 @@ export function transformNode(
         return {
           ...normalizedList,
           elements: normalizedList.elements.map((elem) =>
-            transformNode(elem, enumDefinitions, logger)
+            transformSExpNode(elem, enumDefinitions, logger)
           ),
         };
       }
@@ -637,12 +637,12 @@ export function transformNode(
           return {
             ...normalizedList,
             elements: normalizedList.elements.map((elem) =>
-              transformNode(elem, enumDefinitions, logger)
+              transformSExpNode(elem, enumDefinitions, logger)
             ),
           };
       }
     },
-    "transformNode",
+    "transformSExpNode",
     TransformError,
     withSourceLocationOpts({ phase: "syntax transformation" }, node),
   );
@@ -698,7 +698,7 @@ function transformMacro(
   // Transform the body
   for (let i = 3; i < list.elements.length; i++) {
     transformedElements.push(
-      transformNode(list.elements[i], enumDefinitions, logger),
+      transformSExpNode(list.elements[i], enumDefinitions, logger),
     );
   }
 
@@ -729,7 +729,7 @@ function transformLetExpr(
         elements: [
           list.elements[0],
           list.elements[1],
-          transformNode(list.elements[2], enumDefinitions, logger),
+          transformSExpNode(list.elements[2], enumDefinitions, logger),
         ],
       };
     }
@@ -788,13 +788,13 @@ function transformLetExpr(
       if (isPattern) {
         // Destructuring pattern form: (let [pattern] value [body...])
         // Don't process as multi-binding - just transform the value and body
-        const transformedValue = transformNode(
+        const transformedValue = transformSExpNode(
           list.elements[2],
           enumDefinitions,
           logger,
         );
         const transformedBody = list.elements.slice(3).map((expr) =>
-          transformNode(expr, enumDefinitions, logger)
+          transformSExpNode(expr, enumDefinitions, logger)
         );
 
         return {
@@ -815,7 +815,7 @@ function transformLetExpr(
           logger,
         );
         const transformedBody = list.elements.slice(2).map((expr) =>
-          transformNode(expr, enumDefinitions, logger)
+          transformSExpNode(expr, enumDefinitions, logger)
         );
 
         return {
@@ -877,7 +877,7 @@ function transformBindingList(
 
     // Transform the binding value
     const value = elements[i + 1];
-    transformedBindings.push(transformNode(value, enumDefinitions, logger));
+    transformedBindings.push(transformSExpNode(value, enumDefinitions, logger));
   }
 
   return {
@@ -921,7 +921,7 @@ function transformEqualityExpression(
     return {
       ...list,
       elements: list.elements.map((elem) =>
-        transformNode(elem, enumDefinitions, logger)
+        transformSExpNode(elem, enumDefinitions, logger)
       ),
     };
   }
@@ -962,12 +962,12 @@ function transformEqualityExpression(
           return createList(
             list.elements[0], // Keep the operator (=)
             fullEnumRef, // Replace with full enum reference
-            transformNode(otherExpr, enumDefinitions, logger), // Transform the other expression
+            transformSExpNode(otherExpr, enumDefinitions, logger), // Transform the other expression
           );
         } else {
           return createList(
             list.elements[0], // Keep the operator (=)
-            transformNode(otherExpr, enumDefinitions, logger), // Transform the other expression
+            transformSExpNode(otherExpr, enumDefinitions, logger), // Transform the other expression
             fullEnumRef, // Replace with full enum reference
           );
         }
@@ -979,7 +979,7 @@ function transformEqualityExpression(
   return {
     ...list,
     elements: list.elements.map((elem) =>
-      transformNode(elem, enumDefinitions, logger)
+      transformSExpNode(elem, enumDefinitions, logger)
     ),
   };
 }
@@ -1007,7 +1007,7 @@ function transformSpecialForm(
     case "!=":
       // Handle inequality - just transform all arguments
       list.elements.slice(1).forEach((elem) => {
-        transformed.push(transformNode(elem, enumDefinitions, logger));
+        transformed.push(transformSExpNode(elem, enumDefinitions, logger));
       });
       break;
 
@@ -1016,22 +1016,22 @@ function transformSpecialForm(
       if (list.elements.length >= 3) {
         // Transform the test expression (which might be an equality check)
         transformed.push(
-          transformNode(list.elements[1], enumDefinitions, logger),
+          transformSExpNode(list.elements[1], enumDefinitions, logger),
         );
         // Transform the 'then' expression
         transformed.push(
-          transformNode(list.elements[2], enumDefinitions, logger),
+          transformSExpNode(list.elements[2], enumDefinitions, logger),
         );
         // Transform the 'else' expression if it exists
         if (list.elements.length > 3) {
           transformed.push(
-            transformNode(list.elements[3], enumDefinitions, logger),
+            transformSExpNode(list.elements[3], enumDefinitions, logger),
           );
         }
       } else {
         // Just transform all elements without special handling
         list.elements.slice(1).forEach((elem) => {
-          transformed.push(transformNode(elem, enumDefinitions, logger));
+          transformed.push(transformSExpNode(elem, enumDefinitions, logger));
         });
       }
       break;
@@ -1043,7 +1043,7 @@ function transformSpecialForm(
         if (isList(clause)) {
           // Transform each clause as a list
           const clauseList = clause as SList;
-          const transformedClause = transformNode(
+          const transformedClause = transformSExpNode(
             clauseList,
             enumDefinitions,
             logger,
@@ -1051,7 +1051,7 @@ function transformSpecialForm(
           transformed.push(transformedClause);
         } else {
           // If not a list, just transform the element
-          transformed.push(transformNode(clause, enumDefinitions, logger));
+          transformed.push(transformSExpNode(clause, enumDefinitions, logger));
         }
       }
       break;
@@ -1062,18 +1062,18 @@ function transformSpecialForm(
       if (list.elements.length >= 2) {
         // Transform the test expression
         transformed.push(
-          transformNode(list.elements[1], enumDefinitions, logger),
+          transformSExpNode(list.elements[1], enumDefinitions, logger),
         );
         // Transform each body expression
         for (let i = 2; i < list.elements.length; i++) {
           transformed.push(
-            transformNode(list.elements[i], enumDefinitions, logger),
+            transformSExpNode(list.elements[i], enumDefinitions, logger),
           );
         }
       } else {
         // Just transform all elements without special handling
         list.elements.slice(1).forEach((elem) => {
-          transformed.push(transformNode(elem, enumDefinitions, logger));
+          transformed.push(transformSExpNode(elem, enumDefinitions, logger));
         });
       }
       break;
@@ -1081,7 +1081,7 @@ function transformSpecialForm(
     default:
       // For any other special form, just transform all elements
       list.elements.slice(1).forEach((elem) => {
-        transformed.push(transformNode(elem, enumDefinitions, logger));
+        transformed.push(transformSExpNode(elem, enumDefinitions, logger));
       });
   }
 
@@ -1203,7 +1203,7 @@ function transformDotChainForm(
       logger.debug("Transforming dot-chain form");
 
       // Start with the base object
-      let result = transformNode(list.elements[0], enumDefinitions, logger);
+      let result = transformSExpNode(list.elements[0], enumDefinitions, logger);
 
       // Group methods and their arguments
       const methodGroups = [];
@@ -1231,7 +1231,7 @@ function transformDotChainForm(
         } // If not a method indicator, it's an argument to the current method
         else if (currentMethod !== null) {
           // Transform the argument recursively
-          const transformedArg = transformNode(
+          const transformedArg = transformSExpNode(
             element,
             enumDefinitions,
             logger,
@@ -1385,12 +1385,12 @@ function transformNamedFnSyntax(
 
   // Transform the parameter list elements
   const transformedParams = paramsList.elements.map((param) =>
-    transformNode(param, enumDefinitions, logger)
+    transformSExpNode(param, enumDefinitions, logger)
   );
 
   // Extract the body expressions (start at index 3, after name and params)
   const body = list.elements.slice(3).map((elem) =>
-    transformNode(elem, enumDefinitions, logger)
+    transformSExpNode(elem, enumDefinitions, logger)
   );
 
   // Return simple fn form (no return type)
@@ -1434,12 +1434,12 @@ function transformAnonymousFnSyntax(
 
   // Transform the parameter list elements
   const transformedParams = paramsList.elements.map((param) =>
-    transformNode(param, enumDefinitions, logger)
+    transformSExpNode(param, enumDefinitions, logger)
   );
 
   // Extract and transform body expressions (start at index 2, after params)
   const body = list.elements.slice(2).map((elem) =>
-    transformNode(elem, enumDefinitions, logger)
+    transformSExpNode(elem, enumDefinitions, logger)
   );
 
   // Return anonymous function form (no name)

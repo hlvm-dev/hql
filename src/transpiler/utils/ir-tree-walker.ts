@@ -8,6 +8,9 @@
 
 import * as IR from "../type/hql_ir.ts";
 
+// Module-level constant Set (avoids per-call allocation)
+const IR_SKIP_KEYS = new Set(["type", "position", "loc", "start", "end", "range"]);
+
 /**
  * Check if an IR node tree contains any node of the specified type.
  * Uses generic tree walking - automatically handles ALL IR node types.
@@ -60,11 +63,8 @@ function walkChildren(
   node: IR.IRNode,
   fn: (child: IR.IRNode) => boolean,
 ): boolean {
-  // Skip non-IR metadata properties
-  const skipKeys = new Set(["type", "position", "loc", "start", "end", "range"]);
-
   for (const key of Object.keys(node)) {
-    if (skipKeys.has(key)) continue;
+    if (IR_SKIP_KEYS.has(key)) continue;
 
     const value = (node as unknown as Record<string, unknown>)[key];
     if (!value || typeof value !== "object") continue;
@@ -141,17 +141,7 @@ export function containsThrowStatement(node: IR.IRNode | null | undefined): bool
   return containsNodeType(node ?? null, IR.IRNodeType.ThrowStatement);
 }
 
-/**
- * Check if tree contains any Identifier with the given name
- */
-export function containsIdentifier(
-  node: IR.IRNode | null | undefined,
-  name: string,
-): boolean {
-  return containsMatch(node, (n) =>
-    n.type === IR.IRNodeType.Identifier && (n as IR.IRIdentifier).name === name
-  );
-}
+// Note: containsIdentifier was removed - it was never used anywhere in the codebase
 
 // ============================================================================
 // Scope-aware walking utilities
@@ -197,10 +187,8 @@ function walkChildrenInScope(
   fn: (child: IR.IRNode) => boolean,
   options: ScopeWalkOptions = {},
 ): boolean {
-  const skipKeys = new Set(["type", "position", "loc", "start", "end", "range"]);
-
   for (const key of Object.keys(node)) {
-    if (skipKeys.has(key)) continue;
+    if (IR_SKIP_KEYS.has(key)) continue;
 
     const value = (node as unknown as Record<string, unknown>)[key];
     if (!value || typeof value !== "object") continue;

@@ -45,6 +45,9 @@ export interface TextAttachment {
   size: number;
 }
 
+/** Union type for all attachment types (single source of truth) */
+export type AnyAttachment = Attachment | TextAttachment;
+
 export interface AttachmentError {
   type: "not_found" | "permission_denied" | "size_exceeded" | "unsupported_type" | "read_error";
   message: string;
@@ -169,6 +172,9 @@ export const TEXT_COLLAPSE_MIN_LINES = 5;
 
 /** Minimum character count to trigger text collapse */
 export const TEXT_COLLAPSE_MIN_CHARS = 300;
+
+/** Pre-compiled newline detection (handles \n, \r\n, \r) */
+const NEWLINE_SPLIT_REGEX = /\r?\n|\r/;
 
 /** Supported media file extensions (for quick check) */
 const MEDIA_EXTENSIONS = new Set(Object.keys(EXT_TO_MIME));
@@ -352,7 +358,7 @@ export function formatAttachmentDetail(attachment: Attachment): string {
  */
 export function shouldCollapseText(text: string): boolean {
   // Handle all newline formats: \n (Unix), \r\n (Windows), \r (old Mac)
-  const lineCount = text.split(/\r?\n|\r/).length;
+  const lineCount = text.split(NEWLINE_SPLIT_REGEX).length;
 
   // CRITICAL: Must have actual newlines to be a "pasted text block"
   // Single lines (even if 1000+ chars) should be inserted directly
@@ -368,7 +374,7 @@ export function shouldCollapseText(text: string): boolean {
  * Count lines handling all newline formats
  */
 export function countLines(text: string): number {
-  return text.split(/\r?\n|\r/).length;
+  return text.split(NEWLINE_SPLIT_REGEX).length;
 }
 
 /**
@@ -399,7 +405,7 @@ export function createTextAttachment(content: string, id: number): TextAttachmen
  * Get a preview of text attachment content
  */
 export function getTextAttachmentPreview(attachment: TextAttachment, maxLines = 5): string {
-  const lines = attachment.content.split(/\r?\n|\r/);
+  const lines = attachment.content.split(NEWLINE_SPLIT_REGEX);
   const preview = lines.slice(0, maxLines).join("\n");
   const remaining = lines.length - maxLines;
   return remaining > 0 ? `${preview}\n... +${remaining} more lines` : preview;

@@ -10,10 +10,10 @@
  * 3. Helper functions for converting attachments to content blocks
  */
 
-import type { Attachment, TextAttachment, AttachmentType } from "./attachment.ts";
+import type { Attachment, TextAttachment, AttachmentType, AnyAttachment } from "./attachment.ts";
 
-/** Union type for all attachment types */
-export type AnyAttachment = Attachment | TextAttachment;
+// Re-export AnyAttachment for consumers (single source of truth is attachment.ts)
+export type { AnyAttachment };
 
 // ============================================================================
 // Content Block Types (API Format)
@@ -119,9 +119,9 @@ function isTextAttachment(attachment: AnyAttachment): attachment is TextAttachme
 }
 
 /**
- * Convert a single attachment to a content block
+ * Convert a single attachment to a content block (internal helper)
  */
-export function attachmentToContentBlock(attachment: AnyAttachment): ContentBlock {
+function attachmentToContentBlock(attachment: AnyAttachment): ContentBlock {
   // Handle text attachments (pasted text)
   if (isTextAttachment(attachment)) {
     return {
@@ -198,133 +198,3 @@ export function attachmentsToContentBlocks(
 
   return blocks;
 }
-
-/**
- * Replace attachment placeholders in text with descriptions
- *
- * Transforms: "[Image #1] What's in this?"
- * To: "<image 1: screenshot.png> What's in this?"
- *
- * For pasted text: "[Pasted text #1 +183 lines]"
- * To: "<pasted_text 1: 183 lines>"
- *
- * Useful for backends that don't support multimodal content
- */
-export function replaceAttachmentPlaceholders(
-  text: string,
-  attachments: AnyAttachment[]
-): string {
-  let result = text;
-
-  for (const attachment of attachments) {
-    // Match [Image #1], [PDF #2], [Pasted text #1 +N lines], etc.
-    const placeholder = attachment.displayName;
-
-    if (isTextAttachment(attachment)) {
-      const description = `<pasted_text ${attachment.id}: ${attachment.lineCount} lines>`;
-      result = result.replace(placeholder, description);
-    } else {
-      const description = `<${attachment.type} ${attachment.id}: ${attachment.fileName}>`;
-      result = result.replace(placeholder, description);
-    }
-  }
-
-  return result;
-}
-
-// ============================================================================
-// Stub Backend Implementation (for testing)
-// ============================================================================
-
-/**
- * Stub backend that logs attachments (for development/testing)
- */
-export class StubBackend implements AttachmentBackend {
-  name = "stub";
-
-  supportsType(_type: AttachmentType): boolean {
-    return true; // Accept all types
-  }
-
-  supportedMimeTypes(): string[] {
-    return ["*/*"]; // Accept all
-  }
-
-  formatForApi(attachments: AnyAttachment[], text: string): unknown {
-    // Just return a structured object for inspection
-    return {
-      backend: "stub",
-      text,
-      attachments: attachments.map((a) => {
-        if (isTextAttachment(a)) {
-          return {
-            id: a.id,
-            type: a.type,
-            displayName: a.displayName,
-            lineCount: a.lineCount,
-            size: a.size,
-            // Truncate content in logs
-            contentPreview: a.content.slice(0, 100) + (a.content.length > 100 ? "..." : ""),
-          };
-        }
-        return {
-          id: a.id,
-          type: a.type,
-          displayName: a.displayName,
-          fileName: a.fileName,
-          mimeType: a.mimeType,
-          size: a.size,
-          // Don't include base64Data in logs - too large
-          hasData: !!a.base64Data,
-        };
-      }),
-      contentBlocks: attachmentsToContentBlocks(text, attachments).map((block) => {
-        if (block.type === "text") return block;
-        if (block.type === "pasted_text") {
-          return {
-            ...block,
-            text: block.text.slice(0, 100) + (block.text.length > 100 ? "..." : ""),
-          };
-        }
-        // Truncate base64 data in logs
-        return {
-          ...block,
-          source: {
-            ...("source" in block ? block.source : {}),
-            data: "[base64 data truncated]",
-          },
-        };
-      }),
-    };
-  }
-}
-
-// ============================================================================
-// Backend Registry (for future use)
-// ============================================================================
-
-const backends = new Map<string, AttachmentBackend>();
-
-/**
- * Register a backend implementation
- */
-export function registerBackend(backend: AttachmentBackend): void {
-  backends.set(backend.name, backend);
-}
-
-/**
- * Get a registered backend by name
- */
-export function getBackend(name: string): AttachmentBackend | undefined {
-  return backends.get(name);
-}
-
-/**
- * Get all registered backends
- */
-export function getAllBackends(): AttachmentBackend[] {
-  return Array.from(backends.values());
-}
-
-// Register stub backend by default
-registerBackend(new StubBackend());

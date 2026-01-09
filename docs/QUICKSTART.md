@@ -76,13 +76,17 @@ Maps:
 ```lisp
 (let numbers [1 2 3 4 5])
 
-; Double all numbers
+; Double all numbers (lazy - prints as list like Clojure)
 (map (fn [x] (* x 2)) numbers)
-; → [2 4 6 8 10]
+; → (2 4 6 8 10)
 
 ; Filter evens
 (filter (fn [x] (=== (% x 2) 0)) numbers)
-; → [2 4]
+; → (2 4)
+
+; Convert to vector/array if needed
+(vec (map (fn [x] (* x 2)) numbers))
+; → [2 4 6 8 10]
 
 ; Sum
 (reduce + 0 numbers)
@@ -106,7 +110,7 @@ hql> (square 5)
 25
 
 hql> (map square [1 2 3 4])
-[1 4 9 16]
+(1 4 9 16)
 ```
 
 ## Next Steps

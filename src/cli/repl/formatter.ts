@@ -5,8 +5,36 @@
 
 import { ANSI_COLORS } from "../ansi.ts";
 import { escapeString } from "./string-utils.ts";
+import { SEQ_SYMBOL } from "../../common/protocol-symbols.ts";
 
 const { CYAN, YELLOW, RED, DIM_GRAY, RESET } = ANSI_COLORS;
+
+/**
+ * Check if value implements SEQ protocol (LazySeq, Cons, ArraySeq, NumericRange, etc.)
+ */
+function isSeqType(value: unknown): boolean {
+  return value != null && typeof value === "object" && (value as Record<symbol, unknown>)[SEQ_SYMBOL] === true;
+}
+
+/**
+ * Safely realize a sequence to an array for display.
+ * Limits to prevent infinite sequences from hanging.
+ */
+function realizeSeqForDisplay(value: unknown, maxItems = 100): unknown[] | null {
+  try {
+    const result: unknown[] = [];
+    let count = 0;
+    // deno-lint-ignore no-explicit-any
+    for (const item of value as any) {
+      if (count >= maxItems) break;
+      result.push(item);
+      count++;
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
 
 /** Format a value for display */
 export function formatValue(value: unknown, depth = 0): string {
@@ -68,6 +96,24 @@ export function formatValue(value: unknown, depth = 0): string {
     }
     const items = value.map(v => formatValue(v, depth + 1)).join(" ");
     return `[${items}]`;
+  }
+
+  // Handle SEQ protocol types: LazySeq, Cons, ArraySeq, NumericRange, ChunkedCons, etc.
+  // These are Clojure-style lazy sequences that need to be realized for display.
+  if (isSeqType(value)) {
+    if (depth > 3) return `${DIM_GRAY}(...)${RESET}`;
+    const realized = realizeSeqForDisplay(value);
+    if (realized === null) {
+      return `${DIM_GRAY}#<Seq: error realizing>${RESET}`;
+    }
+    if (realized.length === 0) return "()";
+    if (realized.length > 20) {
+      const first10 = realized.slice(0, 10).map(v => formatValue(v, depth + 1)).join(" ");
+      const last3 = realized.slice(-3).map(v => formatValue(v, depth + 1)).join(" ");
+      return `(${first10} ${DIM_GRAY}... ${realized.length - 13} more ...${RESET} ${last3})`;
+    }
+    const items = realized.map(v => formatValue(v, depth + 1)).join(" ");
+    return `(${items})`;
   }
 
   if (typeof value === "object" && value !== null) {

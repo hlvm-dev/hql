@@ -21,6 +21,15 @@ import { CodeBuffer, type SourceMapping } from "../codegen/code-buffer.ts";
 import { Precedence, getExprPrecedence, isRightAssociative } from "../codegen/precedence.ts";
 
 // ============================================================================
+// Pre-compiled Regex Patterns (avoid compilation in hot paths)
+// ============================================================================
+
+/** Matches valid JavaScript identifiers */
+const VALID_JS_IDENTIFIER_REGEX = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+/** Matches private field identifiers (#name) */
+const PRIVATE_FIELD_IDENTIFIER_REGEX = /^#[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -3007,7 +3016,8 @@ class TSGenerator {
    */
   private isValidJsIdentifier(name: string): boolean {
     // Match regular identifiers or private field identifiers (#name)
-    return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name) || /^#[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
+    // Uses pre-compiled module-level patterns for performance
+    return VALID_JS_IDENTIFIER_REGEX.test(name) || PRIVATE_FIELD_IDENTIFIER_REGEX.test(name);
   }
 
   private generateJsMethodAccess(node: IR.IRJsMethodAccess): void {

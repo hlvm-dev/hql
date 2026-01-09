@@ -54,7 +54,7 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
         void contentBlocks; // Suppress unused variable warning
       }
 
-      // Pass attachments to evaluator for paste-N variable registration
+      // Pass attachments to evaluator (adds to pastes/attachments vectors)
       return await hqlEvaluate(resolvedCode, state, jsMode, attachments);
     } catch (error) {
       return {

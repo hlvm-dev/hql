@@ -556,8 +556,14 @@ See [Standard Library Reference](./api/stdlib.md) for complete documentation.
 ### Transformations
 
 ```clojure
-(map (fn [x] (* x 2)) [1 2 3])     ; → [2 4 6]
-(filter (fn [x] (> x 2)) [1 2 3])  ; → [3]
+; map and filter return lazy sequences (print as lists like Clojure)
+(map (fn [x] (* x 2)) [1 2 3])     ; → (2 4 6)
+(filter (fn [x] (> x 2)) [1 2 3])  ; → (3)
+
+; Use vec to get a concrete array
+(vec (map (fn [x] (* x 2)) [1 2 3])) ; → [2 4 6]
+
+; reduce consumes the sequence
 (reduce + 0 [1 2 3 4])             ; → 10
 ```
 

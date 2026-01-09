@@ -152,7 +152,7 @@ export function processEscapeSequences(
   additionalEscapes: Readonly<Record<string, string>> = {},
 ): string {
   const escapes = { ...SIMPLE_ESCAPES, ...additionalEscapes };
-  let result = "";
+  const parts: string[] = [];
   let i = 0;
 
   while (i < content.length) {
@@ -164,7 +164,7 @@ export function processEscapeSequences(
 
       // Check simple escapes first
       if (escapeChar in escapes) {
-        result += escapes[escapeChar];
+        parts.push(escapes[escapeChar]);
         i++;
         continue;
       }
@@ -173,12 +173,12 @@ export function processEscapeSequences(
       if (escapeChar === "x") {
         const hexResult = processHexEscape(content.slice(i + 1));
         if (hexResult) {
-          result += hexResult.value;
+          parts.push(hexResult.value);
           i += 1 + hexResult.consumed;
           continue;
         }
         // Invalid hex escape - keep as-is
-        result += "x";
+        parts.push("x");
         i++;
         continue;
       }
@@ -187,24 +187,24 @@ export function processEscapeSequences(
       if (escapeChar === "u") {
         const unicodeResult = processUnicodeEscape(content.slice(i + 1));
         if (unicodeResult) {
-          result += unicodeResult.value;
+          parts.push(unicodeResult.value);
           i += 1 + unicodeResult.consumed;
           continue;
         }
         // Invalid unicode escape - keep as-is
-        result += "u";
+        parts.push("u");
         i++;
         continue;
       }
 
       // Unknown escape - keep the character
-      result += escapeChar;
+      parts.push(escapeChar);
       i++;
     } else {
-      result += content[i];
+      parts.push(content[i]);
       i++;
     }
   }
 
-  return result;
+  return parts.join("");
 }

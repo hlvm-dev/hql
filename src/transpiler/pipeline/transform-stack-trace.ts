@@ -19,6 +19,10 @@
 import { mapPositionSync } from "./source-map-support.ts";
 import { globalLogger as logger } from "../../logger.ts";
 
+// Pre-compiled stack trace parsing patterns
+const STACK_FRAME_WITH_PARENS_REGEX = /^(\s+at\s+)(.+?)\s+\((.+):(\d+):(\d+)\)$/;
+const STACK_FRAME_NO_PARENS_REGEX = /^(\s+at\s+)(.+):(\d+):(\d+)$/;
+
 /**
  * Transform a JavaScript stack trace to show HQL source positions
  *
@@ -56,12 +60,12 @@ export function transformStackTrace(error: Error): string {
     // 1. With function name: "    at functionName (file:line:column)"
     // 2. Without function name: "    at file:line:column"
 
-    let match = line.match(/^(\s+at\s+)(.+?)\s+\((.+):(\d+):(\d+)\)$/);
+    let match = line.match(STACK_FRAME_WITH_PARENS_REGEX);
     let hasFunction = true;
 
     if (!match) {
       // Try pattern without function name
-      match = line.match(/^(\s+at\s+)(.+):(\d+):(\d+)$/);
+      match = line.match(STACK_FRAME_NO_PARENS_REGEX);
       hasFunction = false;
     }
 

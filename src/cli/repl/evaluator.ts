@@ -14,12 +14,13 @@ import { extractTypeFromSymbol } from "../../transpiler/tokenizer/type-tokenizer
 import type { ReplState } from "./state.ts";
 import { appendToMemory } from "./memory.ts";
 import { evaluateJS, extractJSBindings } from "./js-eval.ts";
-import {
-  registerAttachments,
-  preprocessCode,
-  recordUserInput,
-} from "./context.ts";
+import { addPaste, addAttachment, addConversationTurn } from "./context.ts";
 import type { AnyAttachment } from "./attachment-protocol.ts";
+import type { TextAttachment, Attachment } from "./attachment.ts";
+import { extractDocstrings } from "./docstring.ts";
+
+// Pre-compiled pattern for extracting generic base type
+const GENERIC_BASE_TYPE_REGEX = /^([^<]+)/;
 
 // Constants
 const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
@@ -58,7 +59,7 @@ function extractIdentifierName(symbolName: string): string {
   const { name: withoutType } = extractTypeFromSymbol(symbolName);
 
   // Then remove generic parameters (e.g., "identity<T>" -> "identity")
-  const genericMatch = withoutType.match(/^([^<]+)/);
+  const genericMatch = withoutType.match(GENERIC_BASE_TYPE_REGEX);
   return genericMatch ? genericMatch[1] : withoutType;
 }
 
@@ -138,32 +139,36 @@ export async function evaluate(
     return { success: true, suppressOutput: true };
   }
 
-  // Register any text attachments as paste-N variables
+  // Register attachments to context vectors
   if (attachments && attachments.length > 0) {
-    registerAttachments(attachments);
-
-    // Register paste-N bindings for autocomplete
     for (const att of attachments) {
-      if (att.type === "text") {
-        state.addBinding(`paste-${att.id}`);
+      if (att.type === "text" && "content" in att) {
+        const textAtt = att as TextAttachment;
+        addPaste(textAtt.content);
+      } else if ("base64Data" in att) {
+        const mediaAtt = att as Attachment;
+        addAttachment(
+          mediaAtt.type,
+          mediaAtt.displayName,
+          mediaAtt.path,
+          mediaAtt.mimeType,
+          mediaAtt.size
+        );
       }
     }
   }
 
-  // Preprocess code: transform [Pasted text #N] → paste-N
-  const processedCode = preprocessCode(trimmed);
-
-  // Record user input for conversation context
-  recordUserInput(processedCode);
+  // Record user input to conversation
+  addConversationTurn("user", trimmed);
 
   // JavaScript mode: if input doesn't start with '(', evaluate as JavaScript
-  if (jsMode && !processedCode.startsWith("(")) {
+  if (jsMode && !trimmed.startsWith("(")) {
     try {
       // Extract bindings for state tracking
-      const bindings = extractJSBindings(processedCode);
+      const bindings = extractJSBindings(trimmed);
 
       // Evaluate JavaScript (transforms to persist to globalThis)
-      const result = evaluateJS(processedCode);
+      const result = evaluateJS(trimmed);
 
       // Track bindings in REPL state for autocompletion
       for (const name of bindings) {
@@ -178,9 +183,15 @@ export async function evaluate(
 
   // HQL evaluation
   try {
-    const ast = parse(processedCode, "<repl>");
+    const ast = parse(trimmed, "<repl>");
     if (ast.length === 0) {
       return { success: true, suppressOutput: true };
+    }
+
+    // Extract docstrings from comments and store in state
+    const docstrings = extractDocstrings(trimmed);
+    if (docstrings.size > 0) {
+      state.addDocstrings(docstrings);
     }
 
     // Handle multiple expressions: build code that evaluates all and returns last

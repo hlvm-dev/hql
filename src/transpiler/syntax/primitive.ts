@@ -23,6 +23,9 @@ const COMPOUND_ASSIGN_OPS_SET: ReadonlySet<string> = new Set([
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>=", ">>>="
 ]);
 
+/** Pre-compiled regex for numeric index detection (array.0, tuple.1, etc.) */
+const NUMERIC_INDEX_REGEX = /^\d+$/;
+
 /**
  * Transform primitive operations (+, -, *, /, etc.).
  */
@@ -523,7 +526,8 @@ export function transformAssignment(
           // Helper to create member expression based on property type
           const createMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
              // Check for numeric index (e.g. array.0 or tuple.1)
-             if (/^\d+$/.test(propStr)) {
+             // Uses pre-compiled module-level regex for performance
+             if (NUMERIC_INDEX_REGEX.test(propStr)) {
                  return {
                     type: IR.IRNodeType.MemberExpression,
                     object,
@@ -654,7 +658,8 @@ export function transformLogicalAssignment(
           // Helper to create member expression based on property type
           const createMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
             // Check for numeric index (e.g. array.0 or tuple.1)
-            if (/^\d+$/.test(propStr)) {
+            // Uses pre-compiled module-level regex for performance
+            if (NUMERIC_INDEX_REGEX.test(propStr)) {
               return {
                 type: IR.IRNodeType.MemberExpression,
                 object,
@@ -779,7 +784,8 @@ export function transformCompoundAssignment(
           // Helper to create member expression based on property type
           const createMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
             // Check for numeric index (e.g. array.0 or tuple.1)
-            if (/^\d+$/.test(propStr)) {
+            // Uses pre-compiled module-level regex for performance
+            if (NUMERIC_INDEX_REGEX.test(propStr)) {
               return {
                 type: IR.IRNodeType.MemberExpression,
                 object,

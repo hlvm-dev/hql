@@ -25,6 +25,34 @@ import { readTextFile as platformReadTextFile } from "../platform/platform.ts";
 import { extractContextLinesFromSource } from "./context-helpers.ts";
 
 // -----------------------------------------------------------------------------
+// Pre-compiled Regex Patterns
+// -----------------------------------------------------------------------------
+
+/** Matches HQL error code prefix [HQLxxxx] at start of message */
+const STRIP_ERROR_CODE_REGEX = /^\[HQL\d{4}\]\s*/;
+
+// Message cleanup patterns (used in formatHQLError)
+const STACK_TRACE_AT_REGEX = /\s+at\s+\S+:\d+:\d+$/;
+const STACK_TRACE_PAREN_REGEX = /\s+\(\S+:\d+:\d+\)$/;
+const ERROR_CODE_PREFIX_REGEX = /^\[HQL\d+\]\s*/;
+const LOCATION_STARTING_REGEX = /\s*starting at line \d+\.?/gi;
+const LOCATION_AT_LINE_COL_REGEX = /\s*at line \d+:\d+/gi;
+const LOCATION_AT_LINE_REGEX = /\s*at line \d+/gi;
+const DOUBLE_PERIOD_REGEX = /\.\s*\./g;
+
+// Context formatting patterns
+const TAB_CHAR_REGEX = /\t/g;
+const TOKEN_EXTRACT_REGEX = /^[^\s()[\]{}'"`,;]+/;
+
+// Error message extraction patterns
+const UNDEFINED_VAR_REGEX = /['"`]?(\w+)['"`]?\s+is not defined/i;
+const EXPECTED_COUNT_REGEX = /expected (\d+)/i;
+const QUOTED_NAME_REGEX = /['"`](\w+)['"`]/;
+
+// Line splitting pattern
+const LINE_SPLIT_REGEX = /\r?\n/;
+
+// -----------------------------------------------------------------------------
 // Color utilities
 // -----------------------------------------------------------------------------
 
@@ -125,7 +153,7 @@ function extractExistingErrorCode(msg: string): HQLErrorCode | null {
  * Returns the message without the [HQLxxxx] prefix.
  */
 function stripErrorCodeFromMessage(msg: string): string {
-  return msg.replace(/^\[HQL\d{4}\]\s*/, "");
+  return msg.replace(STRIP_ERROR_CODE_REGEX, "");
 }
 
 /**
@@ -221,12 +249,13 @@ function formatContextLines(
         const TAB_WIDTH = 4;
         let effectiveColumn = column;
         const textBefore = text.substring(0, column - 1);
-        const tabCount = (textBefore.match(/\t/g) || []).length;
+        const tabMatches = textBefore.match(TAB_CHAR_REGEX);
+        const tabCount = tabMatches ? tabMatches.length : 0;
         effectiveColumn += tabCount * (TAB_WIDTH - 1);
 
         // Try to determine error span length (for ^^^^ underline)
         // Extract the token at error position for smarter underlines
-        const tokenMatch = text.substring(column - 1).match(/^[^\s()[\]{}'"`,;]+/);
+        const tokenMatch = text.substring(column - 1).match(TOKEN_EXTRACT_REGEX);
         const underlineLength = tokenMatch ? tokenMatch[0].length : 1;
 
         // Create underline with carets
@@ -266,7 +295,7 @@ function extractErrorLabel(message: string): string | null {
   // Undefined/not defined errors
   // ─────────────────────────────────────────────────────────────────────────
   if (lower.includes("is not defined")) {
-    const match = message.match(/['"`]?(\w+)['"`]?\s+is not defined/i);
+    const match = message.match(UNDEFINED_VAR_REGEX);
     if (match) return `not found in this scope`;
     return "not defined";
   }
@@ -279,13 +308,13 @@ function extractErrorLabel(message: string): string | null {
   // Function call errors
   // ─────────────────────────────────────────────────────────────────────────
   if (lower.includes("too many") && lower.includes("argument")) {
-    const match = message.match(/expected (\d+)/i);
+    const match = message.match(EXPECTED_COUNT_REGEX);
     if (match) return `expected ${match[1]} argument(s)`;
     return "too many arguments";
   }
 
   if (lower.includes("missing") && lower.includes("argument")) {
-    const match = message.match(/['"`](\w+)['"`]/);
+    const match = message.match(QUOTED_NAME_REGEX);
     if (match) return `missing \`${match[1]}\``;
     return "missing argument";
   }
@@ -399,15 +428,19 @@ export async function formatHQLError(
   let message = error.message || "An unknown error occurred";
 
   // Clean up redundant location references (we show them better in the --> line)
-  message = message.replace(/\s+at\s+\S+:\d+:\d+$/, "");
-  message = message.replace(/\s+\(\S+:\d+:\d+\)$/, "");
-  message = message.replace(/^\[HQL\d+\]\s*/, "");
+  message = message.replace(STACK_TRACE_AT_REGEX, "");
+  message = message.replace(STACK_TRACE_PAREN_REGEX, "");
+  message = message.replace(ERROR_CODE_PREFIX_REGEX, "");
   // Remove location info from message (we show it separately in --> line)
-  message = message.replace(/\s*starting at line \d+\.?/gi, "");
-  message = message.replace(/\s*at line \d+:\d+/gi, "");
-  message = message.replace(/\s*at line \d+/gi, "");
+  // Note: These patterns have 'g' flag, so we need to reset lastIndex before each use
+  LOCATION_STARTING_REGEX.lastIndex = 0;
+  message = message.replace(LOCATION_STARTING_REGEX, "");
+  LOCATION_AT_LINE_COL_REGEX.lastIndex = 0;
+  message = message.replace(LOCATION_AT_LINE_COL_REGEX, "");
+  LOCATION_AT_LINE_REGEX.lastIndex = 0;
+  message = message.replace(LOCATION_AT_LINE_REGEX, "");
   // Clean up double periods that might result from cleanup
-  message = message.replace(/\.\s*\./g, ".");
+  message = message.replace(DOUBLE_PERIOD_REGEX, ".");
   // Trim any trailing punctuation cleanup artifacts
   message = message.trim();
 
@@ -448,7 +481,7 @@ export async function formatHQLError(
       const column = error.sourceLocation.column || 1;
 
       const fileContent = await platformReadTextFile(filepath);
-      const fileLines = fileContent.split(/\r?\n/);
+      const fileLines = fileContent.split(LINE_SPLIT_REGEX);
       const errorIdx = line - 1;
 
       if (errorIdx >= 0 && errorIdx < fileLines.length) {
@@ -564,7 +597,7 @@ function getErrorNote(error: HQLError): string | null {
   // Undefined variable errors
   // ─────────────────────────────────────────────────────────────────────────
   if (message.includes("is not defined")) {
-    const match = error.message.match(/['"`]?(\w+)['"`]?\s+is not defined/i);
+    const match = error.message.match(UNDEFINED_VAR_REGEX);
     if (match) {
       const name = match[1];
       // Short names more prone to typos

@@ -28,15 +28,17 @@ let loopIdCounter = 0;
 
 /**
  * Generate a unique loop identifier for proper recur targeting
+ * Internal helper - not exported as it's only used within this module
  */
-export function generateLoopId(): string {
+function generateLoopId(): string {
   return `loop_${loopIdCounter++}`;
 }
 
 /**
  * Get the current loop context - used by recur to know which loop to target
+ * Internal helper - not exported as it's only used within this module
  */
-export function getCurrentLoopContext(): string | undefined {
+function getCurrentLoopContext(): string | undefined {
   return loopContextStack.length > 0
     ? loopContextStack[loopContextStack.length - 1]
     : undefined;
@@ -44,15 +46,17 @@ export function getCurrentLoopContext(): string | undefined {
 
 /**
  * Push a new loop context to the stack
+ * Internal helper - not exported as it's only used within this module
  */
-export function pushLoopContext(loopId: string): void {
+function pushLoopContext(loopId: string): void {
   loopContextStack.push(loopId);
 }
 
 /**
  * Pop the most recent loop context from the stack
+ * Internal helper - not exported as it's only used within this module
  */
-export function popLoopContext(): string | undefined {
+function popLoopContext(): string | undefined {
   return loopContextStack.pop();
 }
 

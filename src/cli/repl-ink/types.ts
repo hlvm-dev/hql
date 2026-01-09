@@ -2,10 +2,5 @@
  * HQL Ink REPL - Type Definitions (minimal)
  */
 
-/** Evaluation result from HQL/JS */
-export interface EvalResult {
-  success: boolean;
-  value?: unknown;
-  error?: Error;
-  suppressOutput?: boolean;
-}
+// Re-export EvalResult from evaluator.ts to avoid type duplication
+export type { EvalResult } from "../repl/evaluator.ts";

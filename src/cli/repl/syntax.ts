@@ -98,6 +98,11 @@ const BOOLEAN_SET: ReadonlySet<string> = new Set(["true", "false"]);
 // Nil/null literals
 const NIL_SET: ReadonlySet<string> = new Set(["nil", "null", "undefined"]);
 
+// Pre-compiled regex patterns for tokenizer hot path (avoid repeated compilation)
+const WHITESPACE_REGEX = /\s/;
+const DIGIT_REGEX = /[0-9]/;
+const HEX_DIGIT_REGEX = /[0-9a-fA-F]/;
+
 // ============================================================
 // Tokenizer
 // ============================================================
@@ -114,9 +119,9 @@ export function tokenize(input: string): Token[] {
     const ch = input[i];
 
     // Whitespace
-    if (/\s/.test(ch)) {
+    if (WHITESPACE_REGEX.test(ch)) {
       const start = i;
-      while (i < input.length && /\s/.test(input[i])) i++;
+      while (i < input.length && WHITESPACE_REGEX.test(input[i])) i++;
       tokens.push({ type: "whitespace", value: input.slice(start, i), start, end: i });
       continue;
     }
@@ -181,21 +186,21 @@ export function tokenize(input: string): Token[] {
     }
 
     // Number (including negative numbers)
-    if (/[0-9]/.test(ch) || (ch === "-" && i + 1 < input.length && /[0-9]/.test(input[i + 1]))) {
+    if (DIGIT_REGEX.test(ch) || (ch === "-" && i + 1 < input.length && DIGIT_REGEX.test(input[i + 1]))) {
       const start = i;
       if (ch === "-") i++;
       // Integer or float
-      while (i < input.length && /[0-9]/.test(input[i])) i++;
+      while (i < input.length && DIGIT_REGEX.test(input[i])) i++;
       if (i < input.length && input[i] === ".") {
         i++;
-        while (i < input.length && /[0-9]/.test(input[i])) i++;
+        while (i < input.length && DIGIT_REGEX.test(input[i])) i++;
       }
       // BigInt suffix
       if (i < input.length && input[i] === "n") i++;
       // Hex prefix
       if (input.slice(start, i) === "0" && i < input.length && (input[i] === "x" || input[i] === "X")) {
         i++;
-        while (i < input.length && /[0-9a-fA-F]/.test(input[i])) i++;
+        while (i < input.length && HEX_DIGIT_REGEX.test(input[i])) i++;
       }
       tokens.push({ type: "number", value: input.slice(start, i), start, end: i });
       continue;
@@ -204,7 +209,7 @@ export function tokenize(input: string): Token[] {
     // Symbol (identifier, keyword, or operator)
     if (!isDelimiter(ch)) {
       const start = i;
-      while (i < input.length && !isDelimiter(input[i]) && !/\s/.test(input[i])) i++;
+      while (i < input.length && !isDelimiter(input[i]) && !WHITESPACE_REGEX.test(input[i])) i++;
       const value = input.slice(start, i);
       const type = classifySymbol(value);
       tokens.push({ type, value, start, end: i });

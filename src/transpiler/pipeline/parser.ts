@@ -72,6 +72,10 @@ function countCodePoints(str: string): number {
   return [...str].length;
 }
 
+// Pre-compiled regex patterns for hot paths (avoid compilation per call)
+const DELIMITER_CHARS_REGEX = /[\s\(\)\[\]\{\}]/;
+const WHITESPACE_CHAR_REGEX = /\s/;
+
 const TOKEN_PATTERNS = {
   TEMPLATE_LITERAL: /`(?!\(|\[)(?:[^`\\$]|\\[\s\S]|\$(?!\{)|\$\{(?:[^}\\]|\\[\s\S])*\})*`/y,
   SPREAD_OPERATOR: /\.\.\.(?![a-zA-Z_$])/y,  // ... not followed by identifier (for inline expressions)
@@ -94,6 +98,9 @@ const TOKEN_PATTERNS = {
 
 // Type tokenization functions are imported from ../tokenizer/type-tokenizer.ts:
 // countAngleBracketDepth, countBraceDepth, looksLikeTypeAnnotation, scanBalancedBrackets
+
+/** Pre-compiled regex for BigInt literal detection (e.g., 123n, -456n) */
+const BIGINT_LITERAL_REGEX = /^-?\d+n$/;
 
 /**
  * Parse HQL source code into an S-expression AST
@@ -1015,7 +1022,8 @@ function matchNextToken(
   if (match) {
     let value = match[0];
     // Check for BigInt literal (number ending with 'n')
-    if (/^-?\d+n$/.test(value)) {
+    // Uses pre-compiled module-level regex for performance
+    if (BIGINT_LITERAL_REGEX.test(value)) {
       // Keep full value including 'n' for proper cursor advancement
       return { type: TokenType.BigInt, value, position };
     }
@@ -1042,7 +1050,7 @@ function matchNextToken(
           depth++;
         } else if (char === '>') {
           depth--;
-        } else if (/[\s\(\)\[\]\{\}]/.test(char) && depth === 0) {
+        } else if (DELIMITER_CHARS_REGEX.test(char) && depth === 0) {
           // Stop at delimiters only when depth is 0
           break;
         }
@@ -1053,7 +1061,7 @@ function matchNextToken(
       value = input.slice(cursor, pos);
 
       // Now check if there's a type annotation after the generic
-      if (pos < input.length && input[pos] === ':' && !/\s/.test(input[pos + 1] || '')) {
+      if (pos < input.length && input[pos] === ':' && !WHITESPACE_CHAR_REGEX.test(input[pos + 1] || '')) {
         const typeResult = tokenizeType(input, pos + 1);
         if (typeResult.type.length > 0 && typeResult.isValid) {
           value = input.slice(cursor, typeResult.endIndex);
@@ -1076,7 +1084,7 @@ function matchNextToken(
     // If there is a space after ':', treat it as a map key (x: y) -> tokens [x:, y]
     // If there is no space, treat it as a type annotation (x:type) -> token [x:type]
     // This disambiguates {x: 1} (map) from x:number (type).
-    if (canStartComplexType && nextCharPos < input.length && !/\s/.test(input[nextCharPos])) {
+    if (canStartComplexType && nextCharPos < input.length && !WHITESPACE_CHAR_REGEX.test(input[nextCharPos])) {
       const typeResult = tokenizeType(input, nextCharPos);
       // Only attach if it found a non-empty, valid type
       if (typeResult.type.length > 0 && typeResult.isValid) {

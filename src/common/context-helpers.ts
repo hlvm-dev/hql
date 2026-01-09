@@ -7,6 +7,9 @@ import { exists, readTextFile } from "../platform/platform.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { getErrorMessage } from "./utils.ts";
 
+// Pre-compiled newline pattern for line splitting
+const LINE_SPLIT_REGEX = /\r?\n/;
+
 /**
  * Represents a line of source code with context information.
  */
@@ -47,7 +50,7 @@ export function extractContextLinesFromSource(
     return [];
   }
 
-  const lines = source.split(/\r?\n/);
+  const lines = source.split(LINE_SPLIT_REGEX);
 
   // Validate line number is in range
   if (errorLine > lines.length) {

@@ -91,8 +91,8 @@ const WORD_BOUNDARY_CHARS: ReadonlySet<string> = new Set([
   ',', ';'
 ]);
 
-/** Check if character is a word boundary (shared by completer and suggester) */
-export function isWordBoundary(ch: string): boolean {
+/** Check if character is a word boundary (internal helper) */
+function isWordBoundary(ch: string): boolean {
   return WORD_BOUNDARY_CHARS.has(ch);
 }
 

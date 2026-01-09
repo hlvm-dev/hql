@@ -532,7 +532,6 @@ export function installSourceMapSupport(): void {
 
     const message = error.message || "Error";
     const name = error.name || "Error";
-    let result = `${name}: ${message}\n`;
 
     // Filter internal HQL runtime frames for cleaner stack traces
     const isInternalFrame = (fileName: string | null): boolean => {
@@ -567,6 +566,9 @@ export function installSourceMapSupport(): void {
 
     logger.debug(`[prepareStackTrace] Filtered ${hiddenCount} internal frames`);
 
+    // Use array.push + join instead of string concatenation for efficiency
+    const lines: string[] = [`${name}: ${message}`];
+
     for (const frame of framesToProcess) {
       const fileName = frame.getFileName();
       const lineNumber = frame.getLineNumber();
@@ -575,13 +577,13 @@ export function installSourceMapSupport(): void {
 
       // Native frames - return as-is
       if (frame.isNative()) {
-        result += `    at ${functionName || "<anonymous>"} (native)\n`;
+        lines.push(`    at ${functionName || "<anonymous>"} (native)`);
         continue;
       }
 
       // No file information - return basic format
       if (!fileName || lineNumber === null) {
-        result += `    at ${functionName || "<anonymous>"}\n`;
+        lines.push(`    at ${functionName || "<anonymous>"}`);
         continue;
       }
 
@@ -602,7 +604,7 @@ export function installSourceMapSupport(): void {
         );
         const mappedName = mapped.name || functionName || "<anonymous>";
         const location = `${mapped.source}:${mapped.line}:${mapped.column + 1}`; // +1 for 1-indexed column display
-        result += `    at ${mappedName} (${location})\n`;
+        lines.push(`    at ${mappedName} (${location})`);
       } else {
         logger.debug(`[prepareStackTrace] ❌ No mapping found`);
         // No source map - use original JS position
@@ -610,18 +612,17 @@ export function installSourceMapSupport(): void {
         const location = columnNumber !== null
           ? `${fileName}:${lineNumber}:${columnNumber}`
           : `${fileName}:${lineNumber}`;
-        result += `    at ${originalName} (${location})\n`;
+        lines.push(`    at ${originalName} (${location})`);
       }
     }
 
     // Add note about hidden frames if any were filtered
     if (hiddenCount > 0 && !verbose) {
-      result += `\n(${hiddenCount} internal frame${
-        hiddenCount === 1 ? "" : "s"
-      } hidden. Set HQL_VERBOSE=1 to show all)\n`;
+      lines.push("");
+      lines.push(`(${hiddenCount} internal frame${hiddenCount === 1 ? "" : "s"} hidden. Set HQL_VERBOSE=1 to show all)`);
     }
 
-    return result;
+    return lines.join("\n") + "\n";
   };
 
   logger.debug("Source map support installed via Error.prepareStackTrace");

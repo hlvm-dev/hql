@@ -5,6 +5,10 @@
 
 import { getGlobalRecord } from "./string-utils.ts";
 
+// Pre-compiled regex patterns (avoid compilation per-call)
+/** Matches function parameter declarations in all JS function forms */
+const JS_FUNCTION_PARAMS_REGEX = /^(?:async\s+)?(?:function\s*\*?\s*\w*\s*)?\(([^)]*)\)|^(\w+)\s*=>/;
+
 /**
  * Extract parameter names from a JavaScript function.
  * Uses Function.toString() and regex parsing.
@@ -29,7 +33,8 @@ function extractJsFunctionParams(fn: (...args: unknown[]) => unknown): string[] 
   // - async function* foo(params)  <- async generator (like AI's `ask`)
   // - (params) => ...
   // - x => ...
-  const match = fnStr.match(/^(?:async\s+)?(?:function\s*\*?\s*\w*\s*)?\(([^)]*)\)|^(\w+)\s*=>/);
+  // Uses pre-compiled module-level regex for performance
+  const match = fnStr.match(JS_FUNCTION_PARAMS_REGEX);
 
   if (!match) return [];
 
@@ -94,6 +99,7 @@ function extractParamName(paramStr: string): string | null {
 export class ReplState {
   private bindings = new Set<string>();
   private signatures = new Map<string, string[]>();  // function name -> param names
+  private docstrings = new Map<string, string>();    // name -> docstring from comments
   private _history: string[] = [];
   private _lineNumber = 0;
   private importedModules = new Set<string>();
@@ -135,6 +141,28 @@ export class ReplState {
   /** Get all signatures */
   getSignatures(): Map<string, string[]> {
     return this.signatures;
+  }
+
+  /** Add a docstring for a name (from comment) */
+  addDocstring(name: string, doc: string): void {
+    this.docstrings.set(name, doc);
+  }
+
+  /** Add multiple docstrings at once */
+  addDocstrings(docs: Map<string, string>): void {
+    for (const [name, doc] of docs) {
+      this.docstrings.set(name, doc);
+    }
+  }
+
+  /** Get docstring for a name */
+  getDocstring(name: string): string | undefined {
+    return this.docstrings.get(name);
+  }
+
+  /** Get all docstrings */
+  getDocstrings(): ReadonlyMap<string, string> {
+    return this.docstrings;
   }
 
   /** Check if a name is bound */
@@ -204,6 +232,7 @@ export class ReplState {
     }
     this.bindings.clear();
     this.signatures.clear();
+    this.docstrings.clear();
     this.importedModules.clear();
     this._lineNumber = 0;
     // Keep history

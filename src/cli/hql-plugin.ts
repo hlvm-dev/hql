@@ -38,10 +38,19 @@ export interface ExpressionType {
   readonly name?: string;
 }
 
+// Pre-compiled regex patterns for hot paths (avoid compilation per call)
+const USE_STRICT_REGEX = /^['"]use strict['"];\s*/gm;
+const SOURCE_MAP_REGEX = /\/\/# sourceMappingURL=.*$/gm;
+const TRAILING_SEMI_REGEX = /;\s*$/;
+const EXPR_EVERYWHERE_REGEX = /^let\s+[\w,\s]+;\s*\n*\(/;
+const EXPR_EVERYWHERE_LET_REGEX = /^let\s+[\w,\s]+;\s*\n*/;
+const EXPR_EVERYWHERE_ASSIGN_REGEX = /^\((\w+)\s*=\s*/;
+const FUNCTION_CLASS_DECL_REGEX = /^(function|class)\s+\w+/;
+
 /** Clean transpiled JavaScript - remove use strict, source maps, optionally trailing semicolon */
 export function cleanJs(js: string, removeSemi = false): string {
-  const cleaned = js.replace(/^['"]use strict['"];\s*/gm, "").replace(/\/\/# sourceMappingURL=.*$/gm, "").trim();
-  return removeSemi ? cleaned.replace(/;\s*$/, "") : cleaned;
+  const cleaned = js.replace(USE_STRICT_REGEX, "").replace(SOURCE_MAP_REGEX, "").trim();
+  return removeSemi ? cleaned.replace(TRAILING_SEMI_REGEX, "") : cleaned;
 }
 
 /** Generate source comment for generated code */
@@ -96,13 +105,13 @@ export function wrapInAsyncExportFunction(name: string, code: string, comment: s
 /** Transform expression-everywhere output to globalThis assignment for REPL persistence */
 export function transformForGlobalThis(transpiled: string, name: string): string {
   // Expression-everywhere format: let name; (name = value);
-  if (/^let\s+[\w,\s]+;\s*\n*\(/.test(transpiled)) {
+  if (EXPR_EVERYWHERE_REGEX.test(transpiled)) {
     return transpiled
-      .replace(/^let\s+[\w,\s]+;\s*\n*/, '')
-      .replace(/^\((\w+)\s*=\s*/, `(globalThis["${name}"] = `);
+      .replace(EXPR_EVERYWHERE_LET_REGEX, '')
+      .replace(EXPR_EVERYWHERE_ASSIGN_REGEX, `(globalThis["${name}"] = `);
   }
   // Legacy format: function/class declarations
-  return transpiled.replace(/^(function|class)\s+\w+/, `globalThis["${name}"] = $1`);
+  return transpiled.replace(FUNCTION_CLASS_DECL_REGEX, `globalThis["${name}"] = $1`);
 }
 
 /**

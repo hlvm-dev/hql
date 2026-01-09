@@ -202,8 +202,11 @@ export class LazySeq {
   }
 
   toString() { const s = this._realize(); return s ? s.toString() : "()"; }
-  [Symbol.for("Deno.customInspect")]() { return `LazySeq(${this._isRealized ? this.toString() : "..."})`; }
-  [Symbol.for("nodejs.util.inspect.custom")]() { return `LazySeq(${this._isRealized ? this.toString() : "..."})`; }
+
+  // Clojure behavior: printing realizes and shows contents as list, not "LazySeq(...)"
+  // user=> (map inc [1 2 3]) => (2 3 4)  ; NOT "LazySeq(2 3 4)"
+  [Symbol.for("Deno.customInspect")]() { return this.toString(); }
+  [Symbol.for("nodejs.util.inspect.custom")]() { return this.toString(); }
 }
 LazySeq.prototype[SEQ] = true;
 

@@ -85,17 +85,21 @@ function convertSymbol(symbol: SSymbol, _logger: Logger): SymbolNode {
  * Convert an S-expression list to an HQL AST list
  */
 function convertList(list: SList, logger: Logger): ListNode {
+  // Performance: Cache first two elements to avoid repeated array access
+  const first = list.elements[0];
+  const second = list.elements[1];
+
   // Special case: Handle nested property access - ((list-expr) .property)
   // Example: ((vector 1 2 3 4 5) .length)
   if (
     list.elements.length === 2 &&
-    list.elements[0].type === "list" &&
-    list.elements[1].type === "symbol" &&
-    (list.elements[1] as SSymbol).name.startsWith(".")
+    first.type === "list" &&
+    second.type === "symbol" &&
+    (second as SSymbol).name.startsWith(".")
   ) {
     // Get the object expression and property name
-    const object = convertExpr(list.elements[0], logger);
-    const propertyName = (list.elements[1] as SSymbol).name.substring(1); // Remove the dot
+    const object = convertExpr(first, logger);
+    const propertyName = (second as SSymbol).name.substring(1); // Remove the dot
 
     // Create a property access pattern using js-get
     const transformed: ListNode = {

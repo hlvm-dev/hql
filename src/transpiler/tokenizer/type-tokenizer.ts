@@ -27,6 +27,23 @@ export interface TypeExtractionResult {
 }
 
 // ============================================================================
+// PRE-COMPILED REGEX PATTERNS (avoid compilation in hot loops)
+// ============================================================================
+
+/** Matches whitespace characters */
+const WHITESPACE_REGEX = /\s/;
+/** Matches identifier continuation characters (for keyword boundary check) */
+const IDENTIFIER_CHAR_REGEX = /[a-zA-Z0-9_$]/;
+/** Matches valid characters inside type annotations */
+const VALID_TYPE_CHAR_REGEX = /[a-zA-Z0-9_$#<>,|&?:\s\-\+\.\{\}\[\]\(\)=`'"\/;!\\]/;
+/** Matches identifier followed by angle bracket (generic type lookahead) */
+const GENERIC_TYPE_LOOKAHEAD_REGEX = /^[a-zA-Z_$][a-zA-Z0-9_$]*</;
+/** Matches type continuation start characters */
+const TYPE_CONTINUATION_START_REGEX = /[a-zA-Z_$<\{\(\[]/;
+/** Matches type delimiter characters (whitespace, closing brackets) */
+const TYPE_DELIMITER_REGEX = /[\s\)\]\}]/;
+
+// ============================================================================
 // BRACKET DEPTH COUNTING
 // ============================================================================
 
@@ -172,7 +189,7 @@ function matchTypeKeyword(source: string, pos: number): string | null {
     if (
       source.slice(pos, pos + kw.length) === kw &&
       (pos + kw.length >= source.length ||
-        !/[a-zA-Z0-9_$]/.test(source[pos + kw.length]))
+        !IDENTIFIER_CHAR_REGEX.test(source[pos + kw.length]))
     ) {
       return kw;
     }
@@ -193,7 +210,8 @@ function isValidTypeChar(c: string): boolean {
   // - Template literals: `, ', "
   // - Import paths: /
   // - Unicode escapes: \
-  return /[a-zA-Z0-9_$#<>,|&?:\s\-\+\.\{\}\[\]\(\)=`'"\/;!\\]/.test(c);
+  // Uses pre-compiled module-level regex for performance
+  return VALID_TYPE_CHAR_REGEX.test(c);
 }
 
 /**
@@ -278,7 +296,8 @@ export function looksLikeTypeAnnotation(value: string): boolean {
   // Contains a colon (type annotation separator)
   if (value.includes(":")) return true;
   // Starts with identifier followed by angle bracket (generic)
-  if (/^[a-zA-Z_$][a-zA-Z0-9_$]*</.test(value)) return true;
+  // Uses pre-compiled module-level regex for performance
+  if (GENERIC_TYPE_LOOKAHEAD_REGEX.test(value)) return true;
   return false;
 }
 
@@ -304,7 +323,7 @@ export function tokenizeType(source: string, startIndex: number): TypeTokenResul
   let parenDepth = 0;
 
   // Skip leading whitespace
-  while (pos < source.length && /\s/.test(source[pos])) {
+  while (pos < source.length && WHITESPACE_REGEX.test(source[pos])) {
     pos++;
   }
 
@@ -389,7 +408,7 @@ export function tokenizeType(source: string, startIndex: number): TypeTokenResul
     }
 
     // Handle whitespace
-    if (/\s/.test(c)) {
+    if (WHITESPACE_REGEX.test(c)) {
       if (
         angleDepth === 0 &&
         braceDepth === 0 &&
@@ -401,7 +420,7 @@ export function tokenizeType(source: string, startIndex: number): TypeTokenResul
       ) {
         // Skip whitespace and check what follows
         let peekPos = pos;
-        while (peekPos < source.length && /\s/.test(source[peekPos])) {
+        while (peekPos < source.length && WHITESPACE_REGEX.test(source[peekPos])) {
           peekPos++;
         }
 
@@ -519,7 +538,7 @@ export function tokenizeType(source: string, startIndex: number): TypeTokenResul
       // Union or intersection operator - continue scanning
       afterOperator = true;
       afterKeyword = false;
-    } else if (/[a-zA-Z_$0-9]/.test(c)) {
+    } else if (IDENTIFIER_CHAR_REGEX.test(c)) {
       // Regular identifier character - clear operator and keyword flags
       afterOperator = false;
       afterKeyword = false;
@@ -555,7 +574,7 @@ export function tokenizeType(source: string, startIndex: number): TypeTokenResul
       } else if (next === "|" || next === "&") {
         // Union or intersection continues the type
         continue;
-      } else if (/[a-zA-Z_$<\{\(\[]/.test(next)) {
+      } else if (TYPE_CONTINUATION_START_REGEX.test(next)) {
         // More type content
         continue;
       }
@@ -661,7 +680,7 @@ export function tokenizeFunctionType(source: string, startIndex: number): TypeTo
   }
 
   // Skip whitespace before arrow
-  while (pos < source.length && /\s/.test(source[pos])) {
+  while (pos < source.length && WHITESPACE_REGEX.test(source[pos])) {
     pos++;
   }
 
@@ -671,7 +690,7 @@ export function tokenizeFunctionType(source: string, startIndex: number): TypeTo
     pos += 2;
 
     // Skip whitespace after arrow
-    while (pos < source.length && /\s/.test(source[pos])) {
+    while (pos < source.length && WHITESPACE_REGEX.test(source[pos])) {
       pos++;
     }
 
@@ -688,7 +707,7 @@ export function tokenizeFunctionType(source: string, startIndex: number): TypeTo
       else if (c === "}") braceDepth--;
 
       // Stop at delimiters when balanced
-      if (angleDepth === 0 && braceDepth === 0 && /[\s\)\]\}]/.test(c)) {
+      if (angleDepth === 0 && braceDepth === 0 && TYPE_DELIMITER_REGEX.test(c)) {
         break;
       }
 

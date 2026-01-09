@@ -1,300 +1,293 @@
 /**
- * REPL Context Management
+ * REPL Context Management - Pure Data Structures
  *
- * Provides:
- * 1. paste-N variables for pasted text attachments
- * 2. Conversation context tracking (last-input, last-response, conversation)
- * 3. Syntax transformation for [Pasted text #N] → paste-N
+ * Provides three vectors accessible as programming data:
+ * - pastes: vector of {:id :content :lang :lines :chars :time}
+ * - attachments: vector of {:id :type :name :path :mime :size :time}
+ * - conversation: vector of {:role :content :time}
+ *
+ * All vectors are accessible via globalThis and can be manipulated
+ * with standard list operations (nth, filter, map, etc.)
  */
 
-import type { TextAttachment } from "./attachment.ts";
-import type { AnyAttachment } from "./attachment-protocol.ts";
-import { escapeString, getGlobalRecord } from "./string-utils.ts";
+import { getGlobalRecord } from "./string-utils.ts";
 
 // ============================================================================
 // Types
 // ============================================================================
 
+/**
+ * Paste entry - text content with metadata
+ */
+export interface Paste {
+  readonly id: number;
+  readonly content: string;
+  readonly lang: string;
+  readonly lines: number;
+  readonly chars: number;
+  readonly time: number;
+}
+
+/**
+ * Media attachment entry - binary file metadata
+ */
+export interface MediaAttachment {
+  readonly id: number;
+  readonly type: string; // "image" | "video" | "audio" | "document" | "file"
+  readonly name: string;
+  readonly path: string;
+  readonly mime: string;
+  readonly size: number;
+  readonly time: number;
+}
+
+/**
+ * Conversation turn entry
+ */
 export interface ConversationTurn {
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-}
-
-export interface ReplContext {
-  /** Paste variables: paste-1, paste-2, etc. */
-  pastes: Map<number, string>;
-
-  /** Last user input */
-  lastInput: string;
-
-  /** Last assistant response */
-  lastResponse: string;
-
-  /** Full conversation history */
-  conversation: ConversationTurn[];
+  readonly role: "user" | "assistant";
+  readonly content: string;
+  readonly time: number;
 }
 
 // ============================================================================
-// Global Context (singleton)
+// State (Module-level arrays)
 // ============================================================================
 
-let context: ReplContext = {
-  pastes: new Map(),
-  lastInput: "",
-  lastResponse: "",
-  conversation: [],
-};
+let pastes: Paste[] = [];
+let attachments: MediaAttachment[] = [];
+let conversation: ConversationTurn[] = [];
+
+// ============================================================================
+// Language Detection (Simple heuristic)
+// ============================================================================
 
 /**
- * Get the current REPL context
+ * Detect programming language from content
  */
-export function getContext(): ReplContext {
-  return context;
-}
+export function detectLanguage(content: string): string {
+  const sample = content.slice(0, 1000);
 
-/**
- * Reset the context (for testing or REPL reset)
- */
-export function resetContext(): void {
-  context = {
-    pastes: new Map(),
-    lastInput: "",
-    lastResponse: "",
-    conversation: [],
-  };
-  // Also clear from globalThis
-  const g = getGlobalRecord();
-  delete g["last-input"];
-  delete g["last_input"];
-  delete g["last-response"];
-  delete g["last_response"];
-  delete g["conversation"];
-  // Clear paste variables
-  for (let i = 1; i <= 100; i++) {
-    delete g[`paste-${i}`];
-    delete g[`paste_${i}`];
+  // HQL/Lisp
+  if (/^\s*\((?:def|fn|defn|let|if|cond|do|ns|import|require)\s/m.test(sample)) {
+    return "hql";
   }
-}
+  if (/^\s*;.*$/m.test(sample) && /\(/.test(sample)) {
+    return "lisp";
+  }
 
-// ============================================================================
-// Paste Variables
-// ============================================================================
+  // TypeScript
+  if (
+    /:\s*(?:string|number|boolean|any|void|never)\b/.test(sample) ||
+    /interface\s+\w+\s*\{/.test(sample) ||
+    /type\s+\w+\s*=/.test(sample)
+  ) {
+    return "typescript";
+  }
 
-/**
- * Register a text attachment as a paste variable
- * Makes paste-N available in the REPL
- */
-export function registerPaste(attachment: TextAttachment): void {
-  context.pastes.set(attachment.id, attachment.content);
-  // Also set on globalThis for immediate access
-  const g = getGlobalRecord();
-  g[`paste-${attachment.id}`] = attachment.content;
-  g[`paste_${attachment.id}`] = attachment.content; // Also snake_case version
-}
+  // JavaScript
+  if (
+    /(?:const|let|var)\s+\w+\s*=/.test(sample) ||
+    /function\s+\w+\s*\(/.test(sample) ||
+    /=>\s*\{/.test(sample)
+  ) {
+    return "javascript";
+  }
 
-/**
- * Register multiple attachments (filters for text attachments only)
- */
-export function registerAttachments(attachments: AnyAttachment[]): void {
-  for (const att of attachments) {
-    if (att.type === "text" && "content" in att) {
-      registerPaste(att as TextAttachment);
+  // Python
+  if (/^(?:def|class|import|from)\s/m.test(sample) || /:\s*$/m.test(sample)) {
+    return "python";
+  }
+
+  // Rust
+  if (/(?:fn|let\s+mut|impl|struct|enum|pub\s+fn)/.test(sample)) {
+    return "rust";
+  }
+
+  // Go
+  if (/^package\s+\w+$/m.test(sample) || /func\s+\w+\s*\(/.test(sample)) {
+    return "go";
+  }
+
+  // SQL
+  if (/^\s*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\s/im.test(sample)) {
+    return "sql";
+  }
+
+  // JSON
+  if (/^\s*[\{\[]/.test(sample)) {
+    try {
+      JSON.parse(content);
+      return "json";
+    } catch {
+      // Not valid JSON
     }
   }
-}
 
-/**
- * Get a paste by ID
- */
-export function getPaste(id: number): string | undefined {
-  return context.pastes.get(id);
-}
+  // YAML
+  if (/^[\w-]+:\s/m.test(sample) && !/{/.test(sample)) {
+    return "yaml";
+  }
 
-/**
- * Get all paste IDs
- */
-export function getPasteIds(): number[] {
-  return Array.from(context.pastes.keys());
+  // HTML
+  if (/<(!DOCTYPE|html|head|body|div|span|p)\b/i.test(sample)) {
+    return "html";
+  }
+
+  // CSS
+  if (/[.#][\w-]+\s*\{/.test(sample) || /@media|@import/.test(sample)) {
+    return "css";
+  }
+
+  // Markdown
+  if (/^#{1,6}\s/.test(sample) || /^\s*[-*+]\s/.test(sample)) {
+    return "markdown";
+  }
+
+  // Shell
+  if (/^#!/.test(sample) || /\$\(|&&|\|\|/.test(sample)) {
+    return "shell";
+  }
+
+  return "unknown";
 }
 
 // ============================================================================
-// Conversation Context
+// Paste Operations
 // ============================================================================
 
 /**
- * Record user input
+ * Add a paste and return the created entry
  */
-export function recordUserInput(input: string): void {
-  context.lastInput = input;
-  context.conversation.push({
-    role: "user",
-    content: input,
-    timestamp: Date.now(),
-  });
-  // Update globalThis
+export function addPaste(content: string, lang?: string): Paste {
+  const paste: Paste = {
+    id: pastes.length,
+    content,
+    lang: lang ?? detectLanguage(content),
+    lines: content.split(/\r?\n|\r/).length,
+    chars: content.length,
+    time: Date.now(),
+  };
+  pastes.push(paste);
+  syncToGlobal();
+  return paste;
+}
+
+/**
+ * Get all pastes
+ */
+export function getPastes(): readonly Paste[] {
+  return pastes;
+}
+
+/**
+ * Get paste by ID
+ */
+export function getPaste(id: number): Paste | undefined {
+  return pastes.find((p) => p.id === id);
+}
+
+// ============================================================================
+// Attachment Operations
+// ============================================================================
+
+/**
+ * Add a media attachment and return the created entry
+ */
+export function addAttachment(
+  type: string,
+  name: string,
+  path: string,
+  mime: string,
+  size: number
+): MediaAttachment {
+  const attachment: MediaAttachment = {
+    id: attachments.length,
+    type,
+    name,
+    path,
+    mime,
+    size,
+    time: Date.now(),
+  };
+  attachments.push(attachment);
+  syncToGlobal();
+  return attachment;
+}
+
+/**
+ * Get all attachments
+ */
+export function getAttachments(): readonly MediaAttachment[] {
+  return attachments;
+}
+
+/**
+ * Get attachment by ID
+ */
+export function getAttachment(id: number): MediaAttachment | undefined {
+  return attachments.find((a) => a.id === id);
+}
+
+// ============================================================================
+// Conversation Operations
+// ============================================================================
+
+/**
+ * Add a conversation turn
+ */
+export function addConversationTurn(
+  role: "user" | "assistant",
+  content: string
+): ConversationTurn {
+  const turn: ConversationTurn = {
+    role,
+    content,
+    time: Date.now(),
+  };
+  conversation.push(turn);
+  syncToGlobal();
+  return turn;
+}
+
+/**
+ * Get all conversation turns
+ */
+export function getConversation(): readonly ConversationTurn[] {
+  return conversation;
+}
+
+// ============================================================================
+// Context Management
+// ============================================================================
+
+/**
+ * Reset all context (for testing or REPL reset)
+ */
+export function resetContext(): void {
+  pastes = [];
+  attachments = [];
+  conversation = [];
+  syncToGlobal();
+}
+
+/**
+ * Sync arrays to globalThis for HQL access
+ */
+function syncToGlobal(): void {
   const g = getGlobalRecord();
-  g["last-input"] = input;
-  g["last_input"] = input;
-  updateConversationGlobal();
+  g["pastes"] = pastes;
+  g["attachments"] = attachments;
+  g["conversation"] = conversation;
 }
 
 /**
- * Record assistant response
- */
-export function recordAssistantResponse(response: string): void {
-  context.lastResponse = response;
-  context.conversation.push({
-    role: "assistant",
-    content: response,
-    timestamp: Date.now(),
-  });
-  // Update globalThis
-  const g = getGlobalRecord();
-  g["last-response"] = response;
-  g["last_response"] = response;
-  updateConversationGlobal();
-}
-
-/**
- * Update the conversation global variable
- */
-function updateConversationGlobal(): void {
-  const g = getGlobalRecord();
-  // Store as formatted string for easy use in HQL
-  g["conversation"] = formatConversation();
-}
-
-/**
- * Format conversation history as a readable string
- */
-export function formatConversation(): string {
-  return context.conversation
-    .map((turn) => `${turn.role === "user" ? "User" : "Assistant"}: ${turn.content}`)
-    .join("\n\n");
-}
-
-/**
- * Get conversation history as array
- */
-export function getConversation(): ConversationTurn[] {
-  return [...context.conversation];
-}
-
-// ============================================================================
-// Syntax Transformation
-// ============================================================================
-
-/**
- * Transform [Pasted text #N +X lines] references to paste-N variable names
- *
- * Examples:
- *   "(ask [Pasted text #1 +245 lines])" → "(ask paste-1)"
- *   "[Pasted text #2 +10 lines] [Pasted text #3 +5 lines]" → "paste-2 paste-3"
- */
-export function transformPasteReferences(code: string): string {
-  // Match [Pasted text #N +X lines] or [Pasted text #N]
-  const pasteRegex = /\[Pasted text #(\d+)(?:\s+\+\d+\s+lines?)?\]/gi;
-
-  return code.replace(pasteRegex, (_match, id) => {
-    return `paste-${id}`;
-  });
-}
-
-/**
- * Transform context variable references
- *
- * Examples:
- *   "[last-response]" → "last-response"
- *   "[conversation]" → "conversation"
- *   "[last-input]" → "last-input"
- */
-export function transformContextReferences(code: string): string {
-  // Match [last-response], [last-input], [conversation]
-  const contextRegex = /\[(last-response|last-input|last_response|last_input|conversation)\]/gi;
-
-  return code.replace(contextRegex, (_match, name) => {
-    return name.toLowerCase().replace("_", "-");
-  });
-}
-
-/**
- * Full preprocessing: transform all special references
- */
-export function preprocessCode(code: string): string {
-  let result = code;
-  result = transformPasteReferences(result);
-  result = transformContextReferences(result);
-  return result;
-}
-
-// ============================================================================
-// HQL Code Generation
-// ============================================================================
-
-/**
- * Generate HQL binding statements for all registered pastes
- * These define paste-N as string variables in the HQL environment
- *
- * @returns HQL code that defines all paste variables
- */
-export function generatePasteBindings(): string {
-  const bindings: string[] = [];
-
-  for (const [id, content] of context.pastes) {
-    // Escape the content for HQL string literal
-    const escaped = escapeString(content);
-    bindings.push(`(def paste-${id} "${escaped}")`);
-  }
-
-  return bindings.join("\n");
-}
-
-/**
- * Generate HQL binding statements for context variables
- */
-export function generateContextBindings(): string {
-  const bindings: string[] = [];
-
-  if (context.lastInput) {
-    bindings.push(`(def last-input "${escapeString(context.lastInput)}")`);
-  }
-
-  if (context.lastResponse) {
-    bindings.push(`(def last-response "${escapeString(context.lastResponse)}")`);
-  }
-
-  if (context.conversation.length > 0) {
-    bindings.push(`(def conversation "${escapeString(formatConversation())}")`);
-  }
-
-  return bindings.join("\n");
-}
-
-/**
- * Escape a string for use in HQL string literal.
- * Alias for escapeString to maintain backward compatibility with tests.
- */
-export const escapeHqlString = escapeString;
-
-// ============================================================================
-// Initialization
-// ============================================================================
-
-/**
- * Initialize context bindings on globalThis
+ * Initialize context on globalThis
  * Call this at REPL startup
  */
-export function initializeContextGlobals(): void {
-  const g = getGlobalRecord();
-
-  // Initialize with empty values
-  g["last-input"] = "";
-  g["last_input"] = "";
-  g["last-response"] = "";
-  g["last_response"] = "";
-  g["conversation"] = "";
+export function initContext(): void {
+  syncToGlobal();
 }
 
 // Initialize on module load
-initializeContextGlobals();
+initContext();

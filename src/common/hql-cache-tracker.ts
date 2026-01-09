@@ -38,6 +38,17 @@ const NAMESPACE_IMPORT_REGEX = /import\s+\*\s+as\s+([a-zA-Z0-9_-]+)\s+from/g;
 const TS_IMPORT_REGEX = /import\s+.*\s+from\s+['"]([^'"]+\.ts)['"]/g;
 const HQL_IMPORT_REGEX = /import\s+.*\s+from\s+['"]([^'"]+\.(hql))['"]/g;
 
+// Pre-compiled file extension and path patterns (Performance: avoid per-call regex compilation)
+const REMOVE_EXTENSION_REGEX = /\.[^.]+$/;
+const HQL_EXTENSION_REGEX = /\.hql$/;
+const TS_EXTENSION_REGEX = /\.ts$/;
+const JS_EXTENSION_REGEX = /\.js$/;
+const PATH_SEPARATOR_REGEX = /[\\/]+/;
+const LEADING_SLASHES_REGEX = /^\/+/;
+const SANITIZE_PATH_REGEX = /[^A-Za-z0-9._-]/g;
+const PARENT_DIR_REGEX = /\.\./g;
+const COLON_REGEX = /[:]/g;
+
 /**
  * Map of original imports to cached paths
  * This helps resolve imports between cached files
@@ -54,8 +65,8 @@ export function registerImportMapping(original: string, cached: string): void {
 }
 
 function sanitizePathSegment(segment: string): string {
-  let sanitized = segment.replace(/\.\./g, "_up_").replace(/[:]/g, "");
-  sanitized = sanitized.replace(/[^A-Za-z0-9._-]/g, "_");
+  let sanitized = segment.replace(PARENT_DIR_REGEX, "_up_").replace(COLON_REGEX, "");
+  sanitized = sanitized.replace(SANITIZE_PATH_REGEX, "_");
   if (sanitized.length === 0) {
     return "_";
   }
@@ -66,7 +77,7 @@ function splitPathSegments(value: string): string[] {
   if (!value) {
     return [];
   }
-  return value.split(/[\\/]+/).filter(Boolean);
+  return value.split(PATH_SEPARATOR_REGEX).filter(Boolean);
 }
 
 function getCacheSubdirSegmentsForDir(dirPath: string): string[] {
@@ -81,7 +92,7 @@ function getCacheSubdirSegmentsForDir(dirPath: string): string[] {
   }
 
   const normalized = normalizePath(dirPath);
-  const trimmed = normalized.replace(/^\/+/, "");
+  const trimmed = normalized.replace(LEADING_SLASHES_REGEX, "");
   const segments = splitPathSegments(trimmed);
   if (segments.length === 0) {
     return ["__external__", "root"];
@@ -231,7 +242,7 @@ export async function getCachedPath(
 
   // Get base file name (without extension)
   const sourceFilename = basename(sourcePath);
-  const baseFilename = sourceFilename.replace(/\.[^\.]+$/, "");
+  const baseFilename = sourceFilename.replace(REMOVE_EXTENSION_REGEX, "");
   const targetFilename = baseFilename + targetExt;
 
   // IMPORTANT: For HQL files, default to preserveRelative unless explicitly set to false
@@ -342,7 +353,7 @@ async function processCachedImports(
           isJsFile(sourcePath) && isHqlFile(importPath) &&
           mappedPath.endsWith(".ts")
         ) {
-          const jsPath = mappedPath.replace(/\.ts$/, ".js");
+          const jsPath = mappedPath.replace(TS_EXTENSION_REGEX, ".js");
           if (await exists(jsPath)) {
             finalPath = jsPath;
           }
@@ -820,7 +831,7 @@ async function processJsImportsInJs(
       );
       const directory = dirname(resolvedImportPath);
       const fileName = basename(resolvedImportPath);
-      const fileNameBase = fileName.replace(/\.js$/, "");
+      const fileNameBase = fileName.replace(JS_EXTENSION_REGEX, "");
 
       let sourcePath: string | null = null;
       let keepExtensionInImport = importPath.endsWith(".js");
@@ -856,7 +867,7 @@ async function processJsImportsInJs(
 
       const newImportPath = keepExtensionInImport
         ? `file://${cachedJsPath}`
-        : `file://${cachedJsPath.replace(/\.js$/, "")}`;
+        : `file://${cachedJsPath.replace(JS_EXTENSION_REGEX, "")}`;
 
       logger.debug(`Rewritten JS import: ${importPath} -> ${newImportPath}`);
       return fullImport.replace(importPath, newImportPath);
@@ -1006,7 +1017,7 @@ async function rewriteHqlImportsInJs(
 
       registerImportMapping(resolvedImportPath, preTsPath);
       registerImportMapping(
-        resolvedImportPath.replace(/\.hql$/, ".ts"),
+        resolvedImportPath.replace(HQL_EXTENSION_REGEX, ".ts"),
         preTsPath,
       );
 
@@ -1200,7 +1211,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
         preserveRelative: true,
       });
       registerImportMapping(sourceFile, cached);
-      registerImportMapping(sourceFile.replace(/\.hql$/, ".ts"), cached);
+      registerImportMapping(sourceFile.replace(HQL_EXTENSION_REGEX, ".ts"), cached);
       return cached;
     }
     inProgressHql.add(sourceFile);
@@ -1221,7 +1232,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
         // Register the mapping for future use
         registerImportMapping(sourceFile, cachedTsPath);
         registerImportMapping(
-          sourceFile.replace(/\.hql$/, ".ts"),
+          sourceFile.replace(HQL_EXTENSION_REGEX, ".ts"),
           cachedTsPath,
         );
 
@@ -1249,7 +1260,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
 
     // Register the mapping for future use
     registerImportMapping(sourceFile, cachedTsPath);
-    registerImportMapping(sourceFile.replace(/\.hql$/, ".ts"), cachedTsPath);
+    registerImportMapping(sourceFile.replace(HQL_EXTENSION_REGEX, ".ts"), cachedTsPath);
 
     logger.debug(`Processed HQL file ${sourceFile} to ${cachedTsPath}`);
 

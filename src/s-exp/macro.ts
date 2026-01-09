@@ -32,9 +32,7 @@ import {
   getSpecialForms,
   type InterpreterEnv,
 } from "../interpreter/index.ts";
-
-// Constants and caches
-const MAX_EXPANSION_ITERATIONS = 100;
+import { MAX_SEQ_LENGTH, MAX_EXPANSION_ITERATIONS } from "../common/limits.ts";
 
 // Lazy singleton interpreter for macro-time evaluation
 let macroInterpreter: Interpreter | null = null;
@@ -46,7 +44,7 @@ let persistentMacroEnv: InterpreterEnv | null = null;
  */
 function getMacroInterpreter(): Interpreter {
   if (!macroInterpreter) {
-    macroInterpreter = new Interpreter({ maxCallDepth: 100, maxSeqLength: 10000 });
+    macroInterpreter = new Interpreter({ maxCallDepth: 100, maxSeqLength: MAX_SEQ_LENGTH });
   }
   return macroInterpreter;
 }
@@ -543,19 +541,9 @@ export function expandMacros(
       return expandedExpr;
     });
 
-    // Optimization: Use reference equality to detect changes
-    // This requires expandMacroExpression to return the original object if unchanged
-    let changed = false;
-    if (currentExprs.length !== newExprs.length) {
-      changed = true;
-    } else {
-      for (let i = 0; i < currentExprs.length; i++) {
-        if (currentExprs[i] !== newExprs[i]) {
-          changed = true;
-          break;
-        }
-      }
-    }
+    // KISS: Simplified change detection using Array.some() for reference equality
+    const changed = currentExprs.length !== newExprs.length ||
+                    currentExprs.some((expr, i) => expr !== newExprs[i]);
     
     currentExprs = newExprs;
 

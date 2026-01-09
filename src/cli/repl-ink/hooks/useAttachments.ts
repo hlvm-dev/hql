@@ -12,13 +12,14 @@ import {
   type Attachment,
   type TextAttachment,
   type AttachmentError,
+  type AnyAttachment,
   createAttachment,
   createTextAttachment,
   isAttachment,
 } from "../../repl/attachment.ts";
 
-/** Union type for all attachment types */
-export type AnyAttachment = Attachment | TextAttachment;
+// Re-export for consumers
+export type { AnyAttachment };
 
 export interface UseAttachmentsReturn {
   /** Current list of attachments (media and text) */

@@ -23,6 +23,7 @@ import {
 } from "./common/import-utils.ts";
 import {
   checkForHqlImports,
+  escapeRegExp,
   findActualFilePath,
   getErrorMessage,
   isObjectValue,
@@ -57,6 +58,7 @@ import { transpile, type TranspileOptions } from "./transpiler/index.ts";
 import { fromFileUrl, join } from "./platform/platform.ts";
 import { preloadSourceMap } from "./transpiler/pipeline/source-map-support.ts";
 import { LRUCache } from "./common/lru-cache.ts";
+import { DEFAULT_LRU_CACHE_SIZE } from "./common/limits.ts";
 
 /**
  * Get the path to the stdlib index.js file.
@@ -1251,10 +1253,8 @@ export async function transpileHqlInJs(
       const sortedIdentifiers = Array.from(identifiersToSanitize.keys())
         .sort((a, b) => b.length - a.length); // Longest first
 
-      // Escape special regex characters in identifiers
-      const escapedIdentifiers = sortedIdentifiers.map(id =>
-        id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      );
+      // Escape special regex characters in identifiers (using DRY utility)
+      const escapedIdentifiers = sortedIdentifiers.map(escapeRegExp);
 
       // Create pattern that matches identifiers as whole words or before dots (for namespaces)
       const identifierPattern = new RegExp(
@@ -1288,7 +1288,7 @@ export async function transpileHqlInJs(
  * New approach: O(n×m) - each path checked once, results cached
  */
 // LRU cache to prevent unbounded memory growth in long-running bundler processes
-const circularCheckCache = new LRUCache<string, boolean>(10000);
+const circularCheckCache = new LRUCache<string, boolean>(DEFAULT_LRU_CACHE_SIZE);
 
 function checkForCircularDependency(
   source: string,

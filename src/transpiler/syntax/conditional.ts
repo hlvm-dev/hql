@@ -21,8 +21,7 @@ import {
 } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { createEarlyReturnObject } from "../utils/return-helpers.ts";
 import {
-  containsAwaitExpression,
-  containsYieldExpression,
+  containsNodeTypeInScope,
 } from "../utils/ir-tree-walker.ts";
 
 /**
@@ -433,8 +432,13 @@ export function transformDo(
 
       // Check if the IIFE body contains any yield or await expressions
       // If so, we need to make the IIFE a generator/async and wrap appropriately
-      const hasYields = bodyStatements.some(containsYieldExpression);
-      const hasAwaits = bodyStatements.some(containsAwaitExpression);
+      // Check for yield/await in scope (stops at function boundaries)
+      // This ensures that yield inside a nested fn* generator doesn't trigger
+      // the outer do-block to become a generator
+      const hasYields = bodyStatements.some(stmt =>
+        containsNodeTypeInScope(stmt, IR.IRNodeType.YieldExpression));
+      const hasAwaits = bodyStatements.some(stmt =>
+        containsNodeTypeInScope(stmt, IR.IRNodeType.AwaitExpression));
 
       const iifeCall: IR.IRCallExpression = {
         type: IR.IRNodeType.CallExpression,
@@ -915,8 +919,8 @@ export function transformSwitch(
         type: IR.IRNodeType.BlockStatement,
         body: [switchStmt],
       };
-      const hasYields = containsYieldExpression(switchBody);
-      const hasAwaits = containsAwaitExpression(switchBody);
+      const hasYields = containsNodeTypeInScope(switchBody, IR.IRNodeType.YieldExpression);
+      const hasAwaits = containsNodeTypeInScope(switchBody, IR.IRNodeType.AwaitExpression);
 
       const iife: IR.IRCallExpression = {
         type: IR.IRNodeType.CallExpression,

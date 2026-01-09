@@ -181,17 +181,17 @@ export function parseArrayPattern(exp: SExp): ArrayPattern {
 
   for (let i = 0; i < exp.elements.length; i++) {
     const elem = exp.elements[i];
+    // Performance: Cache next element access once per iteration (avoids repeated array lookup)
+    const nextElem = i + 1 < exp.elements.length ? exp.elements[i + 1] : undefined;
 
     // Handle rest pattern: & identifier
     if (isSymbol(elem) && elem.name === "&") {
       // Check if there's a next element
-      if (i + 1 >= exp.elements.length) {
+      if (nextElem === undefined) {
         throw new Error(
           `Rest pattern (&) must be followed by identifier`,
         );
       }
-
-      const nextElem = exp.elements[i + 1];
 
       // Check if next element is a symbol
       if (!isSymbol(nextElem)) {
@@ -219,7 +219,6 @@ export function parseArrayPattern(exp: SExp): ArrayPattern {
     // Handle skip pattern: _
     if (isSymbol(elem) && elem.name === "_") {
       // Check if next element is a default value
-      const nextElem = exp.elements[i + 1];
       if (isDefaultValueForm(nextElem)) {
         throw new Error(
           `Skip pattern (_) cannot have default value`,
@@ -243,7 +242,6 @@ export function parseArrayPattern(exp: SExp): ArrayPattern {
       let nestedPattern = parsePattern(elem);
 
       // Check if next element is a default value
-      const nextElem = exp.elements[i + 1];
       if (isDefaultValueForm(nextElem)) {
         // Attach default to pattern (nextElem is guaranteed to be a list)
         const defaultValue = (nextElem as SList).elements[1];
@@ -260,7 +258,6 @@ export function parseArrayPattern(exp: SExp): ArrayPattern {
       let pattern = parseIdentifierPattern(elem);
 
       // Check if next element is a default value
-      const nextElem = exp.elements[i + 1];
       if (isDefaultValueForm(nextElem)) {
         // Attach default to pattern (nextElem is guaranteed to be a list)
         const defaultValue = (nextElem as SList).elements[1];

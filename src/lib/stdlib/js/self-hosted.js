@@ -1641,3 +1641,62 @@ export function zipmap(ks, vs) {
   }
   return result;
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 25: SORTING
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * sort - Returns a sorted array of the items in coll.
+ * If no comparator is provided, uses natural ordering (< operator).
+ * Clojure: (sort [3 1 2]) => (1 2 3)
+ *          (sort > [3 1 2]) => (3 2 1)
+ *
+ * @param {Function|Iterable} compOrColl - Comparator function or collection
+ * @param {Iterable} [coll] - Collection if first arg is comparator
+ * @returns {Array} Sorted array
+ */
+export function sort(compOrColl, coll) {
+  if (coll === undefined) {
+    // Single arg - sort by natural order
+    const arr = compOrColl == null ? [] : Array.from(compOrColl);
+    return arr.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+  }
+  // Two args - first is comparator
+  if (typeof compOrColl !== "function") {
+    throw new TypeError("sort: comparator must be a function");
+  }
+  const arr = coll == null ? [] : Array.from(coll);
+  return arr.sort(compOrColl);
+}
+
+/**
+ * sortBy - Returns a sorted array of the items in coll, where the sort
+ * order is determined by comparing (keyfn item).
+ * Clojure: (sort-by :name [{:name "Bob"} {:name "Alice"}])
+ *          => ({:name "Alice"} {:name "Bob"})
+ *
+ * @param {Function} keyfn - Function to extract sort key
+ * @param {Function|Iterable} compOrColl - Comparator function or collection
+ * @param {Iterable} [coll] - Collection if second arg is comparator
+ * @returns {Array} Sorted array
+ */
+export function sortBy(keyfn, compOrColl, coll) {
+  if (typeof keyfn !== "function") {
+    throw new TypeError("sortBy: keyfn must be a function");
+  }
+  if (coll === undefined) {
+    // Two args - sort by keyfn with natural order
+    const arr = compOrColl == null ? [] : Array.from(compOrColl);
+    return arr.sort((a, b) => {
+      const ka = keyfn(a), kb = keyfn(b);
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+  }
+  // Three args - second is comparator
+  if (typeof compOrColl !== "function") {
+    throw new TypeError("sortBy: comparator must be a function");
+  }
+  const arr = coll == null ? [] : Array.from(coll);
+  return arr.sort((a, b) => compOrColl(keyfn(a), keyfn(b)));
+}

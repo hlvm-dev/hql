@@ -1112,10 +1112,10 @@ obj?.prop             ; Optional chaining
 ### Bitwise
 
 ```clojure
-(bit-and a b)         ; Bitwise AND
-(bit-or a b)          ; Bitwise OR
-(bit-xor a b)         ; Bitwise XOR
-(bit-not a)           ; Bitwise NOT
+(& a b)               ; Bitwise AND
+(| a b)               ; Bitwise OR
+(^ a b)               ; Bitwise XOR
+(~ a)                 ; Bitwise NOT
 (<< a n)              ; Left shift
 (>> a n)              ; Signed right shift
 (>>> a n)             ; Unsigned right shift

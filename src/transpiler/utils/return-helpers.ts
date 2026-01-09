@@ -10,13 +10,7 @@ import {
   containsMatch,
 } from "./ir-tree-walker.ts";
 
-/**
- * Check if an IR node tree contains ReturnStatement nodes
- * Used to determine if a function needs try/catch wrapper for early returns
- *
- * Uses generic tree walker - automatically handles ALL IR node types.
- */
-export const containsReturnStatements = containsReturnStatement;
+// Note: containsReturnStatements alias was removed - use containsReturnStatement directly from ir-tree-walker.ts
 
 /**
  * Check if an IR node contains ThrowStatements (from transformed early returns)

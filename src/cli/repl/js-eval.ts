@@ -19,6 +19,9 @@ const PATTERNS = {
   classDecl: new RegExp(`\\bclass\\s+(${JS_IDENT})`, "g"),
 } as const;
 
+// Regex flag pattern (pre-compiled for hot path in stripStringsAndComments)
+const REGEX_FLAG_PATTERN = /[gimsuy]/;
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -112,8 +115,8 @@ function stripStringsAndComments(code: string): string {
           i++;
         }
         if (i < code.length) { result.push(" "); i++; }
-        // Skip flags (g, i, m, s, u, y)
-        while (i < code.length && /[gimsuy]/.test(code[i])) {
+        // Skip flags (g, i, m, s, u, y) - use pre-compiled regex
+        while (i < code.length && REGEX_FLAG_PATTERN.test(code[i])) {
           result.push(" ");
           i++;
         }

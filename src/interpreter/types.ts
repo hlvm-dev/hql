@@ -1,6 +1,7 @@
 // src/interpreter/types.ts - Type definitions for the HQL interpreter
 
 import type { SExp } from "../s-exp/types.ts";
+import { MAX_SEQ_LENGTH } from "../common/limits.ts";
 
 /**
  * Forward declaration for InterpreterEnv (to break circular dependency)
@@ -119,6 +120,6 @@ export function isSExp(value: unknown): value is SExp {
  */
 export const DEFAULT_CONFIG: Required<InterpreterConfig> = {
   maxCallDepth: 1000,
-  maxSeqLength: 10000,
+  maxSeqLength: MAX_SEQ_LENGTH,
   enableTracing: false,
 };

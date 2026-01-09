@@ -2,6 +2,7 @@
 
 import type { HQLValue, HQLFunction, Interpreter as IInterpreter, InterpreterEnv } from "./types.ts";
 import { isTruthy, isHQLFunction, isSExp } from "./types.ts";
+import { SEQ_SYMBOL } from "../common/protocol-symbols.ts";
 import { SyntaxError, ArityError } from "./errors.ts";
 import {
   type SExp,
@@ -415,8 +416,7 @@ function handleCond(
   return null;
 }
 
-// Cached symbol for lazy sequence detection (O(1) vs symbol table lookup per call)
-const HQL_SEQ_SYMBOL = Symbol.for("hql.seq");
+// SEQ_SYMBOL imported from common/protocol-symbols.ts (Single Source of Truth)
 
 /**
  * Convert HQL value to S-expression
@@ -447,7 +447,7 @@ export function hqlValueToSExp(value: HQLValue): SExp {
   }
 
   // Check for lazy sequences (ISeq protocol) - avoid infinite iteration on String(value)
-  if (typeof value === "object" && value !== null && (value as unknown as Record<symbol, unknown>)[HQL_SEQ_SYMBOL]) {
+  if (typeof value === "object" && value !== null && (value as unknown as Record<symbol, unknown>)[SEQ_SYMBOL]) {
     // Return a placeholder for lazy sequences - they can't be serialized during macro expansion
     return { type: "symbol", name: "#<lazy-seq>" } as SSymbol;
   }

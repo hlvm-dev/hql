@@ -354,7 +354,7 @@ export function __hql_trampoline<T>(thunk: () => T | (() => T)): T {
 export function* __hql_trampoline_gen<T>(
   createInitial: () => Generator<T, T, unknown>
 ): Generator<T, T, unknown> {
-  const GEN_THUNK = Symbol.for("__hql_gen_thunk");
+  // Use GEN_THUNK_SYMBOL exported at top of file (Single Source of Truth)
   let current = createInitial();
   while (true) {
     const result = current.next();
@@ -364,7 +364,7 @@ export function* __hql_trampoline_gen<T>(
       if (
         val !== null &&
         typeof val === "object" &&
-        (val as Record<symbol, unknown>)[GEN_THUNK]
+        (val as Record<symbol, unknown>)[GEN_THUNK_SYMBOL]
       ) {
         current = ((val as { next: () => Generator<T, T, unknown> }).next)();
         continue;
@@ -376,7 +376,7 @@ export function* __hql_trampoline_gen<T>(
     if (
       yieldVal !== null &&
       typeof yieldVal === "object" &&
-      (yieldVal as Record<symbol, unknown>)[GEN_THUNK]
+      (yieldVal as Record<symbol, unknown>)[GEN_THUNK_SYMBOL]
     ) {
       current = ((yieldVal as { next: () => Generator<T, T, unknown> }).next)();
       continue;

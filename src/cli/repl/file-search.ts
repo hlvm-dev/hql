@@ -205,16 +205,28 @@ export async function getFileIndex(forceRefresh = false): Promise<FileIndex> {
   return indexCache;
 }
 
-/**
- * Clear the file cache
- */
-export function clearFileCache(): void {
-  indexCache = null;
-}
 
 // ============================================================
 // Fuzzy Matching
 // ============================================================
+
+/**
+ * Check if character is uppercase letter (A-Z)
+ * Uses charCodeAt for O(1) check without string allocation
+ */
+function isUpperCase(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return code >= 65 && code <= 90;  // A-Z
+}
+
+/**
+ * Check if character is lowercase letter (a-z)
+ * Uses charCodeAt for O(1) check without string allocation
+ */
+function isLowerCase(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return code >= 97 && code <= 122;  // a-z
+}
 
 /**
  * FZF-style fuzzy matching with scoring
@@ -261,8 +273,8 @@ function fuzzyMatch(query: string, target: string): { score: number; indices: nu
         score += 20;
       }
 
-      // Camel case bonus
-      if (i > 0 && target[i] === target[i].toUpperCase() && target[i - 1] === target[i - 1].toLowerCase()) {
+      // Camel case bonus (uses O(1) charCode check instead of toUpperCase/toLowerCase)
+      if (i > 0 && isUpperCase(target[i]) && isLowerCase(target[i - 1])) {
         score += 15;
       }
 
@@ -317,15 +329,21 @@ function binarySearchInsertIdx(results: FileMatch[], score: number): number {
 // Search API
 // ============================================================
 
+// Pre-compiled regex patterns for unescapeShellPath (avoid compilation per call)
+const ESCAPE_SPACE_REGEX = /\\ /g;
+const ESCAPE_SINGLE_QUOTE_REGEX = /\\'/g;
+const ESCAPE_DOUBLE_QUOTE_REGEX = /\\"/g;
+const ESCAPE_BACKSLASH_REGEX = /\\\\/g;
+
 /**
  * Unescape shell-escaped path (e.g., "file\ name.png" -> "file name.png")
  */
 export function unescapeShellPath(path: string): string {
   return path
-    .replace(/\\ /g, " ")      // backslash-space -> space
-    .replace(/\\'/g, "'")      // backslash-quote -> quote
-    .replace(/\\"/g, '"')      // backslash-doublequote -> doublequote
-    .replace(/\\\\/g, "\\");   // double-backslash -> single backslash
+    .replace(ESCAPE_SPACE_REGEX, " ")           // backslash-space -> space
+    .replace(ESCAPE_SINGLE_QUOTE_REGEX, "'")    // backslash-quote -> quote
+    .replace(ESCAPE_DOUBLE_QUOTE_REGEX, '"')    // backslash-doublequote -> doublequote
+    .replace(ESCAPE_BACKSLASH_REGEX, "\\");     // double-backslash -> single backslash
 }
 
 /**
@@ -371,15 +389,17 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
 
     try {
       const results: FileMatch[] = [];
+      const partialLower = partial.toLowerCase(); // Pre-compute once outside loop
       for await (const entry of Deno.readDir(parentDir)) {
-        if (partial && !entry.name.toLowerCase().includes(partial.toLowerCase())) {
+        const nameLower = entry.name.toLowerCase();
+        if (partial && !nameLower.includes(partialLower)) {
           continue;
         }
         const fullPath = parentDir === "/" ? `/${entry.name}` : `${parentDir}/${entry.name}`;
         results.push({
           path: fullPath,
           isDirectory: entry.isDirectory,
-          score: entry.name.toLowerCase().startsWith(partial.toLowerCase()) ? 100 : 50,
+          score: nameLower.startsWith(partialLower) ? 100 : 50,
           matchIndices: [],
         });
       }
@@ -405,53 +425,38 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
     return results.slice(0, maxResults);
   }
 
-  // OPTIMIZED: Combined loop + maintain top-k results only
-  // This avoids sorting potentially thousands of results when we only need top maxResults
-  // Time complexity: O(n log k) instead of O(n log n) where n=files+dirs, k=maxResults
-  const allEntries: Array<{ path: string; isDir: boolean }> = [
-    ...index.dirs.map(path => ({ path, isDir: true })),
-    ...index.files.map(path => ({ path, isDir: false })),
-  ];
+  // OPTIMIZED: Direct iteration without intermediate array allocation
+  // Time complexity: O(n log k) where n=files+dirs, k=maxResults
+  // Process directories first, then files (no intermediate object allocation)
 
-  // Keep only top maxResults using insertion sort (efficient for small k)
-  // For k=10-20, this is faster than sorting all results
-  for (const entry of allEntries) {
-    const match = fuzzyMatch(query, entry.path);
-    if (match) {
-      const result: FileMatch = {
-        path: entry.path,
-        isDirectory: entry.isDir,
-        score: match.score + (entry.isDir ? 10 : 0),
-        matchIndices: match.indices,
-      };
+  // Helper to insert match into top-k results
+  const insertMatch = (path: string, isDir: boolean) => {
+    const match = fuzzyMatch(query, path);
+    if (!match) return;
 
-      // Insert into results maintaining sorted order (top-k)
-      // Uses O(log k) binary search instead of O(k) linear findIndex
-      if (results.length < maxResults) {
-        // Not full yet - insert in sorted position
-        const insertIdx = binarySearchInsertIdx(results, result.score);
-        results.splice(insertIdx, 0, result);
-      } else if (result.score > results[results.length - 1].score) {
-        // Better than worst in top-k - replace it
-        const insertIdx = binarySearchInsertIdx(results, result.score);
-        results.splice(insertIdx, 0, result);
-        results.pop(); // Remove worst
-      }
-      // Otherwise: score too low, skip
+    const score = match.score + (isDir ? 10 : 0);
+
+    // Insert into results maintaining sorted order (top-k)
+    if (results.length < maxResults) {
+      const insertIdx = binarySearchInsertIdx(results, score);
+      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: match.indices });
+    } else if (score > results[results.length - 1].score) {
+      const insertIdx = binarySearchInsertIdx(results, score);
+      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: match.indices });
+      results.pop();
     }
+  };
+
+  // Process directories
+  for (const path of index.dirs) {
+    insertMatch(path, true);
+  }
+
+  // Process files
+  for (const path of index.files) {
+    insertMatch(path, false);
   }
 
   return results;
 }
 
-/**
- * Get stats about the index
- */
-export async function getIndexStats(): Promise<{ files: number; dirs: number; cached: boolean }> {
-  const index = await getFileIndex();
-  return {
-    files: index.files.length,
-    dirs: index.dirs.length,
-    cached: indexCache !== null && (Date.now() - indexCache.timestamp) < CACHE_TTL,
-  };
-}

@@ -169,9 +169,11 @@ export class MacroRegistry {
       return undefined;
     }
 
-    if (this.systemMacros.has(name)) {
+    // Single lookup optimization (KISS: avoid has() + get() double lookup)
+    const macro = this.systemMacros.get(name);
+    if (macro !== undefined) {
       this.logger.debug(`Getting system macro: ${name}`);
-      return this.systemMacros.get(name);
+      return macro;
     }
 
     this.logger.debug(`Macro ${name} not found in system macros`);

@@ -187,41 +187,8 @@ export function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * Create a regex pattern for matching S-expression function calls.
- * Matches patterns like: (funcName ...)
- *
- * @param funcName - Function name to match
- * @returns RegExp for matching S-expression calls
- *
- * @example
- * ```typescript
- * const pattern = createSExpCallRegex("map");
- * pattern.test("(map fn list)"); // true
- * pattern.test("map(...)");      // false
- * ```
- */
-export function createSExpCallRegex(funcName: string): RegExp {
-  return new RegExp(`\\(\\s*${escapeRegExp(funcName)}\\b`);
-}
-
-/**
- * Create a regex pattern for matching JavaScript function calls.
- * Matches patterns like: funcName(...)
- *
- * @param funcName - Function name to match
- * @returns RegExp for matching JS-style calls
- *
- * @example
- * ```typescript
- * const pattern = createJsCallRegex("foo");
- * pattern.test("foo()");   // true
- * pattern.test("(foo)");   // false
- * ```
- */
-export function createJsCallRegex(funcName: string): RegExp {
-  return new RegExp(`\\b${escapeRegExp(funcName)}\\s*\\(`);
-}
+// Note: createSExpCallRegex and createJsCallRegex were moved to runtime-error-handler.ts
+// as internal functions since they were only used there (single consumer pattern)
 
 // ============================================================================
 // DRY Utilities - Consolidated patterns used across the codebase

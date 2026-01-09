@@ -74,7 +74,7 @@ export function enrichSymbolInfoWithValueType(
       // Infer element type if array is not empty
       if (value.length > 0) {
         const firstType = typeof value[0];
-        result.meta.elementType = firstType.charAt(0).toUpperCase() +
+        result.meta.elementType = firstType[0].toUpperCase() +
           firstType.slice(1);
       }
     } else {
@@ -97,7 +97,7 @@ export function enrichSymbolInfoWithValueType(
     // Primitive types
     result.kind = "variable";
     const typeName = typeof value;
-    result.type = typeName.charAt(0).toUpperCase() + typeName.slice(1);
+    result.type = typeName[0].toUpperCase() + typeName.slice(1);
 
     // Add value info for primitive constants
     if (!result.meta) result.meta = {};

@@ -9,6 +9,9 @@ import { getMemoryStats, forgetFromMemory, compactMemory, getMemoryNames } from 
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
+// Pre-compiled whitespace pattern for command parsing
+const WHITESPACE_SPLIT_REGEX = /\s+/;
+
 export interface Command {
   description: string;
   handler: (state: ReplState, args: string) => void | Promise<void>;
@@ -188,7 +191,7 @@ export function isCommand(input: string): boolean {
 /** Run a command */
 export async function runCommand(input: string, state: ReplState): Promise<void> {
   const trimmed = input.trim();
-  const [cmdName, ...args] = trimmed.split(/\s+/);
+  const [cmdName, ...args] = trimmed.split(WHITESPACE_SPLIT_REGEX);
 
   const command = commands[cmdName];
   if (command) {
