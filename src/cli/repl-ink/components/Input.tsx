@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "npm:react@18";
 import { Text, Box, useInput } from "npm:ink@5";
-import { highlight, findMatchingParen, isBalanced } from "../../repl/syntax.ts";
+import { highlight, findMatchingParen, isBalanced, getUnclosedDepth } from "../../repl/syntax.ts";
 import { findSuggestion, acceptSuggestion, type Suggestion } from "../../repl/suggester.ts";
 import { shouldTabAcceptSuggestion } from "../../repl/tab-logic.ts";
 import { calculateWordBackPosition, calculateWordForwardPosition } from "../../repl/keyboard.ts";
@@ -125,12 +125,32 @@ export function Input({
   const pasteTimeoutRef = useRef<number | null>(null);
   const lastInputTimeRef = useRef<number>(0);
 
+  // Track if text change was from cycling (Up/Down) vs typing
+  // When cycling, we don't want to re-filter the dropdown
+  const textChangeFromCyclingRef = useRef(false);
+
   // Update cursor pos when value changes externally
   useEffect(() => {
     if (cursorPos > value.length) {
       setCursorPos(value.length);
     }
   }, [value, cursorPos]);
+
+  // Validate placeholder state when value changes
+  // Exit placeholder mode if placeholders become invalid (text deleted, etc.)
+  useEffect(() => {
+    if (placeholders.length > 0) {
+      // Check if any placeholder is out of bounds or value is too short
+      const lastPlaceholder = placeholders[placeholders.length - 1];
+      const minRequiredLength = lastPlaceholder.start + lastPlaceholder.length;
+
+      if (value.length < minRequiredLength) {
+        // Value was truncated - placeholders no longer valid
+        setPlaceholders([]);
+        setPlaceholderIndex(-1);
+      }
+    }
+  }, [value, placeholders]);
 
   // Update suggestion when value changes
   useEffect(() => {
@@ -159,18 +179,24 @@ export function Input({
   // KEY FIX: Skip during active session to allow Tab cycling without interference
   // NOTE: We use refs/stable callbacks to avoid infinite loops from state changes
   const triggerCompletionRef = useRef(completion.triggerCompletion);
-  const dropdownCloseRef = useRef(completion.dropdown.close);
   triggerCompletionRef.current = completion.triggerCompletion;
-  dropdownCloseRef.current = completion.dropdown.close;
 
   useEffect(() => {
-    // Skip auto-trigger ONLY for symbol provider (Tab cycling)
-    // For @mention and /command, we WANT to update as user types
-    if (completion.dropdown.state.sessionActive && completion.activeProviderId === "symbol") {
+    // Skip re-trigger if text changed due to Up/Down cycling
+    if (textChangeFromCyclingRef.current) {
+      textChangeFromCyclingRef.current = false;
       return;
     }
 
     const textBefore = value.slice(0, cursorPos);
+
+    // GENERIC: Re-trigger for ANY provider when dropdown is already open (live filtering)
+    // This enables VS Code-like behavior where typing filters the dropdown items
+    // The completion system will close dropdown if no items match
+    if (completion.dropdown.state.isOpen) {
+      triggerCompletionRef.current(value, cursorPos);
+      return;
+    }
 
     // @mention triggers FileProvider
     const lastAt = textBefore.lastIndexOf("@");
@@ -192,13 +218,8 @@ export function Input({
       triggerCompletionRef.current(value, cursorPos);
       return;
     }
-
-    // Close dropdown when context ends
-    // For file/command: close when pattern no longer matches
-    // For symbol: already handled by sessionActive check above
-    if (completion.activeProviderId === "file" || completion.activeProviderId === "command") {
-      dropdownCloseRef.current();
-    }
+    // Note: No explicit close needed here - when dropdown is open, the generic
+    // re-trigger above handles it. Completion system closes when no items match.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, cursorPos]);
 
@@ -817,13 +838,47 @@ export function Input({
       const selectedItem = completion.dropdown.selectedItem;
 
       if (key.upArrow) {
-        // Navigate UP: visual selection only (no auto-apply)
-        completion.dropdown.selectPrev();
+        // Navigate UP
+        const items = completion.dropdown.state.items;
+        const currentIndex = completion.dropdown.state.selectedIndex;
+        if (items.length > 0) {
+          const newIndex = (currentIndex - 1 + items.length) % items.length;
+          const newItem = items[newIndex];
+          completion.dropdown.selectPrev();
+          // Only apply on navigate for SYMBOL provider (cycling behavior)
+          // File/command providers: visual navigation only, apply on Enter
+          if (newItem && completion.activeProviderId === "symbol") {
+            textChangeFromCyclingRef.current = true; // Mark as cycling, not typing
+            const { originalText, originalCursor, anchorPosition } = completion.dropdown.state;
+            const before = originalText.slice(0, anchorPosition);
+            const after = originalText.slice(originalCursor);
+            const newText = before + newItem.label + after;
+            onChange(newText);
+            setCursorPos(anchorPosition + newItem.label.length);
+          }
+        }
         return;
       }
       if (key.downArrow) {
-        // Navigate DOWN: visual selection only (no auto-apply)
-        completion.dropdown.selectNext();
+        // Navigate DOWN
+        const items = completion.dropdown.state.items;
+        const currentIndex = completion.dropdown.state.selectedIndex;
+        if (items.length > 0) {
+          const newIndex = (currentIndex + 1) % items.length;
+          const newItem = items[newIndex];
+          completion.dropdown.selectNext();
+          // Only apply on navigate for SYMBOL provider (cycling behavior)
+          // File/command providers: visual navigation only, apply on Enter
+          if (newItem && completion.activeProviderId === "symbol") {
+            textChangeFromCyclingRef.current = true; // Mark as cycling, not typing
+            const { originalText, originalCursor, anchorPosition } = completion.dropdown.state;
+            const before = originalText.slice(0, anchorPosition);
+            const after = originalText.slice(originalCursor);
+            const newText = before + newItem.label + after;
+            onChange(newText);
+            setCursorPos(anchorPosition + newItem.label.length);
+          }
+        }
         return;
       }
       if (key.escape) {
@@ -862,6 +917,10 @@ export function Input({
       if (trimmed && (isBalanced(trimmed) || hasAtMention || hasAttachments)) {
         onSubmit(trimmed, attachments.length > 0 ? attachments : undefined);
         resetAfterSubmit();
+      } else if (trimmed && !isBalanced(trimmed)) {
+        // Unbalanced brackets: enter continuation mode (insert newline)
+        // This allows multi-line input for incomplete expressions
+        insertAt("\n");
       }
       return;
     }
@@ -932,11 +991,8 @@ export function Input({
 
     // Backspace
     if (key.backspace || key.delete) {
-      // Close dropdown on text modification - but ONLY for symbol provider
-      // For @mention (file) and /command providers, let auto-trigger update naturally
-      if (completion.isVisible && completion.activeProviderId === "symbol") {
-        completion.dropdown.close();
-      }
+      // For all providers: keep dropdown open, useEffect will re-filter
+      // (same as character input - VS Code behavior)
       if (cursorPos > 0) {
         deleteBack(1);
       }
@@ -945,11 +1001,8 @@ export function Input({
 
     // Regular character input with paste detection
     if (input && !key.ctrl && !key.meta) {
-      // Close dropdown on character input - but ONLY for symbol provider
-      // For @mention (file) and /command providers, let auto-trigger update naturally
-      if (completion.isVisible && completion.activeProviderId === "symbol") {
-        completion.dropdown.close();
-      }
+      // For symbol provider: keep dropdown open, it will re-filter via useEffect
+      // For @mention and /command: also handled by auto-trigger useEffect
 
       const now = Date.now();
       const timeSinceLastInput = now - lastInputTimeRef.current;
@@ -1140,10 +1193,16 @@ export function Input({
     charCount += lineLen + 1; // +1 for newline
   }
 
+  // Calculate unclosed depth for continuation prompt (memoized per render)
+  const unclosedDepth = lines.length > 1 ? getUnclosedDepth(value) : 0;
+
   // Render a single line with cursor if applicable
   const renderLine = (line: string, lineIndex: number, lineStartOffset: number): React.ReactNode => {
     const isCurrentLine = lineIndex === cursorLine;
-    const prompt = lineIndex === 0 ? (jsMode ? "js>" : "hql>") : "...";
+    // Show depth indicator on continuation lines: "..1>" or "..2>" etc.
+    const prompt = lineIndex === 0
+      ? (jsMode ? "js>" : "hql>")
+      : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>");
 
     if (!isCurrentLine) {
       // No cursor on this line

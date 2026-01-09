@@ -199,18 +199,3 @@ function extractDefinedNames(line: string, _lines: string[], _lineIndex: number)
 
   return names;
 }
-
-/**
- * Merge new docstrings into existing map.
- * New entries override existing ones.
- */
-export function mergeDocstrings(
-  existing: Map<string, string>,
-  newDocs: Map<string, string>
-): Map<string, string> {
-  const merged = new Map(existing);
-  for (const [name, doc] of newDocs) {
-    merged.set(name, doc);
-  }
-  return merged;
-}

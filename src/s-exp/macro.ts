@@ -1545,7 +1545,6 @@ function createMacroFunction(
     for (const expr of body) {
       result = evaluateForMacro(expr, macroEnv, logger);
     }
-    // applyHygiene REMOVED - was broken, HQL uses manual hygiene with gensym
     callEnv.setCurrentMacroContext(null);
     logger.debug(`Macro ${macroName} expanded to: ${sexpToString(result)}`);
     return result;
@@ -1556,11 +1555,6 @@ function createMacroFunction(
 
   return macroFn;
 }
-
-/* applyHygiene REMOVED - was broken and unused
- * HQL uses manual hygiene (Common Lisp style) with gensym
- * Users should call (gensym) to generate unique names in macros
- */
 
 /* Create a new environment for macro expansion with parameter bindings */
 function createMacroEnv(

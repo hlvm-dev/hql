@@ -144,12 +144,12 @@ export function App({ jsMode: initialJsMode = false, showBanner = true }: AppPro
 
 function handleCommand(cmd: string, repl: ReturnType<typeof useRepl>, exit: () => void): string | null {
   switch (cmd.trim().toLowerCase()) {
-    case ".help": return ".help .clear .reset .js .hql .exit";
-    case ".clear": return null;
-    case ".reset": repl.reset(); resetContext(); return "reset";
-    case ".js": repl.setJsMode(true); return "js mode";
-    case ".hql": repl.setJsMode(false); return "hql mode";
-    case ".exit": case ".quit": exit(); return null;
+    case "/help": return "/help /clear /reset /js /hql /exit";
+    case "/clear": return null;
+    case "/reset": repl.reset(); resetContext(); return "reset";
+    case "/js": repl.setJsMode(true); return "js mode";
+    case "/hql": repl.setJsMode(false); return "hql mode";
+    case "/exit": case "/quit": exit(); return null;
     default: return `unknown: ${cmd}`;
   }
 }

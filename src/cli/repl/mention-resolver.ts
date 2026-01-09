@@ -37,14 +37,14 @@ export async function resolveAtMentions(input: string): Promise<string> {
     replacements.set(mention, resolved);
   }
 
-  // Replace all mentions with resolved content
-  // Using replaceAll avoids creating new RegExp objects per iteration
-  let result = input;
-  for (const [mention, resolved] of replacements) {
-    result = result.replaceAll(mention, resolved);
-  }
-
-  return result;
+  // Replace all mentions in a single pass using regex alternation
+  // This is O(n) instead of O(n²) from multiple replaceAll calls
+  const entries = Array.from(replacements.entries());
+  const pattern = new RegExp(
+    entries.map(([k]) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    "g"
+  );
+  return input.replace(pattern, (match) => replacements.get(match) ?? match);
 }
 
 /**

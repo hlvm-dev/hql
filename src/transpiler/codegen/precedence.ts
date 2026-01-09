@@ -207,5 +207,3 @@ export function getExprPrecedence(node: IR.IRNode): Precedence {
 export function isRightAssociative(operator: string): boolean {
   return operator === "**" || operator.endsWith("=");
 }
-
-// Note: needsParens was removed as it was never imported - callers use inline `nodePrec < contextPrec`

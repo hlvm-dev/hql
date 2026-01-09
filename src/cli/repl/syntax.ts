@@ -438,3 +438,26 @@ export function isBalanced(input: string): boolean {
 
   return parens === 0 && brackets === 0 && braces === 0;
 }
+
+/**
+ * Get the number of unclosed delimiters (for continuation prompt).
+ * Returns total count of unclosed parens + brackets + braces.
+ */
+export function getUnclosedDepth(input: string): number {
+  const tokens = tokenizeCached(input);
+  let parens = 0, brackets = 0, braces = 0;
+
+  for (const token of tokens) {
+    switch (token.type) {
+      case "open-paren": parens++; break;
+      case "close-paren": parens--; break;
+      case "open-bracket": brackets++; break;
+      case "close-bracket": brackets--; break;
+      case "open-brace": braces++; break;
+      case "close-brace": braces--; break;
+    }
+  }
+
+  // Return total unclosed (only positive values - more opens than closes)
+  return Math.max(0, parens) + Math.max(0, brackets) + Math.max(0, braces);
+}

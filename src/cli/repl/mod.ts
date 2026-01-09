@@ -349,7 +349,7 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
 
   globalAny.help = () => {
     // Import is already at top of file, use runCommand
-    runCommand(".help", state);
+    runCommand("/help", state);
     return null;
   };
 

@@ -17,6 +17,7 @@ import {
   THREADING_MACROS,
   extractMacroNames,
 } from "../../common/known-identifiers.ts";
+import { isWordBoundary } from "./string-utils.ts";
 
 // ============================================================
 // Types
@@ -79,21 +80,6 @@ export function getWordAtCursor(
     word: line.slice(start, cursorPos),
     start,
   };
-}
-
-/** Pre-computed set for O(1) word boundary check */
-const WORD_BOUNDARY_CHARS: ReadonlySet<string> = new Set([
-  ' ', '\t', '\n', '\r',
-  '(', ')',
-  '[', ']',
-  '{', '}',
-  '"', "'",
-  ',', ';'
-]);
-
-/** Check if character is a word boundary (internal helper) */
-function isWordBoundary(ch: string): boolean {
-  return WORD_BOUNDARY_CHARS.has(ch);
 }
 
 /**

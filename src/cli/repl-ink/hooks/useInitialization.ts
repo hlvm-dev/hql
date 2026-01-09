@@ -235,7 +235,7 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
   };
 
   globalAny.help = () => {
-    runCommand(".help", state);
+    runCommand("/help", state);
     return null;
   };
 

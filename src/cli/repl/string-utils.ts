@@ -32,3 +32,23 @@ export function escapeString(s: string): string {
 export function getGlobalRecord(): Record<string, unknown> {
   return globalThis as unknown as Record<string, unknown>;
 }
+
+/**
+ * Characters that mark word boundaries for REPL completion.
+ * Used by both traditional completer and Ink completion providers.
+ */
+export const WORD_BOUNDARY_CHARS: ReadonlySet<string> = new Set([
+  " ", "\t", "\n", "\r",
+  "(", ")",
+  "[", "]",
+  "{", "}",
+  '"', "'",
+  ",", ";",
+]);
+
+/**
+ * Check if character is a word boundary.
+ */
+export function isWordBoundary(ch: string): boolean {
+  return WORD_BOUNDARY_CHARS.has(ch);
+}

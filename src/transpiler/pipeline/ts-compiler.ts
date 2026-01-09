@@ -602,8 +602,8 @@ function convertDiagnostics(
 ): TypeDiagnostic[] {
   const result: TypeDiagnostic[] = [];
 
-  // Count lines in the runtime helper declarations to offset line numbers
-  const helperLineCount = RUNTIME_HELPER_DECLARATIONS.split("\n").length;
+  // Use pre-computed line count for runtime helper declarations
+  const helperLineCount = PRELUDE_LINE_COUNT;
 
   for (const diag of diagnostics) {
     // Skip diagnostics from lib files

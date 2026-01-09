@@ -327,27 +327,6 @@ export const TS_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts"]);
 // ============================================================================
 
 /**
- * Check if a string is an arithmetic operator
- */
-export function isArithmeticOperator(op: string): boolean {
-  return ARITHMETIC_OPERATORS.has(op);
-}
-
-/**
- * Check if a string is a comparison operator
- */
-export function isComparisonOperator(op: string): boolean {
-  return COMPARISON_OPERATORS.has(op);
-}
-
-/**
- * Check if a string is a logical operator
- */
-export function isLogicalOperator(op: string): boolean {
-  return LOGICAL_OPERATORS.has(op);
-}
-
-/**
  * Check if a string is any operator
  */
 export function isOperator(op: string): boolean {

@@ -64,6 +64,3 @@ export function createMemberExpression(
     computed: resolved.computed,
   } as IR.IRMemberExpression;
 }
-
-// Note: createMemberChainFromPath and createMemberExpressionWithLiteral were removed
-// as they were never used anywhere in the codebase (dead code elimination)

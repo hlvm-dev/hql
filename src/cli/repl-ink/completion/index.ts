@@ -73,7 +73,6 @@ export {
   shouldTriggerCommand,
   extractCommandQuery,
   shouldTriggerSymbol,
-  applyCompletionItem,
 } from "./providers.ts";
 
 // React hooks

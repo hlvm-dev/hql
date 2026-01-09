@@ -100,12 +100,6 @@ export interface CompletionItem {
   /** Optional description (signature, path, etc.) */
   readonly description?: string;
 
-  /** Text to insert when selected (defaults to label) - DEPRECATED: use applyAction */
-  readonly insertText?: string;
-
-  /** Whether to add trailing space after insertion - DEPRECATED: use applyAction */
-  readonly addTrailingSpace?: boolean;
-
   /** Score for sorting (higher = better match) */
   readonly score: number;
 

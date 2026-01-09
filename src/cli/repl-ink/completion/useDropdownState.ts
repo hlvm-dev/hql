@@ -181,8 +181,8 @@ export function useDropdownState(): UseDropdownStateReturn {
         shiftKey
       );
 
-      // Apply selection change if needed
-      if (result.action === "select" && result.newIndex !== state.selectedIndex) {
+      // Apply selection change if needed (for both navigate and select actions)
+      if (result.newIndex !== state.selectedIndex && result.newIndex >= 0) {
         dispatch(selectIndexAction(result.newIndex));
       }
 

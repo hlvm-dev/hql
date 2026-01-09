@@ -8,7 +8,7 @@
 import { useCallback, useRef, useEffect, useMemo } from "npm:react@18";
 import type { CompletionContext, CompletionItem, ProviderId } from "./types.ts";
 import { useDropdownState } from "./useDropdownState.ts";
-import { buildContext, applyCompletionItem } from "./providers.ts";
+import { buildContext } from "./providers.ts";
 import { getActiveProvider, ALL_PROVIDERS } from "./concrete-providers.ts";
 import { isNavigationKey, shouldCloseOnInput } from "./navigation.ts";
 
@@ -166,14 +166,22 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         // Debounce the actual fetch (use provider's debounce setting)
         debounceTimerRef.current = setTimeout(async () => {
           const result = await provider.getCompletions(context);
-          // Pass original text/cursor for session tracking
-          dropdown.open(result.items, result.anchor, provider.id, text, cursorPosition);
+          // GENERIC: Close dropdown if no items, open if items exist
+          if (result.items.length === 0) {
+            dropdown.close();
+          } else {
+            dropdown.open(result.items, result.anchor, provider.id, text, cursorPosition);
+          }
           debounceTimerRef.current = null;
         }, providerDebounceMs) as unknown as number;
       } else {
         // Sync or forced - fetch immediately
         const result = await provider.getCompletions(context);
-        // Pass original text/cursor for session tracking
+        // GENERIC: Close dropdown if no items, open if items exist
+        if (result.items.length === 0) {
+          dropdown.close();
+          return;
+        }
         dropdown.open(result.items, result.anchor, provider.id, text, cursorPosition);
       }
     },
@@ -259,12 +267,12 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
 
       // Apply the first item immediately (using original text/cursor)
       const firstItem = result.items[0];
-      return applyCompletionItem(
-        firstItem,
+      const applyResult = firstItem.applyAction("SELECT", {
         text,
         cursorPosition,
-        result.anchor
-      );
+        anchorPosition: result.anchor,
+      });
+      return { text: applyResult.text, cursorPosition: applyResult.cursorPosition };
     },
     [disabled, userBindings, signatures, docstrings, dropdown]
   );
@@ -281,12 +289,12 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
 
       // KEY FIX: Use stored original text/cursor, NOT current values
       // This allows Tab cycling to correctly replace the original word
-      return applyCompletionItem(
-        selected,
-        dropdown.state.originalText,
-        dropdown.state.originalCursor,
-        dropdown.state.anchorPosition
-      );
+      const applyResult = selected.applyAction("SELECT", {
+        text: dropdown.state.originalText,
+        cursorPosition: dropdown.state.originalCursor,
+        anchorPosition: dropdown.state.anchorPosition,
+      });
+      return { text: applyResult.text, cursorPosition: applyResult.cursorPosition };
     },
     [dropdown]
   );
@@ -301,15 +309,14 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       if (!selected) return null;
 
       // Use stored original values
-      const result = applyCompletionItem(
-        selected,
-        dropdown.state.originalText,
-        dropdown.state.originalCursor,
-        dropdown.state.anchorPosition
-      );
+      const applyResult = selected.applyAction("SELECT", {
+        text: dropdown.state.originalText,
+        cursorPosition: dropdown.state.originalCursor,
+        anchorPosition: dropdown.state.anchorPosition,
+      });
 
       dropdown.close();
-      return result;
+      return { text: applyResult.text, cursorPosition: applyResult.cursorPosition };
     },
     [dropdown]
   );

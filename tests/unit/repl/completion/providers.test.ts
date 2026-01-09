@@ -19,7 +19,6 @@ import {
   shouldTriggerCommand,
   extractCommandQuery,
   shouldTriggerSymbol,
-  applyCompletionItem,
 } from "../../../../src/cli/repl-ink/completion/providers.ts";
 import type { CompletionItem, CompletionContext, CompletionType, ApplyResult, ApplyContext, ItemRenderSpec } from "../../../../src/cli/repl-ink/completion/types.ts";
 import { TYPE_ICONS } from "../../../../src/cli/repl-ink/completion/types.ts";
@@ -36,18 +35,20 @@ function createMockItem(
   score: number,
   options: { insertText?: string; addTrailingSpace?: boolean; description?: string } = {}
 ): CompletionItem {
+  const insertText = options.insertText ?? label;
+  const addTrailingSpace = options.addTrailingSpace ?? true;
+  const suffix = addTrailingSpace ? " " : "";
+
   return {
     id,
     label,
     type,
     score,
-    insertText: options.insertText,
-    addTrailingSpace: options.addTrailingSpace,
     description: options.description,
     availableActions: ["SELECT"],
     applyAction: (_action: "DRILL" | "SELECT", context: ApplyContext): ApplyResult => ({
-      text: context.text.slice(0, context.anchorPosition) + (options.insertText ?? label) + context.text.slice(context.cursorPosition),
-      cursorPosition: context.anchorPosition + (options.insertText ?? label).length,
+      text: context.text.slice(0, context.anchorPosition) + insertText + suffix + context.text.slice(context.cursorPosition),
+      cursorPosition: context.anchorPosition + insertText.length + suffix.length,
       closeDropdown: true,
     }),
     getRenderSpec: (): ItemRenderSpec => ({
@@ -282,8 +283,10 @@ Deno.test("Providers: createCompletionItem creates item with defaults", () => {
   assertEquals(item.label, "test");
   assertEquals(item.type, "function");
   assertEquals(item.score, 100);
-  assertEquals(item.addTrailingSpace, true);
   assert(item.id.startsWith("function-"));
+  // Default addTrailingSpace: true is reflected in applyAction
+  const result = item.applyAction("SELECT", { text: "te", cursorPosition: 2, anchorPosition: 0 });
+  assertEquals(result.text, "test "); // Has trailing space
 });
 
 Deno.test("Providers: createCompletionItem accepts custom options", () => {
@@ -296,7 +299,9 @@ Deno.test("Providers: createCompletionItem accepts custom options", () => {
 
   assertEquals(item.score, 50);
   assertEquals(item.description, "A test item");
-  assertEquals(item.addTrailingSpace, false);
+  // addTrailingSpace: false is reflected in applyAction
+  const result = item.applyAction("SELECT", { text: "te", cursorPosition: 2, anchorPosition: 0 });
+  assertEquals(result.text, "test"); // No trailing space
 });
 
 // ============================================================
@@ -443,40 +448,40 @@ Deno.test("Providers: shouldTriggerSymbol does not trigger in / mode", () => {
 });
 
 // ============================================================
-// applyCompletionItem Tests
+// applyAction Tests
 // ============================================================
 
-Deno.test("Providers: applyCompletionItem inserts text at anchor", () => {
+Deno.test("Providers: applyAction inserts text at anchor", () => {
   const item = createMockItem("1", "define", "keyword", 100, { addTrailingSpace: true });
 
-  const result = applyCompletionItem(item, "(def", 4, 1);
+  const result = item.applyAction("SELECT", { text: "(def", cursorPosition: 4, anchorPosition: 1 });
 
   assertEquals(result.text, "(define ");
   assertEquals(result.cursorPosition, 8);
 });
 
-Deno.test("Providers: applyCompletionItem uses insertText when provided", () => {
+Deno.test("Providers: applyAction uses insertText when provided", () => {
   const item = createMockItem("1", "defn", "keyword", 100, { insertText: "(defn [] )", addTrailingSpace: false });
 
-  const result = applyCompletionItem(item, "(d", 2, 1);
+  const result = item.applyAction("SELECT", { text: "(d", cursorPosition: 2, anchorPosition: 1 });
 
   assertEquals(result.text, "((defn [] )");
   assertEquals(result.cursorPosition, 11);
 });
 
-Deno.test("Providers: applyCompletionItem respects addTrailingSpace false", () => {
+Deno.test("Providers: applyAction respects addTrailingSpace false", () => {
   const item = createMockItem("1", "test", "function", 100, { addTrailingSpace: false });
 
-  const result = applyCompletionItem(item, "te", 2, 0);
+  const result = item.applyAction("SELECT", { text: "te", cursorPosition: 2, anchorPosition: 0 });
 
   assertEquals(result.text, "test");
   assertEquals(result.cursorPosition, 4);
 });
 
-Deno.test("Providers: applyCompletionItem preserves text after cursor", () => {
+Deno.test("Providers: applyAction preserves text after cursor", () => {
   const item = createMockItem("1", "map", "function", 100, { addTrailingSpace: true });
 
-  const result = applyCompletionItem(item, "(ma x y)", 3, 1);
+  const result = item.applyAction("SELECT", { text: "(ma x y)", cursorPosition: 3, anchorPosition: 1 });
 
   assertEquals(result.text, "(map  x y)");
   assertEquals(result.cursorPosition, 5);

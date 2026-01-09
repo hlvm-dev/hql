@@ -3,7 +3,7 @@
  */
 
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { extractDocstrings, mergeDocstrings } from "../../../src/cli/repl/docstring.ts";
+import { extractDocstrings } from "../../../src/cli/repl/docstring.ts";
 
 // ============================================================
 // Basic Extraction Tests
@@ -163,30 +163,4 @@ Deno.test("extractDocstrings: hyphenated names", () => {
 (defn my-cool-func [x] x)`;
   const result = extractDocstrings(input);
   assertEquals(result.get("my-cool-func"), "Kebab case function");
-});
-
-// ============================================================
-// Merge Tests
-// ============================================================
-
-Deno.test("mergeDocstrings: merges two maps", () => {
-  const existing = new Map([["a", "doc A"]]);
-  const newDocs = new Map([["b", "doc B"]]);
-  const merged = mergeDocstrings(existing, newDocs);
-  assertEquals(merged.get("a"), "doc A");
-  assertEquals(merged.get("b"), "doc B");
-});
-
-Deno.test("mergeDocstrings: new overrides existing", () => {
-  const existing = new Map([["a", "old doc"]]);
-  const newDocs = new Map([["a", "new doc"]]);
-  const merged = mergeDocstrings(existing, newDocs);
-  assertEquals(merged.get("a"), "new doc");
-});
-
-Deno.test("mergeDocstrings: does not mutate original", () => {
-  const existing = new Map([["a", "doc A"]]);
-  const newDocs = new Map([["b", "doc B"]]);
-  mergeDocstrings(existing, newDocs);
-  assertEquals(existing.has("b"), false);
 });

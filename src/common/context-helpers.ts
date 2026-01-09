@@ -6,9 +6,7 @@
 import { exists, readTextFile } from "../platform/platform.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { getErrorMessage } from "./utils.ts";
-
-// Pre-compiled newline pattern for line splitting
-const LINE_SPLIT_REGEX = /\r?\n/;
+import { LINE_SPLIT_REGEX } from "./line-utils.ts";
 
 /**
  * Represents a line of source code with context information.

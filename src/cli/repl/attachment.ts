@@ -9,6 +9,7 @@
  */
 
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
+import { LINE_SPLIT_REGEX, countLines } from "../../common/line-utils.ts";
 
 // ============================================================================
 // Types
@@ -173,9 +174,6 @@ export const TEXT_COLLAPSE_MIN_LINES = 5;
 /** Minimum character count to trigger text collapse */
 export const TEXT_COLLAPSE_MIN_CHARS = 300;
 
-/** Pre-compiled newline detection (handles \n, \r\n, \r) */
-const NEWLINE_SPLIT_REGEX = /\r?\n|\r/;
-
 /** Supported media file extensions (for quick check) */
 const MEDIA_EXTENSIONS = new Set(Object.keys(EXT_TO_MIME));
 
@@ -329,13 +327,6 @@ export function isAttachment(result: Attachment | AttachmentError): result is At
 }
 
 /**
- * Check if a result is an error
- */
-export function isAttachmentError(result: Attachment | AttachmentError): result is AttachmentError {
-  return "type" in result && "message" in result && !("id" in result);
-}
-
-/**
  * Format attachment for inline display in input
  * Example: "[Image #1: screenshot.png (1.2 MB)]"
  */
@@ -357,8 +348,7 @@ export function formatAttachmentDetail(attachment: Attachment): string {
  * to distinguish a genuine multi-line paste from sequential single lines.
  */
 export function shouldCollapseText(text: string): boolean {
-  // Handle all newline formats: \n (Unix), \r\n (Windows), \r (old Mac)
-  const lineCount = text.split(NEWLINE_SPLIT_REGEX).length;
+  const lineCount = countLines(text);
 
   // CRITICAL: Must have actual newlines to be a "pasted text block"
   // Single lines (even if 1000+ chars) should be inserted directly
@@ -370,12 +360,8 @@ export function shouldCollapseText(text: string): boolean {
   return lineCount >= TEXT_COLLAPSE_MIN_LINES || text.length >= TEXT_COLLAPSE_MIN_CHARS;
 }
 
-/**
- * Count lines handling all newline formats
- */
-export function countLines(text: string): number {
-  return text.split(NEWLINE_SPLIT_REGEX).length;
-}
+// Re-export countLines from line-utils for backwards compatibility
+export { countLines };
 
 /**
  * Generate display name for pasted text: [Pasted text #1 +183 lines]
@@ -405,7 +391,7 @@ export function createTextAttachment(content: string, id: number): TextAttachmen
  * Get a preview of text attachment content
  */
 export function getTextAttachmentPreview(attachment: TextAttachment, maxLines = 5): string {
-  const lines = attachment.content.split(NEWLINE_SPLIT_REGEX);
+  const lines = attachment.content.split(LINE_SPLIT_REGEX);
   const preview = lines.slice(0, maxLines).join("\n");
   const remaining = lines.length - maxLines;
   return remaining > 0 ? `${preview}\n... +${remaining} more lines` : preview;

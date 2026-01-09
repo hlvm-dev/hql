@@ -50,68 +50,32 @@ const CONDITIONAL_TYPE_REGEX = /\bextends\b[^?]*\?[^:]*:/;
 // ============================================================================
 
 /**
- * Count angle bracket depth in a string.
- * Returns positive if more '<' than '>', negative if more '>' than '<', zero if balanced.
- *
+ * Generic bracket depth counter.
  * @param text - String to analyze
+ * @param open - Opening bracket character
+ * @param close - Closing bracket character
  * @returns Depth count (positive = unbalanced open, negative = unbalanced close)
  */
-export function countAngleBracketDepth(text: string): number {
+function countDepth(text: string, open: string, close: string): number {
   let depth = 0;
   for (const c of text) {
-    if (c === "<") depth++;
-    else if (c === ">") depth--;
+    if (c === open) depth++;
+    else if (c === close) depth--;
   }
   return depth;
 }
 
-/**
- * Count brace depth in a string.
- * Returns positive if more '{' than '}', zero if balanced.
- *
- * @param text - String to analyze
- * @returns Depth count (positive = unbalanced open)
- */
-export function countBraceDepth(text: string): number {
-  let depth = 0;
-  for (const c of text) {
-    if (c === "{") depth++;
-    else if (c === "}") depth--;
-  }
-  return depth;
-}
+/** Count angle bracket depth: positive if more '<' than '>' */
+export const countAngleBracketDepth = (text: string): number => countDepth(text, "<", ">");
 
-/**
- * Count bracket depth in a string.
- * Returns positive if more '[' than ']', zero if balanced.
- *
- * @param text - String to analyze
- * @returns Depth count (positive = unbalanced open)
- */
-export function countBracketDepth(text: string): number {
-  let depth = 0;
-  for (const c of text) {
-    if (c === "[") depth++;
-    else if (c === "]") depth--;
-  }
-  return depth;
-}
+/** Count brace depth: positive if more '{' than '}' */
+export const countBraceDepth = (text: string): number => countDepth(text, "{", "}");
 
-/**
- * Count parenthesis depth in a string.
- * Returns positive if more '(' than ')', zero if balanced.
- *
- * @param text - String to analyze
- * @returns Depth count (positive = unbalanced open)
- */
-export function countParenDepth(text: string): number {
-  let depth = 0;
-  for (const c of text) {
-    if (c === "(") depth++;
-    else if (c === ")") depth--;
-  }
-  return depth;
-}
+/** Count bracket depth: positive if more '[' than ']' */
+export const countBracketDepth = (text: string): number => countDepth(text, "[", "]");
+
+/** Count parenthesis depth: positive if more '(' than ')' */
+export const countParenDepth = (text: string): number => countDepth(text, "(", ")");
 
 // ============================================================================
 // TYPE PARAMETER SPLITTING

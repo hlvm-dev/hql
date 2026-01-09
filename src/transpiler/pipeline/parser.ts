@@ -73,8 +73,13 @@ function countCodePoints(str: string): number {
 }
 
 // Pre-compiled regex patterns for hot paths (avoid compilation per call)
-const DELIMITER_CHARS_REGEX = /[\s\(\)\[\]\{\}]/;
 const WHITESPACE_CHAR_REGEX = /\s/;
+
+// O(1) Set lookup for delimiter characters (replaces regex test in hot loop)
+const DELIMITER_CHARS_SET = new Set([
+  " ", "\t", "\n", "\r",
+  "(", ")", "[", "]", "{", "}"
+]);
 
 const TOKEN_PATTERNS = {
   TEMPLATE_LITERAL: /`(?!\(|\[)(?:[^`\\$]|\\[\s\S]|\$(?!\{)|\$\{(?:[^}\\]|\\[\s\S])*\})*`/y,
@@ -276,39 +281,26 @@ function tokenize(input: string, filePath: string): Token[] {
   return tokens;
 }
 
+// Pre-built map for O(1) special token lookup (replaces 33-line switch statement)
+const SPECIAL_TOKEN_MAP = new Map<string, TokenType>([
+  ["(", TokenType.LeftParen],
+  [")", TokenType.RightParen],
+  ["[", TokenType.LeftBracket],
+  ["]", TokenType.RightBracket],
+  ["{", TokenType.LeftBrace],
+  ["}", TokenType.RightBrace],
+  ["#[", TokenType.HashLeftBracket],
+  [".", TokenType.Dot],
+  [":", TokenType.Colon],
+  [",", TokenType.Comma],
+  ["'", TokenType.Quote],
+  ["`", TokenType.Backtick],
+  ["~", TokenType.Unquote],
+  ["~@", TokenType.UnquoteSplicing],
+]);
+
 function getTokenTypeForSpecial(value: string): TokenType {
-  switch (value) {
-    case "(":
-      return TokenType.LeftParen;
-    case ")":
-      return TokenType.RightParen;
-    case "[":
-      return TokenType.LeftBracket;
-    case "]":
-      return TokenType.RightBracket;
-    case "{":
-      return TokenType.LeftBrace;
-    case "}":
-      return TokenType.RightBrace;
-    case "#[":
-      return TokenType.HashLeftBracket;
-    case ".":
-      return TokenType.Dot;
-    case ":":
-      return TokenType.Colon;
-    case ",":
-      return TokenType.Comma;
-    case "'":
-      return TokenType.Quote;
-    case "`":
-      return TokenType.Backtick;
-    case "~":
-      return TokenType.Unquote;
-    case "~@":
-      return TokenType.UnquoteSplicing;
-    default:
-      return TokenType.Symbol;
-  }
+  return SPECIAL_TOKEN_MAP.get(value) ?? TokenType.Symbol;
 }
 
 function parseTokens(tokens: Token[], input: string, filePath: string): SExp[] {
@@ -1050,7 +1042,7 @@ function matchNextToken(
           depth++;
         } else if (char === '>') {
           depth--;
-        } else if (DELIMITER_CHARS_REGEX.test(char) && depth === 0) {
+        } else if (DELIMITER_CHARS_SET.has(char) && depth === 0) {
           // Stop at delimiters only when depth is 0
           break;
         }

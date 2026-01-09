@@ -1,10 +1,8 @@
 // core/src/common/runtime-error-handler.ts - Enhanced version
 // Maps JavaScript runtime errors back to HQL source locations with improved accuracy
 
-// Pre-compiled newline pattern for line splitting
-const LINE_SPLIT_REGEX = /\r?\n/;
-
 import { globalErrorReporter, HQLError, RuntimeError } from "./error.ts";
+import { LINE_SPLIT_REGEX } from "./line-utils.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { escapeRegExp } from "./utils.ts";
 

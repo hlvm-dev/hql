@@ -23,6 +23,7 @@ import { ERROR_REPORTED_SYMBOL } from "./error-constants.ts";
 import { isObjectValue } from "./utils.ts";
 import { readTextFile as platformReadTextFile } from "../platform/platform.ts";
 import { extractContextLinesFromSource } from "./context-helpers.ts";
+import { LINE_SPLIT_REGEX } from "./line-utils.ts";
 
 // -----------------------------------------------------------------------------
 // Pre-compiled Regex Patterns
@@ -48,9 +49,6 @@ const TOKEN_EXTRACT_REGEX = /^[^\s()[\]{}'"`,;]+/;
 const UNDEFINED_VAR_REGEX = /['"`]?(\w+)['"`]?\s+is not defined/i;
 const EXPECTED_COUNT_REGEX = /expected (\d+)/i;
 const QUOTED_NAME_REGEX = /['"`](\w+)['"`]/;
-
-// Line splitting pattern
-const LINE_SPLIT_REGEX = /\r?\n/;
 
 // -----------------------------------------------------------------------------
 // Color utilities

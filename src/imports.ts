@@ -536,6 +536,21 @@ function getCachedFileLines(filePath?: string): string[] | null {
   return fileLineCache.get(filePath) ?? null;
 }
 
+/** Cache for import pattern regex (avoids recompilation per call) */
+const importPatternCache = new Map<string, { vector: RegExp; namespace: RegExp }>();
+
+function getImportPatterns(escapedPath: string): { vector: RegExp; namespace: RegExp } {
+  let patterns = importPatternCache.get(escapedPath);
+  if (!patterns) {
+    patterns = {
+      vector: new RegExp(`import\\s+\\[([^\\]]+)\\]\\s+from\\s+["']${escapedPath}["']`),
+      namespace: new RegExp(`import\\s+\\S+\\s+from\\s+["']${escapedPath}["']`),
+    };
+    importPatternCache.set(escapedPath, patterns);
+  }
+  return patterns;
+}
+
 /**
  * Find line information for an import expression
  * Optimized: Uses single regex scan per line instead of multiple .includes() calls
@@ -555,15 +570,9 @@ function findImportLineInfo(
   // Escape special regex characters in modulePath (using DRY utility)
   const escapedModulePath = escapeRegExp(modulePath);
 
-  // Pre-compile patterns once (optimization: single regex instead of 4× .includes())
-  // Matches: import [...] from "modulePath" or import [...] from 'modulePath'
-  const vectorImportPattern = new RegExp(
-    `import\\s+\\[([^\\]]+)\\]\\s+from\\s+["']${escapedModulePath}["']`
-  );
-  // Matches: import name from "modulePath"
-  const namespaceImportPattern = new RegExp(
-    `import\\s+\\S+\\s+from\\s+["']${escapedModulePath}["']`
-  );
+  // Get cached patterns (optimization: avoids regex compilation per call)
+  const { vector: vectorImportPattern, namespace: namespaceImportPattern } =
+    getImportPatterns(escapedModulePath);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];

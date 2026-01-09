@@ -304,14 +304,7 @@ export const SymbolProvider: CompletionProvider = {
 // File Provider
 // ============================================================
 
-import { searchFiles, type FileMatch } from "../../repl/file-search.ts";
-
-/**
- * Unescape shell path (remove backslashes before special chars).
- */
-function unescapeShellPath(path: string): string {
-  return path.replace(/\\([^\\])/g, "$1");
-}
+import { searchFiles, unescapeShellPath, type FileMatch } from "../../repl/file-search.ts";
 
 /**
  * Create applyAction for file items.

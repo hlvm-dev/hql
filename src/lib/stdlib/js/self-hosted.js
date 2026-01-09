@@ -579,6 +579,15 @@ export { isArray as array_QMARK_ };
 export { isObject as object_QMARK_ };
 export { isFunction as fn_QMARK_ };
 export { isEmpty as empty_QMARK_ };
+// Additional numeric predicate aliases
+export { isZero as zero_QMARK_ };
+export { isEven as even_QMARK_ };
+export { isOdd as odd_QMARK_ };
+export { isPositive as pos_QMARK_ };
+export { isNegative as neg_QMARK_ };
+// Collection predicate aliases
+export { every as every_QMARK_ };
+export { some as some_QMARK_ };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 6: ARITHMETIC
@@ -1699,4 +1708,68 @@ export function sortBy(keyfn, compOrColl, coll) {
   }
   const arr = coll == null ? [] : Array.from(coll);
   return arr.sort((a, b) => compOrColl(keyfn(a), keyfn(b)));
+}
+
+// ============================================
+// Phase 26: Atoms (Mutable State)
+// ============================================
+
+/**
+ * Atom class - mutable reference with swap/reset semantics
+ * Inspired by Clojure's atoms for managed state
+ */
+class Atom {
+  constructor(value) {
+    this._value = value;
+  }
+
+  deref() {
+    return this._value;
+  }
+
+  reset(newValue) {
+    this._value = newValue;
+    return newValue;
+  }
+
+  swap(f, ...args) {
+    this._value = f(this._value, ...args);
+    return this._value;
+  }
+
+  toString() {
+    return `Atom(${JSON.stringify(this._value)})`;
+  }
+
+  [Symbol.for("Deno.customInspect")]() {
+    return this.toString();
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")]() {
+    return this.toString();
+  }
+}
+
+/** atom - Creates a mutable reference */
+export function atom(value) {
+  return new Atom(value);
+}
+
+/** deref - Gets value from atom or any IDeref */
+export function deref(ref) {
+  if (ref instanceof Atom) return ref.deref();
+  if (ref && typeof ref.deref === "function") return ref.deref();
+  throw new TypeError("deref: expected Atom or IDeref");
+}
+
+/** reset! - Sets atom to new value, returns new value */
+export function reset_BANG_(a, newValue) {
+  if (!(a instanceof Atom)) throw new TypeError("reset!: expected Atom");
+  return a.reset(newValue);
+}
+
+/** swap! - Applies function to atom value, returns new value */
+export function swap_BANG_(a, f, ...args) {
+  if (!(a instanceof Atom)) throw new TypeError("swap!: expected Atom");
+  return a.swap(f, ...args);
 }

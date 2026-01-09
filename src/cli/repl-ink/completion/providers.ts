@@ -15,20 +15,11 @@ import type {
   ItemRenderSpec,
 } from "./types.ts";
 import { TYPE_ICONS } from "./types.ts";
+import { isWordBoundary } from "../../repl/string-utils.ts";
 
 // ============================================================
 // Word Extraction
 // ============================================================
-
-/** Characters that mark word boundaries */
-const WORD_BOUNDARY_CHARS = new Set([
-  " ", "\t", "\n", "\r",
-  "(", ")",
-  "[", "]",
-  "{", "}",
-  '"', "'",
-  ",", ";",
-]);
 
 /**
  * Get the word at cursor position.
@@ -52,13 +43,6 @@ export function getWordAtCursor(
     word: text.slice(start, cursorPosition),
     start,
   };
-}
-
-/**
- * Check if a character is a word boundary.
- */
-function isWordBoundary(ch: string): boolean {
-  return WORD_BOUNDARY_CHARS.has(ch);
 }
 
 /**
@@ -203,11 +187,13 @@ export function resetItemIdCounter(): void {
 export interface CreateItemOptions {
   readonly score?: number;
   readonly description?: string;
-  readonly insertText?: string;
-  readonly addTrailingSpace?: boolean;
   readonly matchIndices?: readonly number[];
   readonly metadata?: Readonly<Record<string, unknown>>;
-  // New action semantics
+  /** Text to insert when selected (defaults to label) */
+  readonly insertText?: string;
+  /** Whether to add trailing space after insertion (default: true) */
+  readonly addTrailingSpace?: boolean;
+  // Action semantics
   readonly availableActions?: readonly CompletionAction[];
   readonly applyAction?: (action: CompletionAction, context: ApplyContext) => ApplyResult;
   readonly getRenderSpec?: () => ItemRenderSpec;
@@ -274,11 +260,9 @@ export function createCompletionItem(
     type,
     score: options.score ?? 100,
     description: options.description,
-    insertText: options.insertText,
-    addTrailingSpace,
     matchIndices: options.matchIndices,
     metadata: options.metadata,
-    // New action semantics with defaults
+    // Action semantics with defaults
     availableActions: options.availableActions ?? ["SELECT"],
     applyAction: options.applyAction ?? createDefaultApplyAction(label, options.insertText, addTrailingSpace),
     getRenderSpec: options.getRenderSpec ?? createDefaultRenderSpec(
@@ -398,53 +382,21 @@ export function shouldTriggerSymbol(context: CompletionContext): boolean {
     return true;
   }
 
-  // Allow empty prefix completion in these cases:
+  // Allow empty prefix completion only in valid contexts
   const { textBeforeCursor } = context;
 
-  // At start of input - show all completions
+  // Don't trigger on empty input - user must type something first
+  // (If they want to browse all symbols, they can press Tab after typing `(`)
   if (textBeforeCursor.length === 0) {
-    return true;
+    return false;
   }
 
   // After opening paren/bracket - show available symbols
   const lastChar = textBeforeCursor[textBeforeCursor.length - 1];
-  if (lastChar === "(" || lastChar === "[" || lastChar === " " || lastChar === "\t" || lastChar === "\n") {
+  if (lastChar === "(" || lastChar === "[") {
     return true;
   }
 
   return false;
 }
 
-// ============================================================
-// Application Logic
-// ============================================================
-
-/**
- * Apply a completion item to the input.
- *
- * @param item - Selected completion item
- * @param text - Current input text
- * @param cursorPosition - Current cursor position
- * @param anchorPosition - Position where completion word starts
- * @returns New text and cursor position
- */
-export function applyCompletionItem(
-  item: CompletionItem,
-  text: string,
-  cursorPosition: number,
-  anchorPosition: number
-): { text: string; cursorPosition: number } {
-  const insertText = item.insertText ?? item.label;
-  const suffix = item.addTrailingSpace ? " " : "";
-
-  const before = text.slice(0, anchorPosition);
-  const after = text.slice(cursorPosition);
-
-  const newText = before + insertText + suffix + after;
-  const newCursor = anchorPosition + insertText.length + suffix.length;
-
-  return {
-    text: newText,
-    cursorPosition: newCursor,
-  };
-}

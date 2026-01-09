@@ -141,8 +141,6 @@ export function containsThrowStatement(node: IR.IRNode | null | undefined): bool
   return containsNodeType(node ?? null, IR.IRNodeType.ThrowStatement);
 }
 
-// Note: containsIdentifier was removed - it was never used anywhere in the codebase
-
 // ============================================================================
 // Scope-aware walking utilities
 // These stop at function boundaries (where return/break/continue don't escape)

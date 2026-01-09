@@ -46,6 +46,9 @@ const SKIP_DIRS = new Set([
 const SKIP_EXTENSIONS = new Set(['.min.js', '.map', '.lock', '.d.ts']);
 const SKIP_EXACT_NAMES = new Set(['package-lock.json', 'yarn.lock']);
 
+// Word boundary characters for fuzzy match scoring (O(1) Set lookup vs O(n) string.includes)
+const FUZZY_BOUNDARY_CHARS = new Set(["/", "\\", "-", "_", "."]);
+
 function shouldSkipFile(name: string): boolean {
   if (SKIP_EXACT_NAMES.has(name)) return true;
   for (const ext of SKIP_EXTENSIONS) {
@@ -269,7 +272,7 @@ function fuzzyMatch(query: string, target: string): { score: number; indices: nu
       }
 
       // Word boundary bonus (after / - _ . or start)
-      if (i === 0 || "/\\-_.".includes(target[i - 1])) {
+      if (i === 0 || FUZZY_BOUNDARY_CHARS.has(target[i - 1])) {
         score += 20;
       }
 

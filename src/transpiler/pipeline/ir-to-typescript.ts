@@ -13,21 +13,13 @@
 
 import * as IR from "../type/hql_ir.ts";
 import { CodeGenError } from "../../common/error.ts";
+import { IDENTIFIER_REGEX, PRIVATE_IDENTIFIER_REGEX } from "../utils/member-expression.ts";
 import { applyTCO } from "../optimize/tco-optimizer.ts";
 import { applyMutualTCO, getMutualRecursionGroup, type MutualRecursionGroup } from "../optimize/mutual-tco-optimizer.ts";
 import { RUNTIME_HELPER_NAMES_SET } from "../../common/runtime-helper-impl.ts";
 import { assertNever } from "../codegen/exhaustive.ts";
 import { CodeBuffer, type SourceMapping } from "../codegen/code-buffer.ts";
 import { Precedence, getExprPrecedence, isRightAssociative } from "../codegen/precedence.ts";
-
-// ============================================================================
-// Pre-compiled Regex Patterns (avoid compilation in hot paths)
-// ============================================================================
-
-/** Matches valid JavaScript identifiers */
-const VALID_JS_IDENTIFIER_REGEX = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
-/** Matches private field identifiers (#name) */
-const PRIVATE_FIELD_IDENTIFIER_REGEX = /^#[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 
 // ============================================================================
 // Types
@@ -3016,8 +3008,8 @@ class TSGenerator {
    */
   private isValidJsIdentifier(name: string): boolean {
     // Match regular identifiers or private field identifiers (#name)
-    // Uses pre-compiled module-level patterns for performance
-    return VALID_JS_IDENTIFIER_REGEX.test(name) || PRIVATE_FIELD_IDENTIFIER_REGEX.test(name);
+    // Uses pre-compiled patterns from member-expression.ts for DRY
+    return IDENTIFIER_REGEX.test(name) || PRIVATE_IDENTIFIER_REGEX.test(name);
   }
 
   private generateJsMethodAccess(node: IR.IRJsMethodAccess): void {

@@ -1,6 +1,6 @@
 /**
  * HQL REPL Commands
- * Handles dot-prefixed commands like .help, .clear, .reset
+ * Handles slash-prefixed commands like /help, /clear, /reset
  */
 
 import { ANSI_COLORS } from "../ansi.ts";
@@ -33,10 +33,10 @@ ${BOLD}Memory (auto-persist def/defn):${RESET}
   Definitions are automatically saved to ~/.hql/memory.hql
   They persist across sessions. No explicit save needed.
 
-${BOLD}Dot Commands (aliases):${RESET}
+${BOLD}Slash Commands:${RESET}
 
-  ${DIM_GRAY}.help .clear .reset .bindings .history .exit${RESET}
-  ${DIM_GRAY}.memory .forget .compact${RESET}
+  ${DIM_GRAY}/help /clear /reset /bindings /history /exit${RESET}
+  ${DIM_GRAY}/memory /forget /compact${RESET}
 
 ${BOLD}Keyboard Shortcuts:${RESET}
 
@@ -67,21 +67,21 @@ ${BOLD}Examples:${RESET}
 `;
 
 export const commands: Record<string, Command> = {
-  ".help": {
+  "/help": {
     description: "Show help message",
     handler: () => {
       console.log(helpText);
     },
   },
 
-  ".clear": {
+  "/clear": {
     description: "Clear the screen",
     handler: () => {
       console.clear();
     },
   },
 
-  ".reset": {
+  "/reset": {
     description: "Reset REPL state",
     handler: (state: ReplState) => {
       state.reset();
@@ -89,7 +89,7 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  ".bindings": {
+  "/bindings": {
     description: "Show all bound names",
     handler: (state: ReplState) => {
       const bindings = state.getBindings();
@@ -106,7 +106,7 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  ".history": {
+  "/history": {
     description: "Show command history",
     handler: (state: ReplState) => {
       const history = state.history;
@@ -122,7 +122,7 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  ".exit": {
+  "/exit": {
     description: "Exit the REPL",
     handler: () => {
       console.log("\nGoodbye!");
@@ -130,7 +130,7 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  ".memory": {
+  "/memory": {
     description: "Show memory file location and stats",
     handler: async () => {
       const stats = await getMemoryStats();
@@ -149,27 +149,27 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  ".forget": {
+  "/forget": {
     description: "Remove a definition from memory",
     handler: async (_state: ReplState, args: string) => {
       const name = args.trim();
       if (!name) {
-        console.log(`${YELLOW}Usage: .forget <name>${RESET}`);
-        console.log(`${DIM_GRAY}Example: .forget myFunction${RESET}`);
+        console.log(`${YELLOW}Usage: /forget <name>${RESET}`);
+        console.log(`${DIM_GRAY}Example: /forget myFunction${RESET}`);
         return;
       }
 
       const removed = await forgetFromMemory(name);
       if (removed) {
         console.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
-        console.log(`${DIM_GRAY}Note: The binding still exists in this session. Use .reset to clear all bindings.${RESET}`);
+        console.log(`${DIM_GRAY}Note: The binding still exists in this session. Use /reset to clear all bindings.${RESET}`);
       } else {
         console.log(`${YELLOW}'${name}' not found in memory.${RESET}`);
       }
     },
   },
 
-  ".compact": {
+  "/compact": {
     description: "Manually trigger memory compaction",
     handler: async () => {
       const result = await compactMemory();
@@ -182,10 +182,10 @@ export const commands: Record<string, Command> = {
   },
 };
 
-/** Check if input is a command */
+/** Check if input is a slash command */
 export function isCommand(input: string): boolean {
   const trimmed = input.trim();
-  return trimmed.startsWith(".") && !trimmed.startsWith("..");
+  return trimmed.startsWith("/");
 }
 
 /** Run a command */
@@ -198,6 +198,6 @@ export async function runCommand(input: string, state: ReplState): Promise<void>
     await command.handler(state, args.join(" "));
   } else {
     console.log(`${YELLOW}Unknown command: ${cmdName}${RESET}`);
-    console.log(`${DIM_GRAY}Type .help for available commands.${RESET}`);
+    console.log(`${DIM_GRAY}Type /help for available commands.${RESET}`);
   }
 }

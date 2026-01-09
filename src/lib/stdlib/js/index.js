@@ -35,6 +35,11 @@ const SELF_HOSTED_FUNCTIONS = new Set([
   // Phase 5: Type Predicates
   "isNil", "isEven", "isOdd", "isZero", "isPositive", "isNegative",
   "isNumber", "isString", "isBoolean", "isFunction", "isArray",
+  // Lisp-style ?-suffix aliases
+  "nil_QMARK_", "number_QMARK_", "string_QMARK_", "boolean_QMARK_",
+  "array_QMARK_", "object_QMARK_", "fn_QMARK_", "empty_QMARK_",
+  "zero_QMARK_", "even_QMARK_", "odd_QMARK_", "pos_QMARK_", "neg_QMARK_",
+  "every_QMARK_", "some_QMARK_",
   // Phase 6: Arithmetic
   "inc", "dec",
   // Phase 7: Comparison
