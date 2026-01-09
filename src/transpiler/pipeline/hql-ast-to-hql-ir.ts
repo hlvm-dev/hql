@@ -923,8 +923,8 @@ function initializeTransformFactory(): void {
             if (el.type === "literal" && typeof (el as LiteralNode).value === "string") {
               const value = (el as LiteralNode).value as string;
               // If it looks like a complex type expression, parse it as TypeReference
-              if (value.includes(" ") || value.includes("|") || value.includes("&") ||
-                  value.includes("<") || value.includes("(") || value.includes("{")) {
+              // Single regex test is faster than 6 separate includes() calls
+              if (/[\s|&<({]/.test(value)) {
                 return { type: IR.IRNodeType.TypeReference, name: value } as IR.IRTypeReference;
               }
               // Otherwise, it's a string literal type like "pending" or "active"
@@ -2029,7 +2029,7 @@ function transformList(list: ListNode, currentDir: string): IR.IRNode | null {
     const op = (first as SymbolNode).name;
 
     // Skip macro definitions
-    if (op === "macro" || op === "macro") {
+    if (op === "macro") {
       logger.debug(`Skipping macro definition: ${op}`);
       return { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
     }

@@ -1072,11 +1072,11 @@ async function processVectorBasedImport(
         importedValue !== null
       ) {
         // For small objects, capture property names to help with type checking
-        if (
-          !Array.isArray(importedValue) &&
-          Object.keys(importedValue).length <= 10
-        ) {
-          enrichedSymbolInfo.meta.properties = Object.keys(importedValue);
+        if (!Array.isArray(importedValue)) {
+          const keys = Object.keys(importedValue);
+          if (keys.length <= 10) {
+            enrichedSymbolInfo.meta.properties = keys;
+          }
         }
       }
 
@@ -1617,7 +1617,9 @@ async function loadHqlModule(
         return EMBEDDED_PACKAGES[path];
       }
       // Check if path ends with a package path pattern
-      for (const key of Object.keys(EMBEDDED_PACKAGES)) {
+      // Cache keys to avoid repeated Object.keys() allocation per call
+      const packageKeys = Object.keys(EMBEDDED_PACKAGES);
+      for (const key of packageKeys) {
         if (path.endsWith(`packages/${key.replace("@hql/", "")}/mod.hql`)) {
           return EMBEDDED_PACKAGES[key];
         }

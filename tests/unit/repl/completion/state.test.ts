@@ -19,26 +19,50 @@ import {
   selectIndexAction,
   setLoadingAction,
 } from "../../../../src/cli/repl-ink/completion/state.ts";
-import type { DropdownState, CompletionItem } from "../../../../src/cli/repl-ink/completion/types.ts";
-import { INITIAL_DROPDOWN_STATE } from "../../../../src/cli/repl-ink/completion/types.ts";
+import type { DropdownState, CompletionItem, CompletionType, ApplyResult, ApplyContext, ItemRenderSpec } from "../../../../src/cli/repl-ink/completion/types.ts";
+import { INITIAL_DROPDOWN_STATE, TYPE_ICONS } from "../../../../src/cli/repl-ink/completion/types.ts";
 
 // ============================================================
 // Test Data
 // ============================================================
 
+/** Create a mock CompletionItem with all required properties for testing */
+function createMockItem(
+  id: string,
+  label: string,
+  type: CompletionType,
+  score: number
+): CompletionItem {
+  return {
+    id,
+    label,
+    type,
+    score,
+    availableActions: ["SELECT"],
+    applyAction: (_action: "DRILL" | "SELECT", context: ApplyContext): ApplyResult => ({
+      text: context.text.slice(0, context.anchorPosition) + label + context.text.slice(context.cursorPosition),
+      cursorPosition: context.anchorPosition + label.length,
+      closeDropdown: true,
+    }),
+    getRenderSpec: (): ItemRenderSpec => ({
+      icon: TYPE_ICONS[type],
+      label,
+      truncate: "end",
+      maxWidth: 40,
+    }),
+  };
+}
+
 function createTestItems(count: number): CompletionItem[] {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `item-${i}`,
-    label: `item${i}`,
-    type: "function" as const,
-    score: 100 - i,
-  }));
+  return Array.from({ length: count }, (_, i) =>
+    createMockItem(`item-${i}`, `item${i}`, "function", 100 - i)
+  );
 }
 
 const sampleItems: CompletionItem[] = [
-  { id: "1", label: "def", type: "keyword", score: 100 },
-  { id: "2", label: "defn", type: "keyword", score: 90 },
-  { id: "3", label: "default", type: "function", score: 80 },
+  createMockItem("1", "def", "keyword", 100),
+  createMockItem("2", "defn", "keyword", 90),
+  createMockItem("3", "default", "function", 80),
 ];
 
 // Helper to create a valid state with session tracking fields
@@ -159,7 +183,7 @@ Deno.test("State: SET_ITEMS updates items", () => {
   const state = createOpenState();
 
   const newItems: CompletionItem[] = [
-    { id: "a", label: "alpha", type: "function", score: 100 },
+    createMockItem("a", "alpha", "function", 100),
   ];
 
   const next = dropdownReducer(state, setItemsAction(newItems));

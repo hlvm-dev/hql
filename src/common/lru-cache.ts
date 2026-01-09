@@ -23,11 +23,18 @@ export class LRUCache<K, V> {
    * @returns The cached value or undefined if not found
    */
   get(key: K): V | undefined {
-    // If key exists, get the value and refresh its position by deleting and re-adding
-    if (this.cache.has(key)) {
-      const value = this.cache.get(key)!;
+    // Single lookup: get() returns undefined for missing keys
+    const value = this.cache.get(key);
+    if (value !== undefined) {
+      // Refresh position by deleting and re-adding
       this.cache.delete(key);
       this.cache.set(key, value); // Re-add to put at the end (most recently used)
+      return value;
+    }
+    // Handle explicit undefined values stored in cache
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+      this.cache.set(key, value as V);
       return value;
     }
     return undefined;
@@ -44,11 +51,10 @@ export class LRUCache<K, V> {
       return;
     }
 
-    // If key already exists, refresh it
-    if (this.cache.has(key)) {
-      this.cache.delete(key);
-    } // If we're at capacity, remove the oldest entry (first in iteration order)
-    else if (this.cache.size >= this.maxSize) {
+    // Single operation: delete returns true if key existed (avoids separate has() check)
+    const existed = this.cache.delete(key);
+    // If key didn't exist and we're at capacity, remove the oldest entry
+    if (!existed && this.cache.size >= this.maxSize) {
       // Use .done to check if iterator has entries, not value !== undefined
       // This correctly handles `undefined` as a valid key
       const oldest = this.cache.keys().next();
@@ -82,7 +88,8 @@ export class LRUCache<K, V> {
    * @param skipOnEvict If true, don't call onEvict callback (used internally when value is being replaced)
    */
   delete(key: K, skipOnEvict = false): boolean {
-    if (this.onEvict && !skipOnEvict && this.cache.has(key)) {
+    if (this.onEvict && !skipOnEvict) {
+      // Single lookup: get the value directly
       const value = this.cache.get(key);
       if (value !== undefined) {
         this.onEvict(key, value);

@@ -42,6 +42,8 @@ const GENERIC_TYPE_LOOKAHEAD_REGEX = /^[a-zA-Z_$][a-zA-Z0-9_$]*</;
 const TYPE_CONTINUATION_START_REGEX = /[a-zA-Z_$<\{\(\[]/;
 /** Matches type delimiter characters (whitespace, closing brackets) */
 const TYPE_DELIMITER_REGEX = /[\s\)\]\}]/;
+/** Matches conditional type pattern (extends...?...:) */
+const CONDITIONAL_TYPE_REGEX = /\bextends\b[^?]*\?[^:]*:/;
 
 // ============================================================================
 // BRACKET DEPTH COUNTING
@@ -751,7 +753,7 @@ export function tokenizeFunctionType(source: string, startIndex: number): TypeTo
 export function normalizeType(type: string): string {
   // 1. Check for conditional type FIRST (contains "extends...?...:")
   //    These should NOT be transformed
-  if (/\bextends\b[^?]*\?[^:]*:/.test(type)) {
+  if (CONDITIONAL_TYPE_REGEX.test(type)) {
     return type;
   }
 

@@ -21,18 +21,51 @@ import {
   shouldTriggerSymbol,
   applyCompletionItem,
 } from "../../../../src/cli/repl-ink/completion/providers.ts";
-import type { CompletionItem, CompletionContext } from "../../../../src/cli/repl-ink/completion/types.ts";
+import type { CompletionItem, CompletionContext, CompletionType, ApplyResult, ApplyContext, ItemRenderSpec } from "../../../../src/cli/repl-ink/completion/types.ts";
+import { TYPE_ICONS } from "../../../../src/cli/repl-ink/completion/types.ts";
 
 // ============================================================
 // Test Data
 // ============================================================
 
+/** Create a mock CompletionItem with all required properties for testing */
+function createMockItem(
+  id: string,
+  label: string,
+  type: CompletionType,
+  score: number,
+  options: { insertText?: string; addTrailingSpace?: boolean; description?: string } = {}
+): CompletionItem {
+  return {
+    id,
+    label,
+    type,
+    score,
+    insertText: options.insertText,
+    addTrailingSpace: options.addTrailingSpace,
+    description: options.description,
+    availableActions: ["SELECT"],
+    applyAction: (_action: "DRILL" | "SELECT", context: ApplyContext): ApplyResult => ({
+      text: context.text.slice(0, context.anchorPosition) + (options.insertText ?? label) + context.text.slice(context.cursorPosition),
+      cursorPosition: context.anchorPosition + (options.insertText ?? label).length,
+      closeDropdown: true,
+    }),
+    getRenderSpec: (): ItemRenderSpec => ({
+      icon: TYPE_ICONS[type],
+      label,
+      truncate: "end",
+      maxWidth: 40,
+      description: options.description,
+    }),
+  };
+}
+
 const sampleItems: CompletionItem[] = [
-  { id: "1", label: "define", type: "keyword", score: 100 },
-  { id: "2", label: "defn", type: "keyword", score: 90 },
-  { id: "3", label: "default", type: "function", score: 80 },
-  { id: "4", label: "map", type: "function", score: 85 },
-  { id: "5", label: "filter", type: "function", score: 85 },
+  createMockItem("1", "define", "keyword", 100),
+  createMockItem("2", "defn", "keyword", 90),
+  createMockItem("3", "default", "function", 80),
+  createMockItem("4", "map", "function", 85),
+  createMockItem("5", "filter", "function", 85),
 ];
 
 function createContext(
@@ -168,8 +201,8 @@ Deno.test("Providers: filterBySubstring returns empty for empty query", () => {
 
 Deno.test("Providers: rankCompletions sorts by type priority first", () => {
   const items: CompletionItem[] = [
-    { id: "1", label: "alpha", type: "function", score: 100 },
-    { id: "2", label: "beta", type: "keyword", score: 100 },
+    createMockItem("1", "alpha", "function", 100),
+    createMockItem("2", "beta", "keyword", 100),
   ];
 
   const result = rankCompletions(items);
@@ -180,8 +213,8 @@ Deno.test("Providers: rankCompletions sorts by type priority first", () => {
 
 Deno.test("Providers: rankCompletions sorts by score second", () => {
   const items: CompletionItem[] = [
-    { id: "1", label: "low", type: "function", score: 50 },
-    { id: "2", label: "high", type: "function", score: 100 },
+    createMockItem("1", "low", "function", 50),
+    createMockItem("2", "high", "function", 100),
   ];
 
   const result = rankCompletions(items);
@@ -192,8 +225,8 @@ Deno.test("Providers: rankCompletions sorts by score second", () => {
 
 Deno.test("Providers: rankCompletions sorts alphabetically third", () => {
   const items: CompletionItem[] = [
-    { id: "1", label: "zebra", type: "function", score: 100 },
-    { id: "2", label: "apple", type: "function", score: 100 },
+    createMockItem("1", "zebra", "function", 100),
+    createMockItem("2", "apple", "function", 100),
   ];
 
   const result = rankCompletions(items);
@@ -204,8 +237,8 @@ Deno.test("Providers: rankCompletions sorts alphabetically third", () => {
 
 Deno.test("Providers: rankCompletions does not mutate original", () => {
   const items: CompletionItem[] = [
-    { id: "1", label: "b", type: "function", score: 100 },
-    { id: "2", label: "a", type: "function", score: 100 },
+    createMockItem("1", "b", "function", 100),
+    createMockItem("2", "a", "function", 100),
   ];
 
   rankCompletions(items);
@@ -393,9 +426,10 @@ Deno.test("Providers: shouldTriggerSymbol triggers when word exists", () => {
   assert(shouldTriggerSymbol(ctx));
 });
 
-Deno.test("Providers: shouldTriggerSymbol does not trigger when empty", () => {
+Deno.test("Providers: shouldTriggerSymbol triggers on empty input (shows all completions)", () => {
   const ctx = createContext("", 0);
-  assert(!shouldTriggerSymbol(ctx));
+  // Empty input should trigger to show all available completions
+  assert(shouldTriggerSymbol(ctx));
 });
 
 Deno.test("Providers: shouldTriggerSymbol does not trigger in @ mode", () => {
@@ -413,13 +447,7 @@ Deno.test("Providers: shouldTriggerSymbol does not trigger in / mode", () => {
 // ============================================================
 
 Deno.test("Providers: applyCompletionItem inserts text at anchor", () => {
-  const item: CompletionItem = {
-    id: "1",
-    label: "define",
-    type: "keyword",
-    score: 100,
-    addTrailingSpace: true,
-  };
+  const item = createMockItem("1", "define", "keyword", 100, { addTrailingSpace: true });
 
   const result = applyCompletionItem(item, "(def", 4, 1);
 
@@ -428,14 +456,7 @@ Deno.test("Providers: applyCompletionItem inserts text at anchor", () => {
 });
 
 Deno.test("Providers: applyCompletionItem uses insertText when provided", () => {
-  const item: CompletionItem = {
-    id: "1",
-    label: "defn",
-    type: "keyword",
-    score: 100,
-    insertText: "(defn [] )",
-    addTrailingSpace: false,
-  };
+  const item = createMockItem("1", "defn", "keyword", 100, { insertText: "(defn [] )", addTrailingSpace: false });
 
   const result = applyCompletionItem(item, "(d", 2, 1);
 
@@ -444,13 +465,7 @@ Deno.test("Providers: applyCompletionItem uses insertText when provided", () => 
 });
 
 Deno.test("Providers: applyCompletionItem respects addTrailingSpace false", () => {
-  const item: CompletionItem = {
-    id: "1",
-    label: "test",
-    type: "function",
-    score: 100,
-    addTrailingSpace: false,
-  };
+  const item = createMockItem("1", "test", "function", 100, { addTrailingSpace: false });
 
   const result = applyCompletionItem(item, "te", 2, 0);
 
@@ -459,13 +474,7 @@ Deno.test("Providers: applyCompletionItem respects addTrailingSpace false", () =
 });
 
 Deno.test("Providers: applyCompletionItem preserves text after cursor", () => {
-  const item: CompletionItem = {
-    id: "1",
-    label: "map",
-    type: "function",
-    score: 100,
-    addTrailingSpace: true,
-  };
+  const item = createMockItem("1", "map", "function", 100, { addTrailingSpace: true });
 
   const result = applyCompletionItem(item, "(ma x y)", 3, 1);
 

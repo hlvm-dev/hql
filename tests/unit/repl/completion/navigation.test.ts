@@ -21,53 +21,53 @@ import type { ScrollWindow } from "../../../../src/cli/repl-ink/completion/types
 // handleNavigationKey Tests
 // ============================================================
 
-Deno.test("Navigation: ArrowDown selects next item", () => {
+Deno.test("Navigation: ArrowDown navigates to next item", () => {
   const result = handleNavigationKey("ArrowDown", 0, 5, true);
 
   assertEquals(result.newIndex, 1);
-  assertEquals(result.action, "select");
+  assertEquals(result.action, "navigate");
 });
 
 Deno.test("Navigation: ArrowDown wraps from last to first", () => {
   const result = handleNavigationKey("ArrowDown", 4, 5, true);
 
   assertEquals(result.newIndex, 0);
-  assertEquals(result.action, "select");
+  assertEquals(result.action, "navigate");
 });
 
-Deno.test("Navigation: ArrowUp selects previous item", () => {
+Deno.test("Navigation: ArrowUp navigates to previous item", () => {
   const result = handleNavigationKey("ArrowUp", 2, 5, true);
 
   assertEquals(result.newIndex, 1);
-  assertEquals(result.action, "select");
+  assertEquals(result.action, "navigate");
 });
 
 Deno.test("Navigation: ArrowUp wraps from first to last", () => {
   const result = handleNavigationKey("ArrowUp", 0, 5, true);
 
   assertEquals(result.newIndex, 4);
-  assertEquals(result.action, "select");
+  assertEquals(result.action, "navigate");
 });
 
-Deno.test("Navigation: Tab cycles forward", () => {
+Deno.test("Navigation: Tab drills into selection", () => {
   const result = handleNavigationKey("Tab", 1, 5, true, false);
 
-  assertEquals(result.newIndex, 2);
-  assertEquals(result.action, "select");
+  assertEquals(result.newIndex, 1); // Tab doesn't change index, it drills
+  assertEquals(result.action, "drill");
 });
 
-Deno.test("Navigation: Shift+Tab cycles backward", () => {
+Deno.test("Navigation: Shift+Tab also drills", () => {
   const result = handleNavigationKey("Tab", 2, 5, true, true);
 
-  assertEquals(result.newIndex, 1);
-  assertEquals(result.action, "select");
+  assertEquals(result.newIndex, 2); // Tab doesn't change index, it drills
+  assertEquals(result.action, "drill");
 });
 
-Deno.test("Navigation: Enter confirms selection", () => {
+Deno.test("Navigation: Enter selects current item", () => {
   const result = handleNavigationKey("Enter", 3, 5, true);
 
   assertEquals(result.newIndex, 3);
-  assertEquals(result.action, "confirm");
+  assertEquals(result.action, "select");
 });
 
 Deno.test("Navigation: Escape cancels dropdown", () => {
