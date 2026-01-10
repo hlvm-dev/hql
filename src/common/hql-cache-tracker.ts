@@ -65,12 +65,11 @@ export function registerImportMapping(original: string, cached: string): void {
 }
 
 function sanitizePathSegment(segment: string): string {
-  let sanitized = segment.replace(PARENT_DIR_REGEX, "_up_").replace(COLON_REGEX, "");
-  sanitized = sanitized.replace(SANITIZE_PATH_REGEX, "_");
-  if (sanitized.length === 0) {
-    return "_";
-  }
-  return sanitized;
+  const sanitized = segment
+    .replace(PARENT_DIR_REGEX, "_up_")
+    .replace(COLON_REGEX, "")
+    .replace(SANITIZE_PATH_REGEX, "_");
+  return sanitized || "_";
 }
 
 function splitPathSegments(value: string): string[] {

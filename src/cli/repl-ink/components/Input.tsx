@@ -3,14 +3,22 @@
  * Full keyboard handling with syntax highlighting, completions, history
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "npm:react@18";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "npm:react@18";
 import { Text, Box, useInput } from "npm:ink@5";
-import { highlight, findMatchingParen, isBalanced, getUnclosedDepth } from "../../repl/syntax.ts";
+import {
+  highlight,
+  findMatchingParen,
+  isBalanced,
+  getUnclosedDepth,
+  forwardSexp,
+  backwardSexp,
+  backwardUpSexp,
+  forwardDownSexp,
+} from "../../repl/syntax.ts";
 import { findSuggestion, acceptSuggestion, type Suggestion } from "../../repl/suggester.ts";
 import { shouldTabAcceptSuggestion } from "../../repl/tab-logic.ts";
 import { calculateWordBackPosition, calculateWordForwardPosition } from "../../repl/keyboard.ts";
 import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, shouldCollapseText, type Attachment, type TextAttachment } from "../../repl/attachment.ts";
-import { unescapeShellPath } from "../../repl/file-search.ts";
 import { useAttachments, type AnyAttachment } from "../hooks/useAttachments.ts";
 import { useHistorySearch } from "../hooks/useHistorySearch.ts";
 import { HistorySearchPrompt } from "./HistorySearchPrompt.tsx";
@@ -143,19 +151,53 @@ export function Input({
     }
   }, [value, cursorPos]);
 
+  // Track expected prefix (text before first placeholder) to detect external changes
+  const expectedPrefixRef = useRef<string>("");
+  const prevPlaceholdersLengthRef = useRef<number>(0);
+
   // Validate placeholder state when value changes
   // Exit placeholder mode if placeholders become invalid (text deleted, etc.)
   useEffect(() => {
     if (placeholders.length > 0) {
-      // Check if any placeholder is out of bounds or value is too short
-      const lastPlaceholder = placeholders[placeholders.length - 1];
-      const minRequiredLength = lastPlaceholder.start + lastPlaceholder.length;
+      const firstPh = placeholders[0];
+      const lastPh = placeholders[placeholders.length - 1];
 
+      // Initialize expected prefix when ENTERING placeholder mode (placeholders went from 0 to >0)
+      if (prevPlaceholdersLengthRef.current === 0) {
+        expectedPrefixRef.current = value.slice(0, firstPh.start);
+        prevPlaceholdersLengthRef.current = placeholders.length;
+        return; // Don't validate on first run
+      }
+
+      // Check 1: Value too short for placeholders
+      const minRequiredLength = lastPh.start + lastPh.length;
       if (value.length < minRequiredLength) {
-        // Value was truncated - placeholders no longer valid
         setPlaceholders([]);
         setPlaceholderIndex(-1);
+        expectedPrefixRef.current = "";
+        prevPlaceholdersLengthRef.current = 0;
+        return;
       }
+
+      // Check 2: Prefix (function name area) changed unexpectedly
+      // This catches cases like Ctrl+W, paste, or other external modifications
+      const currentPrefix = value.slice(0, firstPh.start);
+      if (expectedPrefixRef.current && currentPrefix !== expectedPrefixRef.current) {
+        // Function name was modified externally - exit placeholder mode
+        // Note: We can't remove placeholder text here (would cause infinite loop)
+        // But the placeholder positions are now invalid anyway
+        setPlaceholders([]);
+        setPlaceholderIndex(-1);
+        expectedPrefixRef.current = "";
+        prevPlaceholdersLengthRef.current = 0;
+        return;
+      }
+
+      prevPlaceholdersLengthRef.current = placeholders.length;
+    } else {
+      // Clear when exiting placeholder mode
+      expectedPrefixRef.current = "";
+      prevPlaceholdersLengthRef.current = 0;
     }
   }, [value, placeholders]);
 
@@ -179,6 +221,14 @@ export function Input({
     };
   }, []);
 
+  // FIX H2: Reset textChangeFromCyclingRef when completion dropdown closes
+  // This ensures completion re-triggers after cycling then cancel
+  useEffect(() => {
+    if (!completion.isVisible) {
+      textChangeFromCyclingRef.current = false;
+    }
+  }, [completion.isVisible]);
+
   // NOTE: Placeholder validation is handled by explicit exit paths (Escape, backspace, character input)
   // which now cleanup untouched placeholders. No need for useEffect validation.
 
@@ -189,6 +239,9 @@ export function Input({
   triggerCompletionRef.current = completion.triggerCompletion;
 
   useEffect(() => {
+    // FIX H3: Don't trigger completion during history search
+    if (historySearch.state.isSearching) return;
+
     // Skip re-trigger if text changed due to Up/Down cycling
     if (textChangeFromCyclingRef.current) {
       textChangeFromCyclingRef.current = false;
@@ -228,11 +281,19 @@ export function Input({
     // Note: No explicit close needed here - when dropdown is open, the generic
     // re-trigger above handles it. Completion system closes when no items match.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, cursorPos]);
+  }, [value, cursorPos, historySearch.state.isSearching]);
 
   // Helper: check if in placeholder mode
   const isInPlaceholderMode = useCallback(() => {
     return placeholders.length > 0 && placeholderIndex >= 0;
+  }, [placeholders, placeholderIndex]);
+
+  // FIX M4: Helper to safely get current placeholder with bounds check
+  const getCurrentPlaceholder = useCallback((): Placeholder | null => {
+    if (placeholderIndex < 0 || placeholderIndex >= placeholders.length) {
+      return null;
+    }
+    return placeholders[placeholderIndex];
   }, [placeholders, placeholderIndex]);
 
   // Helper: exit placeholder mode
@@ -243,21 +304,24 @@ export function Input({
 
   // Helper: exit placeholder mode AND remove untouched placeholders from value
   // Called when user types ')' or other exit-triggering characters
-  const exitPlaceholderModeAndCleanup = useCallback(() => {
+  const exitPlaceholderModeAndCleanup = useCallback((removeAll: boolean = false) => {
     if (placeholders.length === 0) {
       exitPlaceholderMode();
       return value;
     }
 
-    // Remove all untouched placeholders from the value (from end to start to preserve indices)
+    // Remove placeholders from the value (from end to start to preserve indices)
+    // If removeAll=true, remove ALL placeholders (when deleting function name)
+    // If removeAll=false, only remove untouched placeholders (normal exit)
     let newValue = value;
     let adjustment = 0;
 
     // Process placeholders in reverse order to maintain correct indices
     for (let i = placeholders.length - 1; i >= 0; i--) {
       const ph = placeholders[i];
-      if (!ph.touched) {
-        // Remove this untouched placeholder (and preceding space if exists)
+      // Remove if: removeAll is true, OR placeholder is untouched
+      if (removeAll || !ph.touched) {
+        // Remove this placeholder (and preceding space if exists)
         const removeStart = ph.start > 0 && newValue[ph.start - 1] === ' ' ? ph.start - 1 : ph.start;
         const removeEnd = ph.start + ph.length;
         newValue = newValue.slice(0, removeStart) + newValue.slice(removeEnd);
@@ -272,8 +336,12 @@ export function Input({
   }, [value, placeholders, placeholderIndex, exitPlaceholderMode]);
 
   // Helper: enter placeholder mode after completing a function
+  // FIX C2: Close completion dropdown when entering placeholder mode
   const enterPlaceholderMode = useCallback((params: string[], startPos: number) => {
     if (params.length === 0) return;
+
+    // Close completion dropdown when entering placeholder mode
+    completion.close();
 
     const newPlaceholders: Placeholder[] = [];
     let pos = startPos;
@@ -291,7 +359,7 @@ export function Input({
     setPlaceholders(newPlaceholders);
     setPlaceholderIndex(0);
     setCursorPos(newPlaceholders[0].start);
-  }, []);
+  }, [completion]);
 
   // Helper: execute completion action (GENERIC - uses item.applyAction)
   // This replaces the old applyCompletionSelection with provider-defined behavior
@@ -359,11 +427,12 @@ export function Input({
     return false;
   }, [placeholders, placeholderIndex]);
 
-  // Helper: shift subsequent placeholder positions by delta (DRY - used in 3 places)
-  const shiftPlaceholders = (arr: Placeholder[], fromIndex: number, delta: number): void => {
-    for (let i = fromIndex; i < arr.length; i++) {
-      arr[i] = { ...arr[i], start: arr[i].start + delta };
-    }
+  // FIX NEW-6: Helper returns new array instead of mutating (pure function)
+  // Shifts subsequent placeholder positions by delta - used in 3 places
+  const shiftPlaceholders = (arr: Placeholder[], fromIndex: number, delta: number): Placeholder[] => {
+    return arr.map((ph, i) =>
+      i >= fromIndex ? { ...ph, start: ph.start + delta } : ph
+    );
   };
 
   // Helper: replace current placeholder with typed character
@@ -383,11 +452,11 @@ export function Input({
       // Update this placeholder
       updated[placeholderIndex] = { ...ph, length: char.length, touched: true };
 
-      // Shift subsequent placeholders
+      // Shift subsequent placeholders (use return value from pure function)
       const delta = char.length - ph.length;
-      shiftPlaceholders(updated, placeholderIndex + 1, delta);
+      const shifted = shiftPlaceholders(updated, placeholderIndex + 1, delta);
 
-      setPlaceholders(updated);
+      setPlaceholders(shifted);
       setCursorPos(ph.start + char.length);
     } else {
       // Subsequent chars - insert at cursor within the placeholder
@@ -398,10 +467,10 @@ export function Input({
       // Update this placeholder's length
       updated[placeholderIndex] = { ...ph, length: ph.length + char.length };
 
-      // Shift subsequent placeholders
-      shiftPlaceholders(updated, placeholderIndex + 1, char.length);
+      // Shift subsequent placeholders (use return value from pure function)
+      const shifted = shiftPlaceholders(updated, placeholderIndex + 1, char.length);
 
-      setPlaceholders(updated);
+      setPlaceholders(shifted);
       setCursorPos(cursorPos + 1);
     }
   }, [placeholders, placeholderIndex, value, cursorPos, onChange]);
@@ -433,10 +502,10 @@ export function Input({
     const updated = [...placeholders];
     updated[placeholderIndex] = { ...ph, length: ph.length - 1, touched: true };
 
-    // Shift subsequent placeholders
-    shiftPlaceholders(updated, placeholderIndex + 1, -1);
+    // Shift subsequent placeholders (use return value from pure function)
+    const shifted = shiftPlaceholders(updated, placeholderIndex + 1, -1);
 
-    setPlaceholders(updated);
+    setPlaceholders(shifted);
     setCursorPos(cursorPos - 1);
 
     // If placeholder is empty, keep in mode but mark as touched
@@ -481,6 +550,16 @@ export function Input({
     clearEscapeTimeout();
   }, [clearEscapeTimeout]);
 
+  // FIX H4: Helper to clear paste buffer on mode transitions
+  // This prevents paste data from corrupting history entries or mode state
+  const clearPasteBuffer = useCallback(() => {
+    if (pasteTimeoutRef.current) {
+      clearTimeout(pasteTimeoutRef.current);
+      pasteTimeoutRef.current = null;
+    }
+    pasteBufferRef.current = '';
+  }, []);
+
   // Helper: accept and apply suggestion (DRY helper)
   const acceptAndApplySuggestion = useCallback(() => {
     if (!suggestion) return false;
@@ -491,18 +570,70 @@ export function Input({
     return true;
   }, [suggestion, onChange]);
 
-  // Helper: delete word backward (Ctrl+W)
-  const deleteWord = useCallback(() => {
-    const before = value.slice(0, cursorPos);
-    let pos = before.length;
-    // Skip trailing whitespace
-    while (pos > 0 && before[pos - 1] === " ") pos--;
-    // Delete word
-    while (pos > 0 && before[pos - 1] !== " ") pos--;
-    const newValue = before.slice(0, pos) + value.slice(cursorPos);
+  // Helper: check if character is a word boundary (LISP-aware)
+  // Parentheses/brackets are word boundaries in LISP editing
+  const isWordBoundaryChar = (ch: string): boolean => {
+    return ch === " " || ch === "\t" || ch === "(" || ch === ")" ||
+           ch === "[" || ch === "]" || ch === "{" || ch === "}";
+  };
+
+  // Auto-close delimiter pairs for LISP editing
+  const AUTO_CLOSE_PAIRS: Record<string, string> = {
+    "(": ")",
+    "[": "]",
+    "{": "}",
+  };
+
+  // Helper: insert auto-closing delimiter pair
+  // Type ( → () with cursor in middle
+  const insertAutoClosePair = useCallback((openChar: string) => {
+    const closeChar = AUTO_CLOSE_PAIRS[openChar];
+    if (!closeChar) {
+      insertAt(openChar);
+      return;
+    }
+    const newValue = value.slice(0, cursorPos) + openChar + closeChar + value.slice(cursorPos);
     onChange(newValue);
+    setCursorPos(cursorPos + 1); // Cursor between the pair
+  }, [value, cursorPos, onChange, insertAt]);
+
+  // Helper: delete word backward (Ctrl+W)
+  // Accepts optional parameters to work on any value (for placeholder cleanup)
+  // LISP-aware: treats parens/brackets as word boundaries
+  const deleteWord = useCallback((targetValue?: string, targetCursor?: number) => {
+    const v = targetValue ?? value;
+    const c = targetCursor ?? cursorPos;
+    const before = v.slice(0, c);
+    let pos = before.length;
+    const originalPos = pos;
+    // Skip trailing whitespace (but not parens/brackets - they're significant)
+    while (pos > 0 && isWordBoundaryChar(before[pos - 1]) && before[pos - 1] !== "(" && before[pos - 1] !== "[" && before[pos - 1] !== "{") {
+      pos--;
+    }
+    // Delete word (stop at word boundary including parens)
+    while (pos > 0 && !isWordBoundaryChar(before[pos - 1])) {
+      pos--;
+    }
+    // If nothing was deleted and there's a paren/bracket, delete that single char
+    // This handles: (| → Ctrl+W → empty
+    if (pos === originalPos && pos > 0) {
+      const ch = before[pos - 1];
+      if (ch === "(" || ch === "[" || ch === "{" || ch === ")" || ch === "]" || ch === "}") {
+        pos--;
+      }
+    }
+    onChange(before.slice(0, pos) + v.slice(c));
     setCursorPos(pos);
   }, [value, cursorPos, onChange]);
+
+  // Helper: get value with placeholders cleaned up (DRY for Ctrl+W/U/K)
+  const getCleanedValue = useCallback((): { v: string; c: number } => {
+    if (isInPlaceholderMode()) {
+      const cleaned = exitPlaceholderModeAndCleanup(true);
+      return { v: cleaned, c: Math.min(cursorPos, cleaned.length) };
+    }
+    return { v: value, c: cursorPos };
+  }, [isInPlaceholderMode, exitPlaceholderModeAndCleanup, value, cursorPos]);
 
   // Helper: move word backward (Option+Left on macOS, Ctrl+Left on Windows/Linux)
   const moveWordBack = useCallback(() => {
@@ -515,13 +646,22 @@ export function Input({
   }, [value, cursorPos]);
 
   // Helper: navigate history
+  // FIX H4: Clear paste buffer when navigating history
+  // FIX H5: Capture value directly to avoid stale closure
   const navigateHistory = useCallback((direction: number) => {
     if (history.length === 0) return;
+
+    // Clear paste buffer to prevent data corruption
+    if (pasteTimeoutRef.current) {
+      clearTimeout(pasteTimeoutRef.current);
+      pasteTimeoutRef.current = null;
+    }
+    pasteBufferRef.current = '';
 
     if (direction < 0) {
       // Up arrow - go back in history
       if (historyIndex === -1) {
-        // Save current input
+        // FIX H5: Save current input value directly (captured at call time)
         setTempInput(value);
         setHistoryIndex(history.length - 1);
         onChange(history[history.length - 1]);
@@ -550,6 +690,7 @@ export function Input({
 
   // Helper: handle tab completion when dropdown is NOT visible
   // Opens dropdown and selects first item (no auto-apply - use Tab again to confirm)
+  // FIX: Use triggerCompletionRef to avoid stale closure issues with completion object
   const handleTab = useCallback(async () => {
     // Special case: Param insertion when cursor is after function name + space: (ask |
     const beforeCursor = value.slice(0, cursorPos);
@@ -570,8 +711,9 @@ export function Input({
 
     // Trigger completion and open dropdown (first item selected, NOT applied)
     // User must press Tab again to confirm and apply the selection
-    await completion.triggerCompletion(value, cursorPos, true);
-  }, [value, cursorPos, completion, signatures, onChange, enterPlaceholderMode]);
+    // Use ref to ensure we always have the latest triggerCompletion function
+    await triggerCompletionRef.current(value, cursorPos, true);
+  }, [value, cursorPos, signatures, onChange, enterPlaceholderMode]);
 
   // Main input handler
   useInput((input, key) => {
@@ -610,8 +752,9 @@ export function Input({
         return;
       }
 
-      // Backspace: remove last char from query
-      if (key.backspace) {
+      // Backspace/Delete: remove last char from query
+      // FIX NEW-2: Support both Backspace and Delete keys
+      if (key.backspace || key.delete) {
         if (historySearch.state.query.length > 0) {
           historySearch.actions.backspace();
         } else {
@@ -632,7 +775,20 @@ export function Input({
     }
 
     // Ctrl+R: start history search (when not in search mode)
+    // FIX H1: Close dropdown and exit placeholder mode when entering history search
+    // FIX H4: Clear paste buffer to prevent data corruption
+    // FIX NEW-1/3: Clear ESC timeout to prevent race condition
     if (key.ctrl && input === 'r') {
+      // CRITICAL: Clear escape timeout first to prevent it firing after entering history search
+      if (escapeTimeoutRef.current) {
+        clearTimeout(escapeTimeoutRef.current);
+        escapeTimeoutRef.current = null;
+      }
+      setEscapePressed(false);
+
+      completion.close();
+      exitPlaceholderMode();
+      clearPasteBuffer();
       historySearch.actions.startSearch();
       return;
     }
@@ -668,6 +824,12 @@ export function Input({
         }
         return;
       }
+      // Auto-close delimiters: ( → (), [ → [], { → {}
+      if (input in AUTO_CLOSE_PAIRS) {
+        lastInputTimeRef.current = Date.now();
+        insertAutoClosePair(input);
+        return;
+      }
       // Normal typing: direct insert, no paste detection needed
       lastInputTimeRef.current = Date.now();
       insertAt(input);
@@ -683,6 +845,7 @@ export function Input({
     // ============================================================
 
     // Ctrl+Arrow: Word navigation (Windows/Linux standard)
+    // Ctrl+Up/Down: S-expression navigation (LISP structural editing)
     if (key.ctrl) {
       if (key.leftArrow) {
         moveWordBack();
@@ -692,11 +855,28 @@ export function Input({
         moveWordForward();
         return;
       }
+      // Ctrl+Up: backward-up-sexp (move to opening paren of enclosing list)
+      if (key.upArrow) {
+        const newPos = backwardUpSexp(value, cursorPos);
+        if (newPos !== cursorPos) {
+          setCursorPos(newPos);
+        }
+        return;
+      }
+      // Ctrl+Down: forward-down-sexp (move into next list)
+      if (key.downArrow) {
+        const newPos = forwardDownSexp(value, cursorPos);
+        if (newPos !== cursorPos) {
+          setCursorPos(newPos);
+        }
+        return;
+      }
     }
 
     // Meta+key: Word navigation (macOS Option, Linux Alt)
+    // Also: Alt+Arrow for sexp navigation
     if (key.meta) {
-      // ESC+b/f style (macOS Option+Arrow, Linux Alt+Arrow)
+      // ESC+b/f style (macOS Option+Arrow, Linux Alt+Arrow) - word navigation
       if (input === 'b') {
         moveWordBack();
         return;
@@ -705,13 +885,29 @@ export function Input({
         moveWordForward();
         return;
       }
-      // Modified arrow style (some terminals)
+      // Modified arrow style (some terminals) - word navigation
       if (key.leftArrow) {
         moveWordBack();
         return;
       }
       if (key.rightArrow) {
         moveWordForward();
+        return;
+      }
+      // Alt+Up: backward sexp (paredit-style)
+      if (key.upArrow) {
+        const newPos = backwardSexp(value, cursorPos);
+        if (newPos !== cursorPos) {
+          setCursorPos(newPos);
+        }
+        return;
+      }
+      // Alt+Down: forward sexp (paredit-style)
+      if (key.downArrow) {
+        const newPos = forwardSexp(value, cursorPos);
+        if (newPos !== cursorPos) {
+          setCursorPos(newPos);
+        }
         return;
       }
       // Option+Enter / Alt+Enter: insert newline (multi-line input)
@@ -770,8 +966,10 @@ export function Input({
       escapeTimeoutRef.current = setTimeout(() => {
         setEscapePressed(false);
         escapeTimeoutRef.current = null;
+        // FIX NEW-1: Guard against mode changes - don't clear if history search started
         // ESC alone (no follow-up key) → clear input like Claude Code
-        if (value.length > 0) {
+        // But only if not in history search mode (user might have pressed Ctrl+R after ESC)
+        if (!historySearch.state.isSearching && value.length > 0) {
           onChange("");
           setCursorPos(0);
           completion.close();
@@ -844,9 +1042,14 @@ export function Input({
         if (backspaceInPlaceholder()) {
           return;
         }
-        // FIX: If backspace is outside placeholder bounds, cleanup untouched placeholders
-        // (they're hints, not real text) and then perform backspace on cleaned value
-        const cleanedValue = exitPlaceholderModeAndCleanup();
+        // FIX: If backspace is outside placeholder bounds, cleanup placeholders
+        // Determine if cursor is before first placeholder (function name area)
+        // If so, user is deleting the function name - remove ALL placeholders
+        const firstPh = placeholders[0];
+        const isDeletingFunctionName = firstPh && cursorPos <= firstPh.start;
+
+        // removeAll=true when deleting function name, false otherwise (only remove untouched)
+        const cleanedValue = exitPlaceholderModeAndCleanup(isDeletingFunctionName);
 
         // Adjust cursor position for cleaned value
         const newCursor = Math.min(cursorPos, cleanedValue.length);
@@ -1027,16 +1230,22 @@ export function Input({
             setCursorPos(value.length);
           }
           return;
-        case "w": // Delete word
-          deleteWord();
+        case "w": { // Delete word (with placeholder cleanup)
+          const { v, c } = getCleanedValue();
+          deleteWord(v, c);
           return;
-        case "u": // Delete to start
-          onChange(value.slice(cursorPos));
+        }
+        case "u": { // Delete to start (with placeholder cleanup)
+          const { v, c } = getCleanedValue();
+          onChange(v.slice(c));
           setCursorPos(0);
           return;
-        case "k": // Delete to end
-          onChange(value.slice(0, cursorPos));
+        }
+        case "k": { // Delete to end (with placeholder cleanup)
+          const { v, c } = getCleanedValue();
+          onChange(v.slice(0, c));
           return;
+        }
         // Note: Ctrl+D (EOF) is handled at the App level, not here
       }
       return;
@@ -1151,9 +1360,25 @@ export function Input({
   }, { isActive: !disabled });
 
   // Render with syntax highlighting
-  const matchPos = cursorPos > 0 && cursorPos <= value.length
-    ? findMatchingParen(value, cursorPos - 1)
-    : null;
+  // Paren matching: highlight matching paren when cursor is ON any delimiter
+  // Check both cursor position and position before cursor (for just-after-close case)
+  const matchPos = (() => {
+    // Check if cursor is ON a paren (opening or closing)
+    if (cursorPos < value.length) {
+      const ch = value[cursorPos];
+      if ("()[]{}".includes(ch)) {
+        return findMatchingParen(value, cursorPos);
+      }
+    }
+    // Check if cursor is just AFTER a paren (legacy behavior for closing parens)
+    if (cursorPos > 0) {
+      const ch = value[cursorPos - 1];
+      if (")]}".includes(ch)) {
+        return findMatchingParen(value, cursorPos - 1);
+      }
+    }
+    return null;
+  })();
 
   const ghostText = suggestion ? suggestion.ghost : "";
 
@@ -1291,6 +1516,18 @@ export function Input({
     offset += lines[i].length + 1; // +1 for newline
   }
 
+  // ============================================================
+  // FIX C1: Unified mode guard - ensure only ONE overlay at a time
+  // Priority: history search > placeholder > completion
+  // This prevents UI corruption from overlapping overlays
+  // ============================================================
+  const activeOverlay = useMemo((): 'history' | 'placeholder' | 'completion' | 'none' => {
+    if (historySearch.state.isSearching) return 'history';
+    if (isInPlaceholderMode()) return 'placeholder';
+    if (completion.renderProps) return 'completion';
+    return 'none';
+  }, [historySearch.state.isSearching, placeholders, placeholderIndex, completion.renderProps]);
+
   return (
     <Box flexDirection="column">
       {/* Show attachment error only */}
@@ -1304,23 +1541,29 @@ export function Input({
       {lineElements}
 
       {/* Placeholder mode hint - shows current parameter context */}
-      {isInPlaceholderMode() && (
-        <Box marginLeft={5}>
-          <Text dimColor>
-            {placeholderIndex >= 0 && placeholderIndex < placeholders.length && (
-              <Text color={color("accent")}>{placeholders[placeholderIndex].text}</Text>
-            )}
-            {placeholderIndex >= 0 && placeholderIndex < placeholders.length && " "}
-            ({placeholderIndex + 1}/{placeholders.length}) • Tab: next • Shift+Tab: prev • Esc: exit
-          </Text>
-        </Box>
-      )}
+      {/* FIX M4: Use getCurrentPlaceholder for safe bounds-checked access */}
+      {activeOverlay === 'placeholder' && (() => {
+        const currentPh = getCurrentPlaceholder();
+        return (
+          <Box marginLeft={5}>
+            <Text dimColor>
+              {currentPh && (
+                <Text color={color("accent")}>{currentPh.text}</Text>
+              )}
+              {currentPh && " "}
+              ({placeholderIndex + 1}/{placeholders.length}) • Tab: next • Shift+Tab: prev • Esc: exit
+            </Text>
+          </Box>
+        );
+      })()}
 
       {/* Ctrl+R history search prompt */}
-      <HistorySearchPrompt state={historySearch.state} />
+      {activeOverlay === 'history' && (
+        <HistorySearchPrompt state={historySearch.state} />
+      )}
 
       {/* Unified completion dropdown (@mention, symbols, commands) */}
-      {completion.renderProps && !historySearch.state.isSearching && (
+      {activeOverlay === 'completion' && completion.renderProps && (
         <Dropdown
           items={completion.renderProps.items}
           selectedIndex={completion.renderProps.selectedIndex}

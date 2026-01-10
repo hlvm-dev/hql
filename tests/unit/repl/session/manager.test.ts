@@ -58,7 +58,7 @@ Deno.test("SessionManager: initialize creates new session by default", async () 
   const manager = new SessionManager(testPath);
 
   try {
-    const session = await manager.initialize();
+    const session = (await manager.initialize({ forceNew: true }))!;
 
     assertExists(session.id);
     assertEquals(session.projectHash, projectHash);
@@ -79,7 +79,7 @@ Deno.test("SessionManager: initialize with continue resumes last session", async
   // First manager creates a session
   const manager1 = new SessionManager(testPath);
   try {
-    const session1 = await manager1.initialize();
+    const session1 = (await manager1.initialize({ forceNew: true }))!;
     await manager1.recordMessage("user", "Hello");
     await manager1.close();
 
@@ -88,7 +88,7 @@ Deno.test("SessionManager: initialize with continue resumes last session", async
 
     // Second manager with --continue should resume
     const manager2 = new SessionManager(testPath);
-    const session2 = await manager2.initialize({ continue: true });
+    const session2 = (await manager2.initialize({ continue: true }))!;
 
     assertEquals(session2.id, session1.id);
     assertEquals(session2.messageCount, 1);
@@ -105,7 +105,7 @@ Deno.test("SessionManager: initialize with resumeId resumes specific session", a
   const manager1 = new SessionManager(testPath);
   try {
     // Create first session
-    const session1 = await manager1.initialize();
+    const session1 = (await manager1.initialize({ forceNew: true }))!;
     await manager1.recordMessage("user", "First session");
     await manager1.close();
 
@@ -117,7 +117,7 @@ Deno.test("SessionManager: initialize with resumeId resumes specific session", a
 
     // Resume first session by ID
     const manager3 = new SessionManager(testPath);
-    const session3 = await manager3.initialize({ resumeId: session1.id });
+    const session3 = (await manager3.initialize({ resumeId: session1.id }))!;
 
     assertEquals(session3.id, session1.id);
     assertEquals(session3.messageCount, 1);
@@ -127,33 +127,36 @@ Deno.test("SessionManager: initialize with resumeId resumes specific session", a
   }
 });
 
-Deno.test("SessionManager: initialize creates new if resumeId not found", async () => {
+Deno.test("SessionManager: initialize defers if resumeId not found", async () => {
   const testPath = "/tmp/test-manager-resume-notfound-" + Date.now();
   const projectHash = hashProjectPath(testPath);
 
   const manager = new SessionManager(testPath);
   try {
+    // When resumeId not found, falls through to deferred mode (returns null)
     const session = await manager.initialize({ resumeId: "nonexistent_id" });
 
-    assertExists(session.id);
-    assertEquals(session.messageCount, 0);
-    assert(session.id !== "nonexistent_id");
+    assertEquals(session, null);
+    assert(manager.isInitialized());
+    assertEquals(manager.hasActiveSession(), false); // Deferred, no active session yet
   } finally {
     await manager.close();
     await cleanupTestSessions(projectHash);
   }
 });
 
-Deno.test("SessionManager: initialize creates new if no previous session for continue", async () => {
+Deno.test("SessionManager: initialize defers if no previous session for continue", async () => {
   const testPath = "/tmp/test-manager-continue-new-" + Date.now();
   const projectHash = hashProjectPath(testPath);
 
   const manager = new SessionManager(testPath);
   try {
+    // When no previous session, falls through to deferred mode (returns null)
     const session = await manager.initialize({ continue: true });
 
-    assertExists(session.id);
-    assertEquals(session.messageCount, 0);
+    assertEquals(session, null);
+    assert(manager.isInitialized());
+    assertEquals(manager.hasActiveSession(), false); // Deferred, no active session yet
   } finally {
     await manager.close();
     await cleanupTestSessions(projectHash);
@@ -170,7 +173,7 @@ Deno.test("SessionManager: recordMessage appends to session", async () => {
 
   const manager = new SessionManager(testPath);
   try {
-    const session = await manager.initialize();
+    await manager.initialize({ forceNew: true });
 
     await manager.recordMessage("user", "(def x 10)");
     await manager.recordMessage("assistant", "10");
@@ -210,7 +213,7 @@ Deno.test("SessionManager: recordMessage with attachments", async () => {
 
   const manager = new SessionManager(testPath);
   try {
-    await manager.initialize();
+    await manager.initialize({ forceNew: true });
 
     await manager.recordMessage("user", "Check this file", ["/path/to/file.txt"]);
 
@@ -233,7 +236,7 @@ Deno.test("SessionManager: newSession creates new session", async () => {
 
   const manager = new SessionManager(testPath);
   try {
-    const session1 = await manager.initialize();
+    const session1 = (await manager.initialize({ forceNew: true }))!;
     await manager.recordMessage("user", "Session 1");
 
     const session2 = await manager.newSession("New Session");
@@ -259,7 +262,7 @@ Deno.test("SessionManager: resumeSession switches to existing session", async ()
   const manager = new SessionManager(testPath);
   try {
     // Create first session
-    const session1 = await manager.initialize();
+    const session1 = (await manager.initialize({ forceNew: true }))!;
     await manager.recordMessage("user", "Message in session 1");
 
     // Create second session
@@ -270,9 +273,9 @@ Deno.test("SessionManager: resumeSession switches to existing session", async ()
     const resumed = await manager.resumeSession(session1.id);
 
     assertExists(resumed);
-    assertEquals(resumed.meta.id, session1.id);
-    assertEquals(resumed.messages.length, 1);
-    assertEquals(resumed.messages[0].content, "Message in session 1");
+    assertEquals(resumed!.meta.id, session1.id);
+    assertEquals(resumed!.messages.length, 1);
+    assertEquals(resumed!.messages[0].content, "Message in session 1");
     assertEquals(manager.getCurrentSession()?.id, session1.id);
   } finally {
     await manager.close();
@@ -286,7 +289,7 @@ Deno.test("SessionManager: resumeSession returns null for non-existent", async (
 
   const manager = new SessionManager(testPath);
   try {
-    await manager.initialize();
+    await manager.initialize({ forceNew: true });
 
     const result = await manager.resumeSession("nonexistent_id");
 
@@ -307,7 +310,7 @@ Deno.test("SessionManager: listForProject returns sessions for current project",
 
   const manager = new SessionManager(testPath);
   try {
-    await manager.initialize();
+    await manager.initialize({ forceNew: true });
     await manager.newSession("Session 2");
     await manager.newSession("Session 3");
 
@@ -328,7 +331,7 @@ Deno.test("SessionManager: listForProject respects limit", async () => {
 
   const manager = new SessionManager(testPath);
   try {
-    await manager.initialize();
+    await manager.initialize({ forceNew: true });
     await manager.newSession("Session 2");
     await manager.newSession("Session 3");
 
@@ -351,7 +354,7 @@ Deno.test("SessionManager: deleteSession removes session", async () => {
 
   const manager = new SessionManager(testPath);
   try {
-    const session1 = await manager.initialize();
+    const session1 = (await manager.initialize({ forceNew: true }))!;
     const session2 = await manager.newSession("Session 2");
 
     const result = await manager.deleteSession(session1.id);
@@ -373,7 +376,7 @@ Deno.test("SessionManager: deleteSession clears current if deleting active", asy
 
   const manager = new SessionManager(testPath);
   try {
-    const session = await manager.initialize();
+    const session = (await manager.initialize({ forceNew: true }))!;
 
     await manager.deleteSession(session.id);
 
@@ -395,7 +398,7 @@ Deno.test("SessionManager: renameSession updates title", async () => {
 
   const manager = new SessionManager(testPath);
   try {
-    await manager.initialize();
+    await manager.initialize({ forceNew: true });
 
     await manager.renameSession("New Title");
 
@@ -432,7 +435,7 @@ Deno.test("SessionManager: getSessionMessages returns empty for new session", as
 
   const manager = new SessionManager(testPath);
   try {
-    await manager.initialize();
+    await manager.initialize({ forceNew: true });
 
     const messages = await manager.getSessionMessages();
 
@@ -461,7 +464,7 @@ Deno.test("SessionManager: close resets initialized state", async () => {
 
   const manager = new SessionManager(testPath);
   try {
-    await manager.initialize();
+    await manager.initialize({ forceNew: true });
     assert(manager.isInitialized());
 
     await manager.close();

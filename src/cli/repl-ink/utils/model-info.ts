@@ -3,6 +3,9 @@
  *
  * Fetches and caches model capabilities from Ollama API.
  * Follows Ollama convention for capability display.
+ *
+ * @see https://docs.ollama.com/modelfile
+ * @see https://ollama.com/library
  */
 
 // ============================================================
@@ -14,6 +17,7 @@ export interface ModelCapabilities {
   vision: boolean;      // Image understanding
   tools: boolean;       // Function calling
   embedding: boolean;   // Vector embeddings
+  thinking: boolean;    // Reasoning/deliberation (e.g., deepseek-r1)
 }
 
 export interface ModelInfo {
@@ -77,6 +81,7 @@ export async function fetchModelInfo(
       vision: false,
       tools: false,
       embedding: false,
+      thinking: false,
     },
     details: {},
     link: `ollama.com/library/${baseName}`,
@@ -97,13 +102,14 @@ export async function fetchModelInfo(
     const data = await response.json();
 
     // Parse capabilities from Ollama response
-    // Ollama returns capabilities as an array: ["completion", "vision", "tools"]
+    // Ollama returns capabilities as an array: ["completion", "vision", "tools", "thinking"]
     const caps = data.capabilities || [];
     const capabilities: ModelCapabilities = {
       completion: caps.includes("completion") || caps.length === 0,  // Default to true if no caps listed
       vision: caps.includes("vision"),
       tools: caps.includes("tools"),
       embedding: caps.includes("embedding"),
+      thinking: caps.includes("thinking"),
     };
 
     // Parse details
@@ -133,14 +139,16 @@ export async function fetchModelInfo(
 /**
  * Format capabilities as display tags
  * Returns: "[text]", "[vision] [text]", "[text] [tools]", etc.
+ * Follows Ollama library display order.
  */
 export function formatCapabilityTags(caps: ModelCapabilities): string {
   const tags: string[] = [];
 
-  // Order: vision first (most notable), then text, then tools, then embedding
+  // Order: vision, thinking, tools, text, embedding (following ollama.com/library)
   if (caps.vision) tags.push("[vision]");
-  if (caps.completion) tags.push("[text]");
+  if (caps.thinking) tags.push("[thinking]");
   if (caps.tools) tags.push("[tools]");
+  if (caps.completion) tags.push("[text]");
   if (caps.embedding) tags.push("[embed]");
 
   return tags.join(" ");

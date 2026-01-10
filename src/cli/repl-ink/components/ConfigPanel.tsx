@@ -25,13 +25,12 @@ import {
   updateConfigRuntime,
   resetConfigRuntime,
 } from "../../../common/config/index.ts";
-import { useTheme, type ThemeName } from "../../theme/index.ts";
+import { useTheme, THEME_NAMES, type ThemeName } from "../../theme/index.ts";
 import {
   fetchModelInfo,
   formatCapabilityTags,
   type ModelInfo,
 } from "../utils/model-info.ts";
-import { Link } from "./Link.tsx";
 
 interface ConfigPanelProps {
   onClose: () => void;
@@ -46,12 +45,6 @@ interface FieldMeta {
   type: FieldType;
   options?: string[];  // For select type
 }
-
-// Theme options
-const THEME_OPTIONS = [
-  "sicp", "dracula", "monokai", "nord",
-  "oneDark", "solarizedDark", "solarizedLight", "gruvbox"
-];
 
 // Config field metadata
 const FIELD_META: Record<ConfigKey, FieldMeta> = {
@@ -80,7 +73,7 @@ const FIELD_META: Record<ConfigKey, FieldMeta> = {
     label: "Theme",
     description: "Color theme",
     type: "select",
-    options: THEME_OPTIONS,
+    options: THEME_NAMES,
   },
 };
 
@@ -202,10 +195,31 @@ export function ConfigPanel({ onClose }: ConfigPanelProps): React.ReactElement {
       onClose();
     }
 
-    // 'r': Reset to defaults
+    // 'd': Reset selected item to default
+    if (input === "d") {
+      const defaultValue = DEFAULT_CONFIG[selectedKey as keyof HqlConfig];
+      updateConfigRuntime(selectedKey, defaultValue).then(() => {
+        setConfig({ ...config, [selectedKey]: defaultValue });
+        // Update theme context if resetting theme
+        if (selectedKey === "theme") {
+          setTheme(defaultValue as ThemeName);
+        }
+        // Update model info if resetting model
+        if (selectedKey === "model") {
+          updateModelInfo(String(defaultValue), config.endpoint || DEFAULT_CONFIG.endpoint);
+        }
+        setError(null);
+      }).catch((e) => {
+        setError(e instanceof Error ? e.message : "Reset failed");
+      });
+    }
+
+    // 'r': Reset ALL to defaults
     if (input === "r") {
       resetConfigRuntime().then((newConfig) => {
         setConfig(newConfig);
+        setTheme(newConfig.theme as ThemeName);
+        updateModelInfo(newConfig.model, newConfig.endpoint || DEFAULT_CONFIG.endpoint);
         setError(null);
       });
     }
@@ -315,7 +329,7 @@ export function ConfigPanel({ onClose }: ConfigPanelProps): React.ReactElement {
     <Box flexDirection="column" borderStyle="single" paddingX={1}>
       <Box justifyContent="space-between">
         <Text bold> Configuration </Text>
-        <Text dimColor>r: reset</Text>
+        <Text dimColor>d: default  r: reset all</Text>
       </Box>
       <Text> </Text>
 
@@ -375,11 +389,10 @@ export function ConfigPanel({ onClose }: ConfigPanelProps): React.ReactElement {
               )}
             </Box>
 
-            {/* Model info link (shown when model is selected) - clickable! */}
+            {/* Model info link (shown when model is selected) */}
             {isSelected && isModelField && !isEditing && modelInfo && (
               <Box paddingLeft={17}>
-                <Text dimColor>↳ </Text>
-                <Link url={modelInfo.link} color={color("accent")}>{modelInfo.link}</Link>
+                <Text dimColor>↳ {modelInfo.link}</Text>
               </Box>
             )}
           </Box>

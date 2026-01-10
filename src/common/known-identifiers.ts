@@ -114,6 +114,17 @@ export const JS_GLOBAL_NAMES = [
   "setTimeout", "clearTimeout", "fetch",
 ] as const;
 
+// ============================================================================
+// Shared Sets for Syntax Highlighting & Completion (Single Source of Truth)
+// ============================================================================
+
+/**
+ * Declaration keywords for syntax highlighting.
+ */
+export const DECLARATION_KEYWORDS = [
+  "def", "let", "fn", "macro", "class", "defn",
+] as const;
+
 /**
  * Extract macro names from EMBEDDED_MACROS source code.
  * Parses (macro NAME ...) patterns from the HQL source.
@@ -129,6 +140,41 @@ export function extractMacroNames(): string[] {
   }
 
   return [...macros];
+}
+
+/**
+ * Keywords set: control flow + declarations + module syntax.
+ * Single source of truth for syntax highlighting.
+ */
+export const KEYWORD_SET: ReadonlySet<string> = new Set([
+  ...CONTROL_FLOW_KEYWORDS,
+  ...DECLARATION_KEYWORDS,
+  ...MODULE_SYNTAX_KEYWORDS,
+]);
+
+/**
+ * Operators set: all operator names from primitives.ts.
+ */
+export const OPERATOR_SET: ReadonlySet<string> = new Set(ALL_OPERATOR_NAMES);
+
+/**
+ * Macros set: threading macros + embedded macros + word logical operators.
+ */
+export const MACRO_SET: ReadonlySet<string> = new Set([
+  ...THREADING_MACROS,
+  ...extractMacroNames(),
+  ...WORD_LOGICAL_OPERATORS,
+]);
+
+/**
+ * Classify an identifier for syntax highlighting or completion.
+ * Returns the category of the identifier.
+ */
+export function classifyIdentifier(id: string): "keyword" | "operator" | "macro" | "other" {
+  if (KEYWORD_SET.has(id)) return "keyword";
+  if (OPERATOR_SET.has(id)) return "operator";
+  if (MACRO_SET.has(id)) return "macro";
+  return "other";
 }
 
 /**

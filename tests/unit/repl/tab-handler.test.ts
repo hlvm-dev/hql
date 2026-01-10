@@ -8,7 +8,7 @@
 import { assertEquals, assert } from "jsr:@std/assert";
 import { shouldTabAcceptSuggestion } from "../../../src/cli/repl/tab-logic.ts";
 import { findSuggestion, acceptSuggestion } from "../../../src/cli/repl/suggester.ts";
-import { getCompletions, getWordAtCursor } from "../../../src/cli/repl/completer.ts";
+import { getWordAtCursor } from "../../../src/cli/repl/completer.ts";
 
 // ============================================================
 // shouldTabAcceptSuggestion() - Testing REAL production code
@@ -138,47 +138,17 @@ Deno.test("getWordAtCursor: cursor after space pattern", () => {
 });
 
 // ============================================================
-// Real getCompletions tests (validates completion system)
+// Suggestion system tests
 // ============================================================
 
-Deno.test("getCompletions: returns real completions", () => {
-  const completions = getCompletions("de", new Set());
-  assert(completions.length > 0, "Should find completions for 'de'");
-  // Verify they're real keyword completions
-  const hasKeyword = completions.some(c => c.type === "keyword");
-  assert(hasKeyword, "Should include keyword completions");
-});
-
-Deno.test("getCompletions: includes user bindings", () => {
-  const bindings = new Set(["define-my-thing"]);
-  const completions = getCompletions("define", bindings);
-  const found = completions.find(c => c.text === "define-my-thing");
-  assert(found !== undefined, "Should include user binding");
-  assertEquals(found!.type, "variable");
-});
-
-// ============================================================
-// Suggestion and Completion are separate systems
-// ============================================================
-
-Deno.test("suggestion vs completion: independent systems", () => {
+Deno.test("suggestion system: works independently", () => {
   const input = "ma";
   const bindings = new Set(["map-fn", "max-value"]);
 
   // Get suggestion (fish-style autosuggestion)
   const suggestion = findSuggestion(input, [], bindings);
 
-  // Get completions (tab completion)
-  const completions = getCompletions(input, bindings);
-
-  // Both work independently
-  assert(suggestion !== null, "Should have suggestion");
-  assert(completions.length > 0, "Should have completions");
-
   // Suggestion returns single best match
+  assert(suggestion !== null, "Should have suggestion");
   assertEquals(suggestion?.full, "map-fn");
-
-  // Completions return all matches
-  assert(completions.some(c => c.text === "map-fn"));
-  assert(completions.some(c => c.text === "max-value"));
 });

@@ -43,6 +43,9 @@ export class SessionManager {
   private projectHash: string;
   private initialized: boolean = false;
 
+  // Lazy session creation - defer until first message
+  private sessionDeferred: boolean = false;
+
   // Lazy index update tracking
   private pendingMessageCount: number = 0;
   private lastUpdateTs: number = 0;
@@ -63,14 +66,14 @@ export class SessionManager {
 
   /**
    * Initialize the session manager.
-   * Creates or resumes a session based on options.
+   * Resumes a session if specified, otherwise defers creation until first message.
    *
    * @param options.continue - Resume the last session for this project
    * @param options.resumeId - Resume a specific session by ID
-   * @param options.forceNew - Force creation of new session even if --continue
-   * @returns The active session metadata
+   * @param options.forceNew - Force creation of new session immediately
+   * @returns The active session metadata, or null if deferred
    */
-  async initialize(options: SessionInitOptions = {}): Promise<SessionMeta> {
+  async initialize(options: SessionInitOptions = {}): Promise<SessionMeta | null> {
     // Ensure sessions directory exists
     await initSessionsDir();
 
@@ -81,23 +84,51 @@ export class SessionManager {
       if (session) {
         this.currentSession = session.meta;
         this.initialized = true;
+        this.sessionDeferred = false;
         return this.currentSession;
       }
-      // Fall through to create new if session not found
+      // Fall through to defer if session not found
     } else if (options.continue && !options.forceNew) {
       // Resume last session
       const lastSession = await getLastSession(this.projectPath);
       if (lastSession) {
         this.currentSession = lastSession;
         this.initialized = true;
+        this.sessionDeferred = false;
         return this.currentSession;
       }
-      // Fall through to create new if no previous session
+      // Fall through to defer if no previous session
+    } else if (options.forceNew) {
+      // Force new session immediately
+      this.currentSession = await createSession(this.projectPath);
+      this.initialized = true;
+      this.sessionDeferred = false;
+      return this.currentSession;
     }
 
-    // Create new session
-    this.currentSession = await createSession(this.projectPath);
+    // Defer session creation until first message (lazy creation)
+    // This prevents empty sessions when user opens REPL and exits without typing
+    this.sessionDeferred = true;
     this.initialized = true;
+    return null;
+  }
+
+  /**
+   * Ensure a session exists, creating one lazily if deferred.
+   * Called internally before recording messages.
+   */
+  private async ensureSession(): Promise<SessionMeta> {
+    if (this.currentSession) {
+      return this.currentSession;
+    }
+
+    if (!this.sessionDeferred) {
+      throw new Error("SessionManager not initialized. Call initialize() first.");
+    }
+
+    // Create session now (lazy creation on first message)
+    this.currentSession = await createSession(this.projectPath);
+    this.sessionDeferred = false;
     return this.currentSession;
   }
 
@@ -134,6 +165,7 @@ export class SessionManager {
    * Record a message in the current session.
    * Called by the evaluator after each turn.
    * Uses lazy index updates for O(1) per-message performance.
+   * Creates session lazily on first message if deferred.
    *
    * @param role - "user" or "assistant"
    * @param content - The message content
@@ -144,14 +176,13 @@ export class SessionManager {
     content: string,
     attachments?: readonly string[]
   ): Promise<void> {
-    if (!this.currentSession) {
-      throw new Error("SessionManager not initialized. Call initialize() first.");
-    }
+    // Ensure session exists (creates lazily if deferred)
+    const session = await this.ensureSession();
 
     // Append message to session file (O(1))
     const message = await appendMessageOnly(
       this.projectHash,
-      this.currentSession.id,
+      session.id,
       role,
       content,
       attachments
@@ -159,9 +190,9 @@ export class SessionManager {
 
     // Update local metadata
     this.currentSession = {
-      ...this.currentSession,
+      ...session,
       updatedAt: message.ts,
-      messageCount: this.currentSession.messageCount + 1,
+      messageCount: session.messageCount + 1,
     };
 
     // Track for lazy index update
@@ -186,6 +217,7 @@ export class SessionManager {
     // Flush pending updates from previous session
     await this.flushIndexUpdate();
     this.currentSession = await createSession(this.projectPath, title);
+    this.sessionDeferred = false;
     return this.currentSession;
   }
 
@@ -300,5 +332,12 @@ export class SessionManager {
    */
   hasActiveSession(): boolean {
     return this.currentSession !== null;
+  }
+
+  /**
+   * Check if session creation is deferred (waiting for first message).
+   */
+  isSessionDeferred(): boolean {
+    return this.sessionDeferred;
   }
 }

@@ -9,8 +9,8 @@ import {
   CONFIG_KEYS,
   validateValue,
   parseValue,
-} from "../../../src/cli/repl/config/types.ts";
-import { isConfigKey } from "../../../src/cli/repl/config/storage.ts";
+} from "../../../src/common/config/types.ts";
+import { isConfigKey } from "../../../src/common/config/storage.ts";
 
 // ============================================================
 // DEFAULT_CONFIG tests
@@ -116,7 +116,9 @@ Deno.test("validateValue - theme valid", () => {
   assertEquals(validateValue("theme", "sicp").valid, true);
   assertEquals(validateValue("theme", "monokai").valid, true);
   assertEquals(validateValue("theme", "dracula").valid, true);
-  assertEquals(validateValue("theme", "light").valid, true);
+  assertEquals(validateValue("theme", "nord").valid, true);
+  assertEquals(validateValue("theme", "oneDark").valid, true);
+  assertEquals(validateValue("theme", "gruvbox").valid, true);
 });
 
 Deno.test("validateValue - theme invalid", () => {

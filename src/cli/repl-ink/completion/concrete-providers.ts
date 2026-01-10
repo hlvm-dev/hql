@@ -44,47 +44,24 @@ import { fuzzyMatch, type FuzzyResult } from "../../repl/fuzzy.ts";
 // Symbol Provider
 // ============================================================
 
-// Import from existing completer for identifier data
-import { getAllKnownIdentifiers, initializeIdentifiers } from "../../../common/known-identifiers.ts";
+// Import shared sets and functions from known-identifiers.ts (single source of truth)
 import {
-  PRIMITIVE_OPS,
-  KERNEL_PRIMITIVES,
-  DECLARATION_KEYWORDS,
-  BINDING_KEYWORDS,
-} from "../../../transpiler/keyword/primitives.ts";
-import {
-  CONTROL_FLOW_KEYWORDS,
-  THREADING_MACROS,
-  extractMacroNames,
+  getAllKnownIdentifiers,
+  initializeIdentifiers,
+  classifyIdentifier as baseClassify,
 } from "../../../common/known-identifiers.ts";
-
-// Pre-computed classification sets
-const KEYWORD_SET: ReadonlySet<string> = new Set([
-  ...CONTROL_FLOW_KEYWORDS,
-  ...DECLARATION_KEYWORDS,
-  ...BINDING_KEYWORDS,
-  ...KERNEL_PRIMITIVES,
-]);
-
-const OPERATOR_SET: ReadonlySet<string> = PRIMITIVE_OPS;
-
-const MACRO_SET: ReadonlySet<string> = new Set([
-  ...THREADING_MACROS,
-  ...extractMacroNames(),
-]);
 
 /**
  * Classify an identifier into a completion type.
+ * Extends base classifier with user binding check.
  */
 function classifyIdentifier(
   id: string,
   userBindings: ReadonlySet<string>
 ): CompletionItem["type"] {
-  if (KEYWORD_SET.has(id)) return "keyword";
-  if (OPERATOR_SET.has(id)) return "operator";
-  if (MACRO_SET.has(id)) return "macro";
   if (userBindings.has(id)) return "variable";
-  return "function";
+  const base = baseClassify(id);
+  return base === "other" ? "function" : base;
 }
 
 /**
@@ -144,16 +121,23 @@ function createSymbolApplyAction(
     const trimmedBefore = before.trimEnd();
     const hasOpeningParen = trimmedBefore.endsWith("(");
 
+    // Check if there's already a closing paren after cursor (from auto-close feature)
+    // If user typed "(" which auto-inserted ")", after will start with ")"
+    const hasClosingParen = after.startsWith(")");
+
     // For callable items (functions/macros with params): provide full form
     if (isCallable && hasParams) {
       // Build the full form: (funcname param1 param2...)
       const openParen = hasOpeningParen ? "" : "(";
       const paramsText = params!.join(" ");
-      const closeParen = ")";
+      // Don't add closing paren if one already exists from auto-close
+      const closeParen = hasClosingParen ? "" : ")";
 
       // Full completion: (funcname p1 p2)
       const insertText = openParen + id + " " + paramsText + closeParen;
-      const newText = before + insertText + " " + after;
+      // If existing closing paren, don't add space before it; otherwise add trailing space
+      const trailingSpace = hasClosingParen ? "" : " ";
+      const newText = before + insertText + trailingSpace + after;
 
       // Position cursor at first param
       const firstParamStart = ctx.anchorPosition + openParen.length + id.length + 1;

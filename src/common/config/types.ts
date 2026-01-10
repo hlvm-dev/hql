@@ -3,6 +3,8 @@
  * Configuration interface, defaults, and validation
  */
 
+import { THEME_NAMES } from "../../cli/theme/palettes.ts";
+
 // ============================================================
 // Config Interface
 // ============================================================
@@ -40,10 +42,6 @@ export type ConfigKey = typeof CONFIG_KEYS[number];
 // Validation
 // ============================================================
 
-const VALID_THEMES = [
-  "sicp", "dracula", "monokai", "nord",
-  "oneDark", "solarizedDark", "solarizedLight", "gruvbox"
-] as const;
 // Model format: provider/model[:tag] - allows colons for Ollama tags like "llama3.2:latest"
 const MODEL_FORMAT_REGEX = /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.:-]+$/;
 const URL_REGEX = /^https?:\/\/.+/;
@@ -77,7 +75,7 @@ export function validateValue(key: ConfigKey, value: unknown): ValidationResult 
       return { valid: true };
 
     case "temperature":
-      if (typeof value !== "number") {
+      if (typeof value !== "number" || Number.isNaN(value)) {
         return { valid: false, error: "temperature must be a number" };
       }
       if (value < 0 || value > 2) {
@@ -86,7 +84,7 @@ export function validateValue(key: ConfigKey, value: unknown): ValidationResult 
       return { valid: true };
 
     case "maxTokens":
-      if (typeof value !== "number") {
+      if (typeof value !== "number" || Number.isNaN(value)) {
         return { valid: false, error: "maxTokens must be a number" };
       }
       if (!Number.isInteger(value) || value <= 0) {
@@ -98,8 +96,8 @@ export function validateValue(key: ConfigKey, value: unknown): ValidationResult 
       if (typeof value !== "string") {
         return { valid: false, error: "theme must be a string" };
       }
-      if (!VALID_THEMES.includes(value as typeof VALID_THEMES[number])) {
-        return { valid: false, error: `theme must be one of: ${VALID_THEMES.join(", ")}` };
+      if (!THEME_NAMES.includes(value as typeof THEME_NAMES[number])) {
+        return { valid: false, error: `theme must be one of: ${THEME_NAMES.join(", ")}` };
       }
       return { valid: true };
 

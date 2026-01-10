@@ -15,8 +15,100 @@ import { initConfigRuntime } from "../common/config/runtime.ts";
 
 // Import run command from run.ts
 import { run as runCommand } from "./run.ts";
-// Import repl command from new REPL module
-import { main as replCommand } from "./repl/mod.ts";
+// Import repl command from Ink REPL
+import { startInkRepl, type InkReplOptions } from "./repl-ink/index.tsx";
+import type { SessionInitOptions } from "./repl/session/types.ts";
+import { VERSION } from "../version.ts";
+
+/**
+ * Handle `hql repl` command
+ */
+async function replCommand(args: string[]): Promise<number> {
+  // Handle help
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(`
+HQL REPL - Interactive Read-Eval-Print Loop
+
+USAGE:
+  hql repl [options]
+
+OPTIONS:
+  --js              Enable JavaScript polyglot mode (HQL + JS)
+  --no-banner       Skip the startup banner
+  --help, -h        Show this help
+  --version         Show version
+
+SESSION OPTIONS:
+  --continue, -c    Resume the last session
+  --resume, -r [id] Resume specific session (or open picker if no id)
+  --new             Force new session
+
+SESSIONS:
+  Sessions persist conversations automatically.
+  Use /resume in the REPL to switch sessions.
+  Use /sessions to list all sessions.
+
+POLYGLOT MODE (--js):
+  Input starting with ( is evaluated as HQL.
+  All other input is evaluated as JavaScript.
+  Both languages share variables via globalThis.
+
+EXAMPLES:
+  hql repl              Start REPL (new session)
+  hql repl --continue   Resume last session
+  hql repl -c           Resume last session (short form)
+  hql repl --resume     Open session picker
+  hql repl --js         Start polyglot REPL (HQL + JavaScript)
+`);
+    return 0;
+  }
+
+  // Handle version
+  if (args.includes("--version")) {
+    console.log(`HQL REPL v${VERSION}`);
+    return 0;
+  }
+
+  // Parse session flags
+  let continueSession = false;
+  let resumeId: string | undefined;
+  let forceNew = false;
+  let openPicker = false;
+
+  if (args.includes("--continue") || args.includes("-c")) {
+    continueSession = true;
+  }
+
+  const resumeIndex = args.findIndex((a) => a === "--resume" || a === "-r");
+  if (resumeIndex !== -1) {
+    const nextArg = args[resumeIndex + 1];
+    if (nextArg && !nextArg.startsWith("-")) {
+      resumeId = nextArg;
+    } else {
+      // --resume without id: open picker
+      openPicker = true;
+    }
+  }
+
+  if (args.includes("--new")) {
+    forceNew = true;
+  }
+
+  const sessionOptions: SessionInitOptions = {
+    continue: continueSession,
+    resumeId,
+    forceNew,
+    openPicker,
+  };
+
+  const replOptions: InkReplOptions = {
+    jsMode: args.includes("--js"),
+    showBanner: !args.includes("--no-banner"),
+    session: sessionOptions,
+  };
+
+  return await startInkRepl(replOptions);
+}
 
 /**
  * Display main CLI help

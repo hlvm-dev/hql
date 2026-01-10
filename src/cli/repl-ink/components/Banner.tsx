@@ -44,9 +44,10 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
     : "not available — install @hql/ai";
 
   // Format session display
+  // null = lazy creation (session will be created on first message)
   const sessionDisplay = session
     ? `${session.title} (${session.messageCount} msgs)`
-    : "initializing...";
+    : "New session";
 
   return (
     <Box flexDirection="column" marginBottom={1}>

@@ -1,16 +1,13 @@
 /**
  * Unit tests for HQL REPL Completer
- * Tests: getWordAtCursor, getCompletions, applyCompletion
+ * Tests: getWordAtCursor
  *
- * Note: Word boundary behavior is tested implicitly through getWordAtCursor tests.
+ * Note: getCompletions and applyCompletion were legacy functions that have been
+ * removed. The completion system now uses the unified provider architecture.
  */
 
-import { assertEquals, assert } from "jsr:@std/assert";
-import {
-  getWordAtCursor,
-  getCompletions,
-  applyCompletion,
-} from "../../../src/cli/repl/completer.ts";
+import { assertEquals } from "jsr:@std/assert";
+import { getWordAtCursor } from "../../../src/cli/repl/completer.ts";
 
 // ============================================================
 // getWordAtCursor()
@@ -77,134 +74,8 @@ Deno.test("getWordAtCursor: nested parens", () => {
   assertEquals(result.start, 2);
 });
 
-// ============================================================
-// getCompletions()
-// ============================================================
-
-Deno.test("getCompletions: empty prefix returns empty", () => {
-  const result = getCompletions("", new Set());
-  assertEquals(result.length, 0);
-});
-
-Deno.test("getCompletions: matches keywords", () => {
-  const result = getCompletions("de", new Set());
-  // Should find keywords starting with "de" like "def", "defn"
-  const texts = result.map(r => r.text);
-  assert(texts.includes("def") || texts.includes("defn") || texts.includes("default"));
-});
-
-Deno.test("getCompletions: matches user bindings", () => {
-  const bindings = new Set(["myCustomFunc", "myOtherFunc"]);
-  const result = getCompletions("myC", bindings);
-  const texts = result.map(r => r.text);
-  assert(texts.includes("myCustomFunc"));
-});
-
-Deno.test("getCompletions: filters to prefix only", () => {
-  const result = getCompletions("def", new Set());
-  // All results should start with "def"
-  for (const item of result) {
-    assert(item.text.startsWith("def"), `${item.text} should start with "def"`);
-  }
-});
-
-Deno.test("getCompletions: excludes exact match", () => {
-  const result = getCompletions("def", new Set(["def"]));
-  // Should NOT include exact match "def"
-  const texts = result.map(r => r.text);
-  assertEquals(texts.includes("def"), false);
-});
-
-Deno.test("getCompletions: limits results to 15", () => {
-  // Use a prefix that matches many items
-  const result = getCompletions("a", new Set());
-  assert(result.length <= 15);
-});
-
-Deno.test("getCompletions: keywords sorted first", () => {
-  const bindings = new Set(["definitelyCustom"]);
-  const result = getCompletions("def", bindings);
-  // If there are both keywords and variables, keywords should come first
-  let sawVariable = false;
-  for (const item of result) {
-    if (item.type === "variable") sawVariable = true;
-    if (item.type === "keyword" && sawVariable) {
-      // Keyword after variable - wrong order
-      assert(false, "Keywords should come before variables");
-    }
-  }
-});
-
-Deno.test("getCompletions: classifies types correctly", () => {
-  const result = getCompletions("if", new Set());
-  const ifItem = result.find(r => r.text === "if");
-  if (ifItem) {
-    assertEquals(ifItem.type, "keyword");
-  }
-});
-
-// ============================================================
-// applyCompletion()
-// ============================================================
-
-Deno.test("applyCompletion: replaces partial word", () => {
-  const result = applyCompletion("(def", 4, { text: "defn", type: "keyword" });
-  assertEquals(result.line, "(defn");
-  assertEquals(result.cursorPos, 5);
-});
-
-Deno.test("applyCompletion: preserves text after cursor", () => {
-  const result = applyCompletion("(de foo)", 3, { text: "defn", type: "keyword" });
-  assertEquals(result.line, "(defn foo)");
-  assertEquals(result.cursorPos, 5);
-});
-
-Deno.test("applyCompletion: handles cursor at end", () => {
-  const result = applyCompletion("map", 3, { text: "mapcat", type: "function" });
-  assertEquals(result.line, "mapcat");
-  assertEquals(result.cursorPos, 6);
-});
-
-Deno.test("applyCompletion: handles completion with hyphen", () => {
-  const result = applyCompletion("(when-", 6, { text: "when-let", type: "macro" });
-  assertEquals(result.line, "(when-let");
-  assertEquals(result.cursorPos, 9);
-});
-
-Deno.test("applyCompletion: updates cursor position correctly", () => {
-  // Start: "(fi|)" cursor at position 3
-  // Complete with "filter"
-  const result = applyCompletion("(fi)", 3, { text: "filter", type: "function" });
-  // Result: "(filter)"
-  assertEquals(result.line, "(filter)");
-  // Cursor should be after "filter" = 7
-  assertEquals(result.cursorPos, 7);
-});
-
-// ============================================================
-// Edge cases
-// ============================================================
-
-Deno.test("getCompletions: single character prefix", () => {
-  // Single char should still work
-  const result = getCompletions("d", new Set());
-  assert(result.length > 0);
-});
-
-Deno.test("getCompletions: no matches returns empty", () => {
-  const result = getCompletions("xyznonexistent", new Set());
-  assertEquals(result.length, 0);
-});
-
 Deno.test("getWordAtCursor: multiple spaces", () => {
   const result = getWordAtCursor("hello   world", 8);
   assertEquals(result.word, "");
   assertEquals(result.start, 8);
-});
-
-Deno.test("applyCompletion: empty prefix completion", () => {
-  // Completing from empty word (after space)
-  const result = applyCompletion("(call ", 6, { text: "map", type: "function" });
-  assertEquals(result.line, "(call map");
-  assertEquals(result.cursorPos, 9);
 });

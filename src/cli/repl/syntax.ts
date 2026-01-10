@@ -7,7 +7,6 @@ import { ANSI_COLORS } from "../ansi.ts";
 import {
   PRIMITIVE_OPS,
   KERNEL_PRIMITIVES,
-  DECLARATION_KEYWORDS,
   BINDING_KEYWORDS,
   JS_LITERAL_KEYWORDS_SET,
 } from "../../transpiler/keyword/primitives.ts";
@@ -15,7 +14,10 @@ import {
   CONTROL_FLOW_KEYWORDS,
   THREADING_MACROS,
   WORD_LOGICAL_OPERATORS,
-  extractMacroNames,
+  DECLARATION_KEYWORDS,
+  KEYWORD_SET as BASE_KEYWORD_SET,
+  OPERATOR_SET,
+  MACRO_SET as BASE_MACRO_SET,
 } from "../../common/known-identifiers.ts";
 
 const { SICP_PURPLE, CYAN, RED, YELLOW, DIM_GRAY, BOLD, RESET } = ANSI_COLORS;
@@ -50,18 +52,14 @@ export interface Token {
 }
 
 // ============================================================
-// Pre-computed Sets for O(1) Lookup
+// Pre-computed Sets for O(1) Lookup (extend shared sets)
 // ============================================================
 
-// Macros: Threading, quote system, utility macros, type predicates
-// These get RED color to distinguish from keywords (signals non-standard evaluation)
+// Macros: extend BASE_MACRO_SET with syntax-specific entries
 const MACRO_SET: ReadonlySet<string> = new Set([
-  // Threading macros
-  ...THREADING_MACROS,
+  ...BASE_MACRO_SET,
   // Quote system
   "quote", "quasiquote", "unquote", "unquote-splicing",
-  // Word logical operators (macros, not primitives)
-  ...WORD_LOGICAL_OPERATORS,
   // Utility macros from embedded macros
   "inc", "dec", "str", "print",
   "when-let", "if-let", "if-not", "when-not",
@@ -74,11 +72,9 @@ const MACRO_SET: ReadonlySet<string> = new Set([
   "isEmpty", "hasElements", "isEmptyList", "contains",
 ]);
 
-// Keywords: control flow, declarations, bindings, kernel primitives
-// These get SICP_PURPLE color
+// Keywords: extend BASE_KEYWORD_SET with syntax-specific entries
 const KEYWORD_SET: ReadonlySet<string> = new Set([
-  ...CONTROL_FLOW_KEYWORDS,
-  ...DECLARATION_KEYWORDS,
+  ...BASE_KEYWORD_SET,
   ...BINDING_KEYWORDS,
   ...KERNEL_PRIMITIVES,
   "fn", "function", "defn", "macro", "import", "export", "new",
@@ -88,9 +84,6 @@ const KEYWORD_SET: ReadonlySet<string> = new Set([
   // Loop control
   "label", "break", "continue",
 ]);
-
-// Operators from primitives.ts
-const OPERATOR_SET: ReadonlySet<string> = PRIMITIVE_OPS;
 
 // Boolean literals
 const BOOLEAN_SET: ReadonlySet<string> = new Set(["true", "false"]);
@@ -370,49 +363,194 @@ export function highlight(input: string, matchPos: number | null = null): string
 // ============================================================
 
 const CLOSE_TO_OPEN: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+const OPEN_TO_CLOSE: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+const ALL_OPEN = "([{";
+const ALL_CLOSE = ")]}";
 
 /**
- * Find the position of the matching opening paren for a closing paren.
- *
- * @param input - Input string
- * @param cursorPos - Position to check (should be at or after a closing paren)
- * @returns Position of matching open paren, or null if not found/not applicable
+ * Scan for balanced delimiters, handling strings properly.
+ * Internal helper to eliminate duplicate scanning logic.
  */
-export function findMatchingParen(input: string, cursorPos: number): number | null {
-  // Check if cursor is on or just after a closing delimiter
-  const ch = input[cursorPos];
-  if (!ch || !(ch in CLOSE_TO_OPEN)) return null;
-
-  const openChar = CLOSE_TO_OPEN[ch];
+function scanBalanced(
+  input: string,
+  startPos: number,
+  direction: "forward" | "backward",
+  isTarget: (ch: string) => boolean,
+  isOpposite: (ch: string) => boolean,
+): number | null {
   let depth = 0;
   let inString = false;
+  const step = direction === "forward" ? 1 : -1;
+  const end = direction === "forward" ? input.length : -1;
 
-  // Scan backwards to find matching opener
-  for (let i = cursorPos; i >= 0; i--) {
+  for (let i = startPos; i !== end; i += step) {
     const c = input[i];
 
-    // Handle string boundaries (simple approach - doesn't handle escapes perfectly)
+    // Handle string boundaries (unescaped quotes)
     if (c === '"' && (i === 0 || input[i - 1] !== "\\")) {
       inString = !inString;
       continue;
     }
     if (inString) continue;
 
-    // Skip comments (scan back to find if we're in a comment)
-    // Simple heuristic: if there's a ; before us on this line, skip
-    // This is imperfect but works for most cases
-
-    if (c === ch) {
+    if (isTarget(c)) {
       depth++;
-    } else if (c === openChar) {
+    } else if (isOpposite(c)) {
       depth--;
-      if (depth === 0) {
-        return i;
-      }
+      if (depth === 0) return i;
     }
+  }
+  return null;
+}
+
+/**
+ * Find the position of the matching paren for any delimiter.
+ * Works for both opening (finds closing) and closing (finds opening) parens.
+ *
+ * @param input - Input string
+ * @param cursorPos - Position to check (should be on a delimiter)
+ * @returns Position of matching delimiter, or null if not found/not applicable
+ */
+export function findMatchingParen(input: string, cursorPos: number): number | null {
+  const ch = input[cursorPos];
+  if (!ch) return null;
+
+  if (ch in CLOSE_TO_OPEN) {
+    const openChar = CLOSE_TO_OPEN[ch];
+    return scanBalanced(input, cursorPos, "backward", c => c === ch, c => c === openChar);
+  }
+
+  if (ch in OPEN_TO_CLOSE) {
+    const closeChar = OPEN_TO_CLOSE[ch];
+    return scanBalanced(input, cursorPos, "forward", c => c === ch, c => c === closeChar);
   }
 
   return null;
+}
+
+// ============================================================
+// Structural Navigation (S-expression movement)
+// ============================================================
+
+/**
+ * Find the opening paren of the enclosing s-expression.
+ * Internal helper used by backwardUpSexp.
+ */
+function findSexpStart(input: string, cursorPos: number): number {
+  const result = scanBalanced(
+    input,
+    cursorPos - 1,
+    "backward",
+    c => ALL_CLOSE.includes(c),
+    c => ALL_OPEN.includes(c),
+  );
+  return result ?? 0;
+}
+
+/**
+ * Move cursor to start of next s-expression.
+ * Skips whitespace and finds the next opening paren or atom.
+ *
+ * @param input - Input string
+ * @param cursorPos - Current cursor position
+ * @returns New cursor position
+ */
+export function forwardSexp(input: string, cursorPos: number): number {
+  let pos = cursorPos;
+  const len = input.length;
+
+  // Skip whitespace
+  while (pos < len && /\s/.test(input[pos])) pos++;
+  if (pos >= len) return len;
+
+  const ch = input[pos];
+
+  // If on opening delimiter, find matching close
+  if (ch in OPEN_TO_CLOSE) {
+    const match = findMatchingParen(input, pos);
+    return match !== null ? match + 1 : len;
+  }
+
+  // If on closing delimiter, move past it
+  if (ch in CLOSE_TO_OPEN) {
+    return pos + 1;
+  }
+
+  // Otherwise, skip the atom (symbol, number, etc.)
+  while (pos < len && !/[\s()\[\]{}]/.test(input[pos])) pos++;
+
+  return pos;
+}
+
+/**
+ * Move cursor to start of previous s-expression.
+ *
+ * @param input - Input string
+ * @param cursorPos - Current cursor position
+ * @returns New cursor position
+ */
+export function backwardSexp(input: string, cursorPos: number): number {
+  let pos = cursorPos;
+
+  // Skip whitespace backwards
+  while (pos > 0 && /\s/.test(input[pos - 1])) pos--;
+  if (pos <= 0) return 0;
+
+  const ch = input[pos - 1];
+
+  // If just after closing delimiter, find matching open
+  if (ch in CLOSE_TO_OPEN) {
+    const match = findMatchingParen(input, pos - 1);
+    return match !== null ? match : 0;
+  }
+
+  // If just after opening delimiter, move before it
+  if (ch in OPEN_TO_CLOSE) {
+    return pos - 1;
+  }
+
+  // Otherwise, skip the atom backwards
+  pos--;
+  while (pos > 0 && !/[\s()\[\]{}]/.test(input[pos - 1])) pos--;
+
+  return pos;
+}
+
+/**
+ * Find the opening paren of the enclosing s-expression.
+ * Useful for navigating "up" in nested structures.
+ *
+ * @param input - Input string
+ * @param cursorPos - Current cursor position
+ * @returns Position of the enclosing opening paren, or 0 if at top level
+ */
+export function backwardUpSexp(input: string, cursorPos: number): number {
+  return findSexpStart(input, cursorPos);
+}
+
+/**
+ * Move down one level into the next s-expression (into a list).
+ *
+ * @param input - Input string
+ * @param cursorPos - Current cursor position
+ * @returns Position just after the opening paren, or unchanged if not in front of a list
+ */
+export function forwardDownSexp(input: string, cursorPos: number): number {
+  let pos = cursorPos;
+  const len = input.length;
+
+  // Skip whitespace
+  while (pos < len && /\s/.test(input[pos])) pos++;
+  if (pos >= len) return cursorPos;
+
+  const ch = input[pos];
+
+  // If on opening delimiter, move inside
+  if (ch in OPEN_TO_CLOSE) {
+    return pos + 1;
+  }
+
+  return cursorPos;
 }
 
 /**

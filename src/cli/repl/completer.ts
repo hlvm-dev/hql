@@ -1,23 +1,18 @@
 /**
- * HQL REPL Completer - Tab Completion
+ * HQL REPL Completer Utilities
  *
- * Provides completion candidates with type information.
- * Uses known identifiers from the language plus user bindings.
+ * Provides word extraction for completion and suggestion systems.
  */
 
-import { getAllKnownIdentifiers } from "../../common/known-identifiers.ts";
-import {
-  PRIMITIVE_OPS,
-  KERNEL_PRIMITIVES,
-  DECLARATION_KEYWORDS,
-  BINDING_KEYWORDS,
-} from "../../transpiler/keyword/primitives.ts";
-import {
-  CONTROL_FLOW_KEYWORDS,
-  THREADING_MACROS,
-  extractMacroNames,
-} from "../../common/known-identifiers.ts";
 import { isWordBoundary } from "./string-utils.ts";
+
+// Re-export shared types and functions from known-identifiers.ts
+export {
+  KEYWORD_SET,
+  OPERATOR_SET,
+  MACRO_SET,
+  classifyIdentifier,
+} from "../../common/known-identifiers.ts";
 
 // ============================================================
 // Types
@@ -38,25 +33,7 @@ export interface CompletionItem {
 }
 
 // ============================================================
-// Pre-computed Classification Sets
-// ============================================================
-
-const KEYWORD_SET: ReadonlySet<string> = new Set([
-  ...CONTROL_FLOW_KEYWORDS,
-  ...DECLARATION_KEYWORDS,
-  ...BINDING_KEYWORDS,
-  ...KERNEL_PRIMITIVES,
-]);
-
-const OPERATOR_SET: ReadonlySet<string> = PRIMITIVE_OPS;
-
-const MACRO_SET: ReadonlySet<string> = new Set([
-  ...THREADING_MACROS,
-  ...extractMacroNames(),
-]);
-
-// ============================================================
-// Completion Functions
+// Word Extraction
 // ============================================================
 
 /**
@@ -79,85 +56,5 @@ export function getWordAtCursor(
   return {
     word: line.slice(start, cursorPos),
     start,
-  };
-}
-
-/**
- * Classify an identifier into a completion type.
- */
-function classifyIdentifier(id: string, userBindings: ReadonlySet<string>): CompletionType {
-  if (KEYWORD_SET.has(id)) return "keyword";
-  if (OPERATOR_SET.has(id)) return "operator";
-  if (MACRO_SET.has(id)) return "macro";
-  if (userBindings.has(id)) return "variable";
-  return "function"; // Default to function for stdlib
-}
-
-/**
- * Get completions for the given prefix.
- *
- * @param prefix - The prefix to complete
- * @param userBindings - User-defined bindings from ReplState
- * @returns Array of completion items, sorted alphabetically
- */
-export function getCompletions(
-  prefix: string,
-  userBindings: ReadonlySet<string>
-): CompletionItem[] {
-  if (prefix.length === 0) return [];
-
-  const allIdentifiers = getAllKnownIdentifiers();
-  const results: CompletionItem[] = [];
-  const seen = new Set<string>();  // O(1) deduplication
-
-  // Add matching known identifiers
-  for (const id of allIdentifiers) {
-    if (id.startsWith(prefix) && id !== prefix) {
-      results.push({
-        text: id,
-        type: classifyIdentifier(id, userBindings),
-      });
-      seen.add(id);
-    }
-  }
-
-  // Add matching user bindings (skip if already in results)
-  for (const binding of userBindings) {
-    if (binding.startsWith(prefix) && binding !== prefix) {
-      if (!seen.has(binding)) {  // O(1) lookup instead of O(n)
-        results.push({
-          text: binding,
-          type: "variable",
-        });
-      }
-    }
-  }
-
-  // Sort alphabetically, then by type (keywords first)
-  results.sort((a, b) => {
-    // Keywords first
-    if (a.type === "keyword" && b.type !== "keyword") return -1;
-    if (a.type !== "keyword" && b.type === "keyword") return 1;
-    // Then alphabetically
-    return a.text.localeCompare(b.text);
-  });
-
-  // Limit results
-  return results.slice(0, 15);
-}
-
-/**
- * Apply a completion to the input line.
- */
-export function applyCompletion(
-  line: string,
-  cursorPos: number,
-  completion: CompletionItem
-): { line: string; cursorPos: number } {
-  const { word } = getWordAtCursor(line, cursorPos);
-  const suffix = completion.text.slice(word.length);
-  return {
-    line: line.slice(0, cursorPos) + suffix + line.slice(cursorPos),
-    cursorPos: cursorPos + suffix.length,
   };
 }

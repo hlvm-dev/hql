@@ -19,7 +19,7 @@ import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { resetContext } from "../../repl/context.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
-import type { SessionInitOptions, SessionMeta } from "../../repl/session/types.ts";
+import type { SessionInitOptions, SessionMeta, SessionMessage } from "../../repl/session/types.ts";
 import { SessionManager } from "../../repl/session/manager.ts";
 
 interface HistoryEntry {
@@ -32,6 +32,37 @@ interface AppProps {
   jsMode?: boolean;
   showBanner?: boolean;
   sessionOptions?: SessionInitOptions;
+}
+
+/** Convert session messages to history entries for display */
+function convertMessagesToHistory(
+  messages: readonly SessionMessage[],
+  startId: number
+): { entries: HistoryEntry[]; nextId: number } {
+  const entries: HistoryEntry[] = [];
+  let id = startId;
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role === "user") {
+      // Look for following assistant message
+      const nextMsg = messages[i + 1];
+      const hasAssistant = nextMsg && nextMsg.role === "assistant";
+
+      entries.push({
+        id: id++,
+        input: msg.content,
+        result: hasAssistant
+          ? { success: true, value: nextMsg.content }
+          : { success: true, value: undefined },
+      });
+
+      // Skip the assistant message we consumed
+      if (hasAssistant) i++;
+    }
+  }
+
+  return { entries, nextId: id };
 }
 
 export function App({ jsMode: initialJsMode = false, showBanner = true, sessionOptions }: AppProps): React.ReactElement {
@@ -100,14 +131,31 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
   // Session picker handlers
   const handlePickerSelect = useCallback(async (session: SessionMeta) => {
     if (sessionManagerRef.current) {
-      await sessionManagerRef.current.resumeSession(session.id);
-      setCurrentSession(session);
-      setHistory((prev: HistoryEntry[]) => [...prev, {
-        id: nextId,
-        input: pendingResumeInput || "/resume",
-        result: { success: true, value: `Resumed: ${session.title} (${session.messageCount} messages)` },
-      }]);
-      setNextId((n: number) => n + 1);
+      const loaded = await sessionManagerRef.current.resumeSession(session.id);
+      if (loaded) {
+        // Convert messages to history entries and restore conversation
+        const { entries, nextId: newNextId } = convertMessagesToHistory(loaded.messages, 1);
+
+        // Restore the conversation history
+        setHistory(entries);
+        setCurrentSession(loaded.meta);
+
+        // Add "Resumed" notification at the end
+        setHistory((prev: HistoryEntry[]) => [...prev, {
+          id: newNextId,
+          input: pendingResumeInput || "/resume",
+          result: { success: true, value: `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)` },
+        }]);
+        setNextId(newNextId + 1);
+      } else {
+        // Session file not found or corrupted
+        setHistory((prev: HistoryEntry[]) => [...prev, {
+          id: nextId,
+          input: pendingResumeInput || "/resume",
+          result: { success: false, error: new Error(`Session not found: ${session.title}`) },
+        }]);
+        setNextId((n: number) => n + 1);
+      }
     }
     setPendingResumeInput(null);
     setShowPicker(false);

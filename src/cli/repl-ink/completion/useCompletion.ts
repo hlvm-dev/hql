@@ -142,14 +142,16 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   const debounceTimerRef = useRef<number | null>(null);
   const lastQueryRef = useRef<string>("");
 
-  // Cleanup debounce timer on unmount
+  // FIX NEW-4: Cleanup debounce timer on unmount OR when dependencies change
+  // This prevents stale completions when bindings/signatures change mid-debounce
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current !== null) {
         clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
       }
     };
-  }, []);
+  }, [userBindings, signatures, docstrings, debounceMs]);
 
   // ============================================================
   // Trigger Completion
@@ -185,10 +187,13 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       const providerDebounceMs = provider.debounceMs ?? debounceMs;
 
       if (isAsyncProvider && !force) {
-        // Cancel previous debounce
+        // FIX NEW-5: Cancel previous debounce AND reset loading state
+        // This prevents loading spinner from persisting after debounce race
         if (debounceTimerRef.current !== null) {
           clearTimeout(debounceTimerRef.current);
+          debounceTimerRef.current = null;
         }
+        dropdown.setLoading(false);  // Reset before starting new debounce
 
         // Set loading state immediately
         dropdown.setLoading(true);
