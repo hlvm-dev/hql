@@ -127,30 +127,24 @@ hql> @ma<tab>  ; Shows matches like src/main.ts
 hql> (describe @screenshot.png)  ; Creates [Image #1] attachment
 ```
 
-### Dot Commands
+### Slash Commands
 
 Control REPL behavior:
 
 | Command | Description |
 |---------|-------------|
-| `.help` | Show help |
-| `.clear` | Clear screen |
-| `.reset` | Reset REPL state |
-| `.js` | Switch to JavaScript mode |
-| `.hql` | Switch to HQL mode |
-| `.exit` | Exit REPL |
+| `/help` | Show help |
+| `/clear` | Clear screen |
+| `/reset` | Reset REPL state |
+| `/exit` | Exit REPL |
 
 ### Mode Switching
 
-Toggle between HQL and JavaScript:
+Toggle between HQL and JavaScript using the `--js` flag:
 
-```lisp
-hql> .js
-js> console.log("Now in JS mode")
-Now in JS mode
-js> .hql
-hql> (print "Back to HQL")
-Back to HQL
+```bash
+# Start in JavaScript mode
+hql repl --js
 ```
 
 ## Keyboard Shortcuts

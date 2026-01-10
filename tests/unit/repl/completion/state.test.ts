@@ -76,7 +76,6 @@ function createOpenState(overrides: Partial<DropdownState> = {}): DropdownState 
     isLoading: false,
     originalText: "de",
     originalCursor: 2,
-    sessionActive: true,
     ...overrides,
   };
 }
@@ -154,7 +153,6 @@ Deno.test("State: OPEN stores original text and cursor for session tracking", ()
 
   assertEquals(next.originalText, "original text");
   assertEquals(next.originalCursor, 8);
-  assertEquals(next.sessionActive, true);
 });
 
 // ============================================================

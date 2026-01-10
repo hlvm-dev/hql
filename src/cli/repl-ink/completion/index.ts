@@ -1,96 +1,77 @@
 /**
  * Unified Completion System - Public API
  *
- * Re-exports all public types, functions, and constants.
+ * This is the ONLY API that consumers (Input.tsx) should use.
+ * For provider development, import from "./provider-sdk.ts"
+ *
+ * @example
+ * ```tsx
+ * import {
+ *   useCompletion,
+ *   Dropdown,
+ *   ATTACHMENT_PLACEHOLDER,
+ * } from "../completion/index.ts";
+ *
+ * function MyComponent() {
+ *   const completion = useCompletion({ userBindings, signatures, docstrings });
+ *
+ *   return (
+ *     <>
+ *       {completion.renderProps && (
+ *         <Dropdown
+ *           items={completion.renderProps.items}
+ *           selectedIndex={completion.renderProps.selectedIndex}
+ *           helpText={completion.renderProps.helpText}
+ *           isLoading={completion.renderProps.isLoading}
+ *         />
+ *       )}
+ *     </>
+ *   );
+ * }
+ * ```
  */
 
-// Types
-export type {
-  CompletionType,
-  ProviderId,
-  CompletionItem,
-  CompletionContext,
-  DropdownState,
-  DropdownAction,
-  NavigationResult,
-  ScrollWindow,
-  CompletionResult,
-  CompletionProvider,
-  // New action semantics
-  CompletionAction,
-  ApplyContext,
-  ApplyResult,
-  ItemRenderSpec,
-  CompletionSideEffect,
-} from "./types.ts";
-
-export {
-  MAX_VISIBLE_ITEMS,
-  INITIAL_DROPDOWN_STATE,
-  TYPE_ICONS,
-} from "./types.ts";
-
-// State management
-export {
-  dropdownReducer,
-  createInitialState,
-  getSelectedItem,
-  hasItems,
-  isActive,
-  openAction,
-  closeAction,
-  setItemsAction,
-  selectNextAction,
-  selectPrevAction,
-  selectIndexAction,
-  setLoadingAction,
-} from "./state.ts";
-
-// Navigation
-export {
-  handleNavigationKey,
-  calculateScrollWindow,
-  hasItemsAbove,
-  hasItemsBelow,
-  getRelativeIndex,
-  getAbsoluteIndex,
-  isNavigationKey,
-  shouldCloseOnInput,
-} from "./navigation.ts";
-
-// Provider helpers
-export {
-  getWordAtCursor,
-  buildContext,
-  filterByPrefix,
-  filterBySubstring,
-  rankCompletions,
-  generateItemId,
-  resetItemIdCounter,
-  createCompletionItem,
-  shouldTriggerFileMention,
-  extractMentionQuery,
-  shouldTriggerCommand,
-  extractCommandQuery,
-  shouldTriggerSymbol,
-} from "./providers.ts";
-
-// React hooks
-export { useDropdownState } from "./useDropdownState.ts";
-export type { UseDropdownStateReturn } from "./useDropdownState.ts";
+// ============================================================
+// Main Hook (the primary interface)
+// ============================================================
 
 export { useCompletion } from "./useCompletion.ts";
-export type { UseCompletionOptions, UseCompletionReturn } from "./useCompletion.ts";
+export type {
+  UseCompletionOptions,
+  UseCompletionReturn,
+  DropdownRenderProps,
+} from "./useCompletion.ts";
 
+// ============================================================
 // UI Components
-export { Dropdown, GenericItem } from "./Dropdown.tsx";
-export type { DropdownProps, GenericItemProps } from "./Dropdown.tsx";
+// ============================================================
 
-// Concrete Providers
+export { Dropdown } from "./Dropdown.tsx";
+
+// ============================================================
+// Essential Types for Consumers
+// ============================================================
+
+export type {
+  CompletionItem,
+  CompletionAction,
+  ApplyContext,
+  ProviderId,
+} from "./types.ts";
+
+// ============================================================
+// Constants that Consumers Need
+// ============================================================
+
 export {
-  SymbolProvider,
-  FileProvider,
-  CommandProvider,
-  ALL_PROVIDERS,
-  getActiveProvider,
-} from "./concrete-providers.ts";
+  TYPE_ICONS,
+  ATTACHMENT_PLACEHOLDER,
+} from "./types.ts";
+
+// ============================================================
+// Provider SDK (separate export for custom providers)
+// ============================================================
+
+// Re-export provider SDK for convenience
+// Consumers who need to build custom providers should import from here
+export * as ProviderSDK from "./provider-sdk.ts";

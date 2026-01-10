@@ -514,7 +514,6 @@ const __HQL_OPERATORS = {
   "==": (a, b) => a == b,
   "!==": (a, b) => a !== b,
   "!=": (a, b) => a != b,
-  "not=": (a, b) => a != b,  // Lisp-style word-form
   "<": (a, b) => a < b,
   ">": (a, b) => a > b,
   "<=": (a, b) => a <= b,

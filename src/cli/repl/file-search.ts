@@ -7,6 +7,8 @@
  * - Respects .gitignore patterns
  */
 
+import { fuzzyMatchPath, binarySearchInsertIdx } from "./fuzzy.ts";
+
 // ============================================================
 // Types
 // ============================================================
@@ -45,9 +47,6 @@ const SKIP_DIRS = new Set([
 // File patterns to skip - using string checks for performance (no regex compilation)
 const SKIP_EXTENSIONS = new Set(['.min.js', '.map', '.lock', '.d.ts']);
 const SKIP_EXACT_NAMES = new Set(['package-lock.json', 'yarn.lock']);
-
-// Word boundary characters for fuzzy match scoring (O(1) Set lookup vs O(n) string.includes)
-const FUZZY_BOUNDARY_CHARS = new Set(["/", "\\", "-", "_", "."]);
 
 function shouldSkipFile(name: string): boolean {
   if (SKIP_EXACT_NAMES.has(name)) return true;
@@ -210,125 +209,6 @@ export async function getFileIndex(forceRefresh = false): Promise<FileIndex> {
 
 
 // ============================================================
-// Fuzzy Matching
-// ============================================================
-
-/**
- * Check if character is uppercase letter (A-Z)
- * Uses charCodeAt for O(1) check without string allocation
- */
-function isUpperCase(ch: string): boolean {
-  const code = ch.charCodeAt(0);
-  return code >= 65 && code <= 90;  // A-Z
-}
-
-/**
- * Check if character is lowercase letter (a-z)
- * Uses charCodeAt for O(1) check without string allocation
- */
-function isLowerCase(ch: string): boolean {
-  const code = ch.charCodeAt(0);
-  return code >= 97 && code <= 122;  // a-z
-}
-
-/**
- * FZF-style fuzzy matching with scoring
- * Returns score and match indices, or null if no match
- */
-function fuzzyMatch(query: string, target: string): { score: number; indices: number[] } | null {
-  if (!query) return { score: 0, indices: [] };
-
-  const queryLower = query.toLowerCase();
-  const targetLower = target.toLowerCase();
-
-  // Quick check: all query chars must exist in target
-  let checkIdx = 0;
-  for (const ch of queryLower) {
-    checkIdx = targetLower.indexOf(ch, checkIdx);
-    if (checkIdx === -1) return null;
-    checkIdx++;
-  }
-
-  // Find best match using dynamic programming approach
-  const indices: number[] = [];
-  let score = 0;
-  let queryIdx = 0;
-  let lastMatchIdx = -1;
-  let consecutiveCount = 0;
-
-  for (let i = 0; i < targetLower.length && queryIdx < queryLower.length; i++) {
-    if (targetLower[i] === queryLower[queryIdx]) {
-      indices.push(i);
-
-      // Base score
-      score += 10;
-
-      // Consecutive match bonus (big bonus for sequential matches)
-      if (lastMatchIdx === i - 1) {
-        consecutiveCount++;
-        score += consecutiveCount * 15;
-      } else {
-        consecutiveCount = 0;
-      }
-
-      // Word boundary bonus (after / - _ . or start)
-      if (i === 0 || FUZZY_BOUNDARY_CHARS.has(target[i - 1])) {
-        score += 20;
-      }
-
-      // Camel case bonus (uses O(1) charCode check instead of toUpperCase/toLowerCase)
-      if (i > 0 && isUpperCase(target[i]) && isLowerCase(target[i - 1])) {
-        score += 15;
-      }
-
-      // Exact case match bonus
-      if (query[queryIdx] === target[i]) {
-        score += 5;
-      }
-
-      lastMatchIdx = i;
-      queryIdx++;
-    }
-  }
-
-  // All query characters must match
-  if (queryIdx < queryLower.length) {
-    return null;
-  }
-
-  // Penalties
-  score -= target.length * 0.5;  // Prefer shorter paths
-  score -= indices[0] * 2;       // Prefer matches near start
-
-  // Bonus for matching filename (last component)
-  const lastSlash = target.lastIndexOf("/");
-  if (lastSlash !== -1 && indices.some(i => i > lastSlash)) {
-    score += 25;
-  }
-
-  return { score, indices };
-}
-
-/**
- * Binary search to find insertion index in a descending-sorted array.
- * Returns the index where `score` should be inserted to maintain descending order.
- * O(log n) instead of O(n) linear search.
- */
-function binarySearchInsertIdx(results: FileMatch[], score: number): number {
-  let lo = 0;
-  let hi = results.length;
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi) / 2);
-    if (results[mid].score >= score) {
-      lo = mid + 1;  // Search right half (lower scores)
-    } else {
-      hi = mid;      // Search left half (higher scores)
-    }
-  }
-  return lo;
-}
-
-// ============================================================
 // Search API
 // ============================================================
 
@@ -432,20 +312,23 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
   // Time complexity: O(n log k) where n=files+dirs, k=maxResults
   // Process directories first, then files (no intermediate object allocation)
 
+  // Score getter for binary search
+  const getScore = (item: FileMatch) => item.score;
+
   // Helper to insert match into top-k results
   const insertMatch = (path: string, isDir: boolean) => {
-    const match = fuzzyMatch(query, path);
+    const match = fuzzyMatchPath(query, path);
     if (!match) return;
 
     const score = match.score + (isDir ? 10 : 0);
 
     // Insert into results maintaining sorted order (top-k)
     if (results.length < maxResults) {
-      const insertIdx = binarySearchInsertIdx(results, score);
-      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: match.indices });
+      const insertIdx = binarySearchInsertIdx(results, score, getScore);
+      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: [...match.indices] });
     } else if (score > results[results.length - 1].score) {
-      const insertIdx = binarySearchInsertIdx(results, score);
-      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: match.indices });
+      const insertIdx = binarySearchInsertIdx(results, score, getScore);
+      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: [...match.indices] });
       results.pop();
     }
   };

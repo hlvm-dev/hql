@@ -36,6 +36,8 @@ export interface EvalResult {
   value?: unknown;
   error?: Error;
   suppressOutput?: boolean;
+  /** When true, value is command output text (display as-is, not as quoted string) */
+  isCommandOutput?: boolean;
 }
 
 type ExpressionKind = "declaration" | "binding" | "expression" | "import";

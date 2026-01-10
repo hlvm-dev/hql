@@ -73,7 +73,6 @@ export function transformPrimitiveOp(
         op === "==" ||
         op === "!==" ||
         op === "!=" ||
-        op === "not=" ||
         op === ">" ||
         op === "<" ||
         op === ">=" ||
@@ -193,9 +192,6 @@ export function transformComparisonOp(
           break;
         case "!=":
           jsOp = "!=";   // Loose inequality (needed for notNil macro)
-          break;
-        case "not=":
-          jsOp = "!=";   // Lisp-style word-form loose inequality
           break;
         case ">":
         case "<":

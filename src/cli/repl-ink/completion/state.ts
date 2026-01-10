@@ -36,7 +36,6 @@ export function dropdownReducer(
         // Session tracking - remember original state for cycling
         originalText: action.originalText,
         originalCursor: action.originalCursor,
-        sessionActive: true,
       };
 
     case "CLOSE":

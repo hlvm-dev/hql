@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useMemo } from "npm:react@18";
 import { Box, Text } from "npm:ink@5";
+import { useTheme } from "../../theme/index.ts";
 
 // Braille spinner frames (smooth animation)
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -36,6 +37,7 @@ export function StreamingStatus({
   isStreaming,
   startTime,
 }: StreamingStatusProps): React.ReactElement | null {
+  const { color } = useTheme();
   const [frame, setFrame] = useState(0);
   const [elapsed, setElapsed] = useState(0);
 
@@ -63,8 +65,8 @@ export function StreamingStatus({
 
   return (
     <Box>
-      <Text color="#663399">{spinner}</Text>
-      <Text color="yellow"> {statusWord} </Text>
+      <Text color={color("primary")}>{spinner}</Text>
+      <Text color={color("warning")}> {statusWord} </Text>
       <Text dimColor>(esc to interrupt · {time})</Text>
     </Box>
   );

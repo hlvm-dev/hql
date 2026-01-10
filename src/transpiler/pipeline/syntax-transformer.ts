@@ -320,11 +320,9 @@ function registerBinding(list: SList, bindingKeyword: string): void {
 
       if (!isPattern) {
         for (let i = 0; i < bindings.elements.length; i += 2) {
-          if (
-            i + 1 < bindings.elements.length &&
-            isSymbol(bindings.elements[i])
-          ) {
-            const varName = (bindings.elements[i] as SSymbol).name;
+          const nameNode = bindings.elements[i];
+          if (i + 1 < bindings.elements.length && isSymbol(nameNode)) {
+            const varName = (nameNode as SSymbol).name;
             const valueNode = bindings.elements[i + 1];
             const dataType = inferDataType(valueNode);
             currentSymbolTable.set({
@@ -339,11 +337,26 @@ function registerBinding(list: SList, bindingKeyword: string): void {
               `Registered ${bindingKeyword} binding: ${varName} with type ${dataType}`,
             );
           } else if (i + 1 < bindings.elements.length) {
-            const errorLoc = getLocationFromNode(bindings.elements[i]);
+            // Check if this is a destructuring pattern (e.g., [a b] parses to (vector a b))
+            const isDestructuringPattern = isList(nameNode) &&
+              (nameNode as SList).elements.length > 0 &&
+              isSymbol((nameNode as SList).elements[0]) &&
+              (((nameNode as SList).elements[0] as SSymbol).name === VECTOR_SYMBOL ||
+               ((nameNode as SList).elements[0] as SSymbol).name === EMPTY_ARRAY_SYMBOL ||
+               ((nameNode as SList).elements[0] as SSymbol).name === "hash-map");
+
+            if (isDestructuringPattern) {
+              // Skip registration for destructuring patterns
+              // Individual bindings will be created when the pattern is destructured at runtime
+              logger.debug(`Skipping symbol registration for destructuring pattern in ${bindingKeyword}`);
+              continue;
+            }
+
+            const errorLoc = getLocationFromNode(nameNode);
             throw new TransformError(
               `${bindingKeyword} binding name must be a symbol`,
               `${bindingKeyword} binding name validation`,
-              withSourceLocationOpts(errorLoc, bindings.elements[i]),
+              withSourceLocationOpts(errorLoc, nameNode),
             );
           }
         }

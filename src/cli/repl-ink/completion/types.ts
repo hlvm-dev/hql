@@ -58,6 +58,10 @@ export interface ItemRenderSpec {
   readonly description?: string;
   /** Optional type label (right-aligned) */
   readonly typeLabel?: string;
+  /** Matched character indices for highlighting (from fuzzy match) */
+  readonly matchIndices?: readonly number[];
+  /** Optional extended documentation (multi-line, shown in doc panel) */
+  readonly extendedDoc?: string;
 }
 
 // ============================================================
@@ -164,6 +168,9 @@ export interface CompletionContext {
 
   /** Docstrings from comments (name -> description) */
   readonly docstrings: ReadonlyMap<string, string>;
+
+  /** Whether cursor is inside a string literal (suppresses symbol completions) */
+  readonly isInsideString: boolean;
 }
 
 // ============================================================
@@ -204,9 +211,6 @@ export interface DropdownState {
 
   /** Original cursor position when session started */
   readonly originalCursor: number;
-
-  /** Whether a completion session is active (prevents auto-trigger interference) */
-  readonly sessionActive: boolean;
 }
 
 /**
@@ -222,7 +226,6 @@ export const INITIAL_DROPDOWN_STATE: DropdownState = {
   // Session tracking
   originalText: "",
   originalCursor: 0,
-  sessionActive: false,
 };
 
 // ============================================================
@@ -308,6 +311,9 @@ export interface CompletionProvider {
   /** Help text shown at bottom of dropdown */
   readonly helpText?: string;
 
+  /** Whether arrow navigation applies selection immediately (cycling behavior) */
+  readonly appliesOnNavigate?: boolean;
+
   /** Check if this provider should trigger for the current context */
   shouldTrigger(context: CompletionContext): boolean;
 
@@ -329,4 +335,59 @@ export const TYPE_ICONS: Record<CompletionType, string> = {
   file: "📄",
   directory: "📁",
   command: "⌘",
+};
+
+// ============================================================
+// Completion Constants (Centralized)
+// ============================================================
+
+/** Score constants for ranking completions */
+export const COMPLETION_SCORES = {
+  USER_BINDING: 110,
+  STDLIB: 100,
+  COMMAND_BASE: 100,
+} as const;
+
+/** Max width for truncation by provider type */
+export const RENDER_MAX_WIDTH = {
+  SYMBOL: 16,
+  FILE: 50,
+  COMMAND: 20,
+  DEFAULT: 40,
+} as const;
+
+/** Help text shown in dropdown (DRY - was duplicated) */
+export const PROVIDER_HELP_TEXT = {
+  SIMPLE: "↑↓ navigate • Tab/Enter select • Esc cancel",
+  DRILL: "↑↓ navigate • Tab drill • Enter select • Esc cancel",
+} as const;
+
+/** Debounce for async providers */
+export const COMPLETION_DEBOUNCE_MS = 150;
+
+/** Attachment placeholder (used in file provider and Input.tsx) */
+export const ATTACHMENT_PLACEHOLDER = "{{ATTACHMENT}}";
+
+/** Type labels shown on right side of dropdown */
+export const TYPE_LABELS: Record<CompletionType, string> = {
+  keyword: "keyword",
+  function: "fn",
+  variable: "def",
+  macro: "macro",
+  operator: "op",
+  file: "file",
+  directory: "dir",
+  command: "cmd",
+};
+
+/** Type priority for sorting (lower = higher priority) */
+export const TYPE_PRIORITY: Record<CompletionType, number> = {
+  keyword: 1,
+  macro: 2,
+  function: 3,
+  operator: 4,
+  variable: 5,
+  command: 6,
+  directory: 7,
+  file: 8,
 };

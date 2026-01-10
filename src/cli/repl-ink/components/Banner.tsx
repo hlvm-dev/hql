@@ -6,6 +6,8 @@
 import React from "npm:react@18";
 import { Box, Text } from "npm:ink@5";
 import { version as VERSION } from "../../../../mod.ts";
+import type { SessionMeta } from "../../repl/session/types.ts";
+import { useTheme } from "../../theme/index.ts";
 
 const LOGO = `
  ██╗  ██╗ ██████╗ ██╗
@@ -22,9 +24,13 @@ interface BannerProps {
   aiExports: string[];
   readyTime: number;
   errors: string[];
+  session?: SessionMeta | null;
 }
 
-export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, errors }: BannerProps): React.ReactElement {
+export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, errors, session }: BannerProps): React.ReactElement {
+  // Theme from context
+  const { color } = useTheme();
+
   // Format memory display
   const memoryDisplay = memoryNames.length > 0
     ? memoryNames.length <= 5
@@ -37,49 +43,54 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
     ? `${aiExports.join(", ")} (auto-imported from @hql/ai)`
     : "not available — install @hql/ai";
 
+  // Format session display
+  const sessionDisplay = session
+    ? `${session.title} (${session.messageCount} msgs)`
+    : "initializing...";
+
   return (
     <Box flexDirection="column" marginBottom={1}>
       {/* Logo */}
-      <Text color="#663399" bold>{LOGO}</Text>
+      <Text color={color("primary")} bold>{LOGO}</Text>
 
-      {/* Version + tagline - SICP red accent */}
-      <Text color="red">Version {VERSION} • Lisp-like language for modern JavaScript</Text>
+      {/* Version + tagline */}
+      <Text color={color("secondary")}>Version {VERSION} • Lisp-like language for modern JavaScript</Text>
       <Text> </Text>
 
       {jsMode ? (
         // JavaScript polyglot mode banner
         <>
           <Box>
-            <Text color="green">Mode:</Text>
+            <Text color={color("success")}>Mode:</Text>
             <Text> </Text>
-            <Text color="cyan">HQL + JavaScript</Text>
+            <Text color={color("accent")}>HQL + JavaScript</Text>
             <Text> </Text>
             <Text dimColor>(polyglot)</Text>
           </Box>
           <Text dimColor>  (expr) → HQL    |    expr → JavaScript</Text>
           <Text> </Text>
-          <Text color="green">Examples:</Text>
+          <Text color={color("success")}>Examples:</Text>
           <Box>
             <Text>  </Text>
-            <Text color="cyan">let x = 10</Text>
+            <Text color={color("accent")}>let x = 10</Text>
             <Text>                 </Text>
             <Text dimColor>→ JavaScript variable</Text>
           </Box>
           <Box>
             <Text>  </Text>
-            <Text color="cyan">(+ x 5)</Text>
+            <Text color={color("accent")}>(+ x 5)</Text>
             <Text>                    </Text>
             <Text dimColor>→ HQL using JS var</Text>
           </Box>
           <Box>
             <Text>  </Text>
-            <Text color="cyan">const add = (a,b) =&gt; a+b</Text>
+            <Text color={color("accent")}>const add = (a,b) =&gt; a+b</Text>
             <Text>   </Text>
             <Text dimColor>→ JS arrow function</Text>
           </Box>
           <Box>
             <Text>  </Text>
-            <Text color="cyan">(add 3 4)</Text>
+            <Text color={color("accent")}>(add 3 4)</Text>
             <Text>                  </Text>
             <Text dimColor>→ HQL calling JS fn</Text>
           </Box>
@@ -87,34 +98,34 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
       ) : (
         // Pure HQL mode banner
         <>
-          <Text color="green">Quick Start:</Text>
+          <Text color={color("success")}>Quick Start:</Text>
           <Box>
             <Text>  </Text>
-            <Text color="cyan">(+ 1 2)</Text>
+            <Text color={color("accent")}>(+ 1 2)</Text>
             <Text>                    </Text>
             <Text dimColor>→ Simple math</Text>
           </Box>
           <Box>
             <Text>  </Text>
-            <Text color="cyan">(fn add [x y] (+ x y))</Text>
+            <Text color={color("accent")}>(fn add [x y] (+ x y))</Text>
             <Text>    </Text>
             <Text dimColor>→ Define function</Text>
           </Box>
           <Box>
             <Text>  </Text>
-            <Text color="cyan">(add 10 20)</Text>
+            <Text color={color("accent")}>(add 10 20)</Text>
             <Text>                </Text>
             <Text dimColor>→ Call function</Text>
           </Box>
           <Text> </Text>
-          <Text color="green">AI (requires @hql/ai):</Text>
+          <Text color={color("success")}>AI (requires @hql/ai):</Text>
           <Box>
             <Text>  </Text>
-            <Text color="cyan">(import [ask] from "@hql/ai")</Text>
+            <Text color={color("accent")}>(import [ask] from "@hql/ai")</Text>
           </Box>
           <Box>
             <Text>  </Text>
-            <Text color="cyan">(await (ask "Hello"))</Text>
+            <Text color={color("accent")}>(await (ask "Hello"))</Text>
             <Text>      </Text>
             <Text dimColor>→ AI response</Text>
           </Box>
@@ -125,7 +136,7 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
 
       {/* Memory status */}
       <Box>
-        <Text color="green">Memory:</Text>
+        <Text color={color("success")}>Memory:</Text>
         <Text> </Text>
         {memoryNames.length > 0 ? (
           <>
@@ -140,12 +151,23 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
 
       {/* AI status */}
       <Box>
-        <Text color="green">AI:</Text>
+        <Text color={color("success")}>AI:</Text>
         <Text> </Text>
         {aiExports.length > 0 ? (
           <Text>{aiDisplay}</Text>
         ) : (
           <Text dimColor>{aiDisplay}</Text>
+        )}
+      </Box>
+
+      {/* Session status */}
+      <Box>
+        <Text color={color("success")}>Session:</Text>
+        <Text> </Text>
+        {session ? (
+          <Text>{sessionDisplay}</Text>
+        ) : (
+          <Text dimColor>{sessionDisplay}</Text>
         )}
       </Box>
 
@@ -155,7 +177,7 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
       {/* Memory errors if any */}
       {errors.length > 0 && (
         <Box flexDirection="column" marginTop={1}>
-          <Text color="yellow">Memory warnings:</Text>
+          <Text color={color("warning")}>Memory warnings:</Text>
           {errors.slice(0, 3).map((err, i) => (
             <Box key={i}><Text dimColor>  {err}</Text></Box>
           ))}

@@ -1,14 +1,12 @@
 /**
  * Shared ANSI color codes for CLI components.
+ * Legacy constants - prefer using themed colors from theme system
  */
 export const ANSI_COLORS = {
   SICP_PURPLE: "\x1b[38;2;102;51;153m",  // #663399 - SICP book cover purple
-  DARK_PURPLE: "\x1b[38;2;128;54;146m",
-  PURPLE: "\x1b[35m",
   CYAN: "\x1b[36m",
   GREEN: "\x1b[32m",
   YELLOW: "\x1b[33m",
-  ORANGE: "\x1b[38;2;255;165;0m",
   RED: "\x1b[31m",
   DIM_GRAY: "\x1b[90m",
   BOLD: "\x1b[1m",
@@ -16,6 +14,9 @@ export const ANSI_COLORS = {
 } as const;
 
 export type AnsiColor = typeof ANSI_COLORS[keyof typeof ANSI_COLORS];
+
+// Re-export only what's needed for ANSI terminal output
+export { getThemedAnsi } from "./theme/index.ts";
 
 /**
  * Terminal control sequences for screen manipulation.

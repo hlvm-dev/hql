@@ -161,7 +161,7 @@ function transformBinding(
     }
   }
 
-  // Handle specific case: (let/var (name value) body...)
+  // Handle specific case: (let/var (name value) body...) or (let/var ([pattern] value) body...)
   if (
     list.elements.length >= 2 &&
     list.elements[1].type === "list" &&
@@ -170,6 +170,113 @@ function transformBinding(
     const bindingList = list.elements[1] as ListNode;
     const nameNode = bindingList.elements[0];
     const valueNode = bindingList.elements[1];
+
+    // Check if nameNode is a destructuring pattern (e.g., [a b] parses to (vector a b))
+    if (nameNode.type === "list") {
+      const patternListNode = nameNode as ListNode;
+      const hadVectorPrefix = hasVectorPrefix(patternListNode);
+      const hadHashMapPrefix = hasHashMapPrefix(patternListNode);
+      const sexp = astToSExp(nameNode);
+
+      if ((hadVectorPrefix || hadHashMapPrefix) && couldBePattern(sexp)) {
+        // This is a destructuring pattern form: (let ([pattern] value) body...)
+        let patternSexp = sexp;
+        if (hadVectorPrefix && sexp.type === "list" && hasVectorPrefix(sexp)) {
+          patternSexp = { ...sexp, elements: sexp.elements.slice(1) } as SList;
+        }
+
+        const pattern = parsePattern(patternSexp);
+        const patternIR = patternToIR(pattern, transformNode, currentDir);
+
+        if (!patternIR) {
+          throw new ValidationError(
+            "Invalid destructuring pattern",
+            `${keyword} binding pattern`,
+            "valid pattern",
+            "null pattern",
+          );
+        }
+
+        const init = validateTransformed(
+          transformIfOrValue(valueNode, currentDir, transformNode),
+          `${keyword} value`,
+          `${keyword.charAt(0).toUpperCase() + keyword.slice(1)} value`,
+        );
+
+        const declarator: IR.IRVariableDeclarator = {
+          type: IR.IRNodeType.VariableDeclarator,
+          id: patternIR,
+          init,
+        };
+        copyPosition(nameNode, declarator);
+
+        const variableDecl: IR.IRVariableDeclaration = {
+          type: IR.IRNodeType.VariableDeclaration,
+          kind,
+          declarations: [declarator],
+        };
+
+        // If there are body expressions, wrap in IIFE
+        if (list.elements.length > 2) {
+          const bodyExprs = list.elements.slice(2);
+          const bodyNodes = transformNonNullElements(bodyExprs, currentDir, transformNode);
+
+          const bodyStmts = bodyNodes.map((node, i) => {
+            const isLast = i === bodyNodes.length - 1;
+            if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
+              return {
+                type: IR.IRNodeType.ReturnStatement,
+                argument: node,
+              } as IR.IRReturnStatement;
+            }
+            if (isExpressionResult(node)) {
+              return {
+                type: IR.IRNodeType.ExpressionStatement,
+                expression: node,
+              } as IR.IRExpressionStatement;
+            }
+            return node;
+          });
+
+          const bodyBlock: IR.IRBlockStatement = {
+            type: IR.IRNodeType.BlockStatement,
+            body: [variableDecl, ...bodyStmts],
+          };
+          const hasAwaits = containsAwaitExpression(bodyBlock);
+          const hasYields = containsYieldExpression(bodyBlock);
+
+          const iife: IR.IRCallExpression = {
+            type: IR.IRNodeType.CallExpression,
+            callee: {
+              type: IR.IRNodeType.FunctionExpression,
+              id: null,
+              params: [],
+              body: bodyBlock,
+              async: hasAwaits,
+              generator: hasYields,
+            } as IR.IRFunctionExpression,
+            arguments: [],
+          };
+
+          if (hasYields) {
+            return {
+              type: IR.IRNodeType.YieldExpression,
+              argument: iife,
+              delegate: true,
+            } as IR.IRYieldExpression;
+          } else if (hasAwaits) {
+            return {
+              type: IR.IRNodeType.AwaitExpression,
+              argument: iife,
+            } as IR.IRAwaitExpression;
+          }
+
+          return iife;
+        }
+
+        return variableDecl;
+      }
+    }
 
     if (nameNode.type !== "symbol") {
       throw new ValidationError(
@@ -403,6 +510,9 @@ function processBindings(
     typeAnnotation?: string;
   }> = [];
 
+  // Track pattern bindings separately (destructuring creates IR patterns, not names)
+  const patternDeclarations: IR.IRVariableDeclaration[] = [];
+
   for (let i = 0; i < bindingsNode.elements.length; i += 2) {
     if (i + 1 >= bindingsNode.elements.length) {
       throw new ValidationError(
@@ -414,11 +524,75 @@ function processBindings(
     }
 
     const nameNode = bindingsNode.elements[i];
+    const valueNode = bindingsNode.elements[i + 1];
+
+    // Check if nameNode is a destructuring pattern (array or object)
+    if (nameNode.type === "list") {
+      const listNode = nameNode as ListNode;
+      const hadVectorPrefix = hasVectorPrefix(listNode);
+      const hadHashMapPrefix = hasHashMapPrefix(listNode);
+      const sexp = astToSExp(nameNode);
+
+      if ((hadVectorPrefix || hadHashMapPrefix) && couldBePattern(sexp)) {
+        // Handle destructuring pattern
+        let patternSexp = sexp;
+        if (hadVectorPrefix && sexp.type === "list" && hasVectorPrefix(sexp)) {
+          patternSexp = { ...sexp, elements: sexp.elements.slice(1) } as SList;
+        }
+
+        const pattern = parsePattern(patternSexp);
+        const patternIR = patternToIR(pattern, transformNode, currentDir);
+
+        if (!patternIR) {
+          throw new ValidationError(
+            "Invalid destructuring pattern",
+            `${kind === "const" ? "let" : "var"} binding pattern`,
+            "valid pattern",
+            "null pattern",
+          );
+        }
+
+        // Transform the value
+        const valueExpr = validateTransformed(
+          valueNode.type === "list" &&
+            (valueNode as ListNode).elements[0]?.type === "symbol" &&
+            ((valueNode as ListNode).elements[0] as SymbolNode).name === "if"
+            ? transformIf(
+              valueNode as ListNode,
+              currentDir,
+              transformNode,
+              () => false,
+              true,
+            )
+            : transformNode(valueNode, currentDir),
+          `${kind === "const" ? "let" : "var"} binding value`,
+          `Binding value for pattern`,
+        );
+
+        const finalValue = kind === "const" ? wrapWithFreeze(valueExpr) : valueExpr;
+
+        const declarator: IR.IRVariableDeclarator = {
+          type: IR.IRNodeType.VariableDeclarator,
+          id: patternIR,
+          init: finalValue,
+        };
+
+        patternDeclarations.push({
+          type: IR.IRNodeType.VariableDeclaration,
+          kind,
+          declarations: [declarator],
+        } as IR.IRVariableDeclaration);
+
+        continue;
+      }
+    }
+
+    // Regular symbol binding
     if (nameNode.type !== "symbol") {
       throw new ValidationError(
-        "Binding name must be a symbol",
+        "Binding name must be a symbol or destructuring pattern",
         `${kind === "const" ? "let" : "var"} binding name`,
-        "symbol",
+        "symbol or pattern",
         nameNode.type,
       );
     }
@@ -427,7 +601,6 @@ function processBindings(
     const { name, type: typeAnnotation } = extractAndNormalizeType((nameNode as SymbolNode).name);
 
     // Check if the value is an if-expression
-    const valueNode = bindingsNode.elements[i + 1];
     const valueExpr = validateTransformed(
       valueNode.type === "list" &&
         (valueNode as ListNode).elements[0]?.type === "symbol" &&
@@ -508,7 +681,7 @@ function processBindings(
   // Check if body contains await/yield - IIFE needs to be async/generator
   const bodyBlock: IR.IRBlockStatement = {
     type: IR.IRNodeType.BlockStatement,
-    body: [...variableDeclarations, ...bodyStmts],
+    body: [...patternDeclarations, ...variableDeclarations, ...bodyStmts],
   };
   const hasAwaits = containsAwaitExpression(bodyBlock);
   const hasYields = containsYieldExpression(bodyBlock);

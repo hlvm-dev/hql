@@ -17,9 +17,16 @@ import type {
   ApplyResult,
   ItemRenderSpec,
 } from "./types.ts";
-import { TYPE_ICONS } from "./types.ts";
 import {
-  filterByPrefix,
+  TYPE_ICONS,
+  TYPE_LABELS,
+  COMPLETION_SCORES,
+  RENDER_MAX_WIDTH,
+  PROVIDER_HELP_TEXT,
+  COMPLETION_DEBOUNCE_MS,
+  ATTACHMENT_PLACEHOLDER,
+} from "./types.ts";
+import {
   rankCompletions,
   createCompletionItem,
   resetItemIdCounter,
@@ -31,6 +38,7 @@ import {
   shouldTriggerSymbol,
 } from "./providers.ts";
 import { isSupportedMedia } from "../../repl/attachment.ts";
+import { fuzzyMatch, type FuzzyResult } from "../../repl/fuzzy.ts";
 
 // ============================================================
 // Symbol Provider
@@ -64,18 +72,6 @@ const MACRO_SET: ReadonlySet<string> = new Set([
   ...THREADING_MACROS,
   ...extractMacroNames(),
 ]);
-
-// Type labels shown on right side of dropdown
-const TYPE_LABELS: Record<CompletionItem["type"], string> = {
-  keyword: "keyword",
-  function: "fn",
-  variable: "def",
-  macro: "macro",
-  operator: "op",
-  file: "file",
-  directory: "dir",
-  command: "cmd",
-};
 
 /**
  * Classify an identifier into a completion type.
@@ -201,15 +197,19 @@ function createSymbolApplyAction(
 function createSymbolRenderSpec(
   id: string,
   type: CompletionItem["type"],
-  description: string | undefined
+  description: string | undefined,
+  matchIndices?: readonly number[],
+  extendedDoc?: string
 ): () => ItemRenderSpec {
   return (): ItemRenderSpec => ({
     icon: TYPE_ICONS[type],
     label: id,
     truncate: "end",
-    maxWidth: 16,
+    maxWidth: RENDER_MAX_WIDTH.SYMBOL,
     description,
     typeLabel: TYPE_LABELS[type],
+    matchIndices,
+    extendedDoc,
   });
 }
 
@@ -219,7 +219,8 @@ function createSymbolRenderSpec(
 export const SymbolProvider: CompletionProvider = {
   id: "symbol",
   isAsync: false,
-  helpText: "↑↓ navigate • Tab/Enter select • Esc cancel",
+  helpText: PROVIDER_HELP_TEXT.SIMPLE,
+  appliesOnNavigate: true, // Arrow keys apply selection (cycling behavior)
 
   shouldTrigger(context: CompletionContext): boolean {
     return shouldTriggerSymbol(context);
@@ -227,7 +228,6 @@ export const SymbolProvider: CompletionProvider = {
 
   async getCompletions(context: CompletionContext): Promise<CompletionResult> {
     const prefix = context.currentWord;
-    const prefixLower = prefix.toLowerCase();
 
     resetItemIdCounter();
 
@@ -238,60 +238,72 @@ export const SymbolProvider: CompletionProvider = {
     const seen = new Set<string>();
     const items: CompletionItem[] = [];
 
+    // Helper to create item with fuzzy match result
+    const createItem = (
+      name: string,
+      type: CompletionItem["type"],
+      baseScore: number,
+      matchResult: FuzzyResult | null
+    ): CompletionItem | null => {
+      // For empty prefix, include all; for non-empty, require match
+      if (prefix && !matchResult) return null;
+
+      const params = context.signatures.get(name);
+      const description = getDescription(name, type, context.signatures, context.docstrings);
+      const matchIndices = matchResult?.indices;
+      // Combine base score with fuzzy score for ranking
+      const score = baseScore + (matchResult?.score ?? 0);
+
+      // Get extended doc from docstring, or format signature
+      const docstring = context.docstrings.get(name);
+      const extendedDoc = docstring
+        ? docstring
+        : params && params.length > 0
+        ? `(${name} ${params.join(" ")})`
+        : undefined;
+
+      return {
+        id: generateItemId(type),
+        label: name,
+        type,
+        description,
+        score,
+        matchIndices,
+        availableActions: ["SELECT"] as const,
+        applyAction: createSymbolApplyAction(name, params, type),
+        getRenderSpec: createSymbolRenderSpec(name, type, description, matchIndices, extendedDoc),
+      };
+    };
+
     // Add USER BINDINGS FIRST - they override stdlib when names conflict
     // User's definitions should have higher priority than stdlib
     for (const binding of context.userBindings) {
-      // Match: prefix is empty OR binding starts with prefix (case-insensitive)
-      // Include exact matches - user may want to see info about an identifier
-      if (!prefix || binding.toLowerCase().startsWith(prefixLower)) {
-        const params = context.signatures.get(binding);
-        const description = getDescription(binding, "variable", context.signatures, context.docstrings);
-
-        items.push({
-          id: generateItemId("variable"),
-          label: binding,
-          type: "variable",
-          description,
-          score: 110,
-          // Full completion: both Tab and Enter provide (funcname params...)
-          availableActions: ["SELECT"] as const,
-          applyAction: createSymbolApplyAction(binding, params, "variable"),
-          getRenderSpec: createSymbolRenderSpec(binding, "variable", description),
-        });
+      const matchResult = prefix ? fuzzyMatch(prefix, binding) : null;
+      const item = createItem(binding, "variable", COMPLETION_SCORES.USER_BINDING, matchResult);
+      if (item) {
+        items.push(item);
         seen.add(binding);
       }
     }
 
     // Add matching known identifiers (skip if user already defined it)
     for (const id of allIdentifiers) {
-      // Match: prefix is empty OR id starts with prefix (case-insensitive)
-      // Include exact matches - shows identifier info in dropdown
-      if (!prefix || id.toLowerCase().startsWith(prefixLower)) {
-        if (!seen.has(id)) {
-          const type = classifyIdentifier(id, context.userBindings);
-          const params = context.signatures.get(id);
-          const description = getDescription(id, type, context.signatures, context.docstrings);
+      if (seen.has(id)) continue;
 
-          items.push({
-            id: generateItemId(type),
-            label: id,
-            type,
-            description,
-            score: 100,
-            // Full completion: both Tab and Enter provide (funcname params...)
-            availableActions: ["SELECT"] as const,
-            applyAction: createSymbolApplyAction(id, params, type),
-            getRenderSpec: createSymbolRenderSpec(id, type, description),
-          });
-          seen.add(id);
-        }
+      const matchResult = prefix ? fuzzyMatch(prefix, id) : null;
+      const type = classifyIdentifier(id, context.userBindings);
+      const item = createItem(id, type, COMPLETION_SCORES.STDLIB, matchResult);
+      if (item) {
+        items.push(item);
+        seen.add(id);
       }
     }
 
-    // Rank and limit results
+    // Sort by score (highest first) and limit results
     // More items for empty prefix (browsing), fewer for typed prefix (filtering)
     const limit = prefix ? 15 : 20;
-    const ranked = rankCompletions(items).slice(0, limit);
+    items.sort((a, b) => b.score - a.score);
+    const ranked = items.slice(0, limit);
 
     return {
       items: ranked,
@@ -338,8 +350,8 @@ function createFileApplyAction(
     if (isMedia) {
       // Use placeholder that will be replaced by actual display name
       return {
-        text: before + "{{ATTACHMENT}}" + " " + after,
-        cursorPosition: ctx.anchorPosition + "{{ATTACHMENT}}".length + 1,
+        text: before + ATTACHMENT_PLACEHOLDER + " " + after,
+        cursorPosition: ctx.anchorPosition + ATTACHMENT_PLACEHOLDER.length + 1,
         closeDropdown: true,
         sideEffect: { type: "ADD_ATTACHMENT", path: cleanPath },
       };
@@ -361,13 +373,15 @@ function createFileApplyAction(
  */
 function createFileRenderSpec(
   path: string,
-  isDir: boolean
+  isDir: boolean,
+  matchIndices?: readonly number[]
 ): () => ItemRenderSpec {
   return (): ItemRenderSpec => ({
     icon: isDir ? TYPE_ICONS.directory : TYPE_ICONS.file,
     label: path,
     truncate: "start", // Show end of path (filename)
-    maxWidth: 50,
+    maxWidth: RENDER_MAX_WIDTH.FILE,
+    matchIndices,
   });
 }
 
@@ -377,8 +391,9 @@ function createFileRenderSpec(
 export const FileProvider: CompletionProvider = {
   id: "file",
   isAsync: true,
-  debounceMs: 150,
-  helpText: "↑↓ navigate • Tab drill • Enter select • Esc cancel",
+  debounceMs: COMPLETION_DEBOUNCE_MS,
+  helpText: PROVIDER_HELP_TEXT.DRILL,
+  appliesOnNavigate: false, // Arrow keys only navigate (no auto-apply)
 
   shouldTrigger(context: CompletionContext): boolean {
     return shouldTriggerFileMention(context);
@@ -412,7 +427,7 @@ export const FileProvider: CompletionProvider = {
         // Directories support DRILL + SELECT, files only SELECT
         availableActions: isDir ? ["DRILL", "SELECT"] as const : ["SELECT"] as const,
         applyAction: createFileApplyAction(match.path, isDir, isMedia),
-        getRenderSpec: createFileRenderSpec(match.path, isDir),
+        getRenderSpec: createFileRenderSpec(match.path, isDir, match.matchIndices),
       };
     });
 
@@ -438,7 +453,10 @@ const AVAILABLE_COMMANDS: readonly { name: string; description: string }[] = [
   { name: "/memory", description: "List saved definitions" },
   { name: "/forget", description: "Remove a definition" },
   { name: "/compact", description: "Compact memory file" },
-  { name: "/js", description: "Toggle JavaScript mode" },
+  { name: "/config", description: "View/set AI configuration" },
+  { name: "/js", description: "Switch to JavaScript mode" },
+  { name: "/hql", description: "Switch to HQL mode" },
+  { name: "/resume", description: "Resume a previous session" },
 ];
 
 /**
@@ -466,14 +484,16 @@ function createCommandApplyAction(
  */
 function createCommandRenderSpec(
   name: string,
-  description: string
+  description: string,
+  matchIndices?: readonly number[]
 ): () => ItemRenderSpec {
   return (): ItemRenderSpec => ({
     icon: TYPE_ICONS.command,
     label: name,
     truncate: "none",
-    maxWidth: 20,
+    maxWidth: RENDER_MAX_WIDTH.COMMAND,
     description,
+    matchIndices,
   });
 }
 
@@ -483,7 +503,8 @@ function createCommandRenderSpec(
 export const CommandProvider: CompletionProvider = {
   id: "command",
   isAsync: false,
-  helpText: "↑↓ navigate • Tab/Enter select • Esc cancel",
+  helpText: PROVIDER_HELP_TEXT.SIMPLE,
+  appliesOnNavigate: false, // Arrow keys only navigate (no auto-apply)
 
   shouldTrigger(context: CompletionContext): boolean {
     return shouldTriggerCommand(context);
@@ -502,21 +523,37 @@ export const CommandProvider: CompletionProvider = {
 
     resetItemIdCounter();
 
-    // Filter commands by query
-    const queryLower = query.toLowerCase();
-    const items: CompletionItem[] = AVAILABLE_COMMANDS
-      .filter((cmd) => cmd.name.toLowerCase().startsWith("/" + queryLower))
-      .map((cmd, i) => ({
+    // Use fuzzy matching for command filtering
+    const items: CompletionItem[] = [];
+
+    for (const cmd of AVAILABLE_COMMANDS) {
+      // Fuzzy match against command name without the leading /
+      const cmdName = cmd.name.slice(1); // Remove /
+      const matchResult = query ? fuzzyMatch(query, cmdName) : null;
+
+      // Include all for empty query, or only matches for non-empty
+      if (query && !matchResult) continue;
+
+      const score = COMPLETION_SCORES.COMMAND_BASE + (matchResult?.score ?? 0);
+      // Shift indices by 1 to account for the leading /
+      const matchIndices = matchResult?.indices.map(i => i + 1);
+
+      items.push({
         id: generateItemId("command"),
         label: cmd.name,
         type: "command" as const,
         description: cmd.description,
-        score: 100 - i,
+        score,
+        matchIndices,
         // Commands only support SELECT - no drilling
         availableActions: ["SELECT"] as const,
         applyAction: createCommandApplyAction(cmd.name),
-        getRenderSpec: createCommandRenderSpec(cmd.name, cmd.description),
-      }));
+        getRenderSpec: createCommandRenderSpec(cmd.name, cmd.description, matchIndices),
+      });
+    }
+
+    // Sort by score (higher = better match)
+    items.sort((a, b) => b.score - a.score);
 
     return {
       items,

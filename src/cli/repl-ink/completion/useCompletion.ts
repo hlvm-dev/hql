@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useRef, useEffect, useMemo } from "npm:react@18";
-import type { CompletionContext, CompletionItem, ProviderId } from "./types.ts";
+import type { CompletionContext, CompletionItem, ProviderId, ApplyContext } from "./types.ts";
 import { useDropdownState } from "./useDropdownState.ts";
 import { buildContext } from "./providers.ts";
 import { getActiveProvider, ALL_PROVIDERS } from "./concrete-providers.ts";
@@ -30,13 +30,22 @@ export interface UseCompletionOptions {
 }
 
 // ============================================================
+// Render Props Interface (for encapsulated dropdown rendering)
+// ============================================================
+
+export interface DropdownRenderProps {
+  readonly items: readonly CompletionItem[];
+  readonly selectedIndex: number;
+  readonly isLoading: boolean;
+  readonly helpText: string;
+  readonly providerId: ProviderId;
+}
+
+// ============================================================
 // Hook Return Type
 // ============================================================
 
 export interface UseCompletionReturn {
-  /** Dropdown state and helpers */
-  readonly dropdown: ReturnType<typeof useDropdownState>;
-
   /** Trigger completion at current position */
   readonly triggerCompletion: (text: string, cursorPosition: number, force?: boolean) => void;
 
@@ -64,6 +73,27 @@ export interface UseCompletionReturn {
 
   /** Help text from the active provider (for dropdown display) */
   readonly activeProviderHelpText: string;
+
+  /** Whether arrow navigation should apply selection (cycling behavior) */
+  readonly shouldApplyOnNavigate: boolean;
+
+  /** Navigate to previous item, returns new text if cycling behavior applies */
+  readonly navigateUp: () => { text: string; cursorPosition: number } | null;
+
+  /** Navigate to next item, returns new text if cycling behavior applies */
+  readonly navigateDown: () => { text: string; cursorPosition: number } | null;
+
+  /** Get render props for dropdown (encapsulates all state access for rendering) */
+  readonly renderProps: DropdownRenderProps | null;
+
+  /** Close the dropdown */
+  readonly close: () => void;
+
+  /** Get apply context for executing actions (encapsulates state access) */
+  readonly getApplyContext: () => ApplyContext | null;
+
+  /** Get the currently selected item (for executing custom actions) */
+  readonly selectedItem: CompletionItem | null;
 }
 
 // ============================================================
@@ -343,13 +373,93 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
     return provider?.helpText ?? "↑↓ navigate • Tab drill • Enter select • Esc cancel";
   }, [dropdown.state.providerId]);
 
+  // Whether arrow navigation should apply selection (cycling behavior)
+  const shouldApplyOnNavigate = useMemo(() => {
+    const providerId = dropdown.state.providerId;
+    if (!providerId) return false;
+    const provider = ALL_PROVIDERS.find((p) => p.id === providerId);
+    return provider?.appliesOnNavigate ?? false;
+  }, [dropdown.state.providerId]);
+
+  // ============================================================
+  // Navigation Methods (encapsulates cycling behavior)
+  // ============================================================
+
+  const navigateUp = useCallback(
+    (): { text: string; cursorPosition: number } | null => {
+      if (!dropdown.isDropdownActive) return null;
+      dropdown.selectPrev();
+      // Only apply selection for providers with cycling behavior
+      if (!shouldApplyOnNavigate) return null;
+      return applySelected();
+    },
+    [dropdown, shouldApplyOnNavigate, applySelected]
+  );
+
+  const navigateDown = useCallback(
+    (): { text: string; cursorPosition: number } | null => {
+      if (!dropdown.isDropdownActive) return null;
+      dropdown.selectNext();
+      // Only apply selection for providers with cycling behavior
+      if (!shouldApplyOnNavigate) return null;
+      return applySelected();
+    },
+    [dropdown, shouldApplyOnNavigate, applySelected]
+  );
+
+  // ============================================================
+  // Render Props (encapsulates all state access for dropdown rendering)
+  // ============================================================
+
+  const renderProps = useMemo(
+    (): DropdownRenderProps | null => {
+      if (!dropdown.isDropdownActive) return null;
+      return {
+        items: dropdown.state.items,
+        selectedIndex: dropdown.state.selectedIndex,
+        isLoading: dropdown.state.isLoading,
+        helpText: activeProviderHelpText,
+        providerId: dropdown.state.providerId!,
+      };
+    },
+    [dropdown.isDropdownActive, dropdown.state.items, dropdown.state.selectedIndex, dropdown.state.isLoading, dropdown.state.providerId, activeProviderHelpText]
+  );
+
+  // ============================================================
+  // Close Helper (direct pass-through)
+  // ============================================================
+
+  const close = useCallback(() => {
+    dropdown.close();
+  }, [dropdown]);
+
+  // ============================================================
+  // Apply Context Helper (encapsulates state access for custom actions)
+  // ============================================================
+
+  const getApplyContext = useCallback((): ApplyContext | null => {
+    if (!dropdown.isDropdownActive) return null;
+    return {
+      text: dropdown.state.originalText,
+      cursorPosition: dropdown.state.originalCursor,
+      anchorPosition: dropdown.state.anchorPosition,
+    };
+  }, [dropdown.isDropdownActive, dropdown.state.originalText, dropdown.state.originalCursor, dropdown.state.anchorPosition]);
+
+  // ============================================================
+  // Selected Item Helper (encapsulates state access)
+  // ============================================================
+
+  const selectedItem = useMemo((): CompletionItem | null => {
+    return dropdown.selectedItem;
+  }, [dropdown.selectedItem]);
+
   // ============================================================
   // Return
   // ============================================================
 
   return useMemo(
     () => ({
-      dropdown,
       triggerCompletion,
       triggerAndApply,
       handleKey,
@@ -358,7 +468,14 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       isVisible,
       activeProviderId,
       activeProviderHelpText,
+      shouldApplyOnNavigate,
+      navigateUp,
+      navigateDown,
+      renderProps,
+      close,
+      getApplyContext,
+      selectedItem,
     }),
-    [dropdown, triggerCompletion, triggerAndApply, handleKey, applySelected, confirmSelected, isVisible, activeProviderId, activeProviderHelpText]
+    [triggerCompletion, triggerAndApply, handleKey, applySelected, confirmSelected, isVisible, activeProviderId, activeProviderHelpText, shouldApplyOnNavigate, navigateUp, navigateDown, renderProps, close, getApplyContext, selectedItem]
   );
 }

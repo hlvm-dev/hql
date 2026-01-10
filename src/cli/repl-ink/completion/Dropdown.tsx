@@ -3,36 +3,92 @@
  *
  * GENERIC dropdown that renders items via getRenderSpec().
  * No provider-specific logic - all behavior defined by providers.
+ *
+ * Scroll calculation is INTERNAL - no external scroll props needed.
  */
 
-import React from "npm:react@18";
+import React, { useMemo } from "npm:react@18";
 import { Text, Box } from "npm:ink@5";
 import type { CompletionItem, ScrollWindow, ItemRenderSpec } from "./types.ts";
+import { MAX_VISIBLE_ITEMS } from "./types.ts";
+import { HighlightedText } from "../components/HighlightedText.tsx";
+import { useTheme } from "../../theme/index.ts";
+
+// ============================================================
+// Truncation (Dropdown-specific)
+// ============================================================
+
+/**
+ * Truncate and adjust match indices accordingly.
+ * Returns truncated label and adjusted indices.
+ */
+function truncateWithIndices(
+  label: string,
+  maxWidth: number,
+  strategy: "start" | "end" | "none",
+  indices?: readonly number[]
+): { label: string; indices: readonly number[] } {
+  if (strategy === "none" || label.length <= maxWidth) {
+    return { label, indices: indices ?? [] };
+  }
+
+  if (strategy === "start") {
+    // Truncate from start (show end of path): "…" + last (maxWidth-1) chars
+    const offset = label.length - (maxWidth - 1);
+    const truncated = "…" + label.slice(offset);
+    // Shift indices: subtract offset, filter out negative, add 1 for "…"
+    const adjusted = (indices ?? [])
+      .map(i => i - offset + 1)
+      .filter(i => i > 0 && i < truncated.length);
+    return { label: truncated, indices: adjusted };
+  }
+
+  // Truncate from end: first (maxWidth-1) chars + "…"
+  const truncated = label.slice(0, maxWidth - 1) + "…";
+  const adjusted = (indices ?? []).filter(i => i < maxWidth - 1);
+  return { label: truncated, indices: adjusted };
+}
+
+interface TruncatedHighlightedTextProps {
+  readonly label: string;
+  readonly matchIndices?: readonly number[];
+  readonly maxWidth: number;
+  readonly truncate: "start" | "end" | "none";
+  readonly isSelected: boolean;
+}
+
+/**
+ * Render text with truncation and fuzzy match highlighting.
+ * Uses shared HighlightedText component for actual highlighting.
+ */
+function TruncatedHighlightedText({
+  label,
+  matchIndices,
+  maxWidth,
+  truncate,
+  isSelected,
+}: TruncatedHighlightedTextProps): React.ReactElement {
+  const { color } = useTheme();
+  const { label: truncatedLabel, indices } = truncateWithIndices(
+    label,
+    maxWidth,
+    truncate,
+    matchIndices
+  );
+
+  return (
+    <HighlightedText
+      text={truncatedLabel}
+      matchIndices={indices.length > 0 ? indices : undefined}
+      baseColor={isSelected ? color("accent") : undefined}
+      inverse={isSelected}
+    />
+  );
+}
 
 // ============================================================
 // Generic Item Rendering
 // ============================================================
-
-/**
- * Truncate a label based on the truncation strategy.
- */
-function truncateLabel(
-  label: string,
-  maxWidth: number,
-  strategy: "start" | "end" | "none"
-): string {
-  if (strategy === "none" || label.length <= maxWidth) {
-    return label;
-  }
-
-  if (strategy === "start") {
-    // Truncate from start (show end of path)
-    return "…" + label.slice(-(maxWidth - 1));
-  }
-
-  // Truncate from end (show start of name)
-  return label.slice(0, maxWidth - 1) + "…";
-}
 
 interface GenericItemProps {
   /** React key for list rendering */
@@ -45,15 +101,22 @@ interface GenericItemProps {
 
 /**
  * Generic item renderer - uses ItemRenderSpec to display any completion item.
+ * Now supports fuzzy match highlighting via matchIndices.
  */
 function GenericItem({ spec, isSelected }: GenericItemProps): React.ReactElement {
-  const label = truncateLabel(spec.label, spec.maxWidth, spec.truncate);
-
+  const { color } = useTheme();
   return (
     <Box>
-      <Text color={isSelected ? "cyan" : undefined} inverse={isSelected}>
-        {spec.icon} {label}
+      <Text color={isSelected ? color("accent") : undefined} inverse={isSelected}>
+        {spec.icon}{" "}
       </Text>
+      <TruncatedHighlightedText
+        label={spec.label}
+        matchIndices={spec.matchIndices}
+        maxWidth={spec.maxWidth}
+        truncate={spec.truncate}
+        isSelected={isSelected}
+      />
       {spec.description && <Text dimColor> {spec.description}</Text>}
       {spec.typeLabel && <Text color="gray"> {spec.typeLabel}</Text>}
     </Box>
@@ -61,26 +124,101 @@ function GenericItem({ spec, isSelected }: GenericItemProps): React.ReactElement
 }
 
 // ============================================================
+// Documentation Panel
+// ============================================================
+
+interface DocPanelProps {
+  /** Extended documentation text */
+  readonly doc: string;
+}
+
+/**
+ * Documentation panel shown below dropdown when item has extended docs.
+ * Shows multi-line documentation in a bordered box.
+ */
+function DocPanel({ doc }: DocPanelProps): React.ReactElement {
+  // Split into lines and limit to 5 lines max
+  const lines = doc.split("\n").slice(0, 5);
+  const hasMore = doc.split("\n").length > 5;
+
+  return (
+    <Box flexDirection="column" marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
+      {lines.map((line, i) => (
+        <React.Fragment key={i}>
+          <Text dimColor>{line}</Text>
+        </React.Fragment>
+      ))}
+      {hasMore && <Text dimColor>...</Text>}
+    </Box>
+  );
+}
+
+// ============================================================
+// Scroll Calculation (internal)
+// ============================================================
+
+/**
+ * Calculate the visible window for virtualization.
+ * Keeps the selected item visible by centering it when possible.
+ */
+function calculateScrollWindow(
+  selectedIndex: number,
+  itemCount: number,
+  visibleCount: number = MAX_VISIBLE_ITEMS
+): ScrollWindow {
+  if (itemCount <= visibleCount) {
+    return { start: 0, end: itemCount };
+  }
+
+  const halfVisible = Math.floor(visibleCount / 2);
+  let start = Math.max(0, selectedIndex - halfVisible);
+  let end = start + visibleCount;
+
+  if (end > itemCount) {
+    end = itemCount;
+    start = Math.max(0, end - visibleCount);
+  }
+
+  return { start, end };
+}
+
+// ============================================================
 // Dropdown Component
 // ============================================================
 
-interface DropdownProps {
+// NEW: Simplified props - no external scroll calculation needed
+interface SimpleDropdownProps {
   /** Items to display (full list, will be virtualized) */
   readonly items: readonly CompletionItem[];
   /** Currently selected index (-1 for none) */
   readonly selectedIndex: number;
-  /** Scroll window for virtualization */
-  readonly scrollWindow: ScrollWindow;
-  /** Whether there are items above the visible window */
-  readonly hasMoreAbove: boolean;
-  /** Whether there are items below the visible window */
-  readonly hasMoreBelow: boolean;
   /** Help text to display (from provider) */
   readonly helpText: string;
   /** Whether the dropdown is loading */
   readonly isLoading: boolean;
   /** Margin from left edge */
   readonly marginLeft?: number;
+  /** Max visible items (default 8) */
+  readonly maxVisible?: number;
+}
+
+// DEPRECATED: Old props interface for backward compatibility
+interface LegacyDropdownProps {
+  readonly items: readonly CompletionItem[];
+  readonly selectedIndex: number;
+  readonly scrollWindow: ScrollWindow;
+  readonly hasMoreAbove: boolean;
+  readonly hasMoreBelow: boolean;
+  readonly helpText: string;
+  readonly isLoading: boolean;
+  readonly marginLeft?: number;
+}
+
+type DropdownProps = SimpleDropdownProps | LegacyDropdownProps;
+
+/** Type guard to check if using legacy props */
+function isLegacyProps(props: DropdownProps): props is LegacyDropdownProps {
+  return 'scrollWindow' in props;
 }
 
 /**
@@ -94,24 +232,41 @@ interface DropdownProps {
  * - Scroll indicators (↑↓) for large lists
  * - Loading state display
  * - Customizable help text
+ * - INTERNAL scroll calculation (no external props needed)
  */
-export function Dropdown({
-  items,
-  selectedIndex,
-  scrollWindow,
-  hasMoreAbove,
-  hasMoreBelow,
-  helpText,
-  isLoading,
-  marginLeft = 5,
-}: DropdownProps): React.ReactElement | null {
+export function Dropdown(props: DropdownProps): React.ReactElement | null {
+  const {
+    items,
+    selectedIndex,
+    helpText,
+    isLoading,
+    marginLeft = 5,
+  } = props;
+
   // Don't render if no items and not loading
   if (items.length === 0 && !isLoading) {
     return null;
   }
 
+  // Calculate scroll window - either from props (legacy) or internally
+  const scrollWindow = useMemo(() => {
+    if (isLegacyProps(props)) {
+      return props.scrollWindow;
+    }
+    return calculateScrollWindow(selectedIndex, items.length, props.maxVisible);
+  }, [props, selectedIndex, items.length]);
+
+  const hasMoreAbove = useMemo(() => scrollWindow.start > 0, [scrollWindow.start]);
+  const hasMoreBelow = useMemo(() => scrollWindow.end < items.length, [scrollWindow.end, items.length]);
+
   // Get visible items from scroll window
   const visibleItems = items.slice(scrollWindow.start, scrollWindow.end);
+
+  // Get selected item's extended doc (if any)
+  const selectedItem = selectedIndex >= 0 && selectedIndex < items.length
+    ? items[selectedIndex]
+    : null;
+  const extendedDoc = selectedItem?.getRenderSpec().extendedDoc;
 
   return (
     <Box flexDirection="column" marginLeft={marginLeft}>
@@ -141,6 +296,9 @@ export function Dropdown({
       {items.length > 0 && (
         <Text dimColor>  {helpText}</Text>
       )}
+
+      {/* Extended documentation panel (when selected item has docs) */}
+      {extendedDoc && <DocPanel doc={extendedDoc} />}
     </Box>
   );
 }

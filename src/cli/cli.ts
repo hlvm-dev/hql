@@ -11,6 +11,7 @@ import { lspCommand, showLspHelp } from "./commands/lsp.ts";
 import { publishCommand, showPublishHelp } from "./commands/publish.ts";
 import { uninstall as uninstallCommand, showUninstallHelp } from "./commands/uninstall.ts";
 import { upgrade as upgradeCommand, showUpgradeHelp } from "./commands/upgrade.ts";
+import { initConfigRuntime } from "../common/config/runtime.ts";
 
 // Import run command from run.ts
 import { run as runCommand } from "./run.ts";
@@ -62,6 +63,10 @@ function showVersion(): void {
  * Main CLI entry point
  */
 async function main(): Promise<void> {
+  // Initialize config runtime before any command
+  // This sets globalThis.__hqlConfig for AI functions to use
+  await initConfigRuntime();
+
   const args = platformGetArgs();
 
   if (args.length === 0 || args[0] === "-h" || args[0] === "--help") {

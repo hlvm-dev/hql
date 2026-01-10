@@ -8,8 +8,6 @@ import { assertEquals, assert } from "jsr:@std/assert";
 import {
   getWordAtCursor,
   buildContext,
-  filterByPrefix,
-  filterBySubstring,
   rankCompletions,
   generateItemId,
   resetItemIdCounter,
@@ -136,64 +134,6 @@ Deno.test("Providers: buildContext creates full context", () => {
   assertEquals(ctx.textBeforeCursor, "(def ");
   assertEquals(ctx.currentWord, "");
   assertEquals(ctx.wordStart, 5);
-});
-
-// ============================================================
-// filterByPrefix Tests
-// ============================================================
-
-Deno.test("Providers: filterByPrefix returns matching items", () => {
-  const result = filterByPrefix(sampleItems, "def");
-
-  assertEquals(result.length, 3);
-  assertEquals(result.map(i => i.label).sort(), ["default", "define", "defn"]);
-});
-
-Deno.test("Providers: filterByPrefix is case insensitive", () => {
-  const result = filterByPrefix(sampleItems, "DEF");
-
-  assertEquals(result.length, 3);
-});
-
-Deno.test("Providers: filterByPrefix returns empty for no match", () => {
-  const result = filterByPrefix(sampleItems, "xyz");
-
-  assertEquals(result.length, 0);
-});
-
-Deno.test("Providers: filterByPrefix returns empty for empty prefix", () => {
-  const result = filterByPrefix(sampleItems, "");
-
-  assertEquals(result.length, 0);
-});
-
-// ============================================================
-// filterBySubstring Tests
-// ============================================================
-
-Deno.test("Providers: filterBySubstring matches anywhere in label", () => {
-  const result = filterBySubstring(sampleItems, "lt");
-
-  assertEquals(result.length, 2); // "filter" and "default"
-});
-
-Deno.test("Providers: filterBySubstring is case insensitive", () => {
-  const result = filterBySubstring(sampleItems, "MAP");
-
-  assertEquals(result.length, 1);
-  assertEquals(result[0].label, "map");
-});
-
-Deno.test("Providers: filterBySubstring returns empty for no match", () => {
-  const result = filterBySubstring(sampleItems, "xyz");
-
-  assertEquals(result.length, 0);
-});
-
-Deno.test("Providers: filterBySubstring returns empty for empty query", () => {
-  const result = filterBySubstring(sampleItems, "");
-
-  assertEquals(result.length, 0);
 });
 
 // ============================================================

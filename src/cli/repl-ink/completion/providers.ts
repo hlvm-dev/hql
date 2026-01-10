@@ -14,8 +14,44 @@ import type {
   ApplyResult,
   ItemRenderSpec,
 } from "./types.ts";
-import { TYPE_ICONS } from "./types.ts";
+import { TYPE_ICONS, TYPE_PRIORITY, RENDER_MAX_WIDTH } from "./types.ts";
 import { isWordBoundary } from "../../repl/string-utils.ts";
+
+// ============================================================
+// String Context Detection
+// ============================================================
+
+/**
+ * Check if cursor is inside a string literal.
+ * Counts unescaped quotes before cursor to determine string context.
+ *
+ * For HQL: strings are "..." - count unescaped double quotes
+ * Odd count = inside string, even = outside
+ */
+export function isInsideString(text: string, cursorPosition: number): boolean {
+  let quoteCount = 0;
+  let i = 0;
+
+  while (i < cursorPosition) {
+    const ch = text[i];
+
+    // Handle escape sequences
+    if (ch === "\\" && i + 1 < cursorPosition) {
+      i += 2; // Skip escaped character
+      continue;
+    }
+
+    // Count unescaped double quotes
+    if (ch === '"') {
+      quoteCount++;
+    }
+
+    i++;
+  }
+
+  // Odd number of quotes = inside string
+  return quoteCount % 2 === 1;
+}
 
 // ============================================================
 // Word Extraction
@@ -66,71 +102,13 @@ export function buildContext(
     userBindings,
     signatures,
     docstrings,
+    isInsideString: isInsideString(text, cursorPosition),
   };
-}
-
-// ============================================================
-// Filtering
-// ============================================================
-
-/**
- * Filter items by prefix (case-insensitive).
- *
- * @param items - Items to filter
- * @param prefix - Prefix to match
- * @returns Filtered items that start with prefix
- */
-export function filterByPrefix(
-  items: readonly CompletionItem[],
-  prefix: string
-): CompletionItem[] {
-  if (!prefix) {
-    return [];
-  }
-
-  const lowerPrefix = prefix.toLowerCase();
-  return items.filter((item) =>
-    item.label.toLowerCase().startsWith(lowerPrefix)
-  );
-}
-
-/**
- * Filter items by substring match (case-insensitive).
- * Less strict than prefix matching.
- *
- * @param items - Items to filter
- * @param query - Query to match anywhere in label
- * @returns Filtered items containing query
- */
-export function filterBySubstring(
-  items: readonly CompletionItem[],
-  query: string
-): CompletionItem[] {
-  if (!query) {
-    return [];
-  }
-
-  const lowerQuery = query.toLowerCase();
-  return items.filter((item) =>
-    item.label.toLowerCase().includes(lowerQuery)
-  );
 }
 
 // ============================================================
 // Ranking
 // ============================================================
-
-/** Type priority for sorting (lower = higher priority) */
-const TYPE_PRIORITY: Record<CompletionType, number> = {
-  keyword: 1,
-  macro: 2,
-  function: 3,
-  operator: 4,
-  variable: 5,
-  command: 6,
-  directory: 7,
-  file: 8,
-};
 
 /**
  * Rank completions by score first, then type, then alphabetically.
@@ -230,7 +208,7 @@ function createDefaultRenderSpec(
   type: CompletionType,
   description: string | undefined,
   truncate: "start" | "end" | "none" = "end",
-  maxWidth: number = 40,
+  maxWidth: number = RENDER_MAX_WIDTH.DEFAULT,
   typeLabel?: string
 ): () => ItemRenderSpec {
   return (): ItemRenderSpec => ({
@@ -367,6 +345,11 @@ export function extractCommandQuery(context: CompletionContext): string | null {
  * - Cursor is at start of input or after whitespace (show all completions)
  */
 export function shouldTriggerSymbol(context: CompletionContext): boolean {
+  // Don't trigger inside string literals
+  if (context.isInsideString) {
+    return false;
+  }
+
   // Don't trigger if in @ mention mode
   if (shouldTriggerFileMention(context)) {
     return false;
@@ -385,10 +368,10 @@ export function shouldTriggerSymbol(context: CompletionContext): boolean {
   // Allow empty prefix completion only in valid contexts
   const { textBeforeCursor } = context;
 
-  // Don't trigger on empty input - user must type something first
-  // (If they want to browse all symbols, they can press Tab after typing `(`)
+  // Empty input - allow Tab to show all available completions
+  // This helps users discover available functions/keywords
   if (textBeforeCursor.length === 0) {
-    return false;
+    return true;
   }
 
   // After opening paren/bracket - show available symbols

@@ -41,7 +41,6 @@ export const PRIMITIVE_OPS = new Set([
   "==",   // Loose equality
   "!==",  // Strict inequality
   "!=",   // Loose inequality
-  "not=", // Word-form loose inequality (Lisp-style)
   "<",
   ">",
   "<=",
@@ -138,7 +137,7 @@ export const ARITHMETIC_OPS_SET: ReadonlySet<string> = new Set(ARITHMETIC_OPS);
 /**
  * Comparison operators - for syntax highlighting categorization.
  */
-export const COMPARISON_OPS = ["===", "==", "!==", "!=", "not=", "<", ">", "<=", ">="] as const;
+export const COMPARISON_OPS = ["===", "==", "!==", "!=", "<", ">", "<=", ">="] as const;
 
 /**
  * Logical operators (symbol form) - for syntax highlighting categorization.
@@ -160,7 +159,7 @@ export const FIRST_CLASS_OPERATORS = new Set([
   // Arithmetic
   "+", "-", "*", "/", "%", "**",
   // Comparison
-  "===", "==", "!==", "!=", "not=", "<", ">", "<=", ">=",
+  "===", "==", "!==", "!=", "<", ">", "<=", ">=",
   // Logical
   "&&", "||", "!",
   // Bitwise

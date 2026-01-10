@@ -5,7 +5,8 @@
 
 import { ANSI_COLORS } from "../ansi.ts";
 import type { ReplState } from "./state.ts";
-import { getMemoryStats, forgetFromMemory, compactMemory, getMemoryNames } from "./memory.ts";
+import { getMemoryStats, forgetFromMemory, getMemoryNames } from "./memory.ts";
+import { handleConfigCommand } from "./config/index.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -35,8 +36,13 @@ ${BOLD}Memory (auto-persist def/defn):${RESET}
 
 ${BOLD}Slash Commands:${RESET}
 
-  ${DIM_GRAY}/help /clear /reset /bindings /history /exit${RESET}
-  ${DIM_GRAY}/memory /forget /compact${RESET}
+  ${DIM_GRAY}/help${RESET}           Show this help
+  ${DIM_GRAY}/clear${RESET}          Clear the screen
+  ${DIM_GRAY}/reset${RESET}          Nuke all state (runtime + memory)
+  ${DIM_GRAY}/exit${RESET}           Exit REPL
+  ${DIM_GRAY}/memory${RESET}         Show persisted definitions
+  ${DIM_GRAY}/forget <name>${RESET}  Remove a definition from memory
+  ${DIM_GRAY}/config${RESET}         View/set configuration
 
 ${BOLD}Keyboard Shortcuts:${RESET}
 
@@ -89,39 +95,6 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  "/bindings": {
-    description: "Show all bound names",
-    handler: (state: ReplState) => {
-      const bindings = state.getBindings();
-      if (bindings.length === 0) {
-        console.log(`${DIM_GRAY}No bindings defined.${RESET}`);
-      } else {
-        console.log(`${BOLD}Bindings:${RESET}`);
-        for (const name of bindings) {
-          const value = (globalThis as Record<string, unknown>)[name];
-          const type = typeof value;
-          console.log(`  ${CYAN}${name}${RESET} : ${DIM_GRAY}${type}${RESET}`);
-        }
-      }
-    },
-  },
-
-  "/history": {
-    description: "Show command history",
-    handler: (state: ReplState) => {
-      const history = state.history;
-      if (history.length === 0) {
-        console.log(`${DIM_GRAY}No history.${RESET}`);
-      } else {
-        console.log(`${BOLD}History:${RESET}`);
-        const start = Math.max(0, history.length - 20);
-        for (let i = start; i < history.length; i++) {
-          console.log(`  ${DIM_GRAY}${i + 1}:${RESET} ${history[i]}`);
-        }
-      }
-    },
-  },
-
   "/exit": {
     description: "Exit the REPL",
     handler: () => {
@@ -169,15 +142,10 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  "/compact": {
-    description: "Manually trigger memory compaction",
-    handler: async () => {
-      const result = await compactMemory();
-      if (result.before === result.after) {
-        console.log(`${DIM_GRAY}Memory already compact (${result.after} definitions).${RESET}`);
-      } else {
-        console.log(`${GREEN}Compacted memory: ${result.before} → ${result.after} definitions.${RESET}`);
-      }
+  "/config": {
+    description: "View/set configuration",
+    handler: async (_state: ReplState, args: string) => {
+      await handleConfigCommand(args);
     },
   },
 };

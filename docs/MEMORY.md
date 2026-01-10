@@ -157,12 +157,12 @@ You can edit this file manually. Invalid syntax is skipped with warnings.
 
 ## REPL Commands
 
-### `.memory`
+### `/memory`
 
 Show memory file location and statistics:
 
 ```
-hql> .memory
+hql> /memory
 Memory:
   Location: /Users/you/.hql/memory.hql
   Definitions: 4
@@ -170,22 +170,22 @@ Memory:
   Names: api-key, config, greet, add
 ```
 
-### `.forget <name>`
+### `/forget <name>`
 
 Remove a specific definition from memory:
 
 ```
-hql> .forget api-key
+hql> /forget api-key
 Removed 'api-key' from memory.
-Note: The binding still exists in this session. Use .reset to clear all bindings.
+Note: The binding still exists in this session. Use /reset to clear all bindings.
 ```
 
-### `.compact`
+### `/compact`
 
 Manually trigger memory compaction:
 
 ```
-hql> .compact
+hql> /compact
 Compacted memory: 6 → 4 definitions.
 ```
 
@@ -223,7 +223,7 @@ After compaction:
 
 ### Manual Compaction
 
-Use `.compact` during a session to trigger it manually.
+Use `/compact` during a session to trigger it manually.
 
 ---
 

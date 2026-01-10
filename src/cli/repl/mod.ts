@@ -498,14 +498,23 @@ USAGE:
 
 OPTIONS:
   --js              Enable JavaScript polyglot mode (HQL + JS)
-  --ink             Use new Ink-based REPL (experimental)
+  --ink             Use Ink-based REPL with session support
   --help, -h        Show this help
   --version         Show version
 
+SESSION OPTIONS (requires --ink):
+  --continue, -c    Resume the last session
+  --resume, -r [id] Resume specific session (or open picker if no id)
+  --new             Force new session
+
 MODES:
-  hql repl          Pure HQL mode (default)
+  hql repl          Pure HQL mode (default, no sessions)
   hql repl --js     Polyglot mode - mix HQL and JavaScript
-  hql repl --ink    Ink-based REPL with enhanced UI
+  hql repl --ink    Ink-based REPL with sessions
+
+SESSIONS (--ink only):
+  Sessions persist conversations automatically.
+  Use /resume in the REPL to switch sessions.
 
 POLYGLOT MODE (--js):
   Input starting with ( is evaluated as HQL.
@@ -513,7 +522,9 @@ POLYGLOT MODE (--js):
   Both languages share variables via globalThis.
 
 EXAMPLES:
-  hql repl              Start pure HQL REPL
+  hql repl              Start pure HQL REPL (new session)
+  hql repl --continue   Resume last session
+  hql repl --ink -c     Resume last session in Ink REPL
   hql repl --js         Start polyglot REPL (HQL + JavaScript)
   hql repl --ink        Start Ink-based REPL (experimental)
 `);
@@ -525,12 +536,37 @@ EXAMPLES:
     return 0;
   }
 
+  // Parse session flags
+  type SessionInitOptions = {
+    continue?: boolean;
+    resumeId?: string;
+    forceNew?: boolean;
+  };
+
+  const sessionOptions: SessionInitOptions = {};
+  if (args.includes("--continue") || args.includes("-c")) {
+    sessionOptions.continue = true;
+  }
+  const resumeIndex = args.findIndex((a) => a === "--resume");
+  if (resumeIndex !== -1) {
+    const nextArg = args[resumeIndex + 1];
+    if (nextArg && !nextArg.startsWith("-")) {
+      sessionOptions.resumeId = nextArg;
+    } else {
+      // --resume without id: should open picker (handled in App)
+      sessionOptions.continue = true;
+    }
+  }
+  if (args.includes("--new")) {
+    sessionOptions.forceNew = true;
+  }
+
   // Use Ink-based REPL if --ink flag is present
   if (args.includes("--ink")) {
     // Dynamic import to avoid loading Ink dependencies unless needed
     const { startInkRepl } = await import("../repl-ink/index.tsx");
     const jsMode = args.includes("--js");
-    return await startInkRepl({ jsMode });
+    return await startInkRepl({ jsMode, session: sessionOptions });
   }
 
   // Parse --js flag for polyglot mode

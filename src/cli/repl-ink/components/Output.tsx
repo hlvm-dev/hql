@@ -11,8 +11,11 @@ import { renderMarkdown, hasMarkdown } from "../../repl/markdown.ts";
 import { useStreaming } from "../hooks/useStreaming.ts";
 import { StreamingStatus } from "./StreamingStatus.tsx";
 import { formatValue } from "../../repl/formatter.ts";  // Single Source of Truth
+import { useTheme } from "../../theme/index.ts";
 
 export function Output({ result }: { result: EvalResult }): React.ReactElement | null {
+  const { color } = useTheme();
+
   // Streaming (async iterator)
   if (result.value && typeof result.value === "object" && Symbol.asyncIterator in (result.value as object)) {
     return <StreamingOutput iterator={result.value as AsyncIterableIterator<string>} />;
@@ -22,7 +25,12 @@ export function Output({ result }: { result: EvalResult }): React.ReactElement |
 
   // Error
   if (!result.success && result.error) {
-    return <Text color="red">{result.error.name}: {result.error.message}</Text>;
+    return <Text color={color("error")}>{result.error.name}: {result.error.message}</Text>;
+  }
+
+  // Command output - display as plain text (no quoting/escaping)
+  if (result.isCommandOutput && typeof result.value === "string") {
+    return <Text>{result.value}</Text>;
   }
 
   // Value - use shared formatter
@@ -38,6 +46,8 @@ export function Output({ result }: { result: EvalResult }): React.ReactElement |
 }
 
 function StreamingOutput({ iterator }: { iterator: AsyncIterableIterator<string> }): React.ReactElement {
+  const { color } = useTheme();
+
   // Higher throttle (100ms) = fewer re-renders = smoother streaming
   // Markdown is only applied at end to avoid structural jumps
   const { displayText, isDone, isStreaming, startTime, cancel } = useStreaming(iterator, { renderInterval: 100 });
@@ -62,7 +72,7 @@ function StreamingOutput({ iterator }: { iterator: AsyncIterableIterator<string>
           {isDone && hasMarkdown(displayText) ? renderMarkdown(displayText) : displayText}
         </Text>
       )}
-      {isStreaming && !displayText && <Text color="gray">▋</Text>}
+      {isStreaming && !displayText && <Text color={color("muted")}>▋</Text>}
     </Box>
   );
 }

@@ -140,13 +140,3 @@ binaryTest("REPL empty memory shows teaching message", async () => {
   }
 });
 
-binaryTest("REPL dot commands still work as aliases", async () => {
-  // Test .help
-  const helpResult = await runReplWithInput(".help");
-  assertStringIncludes(helpResult.stdout, "HQL REPL Functions");
-
-  // Test .memory
-  const memResult = await runReplWithInput(".memory");
-  assertStringIncludes(memResult.stdout, "Location:");
-  assertStringIncludes(memResult.stdout, "Definitions:");
-});

@@ -12,15 +12,16 @@ import { calculateWordBackPosition, calculateWordForwardPosition } from "../../r
 import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, shouldCollapseText, type Attachment, type TextAttachment } from "../../repl/attachment.ts";
 import { unescapeShellPath } from "../../repl/file-search.ts";
 import { useAttachments, type AnyAttachment } from "../hooks/useAttachments.ts";
-import { ANSI_COLORS } from "../../ansi.ts";
+import { useHistorySearch } from "../hooks/useHistorySearch.ts";
+import { HistorySearchPrompt } from "./HistorySearchPrompt.tsx";
+import { ANSI_COLORS, getThemedAnsi } from "../../ansi.ts";
+import { useTheme } from "../../theme/index.ts";
 
 // Unified Completion System
 import {
   useCompletion,
   Dropdown,
-  calculateScrollWindow,
-  hasItemsAbove,
-  hasItemsBelow,
+  ATTACHMENT_PLACEHOLDER,
   type CompletionItem,
   type CompletionAction,
   type ApplyContext,
@@ -43,8 +44,8 @@ const ESCAPE_MODIFIER_TIMEOUT = 25;
 const PASTE_CONTINUE_THRESHOLD_MS = 100;  // Char-by-char paste arrives < 100ms apart (increased for slow terminals)
 const PASTE_PROCESS_DELAY_MS = 300;       // Wait 300ms for more chunks before processing (increased for slow terminals)
 
-// Destructure needed colors (imported from ansi.ts - Single Source of Truth)
-const { CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
+// ANSI Reset constant
+const { RESET } = ANSI_COLORS;
 
 // Fast newline check - avoids regex compilation on every keystroke
 function hasNewlineChars(str: string): boolean {
@@ -90,6 +91,9 @@ export function Input({
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [tempInput, setTempInput] = useState("");
 
+  // Theme from context
+  const { color } = useTheme();
+
   // Autosuggestion (ghost text - separate from completion)
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
 
@@ -100,6 +104,9 @@ export function Input({
     docstrings,
     debounceMs: 50,
   });
+
+  // Ctrl+R History Search
+  const historySearch = useHistorySearch(history);
 
   // Attachment management
   const {
@@ -193,7 +200,7 @@ export function Input({
     // GENERIC: Re-trigger for ANY provider when dropdown is already open (live filtering)
     // This enables VS Code-like behavior where typing filters the dropdown items
     // The completion system will close dropdown if no items match
-    if (completion.dropdown.state.isOpen) {
+    if (completion.isVisible) {
       triggerCompletionRef.current(value, cursorPos);
       return;
     }
@@ -289,11 +296,8 @@ export function Input({
   // Helper: execute completion action (GENERIC - uses item.applyAction)
   // This replaces the old applyCompletionSelection with provider-defined behavior
   const executeCompletionAction = useCallback((item: CompletionItem, action: CompletionAction) => {
-    const context: ApplyContext = {
-      text: completion.dropdown.state.originalText,
-      cursorPosition: completion.dropdown.state.originalCursor,
-      anchorPosition: completion.dropdown.state.anchorPosition,
-    };
+    const context = completion.getApplyContext();
+    if (!context) return; // No active completion session
 
     // Let the item define how to apply the action
     const result = item.applyAction(action, context);
@@ -305,10 +309,10 @@ export function Input({
       const mimeType = detectMimeType(result.sideEffect.path);
       const type = getAttachmentType(mimeType);
       const displayName = getDisplayName(type, id);
-      // Replace {{ATTACHMENT}} placeholder with actual display name
-      const finalText = result.text.replace("{{ATTACHMENT}}", displayName);
+      // Replace placeholder with actual display name
+      const finalText = result.text.replace(ATTACHMENT_PLACEHOLDER, displayName);
       onChange(finalText);
-      const placeholderLen = "{{ATTACHMENT}}".length;
+      const placeholderLen = ATTACHMENT_PLACEHOLDER.length;
       setCursorPos(result.cursorPosition - placeholderLen + displayName.length);
       addAttachmentWithId(result.sideEffect.path, id);
     } else if (result.sideEffect?.type === "ENTER_PLACEHOLDER_MODE") {
@@ -323,7 +327,7 @@ export function Input({
 
     // Close dropdown if instructed
     if (result.closeDropdown) {
-      completion.dropdown.close();
+      completion.close();
     }
   }, [completion, onChange, reserveNextId, addAttachmentWithId, enterPlaceholderMode]);
 
@@ -459,9 +463,9 @@ export function Input({
   const resetAfterSubmit = useCallback(() => {
     setHistoryIndex(-1);
     setTempInput("");
-    completion.dropdown.close();
+    completion.close();
     clearAttachments();
-  }, [completion.dropdown, clearAttachments]);
+  }, [completion, clearAttachments]);
 
   // Helper: clear escape timeout (DRY helper)
   const clearEscapeTimeout = useCallback(() => {
@@ -572,6 +576,66 @@ export function Input({
   // Main input handler
   useInput((input, key) => {
     if (disabled) return;
+
+    // ============================================================
+    // HISTORY SEARCH MODE (Ctrl+R)
+    // Intercept all input when in search mode
+    // ============================================================
+    if (historySearch.state.isSearching) {
+      // Escape: cancel search
+      if (key.escape) {
+        historySearch.actions.cancelSearch();
+        return;
+      }
+
+      // Enter: confirm selection
+      if (key.return) {
+        const selected = historySearch.actions.confirm();
+        if (selected !== null) {
+          onChange(selected);
+          setCursorPos(selected.length);
+        }
+        return;
+      }
+
+      // Ctrl+R: select next match
+      if (key.ctrl && input === 'r') {
+        historySearch.actions.selectNext();
+        return;
+      }
+
+      // Ctrl+S: select previous match
+      if (key.ctrl && input === 's') {
+        historySearch.actions.selectPrev();
+        return;
+      }
+
+      // Backspace: remove last char from query
+      if (key.backspace) {
+        if (historySearch.state.query.length > 0) {
+          historySearch.actions.backspace();
+        } else {
+          historySearch.actions.cancelSearch();
+        }
+        return;
+      }
+
+      // Regular character: append to query
+      // Note: Check !key.escape to avoid Option+key on macOS (sends ESC+char)
+      if (input && input.length === 1 && !key.ctrl && !key.meta && !key.escape) {
+        historySearch.actions.appendToQuery(input);
+        return;
+      }
+
+      // Ignore other keys during search
+      return;
+    }
+
+    // Ctrl+R: start history search (when not in search mode)
+    if (key.ctrl && input === 'r') {
+      historySearch.actions.startSearch();
+      return;
+    }
 
     // ============================================================
     // FAST PATH: Single character typing (most common case)
@@ -696,7 +760,7 @@ export function Input({
       }
       // In completion mode: ESC closes dropdown
       if (completion.isVisible) {
-        completion.dropdown.close();
+        completion.close();
         return;
       }
       // Start Option+key detection for NEXT event (two-event sequence)
@@ -710,7 +774,7 @@ export function Input({
         if (value.length > 0) {
           onChange("");
           setCursorPos(0);
-          completion.dropdown.close();
+          completion.close();
           clearAttachments();
         }
       }, ESCAPE_MODIFIER_TIMEOUT) as unknown as number;
@@ -835,55 +899,31 @@ export function Input({
     // Completion dropdown navigation (unified for @mention, symbols, commands)
     // GENERIC: Uses item.availableActions and executeCompletionAction
     if (completion.isVisible) {
-      const selectedItem = completion.dropdown.selectedItem;
+      const selectedItem = completion.selectedItem;
 
       if (key.upArrow) {
-        // Navigate UP
-        const items = completion.dropdown.state.items;
-        const currentIndex = completion.dropdown.state.selectedIndex;
-        if (items.length > 0) {
-          const newIndex = (currentIndex - 1 + items.length) % items.length;
-          const newItem = items[newIndex];
-          completion.dropdown.selectPrev();
-          // Only apply on navigate for SYMBOL provider (cycling behavior)
-          // File/command providers: visual navigation only, apply on Enter
-          if (newItem && completion.activeProviderId === "symbol") {
-            textChangeFromCyclingRef.current = true; // Mark as cycling, not typing
-            const { originalText, originalCursor, anchorPosition } = completion.dropdown.state;
-            const before = originalText.slice(0, anchorPosition);
-            const after = originalText.slice(originalCursor);
-            const newText = before + newItem.label + after;
-            onChange(newText);
-            setCursorPos(anchorPosition + newItem.label.length);
-          }
+        // Navigate UP - encapsulated cycling behavior in hook
+        const result = completion.navigateUp();
+        if (result) {
+          textChangeFromCyclingRef.current = true; // Mark as cycling, not typing
+          onChange(result.text);
+          setCursorPos(result.cursorPosition);
         }
         return;
       }
       if (key.downArrow) {
-        // Navigate DOWN
-        const items = completion.dropdown.state.items;
-        const currentIndex = completion.dropdown.state.selectedIndex;
-        if (items.length > 0) {
-          const newIndex = (currentIndex + 1) % items.length;
-          const newItem = items[newIndex];
-          completion.dropdown.selectNext();
-          // Only apply on navigate for SYMBOL provider (cycling behavior)
-          // File/command providers: visual navigation only, apply on Enter
-          if (newItem && completion.activeProviderId === "symbol") {
-            textChangeFromCyclingRef.current = true; // Mark as cycling, not typing
-            const { originalText, originalCursor, anchorPosition } = completion.dropdown.state;
-            const before = originalText.slice(0, anchorPosition);
-            const after = originalText.slice(originalCursor);
-            const newText = before + newItem.label + after;
-            onChange(newText);
-            setCursorPos(anchorPosition + newItem.label.length);
-          }
+        // Navigate DOWN - encapsulated cycling behavior in hook
+        const result = completion.navigateDown();
+        if (result) {
+          textChangeFromCyclingRef.current = true; // Mark as cycling, not typing
+          onChange(result.text);
+          setCursorPos(result.cursorPosition);
         }
         return;
       }
       if (key.escape) {
         // Cancel and close dropdown
-        completion.dropdown.close();
+        completion.close();
         return;
       }
 
@@ -937,13 +977,26 @@ export function Input({
       return;
     }
 
-    // Arrow keys (when dropdown not visible)
+    // Arrow keys (when dropdown not visible) - Claude Code style navigation
+    // Priority: move cursor to edge first, then history at edges
     if (key.upArrow) {
-      navigateHistory(-1);
+      if (cursorPos > 0) {
+        // Cursor not at beginning: move to beginning first
+        setCursorPos(0);
+      } else {
+        // Cursor already at beginning: navigate to previous history
+        navigateHistory(-1);
+      }
       return;
     }
     if (key.downArrow) {
-      navigateHistory(1);
+      if (cursorPos < value.length) {
+        // Cursor not at end: move to end first
+        setCursorPos(value.length);
+      } else {
+        // Cursor already at end: navigate to next history
+        navigateHistory(1);
+      }
       return;
     }
     // Left/Right arrows (simple movement - modifiers handled earlier)
@@ -1153,9 +1206,9 @@ export function Input({
           if (ph.touched) {
             result += highlight(phText, null);
           } else if (originalIdx === placeholderIndex) {
-            result += CYAN + phText + RESET;
+            result += getThemedAnsi().accent + phText + RESET;
           } else {
-            result += DIM_GRAY + phText + RESET;
+            result += getThemedAnsi().muted + phText + RESET;
           }
 
           textPos = phEndInText;
@@ -1208,7 +1261,7 @@ export function Input({
       // No cursor on this line
       return (
         <Box key={lineIndex}>
-          <Text color="#663399" bold>{prompt} </Text>
+          <Text color={color("primary")} bold>{prompt} </Text>
           <Text>{renderWithPlaceholders(line, lineStartOffset)}</Text>
         </Box>
       );
@@ -1221,7 +1274,7 @@ export function Input({
 
     return (
       <Box key={lineIndex}>
-        <Text color="#663399" bold>{prompt} </Text>
+        <Text color={color("primary")} bold>{prompt} </Text>
         <Text>{renderWithPlaceholders(beforeCursor, lineStartOffset)}</Text>
         <Text backgroundColor="white" color="black">{charAtCursor}</Text>
         <Text>{renderWithPlaceholders(afterCursor, lineStartOffset + cursorCol + 1)}</Text>
@@ -1243,7 +1296,7 @@ export function Input({
       {/* Show attachment error only */}
       {attachmentError && (
         <Box>
-          <Text color="red">⚠ {attachmentError.message}</Text>
+          <Text color={color("error")}>⚠ {attachmentError.message}</Text>
         </Box>
       )}
 
@@ -1255,7 +1308,7 @@ export function Input({
         <Box marginLeft={5}>
           <Text dimColor>
             {placeholderIndex >= 0 && placeholderIndex < placeholders.length && (
-              <Text color="cyan">{placeholders[placeholderIndex].text}</Text>
+              <Text color={color("accent")}>{placeholders[placeholderIndex].text}</Text>
             )}
             {placeholderIndex >= 0 && placeholderIndex < placeholders.length && " "}
             ({placeholderIndex + 1}/{placeholders.length}) • Tab: next • Shift+Tab: prev • Esc: exit
@@ -1263,24 +1316,18 @@ export function Input({
         </Box>
       )}
 
+      {/* Ctrl+R history search prompt */}
+      <HistorySearchPrompt state={historySearch.state} />
+
       {/* Unified completion dropdown (@mention, symbols, commands) */}
-      {completion.isVisible && (() => {
-        const scrollWindow = calculateScrollWindow(
-          completion.dropdown.state.selectedIndex,
-          completion.dropdown.state.items.length
-        );
-        return (
-          <Dropdown
-            items={completion.dropdown.state.items}
-            selectedIndex={completion.dropdown.state.selectedIndex}
-            scrollWindow={scrollWindow}
-            hasMoreAbove={hasItemsAbove(scrollWindow)}
-            hasMoreBelow={hasItemsBelow(scrollWindow, completion.dropdown.state.items.length)}
-            helpText={completion.activeProviderHelpText}
-            isLoading={completion.dropdown.state.isLoading}
-          />
-        );
-      })()}
+      {completion.renderProps && !historySearch.state.isSearching && (
+        <Dropdown
+          items={completion.renderProps.items}
+          selectedIndex={completion.renderProps.selectedIndex}
+          helpText={completion.renderProps.helpText}
+          isLoading={completion.renderProps.isLoading}
+        />
+      )}
 
     </Box>
   );
