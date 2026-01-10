@@ -1,3 +1,5 @@
+!ultrathink
+
 Remove dead code and garbage from the codebase:
 
 - **Delete unused code** - Functions, variables, imports that are never called or referenced

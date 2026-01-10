@@ -1,3 +1,5 @@
+!ultrathink
+
 Apply DRY (Don't Repeat Yourself) and KISS (Keep It Simple, Stupid) principles:
 
 - **Eliminate duplication** - Find repeated code blocks and extract into reusable functions

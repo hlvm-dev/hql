@@ -1,3 +1,5 @@
+!ultrathink
+
 Commit only UNTRACKED (new) files with a proper commit message:
 
 1. Run `git status --porcelain` to identify untracked files (lines starting with ??)

@@ -1,3 +1,5 @@
+!ultrathink
+
 Refactor the current code with these principles:
 
 - **Keep code clean, DRY, and KISS** - Remove all redundancy and repetition

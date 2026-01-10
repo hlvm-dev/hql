@@ -1,3 +1,5 @@
+!ultrathink
+
 Commit only CHANGED (modified/deleted) files with a proper commit message:
 
 1. Run `git status --porcelain` to identify changed files (lines starting with M, D, or space+M/D)

@@ -1,3 +1,5 @@
+!ultrathink
+
 Simplify unnecessarily complex code:
 
 - **Reduce nesting** - Flatten deeply nested conditionals with early returns/guards

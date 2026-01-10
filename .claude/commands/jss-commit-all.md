@@ -1,3 +1,5 @@
+!ultrathink
+
 Commit ALL files (staged, unstaged, and untracked) with a proper commit message:
 
 1. Run `git status` to see all files

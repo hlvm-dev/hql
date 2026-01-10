@@ -1,3 +1,5 @@
+!ultrathink
+
 Identify and optimize algorithms in the current code:
 
 - **Analyze time complexity** - Find O(n²), O(n³), or worse algorithms that can be improved
