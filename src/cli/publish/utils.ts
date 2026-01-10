@@ -8,10 +8,10 @@ import {
   runCmd,
   dirname,
 } from "../../platform/platform.ts";
-import { parse } from "../../transpiler/pipeline/parser.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { buildJsModule } from "./build_js_module.ts";
+import { ANSI_COLORS } from "../ansi.ts";
 
 /**
  * HQL Configuration interface
@@ -444,18 +444,18 @@ async function collectDirectoryEntries(
   }
 }
 
-// ANSI color codes for production-ready formatting
-const colors = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  blue: "\x1b[34m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  cyan: "\x1b[36m",
+// Map of color names to ANSI codes for tree visualization
+const COLOR_MAP: Record<string, string> = {
+  reset: ANSI_COLORS.RESET,
+  bold: ANSI_COLORS.BOLD,
+  blue: ANSI_COLORS.BLUE,
+  green: ANSI_COLORS.GREEN,
+  yellow: ANSI_COLORS.YELLOW,
+  cyan: ANSI_COLORS.CYAN,
 };
 
-function colorize(text: string, color: keyof typeof colors) {
-  return `${colors[color]}${text}${colors.reset}`;
+function colorize(text: string, color: keyof typeof COLOR_MAP): string {
+  return `${COLOR_MAP[color]}${text}${ANSI_COLORS.RESET}`;
 }
 
 export async function visualizeTree(

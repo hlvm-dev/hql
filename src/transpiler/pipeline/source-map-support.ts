@@ -533,24 +533,19 @@ export function installSourceMapSupport(): void {
     const message = error.message || "Error";
     const name = error.name || "Error";
 
+    // Patterns for internal frames to hide in stack traces
+    const INTERNAL_FRAME_PATTERNS = [
+      "runtime-helpers.ts",           // HQL runtime internals
+      "core/src/common/runtime-helper",
+      "core/src/transpiler/",         // Transpiler internals
+      "core/src/transformer",
+      "ext:",                         // Deno runtime internals
+      "deno:",
+    ];
+
     // Filter internal HQL runtime frames for cleaner stack traces
-    const isInternalFrame = (fileName: string | null): boolean => {
-      if (!fileName) return false;
-
-      // Hide HQL runtime internals
-      if (fileName.includes("runtime-helpers.ts")) return true;
-      if (fileName.includes("core/src/common/runtime-helper")) return true;
-
-      // Hide transpiler internals (unless user wants verbose output)
-      if (fileName.includes("core/src/transpiler/")) return true;
-      if (fileName.includes("core/src/transformer")) return true;
-
-      // Hide Deno runtime internals
-      if (fileName.includes("ext:")) return true;
-      if (fileName.includes("deno:")) return true;
-
-      return false;
-    };
+    const isInternalFrame = (fileName: string | null): boolean =>
+      fileName != null && INTERNAL_FRAME_PATTERNS.some(p => fileName.includes(p));
 
     // Check if user wants verbose stack traces
     const verbose = platformGetEnv("HQL_VERBOSE") === "1";

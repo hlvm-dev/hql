@@ -6,14 +6,27 @@ import { LINE_SPLIT_REGEX } from "./line-utils.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { escapeRegExp } from "./utils.ts";
 
-// Internal helper functions for matching function calls in source code
-// (moved from utils.ts since only used here)
-function createSExpCallRegex(funcName: string): RegExp {
-  return new RegExp(`\\(\\s*${escapeRegExp(funcName)}\\b`);
+// Cached regex patterns for matching function calls in source code
+// Cache prevents repeated regex compilation for the same function name
+const sexpCallRegexCache = new Map<string, RegExp>();
+const jsCallRegexCache = new Map<string, RegExp>();
+
+function getSExpCallRegex(funcName: string): RegExp {
+  let regex = sexpCallRegexCache.get(funcName);
+  if (!regex) {
+    regex = new RegExp(`\\(\\s*${escapeRegExp(funcName)}\\b`);
+    sexpCallRegexCache.set(funcName, regex);
+  }
+  return regex;
 }
 
-function createJsCallRegex(funcName: string): RegExp {
-  return new RegExp(`\\b${escapeRegExp(funcName)}\\s*\\(`);
+function getJsCallRegex(funcName: string): RegExp {
+  let regex = jsCallRegexCache.get(funcName);
+  if (!regex) {
+    regex = new RegExp(`\\b${escapeRegExp(funcName)}\\s*\\(`);
+    jsCallRegexCache.set(funcName, regex);
+  }
+  return regex;
 }
 import { type RawSourceMap, SourceMapConsumer } from "npm:source-map@0.6.1";
 import {
@@ -1055,8 +1068,8 @@ function findFunctionCall(
   lines: string[],
   funcName: string,
 ): FunctionCallLocation | null {
-  const sexpPattern = createSExpCallRegex(funcName);
-  const jsPattern = createJsCallRegex(funcName);
+  const sexpPattern = getSExpCallRegex(funcName);
+  const jsPattern = getJsCallRegex(funcName);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];

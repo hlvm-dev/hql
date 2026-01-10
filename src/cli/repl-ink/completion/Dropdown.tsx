@@ -186,8 +186,7 @@ function calculateScrollWindow(
 // Dropdown Component
 // ============================================================
 
-// NEW: Simplified props - no external scroll calculation needed
-interface SimpleDropdownProps {
+interface DropdownProps {
   /** Items to display (full list, will be virtualized) */
   readonly items: readonly CompletionItem[];
   /** Currently selected index (-1 for none) */
@@ -200,25 +199,6 @@ interface SimpleDropdownProps {
   readonly marginLeft?: number;
   /** Max visible items (default 8) */
   readonly maxVisible?: number;
-}
-
-// DEPRECATED: Old props interface for backward compatibility
-interface LegacyDropdownProps {
-  readonly items: readonly CompletionItem[];
-  readonly selectedIndex: number;
-  readonly scrollWindow: ScrollWindow;
-  readonly hasMoreAbove: boolean;
-  readonly hasMoreBelow: boolean;
-  readonly helpText: string;
-  readonly isLoading: boolean;
-  readonly marginLeft?: number;
-}
-
-type DropdownProps = SimpleDropdownProps | LegacyDropdownProps;
-
-/** Type guard to check if using legacy props */
-function isLegacyProps(props: DropdownProps): props is LegacyDropdownProps {
-  return 'scrollWindow' in props;
 }
 
 /**
@@ -241,6 +221,7 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
     helpText,
     isLoading,
     marginLeft = 5,
+    maxVisible,
   } = props;
 
   // Don't render if no items and not loading
@@ -248,13 +229,11 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
     return null;
   }
 
-  // Calculate scroll window - either from props (legacy) or internally
-  const scrollWindow = useMemo(() => {
-    if (isLegacyProps(props)) {
-      return props.scrollWindow;
-    }
-    return calculateScrollWindow(selectedIndex, items.length, props.maxVisible);
-  }, [props, selectedIndex, items.length]);
+  // Calculate scroll window internally
+  const scrollWindow = useMemo(
+    () => calculateScrollWindow(selectedIndex, items.length, maxVisible),
+    [selectedIndex, items.length, maxVisible]
+  );
 
   const hasMoreAbove = useMemo(() => scrollWindow.start > 0, [scrollWindow.start]);
   const hasMoreBelow = useMemo(() => scrollWindow.end < items.length, [scrollWindow.end, items.length]);

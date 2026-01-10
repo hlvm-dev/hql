@@ -24,6 +24,33 @@ import {
   containsNodeTypeInScope,
 } from "../utils/ir-tree-walker.ts";
 
+// Sets for efficient type checking in switch statement processing
+const TERMINAL_STATEMENT_TYPES = new Set([
+  IR.IRNodeType.ReturnStatement,
+  IR.IRNodeType.ThrowStatement,
+]);
+
+const NON_VALUE_STATEMENT_TYPES = new Set([
+  IR.IRNodeType.VariableDeclaration,
+  IR.IRNodeType.IfStatement,
+  IR.IRNodeType.WhileStatement,
+  IR.IRNodeType.ForStatement,
+  IR.IRNodeType.ForOfStatement,
+]);
+
+const STATEMENT_TYPES = new Set([
+  IR.IRNodeType.ExpressionStatement,
+  IR.IRNodeType.VariableDeclaration,
+  IR.IRNodeType.ReturnStatement,
+  IR.IRNodeType.IfStatement,
+  IR.IRNodeType.WhileStatement,
+  IR.IRNodeType.ForStatement,
+  IR.IRNodeType.ForOfStatement,
+  IR.IRNodeType.ContinueStatement,
+  IR.IRNodeType.BreakStatement,
+  IR.IRNodeType.ThrowStatement,
+]);
+
 /**
  * Check if an HQL AST node contains a return statement
  * Used to determine if a do block needs an IIFE wrapper even with a single expression
@@ -585,6 +612,56 @@ export function transformTernary(
  *   }
  * })()
  */
+
+/**
+ * Process a statement for switch case body.
+ * Handles wrapping the last expression as a return value.
+ */
+function processSwitchBodyStatement(
+  stmt: IR.IRNode,
+  isLast: boolean,
+  fallthrough: boolean,
+  consequent: IR.IRNode[],
+): void {
+  // Not the last expression, or fallthrough case - wrap as statement if needed
+  if (!isLast || fallthrough) {
+    if (!STATEMENT_TYPES.has(stmt.type)) {
+      consequent.push({
+        type: IR.IRNodeType.ExpressionStatement,
+        expression: stmt,
+      } as IR.IRExpressionStatement);
+    } else {
+      consequent.push(stmt);
+    }
+    return;
+  }
+
+  // Last expression becomes return value
+  if (TERMINAL_STATEMENT_TYPES.has(stmt.type)) {
+    // Already a return/throw, use as-is
+    consequent.push(stmt);
+  } else if (stmt.type === IR.IRNodeType.ExpressionStatement) {
+    // Unwrap ExpressionStatement and return the expression
+    consequent.push({
+      type: IR.IRNodeType.ReturnStatement,
+      argument: (stmt as IR.IRExpressionStatement).expression,
+    } as IR.IRReturnStatement);
+  } else if (NON_VALUE_STATEMENT_TYPES.has(stmt.type)) {
+    // Statements that don't produce values - return null after
+    consequent.push(stmt);
+    consequent.push({
+      type: IR.IRNodeType.ReturnStatement,
+      argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
+    } as IR.IRReturnStatement);
+  } else {
+    // Expression - wrap in return
+    consequent.push({
+      type: IR.IRNodeType.ReturnStatement,
+      argument: stmt,
+    } as IR.IRReturnStatement);
+  }
+}
+
 export function transformSwitch(
   list: ListNode,
   currentDir: string,
@@ -683,60 +760,8 @@ export function transformSwitch(
           for (let j = 0; j < bodyElements.length; j++) {
             const isLast = j === bodyElements.length - 1;
             const stmt = transformNode(bodyElements[j], currentDir);
-
             if (stmt) {
-              // EXPRESSION-EVERYWHERE: Last expression becomes return value
-              // (unless fallthrough, then no return)
-              if (isLast && !fallthrough) {
-                // Make last expression the return value
-                if (stmt.type === IR.IRNodeType.ReturnStatement ||
-                    stmt.type === IR.IRNodeType.ThrowStatement) {
-                  // Already a return/throw, use as-is
-                  consequent.push(stmt);
-                } else if (stmt.type === IR.IRNodeType.ExpressionStatement) {
-                  // Unwrap ExpressionStatement and return the expression
-                  consequent.push({
-                    type: IR.IRNodeType.ReturnStatement,
-                    argument: (stmt as IR.IRExpressionStatement).expression,
-                  } as IR.IRReturnStatement);
-                } else if (stmt.type === IR.IRNodeType.VariableDeclaration ||
-                           stmt.type === IR.IRNodeType.IfStatement ||
-                           stmt.type === IR.IRNodeType.WhileStatement ||
-                           stmt.type === IR.IRNodeType.ForStatement ||
-                           stmt.type === IR.IRNodeType.ForOfStatement) {
-                  // Statements that don't produce values - return null after
-                  consequent.push(stmt);
-                  consequent.push({
-                    type: IR.IRNodeType.ReturnStatement,
-                    argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-                  } as IR.IRReturnStatement);
-                } else {
-                  // Expression - wrap in return
-                  consequent.push({
-                    type: IR.IRNodeType.ReturnStatement,
-                    argument: stmt,
-                  } as IR.IRReturnStatement);
-                }
-              } else {
-                // Not the last expression, or fallthrough - wrap as statement
-                if (stmt.type !== IR.IRNodeType.ExpressionStatement &&
-                    stmt.type !== IR.IRNodeType.VariableDeclaration &&
-                    stmt.type !== IR.IRNodeType.ReturnStatement &&
-                    stmt.type !== IR.IRNodeType.IfStatement &&
-                    stmt.type !== IR.IRNodeType.WhileStatement &&
-                    stmt.type !== IR.IRNodeType.ForStatement &&
-                    stmt.type !== IR.IRNodeType.ForOfStatement &&
-                    stmt.type !== IR.IRNodeType.ContinueStatement &&
-                    stmt.type !== IR.IRNodeType.BreakStatement &&
-                    stmt.type !== IR.IRNodeType.ThrowStatement) {
-                  consequent.push({
-                    type: IR.IRNodeType.ExpressionStatement,
-                    expression: stmt,
-                  } as IR.IRExpressionStatement);
-                } else {
-                  consequent.push(stmt);
-                }
-              }
+              processSwitchBodyStatement(stmt, isLast, fallthrough, consequent);
             }
           }
 
@@ -764,53 +789,8 @@ export function transformSwitch(
           for (let j = 0; j < bodyElements.length; j++) {
             const isLast = j === bodyElements.length - 1;
             const stmt = transformNode(bodyElements[j], currentDir);
-
             if (stmt) {
-              // EXPRESSION-EVERYWHERE: Last expression becomes return value
-              if (isLast) {
-                if (stmt.type === IR.IRNodeType.ReturnStatement ||
-                    stmt.type === IR.IRNodeType.ThrowStatement) {
-                  consequent.push(stmt);
-                } else if (stmt.type === IR.IRNodeType.ExpressionStatement) {
-                  consequent.push({
-                    type: IR.IRNodeType.ReturnStatement,
-                    argument: (stmt as IR.IRExpressionStatement).expression,
-                  } as IR.IRReturnStatement);
-                } else if (stmt.type === IR.IRNodeType.VariableDeclaration ||
-                           stmt.type === IR.IRNodeType.IfStatement ||
-                           stmt.type === IR.IRNodeType.WhileStatement ||
-                           stmt.type === IR.IRNodeType.ForStatement ||
-                           stmt.type === IR.IRNodeType.ForOfStatement) {
-                  consequent.push(stmt);
-                  consequent.push({
-                    type: IR.IRNodeType.ReturnStatement,
-                    argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-                  } as IR.IRReturnStatement);
-                } else {
-                  consequent.push({
-                    type: IR.IRNodeType.ReturnStatement,
-                    argument: stmt,
-                  } as IR.IRReturnStatement);
-                }
-              } else {
-                if (stmt.type !== IR.IRNodeType.ExpressionStatement &&
-                    stmt.type !== IR.IRNodeType.VariableDeclaration &&
-                    stmt.type !== IR.IRNodeType.ReturnStatement &&
-                    stmt.type !== IR.IRNodeType.IfStatement &&
-                    stmt.type !== IR.IRNodeType.WhileStatement &&
-                    stmt.type !== IR.IRNodeType.ForStatement &&
-                    stmt.type !== IR.IRNodeType.ForOfStatement &&
-                    stmt.type !== IR.IRNodeType.ContinueStatement &&
-                    stmt.type !== IR.IRNodeType.BreakStatement &&
-                    stmt.type !== IR.IRNodeType.ThrowStatement) {
-                  consequent.push({
-                    type: IR.IRNodeType.ExpressionStatement,
-                    expression: stmt,
-                  } as IR.IRExpressionStatement);
-                } else {
-                  consequent.push(stmt);
-                }
-              }
+              processSwitchBodyStatement(stmt, isLast, false, consequent);
             }
           }
 

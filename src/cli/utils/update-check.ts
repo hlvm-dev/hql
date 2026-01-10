@@ -102,17 +102,21 @@ export async function checkForUpdates(): Promise<void> {
  * Returns true if `latest` is newer than `current`.
  */
 export function isNewer(latest: string, current: string): boolean {
-  const latestParts = latest.split(".").map((n) => parseInt(n, 10) || 0);
-  const currentParts = current.split(".").map((n) => parseInt(n, 10) || 0);
+  return compareVersions(latest, current) > 0;
+}
 
+/**
+ * Compare two semver strings.
+ * Returns -1 if a < b, 0 if a == b, 1 if a > b.
+ */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i++) {
-    const l = latestParts[i] || 0;
-    const c = currentParts[i] || 0;
-    if (l > c) return true;
-    if (l < c) return false;
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
   }
-
-  return false;
+  return 0;
 }
 
 /**

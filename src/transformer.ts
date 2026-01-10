@@ -18,6 +18,20 @@ import {
 } from "./common/import-utils.ts";
 import type { CompilerContext } from "./transpiler/compiler-context.ts";
 
+// Type checking infrastructure constants - cached at module scope for performance
+// Infrastructure errors that are NOT user code issues:
+// - TS1375 "await only allowed in module" - Deno supports top-level await, TS quirk
+// - TS2318 "Cannot find global type" - noLib: true limitation
+// - TS2307 "Cannot find module '@hql/*'" - embedded packages aren't real modules
+const TS_INFRASTRUCTURE_ERRORS = new Set([1375, 2318, 2307]);
+
+// Dynamic runtime errors - only suppress if they mention globalThis or runtime helpers
+const DYNAMIC_RUNTIME_PATTERNS = [
+  /globalThis/i,
+  /__hql_/,  // Internal HQL helpers
+  /Cannot find name '(console|print|globalThis|Deno|process)'/,
+];
+
 /**
  * Options controlling transformation behavior.
  */
@@ -148,21 +162,8 @@ export async function transformAST(
 
     // Report type errors to stderr
     // Type errors are non-fatal warnings - code still runs but may have issues
+    // HQL philosophy: types are opt-in, not mandatory. Runtime behavior is correct.
     if (result.typeErrors && result.typeErrors.length > 0 && options.showTypeWarnings !== false) {
-      // Infrastructure errors that are NOT user code issues:
-      // - TS1375 "await only allowed in module" - Deno supports top-level await, TS quirk
-      // - TS2318 "Cannot find global type" - noLib: true limitation
-      // - TS2307 "Cannot find module '@hql/*'" - embedded packages aren't real modules
-      // HQL philosophy: types are opt-in, not mandatory. Runtime behavior is correct.
-      const TS_INFRASTRUCTURE_ERRORS = new Set([1375, 2318, 2307]);
-
-      // Dynamic runtime errors - only suppress if they mention globalThis or runtime helpers
-      const DYNAMIC_RUNTIME_PATTERNS = [
-        /globalThis/i,
-        /__hql_/,  // Internal HQL helpers
-        /Cannot find name '(console|print|globalThis|Deno|process)'/,
-      ];
-
       for (const err of result.typeErrors) {
         // Skip TypeScript infrastructure errors
         if (TS_INFRASTRUCTURE_ERRORS.has(err.code)) {
