@@ -340,24 +340,28 @@ export function shouldTriggerSymbol(context: CompletionContext): boolean {
     return false;
   }
 
-  // Trigger if there's a word being typed
+  // Trigger if there's a word being typed (at least 1 character)
   if (context.currentWord.length > 0) {
     return true;
   }
 
-  // Allow empty prefix completion only in valid contexts
+  // No word being typed - check for special contexts
   const { textBeforeCursor } = context;
 
-  // Empty input - allow Tab to show all available completions
-  // This helps users discover available functions/keywords
+  // Empty input - DON'T show dropdown (user must type at least 1 char)
   if (textBeforeCursor.length === 0) {
-    return true;
+    return false;
   }
 
   // After opening paren/bracket - show available symbols
   const lastChar = textBeforeCursor[textBeforeCursor.length - 1];
   if (lastChar === "(" || lastChar === "[") {
     return true;
+  }
+
+  // After whitespace at end - also don't show (same as empty)
+  if (lastChar === " " || lastChar === "\t" || lastChar === "\n") {
+    return false;
   }
 
   return false;

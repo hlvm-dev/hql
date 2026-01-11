@@ -286,10 +286,10 @@ export function Input({
       return;
     }
 
-    // AUTO-POPUP: Symbol completions when typing 2+ characters
+    // AUTO-POPUP: Symbol completions when typing 1+ characters
     // This enables VS Code-like IntelliSense behavior
     const { word } = getWordAtCursor(textBefore, cursorPos);
-    if (word.length >= 2) {
+    if (word.length >= 1) {
       // Only trigger if not inside a string literal
       // Simple heuristic: count quotes before cursor
       const quoteCount = (textBefore.match(/"/g) || []).length;
@@ -301,7 +301,7 @@ export function Input({
 
     // AUTO-CLOSE: Close dropdown when no meaningful word to complete
     // Single responsibility: this useEffect controls ALL dropdown open/close for symbols
-    if (completion.isVisible && word.length < 2) {
+    if (completion.isVisible && word.length === 0) {
       // Check if we're NOT in @mention or /command mode (they have their own rules)
       const lastAt = textBefore.lastIndexOf("@");
       const isInMention = lastAt >= 0 && !textBefore.slice(lastAt + 1).includes(" ");

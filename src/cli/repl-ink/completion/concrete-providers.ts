@@ -195,7 +195,7 @@ export const SymbolProvider: CompletionProvider = {
   id: "symbol",
   isAsync: false,
   helpText: PROVIDER_HELP_TEXT.SIMPLE,
-  appliesOnNavigate: true, // Arrow keys apply selection (cycling behavior)
+  appliesOnNavigate: false, // Arrow keys only navigate (no cycling - cleaner UX)
 
   shouldTrigger(context: CompletionContext): boolean {
     return shouldTriggerSymbol(context);
