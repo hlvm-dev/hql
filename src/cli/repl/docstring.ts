@@ -71,7 +71,8 @@ export function extractDocstrings(source: string): Map<string, string> {
       const names = extractDefinedNames(trimmed, lines, i);
 
       if (names.length > 0) {
-        const docstring = pendingComments.join(' ').trim();
+        // Join with newlines to preserve multi-line formatting in DocPanel
+        const docstring = pendingComments.join('\n').trim();
         for (const name of names) {
           if (docstring) {
             docstrings.set(name, docstring);

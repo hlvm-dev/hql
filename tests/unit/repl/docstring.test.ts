@@ -30,12 +30,13 @@ Deno.test("extractDocstrings: block comment before def", () => {
   assertEquals(result.get("sum"), "Calculates the sum");
 });
 
-Deno.test("extractDocstrings: multiple comments combined", () => {
+Deno.test("extractDocstrings: multiple comments preserve newlines", () => {
   const input = `; First line of documentation
 ; Second line continues
 (def foo 1)`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("foo"), "First line of documentation Second line continues");
+  // Multi-line comments preserve newlines for DocPanel formatting
+  assertEquals(result.get("foo"), "First line of documentation\nSecond line continues");
 });
 
 // ============================================================
