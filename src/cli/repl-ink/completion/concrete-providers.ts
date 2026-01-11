@@ -437,6 +437,7 @@ const AVAILABLE_COMMANDS: readonly { name: string; description: string }[] = [
 /**
  * Create applyAction for command items.
  * Commands only have SELECT - no drilling.
+ * On SELECT, the command executes immediately (no second Enter needed).
  */
 function createCommandApplyAction(
   name: string
@@ -444,12 +445,15 @@ function createCommandApplyAction(
   return (_action: CompletionAction, ctx: ApplyContext): ApplyResult => {
     const before = ctx.text.slice(0, ctx.anchorPosition);
     const after = ctx.text.slice(ctx.cursorPosition);
-    const insertText = name + " ";
+    // No trailing space - command executes immediately
+    const insertText = name;
 
     return {
       text: before + insertText + after,
       cursorPosition: ctx.anchorPosition + insertText.length,
       closeDropdown: true,
+      // Execute immediately on Enter (no second Enter needed)
+      sideEffect: { type: "EXECUTE" },
     };
   };
 }

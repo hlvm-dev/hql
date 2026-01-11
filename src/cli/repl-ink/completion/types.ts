@@ -26,6 +26,7 @@ export interface ApplyContext {
 export type CompletionSideEffect =
   | { type: "ADD_ATTACHMENT"; path: string }
   | { type: "ENTER_PLACEHOLDER_MODE"; params: string[]; startPos: number }
+  | { type: "EXECUTE" }  // Execute command immediately (for slash commands)
   | { type: "NONE" };
 
 /** Result of applying a completion action */

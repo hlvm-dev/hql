@@ -418,6 +418,15 @@ export function Input({
       // Function param completion
       onChange(result.text);
       enterPlaceholderMode(result.sideEffect.params, result.sideEffect.startPos);
+    } else if (result.sideEffect?.type === "EXECUTE") {
+      // Command execution - close dropdown and submit immediately (single Enter)
+      completion.close();
+      const finalText = result.text.trim();
+      onSubmit(finalText, attachments.length > 0 ? attachments : undefined);
+      onChange("");
+      setCursorPos(0);
+      clearAttachments();
+      return; // Early return - already closed dropdown
     } else {
       // Normal completion
       onChange(result.text);
@@ -428,7 +437,7 @@ export function Input({
     if (result.closeDropdown) {
       completion.close();
     }
-  }, [completion, onChange, reserveNextId, addAttachmentWithId, enterPlaceholderMode]);
+  }, [completion, onChange, onSubmit, attachments, clearAttachments, reserveNextId, addAttachmentWithId, enterPlaceholderMode]);
 
   // Helper: move to next placeholder (Tab)
   const nextPlaceholder = useCallback(() => {
