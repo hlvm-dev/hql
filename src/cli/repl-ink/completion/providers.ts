@@ -15,7 +15,7 @@ import type {
   ItemRenderSpec,
 } from "./types.ts";
 import { TYPE_ICONS, TYPE_PRIORITY, RENDER_MAX_WIDTH } from "./types.ts";
-import { isWordBoundary } from "../../repl/string-utils.ts";
+import { isWordBoundary, getWordAtCursor } from "../../repl/string-utils.ts";
 
 // ============================================================
 // String Context Detection
@@ -57,29 +57,9 @@ export function isInsideString(text: string, cursorPosition: number): boolean {
 // Word Extraction
 // ============================================================
 
-/**
- * Get the word at cursor position.
- * Used to determine what prefix to complete.
- *
- * @param text - Full input text
- * @param cursorPosition - Cursor position
- * @returns Current word and its start position
- */
-export function getWordAtCursor(
-  text: string,
-  cursorPosition: number
-): { word: string; start: number } {
-  // Scan backwards to find word start
-  let start = cursorPosition;
-  while (start > 0 && !isWordBoundary(text[start - 1])) {
-    start--;
-  }
-
-  return {
-    word: text.slice(start, cursorPosition),
-    start,
-  };
-}
+// Note: getWordAtCursor is now imported from string-utils.ts (single source of truth)
+// Re-export for consumers who import from this module
+export { getWordAtCursor };
 
 /**
  * Build a completion context from input state.

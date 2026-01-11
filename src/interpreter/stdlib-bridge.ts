@@ -15,6 +15,7 @@ import {
   isLiteral,
 } from "../s-exp/types.ts";
 import { MAX_SEQ_LENGTH } from "../common/limits.ts";
+import { mapTail } from "../common/utils.ts";
 
 /** Marker symbol to identify wrapped BuiltinFn functions */
 export const BUILTIN_MARKER = Symbol.for("hql-builtin-fn");
@@ -118,16 +119,17 @@ export function hqlToJs(
   // S-expression list -> convert to JS array
   if (isSExp(value) && isList(value)) {
     const list = value as SList;
+    const elements = list.elements;
     // Check for vector form: (vector a b c) -> [a, b, c]
     if (
-      list.elements.length > 0 &&
-      isSymbol(list.elements[0]) &&
-      (list.elements[0] as SSymbol).name === "vector"
+      elements.length > 0 &&
+      isSymbol(elements[0]) &&
+      (elements[0] as SSymbol).name === "vector"
     ) {
-      return list.elements.slice(1).map((el) => hqlToJs(el as HQLValue, interp, env));
+      return mapTail(elements, (el) => hqlToJs(el as HQLValue, interp, env));
     }
     // Regular list
-    return list.elements.map((el) => hqlToJs(el as HQLValue, interp, env));
+    return elements.map((el) => hqlToJs(el as HQLValue, interp, env));
   }
 
   // S-expression symbol -> return the name string

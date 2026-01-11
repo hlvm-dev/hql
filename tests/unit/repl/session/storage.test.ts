@@ -271,10 +271,10 @@ Deno.test("listSessions: sorts by recent first (default)", async () => {
   const projectHash = hashProjectPath(testPath);
 
   try {
-    const meta1 = await createSession(testPath, "First");
+    const _meta1 = await createSession(testPath, "First");
     // Small delay to ensure different timestamps
     await new Promise((r) => setTimeout(r, 10));
-    const meta2 = await createSession(testPath, "Second");
+    const _meta2 = await createSession(testPath, "Second");
 
     const sessions = await listSessions({ projectHash, sortOrder: "recent" });
 

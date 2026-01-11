@@ -266,7 +266,7 @@ Deno.test("SessionManager: resumeSession switches to existing session", async ()
     await manager.recordMessage("user", "Message in session 1");
 
     // Create second session
-    const session2 = await manager.newSession("Session 2");
+    const _session2 = await manager.newSession("Session 2");
     await manager.recordMessage("user", "Message in session 2");
 
     // Switch back to first session

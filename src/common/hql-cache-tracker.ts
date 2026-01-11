@@ -14,7 +14,6 @@ import {
   relative,
   remove,
   resolve,
-  stat,
   writeTextFile,
 } from "../platform/platform.ts";
 import { transpileHqlInJs } from "../bundler.ts";

@@ -177,8 +177,8 @@ export interface CompletionContext {
 // Dropdown State
 // ============================================================
 
-/** Maximum visible items before scrolling */
-export const MAX_VISIBLE_ITEMS = 8;
+/** Maximum visible items - fixed at 4 for stable UI (prevents dropdown height shaking) */
+export const MAX_VISIBLE_ITEMS = 4;
 
 /**
  * Dropdown state managed by useDropdownState hook.

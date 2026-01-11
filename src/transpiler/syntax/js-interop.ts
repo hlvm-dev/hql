@@ -17,9 +17,6 @@ import {
 } from "../utils/validation-helpers.ts";
 import {
   resolveMemberProperty,
-  createMemberExpression,
-  IDENTIFIER_REGEX,
-  PRIVATE_IDENTIFIER_REGEX,
 } from "../utils/member-expression.ts";
 
 /**

@@ -14,11 +14,13 @@ import {
   backwardSexp,
   backwardUpSexp,
   forwardDownSexp,
+  OPEN_TO_CLOSE,
+  deleteBackWithPairSupport,
 } from "../../repl/syntax.ts";
 import { findSuggestion, acceptSuggestion, type Suggestion } from "../../repl/suggester.ts";
 import { shouldTabAcceptSuggestion } from "../../repl/tab-logic.ts";
 import { calculateWordBackPosition, calculateWordForwardPosition } from "../../repl/keyboard.ts";
-import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, shouldCollapseText, type Attachment, type TextAttachment } from "../../repl/attachment.ts";
+import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, shouldCollapseText } from "../../repl/attachment.ts";
 import { useAttachments, type AnyAttachment } from "../hooks/useAttachments.ts";
 import { useHistorySearch } from "../hooks/useHistorySearch.ts";
 import { HistorySearchPrompt } from "./HistorySearchPrompt.tsx";
@@ -30,9 +32,9 @@ import {
   useCompletion,
   Dropdown,
   ATTACHMENT_PLACEHOLDER,
+  getWordAtCursor,
   type CompletionItem,
   type CompletionAction,
-  type ApplyContext,
 } from "../completion/index.ts";
 
 // Option+Enter detection timeout (ms)
@@ -248,6 +250,11 @@ export function Input({
       return;
     }
 
+    // Don't auto-trigger in placeholder mode (user is filling in arguments)
+    if (placeholders.length > 0 && placeholderIndex >= 0) {
+      return;
+    }
+
     const textBefore = value.slice(0, cursorPos);
 
     // GENERIC: Re-trigger for ANY provider when dropdown is already open (live filtering)
@@ -278,10 +285,34 @@ export function Input({
       triggerCompletionRef.current(value, cursorPos);
       return;
     }
-    // Note: No explicit close needed here - when dropdown is open, the generic
-    // re-trigger above handles it. Completion system closes when no items match.
+
+    // AUTO-POPUP: Symbol completions when typing 2+ characters
+    // This enables VS Code-like IntelliSense behavior
+    const { word } = getWordAtCursor(textBefore, cursorPos);
+    if (word.length >= 2) {
+      // Only trigger if not inside a string literal
+      // Simple heuristic: count quotes before cursor
+      const quoteCount = (textBefore.match(/"/g) || []).length;
+      if (quoteCount % 2 === 0) {
+        triggerCompletionRef.current(value, cursorPos);
+        return;
+      }
+    }
+
+    // AUTO-CLOSE: Close dropdown when no meaningful word to complete
+    // Single responsibility: this useEffect controls ALL dropdown open/close for symbols
+    if (completion.isVisible && word.length < 2) {
+      // Check if we're NOT in @mention or /command mode (they have their own rules)
+      const lastAt = textBefore.lastIndexOf("@");
+      const isInMention = lastAt >= 0 && !textBefore.slice(lastAt + 1).includes(" ");
+      const isInCommand = textBefore.trimStart().startsWith("/") && !textBefore.includes(" ");
+
+      if (!isInMention && !isInCommand) {
+        completion.close();
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, cursorPos, historySearch.state.isSearching]);
+  }, [value, cursorPos, historySearch.state.isSearching, placeholders, placeholderIndex]);
 
   // Helper: check if in placeholder mode
   const isInPlaceholderMode = useCallback(() => {
@@ -475,6 +506,54 @@ export function Input({
     }
   }, [placeholders, placeholderIndex, value, cursorPos, onChange]);
 
+  // Helper: replace current placeholder with auto-close pair (e.g., () [] {})
+  // Type ( in placeholder mode → replace placeholder with (), cursor inside
+  const replaceCurrentPlaceholderWithPair = useCallback((openChar: string) => {
+    if (placeholderIndex < 0 || placeholderIndex >= placeholders.length) return;
+
+    const closeChar = OPEN_TO_CLOSE[openChar];
+    if (!closeChar) {
+      replaceCurrentPlaceholder(openChar);
+      return;
+    }
+
+    const ph = placeholders[placeholderIndex];
+    const updated = [...placeholders];
+    const pair = openChar + closeChar;
+
+    if (!ph.touched) {
+      // First char - replace entire placeholder with pair
+      const before = value.slice(0, ph.start);
+      const after = value.slice(ph.start + ph.length);
+      const newValue = before + pair + after;
+      onChange(newValue);
+
+      // Update this placeholder to span the pair content (between open and close)
+      updated[placeholderIndex] = { ...ph, length: pair.length, touched: true };
+
+      // Shift subsequent placeholders
+      const delta = pair.length - ph.length;
+      const shifted = shiftPlaceholders(updated, placeholderIndex + 1, delta);
+
+      setPlaceholders(shifted);
+      setCursorPos(ph.start + 1); // Cursor between the pair
+    } else {
+      // Subsequent chars - insert pair at cursor within the placeholder
+      const before = value.slice(0, cursorPos);
+      const after = value.slice(cursorPos);
+      onChange(before + pair + after);
+
+      // Update this placeholder's length
+      updated[placeholderIndex] = { ...ph, length: ph.length + pair.length };
+
+      // Shift subsequent placeholders
+      const shifted = shiftPlaceholders(updated, placeholderIndex + 1, pair.length);
+
+      setPlaceholders(shifted);
+      setCursorPos(cursorPos + 1); // Cursor between the pair
+    }
+  }, [placeholders, placeholderIndex, value, cursorPos, onChange, replaceCurrentPlaceholder]);
+
   // Helper: handle backspace in placeholder mode
   const backspaceInPlaceholder = useCallback(() => {
     if (placeholderIndex < 0 || placeholderIndex >= placeholders.length) return false;
@@ -519,14 +598,7 @@ export function Input({
     setCursorPos(cursorPos + text.length);
   }, [value, cursorPos, onChange]);
 
-  // Helper: delete n chars before cursor
-  const deleteBack = useCallback((n: number) => {
-    if (cursorPos >= n) {
-      const newValue = value.slice(0, cursorPos - n) + value.slice(cursorPos);
-      onChange(newValue);
-      setCursorPos(cursorPos - n);
-    }
-  }, [value, cursorPos, onChange]);
+  // Note: deleteBack was removed - now using deleteBackWithPairSupport() from syntax.ts
 
   // Helper: reset state after submit (DRY helper)
   const resetAfterSubmit = useCallback(() => {
@@ -570,24 +642,20 @@ export function Input({
     return true;
   }, [suggestion, onChange]);
 
-  // Helper: check if character is a word boundary (LISP-aware)
-  // Parentheses/brackets are word boundaries in LISP editing
+  // Helper: check if character is a word boundary (LISP structural editing)
+  // This is a SUBSET of string-utils.ts:WORD_BOUNDARY_CHARS - intentionally.
+  // For Ctrl+W, we exclude quotes/comma/semicolon so strings and data structures
+  // are treated as atomic units. See string-utils.ts header for full explanation.
   const isWordBoundaryChar = (ch: string): boolean => {
     return ch === " " || ch === "\t" || ch === "(" || ch === ")" ||
            ch === "[" || ch === "]" || ch === "{" || ch === "}";
   };
 
-  // Auto-close delimiter pairs for LISP editing
-  const AUTO_CLOSE_PAIRS: Record<string, string> = {
-    "(": ")",
-    "[": "]",
-    "{": "}",
-  };
-
   // Helper: insert auto-closing delimiter pair
   // Type ( → () with cursor in middle
+  // Uses OPEN_TO_CLOSE from syntax.ts (single source of truth for delimiter pairs)
   const insertAutoClosePair = useCallback((openChar: string) => {
-    const closeChar = AUTO_CLOSE_PAIRS[openChar];
+    const closeChar = OPEN_TO_CLOSE[openChar];
     if (!closeChar) {
       insertAt(openChar);
       return;
@@ -819,13 +887,16 @@ export function Input({
           const closingParenPos = cleanedValue.lastIndexOf(')');
           onChange(cleanedValue);
           setCursorPos(closingParenPos + 1);
+        } else if (input in OPEN_TO_CLOSE) {
+          // Auto-close in placeholder mode: e.g., type ( → ()
+          replaceCurrentPlaceholderWithPair(input);
         } else {
           replaceCurrentPlaceholder(input);
         }
         return;
       }
       // Auto-close delimiters: ( → (), [ → [], { → {}
-      if (input in AUTO_CLOSE_PAIRS) {
+      if (input in OPEN_TO_CLOSE) {
         lastInputTimeRef.current = Date.now();
         insertAutoClosePair(input);
         return;
@@ -1088,9 +1159,21 @@ export function Input({
           const cleanedValue = exitPlaceholderModeAndCleanup();
           // Adjust cursor for cleaned value and insert character
           const newCursor = Math.min(cursorPos, cleanedValue.length);
-          const newValue = cleanedValue.slice(0, newCursor) + input + cleanedValue.slice(newCursor);
-          onChange(newValue);
-          setCursorPos(newCursor + input.length);
+          // Handle auto-close pairs even when exiting placeholder mode
+          if (input in OPEN_TO_CLOSE) {
+            const closeChar = OPEN_TO_CLOSE[input];
+            const newValue = cleanedValue.slice(0, newCursor) + input + closeChar + cleanedValue.slice(newCursor);
+            onChange(newValue);
+            setCursorPos(newCursor + 1); // Cursor between the pair
+          } else {
+            const newValue = cleanedValue.slice(0, newCursor) + input + cleanedValue.slice(newCursor);
+            onChange(newValue);
+            setCursorPos(newCursor + input.length);
+          }
+          return;
+        } else if (input in OPEN_TO_CLOSE) {
+          // Auto-close in placeholder mode: e.g., type ( → ()
+          replaceCurrentPlaceholderWithPair(input);
           return;
         } else {
           replaceCurrentPlaceholder(input);
@@ -1251,12 +1334,14 @@ export function Input({
       return;
     }
 
-    // Backspace
+    // Backspace - uses encapsulated helper from syntax.ts
+    // Auto-pair deletion is handled by deleteBackWithPairSupport()
+    // Dropdown close is handled by the auto-trigger useEffect (single responsibility)
     if (key.backspace || key.delete) {
-      // For all providers: keep dropdown open, useEffect will re-filter
-      // (same as character input - VS Code behavior)
       if (cursorPos > 0) {
-        deleteBack(1);
+        const { newValue, newCursor } = deleteBackWithPairSupport(value, cursorPos);
+        onChange(newValue);
+        setCursorPos(newCursor);
       }
       return;
     }

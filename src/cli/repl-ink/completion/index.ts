@@ -69,6 +69,12 @@ export {
 } from "./types.ts";
 
 // ============================================================
+// Utility Functions for Auto-Trigger Detection
+// ============================================================
+
+export { getWordAtCursor } from "./providers.ts";
+
+// ============================================================
 // Provider SDK (separate export for custom providers)
 // ============================================================
 

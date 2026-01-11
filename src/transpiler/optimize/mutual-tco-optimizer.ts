@@ -358,8 +358,6 @@ function transformGenToThunks(
   node: IR.IRFnFunctionDeclaration,
   groupMembers: Set<string>
 ): IR.IRFnFunctionDeclaration {
-  const funcName = node.id.name;
-
   function transformNode(n: IR.IRNode): IR.IRNode {
     switch (n.type) {
       case IR.IRNodeType.BlockStatement: {

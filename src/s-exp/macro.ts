@@ -24,7 +24,7 @@ import type { MacroFn } from "../environment.ts";
 import { HQLError, MacroError } from "../common/error.ts";
 import { isGensymSymbol, gensym } from "../gensym.ts";
 import { globalLogger as logger } from "../logger.ts";
-import { getErrorMessage, isObjectValue, isNullish } from "../common/utils.ts";
+import { getErrorMessage, isObjectValue, isNullish, mapTail } from "../common/utils.ts";
 import {
   Interpreter,
   createStandardEnv,
@@ -1023,10 +1023,7 @@ function evaluateMacroCall(
   // Evaluate arguments with hybrid semantics:
   // - Known operators (functions, macros, special forms): evaluate
   // - Unknown operators (syntax markers like 'case'): preserve as-is
-  const args = list.elements.slice(1).map((arg) =>
-    evaluateArgumentForMacro(arg, env, logger)
-  );
-
+  const args = mapTail(list.elements, (arg) => evaluateArgumentForMacro(arg, env, logger));
   const expanded = macroFn(args, env);
   return evaluateForMacro(expanded, env, logger);
 }

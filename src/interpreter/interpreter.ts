@@ -22,7 +22,7 @@ import { isHQLFunction, DEFAULT_CONFIG } from "./types.ts";
 import { isTaggedBuiltinFn } from "./stdlib-bridge.ts";
 import { getSpecialForms, type SpecialFormHandler } from "./special-forms.ts";
 import { InterpreterError, MaxCallDepthError, UndefinedSymbolError } from "./errors.ts";
-import { getErrorMessage } from "../common/utils.ts";
+import { getErrorMessage, mapTail } from "../common/utils.ts";
 
 /**
  * Tree-walk interpreter for HQL
@@ -107,13 +107,8 @@ export class Interpreter implements IInterpreter {
    * 3. Apply the function
    */
   private evalFunctionCall(list: SList, env: IInterpreterEnv): HQLValue {
-    // Evaluate the operator
     const callee = this.eval(list.elements[0], env);
-
-    // Evaluate arguments
-    const args = list.elements.slice(1).map((arg) => this.eval(arg, env));
-
-    // Apply the function
+    const args = mapTail(list.elements, (arg) => this.eval(arg, env));
     return this.applyFunction(callee, args, env);
   }
 

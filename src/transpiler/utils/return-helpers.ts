@@ -5,12 +5,9 @@
 import * as IR from "../type/hql_ir.ts";
 import { RETURN_VALUE_VAR, EARLY_RETURN_FLAG } from "../../common/runtime-helper-impl.ts";
 import {
-  containsReturnStatement,
   containsThrowStatement,
   containsMatch,
 } from "./ir-tree-walker.ts";
-
-// Note: containsReturnStatements alias was removed - use containsReturnStatement directly from ir-tree-walker.ts
 
 /**
  * Check if an IR node contains ThrowStatements (from transformed early returns)

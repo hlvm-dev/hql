@@ -27,8 +27,6 @@ import {
   ATTACHMENT_PLACEHOLDER,
 } from "./types.ts";
 import {
-  rankCompletions,
-  createCompletionItem,
   resetItemIdCounter,
   generateItemId,
   shouldTriggerFileMention,
@@ -88,13 +86,6 @@ function getDescription(
 
   // No description - type will be shown on right side of dropdown
   return undefined;
-}
-
-/**
- * Get type label for display on right side of dropdown.
- */
-function getTypeLabel(type: CompletionItem["type"]): string {
-  return TYPE_LABELS[type];
 }
 
 /**

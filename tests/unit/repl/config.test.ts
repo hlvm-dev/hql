@@ -4,7 +4,6 @@
 
 import { assertEquals, assertExists } from "jsr:@std/assert@1";
 import {
-  type HqlConfig,
   DEFAULT_CONFIG,
   CONFIG_KEYS,
   validateValue,

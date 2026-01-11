@@ -5,16 +5,11 @@
 
 import { ANSI_COLORS } from "../ansi.ts";
 import {
-  PRIMITIVE_OPS,
   KERNEL_PRIMITIVES,
   BINDING_KEYWORDS,
   JS_LITERAL_KEYWORDS_SET,
 } from "../../transpiler/keyword/primitives.ts";
 import {
-  CONTROL_FLOW_KEYWORDS,
-  THREADING_MACROS,
-  WORD_LOGICAL_OPERATORS,
-  DECLARATION_KEYWORDS,
   KEYWORD_SET as BASE_KEYWORD_SET,
   OPERATOR_SET,
   MACRO_SET as BASE_MACRO_SET,
@@ -359,13 +354,84 @@ export function highlight(input: string, matchPos: number | null = null): string
 }
 
 // ============================================================
-// Paren Matching
+// Delimiter Pairs (Single Source of Truth)
 // ============================================================
 
-const CLOSE_TO_OPEN: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
-const OPEN_TO_CLOSE: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
-const ALL_OPEN = "([{";
-const ALL_CLOSE = ")]}";
+/** Maps closing delimiters to their opening counterparts */
+export const CLOSE_TO_OPEN: Readonly<Record<string, string>> = { ")": "(", "]": "[", "}": "{" };
+
+/** Maps opening delimiters to their closing counterparts (also used for auto-close) */
+export const OPEN_TO_CLOSE: Readonly<Record<string, string>> = { "(": ")", "[": "]", "{": "}" };
+
+/** All opening delimiters as string for quick checks */
+export const OPEN_DELIMITERS = "([{";
+
+/** All closing delimiters as string for quick checks */
+export const CLOSE_DELIMITERS = ")]}";
+
+// ============================================================
+// Delimiter Pair Operations (Encapsulated Helpers)
+// ============================================================
+
+/**
+ * Check if cursor is positioned inside an empty delimiter pair: `(|)`, `[|]`, `{|}`
+ * Used for auto-delete-pair behavior.
+ *
+ * @param value - Input text
+ * @param cursorPos - Cursor position
+ * @returns Object with match info, or null if not inside empty pair
+ */
+export function isInsideEmptyPair(
+  value: string,
+  cursorPos: number
+): { open: string; close: string } | null {
+  if (cursorPos <= 0 || cursorPos >= value.length) return null;
+
+  const charBefore = value[cursorPos - 1];
+  const charAfter = value[cursorPos];
+
+  if (charBefore in OPEN_TO_CLOSE && OPEN_TO_CLOSE[charBefore] === charAfter) {
+    return { open: charBefore, close: charAfter };
+  }
+  return null;
+}
+
+/**
+ * Delete character(s) with auto-pair support.
+ * If cursor is inside empty pair `(|)`, deletes both delimiters.
+ * Otherwise, deletes n characters before cursor.
+ *
+ * @param value - Input text
+ * @param cursorPos - Cursor position
+ * @param n - Number of chars to delete (default 1)
+ * @returns New value and cursor position
+ */
+export function deleteBackWithPairSupport(
+  value: string,
+  cursorPos: number,
+  n: number = 1
+): { newValue: string; newCursor: number } {
+  if (cursorPos <= 0) {
+    return { newValue: value, newCursor: cursorPos };
+  }
+
+  // Check for empty pair
+  const emptyPair = isInsideEmptyPair(value, cursorPos);
+  if (emptyPair) {
+    // Delete both opening and closing delimiter
+    const newValue = value.slice(0, cursorPos - 1) + value.slice(cursorPos + 1);
+    return { newValue, newCursor: cursorPos - 1 };
+  }
+
+  // Normal deletion
+  const deleteCount = Math.min(n, cursorPos);
+  const newValue = value.slice(0, cursorPos - deleteCount) + value.slice(cursorPos);
+  return { newValue, newCursor: cursorPos - deleteCount };
+}
+
+// ============================================================
+// Balanced Delimiter Scanning
+// ============================================================
 
 /**
  * Scan for balanced delimiters, handling strings properly.
@@ -441,8 +507,8 @@ function findSexpStart(input: string, cursorPos: number): number {
     input,
     cursorPos - 1,
     "backward",
-    c => ALL_CLOSE.includes(c),
-    c => ALL_OPEN.includes(c),
+    c => CLOSE_DELIMITERS.includes(c),
+    c => OPEN_DELIMITERS.includes(c),
   );
   return result ?? 0;
 }

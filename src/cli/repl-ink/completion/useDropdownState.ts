@@ -11,7 +11,6 @@ import { INITIAL_DROPDOWN_STATE } from "./types.ts";
 import {
   dropdownReducer,
   getSelectedItem,
-  hasItems,
   isActive,
   openAction,
   closeAction,

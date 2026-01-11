@@ -27,7 +27,7 @@ export function handleNavigationKey(
   currentIndex: number,
   itemCount: number,
   isDropdownVisible: boolean,
-  shiftKey: boolean = false
+  _shiftKey: boolean = false
 ): NavigationResult {
   // No-op if dropdown is hidden or empty
   if (!isDropdownVisible || itemCount === 0) {
@@ -154,19 +154,7 @@ export function getRelativeIndex(
   return absoluteIndex - window.start;
 }
 
-/**
- * Get the absolute index from a relative window index.
- *
- * @param relativeIndex - Index within the visible window
- * @param window - Current scroll window
- * @returns Absolute index in the full item list
- */
-export function getAbsoluteIndex(
-  relativeIndex: number,
-  window: ScrollWindow
-): number {
-  return window.start + relativeIndex;
-}
+// Note: getAbsoluteIndex was removed as unused (inverse of getRelativeIndex)
 
 // ============================================================
 // Key Detection Helpers

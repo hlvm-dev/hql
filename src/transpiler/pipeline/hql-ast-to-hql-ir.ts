@@ -18,7 +18,6 @@ import {
   HASH_MAP_USER,
   LAZY_SEQ_HELPER,
   DELAY_HELPER,
-  GET_HELPER,
   GET_NUMERIC_HELPER,
   GET_OP_HELPER,
   VECTOR_SYMBOL,
@@ -2323,26 +2322,6 @@ function determineCallOrAccess(
     transformHQLNodeToIR,
     firstTransformed,
   );
-}
-
-/**
- * Generate an IR node for property access with function call fallback
- */
-function createPropertyAccessWithFallback(
-  objectNode: IR.IRNode,
-  keyNode: IR.IRNode,
-): IR.IRNode {
-  // Simply generate a call to a get function that will check the property first
-  // and fall back to function call if needed
-  // Equivalent to: get(person, "hobbies")
-  return {
-    type: IR.IRNodeType.CallExpression,
-    callee: {
-      type: IR.IRNodeType.Identifier,
-      name: GET_HELPER,
-    } as IR.IRIdentifier,
-    arguments: [objectNode, keyNode],
-  } as IR.IRCallExpression;
 }
 
 // Create a numeric access with fallback to function call

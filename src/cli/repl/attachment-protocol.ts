@@ -10,7 +10,7 @@
  * 3. Helper functions for converting attachments to content blocks
  */
 
-import type { Attachment, TextAttachment, AttachmentType, AnyAttachment } from "./attachment.ts";
+import type { TextAttachment, AttachmentType, AnyAttachment } from "./attachment.ts";
 
 // Re-export AnyAttachment for consumers (single source of truth is attachment.ts)
 export type { AnyAttachment };

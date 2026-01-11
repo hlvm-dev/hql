@@ -1,5 +1,9 @@
 /**
  * HQL REPL Keyboard Handling - Word Navigation Functions
+ *
+ * NOTE: These functions use MINIMAL word boundaries (spaces only).
+ * This is an intentional design choice for fast, simple navigation.
+ * See string-utils.ts header for explanation of word boundary semantic variants.
  */
 
 /**

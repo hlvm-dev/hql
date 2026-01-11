@@ -293,4 +293,21 @@ export function setWithSanitized<T>(map: Map<string, T>, name: string, value: T)
   }
 }
 
+/**
+ * Map over array elements starting from index 1 (skipping first element).
+ * Efficient alternative to `arr.slice(1).map(fn)` - avoids intermediate array.
+ *
+ * @param arr - Source array
+ * @param fn - Transform function
+ * @returns New array with transformed elements from index 1 onwards
+ */
+export function mapTail<T, R>(arr: readonly T[], fn: (item: T) => R): R[] {
+  const len = arr.length - 1;
+  if (len <= 0) return [];
+  const result: R[] = new Array(len);
+  for (let i = 0; i < len; i++) {
+    result[i] = fn(arr[i + 1]);
+  }
+  return result;
+}
 

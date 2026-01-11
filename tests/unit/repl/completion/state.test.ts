@@ -7,9 +7,7 @@
 import { assertEquals, assert } from "jsr:@std/assert";
 import {
   dropdownReducer,
-  createInitialState,
   getSelectedItem,
-  hasItems,
   isActive,
   openAction,
   closeAction,
@@ -81,31 +79,18 @@ function createOpenState(overrides: Partial<DropdownState> = {}): DropdownState 
 }
 
 // ============================================================
-// createInitialState Tests
-// ============================================================
-
-Deno.test("State: createInitialState returns initial state", () => {
-  const state = createInitialState();
-  assertEquals(state, INITIAL_DROPDOWN_STATE);
-  assertEquals(state.isOpen, false);
-  assertEquals(state.items.length, 0);
-  assertEquals(state.selectedIndex, 0);
-  assertEquals(state.providerId, null);
-});
-
-// ============================================================
 // OPEN Action Tests
 // ============================================================
 
 Deno.test("State: OPEN sets isOpen to true", () => {
-  const state = createInitialState();
+  const state = INITIAL_DROPDOWN_STATE;
   const next = dropdownReducer(state, openAction(sampleItems, 0, "symbol", "de", 2));
 
   assertEquals(next.isOpen, true);
 });
 
 Deno.test("State: OPEN sets items", () => {
-  const state = createInitialState();
+  const state = INITIAL_DROPDOWN_STATE;
   const next = dropdownReducer(state, openAction(sampleItems, 0, "symbol", "de", 2));
 
   assertEquals(next.items, sampleItems);
@@ -113,42 +98,42 @@ Deno.test("State: OPEN sets items", () => {
 });
 
 Deno.test("State: OPEN sets selectedIndex to 0 when items exist", () => {
-  const state = createInitialState();
+  const state = INITIAL_DROPDOWN_STATE;
   const next = dropdownReducer(state, openAction(sampleItems, 0, "symbol", "de", 2));
 
   assertEquals(next.selectedIndex, 0);
 });
 
 Deno.test("State: OPEN sets selectedIndex to -1 when empty items", () => {
-  const state = createInitialState();
+  const state = INITIAL_DROPDOWN_STATE;
   const next = dropdownReducer(state, openAction([], 0, "symbol", "", 0));
 
   assertEquals(next.selectedIndex, -1);
 });
 
 Deno.test("State: OPEN sets anchorPosition", () => {
-  const state = createInitialState();
+  const state = INITIAL_DROPDOWN_STATE;
   const next = dropdownReducer(state, openAction(sampleItems, 5, "symbol", "de", 7));
 
   assertEquals(next.anchorPosition, 5);
 });
 
 Deno.test("State: OPEN sets providerId", () => {
-  const state = createInitialState();
+  const state = INITIAL_DROPDOWN_STATE;
   const next = dropdownReducer(state, openAction(sampleItems, 0, "file", "@", 1));
 
   assertEquals(next.providerId, "file");
 });
 
 Deno.test("State: OPEN sets isLoading to false", () => {
-  const state = { ...createInitialState(), isLoading: true };
+  const state = { ...INITIAL_DROPDOWN_STATE, isLoading: true };
   const next = dropdownReducer(state, openAction(sampleItems, 0, "symbol", "de", 2));
 
   assertEquals(next.isLoading, false);
 });
 
 Deno.test("State: OPEN stores original text and cursor for session tracking", () => {
-  const state = createInitialState();
+  const state = INITIAL_DROPDOWN_STATE;
   const next = dropdownReducer(state, openAction(sampleItems, 0, "symbol", "original text", 8));
 
   assertEquals(next.originalText, "original text");
@@ -167,7 +152,7 @@ Deno.test("State: CLOSE resets to initial state", () => {
 });
 
 Deno.test("State: CLOSE on already closed state is no-op", () => {
-  const state = createInitialState();
+  const state = INITIAL_DROPDOWN_STATE;
   const next = dropdownReducer(state, closeAction());
 
   assertEquals(next, state);
@@ -297,14 +282,14 @@ Deno.test("State: SELECT_INDEX with out-of-bounds index is no-op", () => {
 // ============================================================
 
 Deno.test("State: SET_LOADING sets loading to true", () => {
-  const state = createInitialState();
+  const state = INITIAL_DROPDOWN_STATE;
   const next = dropdownReducer(state, setLoadingAction(true));
 
   assertEquals(next.isLoading, true);
 });
 
 Deno.test("State: SET_LOADING sets loading to false", () => {
-  const state = { ...createInitialState(), isLoading: true };
+  const state = { ...INITIAL_DROPDOWN_STATE, isLoading: true };
   const next = dropdownReducer(state, setLoadingAction(false));
 
   assertEquals(next.isLoading, false);
@@ -328,16 +313,7 @@ Deno.test("State: getSelectedItem returns null for invalid index", () => {
   assertEquals(item, null);
 });
 
-Deno.test("State: hasItems returns true when items exist", () => {
-  const state = createOpenState();
-
-  assert(hasItems(state));
-});
-
-Deno.test("State: hasItems returns false when empty", () => {
-  const state = createInitialState();
-  assert(!hasItems(state));
-});
+// Note: hasItems was removed as dead code (unused helper)
 
 Deno.test("State: isActive returns true when open with items", () => {
   const state = createOpenState();
@@ -346,7 +322,7 @@ Deno.test("State: isActive returns true when open with items", () => {
 });
 
 Deno.test("State: isActive returns false when closed", () => {
-  const state = createInitialState();
+  const state = INITIAL_DROPDOWN_STATE;
   assert(!isActive(state));
 });
 

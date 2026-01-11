@@ -110,13 +110,6 @@ export function dropdownReducer(
 // ============================================================
 
 /**
- * Create initial dropdown state.
- */
-export function createInitialState(): DropdownState {
-  return INITIAL_DROPDOWN_STATE;
-}
-
-/**
  * Get the currently selected item.
  */
 export function getSelectedItem(state: DropdownState): CompletionItem | null {
@@ -124,13 +117,6 @@ export function getSelectedItem(state: DropdownState): CompletionItem | null {
     return null;
   }
   return state.items[state.selectedIndex];
-}
-
-/**
- * Check if dropdown has items.
- */
-export function hasItems(state: DropdownState): boolean {
-  return state.items.length > 0;
 }
 
 /**

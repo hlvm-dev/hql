@@ -1,10 +1,11 @@
 /**
  * HQL REPL Completer Utilities
  *
- * Provides word extraction for completion and suggestion systems.
+ * Re-exports word extraction and identifier classification from single sources of truth.
  */
 
-import { isWordBoundary } from "./string-utils.ts";
+// Re-export word extraction from string-utils (single source of truth)
+export { getWordAtCursor } from "./string-utils.ts";
 
 // Re-export shared types and functions from known-identifiers.ts
 export {
@@ -30,31 +31,4 @@ export interface CompletionItem {
   readonly text: string;
   /** Type of identifier */
   readonly type: CompletionType;
-}
-
-// ============================================================
-// Word Extraction
-// ============================================================
-
-/**
- * Get the word at cursor position for completion.
- *
- * @param line - Current input line
- * @param cursorPos - Cursor position
- * @returns The word and its start position
- */
-export function getWordAtCursor(
-  line: string,
-  cursorPos: number
-): { word: string; start: number } {
-  // Find start of word (scan backwards)
-  let start = cursorPos;
-  while (start > 0 && !isWordBoundary(line[start - 1])) {
-    start--;
-  }
-
-  return {
-    word: line.slice(start, cursorPos),
-    start,
-  };
 }

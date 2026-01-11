@@ -10,7 +10,7 @@
  */
 
 import { assertEquals, assertExists, assert } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { withRecovery, RecoveryResult } from "../../src/common/error.ts";
+import { withRecovery } from "../../src/common/error.ts";
 import hql from "../../mod.ts";
 
 // ============================================================================

@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback, useMemo } from "npm:react@18";
-import { fuzzyMatch, type FuzzyResult } from "../../repl/fuzzy.ts";
+import { fuzzyMatch } from "../../repl/fuzzy.ts";
 
 // ============================================================
 // Types

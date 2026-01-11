@@ -208,6 +208,7 @@ interface DropdownProps {
  * Each item defines its own rendering via getRenderSpec().
  *
  * Features:
+ * - FIXED HEIGHT: Always renders MAX_VISIBLE_ITEMS rows (prevents UI shaking)
  * - Virtualized rendering (only visible items rendered)
  * - Scroll indicators (↑↓) for large lists
  * - Loading state display
@@ -221,7 +222,7 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
     helpText,
     isLoading,
     marginLeft = 5,
-    maxVisible,
+    maxVisible = MAX_VISIBLE_ITEMS,
   } = props;
 
   // Don't render if no items and not loading
@@ -241,6 +242,9 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
   // Get visible items from scroll window
   const visibleItems = items.slice(scrollWindow.start, scrollWindow.end);
 
+  // Calculate padding needed for fixed height (prevents UI shaking)
+  const paddingCount = Math.max(0, maxVisible - visibleItems.length);
+
   // Get selected item's extended doc (if any)
   const selectedItem = selectedIndex >= 0 && selectedIndex < items.length
     ? items[selectedIndex]
@@ -254,9 +258,11 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
         <Text dimColor>Searching...</Text>
       )}
 
-      {/* Scroll up indicator */}
-      {hasMoreAbove && (
+      {/* Scroll up indicator (or empty line for fixed height) */}
+      {hasMoreAbove ? (
         <Text dimColor>  ↑ more</Text>
+      ) : (
+        <Text> </Text>
       )}
 
       {/* Visible items - GENERIC rendering via getRenderSpec() */}
@@ -266,9 +272,18 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
         return <GenericItem key={item.id} spec={spec} isSelected={isSelected} />;
       })}
 
-      {/* Scroll down indicator */}
-      {hasMoreBelow && (
+      {/* Empty padding rows for fixed height (prevents shaking) */}
+      {Array.from({ length: paddingCount }, (_, i) => (
+        <React.Fragment key={`pad-${i}`}>
+          <Text> </Text>
+        </React.Fragment>
+      ))}
+
+      {/* Scroll down indicator (or empty line for fixed height) */}
+      {hasMoreBelow ? (
         <Text dimColor>  ↓ more</Text>
+      ) : (
+        <Text> </Text>
       )}
 
       {/* Help hint from provider */}

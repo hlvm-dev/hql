@@ -11,7 +11,6 @@ import {
   hasItemsAbove,
   hasItemsBelow,
   getRelativeIndex,
-  getAbsoluteIndex,
   isNavigationKey,
   shouldCloseOnInput,
 } from "../../../../src/cli/repl-ink/completion/navigation.ts";
@@ -165,7 +164,7 @@ Deno.test("Navigation: hasItemsBelow returns false when end equals total", () =>
 });
 
 // ============================================================
-// getRelativeIndex / getAbsoluteIndex Tests
+// getRelativeIndex Tests
 // ============================================================
 
 Deno.test("Navigation: getRelativeIndex returns offset from window start", () => {
@@ -181,11 +180,7 @@ Deno.test("Navigation: getRelativeIndex returns -1 when out of window", () => {
   assertEquals(getRelativeIndex(15, window), -1);
 });
 
-Deno.test("Navigation: getAbsoluteIndex adds window start", () => {
-  const window: ScrollWindow = { start: 5, end: 13 };
-
-  assertEquals(getAbsoluteIndex(2, window), 7);
-});
+// Note: getAbsoluteIndex was removed as dead code (inverse of getRelativeIndex, never used)
 
 // ============================================================
 // isNavigationKey Tests

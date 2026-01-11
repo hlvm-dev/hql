@@ -140,7 +140,6 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
 
   const dropdown = useDropdownState();
   const debounceTimerRef = useRef<number | null>(null);
-  const lastQueryRef = useRef<string>("");
 
   // FIX NEW-4: Cleanup debounce timer on unmount OR when dependencies change
   // This prevents stale completions when bindings/signatures change mid-debounce
@@ -228,7 +227,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   // ============================================================
 
   const handleKey = useCallback(
-    (key: string, text: string, cursorPosition: number, shiftKey: boolean = false): boolean => {
+    (key: string, _text: string, _cursorPosition: number, shiftKey: boolean = false): boolean => {
       if (disabled) return false;
 
       // If dropdown is open, handle navigation keys

@@ -183,7 +183,7 @@ export interface ScopeWalkOptions {
 function walkChildrenInScope(
   node: IR.IRNode,
   fn: (child: IR.IRNode) => boolean,
-  options: ScopeWalkOptions = {},
+  _options: ScopeWalkOptions = {},
 ): boolean {
   for (const key of Object.keys(node)) {
     if (IR_SKIP_KEYS.has(key)) continue;

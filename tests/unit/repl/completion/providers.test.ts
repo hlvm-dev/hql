@@ -59,14 +59,6 @@ function createMockItem(
   };
 }
 
-const sampleItems: CompletionItem[] = [
-  createMockItem("1", "define", "keyword", 100),
-  createMockItem("2", "defn", "keyword", 90),
-  createMockItem("3", "default", "function", 80),
-  createMockItem("4", "map", "function", 85),
-  createMockItem("5", "filter", "function", 85),
-];
-
 function createContext(
   text: string,
   cursorPosition: number
