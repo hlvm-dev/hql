@@ -29,12 +29,14 @@ export interface ThemePalette {
  * - Purple background (the book's main color)
  * - Red rectangle (where the wizard illustration sits)
  * - Lambda symbol in starburst
+ *
+ * NO GREEN - SICP palette is purple/red/gold only
  */
 export const sicp: ThemePalette = {
   primary: "#663399",      // Rebecca Purple (the actual SICP book cover purple!)
   secondary: "#dc3545",    // RED (book's iconic red rectangle!)
   accent: "#f8f8f2",       // White/light (like the lambda starburst)
-  success: "#22c55e",      // Green
+  success: "#9370DB",      // Medium Purple (lighter purple for labels - NO GREEN in SICP!)
   warning: "#ffd700",      // Gold/Yellow (like lambda glow)
   error: "#dc3545",        // Red
   muted: "#8a8a8a",        // Gray
