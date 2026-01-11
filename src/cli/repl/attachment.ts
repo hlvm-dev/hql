@@ -346,6 +346,9 @@ export function formatAttachmentDetail(attachment: Attachment): string {
  * Key insight: Single lines should NEVER be collapsed, even if very long.
  * Terminal pastes often arrive line-by-line, so we need the newline check
  * to distinguish a genuine multi-line paste from sequential single lines.
+ *
+ * Note: Collapsed text is still executed properly - App.tsx expands
+ * [Pasted text #N] placeholders to actual content before evaluation.
  */
 export function shouldCollapseText(text: string): boolean {
   const lineCount = countLines(text);

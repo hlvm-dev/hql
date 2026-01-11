@@ -179,6 +179,17 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
     if (!code.trim()) return;
     setIsEvaluating(true);
 
+    // Expand text attachments: replace [Pasted text #N ...] with actual content
+    // This allows pasted HQL code to be executed even when collapsed
+    let expandedCode = code;
+    if (attachments) {
+      for (const att of attachments) {
+        if (att.type === "text") {
+          expandedCode = expandedCode.replace(att.displayName, att.content);
+        }
+      }
+    }
+
     // Handle commands that need React state (pickers/panels)
     const trimmedLower = code.trim().toLowerCase();
     const normalized = trimmedLower.startsWith(".") ? "/" + trimmedLower.slice(1) : trimmedLower;
@@ -230,8 +241,10 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
       .map((a) => a.path) ?? [];
 
     // Evaluate (with optional attachments)
+    // Use expandedCode which has text attachment placeholders replaced with actual content
     try {
-      const result = await repl.evaluate(code, attachments);
+      const result = await repl.evaluate(expandedCode, attachments);
+      // Show original code in history (with placeholders) for cleaner display
       setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result }]);
       setNextId((n: number) => n + 1);
 
