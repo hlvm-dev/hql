@@ -31,7 +31,9 @@ export class LRUCache<K, V> {
       this.cache.set(key, value); // Re-add to put at the end (most recently used)
       return value;
     }
-    // Handle explicit undefined values stored in cache
+    // Edge case: Handle explicit `undefined` values stored in cache.
+    // Map.get() returns undefined for both missing keys AND keys with undefined values.
+    // We need has() to distinguish "key exists with undefined value" from "key missing".
     if (this.cache.has(key)) {
       this.cache.delete(key);
       this.cache.set(key, value as V);
