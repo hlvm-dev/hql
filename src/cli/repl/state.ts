@@ -145,11 +145,15 @@ export class ReplState {
 
   /** Add a docstring for a name (from comment) */
   addDocstring(name: string, doc: string): void {
+    // Create new Map reference so React detects prop change
+    this.docstrings = new Map(this.docstrings);
     this.docstrings.set(name, doc);
   }
 
   /** Add multiple docstrings at once */
   addDocstrings(docs: Map<string, string>): void {
+    // Create new Map reference so React detects prop change
+    this.docstrings = new Map(this.docstrings);
     for (const [name, doc] of docs) {
       this.docstrings.set(name, doc);
     }

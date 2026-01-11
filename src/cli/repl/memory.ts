@@ -86,6 +86,7 @@ interface ParsedDefinition {
   kind: "def" | "defn";
   name: string;
   code: string;
+  docstring?: string;
 }
 
 // ============================================================
@@ -122,7 +123,8 @@ function isDefinitionStart(trimmedLine: string): boolean {
 }
 
 /**
- * Parse memory.hql content and extract definitions
+ * Parse memory.hql content and extract definitions with docstrings.
+ * Docstrings are stored as "; " prefixed comment lines above definitions.
  * Robust handling: if a new (def or (defn starts before current expression closes,
  * the current expression is malformed - skip it and continue with the new one.
  */
@@ -131,23 +133,39 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
   const lines = content.split("\n");
 
   let i = 0;
+  let pendingDocLines: string[] = []; // Accumulate docstring comment lines
+
   while (i < lines.length) {
     const trimmed = lines[i].trim();
 
-    // Skip empty lines and comments
-    if (trimmed === "" || trimmed.startsWith(";")) {
+    // Empty line: reset pending docstring
+    if (trimmed === "") {
+      pendingDocLines = [];
+      i++;
+      continue;
+    }
+
+    // Comment line: accumulate as potential docstring
+    if (trimmed.startsWith(";")) {
+      // Remove "; " prefix and store the content
+      const docLine = trimmed.startsWith("; ") ? trimmed.slice(2) : trimmed.slice(1);
+      pendingDocLines.push(docLine);
       i++;
       continue;
     }
 
     // Only process lines that start a definition
     if (!isDefinitionStart(trimmed)) {
+      pendingDocLines = []; // Reset - not a docstring
       i++;
       continue;
     }
 
-    // Found a definition start - try to extract the complete expression
-    // OPTIMIZED: Use array + join instead of O(n²) string concatenation
+    // Found a definition start - capture docstring from pending comments
+    const docstring = pendingDocLines.length > 0 ? pendingDocLines.join("\n") : undefined;
+    pendingDocLines = []; // Reset for next definition
+
+    // Extract the complete expression
     const codeLines: string[] = [];
     let parenDepth = 0;
     let foundNextDef = false;
@@ -207,7 +225,7 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
           const name = (list.elements[1] as SSymbol).name;
 
           if (op === "def" || op === "defn") {
-            definitions.push({ kind: op, name, code: currentCode.trim() });
+            definitions.push({ kind: op, name, code: currentCode.trim(), docstring });
           }
         }
       }
@@ -248,65 +266,101 @@ export async function compactMemory(): Promise<{ before: number; after: number }
 
 /**
  * Load memory.hql on REPL startup
- * Returns the count of loaded definitions and any errors
+ * Returns the count of loaded definitions, any errors, and docstrings to register
  */
-export async function loadMemory(evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>): Promise<{ count: number; errors: string[] }> {
+export async function loadMemory(evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>): Promise<{ count: number; errors: string[]; docstrings: Map<string, string> }> {
   const definitions = await readAndParseMemory();
   const errors: string[] = [];
+  const docstrings = new Map<string, string>();
   let successCount = 0;
 
   for (const def of definitions) {
     const result = await evaluator(def.code);
     if (result.success) {
       successCount++;
+      // Collect docstrings for successfully loaded definitions
+      if (def.docstring) {
+        docstrings.set(def.name, def.docstring);
+      }
     } else {
       errors.push(`${def.name}: ${result.error?.message || "Unknown error"}`);
     }
   }
 
-  return { count: successCount, errors };
+  return { count: successCount, errors, docstrings };
 }
 
 /**
- * Append a definition to memory.hql
+ * Strip leading comment lines from code.
+ * Used to ensure docstring from state is the single source of truth.
+ * Also trims leading whitespace from the first code line.
+ */
+function stripLeadingComments(code: string): string {
+  const lines = code.split("\n");
+  let startIndex = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    // Skip empty lines and comment lines at the start
+    if (trimmed === "" || trimmed.startsWith(";")) {
+      startIndex = i + 1;
+    } else {
+      break;
+    }
+  }
+  // Get remaining lines, trim leading whitespace from first line only
+  const remaining = lines.slice(startIndex);
+  if (remaining.length > 0) {
+    remaining[0] = remaining[0].trimStart();
+  }
+  return remaining.join("\n");
+}
+
+/**
+ * Save a definition to memory.hql (overwrites existing definition with same name)
  * For def: stores the serialized VALUE
- * For defn: stores the original source code
- * Optimized: Uses append mode instead of read-all/write-all
+ * For defn: stores the original source code (comments stripped, docstring from state used)
+ *
+ * Single source of truth: docstring parameter is canonical, any comments in code are stripped.
+ * Auto-deduplicates: if a definition with the same name exists, it's replaced (no duplicates).
+ *
+ * @param docstring Optional docstring to preserve (stored as comment above definition)
  */
 export async function appendToMemory(
   name: string,
   kind: "def" | "defn",
-  codeOrValue: string | unknown
+  codeOrValue: string | unknown,
+  docstring?: string
 ): Promise<void> {
-  // Build the code to append first (fail fast if unserializable)
+  // Build the code first (fail fast if unserializable)
   let code: string;
   if (kind === "defn") {
-    code = codeOrValue as string;
+    // Strip any leading comments - docstring from state is the single source of truth
+    code = stripLeadingComments(codeOrValue as string);
   } else {
     const serialized = serializeValue(codeOrValue);
     if (serialized === null) return; // Unserializable value
     code = `(def ${name} ${serialized})`;
   }
 
+  // Prepend docstring as comment if provided (single source of truth)
+  if (docstring) {
+    const docLines = docstring.split("\n").map(line => `; ${line}`).join("\n");
+    code = docLines + "\n" + code;
+  }
+
   const path = getMemoryFilePath();
 
-  // Check if file exists (avoid reading entire file)
-  let fileExists = false;
-  try {
-    await Deno.stat(path);
-    fileExists = true;
-  } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) throw error;
-  }
+  // Read existing definitions, filter out any with same name (auto-overwrite)
+  const existing = await readAndParseMemory();
+  const filtered = existing.filter(d => d.name !== name);
 
-  if (!fileExists) {
-    // Create directory and file with header
-    await ensureDir(getHqlDir());
-    await Deno.writeTextFile(path, MEMORY_HEADER + "\n" + code + "\n");
-  } else {
-    // Append to existing file (O(1) instead of O(n) read)
-    await Deno.writeTextFile(path, "\n" + code + "\n", { append: true });
-  }
+  // Add new definition
+  const newDef: ParsedDefinition = { kind, name, code, docstring };
+  filtered.push(newDef);
+
+  // Write back (ensures no duplicates)
+  await ensureDir(getHqlDir());
+  await writeMemoryFile(filtered);
 }
 
 /**
@@ -359,4 +413,12 @@ export async function getDefinitionSource(name: string): Promise<string | null> 
   const definitions = await readAndParseMemory();
   const def = definitions.find(d => d.name === name);
   return def?.code ?? null;
+}
+
+/**
+ * Clear all definitions from memory.hql (nuke memory)
+ * Resets to empty state with just the header
+ */
+export async function clearMemory(): Promise<void> {
+  await writeMemoryFile([]);
 }

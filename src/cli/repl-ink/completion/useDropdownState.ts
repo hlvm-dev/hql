@@ -19,6 +19,7 @@ import {
   selectPrevAction,
   selectIndexAction,
   setLoadingAction,
+  toggleDocPanelAction,
 } from "./state.ts";
 import {
   handleNavigationKey,
@@ -72,6 +73,9 @@ export interface UseDropdownStateReturn {
 
   /** Set loading state */
   readonly setLoading: (loading: boolean) => void;
+
+  /** Toggle documentation panel visibility (Ctrl+D shortcut) */
+  readonly toggleDocPanel: () => void;
 
   /** Handle a navigation key press, returns action to take */
   readonly handleKey: (key: string, shiftKey?: boolean) => NavigationResult;
@@ -166,6 +170,10 @@ export function useDropdownState(): UseDropdownStateReturn {
     dispatch(setLoadingAction(loading));
   }, []);
 
+  const toggleDocPanel = useCallback(() => {
+    dispatch(toggleDocPanelAction());
+  }, []);
+
   // ============================================================
   // Navigation Handler
   // ============================================================
@@ -220,6 +228,7 @@ export function useDropdownState(): UseDropdownStateReturn {
       selectPrev,
       selectIndex,
       setLoading,
+      toggleDocPanel,
       handleKey,
       getVisibleIndex,
     }),
@@ -237,6 +246,7 @@ export function useDropdownState(): UseDropdownStateReturn {
       selectPrev,
       selectIndex,
       setLoading,
+      toggleDocPanel,
       handleKey,
       getVisibleIndex,
     ]

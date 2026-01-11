@@ -1196,6 +1196,13 @@ export function Input({
     if (completion.isVisible) {
       const selectedItem = completion.selectedItem;
 
+      // Ctrl+D: Toggle documentation panel
+      // Some terminals send 'd', others send EOF character (ASCII 4)
+      if (key.ctrl && (input === 'd' || input === '\x04')) {
+        completion.toggleDocPanel();
+        return;
+      }
+
       if (key.upArrow) {
         // Navigate UP - encapsulated cycling behavior in hook
         const result = completion.navigateUp();
@@ -1663,7 +1670,7 @@ export function Input({
           selectedIndex={completion.renderProps.selectedIndex}
           helpText={completion.renderProps.helpText}
           isLoading={completion.renderProps.isLoading}
-          hasNavigated={completion.renderProps.hasNavigated}
+          showDocPanel={completion.renderProps.showDocPanel}
         />
       )}
 

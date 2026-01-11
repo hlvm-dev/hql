@@ -5,7 +5,7 @@
 
 import { ANSI_COLORS } from "../ansi.ts";
 import type { ReplState } from "./state.ts";
-import { getMemoryStats, forgetFromMemory, getMemoryNames } from "./memory.ts";
+import { getMemoryStats, forgetFromMemory, getMemoryNames, clearMemory } from "./memory.ts";
 import { handleConfigCommand } from "./config/index.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
@@ -87,10 +87,11 @@ export const commands: Record<string, Command> = {
   },
 
   "/reset": {
-    description: "Reset REPL state",
-    handler: (state: ReplState) => {
+    description: "Reset REPL state and clear memory",
+    handler: async (state: ReplState) => {
       state.reset();
-      console.log(`${GREEN}REPL state reset. All bindings cleared.${RESET}`);
+      await clearMemory();
+      console.log(`${GREEN}REPL state reset. All bindings and memory cleared.${RESET}`);
     },
   },
 

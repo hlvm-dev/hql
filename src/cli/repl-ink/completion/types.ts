@@ -203,8 +203,8 @@ export interface DropdownState {
   /** Loading state for async providers */
   readonly isLoading: boolean;
 
-  /** Whether user has navigated with arrow keys (for showing DocPanel) */
-  readonly hasNavigated: boolean;
+  /** Whether user has toggled DocPanel with shortcut (Ctrl+D or ?) */
+  readonly showDocPanel: boolean;
 
   // ============================================================
   // Session Tracking (for Tab cycling)
@@ -227,7 +227,7 @@ export const INITIAL_DROPDOWN_STATE: DropdownState = {
   anchorPosition: 0,
   providerId: null,
   isLoading: false,
-  hasNavigated: false,
+  showDocPanel: false,
   // Session tracking
   originalText: "",
   originalCursor: 0,
@@ -247,7 +247,8 @@ export type DropdownAction =
   | { type: "SELECT_NEXT" }
   | { type: "SELECT_PREV" }
   | { type: "SELECT_INDEX"; index: number }
-  | { type: "SET_LOADING"; loading: boolean };
+  | { type: "SET_LOADING"; loading: boolean }
+  | { type: "TOGGLE_DOC_PANEL" };
 
 // ============================================================
 // Navigation Types
@@ -363,8 +364,8 @@ export const RENDER_MAX_WIDTH = {
 
 /** Help text shown in dropdown (DRY - was duplicated) */
 export const PROVIDER_HELP_TEXT = {
-  SIMPLE: "↑↓ navigate • Tab/Enter select • Esc cancel",
-  DRILL: "↑↓ navigate • Tab drill • Enter select • Esc cancel",
+  SIMPLE: "↑↓ navigate • Tab/Enter select • Ctrl+D docs • Esc cancel",
+  DRILL: "↑↓ navigate • Tab drill • Enter select • Ctrl+D docs • Esc cancel",
 } as const;
 
 /** Debounce for async providers */

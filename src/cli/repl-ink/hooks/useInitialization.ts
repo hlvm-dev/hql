@@ -3,7 +3,7 @@
  * Handles runtime initialization, AI import, memory loading
  */
 
-import { useState, useEffect, useRef } from "npm:react@18";
+import { useState, useEffect, useRef, useCallback } from "npm:react@18";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { run } from "../../../../mod.ts";
 import { compactMemory, loadMemory, getMemoryNames, getMemoryFilePath, forgetFromMemory, getDefinitionSource } from "../../repl/memory.ts";
@@ -22,6 +22,8 @@ export interface InitializationState {
   aiExports: string[];
   readyTime: number;
   errors: string[];
+  /** Refresh memory names from disk (call after def/defn evaluation) */
+  refreshMemoryNames: () => Promise<void>;
 }
 
 export function useInitialization(state: ReplState, jsMode: boolean): InitializationState {
@@ -96,6 +98,10 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
             return { success: evalResult.success, error: evalResult.error };
           });
           state.setLoadingMemory(false);
+          // Register docstrings from memory with state
+          if (result.docstrings.size > 0) {
+            state.addDocstrings(result.docstrings);
+          }
           if (result.errors.length > 0) {
             loadErrors.push(...result.errors);
           }
@@ -121,7 +127,13 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
     })();
   }, [state, jsMode]);
 
-  return { loading, ready, memoryNames, aiExports, readyTime, errors };
+  // Callback to refresh memory names (called after def/defn evaluation)
+  const refreshMemoryNames = useCallback(async () => {
+    const names = await getMemoryNames();
+    setMemoryNames(names);
+  }, []);
+
+  return { loading, ready, memoryNames, aiExports, readyTime, errors, refreshMemoryNames };
 }
 
 /**

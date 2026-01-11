@@ -244,7 +244,7 @@ export async function evaluate(
             try {
               // Get the actual value from globalThis for memory persistence
               const value = (globalThis as Record<string, unknown>)[sanitizeIdentifier(name)];
-              await appendToMemory(name, "def", value);
+              await appendToMemory(name, "def", value, state.getDocstring(name));
             } catch { /* ignore persistence errors */ }
           }
         }
@@ -257,7 +257,7 @@ export async function evaluate(
           // Persist defn declarations to memory
           if (operator === "defn" && !state.isLoadingMemory) {
             try {
-              await appendToMemory(name, "defn", source);
+              await appendToMemory(name, "defn", source, state.getDocstring(name));
             } catch { /* ignore */ }
           }
         }
@@ -390,7 +390,7 @@ async function handleBinding(_hqlCode: string, ast: SList, name: string, operato
     // Only if not currently loading from memory (prevents loop)
     if (operator === "def" && !state.isLoadingMemory) {
       try {
-        await appendToMemory(name, "def", result);
+        await appendToMemory(name, "def", result, state.getDocstring(name));
       } catch {
         // Silently ignore persistence errors - REPL should continue working
       }
@@ -437,7 +437,8 @@ async function handleDeclaration(hqlCode: string, name: string, operator: string
     if (operator === "defn" && !state.isLoadingMemory) {
       try {
         // For defn, store the original source code (not the evaluated function)
-        await appendToMemory(name, "defn", hqlCode);
+        // state.getDocstring() is the single source of truth - appendToMemory strips any inline comments
+        await appendToMemory(name, "defn", hqlCode, state.getDocstring(name));
       } catch {
         // Silently ignore persistence errors - REPL should continue working
       }

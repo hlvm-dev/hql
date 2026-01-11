@@ -39,8 +39,8 @@ export interface DropdownRenderProps {
   readonly isLoading: boolean;
   readonly helpText: string;
   readonly providerId: ProviderId;
-  /** Whether user has navigated with arrow keys (show DocPanel only then) */
-  readonly hasNavigated: boolean;
+  /** Whether to show DocPanel (toggled with Ctrl+D shortcut) */
+  readonly showDocPanel: boolean;
 }
 
 // ============================================================
@@ -87,6 +87,9 @@ export interface UseCompletionReturn {
 
   /** Get render props for dropdown (encapsulates all state access for rendering) */
   readonly renderProps: DropdownRenderProps | null;
+
+  /** Toggle documentation panel visibility (Ctrl+D) */
+  readonly toggleDocPanel: () => void;
 
   /** Close the dropdown */
   readonly close: () => void;
@@ -372,12 +375,16 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   );
 
   // Get help text from active provider (GENERIC: provider defines its own help text)
+  // Includes docs toggle status indicator
   const activeProviderHelpText = useMemo(() => {
     const providerId = dropdown.state.providerId;
     if (!providerId) return "";
     const provider = ALL_PROVIDERS.find((p) => p.id === providerId);
-    return provider?.helpText ?? "↑↓ navigate • Tab drill • Enter select • Esc cancel";
-  }, [dropdown.state.providerId]);
+    const baseHelp = provider?.helpText ?? "↑↓ navigate • Tab drill • Enter select • Esc cancel";
+    // Show docs toggle status: replace "Ctrl+D docs" with "Ctrl+D docs ON/OFF"
+    const docsStatus = dropdown.state.showDocPanel ? "ON" : "OFF";
+    return baseHelp.replace("Ctrl+D docs", `Ctrl+D docs ${docsStatus}`);
+  }, [dropdown.state.providerId, dropdown.state.showDocPanel]);
 
   // Whether arrow navigation should apply selection (cycling behavior)
   const shouldApplyOnNavigate = useMemo(() => {
@@ -426,11 +433,19 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         isLoading: dropdown.state.isLoading,
         helpText: activeProviderHelpText,
         providerId: dropdown.state.providerId!,
-        hasNavigated: dropdown.state.hasNavigated,
+        showDocPanel: dropdown.state.showDocPanel,
       };
     },
-    [dropdown.isDropdownActive, dropdown.state.items, dropdown.state.selectedIndex, dropdown.state.isLoading, dropdown.state.providerId, dropdown.state.hasNavigated, activeProviderHelpText]
+    [dropdown.isDropdownActive, dropdown.state.items, dropdown.state.selectedIndex, dropdown.state.isLoading, dropdown.state.providerId, dropdown.state.showDocPanel, activeProviderHelpText]
   );
+
+  // ============================================================
+  // Toggle DocPanel (direct pass-through)
+  // ============================================================
+
+  const toggleDocPanel = useCallback(() => {
+    dropdown.toggleDocPanel();
+  }, [dropdown]);
 
   // ============================================================
   // Close Helper (direct pass-through)
@@ -479,10 +494,11 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       navigateUp,
       navigateDown,
       renderProps,
+      toggleDocPanel,
       close,
       getApplyContext,
       selectedItem,
     }),
-    [triggerCompletion, triggerAndApply, handleKey, applySelected, confirmSelected, isVisible, activeProviderId, activeProviderHelpText, shouldApplyOnNavigate, navigateUp, navigateDown, renderProps, close, getApplyContext, selectedItem]
+    [triggerCompletion, triggerAndApply, handleKey, applySelected, confirmSelected, isVisible, activeProviderId, activeProviderHelpText, shouldApplyOnNavigate, navigateUp, navigateDown, renderProps, toggleDocPanel, close, getApplyContext, selectedItem]
   );
 }

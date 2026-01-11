@@ -16,6 +16,7 @@ import {
   selectPrevAction,
   selectIndexAction,
   setLoadingAction,
+  toggleDocPanelAction,
 } from "../../../../src/cli/repl-ink/completion/state.ts";
 import type { DropdownState, CompletionItem, CompletionType, ApplyResult, ApplyContext, ItemRenderSpec } from "../../../../src/cli/repl-ink/completion/types.ts";
 import { INITIAL_DROPDOWN_STATE, TYPE_ICONS } from "../../../../src/cli/repl-ink/completion/types.ts";
@@ -72,7 +73,7 @@ function createOpenState(overrides: Partial<DropdownState> = {}): DropdownState 
     anchorPosition: 0,
     providerId: "symbol",
     isLoading: false,
-    hasNavigated: false,
+    showDocPanel: false,
     originalText: "de",
     originalCursor: 2,
     ...overrides,
@@ -145,11 +146,14 @@ Deno.test("State: OPEN stores original text and cursor for session tracking", ()
 // CLOSE Action Tests
 // ============================================================
 
-Deno.test("State: CLOSE resets to initial state", () => {
-  const state = createOpenState({ selectedIndex: 1, anchorPosition: 5 });
+Deno.test("State: CLOSE resets to initial state but preserves showDocPanel", () => {
+  const state = createOpenState({ selectedIndex: 1, anchorPosition: 5, showDocPanel: true });
 
   const next = dropdownReducer(state, closeAction());
-  assertEquals(next, INITIAL_DROPDOWN_STATE);
+  assertEquals(next.isOpen, false);
+  assertEquals(next.items.length, 0);
+  assertEquals(next.selectedIndex, 0);
+  assertEquals(next.showDocPanel, true); // Preserved as global toggle
 });
 
 Deno.test("State: CLOSE on already closed state is no-op", () => {
@@ -189,11 +193,13 @@ Deno.test("State: SET_ITEMS resets selection when index out of bounds", () => {
   assertEquals(next.selectedIndex, 0);
 });
 
-Deno.test("State: SET_ITEMS with empty items closes dropdown", () => {
-  const state = createOpenState();
+Deno.test("State: SET_ITEMS with empty items closes dropdown but preserves showDocPanel", () => {
+  const state = createOpenState({ showDocPanel: true });
 
   const next = dropdownReducer(state, setItemsAction([]));
-  assertEquals(next, INITIAL_DROPDOWN_STATE);
+  assertEquals(next.isOpen, false);
+  assertEquals(next.items.length, 0);
+  assertEquals(next.showDocPanel, true); // Preserved as global toggle
 });
 
 Deno.test("State: SET_ITEMS clears isLoading", () => {
@@ -294,6 +300,33 @@ Deno.test("State: SET_LOADING sets loading to false", () => {
   const next = dropdownReducer(state, setLoadingAction(false));
 
   assertEquals(next.isLoading, false);
+});
+
+// ============================================================
+// TOGGLE_DOC_PANEL Action Tests
+// ============================================================
+
+Deno.test("State: TOGGLE_DOC_PANEL toggles showDocPanel from false to true", () => {
+  const state = createOpenState({ showDocPanel: false });
+  const next = dropdownReducer(state, toggleDocPanelAction());
+
+  assertEquals(next.showDocPanel, true);
+});
+
+Deno.test("State: TOGGLE_DOC_PANEL toggles showDocPanel from true to false", () => {
+  const state = createOpenState({ showDocPanel: true });
+  const next = dropdownReducer(state, toggleDocPanelAction());
+
+  assertEquals(next.showDocPanel, false);
+});
+
+Deno.test("State: TOGGLE_DOC_PANEL preserves other state", () => {
+  const state = createOpenState({ selectedIndex: 2, showDocPanel: false });
+  const next = dropdownReducer(state, toggleDocPanelAction());
+
+  assertEquals(next.selectedIndex, 2);
+  assertEquals(next.items, sampleItems);
+  assertEquals(next.isOpen, true);
 });
 
 // ============================================================

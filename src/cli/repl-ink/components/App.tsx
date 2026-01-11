@@ -19,6 +19,7 @@ import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { resetContext } from "../../repl/context.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
+import { clearMemory } from "../../repl/memory.ts";
 import type { SessionInitOptions, SessionMeta, SessionMessage } from "../../repl/session/types.ts";
 import { SessionManager } from "../../repl/session/manager.ts";
 
@@ -231,6 +232,11 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
         setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: output, isCommandOutput: true } }]);
         setNextId((n: number) => n + 1);
       }
+      // Refresh memory names if command might have changed memory
+      const cmdLower = code.trim().toLowerCase();
+      if (cmdLower === "/reset" || cmdLower === ".reset" || cmdLower.startsWith("/forget") || cmdLower.startsWith(".forget")) {
+        init.refreshMemoryNames().catch(() => {});
+      }
       setIsEvaluating(false);
       setInput("");
       return;
@@ -272,6 +278,16 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
           if (session) setCurrentSession(session);
         } catch {
           // Session recording failed - continue without sessions
+        }
+      }
+
+      // Refresh memory names if def/defn/forget was evaluated (reactive update)
+      // Use includes() not startsWith() - code may have leading comments
+      if (result.success) {
+        const hasDefinition = expandedCode.includes("(def ") || expandedCode.includes("(defn ");
+        const hasForget = expandedCode.includes("forget(") || expandedCode.includes("(forget ");
+        if (hasDefinition || hasForget) {
+          init.refreshMemoryNames().catch(() => {});
         }
       }
     } catch (error) {
@@ -397,7 +413,8 @@ async function handleCommand(
     case "/reset":
       repl.reset();
       resetContext();
-      return "REPL state reset";
+      await clearMemory();
+      return "REPL state reset. All bindings and memory cleared.";
   }
 
   // Delegate to centralized command handler (captures console output)

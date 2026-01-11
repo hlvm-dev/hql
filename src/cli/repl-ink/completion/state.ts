@@ -33,19 +33,25 @@ export function dropdownReducer(
         anchorPosition: action.anchor,
         providerId: action.providerId,
         isLoading: false,
-        hasNavigated: false, // Reset on open
+        showDocPanel: state.showDocPanel, // PRESERVE - global UI toggle
         // Session tracking - remember original state for cycling
         originalText: action.originalText,
         originalCursor: action.originalCursor,
       };
 
     case "CLOSE":
-      return INITIAL_DROPDOWN_STATE;
+      return {
+        ...INITIAL_DROPDOWN_STATE,
+        showDocPanel: state.showDocPanel, // PRESERVE - global UI toggle
+      };
 
     case "SET_ITEMS": {
       if (action.items.length === 0) {
-        // No items - close dropdown
-        return INITIAL_DROPDOWN_STATE;
+        // No items - close dropdown (but preserve showDocPanel toggle)
+        return {
+          ...INITIAL_DROPDOWN_STATE,
+          showDocPanel: state.showDocPanel,
+        };
       }
 
       // Preserve selection if still valid, otherwise reset to 0
@@ -59,7 +65,7 @@ export function dropdownReducer(
         items: action.items,
         selectedIndex: newSelectedIndex,
         isLoading: false,
-        hasNavigated: false, // Reset on typing (items changed)
+        // Note: showDocPanel preserved on typing - user toggled it explicitly
       };
     }
 
@@ -71,7 +77,6 @@ export function dropdownReducer(
       return {
         ...state,
         selectedIndex: nextIndex,
-        hasNavigated: true, // User navigated with arrow key
       };
     }
 
@@ -84,7 +89,6 @@ export function dropdownReducer(
       return {
         ...state,
         selectedIndex: prevIndex,
-        hasNavigated: true, // User navigated with arrow key
       };
     }
 
@@ -102,6 +106,12 @@ export function dropdownReducer(
       return {
         ...state,
         isLoading: action.loading,
+      };
+
+    case "TOGGLE_DOC_PANEL":
+      return {
+        ...state,
+        showDocPanel: !state.showDocPanel,
       };
 
     default:
@@ -194,4 +204,11 @@ export function selectIndexAction(index: number): DropdownAction {
  */
 export function setLoadingAction(loading: boolean): DropdownAction {
   return { type: "SET_LOADING", loading };
+}
+
+/**
+ * Create a TOGGLE_DOC_PANEL action.
+ */
+export function toggleDocPanelAction(): DropdownAction {
+  return { type: "TOGGLE_DOC_PANEL" };
 }
