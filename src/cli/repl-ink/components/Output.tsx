@@ -4,7 +4,7 @@
  * Uses shared formatter from src/cli/repl/formatter.ts (Single Source of Truth)
  */
 
-import React from "npm:react@18";
+import React, { useEffect } from "npm:react@18";
 import { Text, Box, useInput } from "npm:ink@5";
 import type { EvalResult } from "../types.ts";
 import { renderMarkdown, hasMarkdown } from "../../repl/markdown.ts";
@@ -13,12 +13,17 @@ import { StreamingStatus } from "./StreamingStatus.tsx";
 import { formatValue } from "../../repl/formatter.ts";  // Single Source of Truth
 import { useTheme } from "../../theme/index.ts";
 
-export function Output({ result }: { result: EvalResult }): React.ReactElement | null {
+interface OutputProps {
+  result: EvalResult;
+  onStreamComplete?: () => void;
+}
+
+export function Output({ result, onStreamComplete }: OutputProps): React.ReactElement | null {
   const { color } = useTheme();
 
   // Streaming (async iterator)
   if (result.value && typeof result.value === "object" && Symbol.asyncIterator in (result.value as object)) {
-    return <StreamingOutput iterator={result.value as AsyncIterableIterator<string>} />;
+    return <StreamingOutput iterator={result.value as AsyncIterableIterator<string>} onComplete={onStreamComplete} />;
   }
 
   if (result.suppressOutput) return null;
@@ -45,7 +50,12 @@ export function Output({ result }: { result: EvalResult }): React.ReactElement |
   return <Text>{formatted}</Text>;
 }
 
-function StreamingOutput({ iterator }: { iterator: AsyncIterableIterator<string> }): React.ReactElement {
+interface StreamingOutputProps {
+  iterator: AsyncIterableIterator<string>;
+  onComplete?: () => void;
+}
+
+function StreamingOutput({ iterator, onComplete }: StreamingOutputProps): React.ReactElement {
   const { color } = useTheme();
 
   // Higher throttle (100ms) = fewer re-renders = smoother streaming
@@ -58,6 +68,13 @@ function StreamingOutput({ iterator }: { iterator: AsyncIterableIterator<string>
       cancel();
     }
   });
+
+  // Signal completion to parent when streaming finishes
+  useEffect(() => {
+    if (isDone && onComplete) {
+      onComplete();
+    }
+  }, [isDone, onComplete]);
 
   // Show error if streaming failed (but preserve any partial content)
   if (error) {

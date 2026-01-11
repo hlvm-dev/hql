@@ -843,6 +843,31 @@ export function Input({
         return;
       }
 
+      // Ctrl+U: clear query (standard readline)
+      if (key.ctrl && input === 'u') {
+        historySearch.actions.setQuery('');
+        return;
+      }
+
+      // Ctrl+W: delete word backward (simplified - operates from end)
+      if (key.ctrl && input === 'w') {
+        const query = historySearch.state.query;
+        if (query.length > 0) {
+          // Skip trailing whitespace, then delete word
+          let pos = query.length;
+          while (pos > 0 && query[pos - 1] === ' ') pos--;
+          while (pos > 0 && query[pos - 1] !== ' ') pos--;
+          historySearch.actions.setQuery(query.slice(0, pos));
+        }
+        return;
+      }
+
+      // Ctrl+A: move to start (clear query acts as "start" for search)
+      if (key.ctrl && input === 'a') {
+        historySearch.actions.setQuery('');
+        return;
+      }
+
       // Backspace/Delete: remove last char from query
       // FIX NEW-2: Support both Backspace and Delete keys
       if (key.backspace || key.delete) {

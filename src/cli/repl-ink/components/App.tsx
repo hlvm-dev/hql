@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "npm:react@18";
-import { Box, Text, useInput, useApp } from "npm:ink@5";
+import { Box, Text, useInput, useApp, Static } from "npm:ink@5";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
@@ -33,6 +33,7 @@ interface HistoryEntry {
   id: number;
   input: string;
   result: EvalResult;
+  isComplete?: boolean;  // false = streaming, true/undefined = complete
 }
 
 interface AppProps {
@@ -178,8 +179,9 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         // Convert messages to history entries and restore conversation
         const { entries, nextId: newNextId } = convertMessagesToHistory(loaded.messages, 1);
 
-        // Restore the conversation history
-        setHistory(entries);
+        // Restore the conversation history (mark all as complete)
+        const completedEntries = entries.map(e => ({ ...e, isComplete: true }));
+        setHistory(completedEntries);
         setCurrentSession(loaded.meta);
 
         // Add "Resumed" notification at the end
@@ -187,6 +189,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
           id: newNextId,
           input: pendingResumeInput || "/resume",
           result: { success: true, value: `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)` },
+          isComplete: true,
         }]);
         setNextId(newNextId + 1);
       } else {
@@ -195,6 +198,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
           id: nextId,
           input: pendingResumeInput || "/resume",
           result: { success: false, error: new Error(`Session not found: ${session.title}`) },
+          isComplete: true,
         }]);
         setNextId((n: number) => n + 1);
       }
@@ -210,6 +214,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         id: nextId,
         input: pendingResumeInput,
         result: { success: true, value: "Cancelled" },
+        isComplete: true,
       }]);
       setNextId((n: number) => n + 1);
       setPendingResumeInput(null);
@@ -248,12 +253,12 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     // Handle /resume command
     if (normalized === "/resume") {
       if (!sessionManagerRef.current) {
-        setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: "Session management not available" } }]);
+        setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: "Session management not available" }, isComplete: true }]);
         setNextId((n: number) => n + 1);
       } else {
         const sessions = await sessionManagerRef.current.listForProject(20);
         if (sessions.length === 0) {
-          setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: "No sessions found" } }]);
+          setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: "No sessions found" }, isComplete: true }]);
           setNextId((n: number) => n + 1);
         } else {
           setPendingResumeInput(code);  // Store command for history
@@ -266,11 +271,23 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       return;
     }
 
+    // Handle /clear command - clear screen and history (fallback for Cmd+K)
+    if (normalized === "/clear") {
+      clearTerminal();
+      setHistory([]);
+      setNextId(1);
+      setHasBeenCleared(true);
+      setClearKey((k: number) => k + 1);
+      setIsEvaluating(false);
+      setInput("");
+      return;
+    }
+
     // Commands (supports both /command and .command)
     if (isCommand(code)) {
       const output = await handleCommand(code, repl, exit, replState);
       if (output !== null) {
-        setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: output, isCommandOutput: true } }]);
+        setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: output, isCommandOutput: true }, isComplete: true }]);
         setNextId((n: number) => n + 1);
       }
       // FRP: memoryNames auto-update via ReplContext when bindings change
@@ -288,8 +305,16 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     // Use expandedCode which has text attachment placeholders replaced with actual content
     try {
       const result = await repl.evaluate(expandedCode, attachments);
+      // Detect if result is streaming (async iterator)
+      const isStreaming = result.value && typeof result.value === "object" &&
+        Symbol.asyncIterator in (result.value as object);
       // Show original code in history (with placeholders) for cleaner display
-      setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result }]);
+      setHistory((prev: HistoryEntry[]) => [...prev, {
+        id: nextId,
+        input: code,
+        result,
+        isComplete: !isStreaming  // false if streaming, true otherwise
+      }]);
       setNextId((n: number) => n + 1);
 
       // Auto-save to session (only for non-error results)
@@ -324,6 +349,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         id: nextId,
         input: code,
         result: { success: false, error: error instanceof Error ? error : new Error(String(error)) },
+        isComplete: true,
       }]);
       setNextId((n: number) => n + 1);
     }
@@ -401,14 +427,38 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         )
       )}
 
-      {/* History of inputs and outputs */}
-      {history.map((entry: HistoryEntry) => (
+      {/* Completed history - rendered once via Static, won't re-render on keystrokes */}
+      {/* React.Fragment with key forces remount of Static when clearKey changes */}
+      <React.Fragment key={`static-${clearKey}`}>
+        <Static
+          items={history.filter((e: HistoryEntry) => e.isComplete !== false)}
+          children={(entry: HistoryEntry) => (
+            <Box key={entry.id} flexDirection="column">
+              <Box>
+                <Text color={color("primary")} bold>{repl.jsMode ? "js>" : "hql>"} </Text>
+                <Text>{entry.input}</Text>
+              </Box>
+              <Output result={entry.result} />
+            </Box>
+          )}
+        />
+      </React.Fragment>
+
+      {/* Active streaming entries - outside Static so they can update */}
+      {history.filter((e: HistoryEntry) => e.isComplete === false).map((entry: HistoryEntry) => (
         <Box key={entry.id} flexDirection="column">
           <Box>
             <Text color={color("primary")} bold>{repl.jsMode ? "js>" : "hql>"} </Text>
             <Text>{entry.input}</Text>
           </Box>
-          <Output result={entry.result} />
+          <Output
+            result={entry.result}
+            onStreamComplete={() => {
+              setHistory((prev: HistoryEntry[]) => prev.map((e: HistoryEntry) =>
+                e.id === entry.id ? { ...e, isComplete: true } : e
+              ));
+            }}
+          />
         </Box>
       ))}
 

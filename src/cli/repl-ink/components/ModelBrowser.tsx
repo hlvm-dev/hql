@@ -13,6 +13,7 @@ import { ProgressBar, formatBytes } from "./ProgressBar.tsx";
 import type { ModelPullTask } from "../../repl/task-manager/types.ts";
 import { isModelPullTask, isTaskActive } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
+import { handleTextEditingKey } from "../utils/text-editing.ts";
 
 // ============================================================
 // Types
@@ -203,6 +204,7 @@ export function ModelBrowser({
   const [remoteModels, setRemoteModels] = useState<RemoteModel[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchCursor, setSearchCursor] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -325,12 +327,19 @@ export function ModelBrowser({
       if (key.escape) {
         setIsSearching(false);
         setSearchQuery("");
-      } else if (key.return) {
+        setSearchCursor(0);
+        return;
+      }
+      if (key.return) {
         setIsSearching(false);
-      } else if (key.backspace || key.delete) {
-        setSearchQuery((q: string) => q.slice(0, -1));
-      } else if (input && input.length === 1 && !key.ctrl && !key.meta) {
-        setSearchQuery((q: string) => q + input);
+        return;
+      }
+
+      // Text editing shortcuts (Ctrl+A/E/W/U/K, word nav, arrows, backspace, typing)
+      const result = handleTextEditingKey(input, key, searchQuery, searchCursor);
+      if (result) {
+        setSearchQuery(result.value);
+        setSearchCursor(result.cursor);
       }
       return;
     }
@@ -346,6 +355,7 @@ export function ModelBrowser({
     // Search
     if (input === "/") {
       setIsSearching(true);
+      setSearchCursor(searchQuery.length); // Start at end of existing query
     }
 
     // Select/Download
@@ -408,7 +418,9 @@ export function ModelBrowser({
         <Text dimColor>Search: </Text>
         {isSearching ? (
           <>
-            <Text inverse>{searchQuery}_</Text>
+            <Text>{searchQuery.slice(0, searchCursor)}</Text>
+            <Text inverse>{searchQuery[searchCursor] || " "}</Text>
+            <Text>{searchQuery.slice(searchCursor + 1)}</Text>
             <Text dimColor>  (Esc cancel, Enter confirm)</Text>
           </>
         ) : searchQuery ? (

@@ -13,6 +13,7 @@
 
 import React, { useState, useEffect, useCallback } from "npm:react@18";
 import { Box, Text, useInput } from "npm:ink@5";
+import { handleTextEditingKey } from "../utils/text-editing.ts";
 import {
   type ConfigKey,
   type HqlConfig,
@@ -86,6 +87,7 @@ export function ConfigPanel({ onClose, onOpenModelBrowser }: ConfigPanelProps): 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [mode, setMode] = useState<Mode>("navigate");
   const [editValue, setEditValue] = useState("");
+  const [editCursor, setEditCursor] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
@@ -189,7 +191,9 @@ export function ConfigPanel({ onClose, onOpenModelBrowser }: ConfigPanelProps): 
     if (key.return) {
       if (fieldMeta.type === "input") {
         const currentValue = config[selectedKey as keyof HqlConfig];
-        setEditValue(String(currentValue));
+        const valueStr = String(currentValue);
+        setEditValue(valueStr);
+        setEditCursor(valueStr.length); // Start cursor at end
         setMode("edit");
         setError(null);
       } else if (selectedKey === "model" && onOpenModelBrowser) {
@@ -240,6 +244,7 @@ export function ConfigPanel({ onClose, onOpenModelBrowser }: ConfigPanelProps): 
     if (key.escape) {
       setMode("navigate");
       setEditValue("");
+      setEditCursor(0);
       setError(null);
       return;
     }
@@ -250,15 +255,11 @@ export function ConfigPanel({ onClose, onOpenModelBrowser }: ConfigPanelProps): 
       return;
     }
 
-    // Backspace
-    if (key.backspace || key.delete) {
-      setEditValue((v: string) => v.slice(0, -1));
-      return;
-    }
-
-    // Type character
-    if (input && !key.ctrl && !key.meta) {
-      setEditValue((v: string) => v + input);
+    // Text editing shortcuts (Ctrl+A/E/W/U/K, word nav, arrows, backspace, typing)
+    const result = handleTextEditingKey(input, key, editValue, editCursor);
+    if (result) {
+      setEditValue(result.value);
+      setEditCursor(result.cursor);
     }
   }
 
@@ -377,7 +378,11 @@ export function ConfigPanel({ onClose, onOpenModelBrowser }: ConfigPanelProps): 
               {/* Value */}
               <Box width={32}>
                 {isEditing ? (
-                  <Text inverse>{editValue}<Text color={color("accent")}>|</Text></Text>
+                  <Text>
+                    {editValue.slice(0, editCursor)}
+                    <Text inverse>{editValue[editCursor] || " "}</Text>
+                    {editValue.slice(editCursor + 1)}
+                  </Text>
                 ) : (
                   <Box>
                     {isSelected && isSelectType && <Text color={color("accent")}>{"\u25c0"} </Text>}

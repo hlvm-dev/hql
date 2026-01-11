@@ -22,6 +22,7 @@ import {
   hexToRgb,
 } from "../overlay/index.ts";
 import { useTheme } from "../../theme/index.ts";
+import { handleTextEditingKey } from "../utils/text-editing.ts";
 
 // ============================================================
 // Types
@@ -82,9 +83,10 @@ export function CommandPaletteOverlay({
 }: CommandPaletteOverlayProps): React.ReactElement | null {
   const { theme } = useTheme();
   const [query, setQuery] = useState("");
+  const [cursorPos, setCursorPos] = useState(0); // Text cursor position
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
-  const [cursorVisible, setCursorVisible] = useState(true);
+  const [cursorVisible, setCursorVisible] = useState(true); // Blink state
   const overlayPosRef = useRef({ x: 0, y: 0 });
   const isFirstRender = useRef(true);
 
@@ -181,21 +183,23 @@ export function CommandPaletteOverlay({
     if (pos.x === 0 && pos.y === 0) return; // Not positioned yet
 
     const searchY = pos.y + PADDING_TOP + 2;
-    const cursorX = pos.x + PADDING_LEFT + query.length;
+    const cursorX = pos.x + PADDING_LEFT + cursorPos;
 
     let output = ansi.cursorSave + ansi.cursorHide;
     output += ansi.cursorTo(cursorX, searchY);
     output += bgStyle;
 
+    // Show character under cursor (or space if at end)
+    const charAtCursor = query[cursorPos] || " ";
     if (cursorVisible) {
-      output += ansi.inverse + " " + ansi.reset;
+      output += ansi.inverse + charAtCursor + ansi.reset;
     } else {
-      output += " ";
+      output += charAtCursor;
     }
 
     output += ansi.cursorRestore + ansi.cursorShow;
     Deno.stdout.writeSync(encoder.encode(output));
-  }, [query.length, cursorVisible, bgStyle]);
+  }, [query, cursorPos, cursorVisible, bgStyle]);
 
   // Draw full palette
   const drawPalette = useCallback(() => {
@@ -240,15 +244,24 @@ export function CommandPaletteOverlay({
     const searchWidth = PALETTE_WIDTH - PADDING_LEFT - PADDING_RIGHT;
     if (query) {
       const displayQuery = query.slice(0, searchWidth - 2);
-      output += displayQuery;
-      // Cursor (will be updated by drawCursor)
+      const displayCursorPos = Math.min(cursorPos, displayQuery.length);
+
+      // Text before cursor
+      output += displayQuery.slice(0, displayCursorPos);
+
+      // Cursor character (character under cursor or space if at end)
+      const charAtCursor = displayQuery[displayCursorPos] || " ";
       if (cursorVisible) {
-        output += ansi.inverse + " " + ansi.reset + bgStyle;
+        output += ansi.inverse + charAtCursor + ansi.reset + bgStyle;
       } else {
-        output += " ";
+        output += charAtCursor;
       }
+
+      // Text after cursor
+      output += displayQuery.slice(displayCursorPos + 1);
       output += " ".repeat(Math.max(0, searchWidth - displayQuery.length - 1));
     } else {
+      // Empty query - show placeholder with cursor at start
       output += ansi.fg(mutedColor[0], mutedColor[1], mutedColor[2]);
       if (cursorVisible) {
         output += ansi.inverse + "S" + ansi.reset + bgStyle;
@@ -355,7 +368,7 @@ export function CommandPaletteOverlay({
     output += ansi.cursorShow;
 
     Deno.stdout.writeSync(encoder.encode(output));
-  }, [query, cursorVisible, flatList, selectableItems, selectedIndex, scrollOffset,
+  }, [query, cursorPos, cursorVisible, flatList, selectableItems, selectedIndex, scrollOffset,
       highlightColor, categoryColor, primaryColor, mutedColor, bgStyle]);
 
   // Cursor blink effect - only redraws cursor, not full palette
@@ -376,7 +389,7 @@ export function CommandPaletteOverlay({
   useEffect(() => {
     drawPalette();
     isFirstRender.current = false;
-  }, [query, selectedIndex, scrollOffset, flatList]);
+  }, [query, cursorPos, selectedIndex, scrollOffset, flatList]);
 
   // Reset cursor visibility when typing
   useEffect(() => {
@@ -415,6 +428,7 @@ export function CommandPaletteOverlay({
       return;
     }
 
+    // List navigation - Ctrl+P/N for up/down (don't intercept for text editing)
     if (key.upArrow || (key.ctrl && input === "p")) {
       if (selectableItems.length === 0) return;
       setSelectedIndex((i: number) => (i <= 0 ? selectableItems.length - 1 : i - 1));
@@ -439,13 +453,12 @@ export function CommandPaletteOverlay({
       return;
     }
 
-    if (key.backspace || key.delete) {
-      setQuery((q: string) => q.slice(0, -1));
+    // Text editing shortcuts (Ctrl+A/E/W/U/K, word nav, arrows, backspace, typing)
+    const result = handleTextEditingKey(input, key, query, cursorPos);
+    if (result) {
+      setQuery(result.value);
+      setCursorPos(result.cursor);
       return;
-    }
-
-    if (input && !key.ctrl && !key.meta && input.length === 1) {
-      setQuery((q: string) => q + input);
     }
   });
 
