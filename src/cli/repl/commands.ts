@@ -46,9 +46,8 @@ ${BOLD}Slash Commands:${RESET}
 
 ${BOLD}Keyboard Shortcuts:${RESET}
 
-  ${YELLOW}Tab${RESET}        Complete / cycle forward through options
-  ${YELLOW}Shift+Tab${RESET}  Cycle backward through options
-  ${YELLOW}Up/Down${RESET}    Navigate history
+  ${YELLOW}Tab${RESET}        Complete / select completion
+  ${YELLOW}Up/Down${RESET}    Navigate completions or history
   ${YELLOW}→ / End${RESET}    Accept ghost suggestion
   ${YELLOW}Ctrl+C${RESET}     Cancel current input (twice to exit)
   ${YELLOW}Ctrl+D${RESET}     Exit REPL
