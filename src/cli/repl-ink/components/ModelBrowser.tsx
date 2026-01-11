@@ -52,59 +52,71 @@ type DisplayModel = {
 };
 
 // ============================================================
-// Popular Models Catalog (same as in ollama-runtime)
+// Remote Models - Fetched from Ollama's official API
 // ============================================================
 
-const POPULAR_MODELS: RemoteModel[] = [
-  // Llama family
-  { name: "llama3.2:3b", description: "Meta Llama 3.2 - 3B", capabilities: ["text", "tools"] },
-  { name: "llama3.2:latest", description: "Meta Llama 3.2 - default", capabilities: ["text", "tools"] },
-  { name: "llama3.1:8b", description: "Meta Llama 3.1 - 8B", capabilities: ["text", "tools"] },
-  { name: "llama3.1:70b", description: "Meta Llama 3.1 - 70B", capabilities: ["text", "tools"] },
-  { name: "llama3.3:70b", description: "Meta Llama 3.3 - 70B", capabilities: ["text", "tools"] },
-  { name: "codellama:7b", description: "Meta Code Llama - 7B", capabilities: ["text"] },
-  { name: "codellama:13b", description: "Meta Code Llama - 13B", capabilities: ["text"] },
-  // Qwen family
-  { name: "qwen2.5:3b", description: "Alibaba Qwen 2.5 - 3B", capabilities: ["text", "tools"] },
-  { name: "qwen2.5:7b", description: "Alibaba Qwen 2.5 - 7B", capabilities: ["text", "tools"] },
-  { name: "qwen2.5:14b", description: "Alibaba Qwen 2.5 - 14B", capabilities: ["text", "tools"] },
-  { name: "qwen2.5:32b", description: "Alibaba Qwen 2.5 - 32B", capabilities: ["text", "tools"] },
-  { name: "qwen2.5-coder:7b", description: "Qwen 2.5 Coder - 7B", capabilities: ["text", "tools"] },
-  { name: "qwen2.5-coder:14b", description: "Qwen 2.5 Coder - 14B", capabilities: ["text", "tools"] },
-  { name: "qwq:32b", description: "Alibaba QwQ - reasoning", capabilities: ["text", "thinking"] },
-  // DeepSeek family
-  { name: "deepseek-r1:7b", description: "DeepSeek R1 - 7B reasoning", capabilities: ["text", "thinking"] },
-  { name: "deepseek-r1:14b", description: "DeepSeek R1 - 14B reasoning", capabilities: ["text", "thinking"] },
-  { name: "deepseek-r1:32b", description: "DeepSeek R1 - 32B reasoning", capabilities: ["text", "thinking"] },
-  { name: "deepseek-coder-v2:16b", description: "DeepSeek Coder V2 - 16B", capabilities: ["text"] },
-  // Mistral family
-  { name: "mistral:7b", description: "Mistral 7B", capabilities: ["text", "tools"] },
-  { name: "mistral-small:22b", description: "Mistral Small - 22B", capabilities: ["text", "tools"] },
-  { name: "mixtral:8x7b", description: "Mixtral 8x7B MoE", capabilities: ["text", "tools"] },
-  // Google Gemma
-  { name: "gemma2:2b", description: "Google Gemma 2 - 2B", capabilities: ["text"] },
-  { name: "gemma2:9b", description: "Google Gemma 2 - 9B", capabilities: ["text"] },
-  { name: "gemma2:27b", description: "Google Gemma 2 - 27B", capabilities: ["text"] },
-  // Microsoft Phi
-  { name: "phi3:mini", description: "Microsoft Phi-3 Mini", capabilities: ["text"] },
-  { name: "phi3:medium", description: "Microsoft Phi-3 Medium", capabilities: ["text"] },
-  { name: "phi4:14b", description: "Microsoft Phi-4 - 14B", capabilities: ["text"] },
-  // Vision models
-  { name: "llava:7b", description: "LLaVA Vision - 7B", capabilities: ["text", "vision"] },
-  { name: "llava:13b", description: "LLaVA Vision - 13B", capabilities: ["text", "vision"] },
-  { name: "llama3.2-vision:11b", description: "Llama 3.2 Vision - 11B", capabilities: ["text", "vision"] },
-  // Coding models
-  { name: "starcoder2:3b", description: "StarCoder2 - 3B", capabilities: ["text"] },
-  { name: "starcoder2:7b", description: "StarCoder2 - 7B", capabilities: ["text"] },
-  // Embedding models
-  { name: "nomic-embed-text", description: "Nomic Embed Text", capabilities: ["embedding"] },
-  { name: "mxbai-embed-large", description: "MixedBread Embed Large", capabilities: ["embedding"] },
-  // Other popular models
-  { name: "dolphin-mixtral:8x7b", description: "Dolphin Mixtral - uncensored", capabilities: ["text"] },
-  { name: "neural-chat:7b", description: "Intel Neural Chat - 7B", capabilities: ["text"] },
-  { name: "yi:34b", description: "01.AI Yi - 34B", capabilities: ["text"] },
-  { name: "command-r:35b", description: "Cohere Command-R - 35B", capabilities: ["text", "tools"] },
-];
+// Ollama's official registry API endpoint
+const OLLAMA_REGISTRY_API = "https://ollama.com/api/tags";
+
+/**
+ * Fetch available models from Ollama's official registry API.
+ * This returns real, verified model names directly from Ollama.
+ */
+async function fetchRemoteModels(): Promise<RemoteModel[]> {
+  try {
+    const response = await fetch(OLLAMA_REGISTRY_API, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    const models = data.models || [];
+
+    return models.map((m: { name: string; size?: number }) => ({
+      name: m.name,
+      description: formatModelDescription(m.name),
+      capabilities: inferCapabilities(m.name),
+    }));
+  } catch {
+    // Fallback to empty - user can still type model names manually
+    return [];
+  }
+}
+
+/** Infer capabilities from model name */
+function inferCapabilities(name: string): string[] {
+  const n = name.toLowerCase();
+  const caps: string[] = ["text"];
+
+  if (n.includes("vision") || n.includes("llava") || n.includes("-vl")) {
+    caps.push("vision");
+  }
+  if (n.includes("embed")) {
+    return ["embedding"];
+  }
+  if (n.includes("r1") || n.includes("qwq") || n.includes("thinking")) {
+    caps.push("thinking");
+  }
+  if (n.includes("coder") || n.includes("code") || n.includes("starcoder")) {
+    // coding models still have "text" capability
+  }
+  return caps;
+}
+
+/** Format model name into description */
+function formatModelDescription(name: string): string {
+  // Extract base name and size
+  const [base, tag] = name.split(":");
+  const size = tag ? ` - ${tag.toUpperCase()}` : "";
+
+  // Capitalize base name nicely
+  const formatted = base
+    .split("-")
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+  return `${formatted}${size}`;
+}
 
 // ============================================================
 // Model Item Component
@@ -188,12 +200,13 @@ export function ModelBrowser({
 
   // State
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
+  const [remoteModels, setRemoteModels] = useState<RemoteModel[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Fetch local models
+  // Fetch local models from user's Ollama instance
   const fetchModels = useCallback(async () => {
     try {
       const response = await fetch(`${endpoint}/api/tags`, {
@@ -218,6 +231,11 @@ export function ModelBrowser({
   useEffect(() => {
     fetchModels();
   }, [fetchModels]);
+
+  // Fetch remote models from Ollama registry on mount
+  useEffect(() => {
+    fetchRemoteModels().then(setRemoteModels);
+  }, []);
 
   // Auto-refresh when downloads complete
   useEffect(() => {
@@ -267,8 +285,8 @@ export function ModelBrowser({
       }
     }
 
-    // Add available (not local, not downloading)
-    for (const model of POPULAR_MODELS) {
+    // Add available from Ollama registry (not local, not downloading)
+    for (const model of remoteModels) {
       if (!localNames.has(model.name) && !downloadingTasks.some((t) => t.modelName === model.name)) {
         result.push({
           name: model.name,
@@ -291,7 +309,7 @@ export function ModelBrowser({
     }
 
     return result;
-  }, [localModels, tasks, searchQuery]);
+  }, [localModels, remoteModels, tasks, searchQuery]);
 
   // Clamp selection
   useEffect(() => {

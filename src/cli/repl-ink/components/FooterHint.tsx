@@ -12,7 +12,7 @@ export function FooterHint(): React.ReactElement {
   return (
     <Box marginLeft={5}>
       <Text dimColor>
-        Ctrl+P commands | Tab complete | Ctrl+R history
+        Ctrl+P commands | Tab complete | Ctrl+R history | Ctrl+L clear
       </Text>
     </Box>
   );

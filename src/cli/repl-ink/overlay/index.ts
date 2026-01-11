@@ -1,19 +1,14 @@
 /**
  * Overlay Module
  *
- * Provides true floating overlay support for Ink applications
+ * Core utilities for drawing floating overlays on top of Ink's output
  * using raw ANSI escape codes for absolute positioning.
  */
 
 export {
-  drawOverlay,
-  clearOverlay,
-  centerOverlay,
-  getTerminalSize,
   ansi,
-  box,
-  type OverlayConfig,
-  type OverlayLine,
+  clearOverlay,
+  getTerminalSize,
+  hexToRgb,
+  type ClearRegion,
 } from "./renderer.ts";
-
-export { useOverlay, textToLines, type UseOverlayOptions } from "./useOverlay.ts";

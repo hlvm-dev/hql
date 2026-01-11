@@ -342,8 +342,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     // HANDLER and INFO types don't execute from palette
   }, [handleSubmit]);
 
-  // Global shortcuts (Ctrl+C exit, Ctrl+L clear, Ctrl+P palette, Ctrl+B tasks, ESC cancel)
-  // Note: Cmd+K is intercepted by terminal emulator, use Ctrl+L instead
+  // Global shortcuts (Ctrl+C exit, Ctrl+L/Cmd+K clear, Ctrl+P palette, Ctrl+B tasks, ESC cancel)
   useInput((char, key) => {
     if (key.ctrl && char === "c") exit();
     if (key.ctrl && char === "p") {
@@ -362,7 +361,10 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       }
       return;
     }
-    if (key.ctrl && char === "l") {
+    // Ctrl+L or Cmd+K: Clear screen and history
+    // Note: Cmd+K may be intercepted by terminal emulator first, sending ANSI clear
+    // but we still need to clear React state to prevent content from reappearing on re-render
+    if ((key.ctrl && char === "l") || (key.meta && char === "k")) {
       // Clear terminal first
       clearTerminal();
       // Then clear React state
@@ -370,6 +372,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       setNextId(1);
       setHasBeenCleared(true); // Hide banner after clear
       setClearKey((k: number) => k + 1); // Force full re-render
+      return;
     }
     // ESC during evaluation: cancel/interrupt (Claude Code behavior)
     if (key.escape && isEvaluating) {
