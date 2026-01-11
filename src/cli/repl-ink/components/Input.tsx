@@ -1663,6 +1663,7 @@ export function Input({
           selectedIndex={completion.renderProps.selectedIndex}
           helpText={completion.renderProps.helpText}
           isLoading={completion.renderProps.isLoading}
+          hasNavigated={completion.renderProps.hasNavigated}
         />
       )}
 

@@ -33,6 +33,7 @@ export function dropdownReducer(
         anchorPosition: action.anchor,
         providerId: action.providerId,
         isLoading: false,
+        hasNavigated: false, // Reset on open
         // Session tracking - remember original state for cycling
         originalText: action.originalText,
         originalCursor: action.originalCursor,
@@ -58,6 +59,7 @@ export function dropdownReducer(
         items: action.items,
         selectedIndex: newSelectedIndex,
         isLoading: false,
+        hasNavigated: false, // Reset on typing (items changed)
       };
     }
 
@@ -69,6 +71,7 @@ export function dropdownReducer(
       return {
         ...state,
         selectedIndex: nextIndex,
+        hasNavigated: true, // User navigated with arrow key
       };
     }
 
@@ -81,6 +84,7 @@ export function dropdownReducer(
       return {
         ...state,
         selectedIndex: prevIndex,
+        hasNavigated: true, // User navigated with arrow key
       };
     }
 

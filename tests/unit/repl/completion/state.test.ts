@@ -72,6 +72,7 @@ function createOpenState(overrides: Partial<DropdownState> = {}): DropdownState 
     anchorPosition: 0,
     providerId: "symbol",
     isLoading: false,
+    hasNavigated: false,
     originalText: "de",
     originalCursor: 2,
     ...overrides,

@@ -39,6 +39,8 @@ export interface DropdownRenderProps {
   readonly isLoading: boolean;
   readonly helpText: string;
   readonly providerId: ProviderId;
+  /** Whether user has navigated with arrow keys (show DocPanel only then) */
+  readonly hasNavigated: boolean;
 }
 
 // ============================================================
@@ -424,9 +426,10 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         isLoading: dropdown.state.isLoading,
         helpText: activeProviderHelpText,
         providerId: dropdown.state.providerId!,
+        hasNavigated: dropdown.state.hasNavigated,
       };
     },
-    [dropdown.isDropdownActive, dropdown.state.items, dropdown.state.selectedIndex, dropdown.state.isLoading, dropdown.state.providerId, activeProviderHelpText]
+    [dropdown.isDropdownActive, dropdown.state.items, dropdown.state.selectedIndex, dropdown.state.isLoading, dropdown.state.providerId, dropdown.state.hasNavigated, activeProviderHelpText]
   );
 
   // ============================================================

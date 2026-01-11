@@ -202,6 +202,8 @@ interface DropdownProps {
   readonly marginLeft?: number;
   /** Max visible items (default 8) */
   readonly maxVisible?: number;
+  /** Whether user has navigated with arrow keys (only show DocPanel then) */
+  readonly hasNavigated?: boolean;
 }
 
 /**
@@ -226,6 +228,7 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
     isLoading,
     marginLeft = 5,
     maxVisible = MAX_VISIBLE_ITEMS,
+    hasNavigated = false,
   } = props;
 
   // Don't render if no items and not loading
@@ -294,8 +297,8 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
         <Text dimColor>  {helpText}</Text>
       )}
 
-      {/* Extended documentation panel (when selected item has docs) */}
-      {extendedDoc && <DocPanel doc={extendedDoc} />}
+      {/* Extended documentation panel (only when user has navigated with arrow keys) */}
+      {hasNavigated && extendedDoc && <DocPanel doc={extendedDoc} />}
     </Box>
   );
 }

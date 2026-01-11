@@ -184,7 +184,8 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
     let expandedCode = code;
     if (attachments) {
       for (const att of attachments) {
-        if (att.type === "text") {
+        // TextAttachment has 'content', regular Attachment has 'base64Data'
+        if ("content" in att) {
           expandedCode = expandedCode.replace(att.displayName, att.content);
         }
       }

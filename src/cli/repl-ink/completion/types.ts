@@ -203,6 +203,9 @@ export interface DropdownState {
   /** Loading state for async providers */
   readonly isLoading: boolean;
 
+  /** Whether user has navigated with arrow keys (for showing DocPanel) */
+  readonly hasNavigated: boolean;
+
   // ============================================================
   // Session Tracking (for Tab cycling)
   // ============================================================
@@ -224,6 +227,7 @@ export const INITIAL_DROPDOWN_STATE: DropdownState = {
   anchorPosition: 0,
   providerId: null,
   isLoading: false,
+  hasNavigated: false,
   // Session tracking
   originalText: "",
   originalCursor: 0,

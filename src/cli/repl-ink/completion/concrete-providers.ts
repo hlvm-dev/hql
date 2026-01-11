@@ -64,27 +64,23 @@ function classifyIdentifier(
 
 /**
  * Get description for an identifier.
- * Priority: 1) Docstring from comment 2) Signature 3) Nothing
+ * Shows SIGNATURE inline (actionable info for calling the function).
+ * Full docstring is shown in DocPanel separately to avoid duplication.
  */
 function getDescription(
   id: string,
   _type: CompletionItem["type"],
   signatures: ReadonlyMap<string, readonly string[]>,
-  docstrings: ReadonlyMap<string, string>
+  _docstrings: ReadonlyMap<string, string>
 ): string | undefined {
-  // First: check for docstring from comment
-  const doc = docstrings.get(id);
-  if (doc) {
-    return doc;
-  }
-
-  // Second: show function signature if available (e.g., "(x y)")
+  // Show function signature if available (e.g., "(x y)")
+  // This is the most actionable info - tells you how to call it
   const sig = signatures.get(id);
   if (sig && sig.length > 0) {
     return `(${sig.join(" ")})`;
   }
 
-  // No description - type will be shown on right side of dropdown
+  // No signature - type label will be shown on right side of dropdown
   return undefined;
 }
 
@@ -229,13 +225,9 @@ export const SymbolProvider: CompletionProvider = {
       // Combine base score with fuzzy score for ranking
       const score = baseScore + (matchResult?.score ?? 0);
 
-      // Get extended doc from docstring, or format signature
-      const docstring = context.docstrings.get(name);
-      const extendedDoc = docstring
-        ? docstring
-        : params && params.length > 0
-        ? `(${name} ${params.join(" ")})`
-        : undefined;
+      // Extended doc is ONLY the docstring (shown in DocPanel)
+      // Signature is already shown inline via getDescription()
+      const extendedDoc = context.docstrings.get(name);
 
       return {
         id: generateItemId(type),
