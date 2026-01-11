@@ -1,0 +1,523 @@
+/**
+ * Ollama Runtime
+ *
+ * Provides the global `ollama` object for HQL with programmatic model management.
+ * Auto-available without imports - injected into globalThis during startup.
+ *
+ * Usage in HQL:
+ *   (await ollama.models)           ; List all known models
+ *   (await ollama.local)            ; List installed models
+ *   (ollama.pull "llama3.2")        ; Download model (returns task handle)
+ *   (await (ollama.remove "x"))     ; Delete model
+ *   (await (ollama.info "x"))       ; Get model details
+ */
+
+import { getTaskManager } from "../cli/repl/task-manager/index.ts";
+import type { PullProgress, TaskEvent } from "../cli/repl/task-manager/types.ts";
+import { isModelPullTask } from "../cli/repl/task-manager/types.ts";
+
+// ============================================================
+// Global Type Declarations
+// ============================================================
+
+/**
+ * Declare the global `ollama` object type.
+ * This makes TypeScript aware of the global in HQL code.
+ */
+declare global {
+  // deno-lint-ignore no-var
+  var ollama: {
+    /** All known models (local + popular catalog) */
+    readonly models: Promise<Array<OllamaLocalModel | OllamaRemoteModel>>;
+    /** Only installed (local) models */
+    readonly local: Promise<OllamaLocalModel[]>;
+    /** Available models not yet installed */
+    readonly available: Promise<OllamaRemoteModel[]>;
+    /** Current endpoint */
+    readonly endpoint: string;
+    /** Pull (download) a model - returns task handle immediately */
+    pull(name: string): OllamaTaskHandle;
+    /** Remove (delete) an installed model */
+    remove(name: string): Promise<{ success: boolean; name: string }>;
+    /** Get detailed info about a model */
+    info(name: string): Promise<OllamaModelInfo>;
+    /** Search available models by query */
+    search(query: string): OllamaRemoteModel[];
+    /** Force refresh the cache */
+    refresh(): void;
+  };
+}
+
+// ============================================================
+// Types
+// ============================================================
+
+/** Model info returned by ollama.local */
+export interface OllamaLocalModel {
+  name: string;
+  size: number;
+  modified: string;
+  digest?: string;
+}
+
+/** Model info from catalog (ollama.available) */
+export interface OllamaRemoteModel {
+  name: string;
+  description?: string;
+  sizes?: string[];
+  capabilities?: string[];
+}
+
+/** Detailed model info from ollama.info */
+export interface OllamaModelInfo {
+  name: string;
+  modified?: string;
+  size?: number;
+  digest?: string;
+  details?: {
+    family?: string;
+    parameter_size?: string;
+    quantization_level?: string;
+    format?: string;
+  };
+  capabilities?: string[];
+  modelfile?: string;
+}
+
+/** Task handle returned by ollama.pull */
+export interface OllamaTaskHandle {
+  /** Current status */
+  readonly status: string;
+  /** Current progress */
+  readonly progress: {
+    completed?: number;
+    total?: number;
+    percent?: number;
+    status: string;
+  };
+  /** Cancel the download */
+  cancel(): boolean;
+  /** Wait for completion */
+  await(): Promise<void>;
+}
+
+// ============================================================
+// Popular Models Catalog
+// ============================================================
+
+const POPULAR_MODELS: OllamaRemoteModel[] = [
+  // Compact models
+  { name: "llama3.2:1b", description: "Meta's Llama 3.2 - 1B parameters", capabilities: ["text"] },
+  { name: "llama3.2:3b", description: "Meta's Llama 3.2 - 3B parameters", capabilities: ["text", "tools"] },
+  { name: "phi3:mini", description: "Microsoft Phi-3 Mini", capabilities: ["text"] },
+  { name: "qwen2.5:3b", description: "Alibaba Qwen 2.5 - 3B", capabilities: ["text", "tools"] },
+  { name: "gemma2:2b", description: "Google Gemma 2 - 2B", capabilities: ["text"] },
+
+  // Standard models
+  { name: "llama3.2:latest", description: "Meta's Llama 3.2 - default", capabilities: ["text", "tools"] },
+  { name: "qwen2.5:7b", description: "Alibaba Qwen 2.5 - 7B", capabilities: ["text", "tools"] },
+  { name: "mistral:7b", description: "Mistral 7B", capabilities: ["text", "tools"] },
+  { name: "gemma2:9b", description: "Google Gemma 2 - 9B", capabilities: ["text"] },
+  { name: "llama3.1:8b", description: "Meta's Llama 3.1 - 8B", capabilities: ["text", "tools"] },
+
+  // Code models
+  { name: "qwen2.5-coder:7b", description: "Alibaba Qwen 2.5 Coder - 7B", capabilities: ["text", "tools"] },
+  { name: "codellama:7b", description: "Meta's Code Llama - 7B", capabilities: ["text"] },
+  { name: "deepseek-coder:6.7b", description: "DeepSeek Coder - 6.7B", capabilities: ["text"] },
+  { name: "starcoder2:3b", description: "BigCode StarCoder2 - 3B", capabilities: ["text"] },
+
+  // Reasoning models
+  { name: "deepseek-r1:7b", description: "DeepSeek R1 - 7B reasoning", capabilities: ["text", "thinking"] },
+  { name: "deepseek-r1:14b", description: "DeepSeek R1 - 14B reasoning", capabilities: ["text", "thinking"] },
+
+  // Vision models
+  { name: "llava:7b", description: "LLaVA Vision - 7B", capabilities: ["text", "vision"] },
+  { name: "llama3.2-vision:11b", description: "Llama 3.2 Vision - 11B", capabilities: ["text", "vision"] },
+
+  // Large models
+  { name: "llama3.1:70b", description: "Meta's Llama 3.1 - 70B", capabilities: ["text", "tools"] },
+  { name: "qwen2.5:72b", description: "Alibaba Qwen 2.5 - 72B", capabilities: ["text", "tools"] },
+  { name: "deepseek-r1:70b", description: "DeepSeek R1 - 70B reasoning", capabilities: ["text", "thinking"] },
+
+  // Embedding models
+  { name: "nomic-embed-text", description: "Nomic Embed Text", capabilities: ["embedding"] },
+  { name: "mxbai-embed-large", description: "MixedBread Embed Large", capabilities: ["embedding"] },
+];
+
+// ============================================================
+// Event-Driven Cache
+// ============================================================
+
+/**
+ * Cache for Ollama model lists with event-driven invalidation.
+ * Subscribes to TaskManager events to invalidate when models change.
+ */
+class OllamaCache {
+  private endpoint: string;
+  private localModelsPromise: Promise<OllamaLocalModel[]> | null = null;
+  private modelsPromise: Promise<Array<OllamaLocalModel | OllamaRemoteModel>> | null = null;
+  private availablePromise: Promise<OllamaRemoteModel[]> | null = null;
+  private unsubscribe: (() => void) | null = null;
+
+  constructor(endpoint: string) {
+    this.endpoint = endpoint;
+    this.setupEventListeners();
+  }
+
+  /** Subscribe to TaskManager events to invalidate cache */
+  private setupEventListeners(): void {
+    const manager = getTaskManager(this.endpoint);
+    this.unsubscribe = manager.onEvent((event: TaskEvent) => {
+      // Invalidate cache when a model pull completes
+      if (event.type === "task:completed") {
+        const task = manager.getTask(event.taskId);
+        if (task && isModelPullTask(task)) {
+          this.invalidate();
+        }
+      }
+    });
+  }
+
+  /** Invalidate all cached promises */
+  invalidate(): void {
+    this.localModelsPromise = null;
+    this.modelsPromise = null;
+    this.availablePromise = null;
+  }
+
+  /** Update endpoint and invalidate cache */
+  updateEndpoint(endpoint: string): void {
+    if (this.endpoint !== endpoint) {
+      this.endpoint = endpoint;
+      this.invalidate();
+      // Re-setup listeners with new endpoint
+      if (this.unsubscribe) {
+        this.unsubscribe();
+      }
+      this.setupEventListeners();
+    }
+  }
+
+  /** Get local models (cached) */
+  getLocalModels(): Promise<OllamaLocalModel[]> {
+    if (!this.localModelsPromise) {
+      this.localModelsPromise = fetchLocalModels(this.endpoint);
+    }
+    return this.localModelsPromise;
+  }
+
+  /** Get all models (cached) */
+  getModels(): Promise<Array<OllamaLocalModel | OllamaRemoteModel>> {
+    if (!this.modelsPromise) {
+      this.modelsPromise = (async () => {
+        const local = await this.getLocalModels();
+        const localNames = new Set(local.map((m) => m.name.split(":")[0]));
+        const remote = POPULAR_MODELS.filter((m) => !localNames.has(m.name.split(":")[0]));
+        return [...local, ...remote];
+      })();
+    }
+    return this.modelsPromise;
+  }
+
+  /** Get available models (cached) */
+  getAvailable(): Promise<OllamaRemoteModel[]> {
+    if (!this.availablePromise) {
+      this.availablePromise = (async () => {
+        const local = await this.getLocalModels();
+        const localNames = new Set(local.map((m) => m.name.split(":")[0]));
+        return POPULAR_MODELS.filter((m) => !localNames.has(m.name.split(":")[0]));
+      })();
+    }
+    return this.availablePromise;
+  }
+
+  /** Cleanup */
+  destroy(): void {
+    if (this.unsubscribe) {
+      this.unsubscribe();
+      this.unsubscribe = null;
+    }
+    this.invalidate();
+  }
+}
+
+/** Global cache instance */
+let _cache: OllamaCache | null = null;
+
+function getCache(endpoint: string): OllamaCache {
+  if (!_cache) {
+    _cache = new OllamaCache(endpoint);
+  } else {
+    _cache.updateEndpoint(endpoint);
+  }
+  return _cache;
+}
+
+// ============================================================
+// OllamaTask Class
+// ============================================================
+
+/**
+ * Task handle for model downloads.
+ * Wraps TaskManager task for HQL API.
+ */
+class OllamaTask implements OllamaTaskHandle {
+  private taskId: string;
+  private endpoint: string;
+
+  constructor(endpoint: string, modelName: string) {
+    this.endpoint = endpoint;
+    const manager = getTaskManager(endpoint);
+    this.taskId = manager.pullModel(modelName);
+  }
+
+  get status(): string {
+    const task = getTaskManager().getTask(this.taskId);
+    return task?.status || "unknown";
+  }
+
+  get progress(): { completed?: number; total?: number; percent?: number; status: string } {
+    const task = getTaskManager().getTask(this.taskId);
+    if (!task?.progress) return { status: "unknown" };
+    const p = task.progress as PullProgress;
+    return {
+      completed: p.completed,
+      total: p.total,
+      percent: p.percent,
+      status: p.status,
+    };
+  }
+
+  cancel(): boolean {
+    return getTaskManager().cancel(this.taskId);
+  }
+
+  async await(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const check = () => {
+        const task = getTaskManager().getTask(this.taskId);
+        if (!task) {
+          reject(new Error("Task not found"));
+          return;
+        }
+        switch (task.status) {
+          case "completed":
+            resolve();
+            break;
+          case "failed":
+            reject(task.error || new Error("Pull failed"));
+            break;
+          case "cancelled":
+            reject(new Error("Pull cancelled"));
+            break;
+          default:
+            // Still running, check again
+            setTimeout(check, 100);
+        }
+      };
+      check();
+    });
+  }
+}
+
+// ============================================================
+// Ollama API Functions
+// ============================================================
+
+/**
+ * Fetch local models from Ollama /api/tags
+ */
+async function fetchLocalModels(endpoint: string): Promise<OllamaLocalModel[]> {
+  try {
+    const response = await fetch(`${endpoint}/api/tags`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.models || []).map((m: Record<string, unknown>) => ({
+      name: m.name as string,
+      size: m.size as number,
+      modified: m.modified_at as string,
+      digest: m.digest as string,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch model info from Ollama /api/show
+ */
+async function fetchModelInfo(endpoint: string, name: string): Promise<OllamaModelInfo> {
+  const response = await fetch(`${endpoint}/api/show`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    throw new Error(`Model not found: ${name}`);
+  }
+  const data = await response.json();
+  return {
+    name,
+    modified: data.modified_at,
+    size: data.size,
+    digest: data.digest,
+    details: data.details,
+    capabilities: data.capabilities,
+    modelfile: data.modelfile,
+  };
+}
+
+/**
+ * Delete a model via Ollama /api/delete
+ */
+async function removeModel(endpoint: string, name: string): Promise<{ success: boolean; name: string }> {
+  const response = await fetch(`${endpoint}/api/delete`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to delete model: ${name}`);
+  }
+  return { success: true, name };
+}
+
+/**
+ * Search models by query (searches catalog)
+ */
+function searchModels(query: string): OllamaRemoteModel[] {
+  const q = query.toLowerCase();
+  return POPULAR_MODELS.filter(
+    (m) =>
+      m.name.toLowerCase().includes(q) ||
+      (m.description?.toLowerCase().includes(q) ?? false)
+  );
+}
+
+// ============================================================
+// Global Ollama Object
+// ============================================================
+
+/**
+ * Create the global ollama object.
+ * Uses event-driven cache for efficient model list queries.
+ */
+function createOllamaObject(endpoint: string) {
+  const cache = getCache(endpoint);
+
+  return {
+    /**
+     * All known models (local + popular catalog)
+     * Returns Promise<Array> - cached with event-driven invalidation
+     */
+    get models(): Promise<Array<OllamaLocalModel | OllamaRemoteModel>> {
+      return cache.getModels();
+    },
+
+    /**
+     * Only installed (local) models
+     * Returns Promise<Array> - cached with event-driven invalidation
+     */
+    get local(): Promise<OllamaLocalModel[]> {
+      return cache.getLocalModels();
+    },
+
+    /**
+     * Available models not yet installed
+     * Returns Promise<Array> - cached with event-driven invalidation
+     */
+    get available(): Promise<OllamaRemoteModel[]> {
+      return cache.getAvailable();
+    },
+
+    /**
+     * Pull (download) a model
+     * Returns task handle immediately
+     */
+    pull(name: string): OllamaTaskHandle {
+      return new OllamaTask(endpoint, name);
+    },
+
+    /**
+     * Remove (delete) an installed model
+     * Returns Promise - invalidates cache on success
+     */
+    async remove(name: string): Promise<{ success: boolean; name: string }> {
+      const result = await removeModel(endpoint, name);
+      // Invalidate cache after successful removal
+      cache.invalidate();
+      return result;
+    },
+
+    /**
+     * Get detailed info about a model
+     * Returns Promise
+     */
+    info(name: string): Promise<OllamaModelInfo> {
+      return fetchModelInfo(endpoint, name);
+    },
+
+    /**
+     * Search available models by query
+     * Returns array (synchronous, searches catalog)
+     */
+    search(query: string): OllamaRemoteModel[] {
+      return searchModels(query);
+    },
+
+    /**
+     * Get the current endpoint
+     */
+    get endpoint(): string {
+      return endpoint;
+    },
+
+    /**
+     * Force refresh the cache (manual invalidation)
+     */
+    refresh(): void {
+      cache.invalidate();
+    },
+  };
+}
+
+// ============================================================
+// Initialization
+// ============================================================
+
+let initialized = false;
+
+/**
+ * Initialize the ollama runtime.
+ * Injects `ollama` global object into globalThis.
+ * Should be called during config runtime initialization.
+ */
+export function initOllamaRuntime(endpoint: string = "http://127.0.0.1:11434"): void {
+  if (initialized) return;
+  initialized = true;
+
+  const ollama = createOllamaObject(endpoint);
+  (globalThis as Record<string, unknown>).ollama = ollama;
+
+  // Also initialize TaskManager with endpoint
+  getTaskManager(endpoint);
+}
+
+/**
+ * Update the ollama endpoint.
+ * Recreates the global object with new endpoint.
+ */
+export function updateOllamaEndpoint(endpoint: string): void {
+  const ollama = createOllamaObject(endpoint);
+  (globalThis as Record<string, unknown>).ollama = ollama;
+  getTaskManager(endpoint);
+}
+
+/**
+ * Get the current ollama object (for internal use)
+ */
+export function getOllamaRuntime(): ReturnType<typeof createOllamaObject> | undefined {
+  return (globalThis as Record<string, unknown>).ollama as ReturnType<typeof createOllamaObject> | undefined;
+}

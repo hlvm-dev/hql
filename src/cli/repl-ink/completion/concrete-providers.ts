@@ -90,6 +90,9 @@ function getDescription(
  * with placeholder mode for parameter filling.
  *
  * Opening paren is added if not already present before the completion.
+ *
+ * SPECIAL: Variables (def, no params) auto-execute - no second Enter needed!
+ * This is because (varname) is a complete expression that can run immediately.
  */
 function createSymbolApplyAction(
   id: string,
@@ -98,6 +101,8 @@ function createSymbolApplyAction(
 ): (action: CompletionAction, context: ApplyContext) => ApplyResult {
   const hasParams = params && params.length > 0;
   const isCallable = itemType === "function" || itemType === "macro" || hasParams;
+  // Variables with no params are complete expressions - can auto-execute
+  const isVariable = itemType === "variable" && !hasParams;
 
   return (_action: CompletionAction, ctx: ApplyContext): ApplyResult => {
     const before = ctx.text.slice(0, ctx.anchorPosition);
@@ -152,7 +157,22 @@ function createSymbolApplyAction(
       };
     }
 
-    // For non-callable items (keywords, operators, variables): just insert name
+    // For VARIABLES (def, no params): complete expression, auto-execute!
+    // (answer) is complete - no need for second Enter
+    if (isVariable) {
+      const openParen = hasOpeningParen ? "" : "(";
+      const closeParen = hasClosingParen ? "" : ")";
+      const insertText = openParen + id + closeParen;
+      return {
+        text: before + insertText + after,
+        cursorPosition: ctx.anchorPosition + insertText.length,
+        closeDropdown: true,
+        // Auto-execute: no second Enter needed for variables
+        sideEffect: { type: "EXECUTE" },
+      };
+    }
+
+    // For other non-callable items (keywords, operators): just insert name
     const insertText = id + " ";
     return {
       text: before + insertText + after,

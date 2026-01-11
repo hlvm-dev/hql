@@ -6,6 +6,7 @@
 import { loadConfig, saveConfig } from "./storage.ts";
 import { type HqlConfig, type ConfigKey, CONFIG_KEYS, DEFAULT_CONFIG, validateValue } from "./types.ts";
 import { debugLog } from "./debug-log.ts";
+import { initOllamaRuntime, updateOllamaEndpoint } from "../../runtime/ollama-runtime.ts";
 
 // In-memory config state
 let currentConfig: HqlConfig = { ...DEFAULT_CONFIG };
@@ -32,6 +33,9 @@ export async function initConfigRuntime(): Promise<HqlConfig> {
   // Set global for embedded packages to read
   (globalThis as Record<string, unknown>).__hqlConfig = currentConfig;
 
+  // Initialize ollama runtime with endpoint from config
+  initOllamaRuntime(currentConfig.endpoint);
+
   await debugLog("CONFIG", "globalThis.__hqlConfig set", currentConfig);
 
   return currentConfig;
@@ -54,6 +58,11 @@ export async function updateConfigRuntime(key: ConfigKey, value: unknown): Promi
   currentConfig = { ...currentConfig, [key]: value };
   await saveConfig(currentConfig);
   (globalThis as Record<string, unknown>).__hqlConfig = currentConfig;
+
+  // Update ollama runtime if endpoint changed
+  if (key === "endpoint") {
+    updateOllamaEndpoint(value as string);
+  }
 
   await debugLog("CONFIG", `updateConfigRuntime SUCCESS - globalThis updated`, { key, value, fullConfig: currentConfig });
 }

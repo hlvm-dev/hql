@@ -149,6 +149,8 @@ hql repl --js
 
 ## Keyboard Shortcuts
 
+### Basic Navigation
+
 | Key | Action |
 |-----|--------|
 | Tab | Autocomplete |
@@ -157,6 +159,30 @@ hql repl --js
 | Up/Down | Navigate history |
 | Ctrl+A | Move to line start |
 | Ctrl+E | Move to line end |
+
+### S-Expression Navigation
+
+| Key | Action |
+|-----|--------|
+| Alt+Up | Move to previous sexp |
+| Alt+Down | Move to next sexp |
+| Ctrl+Up | Move up to parent (enclosing paren) |
+
+### Paredit (Structural Editing)
+
+The REPL includes full paredit support for manipulating S-expressions structurally. See [PAREDIT.md](PAREDIT.md) for detailed documentation.
+
+| Action | Shortcut | Example |
+|--------|----------|---------|
+| Slurp Forward | `Ctrl+]` | `(a│) b` → `(a│ b)` |
+| Slurp Backward | `Ctrl+O` | `a (│b)` → `(a │b)` |
+| Barf Forward | `Ctrl+\` | `(a│ b)` → `(a│) b` |
+| Barf Backward | `Ctrl+P` | `(a │b)` → `a (│b)` |
+| Wrap | `Ctrl+Y` | `│foo` → `(│foo)` |
+| Splice | `Ctrl+G` | `((│a))` → `(│a)` |
+| Raise | `Ctrl+^` | `(x (│y))` → `(│y)` |
+| Kill Sexp | `Ctrl+X` | `(a │b c)` → `(a │ c)` |
+| Transpose | `Ctrl+T` | `(a │b)` → `(b │a)` |
 
 ## Examples
 

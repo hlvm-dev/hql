@@ -24,7 +24,7 @@ export interface HqlConfig {
 
 export const DEFAULT_CONFIG: HqlConfig = {
   version: 1,
-  model: "ollama/llama3.2",
+  model: "ollama/llama3.2:latest",
   endpoint: "http://localhost:11434",
   temperature: 0.7,
   maxTokens: 4096,
@@ -44,7 +44,8 @@ export type ConfigKey = typeof CONFIG_KEYS[number];
 
 // Model format: provider/model[:tag] - allows colons for Ollama tags like "llama3.2:latest"
 const MODEL_FORMAT_REGEX = /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.:-]+$/;
-const URL_REGEX = /^https?:\/\/.+/;
+// URL must have protocol + host (at least localhost or IP)
+const URL_REGEX = /^https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9.]*(?::\d+)?(?:\/.*)?$/;
 
 export interface ValidationResult {
   valid: boolean;
@@ -89,6 +90,10 @@ export function validateValue(key: ConfigKey, value: unknown): ValidationResult 
       }
       if (!Number.isInteger(value) || value <= 0) {
         return { valid: false, error: "maxTokens must be a positive integer" };
+      }
+      // Reasonable upper bound (most models support up to 128K, 1M is generous)
+      if (value > 1000000) {
+        return { valid: false, error: "maxTokens must be at most 1,000,000" };
       }
       return { valid: true };
 

@@ -31,6 +31,8 @@ interface UseStreamingReturn {
   startTime: number;
   /** Cancel the stream */
   cancel: () => void;
+  /** Error if streaming failed */
+  error: Error | null;
 }
 
 /**
@@ -47,6 +49,7 @@ export function useStreaming(
   const [isStreaming, setIsStreaming] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [startTime, setStartTime] = useState(0);
+  const [error, setError] = useState<Error | null>(null);
 
   // Use refs to avoid re-renders during streaming
   const bufferRef = useRef("");
@@ -82,6 +85,7 @@ export function useStreaming(
     setIsStreaming(true);
     setIsDone(false);
     setStartTime(Date.now());
+    setError(null);
 
     // Throttled update function
     const scheduleUpdate = () => {
@@ -118,8 +122,14 @@ export function useStreaming(
             scheduleUpdate();
           }
         }
-      } catch {
-        // Stream interrupted
+      } catch (err) {
+        // Capture streaming error (e.g., network failure, API error)
+        const streamError = err instanceof Error ? err : new Error(String(err));
+        setError(streamError);
+        setDisplayText(bufferRef.current || `Error: ${streamError.message}`);
+        setIsStreaming(false);
+        setIsDone(true);
+        return;
       }
 
       if (!cancelledRef.current) {
@@ -151,5 +161,6 @@ export function useStreaming(
     isDone,
     startTime,
     cancel,
+    error,
   };
 }

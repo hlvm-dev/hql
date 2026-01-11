@@ -34,6 +34,8 @@ import {
 
 interface ConfigPanelProps {
   onClose: () => void;
+  /** Callback to open Model Browser panel */
+  onOpenModelBrowser?: () => void;
 }
 
 // Field type determines UX
@@ -79,7 +81,7 @@ const FIELD_META: Record<ConfigKey, FieldMeta> = {
 
 type Mode = "navigate" | "edit";
 
-export function ConfigPanel({ onClose }: ConfigPanelProps): React.ReactElement {
+export function ConfigPanel({ onClose, onOpenModelBrowser }: ConfigPanelProps): React.ReactElement {
   const [config, setConfig] = useState<HqlConfig>(DEFAULT_CONFIG);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [mode, setMode] = useState<Mode>("navigate");
@@ -107,23 +109,27 @@ export function ConfigPanel({ onClose }: ConfigPanelProps): React.ReactElement {
       setConfig(cfg);
       // Fetch model info for initial model
       updateModelInfo(cfg.model, cfg.endpoint || DEFAULT_CONFIG.endpoint);
+      // Fetch available models using loaded config's endpoint
+      fetchOllamaModels(cfg.endpoint || DEFAULT_CONFIG.endpoint, cfg.model);
     });
-    fetchOllamaModels();
   }, [updateModelInfo]);
 
   // Fetch available models from Ollama
-  async function fetchOllamaModels() {
+  async function fetchOllamaModels(endpoint: string, currentModel: string) {
     try {
-      const endpoint = config.endpoint || DEFAULT_CONFIG.endpoint;
       const response = await fetch(`${endpoint}/api/tags`);
       if (response.ok) {
         const data = await response.json();
         const models = (data.models || []).map((m: { name: string }) => `ollama/${m.name}`);
-        setAvailableModels(models.length > 0 ? models : ["ollama/llama3.2"]);
+        // If no models found, use current config model (no hardcoded fallback)
+        setAvailableModels(models.length > 0 ? models : [currentModel || DEFAULT_CONFIG.model]);
+      } else {
+        // Ollama responded but with error - use current config model
+        setAvailableModels([currentModel || DEFAULT_CONFIG.model]);
       }
     } catch {
-      // Fallback to default model
-      setAvailableModels(["ollama/llama3.2", "ollama/mistral", "ollama/gemma"]);
+      // Ollama not reachable - use current config model (no hardcoded list)
+      setAvailableModels([currentModel || DEFAULT_CONFIG.model]);
     }
   }
 
@@ -179,15 +185,18 @@ export function ConfigPanel({ onClose }: ConfigPanelProps): React.ReactElement {
       }
     }
 
-    // Enter: Edit for input fields, or just visual feedback for select
+    // Enter: Edit for input fields, open Model Browser for model field
     if (key.return) {
       if (fieldMeta.type === "input") {
         const currentValue = config[selectedKey as keyof HqlConfig];
         setEditValue(String(currentValue));
         setMode("edit");
         setError(null);
+      } else if (selectedKey === "model" && onOpenModelBrowser) {
+        // Open Model Browser for model selection
+        onOpenModelBrowser();
       }
-      // For select fields, Enter does nothing special (Tab/Space to cycle)
+      // For other select fields, Enter does nothing special (Tab/Space to cycle)
     }
 
     // Escape: Close panel
@@ -315,8 +324,11 @@ export function ConfigPanel({ onClose }: ConfigPanelProps): React.ReactElement {
   }
 
   function formatValue(key: ConfigKey, value: unknown): string {
-    if (key === "temperature") {
-      return (value as number).toFixed(1);
+    if (value == null) {
+      return String(DEFAULT_CONFIG[key as keyof HqlConfig]);
+    }
+    if (key === "temperature" && typeof value === "number") {
+      return value.toFixed(1);
     }
     return String(value);
   }
@@ -378,8 +390,16 @@ export function ConfigPanel({ onClose }: ConfigPanelProps): React.ReactElement {
                 )}
               </Box>
 
-              {/* Capability tags for model field */}
-              {isModelField && capabilityTags && (
+              {/* Model field: show capabilities + browse hint on right */}
+              {isModelField && isSelected && !isEditing && (
+                <>
+                  {capabilityTags && <Text color={color("muted")}> {capabilityTags}</Text>}
+                  {onOpenModelBrowser && (
+                    <Text dimColor> | <Text color={color("accent")}>Enter</Text> browse/download</Text>
+                  )}
+                </>
+              )}
+              {isModelField && !isSelected && capabilityTags && (
                 <Text color={color("muted")}> {capabilityTags}</Text>
               )}
 
@@ -389,12 +409,6 @@ export function ConfigPanel({ onClose }: ConfigPanelProps): React.ReactElement {
               )}
             </Box>
 
-            {/* Model info link (shown when model is selected) */}
-            {isSelected && isModelField && !isEditing && modelInfo && (
-              <Box paddingLeft={17}>
-                <Text dimColor>↳ {modelInfo.link}</Text>
-              </Box>
-            )}
           </Box>
         );
       })}

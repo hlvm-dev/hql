@@ -50,7 +50,7 @@ function StreamingOutput({ iterator }: { iterator: AsyncIterableIterator<string>
 
   // Higher throttle (100ms) = fewer re-renders = smoother streaming
   // Markdown is only applied at end to avoid structural jumps
-  const { displayText, isDone, isStreaming, startTime, cancel } = useStreaming(iterator, { renderInterval: 100 });
+  const { displayText, isDone, isStreaming, startTime, cancel, error } = useStreaming(iterator, { renderInterval: 100 });
 
   // Handle escape key to cancel streaming
   useInput((_char, key) => {
@@ -58,6 +58,16 @@ function StreamingOutput({ iterator }: { iterator: AsyncIterableIterator<string>
       cancel();
     }
   });
+
+  // Show error if streaming failed (but preserve any partial content)
+  if (error) {
+    return (
+      <Box flexDirection="column">
+        {displayText && <Text>{displayText}</Text>}
+        <Text color={color("error")}>Error: {error.message}</Text>
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column">

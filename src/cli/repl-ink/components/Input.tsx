@@ -17,6 +17,17 @@ import {
   OPEN_TO_CLOSE,
   deleteBackWithPairSupport,
 } from "../../repl/syntax.ts";
+import {
+  slurpForward,
+  slurpBackward,
+  barfForward,
+  barfBackward,
+  wrapSexp,
+  spliceSexp,
+  raiseSexp,
+  killSexp,
+  transposeSexp,
+} from "../../repl/paredit.ts";
 import { findSuggestion, acceptSuggestion, type Suggestion } from "../../repl/suggester.ts";
 import { shouldTabAcceptSuggestion } from "../../repl/tab-logic.ts";
 import { calculateWordBackPosition, calculateWordForwardPosition } from "../../repl/keyboard.ts";
@@ -37,11 +48,10 @@ import {
   type CompletionAction,
 } from "../completion/index.ts";
 
-// Option+Enter detection timeout (ms)
-// Terminal sends ESC (0x1b) followed by Enter (0x0d) for Option+Enter
-// ESC sequences arrive within ~5-10ms, so 25ms is enough to detect them
-// while feeling instant to humans (perception threshold is ~50-100ms)
-const ESCAPE_MODIFIER_TIMEOUT = 25;
+// FRP Context - reactive state
+import { useReplContext } from "../context/index.ts";
+
+// ESC key clears input immediately (no timeout)
 
 // Paste detection: only buffer when we have definite paste indicators
 // Multi-char input or newlines START buffering
@@ -80,10 +90,7 @@ interface InputProps {
   onSubmit: (value: string, attachments?: AnyAttachment[]) => void;
   jsMode?: boolean;
   disabled?: boolean;
-  history: string[];
-  userBindings: ReadonlySet<string>;
-  signatures: Map<string, string[]>;
-  docstrings: ReadonlyMap<string, string>;
+  // FRP: history, bindings, signatures, docstrings now come from ReplContext
 }
 
 export function Input({
@@ -92,11 +99,9 @@ export function Input({
   onSubmit,
   jsMode = false,
   disabled = false,
-  history,
-  userBindings,
-  signatures,
-  docstrings,
 }: InputProps): React.ReactElement {
+  // FRP: Get all reactive state from context
+  const { bindings: userBindings, signatures, docstrings, history } = useReplContext();
   const [cursorPos, setCursorPos] = useState(value.length);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [tempInput, setTempInput] = useState("");
@@ -133,9 +138,6 @@ export function Input({
   const [placeholders, setPlaceholders] = useState<Placeholder[]>([]);
   const [placeholderIndex, setPlaceholderIndex] = useState(-1);
 
-  // Option+Enter detection: ESC followed by Enter within timeout
-  const [escapePressed, setEscapePressed] = useState(false);
-  const escapeTimeoutRef = useRef<number | null>(null);
 
   // Paste detection: buffer rapid inputs and process together
   const pasteBufferRef = useRef<string>("");
@@ -617,19 +619,6 @@ export function Input({
     clearAttachments();
   }, [completion, clearAttachments]);
 
-  // Helper: clear escape timeout (DRY helper)
-  const clearEscapeTimeout = useCallback(() => {
-    if (escapeTimeoutRef.current) {
-      clearTimeout(escapeTimeoutRef.current);
-      escapeTimeoutRef.current = null;
-    }
-  }, []);
-
-  // Helper: reset escape state (DRY helper)
-  const resetEscapeState = useCallback(() => {
-    setEscapePressed(false);
-    clearEscapeTimeout();
-  }, [clearEscapeTimeout]);
 
   // FIX H4: Helper to clear paste buffer on mode transitions
   // This prevents paste data from corrupting history entries or mode state
@@ -796,6 +785,31 @@ export function Input({
   useInput((input, key) => {
     if (disabled) return;
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // DEBUG: Log ALL input FIRST (before any early returns)
+    // ═══════════════════════════════════════════════════════════════════════
+    {
+      const codes = [...input].map(c => c.charCodeAt(0));
+      const flags: string[] = [];
+      if (key.ctrl) flags.push("ctrl");
+      if (key.shift) flags.push("shift");
+      if (key.meta) flags.push("meta");
+      if (key.escape) flags.push("esc");
+      if (key.return) flags.push("ret");
+      if (key.tab) flags.push("tab");
+      if (key.backspace) flags.push("bksp");
+      if (key.upArrow) flags.push("↑");
+      if (key.downArrow) flags.push("↓");
+      if (key.leftArrow) flags.push("←");
+      if (key.rightArrow) flags.push("→");
+      const flagStr = flags.length > 0 ? `[${flags.join("+")}]` : "";
+      const inputStr = input.length > 0 ? `"${input.replace(/[\x00-\x1f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2,'0')}`)}":${codes}` : "";
+      const logLine = `[${new Date().toISOString()}] ${flagStr} ${inputStr}\n`;
+      try {
+        Deno.writeTextFileSync("/tmp/hql-keys.log", logLine, { append: true });
+      } catch (_) { /* ignore */ }
+    }
+
     // ============================================================
     // HISTORY SEARCH MODE (Ctrl+R)
     // Intercept all input when in search mode
@@ -854,15 +868,7 @@ export function Input({
     // Ctrl+R: start history search (when not in search mode)
     // FIX H1: Close dropdown and exit placeholder mode when entering history search
     // FIX H4: Clear paste buffer to prevent data corruption
-    // FIX NEW-1/3: Clear ESC timeout to prevent race condition
     if (key.ctrl && input === 'r') {
-      // CRITICAL: Clear escape timeout first to prevent it firing after entering history search
-      if (escapeTimeoutRef.current) {
-        clearTimeout(escapeTimeoutRef.current);
-        escapeTimeoutRef.current = null;
-      }
-      setEscapePressed(false);
-
       completion.close();
       exitPlaceholderMode();
       clearPasteBuffer();
@@ -873,9 +879,14 @@ export function Input({
     // ============================================================
     // FAST PATH: Single character typing (most common case)
     // Skip ALL checks for simple character input - maximum speed
+    // IMPORTANT: Exclude control characters (0-31) - they are Ctrl+key combos
+    // that need special handling (paredit, etc.) even if key.ctrl is not set
     // ============================================================
+    const charCode = input.length === 1 ? input.charCodeAt(0) : -1;
+    const isControlChar = charCode >= 0 && charCode <= 31;
     if (input &&
         input.length === 1 &&
+        !isControlChar &&  // Ctrl+] sends code 29, Ctrl+\ sends code 28, etc.
         !key.ctrl &&
         !key.meta &&
         !key.escape &&
@@ -887,7 +898,6 @@ export function Input({
         !key.downArrow &&
         !key.leftArrow &&
         !key.rightArrow &&
-        !escapePressed &&
         pasteBufferRef.current.length === 0) {
       // Placeholder mode: replace placeholder with typed char
       if (placeholders.length > 0 && placeholderIndex >= 0) {
@@ -1026,74 +1036,25 @@ export function Input({
         return;
       }
 
-      // Pure ESC key (no combination) - handle special modes or start detection
-      // In placeholder mode: ESC exits AND removes untouched placeholders (they're hints, not real text)
+      // Pure ESC key - immediately clear input (Claude Code behavior)
+      // Also handle any active modes first
+
+      // Exit placeholder mode
       if (isInPlaceholderMode()) {
-        const cleanedValue = exitPlaceholderModeAndCleanup();
-        onChange(cleanedValue);
-        setCursorPos(Math.min(cursorPos, cleanedValue.length));
-        return;
+        exitPlaceholderModeAndCleanup();
       }
-      // In completion mode: ESC closes dropdown
+      // Close completion dropdown
       if (completion.isVisible) {
         completion.close();
-        return;
       }
-      // Start Option+key detection for NEXT event (two-event sequence)
-      // If no follow-up key within timeout, clear input (Claude Code behavior)
-      setEscapePressed(true);
-      clearEscapeTimeout();
-      escapeTimeoutRef.current = setTimeout(() => {
-        setEscapePressed(false);
-        escapeTimeoutRef.current = null;
-        // FIX NEW-1: Guard against mode changes - don't clear if history search started
-        // ESC alone (no follow-up key) → clear input like Claude Code
-        // But only if not in history search mode (user might have pressed Ctrl+R after ESC)
-        if (!historySearch.state.isSearching && value.length > 0) {
-          onChange("");
-          setCursorPos(0);
-          completion.close();
-          clearAttachments();
-        }
-      }, ESCAPE_MODIFIER_TIMEOUT) as unknown as number;
+
+      // Clear input immediately
+      onChange("");
+      setCursorPos(0);
+      clearAttachments();
       return;
     }
 
-    // CASE 2: ESC was pressed in PREVIOUS event (two-event sequence)
-    if (escapePressed) {
-      // Option+Left: word back
-      if (key.leftArrow) {
-        resetEscapeState();
-        moveWordBack();
-        return;
-      }
-      // Option+Right: word forward
-      if (key.rightArrow) {
-        resetEscapeState();
-        moveWordForward();
-        return;
-      }
-      // Readline-style ESC+b: word back
-      if (input === 'b') {
-        resetEscapeState();
-        moveWordBack();
-        return;
-      }
-      // Readline-style ESC+f: word forward
-      if (input === 'f') {
-        resetEscapeState();
-        moveWordForward();
-        return;
-      }
-      // Option+Enter: insert newline
-      if (key.return) {
-        resetEscapeState();
-        insertAt("\n");
-        return;
-      }
-      // Clear escape state on any other key
-      resetEscapeState();
-    }
 
     // Placeholder mode handling (highest priority)
     if (isInPlaceholderMode()) {
@@ -1314,6 +1275,107 @@ export function Input({
         acceptAndApplySuggestion();
       }
       return;
+    }
+
+    // Paredit: Ctrl+Shift shortcuts for structural editing
+    // Note: Ctrl+Shift+symbol often doesn't work in terminals, so we also support Ctrl-only alternatives
+    if (key.ctrl && key.shift) {
+      switch (input) {
+        case ')': { // Ctrl+Shift+) = Slurp Forward
+          const result = slurpForward(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        case '(': { // Ctrl+Shift+( = Slurp Backward
+          const result = slurpBackward(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        case '}': { // Ctrl+Shift+} = Barf Forward
+          const result = barfForward(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        case '{': { // Ctrl+Shift+{ = Barf Backward
+          const result = barfBackward(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        case 'K': // Ctrl+Shift+K = Kill Sexp (note: uppercase with shift)
+        case 'k': { // Some terminals send lowercase
+          const result = killSexp(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        case 'T': // Ctrl+Shift+T = Transpose Sexps
+        case 't': {
+          const result = transposeSexp(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PAREDIT: Structural editing via raw control character codes
+    // These work reliably in Terminal.app and most terminals
+    // ═══════════════════════════════════════════════════════════════════════
+    // Ctrl+letter sends: Ctrl+A=1, Ctrl+B=2, ..., Ctrl+Z=26
+    // Ctrl+symbols: Ctrl+[=27(ESC), Ctrl+\=28, Ctrl+]=29, Ctrl+^=30, Ctrl+_=31
+
+    if (input.length === 1) {
+      const code = input.charCodeAt(0);
+      switch (code) {
+        // ─── Slurp: Pull adjacent sexp INTO current list ───
+        case 29: { // Ctrl+] = Slurp Forward: (a|) b → (a| b)
+          const result = slurpForward(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        case 15: { // Ctrl+O = Slurp Backward: a (|b) → (a |b)
+          const result = slurpBackward(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        // ─── Barf: Push edge sexp OUT OF current list ───
+        case 28: { // Ctrl+\ = Barf Forward: (a| b) → (a|) b
+          const result = barfForward(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        case 16: { // Ctrl+P = Barf Backward: (a |b) → a (|b)
+          const result = barfBackward(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        // ─── Structural: Wrap, Splice, Raise ───
+        case 25: { // Ctrl+Y = Wrap: |foo → (|foo)
+          const result = wrapSexp(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        case 7: { // Ctrl+G = Splice (unwrap): ((|a)) → (|a)
+          const result = spliceSexp(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        case 30: { // Ctrl+^ (Ctrl+Shift+6) = Raise: (x (|y)) → (|y)
+          const result = raiseSexp(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        // ─── Kill & Transpose ───
+        case 20: { // Ctrl+T = Transpose: (a |b) → (b |a)
+          const result = transposeSexp(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+        case 24: { // Ctrl+X = Kill Sexp: (a |b c) → (a | c)
+          const result = killSexp(value, cursorPos);
+          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
+          return;
+        }
+      }
     }
 
     // Control keys

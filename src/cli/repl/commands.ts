@@ -7,6 +7,7 @@ import { ANSI_COLORS } from "../ansi.ts";
 import type { ReplState } from "./state.ts";
 import { getMemoryStats, forgetFromMemory, getMemoryNames, clearMemory } from "./memory.ts";
 import { handleConfigCommand } from "./config/index.ts";
+import { registry } from "../repl-ink/keybindings/index.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -18,7 +19,11 @@ export interface Command {
   handler: (state: ReplState, args: string) => void | Promise<void>;
 }
 
-const helpText = `
+/** Generate help text dynamically using keybinding registry */
+function generateHelpText(): string {
+  const shortcuts = registry.generateHelpText();
+
+  return `
 ${BOLD}HQL REPL Functions:${RESET}
 
   ${CYAN}(memory)${RESET}         List all saved definitions
@@ -34,29 +39,10 @@ ${BOLD}Memory (auto-persist def/defn):${RESET}
   Definitions are automatically saved to ~/.hql/memory.hql
   They persist across sessions. No explicit save needed.
 
-${BOLD}Slash Commands:${RESET}
+${BOLD}Keybindings & Commands:${RESET}
+${shortcuts}
 
-  ${DIM_GRAY}/help${RESET}           Show this help
-  ${DIM_GRAY}/clear${RESET}          Clear the screen
-  ${DIM_GRAY}/reset${RESET}          Nuke all state (runtime + memory)
-  ${DIM_GRAY}/exit${RESET}           Exit REPL
-  ${DIM_GRAY}/memory${RESET}         Show persisted definitions
-  ${DIM_GRAY}/forget <name>${RESET}  Remove a definition from memory
-  ${DIM_GRAY}/config${RESET}         View/set configuration
-
-${BOLD}Keyboard Shortcuts:${RESET}
-
-  ${YELLOW}Tab${RESET}        Complete / select completion
-  ${YELLOW}Up/Down${RESET}    Navigate completions or history
-  ${YELLOW}→ / End${RESET}    Accept ghost suggestion
-  ${YELLOW}Ctrl+C${RESET}     Cancel current input (twice to exit)
-  ${YELLOW}Ctrl+D${RESET}     Exit REPL
-  ${YELLOW}Ctrl+A${RESET}     Jump to start of line
-  ${YELLOW}Ctrl+E${RESET}     Jump to end of line
-  ${YELLOW}Ctrl+U${RESET}     Delete to start of line
-  ${YELLOW}Ctrl+K${RESET}     Delete to end of line
-  ${YELLOW}Ctrl+W${RESET}     Delete word backward
-  ${YELLOW}Ctrl+L${RESET}     Clear screen
+${BOLD}Tip:${RESET} Press ${YELLOW}Ctrl+P${RESET} to open the command palette with fuzzy search.
 
 ${BOLD}Examples:${RESET}
 
@@ -70,12 +56,13 @@ ${BOLD}Examples:${RESET}
   ${GREEN}(import [ask] from "@hql/ai")${RESET}
   ${GREEN}(await (ask "What is 2+2?"))${RESET}
 `;
+}
 
 export const commands: Record<string, Command> = {
   "/help": {
     description: "Show help message",
     handler: () => {
-      console.log(helpText);
+      console.log(generateHelpText());
     },
   },
 

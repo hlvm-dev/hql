@@ -11,6 +11,21 @@ import { ensureDir } from "jsr:@std/fs@1";
 import { escapeString } from "./string-utils.ts";
 
 // ============================================================
+// Debug Logging (writes to ~/.hql/memory-debug.log)
+// ============================================================
+
+async function debugLog(message: string): Promise<void> {
+  try {
+    const logPath = join(getHqlDir(), "memory-debug.log");
+    const timestamp = new Date().toISOString();
+    const line = `[${timestamp}] ${message}\n`;
+    await Deno.writeTextFile(logPath, line, { append: true });
+  } catch {
+    // Ignore logging errors
+  }
+}
+
+// ============================================================
 // Constants
 // ============================================================
 
@@ -331,36 +346,54 @@ export async function appendToMemory(
   codeOrValue: string | unknown,
   docstring?: string
 ): Promise<void> {
+  await debugLog(`appendToMemory called: name=${name}, kind=${kind}, hasDocstring=${!!docstring}`);
+
   // Build the code first (fail fast if unserializable)
   let code: string;
   if (kind === "defn") {
     // Strip any leading comments - docstring from state is the single source of truth
     code = stripLeadingComments(codeOrValue as string);
+    await debugLog(`defn code after strip: ${code.slice(0, 100)}...`);
   } else {
     const serialized = serializeValue(codeOrValue);
-    if (serialized === null) return; // Unserializable value
+    if (serialized === null) {
+      await debugLog(`EARLY RETURN: serializeValue returned null for ${name}`);
+      return; // Unserializable value
+    }
     code = `(def ${name} ${serialized})`;
+    await debugLog(`def code: ${code}`);
   }
 
   // Prepend docstring as comment if provided (single source of truth)
   if (docstring) {
     const docLines = docstring.split("\n").map(line => `; ${line}`).join("\n");
     code = docLines + "\n" + code;
+    await debugLog(`Added docstring, final code length: ${code.length}`);
   }
 
   const path = getMemoryFilePath();
+  await debugLog(`Memory file path: ${path}`);
 
   // Read existing definitions, filter out any with same name (auto-overwrite)
   const existing = await readAndParseMemory();
+  await debugLog(`Existing definitions: ${existing.length}`);
   const filtered = existing.filter(d => d.name !== name);
 
   // Add new definition
   const newDef: ParsedDefinition = { kind, name, code, docstring };
   filtered.push(newDef);
+  await debugLog(`Total definitions to write: ${filtered.length}`);
 
   // Write back (ensures no duplicates)
-  await ensureDir(getHqlDir());
-  await writeMemoryFile(filtered);
+  try {
+    await ensureDir(getHqlDir());
+    await debugLog(`ensureDir succeeded`);
+    await writeMemoryFile(filtered);
+    await debugLog(`writeMemoryFile succeeded - DONE`);
+  } catch (err) {
+    await debugLog(`ERROR in write: ${err}`);
+    throw err;
+  }
 }
 
 /**

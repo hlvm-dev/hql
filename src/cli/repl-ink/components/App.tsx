@@ -10,6 +10,11 @@ import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
 import { SessionPicker } from "./SessionPicker.tsx";
 import { ConfigPanel } from "./ConfigPanel.tsx";
+import { CommandPaletteOverlay } from "./CommandPaletteOverlay.tsx";
+import { BackgroundTasks } from "./BackgroundTasks.tsx";
+import { ModelBrowser } from "./ModelBrowser.tsx";
+import { FooterHint } from "./FooterHint.tsx";
+import type { KeybindingAction } from "../keybindings/index.ts";
 import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import type { EvalResult } from "../types.ts";
@@ -22,6 +27,7 @@ import { isCommand, runCommand } from "../../repl/commands.ts";
 import { clearMemory } from "../../repl/memory.ts";
 import type { SessionInitOptions, SessionMeta, SessionMessage } from "../../repl/session/types.ts";
 import { SessionManager } from "../../repl/session/manager.ts";
+import { ReplProvider, useReplContext } from "../context/index.ts";
 
 interface HistoryEntry {
   id: number;
@@ -66,15 +72,41 @@ function convertMessagesToHistory(
   return { entries, nextId: id };
 }
 
+/**
+ * App wrapper - provides ReplContext for FRP state management
+ */
 export function App({ jsMode: initialJsMode = false, showBanner = true, sessionOptions }: AppProps): React.ReactElement {
+  const stateRef = useRef<ReplState>(new ReplState());
+
+  return (
+    <ReplProvider replState={stateRef.current}>
+      <AppContent
+        jsMode={initialJsMode}
+        showBanner={showBanner}
+        sessionOptions={sessionOptions}
+        replState={stateRef.current}
+      />
+    </ReplProvider>
+  );
+}
+
+interface AppContentProps extends AppProps {
+  replState: ReplState;
+}
+
+/**
+ * AppContent - main REPL UI (uses ReplContext for reactive state)
+ */
+function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionOptions, replState }: AppContentProps): React.ReactElement {
   const { exit } = useApp();
 
-  // Create shared ReplState for both initialization and evaluation
-  const stateRef = useRef<ReplState>(new ReplState());
-  const repl = useRepl({ jsMode: initialJsMode, state: stateRef.current });
+  // Get reactive state from context (bindings, docstrings, memoryNames auto-update)
+  const { memoryNames } = useReplContext();
+
+  const repl = useRepl({ jsMode: initialJsMode, state: replState });
 
   // Initialize: runtime, memory, AI
-  const init = useInitialization(stateRef.current, initialJsMode);
+  const init = useInitialization(replState, initialJsMode);
 
   // Session management
   const sessionManagerRef = useRef<SessionManager | null>(null);
@@ -125,6 +157,15 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
   // Config panel state
   const [showConfigPanel, setShowConfigPanel] = useState(false);
+
+  // Command palette state
+  const [showPalette, setShowPalette] = useState(false);
+
+  // Background tasks panel state
+  const [showBackgroundTasks, setShowBackgroundTasks] = useState(false);
+
+  // Model browser panel state
+  const [showModelBrowser, setShowModelBrowser] = useState(false);
 
   // Theme from context (auto-updates when theme changes)
   const { color } = useTheme();
@@ -227,16 +268,12 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
     // Commands (supports both /command and .command)
     if (isCommand(code)) {
-      const output = await handleCommand(code, repl, exit, stateRef.current);
+      const output = await handleCommand(code, repl, exit, replState);
       if (output !== null) {
         setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: output, isCommandOutput: true } }]);
         setNextId((n: number) => n + 1);
       }
-      // Refresh memory names if command might have changed memory
-      const cmdLower = code.trim().toLowerCase();
-      if (cmdLower === "/reset" || cmdLower === ".reset" || cmdLower.startsWith("/forget") || cmdLower.startsWith(".forget")) {
-        init.refreshMemoryNames().catch(() => {});
-      }
+      // FRP: memoryNames auto-update via ReplContext when bindings change
       setIsEvaluating(false);
       setInput("");
       return;
@@ -281,15 +318,7 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
         }
       }
 
-      // Refresh memory names if def/defn/forget was evaluated (reactive update)
-      // Use includes() not startsWith() - code may have leading comments
-      if (result.success) {
-        const hasDefinition = expandedCode.includes("(def ") || expandedCode.includes("(defn ");
-        const hasForget = expandedCode.includes("forget(") || expandedCode.includes("(forget ");
-        if (hasDefinition || hasForget) {
-          init.refreshMemoryNames().catch(() => {});
-        }
-      }
+      // FRP: memoryNames auto-update via ReplContext when bindings change
     } catch (error) {
       setHistory((prev: HistoryEntry[]) => [...prev, {
         id: nextId,
@@ -303,10 +332,36 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
     setInput("");
   }, [repl, nextId, exit]);
 
-  // Global shortcuts (Ctrl+C exit, Ctrl+L clear, ESC cancel)
+  // Command palette action handler
+  const handlePaletteAction = useCallback((action: KeybindingAction) => {
+    setShowPalette(false);
+    if (action.type === "SLASH_COMMAND") {
+      // Execute slash command directly
+      handleSubmit(action.cmd);
+    }
+    // HANDLER and INFO types don't execute from palette
+  }, [handleSubmit]);
+
+  // Global shortcuts (Ctrl+C exit, Ctrl+L clear, Ctrl+P palette, Ctrl+B tasks, ESC cancel)
   // Note: Cmd+K is intercepted by terminal emulator, use Ctrl+L instead
   useInput((char, key) => {
     if (key.ctrl && char === "c") exit();
+    if (key.ctrl && char === "p") {
+      setShowPalette(true);
+      return;
+    }
+    // Ctrl+B: Toggle background tasks panel
+    if (key.ctrl && char === "b") {
+      setShowBackgroundTasks((prev: boolean) => !prev);
+      // Close other panels when opening tasks
+      if (!showBackgroundTasks) {
+        setShowConfigPanel(false);
+        setShowPicker(false);
+        setShowPalette(false);
+        setShowModelBrowser(false);
+      }
+      return;
+    }
     if (key.ctrl && char === "l") {
       // Clear terminal first
       clearTerminal();
@@ -326,17 +381,21 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
   return (
     <Box key={clearKey} flexDirection="column" paddingX={1}>
-      {/* Show banner only initially, hide after Ctrl+L clear */}
+      {/* Show banner only after init complete (prevents double render), hide after Ctrl+L */}
       {showBanner && !hasBeenCleared && (
-        <Banner
-          jsMode={repl.jsMode}
-          loading={init.loading}
-          memoryNames={init.memoryNames}
-          aiExports={init.aiExports}
-          readyTime={init.readyTime}
-          errors={init.errors}
-          session={currentSession}
-        />
+        init.ready ? (
+          <Banner
+            jsMode={repl.jsMode}
+            loading={false}
+            memoryNames={memoryNames}
+            aiExports={init.aiExports}
+            readyTime={init.readyTime}
+            errors={init.errors}
+            session={currentSession}
+          />
+        ) : (
+          <Text dimColor>Loading HQL...</Text>
+        )
       )}
 
       {/* History of inputs and outputs */}
@@ -362,22 +421,58 @@ export function App({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
       {/* Config Panel */}
       {showConfigPanel && (
-        <ConfigPanel onClose={() => setShowConfigPanel(false)} />
+        <ConfigPanel
+          onClose={() => setShowConfigPanel(false)}
+          onOpenModelBrowser={() => {
+            setShowConfigPanel(false);
+            setShowModelBrowser(true);
+          }}
+        />
       )}
 
-      {/* Input line (hidden when picker or config panel is open) */}
-      {!showPicker && !showConfigPanel && (
+      {/* Command Palette (True Floating Overlay) */}
+      {showPalette && (
+        <CommandPaletteOverlay
+          onClose={() => setShowPalette(false)}
+          onExecute={handlePaletteAction}
+        />
+      )}
+
+      {/* Background Tasks Panel */}
+      {showBackgroundTasks && (
+        <BackgroundTasks onClose={() => setShowBackgroundTasks(false)} />
+      )}
+
+      {/* Model Browser Panel */}
+      {showModelBrowser && (
+        <ModelBrowser
+          onClose={() => setShowModelBrowser(false)}
+          onSelectModel={(modelName: string) => {
+            // Update config with selected model (prefixed with ollama/)
+            const fullModelName = modelName.startsWith("ollama/") ? modelName : `ollama/${modelName}`;
+            import("../../../common/config/index.ts").then(({ updateConfigRuntime }) => {
+              updateConfigRuntime("model", fullModelName);
+            });
+          }}
+        />
+      )}
+
+      {/* Input line (hidden when modal panels are open, but visible under overlay) */}
+      {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}
+      {/* Note: CommandPalette is a true overlay, so Input stays visible underneath */}
+      {!showPicker && !showConfigPanel && !showBackgroundTasks && !showModelBrowser && (
         <Input
           value={input}
           onChange={setInput}
           onSubmit={handleSubmit}
           jsMode={repl.jsMode}
-          disabled={isEvaluating || init.loading}
-          history={stateRef.current.history}
-          userBindings={stateRef.current.getBindingsSet()}
-          signatures={stateRef.current.getSignatures()}
-          docstrings={stateRef.current.getDocstrings()}
+          disabled={isEvaluating || init.loading || showPalette}
         />
+      )}
+
+      {/* Footer hint (show when input is visible, overlay draws on top) */}
+      {!showPicker && !showConfigPanel && !showBackgroundTasks && !showModelBrowser && !isEvaluating && (
+        <FooterHint />
       )}
 
       {isEvaluating && <Text dimColor>...</Text>}

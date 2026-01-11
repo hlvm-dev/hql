@@ -3,7 +3,7 @@
  * Handles runtime initialization, AI import, memory loading
  */
 
-import { useState, useEffect, useRef, useCallback } from "npm:react@18";
+import { useState, useEffect, useRef } from "npm:react@18";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { run } from "../../../../mod.ts";
 import { compactMemory, loadMemory, getMemoryNames, getMemoryFilePath, forgetFromMemory, getDefinitionSource } from "../../repl/memory.ts";
@@ -18,18 +18,15 @@ const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 export interface InitializationState {
   loading: boolean;
   ready: boolean;
-  memoryNames: string[];
   aiExports: string[];
   readyTime: number;
   errors: string[];
-  /** Refresh memory names from disk (call after def/defn evaluation) */
-  refreshMemoryNames: () => Promise<void>;
+  // memoryNames and refreshMemoryNames removed - now handled by FRP via ReplContext
 }
 
 export function useInitialization(state: ReplState, jsMode: boolean): InitializationState {
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false);
-  const [memoryNames, setMemoryNames] = useState<string[]>([]);
   const [aiExports, setAiExports] = useState<string[]>([]);
   const [readyTime, setReadyTime] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
@@ -109,9 +106,6 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
           state.setLoadingMemory(false);
         }
 
-        // Get memory names
-        const names = await getMemoryNames();
-        setMemoryNames(names);
         setErrors(loadErrors);
 
         // Register helper functions
@@ -127,13 +121,7 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
     })();
   }, [state, jsMode]);
 
-  // Callback to refresh memory names (called after def/defn evaluation)
-  const refreshMemoryNames = useCallback(async () => {
-    const names = await getMemoryNames();
-    setMemoryNames(names);
-  }, []);
-
-  return { loading, ready, memoryNames, aiExports, readyTime, errors, refreshMemoryNames };
+  return { loading, ready, aiExports, readyTime, errors };
 }
 
 /**

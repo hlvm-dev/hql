@@ -12,7 +12,19 @@ import { sanitizeIdentifier, ensureError } from "../../common/utils.ts";
 import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../../transpiler/keyword/primitives.ts";
 import { extractTypeFromSymbol } from "../../transpiler/tokenizer/type-tokenizer.ts";
 import type { ReplState } from "./state.ts";
-import { appendToMemory } from "./memory.ts";
+import { appendToMemory, getMemoryFilePath } from "./memory.ts";
+import { join } from "jsr:@std/path@1";
+
+// Debug logging to file (Ink captures console)
+async function debugLog(message: string): Promise<void> {
+  try {
+    const home = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || ".";
+    const logPath = join(home, ".hql", "memory-debug.log");
+    const timestamp = new Date().toISOString();
+    const line = `[${timestamp}] [evaluator] ${message}\n`;
+    await Deno.writeTextFile(logPath, line, { append: true });
+  } catch { /* ignore */ }
+}
 import { evaluateJS, extractJSBindings } from "./js-eval.ts";
 import { addPaste, addAttachment, addConversationTurn } from "./context.ts";
 import type { AnyAttachment } from "./attachment-protocol.ts";
@@ -236,29 +248,38 @@ export async function evaluate(
       try {
         const result = await run(wrappedCode, REPL_RUN_OPTIONS);
 
-        // Register all bindings with the state
+        // FIRST: Persist all definitions to memory.hql
+        // Must complete BEFORE state mutations to avoid race condition
+        // (state change triggers getMemoryNames() which must see the written file)
         for (const { name, operator } of bindingNames) {
-          state.addBinding(name);
-          // Persist def bindings to memory
           if (operator === "def" && !state.isLoadingMemory) {
             try {
-              // Get the actual value from globalThis for memory persistence
               const value = (globalThis as Record<string, unknown>)[sanitizeIdentifier(name)];
               await appendToMemory(name, "def", value, state.getDocstring(name));
-            } catch { /* ignore persistence errors */ }
+            } catch (err) {
+              console.error(`[memory] Failed to persist def '${name}':`, err);
+            }
           }
         }
-        for (const { name, operator, params, source } of declarationNames) {
+        for (const { name, operator, source } of declarationNames) {
+          if (operator === "defn" && !state.isLoadingMemory) {
+            try {
+              await appendToMemory(name, "defn", source, state.getDocstring(name));
+            } catch (err) {
+              console.error(`[memory] Failed to persist defn '${name}':`, err);
+            }
+          }
+        }
+
+        // THEN: Register all bindings with state (triggers notify → getMemoryNames)
+        for (const { name } of bindingNames) {
+          state.addBinding(name);
+        }
+        for (const { name, params } of declarationNames) {
           if (params) {
             state.addFunction(name, params);
           } else {
             state.addBinding(name);
-          }
-          // Persist defn declarations to memory
-          if (operator === "defn" && !state.isLoadingMemory) {
-            try {
-              await appendToMemory(name, "defn", source, state.getDocstring(name));
-            } catch { /* ignore */ }
           }
         }
 
@@ -384,17 +405,26 @@ async function handleBinding(_hqlCode: string, ast: SList, name: string, operato
     `;
 
     const result = await run(wrappedHql, REPL_RUN_OPTIONS);
-    state.addBinding(name);
 
     // Persist to memory.hql for "def" (not let/var/const)
     // Only if not currently loading from memory (prevents loop)
+    // IMPORTANT: Must complete BEFORE state.addBinding() to avoid race condition
+    await debugLog(`handleBinding: operator=${operator}, isLoadingMemory=${state.isLoadingMemory}`);
     if (operator === "def" && !state.isLoadingMemory) {
+      await debugLog(`Calling appendToMemory for def '${name}'`);
       try {
         await appendToMemory(name, "def", result, state.getDocstring(name));
-      } catch {
-        // Silently ignore persistence errors - REPL should continue working
+        await debugLog(`appendToMemory completed for def '${name}'`);
+      } catch (err) {
+        await debugLog(`appendToMemory FAILED for def '${name}': ${err}`);
       }
+    } else {
+      await debugLog(`SKIPPED persistence: operator=${operator}, isLoadingMemory=${state.isLoadingMemory}`);
     }
+
+    // Register binding - triggers notify() → React re-render → getMemoryNames()
+    // So appendToMemory() must complete BEFORE this line
+    state.addBinding(name);
 
     return { success: true, value: result };
   } catch (error) {
@@ -425,23 +455,32 @@ async function handleDeclaration(hqlCode: string, name: string, operator: string
 
     const result = await run(wrappedHql, REPL_RUN_OPTIONS);
 
-    // Register binding with params if it's a function
-    if (params && params.length > 0) {
-      state.addFunction(name, params);
-    } else {
-      state.addBinding(name);
-    }
-
     // Persist to memory.hql for "defn" ONLY (not fn/function)
     // Only if not currently loading from memory (prevents loop)
+    // IMPORTANT: Must complete BEFORE state.addFunction() to avoid race condition
+    // (state change triggers getMemoryNames() which must see the written file)
+    await debugLog(`handleDeclaration: operator=${operator}, isLoadingMemory=${state.isLoadingMemory}`);
     if (operator === "defn" && !state.isLoadingMemory) {
+      await debugLog(`Calling appendToMemory for defn '${name}'`);
       try {
         // For defn, store the original source code (not the evaluated function)
         // state.getDocstring() is the single source of truth - appendToMemory strips any inline comments
         await appendToMemory(name, "defn", hqlCode, state.getDocstring(name));
-      } catch {
-        // Silently ignore persistence errors - REPL should continue working
+        await debugLog(`appendToMemory completed for defn '${name}'`);
+      } catch (err) {
+        await debugLog(`appendToMemory FAILED for defn '${name}': ${err}`);
       }
+    } else {
+      await debugLog(`SKIPPED defn persistence: operator=${operator}, isLoadingMemory=${state.isLoadingMemory}`);
+    }
+
+    // Register binding with params if it's a function
+    // IMPORTANT: This triggers notify() which causes React to re-render and call getMemoryNames()
+    // So appendToMemory() must complete BEFORE this line
+    if (params && params.length > 0) {
+      state.addFunction(name, params);
+    } else {
+      state.addBinding(name);
     }
 
     return { success: true, value: result };

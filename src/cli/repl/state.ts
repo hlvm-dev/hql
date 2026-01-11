@@ -105,19 +105,48 @@ export class ReplState {
   private importedModules = new Set<string>();
   private _isLoadingMemory = false;
 
-  /** Add a binding name */
-  addBinding(name: string): void {
-    this.bindings.add(name);
-    const g = getGlobalRecord();
-    g[name] = g[name];
+  // Observable pattern for FRP - React 18 useSyncExternalStore compatible
+  private listeners = new Set<() => void>();
+  private version = 0;  // Snapshot version for React's useSyncExternalStore
+  private notifyPending = false;  // Microtask batching flag
+
+  /** Subscribe to state changes (useSyncExternalStore compatible) */
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  /** Get snapshot version (useSyncExternalStore compatible) */
+  getSnapshot = (): number => this.version;
+
+  /**
+   * Notify all listeners of state change.
+   * Uses microtask batching to coalesce rapid mutations - standard pattern for
+   * external stores (Zustand, Jotai, etc.) to prevent React "Maximum update depth" warnings.
+   */
+  private notify(): void {
+    this.version++;  // Always increment so getSnapshot reflects latest state
+    if (this.notifyPending) return;  // Already scheduled
+    this.notifyPending = true;
+    queueMicrotask(() => {
+      this.notifyPending = false;
+      for (const listener of this.listeners) {
+        listener();
+      }
+    });
   }
 
-  /** Add a function with its parameter names */
+  /** Add a binding name (called by evaluator after value is already set in globalThis) */
+  addBinding(name: string): void {
+    this.bindings.add(name);
+    this.notify();
+  }
+
+  /** Add a function with its parameter names (called by evaluator after value is already set in globalThis) */
   addFunction(name: string, params: string[]): void {
     this.bindings.add(name);
     this.signatures.set(name, params);
-    const g = getGlobalRecord();
-    g[name] = g[name];
+    this.notify();
   }
 
   /**
@@ -131,6 +160,7 @@ export class ReplState {
       this.signatures.set(name, params);
     }
     getGlobalRecord()[name] = fn;
+    this.notify();
   }
 
   /** Get function signature (param names) */
@@ -148,6 +178,7 @@ export class ReplState {
     // Create new Map reference so React detects prop change
     this.docstrings = new Map(this.docstrings);
     this.docstrings.set(name, doc);
+    this.notify();
   }
 
   /** Add multiple docstrings at once */
@@ -157,6 +188,7 @@ export class ReplState {
     for (const [name, doc] of docs) {
       this.docstrings.set(name, doc);
     }
+    this.notify();
   }
 
   /** Get docstring for a name */
@@ -194,6 +226,7 @@ export class ReplState {
     const trimmed = input.trim();
     if (trimmed && this._history[this._history.length - 1] !== trimmed) {
       this._history.push(trimmed);
+      this.notify();
     }
   }
 
@@ -241,5 +274,6 @@ export class ReplState {
     this._lineNumber = 0;
     // Keep history
     // Note: Stdlib signatures will be re-registered on next initialization
+    this.notify();
   }
 }
