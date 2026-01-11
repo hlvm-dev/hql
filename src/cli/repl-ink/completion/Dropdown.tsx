@@ -132,14 +132,17 @@ interface DocPanelProps {
   readonly doc: string;
 }
 
+/** Max lines to show in DocPanel before truncating */
+const DOC_PANEL_MAX_LINES = 12;
+
 /**
  * Documentation panel shown below dropdown when item has extended docs.
  * Shows multi-line documentation in a bordered box.
  */
 function DocPanel({ doc }: DocPanelProps): React.ReactElement {
-  // Split into lines and limit to 5 lines max
-  const lines = doc.split("\n").slice(0, 5);
-  const hasMore = doc.split("\n").length > 5;
+  // Split into lines and limit to max
+  const lines = doc.split("\n").slice(0, DOC_PANEL_MAX_LINES);
+  const hasMore = doc.split("\n").length > DOC_PANEL_MAX_LINES;
 
   return (
     <Box flexDirection="column" marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
