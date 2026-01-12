@@ -1,17 +1,19 @@
 /**
  * useTaskManager Hook
  *
- * React hook for accessing TaskManager state.
+ * React hook for accessing TaskManager state reactively.
  * Uses useSyncExternalStore for proper external store subscription.
+ *
+ * Supports HQL evaluation tasks and model downloads.
  */
 
 import { useSyncExternalStore, useMemo, useCallback } from "npm:react@18";
 import {
   getTaskManager,
   type Task,
-  type ModelPullTask,
-  isModelPullTask,
+  type EvalTask,
   isTaskActive,
+  isEvalTask,
 } from "../../repl/task-manager/index.ts";
 
 // ============================================================
@@ -21,16 +23,20 @@ import {
 export interface UseTaskManagerReturn {
   /** All tasks */
   tasks: Task[];
+  /** Eval tasks only */
+  evalTasks: EvalTask[];
   /** Count of active tasks (pending or running) */
   activeCount: number;
   /** Count of completed tasks */
   completedCount: number;
-  /** Active model pull tasks with progress */
-  activePulls: ModelPullTask[];
-  /** Check if a model is currently being pulled */
-  isModelPulling: (modelName: string) => boolean;
-  /** Start pulling a model */
-  pullModel: (modelName: string) => string;
+  /** Create an HQL evaluation task with optional AbortController for cancellation */
+  createEvalTask: (code: string, controller?: AbortController) => string;
+  /** Complete an eval task with result */
+  completeEvalTask: (taskId: string, result: unknown) => void;
+  /** Fail an eval task with error */
+  failEvalTask: (taskId: string, error: Error) => void;
+  /** Get result of completed eval task */
+  getEvalResult: (taskId: string) => unknown | undefined;
   /** Cancel a task */
   cancel: (taskId: string) => boolean;
   /** Cancel all tasks */
@@ -48,12 +54,11 @@ export interface UseTaskManagerReturn {
 /**
  * Hook for accessing TaskManager state reactively.
  *
- * @param endpoint - Optional Ollama endpoint (updates TaskManager if provided)
  * @returns Task state and operations
  */
-export function useTaskManager(endpoint?: string): UseTaskManagerReturn {
-  // Get manager singleton (creates if needed)
-  const manager = useMemo(() => getTaskManager(endpoint), [endpoint]);
+export function useTaskManager(): UseTaskManagerReturn {
+  // Get manager singleton
+  const manager = useMemo(() => getTaskManager(), []);
 
   // Subscribe to state changes via useSyncExternalStore
   const version = useSyncExternalStore(
@@ -68,6 +73,12 @@ export function useTaskManager(endpoint?: string): UseTaskManagerReturn {
     return Array.from(manager.getTasks().values());
   }, [manager, version]);
 
+  // Derive eval tasks
+  const evalTasks = useMemo(
+    () => tasks.filter(isEvalTask),
+    [tasks]
+  );
+
   // Derive counts
   const activeCount = useMemo(
     () => tasks.filter(isTaskActive).length,
@@ -79,23 +90,24 @@ export function useTaskManager(endpoint?: string): UseTaskManagerReturn {
     [tasks]
   );
 
-  // Derive active pulls
-  const activePulls = useMemo(
-    () =>
-      tasks.filter(
-        (t: Task): t is ModelPullTask => isModelPullTask(t) && isTaskActive(t)
-      ),
-    [tasks]
-  );
-
   // Callbacks (stable references)
-  const isModelPulling = useCallback(
-    (modelName: string) => manager.isModelPulling(modelName),
+  const createEvalTask = useCallback(
+    (code: string, controller?: AbortController) => manager.createEvalTask(code, controller),
     [manager]
   );
 
-  const pullModel = useCallback(
-    (modelName: string) => manager.pullModel(modelName),
+  const completeEvalTask = useCallback(
+    (taskId: string, result: unknown) => manager.completeEvalTask(taskId, result),
+    [manager]
+  );
+
+  const failEvalTask = useCallback(
+    (taskId: string, error: Error) => manager.failEvalTask(taskId, error),
+    [manager]
+  );
+
+  const getEvalResult = useCallback(
+    (taskId: string) => manager.getEvalResult(taskId),
     [manager]
   );
 
@@ -115,11 +127,13 @@ export function useTaskManager(endpoint?: string): UseTaskManagerReturn {
 
   return {
     tasks,
+    evalTasks,
     activeCount,
     completedCount,
-    activePulls,
-    isModelPulling,
-    pullModel,
+    createEvalTask,
+    completeEvalTask,
+    failEvalTask,
+    getEvalResult,
     cancel,
     cancelAll,
     clearCompleted,

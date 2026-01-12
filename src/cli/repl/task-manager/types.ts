@@ -43,7 +43,7 @@ export function canTransition(from: TaskStatus, to: TaskStatus): boolean {
 }
 
 /** Task type discriminator */
-export type TaskType = "model-pull" | "model-delete";
+export type TaskType = "model-pull" | "model-delete" | "eval";
 
 // ============================================================
 // Progress Types
@@ -107,6 +107,40 @@ export interface ModelDeleteTask extends Task<void> {
   modelName: string;
 }
 
+
+// ============================================================
+// Eval Task Types (HQL Evaluation)
+// ============================================================
+
+/** Progress information for HQL evaluation tasks */
+export interface EvalProgress {
+  /** Current status description */
+  status: string;  // "evaluating", "streaming", "completing"
+  /** Unix timestamp when evaluation started */
+  startedAt: number;
+}
+
+/** HQL Evaluation task - runs HQL code in background */
+export interface EvalTask extends Task<unknown> {
+  type: "eval";
+  /** The HQL code being evaluated */
+  code: string;
+  /** Truncated preview for display */
+  preview: string;
+  /** Result value when completed */
+  result?: unknown;
+  /** Whether result is streaming (AsyncIterator) */
+  isStreaming?: boolean;
+  /** Eval-specific progress */
+  progress: EvalProgress;
+  /**
+   * AbortController for cancellation.
+   * Note: Not serializable, only available at runtime.
+   * When aborted, async operations using the signal will throw AbortError.
+   */
+  _controller?: AbortController;
+}
+
 // ============================================================
 // Event Types
 // ============================================================
@@ -115,7 +149,7 @@ export interface ModelDeleteTask extends Task<void> {
 export type TaskEvent =
   | { type: "task:created"; task: Task }
   | { type: "task:started"; taskId: string }
-  | { type: "task:progress"; taskId: string; progress: PullProgress }
+  | { type: "task:progress"; taskId: string; progress: PullProgress | EvalProgress }
   | { type: "task:completed"; taskId: string; result?: unknown }
   | { type: "task:failed"; taskId: string; error: Error }
   | { type: "task:cancelled"; taskId: string };
@@ -135,6 +169,12 @@ export function isModelPullTask(task: Task): task is ModelPullTask {
 /** Check if task is a model delete task */
 export function isModelDeleteTask(task: Task): task is ModelDeleteTask {
   return task.type === "model-delete";
+}
+
+
+/** Check if task is an eval task */
+export function isEvalTask(task: Task): task is EvalTask {
+  return task.type === "eval";
 }
 
 /** Check if task is active (pending or running) */

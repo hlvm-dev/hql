@@ -9,33 +9,36 @@
 
 import { registry } from "./registry.ts";
 import { allKeybindings } from "./definitions/index.ts";
+import {
+  refreshKeybindingLookup,
+  matchCustomKeybinding,
+  isDefaultDisabled,
+  getEffectiveDisplay,
+} from "./keybinding-lookup.ts";
 
 // Register all keybindings on module load
 registry.registerAll(allKeybindings);
 
-// Re-export
+// Initialize keybinding lookup with custom bindings from config
+refreshKeybindingLookup();
+
+// Re-export registry and types
 export { registry } from "./registry.ts";
-export {
-  getDisplay,
-  getPlatform,
-  CATEGORY_ORDER,
-} from "./types.ts";
+export { getDisplay, CATEGORY_ORDER } from "./types.ts";
 export type {
   Keybinding,
   KeybindingMatch,
   KeybindingCategory,
   KeybindingAction,
-  Platform,
 } from "./types.ts";
 
-// Export definition categories for direct access
+// Re-export keybinding lookup functions
 export {
-  allKeybindings,
-  globalKeybindings,
-  editingKeybindings,
-  navigationKeybindings,
-  completionKeybindings,
-  historyKeybindings,
-  pareditKeybindings,
-  commandKeybindings,
-} from "./definitions/index.ts";
+  refreshKeybindingLookup,
+  matchCustomKeybinding,
+  isDefaultDisabled,
+  getEffectiveDisplay,
+} from "./keybinding-lookup.ts";
+
+// Re-export handler registry functions
+export { executeHandler, registerHandler, unregisterHandler, HandlerIds } from "./handler-registry.ts";

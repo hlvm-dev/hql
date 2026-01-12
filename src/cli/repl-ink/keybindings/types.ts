@@ -2,8 +2,10 @@
  * Keybindings Registry - Type Definitions
  *
  * Central type definitions for the keybindings system.
- * Used by: CommandPalette, /help generation, registry.
+ * Used by: CommandPaletteOverlay, /help generation, registry.
  */
+
+import { getKeybindingsRuntime } from "../../../common/config/index.ts";
 
 // ============================================================
 // Category Types
@@ -107,6 +109,14 @@ export function getPlatform(): Platform {
 
 /** Get display string for keybinding on current platform */
 export function getDisplay(kb: Keybinding): string {
+  // Check for custom override first
+  const customBindings = getKeybindingsRuntime();
+  const customCombo = customBindings[kb.id];
+  if (customCombo) {
+    return customCombo;
+  }
+
+  // Fall back to default (with platform-specific variant if available)
   const platform = getPlatform();
   return kb.displayByPlatform?.[platform] ?? kb.display;
 }

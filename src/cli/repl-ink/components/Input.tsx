@@ -15,7 +15,10 @@ import {
   backwardUpSexp,
   forwardDownSexp,
   OPEN_TO_CLOSE,
+  AUTO_PAIR_CHARS,
   deleteBackWithPairSupport,
+  isInsideString,
+  isInsideEmptyQuotePair,
 } from "../../repl/syntax.ts";
 import {
   slurpForward,
@@ -50,6 +53,16 @@ import {
 
 // FRP Context - reactive state
 import { useReplContext } from "../context/index.ts";
+
+// Handler Registry - for palette/keybinding execution
+import {
+  registerHandler,
+  unregisterHandler,
+  HandlerIds,
+  matchCustomKeybinding,
+  isDefaultDisabled,
+  executeHandler,
+} from "../keybindings/index.ts";
 
 // ESC key clears input immediately (no timeout)
 
@@ -101,7 +114,7 @@ export function Input({
   disabled = false,
 }: InputProps): React.ReactElement {
   // FRP: Get all reactive state from context
-  const { bindings: userBindings, signatures, docstrings, history } = useReplContext();
+  const { bindings: userBindings, signatures, docstrings, history, memoryNames } = useReplContext();
   const [cursorPos, setCursorPos] = useState(value.length);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [tempInput, setTempInput] = useState("");
@@ -113,10 +126,12 @@ export function Input({
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
 
   // Unified Completion System (replaces legacy completion + @mention state)
+  // Includes memoryNames for context-aware completions (e.g., forget only shows memory items)
   const completion = useCompletion({
     userBindings,
     signatures,
     docstrings,
+    memoryNames: new Set(memoryNames),  // Convert array to Set for efficient lookup
     debounceMs: 50,
   });
 
@@ -650,10 +665,10 @@ export function Input({
   };
 
   // Helper: insert auto-closing delimiter pair
-  // Type ( → () with cursor in middle
-  // Uses OPEN_TO_CLOSE from syntax.ts (single source of truth for delimiter pairs)
+  // Type ( → () or " → "" with cursor in middle
+  // Uses AUTO_PAIR_CHARS from syntax.ts (includes quotes)
   const insertAutoClosePair = useCallback((openChar: string) => {
-    const closeChar = OPEN_TO_CLOSE[openChar];
+    const closeChar = AUTO_PAIR_CHARS[openChar];
     if (!closeChar) {
       insertAt(openChar);
       return;
@@ -663,12 +678,82 @@ export function Input({
     setCursorPos(cursorPos + 1); // Cursor between the pair
   }, [value, cursorPos, onChange, insertAt]);
 
+
+  // Paired delimiters where Ctrl+W should preserve the outer pair
+  const PAIRED_DELIMS: Record<string, string> = {
+    '"': '"', "'": "'", '`': '`',
+    "\u201C": "\u201D", "\u2018": "\u2019", "«": "»",
+  };
+
+  // Find if cursor is inside paired delimiters and delete word within
+  // Returns { value, cursor } if inside delimiters, null otherwise
+  const findAndDeleteWordInDelimiters = (v: string, c: number): { value: string; cursor: number } | null => {
+    for (const [open, close] of Object.entries(PAIRED_DELIMS)) {
+      const isSelf = open === close;
+      let openPos = -1;
+      let closePos = -1;
+
+      if (isSelf) {
+        // Self-closing: count occurrences to find if inside
+        let count = 0, lastPos = -1;
+        for (let i = 0; i < c; i++) {
+          if (v[i] === open) { count++; lastPos = i; }
+        }
+        if (count % 2 === 1 && lastPos >= 0) {
+          const cp = v.indexOf(close, c);
+          if (cp >= 0) { openPos = lastPos; closePos = cp; }
+        }
+      } else {
+        // Different open/close: find matching pair
+        let depth = 0;
+        for (let i = c - 1; i >= 0; i--) {
+          if (v[i] === close) depth++;
+          else if (v[i] === open) { if (depth === 0) { openPos = i; break; } depth--; }
+        }
+        if (openPos >= 0) {
+          depth = 0;
+          for (let i = c; i < v.length; i++) {
+            if (v[i] === open) depth++;
+            else if (v[i] === close) { if (depth === 0) { closePos = i; break; } depth--; }
+          }
+        }
+      }
+
+      if (openPos >= 0 && closePos >= 0) {
+        const contentStart = openPos + 1;
+        if (c <= contentStart || c > closePos) continue;
+
+        // Delete word within delimiter content
+        const content = v.slice(contentStart, c);
+        let pos = c;
+        // Skip trailing whitespace
+        while (pos > contentStart && content[pos - contentStart - 1] === ' ') pos--;
+        // Delete word
+        while (pos > contentStart && content[pos - contentStart - 1] !== ' ') pos--;
+        if (pos === c) continue; // Nothing to delete
+
+        return { value: v.slice(0, pos) + v.slice(c), cursor: pos };
+      }
+    }
+    return null;
+  };
+
   // Helper: delete word backward (Ctrl+W)
   // Accepts optional parameters to work on any value (for placeholder cleanup)
   // LISP-aware: treats parens/brackets as word boundaries
   const deleteWord = useCallback((targetValue?: string, targetCursor?: number) => {
     const v = targetValue ?? value;
     const c = targetCursor ?? cursorPos;
+    
+    // Check if inside paired delimiters first - preserve them
+    const delimResult = findAndDeleteWordInDelimiters(v, c);
+    if (delimResult) {
+      onChange(delimResult.value);
+      setCursorPos(delimResult.cursor);
+      return;
+    }
+    
+    // LISP-aware word deletion
     const before = v.slice(0, c);
     let pos = before.length;
     const originalPos = pos;
@@ -781,34 +866,140 @@ export function Input({
     await triggerCompletionRef.current(value, cursorPos, true);
   }, [value, cursorPos, signatures, onChange, enterPlaceholderMode]);
 
+  // ============================================================
+  // Handler Registry Registration
+  // Register handlers for palette/keybinding execution
+  // ============================================================
+  useEffect(() => {
+    // Helper to apply paredit operation (same as inline in useInput)
+    const applyParedit = (fn: typeof slurpForward) => {
+      const result = fn(value, cursorPos);
+      if (result) {
+        onChange(result.newValue);
+        setCursorPos(result.newCursor);
+      }
+    };
+
+    // Helper: get value with placeholders cleaned up
+    const cleanedValue = (): { v: string; c: number } => {
+      if (placeholders.length > 0 && placeholderIndex >= 0) {
+        const cleaned = exitPlaceholderModeAndCleanup(true);
+        return { v: cleaned, c: Math.min(cursorPos, cleaned.length) };
+      }
+      return { v: value, c: cursorPos };
+    };
+
+    // Editing handlers
+    registerHandler(HandlerIds.EDIT_JUMP_START, () => setCursorPos(0), "Input");
+    registerHandler(HandlerIds.EDIT_JUMP_END, () => {
+      if (suggestion && cursorPos === value.length) {
+        acceptAndApplySuggestion();
+      } else {
+        setCursorPos(value.length);
+      }
+    }, "Input");
+    registerHandler(HandlerIds.EDIT_DELETE_TO_START, () => {
+      const { v, c } = cleanedValue();
+      onChange(v.slice(c));
+      setCursorPos(0);
+    }, "Input");
+    registerHandler(HandlerIds.EDIT_DELETE_TO_END, () => {
+      const { v, c } = cleanedValue();
+      onChange(v.slice(0, c));
+    }, "Input");
+    registerHandler(HandlerIds.EDIT_DELETE_WORD_BACK, () => {
+      const { v, c } = cleanedValue();
+      deleteWord(v, c);
+    }, "Input");
+
+    // Navigation handlers
+    registerHandler(HandlerIds.NAV_WORD_BACK, moveWordBack, "Input");
+    registerHandler(HandlerIds.NAV_WORD_FORWARD, moveWordForward, "Input");
+    registerHandler(HandlerIds.NAV_SEXP_BACK, () => {
+      const newPos = backwardSexp(value, cursorPos);
+      if (newPos !== cursorPos) setCursorPos(newPos);
+    }, "Input");
+    registerHandler(HandlerIds.NAV_SEXP_FORWARD, () => {
+      const newPos = forwardSexp(value, cursorPos);
+      if (newPos !== cursorPos) setCursorPos(newPos);
+    }, "Input");
+    registerHandler(HandlerIds.NAV_SEXP_UP, () => {
+      const newPos = backwardUpSexp(value, cursorPos);
+      if (newPos !== cursorPos) setCursorPos(newPos);
+    }, "Input");
+    registerHandler(HandlerIds.NAV_SEXP_DOWN, () => {
+      const newPos = forwardDownSexp(value, cursorPos);
+      if (newPos !== cursorPos) setCursorPos(newPos);
+    }, "Input");
+    registerHandler(HandlerIds.NAV_INSERT_NEWLINE, () => insertAt("\n"), "Input");
+
+    // Completion handlers
+    registerHandler(HandlerIds.COMPLETION_ACCEPT, handleTab, "Input");
+    registerHandler(HandlerIds.COMPLETION_TOGGLE_DOCS, () => completion.toggleDocPanel(), "Input");
+    registerHandler(HandlerIds.COMPLETION_CANCEL, () => completion.close(), "Input");
+
+    // History handlers
+    registerHandler(HandlerIds.HISTORY_SEARCH, () => {
+      completion.close();
+      exitPlaceholderMode();
+      clearPasteBuffer();
+      historySearch.actions.startSearch();
+    }, "Input");
+
+    // Paredit handlers
+    registerHandler(HandlerIds.PAREDIT_SLURP_FORWARD, () => applyParedit(slurpForward), "Input");
+    registerHandler(HandlerIds.PAREDIT_SLURP_BACKWARD, () => applyParedit(slurpBackward), "Input");
+    registerHandler(HandlerIds.PAREDIT_BARF_FORWARD, () => applyParedit(barfForward), "Input");
+    registerHandler(HandlerIds.PAREDIT_BARF_BACKWARD, () => applyParedit(barfBackward), "Input");
+    registerHandler(HandlerIds.PAREDIT_WRAP, () => applyParedit(wrapSexp), "Input");
+    registerHandler(HandlerIds.PAREDIT_SPLICE, () => applyParedit(spliceSexp), "Input");
+    registerHandler(HandlerIds.PAREDIT_RAISE, () => applyParedit(raiseSexp), "Input");
+    registerHandler(HandlerIds.PAREDIT_TRANSPOSE, () => applyParedit(transposeSexp), "Input");
+    registerHandler(HandlerIds.PAREDIT_KILL, () => applyParedit(killSexp), "Input");
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      // Editing
+      unregisterHandler(HandlerIds.EDIT_JUMP_START);
+      unregisterHandler(HandlerIds.EDIT_JUMP_END);
+      unregisterHandler(HandlerIds.EDIT_DELETE_TO_START);
+      unregisterHandler(HandlerIds.EDIT_DELETE_TO_END);
+      unregisterHandler(HandlerIds.EDIT_DELETE_WORD_BACK);
+      // Navigation
+      unregisterHandler(HandlerIds.NAV_WORD_BACK);
+      unregisterHandler(HandlerIds.NAV_WORD_FORWARD);
+      unregisterHandler(HandlerIds.NAV_SEXP_BACK);
+      unregisterHandler(HandlerIds.NAV_SEXP_FORWARD);
+      unregisterHandler(HandlerIds.NAV_SEXP_UP);
+      unregisterHandler(HandlerIds.NAV_SEXP_DOWN);
+      unregisterHandler(HandlerIds.NAV_INSERT_NEWLINE);
+      // Completion
+      unregisterHandler(HandlerIds.COMPLETION_ACCEPT);
+      unregisterHandler(HandlerIds.COMPLETION_TOGGLE_DOCS);
+      unregisterHandler(HandlerIds.COMPLETION_CANCEL);
+      // History
+      unregisterHandler(HandlerIds.HISTORY_SEARCH);
+      // Paredit
+      unregisterHandler(HandlerIds.PAREDIT_SLURP_FORWARD);
+      unregisterHandler(HandlerIds.PAREDIT_SLURP_BACKWARD);
+      unregisterHandler(HandlerIds.PAREDIT_BARF_FORWARD);
+      unregisterHandler(HandlerIds.PAREDIT_BARF_BACKWARD);
+      unregisterHandler(HandlerIds.PAREDIT_WRAP);
+      unregisterHandler(HandlerIds.PAREDIT_SPLICE);
+      unregisterHandler(HandlerIds.PAREDIT_RAISE);
+      unregisterHandler(HandlerIds.PAREDIT_TRANSPOSE);
+      unregisterHandler(HandlerIds.PAREDIT_KILL);
+    };
+  }, [
+    value, cursorPos, suggestion, placeholders, placeholderIndex,
+    onChange, moveWordBack, moveWordForward, deleteWord, handleTab,
+    completion, historySearch.actions, exitPlaceholderMode, exitPlaceholderModeAndCleanup,
+    insertAt, acceptAndApplySuggestion, clearPasteBuffer,
+  ]);
+
   // Main input handler
   useInput((input, key) => {
     if (disabled) return;
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // DEBUG: Log ALL input FIRST (before any early returns)
-    // ═══════════════════════════════════════════════════════════════════════
-    {
-      const codes = [...input].map(c => c.charCodeAt(0));
-      const flags: string[] = [];
-      if (key.ctrl) flags.push("ctrl");
-      if (key.shift) flags.push("shift");
-      if (key.meta) flags.push("meta");
-      if (key.escape) flags.push("esc");
-      if (key.return) flags.push("ret");
-      if (key.tab) flags.push("tab");
-      if (key.backspace) flags.push("bksp");
-      if (key.upArrow) flags.push("↑");
-      if (key.downArrow) flags.push("↓");
-      if (key.leftArrow) flags.push("←");
-      if (key.rightArrow) flags.push("→");
-      const flagStr = flags.length > 0 ? `[${flags.join("+")}]` : "";
-      const inputStr = input.length > 0 ? `"${input.replace(/[\x00-\x1f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2,'0')}`)}":${codes}` : "";
-      const logLine = `[${new Date().toISOString()}] ${flagStr} ${inputStr}\n`;
-      try {
-        Deno.writeTextFileSync("/tmp/hql-keys.log", logLine, { append: true });
-      } catch (_) { /* ignore */ }
-    }
 
     // ============================================================
     // HISTORY SEARCH MODE (Ctrl+R)
@@ -890,10 +1081,27 @@ export function Input({
       return;
     }
 
+    // ============================================================
+    // CUSTOM KEYBINDING INTERCEPTION
+    // Check custom bindings FIRST, before all hardcoded handlers.
+    // This makes rebinding work - new keys trigger actions, old keys stop working.
+    // ============================================================
+    const customHandlerId = matchCustomKeybinding(input, key);
+    if (customHandlerId) {
+      executeHandler(customHandlerId);
+      return;
+    }
+
+    // Check if this is a disabled default (was rebound to something else)
+    if (isDefaultDisabled(input, key)) {
+      return; // Ignore - user rebound this key to something else
+    }
+
     // Ctrl+R: start history search (when not in search mode)
     // FIX H1: Close dropdown and exit placeholder mode when entering history search
     // FIX H4: Clear paste buffer to prevent data corruption
-    if (key.ctrl && input === 'r') {
+    // CROSS-PLATFORM: Check both key.ctrl flag AND control code (ASCII 18 = Ctrl+R)
+    if ((key.ctrl && input === 'r') || input === '\x12') {
       completion.close();
       exitPlaceholderMode();
       clearPasteBuffer();
@@ -939,6 +1147,28 @@ export function Input({
         }
         return;
       }
+
+      // Smart over-type: if typing closing delimiter that's already at cursor, skip over it
+      const closingDelimiters = [")", "]", "}", '"', "'"];
+      if (closingDelimiters.includes(input) && value[cursorPos] === input) {
+        lastInputTimeRef.current = Date.now();
+        setCursorPos(cursorPos + 1);
+        return;
+      }
+
+      // Smart quote handling: " → "" or ' → '' with cursor between (unless inside string)
+      if (input === '"' || input === "'") {
+        lastInputTimeRef.current = Date.now();
+        if (isInsideString(value, cursorPos, input)) {
+          // Inside a string of the same quote type - just insert the character
+          insertAt(input);
+        } else {
+          // Not inside string - auto-pair
+          insertAutoClosePair(input);
+        }
+        return;
+      }
+
       // Auto-close delimiters: ( → (), [ → [], { → {}
       if (input in OPEN_TO_CLOSE) {
         lastInputTimeRef.current = Date.now();
@@ -988,19 +1218,22 @@ export function Input({
       }
     }
 
-    // Meta+key: Word navigation (macOS Option, Linux Alt)
-    // Also: Alt+Arrow for sexp navigation
-    if (key.meta) {
-      // ESC+b/f style (macOS Option+Arrow, Linux Alt+Arrow) - word navigation
-      if (input === 'b') {
-        moveWordBack();
-        return;
-      }
-      if (input === 'f') {
-        moveWordForward();
-        return;
-      }
-      // Modified arrow style (some terminals) - word navigation
+    // ═══════════════════════════════════════════════════════════════════════
+    // OPTION/META KEY: All Option+key handling consolidated here
+    // macOS Terminal sends ESC sequences for Option key (key.escape or key.meta)
+    // This handles BOTH key.escape AND key.meta since macOS Terminal sends ESC sequences
+    // IMPORTANT: Skip this block if Ctrl is pressed to let Ctrl handler run
+    if ((key.escape || key.meta) && !key.ctrl) {
+      // Helper to apply paredit operation
+      const applyParedit = (fn: typeof slurpForward) => {
+        const result = fn(value, cursorPos);
+        if (result) {
+          onChange(result.newValue);
+          setCursorPos(result.newCursor);
+        }
+      };
+
+      // Check for ESC/Option + arrow (word/sexp navigation)
       if (key.leftArrow) {
         moveWordBack();
         return;
@@ -1009,74 +1242,73 @@ export function Input({
         moveWordForward();
         return;
       }
-      // Alt+Up: backward sexp (paredit-style)
       if (key.upArrow) {
         const newPos = backwardSexp(value, cursorPos);
-        if (newPos !== cursorPos) {
-          setCursorPos(newPos);
-        }
+        if (newPos !== cursorPos) setCursorPos(newPos);
         return;
       }
-      // Alt+Down: forward sexp (paredit-style)
       if (key.downArrow) {
         const newPos = forwardSexp(value, cursorPos);
-        if (newPos !== cursorPos) {
-          setCursorPos(newPos);
+        if (newPos !== cursorPos) setCursorPos(newPos);
+        return;
+      }
+
+      // Check for ESC/Option + Enter (insert newline)
+      if (key.return) {
+        insertAt("\n");
+        return;
+      }
+
+      // Handle ESC/Option + letter
+      switch (input) {
+        // Word navigation (Option+B/F) - standard Emacs
+        case 'b': moveWordBack(); return;
+        case 'f': moveWordForward(); return;
+
+        // ═══════════════════════════════════════════════════════════════
+        // PAREDIT: Option+lowercase (reliable on macOS/Linux/Windows)
+        // Option sends ESC sequence, lowercase avoids Unicode issues
+        //
+        // Mnemonics (all left-hand friendly):
+        //   Option+s = Slurp forward   (S for Slurp)
+        //   Option+a = Slurp backward  (A left of S)
+        //   Option+x = Barf forward    (X for eXpel)
+        //   Option+z = Barf backward   (Z left of X)
+        //   Option+w = Wrap            (W for Wrap)
+        //   Option+u = Unwrap/Splice   (U for Unwrap)
+        //   Option+r = Raise           (R for Raise)
+        //   Option+t = Transpose       (T for Transpose)
+        //   Option+k = Kill            (K for Kill)
+        // ═══════════════════════════════════════════════════════════════
+        case 's': applyParedit(slurpForward); return;   // Opt+S: (a|) b → (a| b)
+        case 'a': applyParedit(slurpBackward); return;  // Opt+A: a (|b) → (a |b)
+        case 'x': applyParedit(barfForward); return;    // Opt+X: (a| b) → (a|) b
+        case 'z': applyParedit(barfBackward); return;   // Opt+Z: (a |b) → a (|b)
+        case 'w': applyParedit(wrapSexp); return;       // Opt+W: |foo → (|foo)
+        case 'u': applyParedit(spliceSexp); return;     // Opt+U: ((|a)) → (|a)
+        case 'r': applyParedit(raiseSexp); return;      // Opt+R: (x (|y)) → (|y)
+        case 't': applyParedit(transposeSexp); return;  // Opt+T: (a |b) → (b |a)
+        case 'k': applyParedit(killSexp); return;       // Opt+K: (a |b c) → (a |)
+      }
+
+      // Only treat as "pure ESC" if no input character (actual ESC key press)
+      if (!input || input.length === 0) {
+        // Pure ESC key - immediately clear input (Claude Code behavior)
+
+        // Exit placeholder mode
+        if (isInPlaceholderMode()) {
+          exitPlaceholderModeAndCleanup();
         }
-        return;
-      }
-      // Option+Enter / Alt+Enter: insert newline (multi-line input)
-      if (key.return) {
-        insertAt("\n");
-        return;
-      }
-    }
+        // Close completion dropdown
+        if (completion.isVisible) {
+          completion.close();
+        }
 
-    // ESC-based sequences (FALLBACK for some terminals)
-    // Some terminals may send ESC sequences instead of meta
-
-    // CASE 1: ESC + key in SAME event (key.escape true with other keys/input)
-    if (key.escape) {
-      // Check for ESC + arrow in same event (Option+Arrow)
-      if (key.leftArrow) {
-        moveWordBack();
-        return;
+        // Clear input immediately
+        onChange("");
+        setCursorPos(0);
+        clearAttachments();
       }
-      if (key.rightArrow) {
-        moveWordForward();
-        return;
-      }
-      // Check for ESC + b/f in same event (readline-style word nav)
-      if (input === 'b') {
-        moveWordBack();
-        return;
-      }
-      if (input === 'f') {
-        moveWordForward();
-        return;
-      }
-      // Check for ESC + Enter in same event (Option+Enter)
-      if (key.return) {
-        insertAt("\n");
-        return;
-      }
-
-      // Pure ESC key - immediately clear input (Claude Code behavior)
-      // Also handle any active modes first
-
-      // Exit placeholder mode
-      if (isInPlaceholderMode()) {
-        exitPlaceholderModeAndCleanup();
-      }
-      // Close completion dropdown
-      if (completion.isVisible) {
-        completion.close();
-      }
-
-      // Clear input immediately
-      onChange("");
-      setCursorPos(0);
-      clearAttachments();
       return;
     }
 
@@ -1183,8 +1415,8 @@ export function Input({
       const selectedItem = completion.selectedItem;
 
       // Ctrl+D: Toggle documentation panel
-      // Some terminals send 'd', others send EOF character (ASCII 4)
-      if (key.ctrl && (input === 'd' || input === '\x04')) {
+      // CROSS-PLATFORM: Check both key.ctrl flag AND control code (ASCII 4 = Ctrl+D)
+      if ((key.ctrl && input === 'd') || input === '\x04') {
         completion.toggleDocPanel();
         return;
       }
@@ -1227,16 +1459,27 @@ export function Input({
         return;
       }
 
-      // Enter: always SELECT (choose and close)
+      // Enter: SELECT for commands (executes immediately), INSERT for others (text insertion)
+      // Commands need SELECT to trigger EXECUTE side effect for immediate execution
+      // Non-commands use INSERT so user can reference functions without calling them
       if (key.return && selectedItem) {
-        executeCompletionAction(selectedItem, "SELECT");
+        const action: CompletionAction = selectedItem.type === "command" ? "SELECT" : "INSERT";
+        executeCompletionAction(selectedItem, action);
         return;
       }
     }
 
     // Enter - submit if balanced OR if it's an @mention query
     if (key.return) {
-      const trimmed = value.trim();
+      // If there's a ghost text suggestion, accept it first then submit
+      // This makes slash commands like /config execute immediately when completed
+      let finalValue = value;
+      if (suggestion) {
+        finalValue = acceptSuggestion(suggestion);
+        setSuggestion(null);
+      }
+
+      const trimmed = finalValue.trim();
 
       // Allow submission for @mention queries without balanced parens check
       const hasAtMention = trimmed.startsWith("@") || trimmed.includes(" @");
@@ -1302,146 +1545,104 @@ export function Input({
       return;
     }
 
-    // Paredit: Ctrl+Shift shortcuts for structural editing
-    // Note: Ctrl+Shift+symbol often doesn't work in terminals, so we also support Ctrl-only alternatives
-    if (key.ctrl && key.shift) {
-      switch (input) {
-        case ')': { // Ctrl+Shift+) = Slurp Forward
-          const result = slurpForward(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        case '(': { // Ctrl+Shift+( = Slurp Backward
-          const result = slurpBackward(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        case '}': { // Ctrl+Shift+} = Barf Forward
-          const result = barfForward(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        case '{': { // Ctrl+Shift+{ = Barf Backward
-          const result = barfBackward(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        case 'K': // Ctrl+Shift+K = Kill Sexp (note: uppercase with shift)
-        case 'k': { // Some terminals send lowercase
-          const result = killSexp(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        case 'T': // Ctrl+Shift+T = Transpose Sexps
-        case 't': {
-          const result = transposeSexp(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-      }
-    }
+    // Standard readline Ctrl+key shortcuts
+    // CROSS-PLATFORM: Handle both key.ctrl flag AND bare control codes
+    // Some terminals set key.ctrl=true, others just send the control code (ASCII 1-26)
+    const ctrlCode = input?.charCodeAt(0) ?? 0;
+    const isCtrlCode = ctrlCode >= 1 && ctrlCode <= 26;
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // PAREDIT: Structural editing via raw control character codes
-    // These work reliably in Terminal.app and most terminals
-    // ═══════════════════════════════════════════════════════════════════════
-    // Ctrl+letter sends: Ctrl+A=1, Ctrl+B=2, ..., Ctrl+Z=26
-    // Ctrl+symbols: Ctrl+[=27(ESC), Ctrl+\=28, Ctrl+]=29, Ctrl+^=30, Ctrl+_=31
+    if (key.ctrl || isCtrlCode) {
+      // Helper for paredit operations
+      const applyParedit = (fn: typeof slurpForward) => {
+        const result = fn(value, cursorPos);
+        if (result) {
+          onChange(result.newValue);
+          setCursorPos(result.newCursor);
+        }
+      };
 
-    if (input.length === 1) {
-      const code = input.charCodeAt(0);
-      switch (code) {
-        // ─── Slurp: Pull adjacent sexp INTO current list ───
-        case 29: { // Ctrl+] = Slurp Forward: (a|) b → (a| b)
-          const result = slurpForward(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        case 15: { // Ctrl+O = Slurp Backward: a (|b) → (a |b)
-          const result = slurpBackward(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        // ─── Barf: Push edge sexp OUT OF current list ───
-        case 28: { // Ctrl+\ = Barf Forward: (a| b) → (a|) b
-          const result = barfForward(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        case 16: { // Ctrl+P = Barf Backward: (a |b) → a (|b)
-          const result = barfBackward(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        // ─── Structural: Wrap, Splice, Raise ───
-        case 25: { // Ctrl+Y = Wrap: |foo → (|foo)
-          const result = wrapSexp(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        case 7: { // Ctrl+G = Splice (unwrap): ((|a)) → (|a)
-          const result = spliceSexp(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        case 30: { // Ctrl+^ (Ctrl+Shift+6) = Raise: (x (|y)) → (|y)
-          const result = raiseSexp(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        // ─── Kill & Transpose ───
-        case 20: { // Ctrl+T = Transpose: (a |b) → (b |a)
-          const result = transposeSexp(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-        case 24: { // Ctrl+X = Kill Sexp: (a |b c) → (a | c)
-          const result = killSexp(value, cursorPos);
-          if (result) { onChange(result.newValue); setCursorPos(result.newCursor); }
-          return;
-        }
-      }
-    }
+      // Normalize: convert control code to lowercase letter
+      // Control codes: A=1, B=2, ... Z=26
+      const normalizedInput = isCtrlCode
+        ? String.fromCharCode(ctrlCode + 96)  // Convert control code to lowercase letter
+        : input?.toLowerCase() ?? "";
 
-    // Control keys
-    if (key.ctrl) {
-      switch (input) {
-        case "a": // Start of line
+      switch (normalizedInput) {
+        case "a": // Ctrl+A = Start of line
           setCursorPos(0);
           return;
-        case "e": // End of line (also accept suggestion)
+        case "e": // Ctrl+E = End of line (also accept suggestion)
           if (suggestion && cursorPos === value.length) {
             acceptAndApplySuggestion();
           } else {
             setCursorPos(value.length);
           }
           return;
-        case "w": { // Delete word (with placeholder cleanup)
+        case "w": { // Ctrl+W = Delete word backward
           const { v, c } = getCleanedValue();
           deleteWord(v, c);
           return;
         }
-        case "u": { // Delete to start (with placeholder cleanup)
+        case "u": { // Ctrl+U = Delete to start of line
           const { v, c } = getCleanedValue();
           onChange(v.slice(c));
           setCursorPos(0);
           return;
         }
-        case "k": { // Delete to end (with placeholder cleanup)
+        case "k": { // Ctrl+K = Delete to end of line
           const { v, c } = getCleanedValue();
           onChange(v.slice(0, c));
           return;
         }
-        // Note: Ctrl+D (EOF) is handled at the App level, not here
+
+        // ═══════════════════════════════════════════════════════════════
+        // PAREDIT: Ctrl+letter (cross-platform, reliable)
+        //
+        // Left-hand keys (QWERTY):
+        //   Ctrl+G = Wrap        |foo     →  (|foo)
+        //   Ctrl+T = Transpose   (a |b)   →  (b |a)
+        //   Ctrl+F = Slurp →     (a|) b   →  (a| b)
+        //   Ctrl+V = Slurp ←     a (|b)   →  (a |b)
+        //   Ctrl+X = Barf →      (a| b)   →  (a|) b
+        //   Ctrl+Q = Barf ←      (a |b)   →  a (|b)
+        //
+        // Right-hand keys:
+        //   Ctrl+Y = Splice      ((|a))   →  (|a)
+        //   Ctrl+L = Raise       (x (|y)) →  (|y)
+        //   Ctrl+O = Kill        (a |b c) →  (a |)
+        // ═══════════════════════════════════════════════════════════════
+        case "g": applyParedit(wrapSexp); return;       // Ctrl+G = Wrap
+        case "t": applyParedit(transposeSexp); return;  // Ctrl+T = Transpose
+        case "f": applyParedit(slurpForward); return;   // Ctrl+F = Slurp forward
+        case "v": applyParedit(slurpBackward); return;  // Ctrl+V = Slurp backward
+        case "x": applyParedit(barfForward); return;    // Ctrl+X = Barf forward
+        case "q": applyParedit(barfBackward); return;   // Ctrl+Q = Barf backward
+        case "y": applyParedit(spliceSexp); return;     // Ctrl+Y = Splice
+        case "l": applyParedit(raiseSexp); return;      // Ctrl+L = Raise
+        case "o": applyParedit(killSexp); return;       // Ctrl+O = Kill
+
+        // Note: Ctrl+P = Command Palette (handled in App.tsx)
+        // Note: Ctrl+D = EOF (handled in App.tsx)
+        // Note: Ctrl+B = Tasks Panel (handled in App.tsx)
+        // Note: Ctrl+R = History Search (handled above)
       }
       return;
     }
 
     // Backspace - uses encapsulated helper from syntax.ts
-    // Auto-pair deletion is handled by deleteBackWithPairSupport()
+    // Auto-pair deletion is handled by deleteBackWithPairSupport() for ()[]{}
+    // Quote pair deletion is handled by isInsideEmptyQuotePair() for ""''
     // Dropdown close is handled by the auto-trigger useEffect (single responsibility)
     if (key.backspace || key.delete) {
       if (cursorPos > 0) {
+        // Check for empty quote pair first: "|" or '|'
+        if (isInsideEmptyQuotePair(value, cursorPos)) {
+          const newValue = value.slice(0, cursorPos - 1) + value.slice(cursorPos + 1);
+          onChange(newValue);
+          setCursorPos(cursorPos - 1);
+          return;
+        }
+        // Regular pair deletion for ()[]{}
         const { newValue, newCursor } = deleteBackWithPairSupport(value, cursorPos);
         onChange(newValue);
         setCursorPos(newCursor);

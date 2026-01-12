@@ -16,6 +16,9 @@ import { getTaskManager } from "../cli/repl/task-manager/index.ts";
 import type { PullProgress, TaskEvent } from "../cli/repl/task-manager/types.ts";
 import { isModelPullTask } from "../cli/repl/task-manager/types.ts";
 
+// Import scraped models catalog (205 models from ollama.com)
+import ollamaModelsData from "../cli/repl-ink/data/ollama_models.json" with { type: "json" };
+
 // ============================================================
 // Global Type Declarations
 // ============================================================
@@ -102,47 +105,81 @@ export interface OllamaTaskHandle {
 }
 
 // ============================================================
-// Popular Models Catalog
+// Models Catalog - Loaded from scraped ollama_models.json
 // ============================================================
 
-const POPULAR_MODELS: OllamaRemoteModel[] = [
-  // Compact models
-  { name: "llama3.2:1b", description: "Meta's Llama 3.2 - 1B parameters", capabilities: ["text"] },
-  { name: "llama3.2:3b", description: "Meta's Llama 3.2 - 3B parameters", capabilities: ["text", "tools"] },
-  { name: "phi3:mini", description: "Microsoft Phi-3 Mini", capabilities: ["text"] },
-  { name: "qwen2.5:3b", description: "Alibaba Qwen 2.5 - 3B", capabilities: ["text", "tools"] },
-  { name: "gemma2:2b", description: "Google Gemma 2 - 2B", capabilities: ["text"] },
+interface ScrapedModelVariant {
+  id: string;
+  name: string;
+  parameters: string;
+  size: string;
+  context: string;
+  vision: boolean;
+}
 
-  // Standard models
-  { name: "llama3.2:latest", description: "Meta's Llama 3.2 - default", capabilities: ["text", "tools"] },
-  { name: "qwen2.5:7b", description: "Alibaba Qwen 2.5 - 7B", capabilities: ["text", "tools"] },
-  { name: "mistral:7b", description: "Mistral 7B", capabilities: ["text", "tools"] },
-  { name: "gemma2:9b", description: "Google Gemma 2 - 9B", capabilities: ["text"] },
-  { name: "llama3.1:8b", description: "Meta's Llama 3.1 - 8B", capabilities: ["text", "tools"] },
+interface ScrapedModel {
+  id: string;
+  name: string;
+  description: string;
+  variants: ScrapedModelVariant[];
+  vision: boolean;
+  downloads: number;
+  model_type?: string;
+}
 
-  // Code models
-  { name: "qwen2.5-coder:7b", description: "Alibaba Qwen 2.5 Coder - 7B", capabilities: ["text", "tools"] },
-  { name: "codellama:7b", description: "Meta's Code Llama - 7B", capabilities: ["text"] },
-  { name: "deepseek-coder:6.7b", description: "DeepSeek Coder - 6.7B", capabilities: ["text"] },
-  { name: "starcoder2:3b", description: "BigCode StarCoder2 - 3B", capabilities: ["text"] },
+/**
+ * Load models from scraped JSON and transform to OllamaRemoteModel format.
+ * Returns flattened list of model variants (e.g., llama3.1:8b, llama3.1:70b).
+ */
+function loadScrapedModels(): OllamaRemoteModel[] {
+  const models = ollamaModelsData.models as ScrapedModel[];
+  const result: OllamaRemoteModel[] = [];
 
-  // Reasoning models
-  { name: "deepseek-r1:7b", description: "DeepSeek R1 - 7B reasoning", capabilities: ["text", "thinking"] },
-  { name: "deepseek-r1:14b", description: "DeepSeek R1 - 14B reasoning", capabilities: ["text", "thinking"] },
+  for (const model of models) {
+    // Derive capabilities from model properties
+    const capabilities: string[] = ["text"];
+    if (model.vision) capabilities.push("vision");
+    if (model.model_type === "embedding") {
+      capabilities.length = 0; // Clear "text"
+      capabilities.push("embedding");
+    }
+    // Add "tools" for popular tool-capable models
+    if (/llama3|qwen|mistral|gemma/i.test(model.id) && !model.vision && model.model_type !== "embedding") {
+      capabilities.push("tools");
+    }
 
-  // Vision models
-  { name: "llava:7b", description: "LLaVA Vision - 7B", capabilities: ["text", "vision"] },
-  { name: "llama3.2-vision:11b", description: "Llama 3.2 Vision - 11B", capabilities: ["text", "vision"] },
+    // Add each variant as a separate entry
+    for (const variant of model.variants.slice(0, 3)) { // Limit to 3 variants per model
+      result.push({
+        name: variant.id,
+        description: model.description,
+        sizes: [variant.size],
+        capabilities,
+      });
+    }
 
-  // Large models
-  { name: "llama3.1:70b", description: "Meta's Llama 3.1 - 70B", capabilities: ["text", "tools"] },
-  { name: "qwen2.5:72b", description: "Alibaba Qwen 2.5 - 72B", capabilities: ["text", "tools"] },
-  { name: "deepseek-r1:70b", description: "DeepSeek R1 - 70B reasoning", capabilities: ["text", "thinking"] },
+    // If no variants, add the model itself
+    if (model.variants.length === 0) {
+      result.push({
+        name: model.id,
+        description: model.description,
+        capabilities,
+      });
+    }
+  }
 
-  // Embedding models
-  { name: "nomic-embed-text", description: "Nomic Embed Text", capabilities: ["embedding"] },
-  { name: "mxbai-embed-large", description: "MixedBread Embed Large", capabilities: ["embedding"] },
-];
+  return result;
+}
+
+/** Cached models from scraped JSON */
+let _scrapedModels: OllamaRemoteModel[] | null = null;
+
+function getScrapedModels(): OllamaRemoteModel[] {
+  if (!_scrapedModels) {
+    _scrapedModels = loadScrapedModels();
+  }
+  return _scrapedModels;
+}
 
 // ============================================================
 // Event-Driven Cache
@@ -206,26 +243,26 @@ class OllamaCache {
     return this.localModelsPromise;
   }
 
-  /** Get all models (cached) */
+  /** Get all models (cached) - uses scraped 205 models from ollama_models.json */
   getModels(): Promise<Array<OllamaLocalModel | OllamaRemoteModel>> {
     if (!this.modelsPromise) {
       this.modelsPromise = (async () => {
         const local = await this.getLocalModels();
         const localNames = new Set(local.map((m) => m.name.split(":")[0]));
-        const remote = POPULAR_MODELS.filter((m) => !localNames.has(m.name.split(":")[0]));
+        const remote = getScrapedModels().filter((m) => !localNames.has(m.name.split(":")[0]));
         return [...local, ...remote];
       })();
     }
     return this.modelsPromise;
   }
 
-  /** Get available models (cached) */
+  /** Get available models (cached) - uses scraped 205 models from ollama_models.json */
   getAvailable(): Promise<OllamaRemoteModel[]> {
     if (!this.availablePromise) {
       this.availablePromise = (async () => {
         const local = await this.getLocalModels();
         const localNames = new Set(local.map((m) => m.name.split(":")[0]));
-        return POPULAR_MODELS.filter((m) => !localNames.has(m.name.split(":")[0]));
+        return getScrapedModels().filter((m) => !localNames.has(m.name.split(":")[0]));
       })();
     }
     return this.availablePromise;
@@ -385,11 +422,11 @@ async function removeModel(endpoint: string, name: string): Promise<{ success: b
 }
 
 /**
- * Search models by query (searches catalog)
+ * Search models by query (searches scraped catalog of 205 models)
  */
 function searchModels(query: string): OllamaRemoteModel[] {
   const q = query.toLowerCase();
-  return POPULAR_MODELS.filter(
+  return getScrapedModels().filter(
     (m) =>
       m.name.toLowerCase().includes(q) ||
       (m.description?.toLowerCase().includes(q) ?? false)

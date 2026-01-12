@@ -363,6 +363,12 @@ export const CLOSE_TO_OPEN: Readonly<Record<string, string>> = { ")": "(", "]": 
 /** Maps opening delimiters to their closing counterparts (also used for auto-close) */
 export const OPEN_TO_CLOSE: Readonly<Record<string, string>> = { "(": ")", "[": "]", "{": "}" };
 
+/** Maps opening delimiters to their closing counterparts (including quotes for auto-pair) */
+export const AUTO_PAIR_CHARS: Readonly<Record<string, string>> = {
+  "(": ")", "[": "]", "{": "}",
+  '"': '"', "'": "'"
+};
+
 /** All opening delimiters as string for quick checks */
 export const OPEN_DELIMITERS = "([{";
 
@@ -427,6 +433,44 @@ export function deleteBackWithPairSupport(
   const deleteCount = Math.min(n, cursorPos);
   const newValue = value.slice(0, cursorPos - deleteCount) + value.slice(cursorPos);
   return { newValue, newCursor: cursorPos - deleteCount };
+}
+
+/**
+ * Check if cursor is inside a string of a specific quote type.
+ * Used for smart quote insertion (don't auto-pair inside existing string).
+ *
+ * @param value - Input text
+ * @param cursorPos - Cursor position
+ * @param quoteChar - Quote character to check (" or ')
+ * @returns true if cursor is inside a string delimited by quoteChar
+ */
+export function isInsideString(value: string, cursorPos: number, quoteChar: string): boolean {
+  let inString = false;
+  let stringChar = "";
+  for (let i = 0; i < cursorPos; i++) {
+    const char = value[i];
+    if ((char === '"' || char === "'") && (i === 0 || value[i - 1] !== '\\')) {
+      if (!inString) {
+        inString = true;
+        stringChar = char;
+      } else if (char === stringChar) {
+        inString = false;
+        stringChar = "";
+      }
+    }
+  }
+  return inString && stringChar === quoteChar;
+}
+
+/**
+ * Check if cursor is inside an empty quote pair: `"|"` or `'|'`
+ * Used for auto-delete-quote-pair behavior.
+ */
+export function isInsideEmptyQuotePair(value: string, cursorPos: number): boolean {
+  if (cursorPos <= 0 || cursorPos >= value.length) return false;
+  const charBefore = value[cursorPos - 1];
+  const charAfter = value[cursorPos];
+  return (charBefore === '"' || charBefore === "'") && charBefore === charAfter;
 }
 
 // ============================================================

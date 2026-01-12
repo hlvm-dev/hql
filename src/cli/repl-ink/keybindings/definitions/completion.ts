@@ -4,6 +4,7 @@
  */
 
 import type { Keybinding } from "../types.ts";
+import { HandlerIds } from "../handler-registry.ts";
 
 export const completionKeybindings: Keybinding[] = [
   {
@@ -12,7 +13,7 @@ export const completionKeybindings: Keybinding[] = [
     label: "Complete / drill",
     description: "Complete or enter directory/show params",
     category: "Completion",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.COMPLETION_ACCEPT },
   },
   {
     id: "enter-completion",
@@ -20,14 +21,14 @@ export const completionKeybindings: Keybinding[] = [
     label: "Select completion",
     description: "Choose selected item and close dropdown",
     category: "Completion",
-    action: { type: "INFO" },
+    action: { type: "INFO" },  // Contextual - only in dropdown mode
   },
   {
     id: "up-down-completion",
     display: "Up/Down",
     label: "Navigate completions",
     category: "Completion",
-    action: { type: "INFO" },
+    action: { type: "INFO" },  // Contextual - only in dropdown mode
   },
   {
     id: "ctrl+d",
@@ -35,14 +36,14 @@ export const completionKeybindings: Keybinding[] = [
     label: "Toggle documentation",
     description: "Show/hide extended documentation panel",
     category: "Completion",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.COMPLETION_TOGGLE_DOCS },
   },
   {
     id: "escape-completion",
     display: "Esc",
     label: "Close dropdown",
     category: "Completion",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.COMPLETION_CANCEL },
   },
   {
     id: "right-accept",
@@ -50,6 +51,6 @@ export const completionKeybindings: Keybinding[] = [
     label: "Accept ghost suggestion",
     description: "Accept ghost text when at end of line",
     category: "Completion",
-    action: { type: "INFO" },
+    action: { type: "INFO" },  // Contextual - only with ghost text
   },
 ];

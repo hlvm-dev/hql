@@ -4,7 +4,7 @@
  */
 
 import { loadConfig, saveConfig } from "./storage.ts";
-import { type HqlConfig, type ConfigKey, CONFIG_KEYS, DEFAULT_CONFIG, validateValue } from "./types.ts";
+import { type HqlConfig, type ConfigKey, type KeybindingsConfig, CONFIG_KEYS, DEFAULT_CONFIG, validateValue } from "./types.ts";
 import { debugLog } from "./debug-log.ts";
 import { initOllamaRuntime, updateOllamaEndpoint } from "../../runtime/ollama-runtime.ts";
 
@@ -87,6 +87,33 @@ export async function resetConfigRuntime(): Promise<HqlConfig> {
  */
 export function getConfigRuntime(): HqlConfig {
   return currentConfig;
+}
+
+/**
+ * Update a keybinding at runtime
+ * keybindingId: the ID of the keybinding (e.g., "paredit.slurp-forward")
+ * keyCombo: the new key combination as a string (e.g., "Ctrl+Shift+S")
+ */
+export async function updateKeybindingRuntime(keybindingId: string, keyCombo: string): Promise<void> {
+  await debugLog("CONFIG", `updateKeybindingRuntime(${keybindingId})`, { keybindingId, keyCombo });
+
+  // Get or create keybindings object
+  const keybindings: KeybindingsConfig = currentConfig.keybindings ?? {};
+  keybindings[keybindingId] = keyCombo;
+
+  // Update config
+  currentConfig = { ...currentConfig, keybindings };
+  await saveConfig(currentConfig);
+  (globalThis as Record<string, unknown>).__hqlConfig = currentConfig;
+
+  await debugLog("CONFIG", `updateKeybindingRuntime SUCCESS`, { keybindingId, keyCombo, keybindings });
+}
+
+/**
+ * Get custom keybindings from config
+ */
+export function getKeybindingsRuntime(): KeybindingsConfig {
+  return currentConfig.keybindings ?? {};
 }
 
 /**

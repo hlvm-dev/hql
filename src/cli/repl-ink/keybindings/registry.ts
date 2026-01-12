@@ -2,7 +2,7 @@
  * Keybindings Registry
  *
  * Central registry for all keyboard shortcuts.
- * Single source of truth - used by CommandPalette and /help.
+ * Single source of truth - used by CommandPaletteOverlay and /help.
  */
 
 import { fuzzyFilter } from "../../repl/fuzzy.ts";
@@ -85,11 +85,14 @@ class KeybindingRegistry {
       return result;
     }
 
-    // Fuzzy filter using existing fuzzy.ts
+    // Fuzzy filter with auto threshold to filter low-quality matches
+    // Search only label + display (not description) to avoid false positives
+    // Description is for help text, not search matching
     const filtered = fuzzyFilter(
       this.bindings,
       query,
-      (b) => `${b.label} ${b.description ?? ""} ${getDisplay(b)}`
+      (b) => `${b.label} ${getDisplay(b)}`,
+      { minScore: "auto" }
     );
 
     return filtered.map((r) => ({

@@ -53,70 +53,83 @@ type DisplayModel = {
 };
 
 // ============================================================
-// Remote Models - Fetched from Ollama's official API
+// Model Catalog - Loaded from verified ollama_models.json
+// Source: ~/dev/HLVM/HLVM/Resources/ollama_models.json (205 models)
 // ============================================================
 
-// Ollama's official registry API endpoint
-const OLLAMA_REGISTRY_API = "https://ollama.com/api/tags";
+import ollamaModelsData from "../data/ollama_models.json" with { type: "json" };
+
+interface OllamaModelVariant {
+  id: string;
+  name: string;
+  parameters: string;
+  size: string;
+  context: string;
+  vision: boolean;
+}
+
+interface OllamaModelEntry {
+  id: string;
+  name: string;
+  description: string;
+  variants: OllamaModelVariant[];
+  vision: boolean;
+  downloads: number;
+  model_type?: string;
+}
 
 /**
- * Fetch available models from Ollama's official registry API.
- * This returns real, verified model names directly from Ollama.
+ * Load models from verified JSON file, sorted by popularity.
+ * Returns practical variants (smallest 2-3 per model family).
+ */
+function loadVerifiedModels(): RemoteModel[] {
+  const models = ollamaModelsData.models as OllamaModelEntry[];
+  const result: RemoteModel[] = [];
+
+  // Sort by downloads (popularity)
+  const sorted = [...models].sort((a, b) => (b.downloads || 0) - (a.downloads || 0));
+
+  for (const model of sorted) {
+    // Get practical variants (prefer smaller sizes for browsing)
+    const variants = model.variants || [];
+    // Sort variants by size (smallest first), take first 2
+    const practicalVariants = variants
+      .filter(v => !v.id.includes("405b") && !v.id.includes("671b") && !v.id.includes("70b"))
+      .slice(0, 2);
+
+    // If no practical variants, use first variant
+    const toAdd = practicalVariants.length > 0 ? practicalVariants : variants.slice(0, 1);
+
+    for (const variant of toAdd) {
+      const capabilities: string[] = model.model_type === "embedding"
+        ? ["embedding"]
+        : model.vision ? ["text", "vision"] : ["text"];
+
+      // Add thinking capability for reasoning models
+      if (model.id.includes("r1") || model.id.includes("qwq")) {
+        capabilities.push("thinking");
+      }
+
+      result.push({
+        name: variant.id,
+        description: `${model.name} (${variant.parameters || variant.name})`,
+        capabilities,
+      });
+    }
+  }
+
+  return result;
+}
+
+// Pre-load verified models (205 models from HLVM)
+const VERIFIED_MODELS = loadVerifiedModels();
+
+/**
+ * Get remote models from verified JSON.
+ * No network request needed - data is bundled.
  */
 async function fetchRemoteModels(): Promise<RemoteModel[]> {
-  try {
-    const response = await fetch(OLLAMA_REGISTRY_API, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) return [];
-
-    const data = await response.json();
-    const models = data.models || [];
-
-    return models.map((m: { name: string; size?: number }) => ({
-      name: m.name,
-      description: formatModelDescription(m.name),
-      capabilities: inferCapabilities(m.name),
-    }));
-  } catch {
-    // Fallback to empty - user can still type model names manually
-    return [];
-  }
-}
-
-/** Infer capabilities from model name */
-function inferCapabilities(name: string): string[] {
-  const n = name.toLowerCase();
-  const caps: string[] = ["text"];
-
-  if (n.includes("vision") || n.includes("llava") || n.includes("-vl")) {
-    caps.push("vision");
-  }
-  if (n.includes("embed")) {
-    return ["embedding"];
-  }
-  if (n.includes("r1") || n.includes("qwq") || n.includes("thinking")) {
-    caps.push("thinking");
-  }
-  if (n.includes("coder") || n.includes("code") || n.includes("starcoder")) {
-    // coding models still have "text" capability
-  }
-  return caps;
-}
-
-/** Format model name into description */
-function formatModelDescription(name: string): string {
-  // Extract base name and size
-  const [base, tag] = name.split(":");
-  const size = tag ? ` - ${tag.toUpperCase()}` : "";
-
-  // Capitalize base name nicely
-  const formatted = base
-    .split("-")
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-
-  return `${formatted}${size}`;
+  return VERIFIED_MODELS;
 }
 
 // ============================================================
@@ -197,7 +210,8 @@ export function ModelBrowser({
   endpoint = "http://127.0.0.1:11434",
 }: ModelBrowserProps): React.ReactElement {
   const { color } = useTheme();
-  const { tasks, pullModel, cancel, isModelPulling } = useTaskManager();
+  const { tasks, cancel } = useTaskManager();
+  const manager = useMemo(() => getTaskManager(endpoint), [endpoint]);
 
   // State
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
@@ -367,7 +381,7 @@ export function ModelBrowser({
       } else if (!model.isLocal && !model.isDownloading) {
         // Start download
         try {
-          pullModel(model.name);
+          manager.pullModel(model.name);
         } catch {
           // Already downloading - ignore
         }

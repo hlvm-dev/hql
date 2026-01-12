@@ -18,6 +18,8 @@ import {
   type TaskEventListener,
   type ModelPullTask,
   type PullProgress,
+  type EvalTask,
+  type EvalProgress,
   canTransition,
 } from "./types.ts";
 
@@ -78,7 +80,7 @@ class ResourceRegistry {
     this.isShuttingDown = true;
 
     // Abort all active controllers
-    for (const [id, controller] of this.controllers) {
+    for (const [_id, controller] of this.controllers) {
       if (!controller.signal.aborted) {
         controller.abort();
       }
@@ -488,11 +490,143 @@ export class TaskManager {
   }
 
   // ============================================================
+  // HQL Eval Task Operations
+  // ============================================================
+
+  /**
+   * Create an HQL evaluation task.
+   * Used when pushing a running evaluation to background with Ctrl+B.
+   * Returns task ID immediately; caller is responsible for tracking the promise.
+   *
+   * @param code - The HQL code being evaluated
+   * @param controller - Optional AbortController for cancellation support.
+   *                     If provided, calling cancel() will abort async operations.
+   */
+  createEvalTask(code: string, controller?: AbortController): string {
+    if (!code?.trim()) {
+      throw new Error("Code is required");
+    }
+
+    if (this.resources.shuttingDown) {
+      throw new Error("TaskManager is shutting down");
+    }
+
+    const id = crypto.randomUUID();
+    const preview = code.length > 50 ? code.slice(0, 47) + "..." : code;
+
+    // Create task (note: _controller is not frozen since it's a reference)
+    const task: EvalTask = {
+      id,
+      type: "eval" as const,
+      label: `Eval: ${preview}`,
+      code,
+      preview,
+      status: "running" as const,
+      createdAt: Date.now(),
+      startedAt: Date.now(),
+      progress: Object.freeze({ status: "evaluating", startedAt: Date.now() }),
+      _controller: controller,
+    };
+
+    this.tasks.set(id, task);
+    this.notify();
+    this.emit({ type: "task:created", task });
+
+    return id;
+  }
+
+  /**
+   * Complete an evaluation task with result.
+   * Called when the background evaluation promise resolves.
+   */
+  completeEvalTask(taskId: string, result: unknown): void {
+    const task = this.tasks.get(taskId);
+    if (!task || task.type !== "eval") return;
+
+    const updated: EvalTask = Object.freeze({
+      ...(task as EvalTask),
+      status: "completed" as const,
+      completedAt: Date.now(),
+      result,
+      progress: Object.freeze({ ...(task as EvalTask).progress, status: "done" }),
+    });
+
+    this.tasks.set(taskId, updated);
+    this.notify();
+    this.emit({ type: "task:completed", taskId, result });
+  }
+
+  /**
+   * Fail an evaluation task with error.
+   * Called when the background evaluation promise rejects.
+   */
+  failEvalTask(taskId: string, error: Error): void {
+    const task = this.tasks.get(taskId);
+    if (!task || task.type !== "eval") return;
+
+    const updated: EvalTask = Object.freeze({
+      ...(task as EvalTask),
+      status: "failed" as const,
+      completedAt: Date.now(),
+      error,
+      progress: Object.freeze({ ...(task as EvalTask).progress, status: "failed" }),
+    });
+
+    this.tasks.set(taskId, updated);
+    this.notify();
+    this.emit({ type: "task:failed", taskId, error });
+  }
+
+  /**
+   * Get eval task result (if completed).
+   */
+  getEvalResult(taskId: string): unknown | undefined {
+    const task = this.tasks.get(taskId) as EvalTask | undefined;
+    if (!task || task.type !== "eval" || task.status !== "completed") return undefined;
+    return task.result;
+  }
+
+  /**
+   * Update eval task progress.
+   */
+  updateEvalProgress(taskId: string, progress: Partial<EvalProgress>): void {
+    const task = this.tasks.get(taskId) as EvalTask | undefined;
+    if (!task || task.type !== "eval") return;
+
+    const updated: EvalTask = Object.freeze({
+      ...task,
+      progress: Object.freeze({
+        ...task.progress,
+        ...progress,
+      }),
+    });
+
+    this.tasks.set(taskId, updated);
+    this.notify();
+    this.emit({ type: "task:progress", taskId, progress: updated.progress });
+  }
+
+  // ============================================================
   // Cancellation Operations
   // ============================================================
 
   /** Cancel a specific task */
   cancel(taskId: string): boolean {
+    const task = this.tasks.get(taskId);
+    if (!task) return false;
+
+    // For eval tasks, abort the controller if available
+    if (task.type === "eval") {
+      const evalTask = task as EvalTask;
+      if (evalTask._controller && !evalTask._controller.signal.aborted) {
+        evalTask._controller.abort();
+      }
+      this.transition(taskId, "cancelled");
+      this.emit({ type: "task:cancelled", taskId });
+      return true;
+    }
+
+    // Handle model pull tasks - abort the controller
     const controller = this.resources.get(taskId);
     if (!controller) return false;
     controller.abort();

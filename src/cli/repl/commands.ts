@@ -8,6 +8,7 @@ import type { ReplState } from "./state.ts";
 import { getMemoryStats, forgetFromMemory, getMemoryNames, clearMemory } from "./memory.ts";
 import { handleConfigCommand } from "./config/index.ts";
 import { registry } from "../repl-ink/keybindings/index.ts";
+import { getTaskManager } from "./task-manager/index.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -133,6 +134,36 @@ export const commands: Record<string, Command> = {
     description: "View/set configuration",
     handler: async (_state: ReplState, args: string) => {
       await handleConfigCommand(args);
+    },
+  },
+
+  "/tasks": {
+    description: "List background evaluation tasks",
+    handler: () => {
+      const manager = getTaskManager();
+      const tasks = Array.from(manager.getTasks().values());
+
+      if (tasks.length === 0) {
+        console.log(`${DIM_GRAY}No background tasks.${RESET}`);
+        console.log(`${DIM_GRAY}Press Ctrl+B while evaluating to push to background.${RESET}`);
+        return;
+      }
+
+      console.log(`${BOLD}Background Tasks:${RESET}`);
+      for (const task of tasks) {
+        const statusIcon = task.status === "running" ? "⏳" :
+                          task.status === "completed" ? "✓" :
+                          task.status === "failed" ? "✗" :
+                          task.status === "cancelled" ? "○" : "?";
+        const statusColor = task.status === "running" ? YELLOW :
+                           task.status === "completed" ? GREEN :
+                           task.status === "failed" ? "\x1b[31m" : DIM_GRAY;
+
+        console.log(`  ${statusColor}${statusIcon}${RESET} ${task.label}`);
+        console.log(`    ${DIM_GRAY}${task.status} • ID: ${task.id.slice(0, 8)}${RESET}`);
+      }
+      console.log();
+      console.log(`${DIM_GRAY}Press Ctrl+B to view tasks panel.${RESET}`);
     },
   },
 };

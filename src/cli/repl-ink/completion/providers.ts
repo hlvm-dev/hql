@@ -13,9 +13,10 @@ import type {
   ApplyContext,
   ApplyResult,
   ItemRenderSpec,
+  EnclosingForm,
 } from "./types.ts";
-import { TYPE_ICONS, TYPE_PRIORITY, RENDER_MAX_WIDTH } from "./types.ts";
-import { isWordBoundary, getWordAtCursor } from "../../repl/string-utils.ts";
+import { TYPE_ICONS, TYPE_PRIORITY, RENDER_MAX_WIDTH, CONTEXT_AWARE_FORMS } from "./types.ts";
+import { getWordAtCursor } from "../../repl/string-utils.ts";
 
 // ============================================================
 // String Context Detection
@@ -61,6 +62,117 @@ export function isInsideString(text: string, cursorPosition: number): boolean {
 // Re-export for consumers who import from this module
 export { getWordAtCursor };
 
+// ============================================================
+// Enclosing Form Detection
+// ============================================================
+
+/**
+ * Detect the enclosing S-expression form at cursor position.
+ * Returns the form name and argument index for context-aware completions.
+ *
+ * Examples:
+ *   (forget sq|)     → { name: "forget", argIndex: 0 }
+ *   (map fn| coll)   → { name: "map", argIndex: 0 }
+ *   (map fn coll|)   → { name: "map", argIndex: 1 }
+ *   (let [x 1] |)    → { name: "let", argIndex: 1 }
+ *   sq|              → undefined (no enclosing form)
+ */
+export function detectEnclosingForm(text: string, cursorPosition: number): EnclosingForm | undefined {
+  // Don't detect if inside a string
+  if (isInsideString(text, cursorPosition)) {
+    return undefined;
+  }
+
+  const textBefore = text.slice(0, cursorPosition);
+
+  // Find the most recent unclosed opening paren
+  let depth = 0;
+  let openParenPos = -1;
+
+  for (let i = textBefore.length - 1; i >= 0; i--) {
+    const ch = textBefore[i];
+    if (ch === ')' || ch === ']' || ch === '}') {
+      depth++;
+    } else if (ch === '(' || ch === '[' || ch === '{') {
+      if (depth === 0) {
+        // Found the unclosed opening paren
+        openParenPos = i;
+        break;
+      }
+      depth--;
+    }
+  }
+
+  if (openParenPos === -1) {
+    // No enclosing form
+    return undefined;
+  }
+
+  // Only consider ( forms, not [ or { (those are data structures)
+  if (textBefore[openParenPos] !== '(') {
+    return undefined;
+  }
+
+  // Extract the form name - first word after the opening paren
+  const afterParen = textBefore.slice(openParenPos + 1);
+  const nameMatch = afterParen.match(/^([a-zA-Z_][a-zA-Z0-9_?!-]*)/);
+
+  if (!nameMatch) {
+    // No valid identifier after opening paren
+    return undefined;
+  }
+
+  const formName = nameMatch[1];
+  const nameEndPos = openParenPos + 1 + nameMatch[1].length;
+
+  // Count arguments between name end and cursor
+  // An argument is a non-whitespace chunk separated by whitespace
+  const argsSection = textBefore.slice(nameEndPos);
+
+  let argIndex = 0;
+  let inWord = false;
+
+  for (let i = 0; i < argsSection.length; i++) {
+    const ch = argsSection[i];
+    const isWhitespace = ch === ' ' || ch === '\t' || ch === '\n';
+
+    if (isWhitespace) {
+      if (inWord) {
+        // Ended a word - count it as an argument
+        argIndex++;
+        inWord = false;
+      }
+    } else if (ch === '(' || ch === '[' || ch === '{') {
+      // Skip nested structures (count them as single argument)
+      if (!inWord) inWord = true;
+      let nestedDepth = 1;
+      i++;
+      while (i < argsSection.length && nestedDepth > 0) {
+        const nch = argsSection[i];
+        if (nch === '(' || nch === '[' || nch === '{') nestedDepth++;
+        if (nch === ')' || nch === ']' || nch === '}') nestedDepth--;
+        i++;
+      }
+      i--; // Back to correct position for loop
+    } else if (ch === '"') {
+      // Skip string literals
+      if (!inWord) inWord = true;
+      i++;
+      while (i < argsSection.length && argsSection[i] !== '"') {
+        if (argsSection[i] === '\\') i++; // Skip escaped chars
+        i++;
+      }
+    } else {
+      inWord = true;
+    }
+  }
+
+  // If we're currently in a word, that's the current argument position
+  // (cursor is at or within an argument being typed)
+
+  return { name: formName, argIndex };
+}
+
 /**
  * Build a completion context from input state.
  */
@@ -69,7 +181,8 @@ export function buildContext(
   cursorPosition: number,
   userBindings: ReadonlySet<string>,
   signatures: ReadonlyMap<string, readonly string[]>,
-  docstrings: ReadonlyMap<string, string> = new Map()
+  docstrings: ReadonlyMap<string, string> = new Map(),
+  memoryNames: ReadonlySet<string> = new Set()
 ): CompletionContext {
   const { word, start } = getWordAtCursor(text, cursorPosition);
 
@@ -83,6 +196,8 @@ export function buildContext(
     signatures,
     docstrings,
     isInsideString: isInsideString(text, cursorPosition),
+    memoryNames,
+    enclosingForm: detectEnclosingForm(text, cursorPosition),
   };
 }
 
@@ -322,7 +437,7 @@ export function extractCommandQuery(context: CompletionContext): string | null {
  * Triggers in these cases:
  * - There's a word to complete (e.g., "ad" -> complete "add")
  * - Cursor is after an opening paren/bracket (e.g., "(" -> show all functions)
- * - Cursor is at start of input or after whitespace (show all completions)
+ * - Cursor is inside a context-aware form (e.g., "(forget |)" -> show memory names)
  */
 export function shouldTriggerSymbol(context: CompletionContext): boolean {
   // Don't trigger inside string literals
@@ -359,7 +474,13 @@ export function shouldTriggerSymbol(context: CompletionContext): boolean {
     return true;
   }
 
-  // After whitespace at end - also don't show (same as empty)
+  // CONTEXT-AWARE: Auto-trigger inside forms like (forget |), (inspect |), (describe |)
+  // Even after whitespace, show available options for these special forms
+  if (context.enclosingForm && CONTEXT_AWARE_FORMS[context.enclosingForm.name]) {
+    return true;
+  }
+
+  // After whitespace at end - don't show (normal case)
   if (lastChar === " " || lastChar === "\t" || lastChar === "\n") {
     return false;
   }

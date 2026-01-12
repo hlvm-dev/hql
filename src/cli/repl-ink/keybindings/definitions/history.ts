@@ -4,6 +4,7 @@
  */
 
 import type { Keybinding } from "../types.ts";
+import { HandlerIds } from "../handler-registry.ts";
 
 export const historyKeybindings: Keybinding[] = [
   {
@@ -12,7 +13,7 @@ export const historyKeybindings: Keybinding[] = [
     label: "Search history",
     description: "Enter reverse history search mode",
     category: "History",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.HISTORY_SEARCH },
   },
   {
     id: "ctrl+r-next",
@@ -20,7 +21,7 @@ export const historyKeybindings: Keybinding[] = [
     label: "Next match",
     description: "Select next history match",
     category: "History",
-    action: { type: "INFO" },
+    action: { type: "INFO" },  // Contextual - only in search mode
   },
   {
     id: "ctrl+s",
@@ -28,7 +29,7 @@ export const historyKeybindings: Keybinding[] = [
     label: "Previous match",
     description: "Select previous history match",
     category: "History",
-    action: { type: "INFO" },
+    action: { type: "INFO" },  // Contextual - only in search mode
   },
   {
     id: "enter-history",
@@ -36,13 +37,13 @@ export const historyKeybindings: Keybinding[] = [
     label: "Confirm selection",
     description: "Use selected history entry",
     category: "History",
-    action: { type: "INFO" },
+    action: { type: "INFO" },  // Contextual - only in search mode
   },
   {
     id: "escape-history",
     display: "Esc (in search)",
     label: "Cancel search",
     category: "History",
-    action: { type: "INFO" },
+    action: { type: "INFO" },  // Contextual - only in search mode
   },
 ];

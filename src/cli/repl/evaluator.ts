@@ -12,7 +12,7 @@ import { sanitizeIdentifier, ensureError } from "../../common/utils.ts";
 import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../../transpiler/keyword/primitives.ts";
 import { extractTypeFromSymbol } from "../../transpiler/tokenizer/type-tokenizer.ts";
 import type { ReplState } from "./state.ts";
-import { appendToMemory, getMemoryFilePath } from "./memory.ts";
+import { appendToMemory } from "./memory.ts";
 import { join } from "jsr:@std/path@1";
 
 // Debug logging to file (Ink captures console)
@@ -141,18 +141,31 @@ function analyzeExpression(ast: SList): ExpressionType {
  * @param state - REPL state for tracking bindings
  * @param jsMode - Whether to evaluate as JavaScript
  * @param attachments - Optional attachments (pasted text, images, etc.)
+ * @param signal - Optional AbortSignal for cancellation support
  */
 export async function evaluate(
   hqlCode: string,
   state: ReplState,
   jsMode: boolean = false,
-  attachments?: AnyAttachment[]
+  attachments?: AnyAttachment[],
+  signal?: AbortSignal
 ): Promise<EvalResult> {
   const trimmed = hqlCode.trim();
   if (!trimmed) {
     return { success: true, suppressOutput: true };
   }
 
+  // Check if already aborted
+  if (signal?.aborted) {
+    return { success: false, error: new Error("Cancelled") };
+  }
+
+  // Store signal on globalThis for AI module access
+  // This enables cancellation of AI streaming operations
+  const previousSignal = (globalThis as Record<string, unknown>).__hqlAbortSignal;
+  (globalThis as Record<string, unknown>).__hqlAbortSignal = signal;
+
+  try {
   // Register attachments to context vectors
   if (attachments && attachments.length > 0) {
     for (const att of attachments) {
@@ -318,6 +331,10 @@ export async function evaluate(
       success: false,
       error: ensureError(error),
     };
+  }
+  } finally {
+    // Restore previous signal
+    (globalThis as Record<string, unknown>).__hqlAbortSignal = previousSignal;
   }
 }
 

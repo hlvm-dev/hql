@@ -65,7 +65,7 @@ export const commandKeybindings: Keybinding[] = [
   {
     id: "/exit",
     display: "/exit",
-    label: "Exit REPL",
+    label: "Exit",
     category: "Commands",
     action: { type: "SLASH_COMMAND", cmd: "/exit" },
   },

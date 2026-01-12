@@ -1,86 +1,114 @@
 /**
- * Paredit Keybindings - Structural editing
- * Source: Input.tsx lines 1007-1021, 1344-1379
+ * Paredit Keybindings - Structural S-expression editing
+ *
+ * Uses Option+lowercase (Alt on Windows/Linux):
+ * - Option sends ESC sequence which terminals pass through
+ * - Lowercase avoids Unicode character issues (Option+Shift problematic)
+ * - Same pattern as Option+B/F for word navigation
+ *
+ * Keyboard layout (| = cursor):
+ *
+ *   SLURP (pull IN):
+ *     Opt+S = forward   (a|) b   →  (a| b)    S for Slurp
+ *     Opt+A = backward  a (|b)   →  (a |b)    A left of S
+ *
+ *   BARF (push OUT):
+ *     Opt+X = forward   (a| b)   →  (a|) b    X for eXpel
+ *     Opt+Z = backward  (a |b)   →  a (|b)    Z left of X
+ *
+ *   STRUCTURE:
+ *     Opt+W = Wrap      |foo     →  (|foo)    W for Wrap
+ *     Opt+U = Unwrap    ((|a))   →  (|a)      U for Unwrap
+ *     Opt+R = Raise     (x (|y)) →  (|y)      R for Raise
+ *     Opt+T = Transpose (a |b)   →  (b |a)    T for Transpose
+ *     Opt+K = Kill      (a |b c) →  (a |)     K for Kill
  */
 
 import type { Keybinding } from "../types.ts";
+import { HandlerIds } from "../handler-registry.ts";
 
 export const pareditKeybindings: Keybinding[] = [
-  // Slurp operations
+  // ═══════════════════════════════════════════════════════════════════
+  // SLURP: Pull expression INTO the current list
+  // ═══════════════════════════════════════════════════════════════════
   {
     id: "slurp-forward",
-    display: "Ctrl+Shift+)",
+    display: "⌥S",
     label: "Slurp forward",
-    description: "Pull next expression into current list",
+    description: "(a|) b → (a| b) — pull next expr in",
     category: "Paredit",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.PAREDIT_SLURP_FORWARD },
   },
   {
     id: "slurp-backward",
-    display: "Ctrl+Shift+(",
+    display: "⌥A",
     label: "Slurp backward",
-    description: "Pull previous expression into current list",
+    description: "a (|b) → (a |b) — pull prev expr in",
     category: "Paredit",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.PAREDIT_SLURP_BACKWARD },
   },
 
-  // Barf operations
+  // ═══════════════════════════════════════════════════════════════════
+  // BARF: Push expression OUT OF the current list
+  // ═══════════════════════════════════════════════════════════════════
   {
     id: "barf-forward",
-    display: "Ctrl+Shift+}",
+    display: "⌥X",
     label: "Barf forward",
-    description: "Push last expression out of current list",
+    description: "(a| b) → (a|) b — push last expr out",
     category: "Paredit",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.PAREDIT_BARF_FORWARD },
   },
   {
     id: "barf-backward",
-    display: "Ctrl+Shift+{",
+    display: "⌥Z",
     label: "Barf backward",
-    description: "Push first expression out of current list",
+    description: "(a |b) → a (|b) — push first expr out",
     category: "Paredit",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.PAREDIT_BARF_BACKWARD },
   },
 
-  // Structural operations
+  // ═══════════════════════════════════════════════════════════════════
+  // STRUCTURE: Wrap, Unwrap, Raise, Transpose, Kill
+  // ═══════════════════════════════════════════════════════════════════
   {
     id: "wrap",
-    display: "Alt+(",
+    display: "⌥W",
     label: "Wrap in parens",
-    description: "Wrap current s-expression in parentheses",
+    description: "|foo → (|foo) — wrap sexp in ()",
     category: "Paredit",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.PAREDIT_WRAP },
   },
   {
     id: "splice",
-    display: "Alt+S",
-    label: "Splice (unwrap)",
-    description: "Remove surrounding parentheses",
+    display: "⌥U",
+    label: "Unwrap (splice)",
+    description: "((|a)) → (|a) — remove surrounding ()",
     category: "Paredit",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.PAREDIT_SPLICE },
   },
   {
     id: "raise",
-    display: "Alt+R",
+    display: "⌥R",
     label: "Raise sexp",
-    description: "Replace parent with current expression",
+    description: "(x (|y)) → (|y) — replace parent",
     category: "Paredit",
-    action: { type: "INFO" },
-  },
-  {
-    id: "kill",
-    display: "Ctrl+Shift+K",
-    label: "Kill sexp",
-    description: "Delete entire s-expression at cursor",
-    category: "Paredit",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.PAREDIT_RAISE },
   },
   {
     id: "transpose",
-    display: "Ctrl+Shift+T",
+    display: "⌥T",
     label: "Transpose sexps",
-    description: "Swap adjacent s-expressions",
+    description: "(a |b) → (b |a) — swap expressions",
     category: "Paredit",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.PAREDIT_TRANSPOSE },
+  },
+  {
+    id: "kill",
+    display: "⌥K",
+    label: "Kill sexp",
+    description: "(a |b c) → (a | c) — delete sexp",
+    category: "Paredit",
+    action: { type: "HANDLER", id: HandlerIds.PAREDIT_KILL },
   },
 ];

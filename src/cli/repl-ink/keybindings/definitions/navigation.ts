@@ -4,6 +4,7 @@
  */
 
 import type { Keybinding } from "../types.ts";
+import { HandlerIds } from "../handler-registry.ts";
 
 export const navigationKeybindings: Keybinding[] = [
   // Word navigation
@@ -13,7 +14,7 @@ export const navigationKeybindings: Keybinding[] = [
     displayByPlatform: { linux: "Alt+Left", win32: "Ctrl+Left" },
     label: "Word backward",
     category: "Navigation",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.NAV_WORD_BACK },
   },
   {
     id: "opt+right",
@@ -21,7 +22,7 @@ export const navigationKeybindings: Keybinding[] = [
     displayByPlatform: { linux: "Alt+Right", win32: "Ctrl+Right" },
     label: "Word forward",
     category: "Navigation",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.NAV_WORD_FORWARD },
   },
 
   // S-expression navigation
@@ -31,7 +32,7 @@ export const navigationKeybindings: Keybinding[] = [
     label: "Backward up sexp",
     description: "Move to opening paren of enclosing list",
     category: "Navigation",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.NAV_SEXP_UP },
   },
   {
     id: "ctrl+down",
@@ -39,7 +40,7 @@ export const navigationKeybindings: Keybinding[] = [
     label: "Forward down sexp",
     description: "Move into next list",
     category: "Navigation",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.NAV_SEXP_DOWN },
   },
   {
     id: "alt+up",
@@ -47,7 +48,7 @@ export const navigationKeybindings: Keybinding[] = [
     label: "Backward sexp",
     description: "Move back by s-expression",
     category: "Navigation",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.NAV_SEXP_BACK },
   },
   {
     id: "alt+down",
@@ -55,7 +56,7 @@ export const navigationKeybindings: Keybinding[] = [
     label: "Forward sexp",
     description: "Move forward by s-expression",
     category: "Navigation",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.NAV_SEXP_FORWARD },
   },
 
   // Multi-line
@@ -66,17 +67,17 @@ export const navigationKeybindings: Keybinding[] = [
     label: "Insert newline",
     description: "For multi-line input",
     category: "Navigation",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.NAV_INSERT_NEWLINE },
   },
 
-  // Arrow navigation
+  // Arrow navigation (contextual - behavior changes based on cursor position)
   {
     id: "up-arrow",
     display: "Up",
     label: "Move to start / history",
     description: "Move to line start, then navigate history",
     category: "Navigation",
-    action: { type: "INFO" },
+    action: { type: "INFO" },  // Contextual - can't execute from palette
   },
   {
     id: "down-arrow",
@@ -84,6 +85,6 @@ export const navigationKeybindings: Keybinding[] = [
     label: "Move to end / history",
     description: "Move to line end, then navigate history",
     category: "Navigation",
-    action: { type: "INFO" },
+    action: { type: "INFO" },  // Contextual - can't execute from palette
   },
 ];

@@ -6,6 +6,7 @@
 export {
   type HqlConfig,
   type ConfigKey,
+  type KeybindingsConfig,
   type ValidationResult,
   DEFAULT_CONFIG,
   CONFIG_KEYS,
@@ -32,4 +33,6 @@ export {
   resetConfigRuntime,
   getConfigRuntime,
   extractModelName,
+  updateKeybindingRuntime,
+  getKeybindingsRuntime,
 } from "./runtime.ts";

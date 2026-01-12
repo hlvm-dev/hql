@@ -2,7 +2,7 @@
  * Task Manager Module
  *
  * Background task management for HQL REPL.
- * Primarily used for model downloads with progress tracking.
+ * Supports model downloads and HQL evaluations with progress tracking.
  */
 
 // Types
@@ -10,9 +10,11 @@ export type {
   TaskStatus,
   TaskType,
   PullProgress,
+  EvalProgress,
   Task,
   ModelPullTask,
   ModelDeleteTask,
+  EvalTask,
   TaskEvent,
   TaskEventListener,
 } from "./types.ts";
@@ -20,6 +22,7 @@ export type {
 export {
   isModelPullTask,
   isModelDeleteTask,
+  isEvalTask,
   isTaskActive,
   isTaskFinished,
   canTransition,

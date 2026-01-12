@@ -117,8 +117,14 @@ export class SymbolTable {
   /**
    * Check if a symbol exists in current or any parent scope
    */
+  /**
+   * Check if a symbol exists in current or any parent scope
+   * Optimized: Uses direct has() calls instead of get() to avoid retrieving symbol info
+   */
   has(name: string): boolean {
-    return this.get(name) !== undefined;
+    if (this.table.has(name)) return true;
+    if (this.parent) return this.parent.has(name);
+    return false;
   }
 
   /**
@@ -209,15 +215,63 @@ export class SymbolTable {
   /**
    * Get all symbols of a specific kind
    */
+  /**
+   * Get all symbols of a specific kind
+   * Optimized: Direct traversal without intermediate array allocation
+   */
   getSymbolsByKind(kind: SymbolKind): SymbolInfo[] {
-    return this.getAllSymbols().filter((s) => s.kind === kind);
+    const symbols: SymbolInfo[] = [];
+
+    // Add matching symbols from current scope
+    for (const symbol of this.table.values()) {
+      if (symbol.kind === kind) {
+        symbols.push(symbol);
+      }
+    }
+
+    // Walk up the parent chain iteratively
+    let current = this.parent;
+    while (current !== null) {
+      for (const symbol of current.table.values()) {
+        if (symbol.kind === kind) {
+          symbols.push(symbol);
+        }
+      }
+      current = current.parent;
+    }
+
+    return symbols;
   }
 
   /**
    * Get all symbols in a specific scope
    */
+  /**
+   * Get all symbols in a specific scope
+   * Optimized: Direct traversal without intermediate array allocation
+   */
   getSymbolsByScope(scope: SymbolScope): SymbolInfo[] {
-    return this.getAllSymbols().filter((s) => s.scope === scope);
+    const symbols: SymbolInfo[] = [];
+
+    // Add matching symbols from current scope
+    for (const symbol of this.table.values()) {
+      if (symbol.scope === scope) {
+        symbols.push(symbol);
+      }
+    }
+
+    // Walk up the parent chain iteratively
+    let current = this.parent;
+    while (current !== null) {
+      for (const symbol of current.table.values()) {
+        if (symbol.scope === scope) {
+          symbols.push(symbol);
+        }
+      }
+      current = current.parent;
+    }
+
+    return symbols;
   }
 
   /**
@@ -263,22 +317,94 @@ export class SymbolTable {
   /**
    * Get all symbols that are exported
    */
+  /**
+   * Get all symbols that are exported
+   * Optimized: Direct traversal without intermediate array allocation
+   */
   getExportedSymbols(): SymbolInfo[] {
-    return this.getAllSymbols().filter((s) => s.isExported);
+    const symbols: SymbolInfo[] = [];
+
+    // Add matching symbols from current scope
+    for (const symbol of this.table.values()) {
+      if (symbol.isExported) {
+        symbols.push(symbol);
+      }
+    }
+
+    // Walk up the parent chain iteratively
+    let current = this.parent;
+    while (current !== null) {
+      for (const symbol of current.table.values()) {
+        if (symbol.isExported) {
+          symbols.push(symbol);
+        }
+      }
+      current = current.parent;
+    }
+
+    return symbols;
   }
 
   /**
    * Get all symbols that are imported
    */
+  /**
+   * Get all symbols that are imported
+   * Optimized: Direct traversal without intermediate array allocation
+   */
   getImportedSymbols(): SymbolInfo[] {
-    return this.getAllSymbols().filter((s) => s.isImported);
+    const symbols: SymbolInfo[] = [];
+
+    // Add matching symbols from current scope
+    for (const symbol of this.table.values()) {
+      if (symbol.isImported) {
+        symbols.push(symbol);
+      }
+    }
+
+    // Walk up the parent chain iteratively
+    let current = this.parent;
+    while (current !== null) {
+      for (const symbol of current.table.values()) {
+        if (symbol.isImported) {
+          symbols.push(symbol);
+        }
+      }
+      current = current.parent;
+    }
+
+    return symbols;
   }
 
   /**
    * Find symbols by their source module
    */
+  /**
+   * Find symbols by their source module
+   * Optimized: Direct traversal without intermediate array allocation
+   */
   getSymbolsBySourceModule(modulePath: string): SymbolInfo[] {
-    return this.getAllSymbols().filter((s) => s.sourceModule === modulePath);
+    const symbols: SymbolInfo[] = [];
+
+    // Add matching symbols from current scope
+    for (const symbol of this.table.values()) {
+      if (symbol.sourceModule === modulePath) {
+        symbols.push(symbol);
+      }
+    }
+
+    // Walk up the parent chain iteratively
+    let current = this.parent;
+    while (current !== null) {
+      for (const symbol of current.table.values()) {
+        if (symbol.sourceModule === modulePath) {
+          symbols.push(symbol);
+        }
+      }
+      current = current.parent;
+    }
+
+    return symbols;
   }
 
   /**

@@ -15,9 +15,15 @@ interface UseReplOptions {
   state?: ReplState;
 }
 
+export interface EvaluateOptions {
+  attachments?: AnyAttachment[];
+  /** AbortSignal for cancellation support */
+  signal?: AbortSignal;
+}
+
 export interface UseReplReturn {
   jsMode: boolean;
-  evaluate: (code: string, attachments?: AnyAttachment[]) => Promise<EvalResult>;
+  evaluate: (code: string, options?: EvaluateOptions) => Promise<EvalResult>;
   setJsMode: (mode: boolean) => void;
   reset: () => void;
   state: ReplState;
@@ -28,12 +34,18 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
   const stateRef = useRef<ReplState>(providedState || new ReplState());
   const [jsMode, setJsMode] = useState(initialJsMode);
 
-  const evaluate = useCallback(async (code: string, attachments?: AnyAttachment[]): Promise<EvalResult> => {
+  const evaluate = useCallback(async (code: string, options?: EvaluateOptions): Promise<EvalResult> => {
+    const { attachments, signal } = options ?? {};
     const state = stateRef.current;
     const trimmed = code.trim();
 
     if (!trimmed) {
       return { success: true, suppressOutput: true };
+    }
+
+    // Check if already aborted before starting
+    if (signal?.aborted) {
+      return { success: false, error: new Error("Cancelled") };
     }
 
     state.addHistory(trimmed);
@@ -42,6 +54,11 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
     try {
       // Resolve @ mentions before evaluation
       const resolvedCode = await resolveAtMentions(code);
+
+      // Check abort after async operation
+      if (signal?.aborted) {
+        return { success: false, error: new Error("Cancelled") };
+      }
 
       // If attachments are present, prepare content blocks for AI backend
       // NOTE: Backend integration is a separate story. For now, we log and
@@ -54,9 +71,13 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
         void contentBlocks; // Suppress unused variable warning
       }
 
-      // Pass attachments to evaluator (adds to pastes/attachments vectors)
-      return await hqlEvaluate(resolvedCode, state, jsMode, attachments);
+      // Pass attachments and signal to evaluator
+      return await hqlEvaluate(resolvedCode, state, jsMode, attachments, signal);
     } catch (error) {
+      // Check if this was an abort error
+      if (error instanceof Error && error.name === "AbortError") {
+        return { success: false, error: new Error("Cancelled") };
+      }
       return {
         success: false,
         error: error instanceof Error ? error : new Error(String(error)),

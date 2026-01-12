@@ -9,6 +9,9 @@ import { THEME_NAMES } from "../../cli/theme/palettes.ts";
 // Config Interface
 // ============================================================
 
+/** User-customized keybindings (action ID -> key combo) */
+export type KeybindingsConfig = Record<string, string>;
+
 export interface HqlConfig {
   version: number;
   model: string;           // "provider/model" format (e.g., "ollama/llama3.2")
@@ -16,6 +19,7 @@ export interface HqlConfig {
   temperature: number;     // 0.0-2.0
   maxTokens: number;       // Max response tokens
   theme: string;           // UI theme
+  keybindings?: KeybindingsConfig;  // Custom keybindings (optional)
 }
 
 // ============================================================

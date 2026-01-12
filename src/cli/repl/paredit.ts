@@ -19,7 +19,6 @@ import {
   backwardSexp,
   backwardUpSexp,
   OPEN_TO_CLOSE,
-  CLOSE_TO_OPEN,
 } from "./syntax.ts";
 
 // ============================================================

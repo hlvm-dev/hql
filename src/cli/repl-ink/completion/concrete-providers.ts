@@ -25,6 +25,7 @@ import {
   PROVIDER_HELP_TEXT,
   COMPLETION_DEBOUNCE_MS,
   ATTACHMENT_PLACEHOLDER,
+  CONTEXT_AWARE_FORMS,
 } from "./types.ts";
 import {
   resetItemIdCounter,
@@ -103,8 +104,10 @@ function createSymbolApplyAction(
   const isCallable = itemType === "function" || itemType === "macro" || hasParams;
   // Variables with no params are complete expressions - can auto-execute
   const isVariable = itemType === "variable" && !hasParams;
+  // Context-aware forms should NOT enter placeholder mode - let dropdown show instead
+  const isContextAwareForm = CONTEXT_AWARE_FORMS[id] !== undefined;
 
-  return (_action: CompletionAction, ctx: ApplyContext): ApplyResult => {
+  return (action: CompletionAction, ctx: ApplyContext): ApplyResult => {
     const before = ctx.text.slice(0, ctx.anchorPosition);
     const after = ctx.text.slice(ctx.cursorPosition);
 
@@ -116,6 +119,33 @@ function createSymbolApplyAction(
     // Check if there's already a closing paren after cursor (from auto-close feature)
     // If user typed "(" which auto-inserted ")", after will start with ")"
     const hasClosingParen = after.startsWith(")");
+
+    // INSERT action: Simple text insertion (just the label, no smart completion)
+    // User explicitly chose "just the name" by pressing Enter
+    if (action === "INSERT") {
+      const insertText = id + " ";
+      return {
+        text: before + insertText + after,
+        cursorPosition: ctx.anchorPosition + insertText.length,
+        closeDropdown: true,
+      };
+    }
+
+    // SELECT action: Smart completion (add parens, params, placeholder mode)
+    // User explicitly chose "full form" by pressing Tab
+
+    // CONTEXT-AWARE FORMS (forget, inspect, describe): Skip placeholder mode!
+    // Just insert the function name - let the auto-completion dropdown show options
+    if (isContextAwareForm) {
+      const openParen = hasOpeningParen ? "" : "(";
+      const insertText = openParen + id + " ";
+      return {
+        text: before + insertText + after,
+        cursorPosition: ctx.anchorPosition + insertText.length,
+        closeDropdown: true,
+        // No placeholder mode - dropdown will auto-trigger and show context-aware options
+      };
+    }
 
     // For callable items (functions/macros with params): provide full form
     if (isCallable && hasParams) {
@@ -229,6 +259,42 @@ export const SymbolProvider: CompletionProvider = {
     const seen = new Set<string>();
     const items: CompletionItem[] = [];
 
+    // ============================================================
+    // Context-Aware Filtering
+    // Check if we're inside a form that requires specific completions
+    // ============================================================
+    const enclosingForm = context.enclosingForm;
+    const contextFilter = enclosingForm ? CONTEXT_AWARE_FORMS[enclosingForm.name] : undefined;
+
+    // Determine which names to show based on context
+    // - "memory": only show memoryNames (persistent definitions)
+    // - "bindings": only show userBindings (session definitions)
+    // - "functions": only show things with signatures
+    // - undefined: show all (normal completion)
+    const getContextFilteredNames = (): Set<string> | null => {
+      if (!contextFilter) return null; // No filter - show all
+
+      switch (contextFilter) {
+        case "memory":
+          return new Set(context.memoryNames);
+        case "bindings":
+          return new Set(context.userBindings);
+        case "functions":
+          // Return names that have signatures (are functions)
+          return new Set(context.signatures.keys());
+        default:
+          return null;
+      }
+    };
+
+    const allowedNames = getContextFilteredNames();
+
+    // Helper to check if a name passes the context filter
+    const passesContextFilter = (name: string): boolean => {
+      if (!allowedNames) return true; // No filter - all pass
+      return allowedNames.has(name);
+    };
+
     // Helper to create item with fuzzy match result
     const createItem = (
       name: string,
@@ -236,6 +302,9 @@ export const SymbolProvider: CompletionProvider = {
       baseScore: number,
       matchResult: FuzzyResult | null
     ): CompletionItem | null => {
+      // Check context filter FIRST
+      if (!passesContextFilter(name)) return null;
+
       // For empty prefix, include all; for non-empty, require match
       if (prefix && !matchResult) return null;
 
@@ -274,15 +343,18 @@ export const SymbolProvider: CompletionProvider = {
     }
 
     // Add matching known identifiers (skip if user already defined it)
-    for (const id of allIdentifiers) {
-      if (seen.has(id)) continue;
+    // Skip this entire loop if we're in a context that only allows user-defined names
+    if (contextFilter !== "memory" && contextFilter !== "bindings") {
+      for (const id of allIdentifiers) {
+        if (seen.has(id)) continue;
 
-      const matchResult = prefix ? fuzzyMatch(prefix, id) : null;
-      const type = classifyIdentifier(id, context.userBindings);
-      const item = createItem(id, type, COMPLETION_SCORES.STDLIB, matchResult);
-      if (item) {
-        items.push(item);
-        seen.add(id);
+        const matchResult = prefix ? fuzzyMatch(prefix, id) : null;
+        const type = classifyIdentifier(id, context.userBindings);
+        const item = createItem(id, type, COMPLETION_SCORES.STDLIB, matchResult);
+        if (item) {
+          items.push(item);
+          seen.add(id);
+        }
       }
     }
 
@@ -333,8 +405,9 @@ function createFileApplyAction(
       };
     }
 
+    // INSERT action: simple path insertion (same as SELECT for files)
     // SELECT on media file: create attachment
-    if (isMedia) {
+    if (isMedia && action === "SELECT") {
       // Use placeholder that will be replaced by actual display name
       return {
         text: before + ATTACHMENT_PLACEHOLDER + " " + after,
@@ -344,7 +417,7 @@ function createFileApplyAction(
       };
     }
 
-    // SELECT on directory or regular file: insert with trailing space
+    // INSERT or SELECT on directory or regular file: insert with trailing space
     const insertPath = "@" + cleanPath + " ";
     return {
       text: before + insertPath + after,
@@ -449,22 +522,32 @@ const AVAILABLE_COMMANDS: readonly { name: string; description: string }[] = [
 /**
  * Create applyAction for command items.
  * Commands only have SELECT - no drilling.
- * On SELECT, the command executes immediately (no second Enter needed).
+ * - SELECT: Execute command immediately (no second Enter needed)
+ * - INSERT: Just insert command text (user can edit before executing)
  */
 function createCommandApplyAction(
   name: string
 ): (action: CompletionAction, context: ApplyContext) => ApplyResult {
-  return (_action: CompletionAction, ctx: ApplyContext): ApplyResult => {
+  return (action: CompletionAction, ctx: ApplyContext): ApplyResult => {
     const before = ctx.text.slice(0, ctx.anchorPosition);
     const after = ctx.text.slice(ctx.cursorPosition);
-    // No trailing space - command executes immediately
-    const insertText = name;
 
+    // INSERT: Just insert the command text (user can edit and press Enter to execute)
+    if (action === "INSERT") {
+      const insertText = name + " ";
+      return {
+        text: before + insertText + after,
+        cursorPosition: ctx.anchorPosition + insertText.length,
+        closeDropdown: true,
+      };
+    }
+
+    // SELECT: Execute immediately (no second Enter needed)
+    const insertText = name;
     return {
       text: before + insertText + after,
       cursorPosition: ctx.anchorPosition + insertText.length,
       closeDropdown: true,
-      // Execute immediately on Enter (no second Enter needed)
       sideEffect: { type: "EXECUTE" },
     };
   };

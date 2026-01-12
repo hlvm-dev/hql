@@ -9,7 +9,7 @@ export const globalKeybindings: Keybinding[] = [
   {
     id: "ctrl+c",
     display: "Ctrl+C",
-    label: "Exit REPL",
+    label: "Exit",
     category: "Global",
     action: { type: "HANDLER", id: "app.exit" },
   },

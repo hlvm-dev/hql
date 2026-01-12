@@ -10,7 +10,10 @@
 // ============================================================
 
 /** Actions that can be performed on a completion item */
-export type CompletionAction = "DRILL" | "SELECT";
+export type CompletionAction = "DRILL" | "SELECT" | "INSERT";
+// INSERT: Simple text insertion (just the label, no smart completion)
+// SELECT: Smart completion (add parens, params, placeholder mode)
+// DRILL: Go deeper (for directories)
 
 /** Context needed to apply a completion action */
 export interface ApplyContext {
@@ -143,6 +146,30 @@ export interface CompletionItem {
 // ============================================================
 
 /**
+ * Represents the enclosing S-expression form at cursor position.
+ * Used for context-aware completions (e.g., `forget` only shows memory names).
+ */
+export interface EnclosingForm {
+  /** Name of the function/form (e.g., "forget", "inspect", "map") */
+  readonly name: string;
+  /** Argument index within the form (0-based) */
+  readonly argIndex: number;
+}
+
+/**
+ * Context-aware filtering modes for specific forms.
+ * Maps form names to their expected argument types.
+ */
+export const CONTEXT_AWARE_FORMS: Record<string, "memory" | "bindings" | "functions"> = {
+  // Memory operations - only show things in persistent memory
+  "forget": "memory",
+  // Inspection - show user bindings (defined in session)
+  "inspect": "bindings",
+  // Documentation - show functions (things with signatures)
+  "describe": "functions",
+} as const;
+
+/**
  * Context passed to providers for generating completions.
  */
 export interface CompletionContext {
@@ -172,6 +199,16 @@ export interface CompletionContext {
 
   /** Whether cursor is inside a string literal (suppresses symbol completions) */
   readonly isInsideString: boolean;
+
+  // ============================================================
+  // Context-Aware Fields (NEW)
+  // ============================================================
+
+  /** Names of definitions stored in persistent memory */
+  readonly memoryNames: ReadonlySet<string>;
+
+  /** Enclosing form at cursor (for context-aware filtering) */
+  readonly enclosingForm?: EnclosingForm;
 }
 
 // ============================================================
@@ -364,8 +401,8 @@ export const RENDER_MAX_WIDTH = {
 
 /** Help text shown in dropdown (DRY - was duplicated) */
 export const PROVIDER_HELP_TEXT = {
-  SIMPLE: "↑↓ navigate • Tab/Enter select • Ctrl+D docs • Esc cancel",
-  DRILL: "↑↓ navigate • Tab drill • Enter select • Ctrl+D docs • Esc cancel",
+  SIMPLE: "↑↓ navigate • Tab select • Enter insert • Ctrl+D docs • Esc cancel",
+  DRILL: "↑↓ navigate • Tab drill/select • Enter insert • Ctrl+D docs • Esc cancel",
 } as const;
 
 /** Debounce for async providers */

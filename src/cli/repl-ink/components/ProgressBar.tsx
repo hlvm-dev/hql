@@ -121,8 +121,6 @@ export function InlineProgress({
   status,
   width = 16,
 }: InlineProgressProps): React.ReactElement {
-  const { color } = useTheme();
-
   // Calculate percent
   const percent = total && completed ? Math.round((completed / total) * 100) : 0;
 

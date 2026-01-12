@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useRef, useEffect, useMemo } from "npm:react@18";
-import type { CompletionContext, CompletionItem, ProviderId, ApplyContext } from "./types.ts";
+import type { CompletionContext, CompletionItem, ProviderId, ApplyContext, CompletionAction } from "./types.ts";
 import { useDropdownState } from "./useDropdownState.ts";
 import { buildContext } from "./providers.ts";
 import { getActiveProvider, ALL_PROVIDERS } from "./concrete-providers.ts";
@@ -23,6 +23,8 @@ export interface UseCompletionOptions {
   readonly signatures: ReadonlyMap<string, readonly string[]>;
   /** Docstrings from comments (name -> description) */
   readonly docstrings?: ReadonlyMap<string, string>;
+  /** Names of definitions in persistent memory (for context-aware completions) */
+  readonly memoryNames?: ReadonlySet<string>;
   /** Debounce delay for async providers (ms) */
   readonly debounceMs?: number;
   /** Whether completion is disabled */
@@ -139,6 +141,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
     userBindings,
     signatures,
     docstrings = new Map(),
+    memoryNames = new Set(),
     debounceMs = 150,
     disabled = false,
   } = options;
@@ -174,7 +177,8 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         cursorPosition,
         userBindings,
         signatures,
-        docstrings
+        docstrings,
+        memoryNames
       );
 
       // Find active provider
@@ -224,7 +228,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         dropdown.open(result.items, result.anchor, provider.id, text, cursorPosition);
       }
     },
-    [disabled, userBindings, signatures, docstrings, debounceMs, dropdown]
+    [disabled, userBindings, signatures, docstrings, memoryNames, debounceMs, dropdown]
   );
 
   // ============================================================
@@ -289,7 +293,8 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         cursorPosition,
         userBindings,
         signatures,
-        docstrings
+        docstrings,
+        memoryNames
       );
 
       // Find active provider (for Tab, use symbol provider)
@@ -313,7 +318,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       });
       return { text: applyResult.text, cursorPosition: applyResult.cursorPosition };
     },
-    [disabled, userBindings, signatures, docstrings, dropdown]
+    [disabled, userBindings, signatures, docstrings, memoryNames, dropdown]
   );
 
   // ============================================================
@@ -343,12 +348,12 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   // ============================================================
 
   const confirmSelected = useCallback(
-    (): { text: string; cursorPosition: number } | null => {
+    (action: CompletionAction = "SELECT"): { text: string; cursorPosition: number } | null => {
       const selected = dropdown.selectedItem;
       if (!selected) return null;
 
       // Use stored original values
-      const applyResult = selected.applyAction("SELECT", {
+      const applyResult = selected.applyAction(action, {
         text: dropdown.state.originalText,
         cursorPosition: dropdown.state.originalCursor,
         anchorPosition: dropdown.state.anchorPosition,
@@ -358,7 +363,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       return { text: applyResult.text, cursorPosition: applyResult.cursorPosition };
     },
     [dropdown]
-  );
+  );;
 
   // ============================================================
   // Computed Values

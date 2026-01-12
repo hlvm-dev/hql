@@ -4,17 +4,20 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "npm:react@18";
-import { Box, Text, useInput, useApp, Static } from "npm:ink@5";
+import { Box, Text, useInput, useApp } from "npm:ink@5";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
 import { SessionPicker } from "./SessionPicker.tsx";
 import { ConfigPanel } from "./ConfigPanel.tsx";
-import { CommandPaletteOverlay } from "./CommandPaletteOverlay.tsx";
+import { ConfigOverlay, type ConfigOverlayState } from "./ConfigOverlay.tsx";
+import { CommandPaletteOverlay, type PaletteState, type KeyCombo } from "./CommandPaletteOverlay.tsx";
 import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { FooterHint } from "./FooterHint.tsx";
 import type { KeybindingAction } from "../keybindings/index.ts";
+import { executeHandler, refreshKeybindingLookup } from "../keybindings/index.ts";
+import { updateKeybindingRuntime } from "../../../common/config/index.ts";
 import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import type { EvalResult } from "../types.ts";
@@ -28,12 +31,12 @@ import { clearMemory } from "../../repl/memory.ts";
 import type { SessionInitOptions, SessionMeta, SessionMessage } from "../../repl/session/types.ts";
 import { SessionManager } from "../../repl/session/manager.ts";
 import { ReplProvider, useReplContext } from "../context/index.ts";
+import { useTaskManager } from "../hooks/useTaskManager.ts";
 
 interface HistoryEntry {
   id: number;
   input: string;
   result: EvalResult;
-  isComplete?: boolean;  // false = streaming, true/undefined = complete
 }
 
 interface AppProps {
@@ -128,7 +131,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
           const sessions = await manager.listForProject(20);
           if (sessions.length > 0) {
             setPickerSessions(sessions);
-            setShowPicker(true);
+            setActivePanel("picker");
           }
         }
       } catch (error) {
@@ -151,25 +154,47 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
 
-  // Session picker state
-  const [showPicker, setShowPicker] = useState(false);
+  // Task manager for background evaluation
+  const { createEvalTask, completeEvalTask, failEvalTask } = useTaskManager();
+
+  // Track current evaluation for Ctrl+B to push to background
+  // AbortController enables true cancellation of async operations (AI calls, fetch, etc.)
+  const currentEvalRef = useRef<{
+    promise: Promise<EvalResult>;
+    code: string;
+    controller: AbortController;
+  } | null>(null);
+
+  // Unified panel state - only one panel can be open at a time
+  // "palette" and "config-overlay" are overlays (input visible but disabled), others hide input entirely
+  type ActivePanel = "none" | "picker" | "config" | "config-overlay" | "tasks" | "models" | "palette";
+  const [activePanel, setActivePanel] = useState<ActivePanel>("none");
+
+  // Session picker data (separate from panel state)
   const [pickerSessions, setPickerSessions] = useState<SessionMeta[]>([]);
   const [pendingResumeInput, setPendingResumeInput] = useState<string | null>(null);
 
-  // Config panel state
-  const [showConfigPanel, setShowConfigPanel] = useState(false);
+  // Command palette persistent state (survives open/close)
+  const [paletteState, setPaletteState] = useState<PaletteState>({
+    query: "",
+    cursorPos: 0,
+    selectedIndex: 0,
+    scrollOffset: 0,
+  });
 
-  // Command palette state
-  const [showPalette, setShowPalette] = useState(false);
-
-  // Background tasks panel state
-  const [showBackgroundTasks, setShowBackgroundTasks] = useState(false);
-
-  // Model browser panel state
-  const [showModelBrowser, setShowModelBrowser] = useState(false);
+  // Config overlay persistent state (survives open/close)
+  const [configOverlayState, setConfigOverlayState] = useState<ConfigOverlayState>({
+    selectedIndex: 0,
+  });
 
   // Theme from context (auto-updates when theme changes)
   const { color } = useTheme();
+
+  // Helper to add history entry and increment ID (DRY pattern used 8+ times)
+  const addHistoryEntry = useCallback((input: string, result: EvalResult) => {
+    setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input, result }]);
+    setNextId((n: number) => n + 1);
+  }, [nextId]);
 
   // Session picker handlers
   const handlePickerSelect = useCallback(async (session: SessionMeta) => {
@@ -179,9 +204,8 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         // Convert messages to history entries and restore conversation
         const { entries, nextId: newNextId } = convertMessagesToHistory(loaded.messages, 1);
 
-        // Restore the conversation history (mark all as complete)
-        const completedEntries = entries.map(e => ({ ...e, isComplete: true }));
-        setHistory(completedEntries);
+        // Restore the conversation history
+        setHistory(entries);
         setCurrentSession(loaded.meta);
 
         // Add "Resumed" notification at the end
@@ -189,38 +213,25 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
           id: newNextId,
           input: pendingResumeInput || "/resume",
           result: { success: true, value: `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)` },
-          isComplete: true,
         }]);
         setNextId(newNextId + 1);
       } else {
         // Session file not found or corrupted
-        setHistory((prev: HistoryEntry[]) => [...prev, {
-          id: nextId,
-          input: pendingResumeInput || "/resume",
-          result: { success: false, error: new Error(`Session not found: ${session.title}`) },
-          isComplete: true,
-        }]);
-        setNextId((n: number) => n + 1);
+        addHistoryEntry(pendingResumeInput || "/resume", { success: false, error: new Error(`Session not found: ${session.title}`) });
       }
     }
     setPendingResumeInput(null);
-    setShowPicker(false);
-  }, [nextId, pendingResumeInput]);
+    setActivePanel("none");
+  }, [nextId, pendingResumeInput, addHistoryEntry]);
 
   const handlePickerCancel = useCallback(() => {
     // Add history entry showing command was cancelled (only if user typed /resume)
     if (pendingResumeInput) {
-      setHistory((prev: HistoryEntry[]) => [...prev, {
-        id: nextId,
-        input: pendingResumeInput,
-        result: { success: true, value: "Cancelled" },
-        isComplete: true,
-      }]);
-      setNextId((n: number) => n + 1);
+      addHistoryEntry(pendingResumeInput, { success: true, value: "Cancelled" });
       setPendingResumeInput(null);
     }
-    setShowPicker(false);
-  }, [nextId, pendingResumeInput]);
+    setActivePanel("none");
+  }, [pendingResumeInput, addHistoryEntry]);
 
   const handleSubmit = useCallback(async (code: string, attachments?: AnyAttachment[]) => {
     if (!code.trim()) return;
@@ -242,9 +253,9 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     const trimmedLower = code.trim().toLowerCase();
     const normalized = trimmedLower.startsWith(".") ? "/" + trimmedLower.slice(1) : trimmedLower;
 
-    // Handle /config command - show interactive panel
+    // Handle /config command - show floating overlay
     if (normalized === "/config") {
-      setShowConfigPanel(true);
+      setActivePanel("config-overlay");
       setIsEvaluating(false);
       setInput("");
       return;
@@ -253,17 +264,15 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     // Handle /resume command
     if (normalized === "/resume") {
       if (!sessionManagerRef.current) {
-        setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: "Session management not available" }, isComplete: true }]);
-        setNextId((n: number) => n + 1);
+        addHistoryEntry(code, { success: true, value: "Session management not available" });
       } else {
         const sessions = await sessionManagerRef.current.listForProject(20);
         if (sessions.length === 0) {
-          setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: "No sessions found" }, isComplete: true }]);
-          setNextId((n: number) => n + 1);
+          addHistoryEntry(code, { success: true, value: "No sessions found" });
         } else {
           setPendingResumeInput(code);  // Store command for history
           setPickerSessions(sessions);
-          setShowPicker(true);
+          setActivePanel("picker");
         }
       }
       setIsEvaluating(false);
@@ -287,8 +296,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     if (isCommand(code)) {
       const output = await handleCommand(code, repl, exit, replState);
       if (output !== null) {
-        setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input: code, result: { success: true, value: output, isCommandOutput: true }, isComplete: true }]);
-        setNextId((n: number) => n + 1);
+        addHistoryEntry(code, { success: true, value: output, isCommandOutput: true });
       }
       // FRP: memoryNames auto-update via ReplContext when bindings change
       setIsEvaluating(false);
@@ -303,19 +311,22 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
     // Evaluate (with optional attachments)
     // Use expandedCode which has text attachment placeholders replaced with actual content
+    // Create AbortController for true cancellation support
+    const controller = new AbortController();
+    const evalPromise = repl.evaluate(expandedCode, { attachments, signal: controller.signal });
+    currentEvalRef.current = { promise: evalPromise, code, controller };
+
     try {
-      const result = await repl.evaluate(expandedCode, attachments);
-      // Detect if result is streaming (async iterator)
-      const isStreaming = result.value && typeof result.value === "object" &&
-        Symbol.asyncIterator in (result.value as object);
+      const result = await evalPromise;
+
+      // Check if we were pushed to background (currentEvalRef cleared)
+      if (!currentEvalRef.current) {
+        // Evaluation was pushed to background, don't add to history here
+        return;
+      }
+
       // Show original code in history (with placeholders) for cleaner display
-      setHistory((prev: HistoryEntry[]) => [...prev, {
-        id: nextId,
-        input: code,
-        result,
-        isComplete: !isStreaming  // false if streaming, true otherwise
-      }]);
-      setNextId((n: number) => n + 1);
+      addHistoryEntry(code, result);
 
       // Auto-save to session (only for non-error results)
       if (sessionManagerRef.current && result.success) {
@@ -345,46 +356,87 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
       // FRP: memoryNames auto-update via ReplContext when bindings change
     } catch (error) {
-      setHistory((prev: HistoryEntry[]) => [...prev, {
-        id: nextId,
-        input: code,
-        result: { success: false, error: error instanceof Error ? error : new Error(String(error)) },
-        isComplete: true,
-      }]);
-      setNextId((n: number) => n + 1);
+      // Check if we were pushed to background
+      if (!currentEvalRef.current) {
+        return;
+      }
+      addHistoryEntry(code, { success: false, error: error instanceof Error ? error : new Error(String(error)) });
+    } finally {
+      currentEvalRef.current = null;
     }
 
     setIsEvaluating(false);
     setInput("");
-  }, [repl, nextId, exit]);
+  }, [repl, exit, addHistoryEntry]);
 
   // Command palette action handler
   const handlePaletteAction = useCallback((action: KeybindingAction) => {
-    setShowPalette(false);
+    setActivePanel("none");
     if (action.type === "SLASH_COMMAND") {
       // Execute slash command directly
       handleSubmit(action.cmd);
+    } else if (action.type === "HANDLER") {
+      // Execute registered handler by ID
+      executeHandler(action.id);
     }
-    // HANDLER and INFO types don't execute from palette
+    // INFO type is display-only (shortcut reference)
   }, [handleSubmit]);
+
+  // Keybinding rebind handler - saves new key combo to config
+  const handleRebind = useCallback((keybindingId: string, combo: KeyCombo) => {
+    // Convert KeyCombo to string format for storage
+    const parts: string[] = [];
+    if (combo.ctrl) parts.push("Ctrl");
+    if (combo.meta) parts.push("Cmd");
+    if (combo.alt) parts.push("Alt");
+    if (combo.shift) parts.push("Shift");
+    parts.push(combo.key.length === 1 ? combo.key.toUpperCase() : combo.key);
+    const keyComboStr = parts.join("+");
+
+    // Save to config
+    updateKeybindingRuntime(keybindingId, keyComboStr);
+
+    // Refresh keybinding lookup to use new binding immediately
+    refreshKeybindingLookup();
+  }, []);
 
   // Global shortcuts (Ctrl+C exit, Ctrl+L/Cmd+K clear, Ctrl+P palette, Ctrl+B tasks, ESC cancel)
   useInput((char, key) => {
     if (key.ctrl && char === "c") exit();
     if (key.ctrl && char === "p") {
-      setShowPalette(true);
+      setActivePanel("palette");
       return;
     }
-    // Ctrl+B: Toggle background tasks panel
+    // Ctrl+B: Push evaluation to background, or toggle tasks panel
     if (key.ctrl && char === "b") {
-      setShowBackgroundTasks((prev: boolean) => !prev);
-      // Close other panels when opening tasks
-      if (!showBackgroundTasks) {
-        setShowConfigPanel(false);
-        setShowPicker(false);
-        setShowPalette(false);
-        setShowModelBrowser(false);
+      // If currently evaluating, push to background
+      if (isEvaluating && currentEvalRef.current) {
+        const { promise, code, controller } = currentEvalRef.current;
+
+        // Create background task with AbortController for true cancellation
+        const taskId = createEvalTask(code, controller);
+
+        // Let promise continue in background, update task when done
+        promise
+          .then((result: EvalResult) => completeEvalTask(taskId, result))
+          .catch((error: unknown) => failEvalTask(taskId, error instanceof Error ? error : new Error(String(error))));
+
+        // Immediately unblock UI
+        currentEvalRef.current = null;
+        setIsEvaluating(false);
+
+        // Show confirmation in history
+        const preview = code.length > 40 ? code.slice(0, 37) + "..." : code;
+        addHistoryEntry(code, {
+          success: true,
+          value: `⏳ Pushed to background (Task ${taskId.slice(0, 8)})\n   ${preview}`,
+        });
+
+        return;
       }
+
+      // Otherwise, toggle tasks panel
+      setActivePanel((prev: ActivePanel) => prev === "tasks" ? "none" : "tasks");
       return;
     }
     // Ctrl+L or Cmd+K: Clear screen and history
@@ -400,11 +452,24 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       setClearKey((k: number) => k + 1); // Force full re-render
       return;
     }
-    // ESC during evaluation: cancel/interrupt (Claude Code behavior)
-    if (key.escape && isEvaluating) {
+    // ESC during evaluation: abort and cancel
+    // This actually stops the evaluation (if it supports AbortSignal)
+    if (key.escape && isEvaluating && currentEvalRef.current) {
+      const { code, controller } = currentEvalRef.current;
+
+      // Abort the evaluation (will cause AbortError in async operations)
+      controller.abort();
+
+      // Clear ref so handleSubmit knows we cancelled
+      currentEvalRef.current = null;
       setIsEvaluating(false);
-      // Note: The actual async evaluation may continue in background
-      // but UI will be responsive again
+
+      // Show cancellation
+      const preview = code.length > 40 ? code.slice(0, 37) + "..." : code;
+      addHistoryEntry(code, {
+        success: true,
+        value: `✗ Cancelled\n   ${preview}`,
+      });
     }
   });
 
@@ -427,43 +492,19 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         )
       )}
 
-      {/* Completed history - rendered once via Static, won't re-render on keystrokes */}
-      {/* React.Fragment with key forces remount of Static when clearKey changes */}
-      <React.Fragment key={`static-${clearKey}`}>
-        <Static
-          items={history.filter((e: HistoryEntry) => e.isComplete !== false)}
-          children={(entry: HistoryEntry) => (
-            <Box key={entry.id} flexDirection="column">
-              <Box>
-                <Text color={color("primary")} bold>{repl.jsMode ? "js>" : "hql>"} </Text>
-                <Text>{entry.input}</Text>
-              </Box>
-              <Output result={entry.result} />
-            </Box>
-          )}
-        />
-      </React.Fragment>
-
-      {/* Active streaming entries - outside Static so they can update */}
-      {history.filter((e: HistoryEntry) => e.isComplete === false).map((entry: HistoryEntry) => (
-        <Box key={entry.id} flexDirection="column">
+      {/* History of inputs and outputs */}
+      {history.map((entry: HistoryEntry) => (
+        <Box key={entry.id} flexDirection="column" marginBottom={1}>
           <Box>
             <Text color={color("primary")} bold>{repl.jsMode ? "js>" : "hql>"} </Text>
             <Text>{entry.input}</Text>
           </Box>
-          <Output
-            result={entry.result}
-            onStreamComplete={() => {
-              setHistory((prev: HistoryEntry[]) => prev.map((e: HistoryEntry) =>
-                e.id === entry.id ? { ...e, isComplete: true } : e
-              ));
-            }}
-          />
+          <Output result={entry.result} />
         </Box>
       ))}
 
       {/* Session Picker */}
-      {showPicker && (
+      {activePanel === "picker" && (
         <SessionPicker
           sessions={pickerSessions}
           currentSessionId={currentSession?.id}
@@ -473,33 +514,43 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       )}
 
       {/* Config Panel */}
-      {showConfigPanel && (
+      {activePanel === "config" && (
         <ConfigPanel
-          onClose={() => setShowConfigPanel(false)}
-          onOpenModelBrowser={() => {
-            setShowConfigPanel(false);
-            setShowModelBrowser(true);
-          }}
+          onClose={() => setActivePanel("none")}
+          onOpenModelBrowser={() => setActivePanel("models")}
         />
       )}
 
       {/* Command Palette (True Floating Overlay) */}
-      {showPalette && (
+      {activePanel === "palette" && (
         <CommandPaletteOverlay
-          onClose={() => setShowPalette(false)}
+          onClose={() => setActivePanel("none")}
           onExecute={handlePaletteAction}
+          onRebind={handleRebind}
+          initialState={paletteState}
+          onStateChange={setPaletteState}
+        />
+      )}
+
+      {/* Config Overlay (True Floating Overlay) */}
+      {activePanel === "config-overlay" && (
+        <ConfigOverlay
+          onClose={() => setActivePanel("none")}
+          onOpenModelBrowser={() => setActivePanel("models")}
+          initialState={configOverlayState}
+          onStateChange={setConfigOverlayState}
         />
       )}
 
       {/* Background Tasks Panel */}
-      {showBackgroundTasks && (
-        <BackgroundTasks onClose={() => setShowBackgroundTasks(false)} />
+      {activePanel === "tasks" && (
+        <BackgroundTasks onClose={() => setActivePanel("none")} />
       )}
 
       {/* Model Browser Panel */}
-      {showModelBrowser && (
+      {activePanel === "models" && (
         <ModelBrowser
-          onClose={() => setShowModelBrowser(false)}
+          onClose={() => setActivePanel("none")}
           onSelectModel={(modelName: string) => {
             // Update config with selected model (prefixed with ollama/)
             const fullModelName = modelName.startsWith("ollama/") ? modelName : `ollama/${modelName}`;
@@ -512,19 +563,19 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
       {/* Input line (hidden when modal panels are open, but visible under overlay) */}
       {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}
-      {/* Note: CommandPalette is a true overlay, so Input stays visible underneath */}
-      {!showPicker && !showConfigPanel && !showBackgroundTasks && !showModelBrowser && (
+      {/* Note: CommandPalette and ConfigOverlay are true overlays, so Input stays visible underneath */}
+      {(activePanel === "none" || activePanel === "palette" || activePanel === "config-overlay") && (
         <Input
           value={input}
           onChange={setInput}
           onSubmit={handleSubmit}
           jsMode={repl.jsMode}
-          disabled={isEvaluating || init.loading || showPalette}
+          disabled={isEvaluating || init.loading || activePanel === "palette" || activePanel === "config-overlay"}
         />
       )}
 
       {/* Footer hint (show when input is visible, overlay draws on top) */}
-      {!showPicker && !showConfigPanel && !showBackgroundTasks && !showModelBrowser && !isEvaluating && (
+      {(activePanel === "none" || activePanel === "palette" || activePanel === "config-overlay") && !isEvaluating && (
         <FooterHint />
       )}
 

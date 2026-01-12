@@ -175,18 +175,36 @@ export function fuzzySort<T>(
 }
 
 /**
+ * Calculate minimum score threshold for quality filtering.
+ * Filters out low-quality matches where characters appear randomly.
+ *
+ * @param query - The search query
+ * @returns Minimum score threshold (matches below this are filtered out)
+ */
+export function calculateMinScore(query: string): number {
+  if (!query) return 0;
+  // Single char: need word boundary match (~15 after penalties)
+  // Multi char: need consecutive matches (~25 per char for quality matches)
+  // Higher threshold = fewer but more relevant results
+  return query.length === 1 ? 15 : query.length * 25;
+}
+
+/**
  * Filter items by fuzzy match and sort by score.
  * Convenience function combining match + filter + sort.
  *
  * @param items - Items to filter
  * @param query - Search query
  * @param getText - Function to extract searchable text from item
+ * @param options - Optional filtering options
+ * @param options.minScore - Minimum score threshold. Use "auto" for calculated threshold, number for fixed, undefined for no filtering.
  * @returns Items that match, sorted by score (best first), with matchResult attached
  */
 export function fuzzyFilter<T>(
   items: readonly T[],
   query: string,
-  getText: (item: T) => string
+  getText: (item: T) => string,
+  options?: { minScore?: number | "auto" }
 ): Array<T & { readonly matchResult: FuzzyResult }> {
   if (!query) {
     // Empty query: return all items with neutral score
@@ -197,10 +215,13 @@ export function fuzzyFilter<T>(
   }
 
   const results: Array<T & { readonly matchResult: FuzzyResult }> = [];
+  const threshold = options?.minScore === "auto"
+    ? calculateMinScore(query)
+    : options?.minScore ?? -Infinity;
 
   for (const item of items) {
     const result = fuzzyMatch(query, getText(item));
-    if (result) {
+    if (result && result.score >= threshold) {
       results.push({ ...item, matchResult: result });
     }
   }
