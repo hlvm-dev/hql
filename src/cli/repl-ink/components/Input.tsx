@@ -163,6 +163,14 @@ export function Input({
   // When cycling, we don't want to re-filter the dropdown
   const textChangeFromCyclingRef = useRef(false);
 
+  // Ref for disabled prop to avoid stale closure in useInput
+  const disabledRef = useRef(disabled);
+
+  // Sync disabled ref to avoid stale closure in useInput
+  useEffect(() => {
+    disabledRef.current = disabled;
+  }, [disabled]);
+
   // Update cursor pos when value changes externally
   useEffect(() => {
     if (cursorPos > value.length) {
@@ -839,6 +847,53 @@ export function Input({
     }
   }, [history, historyIndex, tempInput, value, onChange]);
 
+  // Helper: generate AI example for a function (Shift+Tab in dropdown)
+  // Streams example code from Ollama and replaces input with it
+  const generateExample = useCallback(async (fnName: string) => {
+    try {
+      // Close dropdown first
+      completion.close();
+
+      // Dynamically import the example function from AI module
+      const { example } = await import("../../../lib/stdlib/js/ai.js");
+
+      // Stream and accumulate the example
+      let result = "";
+      for await (const chunk of example(fnName)) {
+        result += chunk;
+        // Update input as it streams (live preview)
+        const trimmed = result.trim();
+        onChange(trimmed);
+        setCursorPos(trimmed.length);
+      }
+
+      // Final cleanup - trim whitespace and any backticks/markdown
+      let finalResult = result.trim();
+      // Remove markdown code blocks if AI returned them
+      if (finalResult.startsWith("```")) {
+        const lines = finalResult.split("\n");
+        // Remove first line (```hql or ```)
+        lines.shift();
+        // Remove last line if it's just ```)
+        if (lines[lines.length - 1]?.trim() === "```") {
+          lines.pop();
+        }
+        finalResult = lines.join("\n").trim();
+      }
+
+      onChange(finalResult);
+      setCursorPos(finalResult.length);
+
+    } catch (err: unknown) {
+      // Handle errors gracefully
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      // Only log cancellation errors, don't show to user
+      if (errorMsg !== "Cancelled" && !errorMsg.includes("AbortError")) {
+        console.error("Example generation error:", errorMsg);
+      }
+    }
+  }, [completion, onChange]);
+
   // Helper: handle tab completion when dropdown is NOT visible
   // Opens dropdown and selects first item (no auto-apply - use Tab again to confirm)
   // FIX: Use triggerCompletionRef to avoid stale closure issues with completion object
@@ -999,7 +1054,8 @@ export function Input({
 
   // Main input handler
   useInput((input, key) => {
-    if (disabled) return;
+    // Use ref to avoid stale closure - disabled prop can change during evaluation
+    if (disabledRef.current) return;
 
     // ============================================================
     // HISTORY SEARCH MODE (Ctrl+R)
@@ -1447,6 +1503,17 @@ export function Input({
         return;
       }
 
+      // Shift+Tab: Generate AI example for selected function
+      // Streams an example usage from Ollama and replaces input with it
+      if (key.tab && key.shift && selectedItem) {
+        // Only generate examples for functions/macros/keywords (not files/directories/commands)
+        const exampleTypes = ["function", "macro", "keyword", "operator", "variable"];
+        if (exampleTypes.includes(selectedItem.type)) {
+          generateExample(selectedItem.label);
+        }
+        return;
+      }
+
       // Tab: DRILL if available, else SELECT
       // - Directories: drill in (keep dropdown open)
       // - Functions with params: select + params (enter placeholder mode)
@@ -1746,24 +1813,30 @@ export function Input({
       // Single character - insert directly
       insertAt(input);
     }
-  }, { isActive: !disabled });
+  }); // Note: disabled check is via disabledRef.current at top of callback (avoids stale closure)
 
   // Render with syntax highlighting
-  // Paren matching: highlight matching paren when cursor is ON any delimiter
-  // Check both cursor position and position before cursor (for just-after-close case)
-  const matchPos = (() => {
-    // Check if cursor is ON a paren (opening or closing)
+  // Paren matching: highlight BOTH brackets of a pair when cursor is ON/NEAR any delimiter
+  // Returns array of [cursorBracketPos, matchingBracketPos] for pair highlighting
+  const bracketPair = (() => {
+    // Check if cursor is ON a bracket (opening or closing)
     if (cursorPos < value.length) {
       const ch = value[cursorPos];
       if ("()[]{}".includes(ch)) {
-        return findMatchingParen(value, cursorPos);
+        const matchPos = findMatchingParen(value, cursorPos);
+        if (matchPos !== null) {
+          return [cursorPos, matchPos]; // Both brackets of the pair
+        }
       }
     }
-    // Check if cursor is just AFTER a paren (legacy behavior for closing parens)
+    // Check if cursor is just AFTER a closing bracket
     if (cursorPos > 0) {
       const ch = value[cursorPos - 1];
       if (")]}".includes(ch)) {
-        return findMatchingParen(value, cursorPos - 1);
+        const matchPos = findMatchingParen(value, cursorPos - 1);
+        if (matchPos !== null) {
+          return [cursorPos - 1, matchPos]; // Both brackets of the pair
+        }
       }
     }
     return null;
@@ -1771,11 +1844,26 @@ export function Input({
 
   const ghostText = suggestion ? suggestion.ghost : "";
 
+  // Helper: get bracket positions adjusted for a text slice
+  // Returns positions relative to the slice, filtering out positions outside the range
+  const getBracketPositionsForSlice = (sliceStart: number, sliceEnd: number): number[] | null => {
+    if (!bracketPair) return null;
+    const positions: number[] = [];
+    for (const pos of bracketPair) {
+      if (pos >= sliceStart && pos < sliceEnd) {
+        positions.push(pos - sliceStart); // Convert to slice-relative
+      }
+    }
+    return positions.length > 0 ? positions : null;
+  };
+
   // Helper: render text with placeholder highlighting
   // OPTIMIZED: O(n) single pass instead of O(n²) nested loops
   const renderWithPlaceholders = (text: string, startOffset: number): string => {
+    const sliceBrackets = getBracketPositionsForSlice(startOffset, startOffset + text.length);
+
     if (!isInPlaceholderMode() || placeholders.length === 0) {
-      return highlight(text, startOffset === 0 ? matchPos : null);
+      return highlight(text, sliceBrackets);
     }
 
     // Filter placeholders that overlap with this text range [startOffset, startOffset + text.length)
@@ -1785,7 +1873,7 @@ export function Input({
       .filter(({ ph }: { ph: Placeholder }) => ph.start < endOffset && ph.start + ph.length > startOffset);
 
     if (relevantPhs.length === 0) {
-      return highlight(text, startOffset === 0 ? matchPos : null);
+      return highlight(text, sliceBrackets);
     }
 
     // Build result in single pass through text, iterating placeholders once
@@ -1810,7 +1898,12 @@ export function Input({
           // Inside placeholder - render text before it first (if any)
           const phStartInText = Math.max(0, ph.start - startOffset);
           if (phStartInText > textPos) {
-            result += highlight(text.slice(textPos, phStartInText), textPos === 0 && startOffset === 0 ? matchPos : null);
+            const chunkStart = startOffset + textPos;
+            const chunkEnd = startOffset + phStartInText;
+            const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
+            // Adjust positions to be relative to the slice being highlighted
+            const adjustedBrackets = chunkBrackets?.map(p => p - textPos) ?? null;
+            result += highlight(text.slice(textPos, phStartInText), adjustedBrackets);
           }
 
           // Render placeholder text with styling
@@ -1831,11 +1924,19 @@ export function Input({
 
         // Not in placeholder - render text up to next placeholder
         const nextPhStart = Math.min(text.length, ph.start - startOffset);
-        result += highlight(text.slice(textPos, nextPhStart), textPos === 0 && startOffset === 0 ? matchPos : null);
+        const chunkStart = startOffset + textPos;
+        const chunkEnd = startOffset + nextPhStart;
+        const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
+        const adjustedBrackets = chunkBrackets?.map(p => p - textPos) ?? null;
+        result += highlight(text.slice(textPos, nextPhStart), adjustedBrackets);
         textPos = nextPhStart;
       } else {
         // No more placeholders - render rest of text
-        result += highlight(text.slice(textPos), textPos === 0 && startOffset === 0 ? matchPos : null);
+        const chunkStart = startOffset + textPos;
+        const chunkEnd = startOffset + text.length;
+        const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
+        const adjustedBrackets = chunkBrackets?.map(p => p - textPos) ?? null;
+        result += highlight(text.slice(textPos), adjustedBrackets);
         break;
       }
     }

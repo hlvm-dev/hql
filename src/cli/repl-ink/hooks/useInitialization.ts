@@ -59,29 +59,48 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
           // Stdlib not available - continue without signatures
         }
 
-        // Auto-import AI module
+        // Auto-import AI module - use direct TS import + register each function via HQL
         const loadedAiExports: string[] = [];
         try {
-          await run(`
-            (import ai from "@hql/ai")
-            (js-set globalThis "__hql_ai_module__" ai)
-          `, { baseDir: Deno.cwd(), currentFile: "<repl>", suppressUnknownNameErrors: true });
+          // Direct import to get all functions including example
+          const aiModule = await import("../../../lib/stdlib/js/ai.js") as Record<string, unknown>;
 
-          const globalAny = globalThis as unknown as Record<string, unknown>;
-          const aiModule = globalAny.__hql_ai_module__ as Record<string, unknown> | undefined;
-
+          // Get exported function names (skip internal helpers)
+          const exportedFunctions: string[] = [];
           if (aiModule && typeof aiModule === "object") {
             for (const [name, value] of Object.entries(aiModule)) {
+              if (name.startsWith("_") || name === "default") continue;
               if (typeof value === "function") {
-                // Use addJsFunction to auto-extract parameter names for Tab completion
-                state.addJsFunction(name, value as (...args: unknown[]) => unknown);
-                loadedAiExports.push(name);
+                exportedFunctions.push(name);
               }
             }
           }
-          delete globalAny.__hql_ai_module__;
-        } catch {
+
+          // Set functions on globalThis and register with HQL via js-set
+          // This makes them available in HQL evaluation context
+          const globalAny = globalThis as unknown as Record<string, unknown>;
+          for (const name of exportedFunctions) {
+            const fn = aiModule[name];
+            globalAny[name] = fn;
+
+            // Register with state for Tab completion
+            if (typeof fn === "function") {
+              state.addJsFunction(name, fn as (...args: unknown[]) => unknown);
+              loadedAiExports.push(name);
+            }
+          }
+
+          // Run HQL code that references globalThis to make names known to transpiler
+          // This is the key - HQL needs to see the names through its own evaluation
+          if (exportedFunctions.length > 0) {
+            const assignments = exportedFunctions
+              .map(name => `(let ${name} (js-get globalThis "${name}"))`)
+              .join("\n");
+            await run(assignments, { baseDir: Deno.cwd(), currentFile: "<repl>", suppressUnknownNameErrors: true });
+          }
+        } catch (err) {
           // AI module not available - continue without it
+          // console.error("Failed to load AI module:", err);
         }
         setAiExports(loadedAiExports);
 

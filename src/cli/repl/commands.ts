@@ -137,35 +137,8 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  "/tasks": {
-    description: "List background evaluation tasks",
-    handler: () => {
-      const manager = getTaskManager();
-      const tasks = Array.from(manager.getTasks().values());
-
-      if (tasks.length === 0) {
-        console.log(`${DIM_GRAY}No background tasks.${RESET}`);
-        console.log(`${DIM_GRAY}Press Ctrl+B while evaluating to push to background.${RESET}`);
-        return;
-      }
-
-      console.log(`${BOLD}Background Tasks:${RESET}`);
-      for (const task of tasks) {
-        const statusIcon = task.status === "running" ? "⏳" :
-                          task.status === "completed" ? "✓" :
-                          task.status === "failed" ? "✗" :
-                          task.status === "cancelled" ? "○" : "?";
-        const statusColor = task.status === "running" ? YELLOW :
-                           task.status === "completed" ? GREEN :
-                           task.status === "failed" ? "\x1b[31m" : DIM_GRAY;
-
-        console.log(`  ${statusColor}${statusIcon}${RESET} ${task.label}`);
-        console.log(`    ${DIM_GRAY}${task.status} • ID: ${task.id.slice(0, 8)}${RESET}`);
-      }
-      console.log();
-      console.log(`${DIM_GRAY}Press Ctrl+B to view tasks panel.${RESET}`);
-    },
-  },
+  // NOTE: /tasks is handled by App.tsx to open BackgroundTasksOverlay
+  // Do not add /tasks handler here - it would conflict
 };
 
 /** Check if input is a slash command */

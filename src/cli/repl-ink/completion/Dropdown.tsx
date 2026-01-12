@@ -101,24 +101,30 @@ interface GenericItemProps {
 
 /**
  * Generic item renderer - uses ItemRenderSpec to display any completion item.
- * Now supports fuzzy match highlighting via matchIndices.
+ * Clean, aligned layout: [▸] [icon] [label padded] [description dimmed]
  */
 function GenericItem({ spec, isSelected }: GenericItemProps): React.ReactElement {
   const { color } = useTheme();
+  // Pad label to maxWidth for consistent alignment
+  const paddedLabel = spec.label.padEnd(spec.maxWidth);
   return (
     <Box>
-      <Text color={isSelected ? color("accent") : undefined} inverse={isSelected}>
-        {spec.icon}{" "}
+      {/* Selection indicator */}
+      <Text color={isSelected ? color("accent") : undefined}>
+        {isSelected ? "▸ " : "  "}
       </Text>
+      <Text color={isSelected ? color("accent") : undefined} inverse={isSelected}>
+        {spec.icon}
+      </Text>
+      <Text> </Text>
       <TruncatedHighlightedText
-        label={spec.label}
+        label={paddedLabel}
         matchIndices={spec.matchIndices}
         maxWidth={spec.maxWidth}
         truncate={spec.truncate}
         isSelected={isSelected}
       />
       {spec.description && <Text dimColor> {spec.description}</Text>}
-      {spec.typeLabel && <Text color="gray"> {spec.typeLabel}</Text>}
     </Box>
   );
 }
@@ -264,9 +270,9 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
         <Text dimColor>Searching...</Text>
       )}
 
-      {/* Scroll up indicator (or empty line for fixed height) */}
+      {/* Scroll up indicator (minimal, or empty line for fixed height) */}
       {hasMoreAbove ? (
-        <Text dimColor>  ↑ more</Text>
+        <Text dimColor>  ...</Text>
       ) : (
         <Text> </Text>
       )}
@@ -285,9 +291,9 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
         </React.Fragment>
       ))}
 
-      {/* Scroll down indicator (or empty line for fixed height) */}
+      {/* Scroll down indicator (minimal, or empty line for fixed height) */}
       {hasMoreBelow ? (
-        <Text dimColor>  ↓ more</Text>
+        <Text dimColor>  ...</Text>
       ) : (
         <Text> </Text>
       )}

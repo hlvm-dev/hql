@@ -12,7 +12,7 @@ import { SessionPicker } from "./SessionPicker.tsx";
 import { ConfigPanel } from "./ConfigPanel.tsx";
 import { ConfigOverlay, type ConfigOverlayState } from "./ConfigOverlay.tsx";
 import { CommandPaletteOverlay, type PaletteState, type KeyCombo } from "./CommandPaletteOverlay.tsx";
-import { BackgroundTasks } from "./BackgroundTasks.tsx";
+import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { FooterHint } from "./FooterHint.tsx";
 import type { KeybindingAction } from "../keybindings/index.ts";
@@ -150,6 +150,9 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  // Ref to avoid stale closure in useInput callback
+  const isEvaluatingRef = useRef(false);
+  useEffect(() => { isEvaluatingRef.current = isEvaluating; }, [isEvaluating]);
   const [nextId, setNextId] = useState(1);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
@@ -166,9 +169,12 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
   } | null>(null);
 
   // Unified panel state - only one panel can be open at a time
-  // "palette" and "config-overlay" are overlays (input visible but disabled), others hide input entirely
-  type ActivePanel = "none" | "picker" | "config" | "config-overlay" | "tasks" | "models" | "palette";
+  // "palette", "config-overlay", and "tasks-overlay" are overlays (input visible but disabled), others hide input entirely
+  type ActivePanel = "none" | "picker" | "config" | "config-overlay" | "tasks-overlay" | "models" | "palette";
   const [activePanel, setActivePanel] = useState<ActivePanel>("none");
+
+  // Debounce ref for panel toggles - prevents rapid open/close during streaming re-renders
+  const lastPanelToggleRef = useRef<number>(0);
 
   // Session picker data (separate from panel state)
   const [pickerSessions, setPickerSessions] = useState<SessionMeta[]>([]);
@@ -233,7 +239,16 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     setActivePanel("none");
   }, [pendingResumeInput, addHistoryEntry]);
 
+  // Debug: write to file for tracing
+  const debugLog = (msg: string) => {
+    try {
+      const timestamp = new Date().toISOString();
+      Deno.writeTextFileSync("/tmp/hql-debug.log", `${timestamp} ${msg}\n`, { append: true });
+    } catch { /* ignore */ }
+  };
+
   const handleSubmit = useCallback(async (code: string, attachments?: AnyAttachment[]) => {
+    debugLog(`handleSubmit called: code="${code.slice(0, 50)}", currentEvalRef=${!!currentEvalRef.current}`);
     if (!code.trim()) return;
     setIsEvaluating(true);
 
@@ -257,6 +272,49 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     if (normalized === "/config") {
       setActivePanel("config-overlay");
       setIsEvaluating(false);
+      setInput("");
+      return;
+    }
+
+    // Handle /tasks command - show background tasks overlay
+    if (normalized === "/tasks") {
+      setActivePanel("tasks-overlay");
+      setIsEvaluating(false);
+      setInput("");
+      return;
+    }
+
+    // Handle /bg command - push current evaluation to background
+    if (normalized === "/bg") {
+      debugLog(`/bg command: currentEvalRef=${!!currentEvalRef.current}, isEvaluating=${isEvaluating}`);
+      if (currentEvalRef.current) {
+        const { promise, code: evalCode, controller } = currentEvalRef.current;
+
+        // Create background task with AbortController for true cancellation
+        const taskId = createEvalTask(evalCode, controller);
+
+        // Let promise continue in background, update task when done
+        promise
+          .then((result: EvalResult) => completeEvalTask(taskId, result))
+          .catch((error: unknown) => failEvalTask(taskId, error instanceof Error ? error : new Error(String(error))));
+
+        // Immediately unblock UI
+        currentEvalRef.current = null;
+        setIsEvaluating(false);
+
+        // Show confirmation in history
+        const preview = evalCode.length > 40 ? evalCode.slice(0, 37) + "..." : evalCode;
+        addHistoryEntry("/bg", {
+          success: true,
+          value: `⏳ Pushed to background (Task ${taskId.slice(0, 8)})\n   ${preview}\n   Use /tasks to view`,
+        });
+      } else {
+        addHistoryEntry("/bg", {
+          success: false,
+          error: new Error("No running evaluation to background"),
+        });
+        setIsEvaluating(false);  // Reset - no eval was running
+      }
       setInput("");
       return;
     }
@@ -315,6 +373,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     const controller = new AbortController();
     const evalPromise = repl.evaluate(expandedCode, { attachments, signal: controller.signal });
     currentEvalRef.current = { promise: evalPromise, code, controller };
+    debugLog(`SET currentEvalRef for code="${code.slice(0, 50)}"`);
 
     try {
       const result = await evalPromise;
@@ -404,39 +463,14 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
   useInput((char, key) => {
     if (key.ctrl && char === "c") exit();
     if (key.ctrl && char === "p") {
-      setActivePanel("palette");
-      return;
-    }
-    // Ctrl+B: Push evaluation to background, or toggle tasks panel
-    if (key.ctrl && char === "b") {
-      // If currently evaluating, push to background
-      if (isEvaluating && currentEvalRef.current) {
-        const { promise, code, controller } = currentEvalRef.current;
-
-        // Create background task with AbortController for true cancellation
-        const taskId = createEvalTask(code, controller);
-
-        // Let promise continue in background, update task when done
-        promise
-          .then((result: EvalResult) => completeEvalTask(taskId, result))
-          .catch((error: unknown) => failEvalTask(taskId, error instanceof Error ? error : new Error(String(error))));
-
-        // Immediately unblock UI
-        currentEvalRef.current = null;
-        setIsEvaluating(false);
-
-        // Show confirmation in history
-        const preview = code.length > 40 ? code.slice(0, 37) + "..." : code;
-        addHistoryEntry(code, {
-          success: true,
-          value: `⏳ Pushed to background (Task ${taskId.slice(0, 8)})\n   ${preview}`,
-        });
-
-        return;
+      // Debounce: prevent rapid toggles during streaming re-renders
+      const now = Date.now();
+      if (now - lastPanelToggleRef.current < 150) {
+        return; // Ignore if toggled within 150ms
       }
-
-      // Otherwise, toggle tasks panel
-      setActivePanel((prev: ActivePanel) => prev === "tasks" ? "none" : "tasks");
+      lastPanelToggleRef.current = now;
+      // Toggle palette
+      setActivePanel((prev: ActivePanel) => prev === "palette" ? "none" : "palette");
       return;
     }
     // Ctrl+L or Cmd+K: Clear screen and history
@@ -454,7 +488,9 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     }
     // ESC during evaluation: abort and cancel
     // This actually stops the evaluation (if it supports AbortSignal)
-    if (key.escape && isEvaluating && currentEvalRef.current) {
+    // Use ref to avoid stale closure issue
+    if (key.escape && isEvaluatingRef.current && currentEvalRef.current) {
+      debugLog(`ESC pressed: clearing currentEvalRef and aborting`);
       const { code, controller } = currentEvalRef.current;
 
       // Abort the evaluation (will cause AbortError in async operations)
@@ -468,7 +504,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       const preview = code.length > 40 ? code.slice(0, 37) + "..." : code;
       addHistoryEntry(code, {
         success: true,
-        value: `✗ Cancelled\n   ${preview}`,
+        value: `[Cancelled]`,
       });
     }
   });
@@ -542,9 +578,9 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         />
       )}
 
-      {/* Background Tasks Panel */}
-      {activePanel === "tasks" && (
-        <BackgroundTasks onClose={() => setActivePanel("none")} />
+      {/* Background Tasks Overlay (True Floating Overlay) */}
+      {activePanel === "tasks-overlay" && (
+        <BackgroundTasksOverlay onClose={() => setActivePanel("none")} />
       )}
 
       {/* Model Browser Panel */}
@@ -563,19 +599,19 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
       {/* Input line (hidden when modal panels are open, but visible under overlay) */}
       {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}
-      {/* Note: CommandPalette and ConfigOverlay are true overlays, so Input stays visible underneath */}
-      {(activePanel === "none" || activePanel === "palette" || activePanel === "config-overlay") && (
+      {/* Note: CommandPalette, ConfigOverlay, and BackgroundTasksOverlay are true overlays, so Input stays visible underneath */}
+      {(activePanel === "none" || activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay") && (
         <Input
           value={input}
           onChange={setInput}
           onSubmit={handleSubmit}
           jsMode={repl.jsMode}
-          disabled={isEvaluating || init.loading || activePanel === "palette" || activePanel === "config-overlay"}
+          disabled={init.loading || activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay"}
         />
       )}
 
       {/* Footer hint (show when input is visible, overlay draws on top) */}
-      {(activePanel === "none" || activePanel === "palette" || activePanel === "config-overlay") && !isEvaluating && (
+      {(activePanel === "none" || activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay") && !isEvaluating && (
         <FooterHint />
       )}
 

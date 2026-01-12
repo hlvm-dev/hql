@@ -514,6 +514,8 @@ const AVAILABLE_COMMANDS: readonly { name: string; description: string }[] = [
   { name: "/forget", description: "Remove a definition" },
   { name: "/compact", description: "Compact memory file" },
   { name: "/config", description: "View/set AI configuration" },
+  { name: "/tasks", description: "View background tasks" },
+  { name: "/bg", description: "Push current eval to background" },
   { name: "/js", description: "Switch to JavaScript mode" },
   { name: "/hql", description: "Switch to HQL mode" },
   { name: "/resume", description: "Resume a previous session" },

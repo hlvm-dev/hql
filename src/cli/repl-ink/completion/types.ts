@@ -377,7 +377,7 @@ export const TYPE_ICONS: Record<CompletionType, string> = {
   operator: "±",
   file: "📄",
   directory: "📁",
-  command: "⌘",
+  command: "/",  // Slash for slash commands (cleaner than ⌘)
 };
 
 // ============================================================
@@ -399,10 +399,10 @@ export const RENDER_MAX_WIDTH = {
   DEFAULT: 40,
 } as const;
 
-/** Help text shown in dropdown (DRY - was duplicated) */
+/** Help text shown in dropdown (simplified for clean UI) */
 export const PROVIDER_HELP_TEXT = {
-  SIMPLE: "↑↓ navigate • Tab select • Enter insert • Ctrl+D docs • Esc cancel",
-  DRILL: "↑↓ navigate • Tab drill/select • Enter insert • Ctrl+D docs • Esc cancel",
+  SIMPLE: "Tab select • Enter insert • Esc",
+  DRILL: "Tab drill • Enter insert • Esc",
 } as const;
 
 /** Debounce for async providers */

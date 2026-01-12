@@ -179,7 +179,8 @@ export async function evaluate(
           mediaAtt.displayName,
           mediaAtt.path,
           mediaAtt.mimeType,
-          mediaAtt.size
+          mediaAtt.size,
+          mediaAtt.base64Data // Pass base64 data for vision model support
         );
       }
     }

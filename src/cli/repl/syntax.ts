@@ -284,14 +284,21 @@ const FUNCTION_CALL_COLOR = SICP_PURPLE;
  * Uses context-aware highlighting for function position detection.
  *
  * @param input - Raw input string
- * @param matchPos - Optional position of matching paren to highlight
+ * @param bracketPositions - Optional position(s) of brackets to highlight (single number or array for pairs)
  * @returns ANSI-colored string
  */
-export function highlight(input: string, matchPos: number | null = null): string {
+export function highlight(input: string, bracketPositions: number | number[] | null = null): string {
   if (input.length === 0) return "";
 
   const tokens = tokenizeCached(input);
   let result = "";
+
+  // Normalize to Set for O(1) lookup
+  const highlightSet = new Set<number>(
+    bracketPositions === null ? [] :
+    typeof bracketPositions === "number" ? [bracketPositions] :
+    bracketPositions
+  );
 
   // Pre-compute which tokens are in function position (after open-paren, skipping whitespace)
   // OPTIMIZED: Single forward pass O(n) instead of O(n²) backward scans
@@ -327,22 +334,44 @@ export function highlight(input: string, matchPos: number | null = null): string
       color = TOKEN_COLORS[token.type];
     }
 
-    // Check if this token contains the matching paren position
-    if (matchPos !== null && token.start <= matchPos && matchPos < token.end) {
-      // Highlight the matching paren
-      const beforeMatch = token.value.slice(0, matchPos - token.start);
-      const matchChar = token.value[matchPos - token.start];
-      const afterMatch = token.value.slice(matchPos - token.start + 1);
-
-      if (color) {
-        result += color + beforeMatch + RESET;
-        result += BOLD + CYAN + matchChar + RESET;
-        result += color + afterMatch + RESET;
-      } else {
-        result += beforeMatch;
-        result += BOLD + CYAN + matchChar + RESET;
-        result += afterMatch;
+    // Check if this token contains any highlighted bracket positions
+    // Collect all positions within this token's range
+    const matchPositions: number[] = [];
+    for (let pos = token.start; pos < token.end; pos++) {
+      if (highlightSet.has(pos)) {
+        matchPositions.push(pos - token.start); // Convert to token-relative offset
       }
+    }
+
+    if (matchPositions.length > 0) {
+      // Render token with highlighted brackets
+      let tokenResult = "";
+      let lastEnd = 0;
+
+      for (const relPos of matchPositions) {
+        // Text before this match
+        const beforeMatch = token.value.slice(lastEnd, relPos);
+        const matchChar = token.value[relPos];
+
+        if (color) {
+          tokenResult += color + beforeMatch + RESET;
+        } else {
+          tokenResult += beforeMatch;
+        }
+        // Highlight the bracket with bold cyan + underline for visibility
+        tokenResult += BOLD + CYAN + matchChar + RESET;
+        lastEnd = relPos + 1;
+      }
+
+      // Remaining text after last match
+      const afterMatch = token.value.slice(lastEnd);
+      if (color) {
+        tokenResult += color + afterMatch + RESET;
+      } else {
+        tokenResult += afterMatch;
+      }
+
+      result += tokenResult;
     } else if (color) {
       result += color + token.value + RESET;
     } else {

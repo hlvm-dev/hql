@@ -29,7 +29,7 @@ export interface Paste {
 }
 
 /**
- * Media attachment entry - binary file metadata
+ * Media attachment entry - binary file metadata with optional base64 data
  */
 export interface MediaAttachment {
   readonly id: number;
@@ -39,6 +39,7 @@ export interface MediaAttachment {
   readonly mime: string;
   readonly size: number;
   readonly time: number;
+  readonly base64Data?: string; // Base64-encoded content for AI functions
 }
 
 /**
@@ -193,13 +194,15 @@ export function getPaste(id: number): Paste | undefined {
 
 /**
  * Add a media attachment and return the created entry
+ * @param base64Data - Optional base64-encoded content for AI vision support
  */
 export function addAttachment(
   type: string,
   name: string,
   path: string,
   mime: string,
-  size: number
+  size: number,
+  base64Data?: string
 ): MediaAttachment {
   const attachment: MediaAttachment = {
     id: attachments.length,
@@ -209,6 +212,7 @@ export function addAttachment(
     mime,
     size,
     time: Date.now(),
+    base64Data,
   };
   attachments.push(attachment);
   syncToGlobal();
@@ -279,6 +283,18 @@ function syncToGlobal(): void {
   g["pastes"] = pastes;
   g["attachments"] = attachments;
   g["conversation"] = conversation;
+
+  // Convert attachments to Media objects for AI functions (vision support)
+  // This is what ai.js __getImages() reads from
+  g["__hqlMedia"] = attachments
+    .filter((a) => a.base64Data) // Only attachments with base64 data
+    .map((a) => ({
+      type: a.type,
+      mimeType: a.mime,
+      data: a.base64Data,
+      source: a.path,
+      __hql_media__: true,
+    }));
 }
 
 /**

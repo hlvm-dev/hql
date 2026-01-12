@@ -544,12 +544,14 @@ export function CommandPaletteOverlay({
     }
 
     // List navigation
-    if (key.upArrow || (key.ctrl && input === "p")) {
+    // Note: Ctrl+P removed - it's handled by App.tsx for toggle (open/close)
+    if (key.upArrow) {
       if (selectableItems.length === 0) return;
       setSelectedIndex((i: number) => (i <= 0 ? selectableItems.length - 1 : i - 1));
       return;
     }
 
+    // Ctrl+N for navigate down (Emacs-style)
     if (key.downArrow || (key.ctrl && input === "n")) {
       if (selectableItems.length === 0) return;
       setSelectedIndex((i: number) => (i >= selectableItems.length - 1 ? 0 : i + 1));
