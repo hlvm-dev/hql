@@ -9,6 +9,7 @@ import { isList, isSymbol, type SList, type SSymbol } from "../../s-exp/types.ts
 import { join } from "jsr:@std/path@1";
 import { ensureDir } from "jsr:@std/fs@1";
 import { escapeString } from "./string-utils.ts";
+import { getHqlDir, getMemoryPath } from "../../common/paths.ts";
 
 // ============================================================
 // Debug Logging (writes to ~/.hql/memory-debug.log)
@@ -31,19 +32,9 @@ async function debugLog(message: string): Promise<void> {
 
 const MEMORY_HEADER = "; HQL Memory - auto-persisted definitions\n; Edit freely - compacted on REPL startup\n\n";
 
-// ============================================================
-// Path helpers
-// ============================================================
-
-/** Get the .hql directory path */
-function getHqlDir(): string {
-  const home = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || ".";
-  return join(home, ".hql");
-}
-
 /** Get the memory file path: ~/.hql/memory.hql */
 export function getMemoryFilePath(): string {
-  return join(getHqlDir(), "memory.hql");
+  return getMemoryPath();
 }
 
 /**

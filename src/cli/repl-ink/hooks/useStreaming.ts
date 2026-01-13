@@ -126,7 +126,8 @@ export function useStreaming(
         // Capture streaming error (e.g., network failure, API error)
         const streamError = err instanceof Error ? err : new Error(String(err));
         setError(streamError);
-        setDisplayText(bufferRef.current || `Error: ${streamError.message}`);
+        // Only show partial content if any; error message shown by Output component
+        setDisplayText(bufferRef.current);
         setIsStreaming(false);
         setIsDone(true);
         return;

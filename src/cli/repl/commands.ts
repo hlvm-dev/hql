@@ -5,7 +5,6 @@
 
 import { ANSI_COLORS } from "../ansi.ts";
 import type { ReplState } from "./state.ts";
-import { getMemoryStats, forgetFromMemory, getMemoryNames, clearMemory } from "./memory.ts";
 import { handleConfigCommand } from "./config/index.ts";
 import { registry } from "../repl-ink/keybindings/index.ts";
 import { getTaskManager } from "./task-manager/index.ts";
@@ -78,7 +77,11 @@ export const commands: Record<string, Command> = {
     description: "Reset REPL state and clear memory",
     handler: async (state: ReplState) => {
       state.reset();
-      await clearMemory();
+      // Use memory API for single source of truth
+      const memoryApi = (globalThis as Record<string, unknown>).memory as { clear: () => Promise<void> } | undefined;
+      if (memoryApi?.clear) {
+        await memoryApi.clear();
+      }
       console.log(`${GREEN}REPL state reset. All bindings and memory cleared.${RESET}`);
     },
   },
@@ -94,14 +97,25 @@ export const commands: Record<string, Command> = {
   "/memory": {
     description: "Show memory file location and stats",
     handler: async () => {
-      const stats = await getMemoryStats();
+      // Use memory API for single source of truth
+      const memoryApi = (globalThis as Record<string, unknown>).memory as {
+        stats: () => Promise<{ path: string; count: number; size: number } | null>;
+        list: () => Promise<string[]>;
+      } | undefined;
+
+      if (!memoryApi) {
+        console.log(`${YELLOW}Memory API not initialized.${RESET}`);
+        return;
+      }
+
+      const stats = await memoryApi.stats();
       if (stats) {
         console.log(`${BOLD}Memory:${RESET}`);
         console.log(`  ${CYAN}Location:${RESET} ${stats.path}`);
         console.log(`  ${CYAN}Definitions:${RESET} ${stats.count}`);
         console.log(`  ${CYAN}Size:${RESET} ${stats.size} bytes`);
         if (stats.count > 0) {
-          const names = await getMemoryNames();
+          const names = await memoryApi.list();
           console.log(`  ${CYAN}Names:${RESET} ${names.join(", ")}`);
         }
       } else {
@@ -120,7 +134,17 @@ export const commands: Record<string, Command> = {
         return;
       }
 
-      const removed = await forgetFromMemory(name);
+      // Use memory API for single source of truth
+      const memoryApi = (globalThis as Record<string, unknown>).memory as {
+        remove: (name: string) => Promise<boolean>;
+      } | undefined;
+
+      if (!memoryApi) {
+        console.log(`${YELLOW}Memory API not initialized.${RESET}`);
+        return;
+      }
+
+      const removed = await memoryApi.remove(name);
       if (removed) {
         console.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
         console.log(`${DIM_GRAY}Note: The binding still exists in this session. Use /reset to clear all bindings.${RESET}`);

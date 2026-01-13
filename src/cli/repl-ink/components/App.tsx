@@ -17,7 +17,6 @@ import { ModelBrowser } from "./ModelBrowser.tsx";
 import { FooterHint } from "./FooterHint.tsx";
 import type { KeybindingAction } from "../keybindings/index.ts";
 import { executeHandler, refreshKeybindingLookup } from "../keybindings/index.ts";
-import { updateKeybindingRuntime } from "../../../common/config/index.ts";
 import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import type { EvalResult } from "../types.ts";
@@ -27,8 +26,7 @@ import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { resetContext } from "../../repl/context.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
-import { clearMemory } from "../../repl/memory.ts";
-import type { SessionInitOptions, SessionMeta, SessionMessage } from "../../repl/session/types.ts";
+import type { Session, SessionInitOptions, SessionMeta, SessionMessage } from "../../repl/session/types.ts";
 import { SessionManager } from "../../repl/session/manager.ts";
 import { ReplProvider, useReplContext } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
@@ -122,6 +120,14 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       const manager = new SessionManager(Deno.cwd());
       sessionManagerRef.current = manager;
 
+      // SSOT: Register with session API
+      try {
+        const { setSessionManager } = await import("../../../api/session.ts");
+        setSessionManager(manager);
+      } catch {
+        // API module may not be loaded yet - session works via ref fallback
+      }
+
       try {
         const session = await manager.initialize(sessionOptions);
         setCurrentSession(session);
@@ -173,6 +179,9 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
   type ActivePanel = "none" | "picker" | "config" | "config-overlay" | "tasks-overlay" | "models" | "palette";
   const [activePanel, setActivePanel] = useState<ActivePanel>("none");
 
+  // Track where ModelBrowser was opened from (for back navigation)
+  const [modelBrowserParent, setModelBrowserParent] = useState<ActivePanel>("none");
+
   // Debounce ref for panel toggles - prevents rapid open/close during streaming re-renders
   const lastPanelToggleRef = useRef<number>(0);
 
@@ -204,27 +213,34 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
   // Session picker handlers
   const handlePickerSelect = useCallback(async (session: SessionMeta) => {
-    if (sessionManagerRef.current) {
-      const loaded = await sessionManagerRef.current.resumeSession(session.id);
-      if (loaded) {
-        // Convert messages to history entries and restore conversation
-        const { entries, nextId: newNextId } = convertMessagesToHistory(loaded.messages, 1);
+    // SSOT: Try session.resume() API only
+    const sessionApi = (globalThis as Record<string, unknown>).session as {
+      resume: (id: string) => Promise<Session | null>;
+    } | undefined;
 
-        // Restore the conversation history
-        setHistory(entries);
-        setCurrentSession(loaded.meta);
+    let loaded: Session | null = null;
+    if (sessionApi?.resume) {
+      loaded = await sessionApi.resume(session.id);
+    }
 
-        // Add "Resumed" notification at the end
-        setHistory((prev: HistoryEntry[]) => [...prev, {
-          id: newNextId,
-          input: pendingResumeInput || "/resume",
-          result: { success: true, value: `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)` },
-        }]);
-        setNextId(newNextId + 1);
-      } else {
-        // Session file not found or corrupted
-        addHistoryEntry(pendingResumeInput || "/resume", { success: false, error: new Error(`Session not found: ${session.title}`) });
-      }
+    if (loaded) {
+      // Convert messages to history entries and restore conversation
+      const { entries, nextId: newNextId } = convertMessagesToHistory(loaded.messages, 1);
+
+      // Restore the conversation history
+      setHistory(entries);
+      setCurrentSession(loaded.meta);
+
+      // Add "Resumed" notification at the end
+      setHistory((prev: HistoryEntry[]) => [...prev, {
+        id: newNextId,
+        input: pendingResumeInput || "/resume",
+        result: { success: true, value: `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)` },
+      }]);
+      setNextId(newNextId + 1);
+    } else {
+      // Session file not found or corrupted
+      addHistoryEntry(pendingResumeInput || "/resume", { success: false, error: new Error(`Session not found: ${session.title}`) });
     }
     setPendingResumeInput(null);
     setActivePanel("none");
@@ -298,7 +314,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
           .then((result: EvalResult) => completeEvalTask(taskId, result))
           .catch((error: unknown) => failEvalTask(taskId, error instanceof Error ? error : new Error(String(error))));
 
-        // Immediately unblock UI
+        // Immediately unblock UI - clear ref so finally block doesn't clear it again
         currentEvalRef.current = null;
         setIsEvaluating(false);
 
@@ -310,10 +326,10 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         });
       } else {
         addHistoryEntry("/bg", {
-          success: false,
-          error: new Error("No running evaluation to background"),
+          success: true,
+          value: "No active evaluation. Tip: Type /bg quickly while AI is responding, or use /tasks to view completed tasks.",
         });
-        setIsEvaluating(false);  // Reset - no eval was running
+        setIsEvaluating(false);
       }
       setInput("");
       return;
@@ -321,17 +337,27 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
     // Handle /resume command
     if (normalized === "/resume") {
-      if (!sessionManagerRef.current) {
-        addHistoryEntry(code, { success: true, value: "Session management not available" });
+      // SSOT: Try session.listForProject() API only
+      const sessionApi = (globalThis as Record<string, unknown>).session as {
+        listForProject: (limit?: number) => Promise<SessionMeta[]>;
+      } | undefined;
+
+      let sessions: SessionMeta[] = [];
+      if (sessionApi?.listForProject) {
+        sessions = await sessionApi.listForProject(20);
       } else {
-        const sessions = await sessionManagerRef.current.listForProject(20);
-        if (sessions.length === 0) {
-          addHistoryEntry(code, { success: true, value: "No sessions found" });
-        } else {
-          setPendingResumeInput(code);  // Store command for history
-          setPickerSessions(sessions);
-          setActivePanel("picker");
-        }
+        addHistoryEntry(code, { success: true, value: "Session management not available" });
+        setIsEvaluating(false);
+        setInput("");
+        return;
+      }
+
+      if (sessions.length === 0) {
+        addHistoryEntry(code, { success: true, value: "No sessions found" });
+      } else {
+        setPendingResumeInput(code);  // Store command for history
+        setPickerSessions(sessions);
+        setActivePanel("picker");
       }
       setIsEvaluating(false);
       setInput("");
@@ -387,27 +413,34 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       // Show original code in history (with placeholders) for cleaner display
       addHistoryEntry(code, result);
 
-      // Auto-save to session (only for non-error results)
-      if (sessionManagerRef.current && result.success) {
+      // Auto-save to session (only for non-error results) - use session API for single source of truth
+      if (result.success) {
         try {
-          // Record user input
-          await sessionManagerRef.current.recordMessage(
-            "user",
-            code,
-            attachmentPaths.length > 0 ? attachmentPaths : undefined
-          );
+          const sessionApi = (globalThis as Record<string, unknown>).session as {
+            record: (role: "user" | "assistant", content: string, attachments?: string[]) => Promise<void>;
+            current: () => { id: string } | null;
+          } | undefined;
 
-          // Record assistant output (stringify the value)
-          const outputStr = result.value !== undefined
-            ? (typeof result.value === "string" ? result.value : JSON.stringify(result.value))
-            : "";
-          if (outputStr) {
-            await sessionManagerRef.current.recordMessage("assistant", outputStr);
+          if (sessionApi?.record) {
+            // Record user input via API
+            await sessionApi.record(
+              "user",
+              code,
+              attachmentPaths.length > 0 ? attachmentPaths : undefined
+            );
+
+            // Record assistant output (stringify the value)
+            const outputStr = result.value !== undefined
+              ? (typeof result.value === "string" ? result.value : JSON.stringify(result.value))
+              : "";
+            if (outputStr) {
+              await sessionApi.record("assistant", outputStr);
+            }
+
+            // Update current session state
+            const session = sessionApi.current();
+            if (session) setCurrentSession(session);
           }
-
-          // Update current session state
-          const session = sessionManagerRef.current.getCurrentSession();
-          if (session) setCurrentSession(session);
         } catch {
           // Session recording failed - continue without sessions
         }
@@ -421,7 +454,16 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       }
       addHistoryEntry(code, { success: false, error: error instanceof Error ? error : new Error(String(error)) });
     } finally {
-      currentEvalRef.current = null;
+      // Don't clear immediately - allow grace period for /bg command
+      // Only clear if not already pushed to background
+      debugLog(`finally block: currentEvalRef=${!!currentEvalRef.current}`);
+      setTimeout(() => {
+        // Only clear if this eval is still the current one (not replaced by new eval)
+        if (currentEvalRef.current?.code === code) {
+          debugLog(`Grace period expired, clearing currentEvalRef for "${code.slice(0, 30)}"`);
+          currentEvalRef.current = null;
+        }
+      }, 5000); // 5 second grace period
     }
 
     setIsEvaluating(false);
@@ -452,11 +494,17 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     parts.push(combo.key.length === 1 ? combo.key.toUpperCase() : combo.key);
     const keyComboStr = parts.join("+");
 
-    // Save to config
-    updateKeybindingRuntime(keybindingId, keyComboStr);
+    // Save to config via API (SSOT)
+    const configApi = (globalThis as Record<string, unknown>).config as {
+      keybindings: { set: (id: string, combo: string) => Promise<void> };
+    } | undefined;
 
-    // Refresh keybinding lookup to use new binding immediately
-    refreshKeybindingLookup();
+    if (configApi?.keybindings?.set) {
+      configApi.keybindings.set(keybindingId, keyComboStr).then(() => {
+        // Refresh keybinding lookup to use new binding immediately
+        refreshKeybindingLookup();
+      });
+    }
   }, []);
 
   // Global shortcuts (Ctrl+C exit, Ctrl+L/Cmd+K clear, Ctrl+P palette, Ctrl+B tasks, ESC cancel)
@@ -553,7 +601,10 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       {activePanel === "config" && (
         <ConfigPanel
           onClose={() => setActivePanel("none")}
-          onOpenModelBrowser={() => setActivePanel("models")}
+          onOpenModelBrowser={() => {
+            setModelBrowserParent("config");
+            setActivePanel("models");
+          }}
         />
       )}
 
@@ -572,7 +623,10 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       {activePanel === "config-overlay" && (
         <ConfigOverlay
           onClose={() => setActivePanel("none")}
-          onOpenModelBrowser={() => setActivePanel("models")}
+          onOpenModelBrowser={() => {
+            setModelBrowserParent("config-overlay");
+            setActivePanel("models");
+          }}
           initialState={configOverlayState}
           onStateChange={setConfigOverlayState}
         />
@@ -586,13 +640,21 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       {/* Model Browser Panel */}
       {activePanel === "models" && (
         <ModelBrowser
-          onClose={() => setActivePanel("none")}
-          onSelectModel={(modelName: string) => {
+          onClose={() => {
+            setActivePanel(modelBrowserParent);
+            setModelBrowserParent("none");
+          }}
+          onSelectModel={async (modelName: string) => {
             // Update config with selected model (prefixed with ollama/)
             const fullModelName = modelName.startsWith("ollama/") ? modelName : `ollama/${modelName}`;
-            import("../../../common/config/index.ts").then(({ updateConfigRuntime }) => {
-              updateConfigRuntime("model", fullModelName);
-            });
+            // SSOT: Use config API only
+            const configApi = (globalThis as Record<string, unknown>).config as {
+              set: (key: string, value: unknown) => Promise<unknown>;
+            } | undefined;
+
+            if (configApi?.set) {
+              await configApi.set("model", fullModelName);
+            }
           }}
         />
       )}
@@ -645,11 +707,18 @@ async function handleCommand(
     case "/quit":
       exit();
       return null;
-    case "/reset":
+    case "/reset": {
       repl.reset();
       resetContext();
-      await clearMemory();
+      // SSOT: Use memory API only
+      const memoryApi = (globalThis as Record<string, unknown>).memory as {
+        clear: () => Promise<void>;
+      } | undefined;
+      if (memoryApi?.clear) {
+        await memoryApi.clear();
+      }
       return "REPL state reset. All bindings and memory cleared.";
+    }
   }
 
   // Delegate to centralized command handler (captures console output)

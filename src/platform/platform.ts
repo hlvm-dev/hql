@@ -107,6 +107,7 @@ export interface Platform {
   copyFile(src: string, dest: string): Promise<void>;
   fromFileUrl(url: string | URL): string;
   toFileUrl(path: string): URL;
+  openUrl(url: string): Promise<void>;
 }
 
 /**
@@ -197,6 +198,15 @@ export const DenoPlatform: Platform = {
     Deno.copyFile(src, dest),
   fromFileUrl: (value: string | URL): string => fileURLToPath(value),
   toFileUrl: (value: string): URL => pathToFileURL(value),
+  openUrl: async (url: string): Promise<void> => {
+    const cmd = Deno.build.os === "darwin"
+      ? "open"
+      : Deno.build.os === "windows"
+        ? "start"
+        : "xdg-open";
+    const command = new Deno.Command(cmd, { args: [url] });
+    await command.spawn().status;
+  },
 };
 
 let activePlatform: Platform = DenoPlatform;
@@ -355,4 +365,6 @@ export function toFileUrl(path: string): URL {
   return activePlatform.toFileUrl(path);
 }
 
-
+export function openUrl(url: string): Promise<void> {
+  return activePlatform.openUrl(url);
+}

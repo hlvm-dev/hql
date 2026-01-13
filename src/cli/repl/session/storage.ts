@@ -15,6 +15,7 @@ import type {
   Session,
   ListSessionsOptions,
 } from "./types.ts";
+import { getSessionsDir } from "../../../common/paths.ts";
 
 // ============================================================================
 // Constants
@@ -22,21 +23,6 @@ import type {
 
 const INDEX_FILE = "index.jsonl";
 const STORAGE_VERSION = 1;
-
-// ============================================================================
-// Path Helpers
-// ============================================================================
-
-/** Get the .hql directory path */
-function getHqlDir(): string {
-  const home = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || ".";
-  return join(home, ".hql");
-}
-
-/** Get sessions directory: ~/.hql/sessions/ */
-function getSessionsDir(): string {
-  return join(getHqlDir(), "sessions");
-}
 
 /** Get index file path: ~/.hql/sessions/index.jsonl */
 function getIndexPath(): string {

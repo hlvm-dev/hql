@@ -5,7 +5,6 @@
  * This is the interception layer that makes rebinding work.
  */
 
-import { getKeybindingsRuntime } from "../../../common/config/index.ts";
 import { registry } from "./registry.ts";
 import type { Key } from "npm:ink@5";
 
@@ -89,8 +88,9 @@ export function refreshKeybindingLookup(): void {
     }
   }
 
-  // Build custom map and disabled defaults from config
-  const customBindings = getKeybindingsRuntime();
+  // Build custom map and disabled defaults from config (via global cache)
+  const customBindings = (globalThis as Record<string, unknown>).__hqlKeybindings as Record<string, string> || {};
+  
   for (const kb of registry.getAll()) {
     const customCombo = customBindings[kb.id];
     if (customCombo && kb.action.type === "HANDLER") {
@@ -136,7 +136,7 @@ export function isDefaultDisabled(input: string, key: Key): boolean {
  * Used by getDisplay() to show custom bindings in palette.
  */
 export function getEffectiveDisplay(keybindingId: string): string | null {
-  const customBindings = getKeybindingsRuntime();
+  const customBindings = (globalThis as Record<string, unknown>).__hqlKeybindings as Record<string, string> || {};
   return customBindings[keybindingId] ?? null;
 }
 

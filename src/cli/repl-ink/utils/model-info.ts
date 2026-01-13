@@ -59,7 +59,7 @@ function getBaseModelName(name: string): string {
 }
 
 /**
- * Fetch model info from Ollama /api/show endpoint
+ * Fetch model info - use ai.models API for single source of truth
  */
 export async function fetchModelInfo(
   endpoint: string,
@@ -88,27 +88,49 @@ export async function fetchModelInfo(
   };
 
   try {
-    const response = await fetch(`${endpoint}/api/show`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: displayName }),
-    });
+    // Use ai.models API for single source of truth
+    const aiApi = (globalThis as Record<string, unknown>).ai as {
+      models: {
+        get: (name: string) => Promise<{
+          capabilities?: string[];
+          family?: string;
+          quantization?: string;
+        } | null>;
+      };
+    } | undefined;
 
-    if (!response.ok) {
+    let data: {
+      capabilities?: string[];
+      details?: { family?: string; parameter_size?: string; quantization_level?: string };
+    } | null = null;
+
+    // 100% SSOT: Use ai.models API only - no direct fetch fallback
+    if (aiApi?.models?.get) {
+      const result = await aiApi.models.get(displayName);
+      if (result) {
+        data = {
+          capabilities: result.capabilities,
+          details: {
+            family: result.family,
+            quantization_level: result.quantization,
+          },
+        };
+      }
+    }
+    // No fallback - if API not ready, return default info
+
+    if (!data) {
       modelInfoCache.set(displayName, defaultInfo);
       return defaultInfo;
     }
 
-    const data = await response.json();
-
-    // Parse capabilities from Ollama response
-    // Ollama returns capabilities as an array: ["completion", "vision", "tools", "thinking"]
+    // Parse capabilities from response
     const caps = data.capabilities || [];
     const capabilities: ModelCapabilities = {
-      completion: caps.includes("completion") || caps.length === 0,  // Default to true if no caps listed
+      completion: caps.includes("completion") || caps.includes("text") || caps.length === 0,
       vision: caps.includes("vision"),
       tools: caps.includes("tools"),
-      embedding: caps.includes("embedding"),
+      embedding: caps.includes("embedding") || caps.includes("embeddings"),
       thinking: caps.includes("thinking"),
     };
 

@@ -57,11 +57,13 @@ interface ThemeProviderProps {
  * ```
  */
 export function ThemeProvider({ children, initialTheme }: ThemeProviderProps): React.ReactElement {
-  // Get initial theme from config or default
+  // Get initial theme from runtime config (part of config API SSOT pipeline)
+  // Note: This reads from globalThis.__hqlConfig which is the cached runtime value.
+  // Changes via config.set() update this value, then call setTheme() to refresh UI.
   const getInitialTheme = (): ThemeName => {
     if (initialTheme) return initialTheme;
-    const config = (globalThis as Record<string, unknown>).__hqlConfig as { theme?: string } | undefined;
-    const name = config?.theme as ThemeName;
+    const runtimeConfig = (globalThis as Record<string, unknown>).__hqlConfig as { theme?: string } | undefined;
+    const name = runtimeConfig?.theme as ThemeName;
     return name && name in THEMES ? name : "sicp";
   };
 

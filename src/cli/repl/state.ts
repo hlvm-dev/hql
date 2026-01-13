@@ -4,6 +4,7 @@
  */
 
 import { getGlobalRecord } from "./string-utils.ts";
+import { getHistoryStorage, HistoryStorage } from "./history-storage.ts";
 
 // Pre-compiled regex patterns (avoid compilation per-call)
 /** Matches function parameter declarations in all JS function forms */
@@ -104,6 +105,8 @@ export class ReplState {
   private _lineNumber = 0;
   private importedModules = new Set<string>();
   private _isLoadingMemory = false;
+  private historyStorage: HistoryStorage | null = null;
+  private _historyInitialized = false;
 
   // Observable pattern for FRP - React 18 useSyncExternalStore compatible
   private listeners = new Set<() => void>();
@@ -221,13 +224,61 @@ export class ReplState {
     return this._history;
   }
 
-  /** Add to history */
+  /** Add to history (also persists to disk if initialized) */
   addHistory(input: string): void {
     const trimmed = input.trim();
     if (trimmed && this._history[this._history.length - 1] !== trimmed) {
       this._history.push(trimmed);
+      // Persist to disk (fire-and-forget, non-blocking)
+      if (this._historyInitialized && this.historyStorage) {
+        this.historyStorage.append(trimmed);
+      }
       this.notify();
     }
+  }
+
+  /**
+   * Initialize persistent history storage.
+   * Loads history from disk and enables persistence.
+   * Call once during REPL initialization.
+   */
+  async initHistory(): Promise<void> {
+    if (this._historyInitialized) return;
+
+    try {
+      this.historyStorage = getHistoryStorage();
+      await this.historyStorage.init();
+      this._history = this.historyStorage.getCommands();
+      this._historyInitialized = true;
+      this.notify();
+    } catch (err) {
+      // Continue without persistence on error
+      console.error("Failed to initialize history storage:", err);
+      this._historyInitialized = true;
+    }
+  }
+
+  /**
+   * Flush pending history writes to disk.
+   */
+  async flushHistory(): Promise<void> {
+    await this.historyStorage?.flush();
+  }
+
+  /**
+   * Clear history from memory and disk.
+   */
+  async clearHistory(): Promise<void> {
+    this._history = [];
+    await this.historyStorage?.clear();
+    this.notify();
+  }
+
+  /**
+   * Get the history storage instance (for API access).
+   */
+  getHistoryStorage(): HistoryStorage | null {
+    return this.historyStorage;
   }
 
   /** Get current line number */

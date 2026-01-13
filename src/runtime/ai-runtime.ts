@@ -3,29 +3,28 @@
  *
  * Handles extraction and lifecycle of the embedded AI engine (Ollama).
  * This is internal - users never see or interact with this directly.
+ *
+ * SSOT: Uses ai.status() from the API module directly - no fallback fetch.
  */
+
+import { ai } from "../api/ai.ts";
 
 const HOME = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || "/tmp";
 const RUNTIME_DIR = `${HOME}/.hql/.runtime`;
 const AI_ENGINE_PATH = `${RUNTIME_DIR}/engine`;
-const OLLAMA_URL = "http://127.0.0.1:11434";
 
 let aiProcess: Deno.ChildProcess | null = null;
 let initialized = false;
 
 /**
  * Check if AI runtime (Ollama) is already running
+ * 100% SSOT: Uses ai.status() from the API module - no direct fetch
  */
 async function isAIRunning(): Promise<boolean> {
   try {
-    const response = await fetch(`${OLLAMA_URL}/api/tags`, {
-      signal: AbortSignal.timeout(1000)
-    });
-    // Must consume or cancel the response body to avoid resource leaks
-    if (response.body) {
-      await response.body.cancel();
-    }
-    return response.ok;
+    // 100% SSOT: Use ai.status() only - no fallback bypass
+    const status = await ai.status();
+    return status.available;
   } catch {
     return false;
   }

@@ -25,11 +25,6 @@ import {
   DEFAULT_CONFIG,
   validateValue,
 } from "../../../common/config/types.ts";
-import {
-  loadConfig,
-  updateConfigRuntime,
-  resetConfigRuntime,
-} from "../../../common/config/index.ts";
 import { useTheme, THEME_NAMES, type ThemeName } from "../../theme/index.ts";
 import {
   fetchModelInfo,
@@ -208,15 +203,20 @@ export function ConfigOverlay({
     }
   }, []);
 
-  // Fetch available models from Ollama
-  const fetchOllamaModels = useCallback(async (endpoint: string, currentModel: string) => {
+  // Fetch available models - 100% SSOT via ai.models API (no fallback)
+  const fetchOllamaModels = useCallback(async (_endpoint: string, currentModel: string) => {
     try {
-      const response = await fetch(`${endpoint}/api/tags`);
-      if (response.ok) {
-        const data = await response.json();
-        const models = (data.models || []).map((m: { name: string }) => `ollama/${m.name}`);
+      // 100% SSOT: Use ai.models API only - no direct fetch fallback
+      const aiApi = (globalThis as Record<string, unknown>).ai as {
+        models: { list: () => Promise<{ name: string }[]> };
+      } | undefined;
+
+      if (aiApi?.models?.list) {
+        const modelList = await aiApi.models.list();
+        const models = modelList.map((m: { name: string }) => `ollama/${m.name}`);
         setAvailableModels(models.length > 0 ? models : [currentModel || DEFAULT_CONFIG.model]);
       } else {
+        // API not ready - show current model only (no direct fetch bypass)
         setAvailableModels([currentModel || DEFAULT_CONFIG.model]);
       }
     } catch {
@@ -224,13 +224,22 @@ export function ConfigOverlay({
     }
   }, []);
 
-  // Load config on mount
+  // Load config on mount - use config API for single source of truth
   useEffect(() => {
-    loadConfig().then((cfg) => {
+    const configApi = (globalThis as Record<string, unknown>).config as {
+      all: Promise<HqlConfig>;
+    } | undefined;
+
+    const loadConfigFromApi = async () => {
+      const cfg = configApi?.all
+        ? await configApi.all
+        : DEFAULT_CONFIG;
       setConfig(cfg);
       updateModelInfo(cfg.model, cfg.endpoint || DEFAULT_CONFIG.endpoint);
       fetchOllamaModels(cfg.endpoint || DEFAULT_CONFIG.endpoint, cfg.model);
-    });
+    };
+
+    loadConfigFromApi();
   }, [updateModelInfo, fetchOllamaModels]);
 
   // Report state changes for persistence
@@ -254,7 +263,7 @@ export function ConfigOverlay({
     return config[key as keyof HqlConfig] === DEFAULT_CONFIG[key as keyof HqlConfig];
   }, [config]);
 
-  // Cycle through options for select fields
+  // Cycle through options for select fields - use config API for single source of truth
   const cycleOption = useCallback((direction: number) => {
     const options = getOptions();
     if (options.length === 0) return;
@@ -270,20 +279,26 @@ export function ConfigOverlay({
     }
 
     const newValue = options[nextIdx];
-    updateConfigRuntime(selectedKey, newValue).then(() => {
-      setConfig({ ...config, [selectedKey]: newValue });
-      if (selectedKey === "theme") {
-        setTheme(newValue as ThemeName);
-      }
-      if (selectedKey === "model") {
-        updateModelInfo(newValue, config.endpoint || DEFAULT_CONFIG.endpoint);
-      }
-    }).catch((e) => {
-      setError(e instanceof Error ? e.message : "Update failed");
-    });
+    const configApi = (globalThis as Record<string, unknown>).config as {
+      set: (key: string, value: unknown) => Promise<unknown>;
+    } | undefined;
+
+    if (configApi?.set) {
+      configApi.set(selectedKey, newValue).then(() => {
+        setConfig({ ...config, [selectedKey]: newValue });
+        if (selectedKey === "theme") {
+          setTheme(newValue as ThemeName);
+        }
+        if (selectedKey === "model") {
+          updateModelInfo(newValue, config.endpoint || DEFAULT_CONFIG.endpoint);
+        }
+      }).catch((e) => {
+        setError(e instanceof Error ? e.message : "Update failed");
+      });
+    }
   }, [selectedKey, config, getOptions, setTheme, updateModelInfo]);
 
-  // Save text input value
+  // Save text input value - use config API for single source of truth
   const saveValue = useCallback(async () => {
     let parsedValue: unknown = editValue;
 
@@ -300,12 +315,20 @@ export function ConfigOverlay({
     }
 
     try {
-      await updateConfigRuntime(selectedKey, parsedValue);
-      setConfig({ ...config, [selectedKey]: parsedValue });
-      setMode("navigate");
-      setEditValue("");
-      setEditCursor(0);
-      setError(null);
+      const configApi = (globalThis as Record<string, unknown>).config as {
+        set: (key: string, value: unknown) => Promise<unknown>;
+      } | undefined;
+
+      if (configApi?.set) {
+        await configApi.set(selectedKey, parsedValue);
+        setConfig({ ...config, [selectedKey]: parsedValue });
+        setMode("navigate");
+        setEditValue("");
+        setEditCursor(0);
+        setError(null);
+      } else {
+        setError("Config API not available");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
     }
@@ -625,32 +648,44 @@ export function ConfigOverlay({
         return;
       }
 
-      // 'd': Reset selected field to default
+      // 'd': Reset selected field to default - use config API for single source of truth
       if (input === "d") {
         const defaultValue = DEFAULT_CONFIG[selectedKey as keyof HqlConfig];
-        updateConfigRuntime(selectedKey, defaultValue).then(() => {
-          setConfig({ ...config, [selectedKey]: defaultValue });
-          if (selectedKey === "theme") {
-            setTheme(defaultValue as ThemeName);
-          }
-          if (selectedKey === "model") {
-            updateModelInfo(String(defaultValue), config.endpoint || DEFAULT_CONFIG.endpoint);
-          }
-          setError(null);
-        }).catch((e) => {
-          setError(e instanceof Error ? e.message : "Reset failed");
-        });
+        const configApi = (globalThis as Record<string, unknown>).config as {
+          set: (key: string, value: unknown) => Promise<unknown>;
+        } | undefined;
+
+        if (configApi?.set) {
+          configApi.set(selectedKey, defaultValue).then(() => {
+            setConfig({ ...config, [selectedKey]: defaultValue });
+            if (selectedKey === "theme") {
+              setTheme(defaultValue as ThemeName);
+            }
+            if (selectedKey === "model") {
+              updateModelInfo(String(defaultValue), config.endpoint || DEFAULT_CONFIG.endpoint);
+            }
+            setError(null);
+          }).catch((e) => {
+            setError(e instanceof Error ? e.message : "Reset failed");
+          });
+        }
         return;
       }
 
-      // 'r': Reset ALL to defaults
+      // 'r': Reset ALL to defaults - use config API for single source of truth
       if (input === "r") {
-        resetConfigRuntime().then((newConfig) => {
-          setConfig(newConfig);
-          setTheme(newConfig.theme as ThemeName);
-          updateModelInfo(newConfig.model, newConfig.endpoint || DEFAULT_CONFIG.endpoint);
-          setError(null);
-        });
+        const configApi = (globalThis as Record<string, unknown>).config as {
+          reset: () => Promise<HqlConfig>;
+        } | undefined;
+
+        if (configApi?.reset) {
+          configApi.reset().then((newConfig) => {
+            setConfig(newConfig);
+            setTheme(newConfig.theme as ThemeName);
+            updateModelInfo(newConfig.model, newConfig.endpoint || DEFAULT_CONFIG.endpoint);
+            setError(null);
+          });
+        }
         return;
       }
     } else {

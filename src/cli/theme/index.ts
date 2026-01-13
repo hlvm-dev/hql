@@ -44,12 +44,15 @@ function hexToAnsi(hex: string): string {
 const ANSI_RESET = "\x1b[0m";
 
 /**
- * Get current theme from globalThis.__hqlConfig
+ * Get current theme from runtime config
+ * Note: This is synchronous and reads from globalThis.__hqlConfig which
+ * is the cached runtime value. Changes via config.set() update this value,
+ * maintaining single source of truth through the config API pipeline.
  * @internal Used by getThemedAnsi
  */
 function getCurrentTheme(): ThemePalette {
-  const config = (globalThis as Record<string, unknown>).__hqlConfig as { theme?: string } | undefined;
-  const themeName = (config?.theme || "sicp") as ThemeName;
+  const runtimeConfig = (globalThis as Record<string, unknown>).__hqlConfig as { theme?: string } | undefined;
+  const themeName = (runtimeConfig?.theme || "sicp") as ThemeName;
   return THEMES[themeName] || THEMES.sicp;
 }
 

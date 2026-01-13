@@ -6,7 +6,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from "npm:react@18";
 import type { ReplState } from "../../repl/state.ts";
 import { useReplStateBridge, type ReplStateSnapshot } from "../hooks/useReplStateBridge.ts";
-import { getMemoryNames } from "../../repl/memory.ts";
 
 /**
  * Context value containing all reactive REPL state
@@ -37,12 +36,18 @@ export function ReplProvider({ children, replState }: ReplProviderProps): React.
   // Auto-refresh memory names when state version changes
   // This catches def/defn/forget operations AND initial mount (version starts at 0)
   // NOTE: Use version, not bindings - bindings is a mutable Set with same reference
-  useEffect(() => {
-    getMemoryNames().then(setMemoryNames).catch(() => {
-      // Silently ignore errors (file may not exist yet)
-    });
-  }, [bridgeState.version]);
-
+      useEffect(() => {
+        // SSOT: Use memory API only
+        const memoryApi = (globalThis as Record<string, unknown>).memory as {
+          list: () => Promise<string[]>;
+        } | undefined;
+  
+        if (memoryApi?.list) {
+          memoryApi.list().then(setMemoryNames).catch(() => {
+            // Silently ignore errors (file may not exist yet)
+          });
+        }
+      }, [bridgeState.version]);
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(
     (): ReplContextValue => ({

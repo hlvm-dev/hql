@@ -377,7 +377,7 @@ export const TYPE_ICONS: Record<CompletionType, string> = {
   operator: "±",
   file: "📄",
   directory: "📁",
-  command: "/",  // Slash for slash commands (cleaner than ⌘)
+  command: "",   // No icon - slash commands are self-identifying
 };
 
 // ============================================================

@@ -1,8 +1,8 @@
 ; @hql/ai - AI-Native Functions for HQL
 ; Usage: (import [ask] from "@hql/ai")
 ;
-; Config is read from globalThis.__hqlConfig (set by HQL CLI)
-; Supports: endpoint, model, temperature, maxTokens
+; SSOT: All functions delegate to globalThis.ai provider API
+; No direct Ollama fetch - 100% Single Source of Truth
 ;
 ; FUNDAMENTAL DUAL-MODE API:
 ; One function, two behaviors - determined by how YOU call it:
@@ -15,280 +15,97 @@
 ; - await consumes the generator → returns concatenated result
 
 ; ============================================================================
-; Config Helpers - ALWAYS read fresh (no caching for live reload)
+; Provider Helper - Gets globalThis.ai (SSOT)
 ; ============================================================================
 
-; Get config object (fresh read each call)
+(fn get-ai-provider []
+  "Get the AI provider from globalThis.ai. Throws if not available."
+  (let ai js/globalThis.ai)
+  (when (not ai)
+    (throw (new js/Error "AI provider not available. Ensure REPL is initialized.")))
+  (when (not ai.generate)
+    (throw (new js/Error "AI provider missing generate method.")))
+  ai)
+
+; ============================================================================
+; Config Helpers - Read from globalThis.__hqlConfig
+; ============================================================================
+
 (fn get-config []
+  "Get config object (fresh read each call)"
   (or js/globalThis.__hqlConfig {}))
 
-; Get endpoint from: env > config > default
-(fn get-endpoint []
-  (let env-endpoint (when (isDefined js/Deno)
-                      (when js/Deno.env
-                        (js/Deno.env.get "HQL_ENDPOINT"))))
-  (or env-endpoint
-      (or (js-get (get-config) "endpoint")
-          "http://localhost:11434")))
-
-; Get model from: opts > env > config > default
-; Model format in config: "provider/model" -> extract just model name for Ollama
-(fn extract-model-name [m]
-  (let idx (m.indexOf "/"))
-  (if (>= idx 0)
-      (m.slice (+ idx 1))
-      m))
-
-(fn get-model [opts]
-  ; First check opts.model - EXTRACT model name
-  (when (and opts opts.model)
-    (return (extract-model-name opts.model)))
-  ; Then check env var
-  (let env-model (when (isDefined js/Deno)
-                   (when js/Deno.env
-                     (js/Deno.env.get "HQL_MODEL"))))
-  (when env-model
-    (return (extract-model-name env-model)))
-  ; Then check config
-  (let cfg-model (js-get (get-config) "model"))
-  (if cfg-model
-      (extract-model-name cfg-model)
-      "llama3.2"))
-
-; Get temperature from: opts > config > default
 (fn get-temperature [opts]
+  "Get temperature from: opts > config > default"
   (when (and opts (isNumber opts.temperature))
     (return opts.temperature))
   (let cfg-temp (js-get (get-config) "temperature"))
   (if (isNumber cfg-temp) cfg-temp 0.7))
 
-; Get maxTokens from: opts > config > default
 (fn get-max-tokens [opts]
+  "Get maxTokens from: opts > config > default"
   (when (and opts (isNumber opts.maxTokens))
     (return opts.maxTokens))
   (let cfg-max (js-get (get-config) "maxTokens"))
   (if (isNumber cfg-max) cfg-max 4096))
 
-; Get stream option from: opts > default (true)
-(fn get-should-stream [opts]
-  (if (and opts (=== opts.stream false))
-      false
-      true))
+(fn get-model [opts]
+  "Get model from: opts > config > nil (let provider use default)"
+  (when (and opts opts.model)
+    (return opts.model))
+  (let cfg-model (js-get (get-config) "model"))
+  (when (and cfg-model (isString cfg-model))
+    cfg-model))
 
 ; ============================================================================
-; Internal: Streaming generator using Ollama API
-; ============================================================================
-
-; Process stream and yield tokens - with proper buffering for partial chunks
-(async fn* stream-tokens [response]
-  "Yield tokens from a streaming response"
-  (let body response.body)
-  (let reader (body.getReader))
-  (let decoder (new js/TextDecoder))
-  (var buffer "")
-  (var done false)
-
-  (while (not done)
-    (let chunk (await (reader.read)))
-    (if chunk.done
-      (= done true)
-      (do
-        ; Append to buffer (handles partial JSON across chunks)
-        (= buffer (str buffer (decoder.decode chunk.value)))
-        (let lines (buffer.split "\n"))
-        ; Keep last potentially incomplete line in buffer
-        (= buffer (or (lines.pop) ""))
-        (var i 0)
-        (while (< i lines.length)
-          (let line (js-get lines i))
-          (when (> line.length 0)
-            (try
-              (let json (js/JSON.parse line))
-              (let token json.response)
-              (when token
-                (yield token))
-              (catch e nil)))
-          (= i (+ i 1))))))
-
-  ; Process any remaining data in buffer
-  (when (> buffer.length 0)
-    (try
-      (let json (js/JSON.parse buffer))
-      (let token json.response)
-      (when token
-        (yield token))
-      (catch e nil))))
-
-; Process chat stream and yield tokens - with proper buffering
-(async fn* stream-chat-tokens [response]
-  "Yield tokens from a streaming chat response"
-  (let body response.body)
-  (let reader (body.getReader))
-  (let decoder (new js/TextDecoder))
-  (var buffer "")
-  (var done false)
-
-  (while (not done)
-    (let chunk (await (reader.read)))
-    (if chunk.done
-      (= done true)
-      (do
-        ; Append to buffer (handles partial JSON across chunks)
-        (= buffer (str buffer (decoder.decode chunk.value)))
-        (let lines (buffer.split "\n"))
-        ; Keep last potentially incomplete line in buffer
-        (= buffer (or (lines.pop) ""))
-        (var i 0)
-        (while (< i lines.length)
-          (let line (js-get lines i))
-          (when (> line.length 0)
-            (try
-              (let json (js/JSON.parse line))
-              (let msg json.message)
-              (when msg
-                (let token msg.content)
-                (when token
-                  (yield token)))
-              (catch e nil)))
-          (= i (+ i 1))))))
-
-  ; Process any remaining data in buffer
-  (when (> buffer.length 0)
-    (try
-      (let json (js/JSON.parse buffer))
-      (let msg json.message)
-      (when msg
-        (let token msg.content)
-        (when token
-          (yield token)))
-      (catch e nil))))
-
-; ============================================================================
-; Public API - Streaming (async generators)
+; Public API - SSOT via globalThis.ai
 ; ============================================================================
 
 ; (ask "question") - Returns async generator that yields tokens
 ; REPL automatically streams the output
+; SSOT: Delegates to globalThis.ai.generate()
 (async fn* ask [prompt & options]
-  "Stream AI response. Returns async generator - REPL streams automatically."
+  "Stream AI response via provider SSOT. Returns async generator."
   (let opts (first options))
-  (let model (get-model opts))
-  (let temp (get-temperature opts))
-  (let max-tok (get-max-tokens opts))
-  (let endpoint (get-endpoint))
-  (let should-stream (get-should-stream opts))
-  (let response (await
-    (js/fetch (str endpoint "/api/generate")
-      {"method": "POST"
-       "headers": {"Content-Type": "application/json"}
-       "body": (js/JSON.stringify {"model": model
-                                   "prompt": prompt
-                                   "stream": should-stream
-                                   "options": {"temperature": temp
-                                               "num_predict": max-tok}})})))
-
-  ; Check for HTTP errors
-  (when (not response.ok)
-    (throw (new js/Error (str "AI request failed: " response.status))))
-
-  ; Streaming or non-streaming path
-  (if should-stream
-      (yield* (stream-tokens response))
-      (do
-        (let data (await (response.json)))
-        (yield (or data.response "")))))
+  (let ai (get-ai-provider))
+  (let provider-opts {"temperature": (get-temperature opts)
+                      "maxTokens": (get-max-tokens opts)
+                      "model": (get-model opts)})
+  (yield* (ai.generate prompt provider-opts)))
 
 ; (generate "description") - Stream code generation
+; SSOT: Delegates to globalThis.ai.generate()
 (async fn* generate [description & options]
-  "Stream code generation. Returns async generator."
+  "Stream code generation via provider SSOT. Returns async generator."
   (let opts (first options))
-  (let model (get-model opts))
-  (let temp (get-temperature opts))
-  (let max-tok (get-max-tokens opts))
-  (let endpoint (get-endpoint))
-  (let should-stream (get-should-stream opts))
+  (let ai (get-ai-provider))
   (let full-prompt (str "Generate code for: " description ". Output ONLY code, no explanations."))
-  (let response (await
-    (js/fetch (str endpoint "/api/generate")
-      {"method": "POST"
-       "headers": {"Content-Type": "application/json"}
-       "body": (js/JSON.stringify {"model": model
-                                   "prompt": full-prompt
-                                   "stream": should-stream
-                                   "options": {"temperature": temp
-                                               "num_predict": max-tok}})})))
-
-  ; Check for HTTP errors
-  (when (not response.ok)
-    (throw (new js/Error (str "AI request failed: " response.status))))
-
-  ; Streaming or non-streaming path
-  (if should-stream
-      (yield* (stream-tokens response))
-      (do
-        (let data (await (response.json)))
-        (yield (or data.response "")))))
+  (let provider-opts {"temperature": (get-temperature opts)
+                      "maxTokens": (get-max-tokens opts)
+                      "model": (get-model opts)})
+  (yield* (ai.generate full-prompt provider-opts)))
 
 ; (chat messages) - Stream chat response
+; SSOT: Delegates to globalThis.ai.chat()
 (async fn* chat [messages & options]
-  "Stream chat response. Returns async generator."
+  "Stream chat response via provider SSOT. Returns async generator."
   (let opts (first options))
-  (let model (get-model opts))
-  (let temp (get-temperature opts))
-  (let max-tok (get-max-tokens opts))
-  (let endpoint (get-endpoint))
-  (let should-stream (get-should-stream opts))
-  (let response (await
-    (js/fetch (str endpoint "/api/chat")
-      {"method": "POST"
-       "headers": {"Content-Type": "application/json"}
-       "body": (js/JSON.stringify {"model": model
-                                   "messages": messages
-                                   "stream": should-stream
-                                   "options": {"temperature": temp
-                                               "num_predict": max-tok}})})))
-
-  ; Check for HTTP errors
-  (when (not response.ok)
-    (throw (new js/Error (str "Chat request failed: " response.status))))
-
-  ; Streaming or non-streaming path
-  (if should-stream
-      (yield* (stream-chat-tokens response))
-      (do
-        (let data (await (response.json)))
-        (let content (when data.message data.message.content))
-        (yield (or content "")))))
+  (let ai (get-ai-provider))
+  (let provider-opts {"temperature": (get-temperature opts)
+                      "maxTokens": (get-max-tokens opts)
+                      "model": (get-model opts)})
+  (yield* (ai.chat messages provider-opts)))
 
 ; (summarize text) - Stream summarization
+; SSOT: Delegates to globalThis.ai.generate()
 (async fn* summarize [text & options]
-  "Stream summarization. Returns async generator."
+  "Stream summarization via provider SSOT. Returns async generator."
   (let opts (first options))
-  (let model (get-model opts))
-  (let temp (get-temperature opts))
-  (let max-tok (get-max-tokens opts))
-  (let endpoint (get-endpoint))
-  (let should-stream (get-should-stream opts))
+  (let ai (get-ai-provider))
   (let full-prompt (str "Summarize the following text concisely:\n\n" text))
-  (let response (await
-    (js/fetch (str endpoint "/api/generate")
-      {"method": "POST"
-       "headers": {"Content-Type": "application/json"}
-       "body": (js/JSON.stringify {"model": model
-                                   "prompt": full-prompt
-                                   "stream": should-stream
-                                   "options": {"temperature": temp
-                                               "num_predict": max-tok}})})))
-
-  ; Check for HTTP errors
-  (when (not response.ok)
-    (throw (new js/Error (str "AI request failed: " response.status))))
-
-  ; Streaming or non-streaming path
-  (if should-stream
-      (yield* (stream-tokens response))
-      (do
-        (let data (await (response.json)))
-        (yield (or data.response "")))))
+  (let provider-opts {"temperature": (get-temperature opts)
+                      "maxTokens": (get-max-tokens opts)
+                      "model": (get-model opts)})
+  (yield* (ai.generate full-prompt provider-opts)))
 
 (export [ask generate chat summarize])

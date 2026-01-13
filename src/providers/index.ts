@@ -1,0 +1,76 @@
+/**
+ * AI Providers Module
+ *
+ * Central export for all provider-related functionality.
+ * Automatically registers built-in providers (Ollama) on import.
+ */
+
+// ============================================================================
+// Re-exports
+// ============================================================================
+
+// Types
+export type {
+  AIProvider,
+  ProviderCapability,
+  ProviderConfig,
+  ProviderFactory,
+  ProviderStatus,
+  RegisteredProvider,
+  GenerateOptions,
+  ChatOptions,
+  EmbeddingsOptions,
+  Message,
+  MessageRole,
+  ModelInfo,
+  PullProgress,
+} from "./types.ts";
+
+// Registry
+export {
+  registerProvider,
+  unregisterProvider,
+  getProvider,
+  getDefaultProvider,
+  setDefaultProvider,
+  listProviders,
+  hasProvider,
+  parseModelString,
+  extractModelName,
+  getProviderForModel,
+  getRegistryInfo,
+  clearProviderCache,
+  resetRegistry,
+} from "./registry.ts";
+
+// Ollama provider
+export { OllamaProvider, createOllamaProvider } from "./ollama/provider.ts";
+
+// ============================================================================
+// Auto-registration
+// ============================================================================
+
+import { registerProvider } from "./registry.ts";
+import { createOllamaProvider } from "./ollama/provider.ts";
+
+// Register Ollama as the default provider
+registerProvider("ollama", createOllamaProvider, { isDefault: true });
+
+/**
+ * Initialize providers with custom configuration
+ * Call this to override default provider settings
+ */
+export function initializeProviders(config?: {
+  ollama?: {
+    endpoint?: string;
+    defaultModel?: string;
+  };
+}): void {
+  if (config?.ollama) {
+    registerProvider("ollama", createOllamaProvider, {
+      endpoint: config.ollama.endpoint,
+      defaultModel: config.ollama.defaultModel,
+      isDefault: true,
+    });
+  }
+}

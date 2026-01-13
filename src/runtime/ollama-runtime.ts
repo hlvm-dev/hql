@@ -358,24 +358,42 @@ class OllamaTask implements OllamaTaskHandle {
 }
 
 // ============================================================
-// Ollama API Functions
+// Ollama API Functions - 100% SSOT via ai.models API
 // ============================================================
 
+// Type for ai.models API
+type AiModelsApi = {
+  models: {
+    list: () => Promise<{ name: string; size?: number; modifiedAt?: Date; digest?: string }[]>;
+    get: (name: string) => Promise<{
+      name?: string;
+      size?: number;
+      modifiedAt?: Date;
+      digest?: string;
+      details?: Record<string, unknown>;
+      capabilities?: string[];
+      modelfile?: string;
+    } | null>;
+    remove: (name: string) => Promise<boolean>;
+  };
+} | undefined;
+
 /**
- * Fetch local models from Ollama /api/tags
+ * Fetch local models - 100% SSOT via ai.models.list()
  */
-async function fetchLocalModels(endpoint: string): Promise<OllamaLocalModel[]> {
+async function fetchLocalModels(_endpoint: string): Promise<OllamaLocalModel[]> {
   try {
-    const response = await fetch(`${endpoint}/api/tags`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) return [];
-    const data = await response.json();
-    return (data.models || []).map((m: Record<string, unknown>) => ({
-      name: m.name as string,
-      size: m.size as number,
-      modified: m.modified_at as string,
-      digest: m.digest as string,
+    // 100% SSOT: Use ai.models API only
+    const aiApi = (globalThis as Record<string, unknown>).ai as AiModelsApi;
+    if (!aiApi?.models?.list) {
+      return []; // API not ready
+    }
+    const models = await aiApi.models.list();
+    return models.map((m) => ({
+      name: m.name,
+      size: m.size || 0,
+      modified: m.modifiedAt?.toISOString() || "",
+      digest: m.digest || "",
     }));
   } catch {
     return [];
@@ -383,21 +401,21 @@ async function fetchLocalModels(endpoint: string): Promise<OllamaLocalModel[]> {
 }
 
 /**
- * Fetch model info from Ollama /api/show
+ * Fetch model info - 100% SSOT via ai.models.get()
  */
-async function fetchModelInfo(endpoint: string, name: string): Promise<OllamaModelInfo> {
-  const response = await fetch(`${endpoint}/api/show`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
-  });
-  if (!response.ok) {
+async function fetchModelInfo(_endpoint: string, name: string): Promise<OllamaModelInfo> {
+  // 100% SSOT: Use ai.models API only
+  const aiApi = (globalThis as Record<string, unknown>).ai as AiModelsApi;
+  if (!aiApi?.models?.get) {
+    throw new Error("AI Provider API not initialized");
+  }
+  const data = await aiApi.models.get(name);
+  if (!data) {
     throw new Error(`Model not found: ${name}`);
   }
-  const data = await response.json();
   return {
     name,
-    modified: data.modified_at,
+    modified: data.modifiedAt?.toISOString(),
     size: data.size,
     digest: data.digest,
     details: data.details,
@@ -407,15 +425,16 @@ async function fetchModelInfo(endpoint: string, name: string): Promise<OllamaMod
 }
 
 /**
- * Delete a model via Ollama /api/delete
+ * Delete a model - 100% SSOT via ai.models.remove()
  */
-async function removeModel(endpoint: string, name: string): Promise<{ success: boolean; name: string }> {
-  const response = await fetch(`${endpoint}/api/delete`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
-  });
-  if (!response.ok) {
+async function removeModel(_endpoint: string, name: string): Promise<{ success: boolean; name: string }> {
+  // 100% SSOT: Use ai.models API only
+  const aiApi = (globalThis as Record<string, unknown>).ai as AiModelsApi;
+  if (!aiApi?.models?.remove) {
+    throw new Error("AI Provider API not initialized");
+  }
+  const success = await aiApi.models.remove(name);
+  if (!success) {
     throw new Error(`Failed to delete model: ${name}`);
   }
   return { success: true, name };

@@ -6,12 +6,13 @@
 import { useState, useEffect, useRef } from "npm:react@18";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { run } from "../../../../mod.ts";
-import { compactMemory, loadMemory, getMemoryNames, getMemoryFilePath, forgetFromMemory, getDefinitionSource } from "../../repl/memory.ts";
+import { memory } from "../../../api/memory.ts";
 import { getFileIndex } from "../../repl/file-search.ts";
 import { evaluate } from "../../repl/evaluator.ts";
 import { ReplState } from "../../repl/state.ts";
 import { runCommand } from "../../repl/commands.ts";
 import { ANSI_COLORS } from "../../ansi.ts";
+import { registerApis } from "../../../api/index.ts";
 
 const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
@@ -42,6 +43,11 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
       try {
         // Pre-index files in background for @ mention feature
         getFileIndex().catch(() => {});
+
+        // Load persistent history early (non-blocking after init)
+        state.initHistory().catch((err) => {
+          console.error("History init failed:", err);
+        });
 
         // Initialize runtime
         await initializeRuntime();
@@ -107,9 +113,9 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
         // Compact and load memory
         const loadErrors: string[] = [];
         try {
-          await compactMemory();
+          await memory.compact();
           state.setLoadingMemory(true);
-          const result = await loadMemory(async (code: string) => {
+          const result = await memory.load(async (code: string) => {
             const evalResult = await evaluate(code, state, jsMode);
             return { success: evalResult.success, error: evalResult.error };
           });
@@ -130,6 +136,16 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
         // Register helper functions
         registerHelperFunctions(state);
 
+        // Register API objects on globalThis for REPL access
+        registerApis({
+          replState: state, // Provides history
+        });
+
+        // Register API names for tab completion
+        for (const name of ["config", "memory", "session", "history", "ai"]) {
+          state.addBinding(name);
+        }
+
         setReadyTime(Date.now() - startTime);
         setLoading(false);
         setReady(true);
@@ -149,28 +165,32 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
 function registerHelperFunctions(state: ReplState): void {
   const globalAny = globalThis as unknown as Record<string, unknown>;
 
-  globalAny.memory = async () => {
-    const names = await getMemoryNames();
-    return { count: names.length, names, path: getMemoryFilePath() };
-  };
+  // Note: globalAny.memory is registered by registerApis() which is called after this
+  // The memory API object provides list(), stats(), remove(), etc.
 
-  globalAny.forget = async (name: string) => {
-    const removed = await forgetFromMemory(name);
-    if (removed) {
-      console.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
-    } else {
-      console.log(`${YELLOW}'${name}' not found in memory.${RESET}`);
-    }
-    return removed;
-  };
+    globalAny.forget = async (name: string) => {
+      // Use memory API for single source of truth (registered by registerApis)
+      const memoryApi = globalAny.memory as { remove: (name: string) => Promise<boolean> } | undefined;
+      if (memoryApi?.remove) {
+        const removed = await memoryApi.remove(name);
+        if (removed) {
+          console.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
+        } else {
+          console.log(`${YELLOW}Binding '${name}' not found in memory.${RESET}`);
+        }
+      } else {
+        console.log(`${YELLOW}Memory API not ready.${RESET}`);
+      }
+    };
 
   globalAny.inspect = async (value: unknown) => {
     const type = typeof value;
+    const memoryApi = globalAny.memory as { get: (name: string) => Promise<string | null> } | undefined;
 
     if (type === "function") {
       const fn = value as ((...args: unknown[]) => unknown) & { name: string };
       const name = fn.name || "<anonymous>";
-      const source = await getDefinitionSource(name);
+      const source = memoryApi?.get ? await memoryApi.get(name) : null;
 
       console.log(`${CYAN}${name}${RESET}: ${DIM_GRAY}function${RESET}`);
       if (source) {
@@ -180,7 +200,7 @@ function registerHelperFunctions(state: ReplState): void {
     }
 
     if (type === "string") {
-      const source = await getDefinitionSource(value as string);
+      const source = memoryApi?.get ? await memoryApi.get(value as string) : null;
       if (source) {
         console.log(`${CYAN}${value}${RESET}:`);
         console.log(`${DIM_GRAY}${source}${RESET}`);

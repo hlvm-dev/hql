@@ -3,24 +3,12 @@
  * File I/O with atomic writes for ~/.hql/config.json
  */
 
-import { join } from "jsr:@std/path@1";
 import { ensureDir } from "jsr:@std/fs@1";
 import { type HqlConfig, DEFAULT_CONFIG, CONFIG_KEYS, type ConfigKey, validateValue } from "./types.ts";
+import { getHqlDir, getConfigPath } from "../paths.ts";
 
-// ============================================================
-// Path Helpers
-// ============================================================
-
-/** Get the .hql directory path */
-export function getHqlDir(): string {
-  const home = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || ".";
-  return join(home, ".hql");
-}
-
-/** Get the config file path: ~/.hql/config.json */
-export function getConfigPath(): string {
-  return join(getHqlDir(), "config.json");
-}
+// Re-export for backward compatibility
+export { getHqlDir, getConfigPath };
 
 // ============================================================
 // File I/O
@@ -119,4 +107,27 @@ export async function resetConfig(): Promise<HqlConfig> {
   const config = { ...DEFAULT_CONFIG };
   await saveConfig(config);
   return config;
+}
+
+// ============================================================
+// Keybinding Storage
+// ============================================================
+
+import type { KeybindingsConfig } from "./types.ts";
+
+/**
+ * Load custom keybindings from config.json
+ */
+export async function loadKeybindings(): Promise<KeybindingsConfig> {
+  const config = await loadConfig();
+  return config.keybindings || {};
+}
+
+/**
+ * Save custom keybindings to config.json
+ */
+export async function saveKeybindings(bindings: KeybindingsConfig): Promise<void> {
+  const config = await loadConfig();
+  config.keybindings = bindings;
+  await saveConfig(config);
 }

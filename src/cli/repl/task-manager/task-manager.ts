@@ -362,7 +362,7 @@ export class TaskManager {
 
   /**
    * Execute the model pull (internal).
-   * Streams progress from Ollama /api/pull endpoint.
+   * 100% SSOT: Uses ai.models.pull() API only - no fallback.
    * Uses state machine for transitions and immutable updates.
    */
   private async executePull(
@@ -383,69 +383,22 @@ export class TaskManager {
       const timeoutSignal = AbortSignal.timeout(30 * 60 * 1000); // 30 min max
       const combinedSignal = AbortSignal.any([signal, timeoutSignal]);
 
-      const response = await fetch(`${this.endpoint}/api/pull`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: modelName, stream: true }),
-        signal: combinedSignal,
-      });
+      // 100% SSOT: Use ai.models.pull API only - no fallback
+      const aiApi = (globalThis as Record<string, unknown>).ai as {
+        models: {
+          pull: (name: string, provider?: string, signal?: AbortSignal) =>
+            AsyncGenerator<PullProgress, void, unknown>;
+        };
+      } | undefined;
 
-      if (!response.ok) {
-        // Check content-type before parsing
-        const contentType = response.headers.get("content-type") || "";
-        let errorMessage = `Pull failed: ${response.status} ${response.statusText}`;
-        if (contentType.includes("application/json")) {
-          try {
-            const errorData = await response.json();
-            if (errorData.error) errorMessage = errorData.error;
-          } catch {
-            // Ignore JSON parse errors
-          }
-        }
-        throw new Error(errorMessage);
+      if (!aiApi?.models?.pull) {
+        throw new Error("AI Provider API not initialized. Cannot pull model.");
       }
 
-      if (!response.body) {
-        throw new Error("No response body");
-      }
-
-      // Parse streaming NDJSON
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      try {
-        while (true) {
-          if (signal.aborted) {
-            await reader.cancel();
-            break;
-          }
-
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const progress = JSON.parse(line) as PullProgress;
-              // Use immutable updateProgress method
-              this.updateProgress(taskId, progress);
-            } catch {
-              // Ignore malformed JSON lines
-            }
-          }
-        }
-      } finally {
-        // Ensure reader is released
-        try {
-          reader.releaseLock();
-        } catch {
-          // Ignore if already released
-        }
+      // Use API (single source of truth)
+      for await (const progress of aiApi.models.pull(modelName, undefined, combinedSignal)) {
+        if (signal.aborted) break;
+        this.updateProgress(taskId, progress);
       }
 
       // Check if cancelled before marking complete
@@ -626,7 +579,18 @@ export class TaskManager {
       return true;
     }
 
-    // Handle model pull tasks - abort the controller
+    // Handle model pull tasks - abort the controller and transition state
+    if (task.type === "model-pull") {
+      const controller = this.resources.get(taskId);
+      if (controller && !controller.signal.aborted) {
+        controller.abort();
+      }
+      this.transition(taskId, "cancelled");
+      this.emit({ type: "task:cancelled", taskId });
+      return true;
+    }
+
+    // Generic fallback
     const controller = this.resources.get(taskId);
     if (!controller) return false;
     controller.abort();

@@ -9,6 +9,7 @@ export * from "../../../common/config/index.ts";
 import { ANSI_COLORS } from "../../ansi.ts";
 import {
   type ConfigKey,
+  type HqlConfig,
   CONFIG_KEYS,
   DEFAULT_CONFIG,
   parseValue,
@@ -57,14 +58,30 @@ export async function handleConfigCommand(args: string): Promise<void> {
 
   // /config reset - reset to defaults (hot reload)
   if (subcommand === "reset") {
-    await resetConfigRuntime();
+    // 100% SSOT: Use config API only - no fallback bypass
+    const configApi = (globalThis as Record<string, unknown>).config as {
+      reset: () => Promise<unknown>;
+    } | undefined;
+    if (!configApi?.reset) {
+      console.log(`${YELLOW}Config API not initialized${RESET}`);
+      return;
+    }
+    await configApi.reset();
     console.log(`${GREEN}Config reset to defaults.${RESET}`);
     return;
   }
 
   // /config reload - reload from file (for external edits)
   if (subcommand === "reload") {
-    await initConfigRuntime();
+    // 100% SSOT: Use config API only - no fallback bypass
+    const configApi = (globalThis as Record<string, unknown>).config as {
+      reload: () => Promise<unknown>;
+    } | undefined;
+    if (!configApi?.reload) {
+      console.log(`${YELLOW}Config API not initialized${RESET}`);
+      return;
+    }
+    await configApi.reload();
     console.log(`${GREEN}Config reloaded from file.${RESET}`);
     return;
   }
@@ -109,7 +126,17 @@ export async function handleConfigCommand(args: string): Promise<void> {
 // ============================================================
 
 async function showAllConfig(): Promise<void> {
-  const config = await loadConfig();
+  // 100% SSOT: Use config API only - no direct loadConfig() bypass
+  const configApi = (globalThis as Record<string, unknown>).config as {
+    all: Promise<HqlConfig>;
+  } | undefined;
+
+  if (!configApi?.all) {
+    console.log(`${YELLOW}Config API not initialized${RESET}`);
+    return;
+  }
+
+  const config = await configApi.all;
 
   console.log(`${BOLD}Configuration:${RESET}`);
   for (const key of CONFIG_KEYS) {
@@ -123,7 +150,17 @@ async function showAllConfig(): Promise<void> {
 }
 
 async function showSingleConfig(key: ConfigKey): Promise<void> {
-  const config = await loadConfig();
+  // 100% SSOT: Use config API only - no direct loadConfig() bypass
+  const configApi = (globalThis as Record<string, unknown>).config as {
+    all: Promise<HqlConfig>;
+  } | undefined;
+
+  if (!configApi?.all) {
+    console.log(`${YELLOW}Config API not initialized${RESET}`);
+    return;
+  }
+
+  const config = await configApi.all;
   const value = getConfigValue(config, key);
   console.log(`${CYAN}${key}${RESET}: ${formatValue(value)}`);
 }
@@ -145,8 +182,17 @@ async function setConfigByKey(keyStr: string, valueStr: string): Promise<void> {
     return;
   }
 
-  // Hot reload: update file AND globalThis
-  await updateConfigRuntime(key, parsedValue);
+  // 100% SSOT: Use config API only - no fallback bypass
+  const configApi = (globalThis as Record<string, unknown>).config as {
+    set: (key: string, value: unknown) => Promise<unknown>;
+  } | undefined;
+
+  if (!configApi?.set) {
+    console.log(`${YELLOW}Config API not initialized${RESET}`);
+    return;
+  }
+
+  await configApi.set(key, parsedValue);
   console.log(`${GREEN}Set ${key} = ${formatValue(parsedValue)}${RESET}`);
 }
 
