@@ -521,6 +521,16 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       setActivePanel((prev: ActivePanel) => prev === "palette" ? "none" : "palette");
       return;
     }
+    // Ctrl+B: Toggle Background Tasks Overlay
+    if (key.ctrl && char === "b") {
+      const now = Date.now();
+      if (now - lastPanelToggleRef.current < 150) {
+        return;
+      }
+      lastPanelToggleRef.current = now;
+      setActivePanel((prev: ActivePanel) => prev === "tasks-overlay" ? "none" : "tasks-overlay");
+      return;
+    }
     // Ctrl+L or Cmd+K: Clear screen and history
     // Note: Cmd+K may be intercepted by terminal emulator first, sending ANSI clear
     // but we still need to clear React state to prevent content from reappearing on re-render
