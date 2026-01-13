@@ -13,26 +13,30 @@ export function FooterHint(): React.ReactElement {
 
   useEffect(() => {
     const fetchModel = async () => {
-      const configApi = (globalThis as Record<string, unknown>).config as {
-        get: (key: string) => Promise<unknown>;
-      } | undefined;
+      try {
+        const configApi = (globalThis as Record<string, unknown>).config as {
+          get: (key: string) => Promise<unknown>;
+        } | undefined;
 
-      if (configApi?.get) {
-        try {
+        if (configApi?.get) {
           const m = await configApi.get("model");
           if (typeof m === "string") {
             setModel(m.replace("ollama/", ""));
           }
-        } catch {
-          // ignore
         }
+      } catch {
+        // ignore
       }
     };
-    fetchModel();
+
+    fetchModel(); // Initial fetch
+    const interval = setInterval(fetchModel, 2000); // Poll every 2s
+
+    return () => clearInterval(interval);
   }, []);
 
   return (
-    <Box marginLeft={5} flexDirection="row" justifyContent="space-between">
+    <Box marginLeft={5} flexGrow={1} flexDirection="row" justifyContent="space-between">
       <Text dimColor>
         Ctrl+P commands | Tab complete | Ctrl+R history | Ctrl+L clear
       </Text>
