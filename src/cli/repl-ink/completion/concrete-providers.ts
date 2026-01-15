@@ -25,6 +25,7 @@ import {
   PROVIDER_HELP_TEXT,
   COMPLETION_DEBOUNCE_MS,
   ATTACHMENT_PLACEHOLDER,
+  STRING_PLACEHOLDER_FUNCTIONS,
   CONTEXT_AWARE_FORMS,
 } from "./types.ts";
 import {
@@ -106,6 +107,7 @@ function createSymbolApplyAction(
   const isVariable = itemType === "variable" && !hasParams;
   // Context-aware forms should NOT enter placeholder mode - let dropdown show instead
   const isContextAwareForm = CONTEXT_AWARE_FORMS[id] !== undefined;
+  const usesStringPlaceholder = STRING_PLACEHOLDER_FUNCTIONS.has(id);
 
   return (action: CompletionAction, ctx: ApplyContext): ApplyResult => {
     const before = ctx.text.slice(0, ctx.anchorPosition);
@@ -144,6 +146,18 @@ function createSymbolApplyAction(
         cursorPosition: ctx.anchorPosition + insertText.length,
         closeDropdown: true,
         // No placeholder mode - dropdown will auto-trigger and show context-aware options
+      };
+    }
+
+    // String-first AI helpers: insert quoted placeholder and position cursor inside.
+    if (isCallable && usesStringPlaceholder) {
+      const openParen = hasOpeningParen ? "" : "(";
+      const closeParen = hasClosingParen ? "" : ")";
+      const insertText = openParen + id + " \"\"" + closeParen;
+      return {
+        text: before + insertText + after,
+        cursorPosition: ctx.anchorPosition + openParen.length + id.length + 2,
+        closeDropdown: true,
       };
     }
 

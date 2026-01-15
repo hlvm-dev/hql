@@ -412,6 +412,9 @@ export const COMPLETION_DEBOUNCE_MS = 150;
 /** Attachment placeholder (used in file provider and Input.tsx) */
 export const ATTACHMENT_PLACEHOLDER = "{{ATTACHMENT}}";
 
+/** Functions that should insert a quoted string placeholder on completion */
+export const STRING_PLACEHOLDER_FUNCTIONS = new Set(["ask", "generate", "summarize"]);
+
 /** Type labels shown on right side of dropdown */
 export const TYPE_LABELS: Record<CompletionType, string> = {
   keyword: "keyword",

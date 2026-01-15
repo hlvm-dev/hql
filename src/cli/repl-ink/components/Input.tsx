@@ -46,6 +46,7 @@ import {
   useCompletion,
   Dropdown,
   ATTACHMENT_PLACEHOLDER,
+  STRING_PLACEHOLDER_FUNCTIONS,
   getWordAtCursor,
   type CompletionItem,
   type CompletionAction,
@@ -906,6 +907,14 @@ export function Input({
     const match = beforeCursor.match(/\(([a-zA-Z_][a-zA-Z0-9_?!-]*)\s+$/);
     if (match) {
       const funcName = match[1];
+      if (STRING_PLACEHOLDER_FUNCTIONS.has(funcName)) {
+        const hasClosingParen = value[cursorPos] === ")";
+        const insertText = "\"\"" + (hasClosingParen ? "" : ")");
+        const newValue = value.slice(0, cursorPos) + insertText + value.slice(cursorPos);
+        onChange(newValue);
+        setCursorPos(cursorPos + 1);
+        return;
+      }
       if (signatures.has(funcName)) {
         const params = signatures.get(funcName)!;
         if (params.length > 0) {
