@@ -281,6 +281,14 @@ export function Input({
     }
 
     const textBefore = value.slice(0, cursorPos);
+    const inString = isInsideString(value, cursorPos, '"') || isInsideString(value, cursorPos, "'");
+
+    if (inString) {
+      if (completion.isVisible) {
+        completion.close();
+      }
+      return;
+    }
 
     // GENERIC: Re-trigger for ANY provider when dropdown is already open (live filtering)
     // This enables VS Code-like behavior where typing filters the dropdown items
@@ -315,13 +323,8 @@ export function Input({
     // This enables VS Code-like IntelliSense behavior
     const { word } = getWordAtCursor(textBefore, cursorPos);
     if (word.length >= 1) {
-      // Only trigger if not inside a string literal
-      // Simple heuristic: count quotes before cursor
-      const quoteCount = (textBefore.match(/"/g) || []).length;
-      if (quoteCount % 2 === 0) {
-        triggerCompletionRef.current(value, cursorPos);
-        return;
-      }
+      triggerCompletionRef.current(value, cursorPos);
+      return;
     }
 
     // AUTO-CLOSE: Close dropdown when no meaningful word to complete
@@ -900,13 +903,14 @@ export function Input({
   const handleTab = useCallback(async () => {
     // Special case: Param insertion when cursor is after function name + space: (ask |
     const beforeCursor = value.slice(0, cursorPos);
-    const match = beforeCursor.match(/\(([\w-]+)\s+$/);
+    const match = beforeCursor.match(/\(([a-zA-Z_][a-zA-Z0-9_?!-]*)\s+$/);
     if (match) {
       const funcName = match[1];
       if (signatures.has(funcName)) {
         const params = signatures.get(funcName)!;
         if (params.length > 0) {
-          const paramsText = params.join(" ") + ")";
+          const hasClosingParen = value[cursorPos] === ")";
+          const paramsText = params.join(" ") + (hasClosingParen ? "" : ")");
           const newValue = value.slice(0, cursorPos) + paramsText + value.slice(cursorPos);
           onChange(newValue);
           enterPlaceholderMode(params, cursorPos);

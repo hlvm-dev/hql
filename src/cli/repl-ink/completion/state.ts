@@ -137,7 +137,7 @@ export function getSelectedItem(state: DropdownState): CompletionItem | null {
  * Check if the dropdown is currently active (open with items).
  */
 export function isActive(state: DropdownState): boolean {
-  return state.isOpen && state.items.length > 0;
+  return state.isOpen && (state.items.length > 0 || state.isLoading);
 }
 
 // ============================================================

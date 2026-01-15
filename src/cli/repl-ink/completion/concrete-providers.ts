@@ -579,7 +579,7 @@ function createCommandRenderSpec(
 export const CommandProvider: CompletionProvider = {
   id: "command",
   isAsync: false,
-  helpText: PROVIDER_HELP_TEXT.SIMPLE,
+  helpText: PROVIDER_HELP_TEXT.COMMAND,
   appliesOnNavigate: false, // Arrow keys only navigate (no auto-apply)
 
   shouldTrigger(context: CompletionContext): boolean {

@@ -148,17 +148,22 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
 
   const dropdown = useDropdownState();
   const debounceTimerRef = useRef<number | null>(null);
+  const requestIdRef = useRef(0);
+
+  const clearDebounce = useCallback(() => {
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, []);
 
   // FIX NEW-4: Cleanup debounce timer on unmount OR when dependencies change
   // This prevents stale completions when bindings/signatures change mid-debounce
   useEffect(() => {
     return () => {
-      if (debounceTimerRef.current !== null) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
+      clearDebounce();
     };
-  }, [userBindings, signatures, docstrings, debounceMs]);
+  }, [clearDebounce, userBindings, signatures, docstrings, debounceMs]);
 
   // ============================================================
   // Trigger Completion
@@ -166,6 +171,9 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
 
   const triggerCompletion = useCallback(
     async (text: string, cursorPosition: number, force: boolean = false) => {
+      const requestId = ++requestIdRef.current;
+      clearDebounce();
+
       if (disabled) {
         dropdown.close();
         return;
@@ -195,40 +203,57 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       const providerDebounceMs = provider.debounceMs ?? debounceMs;
 
       if (isAsyncProvider && !force) {
-        // FIX NEW-5: Cancel previous debounce AND reset loading state
-        // This prevents loading spinner from persisting after debounce race
-        if (debounceTimerRef.current !== null) {
-          clearTimeout(debounceTimerRef.current);
-          debounceTimerRef.current = null;
+        const shouldOpenLoading = !dropdown.state.isOpen || dropdown.state.providerId !== provider.id;
+        if (shouldOpenLoading) {
+          dropdown.open([], context.wordStart, provider.id, text, cursorPosition);
         }
-        dropdown.setLoading(false);  // Reset before starting new debounce
 
         // Set loading state immediately
         dropdown.setLoading(true);
 
         // Debounce the actual fetch (use provider's debounce setting)
         debounceTimerRef.current = setTimeout(async () => {
-          const result = await provider.getCompletions(context);
-          // GENERIC: Close dropdown if no items, open if items exist
-          if (result.items.length === 0) {
-            dropdown.close();
-          } else {
-            dropdown.open(result.items, result.anchor, provider.id, text, cursorPosition);
+          try {
+            const result = await provider.getCompletions(context);
+            if (requestId !== requestIdRef.current) {
+              return;
+            }
+            // GENERIC: Close dropdown if no items, open if items exist
+            if (result.items.length === 0) {
+              dropdown.close();
+            } else {
+              dropdown.open(result.items, result.anchor, provider.id, text, cursorPosition);
+            }
+          } catch {
+            if (requestId === requestIdRef.current) {
+              dropdown.close();
+            }
+          } finally {
+            debounceTimerRef.current = null;
           }
-          debounceTimerRef.current = null;
         }, providerDebounceMs) as unknown as number;
-      } else {
-        // Sync or forced - fetch immediately
+        return;
+      }
+
+      // Sync or forced - fetch immediately
+      try {
         const result = await provider.getCompletions(context);
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
         // GENERIC: Close dropdown if no items, open if items exist
         if (result.items.length === 0) {
           dropdown.close();
           return;
         }
         dropdown.open(result.items, result.anchor, provider.id, text, cursorPosition);
+      } catch {
+        if (requestId === requestIdRef.current) {
+          dropdown.close();
+        }
       }
     },
-    [disabled, userBindings, signatures, docstrings, memoryNames, debounceMs, dropdown]
+    [clearDebounce, disabled, userBindings, signatures, docstrings, memoryNames, debounceMs, dropdown]
   );
 
   // ============================================================
@@ -245,6 +270,8 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
           const result = dropdown.handleKey(key, shiftKey);
 
           if (result.action === "cancel") {
+            requestIdRef.current += 1;
+            clearDebounce();
             dropdown.close();
             return true;
           }
@@ -276,7 +303,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
 
       return false;
     },
-    [disabled, dropdown]
+    [clearDebounce, disabled, dropdown]
   );
 
   // ============================================================
@@ -457,8 +484,10 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   // ============================================================
 
   const close = useCallback(() => {
+    requestIdRef.current += 1;
+    clearDebounce();
     dropdown.close();
-  }, [dropdown]);
+  }, [clearDebounce, dropdown]);
 
   // ============================================================
   // Apply Context Helper (encapsulates state access for custom actions)

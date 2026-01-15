@@ -401,8 +401,9 @@ export const RENDER_MAX_WIDTH = {
 
 /** Help text shown in dropdown (simplified for clean UI) */
 export const PROVIDER_HELP_TEXT = {
-  SIMPLE: "Tab select • Enter insert • Esc",
-  DRILL: "Tab drill • Enter insert • Esc",
+  SIMPLE: "Tab select • Enter insert • Ctrl+D docs • Esc",
+  DRILL: "Tab drill • Enter insert • Ctrl+D docs • Esc",
+  COMMAND: "Tab run • Enter run • Ctrl+D docs • Esc",
 } as const;
 
 /** Debounce for async providers */

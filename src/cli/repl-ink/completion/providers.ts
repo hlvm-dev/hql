@@ -360,6 +360,10 @@ export function createCompletionItem(
 export function shouldTriggerFileMention(context: CompletionContext): boolean {
   const { textBeforeCursor } = context;
 
+  if (context.isInsideString) {
+    return false;
+  }
+
   // Find the last @ before cursor
   const lastAt = textBeforeCursor.lastIndexOf("@");
   if (lastAt === -1) {
@@ -487,4 +491,3 @@ export function shouldTriggerSymbol(context: CompletionContext): boolean {
 
   return false;
 }
-
