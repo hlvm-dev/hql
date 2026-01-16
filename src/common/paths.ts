@@ -5,10 +5,48 @@
  * This eliminates duplication and ensures consistent path handling.
  */
 
-import { join } from "jsr:@std/path@1";
+import { join, resolve } from "jsr:@std/path@1";
 
 // Cached HQL directory path
 let _hqlDir: string | null = null;
+
+function getEnvVar(key: string): string | undefined {
+  try {
+    return Deno.env.get(key);
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveHqlDir(): string {
+  const override = getEnvVar("HQL_DIR") || getEnvVar("HQL_HOME");
+  if (override) {
+    return resolve(override);
+  }
+  const home = getEnvVar("HOME") || getEnvVar("USERPROFILE") || ".";
+  return join(home, ".hql");
+}
+
+function ensureWritableDir(path: string): boolean {
+  const probeId = typeof crypto?.randomUUID === "function"
+    ? crypto.randomUUID()
+    : String(Date.now());
+  const probePath = join(path, `.hql-write-test-${probeId}`);
+  try {
+    Deno.mkdirSync(path, { recursive: true });
+    Deno.writeTextFileSync(probePath, "", { append: true });
+    Deno.removeSync(probePath);
+    return true;
+  } catch {
+    try {
+      // Best-effort cleanup if the probe was partially created.
+      Deno.removeSync(probePath);
+    } catch {
+      // Ignore cleanup errors.
+    }
+    return false;
+  }
+}
 
 /**
  * Get the root HQL directory (~/.hql)
@@ -16,8 +54,13 @@ let _hqlDir: string | null = null;
  */
 export function getHqlDir(): string {
   if (!_hqlDir) {
-    const home = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || ".";
-    _hqlDir = join(home, ".hql");
+    let candidate = resolveHqlDir();
+    if (!ensureWritableDir(candidate)) {
+      const fallback = join(Deno.cwd(), ".hql");
+      ensureWritableDir(fallback);
+      candidate = fallback;
+    }
+    _hqlDir = candidate;
   }
   return _hqlDir;
 }
@@ -77,14 +120,22 @@ export function getHistoryPath(): string {
  * Ensure the HQL directory exists
  */
 export async function ensureHqlDir(): Promise<void> {
-  await Deno.mkdir(getHqlDir(), { recursive: true });
+  try {
+    await Deno.mkdir(getHqlDir(), { recursive: true });
+  } catch {
+    // Ignore errors to keep callers resilient in restricted environments.
+  }
 }
 
 /**
  * Ensure the HQL directory exists (sync).
  */
 export function ensureHqlDirSync(): void {
-  Deno.mkdirSync(getHqlDir(), { recursive: true });
+  try {
+    Deno.mkdirSync(getHqlDir(), { recursive: true });
+  } catch {
+    // Ignore errors to keep callers resilient in restricted environments.
+  }
 }
 
 /**

@@ -5,6 +5,7 @@
 
 import { assertEquals, assert, assertExists } from "jsr:@std/assert";
 import { join } from "jsr:@std/path@1";
+import { getSessionsDir } from "../../../../src/common/paths.ts";
 import {
   hashProjectPath,
   generateSessionId,
@@ -24,7 +25,7 @@ import {
 
 /** Get test sessions directory */
 function getTestSessionsDir(): string {
-  return join(Deno.env.get("HOME") || ".", ".hql", "sessions");
+  return getSessionsDir();
 }
 
 /** Clean up a specific session file */

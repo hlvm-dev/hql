@@ -5,6 +5,7 @@
 
 import { assertEquals, assert, assertExists, assertRejects } from "jsr:@std/assert";
 import { join } from "jsr:@std/path@1";
+import { getSessionsDir } from "../../../../src/common/paths.ts";
 import { SessionManager } from "../../../../src/cli/repl/session/manager.ts";
 import { listSessions, deleteSession } from "../../../../src/cli/repl/session/storage.ts";
 
@@ -14,7 +15,7 @@ import { listSessions, deleteSession } from "../../../../src/cli/repl/session/st
 
 /** Get test sessions directory */
 function getTestSessionsDir(): string {
-  return join(Deno.env.get("HOME") || ".", ".hql", "sessions");
+  return getSessionsDir();
 }
 
 /** Clean up a specific session file */

@@ -130,9 +130,9 @@ export function getImportMapping(original: string): string | undefined {
  */
 function getProjectRoot(): string {
   // Calculate project root from this file's location
-  // This file is at: core/src/common/hql-cache-tracker.ts
-  // Project root is: ../../../ from here
-  return join(dirname(fromFileUrl(import.meta.url)), "../../..");
+  // This file is at: src/common/hql-cache-tracker.ts
+  // Project root is: ../../ from here
+  return join(dirname(fromFileUrl(import.meta.url)), "../..");
 }
 
 function getTempBase(): string {
