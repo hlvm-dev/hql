@@ -160,7 +160,7 @@ function deleteWordPreservingDelimiters(value: string, cursor: number): TextEdit
   const delimiters = findEnclosingDelimiters(value, cursor);
   if (!delimiters) return null;
   
-  const { openPos, closePos, openChar, closeChar } = delimiters;
+  const { openPos, closePos } = delimiters;
   const contentStart = openPos + 1;
   const contentEnd = closePos;
   

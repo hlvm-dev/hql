@@ -71,7 +71,7 @@ async function getInstalledModels(): Promise<string[]> {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     return (data.models || []).map((m: OllamaModel) => m.name);
-  } catch (err) {
+  } catch {
     console.error(
       `${colors.red}Error: Cannot connect to Ollama at ${OLLAMA_API}${colors.reset}`,
     );

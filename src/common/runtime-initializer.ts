@@ -7,12 +7,13 @@
 
 import { globalLogger as logger } from "../logger.ts";
 import { dirname, exists, fromFileUrl, join } from "../platform/platform.ts";
-import { copyNeighborFiles, processHqlFile } from "./hql-cache-tracker.ts";
+import { copyNeighborFiles, processHqlFile } from "./hlvm-cache-tracker.ts";
 import { getErrorMessage } from "./utils.ts";
 import { initializeRuntimeHelpers } from "./runtime-helpers.ts";
 import { initAIRuntime } from "../hlvm/runtime/ai-runtime.ts";
 import { config } from "../hlvm/api/config.ts";
-import { ensureDefaultModelInstalled } from "./ai-default-model.ts";
+// Note: Model installation is now handled by the REPL's ModelSetupOverlay
+// for better UX with progress display. See useInitialization.ts
 
 // Runtime component initialization states
 interface InitializationState {
@@ -22,7 +23,7 @@ interface InitializationState {
 }
 
 // Singleton instance to track runtime initialization
-class HqlRuntimeInitializer {
+class HlvmRuntimeInitializer {
   private state: InitializationState = {
     stdlib: false,
     cache: false,
@@ -68,7 +69,8 @@ class HqlRuntimeInitializer {
       logger.debug(`AI runtime not available (optional): ${getErrorMessage(error)}`);
     }
 
-    await ensureDefaultModelInstalled({ log: (message) => console.log(message) });
+    // Note: Default model installation is handled by REPL's ModelSetupOverlay
+    // This provides better UX with progress display instead of blocking here
 
     logger.debug("HLVM runtime initialization complete");
   }
@@ -129,7 +131,7 @@ class HqlRuntimeInitializer {
    * Internal function to initialize stdlib
    */
   private async _initializeStdlib(): Promise<void> {
-    logger.debug("Initializing HQL standard library...");
+    logger.debug("Initializing standard library...");
 
     // Check if running from compiled binary with embedded packages
     let embeddedStdlib: string | undefined;
@@ -195,7 +197,7 @@ class HqlRuntimeInitializer {
   }
 }
 
-const runtimeInitializer = new HqlRuntimeInitializer();
+const runtimeInitializer = new HlvmRuntimeInitializer();
 
 export async function initializeRuntime(): Promise<void> {
   await runtimeInitializer.initializeRuntime();

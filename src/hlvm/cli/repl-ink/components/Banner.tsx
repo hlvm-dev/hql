@@ -1,6 +1,6 @@
 /**
- * HLVM Ink REPL - Rich Banner Component
- * Matches the old REPL's comprehensive startup display
+ * HLVM Ink REPL - Premium Banner Component
+ * SICP-inspired design with professional CLI aesthetics
  */
 
 import React from "npm:react@18";
@@ -23,6 +23,14 @@ const LOGO_LINES = [
   "╚═╝  ╚═╝ ╚══════╝   ╚═══╝   ╚═╝     ╚═╝",
 ];
 
+// Unicode symbols for professional look
+const SYMBOLS = {
+  lambda: "λ",      // SICP tribute - the iconic lambda
+  bullet: "◆",      // Diamond bullet for status items
+  arrow: "→",       // Arrow for examples
+  separator: "─",   // Horizontal line
+} as const;
+
 interface BannerProps {
   jsMode: boolean;
   loading: boolean;
@@ -34,147 +42,137 @@ interface BannerProps {
 }
 
 export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, errors, session }: BannerProps): React.ReactElement {
-  // Theme from context
   const { color } = useTheme();
 
-  // Format memory display
+  // Format displays
   const memoryDisplay = memoryNames.length > 0
-    ? memoryNames.length <= 5
+    ? memoryNames.length <= 3
       ? memoryNames.join(", ")
-      : `${memoryNames.slice(0, 5).join(", ")}... +${memoryNames.length - 5} more`
+      : `${memoryNames.slice(0, 3).join(", ")}... +${memoryNames.length - 3}`
     : "empty — def/defn auto-save here";
 
-  // Format AI display
   const aiDisplay = aiExports.length > 0
-    ? `${aiExports.join(", ")} (auto-imported from @hlvm/ai)`
-    : "not available — install @hlvm/ai";
+    ? aiExports.slice(0, 5).join(", ") + " (auto-imported)"
+    : "not available";
 
-  // Format session display
-  // null = lazy creation (session will be created on first message)
   const sessionDisplay = session
     ? `${session.title} (${session.messageCount} msgs)`
     : "New session";
 
+  // Separator line
+  const separator = SYMBOLS.separator.repeat(42);
+
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {/* Logo - solid purple (SICP primary) */}
+      {/* ═══ LOGO ═══ */}
       <Box flexDirection="column">
         {LOGO_LINES.map((line, index) => (
           <Text key={index} color={color("primary")} bold>{line}</Text>
         ))}
       </Box>
 
-      {/* Version + tagline - red (SICP secondary) */}
-      <Text color={color("secondary")}>HLVM {VERSION} • Runtime for HQL + JavaScript</Text>
+      {/* ═══ TAGLINE ═══ */}
+      <Text color={color("secondary")} bold>HLVM {VERSION} • Runtime for HQL + JavaScript</Text>
       <Text> </Text>
 
+      {/* ═══ QUICK START ═══ */}
       {jsMode ? (
-        // JavaScript polyglot mode banner
+        // JavaScript polyglot mode
         <>
           <Box>
-            <Text color={color("success")}>Mode:</Text>
-            <Text> </Text>
-            <Text color={color("accent")}>HQL + JavaScript</Text>
-            <Text> </Text>
-            <Text dimColor>(polyglot)</Text>
+            <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
+            <Text color={color("success")} bold>Polyglot Mode</Text>
+            <Text dimColor>  (expr) → HQL  |  expr → JS</Text>
           </Box>
-          <Text dimColor>  (expr) → HQL    |    expr → JavaScript</Text>
-          <Text> </Text>
-          <Text color={color("success")}>Examples:</Text>
           <Box>
             <Text>  </Text>
             <Text color={color("accent")}>let x = 10</Text>
-            <Text>                 </Text>
-            <Text dimColor>→ JavaScript variable</Text>
+            <Text>              </Text>
+            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> JS variable</Text>
           </Box>
           <Box>
             <Text>  </Text>
             <Text color={color("accent")}>(+ x 5)</Text>
-            <Text>                    </Text>
-            <Text dimColor>→ HQL using JS var</Text>
+            <Text>                 </Text>
+            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> HQL with JS</Text>
           </Box>
           <Box>
             <Text>  </Text>
-            <Text color={color("accent")}>const add = (a,b) =&gt; a+b</Text>
-            <Text>   </Text>
-            <Text dimColor>→ JS arrow function</Text>
+            <Text color={color("accent")}>const f = (a,b) =&gt; a+b</Text>
+            <Text>  </Text>
+            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> JS function</Text>
           </Box>
           <Box>
             <Text>  </Text>
-            <Text color={color("accent")}>(add 3 4)</Text>
-            <Text>                  </Text>
-            <Text dimColor>→ HQL calling JS fn</Text>
+            <Text color={color("accent")}>(f 3 4)</Text>
+            <Text>                 </Text>
+            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Call from HQL</Text>
           </Box>
         </>
       ) : (
-        // Pure HQL mode banner
+        // Pure HQL mode
         <>
-          <Text color={color("success")}>Quick Start:</Text>
+          <Box>
+            <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
+            <Text color={color("success")} bold>Quick Start</Text>
+          </Box>
           <Box>
             <Text>  </Text>
             <Text color={color("accent")}>(+ 1 2)</Text>
-            <Text>                    </Text>
-            <Text dimColor>→ Simple math</Text>
+            <Text>                 </Text>
+            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Simple math</Text>
           </Box>
           <Box>
             <Text>  </Text>
             <Text color={color("accent")}>(fn add [x y] (+ x y))</Text>
-            <Text>    </Text>
-            <Text dimColor>→ Define function</Text>
+            <Text> </Text>
+            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Define function</Text>
           </Box>
           <Box>
             <Text>  </Text>
             <Text color={color("accent")}>(add 10 20)</Text>
-            <Text>                </Text>
-            <Text dimColor>→ Call function</Text>
+            <Text>             </Text>
+            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Call function</Text>
           </Box>
           <Text> </Text>
-          <Text color={color("success")}>AI (requires @hlvm/ai):</Text>
           <Box>
-            <Text>  </Text>
-            <Text color={color("accent")}>(import [ask] from "@hlvm/ai")</Text>
+            <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
+            <Text color={color("success")} bold>AI</Text>
+            <Text dimColor>  (import [ask] from "@hlvm/ai")</Text>
           </Box>
           <Box>
             <Text>  </Text>
             <Text color={color("accent")}>(await (ask "Hello"))</Text>
-            <Text>      </Text>
-            <Text dimColor>→ AI response</Text>
+            <Text>   </Text>
+            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> AI response</Text>
           </Box>
         </>
       )}
 
       <Text> </Text>
 
-      {/* Memory status */}
+      {/* ═══ STATUS SECTION ═══ */}
       <Box>
-        <Text color={color("success")}>Memory:</Text>
-        <Text> </Text>
+        <Text color={color("secondary")}>{SYMBOLS.bullet} </Text>
+        <Text color={color("success")}>Memory   </Text>
         {memoryNames.length > 0 ? (
-          <>
-            <Text>{memoryDisplay}</Text>
-            <Text> </Text>
-            <Text>({memoryNames.length} definition{memoryNames.length === 1 ? "" : "s"})</Text>
-          </>
+          <Text>{memoryDisplay} ({memoryNames.length})</Text>
         ) : (
           <Text dimColor>{memoryDisplay}</Text>
         )}
       </Box>
-
-      {/* AI status */}
       <Box>
-        <Text color={color("success")}>AI:</Text>
-        <Text> </Text>
+        <Text color={color("secondary")}>{SYMBOLS.bullet} </Text>
+        <Text color={color("success")}>AI       </Text>
         {aiExports.length > 0 ? (
           <Text>{aiDisplay}</Text>
         ) : (
           <Text dimColor>{aiDisplay}</Text>
         )}
       </Box>
-
-      {/* Session status */}
       <Box>
-        <Text color={color("success")}>Session:</Text>
-        <Text> </Text>
+        <Text color={color("secondary")}>{SYMBOLS.bullet} </Text>
+        <Text color={color("success")}>Session  </Text>
         {session ? (
           <Text>{sessionDisplay}</Text>
         ) : (
@@ -182,13 +180,10 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
         )}
       </Box>
 
-      {/* Function commands hint */}
-      <Text dimColor>(memory) | (forget "x") | (inspect x) | (describe x) AI | (help)</Text>
-
-      {/* Memory errors if any */}
+      {/* ═══ MEMORY ERRORS ═══ */}
       {errors.length > 0 && (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={color("warning")}>Memory warnings:</Text>
+          <Text color={color("warning")}>⚠ Memory warnings:</Text>
           {errors.slice(0, 3).map((err, i) => (
             <Box key={i}><Text dimColor>  {err}</Text></Box>
           ))}
@@ -198,7 +193,22 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
         </Box>
       )}
 
-      {/* Ready status */}
+      <Text> </Text>
+
+      {/* ═══ SEPARATOR & HINTS ═══ */}
+      <Text dimColor>{separator}</Text>
+      <Box>
+        <Text dimColor>Ctrl+P</Text>
+        <Text color={color("muted")}> commands </Text>
+        <Text dimColor>│</Text>
+        <Text color={color("muted")}> Tab </Text>
+        <Text dimColor>complete</Text>
+        <Text color={color("muted")}> │ </Text>
+        <Text dimColor>Ctrl+R</Text>
+        <Text color={color("muted")}> history</Text>
+      </Box>
+
+      {/* ═══ READY STATUS ═══ */}
       {loading ? (
         <Text dimColor>Loading...</Text>
       ) : (

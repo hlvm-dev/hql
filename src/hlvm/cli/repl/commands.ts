@@ -7,7 +7,6 @@ import { ANSI_COLORS } from "../ansi.ts";
 import type { ReplState } from "./state.ts";
 import { handleConfigCommand } from "./config/index.ts";
 import { registry } from "../repl-ink/keybindings/index.ts";
-import { getTaskManager } from "./task-manager/index.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 

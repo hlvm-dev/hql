@@ -13,6 +13,7 @@ import { ConfigOverlay, type ConfigOverlayState } from "./ConfigOverlay.tsx";
 import { CommandPaletteOverlay, type PaletteState, type KeyCombo } from "./CommandPaletteOverlay.tsx";
 import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
+import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
 import type { KeybindingAction } from "../keybindings/index.ts";
 import { executeHandler, refreshKeybindingLookup } from "../keybindings/index.ts";
@@ -199,11 +200,14 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
   // Unified panel state - only one panel can be open at a time
   // "palette", "config-overlay", and "tasks-overlay" are overlays (input visible but disabled), others hide input entirely
-  type ActivePanel = "none" | "picker" | "config-overlay" | "tasks-overlay" | "models" | "palette";
+  type ActivePanel = "none" | "picker" | "config-overlay" | "tasks-overlay" | "models" | "palette" | "model-setup";
   const [activePanel, setActivePanel] = useState<ActivePanel>("none");
 
   // Track where ModelBrowser was opened from (for back navigation)
   const [modelBrowserParent, setModelBrowserParent] = useState<ActivePanel>("none");
+
+  // Track if model setup has been handled (completed or cancelled) to prevent infinite loop
+  const [modelSetupHandled, setModelSetupHandled] = useState(false);
 
   // Debounce ref for panel toggles - prevents rapid open/close during streaming re-renders
   const lastPanelToggleRef = useRef<number>(0);
@@ -227,6 +231,13 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
   // Theme from context (auto-updates when theme changes)
   const { color } = useTheme();
+
+  // Show model setup overlay if default model needs to be downloaded (only once)
+  useEffect(() => {
+    if (init.ready && init.needsModelSetup && activePanel === "none" && !modelSetupHandled) {
+      setActivePanel("model-setup");
+    }
+  }, [init.ready, init.needsModelSetup, activePanel, modelSetupHandled]);
 
   // Helper to add history entry and increment ID (DRY pattern used 8+ times)
   const addHistoryEntry = useCallback((input: string, result: EvalResult) => {
@@ -797,6 +808,33 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
             if (configApi?.set) {
               await configApi.set("model", fullModelName);
             }
+          }}
+        />
+      )}
+
+      {/* Model Setup Overlay (first-time AI model download) */}
+      {activePanel === "model-setup" && init.modelToSetup && (
+        <ModelSetupOverlay
+          modelName={init.modelToSetup}
+          onComplete={() => {
+            setModelSetupHandled(true); // Prevent showing overlay again
+            setActivePanel("none");
+            // Add success message to history
+            addHistoryEntry("", {
+              success: true,
+              value: `✓ AI model ready: ${init.modelToSetup}`,
+              isCommandOutput: true,
+            });
+          }}
+          onCancel={() => {
+            setModelSetupHandled(true); // Prevent showing overlay again
+            setActivePanel("none");
+            // Add cancelled message to history
+            addHistoryEntry("", {
+              success: true,
+              value: `AI model setup cancelled. Run (ai.models.pull "${init.modelToSetup}") to download later.`,
+              isCommandOutput: true,
+            });
           }}
         />
       )}

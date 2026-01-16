@@ -37,7 +37,7 @@ import {
   getCachedPath,
   getImportMapping,
   processJavaScriptFile,
-} from "../common/hql-cache-tracker.ts";
+} from "../common/hlvm-cache-tracker.ts";
 import {
   isImport,
   isLiteral,

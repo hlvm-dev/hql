@@ -14,7 +14,7 @@ import {
 import {
   getCachedPath,
   getRuntimeCacheDir,
-} from "./src/common/hql-cache-tracker.ts";
+} from "./src/common/hlvm-cache-tracker.ts";
 import {
   basename,
   cwd as platformCwd,

@@ -23,7 +23,7 @@ import { isHqlFile, isJsFile } from "./import-utils.ts";
 import { LRUCache } from "./lru-cache.ts";
 
 // Cache directory configuration
-const HQL_CACHE_DIR = ".hlvm-cache";
+const HLVM_CACHE_DIR = ".hlvm-cache";
 const CACHE_VERSION = "1"; // Increment when cache structure changes
 const SHORT_HASH_LENGTH = 8; // SHA-1 hash shortened to 8 hex chars for path readability
 
@@ -130,7 +130,7 @@ export function getImportMapping(original: string): string | undefined {
  */
 function getProjectRoot(): string {
   // Calculate project root from this file's location
-  // This file is at: src/common/hql-cache-tracker.ts
+  // This file is at: src/common/hlvm-cache-tracker.ts
   // Project root is: ../../ from here
   return join(dirname(fromFileUrl(import.meta.url)), "../..");
 }
@@ -166,13 +166,13 @@ export async function getCacheDir(): Promise<string> {
     base = getTempBase();
   }
 
-  let cacheRoot = join(base, HQL_CACHE_DIR, CACHE_VERSION);
+  let cacheRoot = join(base, HLVM_CACHE_DIR, CACHE_VERSION);
   try {
     await ensureDir(cacheRoot);
   } catch {
     // Fallback to a temp location if the default path is not writable
     base = getTempBase();
-    cacheRoot = join(base, HQL_CACHE_DIR, CACHE_VERSION);
+    cacheRoot = join(base, HLVM_CACHE_DIR, CACHE_VERSION);
     await ensureDir(cacheRoot);
   }
   return cacheRoot;

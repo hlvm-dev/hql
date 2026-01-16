@@ -17,8 +17,6 @@
  */
 
 const OLLAMA_API = "http://localhost:11434";
-const CONFIG_PATH = Deno.env.get("HOME") + "/.hlvm/config.json";
-
 interface ScrapedModel {
   id: string;
   name: string;
@@ -82,8 +80,7 @@ function extractModelName(configModel: string): string {
 }
 
 async function testModelWithOllama(
-  modelName: string,
-  isInstalled: boolean
+  modelName: string
 ): Promise<{ accepts: boolean; canGenerate: boolean | "not_installed"; error?: string }> {
   try {
     const controller = new AbortController();
@@ -104,7 +101,7 @@ async function testModelWithOllama(
     clearTimeout(timeout);
 
     if (resp.ok) {
-      const data = await resp.json();
+      await resp.json();
       // Model exists and responded
       return { accepts: true, canGenerate: true };
     }
@@ -129,13 +126,11 @@ async function testModelWithOllama(
 
 async function testModel(
   model: ScrapedModel,
-  variant: { id: string; name: string },
-  installed: Set<string>
+  variant: { id: string; name: string }
 ): Promise<TestResult> {
   const fullName = `${model.id}:${variant.name}`;
   const configFormat = `ollama/${fullName}`;
   const extractedName = extractModelName(configFormat);
-  const isInstalled = installed.has(fullName);
 
   const result: TestResult = {
     modelId: model.id,
@@ -152,7 +147,7 @@ async function testModel(
   };
 
   // Test against Ollama API
-  const apiResult = await testModelWithOllama(extractedName, isInstalled);
+  const apiResult = await testModelWithOllama(extractedName);
   result.steps.apiAcceptsName = apiResult.accepts;
   result.steps.canGenerateResponse = apiResult.canGenerate;
 
@@ -229,7 +224,7 @@ ${c.bold}Test Flow for Each Model:${c.reset}
 
   for (let i = 0; i < testCases.length; i++) {
     const { model, variant } = testCases[i];
-    const result = await testModel(model, variant, installed);
+    const result = await testModel(model, variant);
     results.push(result);
 
     if (result.status === "PASS") {

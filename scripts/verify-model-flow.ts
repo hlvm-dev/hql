@@ -121,9 +121,6 @@ async function step3_saveConfig(modelValue: string): Promise<boolean> {
       // Config doesn't exist, create new
     }
 
-    // Backup original model
-    const originalModel = config.model;
-
     // Save new model (what ConfigPanel does)
     config.model = modelValue;
     await Deno.writeTextFile(CONFIG_PATH, JSON.stringify(config, null, 2));
@@ -399,7 +396,7 @@ async function main() {
   }
 
   // Step 6: Call Ollama API
-  const apiSuccess = await step6_callOllamaAPI(extractedName);
+  await step6_callOllamaAPI(extractedName);
 
   // Step 7: Test ALL models
   await step7_testAllModels(ollamaModels);

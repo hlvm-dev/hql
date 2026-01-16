@@ -21,7 +21,6 @@ console.log("║    ESC + s → should show: [27] then [115]                 ║
 console.log("╚════════════════════════════════════════════════════════════╝");
 console.log("");
 
-const decoder = new TextDecoder();
 const buf = new Uint8Array(100);
 
 while (true) {
@@ -29,9 +28,6 @@ while (true) {
   if (n === null) break;
 
   const bytes = Array.from(buf.slice(0, n));
-  const chars = decoder.decode(buf.slice(0, n));
-  const charDisplay = chars.replace(/[\x00-\x1f]/g, c => `^${String.fromCharCode(c.charCodeAt(0) + 64)}`);
-
   // Special names for control characters
   const names: Record<number, string> = {
     27: "ESC",

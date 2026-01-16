@@ -41,14 +41,6 @@ async function cleanupSession(sessionId: string): Promise<void> {
 /** Track created sessions for cleanup */
 const createdSessionIds: string[] = [];
 
-/** Cleanup all created sessions after tests */
-async function cleanupAllSessions(): Promise<void> {
-  for (const id of createdSessionIds) {
-    await cleanupSession(id);
-  }
-  createdSessionIds.length = 0;
-}
-
 // ============================================================================
 // hashProjectPath() Tests (still used for metadata)
 // ============================================================================

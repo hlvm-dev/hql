@@ -20,7 +20,6 @@ import {
   createList,
   createSymbol,
   isList,
-  isLiteral,
   isSymbol,
   sexpToJs,
   sexpToString,

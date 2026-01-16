@@ -21,7 +21,6 @@ import {
 
 import {
   type HlvmConfig,
-  type ConfigKey,
   type KeybindingsConfig,
   DEFAULT_CONFIG,
   CONFIG_KEYS,

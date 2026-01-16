@@ -109,7 +109,7 @@ async function startAIEngine(): Promise<void> {
     throw new Error("AI engine failed to start");
   } catch (error) {
     // If embedded engine fails, AI features will just not work
-    // but HQL itself continues to function
+    // but HLVM itself continues to function
     console.error("Warning: AI features unavailable -", (error as Error).message);
   }
 }
@@ -123,7 +123,7 @@ export async function initAIRuntime(): Promise<void> {
   initialized = true;
 
   // Check for disable flag (e.g. during tests)
-  if (Deno.env.get("HLVM_DISABLE_AI_AUTOSTART") || Deno.env.get("HQL_DISABLE_AI_AUTOSTART")) {
+  if (Deno.env.get("HLVM_DISABLE_AI_AUTOSTART")) {
     return;
   }
 

@@ -4,7 +4,7 @@ import { run as hqlRun, runFile } from "../../../mod.ts";
 import { transpileCLI } from "../../hql/bundler.ts"; // Import bundler for hybrid execution
 import { globalLogger as logger, Logger } from "../../logger.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
-import { createTempDir, getCachedPath } from "../../common/hql-cache-tracker.ts";
+import { createTempDir, getCachedPath } from "../../common/hlvm-cache-tracker.ts";
 import {
   applyCliOptions,
   type CliOptions,

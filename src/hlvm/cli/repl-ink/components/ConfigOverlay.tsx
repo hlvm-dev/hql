@@ -196,9 +196,9 @@ export function ConfigOverlay({
   }, [selectedKey, availableModels]);
 
   // Fetch model info for current model
-  const updateModelInfo = useCallback(async (model: string, endpoint: string) => {
+  const updateModelInfo = useCallback(async (model: string) => {
     try {
-      const info = await fetchModelInfo(endpoint, model);
+      const info = await fetchModelInfo(model);
       setModelInfo(info);
     } catch {
       setModelInfo(null);
@@ -237,7 +237,7 @@ export function ConfigOverlay({
         ? await configApi.all
         : DEFAULT_CONFIG;
       setConfig(cfg);
-      updateModelInfo(cfg.model, cfg.endpoint || DEFAULT_CONFIG.endpoint);
+      updateModelInfo(cfg.model);
       fetchOllamaModels(cfg.endpoint || DEFAULT_CONFIG.endpoint, cfg.model);
     };
 
@@ -292,7 +292,7 @@ export function ConfigOverlay({
           setTheme(newValue as ThemeName);
         }
         if (selectedKey === "model") {
-          updateModelInfo(newValue, config.endpoint || DEFAULT_CONFIG.endpoint);
+          updateModelInfo(newValue);
         }
       }).catch((e) => {
         setError(e instanceof Error ? e.message : "Update failed");
@@ -676,7 +676,7 @@ export function ConfigOverlay({
               setTheme(defaultValue as ThemeName);
             }
             if (selectedKey === "model") {
-              updateModelInfo(String(defaultValue), config.endpoint || DEFAULT_CONFIG.endpoint);
+              updateModelInfo(String(defaultValue));
             }
             setError(null);
           }).catch((e) => {
@@ -696,7 +696,7 @@ export function ConfigOverlay({
           configApi.reset().then((newConfig) => {
             setConfig(newConfig);
             setTheme(newConfig.theme as ThemeName);
-            updateModelInfo(newConfig.model, newConfig.endpoint || DEFAULT_CONFIG.endpoint);
+            updateModelInfo(newConfig.model);
             setError(null);
           });
         }

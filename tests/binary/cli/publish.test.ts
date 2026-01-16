@@ -4,7 +4,7 @@
  */
 
 import { assertEquals } from "https://deno.land/std@0.218.0/assert/mod.ts";
-import { runCLI, withTempDir, withTempProject, USE_BINARY } from "../_shared/binary-helpers.ts";
+import { runCLI, withTempDir, USE_BINARY } from "../_shared/binary-helpers.ts";
 
 // Log which mode we're testing
 console.log(`Testing 'publish' command in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);

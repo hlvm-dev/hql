@@ -61,10 +61,7 @@ function getBaseModelName(name: string): string {
 /**
  * Fetch model info - use ai.models API for single source of truth
  */
-export async function fetchModelInfo(
-  endpoint: string,
-  modelName: string
-): Promise<ModelInfo> {
+export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
   const displayName = extractModelName(modelName);
   const baseName = getBaseModelName(displayName);
 

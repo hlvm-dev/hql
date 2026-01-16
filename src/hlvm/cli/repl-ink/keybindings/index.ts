@@ -9,12 +9,7 @@
 
 import { registry } from "./registry.ts";
 import { allKeybindings } from "./definitions/index.ts";
-import {
-  refreshKeybindingLookup,
-  matchCustomKeybinding,
-  isDefaultDisabled,
-  getEffectiveDisplay,
-} from "./keybinding-lookup.ts";
+import { refreshKeybindingLookup } from "./keybinding-lookup.ts";
 
 // Register all keybindings on module load
 registry.registerAll(allKeybindings);

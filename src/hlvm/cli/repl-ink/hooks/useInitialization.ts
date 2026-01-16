@@ -15,6 +15,7 @@ import { registerApis } from "../../../api/index.ts";
 import { getMedia } from "../../repl/context.ts";
 import { refreshKeybindingLookup } from "../keybindings/index.ts";
 import { KEYWORD_SET, MACRO_SET, OPERATOR_SET } from "../../../../common/known-identifiers.ts";
+import { checkDefaultModelInstalled, getDefaultModelName } from "../components/ModelSetupOverlay.tsx";
 
 export interface InitializationState {
   loading: boolean;
@@ -22,6 +23,10 @@ export interface InitializationState {
   aiExports: string[];
   readyTime: number;
   errors: string[];
+  /** True if the default AI model needs to be downloaded */
+  needsModelSetup: boolean;
+  /** The model name that needs to be downloaded */
+  modelToSetup: string;
   // memoryNames and refreshMemoryNames removed - now handled by FRP via ReplContext
 }
 
@@ -31,6 +36,8 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
   const [aiExports, setAiExports] = useState<string[]>([]);
   const [readyTime, setReadyTime] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
+  const [needsModelSetup, setNeedsModelSetup] = useState(false);
+  const [modelToSetup, setModelToSetup] = useState("");
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -114,7 +121,7 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
               .join("\n");
             await run(assignments, { baseDir: Deno.cwd(), currentFile: "<repl>", suppressUnknownNameErrors: true });
           }
-        } catch (err) {
+        } catch {
           // AI module not available - continue without it
           // console.error("Failed to load AI module:", err);
         }
@@ -164,6 +171,13 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
 
         await historyInit;
 
+        // Check if default AI model needs to be downloaded (non-blocking)
+        const modelInstalled = await checkDefaultModelInstalled();
+        if (!modelInstalled) {
+          setNeedsModelSetup(true);
+          setModelToSetup(getDefaultModelName());
+        }
+
         setReadyTime(Date.now() - startTime);
         setLoading(false);
         setReady(true);
@@ -174,5 +188,5 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
     })();
   }, [state, jsMode]);
 
-  return { loading, ready, aiExports, readyTime, errors };
+  return { loading, ready, aiExports, readyTime, errors, needsModelSetup, modelToSetup };
 }

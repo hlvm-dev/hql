@@ -53,7 +53,7 @@ import {
   needsRegeneration,
   registerImportMapping,
   writeToCachedPath,
-} from "../common/hql-cache-tracker.ts";
+} from "../common/hlvm-cache-tracker.ts";
 import { transpile, type TranspileOptions } from "./transpiler/index.ts";
 import { fromFileUrl, join } from "../platform/platform.ts";
 import { preloadSourceMap } from "./transpiler/pipeline/source-map-support.ts";
