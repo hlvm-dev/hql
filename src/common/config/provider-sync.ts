@@ -5,15 +5,15 @@
  * This ensures config is the single source of truth for AI endpoint/model.
  */
 
-import type { HqlConfig } from "./types.ts";
+import type { HlvmConfig } from "./types.ts";
 import {
   hasProvider,
   initializeProviders,
   parseModelString,
   setDefaultProvider,
-} from "../../providers/index.ts";
+} from "../../hlvm/providers/index.ts";
 
-export function syncProvidersFromConfig(config: HqlConfig): void {
+export function syncProvidersFromConfig(config: HlvmConfig): void {
   const modelValue = config.model ?? "";
   const [providerName, modelName] = parseModelString(modelValue);
   const defaultModel = modelName || undefined;

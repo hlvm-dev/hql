@@ -1,9 +1,10 @@
 /**
- * HQL Config Types
+ * HLVM Config Types
  * Configuration interface, defaults, and validation
  */
 
-import { THEME_NAMES } from "../../cli/theme/palettes.ts";
+import { THEME_NAMES } from "../../hlvm/cli/theme/palettes.ts";
+import { DEFAULT_MODEL_ID } from "./defaults.ts";
 
 // ============================================================
 // Config Interface
@@ -12,7 +13,7 @@ import { THEME_NAMES } from "../../cli/theme/palettes.ts";
 /** User-customized keybindings (action ID -> key combo) */
 export type KeybindingsConfig = Record<string, string>;
 
-export interface HqlConfig {
+export interface HlvmConfig {
   version: number;
   model: string;           // "provider/model" format (e.g., "ollama/llama3.2")
   endpoint: string;        // API endpoint URL
@@ -26,9 +27,9 @@ export interface HqlConfig {
 // Defaults
 // ============================================================
 
-export const DEFAULT_CONFIG: HqlConfig = {
+export const DEFAULT_CONFIG: HlvmConfig = {
   version: 1,
-  model: "ollama/llama3.2:latest",
+  model: DEFAULT_MODEL_ID,
   endpoint: "http://localhost:11434",
   temperature: 0.7,
   maxTokens: 4096,

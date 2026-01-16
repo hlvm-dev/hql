@@ -9,11 +9,11 @@ import {
   assertExists,
   assertNotEquals,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { analyzeDocument } from "../../../lsp/analysis.ts";
-import { getHover } from "../../../lsp/features/hover.ts";
-import { getDefinition } from "../../../lsp/features/definition.ts";
-import { getCompletions } from "../../../lsp/features/completion.ts";
-import { getDiagnostics } from "../../../lsp/features/diagnostics.ts";
+import { analyzeDocument } from "../../../src/hql/lsp/analysis.ts";
+import { getHover } from "../../../src/hql/lsp/features/hover.ts";
+import { getDefinition } from "../../../src/hql/lsp/features/definition.ts";
+import { getCompletions } from "../../../src/hql/lsp/features/completion.ts";
+import { getDiagnostics } from "../../../src/hql/lsp/features/diagnostics.ts";
 
 // ============================================
 // Hover Tests

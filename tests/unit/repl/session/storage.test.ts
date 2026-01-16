@@ -1,5 +1,5 @@
 /**
- * Unit tests for HQL REPL Session Storage (Global Sessions)
+ * Unit tests for HLVM REPL Session Storage (Global Sessions)
  * Tests: hashProjectPath, generateSessionId, CRUD operations
  */
 
@@ -17,7 +17,7 @@ import {
   deleteSession,
   updateTitle,
   exportSession,
-} from "../../../../src/cli/repl/session/storage.ts";
+} from "../../../../src/hlvm/cli/repl/session/storage.ts";
 
 // ============================================================================
 // Test Helpers

@@ -1,10 +1,10 @@
 /**
- * HQL Config Module - Public Exports
+ * HLVM Config Module - Public Exports
  */
 
 // Re-export types
 export {
-  type HqlConfig,
+  type HlvmConfig,
   type ConfigKey,
   type KeybindingsConfig,
   type ValidationResult,
@@ -16,7 +16,7 @@ export {
 
 // Re-export storage
 export {
-  getHqlDir,
+  getHlvmDir,
   getConfigPath,
   loadConfig,
   saveConfig,

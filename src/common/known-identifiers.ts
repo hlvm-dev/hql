@@ -9,8 +9,8 @@
  * - Builtins & special forms: static (these are truly fixed)
  */
 
-import { EMBEDDED_MACROS } from "../lib/embedded-macros.ts";
-import { ALL_OPERATOR_NAMES, KERNEL_PRIMITIVES } from "../transpiler/keyword/primitives.ts";
+import { EMBEDDED_MACROS } from "../hql/lib/embedded-macros.ts";
+import { ALL_OPERATOR_NAMES, KERNEL_PRIMITIVES } from "../hql/transpiler/keyword/primitives.ts";
 
 // Cache for identifiers (populated on module load)
 let _cachedIdentifiers: string[] | null = null;
@@ -203,7 +203,7 @@ export async function initializeIdentifiers(): Promise<void> {
 
   try {
     // Import from index.js which includes both core.js AND self-hosted.js functions
-    const stdlib = await import("../lib/stdlib/js/index.js") as Record<string, unknown>;
+    const stdlib = await import("../hql/lib/stdlib/js/index.js") as Record<string, unknown>;
     const stdlibIds = Object.keys(stdlib).filter(key =>
       !key.startsWith("_") && typeof stdlib[key] === "function"
     );

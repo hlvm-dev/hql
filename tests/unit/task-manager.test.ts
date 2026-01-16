@@ -19,7 +19,7 @@ import {
   isModelPullTask,
   type EvalTask,
   type TaskStatus,
-} from "../../src/cli/repl/task-manager/index.ts";
+} from "../../src/hlvm/cli/repl/task-manager/index.ts";
 
 // Mock AI provider for pullModel tests (avoids external dependency).
 const globalAny = globalThis as Record<string, unknown>;

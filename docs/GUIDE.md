@@ -10,16 +10,16 @@ You should know:
 
 ## Installation
 
-Install HQL:
+Install HLVM:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
 ```
 
 Verify:
 
 ```bash
-hql --version
+hlvm --version
 ```
 
 ## Level 1: Basics (30 minutes)
@@ -35,7 +35,7 @@ Create `hello.hql`:
 Run:
 
 ```bash
-hql run hello.hql
+hlvm run hello.hql
 ```
 
 Output:
@@ -469,7 +469,7 @@ Create `todo.hql`:
 Run:
 
 ```bash
-hql run todo.hql
+hlvm run todo.hql
 ```
 
 ### Lesson 23: Web Server
@@ -491,7 +491,7 @@ Create `server.hql`:
 Run:
 
 ```bash
-hql run server.hql
+hlvm run server.hql
 ```
 
 ### Final Projects
@@ -529,6 +529,5 @@ See [Build Guide](./BUILD.md) for details.
 ## Getting Help
 
 - Read the [Manual](./MANUAL.md)
-- Ask in [GitHub Discussions](https://github.com/hlvm-dev/hql/discussions)
-- Report bugs in [Issues](https://github.com/hlvm-dev/hql/issues)
-
+- Ask in [GitHub Discussions](https://github.com/hlvm-dev/hlvm/discussions)
+- Report bugs in [Issues](https://github.com/hlvm-dev/hlvm/issues)

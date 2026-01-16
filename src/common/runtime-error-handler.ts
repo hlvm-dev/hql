@@ -1,4 +1,4 @@
-// core/src/common/runtime-error-handler.ts - Enhanced version
+// src/common/runtime-error-handler.ts - Enhanced version
 // Maps JavaScript runtime errors back to HQL source locations with improved accuracy
 
 import { globalErrorReporter, HQLError, RuntimeError } from "./error.ts";
@@ -37,7 +37,7 @@ import {
   resolve,
 } from "../platform/platform.ts";
 import { ERROR_REPORTED_SYMBOL } from "./error-constants.ts";
-import { mapPositionSync } from "../transpiler/pipeline/source-map-support.ts";
+import { mapPositionSync } from "../hql/transpiler/pipeline/source-map-support.ts";
 import { extractContextLinesFromFile } from "./context-helpers.ts";
 import { findSimilarName } from "./string-similarity.ts";
 import { getAllKnownIdentifiers } from "./known-identifiers.ts";
@@ -334,7 +334,7 @@ async function readContextLines(
 }
 
 /**
- * Initialize the HQL runtime error handling system
+ * Initialize the HLVM runtime error handling system
  */
 export function initializeErrorHandling(): void {
   installGlobalErrorHandler();

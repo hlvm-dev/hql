@@ -7,7 +7,7 @@ import {
   assertExists,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
-import { prepareRename, getWordForRename } from "../../../lsp/features/rename.ts";
+import { prepareRename, getWordForRename } from "../../../src/hql/lsp/features/rename.ts";
 
 function createDoc(content: string): TextDocument {
   return TextDocument.create("file:///test.hql", "hql", 1, content);

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run --allow-net --allow-read --allow-env
 /**
- * DEFINITIVE TEST: Verify ALL 205 Models Through HQL Implementation
+ * DEFINITIVE TEST: Verify ALL 205 Models Through HLVM HQL Implementation
  *
  * Tests the ACTUAL code path:
  * 1. Load model from scraped JSON (same as ModelBrowser)
@@ -132,7 +132,7 @@ async function testModelPull(extractedName: string): Promise<{ valid: boolean; p
 async function main() {
   console.log(`
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║  DEFINITIVE TEST: ALL 205 MODELS THROUGH HQL IMPLEMENTATION               ║
+║  DEFINITIVE TEST: ALL 205 MODELS THROUGH HLVM HQL IMPLEMENTATION          ║
 ╠═══════════════════════════════════════════════════════════════════════════╣
 ║  Tests the ACTUAL code path:                                              ║
 ║  1. scraped JSON → 2. "ollama/model" → 3. extract() → 4. Ollama pull     ║
@@ -234,12 +234,12 @@ Total models:     ${testCases.length}
   - Ollama registry recognized the model name
   - Started "pulling manifest" (download initiated)
   - Our extraction function produced correct name
-  - The complete HQL flow will work when model is installed
+  - The complete HLVM HQL flow will work when model is installed
 `);
 
   if (valid === testCases.length) {
     console.log(`
-\x1b[32m\x1b[1m✅ ALL ${testCases.length} MODELS VERIFIED THROUGH HQL IMPLEMENTATION\x1b[0m
+\x1b[32m\x1b[1m✅ ALL ${testCases.length} MODELS VERIFIED THROUGH HLVM HQL IMPLEMENTATION\x1b[0m
 
 Every model in our scraped JSON:
   1. ✓ Exists in Ollama's registry

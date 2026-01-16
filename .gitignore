@@ -1,7 +1,10 @@
 # Build outputs
 dist/
 
-# HQL compiled binaries (only in root, not source files in subdirs)
+# HLVM compiled binaries (only in root, not source files in subdirs)
+/hlvm
+/hlvm-*
+# Legacy HQL binaries (cleanup safe)
 /hql
 /hql-*
 
@@ -34,10 +37,12 @@ Thumbs.db
 *.log
 verify-output.log
 
-# HQL transpiler cache (auto-generated, versioned by content hash)
+# HLVM transpiler cache (auto-generated, versioned by content hash)
+.hlvm-cache/
+# Legacy cache (cleanup safe)
 .hql-cache/
 
-# Build intermediate directory (auto-deleted after hql build completes)
+# Build intermediate directory (auto-deleted after hlvm build completes)
 .build/
 
 # Temporary files

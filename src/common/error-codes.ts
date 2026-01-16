@@ -163,13 +163,13 @@ export enum HQLErrorCode {
 
 /**
  * Base URL for error documentation
- * Can be configured via HQL_ERROR_DOC_BASE_URL environment variable
+ * Can be configured via HLVM_ERROR_DOC_BASE_URL environment variable
  *
  * NOTE: Error documentation URLs are disabled until the documentation site exists.
- * Set HQL_ERROR_DOC_BASE_URL environment variable to enable.
+ * Set HLVM_ERROR_DOC_BASE_URL environment variable to enable.
  */
 const ERROR_DOC_BASE_URL =
-  (typeof Deno !== "undefined" && Deno.env?.get?.("HQL_ERROR_DOC_BASE_URL")) ||
+  (typeof Deno !== "undefined" && Deno.env?.get?.("HLVM_ERROR_DOC_BASE_URL")) ||
   null; // Disabled until docs exist
 
 /**
@@ -732,7 +732,7 @@ export function formatErrorCode(code: HQLErrorCode): string {
  *
  * @example
  * getErrorDocUrl(HQLErrorCode.UNCLOSED_LIST)
- * // "https://hql-lang.dev/errors/HQL1001" (when configured)
+ * // "https://hlvm.dev/errors/HQL1001" (when configured)
  * // null (when not configured)
  */
 export function getErrorDocUrl(code: HQLErrorCode): string | null {

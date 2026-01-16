@@ -1,14 +1,14 @@
-# HQL Language Installer for Windows
-# Usage: irm https://raw.githubusercontent.com/hlvm-dev/hql/main/install.ps1 | iex
+# HLVM Installer for Windows
+# Usage: irm https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.ps1 | iex
 #
 # WARNING: This installer has NOT been tested on Windows.
-# Please report issues at: https://github.com/hlvm-dev/hql/issues
+# Please report issues at: https://github.com/hlvm-dev/hlvm/issues
 
 $ErrorActionPreference = "Stop"
 
 # Configuration
-$Repo = "hlvm-dev/hql"
-$InstallDir = "$env:USERPROFILE\.hql"
+$Repo = "hlvm-dev/hlvm"
+$InstallDir = "$env:USERPROFILE\.hlvm"
 $BinDir = "$InstallDir\bin"
 
 function Write-Step {
@@ -35,11 +35,25 @@ function Write-Warning {
     Write-Host $Message
 }
 
+function Install-DefaultModel {
+    param([string]$HlvmPath)
+    Write-Step "Installing default AI model..."
+    try {
+        & $HlvmPath ai setup
+        Write-Success "Default AI model installed"
+    }
+    catch {
+        Write-Error "Default model installation failed: $_"
+        Write-Host "Ensure Ollama is available, then rerun: $HlvmPath ai setup" -ForegroundColor Yellow
+        exit 1
+    }
+}
+
 # Main installation
-function Install-HQL {
+function Install-HLVM {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Magenta
-    Write-Host "      HQL Language Installer           " -ForegroundColor Cyan
+    Write-Host "           HLVM Installer              " -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Magenta
     Write-Host ""
     Write-Warning "This installer has NOT been tested. Please report issues."
@@ -53,9 +67,9 @@ function Install-HQL {
     Write-Success "Directory: $BinDir"
 
     # Download binary
-    Write-Step "Downloading HQL binary..."
-    $Url = "https://github.com/$Repo/releases/latest/download/hql-windows.exe"
-    $OutPath = "$BinDir\hql.exe"
+    Write-Step "Downloading HLVM binary..."
+    $Url = "https://github.com/$Repo/releases/latest/download/hlvm-windows.exe"
+    $OutPath = "$BinDir\hlvm.exe"
 
     Write-Host "  Source: $Url" -ForegroundColor DarkGray
     Write-Host "  Target: $OutPath" -ForegroundColor DarkGray
@@ -105,6 +119,9 @@ function Install-HQL {
         exit 1
     }
 
+    # Install default AI model
+    Install-DefaultModel -HlvmPath $OutPath
+
     # Success message
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Green
@@ -112,11 +129,11 @@ function Install-HQL {
     Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "Quick Start:" -ForegroundColor White
-    Write-Host "  hql repl         " -ForegroundColor Cyan -NoNewline
+    Write-Host "  hlvm repl        " -ForegroundColor Cyan -NoNewline
     Write-Host "# Start interactive REPL" -ForegroundColor DarkGray
-    Write-Host "  hql run file.hql " -ForegroundColor Cyan -NoNewline
+    Write-Host "  hlvm run file.hql" -ForegroundColor Cyan -NoNewline
     Write-Host "# Run a HQL file" -ForegroundColor DarkGray
-    Write-Host "  hql --help       " -ForegroundColor Cyan -NoNewline
+    Write-Host "  hlvm --help      " -ForegroundColor Cyan -NoNewline
     Write-Host "# Show all commands" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "IMPORTANT: Restart your terminal for PATH changes to take effect." -ForegroundColor Yellow
@@ -127,4 +144,4 @@ function Install-HQL {
 }
 
 # Run installer
-Install-HQL
+Install-HLVM

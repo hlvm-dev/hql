@@ -4,7 +4,7 @@ import {
   assertNotEquals,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { macroexpand } from "../../mod.ts";
-import { resetGensymCounter } from "../../src/gensym.ts";
+import { resetGensymCounter } from "../../src/hql/gensym.ts";
 
 // Reset gensym counter before each test for predictable results
 function resetCounter() {

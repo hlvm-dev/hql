@@ -11,15 +11,15 @@ import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert
 import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import { CodeActionKind } from "npm:vscode-languageserver@9.0.1";
 import type { Diagnostic, CodeActionParams } from "npm:vscode-languageserver@9.0.1";
-import { getCodeActions } from "../../../lsp/features/code-actions.ts";
-import { ProjectIndex } from "../../../lsp/workspace/project-index.ts";
+import { getCodeActions } from "../../../src/hql/lsp/features/code-actions.ts";
+import { ProjectIndex } from "../../../src/hql/lsp/workspace/project-index.ts";
 import {
   createNewImport,
   calculateRelativePath,
   findInsertPosition,
   addSymbolToImport,
   findImportByPath,
-} from "../../../lsp/imports/mod.ts";
+} from "../../../src/hql/lsp/imports/mod.ts";
 
 // Helper to create a TextDocument
 function createDoc(content: string, uri = "file:///test.hql"): TextDocument {

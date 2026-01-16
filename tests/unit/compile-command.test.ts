@@ -1,5 +1,5 @@
 /**
- * Unit tests for HQL compile command
+ * Unit tests for HLVM compile command
  *
  * These tests verify the compile command functionality.
  * Note: Tests involving actual binary compilation are slow and should be run separately.
@@ -12,7 +12,7 @@ import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.
 // Test helper to capture command output
 async function runHqlCompile(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const cmd = new Deno.Command(Deno.execPath(), {
-    args: ["run", "-A", "src/cli/cli.ts", "compile", ...args],
+    args: ["run", "-A", "src/hlvm/cli/cli.ts", "compile", ...args],
     stdout: "piped",
     stderr: "piped",
   });
@@ -37,7 +37,7 @@ Deno.test("compile --help shows usage", async () => {
   const result = await runHqlCompile(["--help"]);
 
   assertEquals(result.code, 0);
-  assertStringIncludes(result.stdout, "HQL Compile");
+  assertStringIncludes(result.stdout, "HLVM Compile");
   assertStringIncludes(result.stdout, "--target");
   assertStringIncludes(result.stdout, "js");
   assertStringIncludes(result.stdout, "native");

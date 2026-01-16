@@ -3,7 +3,7 @@
  */
 
 import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { findReferencesInContent } from "../../../lsp/features/references.ts";
+import { findReferencesInContent } from "../../../src/hql/lsp/features/references.ts";
 
 Deno.test("References - finds symbol in single file", () => {
   const content = `(fn add [a b]

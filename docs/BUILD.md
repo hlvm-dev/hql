@@ -1,6 +1,6 @@
-# Building HQL from Source
+# Building HLVM from Source
 
-Complete guide to building HQL binaries.
+Complete guide to building HLVM binaries.
 
 ## Prerequisites
 
@@ -21,12 +21,12 @@ Build for your current platform:
 make build
 ```
 
-This creates `./hql` binary.
+This creates `./hlvm` binary.
 
 Verify:
 
 ```bash
-./hql --version
+./hlvm --version
 ```
 
 ## Build Commands
@@ -37,7 +37,7 @@ Verify:
 make build
 ```
 
-Output: `./hql`
+Output: `./hlvm`
 
 ### Build and Test
 
@@ -61,12 +61,12 @@ Builds and immediately opens REPL.
 make install
 ```
 
-Installs to `/usr/local/bin/hql`.
+Installs to `/usr/local/bin/hlvm`.
 
 Then use anywhere:
 
 ```bash
-hql --version
+hlvm --version
 ```
 
 ## Cross-Platform Builds
@@ -79,7 +79,7 @@ Intel:
 make build-mac-intel
 ```
 
-Output: `hql-mac-intel`
+Output: `hlvm-mac-intel`
 
 Apple Silicon:
 
@@ -87,7 +87,7 @@ Apple Silicon:
 make build-mac-arm
 ```
 
-Output: `hql-mac-arm`
+Output: `hlvm-mac-arm`
 
 ### Build for Linux
 
@@ -95,7 +95,7 @@ Output: `hql-mac-arm`
 make build-linux
 ```
 
-Output: `hql-linux`
+Output: `hlvm-linux`
 
 ### Build for Windows
 
@@ -103,7 +103,7 @@ Output: `hql-linux`
 make build-windows
 ```
 
-Output: `hql-windows.exe`
+Output: `hlvm-windows.exe`
 
 ### Build All Platforms
 
@@ -113,10 +113,10 @@ make all
 
 Creates all binaries:
 
-- `hql-mac-intel`
-- `hql-mac-arm`
-- `hql-linux`
-- `hql-windows.exe`
+- `hlvm-mac-intel`
+- `hlvm-mac-arm`
+- `hlvm-linux`
+- `hlvm-windows.exe`
 
 ## Manual Build (Without Make)
 
@@ -131,14 +131,14 @@ If you don't have `make`:
 ### Step 2: Compile Binary
 
 ```bash
-deno compile --allow-all --no-check --output hql src/cli/cli.ts
+deno compile --allow-all --no-check --output hlvm src/hlvm/cli/cli.ts
 ```
 
 ### Step 3: Test
 
 ```bash
-./hql --version
-./hql run -e '(print "Hello!")'
+./hlvm --version
+./hlvm run -e '(print "Hello!")'
 ```
 
 ## Build Options
@@ -148,7 +148,7 @@ deno compile --allow-all --no-check --output hql src/cli/cli.ts
 Include source maps:
 
 ```bash
-deno compile --allow-all --output hql src/cli/cli.ts
+deno compile --allow-all --output hlvm src/hlvm/cli/cli.ts
 ```
 
 Note: Larger binary, better error messages.
@@ -158,7 +158,7 @@ Note: Larger binary, better error messages.
 Fastest compilation (production):
 
 ```bash
-deno compile --allow-all --no-check --output hql src/cli/cli.ts
+deno compile --allow-all --no-check --output hlvm src/hlvm/cli/cli.ts
 ```
 
 Note: Default, skips type checking.
@@ -175,7 +175,7 @@ Available targets:
 Specify with `--target`:
 
 ```bash
-deno compile --allow-all --target x86_64-apple-darwin --output hql src/cli/cli.ts
+deno compile --allow-all --target x86_64-apple-darwin --output hlvm src/hlvm/cli/cli.ts
 ```
 
 ## Binary Size
@@ -236,7 +236,7 @@ deno upgrade
 Rebuild on changes:
 
 ```bash
-deno run --allow-all --watch src/cli/cli.ts repl
+deno run --allow-all --watch src/hlvm/cli/cli.ts repl
 ```
 
 ### Test Changes
@@ -244,7 +244,7 @@ deno run --allow-all --watch src/cli/cli.ts repl
 Without building binary:
 
 ```bash
-deno run --allow-all src/cli/cli.ts run test.hql
+deno run --allow-all src/hlvm/cli/cli.ts run test.hql
 ```
 
 ## CI/CD Builds
@@ -271,8 +271,8 @@ make clean
 
 Removes:
 
-- `hql`
-- `hql-*` (all platform binaries)
+- `hlvm`
+- `hlvm-*` (all platform binaries)
 - Temporary files
 
 ## Next Steps

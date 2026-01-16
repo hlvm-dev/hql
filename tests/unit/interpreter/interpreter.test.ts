@@ -2,10 +2,10 @@
 // Tests for the HQL macro-time interpreter
 
 import { assertEquals, assertThrows } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { Interpreter, createStandardEnv, hqlValueToSExp } from "../../../src/interpreter/index.ts";
-import type { InterpreterEnv } from "../../../src/interpreter/environment.ts";
-import { parse } from "../../../src/transpiler/pipeline/parser.ts";
-import { sexpToString, type SSymbol } from "../../../src/s-exp/types.ts";
+import { Interpreter, createStandardEnv, hqlValueToSExp } from "../../../src/hql/interpreter/index.ts";
+import type { InterpreterEnv } from "../../../src/hql/interpreter/environment.ts";
+import { parse } from "../../../src/hql/transpiler/pipeline/parser.ts";
+import { sexpToString, type SSymbol } from "../../../src/hql/s-exp/types.ts";
 
 // Helper to parse and evaluate an expression
 function evalExpr(code: string, env?: InterpreterEnv) {

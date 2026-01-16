@@ -1,5 +1,5 @@
-; @hql/ai - AI-Native Functions for HQL
-; Usage: (import [ask] from "@hql/ai")
+; @hlvm/ai - AI-Native Functions for HQL
+; Usage: (import [ask] from "@hlvm/ai")
 ;
 ; SSOT: All functions delegate to globalThis.ai provider API
 ; No direct Ollama fetch - 100% Single Source of Truth

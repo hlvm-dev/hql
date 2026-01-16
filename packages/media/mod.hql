@@ -1,12 +1,12 @@
-; @hql/media - Media Handling for Vision Models
-; Usage: (import [read-image read-media] from "@hql/media")
+; @hlvm/media - Media Handling for Vision Models
+; Usage: (import [read-image read-media] from "@hlvm/media")
 ;
 ; Provides functions to load media files for use with vision-capable AI models.
 ; Media objects can be passed to AI functions via the {media: ...} option.
 ;
 ; Example:
-;   (import [ask] from "@hql/ai")
-;   (import [read-image] from "@hql/media")
+;   (import [ask] from "@hlvm/ai")
+;   (import [read-image] from "@hlvm/media")
 ;   (ask "What's in this image?" {media: (read-image "./photo.jpg")})
 
 ; ============================================================================

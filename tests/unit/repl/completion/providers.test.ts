@@ -17,7 +17,7 @@ import {
   shouldTriggerCommand,
   extractCommandQuery,
   shouldTriggerSymbol,
-} from "../../../../src/cli/repl-ink/completion/providers.ts";
+} from "../../../../src/hlvm/cli/repl-ink/completion/providers.ts";
 import type {
   CompletionAction,
   CompletionItem,
@@ -26,8 +26,8 @@ import type {
   ApplyResult,
   ApplyContext,
   ItemRenderSpec,
-} from "../../../../src/cli/repl-ink/completion/types.ts";
-import { TYPE_ICONS } from "../../../../src/cli/repl-ink/completion/types.ts";
+} from "../../../../src/hlvm/cli/repl-ink/completion/types.ts";
+import { TYPE_ICONS } from "../../../../src/hlvm/cli/repl-ink/completion/types.ts";
 
 // ============================================================
 // Test Data

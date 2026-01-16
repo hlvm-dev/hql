@@ -1,10 +1,10 @@
 /**
- * Unit tests for HQL REPL Suggester
+ * Unit tests for HLVM REPL Suggester
  * Tests: findSuggestion, acceptSuggestion
  */
 
 import { assertEquals } from "jsr:@std/assert";
-import { findSuggestion, acceptSuggestion } from "../../../src/cli/repl/suggester.ts";
+import { findSuggestion, acceptSuggestion } from "../../../src/hlvm/cli/repl/suggester.ts";
 
 // ============================================================
 // findSuggestion() - Basic cases

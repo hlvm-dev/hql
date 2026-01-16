@@ -4,7 +4,7 @@
  */
 
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { set, vec } from "../../src/lib/stdlib/js/index.js";
+import { set, vec } from "../../src/hql/lib/stdlib/js/index.js";
 
 // =============================================================================
 // vec(coll) - 10 tests
@@ -40,7 +40,7 @@ Deno.test("vec: from string", () => {
 
 Deno.test("vec: from LazySeq", async () => {
   const { LazySeq } = await import(
-    "../../src/lib/stdlib/js/internal/seq-protocol.js"
+    "../../src/hql/lib/stdlib/js/internal/seq-protocol.js"
   );
   // New LazySeq accepts generator functions (backwards compat)
   const lazy = new LazySeq(function* () {

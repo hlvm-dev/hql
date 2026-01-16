@@ -1,21 +1,21 @@
 /**
  * Shared helpers for binary tests
- * These tests run the HQL CLI as a subprocess (compiled binary or deno run)
+ * These tests run the HLVM CLI as a subprocess (compiled binary or deno run)
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
 
 // Path to CLI entry point
-export const CLI_PATH = new URL("../../../src/cli/cli.ts", import.meta.url).pathname;
+export const CLI_PATH = new URL("../../../src/hlvm/cli/cli.ts", import.meta.url).pathname;
 
-// Binary test mode: set HQL_TEST_BINARY=1 for genuine binary testing
+// Binary test mode: set HLVM_TEST_BINARY=1 for genuine binary testing
 // Default: quick mode using deno run (same code path, faster)
-export const USE_BINARY = Deno.env.get("HQL_TEST_BINARY") === "1";
+export const USE_BINARY = Deno.env.get("HLVM_TEST_BINARY") === "1";
 
 // Cross-platform binary path
 const IS_WINDOWS = Deno.build.os === "windows";
 const TEMP_DIR = (Deno.env.get(IS_WINDOWS ? "TEMP" : "TMPDIR") || (IS_WINDOWS ? "C:\\Temp" : "/tmp")).replace(/[\/\\]$/, "");
-const BINARY_NAME = IS_WINDOWS ? "hql-test-binary.exe" : "hql-test-binary";
+const BINARY_NAME = IS_WINDOWS ? "hlvm-test-binary.exe" : "hlvm-test-binary";
 export const BINARY_PATH = IS_WINDOWS ? `${TEMP_DIR}\\${BINARY_NAME}` : `${TEMP_DIR}/${BINARY_NAME}`;
 
 // Track compilation state with mutex to prevent race conditions
@@ -37,7 +37,7 @@ export interface CommandResult {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Compile the HQL binary (only when USE_BINARY mode is enabled)
+ * Compile the HLVM binary (only when USE_BINARY mode is enabled)
  * Uses mutex pattern to ensure only one compilation happens even with parallel tests
  */
 export async function ensureBinaryCompiled(): Promise<void> {
@@ -48,7 +48,7 @@ export async function ensureBinaryCompiled(): Promise<void> {
   }
 
   compilationPromise = (async () => {
-    console.log("Compiling HQL binary for genuine binary testing...");
+    console.log("Compiling HLVM binary for genuine binary testing...");
     const cmd = new Deno.Command("deno", {
       args: ["compile", "-A", "--no-check", "--output", BINARY_PATH, CLI_PATH],
       stdout: "piped",
@@ -219,7 +219,7 @@ export function transpileAndRunWithDeno(hqlCode: string): Promise<CommandResult>
  * Execute a function with a temporary directory, cleaning up afterwards
  */
 export async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-  const tempDir = await Deno.makeTempDir({ prefix: "hql-test-" });
+  const tempDir = await Deno.makeTempDir({ prefix: "hlvm-test-" });
   try {
     return await fn(tempDir);
   } finally {
@@ -232,7 +232,7 @@ export async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T
 }
 
 /**
- * Create a temporary HQL project with hql.json
+ * Create a temporary HLVM project with hlvm.json
  */
 export function withTempProject<T>(
   fn: (dir: string) => Promise<T>,
@@ -244,7 +244,7 @@ export function withTempProject<T>(
       version: options?.version || "0.0.1",
       exports: options?.entry || "./mod.hql",
     };
-    await Deno.writeTextFile(`${dir}/hql.json`, JSON.stringify(hqlJson, null, 2));
+    await Deno.writeTextFile(`${dir}/hlvm.json`, JSON.stringify(hqlJson, null, 2));
     return fn(dir);
   });
 }

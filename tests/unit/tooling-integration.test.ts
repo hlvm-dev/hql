@@ -16,7 +16,7 @@ import { makeTempDir, writeTextFile, remove } from "../../src/platform/platform.
 // ============================================================================
 
 Deno.test("Tooling: Cache invalidation updates source maps for changed files", async () => {
-  const tempDir = await makeTempDir({ prefix: "hql-tooling-" });
+  const tempDir = await makeTempDir({ prefix: "hlvm-tooling-" });
   const filePath = join(tempDir, "dynamic.hql");
 
   try {

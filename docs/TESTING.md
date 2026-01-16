@@ -1,6 +1,6 @@
-# Testing HQL
+# Testing HLVM
 
-Complete guide to testing HQL code.
+Complete guide to testing HQL code on HLVM.
 
 ## Quick Test
 
@@ -12,7 +12,7 @@ make test
 
 This runs basic smoke tests.
 
-## Running HQL's Test Suite
+## Running HLVM's Test Suite
 
 ### Run All Tests
 
@@ -204,7 +204,7 @@ Test bug fixes:
 Time execution:
 
 ```bash
-hql run --time script.hql
+hlvm run --time script.hql
 ```
 
 ### Profile
@@ -212,7 +212,7 @@ hql run --time script.hql
 Profile compilation:
 
 ```bash
-hql compile --time --verbose script.hql
+hlvm compile --time --verbose script.hql
 ```
 
 ## Continuous Integration
@@ -325,7 +325,7 @@ deno test --allow-all tests/unit/specific.test.ts
 ### Debug Mode
 
 ```bash
-HQL_DEBUG=1 deno test --allow-all tests/unit/
+HLVM_DEBUG_ERROR=1 deno test --allow-all tests/unit/
 ```
 
 ## Test Coverage Goals

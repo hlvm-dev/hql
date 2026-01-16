@@ -1,13 +1,13 @@
 import { assertEquals } from "jsr:@std/assert";
 import { join } from "../../src/platform/platform.ts";
 
-const CLI_PATH = join(Deno.cwd(), "src", "cli", "run.ts");
+const CLI_PATH = join(Deno.cwd(), "src", "hlvm", "cli", "run.ts");
 
 Deno.test({
   name: "CLI Smart Runner: Execute TS file importing HQL",
   async fn() {
     // 1. Create temp directory
-    const tempDir = await Deno.makeTempDir({ prefix: "hql_smart_runner_test_" });
+    const tempDir = await Deno.makeTempDir({ prefix: "hlvm_smart_runner_test_" });
     const hqlFile = join(tempDir, "lib.hql");
     const tsFile = join(tempDir, "app.ts");
 
@@ -56,7 +56,7 @@ Deno.test({
 Deno.test({
   name: "CLI Smart Runner: Execute JS file importing HQL",
   async fn() {
-    const tempDir = await Deno.makeTempDir({ prefix: "hql_smart_runner_test_js_" });
+    const tempDir = await Deno.makeTempDir({ prefix: "hlvm_smart_runner_test_js_" });
     const hqlFile = join(tempDir, "math.hql");
     const jsFile = join(tempDir, "app.js");
 

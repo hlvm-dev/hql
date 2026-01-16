@@ -483,7 +483,7 @@ in unquote
 
 ## Built-in Core Macros
 
-HQL includes a comprehensive set of core macros in `src/lib/macro/core.hql`. These are automatically available in all HQL programs.
+HQL includes a comprehensive set of core macros in `src/hql/lib/macro/core.hql`. These are automatically available in all HQL programs.
 
 ### Threading Macros
 

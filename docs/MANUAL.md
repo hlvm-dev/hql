@@ -28,17 +28,17 @@
 
 **macOS / Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
 ```
 
 **Windows:**
 
-Download the binary from [releases](https://github.com/hlvm-dev/hql/releases).
+Download the binary from [releases](https://github.com/hlvm-dev/hlvm/releases).
 
 ### Verify Installation
 
 ```bash
-hql --version
+hlvm --version
 ```
 
 ---
@@ -54,20 +54,20 @@ Create `hello.hql`:
 
 Run it:
 ```bash
-hql run hello.hql
+hlvm run hello.hql
 ```
 
 ### Interactive REPL
 
 ```bash
-hql repl
+hlvm repl
 ```
 
 ```clojure
-hql> (+ 1 2 3)
+hlvm> (+ 1 2 3)
 6
-hql> (let name "HQL")
-hql> (print "Hello," name)
+hlvm> (let name "HQL")
+hlvm> (print "Hello," name)
 Hello, HQL
 ```
 
@@ -582,22 +582,22 @@ See [Standard Library Reference](./api/stdlib.md) for complete documentation.
 ### Commands
 
 ```bash
-hql run <file>        # Execute HQL file
-hql run '<expr>'      # Evaluate expression
-hql repl              # Start REPL
-hql compile <file>    # Compile to JavaScript
-hql init              # Initialize project
-hql lsp               # Start Language Server
-hql upgrade           # Update HQL
+hlvm run <file>        # Execute HQL file
+hlvm run '<expr>'      # Evaluate expression
+hlvm repl              # Start REPL
+hlvm compile <file>    # Compile to JavaScript
+hlvm init              # Initialize project
+hlvm lsp               # Start Language Server
+hlvm upgrade           # Update HLVM
 ```
 
 ### Compile Options
 
 ```bash
-hql compile app.hql                     # Dev build
-hql compile app.hql --release           # Production build
-hql compile app.hql --target native     # Native binary
-hql compile app.hql -o myapp.js         # Custom output
+hlvm compile app.hql                     # Dev build
+hlvm compile app.hql --release           # Production build
+hlvm compile app.hql --target native     # Native binary
+hlvm compile app.hql -o myapp.js         # Custom output
 ```
 
 ### Global Options

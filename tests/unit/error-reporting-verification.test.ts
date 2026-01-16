@@ -139,7 +139,7 @@ Deno.test("Error Reporting: Runtime - accurate location for shadowed binding", a
 `;
 
   const tempDir = await makeTempDir({
-    prefix: "hql-shadow-",
+    prefix: "hlvm-shadow-",
   });
   try {
     const filePath = join(tempDir, "shadow.hql");

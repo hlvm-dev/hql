@@ -1,14 +1,14 @@
 /**
- * Single Source of Truth for HQL Directory Paths
+ * Single Source of Truth for HLVM Directory Paths
  *
- * All path operations for ~/.hql should go through this module.
+ * All path operations for ~/.hlvm should go through this module.
  * This eliminates duplication and ensures consistent path handling.
  */
 
 import { join, resolve } from "jsr:@std/path@1";
 
-// Cached HQL directory path
-let _hqlDir: string | null = null;
+// Cached HLVM directory path
+let _hlvmDir: string | null = null;
 
 function getEnvVar(key: string): string | undefined {
   try {
@@ -18,20 +18,21 @@ function getEnvVar(key: string): string | undefined {
   }
 }
 
-function resolveHqlDir(): string {
-  const override = getEnvVar("HQL_DIR") || getEnvVar("HQL_HOME");
+function resolveHlvmDir(): string {
+  const override = getEnvVar("HLVM_DIR") || getEnvVar("HLVM_HOME");
   if (override) {
     return resolve(override);
   }
   const home = getEnvVar("HOME") || getEnvVar("USERPROFILE") || ".";
-  return join(home, ".hql");
+  return join(home, ".hlvm");
 }
+
 
 function ensureWritableDir(path: string): boolean {
   const probeId = typeof crypto?.randomUUID === "function"
     ? crypto.randomUUID()
     : String(Date.now());
-  const probePath = join(path, `.hql-write-test-${probeId}`);
+  const probePath = join(path, `.hlvm-write-test-${probeId}`);
   try {
     Deno.mkdirSync(path, { recursive: true });
     Deno.writeTextFileSync(probePath, "", { append: true });
@@ -49,90 +50,91 @@ function ensureWritableDir(path: string): boolean {
 }
 
 /**
- * Get the root HQL directory (~/.hql)
+ * Get the root HLVM directory (~/.hlvm)
  * Cached after first call for performance.
  */
-export function getHqlDir(): string {
-  if (!_hqlDir) {
-    let candidate = resolveHqlDir();
+export function getHlvmDir(): string {
+  if (!_hlvmDir) {
+    let candidate = resolveHlvmDir();
     if (!ensureWritableDir(candidate)) {
-      const fallback = join(Deno.cwd(), ".hql");
+      const fallback = join(Deno.cwd(), ".hlvm");
       ensureWritableDir(fallback);
       candidate = fallback;
     }
-    _hqlDir = candidate;
+    _hlvmDir = candidate;
   }
-  return _hqlDir;
+  return _hlvmDir;
 }
 
 /**
- * Get the config file path (~/.hql/config.json)
+ * Get the config file path (~/.hlvm/config.json)
  */
 export function getConfigPath(): string {
-  return join(getHqlDir(), "config.json");
+  return join(getHlvmDir(), "config.json");
 }
 
 /**
- * Get the memory file path (~/.hql/memory.hql)
+ * Get the memory file path (~/.hlvm/memory.hql)
  */
 export function getMemoryPath(): string {
-  return join(getHqlDir(), "memory.hql");
+  return join(getHlvmDir(), "memory.hql");
 }
 
 /**
- * Get the sessions directory (~/.hql/sessions)
+ * Get the sessions directory (~/.hlvm/sessions)
  */
 export function getSessionsDir(): string {
-  return join(getHqlDir(), "sessions");
+  return join(getHlvmDir(), "sessions");
 }
 
 /**
- * Get the debug log path (~/.hql/debug.log)
+ * Get the debug log path (~/.hlvm/debug.log)
  */
 export function getDebugLogPath(): string {
-  return join(getHqlDir(), "debug.log");
+  return join(getHlvmDir(), "debug.log");
 }
 
 /**
- * Get the runtime directory (~/.hql/.runtime)
+ * Get the runtime directory (~/.hlvm/.runtime)
  * Used for embedded binaries and runtime state.
  */
 export function getRuntimeDir(): string {
-  return join(getHqlDir(), ".runtime");
+  return join(getHlvmDir(), ".runtime");
 }
 
 /**
- * Get the Ollama binary path (~/.hql/.runtime/ollama)
+ * Get the Ollama binary path (~/.hlvm/.runtime/ollama)
  */
 export function getOllamaBinaryPath(): string {
   return join(getRuntimeDir(), "ollama");
 }
 
 /**
- * Get the history file path (~/.hql/history.jsonl)
+ * Get the history file path (~/.hlvm/history.jsonl)
  * JSONL format: one JSON entry per line for append-only operations
  */
 export function getHistoryPath(): string {
-  return join(getHqlDir(), "history.jsonl");
+  return join(getHlvmDir(), "history.jsonl");
 }
 
+
 /**
- * Ensure the HQL directory exists
+ * Ensure the HLVM directory exists
  */
-export async function ensureHqlDir(): Promise<void> {
+export async function ensureHlvmDir(): Promise<void> {
   try {
-    await Deno.mkdir(getHqlDir(), { recursive: true });
+    await Deno.mkdir(getHlvmDir(), { recursive: true });
   } catch {
     // Ignore errors to keep callers resilient in restricted environments.
   }
 }
 
 /**
- * Ensure the HQL directory exists (sync).
+ * Ensure the HLVM directory exists (sync).
  */
-export function ensureHqlDirSync(): void {
+export function ensureHlvmDirSync(): void {
   try {
-    Deno.mkdirSync(getHqlDir(), { recursive: true });
+    Deno.mkdirSync(getHlvmDir(), { recursive: true });
   } catch {
     // Ignore errors to keep callers resilient in restricted environments.
   }
@@ -156,5 +158,5 @@ export async function ensureRuntimeDir(): Promise<void> {
  * Reset cached paths (useful for testing)
  */
 export function resetPathCache(): void {
-  _hqlDir = null;
+  _hlvmDir = null;
 }

@@ -1,6 +1,6 @@
-# HQL Runtime API
+# HLVM Runtime API (HQL)
 
-The HQL runtime exposes a small set of TypeScript-friendly helpers for
+The HLVM runtime exposes a small set of TypeScript-friendly helpers for
 compiling, macro-expanding, and executing HQL source. These functions live in
 the top-level `mod.ts` entry point (importable via `import hql from "./mod.ts"`
 or using the named exports below).
@@ -48,7 +48,7 @@ console.log(result); // "Hello, World!"
 | `adapter`     | (js)⇒any | Optional hook to run custom evaluators (e.g. inside tests/REPL).           |
 
 > `run` automatically detects ESM `import`/`export` statements. When present, it
-> wires the compiled code through a temporary `.mjs` file inside `.hql-cache/rt`
+> wires the compiled code through a temporary `.mjs` file inside `.hlvm-cache/rt`
 > so standard dynamic imports keep working.
 
 ---
@@ -151,7 +151,7 @@ try {
 
 ## Notes
 
-- `.hql-cache/rt` is automatically managed; the runtime writes temporary modules
+- `.hlvm-cache/rt` is automatically managed; the runtime writes temporary modules
   there when imports are present.
 - All helpers are safe to call concurrently; the transpiler caches intermediate
   results to avoid rebuilding the same module twice.

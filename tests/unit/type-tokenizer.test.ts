@@ -24,7 +24,7 @@ import {
   tokenizeObjectType,
   tokenizeTupleType,
   tokenizeType,
-} from "../../src/transpiler/tokenizer/type-tokenizer.ts";
+} from "../../src/hql/transpiler/tokenizer/type-tokenizer.ts";
 
 // ============================================================================
 // BRACKET DEPTH COUNTING TESTS

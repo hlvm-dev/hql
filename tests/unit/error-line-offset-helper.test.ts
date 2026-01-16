@@ -20,7 +20,7 @@ Deno.test("Line offset: Error location with array access helper injection", asyn
 (let bad (/ 10 undefined_var))`;
 
   const tempDir = await makeTempDir({
-    prefix: "hql-offset-",
+    prefix: "hlvm-offset-",
     
   });
 
@@ -63,7 +63,7 @@ Deno.test("Line offset: Error location with get/range/map helpers", async () => 
 (let bad_var undefined_thing)`;
 
   const tempDir = await makeTempDir({
-    prefix: "hql-offset-",
+    prefix: "hlvm-offset-",
     
   });
 
@@ -105,7 +105,7 @@ Deno.test("Line offset: Verify no helpers = no offset issues", async () => {
 (+ x undefined_var)`;
 
   const tempDir = await makeTempDir({
-    prefix: "hql-no-helper-",
+    prefix: "hlvm-no-helper-",
     
   });
 

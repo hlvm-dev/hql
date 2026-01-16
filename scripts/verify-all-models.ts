@@ -255,7 +255,7 @@ What this proves:
   1. All 205 model names from ollama.com are correctly scraped
   2. Config format "ollama/model:tag" extracts correctly to "model:tag"
   3. Ollama API recognizes all model names (would return "not found" vs "invalid")
-  4. If you pull any of these 205 models, it WILL work with HQL
+  4. If you pull any of these 205 models, it WILL work with the HLVM HQL runtime
 
 To test a specific model:
   ollama pull <model_name>

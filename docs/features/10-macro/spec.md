@@ -60,8 +60,8 @@ if (macroCache.has(symbolName)) {
 
 **Files Changed:**
 
-- `src/s-exp/macro.ts:28-29` - Simplified declaration
-- `src/s-exp/macro.ts:270-298` - Simplified isMacro function
+- `src/hql/s-exp/macro.ts:28-29` - Simplified declaration
+- `src/hql/s-exp/macro.ts:270-298` - Simplified isMacro function
 
 **Test Results:** ✅ All tests pass
 
@@ -166,7 +166,7 @@ if (!logger.isNamespaceEnabled("macro")) return;
 **Verification:**
 
 ```bash
-$ deno check --config=core/deno.json src/transpiler/index.ts
+$ deno check --config=core/deno.json src/hql/transpiler/index.ts
 Check file:///.../index.ts
 # Result: PASSES ✅
 ```
@@ -194,7 +194,7 @@ Check file:///.../index.ts
 
 ### Modified Files
 
-**`src/s-exp/macro.ts`**
+**`src/hql/s-exp/macro.ts`**
 
 1. **Line 28-30**: Simplified cache declaration
 
@@ -359,7 +359,7 @@ in arguments before passing them to the outer macro.
 **Fix:** Added pre-expansion logic using `preExpandMacroArgs` helper:
 
 ```typescript
-// src/s-exp/macro.ts:1271-1275
+// src/hql/s-exp/macro.ts:1271-1275
 const args = preExpandMacroArgs(
   list.elements.slice(1),
   env,
@@ -377,7 +377,7 @@ unevaluated S-expressions instead of computing their values.
 **Fix:** Changed argument handling to fully evaluate at macro-time:
 
 ```typescript
-// src/s-exp/macro.ts:906-910
+// src/hql/s-exp/macro.ts:906-910
 const args = list.elements.slice(1).map((arg) => {
   // Fully evaluate the argument at macro-time
   return evaluateForMacro(arg, env, logger);
@@ -394,7 +394,7 @@ before passing to interpreter.
 **Fix:** Added pre-expansion using `preExpandMacroArgs` helper:
 
 ```typescript
-// src/s-exp/macro.ts:987-992
+// src/hql/s-exp/macro.ts:987-992
 const expandedArgs = preExpandMacroArgs(
   list.elements.slice(1),
   env,
@@ -441,18 +441,18 @@ function preExpandMacroArgs<T>(
 **Problem:** Cache was created but never actually used for caching.
 
 **Files Changed:**
-- `src/s-exp/macro.ts:224` - Removed cache declaration, added comment
-- `src/runtime/hql-runtime.ts` - Removed 2 cache.clear() calls
-- `src/runtime/index.ts` - Removed cache.clear() call
+- `src/hql/s-exp/macro.ts:224` - Removed cache declaration, added comment
+- `src/hql/runtime/hql-runtime.ts` - Removed 2 cache.clear() calls
+- `src/hql/runtime/index.ts` - Removed cache.clear() call
 
 ### Removed `useCache` Option
 
 **Problem:** Option was defined in interfaces but never used (cache was removed).
 
 **Files Changed:**
-- `src/s-exp/macro.ts:232` - Removed from MacroExpanderOptions
-- `src/transpiler/hql-transpiler.ts` - Removed usages
-- `src/transpiler/compiler-context.ts:39` - Removed from CompilerOptions
+- `src/hql/s-exp/macro.ts:232` - Removed from MacroExpanderOptions
+- `src/hql/transpiler/hql-transpiler.ts` - Removed usages
+- `src/hql/transpiler/compiler-context.ts:39` - Removed from CompilerOptions
 
 ---
 

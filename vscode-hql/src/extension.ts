@@ -38,13 +38,13 @@ export function activate(context: ExtensionContext) {
     synchronize: {
       fileEvents: workspace.createFileSystemWatcher("**/*.hql"),
     },
-    outputChannel: window.createOutputChannel("HQL Language Server"),
+    outputChannel: window.createOutputChannel("HLVM HQL Language Server"),
   };
 
   // Create the language client
   client = new LanguageClient(
-    "hqlLanguageServer",
-    "HQL Language Server",
+    "hlvmHqlLanguageServer",
+    "HLVM HQL Language Server",
     serverOptions,
     clientOptions
   );
@@ -52,7 +52,7 @@ export function activate(context: ExtensionContext) {
   // Start the client (also starts the server)
   client.start();
 
-  console.log("HQL Language Server activated");
+  console.log("HLVM HQL Language Server activated");
 }
 
 export function deactivate(): Thenable<void> | undefined {

@@ -1,13 +1,13 @@
 /**
- * Unit tests for HQL REPL Session Manager (Global Sessions)
+ * Unit tests for HLVM REPL Session Manager (Global Sessions)
  * Tests: lifecycle, recording, session operations
  */
 
 import { assertEquals, assert, assertExists, assertRejects } from "jsr:@std/assert";
 import { join } from "jsr:@std/path@1";
 import { getSessionsDir } from "../../../../src/common/paths.ts";
-import { SessionManager } from "../../../../src/cli/repl/session/manager.ts";
-import { listSessions, deleteSession } from "../../../../src/cli/repl/session/storage.ts";
+import { SessionManager } from "../../../../src/hlvm/cli/repl/session/manager.ts";
+import { listSessions, deleteSession } from "../../../../src/hlvm/cli/repl/session/storage.ts";
 
 // ============================================================================
 // Test Helpers

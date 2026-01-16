@@ -1,12 +1,12 @@
 /**
- * Unit tests for HQL REPL Keyboard Handling - Word Navigation Functions
+ * Unit tests for HLVM REPL Keyboard Handling - Word Navigation Functions
  */
 
 import { assertEquals } from "jsr:@std/assert";
 import {
   calculateWordBackPosition,
   calculateWordForwardPosition,
-} from "../../../src/cli/repl/keyboard.ts";
+} from "../../../src/hlvm/cli/repl/keyboard.ts";
 
 // ============================================================
 // calculateWordBackPosition() tests

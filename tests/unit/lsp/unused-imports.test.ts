@@ -12,13 +12,13 @@ import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import { CodeActionKind } from "npm:vscode-languageserver@9.0.1";
 import {
   analyzeUnusedImports,
-} from "../../../lsp/imports/symbol-usage.ts";
+} from "../../../src/hql/lsp/imports/symbol-usage.ts";
 import {
   getRemoveUnusedImportAction,
   getRemoveAllUnusedAction,
-} from "../../../lsp/imports/import-editor.ts";
-import { findAllImports } from "../../../lsp/imports/import-parser.ts";
-import type { UnusedImport } from "../../../lsp/imports/types.ts";
+} from "../../../src/hql/lsp/imports/import-editor.ts";
+import { findAllImports } from "../../../src/hql/lsp/imports/import-parser.ts";
+import type { UnusedImport } from "../../../src/hql/lsp/imports/types.ts";
 
 // Helper to create a TextDocument
 function createDoc(content: string, uri = "file:///test.hql"): TextDocument {

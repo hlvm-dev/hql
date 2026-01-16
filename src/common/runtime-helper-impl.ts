@@ -5,7 +5,7 @@
 // These functions are stringified for embedding in transpiled code.
 // Any external references will cause "X is not defined" errors at runtime.
 
-import { lazySeq } from "../lib/stdlib/js/stdlib.js";
+import { lazySeq } from "../hql/lib/stdlib/js/stdlib.js";
 import { rangeCore } from "./shared-core.ts";
 
 // ============================================================================

@@ -54,7 +54,7 @@ async function main() {
   console.log("  └────────────────────────────────────────────────────────────┘\n");
 
   // Step 3 & 4: Test each model through our implementation
-  console.log("Step 3 & 4: Testing each model through HQL implementation:\n");
+  console.log("Step 3 & 4: Testing each model through HLVM HQL implementation:\n");
 
   let passed = 0;
   let failed = 0;

@@ -10,28 +10,28 @@
 import { assertEquals, assertStringIncludes, assertMatch } from "https://deno.land/std@0.218.0/assert/mod.ts";
 
 // Path to CLI entry point
-const CLI_PATH = new URL("../../src/cli/cli.ts", import.meta.url).pathname;
+const CLI_PATH = new URL("../../src/hlvm/cli/cli.ts", import.meta.url).pathname;
 
-// Binary test mode: set HQL_TEST_BINARY=1 for genuine binary testing
+// Binary test mode: set HLVM_TEST_BINARY=1 for genuine binary testing
 // Default: quick mode using deno run (same code path, faster)
-const USE_BINARY = Deno.env.get("HQL_TEST_BINARY") === "1";
+const USE_BINARY = Deno.env.get("HLVM_TEST_BINARY") === "1";
 
 // Cross-platform binary path
 const IS_WINDOWS = Deno.build.os === "windows";
 const TEMP_DIR = (Deno.env.get(IS_WINDOWS ? "TEMP" : "TMPDIR") || (IS_WINDOWS ? "C:\\Temp" : "/tmp")).replace(/[\/\\]$/, "");
-const BINARY_NAME = IS_WINDOWS ? "hql-test-binary.exe" : "hql-test-binary";
+const BINARY_NAME = IS_WINDOWS ? "hlvm-test-binary.exe" : "hlvm-test-binary";
 const BINARY_PATH = IS_WINDOWS ? `${TEMP_DIR}\\${BINARY_NAME}` : `${TEMP_DIR}/${BINARY_NAME}`;
 
 // Track if binary is compiled (only relevant when USE_BINARY=true)
 let binaryCompiled = false;
 
 /**
- * Compile the HQL binary (only when USE_BINARY mode is enabled)
+ * Compile the HLVM binary (only when USE_BINARY mode is enabled)
  */
 async function ensureBinaryCompiled(): Promise<void> {
   if (!USE_BINARY || binaryCompiled) return;
 
-  console.log("🔨 Compiling HQL binary for genuine binary testing...");
+  console.log("🔨 Compiling HLVM binary for genuine binary testing...");
   const cmd = new Deno.Command("deno", {
     args: ["compile", "-A", "--output", BINARY_PATH, CLI_PATH],
     stdout: "piped",

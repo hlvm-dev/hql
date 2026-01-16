@@ -1,6 +1,6 @@
 // src/utils/import-utils.ts - Centralized import utilities to improve code organization
-import { type HQLNode, isImportNode } from "../transpiler/type/hql_ast.ts";
-import type { Environment } from "../environment.ts";
+import { type HQLNode, isImportNode } from "../hql/transpiler/type/hql_ast.ts";
+import type { Environment } from "../hql/environment.ts";
 import { globalLogger, type Logger } from "../logger.ts";
 import { LRUCache } from "./lru-cache.ts";
 

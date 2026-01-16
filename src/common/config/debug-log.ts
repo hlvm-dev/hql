@@ -1,18 +1,18 @@
 /**
  * Debug Logger for Config System
- * Writes to ~/.hql/debug.log for real-time monitoring
+ * Writes to ~/.hlvm/debug.log for real-time monitoring
  *
- * Usage: tail -f ~/.hql/debug.log
+ * Usage: tail -f ~/.hlvm/debug.log
  */
 
-import { ensureHqlDir, ensureHqlDirSync, getDebugLogPath } from "../paths.ts";
+import { ensureHlvmDir, ensureHlvmDirSync, getDebugLogPath } from "../paths.ts";
 
 let initialized = false;
 
 async function ensureLogFile(): Promise<void> {
   if (initialized) return;
   try {
-    await ensureHqlDir();
+    await ensureHlvmDir();
   } catch {
     // Ignore errors to avoid breaking runtime on logging failures.
   }
@@ -20,7 +20,7 @@ async function ensureLogFile(): Promise<void> {
 }
 
 /**
- * Log a debug message to ~/.hql/debug.log
+ * Log a debug message to ~/.hlvm/debug.log
  */
 export async function debugLog(category: string, message: string, data?: unknown): Promise<void> {
   try {
@@ -56,7 +56,7 @@ export async function clearDebugLog(): Promise<void> {
  */
 export function debugLogSync(category: string, message: string, data?: unknown): void {
   try {
-    ensureHqlDirSync();
+    ensureHlvmDirSync();
     const timestamp = new Date().toISOString();
     const dataStr = data !== undefined ? ` | ${JSON.stringify(data)}` : "";
     const line = `[${timestamp}] [${category}] ${message}${dataStr}\n`;

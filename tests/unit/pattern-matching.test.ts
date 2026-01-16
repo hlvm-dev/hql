@@ -9,7 +9,7 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
-import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
+import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
 
 // Helper function needed for HQL hash-map literals
 // This should normally be embedded by the transpiler, but we include it here for test eval

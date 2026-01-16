@@ -14,9 +14,9 @@ import {
   __hql_trampoline_gen,
   GEN_THUNK_SYMBOL,
 } from "./runtime-helper-impl.ts";
-import { __hql_get_op, __hql_lazy_seq, __hql_delay } from "../lib/stdlib/js/core.js";
-import { STDLIB_PUBLIC_API } from "../lib/stdlib/js/stdlib.js";
-import { gensym as gensymImpl } from "../gensym.ts";
+import { __hql_get_op, __hql_lazy_seq, __hql_delay } from "../hql/lib/stdlib/js/core.js";
+import { STDLIB_PUBLIC_API } from "../hql/lib/stdlib/js/stdlib.js";
+import { gensym as gensymImpl } from "../hql/gensym.ts";
 
 type HqlMeta = {
   filePath?: string;

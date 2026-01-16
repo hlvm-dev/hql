@@ -1,7 +1,7 @@
 # HQL Built-in Functions
 
-HQL ships with a pragmatic set of built-in functions implemented by the runtime
-(`src/environment.ts`). They are available in every program without any
+HQL ships with a pragmatic set of built-in functions implemented by the HLVM runtime
+(`src/hql/environment.ts`). They are available in every program without any
 imports. This document covers the most commonly used ones, their behaviour, and
 examples.
 

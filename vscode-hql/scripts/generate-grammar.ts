@@ -3,7 +3,7 @@
  * Generate tmLanguage.json from HQL's single source of truth.
  *
  * ALL patterns are derived from:
- * - src/transpiler/keyword/primitives.ts
+ * - src/hql/transpiler/keyword/primitives.ts
  * - src/common/known-identifiers.ts
  *
  * NO HARDCODING - everything comes from the source of truth.
@@ -23,7 +23,7 @@ import {
   COMPARISON_OPS,
   LOGICAL_OPS,
   BITWISE_OPS,
-} from "../../src/transpiler/keyword/primitives.ts";
+} from "../../src/hql/transpiler/keyword/primitives.ts";
 
 import {
   getAllKnownIdentifiers,

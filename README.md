@@ -1,10 +1,10 @@
-# HQL
+# HLVM
 
-**A Lisp that compiles to JavaScript.**
+**Runtime platform for HQL and JavaScript.**
 
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-Modern Lisp dialect with full JavaScript interoperability, powerful macros, and zero runtime dependencies.
+HLVM runs HQL (a Lisp that compiles to JavaScript) alongside first-class JS, with macros, AI runtime hooks, and zero runtime dependencies for compiled output.
 
 ---
 
@@ -13,24 +13,24 @@ Modern Lisp dialect with full JavaScript interoperability, powerful macros, and 
 **macOS (Intel & Apple Silicon):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
 ```
 
 **Linux x86_64:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
 ```
 
-> **Note:** Linux installer has limited testing. Please [report issues](https://github.com/hlvm-dev/hql/issues).
+> **Note:** Linux installer has limited testing. Please [report issues](https://github.com/hlvm-dev/hlvm/issues).
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/hlvm-dev/hql/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.ps1 | iex
 ```
 
-> **Note:** Windows installer has limited testing. Please [report issues](https://github.com/hlvm-dev/hql/issues).
+> **Note:** Windows installer has limited testing. Please [report issues](https://github.com/hlvm-dev/hlvm/issues).
 
 **From source:**
 
@@ -43,8 +43,8 @@ See [build guide](./docs/BUILD.md) for details.
 **Update & Uninstall:**
 
 ```bash
-hql upgrade      # Update to latest version
-hql uninstall    # Remove HQL from system
+hlvm upgrade      # Update to latest version
+hlvm uninstall    # Remove HLVM from system
 ```
 
 ---
@@ -61,13 +61,13 @@ hql uninstall    # Remove HQL from system
 Run:
 
 ```bash
-hql run hello.hql
+hlvm run hello.hql
 ```
 
 REPL:
 
 ```bash
-hql repl
+hlvm repl
 ```
 
 ---
@@ -124,6 +124,6 @@ Contributions welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-HQL is licensed under the [MIT License](./LICENSE).
+HLVM is licensed under the [MIT License](./LICENSE).
 
 This project includes third-party dependencies with their own licenses. See [THIRD-PARTY-LICENSES](./THIRD-PARTY-LICENSES) for details.

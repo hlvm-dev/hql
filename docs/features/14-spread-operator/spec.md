@@ -546,6 +546,6 @@ See `examples.hql` for executable examples demonstrating all spread operator pat
 
 ## Implementation Location
 
-- Parser: `src/transpiler/syntax/data-structure.ts` (array/object spread)
-- Parser: `src/transpiler/syntax/function.ts` (function call spread)
+- Parser: `src/hql/transpiler/syntax/data-structure.ts` (array/object spread)
+- Parser: `src/hql/transpiler/syntax/function.ts` (function call spread)
 - Test suite: `test/syntax-spread-operator.test.ts`

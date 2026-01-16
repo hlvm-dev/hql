@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert";
-import { transpile } from "../../src/transpiler/index.ts";
+import { transpile } from "../../src/hql/transpiler/index.ts";
 
 Deno.test("Export Default: named function", async () => {
   const code = `

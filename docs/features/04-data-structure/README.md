@@ -92,7 +92,7 @@ HQL's parser transforms literal syntax into S-expressions:
 - **Literal:** `[1, 2, 3]`
 - **S-expression:** `(vector 1 2 3)`
 - **Empty:** `[]` → `(empty-array)`
-- **Parser:** `parseVector` in `src/s-exp/parser.ts`
+- **Parser:** `parseVector` in `src/hql/s-exp/parser.ts`
 - **Syntax:** Exact JavaScript/JSON - requires commas
 
 #### Hash Maps
@@ -100,7 +100,7 @@ HQL's parser transforms literal syntax into S-expressions:
 - **Literal:** `{"x": 10, "y": 20}`
 - **S-expression:** `(hash-map "x" 10 "y" 20)`
 - **Empty:** `{}` → `(empty-map)`
-- **Parser:** `parseMap` in `src/s-exp/parser.ts`
+- **Parser:** `parseMap` in `src/hql/s-exp/parser.ts`
 - **Syntax:** Exact JavaScript/JSON - requires colons and commas
 
 #### Hash Sets
@@ -108,7 +108,7 @@ HQL's parser transforms literal syntax into S-expressions:
 - **Literal:** `#[1, 2, 3]`
 - **S-expression:** `(hash-set 1 2 3)`
 - **Empty:** `#[]` → `(empty-set)`
-- **Parser:** `parseSet` in `src/s-exp/parser.ts`
+- **Parser:** `parseSet` in `src/hql/s-exp/parser.ts`
 - **Syntax:** HQL extension (JS has no Set literal) - requires commas
 
 ### JavaScript/JSON Compliance

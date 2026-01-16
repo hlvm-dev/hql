@@ -342,7 +342,7 @@ Math.PI          ; property access (bare)
 // Compile HQL to JS first
 const hql = await transpile(code);
 // Using platform abstraction
-import { writeTextFile } from "hql/src/platform/platform.ts";
+import { writeTextFile } from "@hlvm/hql/src/platform/platform.ts";
 await writeTextFile("module.mjs", hql);
 
 // Import in JavaScript

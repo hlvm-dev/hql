@@ -3,7 +3,7 @@
  */
 
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { extractDocstrings } from "../../../src/cli/repl/docstring.ts";
+import { extractDocstrings } from "../../../src/hlvm/cli/repl/docstring.ts";
 
 // ============================================================
 // Basic Extraction Tests
@@ -95,7 +95,7 @@ Deno.test("extractDocstrings: macro form", () => {
 
 Deno.test("extractDocstrings: import with vector", () => {
   const input = `; AI utilities
-(import [ask chat] from "@hql/ai")`;
+(import [ask chat] from "@hlvm/ai")`;
   const result = extractDocstrings(input);
   assertEquals(result.get("ask"), "AI utilities");
   assertEquals(result.get("chat"), "AI utilities");

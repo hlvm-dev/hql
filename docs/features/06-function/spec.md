@@ -237,13 +237,13 @@
 
 | Component | Location | Status |
 |-----------|----------|--------|
-| **Transpiler** | `src/transpiler/syntax/function.ts` | ✅ Implements `[]` and `{}` only |
+| **Transpiler** | `src/hql/transpiler/syntax/function.ts` | ✅ Implements `[]` and `{}` only |
 | **Tests** | `tests/test/organized/syntax/function/function.test.ts` | ✅ Tests pass |
 | **CLAUDE.md** | `docs/CLAUDE.md:35-41` | ✅ "two-style system" |
 | **AGENTS.md** | `docs/AGENTS.md:39-43` | ✅ "two-style system" |
 | **README.md** | `docs/features/06-function/README.md:6` | ✅ References this spec |
 | **Examples** | All 47 `.hql` files | ✅ No `()` params |
-| **Embedded** | `src/embedded-packages.ts` | ✅ No `()` params |
+| **Embedded** | `src/hql/embedded-packages.ts` | ✅ No `()` params |
 
 **Total Test Results:** All tests pass
 

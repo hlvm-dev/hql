@@ -1,0 +1,10 @@
+{"ts":1768581926687,"cmd":"(+ 1 1)"}
+{"ts":1768581928187,"cmd":"(memory)"}
+{"ts":1768581928890,"cmd":"(defn test_inspect_fn [x] (+ x 1))"}
+{"ts":1768581929822,"cmd":"(inspect test_inspect_fn)"}
+{"ts":1768581930751,"cmd":"(forget \"test_inspect_fn\")"}
+{"ts":1768581931473,"cmd":"(help)"}
+{"ts":1768581932170,"cmd":"(def test_forget_val 123)"}
+{"ts":1768581933082,"cmd":"(forget \"test_forget_val\")"}
+{"ts":1768581934209,"cmd":"(clear)"}
+{"ts":1768581934917,"cmd":"(+ 1 1)"}

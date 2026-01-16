@@ -14,11 +14,11 @@
 
 import { assertEquals, assert, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
 import { binaryTest, USE_BINARY, runExpression } from "../_shared/binary-helpers.ts";
-import { findSuggestion, acceptSuggestion } from "../../../src/cli/repl/suggester.ts";
-import { getWordAtCursor } from "../../../src/cli/repl/completer.ts";
-import { buildContext } from "../../../src/cli/repl-ink/completion/providers.ts";
-import { SymbolProvider } from "../../../src/cli/repl-ink/completion/concrete-providers.ts";
-import type { CompletionItem } from "../../../src/cli/repl-ink/completion/types.ts";
+import { findSuggestion, acceptSuggestion } from "../../../src/hlvm/cli/repl/suggester.ts";
+import { getWordAtCursor } from "../../../src/hlvm/cli/repl/completer.ts";
+import { buildContext } from "../../../src/hlvm/cli/repl-ink/completion/providers.ts";
+import { SymbolProvider } from "../../../src/hlvm/cli/repl-ink/completion/concrete-providers.ts";
+import type { CompletionItem } from "../../../src/hlvm/cli/repl-ink/completion/types.ts";
 
 console.log(`Testing REPL Tab behavior logic in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
 
@@ -98,7 +98,7 @@ binaryTest("Tab completion: getWordAtCursor extracts word correctly", async () =
 
 binaryTest("Tab priority: uses real shouldTabAcceptSuggestion", async () => {
   // Import and test the REAL function from production code
-  const { shouldTabAcceptSuggestion } = await import("../../../src/cli/repl/tab-logic.ts");
+  const { shouldTabAcceptSuggestion } = await import("../../../src/hlvm/cli/repl/tab-logic.ts");
 
   // Case 1: All conditions met - should accept
   const suggestion1 = { full: "test", ghost: "ing" };

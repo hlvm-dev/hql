@@ -8,7 +8,7 @@ import {
   assertEquals,
   assertExists,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { ModuleAnalyzer } from "../../../lsp/workspace/module-analyzer.ts";
+import { ModuleAnalyzer } from "../../../src/hql/lsp/workspace/module-analyzer.ts";
 
 async function withTempModule(
   code: string,

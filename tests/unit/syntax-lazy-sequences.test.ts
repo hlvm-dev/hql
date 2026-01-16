@@ -11,7 +11,7 @@ import { assertEquals, assertExists } from "jsr:@std/assert@1";
 
 // Import LazySeq and stdlib functions from compiled JS
 const stdlibPath =
-  new URL("../../src/lib/stdlib/js/stdlib.js", import.meta.url).pathname;
+  new URL("../../src/hql/lib/stdlib/js/stdlib.js", import.meta.url).pathname;
 const {
   LazySeq,
   lazySeq,
@@ -31,12 +31,12 @@ const {
 
 // Import first/rest from core for testing LazySeq behavior
 const corePath =
-  new URL("../../src/lib/stdlib/js/core.js", import.meta.url).pathname;
+  new URL("../../src/hql/lib/stdlib/js/core.js", import.meta.url).pathname;
 const { first, rest } = await import(corePath);
 
 // Import nth from self-hosted (it's a self-hosted function)
 const selfHostedPath =
-  new URL("../../src/lib/stdlib/js/self-hosted.js", import.meta.url).pathname;
+  new URL("../../src/hql/lib/stdlib/js/self-hosted.js", import.meta.url).pathname;
 const { nth } = await import(selfHostedPath);
 
 Deno.test("LazySeq: thunk called only once (memoization)", () => {

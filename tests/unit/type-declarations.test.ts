@@ -1,9 +1,9 @@
 // Tests for TypeScript type declarations (type aliases and interfaces)
 // Note: Type declarations are erased when compiling to JS, so we test the TS output
 import { assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { generateTypeScript } from "../../src/transpiler/pipeline/ir-to-typescript.ts";
-import { transformToIR } from "../../src/transpiler/pipeline/hql-ast-to-hql-ir.ts";
-import { parse } from "../../src/transpiler/pipeline/parser.ts";
+import { generateTypeScript } from "../../src/hql/transpiler/pipeline/ir-to-typescript.ts";
+import { transformToIR } from "../../src/hql/transpiler/pipeline/hql-ast-to-hql-ir.ts";
+import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
 
 // Helper to get TypeScript output from HQL
 function hqlToTypeScript(hql: string): string {

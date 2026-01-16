@@ -1,19 +1,19 @@
 /**
- * HQL Config Runtime
+ * HLVM Config Runtime
  * Startup helpers that delegate to the config API (SSOT)
  */
 
-import { type HqlConfig, type ConfigKey, type KeybindingsConfig, DEFAULT_CONFIG } from "./types.ts";
+import { type HlvmConfig, type ConfigKey, type KeybindingsConfig, DEFAULT_CONFIG } from "./types.ts";
 import { debugLog } from "./debug-log.ts";
-import { ai } from "../../api/ai.ts";
-import { parseModelString } from "../../providers/index.ts";
-import { config } from "../../api/config.ts";
+import { ai } from "../../hlvm/api/ai.ts";
+import { parseModelString } from "../../hlvm/providers/index.ts";
+import { config } from "../../hlvm/api/config.ts";
 
 /**
  * Initialize config runtime at CLI startup
  * Loads config from file and verifies model selection
  */
-export async function initConfigRuntime(): Promise<HqlConfig> {
+export async function initConfigRuntime(): Promise<HlvmConfig> {
   const loaded = await config.reload();
   await debugLog("CONFIG", "initConfigRuntime() called", loaded);
 
@@ -44,25 +44,19 @@ async function verifyAndSelectModel(): Promise<void> {
       return;
     }
 
-    // Check if configured model exists (match by base name without tag)
-    const configuredBase = configuredModel.split(":")[0];
-    const modelExists = models.some(m => {
-      const modelBase = m.name.split(":")[0];
-      return m.name === configuredModel || modelBase === configuredBase;
+    // Check if configured model exists (strict if tagged, fallback to :latest if untagged)
+    const configuredHasTag = configuredModel.includes(":");
+    const modelExists = models.some((m) => {
+      if (configuredHasTag) {
+        return m.name === configuredModel;
+      }
+      return m.name === configuredModel || m.name === `${configuredModel}:latest`;
     });
 
     if (!modelExists) {
-      // Auto-select first available model
-      const firstModel = models[0].name;
-      const providerPrefix = providerName ?? ai.providers.default ?? "ollama";
-      const newModelConfig = `${providerPrefix}/${firstModel}`;
-
-      console.warn(`\x1b[33m⚠ Model '${configuredModel}' not found. Auto-selecting '${firstModel}'.\x1b[0m`);
-
-      // Update config
-      await config.set("model", newModelConfig);
-
-      await debugLog("CONFIG", "Auto-selected model", { from: configuredModel, to: firstModel });
+      console.warn(
+        `\x1b[33m⚠ Model '${configuredModel}' not found. It will be downloaded on startup.\x1b[0m`
+      );
     }
   } catch (error) {
     // Provider not running or unreachable - silently continue
@@ -87,7 +81,7 @@ export async function updateConfigRuntime(key: ConfigKey, value: unknown): Promi
  * Reset config to defaults at runtime
  * Updates both file and globalThis
  */
-export async function resetConfigRuntime(): Promise<HqlConfig> {
+export async function resetConfigRuntime(): Promise<HlvmConfig> {
   await debugLog("CONFIG", "resetConfigRuntime() called");
 
   const next = await config.reset();
@@ -98,7 +92,7 @@ export async function resetConfigRuntime(): Promise<HqlConfig> {
 /**
  * Get current runtime config
  */
-export function getConfigRuntime(): HqlConfig {
+export function getConfigRuntime(): HlvmConfig {
   return config.snapshot ?? { ...DEFAULT_CONFIG };
 }
 

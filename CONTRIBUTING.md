@@ -1,20 +1,20 @@
-# Contributing to HQL
+# Contributing to HLVM
 
-Thank you for your interest in contributing to HQL.
+Thank you for your interest in contributing to HLVM.
 
 ## Development Setup
 
 ### Prerequisites
 
-- Install the HQL binary or build from source
+- Install the HLVM binary or build from source
 - Familiarity with Lisp syntax
 
 ### Building from Source
 
 Clone the repository:
 ```bash
-git clone https://github.com/hlvm-dev/hql.git
-cd hql
+git clone https://github.com/hlvm-dev/hlvm.git
+cd hlvm
 ```
 
 Build:
@@ -83,7 +83,7 @@ Use GitHub Issues to report:
 - Documentation improvements
 
 Include:
-- HQL version (`hql --version`)
+- HLVM version (`hlvm --version`)
 - Operating system
 - Steps to reproduce
 - Expected vs actual behavior

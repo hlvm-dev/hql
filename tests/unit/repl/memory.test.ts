@@ -1,5 +1,5 @@
 /**
- * Unit tests for HQL REPL Memory Persistence
+ * Unit tests for HLVM REPL Memory Persistence
  * Tests: def/defn persistence, loading, compaction, serialization
  */
 
@@ -13,9 +13,9 @@ import {
   forgetFromMemory,
   getMemoryStats,
   getMemoryNames,
-} from "../../../src/cli/repl/memory.ts";
-import { evaluate } from "../../../src/cli/repl/evaluator.ts";
-import { ReplState } from "../../../src/cli/repl/state.ts";
+} from "../../../src/hlvm/cli/repl/memory.ts";
+import { evaluate } from "../../../src/hlvm/cli/repl/evaluator.ts";
+import { ReplState } from "../../../src/hlvm/cli/repl/state.ts";
 import { initializeRuntime } from "../../../src/common/runtime-initializer.ts";
 
 // Helper to clean memory file before tests
@@ -97,7 +97,7 @@ Deno.test("serializeValue: circular reference returns null", () => {
 
 Deno.test("getMemoryFilePath: returns correct path", () => {
   const path = getMemoryFilePath();
-  assert(path.endsWith("/.hql/memory.hql"));
+  assert(path.endsWith("/.hlvm/memory.hql"));
 });
 
 Deno.test("appendToMemory: creates file and appends def", async () => {
@@ -140,7 +140,7 @@ Deno.test("compactMemory: removes duplicates", async () => {
   await cleanMemory();
 
   // Write duplicates manually
-  await createMemoryFile(`; HQL Memory
+  await createMemoryFile(`; HLVM Memory
 (def x 1)
 (def y 2)
 (def x 10)
@@ -174,7 +174,7 @@ Deno.test("loadMemory: loads definitions", async () => {
   await cleanMemory();
 
   // Create memory file with definitions
-  const content = `; HQL Memory
+  const content = `; HLVM Memory
 (def loadTestX 42)
 (defn loadTestDouble [n] (* n 2))
 `;
@@ -199,7 +199,7 @@ Deno.test("loadMemory: handles malformed code gracefully", async () => {
   await cleanMemory();
 
   // Create memory file with some bad syntax
-  const content = `; HQL Memory
+  const content = `; HLVM Memory
 (def goodVar 42)
 (def badVar
 (defn goodFn [x] x)
@@ -228,7 +228,7 @@ Deno.test("loadMemory: handles malformed code gracefully", async () => {
 Deno.test("forgetFromMemory: removes specific definition", async () => {
   await cleanMemory();
 
-  const content = `; HQL Memory
+  const content = `; HLVM Memory
 (def keepMe 1)
 (def forgetMe 2)
 (def alsoKeep 3)
@@ -249,7 +249,7 @@ Deno.test("forgetFromMemory: removes specific definition", async () => {
 Deno.test("forgetFromMemory: returns false for non-existent name", async () => {
   await cleanMemory();
 
-  const content = `; HQL Memory
+  const content = `; HLVM Memory
 (def x 1)
 `;
   await Deno.mkdir(getMemoryFilePath().replace("/memory.hql", ""), { recursive: true });
@@ -267,7 +267,7 @@ Deno.test("forgetFromMemory: returns false for non-existent name", async () => {
 Deno.test("getMemoryStats: returns correct stats", async () => {
   await cleanMemory();
 
-  const content = `; HQL Memory
+  const content = `; HLVM Memory
 (def a 1)
 (def b 2)
 (defn c [x] x)
@@ -286,7 +286,7 @@ Deno.test("getMemoryStats: returns correct stats", async () => {
 Deno.test("getMemoryNames: returns all names", async () => {
   await cleanMemory();
 
-  const content = `; HQL Memory
+  const content = `; HLVM Memory
 (def alpha 1)
 (defn beta [x] x)
 (def gamma 3)
@@ -387,7 +387,7 @@ Deno.test("integration: loading does not re-persist", async () => {
   await cleanMemory();
 
   // Create initial memory
-  const content = `; HQL Memory
+  const content = `; HLVM Memory
 (def reloadTest 42)
 `;
   await Deno.mkdir(getMemoryFilePath().replace("/memory.hql", ""), { recursive: true });
@@ -448,7 +448,7 @@ Deno.test("edge: corrupted file with unclosed paren skips malformed, loads rest"
   await cleanMemory();
 
   // Create corrupted memory file with unclosed paren
-  const corruptedContent = `; HQL Memory
+  const corruptedContent = `; HLVM Memory
 (def good1 100)
 (def broken
 (def good2 200)

@@ -1,6 +1,6 @@
 // Tests for native switch statements
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { transpile } from "../../src/transpiler/index.ts";
+import { transpile } from "../../src/hql/transpiler/index.ts";
 import hql from "../../mod.ts";
 
 Deno.test("Switch: basic switch - uses native ternary (optimized)", async () => {

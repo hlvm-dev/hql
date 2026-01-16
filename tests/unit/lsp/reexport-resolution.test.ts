@@ -9,13 +9,13 @@
  */
 
 import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { ProjectIndex } from "../../../lsp/workspace/project-index.ts";
+import { ProjectIndex } from "../../../src/hql/lsp/workspace/project-index.ts";
 import {
   isReExportedSymbol,
   resolveReExportChain,
   detectCircularReExports,
-} from "../../../lsp/imports/export-resolver.ts";
-import type { SymbolInfo } from "../../../src/transpiler/symbol_table.ts";
+} from "../../../src/hql/lsp/imports/export-resolver.ts";
+import type { SymbolInfo } from "../../../src/hql/transpiler/symbol_table.ts";
 
 // Helper to create a mock analysis result
 function createAnalysis(

@@ -9,7 +9,7 @@
  */
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
-import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
+import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
 import { initializeRuntimeHelpers } from "../../src/common/runtime-helpers.ts";
 
 async function transpile(code: string): Promise<string> {

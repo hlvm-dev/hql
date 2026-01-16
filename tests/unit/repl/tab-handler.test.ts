@@ -1,14 +1,14 @@
 /**
- * Unit tests for HQL REPL Tab Handler Logic
+ * Unit tests for HLVM REPL Tab Handler Logic
  *
  * Tests the REAL shouldTabAcceptSuggestion function from tab-logic.ts
  * NOT a mock - this tests actual production code.
  */
 
 import { assertEquals, assert } from "jsr:@std/assert";
-import { shouldTabAcceptSuggestion } from "../../../src/cli/repl/tab-logic.ts";
-import { findSuggestion, acceptSuggestion } from "../../../src/cli/repl/suggester.ts";
-import { getWordAtCursor } from "../../../src/cli/repl/completer.ts";
+import { shouldTabAcceptSuggestion } from "../../../src/hlvm/cli/repl/tab-logic.ts";
+import { findSuggestion, acceptSuggestion } from "../../../src/hlvm/cli/repl/suggester.ts";
+import { getWordAtCursor } from "../../../src/hlvm/cli/repl/completer.ts";
 
 // ============================================================
 // shouldTabAcceptSuggestion() - Testing REAL production code

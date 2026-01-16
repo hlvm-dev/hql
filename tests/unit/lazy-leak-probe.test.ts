@@ -2,7 +2,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 
 const stdlibPath =
-  new URL("../../src/lib/stdlib/js/stdlib.js", import.meta.url).pathname;
+  new URL("../../src/hql/lib/stdlib/js/stdlib.js", import.meta.url).pathname;
 const {
   nth,
   count,

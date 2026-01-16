@@ -361,4 +361,4 @@ Internal implementation macro that:
 4. Handles guards
 5. Chains to next clause on failure
 
-See `src/lib/macro/core.hql` for full implementation.
+See `src/hql/lib/macro/core.hql` for full implementation.

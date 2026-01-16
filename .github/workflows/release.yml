@@ -18,22 +18,22 @@ jobs:
           # macOS ARM (Apple Silicon M1/M2/M3)
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary: hql-mac-arm
+            binary: hlvm-mac-arm
 
           # macOS Intel
           - os: macos-latest
             target: x86_64-apple-darwin
-            binary: hql-mac-intel
+            binary: hlvm-mac-intel
 
           # Linux
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary: hql-linux
+            binary: hlvm-linux
 
           # Windows
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            binary: hql-windows.exe
+            binary: hlvm-windows.exe
 
     steps:
       - name: Checkout code
@@ -44,7 +44,7 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Embed HQL packages
+      - name: Embed HLVM packages
         run: deno run --allow-read --allow-write scripts/embed-packages.ts
 
       - name: Build binary
@@ -55,7 +55,7 @@ jobs:
             --no-check \
             --target ${{ matrix.target }} \
             --output ${{ matrix.binary }} \
-            src/cli/cli.ts
+            src/hlvm/cli/cli.ts
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -78,15 +78,15 @@ jobs:
 
       - name: Move binaries to root
         run: |
-          mv artifacts/hql-mac-arm/hql-mac-arm .
-          mv artifacts/hql-mac-intel/hql-mac-intel .
-          mv artifacts/hql-linux/hql-linux .
-          mv artifacts/hql-windows.exe/hql-windows.exe .
-          chmod +x hql-mac-arm hql-mac-intel hql-linux
+          mv artifacts/hlvm-mac-arm/hlvm-mac-arm .
+          mv artifacts/hlvm-mac-intel/hlvm-mac-intel .
+          mv artifacts/hlvm-linux/hlvm-linux .
+          mv artifacts/hlvm-windows.exe/hlvm-windows.exe .
+          chmod +x hlvm-mac-arm hlvm-mac-intel hlvm-linux
 
       - name: Generate checksums
         run: |
-          sha256sum hql-mac-arm hql-mac-intel hql-linux hql-windows.exe > checksums.sha256
+          sha256sum hlvm-mac-arm hlvm-mac-intel hlvm-linux hlvm-windows.exe > checksums.sha256
           echo "Generated checksums:"
           cat checksums.sha256
 
@@ -97,54 +97,54 @@ jobs:
           prerelease: false
           generate_release_notes: true
           body: |
-            # HQL ${{ github.ref_name }}
+            # HLVM ${{ github.ref_name }}
 
-            A Lisp that compiles to JavaScript.
+            HLVM runtime platform with HQL and JavaScript.
 
             ## Installation
 
             **macOS / Linux:**
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
+            curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
             ```
 
             **Windows (PowerShell):**
             ```powershell
-            irm https://raw.githubusercontent.com/hlvm-dev/hql/main/install.ps1 | iex
+            irm https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.ps1 | iex
             ```
 
             ## What's Included
 
-            - Full HQL language compiler and runtime
-            - Interactive REPL
+            - HLVM runtime platform
+            - HQL and JavaScript REPL
             - Complete standard library
             - Macro system
             - JavaScript interop
 
             ## Binaries
 
-            - `hql-mac-arm` - macOS Apple Silicon (M1/M2/M3)
-            - `hql-mac-intel` - macOS Intel
-            - `hql-linux` - Linux x86_64
-            - `hql-windows.exe` - Windows x86_64
+            - `hlvm-mac-arm` - macOS Apple Silicon (M1/M2/M3)
+            - `hlvm-mac-intel` - macOS Intel
+            - `hlvm-linux` - Linux x86_64
+            - `hlvm-windows.exe` - Windows x86_64
 
             ## Quick Start
 
             ```bash
             # Start REPL
-            hql repl
+            hlvm repl
 
             # Run a file
-            hql run hello.hql
+            hlvm run hello.hql
 
             # Show help
-            hql --help
+            hlvm --help
             ```
           files: |
-            hql-mac-arm
-            hql-mac-intel
-            hql-linux
-            hql-windows.exe
+            hlvm-mac-arm
+            hlvm-mac-intel
+            hlvm-linux
+            hlvm-windows.exe
             checksums.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

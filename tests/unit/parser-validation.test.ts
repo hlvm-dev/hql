@@ -5,7 +5,7 @@ import {
   assertEquals,
   assertThrows,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { parse } from "../../src/transpiler/pipeline/parser.ts";
+import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
 import { ParseError } from "../../src/common/error.ts";
 
 Deno.test("Parser: balanced parentheses", () => {

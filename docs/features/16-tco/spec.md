@@ -233,6 +233,6 @@ No transformation applied - no recursion detected.
 
 ## Implementation Location
 
-- Detection: `src/transpiler/optimize/tco-optimizer.ts`
-- Integration: `src/transpiler/pipeline/ir-to-estree.ts`
+- Detection: `src/hql/transpiler/optimize/tco-optimizer.ts`
+- Integration: `src/hql/transpiler/pipeline/ir-to-estree.ts`
 - Tests: `tests/unit/tco.test.ts`

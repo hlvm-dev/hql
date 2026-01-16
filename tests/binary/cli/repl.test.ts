@@ -1,5 +1,5 @@
 /**
- * Binary tests for the `hql repl` command
+ * Binary tests for the `hlvm repl` command
  * Note: REPL is interactive, so testing is limited
  */
 

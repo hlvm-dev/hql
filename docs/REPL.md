@@ -1,15 +1,15 @@
-# HQL REPL Guide
+# HLVM REPL Guide
 
-The HQL REPL (Read-Eval-Print Loop) provides an interactive environment for exploring HQL and building AI-powered applications.
+The HLVM REPL (Read-Eval-Print Loop) provides an interactive environment for exploring HQL and building AI-powered applications.
 
 ## Quick Start
 
 ```bash
 # Standard REPL
-hql repl
+hlvm repl
 
 # Ink REPL (enhanced terminal UI)
-hql repl --ink
+hlvm repl --ink
 ```
 
 ## Features
@@ -19,15 +19,15 @@ hql repl --ink
 Variables defined with `def` and `defn` are automatically saved across sessions:
 
 ```lisp
-hql> (def greeting "Hello, World!")
-hql> (defn double [x] (* x 2))
+hlvm> (def greeting "Hello, World!")
+hlvm> (defn double [x] (* x 2))
 ```
 
 On next session:
 ```lisp
-hql> greeting
+hlvm> greeting
 "Hello, World!"
-hql> (double 21)
+hlvm> (double 21)
 42
 ```
 
@@ -42,7 +42,7 @@ Memory commands:
 
 ### AI Integration
 
-AI functions are auto-imported from `@hql/ai`:
+AI functions are auto-imported from `@hlvm/ai`:
 
 ```lisp
 ; Ask AI a question (streaming response)
@@ -75,7 +75,7 @@ AI functions are auto-imported from `@hql/ai`:
 When you paste multi-line text, it's automatically captured as a variable:
 
 ```
-hql> [Pasted text #1 +245 lines]
+hlvm> [Pasted text #1 +245 lines]
 ```
 
 Access the content:
@@ -118,13 +118,13 @@ Reference files directly in your input:
 
 ```lisp
 ; Text files - content is inlined
-hql> (ask @src/main.ts "review this code")
+hlvm> (ask @src/main.ts "review this code")
 
 ; Fuzzy search - type partial path
-hql> @ma<tab>  ; Shows matches like src/main.ts
+hlvm> @ma<tab>  ; Shows matches like src/main.ts
 
 ; Images and media (Ink REPL)
-hql> (describe @screenshot.png)  ; Creates [Image #1] attachment
+hlvm> (describe @screenshot.png)  ; Creates [Image #1] attachment
 ```
 
 ### Slash Commands
@@ -144,7 +144,7 @@ Toggle between HQL and JavaScript using the `--js` flag:
 
 ```bash
 # Start in JavaScript mode
-hql repl --js
+hlvm repl --js
 ```
 
 ## Keyboard Shortcuts
@@ -189,14 +189,14 @@ The REPL includes full paredit support for manipulating S-expressions structural
 ### Basic Exploration
 
 ```lisp
-hql> (+ 1 2 3)
+hlvm> (+ 1 2 3)
 6
 
-hql> (def nums [1 2 3 4 5])
-hql> (map (fn [x] (* x 2)) nums)
+hlvm> (def nums [1 2 3 4 5])
+hlvm> (map (fn [x] (* x 2)) nums)
 [2, 4, 6, 8, 10]
 
-hql> (filter (fn [x] (> x 2)) nums)
+hlvm> (filter (fn [x] (> x 2)) nums)
 [3, 4, 5]
 ```
 
@@ -204,47 +204,47 @@ hql> (filter (fn [x] (> x 2)) nums)
 
 ```lisp
 ; Ask about code
-hql> (ask @src/parser.ts "What parsing strategy does this use?")
+hlvm> (ask @src/parser.ts "What parsing strategy does this use?")
 
 ; Generate and iterate
-hql> (generate "a sorting function in HQL")
-hql> (ask last-response "add error handling")
+hlvm> (generate "a sorting function in HQL")
+hlvm> (ask last-response "add error handling")
 
 ; Code review with pasted content
-hql> [Pasted text #1 +50 lines]
-hql> (ask paste-1 "find potential bugs and suggest fixes")
+hlvm> [Pasted text #1 +50 lines]
+hlvm> (ask paste-1 "find potential bugs and suggest fixes")
 ```
 
 ### Multi-file Analysis
 
 ```lisp
 ; Compare files
-hql> (ask @old.ts @new.ts "what changed between these versions?")
+hlvm> (ask @old.ts @new.ts "what changed between these versions?")
 
 ; Aggregate context
-hql> (def context (str @types.ts "\n\n" @impl.ts))
-hql> (ask context "are there any type mismatches?")
+hlvm> (def context (str @types.ts "\n\n" @impl.ts))
+hlvm> (ask context "are there any type mismatches?")
 ```
 
 ### Persistent Workflows
 
 ```lisp
 ; Save important context
-hql> (def project-context @README.md)
-hql> (def api-spec @api/schema.ts)
+hlvm> (def project-context @README.md)
+hlvm> (def api-spec @api/schema.ts)
 
 ; Use across sessions
-hql> (memory)
+hlvm> (memory)
 ["project-context", "api-spec", ...]
 
-hql> (ask project-context "summarize the project goals")
+hlvm> (ask project-context "summarize the project goals")
 ```
 
 ## Configuration
 
 The REPL stores data in:
-- `~/.hql/memory.json` - Persisted variables
-- `~/.hql/history` - Command history
+- `~/.hlvm/memory.hql` - Persisted variables
+- `~/.hlvm/history.jsonl` - Command history
 
 ## Tips
 
@@ -275,6 +275,6 @@ The REPL stores data in:
 
 ### Source Files
 
-- `src/cli/repl/context.ts` - Context management (29 tests)
-- `src/cli/repl/attachment.ts` - Attachment handling (70 tests)
-- `src/cli/repl/evaluator.ts` - REPL evaluation
+- `src/hlvm/cli/repl/context.ts` - Context management (29 tests)
+- `src/hlvm/cli/repl/attachment.ts` - Attachment handling (70 tests)
+- `src/hlvm/cli/repl/evaluator.ts` - REPL evaluation

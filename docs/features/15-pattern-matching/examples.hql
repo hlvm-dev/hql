@@ -1,7 +1,7 @@
 ;; ============================================
 ;; Pattern Matching Examples
 ;; ============================================
-;; Run with: hql run examples.hql
+;; Run with: hlvm run examples.hql
 
 ;; --------------------------------------------
 ;; 1. Literal Matching

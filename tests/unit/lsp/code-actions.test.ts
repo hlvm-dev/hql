@@ -8,7 +8,7 @@ import {
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import { type Diagnostic, DiagnosticSeverity, CodeActionKind } from "npm:vscode-languageserver@9.0.1";
-import { getCodeActions, getSupportedCodeActionKinds } from "../../../lsp/features/code-actions.ts";
+import { getCodeActions, getSupportedCodeActionKinds } from "../../../src/hql/lsp/features/code-actions.ts";
 
 function createDoc(content: string): TextDocument {
   return TextDocument.create("file:///test.hql", "hql", 1, content);

@@ -4,8 +4,8 @@ import {
   assertNotEquals,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { macroexpand } from "../../mod.ts";
-import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
-import { resetGensymCounter } from "../../src/gensym.ts";
+import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
+import { resetGensymCounter } from "../../src/hql/gensym.ts";
 
 function resetCounter() {
   resetGensymCounter();

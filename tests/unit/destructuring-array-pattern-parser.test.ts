@@ -10,12 +10,12 @@ import {
   type IdentifierPattern,
   type RestPattern,
   type SkipPattern,
-} from "../../src/s-exp/types.ts";
+} from "../../src/hql/s-exp/types.ts";
 import {
   parseArrayPattern,
   parseIdentifierPattern,
   parsePattern,
-} from "../../src/s-exp/pattern-parser.ts";
+} from "../../src/hql/s-exp/pattern-parser.ts";
 
 // ============================================================================
 // POSITIVE CASES - Valid Array Patterns

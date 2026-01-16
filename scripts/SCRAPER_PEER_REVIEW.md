@@ -2,7 +2,7 @@
 
 ## Overview
 
-Created a TypeScript scraper (`scripts/scrape-ollama-models.ts`) that generates `ollama_models.json` with the **exact same structure** as the HLVM Swift app uses. Both HQL and HLVM GUI can share this JSON file.
+Created a TypeScript scraper (`scripts/scrape-ollama-models.ts`) that generates `ollama_models.json` with the **exact same structure** as the HLVM Swift app uses. Both the HLVM CLI and HLVM GUI can share this JSON file.
 
 ## Problem
 
@@ -179,7 +179,7 @@ deno run --allow-net --allow-write --allow-read scripts/scrape-ollama-models.ts 
 ## Files
 
 - **Scraper**: `scripts/scrape-ollama-models.ts`
-- **Output**: `ollama_models.json` (compatible with both HQL and HLVM)
+- **Output**: `ollama_models.json` (compatible with HLVM CLI + HLVM GUI)
 - **Reference**: `~/dev/HLVM/HLVM/Resources/ollama_models.json`
 
 ## Comprehensive Testing Results (2026-01-12)

@@ -13,7 +13,7 @@ import {
   isSeq,
   LazySeq,
   seq,
-} from "../../src/lib/stdlib/js/index.js";
+} from "../../src/hql/lib/stdlib/js/index.js";
 
 // =============================================================================
 // seq(coll) - 12 tests

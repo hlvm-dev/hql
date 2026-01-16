@@ -1,4 +1,4 @@
-// Enhancements to core/src/common/error-constants.ts
+// Enhancements to src/common/error-constants.ts
 // Adding better patterns and suggestions for function call errors
 
 /**

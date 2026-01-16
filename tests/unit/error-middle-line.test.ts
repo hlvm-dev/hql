@@ -16,7 +16,7 @@ Deno.test("CRITICAL: Error on line 2 of 4-line file", async () => {
 (let z 30)`;
 
   const tempDir = await makeTempDir({
-    prefix: "hql-middle-",
+    prefix: "hlvm-middle-",
   });
 
   try {

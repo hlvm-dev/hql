@@ -14,7 +14,7 @@ Deno.test("Error on line 1 of multi-line file", async () => {
 (let y 20)`;
 
   const tempDir = await makeTempDir({
-    prefix: "hql-first-",
+    prefix: "hlvm-first-",
   });
 
   try {

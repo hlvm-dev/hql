@@ -3,7 +3,7 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
-import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
+import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
 
 async function transpile(code: string): Promise<string> {
   const result = await transpileToJavascript(code);

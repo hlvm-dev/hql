@@ -3,21 +3,21 @@
  * Ollama Models Scraper
  *
  * Scrapes ollama.com/library to generate ollama_models.json
- * Output format is compatible with both HQL and HLVM GUI
+ * Output format is compatible with HLVM tooling
  *
  * Usage:
- *   # Update HQL's bundled JSON (default)
+ *   # Update HLVM's bundled JSON (default)
  *   deno task scrape-models
  *
- *   # Update both HQL and HLVM
+ *   # Update HLVM and external resource copy
  *   deno task scrape-models --sync
  *
  *   # Custom output path
  *   deno run --allow-net --allow-write --allow-read --allow-env scripts/scrape-ollama-models.ts --output ./custom.json
  *
- * The JSON file ships with HQL and is used by:
- *   - src/runtime/ollama-runtime.ts (ollama.models, ollama.available, ollama.search)
- *   - src/cli/repl-ink/components/ModelBrowser.tsx
+ * The JSON file ships with HLVM and is used by:
+ *   - src/hlvm/providers/ollama/catalog.ts
+ *   - src/hlvm/cli/repl-ink/components/ModelBrowser.tsx
  *
  * @see ~/dev/HLVM/HLVM/Resources/ollama_models.json for reference format
  */
@@ -473,21 +473,21 @@ async function scrapeOllamaModels(): Promise<OllamaModelsJSON> {
 async function main() {
   const args = Deno.args;
 
-  // Default: update HQL's bundled JSON file
+  // Default: update HLVM's bundled JSON file
   const scriptDir = new URL(".", import.meta.url).pathname;
-  const hqlPath = `${scriptDir}../src/data/ollama_models.json`;
+  const bundledPath = `${scriptDir}../src/data/ollama_models.json`;
 
   // Parse --output flag (overrides default)
-  let outputPaths = [hqlPath];
+  let outputPaths = [bundledPath];
   const outputIndex = args.indexOf("--output");
   if (outputIndex !== -1 && args[outputIndex + 1]) {
     outputPaths = [args[outputIndex + 1]];
   }
 
-  // --sync flag: update both HQL and HLVM
+  // --sync flag: update HLVM plus external resource copy
   if (args.includes("--sync")) {
-    const hlvmPath = `${Deno.env.get("HOME")}/dev/HLVM/HLVM/Resources/ollama_models.json`;
-    outputPaths = [hqlPath, hlvmPath];
+    const resourcePath = `${Deno.env.get("HOME")}/dev/HLVM/HLVM/Resources/ollama_models.json`;
+    outputPaths = [bundledPath, resourcePath];
   }
 
   try {

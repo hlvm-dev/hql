@@ -141,7 +141,7 @@ public class LazySeq implements ISeq {
 
 ## Seq Protocol Implementation
 
-### File: `src/lib/stdlib/js/internal/seq-protocol.js`
+### File: `src/hql/lib/stdlib/js/internal/seq-protocol.js`
 
 This is our Clojure-aligned foundation. Every self-hosted function depends on this.
 
@@ -301,7 +301,7 @@ ArraySeq.prototype[INDEXED] = true;
 ### File Structure
 
 ```
-src/lib/stdlib/
+src/hql/lib/stdlib/
 ├── stdlib.hql                    # HQL SOURCE OF TRUTH
 │   └── Contains: (fn take ...), (fn drop ...)
 │
@@ -605,8 +605,8 @@ const SELF_HOSTED_FUNCTIONS = new Set([
 Find and delete the JavaScript implementation, replace with comment:
 
 ```javascript
-// NOTE: `takeWhile` is SELF-HOSTED in HQL (see src/lib/stdlib/stdlib.hql)
-// Pre-transpiled version: src/lib/stdlib/js/self-hosted.js
+// NOTE: `takeWhile` is SELF-HOSTED in HQL (see src/hql/lib/stdlib/stdlib.hql)
+// Pre-transpiled version: src/hql/lib/stdlib/js/self-hosted.js
 // Source of truth: HQL, not JavaScript
 ```
 
@@ -631,8 +631,8 @@ Deno.test("takeWhile: handles edge cases", () => {
 ```bash
 # Check single source
 deno eval "
-import * as Core from './src/lib/stdlib/js/core.js';
-import * as SelfHosted from './src/lib/stdlib/js/self-hosted.js';
+import * as Core from './src/hql/lib/stdlib/js/core.js';
+import * as SelfHosted from './src/hql/lib/stdlib/js/self-hosted.js';
 console.log('Core.takeWhile:', Core.takeWhile);
 console.log('SelfHosted.takeWhile:', typeof SelfHosted.takeWhile);
 "
@@ -800,15 +800,15 @@ Target: All functions that CAN be expressed in HQL ARE in HQL.
 
 ```bash
 # 1. Verify no duplicates between core.js and self-hosted.js
-grep -h "^export function" src/lib/stdlib/js/core.js src/lib/stdlib/js/self-hosted.js | \
+grep -h "^export function" src/hql/lib/stdlib/js/core.js src/hql/lib/stdlib/js/self-hosted.js | \
   sed 's/export function //' | sed 's/(.*)//' | sort | uniq -d
 # Should return nothing
 
 # 2. Verify self-hosted functions are from self-hosted.js
 deno eval "
-import * as Core from './src/lib/stdlib/js/core.js';
-import * as SelfHosted from './src/lib/stdlib/js/self-hosted.js';
-import { STDLIB_PUBLIC_API } from './src/lib/stdlib/js/index.js';
+import * as Core from './src/hql/lib/stdlib/js/core.js';
+import * as SelfHosted from './src/hql/lib/stdlib/js/self-hosted.js';
+import { STDLIB_PUBLIC_API } from './src/hql/lib/stdlib/js/index.js';
 
 const selfHosted = ['take', 'drop'];
 for (const name of selfHosted) {
@@ -821,7 +821,7 @@ for (const name of selfHosted) {
 
 # 3. Verify bundle has single definition
 echo '(print (take 3 [1 2 3]))' > /tmp/test.hql
-deno run -A src/cli/cli.ts compile /tmp/test.hql --target js -o /tmp/test.js
+deno run -A src/hlvm/cli/cli.ts compile /tmp/test.hql --target js -o /tmp/test.js
 echo "take count: $(grep -c 'function take' /tmp/test.js)"
 echo "drop count: $(grep -c 'function drop' /tmp/test.js)"
 # Both should be 1
@@ -909,11 +909,11 @@ export function drop(n, coll) {
 
 ### C. Key Contacts & Resources
 
-- **Codebase**: /Users/seoksoonjang/Desktop/hql
+- **Codebase**: /Users/seoksoonjang/Desktop/hlvm
 - **Tests**: `deno task test:unit` (1846 tests)
 - **Main Files**:
-  - `src/lib/stdlib/stdlib.hql` - HQL source
-  - `src/lib/stdlib/js/self-hosted.js` - Transpiled JS
-  - `src/lib/stdlib/js/index.js` - API assembly
-  - `src/lib/stdlib/js/core.js` - JS implementations
-  - `src/lib/stdlib/js/internal/seq-protocol.js` - Clojure foundation
+  - `src/hql/lib/stdlib/stdlib.hql` - HQL source
+  - `src/hql/lib/stdlib/js/self-hosted.js` - Transpiled JS
+  - `src/hql/lib/stdlib/js/index.js` - API assembly
+  - `src/hql/lib/stdlib/js/core.js` - JS implementations
+  - `src/hql/lib/stdlib/js/internal/seq-protocol.js` - Clojure foundation

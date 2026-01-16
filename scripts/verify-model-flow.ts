@@ -15,7 +15,7 @@
  */
 
 const OLLAMA_API = "http://localhost:11434";
-const CONFIG_PATH = Deno.env.get("HOME") + "/.hql/config.json";
+const CONFIG_PATH = Deno.env.get("HOME") + "/.hlvm/config.json";
 
 interface TestResult {
   step: string;
@@ -132,7 +132,7 @@ async function step3_saveConfig(modelValue: string): Promise<boolean> {
     const saved = JSON.parse(await Deno.readTextFile(CONFIG_PATH));
 
     if (saved.model === modelValue) {
-      pass("Save to config", `~/.hql/config.json now has model: "${modelValue}"`);
+      pass("Save to config", `~/.hlvm/config.json now has model: "${modelValue}"`);
       return true;
     } else {
       fail("Save to config", modelValue, saved.model);
@@ -420,7 +420,7 @@ async function main() {
     console.log("\nThe complete flow works correctly:");
     console.log("  1. Ollama models are fetched correctly");
     console.log("  2. Model selection saves correct format to config");
-    console.log("  3. Config is persisted to ~/.hql/config.json");
+    console.log("  3. Config is persisted to ~/.hlvm/config.json");
     console.log("  4. REPL loads config correctly");
     console.log("  5. Model name is extracted correctly for API");
     console.log("  6. Ollama API receives correct model name");

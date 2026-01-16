@@ -442,7 +442,7 @@ HQL leverages TypeScript's type checker as a "free" type system:
 By default, type errors are **warnings** - your code still runs:
 
 ```bash
-$ hql run math.hql
+$ hlvm run math.hql
 
 ⚠️ Type checking found 1 error(s), 0 warning(s)
 ⚠️ Type error at math.hql:2:13: Argument of type 'string' is not
@@ -454,7 +454,7 @@ wrong5     # ← Code still executes (JavaScript is dynamic)
 To make type errors fatal, use strict mode:
 
 ```bash
-$ hql run --strict math.hql
+$ hlvm run --strict math.hql
 
 error: Type checking failed
 ```
@@ -480,7 +480,7 @@ All HQL errors follow a consistent format:
               not defined. Did you mean 'var-name'?
 
   For more information, see:                        ← Documentation link
-  https://hql-lang.dev/errors/HQL5001
+  https://hlvm.dev/errors/HQL5001
 
 ```
 
@@ -589,7 +589,7 @@ If a type error isn't being caught:
 If runtime errors show JavaScript line numbers:
 
 1. **Source maps should handle this** - Check that .js.map file exists
-2. **Use `hql run`** - Direct `deno run` might not load source maps
+2. **Use `hlvm run`** - Direct `deno run` might not load source maps
 3. **Report a bug** - If positions are wrong, please report it
 
 ---
@@ -662,7 +662,7 @@ This section documents the verified accuracy and known limitations of HQL's erro
 
 ~~When a user-defined macro and its call site are in the **same file**, type errors in macro-expanded code may point to the macro definition instead of the call site.~~
 
-This bug has been fixed. The `updateMetaRecursively` function in `src/s-exp/macro.ts` now correctly updates positions when:
+This bug has been fixed. The `updateMetaRecursively` function in `src/hql/s-exp/macro.ts` now correctly updates positions when:
 1. No existing metadata
 2. Different source file (macro definition in another file)
 3. Same file but expression comes from earlier in file (macro definition)
@@ -704,10 +704,10 @@ For developers working on HQL itself:
 
 | Component | File |
 |-----------|------|
-| Parser | `src/transpiler/pipeline/parser.ts` |
-| IR Generator | `src/transpiler/pipeline/syntax-transformer.ts` |
-| TS Generator | `src/transpiler/pipeline/ir-to-typescript.ts` |
-| Type Checker | `src/transpiler/pipeline/ts-compiler.ts` |
-| Source Maps | `src/transpiler/pipeline/source-map-chain.ts` |
+| Parser | `src/hql/transpiler/pipeline/parser.ts` |
+| IR Generator | `src/hql/transpiler/pipeline/syntax-transformer.ts` |
+| TS Generator | `src/hql/transpiler/pipeline/ir-to-typescript.ts` |
+| Type Checker | `src/hql/transpiler/pipeline/ts-compiler.ts` |
+| Source Maps | `src/hql/transpiler/pipeline/source-map-chain.ts` |
 | Error Formatter | `src/common/error.ts` |
 | Error Codes | `src/common/error-codes.ts` |

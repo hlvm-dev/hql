@@ -1,5 +1,5 @@
 /**
- * Binary tests for the `hql publish` command
+ * Binary tests for the `hlvm publish` command
  * Note: Uses --dry-run to avoid actual publishing
  */
 
@@ -22,7 +22,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "CLI publish: error without hql.json",
+  name: "CLI publish: error without hlvm.json",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -30,11 +30,11 @@ Deno.test({
       const originalCwd = Deno.cwd();
       try {
         Deno.chdir(dir);
-        // No hql.json in this directory
+        // No hlvm.json in this directory
         const result = await runCLI("publish", ["--dry-run", "-y"]);
         // Should either fail or prompt for config
         const output = result.stdout + result.stderr;
-        const isExpected = !result.success || output.includes("hql.json") || output.includes("config") || output.includes("init");
+        const isExpected = !result.success || output.includes("hlvm.json") || output.includes("config") || output.includes("init");
         assertEquals(isExpected, true, `Expected error or config prompt, got: ${output}`);
       } finally {
         Deno.chdir(originalCwd);

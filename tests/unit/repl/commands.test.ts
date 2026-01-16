@@ -3,7 +3,7 @@
  */
 
 import { assertEquals } from "jsr:@std/assert@1";
-import { isCommand, commands } from "../../../src/cli/repl/commands.ts";
+import { isCommand, commands } from "../../../src/hlvm/cli/repl/commands.ts";
 
 Deno.test("isCommand - slash prefix", () => {
   assertEquals(isCommand("/help"), true);

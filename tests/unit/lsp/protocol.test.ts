@@ -32,7 +32,7 @@ class LSPTestClient {
 
   constructor() {
     const command = new Deno.Command("deno", {
-      args: ["run", "--allow-all", "lsp/server.ts"],
+      args: ["run", "--allow-all", "src/hql/lsp/server.ts"],
       stdin: "piped",
       stdout: "piped",
       stderr: "piped",

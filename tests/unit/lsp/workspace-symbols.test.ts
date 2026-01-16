@@ -8,8 +8,8 @@ import {
   assertEquals,
   assertExists,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { ProjectIndex } from "../../../lsp/workspace/project-index.ts";
-import { SymbolTable } from "../../../src/transpiler/symbol_table.ts";
+import { ProjectIndex } from "../../../src/hql/lsp/workspace/project-index.ts";
+import { SymbolTable } from "../../../src/hql/transpiler/symbol_table.ts";
 
 /**
  * Create a mock AnalysisResult for testing

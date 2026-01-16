@@ -13,8 +13,8 @@ import {
   getRelativeIndex,
   isNavigationKey,
   shouldCloseOnInput,
-} from "../../../../src/cli/repl-ink/completion/navigation.ts";
-import type { ScrollWindow } from "../../../../src/cli/repl-ink/completion/types.ts";
+} from "../../../../src/hlvm/cli/repl-ink/completion/navigation.ts";
+import type { ScrollWindow } from "../../../../src/hlvm/cli/repl-ink/completion/types.ts";
 
 // ============================================================
 // handleNavigationKey Tests

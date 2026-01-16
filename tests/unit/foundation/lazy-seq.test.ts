@@ -17,7 +17,7 @@ import { assertEquals, assertThrows } from "https://deno.land/std@0.208.0/assert
 // - LazySeq class (thunk with memoization + trampolining)
 // - Helper functions: lazySeq, cons, toSeq, isSeq, isCons, isLazySeq
 
-const seqProtocol = await import("../../../src/lib/stdlib/js/internal/seq-protocol.js");
+const seqProtocol = await import("../../../src/hql/lib/stdlib/js/internal/seq-protocol.js");
 const {
   lazySeq,
   chunkedLazySeq,  // For chunk propagation tests
@@ -432,7 +432,7 @@ Deno.test("nth: on sequence with undefined values", () => {
 Deno.test("laziness: elements computed only when accessed", async () => {
   // This is the CRITICAL test that proves HQL-written stdlib will be lazy
   const cmd = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", `
+    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", `
       (var realized 0)
 
       (fn counting [n]
@@ -461,7 +461,7 @@ Deno.test("laziness: elements computed only when accessed", async () => {
 
 Deno.test("laziness: first only realizes one element", async () => {
   const cmd = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", `
+    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", `
       (var realized 0)
 
       (fn counting [n]
@@ -492,7 +492,7 @@ Deno.test("trampolining: deeply nested lazy-seq (10000 levels)", async () => {
 
   // Run in HQL to test the full integration
   const cmd = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", `
+    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", `
       (fn natural-numbers [n]
         (lazy-seq (cons n (natural-numbers (+ n 1)))))
 
@@ -565,7 +565,7 @@ Deno.test("edge case: cons with undefined", () => {
 
 Deno.test("integration: self-hosted map pattern", async () => {
   const cmd = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", `
+    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", `
       (fn my-map [f coll]
         (lazy-seq
           (when-let [s (seq coll)]
@@ -585,7 +585,7 @@ Deno.test("integration: self-hosted map pattern", async () => {
 
 Deno.test("integration: self-hosted filter pattern", async () => {
   const cmd = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", `
+    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", `
       (fn my-filter [pred coll]
         (lazy-seq
           (when-let [s (seq coll)]
@@ -608,7 +608,7 @@ Deno.test("integration: self-hosted filter pattern", async () => {
 
 Deno.test("integration: loop/recur with 100000 iterations", async () => {
   const cmd = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", `
+    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", `
       (fn loop-sum [n]
         (loop [i n acc 0]
           (if (<= i 0)
@@ -783,13 +783,13 @@ Deno.test("performance: ArraySeq O(1) operations after repeated rest()", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const { isChunked, ChunkedCons, toChunkedSeq, CHUNK_SIZE } = seqProtocol;
-const _core = await import("../../../src/lib/stdlib/js/core.js");
+const _core = await import("../../../src/hql/lib/stdlib/js/core.js");
 const {
   map, filter, reduce,
   take, drop, takeWhile, dropWhile,
   concat, distinct, mapIndexed, keep,
   interpose, partition, reductions,
-} = await import("../../../src/lib/stdlib/js/self-hosted.js");
+} = await import("../../../src/hql/lib/stdlib/js/self-hosted.js");
 
 Deno.test("chunking: toChunkedSeq creates ChunkedCons from large array", () => {
   const arr = Array.from({ length: 100 }, (_, i) => i);

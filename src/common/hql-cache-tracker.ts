@@ -16,14 +16,14 @@ import {
   resolve,
   writeTextFile,
 } from "../platform/platform.ts";
-import { transpileHqlInJs } from "../bundler.ts";
+import { transpileHqlInJs } from "../hql/bundler.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { sanitizeIdentifier, getErrorMessage, normalizePath, hyphenToUnderscore } from "./utils.ts";
 import { isHqlFile, isJsFile } from "./import-utils.ts";
 import { LRUCache } from "./lru-cache.ts";
 
 // Cache directory configuration
-const HQL_CACHE_DIR = ".hql-cache";
+const HQL_CACHE_DIR = ".hlvm-cache";
 const CACHE_VERSION = "1"; // Increment when cache structure changes
 const SHORT_HASH_LENGTH = 8; // SHA-1 hash shortened to 8 hex chars for path readability
 
@@ -150,8 +150,8 @@ export async function getCacheDir(): Promise<string> {
   // Allow host to override cache root (useful when packaged or running inside a larger platform like HLVM)
   let cacheRootBase: string | null = null;
   try {
-    // If HQL_CACHE_ROOT is set, use it as absolute base directory for the cache
-    cacheRootBase = getEnv("HQL_CACHE_ROOT") || null;
+    // If HLVM_CACHE_ROOT is set, use it as absolute base directory for the cache
+    cacheRootBase = getEnv("HLVM_CACHE_ROOT") || null;
   } catch {
     // Ignore if env access is not permitted
   }

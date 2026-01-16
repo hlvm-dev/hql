@@ -1,8 +1,8 @@
 /**
- * HQL Runtime Initialization System
+ * HLVM Runtime Initialization System
  *
  * This module provides a centralized system for tracking and managing
- * initialization states of various HQL runtime components.
+ * initialization states of various HLVM runtime components.
  */
 
 import { globalLogger as logger } from "../logger.ts";
@@ -10,7 +10,9 @@ import { dirname, exists, fromFileUrl, join } from "../platform/platform.ts";
 import { copyNeighborFiles, processHqlFile } from "./hql-cache-tracker.ts";
 import { getErrorMessage } from "./utils.ts";
 import { initializeRuntimeHelpers } from "./runtime-helpers.ts";
-import { initAIRuntime } from "../runtime/ai-runtime.ts";
+import { initAIRuntime } from "../hlvm/runtime/ai-runtime.ts";
+import { config } from "../hlvm/api/config.ts";
+import { ensureDefaultModelInstalled } from "./ai-default-model.ts";
 
 // Runtime component initialization states
 interface InitializationState {
@@ -41,9 +43,15 @@ class HqlRuntimeInitializer {
    * Initialize all core components
    */
   public async initializeRuntime(): Promise<void> {
-    logger.debug("Initializing HQL runtime...");
+    logger.debug("Initializing HLVM runtime...");
 
     initializeRuntimeHelpers();
+
+    try {
+      await config.reload();
+    } catch (error) {
+      logger.debug(`Config load failed (using defaults): ${getErrorMessage(error)}`);
+    }
 
     // Initialize components in parallel
     await Promise.all([
@@ -60,7 +68,9 @@ class HqlRuntimeInitializer {
       logger.debug(`AI runtime not available (optional): ${getErrorMessage(error)}`);
     }
 
-    logger.debug("HQL runtime initialization complete");
+    await ensureDefaultModelInstalled({ log: (message) => console.log(message) });
+
+    logger.debug("HLVM runtime initialization complete");
   }
 
   /**
@@ -124,8 +134,8 @@ class HqlRuntimeInitializer {
     // Check if running from compiled binary with embedded packages
     let embeddedStdlib: string | undefined;
     try {
-      const embeddedModule = await import("../embedded-packages.ts");
-      embeddedStdlib = embeddedModule.EMBEDDED_PACKAGES?.["@hql/lib/stdlib/stdlib.hql"];
+      const embeddedModule = await import("../hql/embedded-packages.ts");
+      embeddedStdlib = embeddedModule.EMBEDDED_PACKAGES?.["@hlvm/lib/stdlib/stdlib.hql"];
     } catch (error) {
       // No embedded packages available - this is expected in development mode
       logger.debug(`No embedded packages available: ${getErrorMessage(error)}`);

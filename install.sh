@@ -1,6 +1,6 @@
 #!/bin/sh
-# HQL Language Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
+# HLVM Installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
 
 set -e
 
@@ -16,9 +16,9 @@ DIM='\033[2m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO="hlvm-dev/hql"
+REPO="hlvm-dev/hlvm"
 VERSION="latest"
-INSTALL_DIR="${HQL_INSTALL_DIR:-$HOME/.hql}"
+INSTALL_DIR="${HLVM_INSTALL_DIR:-$HOME/.hlvm}"
 BIN_DIR="$INSTALL_DIR/bin"
 
 # Print functions
@@ -81,20 +81,20 @@ detect_platform() {
     # Combine platform and architecture
     if [ "$platform" = "mac" ]; then
         if [ "$arch" = "arm" ]; then
-            echo "hql-mac-arm"
+            echo "hlvm-mac-arm"
         else
-            echo "hql-mac-intel"
+            echo "hlvm-mac-intel"
         fi
     elif [ "$platform" = "linux" ]; then
         if [ "$arch" = "arm" ]; then
             print_error "Linux ARM64 is not yet supported"
             print_info "Supported platforms: Linux x86_64, macOS (Intel/ARM), Windows"
-            print_info "Build from source: https://github.com/hlvm-dev/hql#building-from-source"
+            print_info "Build from source: https://github.com/hlvm-dev/hlvm#building-from-source"
             exit 1
         fi
-        echo "hql-linux"
+        echo "hlvm-linux"
     else
-        echo "hql-windows.exe"
+        echo "hlvm-windows.exe"
     fi
 }
 
@@ -103,9 +103,9 @@ download_binary() {
     local binary_name="$1"
     local download_url="https://github.com/$REPO/releases/latest/download/$binary_name"
 
-    print_step "Downloading HQL binary..."
+    print_step "Downloading HLVM binary..."
     print_info "Source: $download_url"
-    print_info "Target: $BIN_DIR/hql"
+    print_info "Target: $BIN_DIR/hlvm"
     echo ""
 
     # Create installation directory
@@ -115,14 +115,14 @@ download_binary() {
     if command -v curl > /dev/null 2>&1; then
         # Use -# for progress bar instead of silent mode
         echo "${DIM}Download progress:${NC}"
-        if ! curl -#fL "$download_url" -o "$BIN_DIR/hql"; then
+        if ! curl -#fL "$download_url" -o "$BIN_DIR/hlvm"; then
             print_error "Download failed"
             print_info "Please check your internet connection and try again"
             exit 1
         fi
     elif command -v wget > /dev/null 2>&1; then
         # wget shows progress by default
-        if ! wget --show-progress -q "$download_url" -O "$BIN_DIR/hql"; then
+        if ! wget --show-progress -q "$download_url" -O "$BIN_DIR/hlvm"; then
             print_error "Download failed"
             print_info "Please check your internet connection and try again"
             exit 1
@@ -137,7 +137,7 @@ download_binary() {
     print_success "Download complete!"
 
     # Make binary executable
-    chmod +x "$BIN_DIR/hql"
+    chmod +x "$BIN_DIR/hlvm"
     print_success "Binary made executable"
 }
 
@@ -195,7 +195,7 @@ setup_path() {
         touch "$shell_config"
 
         echo "" >> "$shell_config"
-        echo "# HQL Language - Added by installer" >> "$shell_config"
+        echo "# HLVM - Added by installer" >> "$shell_config"
         echo "export PATH=\"\$PATH:$BIN_DIR\"" >> "$shell_config"
 
         print_success "Added $BIN_DIR to $shell_configs"
@@ -209,19 +209,30 @@ setup_path() {
 verify_installation() {
     print_step "Verifying installation..."
 
-    if [ ! -x "$BIN_DIR/hql" ]; then
+    if [ ! -x "$BIN_DIR/hlvm" ]; then
         print_error "Binary not found or not executable"
         return 1
     fi
 
-    local file_size=$(du -h "$BIN_DIR/hql" | cut -f1)
+    local file_size=$(du -h "$BIN_DIR/hlvm" | cut -f1)
     print_success "Binary installed: $file_size"
 
     # Try to get version (in a new shell with updated PATH)
-    local version=$(export PATH="$PATH:$BIN_DIR" && "$BIN_DIR/hql" --version 2>/dev/null || echo "unknown")
+    local version=$(export PATH="$PATH:$BIN_DIR" && "$BIN_DIR/hlvm" --version 2>/dev/null || echo "unknown")
     print_success "Version: $version"
 
     return 0
+}
+
+# Install default AI model so REPL is ready on first run
+install_default_model() {
+    print_step "Installing default AI model..."
+    if ! "$BIN_DIR/hlvm" ai setup; then
+        print_error "Default model installation failed"
+        print_info "Ensure Ollama is available, then rerun: $BIN_DIR/hlvm ai setup"
+        exit 1
+    fi
+    print_success "Default AI model installed"
 }
 
 # Main installation
@@ -230,7 +241,7 @@ main() {
     echo ""
     echo "${BOLD}${MAGENTA}╔═══════════════════════════════════════╗${NC}"
     echo "${BOLD}${MAGENTA}║                                       ║${NC}"
-    echo "${BOLD}${MAGENTA}║      ${CYAN}HQL Language Installer${MAGENTA}         ║${NC}"
+    echo "${BOLD}${MAGENTA}║         ${CYAN}HLVM Installer${MAGENTA}            ║${NC}"
     echo "${BOLD}${MAGENTA}║                                       ║${NC}"
     echo "${BOLD}${MAGENTA}╚═══════════════════════════════════════╝${NC}"
     echo ""
@@ -252,14 +263,16 @@ main() {
     # Verify installation
     if verify_installation; then
         echo ""
+        install_default_model
+        echo ""
         echo "${GREEN}${BOLD}╔═══════════════════════════════════════╗${NC}"
         echo "${GREEN}${BOLD}║   ✓ Installation Successful!          ║${NC}"
         echo "${GREEN}${BOLD}╚═══════════════════════════════════════╝${NC}"
         echo ""
         echo "${BOLD}Quick Start:${NC}"
-        echo "  ${CYAN}hql repl${NC}          ${DIM}# Start interactive REPL${NC}"
-        echo "  ${CYAN}hql run file.hql${NC}  ${DIM}# Run a HQL file${NC}"
-        echo "  ${CYAN}hql --help${NC}        ${DIM}# Show all commands${NC}"
+        echo "  ${CYAN}hlvm repl${NC}         ${DIM}# Start interactive REPL${NC}"
+        echo "  ${CYAN}hlvm run file.hql${NC} ${DIM}# Run an HQL file${NC}"
+        echo "  ${CYAN}hlvm --help${NC}       ${DIM}# Show all commands${NC}"
         echo ""
         echo "${BOLD}${YELLOW}⚡ Action Required:${NC}"
         echo "  ${BOLD}Restart your terminal${NC} or run:"
@@ -268,7 +281,7 @@ main() {
         echo ""
         echo "${DIM}Or simply open a new terminal window.${NC}"
         echo ""
-        echo "${BOLD}Installed to:${NC} ${GREEN}$BIN_DIR/hql${NC}"
+        echo "${BOLD}Installed to:${NC} ${GREEN}$BIN_DIR/hlvm${NC}"
         echo ""
     else
         echo ""

@@ -9,8 +9,8 @@ import {
   assertExists,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
-import { getSignatureHelp } from "../../../lsp/features/signature-help.ts";
-import { SymbolTable } from "../../../src/transpiler/symbol_table.ts";
+import { getSignatureHelp } from "../../../src/hql/lsp/features/signature-help.ts";
+import { SymbolTable } from "../../../src/hql/transpiler/symbol_table.ts";
 
 /**
  * Create a TextDocument for testing

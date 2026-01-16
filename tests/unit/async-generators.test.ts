@@ -1,6 +1,6 @@
 // Tests for async generator functions
 import { assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { transpile } from "../../src/transpiler/index.ts";
+import { transpile } from "../../src/hql/transpiler/index.ts";
 
 Deno.test("Async Generator: anonymous async generator function", async () => {
   const result = await transpile(`

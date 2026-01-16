@@ -4,8 +4,8 @@
 import {
   expandHql,
   transpileToJavascript,
-} from "./src/transpiler/hql-transpiler.ts";
-import { transpileCLI } from "./src/bundler.ts";
+} from "./src/hql/transpiler/hql-transpiler.ts";
+import { transpileCLI } from "./src/hql/bundler.ts";
 import { initializeRuntime } from "./src/common/runtime-initializer.ts";
 import {
   getRangeHelperWithDependency,
@@ -32,12 +32,12 @@ import {
   writeTextFile as platformWriteTextFile,
 } from "./src/platform/platform.ts";
 import * as acorn from "npm:acorn@8.11.3";
-import { sexpToString } from "./src/s-exp/types.ts";
-import { installSourceMapSupport, preloadSourceMap } from "./src/transpiler/pipeline/source-map-support.ts";
+import { sexpToString } from "./src/hql/s-exp/types.ts";
+import { installSourceMapSupport, preloadSourceMap } from "./src/hql/transpiler/pipeline/source-map-support.ts";
 import {
   transformStackTrace,
   withTransformedStackTraces,
-} from "./src/transpiler/pipeline/transform-stack-trace.ts";
+} from "./src/hql/transpiler/pipeline/transform-stack-trace.ts";
 import {
   handleRuntimeError,
   setRuntimeContext,
@@ -48,14 +48,14 @@ import type { RawSourceMap } from "npm:source-map@0.6.1";
 // Import embedded packages for binary compilation
 let EMBEDDED_PACKAGES: Record<string, string> = {};
 try {
-  const embeddedModule = await import("./src/embedded-packages.ts");
+  const embeddedModule = await import("./src/hql/embedded-packages.ts");
   EMBEDDED_PACKAGES = embeddedModule.EMBEDDED_PACKAGES || {};
 } catch {
   // No embedded packages (development mode, using file system)
 }
 
-// Get the directory where this mod.ts file is located (HQL installation directory)
-// This is used to resolve @hql/* stdlib packages relative to the HQL installation,
+// Get the directory where this mod.ts file is located (HLVM HQL module directory)
+// This is used to resolve @hlvm/* stdlib packages relative to the HLVM HQL module,
 // not relative to user code location
 const HQL_MODULE_DIR = platformFromFileUrl(dirname(import.meta.url));
 
@@ -998,8 +998,8 @@ async function rewriteImportStatement(
 
   let replacement = specifier;
 
-  // Resolve @hql/* stdlib packages to embedded or actual paths
-  if (specifier.startsWith("@hql/")) {
+  // Resolve @hlvm/* stdlib packages to embedded or actual paths
+  if (specifier.startsWith("@hlvm/")) {
     // For compiled binary or dev mode with embedded packages
     if (EMBEDDED_PACKAGES[specifier]) {
       const compiledPath = await compileHqlModule(specifier, context);
@@ -1015,7 +1015,7 @@ async function rewriteImportStatement(
     }
     
     // Fallback for dev mode if not in EMBEDDED_PACKAGES (should generally be there now)
-    const packageName = specifier.replace("@hql/", "");
+    const packageName = specifier.replace("@hlvm/", "");
     specifier = platformResolve(HQL_MODULE_DIR, `packages/${packageName}/mod.hql`);
     replacement = specifier;
   }
@@ -1092,17 +1092,17 @@ async function compileHqlModule(
     "/",
   );
   
-  // For @hql/ packages, use the package name as the relative path base to ensure unique cache location
-  const isHqlPackage = modulePath.startsWith("@hql/");
+  // For @hlvm/ packages, use the package name as the relative path base to ensure unique cache location
+  const isHqlPackage = modulePath.startsWith("@hlvm/");
   const targetRel = isHqlPackage 
-    ? modulePath.replace("@hql/", "hql_packages/") + ".mjs"
+    ? modulePath.replace("@hlvm/", "hql_packages/") + ".mjs"
     : relativePath.replace(/\.hql$/i, ".mjs");
     
   const outputPath = platformResolve(context.runtimeDir, targetRel);
   context.moduleOutputs.set(normalized, outputPath);
 
   const compilationPromise = (async () => {
-    // Check if this is an embedded @hql/ package first
+    // Check if this is an embedded @hlvm/ package first
     let source: string;
     
     if (EMBEDDED_PACKAGES[modulePath]) {
@@ -1110,13 +1110,13 @@ async function compileHqlModule(
     } else {
       // Fallback logic for other embedded paths or file system
       const isEmbeddedPackage = Object.keys(EMBEDDED_PACKAGES).some(key =>
-        normalized.includes(key.replace("@hql/", "packages/"))
+        normalized.includes(key.replace("@hlvm/", "packages/"))
       );
 
       if (isEmbeddedPackage) {
         // Find the matching embedded package
         const packageKey = Object.keys(EMBEDDED_PACKAGES).find(key =>
-          normalized.includes(key.replace("@hql/", "packages/"))
+          normalized.includes(key.replace("@hlvm/", "packages/"))
         );
         if (packageKey) {
           source = EMBEDDED_PACKAGES[packageKey];
@@ -1228,7 +1228,7 @@ export {
   macroexpand as macroexpandRuntime,
   macroexpand1 as macroexpand1Runtime,
   resetRuntime,
-} from "./src/runtime/index.ts";
+} from "./src/hql/runtime/index.ts";
 
 // Version imported from single source of truth
 import { VERSION } from "./src/version.ts";
@@ -1253,4 +1253,4 @@ export {
   mapPosition,
   loadSourceMap,
   invalidateSourceMapCache,
-} from "./src/transpiler/pipeline/source-map-support.ts";
+} from "./src/hql/transpiler/pipeline/source-map-support.ts";

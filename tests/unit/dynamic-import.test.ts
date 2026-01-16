@@ -1,6 +1,6 @@
 // Tests for dynamic import expressions
 import { assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { transpile } from "../../src/transpiler/index.ts";
+import { transpile } from "../../src/hql/transpiler/index.ts";
 
 Deno.test("Dynamic import: basic string path", async () => {
   const result = await transpile(`(import-dynamic "./module.js")`);

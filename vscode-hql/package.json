@@ -1,9 +1,9 @@
 {
-  "name": "hql-language",
-  "displayName": "HQL Language Support",
-  "description": "Language support for HQL (Hyper Query Language)",
+  "name": "hlvm-hql-language",
+  "displayName": "HLVM HQL Language Support",
+  "description": "Language support for HQL on HLVM",
   "version": "0.1.0",
-  "publisher": "hql",
+  "publisher": "hlvm",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -37,7 +37,7 @@
     ],
     "configuration": {
       "type": "object",
-      "title": "HQL",
+      "title": "HLVM (HQL)",
       "properties": {
         "hql.trace.server": {
           "scope": "window",
@@ -60,7 +60,7 @@
     "watch": "tsc -watch -p ./",
     "generate-grammar": "deno run --allow-read --allow-write scripts/generate-grammar.ts",
     "package": "npx vsce package --allow-missing-repository",
-    "install-local": "code --install-extension hql-language-0.1.0.vsix --force",
+    "install-local": "code --install-extension hlvm-hql-language-0.1.0.vsix --force",
     "release": "npm run build && npm run package && npm run install-local"
   },
   "dependencies": {

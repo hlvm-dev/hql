@@ -5,7 +5,7 @@
  * This script reads esbuild.wasm and generates src/esbuild-wasm-embedded.ts
  * containing it as a base64 string literal.
  *
- * The embedded WASM allows the compiled HQL binary to use esbuild without
+ * The embedded WASM allows the compiled HLVM binary to use esbuild without
  * needing the WASM file on the filesystem.
  *
  * Usage: deno task embed-esbuild-wasm

@@ -1,5 +1,5 @@
 /**
- * Binary tests for the `hql init` command
+ * Binary tests for the `hlvm init` command
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
@@ -9,7 +9,7 @@ import { runCLI, withTempDir, USE_BINARY } from "../_shared/binary-helpers.ts";
 console.log(`Testing 'init' command in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
 
 Deno.test({
-  name: "CLI init: creates hql.json with -y flag",
+  name: "CLI init: creates hlvm.json with -y flag",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -20,8 +20,8 @@ Deno.test({
         const result = await runCLI("init", ["-y"]);
         assertEquals(result.success, true, `Init failed: ${result.stderr}`);
 
-        // Check hql.json was created
-        const hqlJson = await Deno.readTextFile(`${dir}/hql.json`);
+        // Check hlvm.json was created
+        const hqlJson = await Deno.readTextFile(`${dir}/hlvm.json`);
         const config = JSON.parse(hqlJson);
         assertEquals(typeof config.name, "string");
         assertEquals(typeof config.version, "string");
@@ -68,7 +68,7 @@ Deno.test({
 
         // Check .gitignore was created
         const gitignore = await Deno.readTextFile(`${dir}/.gitignore`);
-        assertStringIncludes(gitignore, ".hql-cache");
+        assertStringIncludes(gitignore, ".hlvm-cache");
       } finally {
         Deno.chdir(originalCwd);
       }

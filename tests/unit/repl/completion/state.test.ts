@@ -17,7 +17,7 @@ import {
   selectIndexAction,
   setLoadingAction,
   toggleDocPanelAction,
-} from "../../../../src/cli/repl-ink/completion/state.ts";
+} from "../../../../src/hlvm/cli/repl-ink/completion/state.ts";
 import type {
   DropdownState,
   CompletionAction,
@@ -26,8 +26,8 @@ import type {
   ApplyResult,
   ApplyContext,
   ItemRenderSpec,
-} from "../../../../src/cli/repl-ink/completion/types.ts";
-import { INITIAL_DROPDOWN_STATE, TYPE_ICONS } from "../../../../src/cli/repl-ink/completion/types.ts";
+} from "../../../../src/hlvm/cli/repl-ink/completion/types.ts";
+import { INITIAL_DROPDOWN_STATE, TYPE_ICONS } from "../../../../src/hlvm/cli/repl-ink/completion/types.ts";
 
 // ============================================================
 // Test Data

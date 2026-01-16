@@ -12,7 +12,7 @@
 const OLLAMA_API = "http://localhost:11434";
 
 // Test image - create a simple test PNG
-const TEST_IMAGE_PATH = "/tmp/hql-test-image.png";
+const TEST_IMAGE_PATH = "/tmp/hlvm-test-image.png";
 
 // Create a minimal valid PNG (1x1 red pixel)
 // PNG header + IHDR + IDAT + IEND
@@ -209,8 +209,8 @@ async function main() {
     }
   }
 
-  // Test 5: HQL Integration (simulated)
-  console.log("\n5️⃣  Testing HQL Integration (simulated)");
+  // Test 5: HLVM HQL Integration (simulated)
+  console.log("\n5️⃣  Testing HLVM HQL Integration (simulated)");
   await test("Media object structure matches ai.js __isMedia", () => {
     const media = {
       type: "image",
@@ -273,8 +273,8 @@ Vision model support is correctly implemented:
   - __isMedia and __getImages work correctly
 
 HQL Usage:
-  (import [ask] from "@hql/ai")
-  (import [read-image] from "@hql/media")
+  (import [ask] from "@hlvm/ai")
+  (import [read-image] from "@hlvm/media")
   (ask "What's in this image?" {media: (read-image "./photo.jpg")})
 `);
   } else {

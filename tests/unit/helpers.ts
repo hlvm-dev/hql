@@ -4,7 +4,7 @@ import { dirname, fromFileUrl, join } from "../../src/platform/platform.ts";
 
 // GLOBAL FIX: Disable AI auto-start for ALL unit tests that use this helper.
 // This prevents "Leaks detected" errors caused by the runtime spawning background processes.
-Deno.env.set("HQL_DISABLE_AI_AUTOSTART", "1");
+Deno.env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
 
 // Get the directory containing the test files
 const testDir = dirname(fromFileUrl(import.meta.url));

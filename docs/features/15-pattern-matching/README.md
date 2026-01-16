@@ -1,6 +1,6 @@
 # Pattern Matching Feature Documentation
 
-**Implementation:** Core macro system (`src/lib/macro/core.hql`)
+**Implementation:** Core macro system (`src/hql/lib/macro/core.hql`)
 
 **Coverage:** 100%
 

@@ -10,7 +10,7 @@ import {
   LazySeq,
   notAny,
   notEvery,
-} from "../../src/lib/stdlib/js/index.js";
+} from "../../src/hql/lib/stdlib/js/index.js";
 
 const identityBoolean = <T>(value: T): boolean => value as unknown as boolean;
 

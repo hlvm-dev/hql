@@ -1,5 +1,5 @@
 // deno run -A scripts/run-local-examples-all.ts
-// Runs every .hql file under doc/examples using the LOCAL HQL CLI
+// Runs every .hql file under doc/examples using the LOCAL HLVM CLI
 
 import {
   cwd,
@@ -20,7 +20,7 @@ async function listHqlFiles(dir: string): Promise<string[]> {
     for await (const entry of readDir(d)) {
       const p = resolve(d, entry.name);
       if (entry.isDirectory) {
-        if (entry.name === ".build" || entry.name === ".hql-cache") continue;
+        if (entry.name === ".build" || entry.name === ".hlvm-cache") continue;
         await walk(p);
       } else if (entry.isFile && p.endsWith(".hql")) {
         out.push(p);
@@ -52,7 +52,7 @@ function hasActiveAssertions(source: string): boolean {
 }
 
 let passed = 0, failed = 0, skipped = 0;
-console.log("=== LOCAL HQL Full Examples Suite ===\n");
+console.log("=== LOCAL HLVM HQL Examples Suite ===\n");
 
 const files = await listHqlFiles(examplesDir);
 for (const file of files) {
@@ -66,7 +66,7 @@ for (const file of files) {
     }
 
     const proc = runCmd({
-      cmd: ["deno", "run", "-A", resolve(root, "src/cli/run.ts"), file],
+      cmd: ["deno", "run", "-A", resolve(root, "src/hlvm/cli/run.ts"), file],
       stdout: "piped",
       stderr: "piped",
     });

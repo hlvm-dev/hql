@@ -1,16 +1,16 @@
-# HQL Quick Start
+# HLVM Quick Start
 
-Get started with HQL in 5 minutes.
+Get started with HQL on HLVM in 5 minutes.
 
 ## Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
 ```
 
 Verify:
 ```bash
-hql --version
+hlvm --version
 ```
 
 ## Hello World
@@ -22,7 +22,7 @@ Create `hello.hql`:
 
 Run it:
 ```bash
-hql run hello.hql
+hlvm run hello.hql
 ```
 
 ## Variables
@@ -96,20 +96,20 @@ Maps:
 ## Interactive REPL
 
 ```bash
-hql repl
+hlvm repl
 ```
 
 Try:
 ```lisp
-hql> (+ 1 2 3)
+hlvm> (+ 1 2 3)
 6
 
-hql> (let square (fn [x] (* x x)))
+hlvm> (let square (fn [x] (* x x)))
 
-hql> (square 5)
+hlvm> (square 5)
 25
 
-hql> (map square [1 2 3 4])
+hlvm> (map square [1 2 3 4])
 (1 4 9 16)
 ```
 

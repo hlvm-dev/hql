@@ -2,7 +2,7 @@
 ; HQL Comprehensive E2E Syntax Tests
 ; ============================================================================
 ; This file tests ALL HQL syntax features with assertions
-; Run with: deno run --allow-all src/cli/cli.ts run tests/e2e/comprehensive-syntax.hql
+; Run with: deno run --allow-all src/hlvm/cli/cli.ts run tests/e2e/comprehensive-syntax.hql
 
 ; ============================================================================
 ; TEST HELPERS

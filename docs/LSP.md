@@ -1,6 +1,6 @@
-# HQL Language Server Protocol (LSP)
+# HLVM HQL Language Server Protocol (LSP)
 
-The HQL LSP provides IDE features for HQL code editing.
+The HLVM HQL LSP provides IDE features for HQL code editing.
 
 ## Features
 
@@ -31,7 +31,7 @@ deno task test:unit
 ## Architecture
 
 ```
-lsp/
+src/hql/lsp/
 ├── server.ts              # Main LSP server entry point
 ├── analysis.ts            # HQL parser integration & symbol extraction
 ├── documents.ts           # Document manager
@@ -130,13 +130,13 @@ The integration tests are now part of the standard test suite.
 
 The LSP server writes logs to stderr. In VSCode:
 1. View → Output
-2. Select "HQL Language Server" from dropdown
+2. Select "HLVM HQL Language Server" from dropdown
 
 ### Manual Server Test
 
-Run server directly:
+Run the server directly:
 ```bash
-deno run --allow-all lsp/server.ts
+hlvm lsp --stdio
 ```
 
 Then send JSON-RPC messages via stdin.
@@ -208,13 +208,13 @@ Trace levels:
 
 ### Adding a New Feature
 
-1. Create handler in `lsp/features/`
-2. Register in `lsp/server.ts`
+1. Create handler in `src/hql/lsp/features/`
+2. Register in `src/hql/lsp/server.ts`
 3. Add tests in `tests/unit/lsp/`
 
 Example - adding "Find References":
 ```typescript
-// lsp/features/references.ts
+// src/hql/lsp/features/references.ts
 export function getReferences(
   symbols: SymbolTable,
   position: Position
@@ -222,7 +222,7 @@ export function getReferences(
   // Implementation
 }
 
-// lsp/server.ts
+// src/hql/lsp/server.ts
 connection.onReferences((params) => {
   const doc = documents.get(params.textDocument.uri);
   return getReferences(doc.symbols, params.position);
@@ -238,6 +238,6 @@ connection.onReferences((params) => {
 
 ## Related Files
 
-- `lsp/` - LSP server implementation
-- `vscode-hql/` - VSCode extension
+- `src/hql/lsp/` - LSP server implementation
+- `vscode-hql/` - HLVM HQL VSCode extension (package: `hlvm-hql-language`)
 - `tests/unit/lsp/` - Unit tests

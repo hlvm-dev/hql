@@ -1,5 +1,5 @@
 /**
- * Comprehensive Unit Tests for HQL REPL Plugin
+ * Comprehensive Unit Tests for HLVM REPL Plugin
  *
  * Tests all exported functions from hql-plugin.ts with real inputs,
  * no mocks, no hardcoded workarounds.
@@ -14,9 +14,9 @@ import {
   wrapInAsyncExportFunction,
   transformForGlobalThis,
   hqlPlugin,
-} from "../../src/cli/hql-plugin.ts";
-import { parse } from "../../src/transpiler/pipeline/parser.ts";
-import type { SList } from "../../src/s-exp/types.ts";
+} from "../../src/hlvm/cli/hql-plugin.ts";
+import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
+import type { SList } from "../../src/hql/s-exp/types.ts";
 
 // ============================================================================ 
 // cleanJs() Tests

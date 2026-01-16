@@ -8,8 +8,8 @@
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { parse } from "../../src/transpiler/pipeline/parser.ts";
-import { transpile } from "../../src/transpiler/index.ts";
+import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
+import { transpile } from "../../src/hql/transpiler/index.ts";
 
 Deno.test("Type Annotations - Parameter type parsing", async () => {
   const code = `(fn add [a:number b:number] (+ a b))`;
@@ -69,7 +69,7 @@ Deno.test("Type Annotations - Execution correctness", async () => {
   const code = `(fn add [a:number b:number] :number (+ a b)) (print (add 5 7))`;
 
   const proc = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", code],
+    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", code],
     stdout: "piped",
     stderr: "piped",
     cwd: Deno.cwd(),
@@ -107,7 +107,7 @@ Deno.test("Type Annotations - Complex nested expression with types", async () =>
   `;
 
   const proc = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", code],
+    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", code],
     stdout: "piped",
     stderr: "piped",
     cwd: Deno.cwd(),
@@ -128,7 +128,7 @@ Deno.test("Type Annotations - Multiple functions with types", async () => {
   `;
 
   const proc = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", code],
+    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", code],
     stdout: "piped",
     stderr: "piped",
     cwd: Deno.cwd(),
@@ -150,7 +150,7 @@ Deno.test("Type Annotations - Backward compatibility (no types)", async () => {
   `;
 
   const proc = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/cli/cli.ts", "run", "-e", code],
+    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", code],
     stdout: "piped",
     stderr: "piped",
     cwd: Deno.cwd(),

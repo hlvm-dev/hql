@@ -1,5 +1,5 @@
 /**
- * Binary tests for the `hql run` command
+ * Binary tests for the `hlvm run` command
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";

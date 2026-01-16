@@ -10,7 +10,7 @@ import {
   toHQLRange,
   createHQLPosition,
   createHQLRange,
-} from "../../../lsp/utils/position.ts";
+} from "../../../src/hql/lsp/utils/position.ts";
 
 // ============================================
 // Position Conversion Tests

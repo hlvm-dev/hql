@@ -1,4 +1,4 @@
-// core/src/common/error-system.ts - Improved error reporting
+// src/common/error-system.ts - Improved error reporting
 
 // Pre-compiled patterns for error location inference
 const TYPO_FOM_REGEX = /\bfom\b/;

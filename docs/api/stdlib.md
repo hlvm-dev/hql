@@ -1,6 +1,6 @@
 # HQL Standard Library
 
-**Location:** `src/lib/stdlib/js/stdlib.js`
+**Location:** `src/hql/lib/stdlib/js/stdlib.js`
 
 ---
 
@@ -773,4 +773,4 @@ All stdlib functions are:
 **See Also:**
 
 - [Built-in Functions](./builtins.md) - Runtime built-ins (+, -, *, get, js-call)
-- [Runtime API](./runtime.md) - HQL runtime environment
+- [Runtime API](./runtime.md) - HLVM runtime environment

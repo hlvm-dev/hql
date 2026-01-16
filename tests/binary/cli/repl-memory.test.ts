@@ -95,8 +95,8 @@ binaryTest("REPL (inspect) function shows source code", async () => {
 
 binaryTest("REPL (help) function shows help text", async () => {
   const result = await runReplWithInput("(help)");
-  // Should show HQL REPL Functions header and function list
-  assertStringIncludes(result.stdout, "HQL REPL Functions");
+  // Should show HLVM REPL Functions header and function list
+  assertStringIncludes(result.stdout, "HLVM REPL Functions");
   assertStringIncludes(result.stdout, "(memory)");
   assertStringIncludes(result.stdout, "(forget");
   assertStringIncludes(result.stdout, "(inspect");
@@ -125,7 +125,7 @@ binaryTest("REPL (clear) function works without error", async () => {
 
 binaryTest("REPL empty memory shows teaching message", async () => {
   // Backup memory file
-  const memoryPath = `${Deno.env.get("HOME")}/.hql/memory.hql`;
+  const memoryPath = `${Deno.env.get("HOME")}/.hlvm/memory.hql`;
   const backupPath = `${memoryPath}.test-backup`;
 
   try {

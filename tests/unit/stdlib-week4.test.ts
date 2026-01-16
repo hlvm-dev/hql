@@ -11,7 +11,7 @@ import {
   repeat,
   repeatedly,
   take,
-} from "../../src/lib/stdlib/js/index.js";
+} from "../../src/hql/lib/stdlib/js/index.js";
 
 // =============================================================================
 // repeat(x) - 8 tests

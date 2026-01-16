@@ -12,8 +12,8 @@
 
 import { assertEquals, assertExists } from "jsr:@std/assert@1";
 import { run } from "./helpers.ts";
-import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
-import { shutdownAIRuntime } from "../../src/runtime/ai-runtime.ts";
+import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
+import { shutdownAIRuntime } from "../../src/hlvm/runtime/ai-runtime.ts";
 
 Deno.test("Bugfix #1: Built-in macros compile correctly after fix", async () => {
   try {
@@ -123,7 +123,7 @@ Deno.test("Bugfix #1: Verify expandMacros not called in transformer", async () =
   // This is a meta-test that verifies the fix by checking the code
   // Read transformer.ts and ensure expandMacros is not called
 
-  const transformerPath = new URL("../../src/transformer.ts", import.meta.url);
+  const transformerPath = new URL("../../src/hql/transformer.ts", import.meta.url);
   const transformerCode = await Deno.readTextFile(transformerPath);
 
   // Check that expandMacros is not imported

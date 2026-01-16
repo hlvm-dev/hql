@@ -1,10 +1,10 @@
-# HQL Memory Persistence
+# HLVM Memory Persistence
 
 > *"Programming as a living system, not a series of disposable sessions."*
 
 ## Vision
 
-HQL Memory brings a **Smalltalk-inspired "living system" experience** to a text-based, git-friendly workflow. When you define values or functions in the REPL, they persist across sessions - your development environment remembers what you've built.
+HLVM Memory brings a **Smalltalk-inspired "living system" experience** to a text-based, git-friendly workflow. When you define values or functions in the REPL, they persist across sessions - your development environment remembers what you've built.
 
 This is part of HQL's broader philosophy:
 - **HQL = Brain** - Pure, cross-platform language logic
@@ -36,7 +36,7 @@ HQL introduces two new keywords for persistent definitions:
   (str "Hello " name))
 ```
 
-These work exactly like `const` and `fn`, but with one key difference: **they automatically persist to `~/.hql/memory.hql`**.
+These work exactly like `const` and `fn`, but with one key difference: **they automatically persist to `~/.hlvm/memory.hql`**.
 
 ### Persistence Flow
 
@@ -52,9 +52,9 @@ These work exactly like `const` and `fn`, but with one key difference: **they au
 │         ▼                                                       │
 │                                                                 │
 │   ┌─────────────────────────────────────────────────────────┐   │
-│   │  ~/.hql/memory.hql                                      │   │
+│   │  ~/.hlvm/memory.hql                                      │   │
 │   │                                                         │   │
-│   │  ; HQL Memory - auto-persisted definitions              │   │
+│   │  ; HLVM Memory - auto-persisted definitions              │   │
 │   │  (def api-key "sk-xxx")                                 │   │
 │   │  (defn greet [name] (str "Hello " name))                │   │
 │   │                                                         │   │
@@ -127,10 +127,10 @@ For `defn`, we store the **original source code**:
 ### Location
 
 ```
-~/.hql/memory.hql
+~/.hlvm/memory.hql
 ```
 
-The `~/.hql/` directory is also used for:
+The `~/.hlvm/` directory is also used for:
 - `.update-check` - Update timestamp cache
 - `.runtime/` - Embedded AI runtime (Ollama)
 
@@ -139,7 +139,7 @@ The `~/.hql/` directory is also used for:
 Plain HQL code - human-readable, git-friendly, editable:
 
 ```hql
-; HQL Memory - auto-persisted definitions
+; HLVM Memory - auto-persisted definitions
 ; Edit freely - compacted on REPL startup
 
 (def api-key "sk-xxx")
@@ -162,9 +162,9 @@ You can edit this file manually. Invalid syntax is skipped with warnings.
 Show memory file location and statistics:
 
 ```
-hql> /memory
+hlvm> /memory
 Memory:
-  Location: /Users/you/.hql/memory.hql
+  Location: /Users/you/.hlvm/memory.hql
   Definitions: 4
   Size: 256 bytes
   Names: api-key, config, greet, add
@@ -175,7 +175,7 @@ Memory:
 Remove a specific definition from memory:
 
 ```
-hql> /forget api-key
+hlvm> /forget api-key
 Removed 'api-key' from memory.
 Note: The binding still exists in this session. Use /reset to clear all bindings.
 ```
@@ -185,7 +185,7 @@ Note: The binding still exists in this session. Use /reset to clear all bindings
 Manually trigger memory compaction:
 
 ```
-hql> /compact
+hlvm> /compact
 Compacted memory: 6 → 4 definitions.
 ```
 
@@ -269,7 +269,7 @@ Scripts are **reproducible units**. They should not depend on hidden state. Memo
 
 ### Inspiration: Smalltalk
 
-Smalltalk pioneered the "living system" concept where development environment and runtime are unified. HQL Memory brings this philosophy to a modern, text-based, version-control-friendly workflow.
+Smalltalk pioneered the "living system" concept where development environment and runtime are unified. HLVM Memory brings this philosophy to a modern, text-based, version-control-friendly workflow.
 
 ---
 
@@ -294,7 +294,7 @@ Smalltalk pioneered the "living system" concept where development environment an
 To start fresh:
 
 ```bash
-rm ~/.hql/memory.hql
+rm ~/.hlvm/memory.hql
 ```
 
 ### Memory Not Loading
@@ -302,7 +302,7 @@ rm ~/.hql/memory.hql
 Check for syntax errors:
 
 ```bash
-cat ~/.hql/memory.hql
+cat ~/.hlvm/memory.hql
 ```
 
 Malformed expressions are skipped with warnings on startup.
@@ -322,6 +322,6 @@ When HLVM runs HQL in REPL mode, memory persistence is automatically available. 
 
 1. **Define once, use forever** - Functions you create persist
 2. **Cross-session state** - Your development context carries over
-3. **Portable brain** - `~/.hql/memory.hql` can be synced across machines
+3. **Portable brain** - `~/.hlvm/memory.hql` can be synced across machines
 
 The HLVM experience layer provides visual management, while HQL's memory system handles the persistence logic.

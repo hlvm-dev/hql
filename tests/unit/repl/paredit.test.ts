@@ -1,5 +1,5 @@
 /**
- * Tests for HQL REPL Paredit - Structural Editing Operations
+ * Tests for HLVM REPL Paredit - Structural Editing Operations
  *
  * All paredit functions are pure: (input, cursorPos) => { newValue, newCursor } | null
  */
@@ -15,7 +15,7 @@ import {
   raiseSexp,
   killSexp,
   transposeSexp,
-} from "../../../src/cli/repl/paredit.ts";
+} from "../../../src/hlvm/cli/repl/paredit.ts";
 
 // ============================================================
 // slurpForward() tests

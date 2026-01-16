@@ -1,7 +1,7 @@
-// core/src/common/syntax-error-handler.ts
+// src/common/syntax-error-handler.ts
 // Utilities for attaching source location metadata to S-expressions
 
-import type { SExpMeta } from "../s-exp/types.ts";
+import type { SExpMeta } from "../hql/s-exp/types.ts";
 
 type NodeWithMeta = { _meta?: SExpMeta };
 

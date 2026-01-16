@@ -12,7 +12,7 @@ import {
   buildSemanticTokens,
   getSemanticTokensLegend,
   getSemanticTokensCapability,
-} from "../../../lsp/features/semantic-tokens.ts";
+} from "../../../src/hql/lsp/features/semantic-tokens.ts";
 
 function createDoc(content: string): TextDocument {
   return TextDocument.create("file:///test.hql", "hql", 1, content);

@@ -1,6 +1,6 @@
 # HQL Module System
 
-This document explains how the HQL runtime resolves modules, tracks circular
+This document explains how the HLVM runtime resolves HQL modules, tracks circular
 imports, and exposes exports to user code.
 
 ---
@@ -30,7 +30,7 @@ string-based exports, no bare `import foo` forms.
 2. **Local vs remote**: Local imports (relative paths) are processed
    sequentially to preserve evaluation order; remote imports (`npm:`, `jsr:`,
    `https://`) are fetched in parallel.
-3. **Caching**: Resolved modules are cached in `.hql-cache` for reuse within the
+3. **Caching**: Resolved modules are cached in `.hlvm-cache` for reuse within the
    same session.
 4. **Environment registration**: Each module is registered in the `Environment`
    as a stable object so circular imports see live bindings rather than copies.

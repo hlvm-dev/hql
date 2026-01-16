@@ -1,4 +1,4 @@
-// core/src/common/sexp-utils.ts
+// src/common/sexp-utils.ts
 // Shared helpers for working with S-expression style node arrays.
 
 import { HASH_MAP_INTERNAL, HASH_MAP_USER } from "./runtime-helper-impl.ts";

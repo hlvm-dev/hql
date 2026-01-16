@@ -3,11 +3,11 @@
  * DEFINITIVE END-TO-END TEST FOR ALL 205 OFFICIAL OLLAMA MODELS
  *
  * This test proves that EVERY official Ollama model will work correctly
- * in the HQL REPL by simulating the complete user flow:
+ * in the HLVM REPL by simulating the complete user flow:
  *
  * 1. Model appears in /config panel (from scraped JSON)
  * 2. User selects model → saved as "ollama/model:tag"
- * 3. Config persisted to ~/.hql/config.json
+ * 3. Config persisted to ~/.hlvm/config.json
  * 4. REPL loads config → globalThis.__hqlConfig
  * 5. AI function extracts model name → "model:tag"
  * 6. Ollama API called with correct model name
@@ -17,7 +17,7 @@
  */
 
 const OLLAMA_API = "http://localhost:11434";
-const CONFIG_PATH = Deno.env.get("HOME") + "/.hql/config.json";
+const CONFIG_PATH = Deno.env.get("HOME") + "/.hlvm/config.json";
 
 interface ScrapedModel {
   id: string;
@@ -188,7 +188,7 @@ function printProgress(current: number, total: number, result: TestResult, insta
 async function main() {
   console.log(`
 ${c.bold}╔════════════════════════════════════════════════════════════════════════╗
-║     DEFINITIVE E2E TEST: ALL 205 OFFICIAL OLLAMA MODELS IN HQL REPL    ║
+║     DEFINITIVE E2E TEST: ALL 205 OFFICIAL OLLAMA MODELS IN HLVM REPL    ║
 ╚════════════════════════════════════════════════════════════════════════╝${c.reset}
 
 This test verifies that ${c.bold}EVERY${c.reset} official Ollama model will work correctly

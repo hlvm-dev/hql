@@ -29,7 +29,7 @@ interchange seamless.
 
 ## Transformation Mechanism
 
-The HQL parser, implemented in `src/s-exp/parser.ts`, uses a tokenizer to
+The HQL parser, implemented in `src/hql/s-exp/parser.ts`, uses a tokenizer to
 identify special characters that denote literal data structures. When the
 tokenizer encounters `[`, `{`, or `#[`, the parser invokes specific functions
 (`parseVector`, `parseMap`, `parseSet`) to read the elements within the
@@ -61,7 +61,7 @@ HQL's custom `#[...]` syntax.
   (empty-array) ; Canonical form for []
   ```
 
-- **Parsing Mechanism (`src/s-exp/parser.ts` -> `parseVector`)**:
+- **Parsing Mechanism (`src/hql/s-exp/parser.ts` -> `parseVector`)**:
   1. When the parser encounters a `[` token (`TokenType.LeftBracket`), it calls
      `parseVector`.
   2. It reads subsequent expressions until it finds the closing `]` token
@@ -97,7 +97,7 @@ HQL's custom `#[...]` syntax.
   (empty-map) ; Canonical form for {}
   ```
 
-- **Parsing Mechanism (`src/s-exp/parser.ts` -> `parseMap`)**:
+- **Parsing Mechanism (`src/hql/s-exp/parser.ts` -> `parseMap`)**:
   1. When the parser encounters a `{` token (`TokenType.LeftBrace`), it calls
      `parseMap`.
   2. It reads expressions in pairs (key, value) until it finds the closing `}`
@@ -138,7 +138,7 @@ HQL's custom `#[...]` syntax.
   (empty-set) ; Canonical form for #[]
   ```
 
-- **Parsing Mechanism (`src/s-exp/parser.ts` -> `parseSet`)**:
+- **Parsing Mechanism (`src/hql/s-exp/parser.ts` -> `parseSet`)**:
   1. When the parser encounters a `#[` token (`TokenType.HashLeftBracket`), it
      calls `parseSet`.
   2. It reads subsequent expressions until it finds the closing `]` token

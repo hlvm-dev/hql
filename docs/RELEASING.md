@@ -1,10 +1,10 @@
 # Release Guide
 
-This document explains how to create a new HQL release.
+This document explains how to create a new HLVM release.
 
 ## Automated Release Process
 
-HQL uses GitHub Actions to automatically build and release binaries for all platforms.
+HLVM uses GitHub Actions to automatically build and release binaries for all platforms.
 
 ### How It Works
 
@@ -45,28 +45,28 @@ git push origin v0.2.0
 
 **Step 4: Wait for Build**
 
-- Go to: https://github.com/hlvm-dev/hql/actions
+- Go to: https://github.com/hlvm-dev/hlvm/actions
 - Watch the "Release" workflow run (~5-10 minutes)
 - It builds all 4 platform binaries in parallel
 
 **Step 5: Verify Release**
 
-- Go to: https://github.com/hlvm-dev/hql/releases
+- Go to: https://github.com/hlvm-dev/hlvm/releases
 - Verify the release was created
 - Check all 4 binaries are attached:
-  - `hql-mac-arm`
-  - `hql-mac-intel`
-  - `hql-linux`
-  - `hql-windows.exe`
+  - `hlvm-mac-arm`
+  - `hlvm-mac-intel`
+  - `hlvm-linux`
+  - `hlvm-windows.exe`
 
 **Step 6: Test Installation**
 
 ```bash
 # Test the install script
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
 
 # Verify version
-hql --version
+hlvm --version
 ```
 
 ## Manual Release (Fallback)
@@ -78,7 +78,7 @@ If GitHub Actions is unavailable, you can create a manual release:
 make all
 
 # Create release on GitHub manually
-# Upload binaries: hql-mac-arm, hql-mac-intel, hql-linux, hql-windows.exe
+# Upload binaries: hlvm-mac-arm, hlvm-mac-intel, hlvm-linux, hlvm-windows.exe
 ```
 
 ## Release Checklist
@@ -102,7 +102,7 @@ After creating a release:
 
 ## Versioning
 
-HQL follows [Semantic Versioning](https://semver.org/):
+HLVM follows [Semantic Versioning](https://semver.org/):
 
 - **Major** (v1.0.0): Breaking changes
 - **Minor** (v0.2.0): New features, backwards compatible
@@ -160,11 +160,11 @@ git tag -a v0.2.0 -m "Release v0.2.0: Added template literals"
 git push origin v0.2.0
 
 # Wait ~5 minutes
-# Check: https://github.com/hlvm-dev/hql/releases
+# Check: https://github.com/hlvm-dev/hlvm/releases
 
 # Test
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hql/main/install.sh | sh
-hql --version  # Should show v0.2.0
+curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
+hlvm --version  # Should show v0.2.0
 ```
 
 ## See Also

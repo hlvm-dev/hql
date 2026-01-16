@@ -5,7 +5,7 @@
  */
 
 import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { analyzeDocument } from "../../../lsp/analysis.ts";
+import { analyzeDocument } from "../../../src/hql/lsp/analysis.ts";
 
 Deno.test("LSP Analysis - parses valid HQL code without errors", () => {
   const code = `

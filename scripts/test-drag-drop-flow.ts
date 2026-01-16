@@ -3,7 +3,7 @@
  * Test drag & drop -> auto-attach flow for vision models
  */
 
-import { addAttachment } from "../src/cli/repl/context.ts";
+import { addAttachment } from "../src/hlvm/cli/repl/context.ts";
 
 // Create a test 1x1 red PNG (minimal valid PNG)
 const MINIMAL_PNG = new Uint8Array([

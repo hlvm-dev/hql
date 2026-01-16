@@ -9,7 +9,7 @@
     "@hlvm/repl": "./vendor/repl/mod.ts"
   },
   "lint": {
-    "include": ["src/", "tests/", "scripts/", "lsp/"],
+    "include": ["src/", "tests/", "scripts/"],
     "exclude": ["**/node_modules/**", "**/vendor/**"],
     "rules": {
       "tags": ["recommended"],
@@ -18,11 +18,11 @@
   },
   "publish": {
     "exclude": [
-      ".hql-cache/",
+      ".hlvm-cache/",
       ".build/",
       "dist/",
-      "hql",
-      "hql-*",
+      "hlvm",
+      "hlvm-*",
       "*.log",
       ".DS_Store",
       ".github/",
@@ -33,18 +33,18 @@
   },
   "tasks": {
     "test": "deno task test:unit",
-    "test:unit": "HQL_DISABLE_AI_AUTOSTART=1 deno test --allow-all tests/unit/**/*.test.ts src/**/*.test.ts vendor/**/*.test.ts",
-    "test:binary": "HQL_TEST_BINARY=1 deno test --allow-all tests/binary/**/*.test.ts",
-    "test:binary:cli": "HQL_TEST_BINARY=1 deno test --allow-all tests/binary/cli/**/*.test.ts",
-    "test:binary:stdlib": "HQL_TEST_BINARY=1 deno test --allow-all tests/binary/stdlib/**/*.test.ts",
+    "test:unit": "HLVM_DISABLE_AI_AUTOSTART=1 deno test --allow-all tests/unit/**/*.test.ts src/**/*.test.ts vendor/**/*.test.ts",
+    "test:binary": "HLVM_TEST_BINARY=1 deno test --allow-all tests/binary/**/*.test.ts",
+    "test:binary:cli": "HLVM_TEST_BINARY=1 deno test --allow-all tests/binary/cli/**/*.test.ts",
+    "test:binary:stdlib": "HLVM_TEST_BINARY=1 deno test --allow-all tests/binary/stdlib/**/*.test.ts",
     "test:binary:quick": "deno test --allow-all tests/binary/**/*.test.ts",
     "test:compat": "deno test --allow-all tests/binary/compat/**/*.test.ts",
     "test:e2e": "deno run -A scripts/run-local-examples-all.ts",
     "test:all": "deno task test:unit && deno task test:binary:quick && deno task test:compat",
-    "test:all:binary": "deno task test:unit && deno task test:binary && HQL_TEST_BINARY=1 deno task test:compat",
+    "test:all:binary": "deno task test:unit && deno task test:binary && HLVM_TEST_BINARY=1 deno task test:compat",
     "test:watch": "deno test --allow-all --watch tests/unit/**/*.test.ts",
-    "test:ultimate": "echo '🚀 Running Ultimate HQL Test Suite' && deno task test:unit && deno task test:binary && deno task test:compat && deno task test:e2e && echo '✅ All tests passed!'",
-    "test:ultimate:quick": "echo '🚀 Running Quick Ultimate Test Suite' && deno task test:unit && deno task test:binary:quick && deno task test:e2e && echo '✅ All tests passed!'",
+    "test:ultimate": "echo '🚀 Running Ultimate HLVM Test Suite' && deno task test:unit && deno task test:binary && deno task test:compat && deno task test:e2e && echo '✅ All tests passed!'",
+    "test:ultimate:quick": "echo '🚀 Running Quick Ultimate HLVM Test Suite' && deno task test:unit && deno task test:binary:quick && deno task test:e2e && echo '✅ All tests passed!'",
     "scrape-models": "deno run --allow-net --allow-write --allow-read --allow-env scripts/scrape-ollama-models.ts",
     "scrape-models:sync": "deno run --allow-net --allow-write --allow-read --allow-env scripts/scrape-ollama-models.ts --sync"
   }

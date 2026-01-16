@@ -9,10 +9,10 @@
  */
 
 // Import the actual ai.js module
-import { ask, chat } from "../src/lib/stdlib/js/ai.js";
-import { addAttachment } from "../src/cli/repl/context.ts";
-import { createAiApi } from "../src/api/ai.ts";
-import { OllamaProvider } from "../src/providers/ollama/provider.ts";
+import { ask, chat } from "../src/hql/lib/stdlib/js/ai.js";
+import { addAttachment } from "../src/hlvm/cli/repl/context.ts";
+import { createAiApi } from "../src/hlvm/api/ai.ts";
+import { OllamaProvider } from "../src/hlvm/providers/ollama/provider.ts";
 
 const OLLAMA_API = "http://localhost:11434";
 
@@ -90,11 +90,11 @@ async function main() {
     providers: { ollama: provider },
   });
 
-  // Register on globalThis (this is what HQL runtime does)
+  // Register on globalThis (this is what HLVM runtime does)
   (globalThis as Record<string, unknown>).ai = aiApi;
   console.log("✓ Registered globalThis.ai");
 
-  // Set config (this is what HQL runtime does)
+  // Set config (this is what HLVM runtime does)
   // Model format: "ollama:modelname" for provider routing
   (globalThis as Record<string, unknown>).__hqlConfig = {
     model: `ollama:${visionModel}`,

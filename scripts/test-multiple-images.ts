@@ -3,7 +3,7 @@
  * Test multiple image support for vision models
  */
 
-import { addAttachment } from "../src/cli/repl/context.ts";
+import { addAttachment } from "../src/hlvm/cli/repl/context.ts";
 
 // Create test PNGs with different "colors" (just different bytes for testing)
 function createTestPNG(marker: number): Uint8Array {
@@ -111,7 +111,7 @@ console.log(`  __getImages() returns ${explicitImages.length} images`);
 if (explicitImages.length === 3) {
   console.log("\n  ✅ Explicit array syntax: WORKS!");
   console.log("\n  Usage (HQL):");
-  console.log('    (import [read-image] from "@hql/media")');
+  console.log('    (import [read-image] from "@hlvm/media")');
   console.log('    (ask "compare these" {media: [');
   console.log('      (read-image "photo1.jpg")');
   console.log('      (read-image "photo2.jpg")');

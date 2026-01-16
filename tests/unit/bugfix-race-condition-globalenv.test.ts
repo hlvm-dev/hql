@@ -20,7 +20,7 @@
 // to ensure only one initialization happens even under concurrent load.
 
 import { assertEquals, assertExists } from "jsr:@std/assert@1";
-import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
+import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
 
 Deno.test("Bugfix #2: Concurrent transpilation works correctly", async () => {
   // Test that multiple concurrent transpilations don't create race conditions

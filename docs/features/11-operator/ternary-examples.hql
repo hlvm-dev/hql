@@ -1,7 +1,7 @@
 ; ============================================================================
 ; Ternary Operator Examples (v2.0) - Executable Demonstrations
 ; ============================================================================
-; Run with: deno run -A src/cli/run.ts docs/features/11-operator/ternary-examples.hql
+; Run with: deno run -A src/hlvm/cli/run.ts docs/features/11-operator/ternary-examples.hql
 
 (print "=== TERNARY OPERATOR EXAMPLES ===")
 (print "")

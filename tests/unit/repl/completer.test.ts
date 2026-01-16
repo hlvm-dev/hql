@@ -1,5 +1,5 @@
 /**
- * Unit tests for HQL REPL Completer
+ * Unit tests for HLVM REPL Completer
  * Tests: getWordAtCursor
  *
  * Note: getCompletions and applyCompletion were legacy functions that have been
@@ -7,7 +7,7 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
-import { getWordAtCursor } from "../../../src/cli/repl/completer.ts";
+import { getWordAtCursor } from "../../../src/hlvm/cli/repl/completer.ts";
 
 // ============================================================
 // getWordAtCursor()

@@ -2,7 +2,7 @@
 /**
  * Ollama Models Test Suite
  *
- * Tests Ollama models to verify they work correctly with HQL.
+ * Tests Ollama models to verify they work correctly with the HLVM HQL runtime.
  *
  * Usage:
  *   deno run --allow-net --allow-read scripts/test-ollama-models.ts [options]
@@ -373,7 +373,7 @@ function parseArgs(): {
         console.log(`
 ${colors.bold}Ollama Models Test Suite${colors.reset}
 
-Tests Ollama models to verify they work correctly with HQL.
+Tests Ollama models to verify they work correctly with the HLVM HQL runtime.
 
 ${colors.bold}Usage:${colors.reset}
   deno run --allow-net --allow-read scripts/test-ollama-models.ts [options]

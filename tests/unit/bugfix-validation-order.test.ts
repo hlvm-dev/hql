@@ -21,9 +21,9 @@
 //                  ↑ Now correct!
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { transpileToJavascript } from "../../src/transpiler/hql-transpiler.ts";
+import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
 import { run } from "./helpers.ts";
-import { shutdownAIRuntime } from "../../src/runtime/ai-runtime.ts";
+import { shutdownAIRuntime } from "../../src/hlvm/runtime/ai-runtime.ts";
 
 Deno.test("Bugfix #3: Duplicate variable declarations detected", async () => {
   // Test that duplicate declarations at top level are caught during validation
