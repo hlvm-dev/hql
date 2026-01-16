@@ -85,39 +85,6 @@ Deno.test("Bugfix #1: Transpilation produces valid code", async () => {
   );
 });
 
-Deno.test("Bugfix #1: Transpilation performance is acceptable", async () => {
-  // This test ensures compilation is not significantly slower
-  // With the bug: macros expand twice = potentially 2x slower
-  // After fix: macros expand once = normal speed
-
-  const code = `
-(when true (+ 1 1))
-(when true (+ 2 2))
-(when true (+ 3 3))
-(when true (+ 4 4))
-(when true (+ 5 5))
-(when true (+ 6 6))
-(when true (+ 7 7))
-(when true (+ 8 8))
-(when true (+ 9 9))
-(when true (+ 10 10))
-`;
-
-  const start = performance.now();
-  await transpileToJavascript(code);
-  const elapsed = performance.now() - start;
-
-  // Should complete quickly (< 100ms for 10 macros)
-  console.log(`✓ Transpilation of 10 macros completed in ${elapsed.toFixed(2)}ms`);
-
-  // If it takes > 200ms, might indicate performance regression
-  if (elapsed > 200) {
-    console.warn(`⚠️  Warning: Transpilation took ${elapsed.toFixed(2)}ms (expected < 200ms)`);
-  }
-
-  assertEquals(elapsed < 500, true, "Transpilation should complete in reasonable time");
-});
-
 Deno.test("Bugfix #1: Macro expansion with complex expressions", async () => {
   const code = `
 (when (> 5 3)

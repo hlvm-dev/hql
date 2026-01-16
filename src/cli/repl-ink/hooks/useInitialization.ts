@@ -10,13 +10,10 @@ import { memory } from "../../../api/memory.ts";
 import { getFileIndex } from "../../repl/file-search.ts";
 import { evaluate } from "../../repl/evaluator.ts";
 import { ReplState } from "../../repl/state.ts";
-import { runCommand } from "../../repl/commands.ts";
-import { ANSI_COLORS } from "../../ansi.ts";
+import { registerReplHelpers } from "../../repl/helpers.ts";
 import { registerApis } from "../../../api/index.ts";
 import { getMedia } from "../../repl/context.ts";
 import { refreshKeybindingLookup } from "../keybindings/index.ts";
-
-const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
 export interface InitializationState {
   loading: boolean;
@@ -140,7 +137,7 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
         setErrors(loadErrors);
 
         // Register helper functions
-        registerHelperFunctions(state);
+        registerReplHelpers(state);
 
         // Register API objects on globalThis for REPL access
         registerApis({
@@ -171,145 +168,4 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
   }, [state, jsMode]);
 
   return { loading, ready, aiExports, readyTime, errors };
-}
-
-/**
- * Register REPL helper functions on globalThis
- */
-function registerHelperFunctions(state: ReplState): void {
-  const globalAny = globalThis as unknown as Record<string, unknown>;
-
-  // Note: globalAny.memory is registered by registerApis() which is called after this
-  // The memory API object provides list(), stats(), remove(), etc.
-
-    globalAny.forget = async (name: string) => {
-      // Use memory API for single source of truth (registered by registerApis)
-      const memoryApi = globalAny.memory as { remove: (name: string) => Promise<boolean> } | undefined;
-      if (memoryApi?.remove) {
-        const removed = await memoryApi.remove(name);
-        if (removed) {
-          console.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
-        } else {
-          console.log(`${YELLOW}Binding '${name}' not found in memory.${RESET}`);
-        }
-      } else {
-        console.log(`${YELLOW}Memory API not ready.${RESET}`);
-      }
-    };
-
-  globalAny.inspect = async (value: unknown) => {
-    const type = typeof value;
-    const memoryApi = globalAny.memory as { get: (name: string) => Promise<string | null> } | undefined;
-
-    if (type === "function") {
-      const fn = value as ((...args: unknown[]) => unknown) & { name: string };
-      const name = fn.name || "<anonymous>";
-      const source = memoryApi?.get ? await memoryApi.get(name) : null;
-
-      console.log(`${CYAN}${name}${RESET}: ${DIM_GRAY}function${RESET}`);
-      if (source) {
-        console.log(`${DIM_GRAY}${source}${RESET}`);
-      }
-      return { name, type: "function", source };
-    }
-
-    if (type === "string") {
-      const source = memoryApi?.get ? await memoryApi.get(value as string) : null;
-      if (source) {
-        console.log(`${CYAN}${value}${RESET}:`);
-        console.log(`${DIM_GRAY}${source}${RESET}`);
-        return { name: value, type: "definition", source };
-      }
-    }
-
-    console.log(`${CYAN}<value>${RESET}: ${DIM_GRAY}${type}${RESET}`);
-    if (value !== null && value !== undefined) {
-      try {
-        console.log(`${DIM_GRAY}${JSON.stringify(value, null, 2)}${RESET}`);
-      } catch {
-        console.log(`${DIM_GRAY}[non-serializable]${RESET}`);
-      }
-    }
-    return { name: null, type, source: null };
-  };
-
-  globalAny.describe = async (value: unknown) => {
-    const info = await (globalAny.inspect as (v: unknown) => Promise<{ name: string | null; type: string; source?: string | null }>)(value);
-
-    if (!info.source) {
-      return { ...info, explanation: null };
-    }
-
-    const ask = globalAny.ask as ((prompt: string) => Promise<unknown>) | undefined;
-    if (typeof ask !== "function") {
-      console.log(`\n${YELLOW}AI not available. Check @hql/ai installation and API key.${RESET}`);
-      return { ...info, explanation: null };
-    }
-
-    console.log(`\n${CYAN}── AI Explanation ──${RESET}\n`);
-
-    const prompt = `You are explaining an HQL function. HQL is a Lisp-like language that compiles to JavaScript.
-
-Here is the function source code:
-${info.source}
-
-Provide:
-1. A brief explanation of what this function does (1-2 sentences)
-2. 2-3 example usages in HQL syntax
-
-Keep the response concise. Use HQL syntax (parentheses, prefix notation) for examples.`;
-
-    try {
-      const response = await ask(prompt);
-
-      if (response && typeof (response as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function") {
-        const encoder = new TextEncoder();
-        let explanation = "";
-        for await (const chunk of response as AsyncIterable<unknown>) {
-          if (typeof chunk === "string") {
-            Deno.stdout.writeSync(encoder.encode(chunk));
-            explanation += chunk;
-          }
-        }
-        console.log();
-        return { ...info, explanation };
-      } else if (typeof response === "string") {
-        console.log(response);
-        return { ...info, explanation: response };
-      } else {
-        console.log(String(response));
-        return { ...info, explanation: String(response) };
-      }
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      console.log(`${YELLOW}AI error: ${errMsg}${RESET}`);
-      return { ...info, explanation: null };
-    }
-  };
-
-  globalAny.help = () => {
-    runCommand("/help", state);
-    return null;
-  };
-
-  globalAny.exit = () => {
-    console.log("\nGoodbye!");
-    Deno.exit(0);
-  };
-
-  globalAny.clear = () => {
-    console.clear();
-    return null;
-  };
-
-  // Register for tab completion with auto-extracted parameter names
-  const helperNames = ["memory", "forget", "inspect", "describe", "help", "exit", "clear"];
-  for (const name of helperNames) {
-    const fn = globalAny[name];
-    if (typeof fn === "function") {
-      state.addJsFunction(name, fn as (...args: unknown[]) => unknown);
-    } else {
-      state.addBinding(name);
-    }
-  }
 }

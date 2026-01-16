@@ -181,12 +181,36 @@ Deno.test("Runtime Macros - No Re-tagging Warnings", async () => {
   await resetRuntime();
   await defineMacro("(macro test [] 42)");
 
-  // Multiple evaluations should not produce warnings
-  await hqlEval("(test)");
-  await hqlEval("(test)");
-  await hqlEval("(test)");
-  // If warnings existed, they would appear in console
-  // This test passes if no "Cannot redefine property" warnings appear
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  const originalError = console.error;
+
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  console.error = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+
+  try {
+    // Multiple evaluations should not produce redefinition warnings
+    await hqlEval("(test)");
+    await hqlEval("(test)");
+    await hqlEval("(test)");
+  } finally {
+    console.warn = originalWarn;
+    console.error = originalError;
+  }
+
+  const redefinitionWarnings = warnings.filter((msg) =>
+    msg.includes("Cannot redefine property") || msg.toLowerCase().includes("redefine")
+  );
+
+  assertEquals(
+    redefinitionWarnings.length,
+    0,
+    `Unexpected redefinition warnings: ${redefinitionWarnings.join(" | ")}`
+  );
 });
 
 Deno.test("Runtime Macros - Cache Invalidation", async () => {

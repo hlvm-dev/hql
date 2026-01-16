@@ -287,24 +287,33 @@ Deno.test("Error Reporting: Stack trace with actual error in nested calls", asyn
 // METADATA PRESERVATION TESTS
 // ============================================================================
 
-Deno.test("Error Reporting: Transpiled code contains metadata comments", async () => {
+Deno.test("Error Reporting: Transpiled output includes source map metadata", async () => {
   const code = `
 (let x 10)
 (let y 20)
 (+ x y)
 `;
 
-  const jsCode = await transpile(code);
-  console.log("\n=== Transpiled Code (checking for metadata) ===");
-  console.log(jsCode);
-  console.log("================================================\n");
+  const result = await hql.transpile(code, {
+    currentFile: "inline.hql",
+    generateSourceMap: true,
+    sourceContent: code,
+  });
 
-  // Check if HQL metadata comments are present
-  const hasMetadata = jsCode.includes("HQL file=") ||
-    jsCode.includes("// @") ||
-    jsCode.includes("sourceMap");
+  if (typeof result === "string") {
+    throw new Error("Expected source map output");
+  }
 
-  console.log(`Metadata comments present: ${hasMetadata}`);
+  assertEquals(typeof result.sourceMap, "string");
+  const map = JSON.parse(result.sourceMap || "{}") as {
+    sources?: string[];
+    mappings?: string;
+  };
+
+  assertEquals(Array.isArray(map.sources), true);
+  assertEquals(map.sources?.includes("inline.hql"), true);
+  assertEquals(typeof map.mappings, "string");
+  assertEquals((map.mappings?.length ?? 0) > 0, true);
 });
 
 // ============================================================================
@@ -329,22 +338,4 @@ Deno.test("Error Reporting: Multiple errors in sequence", async () => {
   // Valid code after errors - should execute
   const result = await run("(+ 1 2)");
   assertEquals(result, 3);
-});
-
-// ============================================================================
-// HELPER FOR MANUAL TESTING
-// ============================================================================
-
-Deno.test("Error Reporting: Manual inspection helper", () => {
-  console.log("\n" + "=".repeat(60));
-  console.log("ERROR REPORTING VERIFICATION SUMMARY");
-  console.log("=".repeat(60));
-  console.log("\nThis test suite verifies HQL's error handling:");
-  console.log("✓ Compile-time errors (parsing, syntax)");
-  console.log("✓ Runtime errors (undefined vars, function calls)");
-  console.log("✓ Error message formatting and context");
-  console.log("✓ Stack trace quality");
-  console.log("✓ Metadata preservation in transpiled code");
-  console.log("\nCheck the console output above for actual error messages.");
-  console.log("=".repeat(60) + "\n");
 });

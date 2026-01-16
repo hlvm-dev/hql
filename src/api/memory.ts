@@ -22,6 +22,31 @@ import {
   compactMemory,
 } from "../cli/repl/memory.ts";
 
+export interface MemorySummary {
+  count: number;
+  names: string[];
+  path: string;
+  size: number;
+}
+
+export interface MemoryApi {
+  load: (evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>) => Promise<{
+    docstrings: Map<string, string>;
+    errors: string[];
+  }>;
+  compact: () => Promise<void>;
+  list: () => Promise<string[]>;
+  get: (name: string) => Promise<string | null>;
+  remove: (name: string) => Promise<boolean>;
+  clear: () => Promise<void>;
+  stats: () => Promise<{ path: string; count: number; size: number } | null>;
+  readonly path: string;
+  has: (name: string) => Promise<boolean>;
+  count: () => Promise<number>;
+}
+
+export type MemoryCallable = MemoryApi & (() => Promise<MemorySummary>);
+
 // ============================================================================
 // Memory API Object
 // ============================================================================
@@ -30,8 +55,8 @@ import {
  * Create the memory API object
  * Designed to be registered on globalThis for REPL access
  */
-export function createMemoryApi() {
-  return {
+export function createMemoryApi(): MemoryCallable {
+  const api: MemoryApi = {
     /**
      * Load memory definitions from file
      * System-level API - normally called by REPL initialization
@@ -125,6 +150,20 @@ export function createMemoryApi() {
       return names.length;
     },
   };
+
+  const memoryFn = async (): Promise<MemorySummary> => {
+    const stats = await api.stats();
+    const names = await api.list();
+    return {
+      count: stats?.count ?? names.length,
+      names,
+      path: stats?.path ?? api.path,
+      size: stats?.size ?? 0,
+    };
+  };
+
+  Object.defineProperties(memoryFn, Object.getOwnPropertyDescriptors(api));
+  return memoryFn as MemoryCallable;
 }
 
 /**

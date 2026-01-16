@@ -18,6 +18,7 @@ import { registerApis } from "../api/index.ts";
 import { run as runCommand } from "./run.ts";
 // Import repl command from Ink REPL
 import { startInkRepl, type InkReplOptions } from "./repl-ink/index.tsx";
+import { startHeadlessRepl } from "./repl/headless.ts";
 import type { SessionInitOptions } from "./repl/session/types.ts";
 import { VERSION } from "../version.ts";
 
@@ -35,6 +36,7 @@ USAGE:
 
 OPTIONS:
   --js              Enable JavaScript polyglot mode (HQL + JS)
+  --ink             Force Ink REPL (interactive terminal only)
   --no-banner       Skip the startup banner
   --help, -h        Show this help
   --version         Show version
@@ -102,9 +104,22 @@ EXAMPLES:
     openPicker,
   };
 
+  const jsMode = args.includes("--js");
+  const showBanner = !args.includes("--no-banner");
+  const forceInk = args.includes("--ink");
+  const hasTty = typeof Deno.stdin.isTerminal === "function" ? Deno.stdin.isTerminal() : true;
+
+  if (!hasTty) {
+    if (forceInk) {
+      console.error("Error: Requires interactive terminal.");
+      return 1;
+    }
+    return await startHeadlessRepl({ jsMode, showBanner });
+  }
+
   const replOptions: InkReplOptions = {
-    jsMode: args.includes("--js"),
-    showBanner: !args.includes("--no-banner"),
+    jsMode,
+    showBanner,
     session: sessionOptions,
   };
 

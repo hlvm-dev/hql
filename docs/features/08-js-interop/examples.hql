@@ -19,8 +19,8 @@
 (var upper (js-call text "toUpperCase"))
 (assert (=== upper "HELLO WORLD") "js-call: toUpperCase")
 
-(var str "one,two,three")
-(var parts (js-call str "split" ","))
+(var csv "one,two,three")
+(var parts (js-call csv "split" ","))
 (assert (=== (get parts 1) "two") "js-call: split with arg")
 
 ; js-get: Property access
@@ -29,8 +29,8 @@
 (assert (=== name "Alice") "js-get: object property")
 
 (var arr [10, 20, 30])
-(var second (js-get arr 1))
-(assert (=== second 20) "js-get: array index")
+(var second-val (js-get arr 1))
+(assert (=== second-val 20) "js-get: array index")
 
 ; js-set: Property mutation
 (var counter {"value": 0})
@@ -38,8 +38,8 @@
 (assert (=== (js-get counter "value") 42) "js-set: mutate property")
 
 ; js-new: Object creation
-(var date (js-new Date (2023 11 25)))
-(var year (js-call date "getFullYear"))
+(var date (js-new Date ("2023-12-25T00:00:00Z")))
+(var year (js-call date "getUTCFullYear"))
 (assert (=== year 2023) "js-new: Date constructor")
 
 ; ============================================================================
@@ -229,7 +229,7 @@
   (js-call Object "values" obj))
 
 (fn has-key? [obj key]
-  (js-call (js-get Object.prototype "hasOwnProperty") "call" obj key))
+  (!== (js-get obj key) undefined))
 
 (var config {"host": "localhost", "port": 8080, "ssl": true})
 (var keys (get-keys config))
@@ -283,14 +283,14 @@
 ; ============================================================================
 
 (fn format-date [date]
-  (let year (js-call date "getFullYear"))
-  (let month (+ (js-call date "getMonth") 1))
-  (let day (js-call date "getDate"))
+  (let year (js-call date "getUTCFullYear"))
+  (let month (+ (js-call date "getUTCMonth") 1))
+  (let day (js-call date "getUTCDate"))
   (+ year "-" 
      (if (< month 10) "0" "") month "-"
      (if (< day 10) "0" "") day))
 
-(var today (js-new Date (2023 11 25)))
+(var today (js-new Date ("2023-12-25T00:00:00Z")))
 (var formatted (format-date today))
 (assert (=== formatted "2023-12-25") "Date: formatting")
 
@@ -350,15 +350,14 @@
 ; ============================================================================
 
 (async fn retry [action max-attempts]
-  (var attempts 0)
-  (loop []
-    (= attempts (+ attempts 1))
+  (async fn attempt [attempts]
     (try
       (return (await (action)))
       (catch e
-        (when (>= attempts max-attempts)
-          (throw (+ "Failed after " attempts " attempts")))
-        (recur)))))
+        (if (>= attempts max-attempts)
+          (throw (+ "Failed after " attempts " attempts"))
+          (return (await (attempt (+ attempts 1))))))))
+  (await (attempt 1)))
 
 ; Simulated unreliable action - wrapped in async IIFE to avoid top-level await
 ((async fn []

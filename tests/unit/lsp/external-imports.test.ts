@@ -10,6 +10,19 @@ import {
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { ModuleAnalyzer } from "../../../lsp/workspace/module-analyzer.ts";
 
+async function withTempModule(
+  code: string,
+  fn: (specifier: string) => Promise<void>,
+): Promise<void> {
+  const filePath = await Deno.makeTempFile({ suffix: ".ts" });
+  await Deno.writeTextFile(filePath, code);
+  try {
+    await fn(filePath);
+  } finally {
+    await Deno.remove(filePath);
+  }
+}
+
 // ============================================
 // ModuleAnalyzer Tests
 // ============================================
@@ -76,18 +89,28 @@ Deno.test("ModuleAnalyzer - getCached returns undefined for unanalyzed module", 
   assertEquals(cached, undefined);
 });
 
-Deno.test("ModuleAnalyzer - clearCache clears all cached data", () => {
+Deno.test("ModuleAnalyzer - clearCache clears all cached data", async () => {
   const analyzer = new ModuleAnalyzer();
 
-  // This test just verifies clearCache doesn't throw
-  analyzer.clearCache();
+  await withTempModule("export const value = 1;", async (specifier) => {
+    await analyzer.analyze(specifier);
+    assertExists(analyzer.getCached(specifier));
+
+    analyzer.clearCache();
+    assertEquals(analyzer.getCached(specifier), undefined);
+  });
 });
 
-Deno.test("ModuleAnalyzer - invalidate removes specific entry", () => {
+Deno.test("ModuleAnalyzer - invalidate removes specific entry", async () => {
   const analyzer = new ModuleAnalyzer();
 
-  // This test just verifies invalidate doesn't throw
-  analyzer.invalidate("npm:some-package");
+  await withTempModule("export const value = 1;", async (specifier) => {
+    await analyzer.analyze(specifier);
+    assertExists(analyzer.getCached(specifier));
+
+    analyzer.invalidate(specifier);
+    assertEquals(analyzer.getCached(specifier), undefined);
+  });
 });
 
 // ============================================

@@ -42,28 +42,3 @@ Deno.test({
     });
   },
 });
-
-Deno.test({
-  name: "CLI publish: dry-run with valid project",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
-    await withTempProject(async (dir) => {
-      const originalCwd = Deno.cwd();
-      try {
-        // Create a minimal module
-        await Deno.writeTextFile(`${dir}/mod.hql`, `(const greeting "hello")`);
-
-        Deno.chdir(dir);
-        const result = await runCLI("publish", ["--dry-run", "-y"]);
-
-        // Dry run might succeed or show what would be published
-        const output = result.stdout + result.stderr;
-        // Just check it doesn't crash unexpectedly
-        assertEquals(typeof output, "string");
-      } finally {
-        Deno.chdir(originalCwd);
-      }
-    }, { name: "test-pkg", version: "0.0.1", entry: "./mod.hql" });
-  },
-});

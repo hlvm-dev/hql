@@ -612,4 +612,6 @@
 
 (if (=== fail-count 0)
   (print "✅ ALL TESTS PASSED!")
-  (print (+ "❌ " fail-count " TESTS FAILED")))
+  (do
+    (print (+ "❌ " fail-count " TESTS FAILED"))
+    (throw (new Error (+ "" fail-count " tests failed")))))

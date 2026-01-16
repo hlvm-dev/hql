@@ -1,0 +1,35 @@
+{"ts":1768559235165,"cmd":"(+ 1 1)"}
+{"ts":1768559266794,"cmd":"(memory)"}
+{"ts":1768559277315,"cmd":"(defn test_inspect_fn [x] (+ x 1))"}
+{"ts":1768559297726,"cmd":"(inspect test_inspect_fn)"}
+{"ts":1768559308710,"cmd":"(forget \"test_inspect_fn\")"}
+{"ts":1768559310109,"cmd":"(help)"}
+{"ts":1768559320690,"cmd":"(def test_forget_val 123)"}
+{"ts":1768559341062,"cmd":"(forget \"test_forget_val\")"}
+{"ts":1768559352826,"cmd":"(clear)"}
+{"ts":1768559363268,"cmd":"(+ 1 1)"}
+{"ts":1768559792067,"cmd":"(memory)"}
+{"ts":1768559801608,"cmd":"(defn test_inspect_fn [x] (+ x 1))"}
+{"ts":1768559820502,"cmd":"(inspect test_inspect_fn)"}
+{"ts":1768559830545,"cmd":"(forget \"test_inspect_fn\")"}
+{"ts":1768559831267,"cmd":"(help)"}
+{"ts":1768559840830,"cmd":"(def test_forget_val 123)"}
+{"ts":1768559859727,"cmd":"(forget \"test_forget_val\")"}
+{"ts":1768559869946,"cmd":"(clear)"}
+{"ts":1768559879473,"cmd":"(+ 1 1)"}
+{"ts":1768563593096,"cmd":"(memory)"}
+{"ts":1768563602724,"cmd":"(defn test_inspect_fn [x] (+ x 1))"}
+{"ts":1768563621606,"cmd":"(inspect test_inspect_fn)"}
+{"ts":1768563631622,"cmd":"(forget \"test_inspect_fn\")"}
+{"ts":1768563632313,"cmd":"(help)"}
+{"ts":1768563641835,"cmd":"(def test_forget_val 123)"}
+{"ts":1768563660790,"cmd":"(forget \"test_forget_val\")"}
+{"ts":1768563671046,"cmd":"(clear)"}
+{"ts":1768563680550,"cmd":"(+ 1 1)"}
+{"ts":1768567177328,"cmd":"(memory)"}
+{"ts":1768567186857,"cmd":"(defn test_inspect_fn [x] (+ x 1))"}
+{"ts":1768567205736,"cmd":"(inspect test_inspect_fn)"}
+{"ts":1768567215774,"cmd":"(forget \"test_inspect_fn\")"}
+{"ts":1768567216464,"cmd":"(help)"}
+{"ts":1768567226045,"cmd":"(def test_forget_val 123)"}
+{"ts":1768567244959,"cmd":"(forget \"test_forget_val\")"}

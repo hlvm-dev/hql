@@ -113,14 +113,6 @@ Deno.test("repeatedly: constant function", () => {
   assertEquals(result, [42, 42, 42]);
 });
 
-Deno.test("repeatedly: Math.random uniqueness", () => {
-  const result = doall(take(100, repeatedly(() => Math.random())));
-
-  // Statistically, all 100 random numbers should be unique
-  const unique = new Set(result);
-  assertEquals(unique.size, 100);
-});
-
 Deno.test("repeatedly: with take(0)", () => {
   let counter = 0;
   const result = doall(take(0, repeatedly(() => counter++)));

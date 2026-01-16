@@ -1,7 +1,15 @@
 // deno run -A scripts/run-local-examples-all.ts
 // Runs every .hql file under doc/examples using the LOCAL HQL CLI
 
-import { cwd, readDir, runCmd, exit, resolve, relative } from "../src/platform/platform.ts";
+import {
+  cwd,
+  readDir,
+  runCmd,
+  exit,
+  resolve,
+  relative,
+  readTextFile,
+} from "../src/platform/platform.ts";
 
 const root = cwd();
 const examplesDir = resolve(root, "docs/features");
@@ -23,27 +31,53 @@ async function listHqlFiles(dir: string): Promise<string[]> {
   return out.sort();
 }
 
-let passed = 0, failed = 0;
+async function readStream(
+  stream: ReadableStream<Uint8Array> | null | undefined,
+): Promise<string> {
+  if (!stream) return "";
+  return await new Response(stream).text();
+}
+
+function hasActiveAssertions(source: string): boolean {
+  for (const line of source.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith(";")) continue;
+    const code = trimmed.split(";")[0];
+    if (code.includes("(assert")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+let passed = 0, failed = 0, skipped = 0;
 console.log("=== LOCAL HQL Full Examples Suite ===\n");
 
 const files = await listHqlFiles(examplesDir);
 for (const file of files) {
   const rel = relative(root, file);
   try {
+    const source = await readTextFile(file);
+    if (!hasActiveAssertions(source)) {
+      console.log("SKIP", rel, "(no assertions)");
+      skipped++;
+      continue;
+    }
+
     const proc = runCmd({
       cmd: ["deno", "run", "-A", resolve(root, "src/cli/run.ts"), file],
       stdout: "piped",
       stderr: "piped",
     });
-    const result = await proc.status;
+    const [result, outStr, errStr] = await Promise.all([
+      proc.status,
+      readStream(proc.stdout),
+      readStream(proc.stderr),
+    ]);
     const code = result.code;
-    // Note: Platform abstraction doesn't expose stdout/stderr output capture yet
-    // This would need to be enhanced to capture output
-    const outStr = "";
-    const errStr = "";
     if (code === 0) {
       console.log("OK ", rel);
-      if (outStr.trim().length) console.log(outStr.trim());
       passed++;
     } else {
       console.error("FAIL", rel);
@@ -57,5 +91,5 @@ for (const file of files) {
   }
 }
 
-console.log(`\nResults: ${passed}/${passed + failed} passed`);
+console.log(`\nResults: ${passed}/${passed + failed} passed, ${skipped} skipped`);
 if (failed) exit(1);

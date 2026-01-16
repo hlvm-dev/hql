@@ -6,22 +6,32 @@
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
-import { binaryTest, USE_BINARY } from "../_shared/binary-helpers.ts";
+import { binaryTest, USE_BINARY, BINARY_PATH, CLI_PATH, ensureBinaryCompiled } from "../_shared/binary-helpers.ts";
 
 console.log(`Testing REPL memory functions in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
 
 // Helper to run REPL with input and capture output
 async function runReplWithInput(input: string): Promise<{ stdout: string; stderr: string }> {
   const args = ["repl"];
-  const proc = new Deno.Command(Deno.execPath(), {
-    args: USE_BINARY
-      ? ["run", "-A", "dist/hql", ...args]
-      : ["run", "-A", "src/cli/cli.ts", ...args],
-    stdin: "piped",
-    stdout: "piped",
-    stderr: "piped",
-    cwd: Deno.cwd(),
-  });
+  if (USE_BINARY) {
+    await ensureBinaryCompiled();
+  }
+
+  const proc = USE_BINARY
+    ? new Deno.Command(BINARY_PATH, {
+        args,
+        stdin: "piped",
+        stdout: "piped",
+        stderr: "piped",
+        cwd: Deno.cwd(),
+      })
+    : new Deno.Command(Deno.execPath(), {
+        args: ["run", "-A", CLI_PATH, ...args],
+        stdin: "piped",
+        stdout: "piped",
+        stderr: "piped",
+        cwd: Deno.cwd(),
+      });
 
   const child = proc.spawn();
   const writer = child.stdin.getWriter();
@@ -139,4 +149,3 @@ binaryTest("REPL empty memory shows teaching message", async () => {
     }
   }
 });
-

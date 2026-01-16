@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals } from "jsr:@std/assert@1";
 import { REPL } from "../mod.ts";
 import type { REPLPlugin } from "../mod.ts";
 

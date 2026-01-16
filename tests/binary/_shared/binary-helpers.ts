@@ -6,7 +6,7 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
 
 // Path to CLI entry point
-const CLI_PATH = new URL("../../../src/cli/cli.ts", import.meta.url).pathname;
+export const CLI_PATH = new URL("../../../src/cli/cli.ts", import.meta.url).pathname;
 
 // Binary test mode: set HQL_TEST_BINARY=1 for genuine binary testing
 // Default: quick mode using deno run (same code path, faster)
@@ -248,5 +248,3 @@ export function withTempProject<T>(
     return fn(dir);
   });
 }
-
-export { CLI_PATH };

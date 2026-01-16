@@ -15,7 +15,10 @@
 import { assertEquals, assert, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
 import { binaryTest, USE_BINARY, runExpression } from "../_shared/binary-helpers.ts";
 import { findSuggestion, acceptSuggestion } from "../../../src/cli/repl/suggester.ts";
-import { getCompletions, getWordAtCursor } from "../../../src/cli/repl/completer.ts";
+import { getWordAtCursor } from "../../../src/cli/repl/completer.ts";
+import { buildContext } from "../../../src/cli/repl-ink/completion/providers.ts";
+import { SymbolProvider } from "../../../src/cli/repl-ink/completion/concrete-providers.ts";
+import type { CompletionItem } from "../../../src/cli/repl-ink/completion/types.ts";
 
 console.log(`Testing REPL Tab behavior logic in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
 
@@ -57,14 +60,15 @@ binaryTest("Tab suggestion: skips exact match", async () => {
 });
 
 // ============================================================
-// Completion System Tests (underlying Tab completion logic)
+// Completion System Tests (provider-based completion logic)
 // ============================================================
 
-binaryTest("Tab completion: getCompletions finds keywords", async () => {
-  const completions = getCompletions("de", new Set());
+binaryTest("Tab completion: symbol provider finds keywords", async () => {
+  const context = buildContext("de", 2, new Set(), new Map());
+  const result = await SymbolProvider.getCompletions(context);
+  const texts: string[] = result.items.map((item: CompletionItem) => item.label);
 
-  assert(completions.length > 0, "Should find completions for 'de'");
-  const texts = completions.map(c => c.text);
+  assert(result.items.length > 0, "Should find completions for 'de'");
   // Should include keywords starting with "de"
   assert(
     texts.some(t => t.startsWith("de")),
@@ -72,11 +76,12 @@ binaryTest("Tab completion: getCompletions finds keywords", async () => {
   );
 });
 
-binaryTest("Tab completion: getCompletions includes user bindings", async () => {
+binaryTest("Tab completion: symbol provider includes user bindings", async () => {
   const bindings = new Set(["myFunction", "myVariable"]);
-  const completions = getCompletions("my", bindings);
+  const context = buildContext("my", 2, bindings, new Map());
+  const result = await SymbolProvider.getCompletions(context);
 
-  const texts = completions.map(c => c.text);
+  const texts: string[] = result.items.map((item: CompletionItem) => item.label);
   assert(texts.includes("myFunction"), "Should include myFunction");
   assert(texts.includes("myVariable"), "Should include myVariable");
 });
