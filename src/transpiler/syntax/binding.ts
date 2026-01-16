@@ -17,7 +17,6 @@ import {
   transformNonNullElements,
   validateTransformed,
 } from "../utils/validation-helpers.ts";
-import { astToSExp } from "../utils/ast-to-sexp.ts";
 import { couldBePattern, parsePattern } from "../../s-exp/pattern-parser.ts";
 import { patternToIR } from "../utils/pattern-to-ir.ts";
 import type { SList } from "../../s-exp/types.ts";
@@ -68,7 +67,7 @@ function transformBinding(
       const listNode = bindingTarget as ListNode;
       const hadVectorPrefix = hasVectorPrefix(listNode);
       const hadHashMapPrefix = hasHashMapPrefix(listNode);
-      const sexp = astToSExp(bindingTarget);
+      const sexp = bindingTarget;
 
       // Check if this list is a pattern AND came from vector/hash-map syntax
       if ((hadVectorPrefix || hadHashMapPrefix) && couldBePattern(sexp)) {
@@ -176,7 +175,7 @@ function transformBinding(
       const patternListNode = nameNode as ListNode;
       const hadVectorPrefix = hasVectorPrefix(patternListNode);
       const hadHashMapPrefix = hasHashMapPrefix(patternListNode);
-      const sexp = astToSExp(nameNode);
+      const sexp = nameNode;
 
       if ((hadVectorPrefix || hadHashMapPrefix) && couldBePattern(sexp)) {
         // This is a destructuring pattern form: (let ([pattern] value) body...)
@@ -531,7 +530,7 @@ function processBindings(
       const listNode = nameNode as ListNode;
       const hadVectorPrefix = hasVectorPrefix(listNode);
       const hadHashMapPrefix = hasHashMapPrefix(listNode);
-      const sexp = astToSExp(nameNode);
+      const sexp = nameNode;
 
       if ((hadVectorPrefix || hadHashMapPrefix) && couldBePattern(sexp)) {
         // Handle destructuring pattern

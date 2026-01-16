@@ -1,38 +1,13 @@
 // src/transpiler/hql_ast.ts
-export type HQLNode = LiteralNode | SymbolNode | ListNode;
+import type { SExp, SList, SLiteral, SSymbol } from "../../s-exp/types.ts";
+import { isImport, isList, isLiteral, isSymbol } from "../../s-exp/types.ts";
 
-interface Position {
-  line: number;
-  column: number;
-  filePath?: string;
-}
+export type HQLNode = SExp;
+export type ListNode = SList;
+export type LiteralNode = SLiteral;
+export type SymbolNode = SSymbol;
 
-export interface LiteralNode {
-  type: "literal";
-  value: string | number | boolean | null;
-  position?: Position;
-}
-
-export interface SymbolNode {
-  type: "symbol";
-  name: string;
-  position?: Position;
-}
-
-export interface ListNode {
-  type: "list";
-  elements: HQLNode[];
-  position?: Position;
-}
-
-/**
- * Check if a node is an import statement
- */
-export function isImportNode(node: HQLNode): boolean {
-  return (
-    node.type === "list" &&
-    node.elements.length >= 3 &&
-    node.elements[0].type === "symbol" &&
-    ((node.elements[0] as SymbolNode).name === "import")
-  );
-}
+export const isImportNode = isImport;
+export const isListNode = isList;
+export const isLiteralNode = isLiteral;
+export const isSymbolNode = isSymbol;

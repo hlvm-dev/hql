@@ -15,12 +15,8 @@ import {
   parseValue,
   validateValue,
   getConfigPath,
-  loadConfig,
   getConfigValue,
   isConfigKey,
-  initConfigRuntime,
-  updateConfigRuntime,
-  resetConfigRuntime,
 } from "../../../common/config/index.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;

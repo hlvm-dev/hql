@@ -1,7 +1,14 @@
 // src/transpiler/syntax/function.ts
 
 import * as IR from "../type/hql_ir.ts";
-import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import {
+  type HQLNode,
+  type ListNode,
+  type LiteralNode,
+  type SymbolNode,
+  isListNode,
+  isSymbolNode,
+} from "../type/hql_ast.ts";
 import {
   HQLError,
   perform,
@@ -1608,20 +1615,6 @@ const ARROW_LAMBDA_ERRORS = {
   TOO_MANY_PARAMS: (found: number, max: number) =>
     `Arrow lambda has too many implicit parameters ($${found}). Maximum is $${max - 1}`,
 } as const;
-
-/**
- * Type guard: Check if node is a SymbolNode
- */
-function isSymbolNode(node: HQLNode): node is SymbolNode {
-  return node.type === "symbol";
-}
-
-/**
- * Type guard: Check if node is a ListNode
- */
-function isListNode(node: HQLNode): node is ListNode {
-  return node.type === "list";
-}
 
 /**
  * Scan HQL AST for dollar-sign parameters ($0, $1, $2, etc.)

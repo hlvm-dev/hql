@@ -17,8 +17,6 @@ import {
   resetConfig,
   isConfigKey,
   getConfigPath,
-  loadKeybindings,
-  saveKeybindings,
 } from "../common/config/storage.ts";
 
 import {
@@ -30,6 +28,7 @@ import {
   validateValue,
   parseValue,
 } from "../common/config/types.ts";
+import { syncProvidersFromConfig } from "../common/config/provider-sync.ts";
 
 // ============================================================================
 // Config API Object
@@ -51,9 +50,23 @@ export function createConfigApi() {
    */
   async function ensureConfig(): Promise<HqlConfig> {
     if (!_config) {
-      _config = await loadConfig();
+      _config = normalizeConfig(await loadConfig());
+      syncProvidersFromConfig(_config);
     }
     return _config;
+  }
+
+  function normalizeConfig(config: HqlConfig): HqlConfig {
+    const next = { ...config };
+    for (const key of CONFIG_KEYS) {
+      const value = next[key as keyof HqlConfig];
+      const result = validateValue(key, value);
+      if (!result.valid) {
+        console.warn(`Warning: config.${key} invalid - ${result.error}. Using default.`);
+        (next as unknown as Record<string, unknown>)[key] = DEFAULT_CONFIG[key as keyof HqlConfig];
+      }
+    }
+    return next;
   }
 
   return {
@@ -93,11 +106,7 @@ export function createConfigApi() {
       const newConfig = { ...cfg, [key]: parsedValue };
       await saveConfig(newConfig);
       _config = newConfig;
-
-      // Update globalThis.__hqlConfig for live reload
-      if (typeof globalThis !== "undefined") {
-        (globalThis as Record<string, unknown>).__hqlConfig = newConfig;
-      }
+      syncProvidersFromConfig(newConfig);
     },
 
     /**
@@ -106,12 +115,7 @@ export function createConfigApi() {
      */
     reset: async (): Promise<HqlConfig> => {
       _config = await resetConfig();
-
-      // Update globalThis.__hqlConfig
-      if (typeof globalThis !== "undefined") {
-        (globalThis as Record<string, unknown>).__hqlConfig = _config;
-      }
-
+      syncProvidersFromConfig(_config);
       return _config;
     },
 
@@ -121,6 +125,14 @@ export function createConfigApi() {
      */
     get all(): Promise<HqlConfig> {
       return ensureConfig();
+    },
+
+    /**
+     * Get cached config snapshot (sync)
+     * @example (config.snapshot)
+     */
+    get snapshot(): HqlConfig {
+      return { ...(_config ?? DEFAULT_CONFIG) };
     },
 
     /**
@@ -152,13 +164,8 @@ export function createConfigApi() {
      * @example (config.reload)
      */
     reload: async (): Promise<HqlConfig> => {
-      _config = await loadConfig();
-
-      // Update globalThis.__hqlConfig
-      if (typeof globalThis !== "undefined") {
-        (globalThis as Record<string, unknown>).__hqlConfig = _config;
-      }
-
+      _config = normalizeConfig(await loadConfig());
+      syncProvidersFromConfig(_config);
       return _config;
     },
 
@@ -190,7 +197,8 @@ export function createConfigApi() {
        * @example (config.keybindings.get)
        */
       get: async (): Promise<KeybindingsConfig> => {
-        return loadKeybindings();
+        const cfg = await ensureConfig();
+        return cfg.keybindings ?? {};
       },
 
       /**
@@ -198,17 +206,19 @@ export function createConfigApi() {
        * @example (config.keybindings.set "show-palette" "Ctrl+P")
        */
       set: async (id: string, combo: string): Promise<void> => {
-        const bindings = await loadKeybindings();
-        const newBindings = { ...bindings, [id]: combo };
-        await saveKeybindings(newBindings);
-        
-        // Update global runtime cache if needed
-        if (typeof globalThis !== "undefined") {
-          const rt = (globalThis as Record<string, unknown>).__hqlKeybindings;
-          if (rt && typeof rt === 'object') {
-            (rt as Record<string, string>)[id] = combo;
-          }
-        }
+        const cfg = await ensureConfig();
+        const newBindings = { ...(cfg.keybindings ?? {}), [id]: combo };
+        const newConfig = { ...cfg, keybindings: newBindings };
+        await saveConfig(newConfig);
+        _config = newConfig;
+      },
+
+      /**
+       * Get cached keybindings snapshot (sync)
+       * @example (config.keybindings.snapshot)
+       */
+      get snapshot(): KeybindingsConfig {
+        return { ...(_config?.keybindings ?? {}) };
       },
     },
   };

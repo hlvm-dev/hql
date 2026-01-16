@@ -7,6 +7,7 @@
 
 import { registry } from "./registry.ts";
 import type { Key } from "npm:ink@5";
+import { config } from "../../../api/config.ts";
 
 // ============================================================
 // State
@@ -89,7 +90,7 @@ export function refreshKeybindingLookup(): void {
   }
 
   // Build custom map and disabled defaults from config (via global cache)
-  const customBindings = (globalThis as Record<string, unknown>).__hqlKeybindings as Record<string, string> || {};
+  const customBindings = config.keybindings.snapshot ?? {};
   
   for (const kb of registry.getAll()) {
     const customCombo = customBindings[kb.id];
@@ -136,7 +137,7 @@ export function isDefaultDisabled(input: string, key: Key): boolean {
  * Used by getDisplay() to show custom bindings in palette.
  */
 export function getEffectiveDisplay(keybindingId: string): string | null {
-  const customBindings = (globalThis as Record<string, unknown>).__hqlKeybindings as Record<string, string> || {};
+  const customBindings = config.keybindings.snapshot ?? {};
   return customBindings[keybindingId] ?? null;
 }
 

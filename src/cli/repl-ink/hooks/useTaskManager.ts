@@ -35,6 +35,8 @@ export interface UseTaskManagerReturn {
   completeEvalTask: (taskId: string, result: unknown) => void;
   /** Fail an eval task with error */
   failEvalTask: (taskId: string, error: Error) => void;
+  /** Update streaming output for an eval task */
+  updateEvalOutput: (taskId: string, output: string, isStreaming: boolean) => void;
   /** Get result of completed eval task */
   getEvalResult: (taskId: string) => unknown | undefined;
   /** Cancel a task */
@@ -106,6 +108,11 @@ export function useTaskManager(): UseTaskManagerReturn {
     [manager]
   );
 
+  const updateEvalOutput = useCallback(
+    (taskId: string, output: string, isStreaming: boolean) => manager.updateEvalOutput(taskId, output, isStreaming),
+    [manager]
+  );
+
   const getEvalResult = useCallback(
     (taskId: string) => manager.getEvalResult(taskId),
     [manager]
@@ -133,6 +140,7 @@ export function useTaskManager(): UseTaskManagerReturn {
     createEvalTask,
     completeEvalTask,
     failEvalTask,
+    updateEvalOutput,
     getEvalResult,
     cancel,
     cancelAll,

@@ -18,7 +18,15 @@ import {
   setLoadingAction,
   toggleDocPanelAction,
 } from "../../../../src/cli/repl-ink/completion/state.ts";
-import type { DropdownState, CompletionItem, CompletionType, ApplyResult, ApplyContext, ItemRenderSpec } from "../../../../src/cli/repl-ink/completion/types.ts";
+import type {
+  DropdownState,
+  CompletionAction,
+  CompletionItem,
+  CompletionType,
+  ApplyResult,
+  ApplyContext,
+  ItemRenderSpec,
+} from "../../../../src/cli/repl-ink/completion/types.ts";
 import { INITIAL_DROPDOWN_STATE, TYPE_ICONS } from "../../../../src/cli/repl-ink/completion/types.ts";
 
 // ============================================================
@@ -38,7 +46,7 @@ function createMockItem(
     type,
     score,
     availableActions: ["SELECT"],
-    applyAction: (_action: "DRILL" | "SELECT", context: ApplyContext): ApplyResult => ({
+    applyAction: (_action: CompletionAction, context: ApplyContext): ApplyResult => ({
       text: context.text.slice(0, context.anchorPosition) + label + context.text.slice(context.cursorPosition),
       cursorPosition: context.anchorPosition + label.length,
       closeDropdown: true,

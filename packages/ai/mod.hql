@@ -28,12 +28,15 @@
   ai)
 
 ; ============================================================================
-; Config Helpers - Read from globalThis.__hqlConfig
+; Config Helpers - Read from globalThis.config snapshot (SSOT)
 ; ============================================================================
 
 (fn get-config []
-  "Get config object (fresh read each call)"
-  (or js/globalThis.__hqlConfig {}))
+  "Get config snapshot from globalThis.config"
+  (let cfg-api (js-get js/globalThis "config"))
+  (if cfg-api
+      (or (js-get cfg-api "snapshot") {})
+      {}))
 
 (fn get-temperature [opts]
   "Get temperature from: opts > config > default"

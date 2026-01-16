@@ -14,7 +14,7 @@
  * - Atomic compaction (temp file + rename)
  */
 
-import { getHistoryPath, ensureHqlDir } from "../../common/paths.ts";
+import { getHistoryPath, ensureHqlDir, ensureHqlDirSync } from "../../common/paths.ts";
 
 // ============================================================================
 // Types
@@ -51,6 +51,9 @@ export class HistoryStorage {
   private saveTimeoutId: number | null = null;
   private config: HistoryStorageConfig;
   private initialized = false;
+  private lineCount = 0;
+  private compactScheduled = false;
+  private compacting = false;
 
   constructor(config: Partial<HistoryStorageConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -65,12 +68,7 @@ export class HistoryStorage {
     this.initialized = true;
 
     await this.load();
-
-    // Compact if over threshold (2x max to reduce compaction frequency)
-    if (this.entries.length > this.config.maxEntries * 2) {
-      // Schedule compaction in background (non-blocking)
-      queueMicrotask(() => this.compact().catch(() => {}));
-    }
+    this.maybeScheduleCompaction();
   }
 
   /**
@@ -82,7 +80,9 @@ export class HistoryStorage {
 
     try {
       const content = await Deno.readTextFile(path);
-      const lines = content.trim().split("\n").filter(Boolean);
+      const trimmed = content.trim();
+      const lines = trimmed ? trimmed.split("\n").filter(Boolean) : [];
+      this.lineCount = lines.length;
 
       // Parse all entries, skip corrupt lines
       const allEntries: HistoryEntry[] = [];
@@ -117,6 +117,7 @@ export class HistoryStorage {
         console.error("Failed to load history:", err);
       }
       this.entries = [];
+      this.lineCount = 0;
     }
   }
 
@@ -185,6 +186,20 @@ export class HistoryStorage {
   }
 
   /**
+   * Schedule a compaction if the on-disk file is oversized.
+   */
+  private maybeScheduleCompaction(): void {
+    if (this.compacting || this.compactScheduled) return;
+    if (this.lineCount <= this.config.maxEntries * 2) return;
+
+    this.compactScheduled = true;
+    queueMicrotask(async () => {
+      this.compactScheduled = false;
+      await this.compact();
+    });
+  }
+
+  /**
    * Flush pending writes to disk.
    * Appends to file (no read-modify-write).
    */
@@ -198,6 +213,8 @@ export class HistoryStorage {
       await ensureHqlDir();
       const lines = toWrite.map((e) => JSON.stringify(e) + "\n").join("");
       await Deno.writeTextFile(path, lines, { append: true });
+      this.lineCount += toWrite.length;
+      this.maybeScheduleCompaction();
     } catch (err) {
       // Re-queue on failure
       this.pendingWrites.unshift(...toWrite);
@@ -214,11 +231,14 @@ export class HistoryStorage {
 
     try {
       const path = getHistoryPath();
+      ensureHqlDirSync();
       const lines = this.pendingWrites
         .map((e) => JSON.stringify(e) + "\n")
         .join("");
       Deno.writeTextFileSync(path, lines, { append: true });
+      this.lineCount += this.pendingWrites.length;
       this.pendingWrites = [];
+      this.maybeScheduleCompaction();
     } catch {
       // Best effort - ignore errors on exit
     }
@@ -236,6 +256,7 @@ export class HistoryStorage {
 
     this.entries = [];
     this.pendingWrites = [];
+    this.lineCount = 0;
 
     try {
       await Deno.remove(getHistoryPath());
@@ -251,12 +272,14 @@ export class HistoryStorage {
    * Atomic operation: write to temp file, then rename.
    */
   async compact(): Promise<void> {
-    // Flush pending writes first
-    await this.flush();
-
-    const path = getHistoryPath();
+    if (this.compacting) return;
+    this.compacting = true;
 
     try {
+      // Flush pending writes first
+      await this.flush();
+
+      const path = getHistoryPath();
       // Keep only maxEntries
       const toKeep = this.entries.slice(-this.config.maxEntries);
 
@@ -268,8 +291,11 @@ export class HistoryStorage {
       await Deno.rename(tempPath, path);
 
       this.entries = toKeep;
+      this.lineCount = toKeep.length;
     } catch (err) {
       console.error("Failed to compact history:", err);
+    } finally {
+      this.compacting = false;
     }
   }
 }

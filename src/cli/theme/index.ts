@@ -10,6 +10,7 @@
  */
 
 import { THEMES, type ThemeName, type ThemePalette } from "./palettes.ts";
+import { config } from "../../api/config.ts";
 export { THEMES, THEME_NAMES, type ThemeName, type ThemePalette } from "./palettes.ts";
 
 // ============================================================
@@ -44,15 +45,11 @@ function hexToAnsi(hex: string): string {
 const ANSI_RESET = "\x1b[0m";
 
 /**
- * Get current theme from runtime config
- * Note: This is synchronous and reads from globalThis.__hqlConfig which
- * is the cached runtime value. Changes via config.set() update this value,
- * maintaining single source of truth through the config API pipeline.
+ * Get current theme from config API snapshot (sync)
  * @internal Used by getThemedAnsi
  */
 function getCurrentTheme(): ThemePalette {
-  const runtimeConfig = (globalThis as Record<string, unknown>).__hqlConfig as { theme?: string } | undefined;
-  const themeName = (runtimeConfig?.theme || "sicp") as ThemeName;
+  const themeName = (config.snapshot?.theme || "sicp") as ThemeName;
   return THEMES[themeName] || THEMES.sicp;
 }
 

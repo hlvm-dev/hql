@@ -129,6 +129,8 @@ export interface EvalTask extends Task<unknown> {
   preview: string;
   /** Result value when completed */
   result?: unknown;
+  /** Streamed output buffer (updated during streaming) */
+  output?: string;
   /** Whether result is streaming (AsyncIterator) */
   isStreaming?: boolean;
   /** Eval-specific progress */

@@ -17,8 +17,33 @@ import {
   VALID_TRANSITIONS,
   friendlyError,
   isModelPullTask,
+  type EvalTask,
   type TaskStatus,
 } from "../../src/cli/repl/task-manager/index.ts";
+
+// Mock AI provider for pullModel tests (avoids external dependency).
+const globalAny = globalThis as Record<string, unknown>;
+const previousAi = globalAny.ai;
+globalAny.ai = {
+  models: {
+    pull: async function* (_name: string, _provider?: string, signal?: AbortSignal) {
+      if (signal?.aborted) return;
+      yield { status: "downloading", completed: 1, total: 2 };
+      if (signal?.aborted) return;
+      yield { status: "done", completed: 2, total: 2 };
+    },
+  },
+};
+
+if (typeof globalThis.addEventListener === "function") {
+  globalThis.addEventListener("unload", () => {
+    if (previousAi === undefined) {
+      delete globalAny.ai;
+    } else {
+      globalAny.ai = previousAi;
+    }
+  });
+}
 
 // ============================================================
 // State Machine Tests
@@ -358,6 +383,75 @@ Deno.test("TaskManager: onEvent receives task:created event", async () => {
   } finally {
     manager.shutdown();
   }
+});
+
+// ============================================================
+// Eval Task Tests
+// ============================================================
+
+Deno.test("TaskManager: createEvalTask sets running status and progress", () => {
+  const manager = new TaskManager();
+  const taskId = manager.createEvalTask("(ask \"hello\")");
+  const task = manager.getTask(taskId) as EvalTask | undefined;
+
+  assertExists(task);
+  assertEquals(task.type, "eval");
+  assertEquals(task.status, "running");
+  assertEquals(task.progress.status, "evaluating");
+  assertEquals(task.output, undefined);
+});
+
+Deno.test("TaskManager: updateEvalOutput updates output while running", () => {
+  const manager = new TaskManager();
+  const taskId = manager.createEvalTask("(ask \"hello\")");
+
+  manager.updateEvalOutput(taskId, "partial", true);
+  const task = manager.getTask(taskId) as EvalTask | undefined;
+
+  assertExists(task);
+  assertEquals(task.output, "partial");
+  assertEquals(task.isStreaming, true);
+  assertEquals(task.progress.status, "streaming");
+});
+
+Deno.test("TaskManager: updateEvalOutput is ignored after completion", () => {
+  const manager = new TaskManager();
+  const taskId = manager.createEvalTask("(ask \"hello\")");
+
+  manager.completeEvalTask(taskId, "done");
+  manager.updateEvalOutput(taskId, "late", true);
+
+  const task = manager.getTask(taskId) as EvalTask | undefined;
+  assertExists(task);
+  assertEquals(task.status, "completed");
+  assertEquals(task.output, "done");
+});
+
+Deno.test("TaskManager: completeEvalTask preserves output for non-string result", () => {
+  const manager = new TaskManager();
+  const taskId = manager.createEvalTask("(ask \"hello\")");
+
+  manager.updateEvalOutput(taskId, "partial", true);
+  manager.completeEvalTask(taskId, { ok: true });
+
+  const task = manager.getTask(taskId) as EvalTask | undefined;
+  assertExists(task);
+  assertEquals(task.output, "partial");
+  assertEquals(task.status, "completed");
+});
+
+Deno.test("TaskManager: failEvalTask stops streaming output", () => {
+  const manager = new TaskManager();
+  const taskId = manager.createEvalTask("(ask \"hello\")");
+
+  manager.updateEvalOutput(taskId, "partial", true);
+  manager.failEvalTask(taskId, new Error("failure"));
+
+  const task = manager.getTask(taskId) as EvalTask | undefined;
+  assertExists(task);
+  assertEquals(task.status, "failed");
+  assertEquals(task.isStreaming, false);
+  assertEquals(task.progress.status, "failed");
 });
 
 // ============================================================

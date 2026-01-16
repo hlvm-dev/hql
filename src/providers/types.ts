@@ -15,6 +15,7 @@ export type ProviderCapability =
   | "chat"
   | "embeddings"
   | "models.list"
+  | "models.catalog"
   | "models.pull"
   | "models.remove"
   | "vision";
@@ -181,6 +182,10 @@ export interface AIProvider {
     list(): Promise<ModelInfo[]>;
     /** Get info about a specific model */
     get(name: string): Promise<ModelInfo | null>;
+    /** List catalog models (remote/curated) */
+    catalog?(): Promise<ModelInfo[]>;
+    /** Search catalog models */
+    search?(query: string): Promise<ModelInfo[]>;
     /** Pull/download a model (streaming progress) */
     pull?(name: string, signal?: AbortSignal): AsyncGenerator<PullProgress, void, unknown>;
     /** Remove/delete a model */

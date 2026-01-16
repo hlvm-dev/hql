@@ -136,7 +136,16 @@
   `(- ~x 1))
 
 (macro print [& args]
-  `(console.log ~@args))
+  (if (=== (%length args) 2)
+      `(let (formatter (js-get js/globalThis "print")
+            opts ~(%nth args 1))
+         (if (and (isFunction formatter)
+                  (js-get formatter "__hql_format_print__")
+                  (isObject opts)
+                  (js-get opts "type"))
+             (formatter ~@args)
+             (console.log ~@args)))
+      `(console.log ~@args)))
 
 ;; NOTE: cons is in STDLIB - handles LazySeq properly
 

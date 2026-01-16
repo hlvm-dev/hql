@@ -89,8 +89,8 @@ export class SessionManager {
       }
       // Fall through to defer if session not found
     } else if (options.continue && !options.forceNew) {
-      // Resume last session
-      const lastSession = await getLastSession(this.projectPath);
+      // Resume last session (global)
+      const lastSession = await getLastSession();
       if (lastSession) {
         this.currentSession = lastSession;
         this.initialized = true;
@@ -181,7 +181,6 @@ export class SessionManager {
 
     // Append message to session file (O(1))
     const message = await appendMessageOnly(
-      this.projectHash,
       session.id,
       role,
       content,
@@ -229,7 +228,7 @@ export class SessionManager {
   async resumeSession(sessionId: string): Promise<Session | null> {
     // Flush pending updates from previous session
     await this.flushIndexUpdate();
-    const session = await loadSession(this.projectHash, sessionId);
+    const session = await loadSession(sessionId);
     if (session) {
       this.currentSession = session.meta;
     }
@@ -237,15 +236,22 @@ export class SessionManager {
   }
 
   /**
-   * List all sessions for the current project.
+   * List all sessions (global).
    * @param limit - Maximum number of sessions to return (default 50)
    */
-  async listForProject(limit: number = 50): Promise<SessionMeta[]> {
+  async list(limit: number = 50): Promise<SessionMeta[]> {
     return listSessions({
-      projectHash: this.projectHash,
       limit,
       sortOrder: "recent",
     });
+  }
+
+  /**
+   * Alias for list() - kept for compatibility.
+   * @deprecated Use list() instead
+   */
+  async listForProject(limit: number = 50): Promise<SessionMeta[]> {
+    return this.list(limit);
   }
 
   /**
@@ -254,7 +260,7 @@ export class SessionManager {
    * @returns true if deleted, false if not found
    */
   async deleteSession(sessionId: string): Promise<boolean> {
-    const result = await deleteSessionStorage(this.projectHash, sessionId);
+    const result = await deleteSessionStorage(sessionId);
 
     // If we deleted the current session, clear it
     if (result && this.currentSession?.id === sessionId) {
@@ -273,7 +279,7 @@ export class SessionManager {
       throw new Error("No active session to rename.");
     }
 
-    await updateTitle(this.projectHash, this.currentSession.id, title);
+    await updateTitle(this.currentSession.id, title);
 
     // Update local metadata
     this.currentSession = {
@@ -302,7 +308,7 @@ export class SessionManager {
       return [];
     }
 
-    const session = await loadSession(this.projectHash, this.currentSession.id);
+    const session = await loadSession(this.currentSession.id);
     return session?.messages ?? [];
   }
 

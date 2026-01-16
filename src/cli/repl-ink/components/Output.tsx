@@ -5,23 +5,29 @@
  */
 
 import React from "npm:react@18";
-import { Text, Box, useInput } from "npm:ink@5";
+import { Text, Box } from "npm:ink@5";
 import type { EvalResult } from "../types.ts";
 import { renderMarkdown, hasMarkdown } from "../../repl/markdown.ts";
 import { useStreaming } from "../hooks/useStreaming.ts";
 import { StreamingStatus } from "./StreamingStatus.tsx";
 import { formatValue } from "../../repl/formatter.ts";  // Single Source of Truth
 import { useTheme } from "../../theme/index.ts";
+import { useTaskManager } from "../hooks/useTaskManager.ts";
+import type { EvalTask } from "../../repl/task-manager/types.ts";
 
 export function Output({ result }: { result: EvalResult }): React.ReactElement | null {
   const { color } = useTheme();
+
+  if (result.suppressOutput) return null;
+
+  if (result.streamTaskId) {
+    return <StreamingTaskOutput taskId={result.streamTaskId} />;
+  }
 
   // Streaming (async iterator)
   if (result.value && typeof result.value === "object" && Symbol.asyncIterator in (result.value as object)) {
     return <StreamingOutput iterator={result.value as AsyncIterableIterator<string>} />;
   }
-
-  if (result.suppressOutput) return null;
 
   // Error
   if (!result.success && result.error) {
@@ -45,6 +51,43 @@ export function Output({ result }: { result: EvalResult }): React.ReactElement |
   return <Text>{formatted}</Text>;
 }
 
+function StreamingTaskOutput({ taskId }: { taskId: string }): React.ReactElement | null {
+  const { color } = useTheme();
+  const { tasks } = useTaskManager();
+
+  const task = tasks.find((t) => t.id === taskId && t.type === "eval") as EvalTask | undefined;
+  if (!task) return null;
+
+  const output = task.output ?? (typeof task.result === "string" ? task.result : "");
+  const isStreaming = task.status === "running";
+  const isDone = task.status === "completed" || task.status === "failed" || task.status === "cancelled";
+  const startTime = task.progress?.startedAt ?? task.startedAt ?? Date.now();
+  const showOutput = output.length > 0;
+
+  return (
+    <Box flexDirection="column">
+      {isStreaming && (
+        <StreamingStatus
+          isStreaming={isStreaming}
+          startTime={startTime}
+        />
+      )}
+      {showOutput && (
+        <Text>
+          {isDone && hasMarkdown(output) ? renderMarkdown(output) : output}
+        </Text>
+      )}
+      {isStreaming && !showOutput && <Text color={color("muted")}>▋</Text>}
+      {task.status === "failed" && task.error && (
+        <Text color={color("error")}>Error: {task.error.message}</Text>
+      )}
+      {task.status === "cancelled" && (
+        <Text color={color("muted")}>[Cancelled]</Text>
+      )}
+    </Box>
+  );
+}
+
 interface StreamingOutputProps {
   iterator: AsyncIterableIterator<string>;
 }
@@ -54,14 +97,7 @@ function StreamingOutput({ iterator }: StreamingOutputProps): React.ReactElement
 
   // Higher throttle (100ms) = fewer re-renders = smoother streaming
   // Markdown is only applied at end to avoid structural jumps
-  const { displayText, isDone, isStreaming, startTime, cancel, error } = useStreaming(iterator, { renderInterval: 100 });
-
-  // Handle escape key to cancel streaming
-  useInput((_char, key) => {
-    if (key.escape && isStreaming) {
-      cancel();
-    }
-  });
+  const { displayText, isDone, isStreaming, startTime, error } = useStreaming(iterator, { renderInterval: 100 });
 
   // Show error if streaming failed (but preserve any partial content)
   if (error) {

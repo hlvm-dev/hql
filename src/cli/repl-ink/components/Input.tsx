@@ -884,6 +884,13 @@ export function Input({
         }
         finalResult = lines.join("\n").trim();
       }
+      // Remove inline code backticks when they wrap the whole output
+      if (finalResult.startsWith("`") && finalResult.endsWith("`")) {
+        const inner = finalResult.slice(1, -1);
+        if (!inner.includes("`") && !inner.includes("${")) {
+          finalResult = inner;
+        }
+      }
 
       onChange(finalResult);
       setCursorPos(finalResult.length);

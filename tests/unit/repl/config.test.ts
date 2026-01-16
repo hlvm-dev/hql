@@ -29,7 +29,7 @@ Deno.test("DEFAULT_CONFIG - version is 1", () => {
 });
 
 Deno.test("DEFAULT_CONFIG - model follows provider/model format", () => {
-  assertEquals(DEFAULT_CONFIG.model, "ollama/llama3.2");
+  assertEquals(DEFAULT_CONFIG.model, "ollama/llama3.2:latest");
   assertEquals(DEFAULT_CONFIG.model.includes("/"), true);
 });
 

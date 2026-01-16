@@ -6,16 +6,8 @@ import { LazySeq, SEQ } from "../lib/stdlib/js/internal/seq-protocol.js";
 import type { HQLValue, BuiltinFn, Interpreter as IInterpreter, InterpreterEnv } from "./types.ts";
 import { isHQLFunction, isSExp } from "./types.ts";
 import type { Interpreter } from "./interpreter.ts";
-import {
-  type SList,
-  type SSymbol,
-  type SLiteral,
-  isSymbol,
-  isList,
-  isLiteral,
-} from "../s-exp/types.ts";
+import { sexpToJs } from "../s-exp/types.ts";
 import { MAX_SEQ_LENGTH } from "../common/limits.ts";
-import { mapTail } from "../common/utils.ts";
 
 /** Marker symbol to identify wrapped BuiltinFn functions */
 export const BUILTIN_MARKER = Symbol.for("hql-builtin-fn");
@@ -116,30 +108,9 @@ export function hqlToJs(
     };
   }
 
-  // S-expression list -> convert to JS array
-  if (isSExp(value) && isList(value)) {
-    const list = value as SList;
-    const elements = list.elements;
-    // Check for vector form: (vector a b c) -> [a, b, c]
-    if (
-      elements.length > 0 &&
-      isSymbol(elements[0]) &&
-      (elements[0] as SSymbol).name === "vector"
-    ) {
-      return mapTail(elements, (el) => hqlToJs(el as HQLValue, interp, env));
-    }
-    // Regular list
-    return elements.map((el) => hqlToJs(el as HQLValue, interp, env));
-  }
-
-  // S-expression symbol -> return the name string
-  if (isSExp(value) && isSymbol(value)) {
-    return (value as SSymbol).name;
-  }
-
-  // S-expression literal -> extract value
-  if (isSExp(value) && isLiteral(value)) {
-    return (value as SLiteral).value;
+  // S-expression -> convert to JS representation (vector flattens to array)
+  if (isSExp(value)) {
+    return sexpToJs(value, { vectorAsArray: true });
   }
 
   // JS array (already converted)

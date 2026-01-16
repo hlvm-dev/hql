@@ -84,16 +84,12 @@ export interface SessionInitOptions {
 }
 
 /**
- * Options for listing sessions
+ * Options for listing sessions (global - no project filtering)
  */
 export interface ListSessionsOptions {
-  /** Filter by project hash (defaults to current project) */
-  readonly projectHash?: string;
   /** Maximum number of sessions to return */
   readonly limit?: number;
   /** Sort order */
   readonly sortOrder?: "recent" | "oldest" | "alpha";
-  /** Include all projects (not just current) */
-  readonly allProjects?: boolean;
 }
 

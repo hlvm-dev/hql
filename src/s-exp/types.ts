@@ -393,6 +393,29 @@ export function sexpToString(exp: SExp): string {
   }
 }
 
+export interface SexpToJsOptions {
+  vectorAsArray?: boolean;
+}
+
+export function sexpToJs(
+  exp: SExp,
+  options: SexpToJsOptions = {},
+): unknown {
+  if (isSymbol(exp)) {
+    return exp.name;
+  }
+  if (isLiteral(exp)) {
+    return exp.value;
+  }
+  if (isList(exp)) {
+    if (options.vectorAsArray && isVector(exp)) {
+      return exp.elements.slice(1).map((elem) => sexpToJs(elem, options));
+    }
+    return exp.elements.map((elem) => sexpToJs(elem, options));
+  }
+  return exp;
+}
+
 /**
  * Check if an import is vector-based
  */

@@ -22,6 +22,8 @@ import {
   isList,
   isLiteral,
   isSymbol,
+  sexpToJs,
+  sexpToString,
   type SExp,
   type SList,
 } from "../s-exp/types.ts";
@@ -34,14 +36,7 @@ import { loadSystemMacros } from "../transpiler/hql-transpiler.ts";
  * Convert S-expression to JavaScript object
  */
 export function toJs(sexp: SExp): unknown {
-  if (isSymbol(sexp)) {
-    return sexp.name;
-  } else if (isLiteral(sexp)) {
-    return sexp.value;
-  } else if (isList(sexp)) {
-    return sexp.elements.map(toJs);
-  }
-  return sexp;
+  return sexpToJs(sexp);
 }
 
 /**
@@ -193,7 +188,7 @@ export class HQLRuntime {
 
     const context = this.createCompilerContext(undefined);
     const expanded = await expandHql(
-      typeof form === "string" ? form : this.sexpToString(sexp),
+      typeof form === "string" ? form : sexpToString(sexp),
       { baseDir: this.baseDir, ...this.options },
       {
         verbose: this.options.verbose,
@@ -352,7 +347,7 @@ export class HQLRuntime {
       params: paramNames,
       restParam,
       body: this.buildMacroBody(body),
-      source: this.sexpToString(sexp),
+      source: sexpToString(sexp),
       definedAt: definedAt || "runtime",
     };
 
@@ -418,27 +413,6 @@ export class HQLRuntime {
     };
   }
 
-  /**
-   * Convert S-expression to string representation
-   * @private
-   */
-  private sexpToString(sexp: SExp): string {
-    if (isList(sexp)) {
-      const list = sexp as SList;
-      const items = list.elements.map((s) => this.sexpToString(s));
-      return `(${items.join(" ")})`;
-    } else if (isSymbol(sexp)) {
-      return sexp.name;
-    } else if (isLiteral(sexp)) {
-      return sexp.value === null
-        ? "nil"
-        : typeof sexp.value === "string"
-        ? `"${sexp.value}"`
-        : String(sexp.value);
-    } else {
-      return JSON.stringify(toJs(sexp));
-    }
-  }
 }
 
 // Export singleton instance for REPL use

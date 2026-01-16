@@ -9,9 +9,9 @@
  *   (history.get 0)             ; Get command at index
  *   (history.search "def")      ; Search commands
  *   (history.clear)             ; Clear history (memory + disk)
- *   (history.count)             ; Get command count
+ *   history.count               ; Get command count
  *   (history.save)              ; Force flush to disk
- *   (history.path)              ; Get history file path
+ *   history.path                ; Get history file path
  */
 
 import { getHistoryPath } from "../common/paths.ts";
@@ -67,7 +67,7 @@ export function createHistoryApi() {
     },
 
     /**
-     * Get a specific command by index (0 = most recent)
+     * Get a specific command by index (0 = oldest)
      * Negative indices count from end: -1 = last command
      * @example (history.get 0)
      * @example (history.get -1)
@@ -131,7 +131,7 @@ export function createHistoryApi() {
 
     /**
      * Get the history file path
-     * @example (history.path)
+     * @example history.path
      */
     get path(): string {
       return getHistoryPath();
@@ -139,7 +139,7 @@ export function createHistoryApi() {
 
     /**
      * Get count of commands in history
-     * @example (history.count)
+     * @example history.count
      */
     get count(): number {
       return _replState?.history.length ?? 0;

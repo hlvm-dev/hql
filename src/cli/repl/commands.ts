@@ -88,8 +88,10 @@ export const commands: Record<string, Command> = {
 
   "/exit": {
     description: "Exit the REPL",
-    handler: () => {
+    handler: async (state: ReplState) => {
       console.log("\nGoodbye!");
+      await state.flushHistory();
+      state.flushHistorySync();
       Deno.exit(0);
     },
   },

@@ -266,6 +266,13 @@ export class ReplState {
   }
 
   /**
+   * Flush pending history writes to disk (sync).
+   */
+  flushHistorySync(): void {
+    this.historyStorage?.flushSync();
+  }
+
+  /**
    * Clear history from memory and disk.
    */
   async clearHistory(): Promise<void> {

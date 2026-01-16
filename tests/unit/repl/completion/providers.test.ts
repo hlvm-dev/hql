@@ -18,7 +18,15 @@ import {
   extractCommandQuery,
   shouldTriggerSymbol,
 } from "../../../../src/cli/repl-ink/completion/providers.ts";
-import type { CompletionItem, CompletionContext, CompletionType, ApplyResult, ApplyContext, ItemRenderSpec } from "../../../../src/cli/repl-ink/completion/types.ts";
+import type {
+  CompletionAction,
+  CompletionItem,
+  CompletionContext,
+  CompletionType,
+  ApplyResult,
+  ApplyContext,
+  ItemRenderSpec,
+} from "../../../../src/cli/repl-ink/completion/types.ts";
 import { TYPE_ICONS } from "../../../../src/cli/repl-ink/completion/types.ts";
 
 // ============================================================
@@ -44,7 +52,7 @@ function createMockItem(
     score,
     description: options.description,
     availableActions: ["SELECT"],
-    applyAction: (_action: "DRILL" | "SELECT", context: ApplyContext): ApplyResult => ({
+    applyAction: (_action: CompletionAction, context: ApplyContext): ApplyResult => ({
       text: context.text.slice(0, context.anchorPosition) + insertText + suffix + context.text.slice(context.cursorPosition),
       cursorPosition: context.anchorPosition + insertText.length + suffix.length,
       closeDropdown: true,

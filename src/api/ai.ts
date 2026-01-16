@@ -7,6 +7,9 @@
  *   (ai.chat messages)           ; Chat completion
  *   (ai.embeddings "text")       ; Generate embeddings
  *   (ai.models.list)             ; List available models
+ *   (ai.models.catalog)          ; List catalog models
+ *   (ai.models.available)        ; List catalog models not installed
+ *   (ai.models.search "vision")  ; Search catalog
  *   (ai.models.pull "model")     ; Download a model
  *   (ai.status)                  ; Check provider status
  */
@@ -157,6 +160,78 @@ export function createAiApi() {
           return null;
         }
         return provider.models.get(name);
+      },
+
+      /**
+       * List catalog models (remote/curated)
+       * @example (ai.models.catalog)
+       */
+      catalog: async (providerName?: string): Promise<ModelInfo[]> => {
+        const provider = providerName
+          ? getProvider(providerName)
+          : getDefaultProvider();
+
+        if (!provider?.models?.catalog) {
+          return [];
+        }
+        return provider.models.catalog();
+      },
+
+      /**
+       * List catalog models not installed locally
+       * @example (ai.models.available)
+       */
+      available: async (providerName?: string): Promise<ModelInfo[]> => {
+        const provider = providerName
+          ? getProvider(providerName)
+          : getDefaultProvider();
+
+        if (!provider?.models?.catalog) {
+          return [];
+        }
+
+        const catalog = await provider.models.catalog();
+        if (!provider.models.list) return catalog;
+
+        const local = await provider.models.list();
+        const localNames = new Set(local.map((m) => m.name.split(":")[0]));
+        return catalog.filter((m) => !localNames.has(m.name.split(":")[0]));
+      },
+
+      /**
+       * Search catalog models
+       * @example (ai.models.search "vision")
+       */
+      search: async (query: string, providerName?: string): Promise<ModelInfo[]> => {
+        const provider = providerName
+          ? getProvider(providerName)
+          : getDefaultProvider();
+
+        if (!provider?.models?.catalog) {
+          return [];
+        }
+
+        if (provider.models.search) {
+          return provider.models.search(query);
+        }
+
+        const q = query.trim().toLowerCase();
+        if (!q) return provider.models.catalog();
+
+        const catalog = await provider.models.catalog();
+        return catalog.filter((model) => {
+          const meta = (model.metadata || {}) as Record<string, unknown>;
+          const capabilities = Array.isArray(meta.capabilities) ? meta.capabilities.join(" ") : "";
+          const haystack = [
+            model.name,
+            model.displayName ?? "",
+            typeof meta.description === "string" ? meta.description : "",
+            typeof meta.modelName === "string" ? meta.modelName : "",
+            typeof meta.modelId === "string" ? meta.modelId : "",
+            capabilities,
+          ].join(" ").toLowerCase();
+          return haystack.includes(q);
+        });
       },
 
       /**

@@ -863,6 +863,7 @@ function initializeTransformFactory(): void {
        * - Function: (-> [params] ReturnType) → (params) => ReturnType
        */
       function parseTypeExpression(node: HQLNode): IR.IRTypeExpression | string {
+        const nodeMeta = extractMeta(node);
         // String literal - pass through
         if (node.type === "literal") {
           const value = (node as LiteralNode).value;
@@ -903,14 +904,14 @@ function initializeTransformFactory(): void {
         if (node.type === "list") {
           const elements = (node as ListNode).elements;
           if (elements.length === 0) {
-            throw new TransformError("Empty type expression", node.position);
+            throw new TransformError("Empty type expression", nodeMeta);
           }
 
           const op = elements[0];
           if (op.type !== "symbol") {
             throw new TransformError(
               "Type expression must start with an operator",
-              node.position,
+              nodeMeta,
             );
           }
 
@@ -957,7 +958,7 @@ function initializeTransformFactory(): void {
             case "keyof": {
               // Keyof: (keyof T) → keyof T
               if (elements.length < 2) {
-                throw new TransformError("keyof requires a type argument", node.position);
+                throw new TransformError("keyof requires a type argument", nodeMeta);
               }
               const arg = parseTypeExpression(elements[1]);
               return {
@@ -972,7 +973,7 @@ function initializeTransformFactory(): void {
             case "indexed": {
               // Indexed access: ([] T K) → T[K]
               if (elements.length < 3) {
-                throw new TransformError("Indexed access requires object and index types", node.position);
+                throw new TransformError("Indexed access requires object and index types", nodeMeta);
               }
               const objType = parseTypeExpression(elements[1]);
               const idxElement = elements[2];
@@ -1005,7 +1006,7 @@ function initializeTransformFactory(): void {
               if (elements.length < 5) {
                 throw new TransformError(
                   "Conditional type requires check, extends, true, and false types",
-                  node.position,
+                  nodeMeta,
                 );
               }
               // For check/extends types, use regular parsing (not literal detection)
@@ -1042,7 +1043,7 @@ function initializeTransformFactory(): void {
             case "array": {
               // Array: (array T) → T[]
               if (elements.length < 2) {
-                throw new TransformError("array requires an element type", node.position);
+                throw new TransformError("array requires an element type", nodeMeta);
               }
               const elemType = parseTypeExpression(elements[1]);
               return {
@@ -1056,7 +1057,7 @@ function initializeTransformFactory(): void {
             case "readonly": {
               // Readonly: (readonly T) → readonly T
               if (elements.length < 2) {
-                throw new TransformError("readonly requires a type argument", node.position);
+                throw new TransformError("readonly requires a type argument", nodeMeta);
               }
               const arg = parseTypeExpression(elements[1]);
               return {
@@ -1070,11 +1071,11 @@ function initializeTransformFactory(): void {
             case "infer": {
               // Infer: (infer T) → infer T
               if (elements.length < 2) {
-                throw new TransformError("infer requires a type parameter", node.position);
+                throw new TransformError("infer requires a type parameter", nodeMeta);
               }
               const paramNode = elements[1];
               if (paramNode.type !== "symbol") {
-                throw new TransformError("infer type parameter must be a symbol", node.position);
+                throw new TransformError("infer type parameter must be a symbol", extractMeta(paramNode) ?? nodeMeta);
               }
               return {
                 type: IR.IRNodeType.InferType,
@@ -1085,7 +1086,7 @@ function initializeTransformFactory(): void {
             case "typeof": {
               // Typeof: (typeof expr) → typeof expr
               if (elements.length < 2) {
-                throw new TransformError("typeof requires an expression", node.position);
+                throw new TransformError("typeof requires an expression", nodeMeta);
               }
               const exprNode = elements[1];
               let expression: string;
@@ -1094,7 +1095,7 @@ function initializeTransformFactory(): void {
               } else if (exprNode.type === "literal") {
                 expression = String((exprNode as LiteralNode).value);
               } else {
-                throw new TransformError("typeof expression must be a symbol or string", node.position);
+                throw new TransformError("typeof expression must be a symbol or string", extractMeta(exprNode) ?? nodeMeta);
               }
               return {
                 type: IR.IRNodeType.TypeofType,
@@ -1107,12 +1108,12 @@ function initializeTransformFactory(): void {
               if (elements.length < 4) {
                 throw new TransformError(
                   "mapped type requires parameter, constraint, and value type",
-                  node.position,
+                  nodeMeta,
                 );
               }
               const paramNode = elements[1];
               if (paramNode.type !== "symbol") {
-                throw new TransformError("mapped type parameter must be a symbol", node.position);
+                throw new TransformError("mapped type parameter must be a symbol", extractMeta(paramNode) ?? nodeMeta);
               }
               const constraint = parseTypeExpression(elements[2]);
               const valueType = parseTypeExpression(elements[3]);
@@ -1134,7 +1135,7 @@ function initializeTransformFactory(): void {
               if (elements.length < 3) {
                 throw new TransformError(
                   "function type requires parameters and return type",
-                  node.position,
+                  nodeMeta,
                 );
               }
               // Parse parameters - simplified for now
@@ -1152,7 +1153,7 @@ function initializeTransformFactory(): void {
             case "rest": {
               // Rest type: (... T) → ...T
               if (elements.length < 2) {
-                throw new TransformError("rest type requires a type argument", node.position);
+                throw new TransformError("rest type requires a type argument", nodeMeta);
               }
               const arg = parseTypeExpression(elements[1]);
               return {
@@ -1182,7 +1183,7 @@ function initializeTransformFactory(): void {
         }
 
         // Exhaustive check fallback - should never be reached
-        throw new TransformError(`Unknown type expression: ${(node as HQLNode).type}`, (node as HQLNode).position);
+        throw new TransformError(`Unknown type expression: ${(node as HQLNode).type}`, nodeMeta);
       }
 
       // =========================================================================
@@ -1340,7 +1341,7 @@ function initializeTransformFactory(): void {
           if (elements.length < 2) {
             throw new TransformError(
               "abstract-class requires at least a name and body",
-              list.position,
+              extractMeta(list),
             );
           }
 
@@ -1364,7 +1365,7 @@ function initializeTransformFactory(): void {
           } else {
             throw new TransformError(
               "abstract-class name must be a symbol",
-              nameNode.position,
+              extractMeta(nameNode),
             );
           }
 
@@ -1393,7 +1394,7 @@ function initializeTransformFactory(): void {
           ) {
             throw new TransformError(
               "abstract-class requires a body vector",
-              list.position,
+              extractMeta(list),
             );
           }
 
@@ -1430,7 +1431,7 @@ function initializeTransformFactory(): void {
           if (elements.length < 2) {
             throw new TransformError(
               "abstract-method requires name and params",
-              list.position,
+              extractMeta(list),
             );
           }
 
@@ -1453,7 +1454,7 @@ function initializeTransformFactory(): void {
           } else {
             throw new TransformError(
               "abstract-method name must be a symbol",
-              nameNode.position,
+              extractMeta(nameNode),
             );
           }
 
@@ -1520,7 +1521,7 @@ function initializeTransformFactory(): void {
           if (elements.length < 3) {
             throw new TransformError(
               "fn-overload requires name, params, and return type",
-              list.position,
+              extractMeta(list),
             );
           }
 
@@ -1545,7 +1546,7 @@ function initializeTransformFactory(): void {
           } else {
             throw new TransformError(
               "fn-overload name must be a symbol or string",
-              nameNode.position,
+              extractMeta(nameNode),
             );
           }
 
@@ -1574,7 +1575,7 @@ function initializeTransformFactory(): void {
           } else {
             throw new TransformError(
               "fn-overload params must be a string or vector",
-              paramsNode.position,
+              extractMeta(paramsNode),
             );
           }
 
@@ -1589,7 +1590,7 @@ function initializeTransformFactory(): void {
           } else {
             throw new TransformError(
               "fn-overload return type must be a keyword or string",
-              returnNode.position,
+              extractMeta(returnNode),
             );
           }
 
@@ -1616,7 +1617,7 @@ function initializeTransformFactory(): void {
           if (elements.length < 2) {
             throw new TransformError(
               "declare requires a kind and body",
-              list.position,
+              extractMeta(list),
             );
           }
 
@@ -1624,7 +1625,7 @@ function initializeTransformFactory(): void {
           if (kindNode.type !== "symbol") {
             throw new TransformError(
               "declare kind must be a symbol",
-              kindNode.position,
+              extractMeta(kindNode),
             );
           }
           const kind = (kindNode as SymbolNode).name as
@@ -1645,7 +1646,7 @@ function initializeTransformFactory(): void {
           } else {
             throw new TransformError(
               "declare body must be a string or symbol",
-              bodyNode.position,
+              extractMeta(bodyNode),
             );
           }
 
@@ -1668,7 +1669,7 @@ function initializeTransformFactory(): void {
           if (elements.length < 2) {
             throw new TransformError(
               "namespace requires a name and body",
-              list.position,
+              extractMeta(list),
             );
           }
 
@@ -1676,7 +1677,7 @@ function initializeTransformFactory(): void {
           if (nameNode.type !== "symbol") {
             throw new TransformError(
               "namespace name must be a symbol",
-              nameNode.position,
+              extractMeta(nameNode),
             );
           }
           const name = (nameNode as SymbolNode).name;
@@ -1691,7 +1692,7 @@ function initializeTransformFactory(): void {
           ) {
             throw new TransformError(
               "namespace body must be a vector",
-              bodyNode.position,
+              extractMeta(bodyNode),
             );
           }
 
@@ -1724,7 +1725,7 @@ function initializeTransformFactory(): void {
           if (elements.length < 2) {
             throw new TransformError(
               "const-enum requires a name and members",
-              list.position,
+              extractMeta(list),
             );
           }
 
@@ -1732,7 +1733,7 @@ function initializeTransformFactory(): void {
           if (nameNode.type !== "symbol") {
             throw new TransformError(
               "const-enum name must be a symbol",
-              nameNode.position,
+              extractMeta(nameNode),
             );
           }
           const name = (nameNode as SymbolNode).name;
@@ -1748,7 +1749,7 @@ function initializeTransformFactory(): void {
           ) {
             throw new TransformError(
               "const-enum members must be a vector",
-              membersNode.position,
+              extractMeta(membersNode),
             );
           }
 
@@ -1796,7 +1797,7 @@ function initializeTransformFactory(): void {
           if (elements.length < 1) {
             throw new TransformError(
               "decorator requires an expression",
-              list.position,
+              extractMeta(list),
             );
           }
 

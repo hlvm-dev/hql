@@ -1,90 +1,55 @@
 // src/s-exp/macro-reader.ts - Connects S-expression layer with existing HQL transpiler
 
 import {
-  copyMeta,
+  createListFrom,
+  createLiteral,
+  createSymbol,
   isList,
   isLiteral,
   isSymbol,
   type SExp,
   type SList,
-  type SLiteral,
   type SSymbol,
 } from "./types.ts";
-import type {
-  HQLNode,
-  ListNode,
-  LiteralNode,
-  SymbolNode,
-} from "../transpiler/type/hql_ast.ts";
 import { globalLogger as logger } from "../logger.ts";
 import type { Logger } from "../logger.ts";
 
 /**
- * Options for converting S-expressions to HQL AST
+ * Options for normalizing S-expressions for the transpiler
  */
 interface ConversionOptions {
   verbose?: boolean;
 }
 
 /**
- * Convert S-expressions to HQL AST format
- * This allows the S-expression frontend to connect with the transpiler pipeline
+ * Normalize S-expressions for the transpiler pipeline
  */
 export function convertToHqlAst(
   sexps: SExp[],
   _options: ConversionOptions = {},
-): HQLNode[] {
-  logger.debug(`Converting ${sexps.length} S-expressions to HQL AST`);
-  return sexps.map((sexp) => convertExpr(sexp, logger));
+): SExp[] {
+  logger.debug(`Normalizing ${sexps.length} S-expressions for transpiler`);
+  return sexps.map((sexp) => normalizeExpr(sexp, logger));
 }
 
 /**
- * Convert a single S-expression to an HQL AST node
+ * Normalize a single S-expression
  */
-function convertExpr(sexp: SExp, logger: Logger): HQLNode {
-  if (isLiteral(sexp)) {
-    // Convert literal node
-    return convertLiteral(sexp as SLiteral, logger);
-  } else if (isSymbol(sexp)) {
-    // Convert symbol node
-    return convertSymbol(sexp as SSymbol, logger);
-  } else if (isList(sexp)) {
-    // Convert list node
-    return convertList(sexp as SList, logger);
-  } else {
-    logger.error(`Unknown S-expression type: ${JSON.stringify(sexp)}`);
-    throw new Error(`Unknown S-expression type: ${JSON.stringify(sexp)}`);
+function normalizeExpr(sexp: SExp, logger: Logger): SExp {
+  if (isLiteral(sexp) || isSymbol(sexp)) {
+    return sexp;
   }
+  if (isList(sexp)) {
+    return normalizeList(sexp as SList, logger);
+  }
+  logger.error(`Unknown S-expression type: ${JSON.stringify(sexp)}`);
+  throw new Error(`Unknown S-expression type: ${JSON.stringify(sexp)}`);
 }
 
 /**
- * Convert an S-expression literal to an HQL AST literal
+ * Normalize an S-expression list
  */
-function convertLiteral(literal: SLiteral, _logger: Logger): LiteralNode {
-  const node: LiteralNode = {
-    type: "literal",
-    value: literal.value,
-  };
-  copyMeta(literal, node);
-  return node;
-}
-
-/**
- * Convert an S-expression symbol to an HQL AST symbol
- */
-function convertSymbol(symbol: SSymbol, _logger: Logger): SymbolNode {
-  const node: SymbolNode = {
-    type: "symbol",
-    name: symbol.name,
-  };
-  copyMeta(symbol, node);
-  return node;
-}
-
-/**
- * Convert an S-expression list to an HQL AST list
- */
-function convertList(list: SList, logger: Logger): ListNode {
+function normalizeList(list: SList, logger: Logger): SExp {
   // Performance: Cache first two elements to avoid repeated array access
   const first = list.elements[0];
   const second = list.elements[1];
@@ -93,32 +58,23 @@ function convertList(list: SList, logger: Logger): ListNode {
   // Example: ((vector 1 2 3 4 5) .length)
   if (
     list.elements.length === 2 &&
-    first.type === "list" &&
-    second.type === "symbol" &&
+    isList(first) &&
+    isSymbol(second) &&
     (second as SSymbol).name.startsWith(".")
   ) {
     // Get the object expression and property name
-    const object = convertExpr(first, logger);
+    const object = normalizeExpr(first, logger);
     const propertyName = (second as SSymbol).name.substring(1); // Remove the dot
 
     // Create a property access pattern using js-get
-    const transformed: ListNode = {
-      type: "list",
-      elements: [
-        { type: "symbol", name: "js-get" },
-        object,
-        { type: "literal", value: propertyName },
-      ],
-    };
-    copyMeta(list, transformed);
-    return transformed;
+    return createListFrom(list, [
+      createSymbol("js-get"),
+      object,
+      createLiteral(propertyName),
+    ]);
   }
 
-  // Default case: convert each element and return a list
-  const node: ListNode = {
-    type: "list",
-    elements: list.elements.map((elem) => convertExpr(elem, logger)),
-  };
-  copyMeta(list, node);
-  return node;
+  // Default case: normalize each element and return a list
+  const elements = list.elements.map((elem) => normalizeExpr(elem, logger));
+  return createListFrom(list, elements);
 }

@@ -18,6 +18,7 @@ import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import type { EvalTask } from "../../repl/task-manager/types.ts";
 import { isEvalTask, isTaskActive } from "../../repl/task-manager/types.ts";
+import { formatEvalTaskResultLines, sortEvalTasks } from "../utils/eval-task-results.ts";
 import {
   clearOverlay,
   getTerminalSize,
@@ -101,7 +102,6 @@ export function BackgroundTasksOverlay({
   const [resultScrollOffset, setResultScrollOffset] = useState(0);
 
   const overlayPosRef = useRef({ x: 0, y: 0 });
-  const isFirstRender = useRef(true);
 
   // Theme colors
   const colors = useMemo(() => ({
@@ -115,15 +115,10 @@ export function BackgroundTasksOverlay({
   }), [theme]);
 
   // Filter and sort tasks
-  const evalTasks = useMemo(() => {
-    const filtered = tasks.filter(isEvalTask);
-    return [...filtered].sort((a, b) => {
-      const order: Record<string, number> = {
-        running: 0, pending: 1, completed: 2, failed: 3, cancelled: 4,
-      };
-      return (order[a.status] ?? 5) - (order[b.status] ?? 5);
-    });
-  }, [tasks]);
+  const evalTasks = useMemo(
+    () => sortEvalTasks(tasks.filter(isEvalTask)),
+    [tasks]
+  );
 
   // Get viewing task
   const viewingTask = viewingTaskId
@@ -131,23 +126,10 @@ export function BackgroundTasksOverlay({
     : null;
 
   // Format result for display
-  const resultLines = useMemo(() => {
-    if (!viewingTask) return [];
-    const lines: string[] = [];
-    if (viewingTask.status === "completed" && viewingTask.result !== undefined) {
-      const resultStr = typeof viewingTask.result === "string"
-        ? viewingTask.result
-        : JSON.stringify(viewingTask.result, null, 2);
-      lines.push(...resultStr.split("\n"));
-    } else if (viewingTask.status === "failed" && viewingTask.error) {
-      lines.push(`Error: ${viewingTask.error.message}`);
-    } else if (viewingTask.status === "running") {
-      lines.push("Still evaluating...");
-    } else if (viewingTask.status === "cancelled") {
-      lines.push("Evaluation was cancelled");
-    }
-    return lines;
-  }, [viewingTask]);
+  const resultLines = useMemo(
+    () => (viewingTask ? formatEvalTaskResultLines(viewingTask) : []),
+    [viewingTask]
+  );
 
   // Reset selection if out of bounds
   useEffect(() => {
@@ -360,7 +342,6 @@ export function BackgroundTasksOverlay({
   // Draw overlay on changes
   useEffect(() => {
     drawOverlay();
-    isFirstRender.current = false;
   }, [drawOverlay]);
 
   // Clear overlay on unmount

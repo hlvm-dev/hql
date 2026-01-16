@@ -37,7 +37,7 @@ interface TestResult {
 async function loadScrapedModels(): Promise<ScrapedModel[]> {
   try {
     const data = JSON.parse(
-      await Deno.readTextFile("src/cli/repl-ink/data/ollama_models.json")
+      await Deno.readTextFile("src/data/ollama_models.json")
     );
     return data.models || [];
   } catch (err) {

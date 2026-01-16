@@ -83,6 +83,7 @@ const VISIBLE_FIELDS = CONFIG_KEYS.length;  // 5 fields
 // Layout: top(1) + header(1) + empty(1) + fields(5) + empty(1) + footer(1) + bottom(1) = 11
 const OVERLAY_HEIGHT = PADDING.top + HEADER_ROWS + VISIBLE_FIELDS + 1 + 1 + PADDING.bottom;  // 11
 const BG_COLOR: RGB = [35, 35, 40];
+const SELECTED_BG_COLOR: RGB = [55, 55, 65];  // Brighter background for selected row
 
 // Cursor blink timing (macOS standard)
 const CURSOR_BLINK_MS = 530;
@@ -179,6 +180,7 @@ export function ConfigOverlay({
     muted: hexToRgb(theme.muted) as RGB,
     error: hexToRgb(theme.error) as RGB,
     bgStyle: bg(BG_COLOR),
+    selectedBgStyle: bg(SELECTED_BG_COLOR),
   }), [theme]);
 
   // Current field info
@@ -346,8 +348,10 @@ export function ConfigOverlay({
     // Helper: draw a full-width row with content left-aligned
     // content is the visible text (without ANSI codes for length calculation)
     // styledContent is the actual output with ANSI styling
-    const drawRow = (y: number, styledContent: string, visibleLen: number) => {
-      output += ansi.cursorTo(pos.x, y) + bgStyle;
+    // rowBgStyle is optional - uses default bgStyle if not provided
+    const drawRow = (y: number, styledContent: string, visibleLen: number, rowBgStyle?: string) => {
+      const bg = rowBgStyle || bgStyle;
+      output += ansi.cursorTo(pos.x, y) + bg;
       output += styledContent;
       // Pad to full width
       const padding = OVERLAY_WIDTH - visibleLen;
@@ -397,6 +401,9 @@ export function ConfigOverlay({
         ? formatCapabilityTags(modelInfo.capabilities)
         : "";
 
+      // Use selected background for highlighted row
+      const rowBg = isSelected ? colors.selectedBgStyle : bgStyle;
+
       let rowContent = "";
       let visibleLen = 0;
 
@@ -405,7 +412,7 @@ export function ConfigOverlay({
       visibleLen += PADDING.left - 2;
 
       if (isSelected) {
-        rowContent += fg(colors.accent) + "\u203a " + ansi.reset + bgStyle;
+        rowContent += fg(colors.accent) + "\u203a " + ansi.reset + rowBg;
       } else {
         rowContent += "  ";
       }
@@ -414,7 +421,7 @@ export function ConfigOverlay({
       // Label (14 chars fixed width)
       const label = meta.label.padEnd(14).slice(0, 14);
       if (isSelected) {
-        rowContent += ansi.bold + label + ansi.reset + bgStyle;
+        rowContent += ansi.bold + label + ansi.reset + rowBg;
       } else {
         rowContent += label;
       }
@@ -430,7 +437,7 @@ export function ConfigOverlay({
         rowContent += displayValue.slice(0, displayCursor);
         const charAtCursor = displayValue[displayCursor] || " ";
         rowContent += cursorVisible
-          ? ansi.inverse + charAtCursor + ansi.reset + bgStyle
+          ? ansi.inverse + charAtCursor + ansi.reset + rowBg
           : charAtCursor;
         rowContent += displayValue.slice(displayCursor + 1);
         visibleLen += displayValue.length + 1; // +1 for cursor char
@@ -440,7 +447,7 @@ export function ConfigOverlay({
 
         // Left arrow for select fields
         if (isSelected && isSelectType) {
-          rowContent += fg(colors.accent) + "\u25c0 " + ansi.reset + bgStyle;
+          rowContent += fg(colors.accent) + "\u25c0 " + ansi.reset + rowBg;
           visibleLen += 2;
         }
 
@@ -451,12 +458,12 @@ export function ConfigOverlay({
         visibleLen += displayValue.length;
 
         const displayDefault = defaultMark.slice(0, 10);
-        rowContent += fg(colors.muted) + displayDefault + ansi.reset + bgStyle;
+        rowContent += fg(colors.muted) + displayDefault + ansi.reset + rowBg;
         visibleLen += displayDefault.length;
 
         // Right arrow for select fields
         if (isSelected && isSelectType) {
-          rowContent += fg(colors.accent) + " \u25b6" + ansi.reset + bgStyle;
+          rowContent += fg(colors.accent) + " \u25b6" + ansi.reset + rowBg;
           visibleLen += 2;
         }
 
@@ -465,7 +472,7 @@ export function ConfigOverlay({
           const usedWidth = PADDING.left + 14 + (isSelectType ? 4 : 0) + displayValue.length + displayDefault.length;
           const remainingSpace = OVERLAY_WIDTH - usedWidth - PADDING.right - 1;
           if (remainingSpace >= capabilityTags.length + 1) {
-            rowContent += " " + fg(colors.muted) + capabilityTags + ansi.reset + bgStyle;
+            rowContent += " " + fg(colors.muted) + capabilityTags + ansi.reset + rowBg;
             visibleLen += 1 + capabilityTags.length;
           }
         }
@@ -475,7 +482,7 @@ export function ConfigOverlay({
       rowContent += " ".repeat(PADDING.right);
       visibleLen += PADDING.right;
 
-      drawRow(rowY, rowContent, visibleLen);
+      drawRow(rowY, rowContent, visibleLen, rowBg);
     }
 
     // === Empty row before footer ===
@@ -517,6 +524,7 @@ export function ConfigOverlay({
   }, [config, selectedIndex, mode, editValue, editCursor, cursorVisible, error, colors, formatValue, isDefault, modelInfo, fieldMeta.type]);
 
   // Draw cursor only (optimized for blink in edit mode)
+  // Uses selectedBgStyle since edit mode is always on the selected row
   const drawCursor = useCallback(() => {
     if (mode !== "edit") return;
 
@@ -524,20 +532,26 @@ export function ConfigOverlay({
     if (pos.x === 0 && pos.y === 0) return;
 
     const rowY = pos.y + CONTENT_START + selectedIndex;
-    const cursorX = pos.x + PADDING.left + 14 + editCursor; // label width + cursor pos
 
-    const charAtCursor = editValue[editCursor] || " ";
+    const contentWidth = OVERLAY_WIDTH - PADDING.left - PADDING.right;
+    const maxEditWidth = contentWidth - 14 - 2; // label + selection indicator
+    const displayValue = editValue.slice(0, maxEditWidth);
+    const displayCursor = Math.min(editCursor, displayValue.length);
+    const cursorX = pos.x + PADDING.left + 14 + displayCursor; // label width + cursor pos
+
+    const charAtCursor = displayValue[displayCursor] || " ";
     const cursorStyle = cursorVisible
       ? ansi.inverse + charAtCursor + ansi.reset
       : charAtCursor;
 
+    // Use selectedBgStyle - edit mode is always on the selected row
     const output = ansi.cursorSave + ansi.cursorHide
       + ansi.cursorTo(cursorX, rowY)
-      + colors.bgStyle + cursorStyle
+      + colors.selectedBgStyle + cursorStyle
       + ansi.cursorRestore + ansi.cursorShow;
 
     Deno.stdout.writeSync(encoder.encode(output));
-  }, [mode, selectedIndex, editValue, editCursor, cursorVisible, colors.bgStyle]);
+  }, [mode, selectedIndex, editValue, editCursor, cursorVisible, colors.selectedBgStyle]);
 
   // Cursor blink effect
   useEffect(() => {

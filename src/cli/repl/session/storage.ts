@@ -29,14 +29,9 @@ function getIndexPath(): string {
   return join(getSessionsDir(), INDEX_FILE);
 }
 
-/** Get project directory for a project hash */
-function getProjectDir(projectHash: string): string {
-  return join(getSessionsDir(), projectHash);
-}
-
-/** Get session file path */
-function getSessionPath(projectHash: string, sessionId: string): string {
-  return join(getProjectDir(projectHash), `${sessionId}.jsonl`);
+/** Get session file path (global - no project subdirectory) */
+function getSessionPath(sessionId: string): string {
+  return join(getSessionsDir(), `${sessionId}.jsonl`);
 }
 
 // ============================================================================
@@ -193,6 +188,7 @@ async function removeIndexEntry(sessionId: string): Promise<boolean> {
 
 /**
  * Create a new session.
+ * Sessions are global - projectPath is stored for informational purposes only.
  */
 export async function createSession(
   projectPath: string,
@@ -202,7 +198,7 @@ export async function createSession(
   const sessionId = generateSessionId();
   const now = Date.now();
 
-  // Create session header record
+  // Create session header record (projectPath stored for reference)
   const header: SessionHeader = {
     type: "meta",
     version: STORAGE_VERSION,
@@ -223,8 +219,8 @@ export async function createSession(
     messageCount: 0,
   };
 
-  // Write header to session file
-  const sessionPath = getSessionPath(projectHash, sessionId);
+  // Write header to session file (global path, no project subdirectory)
+  const sessionPath = getSessionPath(sessionId);
   await appendJsonLine(sessionPath, header);
 
   // Write initial title record to session file
@@ -277,14 +273,13 @@ function createMessage(
  * use appendMessageOnly() + updateSessionIndex() instead.
  */
 export async function appendMessage(
-  projectHash: string,
   sessionId: string,
   role: "user" | "assistant",
   content: string,
   attachments?: readonly string[]
 ): Promise<SessionMessage> {
   const message = createMessage(role, content, attachments);
-  const sessionPath = getSessionPath(projectHash, sessionId);
+  const sessionPath = getSessionPath(sessionId);
   await appendJsonLine(sessionPath, message);
 
   // Update index with new count and timestamp
@@ -309,14 +304,13 @@ export async function appendMessage(
  * This is O(1) - only appends to the session file.
  */
 export async function appendMessageOnly(
-  projectHash: string,
   sessionId: string,
   role: "user" | "assistant",
   content: string,
   attachments?: readonly string[]
 ): Promise<SessionMessage> {
   const message = createMessage(role, content, attachments);
-  const sessionPath = getSessionPath(projectHash, sessionId);
+  const sessionPath = getSessionPath(sessionId);
   await appendJsonLine(sessionPath, message);
   return message;
 }
@@ -347,10 +341,9 @@ export async function updateSessionIndex(
  * Load a session with all its messages.
  */
 export async function loadSession(
-  projectHash: string,
   sessionId: string
 ): Promise<Session | null> {
-  const sessionPath = getSessionPath(projectHash, sessionId);
+  const sessionPath = getSessionPath(sessionId);
 
   try {
     const records = await readJsonLines<SessionRecord>(sessionPath);
@@ -403,24 +396,17 @@ export async function loadSession(
 }
 
 /**
- * List sessions with optional filtering.
+ * List sessions (global - shows all sessions).
  */
 export async function listSessions(
   options: ListSessionsOptions = {}
 ): Promise<SessionMeta[]> {
   const {
-    projectHash,
     limit = 50,
     sortOrder = "recent",
-    allProjects = false,
   } = options;
 
   let entries = await readIndex();
-
-  // Filter by project if specified
-  if (!allProjects && projectHash) {
-    entries = entries.filter((e) => e.projectHash === projectHash);
-  }
 
   // Sort
   switch (sortOrder) {
@@ -440,14 +426,10 @@ export async function listSessions(
 }
 
 /**
- * Get the most recent session for a project.
+ * Get the most recent session (global).
  */
-export async function getLastSession(
-  projectPath: string
-): Promise<SessionMeta | null> {
-  const projectHash = hashProjectPath(projectPath);
+export async function getLastSession(): Promise<SessionMeta | null> {
   const sessions = await listSessions({
-    projectHash,
     limit: 1,
     sortOrder: "recent",
   });
@@ -458,10 +440,9 @@ export async function getLastSession(
  * Delete a session.
  */
 export async function deleteSession(
-  projectHash: string,
   sessionId: string
 ): Promise<boolean> {
-  const sessionPath = getSessionPath(projectHash, sessionId);
+  const sessionPath = getSessionPath(sessionId);
 
   // Remove session file
   try {
@@ -480,7 +461,6 @@ export async function deleteSession(
  * Update session title.
  */
 export async function updateTitle(
-  projectHash: string,
   sessionId: string,
   title: string
 ): Promise<void> {
@@ -491,7 +471,7 @@ export async function updateTitle(
   };
 
   // Append title record to session file
-  const sessionPath = getSessionPath(projectHash, sessionId);
+  const sessionPath = getSessionPath(sessionId);
   await appendJsonLine(sessionPath, titleRecord);
 
   // Update index
@@ -512,10 +492,9 @@ export async function updateTitle(
  * Export a session as markdown.
  */
 export async function exportSession(
-  projectHash: string,
   sessionId: string
 ): Promise<string | null> {
-  const session = await loadSession(projectHash, sessionId);
+  const session = await loadSession(sessionId);
 
   if (!session) {
     return null;

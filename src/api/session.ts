@@ -1,13 +1,12 @@
 /**
  * Session API Object
  *
- * Programmable access to HQL chat sessions.
+ * Programmable access to HQL chat sessions (global).
  * Usage in REPL:
  *   (session.list)                  ; List all sessions
  *   (session.get "id")              ; Load a specific session
  *   (session.current)               ; Get current session info
  *   (session.remove "id")           ; Delete a session
- *   (session.clear)                 ; Clear all sessions (current project)
  */
 
 import {
@@ -17,7 +16,7 @@ import {
   exportSession,
 } from "../cli/repl/session/storage.ts";
 
-import type { SessionMeta, Session, ListSessionsOptions } from "../cli/repl/session/types.ts";
+import type { SessionMeta, Session } from "../cli/repl/session/types.ts";
 import { getSessionsDir } from "../common/paths.ts";
 
 // ============================================================================
@@ -62,23 +61,18 @@ export function setSessionManager(manager: SessionManagerRef): void {
 export function createSessionApi() {
   return {
     /**
-     * List sessions
+     * List all sessions (global)
      * @example (session.list)
      * @example (session.list {:limit 10})
      */
     list: async (options?: {
       limit?: number;
       sortOrder?: "recent" | "oldest" | "alpha";
-      allProjects?: boolean;
     }): Promise<SessionMeta[]> => {
-      const projectHash = _sessionManager?.getProjectHash();
-      const listOptions: ListSessionsOptions = {
-        projectHash,
+      return listSessions({
         limit: options?.limit ?? 50,
         sortOrder: options?.sortOrder ?? "recent",
-        allProjects: options?.allProjects ?? false,
-      };
-      return listSessions(listOptions);
+      });
     },
 
     /**
@@ -90,12 +84,7 @@ export function createSessionApi() {
         throw new Error("session.get requires a session ID string");
       }
 
-      const projectHash = _sessionManager?.getProjectHash();
-      if (!projectHash) {
-        throw new Error("No project context - session.get requires active REPL session");
-      }
-
-      return loadSession(projectHash, sessionId);
+      return loadSession(sessionId);
     },
 
     /**
@@ -117,16 +106,14 @@ export function createSessionApi() {
     },
 
     /**
-     * List sessions for current project (shorthand for list with project context)
-     * This is the SSOT method for listing project sessions.
+     * List sessions for the current project.
+     * @deprecated Use list() if you want the global list instead
      * @example (session.listForProject 20)
      */
     listForProject: async (limit: number = 50): Promise<SessionMeta[]> => {
-      // 100% SSOT: Use manager's listForProject only - no fallback bypass
       if (!_sessionManager?.listForProject) {
         throw new Error("Session manager not initialized - session.listForProject requires active REPL session");
       }
-
       return _sessionManager.listForProject(limit);
     },
 
@@ -163,12 +150,7 @@ export function createSessionApi() {
         throw new Error("session.remove requires a session ID string");
       }
 
-      const projectHash = _sessionManager?.getProjectHash();
-      if (!projectHash) {
-        throw new Error("No project context - session.remove requires active REPL session");
-      }
-
-      return deleteSession(projectHash, sessionId);
+      return deleteSession(sessionId);
     },
 
     /**
@@ -180,12 +162,7 @@ export function createSessionApi() {
         throw new Error("session.export requires a session ID string");
       }
 
-      const projectHash = _sessionManager?.getProjectHash();
-      if (!projectHash) {
-        throw new Error("No project context - session.export requires active REPL session");
-      }
-
-      return exportSession(projectHash, sessionId);
+      return exportSession(sessionId);
     },
 
     /**
@@ -214,12 +191,7 @@ export function createSessionApi() {
         throw new Error("session.has requires a session ID string");
       }
 
-      const projectHash = _sessionManager?.getProjectHash();
-      if (!projectHash) {
-        return false;
-      }
-
-      const session = await loadSession(projectHash, sessionId);
+      const session = await loadSession(sessionId);
       return session !== null;
     },
   };

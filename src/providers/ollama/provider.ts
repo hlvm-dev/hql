@@ -19,6 +19,7 @@ import type {
 } from "../types.ts";
 
 import * as api from "./api.ts";
+import { getOllamaCatalog, searchOllamaCatalog } from "./catalog.ts";
 
 // ============================================================================
 // Default Configuration
@@ -46,6 +47,7 @@ export class OllamaProvider implements AIProvider {
     "chat",
     "embeddings",
     "models.list",
+    "models.catalog",
     "models.pull",
     "models.remove",
     "vision",
@@ -132,6 +134,20 @@ export class OllamaProvider implements AIProvider {
      */
     get: async (name: string): Promise<ModelInfo | null> => {
       return api.getModel(this.endpoint, name);
+    },
+
+    /**
+     * List catalog models (offline discovery)
+     */
+    catalog: async (): Promise<ModelInfo[]> => {
+      return getOllamaCatalog();
+    },
+
+    /**
+     * Search catalog models
+     */
+    search: async (query: string): Promise<ModelInfo[]> => {
+      return searchOllamaCatalog(query);
     },
 
     /**

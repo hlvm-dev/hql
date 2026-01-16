@@ -11,7 +11,7 @@ import {
 } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
-import { validateTransformed, validateListLength } from "../utils/validation-helpers.ts";
+import { extractPosition, validateTransformed, validateListLength } from "../utils/validation-helpers.ts";
 import { ensureReturnStatement } from "../utils/ir-helpers.ts";
 import { isExpressionResult, extractMeta } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
@@ -876,7 +876,7 @@ export function transformSwitch(
             test: condition,
             consequent: value,
             alternate: result,
-            position: list.position,
+            position: extractPosition(list),
           } as IR.IRConditionalExpression;
         }
 
@@ -1091,7 +1091,7 @@ export function transformCase(
           test: condition,
           consequent: value,
           alternate: result,
-          position: list.position,
+          position: extractPosition(list),
         } as IR.IRConditionalExpression;
       }
 

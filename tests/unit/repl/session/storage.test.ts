@@ -1,5 +1,5 @@
 /**
- * Unit tests for HQL REPL Session Storage
+ * Unit tests for HQL REPL Session Storage (Global Sessions)
  * Tests: hashProjectPath, generateSessionId, CRUD operations
  */
 
@@ -27,18 +27,29 @@ function getTestSessionsDir(): string {
   return join(Deno.env.get("HOME") || ".", ".hql", "sessions");
 }
 
-/** Clean up test sessions */
-async function cleanupTestSessions(projectHash: string): Promise<void> {
-  const projectDir = join(getTestSessionsDir(), projectHash);
+/** Clean up a specific session file */
+async function cleanupSession(sessionId: string): Promise<void> {
+  const sessionPath = join(getTestSessionsDir(), `${sessionId}.jsonl`);
   try {
-    await Deno.remove(projectDir, { recursive: true });
+    await Deno.remove(sessionPath);
   } catch {
     // Ignore if doesn't exist
   }
 }
 
+/** Track created sessions for cleanup */
+const createdSessionIds: string[] = [];
+
+/** Cleanup all created sessions after tests */
+async function cleanupAllSessions(): Promise<void> {
+  for (const id of createdSessionIds) {
+    await cleanupSession(id);
+  }
+  createdSessionIds.length = 0;
+}
+
 // ============================================================================
-// hashProjectPath() Tests
+// hashProjectPath() Tests (still used for metadata)
 // ============================================================================
 
 Deno.test("hashProjectPath: returns consistent hash for same input", () => {
@@ -91,11 +102,6 @@ Deno.test("generateSessionId: includes timestamp component", () => {
   assert(timestampPart <= after, "Timestamp should be <= end time");
 });
 
-Deno.test("generateSessionId: has underscore separator", () => {
-  const id = generateSessionId();
-  assert(id.includes("_"), "Session ID should contain underscore separator");
-});
-
 // ============================================================================
 // createSession() Tests
 // ============================================================================
@@ -104,9 +110,10 @@ Deno.test("createSession: creates session with correct metadata", async () => {
   const testPath = "/tmp/test-project-" + Date.now();
   const projectHash = hashProjectPath(testPath);
 
-  try {
-    const meta = await createSession(testPath, "Test Session");
+  const meta = await createSession(testPath, "Test Session");
+  createdSessionIds.push(meta.id);
 
+  try {
     assertExists(meta.id);
     assertEquals(meta.projectHash, projectHash);
     assertEquals(meta.projectPath, testPath);
@@ -115,25 +122,25 @@ Deno.test("createSession: creates session with correct metadata", async () => {
     assert(meta.createdAt > 0);
     assert(meta.updatedAt > 0);
 
-    // Verify session file was created
-    const sessionPath = join(getTestSessionsDir(), projectHash, `${meta.id}.jsonl`);
+    // Verify session file was created (global path, no project subdirectory)
+    const sessionPath = join(getTestSessionsDir(), `${meta.id}.jsonl`);
     const stat = await Deno.stat(sessionPath);
     assert(stat.isFile);
   } finally {
-    await cleanupTestSessions(projectHash);
+    await cleanupSession(meta.id);
   }
 });
 
 Deno.test("createSession: generates default title if not provided", async () => {
   const testPath = "/tmp/test-project-default-title-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
+
+  const meta = await createSession(testPath);
+  createdSessionIds.push(meta.id);
 
   try {
-    const meta = await createSession(testPath);
-
     assert(meta.title.startsWith("Session at "), "Should have default title");
   } finally {
-    await cleanupTestSessions(projectHash);
+    await cleanupSession(meta.id);
   }
 });
 
@@ -143,15 +150,15 @@ Deno.test("createSession: generates default title if not provided", async () => 
 
 Deno.test("appendMessage: appends message and updates count", async () => {
   const testPath = "/tmp/test-project-append-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
+
+  const meta = await createSession(testPath, "Append Test");
+  createdSessionIds.push(meta.id);
 
   try {
-    const meta = await createSession(testPath, "Append Test");
+    await appendMessage(meta.id, "user", "(def x 10)");
+    await appendMessage(meta.id, "assistant", "10");
 
-    await appendMessage(projectHash, meta.id, "user", "(def x 10)");
-    await appendMessage(projectHash, meta.id, "assistant", "10");
-
-    const session = await loadSession(projectHash, meta.id);
+    const session = await loadSession(meta.id);
     assertExists(session);
     assertEquals(session.messages.length, 2);
     assertEquals(session.messages[0].role, "user");
@@ -159,49 +166,27 @@ Deno.test("appendMessage: appends message and updates count", async () => {
     assertEquals(session.messages[1].role, "assistant");
     assertEquals(session.messages[1].content, "10");
   } finally {
-    await cleanupTestSessions(projectHash);
-  }
-});
-
-Deno.test("appendMessage: preserves message order", async () => {
-  const testPath = "/tmp/test-project-order-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
-
-  try {
-    const meta = await createSession(testPath, "Order Test");
-
-    await appendMessage(projectHash, meta.id, "user", "first");
-    await appendMessage(projectHash, meta.id, "assistant", "second");
-    await appendMessage(projectHash, meta.id, "user", "third");
-
-    const session = await loadSession(projectHash, meta.id);
-    assertExists(session);
-    assertEquals(session.messages.length, 3);
-    assertEquals(session.messages[0].content, "first");
-    assertEquals(session.messages[1].content, "second");
-    assertEquals(session.messages[2].content, "third");
-  } finally {
-    await cleanupTestSessions(projectHash);
+    await cleanupSession(meta.id);
   }
 });
 
 Deno.test("appendMessage: handles attachments", async () => {
   const testPath = "/tmp/test-project-attachments-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
+
+  const meta = await createSession(testPath, "Attachment Test");
+  createdSessionIds.push(meta.id);
 
   try {
-    const meta = await createSession(testPath, "Attachment Test");
-
-    await appendMessage(projectHash, meta.id, "user", "Check this file", [
+    await appendMessage(meta.id, "user", "Check this file", [
       "/path/to/file.txt",
     ]);
 
-    const session = await loadSession(projectHash, meta.id);
+    const session = await loadSession(meta.id);
     assertExists(session);
     assertEquals(session.messages[0].attachments?.length, 1);
     assertEquals(session.messages[0].attachments?.[0], "/path/to/file.txt");
   } finally {
-    await cleanupTestSessions(projectHash);
+    await cleanupSession(meta.id);
   }
 });
 
@@ -210,96 +195,104 @@ Deno.test("appendMessage: handles attachments", async () => {
 // ============================================================================
 
 Deno.test("loadSession: returns null for non-existent session", async () => {
-  const session = await loadSession("nonexistent", "nonexistent_12345_abcd");
+  const session = await loadSession("nonexistent_12345_abcd");
   assertEquals(session, null);
 });
 
-Deno.test("loadSession: loads session with all messages", async () => {
-  const testPath = "/tmp/test-project-load-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
-
-  try {
-    const meta = await createSession(testPath, "Load Test");
-
-    await appendMessage(projectHash, meta.id, "user", "Hello");
-    await appendMessage(projectHash, meta.id, "assistant", "Hi there!");
-
-    const session = await loadSession(projectHash, meta.id);
-    assertExists(session);
-    assertEquals(session.meta.id, meta.id);
-    assertEquals(session.meta.title, "Load Test");
-    assertEquals(session.messages.length, 2);
-  } finally {
-    await cleanupTestSessions(projectHash);
-  }
-});
-
 // ============================================================================
-// listSessions() Tests
+// listSessions() Tests (Global - no project filtering)
 // ============================================================================
 
 Deno.test("listSessions: returns empty array when no sessions", async () => {
-  const projectHash = hashProjectPath("/nonexistent/project/" + Date.now());
-  const sessions = await listSessions({ projectHash });
+  // Clean all sessions first
+  const allSessions = await listSessions({ limit: 1000 });
+  for (const s of allSessions) {
+    await deleteSession(s.id);
+  }
+
+  const sessions = await listSessions();
   assertEquals(sessions.length, 0);
 });
 
-Deno.test("listSessions: filters by project hash", async () => {
+Deno.test("listSessions: lists all sessions globally", async () => {
+  // Clean all sessions first
+  const allSessions = await listSessions({ limit: 1000 });
+  for (const s of allSessions) {
+    await deleteSession(s.id);
+  }
+
   const testPath1 = "/tmp/test-project-list-a-" + Date.now();
   const testPath2 = "/tmp/test-project-list-b-" + Date.now();
-  const projectHash1 = hashProjectPath(testPath1);
-  const projectHash2 = hashProjectPath(testPath2);
+
+  const meta1 = await createSession(testPath1, "Session A1");
+  createdSessionIds.push(meta1.id);
+  const meta2 = await createSession(testPath1, "Session A2");
+  createdSessionIds.push(meta2.id);
+  const meta3 = await createSession(testPath2, "Session B1");
+  createdSessionIds.push(meta3.id);
 
   try {
-    await createSession(testPath1, "Session A1");
-    await createSession(testPath1, "Session A2");
-    await createSession(testPath2, "Session B1");
-
-    const sessionsA = await listSessions({ projectHash: projectHash1 });
-    const sessionsB = await listSessions({ projectHash: projectHash2 });
-
-    assertEquals(sessionsA.length, 2);
-    assertEquals(sessionsB.length, 1);
+    // All sessions are visible globally
+    const sessions = await listSessions();
+    assertEquals(sessions.length, 3);
   } finally {
-    await cleanupTestSessions(projectHash1);
-    await cleanupTestSessions(projectHash2);
+    await cleanupSession(meta1.id);
+    await cleanupSession(meta2.id);
+    await cleanupSession(meta3.id);
   }
 });
 
 Deno.test("listSessions: sorts by recent first (default)", async () => {
+  // Clean all sessions first
+  const allSessions = await listSessions({ limit: 1000 });
+  for (const s of allSessions) {
+    await deleteSession(s.id);
+  }
+
   const testPath = "/tmp/test-project-sort-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
+
+  const meta1 = await createSession(testPath, "First");
+  createdSessionIds.push(meta1.id);
+  // Small delay to ensure different timestamps
+  await new Promise((r) => setTimeout(r, 10));
+  const meta2 = await createSession(testPath, "Second");
+  createdSessionIds.push(meta2.id);
 
   try {
-    const _meta1 = await createSession(testPath, "First");
-    // Small delay to ensure different timestamps
-    await new Promise((r) => setTimeout(r, 10));
-    const _meta2 = await createSession(testPath, "Second");
-
-    const sessions = await listSessions({ projectHash, sortOrder: "recent" });
+    const sessions = await listSessions({ sortOrder: "recent" });
 
     assertEquals(sessions.length, 2);
     assertEquals(sessions[0].title, "Second"); // Most recent first
     assertEquals(sessions[1].title, "First");
   } finally {
-    await cleanupTestSessions(projectHash);
+    await cleanupSession(meta1.id);
+    await cleanupSession(meta2.id);
   }
 });
 
 Deno.test("listSessions: respects limit option", async () => {
+  // Clean all sessions first
+  const allSessions = await listSessions({ limit: 1000 });
+  for (const s of allSessions) {
+    await deleteSession(s.id);
+  }
+
   const testPath = "/tmp/test-project-limit-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
+
+  const meta1 = await createSession(testPath, "Session 1");
+  createdSessionIds.push(meta1.id);
+  const meta2 = await createSession(testPath, "Session 2");
+  createdSessionIds.push(meta2.id);
+  const meta3 = await createSession(testPath, "Session 3");
+  createdSessionIds.push(meta3.id);
 
   try {
-    await createSession(testPath, "Session 1");
-    await createSession(testPath, "Session 2");
-    await createSession(testPath, "Session 3");
-
-    const sessions = await listSessions({ projectHash, limit: 2 });
-
+    const sessions = await listSessions({ limit: 2 });
     assertEquals(sessions.length, 2);
   } finally {
-    await cleanupTestSessions(projectHash);
+    await cleanupSession(meta1.id);
+    await cleanupSession(meta2.id);
+    await cleanupSession(meta3.id);
   }
 });
 
@@ -307,26 +300,14 @@ Deno.test("listSessions: respects limit option", async () => {
 // getLastSession() Tests
 // ============================================================================
 
-Deno.test("getLastSession: returns most recent session", async () => {
-  const testPath = "/tmp/test-project-last-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
-
-  try {
-    await createSession(testPath, "First Session");
-    await new Promise((r) => setTimeout(r, 10));
-    await createSession(testPath, "Last Session");
-
-    const last = await getLastSession(testPath);
-    assertExists(last);
-    assertEquals(last.title, "Last Session");
-  } finally {
-    await cleanupTestSessions(projectHash);
+Deno.test("getLastSession: returns null when no sessions", async () => {
+  // Clean all sessions first
+  const allSessions = await listSessions({ limit: 1000 });
+  for (const s of allSessions) {
+    await deleteSession(s.id);
   }
-});
 
-Deno.test("getLastSession: returns null for project with no sessions", async () => {
-  const testPath = "/tmp/nonexistent-project-" + Date.now();
-  const last = await getLastSession(testPath);
+  const last = await getLastSession();
   assertEquals(last, null);
 });
 
@@ -336,29 +317,24 @@ Deno.test("getLastSession: returns null for project with no sessions", async () 
 
 Deno.test("deleteSession: removes session file and index entry", async () => {
   const testPath = "/tmp/test-project-delete-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
 
-  try {
-    const meta = await createSession(testPath, "Delete Me");
+  const meta = await createSession(testPath, "Delete Me");
 
-    // Verify exists
-    const sessionBefore = await loadSession(projectHash, meta.id);
-    assertExists(sessionBefore);
+  // Verify exists
+  const sessionBefore = await loadSession(meta.id);
+  assertExists(sessionBefore);
 
-    // Delete
-    const result = await deleteSession(projectHash, meta.id);
-    assert(result, "Delete should return true");
+  // Delete
+  const result = await deleteSession(meta.id);
+  assert(result, "Delete should return true");
 
-    // Verify gone
-    const sessionAfter = await loadSession(projectHash, meta.id);
-    assertEquals(sessionAfter, null);
-  } finally {
-    await cleanupTestSessions(projectHash);
-  }
+  // Verify gone
+  const sessionAfter = await loadSession(meta.id);
+  assertEquals(sessionAfter, null);
 });
 
 Deno.test("deleteSession: returns false for non-existent session", async () => {
-  const result = await deleteSession("nonexistent", "nonexistent_id");
+  const result = await deleteSession("nonexistent_id");
   assertEquals(result, false);
 });
 
@@ -368,18 +344,18 @@ Deno.test("deleteSession: returns false for non-existent session", async () => {
 
 Deno.test("updateTitle: updates session title", async () => {
   const testPath = "/tmp/test-project-title-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
+
+  const meta = await createSession(testPath, "Original Title");
+  createdSessionIds.push(meta.id);
 
   try {
-    const meta = await createSession(testPath, "Original Title");
+    await updateTitle(meta.id, "New Title");
 
-    await updateTitle(projectHash, meta.id, "New Title");
-
-    const session = await loadSession(projectHash, meta.id);
+    const session = await loadSession(meta.id);
     assertExists(session);
     assertEquals(session.meta.title, "New Title");
   } finally {
-    await cleanupTestSessions(projectHash);
+    await cleanupSession(meta.id);
   }
 });
 
@@ -389,15 +365,15 @@ Deno.test("updateTitle: updates session title", async () => {
 
 Deno.test("exportSession: generates markdown with messages", async () => {
   const testPath = "/tmp/test-project-export-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
+
+  const meta = await createSession(testPath, "Export Test");
+  createdSessionIds.push(meta.id);
 
   try {
-    const meta = await createSession(testPath, "Export Test");
+    await appendMessage(meta.id, "user", "Hello there");
+    await appendMessage(meta.id, "assistant", "Hi! How can I help?");
 
-    await appendMessage(projectHash, meta.id, "user", "Hello there");
-    await appendMessage(projectHash, meta.id, "assistant", "Hi! How can I help?");
-
-    const markdown = await exportSession(projectHash, meta.id);
+    const markdown = await exportSession(meta.id);
     assertExists(markdown);
     assert(markdown.includes("# Export Test"));
     assert(markdown.includes("Hello there"));
@@ -405,12 +381,12 @@ Deno.test("exportSession: generates markdown with messages", async () => {
     assert(markdown.includes("**You**"));
     assert(markdown.includes("**Assistant**"));
   } finally {
-    await cleanupTestSessions(projectHash);
+    await cleanupSession(meta.id);
   }
 });
 
 Deno.test("exportSession: returns null for non-existent session", async () => {
-  const markdown = await exportSession("nonexistent", "nonexistent_id");
+  const markdown = await exportSession("nonexistent_id");
   assertEquals(markdown, null);
 });
 
@@ -419,42 +395,41 @@ Deno.test("exportSession: returns null for non-existent session", async () => {
 // ============================================================================
 
 Deno.test("loadSession: handles empty session file gracefully", async () => {
-  const testPath = "/tmp/test-project-empty-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
   const sessionId = generateSessionId();
-  const sessionPath = join(getTestSessionsDir(), projectHash, `${sessionId}.jsonl`);
+  const sessionPath = join(getTestSessionsDir(), `${sessionId}.jsonl`);
 
   try {
-    // Create empty file
-    await Deno.mkdir(join(getTestSessionsDir(), projectHash), { recursive: true });
+    // Create empty file directly in sessions directory
+    const { ensureDir } = await import("jsr:@std/fs@1");
+    await ensureDir(getTestSessionsDir());
     await Deno.writeTextFile(sessionPath, "");
 
-    const session = await loadSession(projectHash, sessionId);
+    const session = await loadSession(sessionId);
     assertEquals(session, null);
   } finally {
-    await cleanupTestSessions(projectHash);
+    await cleanupSession(sessionId);
   }
 });
 
 Deno.test("loadSession: recovers from corrupted lines", async () => {
   const testPath = "/tmp/test-project-corrupt-" + Date.now();
-  const projectHash = hashProjectPath(testPath);
+
+  const meta = await createSession(testPath, "Corrupt Test");
+  createdSessionIds.push(meta.id);
 
   try {
-    const meta = await createSession(testPath, "Corrupt Test");
-
     // Manually append a corrupted line
-    const sessionPath = join(getTestSessionsDir(), projectHash, `${meta.id}.jsonl`);
+    const sessionPath = join(getTestSessionsDir(), `${meta.id}.jsonl`);
     await Deno.writeTextFile(sessionPath, "not valid json\n", { append: true });
 
     // Append valid message after corruption
-    await appendMessage(projectHash, meta.id, "user", "After corruption");
+    await appendMessage(meta.id, "user", "After corruption");
 
-    const session = await loadSession(projectHash, meta.id);
+    const session = await loadSession(meta.id);
     assertExists(session);
     assertEquals(session.messages.length, 1);
     assertEquals(session.messages[0].content, "After corruption");
   } finally {
-    await cleanupTestSessions(projectHash);
+    await cleanupSession(meta.id);
   }
 });

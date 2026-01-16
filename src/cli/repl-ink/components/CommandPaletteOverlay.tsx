@@ -247,9 +247,12 @@ export function CommandPaletteOverlay({
     if (pos.x === 0 && pos.y === 0) return;
 
     const searchY = pos.y + PADDING.top + 2;
-    const cursorX = pos.x + PADDING.left + cursorPos;
+    const contentWidth = PALETTE_WIDTH - PADDING.left - PADDING.right;
+    const displayQuery = query.slice(0, contentWidth - 2);
+    const displayCursorPos = Math.min(cursorPos, displayQuery.length);
+    const cursorX = pos.x + PADDING.left + displayCursorPos;
 
-    const charAtCursor = query[cursorPos] || " ";
+    const charAtCursor = displayQuery[displayCursorPos] || " ";
     const cursorStyle = cursorVisible
       ? ansi.inverse + charAtCursor + ansi.reset
       : charAtCursor;
@@ -340,6 +343,7 @@ export function CommandPaletteOverlay({
 
     // === Content rows ===
     const visibleList = flatList.slice(scrollOffset, scrollOffset + VISIBLE_ROWS);
+    const selectedItem = selectableItems[selectedIndex];
 
     for (let row = 0; row < VISIBLE_ROWS; row++) {
       const rowY = pos.y + CONTENT_START + row;
@@ -364,8 +368,7 @@ export function CommandPaletteOverlay({
       } else {
         // Item row
         const { match } = item;
-        const globalIdx = selectableItems.indexOf(item);
-        const isSelected = globalIdx === selectedIndex;
+        const isSelected = item === selectedItem;
         const kb = match.keybinding;
         const display = getDisplay(kb);
         const isInfoOnly = kb.action.type === "INFO";

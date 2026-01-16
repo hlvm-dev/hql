@@ -9,7 +9,6 @@ import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
 import { SessionPicker } from "./SessionPicker.tsx";
-import { ConfigPanel } from "./ConfigPanel.tsx";
 import { ConfigOverlay, type ConfigOverlayState } from "./ConfigOverlay.tsx";
 import { CommandPaletteOverlay, type PaletteState, type KeyCombo } from "./CommandPaletteOverlay.tsx";
 import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
@@ -35,6 +34,16 @@ interface HistoryEntry {
   id: number;
   input: string;
   result: EvalResult;
+}
+
+interface CurrentEval {
+  code: string;
+  controller: AbortController;
+  attachmentPaths: string[];
+  backgrounded: boolean;
+  cancelled?: boolean;
+  taskId?: string;
+  historyId?: number;
 }
 
 interface AppProps {
@@ -72,6 +81,24 @@ function convertMessagesToHistory(
   }
 
   return { entries, nextId: id };
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterableIterator<string> {
+  return !!value && typeof value === "object" && Symbol.asyncIterator in (value as object);
+}
+
+function stringifyOutput(value: unknown): string {
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return "";
+    }
+  }
 }
 
 /**
@@ -134,7 +161,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
         // Auto-open picker if --resume was passed without ID
         if (sessionOptions?.openPicker) {
-          const sessions = await manager.listForProject(20);
+          const sessions = await manager.list(20);
           if (sessions.length > 0) {
             setPickerSessions(sessions);
             setActivePanel("picker");
@@ -164,19 +191,15 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
 
   // Task manager for background evaluation
-  const { createEvalTask, completeEvalTask, failEvalTask } = useTaskManager();
+  const { createEvalTask, completeEvalTask, failEvalTask, updateEvalOutput, cancel } = useTaskManager();
 
   // Track current evaluation for Ctrl+B to push to background
   // AbortController enables true cancellation of async operations (AI calls, fetch, etc.)
-  const currentEvalRef = useRef<{
-    promise: Promise<EvalResult>;
-    code: string;
-    controller: AbortController;
-  } | null>(null);
+  const currentEvalRef = useRef<CurrentEval | null>(null);
 
   // Unified panel state - only one panel can be open at a time
   // "palette", "config-overlay", and "tasks-overlay" are overlays (input visible but disabled), others hide input entirely
-  type ActivePanel = "none" | "picker" | "config" | "config-overlay" | "tasks-overlay" | "models" | "palette";
+  type ActivePanel = "none" | "picker" | "config-overlay" | "tasks-overlay" | "models" | "palette";
   const [activePanel, setActivePanel] = useState<ActivePanel>("none");
 
   // Track where ModelBrowser was opened from (for back navigation)
@@ -255,18 +278,125 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     setActivePanel("none");
   }, [pendingResumeInput, addHistoryEntry]);
 
-  // Debug: write to file for tracing
-  const debugLog = (msg: string) => {
+  const recordSessionTurn = useCallback(async (inputCode: string, attachmentPaths: string[], outputStr: string) => {
+    const sessionApi = (globalThis as Record<string, unknown>).session as {
+      record: (role: "user" | "assistant", content: string, attachments?: string[]) => Promise<void>;
+      current: () => { id: string } | null;
+    } | undefined;
+
+    if (!sessionApi?.record) return;
+
     try {
-      const timestamp = new Date().toISOString();
-      Deno.writeTextFileSync("/tmp/hql-debug.log", `${timestamp} ${msg}\n`, { append: true });
-    } catch { /* ignore */ }
-  };
+      await sessionApi.record(
+        "user",
+        inputCode,
+        attachmentPaths.length > 0 ? attachmentPaths : undefined
+      );
+      if (outputStr) {
+        await sessionApi.record("assistant", outputStr);
+      }
+      const session = sessionApi.current();
+      if (session) setCurrentSession(session);
+    } catch {
+      // Session recording failed - continue without sessions
+    }
+  }, [setCurrentSession]);
+
+  const suppressHistoryOutput = useCallback((historyId: number) => {
+    setHistory((prev: HistoryEntry[]) => prev.map((entry: HistoryEntry) => {
+      if (entry.id !== historyId) return entry;
+      return {
+        ...entry,
+        result: { ...entry.result, suppressOutput: true },
+      };
+    }));
+  }, []);
+
+  const streamEvalToTask = useCallback((
+    taskId: string,
+    iterator: AsyncIterableIterator<string>,
+    controller: AbortController,
+    evalState: CurrentEval,
+    inputCode: string,
+    attachmentPaths: string[]
+  ) => {
+    const renderInterval = 100;
+    let buffer = "";
+    let lastUpdate = 0;
+    let pendingUpdate: number | null = null;
+
+    const scheduleUpdate = () => {
+      const now = Date.now();
+      const elapsed = now - lastUpdate;
+
+      if (elapsed >= renderInterval) {
+        updateEvalOutput(taskId, buffer, true);
+        lastUpdate = now;
+        return;
+      }
+
+      if (pendingUpdate) return;
+
+      pendingUpdate = setTimeout(() => {
+        pendingUpdate = null;
+        updateEvalOutput(taskId, buffer, true);
+        lastUpdate = Date.now();
+      }, renderInterval - elapsed) as unknown as number;
+    };
+
+    const finalizeForeground = () => {
+      if (currentEvalRef.current === evalState && !evalState.backgrounded) {
+        currentEvalRef.current = null;
+        setIsEvaluating(false);
+      }
+    };
+
+    (async () => {
+      try {
+        updateEvalOutput(taskId, buffer, true);
+
+        for await (const chunk of iterator) {
+          if (controller.signal.aborted) break;
+
+          const content = typeof chunk === "string"
+            ? chunk
+            : (chunk as { content?: string }).content || "";
+
+          if (content) {
+            buffer += content;
+            scheduleUpdate();
+          }
+        }
+
+        if (pendingUpdate) {
+          clearTimeout(pendingUpdate);
+          pendingUpdate = null;
+        }
+
+        if (controller.signal.aborted) {
+          cancel(taskId);
+          return;
+        }
+
+        completeEvalTask(taskId, buffer);
+        void recordSessionTurn(inputCode, attachmentPaths, buffer);
+      } catch (err) {
+        const isAbort = controller.signal.aborted || (err instanceof Error && err.name === "AbortError");
+        if (isAbort) {
+          cancel(taskId);
+          return;
+        }
+        const error = err instanceof Error ? err : new Error(String(err));
+        failEvalTask(taskId, error);
+      } finally {
+        finalizeForeground();
+      }
+    })();
+  }, [updateEvalOutput, completeEvalTask, failEvalTask, cancel, recordSessionTurn]);
 
   const handleSubmit = useCallback(async (code: string, attachments?: AnyAttachment[]) => {
-    debugLog(`handleSubmit called: code="${code.slice(0, 50)}", currentEvalRef=${!!currentEvalRef.current}`);
     if (!code.trim()) return;
-    setIsEvaluating(true);
+    setInput("");
 
     // Expand text attachments: replace [Pasted text #N ...] with actual content
     // This allows pasted HQL code to be executed even when collapsed
@@ -287,68 +417,53 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     // Handle /config command - show floating overlay
     if (normalized === "/config") {
       setActivePanel("config-overlay");
-      setIsEvaluating(false);
-      setInput("");
       return;
     }
 
     // Handle /tasks command - show background tasks overlay
     if (normalized === "/tasks") {
       setActivePanel("tasks-overlay");
-      setIsEvaluating(false);
-      setInput("");
       return;
     }
 
     // Handle /bg command - push current evaluation to background
     if (normalized === "/bg") {
-      debugLog(`/bg command: currentEvalRef=${!!currentEvalRef.current}, isEvaluating=${isEvaluating}`);
-      if (currentEvalRef.current) {
-        const { promise, code: evalCode, controller } = currentEvalRef.current;
+      const activeEval = currentEvalRef.current;
+      if (activeEval && !activeEval.backgrounded) {
+        activeEval.backgrounded = true;
+        const taskId = activeEval.taskId ?? createEvalTask(activeEval.code, activeEval.controller);
+        activeEval.taskId = taskId;
 
-        // Create background task with AbortController for true cancellation
-        const taskId = createEvalTask(evalCode, controller);
+        if (activeEval.historyId != null) {
+          suppressHistoryOutput(activeEval.historyId);
+        }
 
-        // Let promise continue in background, update task when done
-        promise
-          .then((result: EvalResult) => completeEvalTask(taskId, result))
-          .catch((error: unknown) => failEvalTask(taskId, error instanceof Error ? error : new Error(String(error))));
-
-        // Immediately unblock UI - clear ref so finally block doesn't clear it again
         currentEvalRef.current = null;
         setIsEvaluating(false);
 
-        // Show confirmation in history
-        const preview = evalCode.length > 40 ? evalCode.slice(0, 37) + "..." : evalCode;
+        const preview = activeEval.code.length > 40 ? activeEval.code.slice(0, 37) + "..." : activeEval.code;
         addHistoryEntry("/bg", {
           success: true,
           value: `⏳ Pushed to background (Task ${taskId.slice(0, 8)})\n   ${preview}\n   Use /tasks to view`,
         });
       } else {
-        addHistoryEntry("/bg", {
-          success: true,
-          value: "No active evaluation. Tip: Type /bg quickly while AI is responding, or use /tasks to view completed tasks.",
-        });
-        setIsEvaluating(false);
+        addHistoryEntry("/bg", { success: false, error: new Error("No running evaluation to background") });
       }
-      setInput("");
       return;
     }
 
     // Handle /resume command
     if (normalized === "/resume") {
-      // SSOT: Try session.listForProject() API only
+      // SSOT: Try session.list() API (sessions are global now)
       const sessionApi = (globalThis as Record<string, unknown>).session as {
-        listForProject: (limit?: number) => Promise<SessionMeta[]>;
+        list: (options?: { limit?: number }) => Promise<SessionMeta[]>;
       } | undefined;
 
       let sessions: SessionMeta[] = [];
-      if (sessionApi?.listForProject) {
-        sessions = await sessionApi.listForProject(20);
+      if (sessionApi?.list) {
+        sessions = await sessionApi.list({ limit: 20 });
       } else {
         addHistoryEntry(code, { success: true, value: "Session management not available" });
-        setIsEvaluating(false);
-        setInput("");
         return;
       }
 
@@ -359,8 +474,6 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         setPickerSessions(sessions);
         setActivePanel("picker");
       }
-      setIsEvaluating(false);
-      setInput("");
       return;
     }
 
@@ -371,8 +484,6 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       setNextId(1);
       setHasBeenCleared(true);
       setClearKey((k: number) => k + 1);
-      setIsEvaluating(false);
-      setInput("");
       return;
     }
 
@@ -383,10 +494,15 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         addHistoryEntry(code, { success: true, value: output, isCommandOutput: true });
       }
       // FRP: memoryNames auto-update via ReplContext when bindings change
-      setIsEvaluating(false);
-      setInput("");
       return;
     }
+
+    if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
+      addHistoryEntry(code, { success: false, error: new Error("Evaluation already running. Use /bg or Esc.") });
+      return;
+    }
+
+    setIsEvaluating(true);
 
     // Extract attachment paths for session recording (only file attachments have paths)
     const attachmentPaths = attachments
@@ -398,77 +514,102 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     // Create AbortController for true cancellation support
     const controller = new AbortController();
     const evalPromise = repl.evaluate(expandedCode, { attachments, signal: controller.signal });
-    currentEvalRef.current = { promise: evalPromise, code, controller };
-    debugLog(`SET currentEvalRef for code="${code.slice(0, 50)}"`);
+    const evalState: CurrentEval = {
+      code,
+      controller,
+      attachmentPaths,
+      backgrounded: false,
+    };
+    currentEvalRef.current = evalState;
 
+    const finalizeForeground = () => {
+      if (currentEvalRef.current === evalState) {
+        currentEvalRef.current = null;
+        setIsEvaluating(false);
+      }
+    };
+
+    let result: EvalResult;
     try {
-      const result = await evalPromise;
-
-      // Check if we were pushed to background (currentEvalRef cleared)
-      if (!currentEvalRef.current) {
-        // Evaluation was pushed to background, don't add to history here
-        return;
-      }
-
-      // Show original code in history (with placeholders) for cleaner display
-      addHistoryEntry(code, result);
-
-      // Auto-save to session (only for non-error results) - use session API for single source of truth
-      if (result.success) {
-        try {
-          const sessionApi = (globalThis as Record<string, unknown>).session as {
-            record: (role: "user" | "assistant", content: string, attachments?: string[]) => Promise<void>;
-            current: () => { id: string } | null;
-          } | undefined;
-
-          if (sessionApi?.record) {
-            // Record user input via API
-            await sessionApi.record(
-              "user",
-              code,
-              attachmentPaths.length > 0 ? attachmentPaths : undefined
-            );
-
-            // Record assistant output (stringify the value)
-            const outputStr = result.value !== undefined
-              ? (typeof result.value === "string" ? result.value : JSON.stringify(result.value))
-              : "";
-            if (outputStr) {
-              await sessionApi.record("assistant", outputStr);
-            }
-
-            // Update current session state
-            const session = sessionApi.current();
-            if (session) setCurrentSession(session);
-          }
-        } catch {
-          // Session recording failed - continue without sessions
-        }
-      }
-
-      // FRP: memoryNames auto-update via ReplContext when bindings change
+      result = await evalPromise;
     } catch (error) {
-      // Check if we were pushed to background
-      if (!currentEvalRef.current) {
-        return;
+      if (evalState.cancelled) return;
+      const err = error instanceof Error ? error : new Error(String(error));
+      if (evalState.backgrounded || evalState.taskId) {
+        const taskId = evalState.taskId ?? createEvalTask(code, controller);
+        evalState.taskId = taskId;
+        failEvalTask(taskId, err);
+      } else {
+        addHistoryEntry(code, { success: false, error: err });
       }
-      addHistoryEntry(code, { success: false, error: error instanceof Error ? error : new Error(String(error)) });
-    } finally {
-      // Don't clear immediately - allow grace period for /bg command
-      // Only clear if not already pushed to background
-      debugLog(`finally block: currentEvalRef=${!!currentEvalRef.current}`);
-      setTimeout(() => {
-        // Only clear if this eval is still the current one (not replaced by new eval)
-        if (currentEvalRef.current?.code === code) {
-          debugLog(`Grace period expired, clearing currentEvalRef for "${code.slice(0, 30)}"`);
-          currentEvalRef.current = null;
-        }
-      }, 5000); // 5 second grace period
+      finalizeForeground();
+      return;
     }
 
-    setIsEvaluating(false);
-    setInput("");
-  }, [repl, exit, addHistoryEntry]);
+    if (evalState.cancelled) {
+      return;
+    }
+
+    if (!result.success) {
+      const err = result.error ?? new Error("Unknown error");
+      if (evalState.backgrounded || evalState.taskId) {
+        const taskId = evalState.taskId ?? createEvalTask(code, controller);
+        evalState.taskId = taskId;
+        failEvalTask(taskId, err);
+      } else {
+        addHistoryEntry(code, { success: false, error: err });
+      }
+      finalizeForeground();
+      return;
+    }
+
+    if (isAsyncIterable(result.value)) {
+      const taskId = evalState.taskId ?? createEvalTask(code, controller);
+      evalState.taskId = taskId;
+
+      streamEvalToTask(
+        taskId,
+        result.value as AsyncIterableIterator<string>,
+        controller,
+        evalState,
+        code,
+        attachmentPaths
+      );
+
+      if (!evalState.backgrounded) {
+        const historyId = nextId;
+        addHistoryEntry(code, { success: true, streamTaskId: taskId });
+        evalState.historyId = historyId;
+      }
+
+      return;
+    }
+
+    const outputStr = stringifyOutput(result.value);
+
+    if (evalState.backgrounded || evalState.taskId) {
+      const taskId = evalState.taskId ?? createEvalTask(code, controller);
+      evalState.taskId = taskId;
+      completeEvalTask(taskId, result.value);
+      void recordSessionTurn(code, attachmentPaths, outputStr);
+    } else {
+      addHistoryEntry(code, result);
+      void recordSessionTurn(code, attachmentPaths, outputStr);
+    }
+
+    finalizeForeground();
+  }, [
+    repl,
+    exit,
+    addHistoryEntry,
+    createEvalTask,
+    completeEvalTask,
+    failEvalTask,
+    suppressHistoryOutput,
+    streamEvalToTask,
+    recordSessionTurn,
+    nextId,
+  ]);
 
   // Command palette action handler
   const handlePaletteAction = useCallback((action: KeybindingAction) => {
@@ -509,7 +650,10 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
 
   // Global shortcuts (Ctrl+C exit, Ctrl+L/Cmd+K clear, Ctrl+P palette, Ctrl+B tasks, ESC cancel)
   useInput((char, key) => {
-    if (key.ctrl && char === "c") exit();
+    if (key.ctrl && char === "c") {
+      replState.flushHistorySync();
+      exit();
+    }
     if (key.ctrl && char === "p") {
       // Debounce: prevent rapid toggles during streaming re-renders
       const now = Date.now();
@@ -548,22 +692,21 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     // This actually stops the evaluation (if it supports AbortSignal)
     // Use ref to avoid stale closure issue
     if (key.escape && isEvaluatingRef.current && currentEvalRef.current) {
-      debugLog(`ESC pressed: clearing currentEvalRef and aborting`);
-      const { code, controller } = currentEvalRef.current;
+      const evalState = currentEvalRef.current;
+      evalState.cancelled = true;
 
-      // Abort the evaluation (will cause AbortError in async operations)
-      controller.abort();
+      if (evalState.taskId) {
+        cancel(evalState.taskId);
+      } else {
+        evalState.controller.abort();
+      }
 
-      // Clear ref so handleSubmit knows we cancelled
+      if (evalState.historyId == null) {
+        addHistoryEntry(evalState.code, { success: true, value: "[Cancelled]" });
+      }
+
       currentEvalRef.current = null;
       setIsEvaluating(false);
-
-      // Show cancellation
-      const preview = code.length > 40 ? code.slice(0, 37) + "..." : code;
-      addHistoryEntry(code, {
-        success: true,
-        value: `[Cancelled]`,
-      });
     }
   });
 
@@ -604,17 +747,6 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
           currentSessionId={currentSession?.id}
           onSelect={handlePickerSelect}
           onCancel={handlePickerCancel}
-        />
-      )}
-
-      {/* Config Panel */}
-      {activePanel === "config" && (
-        <ConfigPanel
-          onClose={() => setActivePanel("none")}
-          onOpenModelBrowser={() => {
-            setModelBrowserParent("config");
-            setActivePanel("models");
-          }}
         />
       )}
 
@@ -715,6 +847,8 @@ async function handleCommand(
       return null; // Clear is handled by returning null
     case "/exit":
     case "/quit":
+      await state.flushHistory();
+      state.flushHistorySync();
       exit();
       return null;
     case "/reset": {

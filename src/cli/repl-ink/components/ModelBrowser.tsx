@@ -15,6 +15,7 @@ import { isModelPullTask, isTaskActive } from "../../repl/task-manager/types.ts"
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import { openUrl } from "../../../platform/platform.ts";
+import type { ModelInfo } from "../../../providers/types.ts";
 
 // ============================================================
 // Types
@@ -88,35 +89,9 @@ const FILTER_EMPTY: Record<ViewFilter, string> = {
 };
 
 // ============================================================
-// Model Catalog - Loaded from verified ollama_models.json
-// Source: ~/dev/HLVM/HLVM/Resources/ollama_models.json (205 models)
+// Model Catalog - via ai.models.catalog (SSOT)
 // ============================================================
 
-import ollamaModelsData from "../data/ollama_models.json" with { type: "json" };
-
-interface OllamaModelVariant {
-  id: string;
-  name: string;
-  parameters: string;
-  size: string;
-  context: string;
-  vision: boolean;
-}
-
-interface OllamaModelEntry {
-  id: string;
-  name: string;
-  description: string;
-  variants: OllamaModelVariant[];
-  vision: boolean;
-  downloads: number;
-  model_type?: string;
-}
-
-/**
- * Load models from verified JSON file, sorted by popularity.
- * Returns practical variants (smallest 2-3 per model family).
- */
 /** Get provider/company name from model ID */
 function getProvider(modelId: string): string {
   const id = modelId.toLowerCase();
@@ -197,53 +172,74 @@ function parseSizeToBytes(sizeStr: string): number {
   }
 }
 
-function loadVerifiedModels(): RemoteModel[] {
-  const models = ollamaModelsData.models as OllamaModelEntry[];
-  const result: RemoteModel[] = [];
-
-  for (const model of models) {
-    const variants = model.variants || [];
-    // Filter out very large models
-    const practicalVariants = variants
-      .filter(v => !v.id.includes("405b") && !v.id.includes("671b") && !v.id.includes("70b"))
-      .slice(0, 2);
-
-    const toAdd = practicalVariants.length > 0 ? practicalVariants : variants.slice(0, 1);
-
-    for (const variant of toAdd) {
-      const capabilities: string[] = model.model_type === "embedding"
-        ? ["embedding"]
-        : model.vision ? ["text", "vision"] : ["text"];
-
-      if (model.id.includes("r1") || model.id.includes("qwq")) {
-        capabilities.push("thinking");
-      }
-
-      result.push({
-        name: variant.id,
-        description: `${model.name} (${variant.parameters || variant.name})`,
-        capabilities,
-        size: variant.size,
-        provider: getProvider(model.id),
-      });
-    }
-  }
-
-  // Sort by size (smallest first)
-  result.sort((a, b) => parseSizeToBytes(a.size || "") - parseSizeToBytes(b.size || ""));
-
-  return result;
+function isPracticalModel(name: string): boolean {
+  const lower = name.toLowerCase();
+  return !lower.includes("405b") && !lower.includes("671b") && !lower.includes("70b");
 }
 
-// Pre-load verified models (205 models from HLVM)
-const VERIFIED_MODELS = loadVerifiedModels();
+function getCatalogCapabilities(model: ModelInfo): string[] {
+  const meta = (model.metadata || {}) as Record<string, unknown>;
+  const metaCaps = Array.isArray(meta.capabilities)
+    ? meta.capabilities.map((c) => String(c))
+    : [];
+  if (metaCaps.length > 0) return metaCaps;
+
+  const caps: string[] = [];
+  if (model.capabilities?.includes("embeddings")) {
+    caps.push("embedding");
+  } else {
+    caps.push("text");
+  }
+  if (model.capabilities?.includes("vision")) {
+    caps.push("vision");
+  }
+  return caps;
+}
+
+function getCatalogSize(model: ModelInfo): string | undefined {
+  const meta = (model.metadata || {}) as Record<string, unknown>;
+  const sizes = Array.isArray(meta.sizes) ? meta.sizes : [];
+  const first = sizes[0];
+  return typeof first === "string" ? first : undefined;
+}
+
+function toRemoteModel(model: ModelInfo): RemoteModel {
+  const meta = (model.metadata || {}) as Record<string, unknown>;
+  const modelId = typeof meta.modelId === "string" ? meta.modelId : model.name;
+  const baseDescription = model.displayName ?? model.name;
+  const extraDescription = typeof meta.description === "string" ? meta.description : "";
+  const description = extraDescription ? `${baseDescription} - ${extraDescription}` : baseDescription;
+
+  return {
+    name: model.name,
+    description,
+    capabilities: getCatalogCapabilities(model),
+    size: getCatalogSize(model),
+    provider: getProvider(modelId),
+  };
+}
 
 /**
- * Get remote models from verified JSON.
- * No network request needed - data is bundled.
+ * Get remote models from provider catalog via ai API.
  */
 async function fetchRemoteModels(): Promise<RemoteModel[]> {
-  return VERIFIED_MODELS;
+  try {
+    const aiApi = (globalThis as Record<string, unknown>).ai as {
+      models?: { catalog?: () => Promise<ModelInfo[]> };
+    } | undefined;
+
+    if (!aiApi?.models?.catalog) return [];
+
+    const catalog = await aiApi.models.catalog();
+    const models = catalog
+      .filter((m) => isPracticalModel(m.name))
+      .map((m) => toRemoteModel(m));
+
+    models.sort((a, b) => parseSizeToBytes(a.size || "") - parseSizeToBytes(b.size || ""));
+    return models;
+  } catch {
+    return [];
+  }
 }
 
 /** Filter models based on ViewFilter */
@@ -270,10 +266,12 @@ function ModelItem({
   model,
   isSelected,
   isActive,
+  isPendingDelete = false,
 }: {
   model: DisplayModel;
   isSelected: boolean;
   isActive: boolean;
+  isPendingDelete?: boolean;
 }): React.ReactElement {
   const { color } = useTheme();
 
@@ -283,10 +281,13 @@ function ModelItem({
   // Format capabilities
   const caps = model.capabilities?.map((c) => `[${c}]`).join("") || "";
 
-  // Indicator based on downloadStatus
+  // Indicator based on downloadStatus (pending delete takes priority)
   let indicator = "  ";
   let indicatorColor = color("muted");
-  if (isActive) {
+  if (isPendingDelete) {
+    indicator = "? "; // pending delete confirmation
+    indicatorColor = color("error");
+  } else if (isActive) {
     indicator = "* ";
     indicatorColor = color("success");
   } else if (model.isLocal) {
@@ -349,14 +350,16 @@ function ModelItem({
     sizeText = <Text dimColor>          </Text>;
   }
 
-  // Color for model name: green for local, yellow for downloading, red for cancelled/failed, gray for remote
-  const nameColor = model.isLocal
-    ? color("success")
-    : model.downloadStatus === "downloading"
-      ? color("warning")
-      : model.downloadStatus === "cancelled" || model.downloadStatus === "failed"
-        ? color("error")
-        : undefined;
+  // Color for model name (pending delete > local > downloading > cancelled/failed > remote)
+  const nameColor = isPendingDelete
+    ? color("error")
+    : model.isLocal
+      ? color("success")
+      : model.downloadStatus === "downloading"
+        ? color("warning")
+        : model.downloadStatus === "cancelled" || model.downloadStatus === "failed"
+          ? color("error")
+          : undefined;
 
   return (
     <Box>
@@ -398,6 +401,7 @@ export function ModelBrowser({
   const [isSearching, setIsSearching] = useState(false);
   const [loading, setLoading] = useState(true);
   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   // Fetch local models - 100% SSOT via ai.models API (no fallback)
   const fetchModels = useCallback(async () => {
@@ -474,11 +478,26 @@ export function ModelBrowser({
       return "idle"; // completed tasks become idle (model is local)
     };
 
+    // Helper to find most relevant task (prefer active over cancelled/failed)
+    // If model is local, don't show stale cancelled/failed tasks
+    const findRelevantTask = (modelName: string, isLocal: boolean): ModelPullTask | undefined => {
+      const tasksForModel = pullTasks.filter((t) => t.modelName === modelName);
+      // Always prefer active tasks (running/pending)
+      const activeTask = tasksForModel.find((t) => t.status === "running" || t.status === "pending");
+      if (activeTask) return activeTask;
+      // For local models, don't show stale cancelled/failed status
+      // (the model was successfully downloaded after the failed attempt)
+      if (isLocal) return undefined;
+      // For non-local models, show cancelled/failed for resume UX
+      return tasksForModel.find((t) => t.status === "cancelled" || t.status === "failed");
+    };
+
     // Build from remoteModels (stable order - sorted by size)
     // Mark as local if exists in localMap
     for (const model of remoteModels) {
       const local = localMap.get(model.name);
-      const task = pullTasks.find((t) => t.modelName === model.name);
+      const isLocal = !!local;
+      const task = findRelevantTask(model.name, isLocal);
       const downloadStatus = getDownloadStatus(task);
       result.push({
         name: model.name,
@@ -497,7 +516,7 @@ export function ModelBrowser({
     // Add local-only models (not in registry) at the end
     for (const model of localModels) {
       if (!remoteModels.some((r: RemoteModel) => r.name === model.name)) {
-        const task = pullTasks.find((t) => t.modelName === model.name);
+        const task = findRelevantTask(model.name, true);  // Always local
         const downloadStatus = getDownloadStatus(task);
         result.push({
           name: model.name,
@@ -560,27 +579,37 @@ export function ModelBrowser({
       return;
     }
 
-    // Navigation
+    // Navigation (clears pending delete)
     if (key.upArrow || input === "k") {
       setSelectedIndex((i: number) => Math.max(0, i - 1));
+      setPendingDelete(null);
     }
     if (key.downArrow || input === "j") {
       setSelectedIndex((i: number) => Math.min(displayModels.length - 1, i + 1));
+      setPendingDelete(null);
     }
 
-    // Tab cycles filter forward
+    // Tab cycles filter forward (clears pending delete)
+    // Use functional update to avoid stale closure issues
     if (key.tab && !key.shift) {
-      const idx = FILTER_CYCLE.indexOf(viewFilter);
-      setViewFilter(FILTER_CYCLE[(idx + 1) % FILTER_CYCLE.length]);
+      setViewFilter((current) => {
+        const idx = FILTER_CYCLE.indexOf(current);
+        return FILTER_CYCLE[(idx + 1) % FILTER_CYCLE.length];
+      });
       setSelectedIndex(0);
+      setPendingDelete(null);
       return;
     }
 
-    // Shift+Tab cycles filter backward
+    // Shift+Tab cycles filter backward (clears pending delete)
+    // Use functional update to avoid stale closure issues
     if (key.tab && key.shift) {
-      const idx = FILTER_CYCLE.indexOf(viewFilter);
-      setViewFilter(FILTER_CYCLE[(idx - 1 + FILTER_CYCLE.length) % FILTER_CYCLE.length]);
+      setViewFilter((current) => {
+        const idx = FILTER_CYCLE.indexOf(current);
+        return FILTER_CYCLE[(idx - 1 + FILTER_CYCLE.length) % FILTER_CYCLE.length];
+      });
       setSelectedIndex(0);
+      setPendingDelete(null);
       return;
     }
 
@@ -591,20 +620,54 @@ export function ModelBrowser({
       return;
     }
 
-    // Search
+    // 'd' - Delete local model (with confirmation)
+    if (input === "d" && displayModels[selectedIndex]) {
+      const model = displayModels[selectedIndex];
+
+      // Only allow delete for local models (not downloading or remote)
+      if (!model.isLocal || model.isDownloading) return;
+
+      // First press: set pending confirmation
+      if (pendingDelete !== model.name) {
+        setPendingDelete(model.name);
+        return;
+      }
+
+      // Second press (confirmation): execute delete
+      (async () => {
+        try {
+          const aiApi = (globalThis as Record<string, unknown>).ai as {
+            models?: { remove?: (name: string) => Promise<boolean> };
+          };
+          if (aiApi?.models?.remove) {
+            await aiApi.models.remove(model.name);
+            fetchModels(); // Refresh list
+          }
+        } catch {
+          // Delete failed - could add error state later
+        } finally {
+          setPendingDelete(null);
+        }
+      })();
+      return;
+    }
+
+    // Search (clears pending delete)
     if (input === "/") {
       setIsSearching(true);
       setSearchCursor(searchQuery.length); // Start at end of existing query
+      setPendingDelete(null);
     }
 
-    // Select/Download
+    // Select/Download/Resume
     if (key.return && displayModels[selectedIndex]) {
       const model = displayModels[selectedIndex];
       if (model.isLocal && onSelectModel) {
+        // Local model: select as active
         onSelectModel(model.name);
         onClose();
       } else if (!model.isLocal && !model.isDownloading) {
-        // Start download
+        // Remote model (or cancelled/failed): start/restart download
         try {
           manager.pullModel(model.name);
         } catch {
@@ -622,19 +685,44 @@ export function ModelBrowser({
       }
     }
 
-    // Cancel download
+    // Cancel download ('x' key)
     if (input === "x" && displayModels[selectedIndex]) {
       const model = displayModels[selectedIndex];
       if (model.isDownloading) {
-        const task = tasks.find(
-          (t) => isModelPullTask(t) && (t as ModelPullTask).modelName === model.name
+        // Filter to model-pull tasks first, then find matching name
+        const pullTasks = tasks.filter(isModelPullTask);
+        const task = pullTasks.find(
+          (t) => t.modelName === model.name && isTaskActive(t)
         );
-        if (task) cancel(task.id);
+        if (task) {
+          cancel(task.id);
+          return;
+        }
       }
     }
 
-    // Close
+    // Escape: Stack-based behavior (cancel pending → cancel download → close)
     if (key.escape) {
+      // 1. Cancel pending delete first
+      if (pendingDelete) {
+        setPendingDelete(null);
+        return;
+      }
+
+      // 2. Cancel download if selected model is downloading
+      const selectedModel = displayModels[selectedIndex];
+      if (selectedModel?.isDownloading) {
+        const pullTasks = tasks.filter(isModelPullTask);
+        const task = pullTasks.find(
+          (t) => t.modelName === selectedModel.name && isTaskActive(t)
+        );
+        if (task) {
+          cancel(task.id);
+          return;
+        }
+      }
+
+      // 3. Close panel
       onClose();
     }
   });
@@ -691,6 +779,7 @@ export function ModelBrowser({
                 model={model}
                 isSelected={actualIndex === selectedIndex}
                 isActive={model.name === currentModel || `ollama/${model.name}` === currentModel}
+                isPendingDelete={pendingDelete === model.name}
               />
             </Box>
           );
@@ -701,7 +790,11 @@ export function ModelBrowser({
       )}
 
       <Text> </Text>
-      <Text dimColor>  ↑↓ nav  Tab → {nextFilter}  i info  / search  ↵ select  x cancel  Esc back</Text>
+      {pendingDelete ? (
+        <Text color={color("error")}>  Press d again to delete "{pendingDelete}", Esc to cancel</Text>
+      ) : (
+        <Text dimColor>  ↑↓ nav  Tab → {nextFilter}  d del  i info  / search  ↵ select  x cancel  Esc back</Text>
+      )}
     </Box>
   );
 }

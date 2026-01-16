@@ -403,8 +403,10 @@ export class TaskManager {
 
       // Check if cancelled before marking complete
       if (signal.aborted) {
-        this.transition(taskId, "cancelled");
-        this.emit({ type: "task:cancelled", taskId });
+        // Only emit if transition succeeds (cancel() may have already done this)
+        if (this.transition(taskId, "cancelled")) {
+          this.emit({ type: "task:cancelled", taskId });
+        }
         return;
       }
 
@@ -416,8 +418,10 @@ export class TaskManager {
     } catch (error) {
       // Check if abort error
       if (signal.aborted || (error as Error).name === "AbortError") {
-        this.transition(taskId, "cancelled");
-        this.emit({ type: "task:cancelled", taskId });
+        // Only emit if transition succeeds (cancel() may have already done this)
+        if (this.transition(taskId, "cancelled")) {
+          this.emit({ type: "task:cancelled", taskId });
+        }
         return;
       }
 
@@ -496,11 +500,17 @@ export class TaskManager {
     const task = this.tasks.get(taskId);
     if (!task || task.type !== "eval") return;
 
+    const output = typeof result === "string"
+      ? result
+      : (task as EvalTask).output;
+
     const updated: EvalTask = Object.freeze({
       ...(task as EvalTask),
       status: "completed" as const,
       completedAt: Date.now(),
       result,
+      output,
+      isStreaming: false,
       progress: Object.freeze({ ...(task as EvalTask).progress, status: "done" }),
     });
 
@@ -522,6 +532,7 @@ export class TaskManager {
       status: "failed" as const,
       completedAt: Date.now(),
       error,
+      isStreaming: false,
       progress: Object.freeze({ ...(task as EvalTask).progress, status: "failed" }),
     });
 
@@ -557,6 +568,28 @@ export class TaskManager {
     this.tasks.set(taskId, updated);
     this.notify();
     this.emit({ type: "task:progress", taskId, progress: updated.progress });
+  }
+
+  /**
+   * Update streaming output for an eval task.
+   */
+  updateEvalOutput(taskId: string, output: string, isStreaming: boolean): void {
+    const task = this.tasks.get(taskId) as EvalTask | undefined;
+    if (!task || task.type !== "eval") return;
+    if (task.status !== "running") return;
+
+    const updated: EvalTask = Object.freeze({
+      ...task,
+      output,
+      isStreaming,
+      progress: Object.freeze({
+        ...task.progress,
+        status: isStreaming ? "streaming" : "completing",
+      }),
+    });
+
+    this.tasks.set(taskId, updated);
+    this.notify();
   }
 
   // ============================================================

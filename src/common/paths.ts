@@ -81,6 +81,13 @@ export async function ensureHqlDir(): Promise<void> {
 }
 
 /**
+ * Ensure the HQL directory exists (sync).
+ */
+export function ensureHqlDirSync(): void {
+  Deno.mkdirSync(getHqlDir(), { recursive: true });
+}
+
+/**
  * Ensure the sessions directory exists
  */
 export async function ensureSessionsDir(): Promise<void> {

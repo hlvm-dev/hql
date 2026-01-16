@@ -43,6 +43,17 @@ export interface MediaAttachment {
 }
 
 /**
+ * Media object used by AI helpers (derived from attachments)
+ */
+export interface HqlMedia {
+  readonly type: string;
+  readonly mimeType: string;
+  readonly data: string;
+  readonly source: string;
+  readonly __hql_media__: true;
+}
+
+/**
  * Conversation turn entry
  */
 export interface ConversationTurn {
@@ -233,6 +244,21 @@ export function getAttachment(id: number): MediaAttachment | undefined {
   return attachments.find((a) => a.id === id);
 }
 
+/**
+ * Get Media objects derived from attachments (base64 only)
+ */
+export function getMedia(): readonly HqlMedia[] {
+  return attachments
+    .filter((a) => a.base64Data)
+    .map((a) => ({
+      type: a.type,
+      mimeType: a.mime,
+      data: a.base64Data as string,
+      source: a.path,
+      __hql_media__: true,
+    }));
+}
+
 // ============================================================================
 // Conversation Operations
 // ============================================================================
@@ -283,18 +309,6 @@ function syncToGlobal(): void {
   g["pastes"] = pastes;
   g["attachments"] = attachments;
   g["conversation"] = conversation;
-
-  // Convert attachments to Media objects for AI functions (vision support)
-  // This is what ai.js __getImages() reads from
-  g["__hqlMedia"] = attachments
-    .filter((a) => a.base64Data) // Only attachments with base64 data
-    .map((a) => ({
-      type: a.type,
-      mimeType: a.mime,
-      data: a.base64Data,
-      source: a.path,
-      __hql_media__: true,
-    }));
 }
 
 /**

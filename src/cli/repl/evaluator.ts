@@ -30,6 +30,7 @@ import { addPaste, addAttachment, addConversationTurn } from "./context.ts";
 import type { AnyAttachment } from "./attachment-protocol.ts";
 import type { TextAttachment, Attachment } from "./attachment.ts";
 import { extractDocstrings } from "./docstring.ts";
+import { getAbortSignal, setAbortSignal } from "../../api/runtime.ts";
 
 // Pre-compiled pattern for extracting generic base type
 const GENERIC_BASE_TYPE_REGEX = /^([^<]+)/;
@@ -50,6 +51,8 @@ export interface EvalResult {
   suppressOutput?: boolean;
   /** When true, value is command output text (display as-is, not as quoted string) */
   isCommandOutput?: boolean;
+  /** When set, output is streamed via task manager instead of direct iterator */
+  streamTaskId?: string;
 }
 
 type ExpressionKind = "declaration" | "binding" | "expression" | "import";
@@ -160,10 +163,10 @@ export async function evaluate(
     return { success: false, error: new Error("Cancelled") };
   }
 
-  // Store signal on globalThis for AI module access
+  // Store signal on runtime API for AI module access
   // This enables cancellation of AI streaming operations
-  const previousSignal = (globalThis as Record<string, unknown>).__hqlAbortSignal;
-  (globalThis as Record<string, unknown>).__hqlAbortSignal = signal;
+  const previousSignal = getAbortSignal();
+  setAbortSignal(signal);
 
   try {
   // Register attachments to context vectors
@@ -335,7 +338,7 @@ export async function evaluate(
   }
   } finally {
     // Restore previous signal
-    (globalThis as Record<string, unknown>).__hqlAbortSignal = previousSignal;
+    setAbortSignal(previousSignal);
   }
 }
 

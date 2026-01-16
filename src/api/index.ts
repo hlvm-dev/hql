@@ -32,6 +32,9 @@ export { history, createHistoryApi, setReplState } from "./history.ts";
 // AI API
 export { ai, createAiApi } from "./ai.ts";
 
+// Runtime API
+export { runtime, createRuntimeApi, setRuntimeState, setAbortSignal, getAbortSignal } from "./runtime.ts";
+
 // ============================================================================
 // Initialization Helper
 // ============================================================================
@@ -41,6 +44,7 @@ import { memory } from "./memory.ts";
 import { session, setSessionManager } from "./session.ts";
 import { history, setReplState } from "./history.ts";
 import { ai } from "./ai.ts";
+import { runtime, setRuntimeState, type RuntimeState } from "./runtime.ts";
 
 /**
  * Options for registering APIs on globalThis
@@ -56,6 +60,8 @@ interface RegisterApisOptions {
     flushHistory(): Promise<void>;
     clearHistory(): Promise<void>;
   };
+  /** Runtime hooks for transient REPL state */
+  runtime?: RuntimeState;
 }
 
 /**
@@ -70,6 +76,9 @@ export function registerApis(options?: RegisterApisOptions): void {
   if (options?.replState) {
     setReplState(options.replState);
   }
+  if (options?.runtime) {
+    setRuntimeState(options.runtime);
+  }
 
   // Register on globalThis
   const global = globalThis as Record<string, unknown>;
@@ -78,6 +87,7 @@ export function registerApis(options?: RegisterApisOptions): void {
   global.session = session;
   global.history = history;
   global.ai = ai;
+  global.runtime = runtime;
 }
 
 /**
@@ -89,4 +99,5 @@ export const apis = {
   session,
   history,
   ai,
+  runtime,
 };

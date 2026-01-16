@@ -475,7 +475,7 @@ async function main() {
 
   // Default: update HQL's bundled JSON file
   const scriptDir = new URL(".", import.meta.url).pathname;
-  const hqlPath = `${scriptDir}../src/cli/repl-ink/data/ollama_models.json`;
+  const hqlPath = `${scriptDir}../src/data/ollama_models.json`;
 
   // Parse --output flag (overrides default)
   let outputPaths = [hqlPath];

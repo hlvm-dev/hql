@@ -13,6 +13,8 @@ import { ReplState } from "../../repl/state.ts";
 import { runCommand } from "../../repl/commands.ts";
 import { ANSI_COLORS } from "../../ansi.ts";
 import { registerApis } from "../../../api/index.ts";
+import { getMedia } from "../../repl/context.ts";
+import { refreshKeybindingLookup } from "../keybindings/index.ts";
 
 const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
@@ -44,8 +46,8 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
         // Pre-index files in background for @ mention feature
         getFileIndex().catch(() => {});
 
-        // Load persistent history early (non-blocking after init)
-        state.initHistory().catch((err) => {
+        // Load persistent history early (in parallel with other init)
+        const historyInit = state.initHistory().catch((err) => {
           console.error("History init failed:", err);
         });
 
@@ -71,35 +73,39 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
           // Direct import to get all functions including example
           const aiModule = await import("../../../lib/stdlib/js/ai.js") as Record<string, unknown>;
 
-          // Get exported function names (skip internal helpers)
+          // Get exported names (skip internal helpers)
+          const exportedNames: string[] = [];
           const exportedFunctions: string[] = [];
           if (aiModule && typeof aiModule === "object") {
             for (const [name, value] of Object.entries(aiModule)) {
               if (name.startsWith("_") || name === "default") continue;
+              exportedNames.push(name);
               if (typeof value === "function") {
                 exportedFunctions.push(name);
               }
             }
           }
 
-          // Set functions on globalThis and register with HQL via js-set
+          // Set exports on globalThis and register with HQL
           // This makes them available in HQL evaluation context
           const globalAny = globalThis as unknown as Record<string, unknown>;
-          for (const name of exportedFunctions) {
-            const fn = aiModule[name];
-            globalAny[name] = fn;
+          for (const name of exportedNames) {
+            const value = aiModule[name];
+            globalAny[name] = value;
 
             // Register with state for Tab completion
-            if (typeof fn === "function") {
-              state.addJsFunction(name, fn as (...args: unknown[]) => unknown);
+            if (typeof value === "function") {
+              state.addJsFunction(name, value as (...args: unknown[]) => unknown);
               loadedAiExports.push(name);
+            } else {
+              state.addBinding(name);
             }
           }
 
           // Run HQL code that references globalThis to make names known to transpiler
           // This is the key - HQL needs to see the names through its own evaluation
-          if (exportedFunctions.length > 0) {
-            const assignments = exportedFunctions
+          if (exportedNames.length > 0) {
+            const assignments = exportedNames
               .map(name => `(let ${name} (js-get globalThis "${name}"))`)
               .join("\n");
             await run(assignments, { baseDir: Deno.cwd(), currentFile: "<repl>", suppressUnknownNameErrors: true });
@@ -139,12 +145,20 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
         // Register API objects on globalThis for REPL access
         registerApis({
           replState: state, // Provides history
+          runtime: {
+            getMedia,
+            getDocstrings: () => state.getDocstrings(),
+            getSignatures: () => state.getSignatures(),
+          },
         });
+        refreshKeybindingLookup();
 
         // Register API names for tab completion
-        for (const name of ["config", "memory", "session", "history", "ai"]) {
+        for (const name of ["config", "memory", "session", "history", "ai", "runtime"]) {
           state.addBinding(name);
         }
+
+        await historyInit;
 
         setReadyTime(Date.now() - startTime);
         setLoading(false);
