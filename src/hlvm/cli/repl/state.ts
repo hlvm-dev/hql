@@ -103,7 +103,6 @@ export class ReplState {
   private docstrings = new Map<string, string>();    // name -> docstring from comments
   private _history: string[] = [];
   private _lineNumber = 0;
-  private importedModules = new Set<string>();
   private _isLoadingMemory = false;
   private historyStorage: HistoryStorage | null = null;
   private _historyInitialized = false;
@@ -166,11 +165,6 @@ export class ReplState {
     this.notify();
   }
 
-  /** Get function signature (param names) */
-  getSignature(name: string): string[] | undefined {
-    return this.signatures.get(name);
-  }
-
   /** Get all signatures */
   getSignatures(): Map<string, string[]> {
     return this.signatures;
@@ -207,11 +201,6 @@ export class ReplState {
   /** Check if a name is bound */
   hasBinding(name: string): boolean {
     return this.bindings.has(name);
-  }
-
-  /** Get all binding names as array */
-  getBindings(): string[] {
-    return Array.from(this.bindings);
   }
 
   /** Get bindings Set directly (for stable reference - avoids allocation) */
@@ -281,31 +270,9 @@ export class ReplState {
     this.notify();
   }
 
-  /**
-   * Get the history storage instance (for API access).
-   */
-  getHistoryStorage(): HistoryStorage | null {
-    return this.historyStorage;
-  }
-
-  /** Get current line number */
-  getLineNumber(): number {
-    return this._lineNumber;
-  }
-
   /** Increment and return line number */
   nextLine(): number {
     return ++this._lineNumber;
-  }
-
-  /** Check if module has been imported */
-  hasImported(path: string): boolean {
-    return this.importedModules.has(path);
-  }
-
-  /** Mark module as imported */
-  markImported(path: string): void {
-    this.importedModules.add(path);
   }
 
   /** Check if currently loading from memory.hql */
@@ -328,7 +295,6 @@ export class ReplState {
     this.bindings.clear();
     this.signatures.clear();
     this.docstrings.clear();
-    this.importedModules.clear();
     this._lineNumber = 0;
     // Keep history
     // Note: Stdlib signatures will be re-registered on next initialization

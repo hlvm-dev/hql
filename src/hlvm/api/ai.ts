@@ -5,11 +5,8 @@
  * Usage in REPL:
  *   (ai.generate "prompt")       ; Generate text
  *   (ai.chat messages)           ; Chat completion
- *   (ai.embeddings "text")       ; Generate embeddings
  *   (ai.models.list)             ; List available models
  *   (ai.models.catalog)          ; List catalog models
- *   (ai.models.available)        ; List catalog models not installed
- *   (ai.models.search "vision")  ; Search catalog
  *   (ai.models.pull "model")     ; Download a model
  *   (ai.status)                  ; Check provider status
  */
@@ -18,14 +15,11 @@ import {
   getProvider,
   getDefaultProvider,
   getProviderForModel,
-  listProviders,
-  setDefaultProvider,
   parseModelString,
   type AIProvider,
   type Message,
   type GenerateOptions,
   type ChatOptions,
-  type EmbeddingsOptions,
   type ModelInfo,
   type PullProgress,
   type ProviderStatus,
@@ -113,19 +107,6 @@ export function createAiApi() {
     },
 
     /**
-     * Generate embeddings for text
-     * @example (ai.embeddings "Hello world")
-     * @example (ai.embeddings ["Text 1" "Text 2"])
-     */
-    embeddings: async (
-      text: string | string[],
-      options?: EmbeddingsOptions
-    ): Promise<number[][]> => {
-      const provider = getProviderOrThrow(options?.model);
-      return provider.embeddings(text, options);
-    },
-
-    /**
      * Model management operations
      */
     models: {
@@ -175,63 +156,6 @@ export function createAiApi() {
           return [];
         }
         return provider.models.catalog();
-      },
-
-      /**
-       * List catalog models not installed locally
-       * @example (ai.models.available)
-       */
-      available: async (providerName?: string): Promise<ModelInfo[]> => {
-        const provider = providerName
-          ? getProvider(providerName)
-          : getDefaultProvider();
-
-        if (!provider?.models?.catalog) {
-          return [];
-        }
-
-        const catalog = await provider.models.catalog();
-        if (!provider.models.list) return catalog;
-
-        const local = await provider.models.list();
-        const localNames = new Set(local.map((m) => m.name.split(":")[0]));
-        return catalog.filter((m) => !localNames.has(m.name.split(":")[0]));
-      },
-
-      /**
-       * Search catalog models
-       * @example (ai.models.search "vision")
-       */
-      search: async (query: string, providerName?: string): Promise<ModelInfo[]> => {
-        const provider = providerName
-          ? getProvider(providerName)
-          : getDefaultProvider();
-
-        if (!provider?.models?.catalog) {
-          return [];
-        }
-
-        if (provider.models.search) {
-          return provider.models.search(query);
-        }
-
-        const q = query.trim().toLowerCase();
-        if (!q) return provider.models.catalog();
-
-        const catalog = await provider.models.catalog();
-        return catalog.filter((model) => {
-          const meta = (model.metadata || {}) as Record<string, unknown>;
-          const capabilities = Array.isArray(meta.capabilities) ? meta.capabilities.join(" ") : "";
-          const haystack = [
-            model.name,
-            model.displayName ?? "",
-            typeof meta.description === "string" ? meta.description : "",
-            typeof meta.modelName === "string" ? meta.modelName : "",
-            typeof meta.modelId === "string" ? meta.modelId : "",
-            capabilities,
-          ].join(" ").toLowerCase();
-          return haystack.includes(q);
-        });
       },
 
       /**
@@ -290,65 +214,6 @@ export function createAiApi() {
         };
       }
       return provider.status();
-    },
-
-    /**
-     * Provider management
-     */
-    providers: {
-      /**
-       * List available providers
-       * @example (ai.providers.list)
-       */
-      list: (): string[] => {
-        return listProviders();
-      },
-
-      /**
-       * Get the default provider name
-       * @example (ai.providers.default)
-       */
-      get default(): string | null {
-        const provider = getDefaultProvider();
-        return provider?.name ?? null;
-      },
-
-      /**
-       * Set the default provider
-       * @example (ai.providers.setDefault "ollama")
-       */
-      setDefault: (name: string): boolean => {
-        return setDefaultProvider(name);
-      },
-
-      /**
-       * Get a specific provider
-       * @example (ai.providers.get "ollama")
-       */
-      get: (name: string): AIProvider | null => {
-        return getProvider(name);
-      },
-    },
-
-    /**
-     * Convenience method: collect all chunks into a string
-     * @example (ai.ask "What is 2+2?")
-     */
-    ask: async (prompt: string, options?: AiOptions): Promise<string> => {
-      const provider = getProviderOrThrow(options?.model);
-
-      const [, modelName] = parseModelString(options?.model || "");
-      const opts: GenerateOptions = {
-        ...options,
-        model: modelName || undefined,
-        stream: false, // Non-streaming for convenience
-      };
-
-      let result = "";
-      for await (const chunk of provider.generate(prompt, opts)) {
-        result += chunk;
-      }
-      return result.trim();
     },
   };
 }

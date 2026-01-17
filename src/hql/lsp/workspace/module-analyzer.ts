@@ -328,19 +328,6 @@ export class ModuleAnalyzer {
     return Date.now() - info.cachedAt > ttl;
   }
 
-  /**
-   * Clear cache
-   */
-  clearCache(): void {
-    this.cache.clear();
-  }
-
-  /**
-   * Invalidate specific entry
-   */
-  invalidate(specifier: string): void {
-    this.cache.delete(specifier);
-  }
 }
 
 // Types for deno doc JSON output

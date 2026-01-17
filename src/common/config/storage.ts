@@ -268,27 +268,6 @@ export function getConfigValue(config: HlvmConfig, key: ConfigKey): unknown {
 }
 
 /**
- * Set a config value by key (returns new config, validates first)
- */
-export function setConfigValue(
-  config: HlvmConfig,
-  key: ConfigKey,
-  value: unknown
-): { config: HlvmConfig; error?: string } {
-  const validation = validateValue(key, value);
-  if (!validation.valid) {
-    return { config, error: validation.error };
-  }
-
-  return {
-    config: {
-      ...config,
-      [key]: value,
-    },
-  };
-}
-
-/**
  * Check if a string is a valid config key
  */
 export function isConfigKey(key: string): key is ConfigKey {
@@ -302,25 +281,4 @@ export async function resetConfig(): Promise<HlvmConfig> {
   const config = { ...DEFAULT_CONFIG };
   await saveConfig(config);
   return config;
-}
-
-// ============================================================
-// Keybinding Storage
-// ============================================================
-
-/**
- * Load custom keybindings from config.json
- */
-export async function loadKeybindings(): Promise<KeybindingsConfig> {
-  const config = await loadConfig();
-  return config.keybindings || {};
-}
-
-/**
- * Save custom keybindings to config.json
- */
-export async function saveKeybindings(bindings: KeybindingsConfig): Promise<void> {
-  const config = await loadConfig();
-  config.keybindings = bindings;
-  await saveConfig(config);
 }

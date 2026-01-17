@@ -10,7 +10,6 @@
  * - Penalties for: path length, distance from start
  */
 
-// ============================================================
 // Types
 // ============================================================
 
@@ -164,17 +163,6 @@ export function fuzzyMatchPath(query: string, path: string): FuzzyResult | null 
 // ============================================================
 
 /**
- * Sort items by fuzzy match score (descending).
- * Creates a new sorted array, does not mutate input.
- */
-export function fuzzySort<T>(
-  items: readonly T[],
-  getScore: (item: T) => number
-): T[] {
-  return [...items].sort((a, b) => getScore(b) - getScore(a));
-}
-
-/**
  * Calculate minimum score threshold for quality filtering.
  * Filters out low-quality matches where characters appear randomly.
  *
@@ -256,7 +244,3 @@ export function binarySearchInsertIdx<T>(
 }
 
 // ============================================================
-// Exports for Testing
-// ============================================================
-
-export { isUpperCase, isLowerCase, BOUNDARY_CHARS };

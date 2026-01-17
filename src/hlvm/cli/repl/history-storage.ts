@@ -213,20 +213,6 @@ export class HistoryStorage {
   }
 
   /**
-   * Get full entries with timestamps.
-   */
-  getEntries(): HistoryEntry[] {
-    return [...this.entries];
-  }
-
-  /**
-   * Get entry count.
-   */
-  get count(): number {
-    return this.entries.length;
-  }
-
-  /**
    * Append a command (queues for debounced save).
    * Fire-and-forget - returns immediately.
    */
@@ -401,11 +387,4 @@ export function getHistoryStorage(
     _instance = new HistoryStorage(config);
   }
   return _instance;
-}
-
-/**
- * Reset the singleton (for testing).
- */
-export function resetHistoryStorage(): void {
-  _instance = null;
 }

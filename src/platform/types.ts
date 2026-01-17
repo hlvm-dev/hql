@@ -120,7 +120,6 @@ export interface PlatformFs {
   stat(path: string): Promise<PlatformFileInfo>;
   statSync(path: string): PlatformFileInfo;
   exists(path: string): Promise<boolean>;
-  existsSync(path: string): boolean;
 
   // Directory operations
   mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>;
@@ -135,7 +134,6 @@ export interface PlatformFs {
   copyFile(src: string, dest: string): Promise<void>;
   rename(oldPath: string, newPath: string): Promise<void>;
   chmod(path: string, mode: number): Promise<void>;
-  realPathSync(path: string): string;
 }
 
 // =============================================================================

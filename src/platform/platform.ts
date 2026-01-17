@@ -149,10 +149,6 @@ export function copyFile(src: string, dest: string): Promise<void> {
   return activePlatform.fs.copyFile(src, dest);
 }
 
-export function realPathSync(path: string): string {
-  return activePlatform.fs.realPathSync(path);
-}
-
 // --- Path Operations ---
 
 export function join(...segments: string[]): string {

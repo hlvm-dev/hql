@@ -21,7 +21,6 @@ export {
   loadConfig,
   saveConfig,
   getConfigValue,
-  setConfigValue,
   isConfigKey,
   resetConfig,
 } from "./storage.ts";
@@ -29,10 +28,4 @@ export {
 // Re-export runtime
 export {
   initConfigRuntime,
-  updateConfigRuntime,
-  resetConfigRuntime,
-  getConfigRuntime,
-  extractModelName,
-  updateKeybindingRuntime,
-  getKeybindingsRuntime,
 } from "./runtime.ts";

@@ -155,20 +155,3 @@ export function shutdownAIRuntime(): void {
     }
   }
 }
-
-/**
- * Check if AI is available
- */
-export async function isAIAvailable(): Promise<boolean> {
-  return await isAIRunning();
-}
-
-/**
- * Get AI runtime status
- */
-export function getAIRuntimeStatus(): { initialized: boolean; running: boolean } {
-  return {
-    initialized,
-    running: aiProcess !== null
-  };
-}

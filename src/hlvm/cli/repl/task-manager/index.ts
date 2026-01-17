@@ -13,7 +13,6 @@ export type {
   EvalProgress,
   Task,
   ModelPullTask,
-  ModelDeleteTask,
   EvalTask,
   TaskEvent,
   TaskEventListener,
@@ -21,10 +20,8 @@ export type {
 
 export {
   isModelPullTask,
-  isModelDeleteTask,
   isEvalTask,
   isTaskActive,
-  isTaskFinished,
   canTransition,
   VALID_TRANSITIONS,
 } from "./types.ts";

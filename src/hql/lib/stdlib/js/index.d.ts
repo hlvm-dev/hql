@@ -244,14 +244,6 @@ export function conj(coll: unknown, ...items: unknown[]): unknown;
 export function into<T>(target: any, from: Iterable<T> | null | undefined): any;
 
 /**
- * Pours collection into target collection type
- */
-export function pour<T>(
-  targetType: any,
-  coll: Iterable<T> | null | undefined,
-): any;
-
-/**
  * Cycles through collection infinitely
  */
 export function cycle<T>(coll: Iterable<T> | null | undefined): Iterable<T>;

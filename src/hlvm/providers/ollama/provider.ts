@@ -12,14 +12,13 @@ import type {
   ProviderStatus,
   GenerateOptions,
   ChatOptions,
-  EmbeddingsOptions,
   Message,
   ModelInfo,
   PullProgress,
 } from "../types.ts";
 
 import * as api from "./api.ts";
-import { getOllamaCatalog, searchOllamaCatalog } from "./catalog.ts";
+import { getOllamaCatalog } from "./catalog.ts";
 import { DEFAULT_MODEL_NAME } from "../../../common/config/defaults.ts";
 
 // ============================================================================
@@ -28,7 +27,6 @@ import { DEFAULT_MODEL_NAME } from "../../../common/config/defaults.ts";
 
 const DEFAULT_ENDPOINT = "http://localhost:11434";
 const DEFAULT_MODEL = DEFAULT_MODEL_NAME;
-const DEFAULT_EMBEDDING_MODEL = "nomic-embed-text";
 
 // ============================================================================
 // Provider Implementation
@@ -46,7 +44,6 @@ export class OllamaProvider implements AIProvider {
   readonly capabilities: ProviderCapability[] = [
     "generate",
     "chat",
-    "embeddings",
     "models.list",
     "models.catalog",
     "models.pull",
@@ -56,13 +53,11 @@ export class OllamaProvider implements AIProvider {
 
   private endpoint: string;
   private defaultModel: string;
-  private defaultEmbeddingModel: string;
   private defaults: Partial<GenerateOptions>;
 
   constructor(config?: ProviderConfig) {
     this.endpoint = config?.endpoint || DEFAULT_ENDPOINT;
     this.defaultModel = config?.defaultModel || DEFAULT_MODEL;
-    this.defaultEmbeddingModel = DEFAULT_EMBEDDING_MODEL;
     this.defaults = config?.defaults || {};
   }
 
@@ -109,17 +104,6 @@ export class OllamaProvider implements AIProvider {
   }
 
   /**
-   * Generate embeddings
-   */
-  async embeddings(
-    text: string | string[],
-    options?: EmbeddingsOptions
-  ): Promise<number[][]> {
-    const model = options?.model || this.defaultEmbeddingModel;
-    return api.embeddings(this.endpoint, model, text);
-  }
-
-  /**
    * Model management operations
    */
   models = {
@@ -142,13 +126,6 @@ export class OllamaProvider implements AIProvider {
      */
     catalog: async (): Promise<ModelInfo[]> => {
       return getOllamaCatalog();
-    },
-
-    /**
-     * Search catalog models
-     */
-    search: async (query: string): Promise<ModelInfo[]> => {
-      return searchOllamaCatalog(query);
     },
 
     /**

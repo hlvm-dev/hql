@@ -28,16 +28,7 @@ export class ImportResolver {
    */
   setRoots(roots: string[]): void {
     this.workspaceRoots = roots;
-    this.clearCache();
-  }
-
-  /**
-   * Add a workspace root
-   */
-  addRoot(root: string): void {
-    if (!this.workspaceRoots.includes(root)) {
-      this.workspaceRoots.push(root);
-    }
+    this.resolutionCache.clear();
   }
 
   /**
@@ -142,29 +133,4 @@ export class ImportResolver {
     }
   }
 
-  /**
-   * Clear entire cache
-   */
-  clearCache(): void {
-    this.resolutionCache.clear();
-  }
-
-  /**
-   * Invalidate cache entries related to a specific file
-   */
-  invalidateFile(filePath: string): void {
-    // Remove entries where this file is the containing file
-    for (const [key] of this.resolutionCache) {
-      if (key.startsWith(filePath + "|")) {
-        this.resolutionCache.delete(key);
-      }
-    }
-
-    // Remove entries that resolve to this file
-    for (const [key, value] of this.resolutionCache) {
-      if (value === filePath) {
-        this.resolutionCache.delete(key);
-      }
-    }
-  }
 }

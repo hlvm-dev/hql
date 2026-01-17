@@ -413,13 +413,3 @@ export function findTailCallsToFunctions(
 
   return tailCalls;
 }
-
-/**
- * Get the name of a function being called, if it's a simple identifier.
- */
-export function getCalleeName(call: IR.IRCallExpression): string | null {
-  if (call.callee.type === IR.IRNodeType.Identifier) {
-    return (call.callee as IR.IRIdentifier).name;
-  }
-  return null;
-}

@@ -2,7 +2,6 @@
  * Unified Completion System - Public API
  *
  * This is the ONLY API that consumers (Input.tsx) should use.
- * For provider development, import from "./provider-sdk.ts"
  *
  * @example
  * ```tsx
@@ -74,11 +73,3 @@ export {
 // ============================================================
 
 export { getWordAtCursor } from "./providers.ts";
-
-// ============================================================
-// Provider SDK (separate export for custom providers)
-// ============================================================
-
-// Re-export provider SDK for convenience
-// Consumers who need to build custom providers should import from here
-export * as ProviderSDK from "./provider-sdk.ts";

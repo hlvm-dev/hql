@@ -61,19 +61,3 @@ export interface UnusedImport {
   /** The module path */
   modulePath: string;
 }
-
-/**
- * Result of resolving a re-export chain
- */
-export interface ResolvedExport {
-  /** The symbol name */
-  symbolName: string;
-  /** Original name if renamed during re-export */
-  originalName?: string;
-  /** Absolute path to the file where originally defined */
-  originalFile: string;
-  /** Chain of files through which symbol was re-exported */
-  chain: string[];
-  /** Whether this is a re-export (vs direct export) */
-  isReExport: boolean;
-}

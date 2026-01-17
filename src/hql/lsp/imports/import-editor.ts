@@ -62,65 +62,6 @@ export function getRemoveUnusedImportAction(
 }
 
 /**
- * Create a code action to remove all unused imports
- */
-export function getRemoveAllUnusedAction(
-  doc: TextDocument,
-  allUnused: UnusedImport[]
-): CodeAction | null {
-  if (allUnused.length === 0) return null;
-
-  const text = doc.getText();
-  const imports = findAllImports(text);
-  const edits: TextEdit[] = [];
-
-  // Group unused by import line
-  const unusedByLine = new Map<number, UnusedImport[]>();
-  for (const unused of allUnused) {
-    const existing = unusedByLine.get(unused.importLine) ?? [];
-    existing.push(unused);
-    unusedByLine.set(unused.importLine, existing);
-  }
-
-  // Process each import line
-  for (const [lineNum, unusedList] of unusedByLine) {
-    const targetImport = imports.find((imp) => imp.line === lineNum);
-    if (!targetImport) continue;
-
-    // Check if all symbols in this import are unused
-    const allSymbolsUnused = targetImport.symbols.every((sym) =>
-      unusedList.some(
-        (u) => u.symbolName === sym.name || u.symbolName === sym.alias
-      )
-    );
-
-    if (allSymbolsUnused || targetImport.isNamespace) {
-      // Remove entire import
-      edits.push(deleteEntireImport(doc, targetImport));
-    } else {
-      // Remove individual symbols
-      for (const unused of unusedList) {
-        edits.push(removeSymbolFromImport(doc, targetImport, unused.symbolName));
-      }
-    }
-  }
-
-  // Deduplicate and sort edits (process from bottom to top to preserve line numbers)
-  const uniqueEdits = deduplicateEdits(edits);
-  uniqueEdits.sort((a, b) => b.range.start.line - a.range.start.line);
-
-  return {
-    title: "Remove all unused imports",
-    kind: CodeActionKind.QuickFix,
-    edit: {
-      changes: {
-        [doc.uri]: uniqueEdits,
-      },
-    },
-  };
-}
-
-/**
  * Delete an entire import statement (internal helper)
  */
 function deleteEntireImport(
@@ -270,10 +211,7 @@ export function createNewImport(symbols: string[], modulePath: string): string {
 /**
  * Calculate relative path from one file to another
  */
-export function calculateRelativePath(
-  fromFile: string,
-  toFile: string
-): string {
+export function calculateRelativePath(fromFile: string, toFile: string): string {
   const fromDir = path.dirname(fromFile);
   let relativePath = path.relative(fromDir, toFile);
 
@@ -283,22 +221,4 @@ export function calculateRelativePath(
   }
 
   return relativePath;
-}
-
-/**
- * Deduplicate text edits by range
- */
-function deduplicateEdits(edits: TextEdit[]): TextEdit[] {
-  const seen = new Set<string>();
-  const result: TextEdit[] = [];
-
-  for (const edit of edits) {
-    const key = `${edit.range.start.line}:${edit.range.start.character}-${edit.range.end.line}:${edit.range.end.character}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      result.push(edit);
-    }
-  }
-
-  return result;
 }

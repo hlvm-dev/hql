@@ -60,18 +60,6 @@ async function denoExists(filePath: string): Promise<boolean> {
   }
 }
 
-function denoExistsSync(filePath: string): boolean {
-  try {
-    Deno.statSync(filePath);
-    return true;
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
-      return false;
-    }
-    throw error;
-  }
-}
-
 // =============================================================================
 // Terminal Implementation
 // =============================================================================
@@ -163,9 +151,6 @@ const DenoFs: PlatformFs = {
   exists: async (path: string): Promise<boolean> => {
     return await denoExists(path);
   },
-  existsSync: (path: string): boolean => {
-    return denoExistsSync(path);
-  },
 
   // Directory operations
   mkdir: async (path: string, opts?: { recursive?: boolean }): Promise<void> => {
@@ -208,9 +193,6 @@ const DenoFs: PlatformFs = {
   },
   chmod: async (path: string, mode: number): Promise<void> => {
     await Deno.chmod(path, mode);
-  },
-  realPathSync: (path: string): string => {
-    return Deno.realPathSync(path);
   },
 };
 

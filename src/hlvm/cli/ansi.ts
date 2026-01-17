@@ -16,8 +16,6 @@ export const ANSI_COLORS = {
   RESET: "\x1b[0m",
 } as const;
 
-export type AnsiColor = typeof ANSI_COLORS[keyof typeof ANSI_COLORS];
-
 // Re-export only what's needed for ANSI terminal output
 export { getThemedAnsi } from "./theme/index.ts";
 

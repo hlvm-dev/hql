@@ -10,7 +10,6 @@ import type {
   SessionInitOptions,
 } from "./types.ts";
 import {
-  hashProjectPath,
   createSession,
   appendMessageOnly,
   updateSessionIndex,
@@ -41,7 +40,6 @@ import { getPlatform } from "../../../../platform/platform.ts";
 export class SessionManager {
   private currentSession: SessionMeta | null = null;
   private projectPath: string;
-  private projectHash: string;
   private initialized: boolean = false;
 
   // Lazy session creation - defer until first message
@@ -58,7 +56,6 @@ export class SessionManager {
    */
   constructor(projectPath: string = getPlatform().process.cwd()) {
     this.projectPath = projectPath;
-    this.projectHash = hashProjectPath(projectPath);
   }
 
   // ==========================================================================
@@ -295,13 +292,6 @@ export class SessionManager {
   // ==========================================================================
 
   /**
-   * Get the current session metadata.
-   */
-  getCurrentSession(): SessionMeta | null {
-    return this.currentSession;
-  }
-
-  /**
    * Get the current session's messages.
    */
   async getSessionMessages(): Promise<readonly SessionMessage[]> {
@@ -314,17 +304,17 @@ export class SessionManager {
   }
 
   /**
+   * Get the current session metadata.
+   */
+  getCurrentSession(): SessionMeta | null {
+    return this.currentSession;
+  }
+
+  /**
    * Get the project path this manager is for.
    */
   getProjectPath(): string {
     return this.projectPath;
-  }
-
-  /**
-   * Get the project hash.
-   */
-  getProjectHash(): string {
-    return this.projectHash;
   }
 
   /**
@@ -341,10 +331,4 @@ export class SessionManager {
     return this.currentSession !== null;
   }
 
-  /**
-   * Check if session creation is deferred (waiting for first message).
-   */
-  isSessionDeferred(): boolean {
-    return this.sessionDeferred;
-  }
 }

@@ -54,9 +54,8 @@ Deno.test("ProjectIndex - indexes file symbols", () => {
 
   index.indexFile("/test/math.hql", analysis);
 
-  const stats = index.getStats();
-  assertEquals(stats.fileCount, 1);
-  assertEquals(stats.symbolCount, 2);
+  assertEquals(index.searchSymbols("add").length, 1);
+  assertEquals(index.searchSymbols("subtract").length, 1);
 });
 
 Deno.test("ProjectIndex - searchSymbols finds exact match", () => {
@@ -180,10 +179,10 @@ Deno.test("ProjectIndex - removeFile cleans up index", () => {
   ]);
 
   index.indexFile("/test/temp.hql", analysis);
-  assertEquals(index.getStats().fileCount, 1);
+  assertEquals(index.searchSymbols("toRemove").length, 1);
 
   index.removeFile("/test/temp.hql");
-  assertEquals(index.getStats().fileCount, 0);
+  assertEquals(index.searchSymbols("toRemove").length, 0);
   assertEquals(index.findExports("toRemove").length, 0);
 });
 
@@ -210,35 +209,4 @@ Deno.test("ProjectIndex - re-indexing updates symbols", () => {
 
   results = index.searchSymbols("newFunc");
   assertEquals(results.length, 1);
-});
-
-Deno.test("ProjectIndex - getAllSymbols returns all indexed symbols", () => {
-  const index = new ProjectIndex();
-
-  const analysis1 = createMockAnalysis([
-    { name: "a", kind: "function", location: { line: 1, column: 1 } },
-  ]);
-  const analysis2 = createMockAnalysis([
-    { name: "b", kind: "function", location: { line: 1, column: 1 } },
-  ]);
-
-  index.indexFile("/test/a.hql", analysis1);
-  index.indexFile("/test/b.hql", analysis2);
-
-  const all = index.getAllSymbols();
-  assertEquals(all.length, 2);
-});
-
-Deno.test("ProjectIndex - clear removes everything", () => {
-  const index = new ProjectIndex();
-  const analysis = createMockAnalysis([
-    { name: "func", kind: "function", location: { line: 1, column: 1 } },
-  ]);
-
-  index.indexFile("/test/file.hql", analysis);
-  assertEquals(index.getStats().fileCount, 1);
-
-  index.clear();
-  assertEquals(index.getStats().fileCount, 0);
-  assertEquals(index.getStats().symbolCount, 0);
 });

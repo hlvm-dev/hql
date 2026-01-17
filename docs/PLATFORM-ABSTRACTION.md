@@ -89,11 +89,9 @@ interface PlatformFs {
   readDir(path: string): AsyncIterable<{ name: string; isFile: boolean; isDirectory: boolean; isSymlink: boolean }>;
   makeTempDir(options?: { prefix?: string; suffix?: string }): Promise<string>;
   exists(path: string): Promise<boolean>;
-  existsSync(path: string): boolean;
   copyFile(src: string, dest: string): Promise<void>;
   rename(oldPath: string, newPath: string): Promise<void>;
   chmod(path: string, mode: number): Promise<void>;
-  realPathSync(path: string): string;
 }
 ```
 

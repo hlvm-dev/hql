@@ -31,7 +31,6 @@ let _sessionManager: SessionManagerRef | null = null;
 
 interface SessionManagerRef {
   getCurrentSession(): SessionMeta | null;
-  getProjectHash(): string;
   recordMessage(
     role: "user" | "assistant",
     content: string,

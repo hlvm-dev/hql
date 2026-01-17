@@ -31,24 +31,6 @@ export interface ExportInfo {
 }
 
 /**
- * Import information from a file
- */
-export interface ImportInfo {
-  modulePath: string; // Raw path from source: "./math.hql"
-  resolvedPath?: string; // Absolute path (resolved lazily)
-  importedSymbols: ImportedSymbol[];
-  isNamespaceImport: boolean;
-  namespaceName?: string;
-}
-
-export interface ImportedSymbol {
-  name: string;
-  localName: string;
-  line?: number;
-  column?: number;
-}
-
-/**
  * Indexed symbol with workspace metadata
  */
 export interface IndexedSymbol {
@@ -69,7 +51,4 @@ export interface FileIndex {
 
   // Symbols exported from this file
   exports: Map<string, ExportInfo>;
-
-  // Imports in this file
-  imports: ImportInfo[];
 }

@@ -42,25 +42,3 @@ export function resolveMemberProperty(
 
   return { property, computed: true };
 }
-
-/**
- * Creates an IRMemberExpression from an object and property
- *
- * @param object - The object IR node
- * @param property - The property IR node
- * @param isLiteralKey - Whether the property is a literal key
- * @returns IRMemberExpression node
- */
-export function createMemberExpression(
-  object: IR.IRNode,
-  property: IR.IRNode,
-  isLiteralKey = false,
-): IR.IRMemberExpression {
-  const resolved = resolveMemberProperty(property, isLiteralKey);
-  return {
-    type: IR.IRNodeType.MemberExpression,
-    object,
-    property: resolved.property,
-    computed: resolved.computed,
-  } as IR.IRMemberExpression;
-}

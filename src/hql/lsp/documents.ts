@@ -100,35 +100,10 @@ export class DocumentManager {
   }
 
   /**
-   * Check if a document is being tracked
-   */
-  has(uri: string): boolean {
-    return this.documents.has(uri);
-  }
-
-  /**
    * Get all tracked document URIs
    */
   getAllUris(): string[] {
     return Array.from(this.documents.keys());
-  }
-
-  /**
-   * Force immediate analysis (bypasses debounce)
-   * Useful for operations that need fresh analysis right away
-   */
-  analyzeNow(uri: string): AnalysisResult | null {
-    const state = this.documents.get(uri);
-    if (!state) return null;
-
-    // Cancel any pending analysis
-    if (state.pendingAnalysis) {
-      clearTimeout(state.pendingAnalysis);
-      state.pendingAnalysis = null;
-    }
-
-    this.runAnalysis(uri);
-    return state.analysis;
   }
 
   /**

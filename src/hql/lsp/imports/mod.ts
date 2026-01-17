@@ -14,7 +14,6 @@ export type {
   ParsedImport,
   ParsedImportSymbol,
   UnusedImport,
-  ResolvedExport,
 } from "./types.ts";
 
 // Import Parser
@@ -26,22 +25,13 @@ export {
 
 // Symbol Usage Analyzer
 export {
-  analyzeUnusedImports,
   findUnusedImports,
 } from "./symbol-usage.ts";
 
 // Import Editor
 export {
   getRemoveUnusedImportAction,
-  getRemoveAllUnusedAction,
   addSymbolToImport,
   createNewImport,
   calculateRelativePath,
 } from "./import-editor.ts";
-
-// Export Resolver (Re-export handling)
-export {
-  isReExportedSymbol,
-  resolveReExportChain,
-  detectCircularReExports,
-} from "./export-resolver.ts";

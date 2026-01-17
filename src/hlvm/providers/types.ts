@@ -66,14 +66,6 @@ export interface ChatOptions extends GenerateOptions {
   // Chat inherits all generate options
 }
 
-/** Options for embeddings */
-export interface EmbeddingsOptions {
-  /** Model to use (defaults to provider's embedding model) */
-  model?: string;
-  /** Provider-specific options */
-  raw?: Record<string, unknown>;
-}
-
 // ============================================================================
 // Model Information
 // ============================================================================
@@ -165,14 +157,6 @@ export interface AIProvider {
    * @yields Response text chunks
    */
   chat(messages: Message[], options?: ChatOptions): AsyncGenerator<string, void, unknown>;
-
-  /**
-   * Generate embeddings for text
-   * @param text Single text or array of texts
-   * @param options Embedding options
-   * @returns Array of embedding vectors
-   */
-  embeddings(text: string | string[], options?: EmbeddingsOptions): Promise<number[][]>;
 
   /**
    * Model management operations (optional)

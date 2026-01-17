@@ -19,7 +19,6 @@ export type {
   RegisteredProvider,
   GenerateOptions,
   ChatOptions,
-  EmbeddingsOptions,
   Message,
   MessageRole,
   ModelInfo,
@@ -29,18 +28,12 @@ export type {
 // Registry
 export {
   registerProvider,
-  unregisterProvider,
   getProvider,
   getDefaultProvider,
   setDefaultProvider,
-  listProviders,
   hasProvider,
   parseModelString,
-  extractModelName,
   getProviderForModel,
-  getRegistryInfo,
-  clearProviderCache,
-  resetRegistry,
 } from "./registry.ts";
 
 // Ollama provider

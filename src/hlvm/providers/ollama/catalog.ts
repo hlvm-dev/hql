@@ -119,23 +119,3 @@ export function getOllamaCatalog(): ModelInfo[] {
   }
   return cachedCatalog;
 }
-
-export function searchOllamaCatalog(query: string): ModelInfo[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return getOllamaCatalog();
-
-  return getOllamaCatalog().filter((model) => {
-    const meta = (model.metadata || {}) as Record<string, unknown>;
-    const capabilities = Array.isArray(meta.capabilities) ? meta.capabilities.join(" ") : "";
-    const haystack = [
-      model.name,
-      model.displayName ?? "",
-      typeof meta.description === "string" ? meta.description : "",
-      typeof meta.modelName === "string" ? meta.modelName : "",
-      typeof meta.modelId === "string" ? meta.modelId : "",
-      capabilities,
-    ].join(" ").toLowerCase();
-
-    return haystack.includes(q);
-  });
-}

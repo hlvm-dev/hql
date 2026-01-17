@@ -59,26 +59,6 @@ export function registerProvider(
   instances.delete(name.toLowerCase());
 }
 
-/**
- * Unregister a provider
- * @param name Provider name to remove
- */
-export function unregisterProvider(name: string): boolean {
-  const key = name.toLowerCase();
-  instances.delete(key);
-
-  if (providers.delete(key)) {
-    // If we removed the default, pick a new one
-    if (defaultProviderName === key) {
-      defaultProviderName = providers.size > 0
-        ? providers.keys().next().value ?? null
-        : null;
-    }
-    return true;
-  }
-  return false;
-}
-
 // ============================================================================
 // Provider Retrieval
 // ============================================================================
@@ -128,13 +108,6 @@ export function setDefaultProvider(name: string): boolean {
     return true;
   }
   return false;
-}
-
-/**
- * Get list of registered provider names
- */
-export function listProviders(): string[] {
-  return [...providers.keys()];
 }
 
 /**
@@ -188,16 +161,6 @@ export function parseModelString(modelString: string): [string | null, string] {
 }
 
 /**
- * Extract the model name without provider prefix
- * @param modelString Full model string
- * @returns Just the model name
- */
-export function extractModelName(modelString: string): string {
-  const [, modelName] = parseModelString(modelString);
-  return modelName;
-}
-
-/**
  * Get provider for a model string
  * @param modelString Model string (optionally with provider prefix)
  * @returns The appropriate provider instance
@@ -205,39 +168,4 @@ export function extractModelName(modelString: string): string {
 export function getProviderForModel(modelString: string): AIProvider | null {
   const [providerName] = parseModelString(modelString);
   return getProvider(providerName ?? undefined);
-}
-
-// ============================================================================
-// Registry Info
-// ============================================================================
-
-/**
- * Get information about all registered providers
- */
-export function getRegistryInfo(): {
-  providers: string[];
-  defaultProvider: string | null;
-  instances: string[];
-} {
-  return {
-    providers: [...providers.keys()],
-    defaultProvider: defaultProviderName,
-    instances: [...instances.keys()],
-  };
-}
-
-/**
- * Clear all cached provider instances
- */
-export function clearProviderCache(): void {
-  instances.clear();
-}
-
-/**
- * Reset the registry (for testing)
- */
-export function resetRegistry(): void {
-  providers.clear();
-  instances.clear();
-  defaultProviderName = null;
 }

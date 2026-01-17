@@ -50,12 +50,6 @@ interface OllamaChatRequest {
   };
 }
 
-/** Ollama embeddings request body */
-interface OllamaEmbeddingsRequest {
-  model: string;
-  input: string | string[];
-}
-
 // ============================================================================
 // Response Types
 // ============================================================================
@@ -304,30 +298,6 @@ export async function* chat(
       yield chunk.message.content;
     }
   }
-}
-
-/**
- * Generate embeddings
- */
-export async function embeddings(
-  endpoint: string,
-  model: string,
-  text: string | string[]
-): Promise<number[][]> {
-  const input = Array.isArray(text) ? text : [text];
-
-  const body: OllamaEmbeddingsRequest = {
-    model,
-    input,
-  };
-
-  const result = await jsonRequest<{ embeddings: number[][] }>(
-    endpoint,
-    "/api/embed",
-    body
-  );
-
-  return result.embeddings || [];
 }
 
 /**

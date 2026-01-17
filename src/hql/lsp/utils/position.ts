@@ -45,26 +45,6 @@ export function toLSPRange(range: HQLRange): Range {
 }
 
 /**
- * Convert LSP position (0-indexed) to HQL position (1-indexed)
- */
-export function toHQLPosition(pos: Position): HQLPosition {
-  return {
-    line: pos.line + 1,
-    column: pos.character + 1,
-  };
-}
-
-/**
- * Convert LSP range to HQL range
- */
-export function toHQLRange(range: Range): HQLRange {
-  return {
-    start: toHQLPosition(range.start),
-    end: toHQLPosition(range.end),
-  };
-}
-
-/**
  * HQL identifier characters - used for word boundary detection
  */
 const IDENT_CHAR_REGEX = /[a-zA-Z0-9_\-\?!]/;
@@ -112,27 +92,5 @@ export function getWordAtPosition(
       start: document.positionAt(start),
       end: document.positionAt(end),
     },
-  };
-}
-
-/**
- * Create an HQL position from line and column numbers
- */
-export function createHQLPosition(line: number, column: number): HQLPosition {
-  return { line, column };
-}
-
-/**
- * Create an HQL range from start and end positions
- */
-export function createHQLRange(
-  startLine: number,
-  startColumn: number,
-  endLine: number,
-  endColumn: number
-): HQLRange {
-  return {
-    start: createHQLPosition(startLine, startColumn),
-    end: createHQLPosition(endLine, endColumn),
   };
 }

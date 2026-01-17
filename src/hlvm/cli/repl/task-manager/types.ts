@@ -43,7 +43,7 @@ export function canTransition(from: TaskStatus, to: TaskStatus): boolean {
 }
 
 /** Task type discriminator */
-export type TaskType = "model-pull" | "model-delete" | "eval";
+export type TaskType = "model-pull" | "eval";
 
 // ============================================================
 // Progress Types
@@ -99,14 +99,6 @@ export interface ModelPullTask extends Task<void> {
   /** Download progress */
   progress: PullProgress;
 }
-
-/** Model delete task */
-export interface ModelDeleteTask extends Task<void> {
-  type: "model-delete";
-  /** Model name being deleted */
-  modelName: string;
-}
-
 
 // ============================================================
 // Eval Task Types (HQL Evaluation)
@@ -168,12 +160,6 @@ export function isModelPullTask(task: Task): task is ModelPullTask {
   return task.type === "model-pull";
 }
 
-/** Check if task is a model delete task */
-export function isModelDeleteTask(task: Task): task is ModelDeleteTask {
-  return task.type === "model-delete";
-}
-
-
 /** Check if task is an eval task */
 export function isEvalTask(task: Task): task is EvalTask {
   return task.type === "eval";
@@ -182,9 +168,4 @@ export function isEvalTask(task: Task): task is EvalTask {
 /** Check if task is active (pending or running) */
 export function isTaskActive(task: Task): boolean {
   return task.status === "pending" || task.status === "running";
-}
-
-/** Check if task is finished (completed, failed, or cancelled) */
-export function isTaskFinished(task: Task): boolean {
-  return task.status === "completed" || task.status === "failed" || task.status === "cancelled";
 }

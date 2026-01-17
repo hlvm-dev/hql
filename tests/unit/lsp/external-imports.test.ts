@@ -89,30 +89,6 @@ Deno.test("ModuleAnalyzer - getCached returns undefined for unanalyzed module", 
   assertEquals(cached, undefined);
 });
 
-Deno.test("ModuleAnalyzer - clearCache clears all cached data", async () => {
-  const analyzer = new ModuleAnalyzer();
-
-  await withTempModule("export const value = 1;", async (specifier) => {
-    await analyzer.analyze(specifier);
-    assertExists(analyzer.getCached(specifier));
-
-    analyzer.clearCache();
-    assertEquals(analyzer.getCached(specifier), undefined);
-  });
-});
-
-Deno.test("ModuleAnalyzer - invalidate removes specific entry", async () => {
-  const analyzer = new ModuleAnalyzer();
-
-  await withTempModule("export const value = 1;", async (specifier) => {
-    await analyzer.analyze(specifier);
-    assertExists(analyzer.getCached(specifier));
-
-    analyzer.invalidate(specifier);
-    assertEquals(analyzer.getCached(specifier), undefined);
-  });
-});
-
 // ============================================
 // Integration Tests (require network - may be slow)
 // These tests are marked with a prefix for optional running

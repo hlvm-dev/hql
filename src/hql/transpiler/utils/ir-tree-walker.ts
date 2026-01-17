@@ -128,13 +128,6 @@ export function containsYieldExpression(node: IR.IRNode | null | undefined): boo
 }
 
 /**
- * Check if tree contains a ReturnStatement
- */
-export function containsReturnStatement(node: IR.IRNode | null | undefined): boolean {
-  return containsNodeType(node ?? null, IR.IRNodeType.ReturnStatement);
-}
-
-/**
  * Check if tree contains a ThrowStatement
  */
 export function containsThrowStatement(node: IR.IRNode | null | undefined): boolean {
@@ -337,26 +330,6 @@ export function containsReturnInScope(
   options: ScopeWalkOptions = {},
 ): boolean {
   return containsNodeTypeInScope(node, IR.IRNodeType.ReturnStatement, options);
-}
-
-/**
- * Check if tree contains a BreakStatement in scope
- */
-export function containsBreakInScope(
-  node: IR.IRNode | null | undefined,
-  options: ScopeWalkOptions = {},
-): boolean {
-  return containsNodeTypeInScope(node, IR.IRNodeType.BreakStatement, options);
-}
-
-/**
- * Check if tree contains a ContinueStatement in scope
- */
-export function containsContinueInScope(
-  node: IR.IRNode | null | undefined,
-  options: ScopeWalkOptions = {},
-): boolean {
-  return containsNodeTypeInScope(node, IR.IRNodeType.ContinueStatement, options);
 }
 
 /**

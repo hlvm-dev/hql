@@ -8,20 +8,6 @@
  */
 
 import type { UnusedImport, ParsedImport } from "./types.ts";
-import { findAllImports } from "./import-parser.ts";
-
-/**
- * Analyze a document for unused imports
- *
- * Convenience function that parses imports and finds unused ones.
- */
-export function analyzeUnusedImports(
-  text: string,
-  _filePath: string
-): UnusedImport[] {
-  const imports = findAllImports(text);
-  return findUnusedImports(text, imports);
-}
 
 /**
  * Check if a symbol is used in the document (excluding import/export lines)

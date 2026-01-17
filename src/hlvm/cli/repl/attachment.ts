@@ -9,7 +9,7 @@
  */
 
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
-import { LINE_SPLIT_REGEX, countLines } from "../../../common/line-utils.ts";
+import { countLines } from "../../../common/line-utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 
 // ============================================================================
@@ -328,15 +328,6 @@ export function isAttachment(result: Attachment | AttachmentError): result is At
   return "id" in result && "base64Data" in result;
 }
 
-/**
- * Format attachment for inline display in input
- * Example: "[Image #1: screenshot.png (1.2 MB)]"
- */
-export function formatAttachmentDetail(attachment: Attachment): string {
-  const size = formatFileSize(attachment.size);
-  return `[${TYPE_DISPLAY[attachment.type]} #${attachment.id}: ${attachment.fileName} (${size})]`;
-}
-
 // ============================================================================
 // Text Attachment Functions
 // ============================================================================
@@ -365,9 +356,6 @@ export function shouldCollapseText(text: string): boolean {
   return lineCount >= TEXT_COLLAPSE_MIN_LINES || text.length >= TEXT_COLLAPSE_MIN_CHARS;
 }
 
-// Re-export countLines from line-utils for backwards compatibility
-export { countLines };
-
 /**
  * Generate display name for pasted text: [Pasted text #1 +183 lines]
  */
@@ -390,21 +378,4 @@ export function createTextAttachment(content: string, id: number): TextAttachmen
     lineCount,
     size,
   };
-}
-
-/**
- * Get a preview of text attachment content
- */
-export function getTextAttachmentPreview(attachment: TextAttachment, maxLines = 5): string {
-  const lines = attachment.content.split(LINE_SPLIT_REGEX);
-  const preview = lines.slice(0, maxLines).join("\n");
-  const remaining = lines.length - maxLines;
-  return remaining > 0 ? `${preview}\n... +${remaining} more lines` : preview;
-}
-
-/**
- * Check if a result is a text attachment
- */
-export function isTextAttachment(result: Attachment | TextAttachment | AttachmentError): result is TextAttachment {
-  return "type" in result && result.type === "text" && "content" in result;
 }

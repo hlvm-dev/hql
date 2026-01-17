@@ -164,11 +164,6 @@ Deno.test("ImportResolver - caches resolutions", () => {
     // Second resolution (should use cache)
     const resolved2 = resolver.resolve("./utils.hql", mainFile);
     assertEquals(resolved2, utilsFile);
-
-    // Clear cache and verify still works
-    resolver.clearCache();
-    const resolved3 = resolver.resolve("./utils.hql", mainFile);
-    assertEquals(resolved3, utilsFile);
   } finally {
     Deno.removeSync(tempDir, { recursive: true });
   }
@@ -204,35 +199,6 @@ Deno.test("Cross-file - finds exported symbol in target file", () => {
   assertEquals(exported.name, "add");
   assertEquals(exported.location?.line, 1);
   assertEquals(exported.location?.column, 5);
-});
-
-Deno.test("Cross-file - tracks import source module", () => {
-  const index = new ProjectIndex();
-
-  // Create mock analysis with an import
-  const importingSymbols = new SymbolTable();
-  importingSymbols.set({
-    name: "add",
-    kind: "import",
-    scope: "global",
-    isImported: true,
-    sourceModule: "./math.hql",
-    location: { filePath: "/src/main.hql", line: 1, column: 10 },
-  });
-
-  index.indexFile("/src/main.hql", {
-    ast: [],
-    symbols: importingSymbols,
-    errors: [],
-  });
-
-  // The imported symbol should not be in the file's symbols (it's from another file)
-  const fileIndex = index.getFileIndex("/src/main.hql");
-  assertExists(fileIndex);
-
-  // Imports should be tracked
-  assertEquals(fileIndex.imports.length, 1);
-  assertEquals(fileIndex.imports[0].modulePath, "./math.hql");
 });
 
 Deno.test("Cross-file - complete navigation flow", () => {
