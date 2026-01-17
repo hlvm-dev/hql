@@ -337,3 +337,301 @@ export function transformObjectSpreadOperator(
     position: extractPosition(node),
   } as IR.IRSpreadAssignment;
 }
+
+
+// =============================================================================
+// ERROR FACTORY FUNCTIONS
+// =============================================================================
+// These factories consolidate ~140+ ValidationError throw patterns across syntax files
+// into reusable, consistent one-liner calls.
+
+/**
+ * Create an arity error for wrong argument count.
+ * 
+ * @param operator - The operator/form name (e.g., "if", "let", "fn")
+ * @param expected - Expected argument count or range (e.g., 2, "2+", "2-4")
+ * @param actual - Actual argument count received
+ * @param position - Optional source position for error location
+ * @returns ValidationError with consistent formatting
+ * 
+ * @example
+ * // Before (repeated 50+ times):
+ * throw new ValidationError(
+ *   `if requires at least 2 arguments, got ${args}`,
+ *   "if expression",
+ *   "2+ arguments",
+ *   `${args} arguments`
+ * );
+ * 
+ * // After:
+ * throw arityError("if", "2+", args, position);
+ */
+export function arityError(
+  operator: string,
+  expected: number | string,
+  actual: number,
+  position?: IR.SourcePosition,
+): ValidationError {
+  const expectedStr = typeof expected === "number" 
+    ? `exactly ${expected}` 
+    : expected;
+  return new ValidationError(
+    `${operator} requires ${expectedStr} argument${expected === 1 ? "" : "s"}, got ${actual}`,
+    `${operator} expression`,
+    `${expectedStr} argument${expected === 1 ? "" : "s"}`,
+    `${actual} argument${actual === 1 ? "" : "s"}`,
+    position,
+  );
+}
+
+/**
+ * Create a type mismatch error.
+ * 
+ * @param context - Where the error occurred (e.g., "if condition", "let binding")
+ * @param expected - What type was expected (e.g., "symbol", "list", "expression")
+ * @param actual - What was actually received
+ * @param position - Optional source position
+ * @returns ValidationError with consistent formatting
+ * 
+ * @example
+ * // Before:
+ * throw new ValidationError(
+ *   `Expected symbol for binding name, got ${node.type}`,
+ *   "let binding",
+ *   "symbol",
+ *   node.type
+ * );
+ * 
+ * // After:
+ * throw typeError("let binding", "symbol", node.type, position);
+ */
+export function typeError(
+  context: string,
+  expected: string,
+  actual: string,
+  position?: IR.SourcePosition,
+): ValidationError {
+  return new ValidationError(
+    `${context}: expected ${expected}, got ${actual}`,
+    context,
+    expected,
+    actual,
+    position,
+  );
+}
+
+/**
+ * Create a syntax error for invalid syntax structure.
+ * 
+ * @param context - Where the error occurred
+ * @param message - Descriptive error message
+ * @param position - Optional source position
+ * @returns ValidationError
+ * 
+ * @example
+ * throw syntaxError("class definition", "class name must be a symbol", position);
+ */
+export function syntaxError(
+  context: string,
+  message: string,
+  position?: IR.SourcePosition,
+): ValidationError {
+  return new ValidationError(
+    message,
+    context,
+    undefined,
+    undefined,
+    position,
+  );
+}
+
+/**
+ * Create an error for missing required element.
+ * 
+ * @param context - Where the error occurred
+ * @param missing - What is missing
+ * @param position - Optional source position
+ * @returns ValidationError
+ * 
+ * @example
+ * throw missingError("function definition", "function body", position);
+ */
+export function missingError(
+  context: string,
+  missing: string,
+  position?: IR.SourcePosition,
+): ValidationError {
+  return new ValidationError(
+    `${context}: missing ${missing}`,
+    context,
+    missing,
+    "nothing",
+    position,
+  );
+}
+
+/**
+ * Create an error for invalid identifier.
+ * 
+ * @param context - Where the error occurred
+ * @param identifier - The invalid identifier
+ * @param reason - Why it's invalid (optional)
+ * @param position - Optional source position
+ * @returns ValidationError
+ * 
+ * @example
+ * throw invalidIdentifierError("variable name", "123abc", "cannot start with number", position);
+ */
+export function invalidIdentifierError(
+  context: string,
+  identifier: string,
+  reason?: string,
+  position?: IR.SourcePosition,
+): ValidationError {
+  const msg = reason
+    ? `Invalid identifier "${identifier}" in ${context}: ${reason}`
+    : `Invalid identifier "${identifier}" in ${context}`;
+  return new ValidationError(
+    msg,
+    context,
+    "valid identifier",
+    `"${identifier}"`,
+    position,
+  );
+}
+
+/**
+ * Create an error for unsupported operation.
+ * 
+ * @param context - Where the error occurred
+ * @param operation - What operation was attempted
+ * @param position - Optional source position
+ * @returns ValidationError
+ * 
+ * @example
+ * throw unsupportedError("pattern matching", "nested spread patterns", position);
+ */
+export function unsupportedError(
+  context: string,
+  operation: string,
+  position?: IR.SourcePosition,
+): ValidationError {
+  return new ValidationError(
+    `${operation} is not supported in ${context}`,
+    context,
+    undefined,
+    undefined,
+    position,
+  );
+}
+
+/**
+ * Validate minimum list length (for variadic forms).
+ * 
+ * @param list - The list to validate
+ * @param minCount - Minimum total elements (including operator)
+ * @param operatorName - Name of the operator for error messages
+ * @param context - Additional context (default: "expression")
+ * @throws ValidationError if list is too short
+ * 
+ * @example
+ * // For (do expr1 expr2 ...) - needs at least 2 elements (do + body)
+ * validateMinListLength(list, 2, "do");
+ */
+export function validateMinListLength(
+  list: ListNode,
+  minCount: number,
+  operatorName: string,
+  context: string = "expression",
+): void {
+  if (list.elements.length < minCount) {
+    const minArgs = minCount - 1;
+    const actualArgs = list.elements.length - 1;
+    throw new ValidationError(
+      `${operatorName} requires at least ${minArgs} argument${minArgs !== 1 ? "s" : ""}, got ${actualArgs}`,
+      `${operatorName} ${context}`,
+      `${minArgs}+ argument${minArgs !== 1 ? "s" : ""}`,
+      `${actualArgs} argument${actualArgs !== 1 ? "s" : ""}`,
+    );
+  }
+}
+
+/**
+ * Validate list length is within a range.
+ * 
+ * @param list - The list to validate
+ * @param minCount - Minimum total elements (including operator)
+ * @param maxCount - Maximum total elements (including operator)
+ * @param operatorName - Name of the operator for error messages
+ * @param context - Additional context (default: "expression")
+ * @throws ValidationError if list length is outside range
+ * 
+ * @example
+ * // For (if test then [else]) - 3-4 elements
+ * validateListLengthRange(list, 3, 4, "if", "conditional");
+ */
+export function validateListLengthRange(
+  list: ListNode,
+  minCount: number,
+  maxCount: number,
+  operatorName: string,
+  context: string = "expression",
+): void {
+  if (list.elements.length < minCount || list.elements.length > maxCount) {
+    const minArgs = minCount - 1;
+    const maxArgs = maxCount - 1;
+    const actualArgs = list.elements.length - 1;
+    throw new ValidationError(
+      `${operatorName} requires ${minArgs}-${maxArgs} arguments, got ${actualArgs}`,
+      `${operatorName} ${context}`,
+      `${minArgs}-${maxArgs} arguments`,
+      `${actualArgs} argument${actualArgs !== 1 ? "s" : ""}`,
+    );
+  }
+}
+
+/**
+ * Validate that a node is a symbol and return its name.
+ * 
+ * @param node - The node to validate
+ * @param context - Context for error message
+ * @param position - Optional source position
+ * @returns The symbol name
+ * @throws ValidationError if node is not a symbol
+ * 
+ * @example
+ * const name = validateSymbol(nameNode, "function name", position);
+ */
+export function validateSymbol(
+  node: HQLNode,
+  context: string,
+  position?: IR.SourcePosition,
+): string {
+  if (node.type !== "symbol") {
+    throw typeError(context, "symbol", node.type, position);
+  }
+  return (node as SymbolNode).name;
+}
+
+/**
+ * Validate that a node is a list and return it.
+ * 
+ * @param node - The node to validate
+ * @param context - Context for error message
+ * @param position - Optional source position
+ * @returns The list node
+ * @throws ValidationError if node is not a list
+ * 
+ * @example
+ * const params = validateList(paramsNode, "function parameters", position);
+ */
+export function validateList(
+  node: HQLNode,
+  context: string,
+  position?: IR.SourcePosition,
+): ListNode {
+  if (node.type !== "list") {
+    throw typeError(context, "list", node.type, position);
+  }
+  return node as ListNode;
+}

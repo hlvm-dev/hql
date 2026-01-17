@@ -6,7 +6,7 @@ import { ai } from "../hlvm/api/ai.ts";
 import { config } from "../hlvm/api/config.ts";
 import { parseModelString } from "../hlvm/providers/index.ts";
 import type { ModelInfo, PullProgress } from "../hlvm/providers/types.ts";
-import { DEFAULT_MODEL_ID } from "./config/defaults.ts";
+import { DEFAULT_MODEL_ID } from "./config/types.ts";
 import { getErrorMessage } from "./utils.ts";
 import { getPlatform } from "../platform/platform.ts";
 

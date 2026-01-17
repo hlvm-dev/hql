@@ -1,7 +1,4 @@
-import {
-  cwd as platformCwd,
-  readTextFile as platformReadTextFile,
-} from "../platform/platform.ts";
+import { getPlatform } from "../platform/platform.ts";
 
 const RESERVED_IDENTIFIER_KEYWORDS = new Set([
   "default",
@@ -48,6 +45,19 @@ const STATIC_HQL_IMPORT_PATTERN =
   /^\s*import[\s{][^;]*from\s+['"]([^'"]+\.hql)['"]/m;
 const DYNAMIC_HQL_IMPORT_PATTERN =
   /import\(\s*['"]([^'"]+\.hql)['"]\s*\)/;
+
+/**
+ * Pre-compiled regex for splitting text into lines.
+ * Handles all newline formats: \n (Unix), \r\n (Windows), \r (old Mac)
+ */
+export const LINE_SPLIT_REGEX = /\r?\n|\r/;
+
+/**
+ * Count the number of lines in text.
+ */
+export function countLines(text: string): number {
+  return text.split(LINE_SPLIT_REGEX).length;
+}
 
 /** Cached regex patterns for identifier sanitization (avoid compilation per call) */
 const HYPHEN_REGEX = /-/g;
@@ -121,7 +131,7 @@ export async function readFile(
   context?: string,
 ): Promise<string> {
   try {
-    return await platformReadTextFile(filePath);
+    return await getPlatform().fs.readTextFile(filePath);
   } catch (error) {
     throw new Error(
       `Reading file ${filePath}${context ? ` (${context})` : ""}: ${getErrorMessage(error)}`,
@@ -134,7 +144,7 @@ export async function tryReadFile(
   logger?: { debug: (msg: string) => void },
 ): Promise<string | null> {
   try {
-    const content = await platformReadTextFile(filePath);
+    const content = await getPlatform().fs.readTextFile(filePath);
     logger?.debug?.(
       `Successfully read ${content.length} bytes from ${filePath}`,
     );
@@ -166,7 +176,7 @@ export async function findActualFilePath(
   }
 
   const basename = filePath.split("/").pop() ?? filePath;
-  const fallbackPath = `${platformCwd()}/${basename}`;
+  const fallbackPath = `${getPlatform().process.cwd()}/${basename}`;
 
   if (await tryReadFile(fallbackPath, logger) !== null) {
     logger?.debug?.(`Found file at fallback location: ${fallbackPath}`);

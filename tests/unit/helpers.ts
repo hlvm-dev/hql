@@ -1,6 +1,21 @@
 // deno-lint-ignore-file no-explicit-any
+/**
+ * Shared Test Helpers - Single Source of Truth
+ *
+ * All unit tests should import helper functions from here to avoid duplication.
+ */
 import hql, { type RunOptions } from "../../mod.ts";
-import { dirname, fromFileUrl, join } from "../../src/platform/platform.ts";
+import { getPlatform } from "../../src/platform/platform.ts";
+import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
+import { generateTypeScript } from "../../src/hql/transpiler/pipeline/ir-to-typescript.ts";
+import { transformToIR } from "../../src/hql/transpiler/pipeline/hql-ast-to-hql-ir.ts";
+import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
+import { initializeRuntimeHelpers } from "../../src/common/runtime-helpers.ts";
+
+const path = () => getPlatform().path;
+const dirname = (p: string) => path().dirname(p);
+const fromFileUrl = (url: string | URL) => path().fromFileUrl(url);
+const join = (...paths: string[]) => path().join(...paths);
 
 // GLOBAL FIX: Disable AI auto-start for ALL unit tests that use this helper.
 // This prevents "Leaks detected" errors caused by the runtime spawning background processes.
@@ -21,6 +36,14 @@ function resolveFixturePath(code: string): string {
   );
 }
 
+// ============================================================================
+// Core HQL Execution Helpers
+// ============================================================================
+
+/**
+ * Run HQL code and return the result.
+ * This is the primary way to execute HQL in tests.
+ */
 export async function run(
   code: string,
   options?: RunOptions,
@@ -28,4 +51,39 @@ export async function run(
   // Resolve any fixture paths in the code
   const resolvedCode = resolveFixturePath(code);
   return await hql.run(resolvedCode, options);
+}
+
+/**
+ * Transpile HQL code to JavaScript.
+ * Returns the generated JavaScript code as a string.
+ */
+export async function transpile(code: string): Promise<string> {
+  const result = await transpileToJavascript(code);
+  return result.code.trim();
+}
+
+/**
+ * Transpile and evaluate HQL code.
+ * Useful for testing code generation without running through the full runtime.
+ */
+export async function evalHql(code: string): Promise<unknown> {
+  // Ensure runtime helpers (like __hql_trampoline) are available in global scope
+  initializeRuntimeHelpers();
+  const js = await transpile(code);
+  return eval(js);
+}
+
+// ============================================================================
+// TypeScript Generation Helpers
+// ============================================================================
+
+/**
+ * Convert HQL code to TypeScript.
+ * Used for testing TypeScript type generation.
+ */
+export function hqlToTypeScript(hql: string): string {
+  const ast = parse(hql);
+  const ir = transformToIR(ast, "/tmp");
+  const result = generateTypeScript(ir, {});
+  return result.code;
 }

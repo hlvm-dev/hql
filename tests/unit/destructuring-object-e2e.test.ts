@@ -2,11 +2,7 @@
 // Tests object destructuring in let/var statements
 
 import { assertEquals } from "jsr:@std/assert@1";
-import hql from "../../mod.ts";
-
-async function run(code: string): Promise<any> {
-  return await hql.run(code);
-}
+import { run } from "./helpers.ts";
 
 // ============================================================================
 // BASIC OBJECT DESTRUCTURING

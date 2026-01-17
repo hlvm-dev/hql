@@ -12,7 +12,7 @@ import {
   initializeErrorHandling,
   resolveRuntimeLocation,
 } from "./runtime-error-handler.ts";
-import { exit as platformExit, readTextFile } from "../platform/platform.ts";
+import { getPlatform } from "../platform/platform.ts";
 import { extractContextLinesFromSource } from "./context-helpers.ts";
 
 export interface ErrorSystemOptions {
@@ -79,7 +79,7 @@ export async function runWithErrorHandling<T>(
     if (error instanceof Error) {
       await handleRuntimeError(error, mergedConfig);
       if (options.exitOnError) {
-        platformExit(1);
+        getPlatform().process.exit(1);
       }
     }
     throw error;
@@ -174,7 +174,7 @@ export async function enrichErrorWithContext(
 
   try {
     // Try to read the source file
-    const content = await readTextFile(sourcePath);
+    const content = await getPlatform().fs.readTextFile(sourcePath);
 
     if (workingError instanceof HQLError) {
       // If we have line info, use it

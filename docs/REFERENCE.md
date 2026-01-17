@@ -230,7 +230,7 @@ obj.property                     ; obj.property
 | `TYPE-SYSTEM.md` | Type system details |
 | `MANUAL.md` | Language manual |
 | `REFERENCE.md` | Quick reference (this file) |
-| `QUICKSTART.md` | Getting started guide |
+| `GUIDE.md` | Learning guide (quick start + full tutorial) |
 
 ---
 

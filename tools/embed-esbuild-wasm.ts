@@ -11,9 +11,9 @@
  * Usage: deno task embed-esbuild-wasm
  */
 
-import {
-  writeTextFile as platformWriteTextFile,
-} from "../src/platform/platform.ts";
+import { getPlatform } from "../src/platform/platform.ts";
+
+const platformWriteTextFile = (path: string, content: string) => getPlatform().fs.writeTextFile(path, content);
 
 const ESBUILD_WASM_VERSION = "0.17.19";
 const OUTPUT_FILE = "src/esbuild-wasm-embedded.ts";

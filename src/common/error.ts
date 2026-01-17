@@ -12,18 +12,16 @@
  */
 
 import { globalLogger as logger, Logger } from "../logger.ts";
-import { basename } from "../platform/platform.ts";
+import { getPlatform } from "../platform/platform.ts";
 import {
+  ERROR_REPORTED_SYMBOL,
   formatErrorCode,
   getErrorDocUrl,
   getErrorFixes,
   HQLErrorCode,
 } from "./error-codes.ts";
-import { ERROR_REPORTED_SYMBOL } from "./error-constants.ts";
-import { isObjectValue } from "./utils.ts";
-import { readTextFile as platformReadTextFile } from "../platform/platform.ts";
+import { isObjectValue, LINE_SPLIT_REGEX } from "./utils.ts";
 import { extractContextLinesFromSource } from "./context-helpers.ts";
-import { LINE_SPLIT_REGEX } from "./line-utils.ts";
 
 // -----------------------------------------------------------------------------
 // Pre-compiled Regex Patterns
@@ -478,7 +476,7 @@ export async function formatHQLError(
       const line = error.sourceLocation.line;
       const column = error.sourceLocation.column || 1;
 
-      const fileContent = await platformReadTextFile(filepath);
+      const fileContent = await getPlatform().fs.readTextFile(filepath);
       const fileLines = fileContent.split(LINE_SPLIT_REGEX);
       const errorIdx = line - 1;
 
@@ -740,7 +738,7 @@ export class HQLError extends Error {
   getSummary(): string {
     const { filePath, line, column } = this.sourceLocation;
     const loc = filePath
-      ? `${basename(filePath)}${
+      ? `${getPlatform().path.basename(filePath)}${
         line ? `:${line}${column ? `:${column}` : ""}` : ""
       }`
       : "";

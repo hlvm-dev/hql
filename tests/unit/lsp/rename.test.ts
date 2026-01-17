@@ -6,12 +6,8 @@ import {
   assertEquals,
   assertExists,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import { prepareRename, getWordForRename } from "../../../src/hql/lsp/features/rename.ts";
-
-function createDoc(content: string): TextDocument {
-  return TextDocument.create("file:///test.hql", "hql", 1, content);
-}
+import { createDoc } from "./helpers.ts";
 
 Deno.test("prepareRename - returns range for function name", () => {
   const doc = createDoc("(fn add [a b] (+ a b))");

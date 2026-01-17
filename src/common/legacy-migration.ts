@@ -8,14 +8,7 @@
 import { basename, dirname, join, resolve } from "jsr:@std/path@1";
 import { ensureDir } from "jsr:@std/fs@1";
 import { getPlatform } from "../platform/platform.ts";
-
-function getEnvVar(key: string): string | undefined {
-  try {
-    return getPlatform().env.get(key);
-  } catch {
-    return undefined;
-  }
-}
+import { getEnvVar } from "./paths.ts";
 
 export function getLegacyHqlDir(): string {
   const override = getEnvVar("HQL_DIR") || getEnvVar("HQL_HOME");

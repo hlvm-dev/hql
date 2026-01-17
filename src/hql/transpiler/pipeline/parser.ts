@@ -16,7 +16,7 @@ import { getErrorMessage } from "../../../common/utils.ts";
 import { tokenizeType, countAngleBracketDepth } from "../tokenizer/type-tokenizer.ts";
 import { HQLErrorCode } from "../../../common/error-codes.ts";
 import { attachSourceLocation } from "../../../common/syntax-error-handler.ts";
-import { readTextFileSync as platformReadTextFileSync } from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 import { FOR_LOOP_SYNTAX_KEYWORDS_SET } from "../../../common/known-identifiers.ts";
 import { VECTOR_SYMBOL, EMPTY_ARRAY_SYMBOL } from "../../../common/runtime-helper-impl.ts";
 import { processEscapeSequences, processSingleEscape } from "../utils/escape-sequences.ts";
@@ -1132,7 +1132,7 @@ function matchNextToken(
   // Get some context for a better error message
   try {
     if (filePath) {
-      const content = platformReadTextFileSync(filePath);
+      const content = getPlatform().fs.readTextFileSync(filePath);
       const lines = content.split("\n");
 
       if (line > 0 && line <= lines.length) {

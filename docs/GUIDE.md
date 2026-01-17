@@ -2,6 +2,40 @@
 
 Complete guide from beginner to advanced.
 
+## Quick Start (5 minutes)
+
+Get running immediately:
+
+```bash
+# Install
+curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
+
+# Create hello.hql
+echo '(print "Hello, World!")' > hello.hql
+
+# Run it
+hlvm run hello.hql
+```
+
+Try the REPL:
+```bash
+hlvm repl
+```
+
+```lisp
+hlvm> (+ 1 2 3)
+6
+
+hlvm> (let square (fn [x] (* x x)))
+
+hlvm> (map square [1 2 3 4])
+(1 4 9 16)
+```
+
+Ready to learn more? Continue with the full guide below.
+
+---
+
 ## Prerequisites
 
 You should know:

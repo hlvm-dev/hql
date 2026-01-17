@@ -27,7 +27,7 @@ import {
   type SList,
 } from "../s-exp/types.ts";
 import { globalLogger as logger } from "../../logger.ts";
-import { cwd as platformCwd } from "../../platform/platform.ts";
+import { getPlatform } from "../../platform/platform.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { loadSystemMacros } from "../transpiler/hql-transpiler.ts";
 
@@ -53,7 +53,7 @@ export class HQLRuntime {
   private options: CompilerOptions;
   private baseDir: string;
 
-  constructor(options: CompilerOptions = {}, baseDir: string = platformCwd()) {
+  constructor(options: CompilerOptions = {}, baseDir: string = getPlatform().process.cwd()) {
     this.options = options;
     this.baseDir = baseDir;
     this.macroRegistry = {

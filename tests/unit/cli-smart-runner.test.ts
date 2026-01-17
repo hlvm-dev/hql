@@ -1,6 +1,7 @@
 import { assertEquals } from "jsr:@std/assert";
-import { join } from "../../src/platform/platform.ts";
+import { getPlatform } from "../../src/platform/platform.ts";
 
+const join = (...paths: string[]) => getPlatform().path.join(...paths);
 const CLI_PATH = join(Deno.cwd(), "src", "hlvm", "cli", "run.ts");
 
 Deno.test({

@@ -2,9 +2,8 @@
 // Maps JavaScript runtime errors back to HQL source locations with improved accuracy
 
 import { globalErrorReporter, HQLError, RuntimeError } from "./error.ts";
-import { LINE_SPLIT_REGEX } from "./line-utils.ts";
 import { globalLogger as logger } from "../logger.ts";
-import { escapeRegExp } from "./utils.ts";
+import { escapeRegExp, LINE_SPLIT_REGEX } from "./utils.ts";
 
 // Cached regex patterns for matching function calls in source code
 // Cache prevents repeated regex compilation for the same function name
@@ -29,14 +28,8 @@ function getJsCallRegex(funcName: string): RegExp {
   return regex;
 }
 import { type RawSourceMap, SourceMapConsumer } from "npm:source-map@0.6.1";
-import {
-  dirname,
-  exists,
-  isAbsolute,
-  readTextFile,
-  resolve,
-} from "../platform/platform.ts";
-import { ERROR_REPORTED_SYMBOL } from "./error-constants.ts";
+import { getPlatform } from "../platform/platform.ts";
+import { ERROR_REPORTED_SYMBOL } from "./error-codes.ts";
 import { mapPositionSync } from "../hql/transpiler/pipeline/source-map-support.ts";
 import { extractContextLinesFromFile } from "./context-helpers.ts";
 import { findSimilarName } from "./string-similarity.ts";
@@ -76,12 +69,13 @@ interface JsStackFrame {
 async function readFileLines(
   filePath: string,
 ): Promise<string[] | null> {
-  if (!await exists(filePath)) {
+  const p = getPlatform();
+  if (!await p.fs.exists(filePath)) {
     return null;
   }
 
   try {
-    const content = await readTextFile(filePath);
+    const content = await p.fs.readTextFile(filePath);
     return content.split(LINE_SPLIT_REGEX);
   } catch {
     return null;
@@ -138,8 +132,9 @@ function resolveMappedSourcePath(
     }
   }
 
-  if (!isAbsolute(mappedPath)) {
-    mappedPath = resolve(dirname(frame.jsFile), mappedPath);
+  const p = getPlatform();
+  if (!p.path.isAbsolute(mappedPath)) {
+    mappedPath = p.path.resolve(p.path.dirname(frame.jsFile), mappedPath);
   }
 
   return mappedPath;

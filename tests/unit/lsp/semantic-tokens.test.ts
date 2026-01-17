@@ -6,17 +6,13 @@ import {
   assertEquals,
   assert,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import { SemanticTokenTypes } from "npm:vscode-languageserver@9.0.1";
 import {
   buildSemanticTokens,
   getSemanticTokensLegend,
   getSemanticTokensCapability,
 } from "../../../src/hql/lsp/features/semantic-tokens.ts";
-
-function createDoc(content: string): TextDocument {
-  return TextDocument.create("file:///test.hql", "hql", 1, content);
-}
+import { createDoc } from "./helpers.ts";
 
 Deno.test("SemanticTokens - legend includes expected token types", () => {
   const legend = getSemanticTokensLegend();

@@ -8,7 +8,10 @@
  */
 
 import { VERSION } from "../../../version.ts";
-import { exit as platformExit, getPlatform } from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+
+// Local alias for platform exit
+const platformExit = (code: number) => getPlatform().process.exit(code);
 import { isNewer } from "../utils/update-check.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 

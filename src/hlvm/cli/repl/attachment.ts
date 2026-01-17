@@ -9,7 +9,7 @@
  */
 
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
-import { countLines } from "../../../common/line-utils.ts";
+import { countLines } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 
 // ============================================================================

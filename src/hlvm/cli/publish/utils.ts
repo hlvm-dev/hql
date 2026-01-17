@@ -1,13 +1,14 @@
-import {
-  exists,
-  readTextFile,
-  resolve,
-  writeTextFile,
-  join,
-  readDir,
-  runCmd,
-  dirname,
-} from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+
+const p = () => getPlatform();
+const exists = (path: string) => p().fs.exists(path);
+const readTextFile = (path: string) => p().fs.readTextFile(path);
+const resolve = (...paths: string[]) => p().path.resolve(...paths);
+const writeTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
+const join = (...paths: string[]) => p().path.join(...paths);
+const readDir = (path: string) => p().fs.readDir(path);
+const runCmd = (cmd: string[]) => p().command.run(cmd);
+const dirname = (path: string) => p().path.dirname(path);
 import { globalLogger as logger } from "../../../logger.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { buildJsModule } from "./build_js_module.ts";

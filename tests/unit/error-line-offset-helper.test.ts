@@ -7,10 +7,16 @@
  */
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { join } from "../../src/platform/platform.ts";
+import { getPlatform } from "../../src/platform/platform.ts";
 import hql from "../../mod.ts";
 import { RuntimeError } from "../../src/common/error.ts";
-import { makeTempDir, writeTextFile, remove } from "../../src/platform/platform.ts";
+
+const path = () => getPlatform().path;
+const fs = () => getPlatform().fs;
+const join = (...paths: string[]) => path().join(...paths);
+const makeTempDir = (opts?: { prefix?: string }) => fs().makeTempDir(opts);
+const writeTextFile = (path: string, content: string) => fs().writeTextFile(path, content);
+const remove = (path: string, opts?: { recursive?: boolean }) => fs().remove(path, opts);
 
 Deno.test("Line offset: Error location with array access helper injection", async () => {
   // This code will trigger __hql_get helper injection

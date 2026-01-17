@@ -4,7 +4,10 @@
  * Dispatches to appropriate command handlers
  */
 
-import { getArgs as platformGetArgs, getPlatform } from "../../platform/platform.ts";
+import { getPlatform } from "../../platform/platform.ts";
+
+// Local alias for platform getArgs
+const platformGetArgs = () => getPlatform().process.args();
 import { compileCommand, showCompileHelp } from "./commands/compile.ts";
 import { init as initCommand, showInitHelp } from "./commands/init.ts";
 import { lspCommand, showLspHelp } from "./commands/lsp.ts";

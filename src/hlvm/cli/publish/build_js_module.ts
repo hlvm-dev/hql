@@ -1,15 +1,16 @@
 import { prebundleHqlImportsInJs, transpileCLI } from "../../../hql/bundler.ts";
-import {
-  basename,
-  dirname,
-  ensureDir,
-  join,
-  readTextFile,
-  remove,
-  resolve,
-  stat,
-  writeTextFile,
-} from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+
+const p = () => getPlatform();
+const basename = (path: string) => p().path.basename(path);
+const dirname = (path: string) => p().path.dirname(path);
+const ensureDir = (path: string) => p().fs.ensureDir(path);
+const join = (...paths: string[]) => p().path.join(...paths);
+const readTextFile = (path: string) => p().fs.readTextFile(path);
+const remove = (path: string, opts?: { recursive?: boolean }) => p().fs.remove(path, opts);
+const resolve = (...paths: string[]) => p().path.resolve(...paths);
+const stat = (path: string) => p().fs.stat(path);
+const writeTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
 import { exists } from "jsr:@std/fs@1.0.13";
 import { globalLogger as logger } from "../../../logger.ts";
 import { checkForHqlImports, getErrorMessage } from "../../../common/utils.ts";

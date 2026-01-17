@@ -21,7 +21,7 @@ import { globalSymbolTable } from "../transpiler/symbol_table.ts";
 import type { HQLNode } from "../transpiler/type/hql_ast.ts";
 import { EMBEDDED_MACROS } from "../lib/embedded-macros.ts";
 import { type CompilerContext, hasMacroRegistry } from "./compiler-context.ts";
-import { basename, cwd as platformCwd } from "../../platform/platform.ts";
+import { getPlatform } from "../../platform/platform.ts";
 import { LRUCache } from "../../common/lru-cache.ts";
 
 // LRU cache with size limit to prevent unbounded memory growth
@@ -79,7 +79,7 @@ export async function transpileToJavascript(
     logger.startTiming("hql-process", "Total");
   }
 
-  const sourceFilename = basename(
+  const sourceFilename = getPlatform().path.basename(
     mergedOptions.currentFile || mergedOptions.baseDir || "unknown",
   );
 
@@ -144,7 +144,7 @@ export async function transpileToJavascriptWithIR(
     logger.startTiming("hql-process", "Total");
   }
 
-  const sourceFilename = basename(
+  const sourceFilename = getPlatform().path.basename(
     mergedOptions.currentFile || mergedOptions.baseDir || "unknown",
   );
 
@@ -321,7 +321,7 @@ async function handleImports(
 
   await processImports(sexps, env, {
     verbose: options.verbose,
-    baseDir: options.baseDir || platformCwd(),
+    baseDir: options.baseDir || getPlatform().process.cwd(),
     tempDir: options.tempDir,
     currentFile: options.currentFile,
   });
@@ -402,7 +402,7 @@ async function transpileHqlAstToJs(
   try {
     const result = await transformAST(
       hqlAst,
-      options.baseDir || platformCwd(),
+      options.baseDir || getPlatform().process.cwd(),
       {
         verbose: options.verbose,
         currentFile: options.currentFile,
@@ -447,7 +447,7 @@ async function transpileHqlAstToJsWithIR(
   try {
     const result = await transformAST(
       hqlAst,
-      options.baseDir || platformCwd(),
+      options.baseDir || getPlatform().process.cwd(),
       {
         verbose: options.verbose,
         currentFile: options.currentFile,
@@ -518,7 +518,7 @@ export async function loadSystemMacros(
 
       // Register in symbol table
       globalSymbolTable.set({
-        name: basename(macroPath, ".hql"),
+        name: getPlatform().path.basename(macroPath, ".hql"),
         kind: "module",
         scope: "global",
         meta: { isCore: true, isMacroModule: true },

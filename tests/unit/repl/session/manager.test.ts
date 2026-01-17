@@ -4,37 +4,8 @@
  */
 
 import { assertEquals, assert, assertExists, assertRejects } from "jsr:@std/assert";
-import { join } from "jsr:@std/path@1";
-import { getSessionsDir } from "../../../../src/common/paths.ts";
 import { SessionManager } from "../../../../src/hlvm/cli/repl/session/manager.ts";
-import { listSessions, deleteSession } from "../../../../src/hlvm/cli/repl/session/storage.ts";
-
-// ============================================================================
-// Test Helpers
-// ============================================================================
-
-/** Get test sessions directory */
-function getTestSessionsDir(): string {
-  return getSessionsDir();
-}
-
-/** Clean up a specific session file */
-async function cleanupSession(sessionId: string): Promise<void> {
-  const sessionPath = join(getTestSessionsDir(), `${sessionId}.jsonl`);
-  try {
-    await Deno.remove(sessionPath);
-  } catch {
-    // Ignore if doesn't exist
-  }
-}
-
-/** Clean all sessions */
-async function cleanupAllSessions(): Promise<void> {
-  const allSessions = await listSessions({ limit: 1000 });
-  for (const s of allSessions) {
-    await deleteSession(s.id);
-  }
-}
+import { getTestSessionsDir, cleanupSession, cleanupAllSessions } from "./helpers.ts";
 
 // ============================================================================
 // Constructor Tests

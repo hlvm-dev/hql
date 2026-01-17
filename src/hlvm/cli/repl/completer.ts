@@ -14,21 +14,3 @@ export {
   MACRO_SET,
   classifyIdentifier,
 } from "../../../common/known-identifiers.ts";
-
-// ============================================================
-// Types
-// ============================================================
-
-export type CompletionType =
-  | "keyword"
-  | "operator"
-  | "macro"
-  | "function"
-  | "variable";
-
-export interface CompletionItem {
-  /** The completion text */
-  readonly text: string;
-  /** Type of identifier */
-  readonly type: CompletionType;
-}

@@ -1,9 +1,10 @@
-import {
-  exists,
-  exit as platformExit,
-  readTextFile as platformReadTextFile,
-  writeTextFile as platformWriteTextFile,
-} from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+
+const p = () => getPlatform();
+const exists = (path: string) => p().fs.exists(path);
+const platformExit = (code: number) => p().process.exit(code);
+const platformReadTextFile = (path: string) => p().fs.readTextFile(path);
+const platformWriteTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
 import { promptUser, writeJSONFile } from "../publish/utils.ts";
 import {
   generateDefaultPackageName,

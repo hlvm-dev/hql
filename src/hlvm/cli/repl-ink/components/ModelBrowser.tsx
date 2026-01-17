@@ -14,8 +14,11 @@ import type { ModelPullTask } from "../../repl/task-manager/types.ts";
 import { isModelPullTask, isTaskActive } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
-import { openUrl } from "../../../../platform/platform.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
+
+// Local alias for platform openUrl
+const openUrl = (url: string) => getPlatform().openUrl(url);
 
 // ============================================================
 // Types

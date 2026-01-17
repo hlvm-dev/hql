@@ -3,12 +3,11 @@
 
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode } from "../type/hql_ast.ts";
+import { perform, TransformError } from "../../../common/error.ts";
 import {
-  perform,
-  TransformError,
-  ValidationError,
-} from "../../../common/error.ts";
-import { validateTransformed } from "../utils/validation-helpers.ts";
+  validateTransformed,
+  validateListLengthRange,
+} from "../utils/validation-helpers.ts";
 import { GET_HELPER } from "../../../common/runtime-helper-impl.ts";
 
 /**
@@ -22,14 +21,8 @@ export function transformGet(
 ): IR.IRNode {
   return perform(
     () => {
-      if (list.elements.length < 3 || list.elements.length > 4) {
-        throw new ValidationError(
-          "get operation requires a collection, key, and optional default",
-          "get operation",
-          "2 or 3 arguments",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+      // get requires 2-3 arguments: collection, key, and optional default
+      validateListLengthRange(list, 3, 4, "get", "operation");
 
       const collection = validateTransformed(
         transformNode(list.elements[1], currentDir),

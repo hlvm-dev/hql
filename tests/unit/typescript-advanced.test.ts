@@ -1,17 +1,7 @@
 // Tests for advanced TypeScript features
 // All features are type-level and get erased when compiling to JS
 import { assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { generateTypeScript } from "../../src/hql/transpiler/pipeline/ir-to-typescript.ts";
-import { transformToIR } from "../../src/hql/transpiler/pipeline/hql-ast-to-hql-ir.ts";
-import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
-
-// Helper to get TypeScript output from HQL
-function hqlToTypeScript(hql: string): string {
-  const ast = parse(hql);
-  const ir = transformToIR(ast, "/tmp");
-  const result = generateTypeScript(ir, {});
-  return result.code;
-}
+import { hqlToTypeScript } from "./helpers.ts";
 
 // ============================================================================
 // Type Aliases with Advanced Type Operators

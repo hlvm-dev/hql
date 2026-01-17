@@ -15,22 +15,26 @@ import {
   getCachedPath,
   getRuntimeCacheDir,
 } from "./src/common/hlvm-cache-tracker.ts";
-import {
-  basename,
-  cwd as platformCwd,
-  dirname,
-  exists,
-  fromFileUrl as platformFromFileUrl,
-  isAbsolute as platformIsAbsolute,
-  join,
-  mkdir as platformMkdir,
-  normalize as platformNormalize,
-  readTextFile as platformReadTextFile,
-  relative as platformRelative,
-  resolve as platformResolve,
-  toFileUrl as platformToFileUrl,
-  writeTextFile as platformWriteTextFile,
-} from "./src/platform/platform.ts";
+import { getPlatform } from "./src/platform/platform.ts";
+
+// Local aliases for frequently used platform functions
+const _p = () => getPlatform();
+const _path = () => _p().path;
+const _fs = () => _p().fs;
+const platformCwd = () => _p().process.cwd();
+const dirname = (path: string) => _path().dirname(path);
+const basename = (path: string, ext?: string) => _path().basename(path, ext);
+const exists = (path: string) => _fs().exists(path);
+const platformFromFileUrl = (url: string | URL) => _path().fromFileUrl(url);
+const platformIsAbsolute = (path: string) => _path().isAbsolute(path);
+const join = (...paths: string[]) => _path().join(...paths);
+const platformMkdir = (path: string, opts?: { recursive?: boolean }) => _fs().mkdir(path, opts);
+const platformNormalize = (path: string) => _path().normalize(path);
+const platformReadTextFile = (path: string) => _fs().readTextFile(path);
+const platformRelative = (from: string, to: string) => _path().relative(from, to);
+const platformResolve = (...paths: string[]) => _path().resolve(...paths);
+const platformToFileUrl = (path: string) => _path().toFileUrl(path);
+const platformWriteTextFile = (path: string, content: string) => _fs().writeTextFile(path, content);
 import * as acorn from "npm:acorn@8.11.3";
 import { sexpToString } from "./src/hql/s-exp/types.ts";
 import { installSourceMapSupport, preloadSourceMap } from "./src/hql/transpiler/pipeline/source-map-support.ts";

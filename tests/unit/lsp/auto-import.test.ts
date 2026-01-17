@@ -8,7 +8,6 @@
  */
 
 import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import { CodeActionKind } from "npm:vscode-languageserver@9.0.1";
 import type { Diagnostic, CodeActionParams } from "npm:vscode-languageserver@9.0.1";
 import { getCodeActions } from "../../../src/hql/lsp/features/code-actions.ts";
@@ -20,11 +19,7 @@ import {
   addSymbolToImport,
   findImportByPath,
 } from "../../../src/hql/lsp/imports/mod.ts";
-
-// Helper to create a TextDocument
-function createDoc(content: string, uri = "file:///test.hql"): TextDocument {
-  return TextDocument.create(uri, "hql", 1, content);
-}
+import { createDoc } from "./helpers.ts";
 
 // Helper to create a diagnostic for unknown identifier
 function createUnknownIdentifierDiagnostic(

@@ -4,10 +4,16 @@
  */
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { join } from "../../src/platform/platform.ts";
+import { getPlatform } from "../../src/platform/platform.ts";
 import hql from "../../mod.ts";
 import { RuntimeError } from "../../src/common/error.ts";
-import { makeTempDir, writeTextFile, remove } from "../../src/platform/platform.ts";
+
+const path = () => getPlatform().path;
+const fs = () => getPlatform().fs;
+const join = (...paths: string[]) => path().join(...paths);
+const makeTempDir = (opts?: { prefix?: string }) => fs().makeTempDir(opts);
+const writeTextFile = (p: string, content: string) => fs().writeTextFile(p, content);
+const remove = (p: string, opts?: { recursive?: boolean }) => fs().remove(p, opts);
 
 Deno.test("CRITICAL: Error on line 2 of 4-line file", async () => {
   const code = `(let x 10)

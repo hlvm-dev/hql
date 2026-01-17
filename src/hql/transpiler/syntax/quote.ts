@@ -3,9 +3,16 @@
 
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
-import { TransformError, ValidationError } from "../../../common/error.ts";
+import { TransformError } from "../../../common/error.ts";
 import { perform } from "../../../common/error.ts";
-import { validateTransformed, validateListLength } from "../utils/validation-helpers.ts";
+import {
+  validateTransformed,
+  validateListLength,
+  typeError,
+  syntaxError,
+  arityError,
+  extractPosition,
+} from "../utils/validation-helpers.ts";
 import { isSymbolWithName } from "../../../common/sexp-utils.ts";
 
 /**
@@ -72,13 +79,11 @@ export function transformQuote(
         } as IR.IRArrayExpression;
       }
 
-      throw new ValidationError(
-        `Unsupported quoted expression: ${
-          IR.IRNodeType[(quoted as IR.IRNode).type]
-        }`,
+      throw typeError(
         "quote",
         "literal, symbol, or list",
-        IR.IRNodeType[(quoted as IR.IRNode).type],
+        (quoted as { type: string }).type,
+        extractPosition(list),
       );
     },
     "transformQuote",
@@ -169,11 +174,10 @@ function buildQuasiquoteIR(
             transformNode,
           );
           if (innerProcessed === null) {
-            throw new ValidationError(
-              "unquote-splicing expression resulted in null",
+            throw syntaxError(
               "quasiquote",
-              "valid expression",
-              "null",
+              "unquote-splicing expression resulted in null",
+              extractPosition(list),
             );
           }
           return {
@@ -187,11 +191,10 @@ function buildQuasiquoteIR(
             ],
           } as IR.IRArrayExpression;
         }
-        throw new ValidationError(
-          "unquote-splicing may only appear within a list context",
+        throw syntaxError(
           "quasiquote",
-          "list element",
-          "top-level",
+          "unquote-splicing may only appear within a list context",
+          extractPosition(list),
         );
       }
     }
@@ -212,11 +215,11 @@ function buildQuasiquoteIR(
     for (const element of list.elements) {
       if (depth === 0 && isUnquoteSplicing(element)) {
         if ((element as ListNode).elements.length !== 2) {
-          throw new ValidationError(
-            "unquote-splicing requires exactly one argument",
-            "quasiquote",
-            "1 argument",
-            `${(element as ListNode).elements.length - 1} arguments`,
+          throw arityError(
+            "unquote-splicing",
+            1,
+            (element as ListNode).elements.length - 1,
+            extractPosition(element),
           );
         }
         hasSplice = true;

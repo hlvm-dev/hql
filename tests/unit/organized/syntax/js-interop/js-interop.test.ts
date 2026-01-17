@@ -7,7 +7,11 @@
 import { assertEquals } from "jsr:@std/assert";
 import { run } from "../../../helpers.ts";
 import { transpile } from "../../../../../mod.ts";
-import { writeTextFile, remove } from "../../../../../src/platform/platform.ts";
+import { getPlatform } from "../../../../../src/platform/platform.ts";
+
+const fs = () => getPlatform().fs;
+const writeTextFile = (path: string, content: string) => fs().writeTextFile(path, content);
+const remove = (path: string, opts?: { recursive?: boolean }) => fs().remove(path, opts);
 
 // ============================================================================
 // SECTION 1: BASIC JS INTEROP (10 tests)

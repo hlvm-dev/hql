@@ -2,35 +2,21 @@
  * Model Info Utilities
  *
  * Fetches and caches model capabilities from Ollama API.
- * Follows Ollama convention for capability display.
+ * Uses canonical ModelInfo from providers/types.ts as single source of truth.
  *
  * @see https://docs.ollama.com/modelfile
  * @see https://ollama.com/library
  */
 
-// ============================================================
-// Types
-// ============================================================
+import type { ModelInfo, ProviderCapability } from "../../../providers/types.ts";
 
-export interface ModelCapabilities {
-  completion: boolean;  // Text generation
-  vision: boolean;      // Image understanding
-  tools: boolean;       // Function calling
-  embedding: boolean;   // Vector embeddings
-  thinking: boolean;    // Reasoning/deliberation (e.g., deepseek-r1)
-}
-
-export interface ModelInfo {
-  name: string;
-  displayName: string;  // Without "ollama/" prefix
-  capabilities: ModelCapabilities;
-  details: {
-    family?: string;
-    parameterSize?: string;
-    quantization?: string;
-  };
-  link: string;  // Link to ollama.com
-}
+// Re-export for backwards compatibility
+export type { ModelInfo, ProviderCapability };
+export {
+  capabilitiesToFlags,
+  formatCapabilityTags,
+  type ModelCapabilityFlags,
+} from "../../../providers/types.ts";
 
 // ============================================================
 // Cache
@@ -39,14 +25,14 @@ export interface ModelInfo {
 const modelInfoCache = new Map<string, ModelInfo>();
 
 // ============================================================
-// API
+// Helpers
 // ============================================================
 
 /**
  * Extract model name without provider prefix
  * "ollama/qwen2.5-coder:1.5b" -> "qwen2.5-coder:1.5b"
  */
-function extractModelName(fullName: string): string {
+export function extractModelName(fullName: string): string {
   return fullName.replace(/^ollama\//, "");
 }
 
@@ -54,12 +40,17 @@ function extractModelName(fullName: string): string {
  * Get base model name for Ollama library link
  * "qwen2.5-coder:1.5b" -> "qwen2.5-coder"
  */
-function getBaseModelName(name: string): string {
+export function getBaseModelName(name: string): string {
   return name.split(":")[0];
 }
 
+// ============================================================
+// API
+// ============================================================
+
 /**
  * Fetch model info - use ai.models API for single source of truth
+ * Returns canonical ModelInfo type from providers/types.ts
  */
 export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
   const displayName = extractModelName(modelName);
@@ -73,14 +64,7 @@ export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
   const defaultInfo: ModelInfo = {
     name: modelName,
     displayName,
-    capabilities: {
-      completion: true,  // Assume text by default
-      vision: false,
-      tools: false,
-      embedding: false,
-      thinking: false,
-    },
-    details: {},
+    capabilities: ["generate", "chat"] as ProviderCapability[],
     link: `ollama.com/library/${baseName}`,
   };
 
@@ -89,88 +73,41 @@ export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
     const aiApi = (globalThis as Record<string, unknown>).ai as {
       models: {
         get: (name: string) => Promise<{
-          capabilities?: string[];
+          capabilities?: ProviderCapability[];
           family?: string;
+          parameterSize?: string;
           quantization?: string;
         } | null>;
       };
     } | undefined;
 
-    let data: {
-      capabilities?: string[];
-      details?: { family?: string; parameter_size?: string; quantization_level?: string };
-    } | null = null;
-
     // 100% SSOT: Use ai.models API only - no direct fetch fallback
     if (aiApi?.models?.get) {
       const result = await aiApi.models.get(displayName);
       if (result) {
-        data = {
+        const info: ModelInfo = {
+          name: modelName,
+          displayName,
+          family: result.family,
+          parameterSize: result.parameterSize,
+          quantization: result.quantization,
           capabilities: result.capabilities,
-          details: {
-            family: result.family,
-            quantization_level: result.quantization,
-          },
+          link: `ollama.com/library/${baseName}`,
         };
+
+        modelInfoCache.set(displayName, info);
+        return info;
       }
     }
     // No fallback - if API not ready, return default info
 
-    if (!data) {
-      modelInfoCache.set(displayName, defaultInfo);
-      return defaultInfo;
-    }
-
-    // Parse capabilities from response
-    const caps = data.capabilities || [];
-    const capabilities: ModelCapabilities = {
-      completion: caps.includes("completion") || caps.includes("text") || caps.length === 0,
-      vision: caps.includes("vision"),
-      tools: caps.includes("tools"),
-      embedding: caps.includes("embedding") || caps.includes("embeddings"),
-      thinking: caps.includes("thinking"),
-    };
-
-    // Parse details
-    const details = data.details || {};
-
-    const info: ModelInfo = {
-      name: modelName,
-      displayName,
-      capabilities,
-      details: {
-        family: details.family,
-        parameterSize: details.parameter_size,
-        quantization: details.quantization_level,
-      },
-      link: `ollama.com/library/${baseName}`,
-    };
-
-    modelInfoCache.set(displayName, info);
-    return info;
+    modelInfoCache.set(displayName, defaultInfo);
+    return defaultInfo;
   } catch {
     // Network error - use default
     modelInfoCache.set(displayName, defaultInfo);
     return defaultInfo;
   }
-}
-
-/**
- * Format capabilities as display tags
- * Returns: "[text]", "[vision] [text]", "[text] [tools]", etc.
- * Follows Ollama library display order.
- */
-export function formatCapabilityTags(caps: ModelCapabilities): string {
-  const tags: string[] = [];
-
-  // Order: vision, thinking, tools, text, embedding (following ollama.com/library)
-  if (caps.vision) tags.push("[vision]");
-  if (caps.thinking) tags.push("[thinking]");
-  if (caps.tools) tags.push("[tools]");
-  if (caps.completion) tags.push("[text]");
-  if (caps.embedding) tags.push("[embed]");
-
-  return tags.join(" ");
 }
 
 /**

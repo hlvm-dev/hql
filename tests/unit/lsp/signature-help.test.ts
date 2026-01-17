@@ -8,16 +8,9 @@ import {
   assertEquals,
   assertExists,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import { getSignatureHelp } from "../../../src/hql/lsp/features/signature-help.ts";
 import { SymbolTable } from "../../../src/hql/transpiler/symbol_table.ts";
-
-/**
- * Create a TextDocument for testing
- */
-function createDoc(content: string): TextDocument {
-  return TextDocument.create("file:///test.hql", "hql", 1, content);
-}
+import { createDoc } from "./helpers.ts";
 
 /**
  * Create a SymbolTable with test functions

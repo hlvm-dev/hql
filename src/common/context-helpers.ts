@@ -3,10 +3,9 @@
  * Consolidates duplicate logic across error handlers.
  */
 
-import { exists, readTextFile } from "../platform/platform.ts";
+import { getPlatform } from "../platform/platform.ts";
 import { globalLogger as logger } from "../logger.ts";
-import { getErrorMessage } from "./utils.ts";
-import { LINE_SPLIT_REGEX } from "./line-utils.ts";
+import { getErrorMessage, LINE_SPLIT_REGEX } from "./utils.ts";
 
 /**
  * Represents a line of source code with context information.
@@ -103,14 +102,15 @@ export async function extractContextLinesFromFile(
   contextSize: number = 2,
 ): Promise<ContextLine[] | null> {
   try {
+    const p = getPlatform();
     // Check if file exists
-    if (!await exists(filePath)) {
+    if (!await p.fs.exists(filePath)) {
       logger.debug(`Cannot load context: File does not exist: ${filePath}`);
       return null;
     }
 
     // Read file content
-    const source = await readTextFile(filePath);
+    const source = await p.fs.readTextFile(filePath);
 
     // Use sync version to extract lines
     const result = extractContextLinesFromSource(

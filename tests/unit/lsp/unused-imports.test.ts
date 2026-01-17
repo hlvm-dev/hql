@@ -8,7 +8,6 @@
  */
 
 import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import { CodeActionKind } from "npm:vscode-languageserver@9.0.1";
 import {
   findUnusedImports,
@@ -18,11 +17,7 @@ import {
 } from "../../../src/hql/lsp/imports/import-editor.ts";
 import { findAllImports } from "../../../src/hql/lsp/imports/import-parser.ts";
 import type { UnusedImport } from "../../../src/hql/lsp/imports/types.ts";
-
-// Helper to create a TextDocument
-function createDoc(content: string, uri = "file:///test.hql"): TextDocument {
-  return TextDocument.create(uri, "hql", 1, content);
-}
+import { createDoc } from "./helpers.ts";
 
 function detectUnusedImports(_code: string, _filePath?: string): UnusedImport[] {
   return findUnusedImports(_code, findAllImports(_code));

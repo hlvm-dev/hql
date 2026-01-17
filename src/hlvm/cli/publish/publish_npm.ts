@@ -2,7 +2,7 @@ import type { PublishSummary } from "./publish_summary.ts";
 import { getNpmLatestVersion } from "./remote_registry.ts";
 import { detectNpmError } from "./error_handlers.ts";
 import { globalLogger as logger } from "../../../logger.ts";
-import { join } from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 import {
   executeCommand,
   incrementPatchVersion,
@@ -116,7 +116,7 @@ const npmPublisher: RegistryPublisher = {
   async updateMetadata(distDir, packageVersion, config) {
     config.version = packageVersion;
 
-    const packageJsonPath = join(distDir, "package.json");
+    const packageJsonPath = getPlatform().path.join(distDir, "package.json");
     await writeJSONFile(packageJsonPath, config as unknown as Record<string, unknown>); // Cast to Record
     console.log(
       `  → Updated dist/package.json file with version ${packageVersion}`,

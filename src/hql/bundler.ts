@@ -15,7 +15,7 @@ import type {
 } from "npm:esbuild-wasm@^0.17.0";
 import { transpileToJavascript } from "./transpiler/hql-transpiler.ts";
 import { formatErrorMessage } from "../common/error.ts";
-import { ERROR_REPORTED_SYMBOL } from "../common/error-constants.ts";
+import { ERROR_REPORTED_SYMBOL } from "../common/error-codes.ts";
 import {
   isHqlFile,
   isJsFile,
@@ -32,17 +32,14 @@ import {
 } from "../common/utils.ts";
 import { initializeRuntime } from "../common/runtime-initializer.ts";
 import { globalLogger as logger } from "../logger.ts";
-import {
-  cwd,
-  dirname,
-  ensureDir,
-  exists,
-  extname,
-  isAbsolute,
-  readTextFile,
-  resolve,
-  writeTextFile,
-} from "../platform/platform.ts";
+import { getPlatform } from "../platform/platform.ts";
+
+// Local aliases for frequently used platform functions
+const p = () => getPlatform();
+const pathUtil = () => p().path;
+const fsUtil = () => p().fs;
+const cwd = () => p().process.cwd();
+
 import { TranspilerError, ValidationError } from "../common/error.ts";
 import {
   createTempDir,
@@ -55,7 +52,6 @@ import {
   writeToCachedPath,
 } from "../common/hlvm-cache-tracker.ts";
 import { transpile, type TranspileOptions } from "./transpiler/index.ts";
-import { fromFileUrl, join } from "../platform/platform.ts";
 import { preloadSourceMap } from "./transpiler/pipeline/source-map-support.ts";
 import { LRUCache } from "../common/lru-cache.ts";
 import { DEFAULT_LRU_CACHE_SIZE } from "../common/limits.ts";
@@ -69,11 +65,11 @@ function getStdlibPath(): string {
   // Get the directory where this file (bundler.ts) is located
   const thisFileUrl = import.meta.url;
   const thisFilePath = thisFileUrl.startsWith("file://")
-    ? fromFileUrl(thisFileUrl)
+    ? pathUtil().fromFileUrl(thisFileUrl)
     : thisFileUrl;
-  const thisDir = dirname(thisFilePath);
+  const thisDir = pathUtil().dirname(thisFilePath);
   // stdlib is at lib/stdlib/js/index.js relative to src/
-  return join(thisDir, "lib", "stdlib", "js", "index.js");
+  return pathUtil().join(thisDir, "lib", "stdlib", "js", "index.js");
 }
 
 function propagateReportedFlag(source: unknown, target: object): void {
@@ -171,9 +167,9 @@ export async function transpileCLI(
   configureLogger(options);
   await initializeRuntime();
 
-  const resolvedInputPath = resolve(inputPath);
+  const resolvedInputPath = pathUtil().resolve(inputPath);
   const outPath = determineOutputPath(resolvedInputPath, outputPath);
-  const sourceDir = dirname(resolvedInputPath);
+  const sourceDir = pathUtil().dirname(resolvedInputPath);
   const bundleOptions = { ...options, sourceDir };
 
   // Process entry file
@@ -190,8 +186,8 @@ export async function transpileCLI(
     logger.log({ text: `[Bundler] Skipping bundle, output: ${tsOutputPath}`, namespace: "bundler" });
     // Copy transpiled TS to output path if different
     if (tsOutputPath !== outPath) {
-      const content = await readTextFile(tsOutputPath);
-      await writeTextFile(outPath, content);
+      const content = await fsUtil().readTextFile(tsOutputPath);
+      await fsUtil().writeTextFile(outPath, content);
     }
     return outPath;
   }
@@ -237,7 +233,7 @@ async function prebundleHqlImports(
   isJs: boolean,
   ctx: ProcessingCtx = { stack: new Set<string>() },
 ): Promise<string> {
-  const baseDir = dirname(filePath);
+  const baseDir = pathUtil().dirname(filePath);
   let modifiedSource = source;
   const imports = extractHqlImports(source);
 
@@ -273,10 +269,10 @@ async function prebundleHqlImports(
       logger.debug(`Transpiling HQL import: ${resolvedHqlPath}`);
       const hqlSource = await readFile(resolvedHqlPath);
       let { code: jsCode } = await transpileToJavascript(hqlSource, {
-        baseDir: dirname(resolvedHqlPath),
+        baseDir: pathUtil().dirname(resolvedHqlPath),
         verbose: options.verbose,
         tempDir: options.tempDir,
-        sourceDir: options.sourceDir || dirname(resolvedHqlPath),
+        sourceDir: options.sourceDir || pathUtil().dirname(resolvedHqlPath),
         currentFile: resolvedHqlPath,
         sourceContent: hqlSource,
       });
@@ -326,7 +322,7 @@ async function prebundleHqlImports(
         // Bundle cached JavaScript (cachedTsPath is the source, cachedJsPath is the destination)
         await bundleWithEsbuild(cachedTsPath, cachedJsPath, {
           verbose: options.verbose,
-          sourceDir: options.sourceDir || dirname(resolvedHqlPath),
+          sourceDir: options.sourceDir || pathUtil().dirname(resolvedHqlPath),
           external: options.external,
           esbuildTarget: options.esbuildTarget,
         });
@@ -359,7 +355,7 @@ async function processEntryFile(
   options: BundleOptions = {},
 ): Promise<{ tsOutputPath: string; sourceMap?: string }> {
   try {
-    const resolvedInputPath = resolve(inputPath);
+    const resolvedInputPath = pathUtil().resolve(inputPath);
     logger.debug(`Processing entry file: ${resolvedInputPath}`);
     logger.debug(`Output path: ${outputPath}`);
 
@@ -404,10 +400,10 @@ async function processHqlEntryFile(
   });
 
   let { code: jsCode, sourceMap } = await transpileToJavascript(source, {
-    baseDir: dirname(resolvedInputPath),
+    baseDir: pathUtil().dirname(resolvedInputPath),
     verbose: options.verbose,
     tempDir,
-    sourceDir: options.sourceDir || dirname(resolvedInputPath),
+    sourceDir: options.sourceDir || pathUtil().dirname(resolvedInputPath),
     currentFile: resolvedInputPath,
     sourceContent: source,
   });
@@ -452,14 +448,14 @@ async function processHqlEntryFile(
   // Write source map file so esbuild can chain it when bundling
   if (sourceMap) {
     const mapPath = `${tsOutputPath}.map`;
-    await writeTextFile(mapPath, sourceMap);
+    await fsUtil().writeTextFile(mapPath, sourceMap);
     logger.debug(`Wrote source map to ${mapPath}`);
 
     // Add sourceMappingURL to the cached file so esbuild knows about it
     // Extract just the filename from the full path
     const filename = tsOutputPath.split('/').pop() || 'output.ts';
     const jsCodeWithMap = `${jsCode}\n//# sourceMappingURL=${filename}.map`;
-    await writeTextFile(tsOutputPath, jsCodeWithMap);
+    await fsUtil().writeTextFile(tsOutputPath, jsCodeWithMap);
 
     // Preload source map into cache for error handling (non-blocking)
     // This ensures source maps are available during Error.prepareStackTrace
@@ -516,7 +512,7 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
           const filePath = args.path.replace("file://", "");
           logger.debug(`Converting file:// URL: ${args.path} → ${filePath}`);
 
-          if (await exists(filePath)) {
+          if (await fsUtil().exists(filePath)) {
             return { path: filePath };
           }
           logger.warn(`File not found: ${filePath}`);
@@ -540,18 +536,18 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
           const stdlibPath = getStdlibPath();
           logger.debug(`Resolving HQL stdlib: ${args.path} → ${stdlibPath}`);
 
-          if (await exists(stdlibPath)) {
+          if (await fsUtil().exists(stdlibPath)) {
             return { path: stdlibPath, namespace: "file" };
           }
 
           // Fallback: try to find stdlib in common locations
           const fallbackPaths = [
-            join(cwd(), "src", "lib", "stdlib", "js", "index.js"),
-            join(cwd(), "lib", "stdlib", "js", "index.js"),
+            pathUtil().join(cwd(), "src", "lib", "stdlib", "js", "index.js"),
+            pathUtil().join(cwd(), "lib", "stdlib", "js", "index.js"),
           ];
 
           for (const fallback of fallbackPaths) {
-            if (await exists(fallback)) {
+            if (await fsUtil().exists(fallback)) {
               logger.debug(`Found stdlib at fallback: ${fallback}`);
               return { path: fallback, namespace: "file" };
             }
@@ -587,8 +583,8 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
         // If an HQL file has a pre-determined cached path, resolve directly to it to break cycles
         if (isHqlFile(args.path)) {
           try {
-            const importerDir = args.importer ? dirname(args.importer) : cwd();
-            const absCandidate = resolve(importerDir, args.path);
+            const importerDir = args.importer ? pathUtil().dirname(args.importer) : cwd();
+            const absCandidate = pathUtil().resolve(importerDir, args.path);
             const direct = filePathMap.get(args.path) ||
               filePathMap.get(absCandidate);
             const mapped = direct || getImportMapping(absCandidate) ||
@@ -639,7 +635,7 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
           return {
             contents: processedContent,
             loader,
-            resolveDir: dirname(filePath),
+            resolveDir: pathUtil().dirname(filePath),
           };
         } catch (error) {
           logger.error(
@@ -731,7 +727,7 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
             return {
               contents: jsCode,
               loader: "ts",
-              resolveDir: dirname(cachedPath),
+              resolveDir: pathUtil().dirname(cachedPath),
             };
           } catch (error) {
             throw new TranspilerError(
@@ -812,7 +808,7 @@ async function bundleWithEsbuild(
     const bundlePlugin = createUnifiedBundlePlugin({
       verbose: options.verbose,
       tempDir,
-      sourceDir: options.sourceDir || dirname(entryPath),
+      sourceDir: options.sourceDir || pathUtil().dirname(entryPath),
     });
 
     const logLevel: LogLevel = options.verbose ? "info" : "silent";
@@ -849,7 +845,7 @@ async function bundleWithEsbuild(
       metafile: true,
       write: false, // Browser WASM version doesn't support write, we'll write manually
       absWorkingDir: cwd(),
-      nodePaths: [cwd(), dirname(entryPath)],
+      nodePaths: [cwd(), pathUtil().dirname(entryPath)],
       external,
       loader: {
         ".ts": "ts" as const,
@@ -887,7 +883,7 @@ async function bundleWithEsbuild(
     // Write output manually (browser WASM version doesn't support write: true)
     if (result.outputFiles && result.outputFiles.length > 0) {
       const outputContent = result.outputFiles[0].text;
-      await writeTextFile(outputPath, outputContent);
+      await fsUtil().writeTextFile(outputPath, outputContent);
     }
 
     // Post-process the output to normalize any stray file:// URLs
@@ -932,7 +928,7 @@ async function postProcessBundleOutput(outputPath: string): Promise<void> {
     }
 
     if (modified) {
-      await writeTextFile(outputPath, content);
+      await fsUtil().writeTextFile(outputPath, content);
     }
   } catch (error) {
     logger.error(`Error post-processing bundle: ${formatErrorMessage(error)}`);
@@ -972,7 +968,7 @@ async function maybeRegisterTranspiledPath(hqlPath: string): Promise<void> {
   if (!isHqlFile(hqlPath)) return;
 
   const tsPath = hqlPath.replace(/\.hql$/, ".ts");
-  if (await exists(tsPath)) {
+  if (await fsUtil().exists(tsPath)) {
     registerImportMapping(hqlPath, tsPath);
   }
 }
@@ -1012,15 +1008,15 @@ async function resolveImportPath(
   // Create prioritized array of lookup locations
   const projectRoot = cwd();
   const lookupLocations = [
-    resolve(baseDir, importPath),
-    ...(options.sourceDir ? [resolve(options.sourceDir, importPath)] : []),
-    resolve(projectRoot, importPath),
-    resolve(projectRoot, "lib", importPath.replace(/^\.\//, "")),
+    pathUtil().resolve(baseDir, importPath),
+    ...(options.sourceDir ? [pathUtil().resolve(options.sourceDir, importPath)] : []),
+    pathUtil().resolve(projectRoot, importPath),
+    pathUtil().resolve(projectRoot, "lib", importPath.replace(/^\.\//, "")),
   ];
 
   // Try each location in order until we find the file
   for (const location of lookupLocations) {
-    if (await exists(location)) {
+    if (await fsUtil().exists(location)) {
       logger.debug(`Resolved import: ${importPath} → ${location}`);
       return location;
     }
@@ -1048,7 +1044,7 @@ async function resolveHqlImport(
   }
 
   // Check if it is an absolute path that exists (e.g. entry point from cache)
-  if (isAbsolute(args.path) && await exists(args.path)) {
+  if (pathUtil().isAbsolute(args.path) && await fsUtil().exists(args.path)) {
     logger.debug(`Resolved absolute path: ${args.path}`);
     return createResolveResult(args.path);
   }
@@ -1062,9 +1058,9 @@ async function resolveHqlImport(
 
   // Check resolved path mapping
   if (args.importer) {
-    const importerDir = dirname(args.importer);
+    const importerDir = pathUtil().dirname(args.importer);
     const resolvedPath = args.path.startsWith(".")
-      ? resolve(importerDir, args.path)
+      ? pathUtil().resolve(importerDir, args.path)
       : args.path;
 
     const mappedPath = getImportMapping(resolvedPath);
@@ -1076,10 +1072,10 @@ async function resolveHqlImport(
 
   // Resolve relative to importer (most common case)
   if (args.importer) {
-    const importerDir = dirname(args.importer);
-    const relativePath = resolve(importerDir, args.path);
+    const importerDir = pathUtil().dirname(args.importer);
+    const relativePath = pathUtil().resolve(importerDir, args.path);
 
-    if (await exists(relativePath)) {
+    if (await fsUtil().exists(relativePath)) {
       await maybeRegisterTranspiledPath(relativePath);
 
       logger.debug(
@@ -1092,7 +1088,7 @@ async function resolveHqlImport(
   // Try other resolution strategies
   const resolvedPath = await resolveImportPath(
     args.path,
-    args.importer ? dirname(args.importer) : cwd(),
+    args.importer ? pathUtil().dirname(args.importer) : cwd(),
     { sourceDir: options.sourceDir },
   );
 
@@ -1121,7 +1117,7 @@ export async function transpileHqlFile(
 ): Promise<string> {
   try {
     // Read the HQL file
-    const hqlContent = await readTextFile(hqlFilePath);
+    const hqlContent = await fsUtil().readTextFile(hqlFilePath);
 
     if (verbose) {
       logger.debug(`Transpiling HQL file: ${hqlFilePath}`);
@@ -1130,7 +1126,7 @@ export async function transpileHqlFile(
     // Set up options
     const options: TranspileOptions = {
       verbose,
-      baseDir: dirname(hqlFilePath),
+      baseDir: pathUtil().dirname(hqlFilePath),
       currentFile: hqlFilePath,
     };
 
@@ -1185,7 +1181,7 @@ async function loadTranspiledFile(
     return {
       contents: content,
       loader: isTs ? "ts" : "js",
-      resolveDir: dirname(filePath),
+      resolveDir: pathUtil().dirname(filePath),
     };
   } catch (error) {
     throw new TranspilerError(
@@ -1206,11 +1202,11 @@ export async function transpileHqlInJs(
 ): Promise<string> {
   try {
     // Read the HQL content
-    const hqlContent = await readTextFile(hqlPath);
+    const hqlContent = await fsUtil().readTextFile(hqlPath);
 
     // Transpile to JavaScript using the existing transpileToJavascript function
     const { code: jsContent } = await transpileToJavascript(hqlContent, {
-      baseDir: dirname(hqlPath),
+      baseDir: pathUtil().dirname(hqlPath),
       sourceDir: basePath,
       currentFile: hqlPath,
       sourceContent: hqlContent,
@@ -1337,13 +1333,13 @@ async function writeOutput(
   outputPath: string,
 ): Promise<void> {
   try {
-    const outputDir = dirname(outputPath);
-    await ensureDir(outputDir);
-    await writeTextFile(outputPath, code);
+    const outputDir = pathUtil().dirname(outputPath);
+    await fsUtil().ensureDir(outputDir);
+    await fsUtil().writeTextFile(outputPath, code);
     logger.debug(`Written output to disk: ${outputPath}`);
 
     // Write a cached copy for reuse, but don't let cache failures break the build
-    const ext = extname(outputPath);
+    const ext = pathUtil().extname(outputPath);
     try {
       const cachedPath = await writeToCachedPath(
         outputPath,
@@ -1354,7 +1350,7 @@ async function writeOutput(
 
       logger.debug(`Written output to cache: ${cachedPath}`);
 
-      if (await exists(cachedPath)) {
+      if (await fsUtil().exists(cachedPath)) {
         const cachedHash = await getContentHash(cachedPath);
         const currentHash = await getContentHash(outputPath);
         if (cachedHash === currentHash) {

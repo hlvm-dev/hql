@@ -3,12 +3,13 @@ import { exists } from "jsr:@std/fs@1.0.13";
 import type { PublishSummary, RegistryType } from "./publish_summary.ts";
 import { confirmAllowDirtyPublish } from "./dirty_publish_prompt.ts";
 import { ErrorType } from "./error_handlers.ts";
-import {
-  basename,
-  dirname,
-  getEnv,
-  join,
-} from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+
+const p = () => getPlatform();
+const basename = (path: string) => p().path.basename(path);
+const dirname = (path: string) => p().path.dirname(path);
+const getEnv = (key: string) => p().env.get(key);
+const join = (...paths: string[]) => p().path.join(...paths);
 import {
   ensureReadme,
   getCachedBuild,
@@ -21,14 +22,16 @@ import {
 } from "./utils.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 
-// Common interfaces for publishing options
+// Common interfaces for publishing options - Single Source of Truth
 export interface PublishOptions {
   entryFile: string;
+  platforms?: ("jsr" | "npm")[]; // Optional - only used by CLI entry point
   version?: string;
-  hasMetadata?: boolean; // Changed to optional
+  hasMetadata?: boolean;
   metadataType?: MetadataFileType;
   verbose?: boolean;
   dryRun?: boolean;
+  allowDirty?: boolean;
 }
 
 export interface PublishContext {

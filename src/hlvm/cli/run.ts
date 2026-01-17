@@ -12,11 +12,11 @@ import {
   parseLogNamespaces,
   parseNonOptionArgs,
 } from "./utils/cli-options.ts";
-import {
-  getArgs as platformGetArgs,
-  exists as platformExists,
-  getPlatform,
-} from "../../platform/platform.ts";
+import { getPlatform } from "../../platform/platform.ts";
+
+// Local aliases for frequently used platform functions
+const platformGetArgs = () => getPlatform().process.args();
+const platformExists = (path: string) => getPlatform().fs.exists(path);
 
 // Import the enhanced error handling system
 import {

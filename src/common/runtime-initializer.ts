@@ -6,7 +6,7 @@
  */
 
 import { globalLogger as logger } from "../logger.ts";
-import { dirname, exists, fromFileUrl, join } from "../platform/platform.ts";
+import { getPlatform } from "../platform/platform.ts";
 import { copyNeighborFiles, processHqlFile } from "./hlvm-cache-tracker.ts";
 import { getErrorMessage } from "./utils.ts";
 import { initializeRuntimeHelpers } from "./runtime-helpers.ts";
@@ -152,15 +152,16 @@ class HlvmRuntimeInitializer {
     let stdlibSource = "";
 
     // Try to find stdlib in various locations (development mode)
-    const macroRegistryDir = dirname(fromFileUrl(import.meta.url));
+    const p = getPlatform();
+    const macroRegistryDir = p.path.dirname(p.path.fromFileUrl(import.meta.url));
     const possibleLocations = [
-      join(macroRegistryDir, "../../lib/stdlib/stdlib.hql"),
-      join(macroRegistryDir, "../../../lib/stdlib/stdlib.hql"),
-      join(macroRegistryDir, "../../../core/lib/stdlib/stdlib.hql"),
+      p.path.join(macroRegistryDir, "../../lib/stdlib/stdlib.hql"),
+      p.path.join(macroRegistryDir, "../../../lib/stdlib/stdlib.hql"),
+      p.path.join(macroRegistryDir, "../../../core/lib/stdlib/stdlib.hql"),
     ];
 
     for (const location of possibleLocations) {
-      if (await exists(location)) {
+      if (await p.fs.exists(location)) {
         stdlibSource = location;
         break;
       }
@@ -179,7 +180,7 @@ class HlvmRuntimeInitializer {
       logger.debug(`Processed stdlib to: ${cachedPath}`);
 
       // Copy any JS implementations associated with the stdlib
-      await copyNeighborFiles(stdlibSource, join(cachedPath, ".."));
+      await copyNeighborFiles(stdlibSource, getPlatform().path.join(cachedPath, ".."));
 
       logger.debug("Standard library initialization complete");
     } catch (error) {

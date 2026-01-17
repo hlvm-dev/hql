@@ -17,6 +17,12 @@
  * - Links to detailed error explanations
  */
 
+/**
+ * Symbol used to mark errors as reported to prevent double-reporting.
+ * Shared across error handling modules.
+ */
+export const ERROR_REPORTED_SYMBOL = Symbol.for("__hql_error_reported__");
+
 export enum HQLErrorCode {
   // ============================================================================
   // Parse Errors (1000-1999)

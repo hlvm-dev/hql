@@ -12,7 +12,7 @@ import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { ProgressBar, formatBytes } from "./ProgressBar.tsx";
 import { isModelPullTask } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
-import { DEFAULT_MODEL_NAME } from "../../../../common/config/defaults.ts";
+import { DEFAULT_MODEL_NAME } from "../../../../common/config/types.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 
 // ============================================================

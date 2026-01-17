@@ -4,12 +4,8 @@
  */
 
 import { assertEquals, assertNotEquals } from "jsr:@std/assert@1";
-import hql from "../../mod.ts";
 import { resetRuntime } from "../../mod.ts";
-
-async function run(code: string): Promise<unknown> {
-  return await hql.run(code);
-}
+import { run } from "./helpers.ts";
 
 // =============================================================================
 // BASIC GENSYM FUNCTIONALITY

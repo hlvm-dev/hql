@@ -1,11 +1,12 @@
 import { parseArgs } from "jsr:@std/cli@1.0.13/parse-args";
-import {
-  dirname,
-  exists,
-  exit,
-  getArgs as platformGetArgs,
-  getEnv as platformGetEnv,
-} from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+
+const p = () => getPlatform();
+const dirname = (path: string) => p().path.dirname(path);
+const exists = (path: string) => p().fs.exists(path);
+const exit = (code: number) => p().process.exit(code);
+const platformGetArgs = () => p().process.args();
+const platformGetEnv = (key: string) => p().env.get(key);
 import { publishNpm } from "./publish_npm.ts";
 import { publishJSR } from "./publish_jsr.ts";
 import { printPublishSummary, type PublishSummary } from "./publish_summary.ts";
@@ -22,15 +23,9 @@ import {
   type MetadataStatus,
 } from "./utils.ts";
 
-export interface PublishOptions {
-  entryFile: string;
-  platforms: ("jsr" | "npm")[];
-  version?: string;
-  verbose?: boolean;
-  dryRun?: boolean;
-  hasMetadata?: boolean;
-  allowDirty?: boolean;
-}
+// Re-export PublishOptions from single source of truth
+export type { PublishOptions } from "./publish_common.ts";
+import type { PublishOptions } from "./publish_common.ts";
 
 function showHelp() {
   console.log(`
@@ -127,7 +122,7 @@ function printPublishInfo(
   options: PublishOptions,
   metadataStatus: MetadataStatus,
 ): void {
-  const targetPlatforms = options.platforms.map((p) => p.toUpperCase()).join(
+  const targetPlatforms = (options.platforms ?? []).map((p) => p.toUpperCase()).join(
     ", ",
   );
 
@@ -241,7 +236,7 @@ export async function publish(args: string[]): Promise<void> {
     printPublishInfo(options.entryFile, options, metadataStatus);
 
     const summaries: PublishSummary[] = [];
-    for (const platform of options.platforms) {
+    for (const platform of options.platforms ?? []) {
       const metadataType = platform === "jsr"
         ? metadataStatus.jsr
         : metadataStatus.npm;

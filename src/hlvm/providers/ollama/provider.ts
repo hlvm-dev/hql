@@ -19,7 +19,7 @@ import type {
 
 import * as api from "./api.ts";
 import { getOllamaCatalog } from "./catalog.ts";
-import { DEFAULT_MODEL_NAME } from "../../../common/config/defaults.ts";
+import { DEFAULT_MODEL_NAME } from "../../../common/config/types.ts";
 
 // ============================================================================
 // Default Configuration

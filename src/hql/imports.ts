@@ -6,14 +6,12 @@ import type { MacroFn } from "./environment.ts";
 import { evaluateForMacro, expandMacros } from "./s-exp/macro.ts";
 import { parse } from "./transpiler/pipeline/parser.ts";
 import { escapeRegExp, readFile, sanitizeIdentifier, getErrorMessage, isObjectValue } from "../common/utils.ts";
-import {
-  basename,
-  dirname,
-  extname,
-  fromFileUrl,
-  resolve,
-  normalize,
-} from "../platform/platform.ts";
+import { getPlatform } from "../platform/platform.ts";
+
+// Local aliases for frequently used platform functions
+const p = () => getPlatform();
+const path = () => p().path;
+const fs = () => p().fs;
 
 import { DEFAULT_LRU_CACHE_SIZE } from "../common/limits.ts";
 
@@ -70,9 +68,6 @@ import {
   enrichImportedSymbolInfo,
 } from "./transpiler/utils/symbol_info_utils.ts";
 import { processVectorElements } from "./transpiler/syntax/data-structure.ts";
-import {
-  readTextFile as platformReadTextFile,
-} from "../platform/platform.ts";
 import { LRUCache } from "../common/lru-cache.ts";
 
 // Cache file contents to avoid re-reading the same file for every import
@@ -123,8 +118,8 @@ function validateImportPath(
   // For relative paths, verify they don't escape baseDir
   // Use resolve() instead of normalize() for baseDir to handle "." correctly
   // resolve(".") returns the absolute cwd, while normalize(".") returns "."
-  const normalizedResolved = normalize(resolvedPath);
-  const normalizedBase = normalize(resolve(baseDir));
+  const normalizedResolved = path().normalize(resolvedPath);
+  const normalizedBase = path().normalize(path().resolve(baseDir));
 
   // Ensure base path ends with separator for proper boundary check
   // This prevents "/Users/project-backup" from matching "/Users/project"
@@ -154,7 +149,7 @@ async function preloadFileLines(filePath: string): Promise<void> {
   if (fileLineCache.has(filePath)) return;
 
   try {
-    const fileContent = await platformReadTextFile(filePath);
+    const fileContent = await fs().readTextFile(filePath);
     const lines = fileContent.split("\n");
     fileLineCache.set(filePath, lines);
     logger.debug(`Preloaded file lines for: ${filePath}`);
@@ -200,7 +195,7 @@ function generateModuleId(modulePath: string): string {
   // Generate hash from full path to ensure uniqueness
   const hash = cyrb53(modulePath).toString(36);
   // Keep human-readable prefix for debugging (basename without extension)
-  const baseName = basename(modulePath, extname(modulePath))
+  const baseName = path().basename(modulePath, path().extname(modulePath))
     .replace(/[^a-zA-Z0-9]/g, "_")
     .slice(0, 20);
   return `__module_${baseName}_${hash}`;
@@ -249,7 +244,7 @@ export async function processImports(
 ): Promise<void> {
   // Always resolve baseDir relative to this file if not explicitly provided
   const baseDir = options.baseDir ||
-    resolve(dirname(fromFileUrl(import.meta.url)), "../../");
+    path().resolve(path().dirname(path().fromFileUrl(import.meta.url)), "../../");
 
   const processedFiles = options.processedFiles || new Set<string>();
   const inProgressFiles = options.inProgressFiles || new Set<string>();
@@ -791,16 +786,16 @@ async function processSimpleImport(
     registerModulePath(modulePath, modulePath);
     
     await loadHqlModule(
-      basename(modulePath),
+      path().basename(modulePath),
       modulePath,
       modulePath, // Use modulePath as resolvedPath for embedded modules
       env,
       options
     );
-    
+
     // Register in symbol table
     globalSymbolTable.set({
-      name: basename(modulePath, extname(modulePath)),
+      name: path().basename(modulePath, path().extname(modulePath)),
       kind: "module",
       scope: "global",
       isImported: true,
@@ -810,7 +805,7 @@ async function processSimpleImport(
     return;
   }
 
-  const resolvedPath = resolve(baseDir, modulePath);
+  const resolvedPath = path().resolve(baseDir, modulePath);
   validateImportPath(modulePath, resolvedPath, baseDir);
 
   logger.debug(
@@ -829,7 +824,7 @@ async function processSimpleImport(
 
   // Register in symbol table
   globalSymbolTable.set({
-    name: basename(modulePath, extname(modulePath)),
+    name: path().basename(modulePath, path().extname(modulePath)),
     kind: "module",
     scope: "global",
     isImported: true,
@@ -898,7 +893,7 @@ async function processNamespaceImport(
       return;
     }
 
-    const resolvedPath = resolve(baseDir, modulePath);
+    const resolvedPath = path().resolve(baseDir, modulePath);
     validateImportPath(modulePath, resolvedPath, baseDir);
     // First load the module with a consistent internal ID
     const moduleId = generateModuleId(modulePath);
@@ -993,7 +988,7 @@ async function processVectorBasedImport(
       moduleId = generateModuleId(modulePath);
       await loadHqlModule(moduleId, modulePath, resolvedPath, env, options);
     } else {
-      resolvedPath = resolve(baseDir, modulePath);
+      resolvedPath = path().resolve(baseDir, modulePath);
       validateImportPath(modulePath, resolvedPath, baseDir);
       // Use a consistent module ID for all import styles
       moduleId = generateModuleId(modulePath);
@@ -1693,7 +1688,7 @@ async function loadHqlModule(
     // Process imports - allow circular references to find the pre-registered module
     await processImports(importedExprs, env, {
       verbose: options.verbose,
-      baseDir: dirname(resolvedPath),
+      baseDir: path().dirname(resolvedPath),
       tempDir,
       processedFiles,
       inProgressFiles,
@@ -1778,10 +1773,10 @@ async function loadTypeScriptModule(
       env,
       processedFiles,
     );
-  } catch (error) {
+  } catch (e) {
     throw new ImportError(
       `Importing TypeScript module ${moduleName}: ${
-        getErrorMessage(error)
+        getErrorMessage(e)
       }`,
       modulePath,
     );
@@ -1802,7 +1797,7 @@ async function loadJavaScriptModule(
     let finalModuleUrl = `file://${resolvedPath}`;
 
     // Check if JS file contains HQL imports or needs processing
-    const jsSource = await platformReadTextFile(resolvedPath);
+    const jsSource = await fs().readTextFile(resolvedPath);
     logger.debug(`Checking JS file ${resolvedPath} for imports...`);
     if (
       hasHqlImports(jsSource) ||

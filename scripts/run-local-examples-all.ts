@@ -1,15 +1,16 @@
 // deno run -A scripts/run-local-examples-all.ts
 // Runs every .hql file under doc/examples using the LOCAL HLVM CLI
 
-import {
-  cwd,
-  readDir,
-  runCmd,
-  exit,
-  resolve,
-  relative,
-  readTextFile,
-} from "../src/platform/platform.ts";
+import { getPlatform } from "../src/platform/platform.ts";
+
+const p = () => getPlatform();
+const cwd = () => p().process.cwd();
+const readDir = (path: string) => p().fs.readDir(path);
+const runCmd = (cmd: string[]) => p().command.run(cmd);
+const exit = (code: number) => p().process.exit(code);
+const resolve = (...paths: string[]) => p().path.resolve(...paths);
+const relative = (from: string, to: string) => p().path.relative(from, to);
+const readTextFile = (path: string) => p().fs.readTextFile(path);
 
 const root = cwd();
 const examplesDir = resolve(root, "docs/features");

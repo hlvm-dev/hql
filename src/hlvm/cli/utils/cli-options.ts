@@ -2,10 +2,10 @@
  * CLI option parsing and application utilities
  */
 import { globalLogger } from "../../../logger.ts";
-import {
-  cwd as platformCwd,
-  setEnv as platformSetEnv,
-} from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+
+const platformCwd = () => getPlatform().process.cwd();
+const platformSetEnv = (key: string, value: string) => getPlatform().env.set(key, value);
 
 export interface CliOptions {
   verbose?: boolean;

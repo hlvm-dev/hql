@@ -1,21 +1,9 @@
-import {
-  basename,
-  cwd,
-  dirname,
-  ensureDir,
-  exists,
-  fromFileUrl,
-  getEnv,
-  isAbsolute,
-  join,
-  makeTempDir,
-  readDir,
-  readTextFile,
-  relative,
-  remove,
-  resolve,
-  writeTextFile,
-} from "../platform/platform.ts";
+import { getPlatform } from "../platform/platform.ts";
+
+// Local aliases for frequently used platform functions
+const p = () => getPlatform();
+const path = () => p().path;
+const fs = () => p().fs;
 import { transpileHqlInJs } from "../hql/bundler.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { sanitizeIdentifier, getErrorMessage, normalizePath, hyphenToUnderscore } from "./utils.ts";
@@ -80,10 +68,10 @@ function splitPathSegments(value: string): string[] {
 
 function getCacheSubdirSegmentsForDir(dirPath: string): string[] {
   const projectRoot = getProjectRoot();
-  const relativeToProject = relative(projectRoot, dirPath);
+  const relativeToProject = path().relative(projectRoot, dirPath);
   const withinProject = relativeToProject === "" ||
     (!relativeToProject.startsWith("..") &&
-      !isAbsolute(relativeToProject));
+      !path().isAbsolute(relativeToProject));
 
   if (withinProject) {
     return splitPathSegments(relativeToProject).map(sanitizePathSegment);
@@ -105,12 +93,12 @@ function buildCachePath(
 ): string {
   if (fileName) {
     return subdirSegments.length === 0
-      ? join(cacheDir, fileName)
-      : join(cacheDir, ...subdirSegments, fileName);
+      ? path().join(cacheDir, fileName)
+      : path().join(cacheDir, ...subdirSegments, fileName);
   }
   return subdirSegments.length === 0
     ? cacheDir
-    : join(cacheDir, ...subdirSegments);
+    : path().join(cacheDir, ...subdirSegments);
 }
 
 // In-progress guards to prevent infinite recursion on circular graphs
@@ -132,12 +120,13 @@ function getProjectRoot(): string {
   // Calculate project root from this file's location
   // This file is at: src/common/hlvm-cache-tracker.ts
   // Project root is: ../../ from here
-  return join(dirname(fromFileUrl(import.meta.url)), "../..");
+  return path().join(path().dirname(path().fromFileUrl(import.meta.url)), "../..");
 }
 
 function getTempBase(): string {
   try {
-    return getEnv("TMPDIR") || getEnv("TEMP") || getEnv("TMP") || "/tmp";
+    const env = p().env;
+    return env.get("TMPDIR") || env.get("TEMP") || env.get("TMP") || "/tmp";
   } catch {
     return "/tmp";
   }
@@ -151,7 +140,7 @@ export async function getCacheDir(): Promise<string> {
   let cacheRootBase: string | null = null;
   try {
     // If HLVM_CACHE_ROOT is set, use it as absolute base directory for the cache
-    cacheRootBase = getEnv("HLVM_CACHE_ROOT") || null;
+    cacheRootBase = p().env.get("HLVM_CACHE_ROOT") || null;
   } catch {
     // Ignore if env access is not permitted
   }
@@ -166,14 +155,14 @@ export async function getCacheDir(): Promise<string> {
     base = getTempBase();
   }
 
-  let cacheRoot = join(base, HLVM_CACHE_DIR, CACHE_VERSION);
+  let cacheRoot = path().join(base, HLVM_CACHE_DIR, CACHE_VERSION);
   try {
-    await ensureDir(cacheRoot);
+    await fs().ensureDir(cacheRoot);
   } catch {
     // Fallback to a temp location if the default path is not writable
     base = getTempBase();
-    cacheRoot = join(base, HLVM_CACHE_DIR, CACHE_VERSION);
-    await ensureDir(cacheRoot);
+    cacheRoot = path().join(base, HLVM_CACHE_DIR, CACHE_VERSION);
+    await fs().ensureDir(cacheRoot);
   }
   return cacheRoot;
 }
@@ -183,8 +172,8 @@ export async function getCacheDir(): Promise<string> {
  */
 export async function getRuntimeCacheDir(): Promise<string> {
   const cacheDir = await getCacheDir();
-  const runtimeDir = join(dirname(cacheDir), "rt");
-  await ensureDir(runtimeDir);
+  const runtimeDir = path().join(path().dirname(cacheDir), "rt");
+  await fs().ensureDir(runtimeDir);
   return runtimeDir;
 }
 
@@ -211,7 +200,7 @@ export async function getContentHash(filePath: string): Promise<string> {
 
   try {
     // Read and hash the file content
-    const content = await readTextFile(filePath);
+    const content = await fs().readTextFile(filePath);
     const hash = await calculateHash(content);
 
     // Cache the hash
@@ -239,7 +228,7 @@ export async function getCachedPath(
   const shortHash = hash.substring(0, SHORT_HASH_LENGTH);
 
   // Get base file name (without extension)
-  const sourceFilename = basename(sourcePath);
+  const sourceFilename = path().basename(sourcePath);
   const baseFilename = sourceFilename.replace(REMOVE_EXTENSION_REGEX, "");
   const targetFilename = baseFilename + targetExt;
 
@@ -252,16 +241,16 @@ export async function getCachedPath(
   let outputPath: string;
 
   if (options.preserveRelative) {
-    const sourceDir = dirname(sourcePath);
+    const sourceDir = path().dirname(sourcePath);
     const subdirSegments = getCacheSubdirSegmentsForDir(sourceDir);
     outputPath = buildCachePath(cacheDir, subdirSegments, targetFilename);
   } else {
     // Use standard hash-based structure (flat)
-    outputPath = join(cacheDir, "temp", shortHash + targetExt);
+    outputPath = path().join(cacheDir, "temp", shortHash + targetExt);
   }
 
   if (options.createDir) {
-    await ensureDir(dirname(outputPath));
+    await fs().ensureDir(path().dirname(outputPath));
   }
 
   return outputPath;
@@ -316,18 +305,19 @@ async function processCachedImports(
 
       if (importPath.startsWith(".")) {
         // Relative import
-        resolvedOriginalPath = resolve(dirname(sourcePath), importPath);
+        resolvedOriginalPath = path().resolve(path().dirname(sourcePath), importPath);
       } else {
         // Try to resolve from project root or various other locations
+        const cwd = p().process.cwd();
         const possiblePaths = [
-          resolve(cwd(), importPath),
-          resolve(cwd(), "core", importPath),
-          resolve(dirname(sourcePath), importPath),
+          path().resolve(cwd, importPath),
+          path().resolve(cwd, "core", importPath),
+          path().resolve(path().dirname(sourcePath), importPath),
         ];
 
-        for (const p of possiblePaths) {
-          if (await exists(p)) {
-            resolvedOriginalPath = p;
+        for (const possiblePath of possiblePaths) {
+          if (await fs().exists(possiblePath)) {
+            resolvedOriginalPath = possiblePath;
             break;
           }
         }
@@ -352,7 +342,7 @@ async function processCachedImports(
           mappedPath.endsWith(".ts")
         ) {
           const jsPath = mappedPath.replace(TS_EXTENSION_REGEX, ".js");
-          if (await exists(jsPath)) {
+          if (await fs().exists(jsPath)) {
             finalPath = jsPath;
           }
         }
@@ -371,11 +361,11 @@ async function processCachedImports(
         // Compute where this JavaScript file would be in cache
         const cacheDir = await getCacheDir();
         const importerSubdir = getCacheSubdirSegmentsForDir(
-          dirname(sourcePath),
+          path().dirname(sourcePath),
         );
         const jsRelativePath = importPath.slice(2); // Remove './'
         const importerCacheDir = buildCachePath(cacheDir, importerSubdir);
-        const cachedJsPath = join(importerCacheDir, jsRelativePath);
+        const cachedJsPath = path().join(importerCacheDir, jsRelativePath);
 
         // Register mapping and rewrite import
         registerImportMapping(resolvedOriginalPath, cachedJsPath);
@@ -395,9 +385,9 @@ async function processCachedImports(
 
         // Compute the likely cached path
         const cacheDir = await getCacheDir();
-        const importBasename = basename(resolvedOriginalPath, ".hql");
+        const importBasename = path().basename(resolvedOriginalPath, ".hql");
         const importDirSegments = getCacheSubdirSegmentsForDir(
-          dirname(resolvedOriginalPath),
+          path().dirname(resolvedOriginalPath),
         );
 
         // Two possible locations: hash-based or preserveRelative
@@ -423,9 +413,9 @@ async function processCachedImports(
 
         // Check if any of these paths exist
         let foundCachedPath = "";
-        for (const p of cachedImportPaths) {
-          if (await exists(p)) {
-            foundCachedPath = p;
+        for (const cachedImportPath of cachedImportPaths) {
+          if (await fs().exists(cachedImportPath)) {
+            foundCachedPath = cachedImportPath;
             break;
           }
         }
@@ -461,8 +451,8 @@ async function processCachedImports(
  * Helper to join path parts and ensure directory exists
  */
 async function joinAndEnsureDirExists(...parts: string[]): Promise<string> {
-  const result = join(...parts);
-  await ensureDir(dirname(result));
+  const result = path().join(...parts);
+  await fs().ensureDir(path().dirname(result));
   return result;
 }
 
@@ -484,19 +474,19 @@ async function copyDirectoryRecursive(
   sourceDir: string,
   targetDir: string,
 ): Promise<void> {
-  await ensureDir(targetDir);
+  await fs().ensureDir(targetDir);
 
-  for await (const entry of readDir(sourceDir)) {
-    const sourcePath = join(sourceDir, entry.name);
-    const targetPath = join(targetDir, entry.name);
+  for await (const entry of fs().readDir(sourceDir)) {
+    const sourcePath = path().join(sourceDir, entry.name);
+    const targetPath = path().join(targetDir, entry.name);
 
     if (entry.isDirectory) {
       // Recursively copy subdirectory
       await copyDirectoryRecursive(sourcePath, targetPath);
     } else if (entry.isFile) {
       // Copy file
-      const content = await readTextFile(sourcePath);
-      await writeTextFile(targetPath, content);
+      const content = await fs().readTextFile(sourcePath);
+      await fs().writeTextFile(targetPath, content);
       logger.debug(`Copied file: ${sourcePath} -> ${targetPath}`);
     }
   }
@@ -511,12 +501,12 @@ export async function copyNeighborFiles(
   outputDir?: string,
 ): Promise<void> {
   try {
-    const sourceDir = dirname(sourcePath);
+    const sourceDir = path().dirname(sourcePath);
     logger.debug(`Checking for js directory near ${sourcePath}`);
 
     // Copy any js directory if it exists (for stdlib and other modules)
-    const jsDir = join(sourceDir, "js");
-    if (await exists(jsDir)) {
+    const jsDir = path().join(sourceDir, "js");
+    if (await fs().exists(jsDir)) {
       logger.debug(`Found js directory at ${jsDir}`);
 
       // Create js directory in the cache
@@ -527,16 +517,16 @@ export async function copyNeighborFiles(
         targetDir = outputDir;
       } else {
         let subdirSegments = getCacheSubdirSegmentsForDir(sourceDir);
-        const currentDir = basename(cwd());
+        const currentDir = path().basename(p().process.cwd());
         if (currentDir === "core" && subdirSegments[0] === "core") {
           subdirSegments = subdirSegments.slice(1);
         }
         targetDir = buildCachePath(cacheDir, subdirSegments);
       }
-      const targetJsDir = join(targetDir, "js");
+      const targetJsDir = path().join(targetDir, "js");
 
       // Ensure the directory exists
-      await ensureDir(targetJsDir);
+      await fs().ensureDir(targetJsDir);
       logger.debug(`Created js directory at ${targetJsDir}`);
 
       // Recursively copy all files and subdirectories from js dir
@@ -564,7 +554,7 @@ export async function needsRegeneration(
     const outputPath = await getCachedPath(sourcePath, targetExt);
 
     // Always regenerate if output doesn't exist
-    if (!await exists(outputPath)) {
+    if (!await fs().exists(outputPath)) {
       logger.debug(
         `[CACHE MISS] Output doesn't exist, regenerating: ${outputPath}`,
       );
@@ -612,7 +602,7 @@ export async function writeToCachedPath(
     );
     return sourcePath;
   }
-  const sourceFilename = basename(sourcePath);
+  const sourceFilename = path().basename(sourcePath);
   const forcePreserveRelative = sourceFilename === "stdlib.hql" ||
     sourceFilename === "stdlib.ts";
   const usePreserveRelative = forcePreserveRelative || options.preserveRelative;
@@ -630,7 +620,7 @@ export async function writeToCachedPath(
   registerImportMapping(sourcePath, outputPath);
 
   // Write content
-  await writeTextFile(outputPath, processedContent);
+  await fs().writeTextFile(outputPath, processedContent);
   logger.debug(
     `Written ${targetExt} output for ${sourcePath} to ${outputPath}`,
   );
@@ -647,9 +637,9 @@ export async function createTempDir(
   const cacheDir = await getCacheDir();
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 8);
-  const dirPath = join(cacheDir, "temp", `${prefix}-${timestamp}-${random}`);
+  const dirPath = path().join(cacheDir, "temp", `${prefix}-${timestamp}-${random}`);
 
-  await ensureDir(dirPath);
+  await fs().ensureDir(dirPath);
   logger.debug(`Created temp directory: ${dirPath}`);
   return dirPath;
 }
@@ -661,7 +651,7 @@ export async function createTempDir(
 export async function clearCache(): Promise<void> {
   const cacheDir = await getCacheDir();
   try {
-    await remove(cacheDir, { recursive: true });
+    await fs().remove(cacheDir, { recursive: true });
     logger.debug(`Cleared cache directory: ${cacheDir}`);
   } catch (error) {
     logger.debug(`Error clearing cache: ${getErrorMessage(error)}`);
@@ -672,7 +662,7 @@ export async function clearCache(): Promise<void> {
   importPathMap.clear();
 
   // Recreate the cache directory
-  await ensureDir(cacheDir);
+  await fs().ensureDir(cacheDir);
 }
 
 /**
@@ -688,15 +678,15 @@ export async function processJavaScriptFile(filePath: string): Promise<void> {
         createDir: true,
       });
       // If the cached file doesn't exist yet, create a minimal version
-      if (!await exists(cachedPath)) {
-        const content = await readTextFile(filePath);
+      if (!await fs().exists(cachedPath)) {
+        const content = await fs().readTextFile(filePath);
         // For circular dependencies, we need to at least process the imports
         // to avoid import errors, even if we can't fully process nested dependencies
         const processedContent = await processCacheFileContent(
           content,
           filePath,
         );
-        await writeTextFile(cachedPath, processedContent);
+        await fs().writeTextFile(cachedPath, processedContent);
         logger.debug(
           `Created processed cached copy at ${cachedPath} to break cycle`,
         );
@@ -707,13 +697,13 @@ export async function processJavaScriptFile(filePath: string): Promise<void> {
     inProgressJs.add(filePath);
 
     // Check if the file exists
-    if (!await exists(filePath)) {
+    if (!await fs().exists(filePath)) {
       logger.debug(`JavaScript file does not exist: ${filePath}`);
       return;
     }
 
     // Read the JS file
-    const content = await readTextFile(filePath);
+    const content = await fs().readTextFile(filePath);
 
     // Process the file for imports
     const processedContent = await processJavaScriptImports(content, filePath);
@@ -823,23 +813,23 @@ async function processJsImportsInJs(
       const pathForResolving = importPath.endsWith(".js")
         ? importPath
         : `${importPath}.js`;
-      const resolvedImportPath = resolve(
-        dirname(filePath),
+      const resolvedImportPath = path().resolve(
+        path().dirname(filePath),
         pathForResolving,
       );
-      const directory = dirname(resolvedImportPath);
-      const fileName = basename(resolvedImportPath);
+      const directory = path().dirname(resolvedImportPath);
+      const fileName = path().basename(resolvedImportPath);
       const fileNameBase = fileName.replace(JS_EXTENSION_REGEX, "");
 
       let sourcePath: string | null = null;
       let keepExtensionInImport = importPath.endsWith(".js");
 
-      if (await exists(resolvedImportPath)) {
+      if (await fs().exists(resolvedImportPath)) {
         sourcePath = resolvedImportPath;
       } else {
         const underscoreFileName = `${hyphenToUnderscore(fileNameBase)}.js`;
-        const underscorePath = join(directory, underscoreFileName);
-        if (await exists(underscorePath)) {
+        const underscorePath = path().join(directory, underscoreFileName);
+        if (await fs().exists(underscorePath)) {
           sourcePath = underscorePath;
           keepExtensionInImport = true;
           logger.debug(
@@ -857,7 +847,7 @@ async function processJsImportsInJs(
 
       const cachedJsPath = await writeToCachedPath(
         sourcePath,
-        await readTextFile(sourcePath),
+        await fs().readTextFile(sourcePath),
         "",
         { preserveRelative: true },
       );
@@ -947,16 +937,16 @@ async function processTsImportsInJs(
     content,
     TS_IMPORT_REGEX,
     async ({ importPath, fullImport }) => {
-      const resolvedImportPath = resolve(dirname(filePath), importPath);
+      const resolvedImportPath = path().resolve(path().dirname(filePath), importPath);
 
-      if (!await exists(resolvedImportPath)) {
+      if (!await fs().exists(resolvedImportPath)) {
         logger.debug(`Could not find TS file: ${resolvedImportPath}`);
         return null;
       }
 
       try {
         logger.debug(`Found TS import in JS file: ${importPath}`);
-        const tsContent = await readTextFile(resolvedImportPath);
+        const tsContent = await fs().readTextFile(resolvedImportPath);
         const cachedTsPath = await writeToCachedPath(
           resolvedImportPath,
           tsContent,
@@ -995,9 +985,9 @@ async function rewriteHqlImportsInJs(
     content,
     HLVM_HQL_IMPORT_REGEX,
     async ({ importPath, fullImport }) => {
-      const resolvedImportPath = resolve(dirname(filePath), importPath);
+      const resolvedImportPath = path().resolve(path().dirname(filePath), importPath);
 
-      if (!await exists(resolvedImportPath)) {
+      if (!await fs().exists(resolvedImportPath)) {
         logger.debug(`Could not find HQL file: ${resolvedImportPath}`);
         return null;
       }
@@ -1020,10 +1010,10 @@ async function rewriteHqlImportsInJs(
       );
 
       try {
-        if (!await exists(preJsPath)) {
+        if (!await fs().exists(preJsPath)) {
           const placeholderContent =
             `// Placeholder for circular dependency resolution\nconst handler = {\n  get(_target, _prop) {\n    return undefined;\n  }\n};\nconst moduleExports = new Proxy({}, handler);\nexport default moduleExports;\nexport const __esModule = true;\n// Export common named exports that return undefined\nexport const base = undefined;\nexport const aFunc = undefined;\nexport const incByBase = undefined;`;
-          await writeTextFile(preJsPath, placeholderContent);
+          await fs().writeTextFile(preJsPath, placeholderContent);
         }
       } catch (error) {
         logger.debug(
@@ -1100,12 +1090,12 @@ async function processNestedImports(
 
     try {
       // Resolve the import path relative to the original source file
-      const originalDir = dirname(originalPath);
-      const resolvedImportPath = resolve(originalDir, importPath);
+      const originalDir = path().dirname(originalPath);
+      const resolvedImportPath = path().resolve(originalDir, importPath);
 
       // Check if this import is for an HQL file that needs to be cached
       if (isHqlFile(resolvedImportPath)) {
-        if (await exists(resolvedImportPath)) {
+        if (await fs().exists(resolvedImportPath)) {
           // Process the HQL file to ensure it's in the cache
           // This ensures the import chain is processed correctly
           const processedHqlPath = await processHqlFile(resolvedImportPath);
@@ -1122,7 +1112,7 @@ async function processNestedImports(
         }
       } // Handle JavaScript imports specially to ensure they reference cached versions
       else if (resolvedImportPath.endsWith(".ts")) {
-        if (await exists(resolvedImportPath)) {
+        if (await fs().exists(resolvedImportPath)) {
           // Get or create the cached version
           const cachedImportPath = await getCachedPath(
             resolvedImportPath,
@@ -1148,7 +1138,7 @@ async function processNestedImports(
         }
       } // Handle JavaScript imports
       else if (resolvedImportPath.endsWith(".js")) {
-        if (await exists(resolvedImportPath)) {
+        if (await fs().exists(resolvedImportPath)) {
           // Process JS file to handle any HQL imports it might have
           await processJavaScriptFile(resolvedImportPath);
 
@@ -1220,7 +1210,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
     });
 
     // Check if we need to process this file
-    if (await exists(cachedTsPath)) {
+    if (await fs().exists(cachedTsPath)) {
       // File exists in cache, check if it's still valid
       if (!await needsRegeneration(sourceFile, ".ts")) {
         logger.debug(
@@ -1243,10 +1233,10 @@ async function processHqlFile(sourceFile: string): Promise<string> {
 
     // CRITICAL: Copy JS dependencies BEFORE transpilation
     // The transpiler needs these files to resolve imports
-    await copyNeighborFiles(sourceFile, dirname(cachedTsPath));
+    await copyNeighborFiles(sourceFile, path().dirname(cachedTsPath));
 
     // Run the transpiler via bundler
-    const tsContent = await transpileHqlInJs(sourceFile, dirname(sourceFile));
+    const tsContent = await transpileHqlInJs(sourceFile, path().dirname(sourceFile));
     const processedContent = await processNestedImports(
       tsContent,
       sourceFile,
@@ -1254,7 +1244,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
     );
 
     // Write to cache
-    await writeTextFile(cachedTsPath, processedContent);
+    await fs().writeTextFile(cachedTsPath, processedContent);
 
     // Register the mapping for future use
     registerImportMapping(sourceFile, cachedTsPath);
@@ -1307,7 +1297,7 @@ export async function createTempDirIfNeeded(
     }
 
     // Create new temp directory
-    const tempDir = await makeTempDir({ prefix });
+    const tempDir = await fs().makeTempDir({ prefix });
 
     if (logger?.debug) {
       logger.debug(`Created temporary directory: ${tempDir}`);

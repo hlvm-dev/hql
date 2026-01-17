@@ -22,6 +22,7 @@ import {
   createBasicSymbolInfo,
   enrichSymbolInfoWithValueType,
 } from "./transpiler/utils/symbol_info_utils.ts";
+import { registerBuiltins, registerMacro } from "./transpiler/utils/symbol-registry.ts";
 import { STDLIB_PUBLIC_API } from "./lib/stdlib/js/stdlib.js";
 import { gensym } from "./gensym.ts";
 import { isEmbeddedFile } from "./lib/embedded-macros.ts";
@@ -516,41 +517,14 @@ export class Environment {
    * Register all builtin functions in the global symbol table
    */
   private registerBuiltinsInSymbolTable(): void {
-    const builtins = [
-      "+",
-      "-",
-      "*",
-      "/",
-      "%",
-      "=",
-      "!=",
-      "<",
-      ">",
-      "<=",
-      ">=",
-      "get",
-      "js-get",
-      "js-call",
-      "throw",
-      "list?",
-      "symbol?",
-      "name",
-      "%first",
-      "%rest",
-      "%length",
-      "%empty?",
-      "%nth",
-    ];
-
-    for (const name of builtins) {
-      globalSymbolTable.set({
-        name,
-        kind: "builtin",
-        scope: "global",
-        type: "Function",
-        meta: { isCore: true },
-      });
-    }
+    // Use consolidated symbol-registry helper
+    registerBuiltins([
+      "+", "-", "*", "/", "%",
+      "=", "!=", "<", ">", "<=", ">=",
+      "get", "js-get", "js-call", "throw",
+      "list?", "symbol?", "name",
+      "%first", "%rest", "%length", "%empty?", "%nth",
+    ]);
   }
 
   define(key: string, value: Value): void {
@@ -854,12 +828,7 @@ export class Environment {
       if (isSystem) {
         // System macro - add to registry for global access
         this.macroRegistry.defineSystemMacro(key, macro);
-        globalSymbolTable.set({
-          name: key,
-          kind: "macro",
-          scope: "global",
-          meta: { isSystemMacro: true },
-        });
+        registerMacro(key, "system", true);
       } else {
         // User macro - track source file for proper scoping
         this.macroSourceFiles.set(key, sourceFile);
@@ -867,12 +836,7 @@ export class Environment {
         if (sanitizedKey !== key) {
           this.macroSourceFiles.set(sanitizedKey, sourceFile);
         }
-        globalSymbolTable.set({
-          name: key,
-          kind: "macro",
-          scope: "local",
-          meta: { isSystemMacro: false, sourceFile },
-        });
+        registerMacro(key, sourceFile!, false);
       }
 
       // Always store in local macros map for lookup

@@ -14,11 +14,7 @@
 
 import { SourceMapConsumer } from "npm:source-map@0.6.1";
 import { globalLogger as logger } from "../../../logger.ts";
-import {
-  getEnv as platformGetEnv,
-  readTextFile as platformReadTextFile,
-  fromFileUrl as platformFromFileUrl,
-} from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { LRUCache } from "../../../common/lru-cache.ts";
 
@@ -104,7 +100,7 @@ export function invalidateSourceMapCache(jsFilePath?: string): void {
     let normalizedPath = jsFilePath;
     if (jsFilePath.startsWith("file://")) {
       try {
-        normalizedPath = platformFromFileUrl(jsFilePath);
+        normalizedPath = getPlatform().path.fromFileUrl(jsFilePath);
       } catch (error) {
         // Log conversion errors for debugging - non-standard URLs may indicate issues
         logger.debug(`Failed to convert file URL ${jsFilePath}: ${getErrorMessage(error)}`);
@@ -143,7 +139,7 @@ export async function loadSourceMap(
   let normalizedPath = jsFilePath;
   if (jsFilePath.startsWith("file://")) {
     try {
-      normalizedPath = platformFromFileUrl(jsFilePath);
+      normalizedPath = getPlatform().path.fromFileUrl(jsFilePath);
     } catch (error) {
       logger.debug(`Failed to normalize file URL ${jsFilePath}: ${
         getErrorMessage(error)
@@ -163,7 +159,7 @@ export async function loadSourceMap(
   try {
     logger.debug(`Loading source map from ${mapFilePath}`);
 
-    const mapContent = await platformReadTextFile(mapFilePath);
+    const mapContent = await getPlatform().fs.readTextFile(mapFilePath);
     const mapJson = JSON.parse(mapContent);
 
     // Create SourceMapConsumer
@@ -187,7 +183,7 @@ export async function loadSourceMap(
   try {
     logger.debug(`Checking for inline source map in ${normalizedPath}`);
 
-    const jsContent = await platformReadTextFile(normalizedPath);
+    const jsContent = await getPlatform().fs.readTextFile(normalizedPath);
     const sourceMapMatch = jsContent.match(
       /\/\/# sourceMappingURL=data:application\/json;base64,([A-Za-z0-9+/=]+)/
     );
@@ -301,13 +297,13 @@ export async function mapPosition(
 function loadSourceMapSync(
   jsFilePath: string,
 ): SourceMapConsumer | null {
-  const DEBUG = platformGetEnv("HLVM_DEBUG_ERROR") === "1";
+  const DEBUG = getPlatform().env.get("HLVM_DEBUG_ERROR") === "1";
 
   // Normalize file path - convert file:// URLs to regular paths
   let normalizedPath = jsFilePath;
   if (jsFilePath.startsWith("file://")) {
     try {
-      normalizedPath = platformFromFileUrl(jsFilePath);
+      normalizedPath = getPlatform().path.fromFileUrl(jsFilePath);
     } catch (error) {
       logger.debug(`Failed to normalize file URL ${jsFilePath}: ${
         getErrorMessage(error)
@@ -369,7 +365,7 @@ export function mapPositionSync(
   line: number,
   column: number,
 ): Position | null {
-  const DEBUG = platformGetEnv("HLVM_DEBUG_ERROR") === "1";
+  const DEBUG = getPlatform().env.get("HLVM_DEBUG_ERROR") === "1";
   if (DEBUG) {
     console.log("[mapPositionSync] Looking up:", jsFilePath, line, column);
   }
@@ -548,7 +544,7 @@ export function installSourceMapSupport(): void {
       fileName != null && INTERNAL_FRAME_PATTERNS.some(p => fileName.includes(p));
 
     // Check if user wants verbose stack traces
-    const verbose = platformGetEnv("HLVM_VERBOSE") === "1";
+    const verbose = getPlatform().env.get("HLVM_VERBOSE") === "1";
 
     // Filter frames unless verbose mode
     const framesToProcess = verbose

@@ -1,4 +1,8 @@
-import { exists, exit as platformExit } from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+
+// Local aliases for frequently used platform functions
+const exists = () => getPlatform().fs.exists;
+const platformExit = (code: number) => getPlatform().process.exit(code);
 import { parseArgs } from "jsr:@std/cli@1.0.13/parse-args";
 import {
   incrementPatchVersion,
@@ -22,14 +26,14 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
   const legacyConfigPath = "./hql.json";
 
   // Migrate legacy hql.json if present
-  if (!await exists(configPath) && await exists(legacyConfigPath)) {
+  if (!await exists()(configPath) && await exists()(legacyConfigPath)) {
     const legacyConfig = await readJSONFile(legacyConfigPath);
     await writeJSONFile(configPath, legacyConfig as Record<string, unknown>);
     console.log("✅ Migrated hql.json to hlvm.json");
   }
 
   // If hlvm.json exists, read and return it
-  if (await exists(configPath)) {
+  if (await exists()(configPath)) {
     const config = (await readJSONFile(configPath)) as unknown as HlvmProjectConfig;
 
     // Validate required fields
@@ -81,7 +85,7 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
   validateVersion(version);
 
   // Check if entry point exists
-  if (!await exists(entryPoint)) {
+  if (!await exists()(entryPoint)) {
     console.error(`\n❌ Entry point not found: ${entryPoint}`);
     console.error(`\nCreate ${entryPoint} first, or run: hlvm init`);
     platformExit(1);
@@ -108,7 +112,7 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
 async function updateConfigVersion(newVersion: string): Promise<void> {
   const configPath = "./hlvm.json";
 
-  if (!await exists(configPath)) {
+  if (!await exists()(configPath)) {
     return; // No config to update
   }
 
@@ -180,7 +184,7 @@ async function ensureMetadataFiles(
 ): Promise<void> {
   // Create package.json for NPM
   const packageJsonPath = "./package.json";
-  if (!await exists(packageJsonPath)) {
+  if (!await exists()(packageJsonPath)) {
     const packageJson = {
       name: packageName,
       version: version,
@@ -192,7 +196,7 @@ async function ensureMetadataFiles(
 
   // Create deno.json for JSR
   const denoJsonPath = "./deno.json";
-  if (!await exists(denoJsonPath)) {
+  if (!await exists()(denoJsonPath)) {
     const denoJson = {
       name: packageName,
       version: version,
@@ -216,7 +220,7 @@ export async function publishCommand(args: string[]): Promise<void> {
   const entryFile = parsedArgs.entryFile || config.exports.replace(/^\.\//, "");
 
   // Check entry file exists
-  if (!await exists(entryFile)) {
+  if (!await exists()(entryFile)) {
     console.error(`\n❌ Entry file not found: ${entryFile}`);
     console.error(`\nSpecified in hlvm.json: ${config.exports}`);
     platformExit(1);

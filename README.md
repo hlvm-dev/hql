@@ -76,8 +76,7 @@ hlvm repl
 
 **Learning:**
 
-- [Quick Start](./docs/QUICKSTART.md) - 5-minute introduction
-- [Learning Guide](./docs/GUIDE.md) - Complete guide from beginner to advanced
+- [Learning Guide](./docs/GUIDE.md) - Quick start + complete guide from beginner to advanced
 - [Manual](./docs/MANUAL.md) - Language reference
 
 **Language Reference:**

@@ -22,7 +22,14 @@ export type {
   Message,
   MessageRole,
   ModelInfo,
+  ModelCapabilityFlags,
   PullProgress,
+} from "./types.ts";
+
+// Capability helpers
+export {
+  capabilitiesToFlags,
+  formatCapabilityTags,
 } from "./types.ts";
 
 // Registry

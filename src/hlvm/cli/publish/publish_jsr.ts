@@ -1,10 +1,11 @@
-import {
-  cwd as platformCwd,
-  exists,
-  join,
-  mkdir as platformMkdir,
-  writeTextFile as platformWriteTextFile,
-} from "../../../platform/platform.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+
+const p = () => getPlatform();
+const platformCwd = () => p().process.cwd();
+const exists = (path: string) => p().fs.exists(path);
+const join = (...paths: string[]) => p().path.join(...paths);
+const platformMkdir = (path: string) => p().fs.mkdir(path);
+const platformWriteTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
 import { globalLogger as logger } from "../../../logger.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import {
@@ -14,7 +15,7 @@ import {
   readJSONFile,
   type HlvmProjectConfig,
 } from "./utils.ts";
-import type { PublishOptions } from "./index.ts";
+import type { PublishOptions } from "./publish_common.ts";
 import type { PublishSummary } from "./publish_summary.ts";
 
 /**

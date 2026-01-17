@@ -11,7 +11,11 @@ import { getPlatform } from "../platform/platform.ts";
 // Cached HLVM directory path
 let _hlvmDir: string | null = null;
 
-function getEnvVar(key: string): string | undefined {
+/**
+ * Get environment variable value.
+ * Shared utility for path resolution across modules.
+ */
+export function getEnvVar(key: string): string | undefined {
   try {
     return getPlatform().env.get(key);
   } catch {

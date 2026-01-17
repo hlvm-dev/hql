@@ -4,8 +4,6 @@
  */
 
 import { assertEquals, assert, assertExists } from "jsr:@std/assert";
-import { join } from "jsr:@std/path@1";
-import { getSessionsDir } from "../../../../src/common/paths.ts";
 import {
   hashProjectPath,
   generateSessionId,
@@ -18,25 +16,7 @@ import {
   updateTitle,
   exportSession,
 } from "../../../../src/hlvm/cli/repl/session/storage.ts";
-
-// ============================================================================
-// Test Helpers
-// ============================================================================
-
-/** Get test sessions directory */
-function getTestSessionsDir(): string {
-  return getSessionsDir();
-}
-
-/** Clean up a specific session file */
-async function cleanupSession(sessionId: string): Promise<void> {
-  const sessionPath = join(getTestSessionsDir(), `${sessionId}.jsonl`);
-  try {
-    await Deno.remove(sessionPath);
-  } catch {
-    // Ignore if doesn't exist
-  }
-}
+import { getTestSessionsDir, cleanupSession, join } from "./helpers.ts";
 
 /** Track created sessions for cleanup */
 const createdSessionIds: string[] = [];

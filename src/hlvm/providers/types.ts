@@ -90,6 +90,56 @@ export interface ModelInfo {
   capabilities?: ProviderCapability[];
   /** Provider-specific metadata */
   metadata?: Record<string, unknown>;
+  /** Link to model page (e.g., ollama.com/library/modelname) */
+  link?: string;
+}
+
+// ============================================================================
+// Capability Helpers
+// ============================================================================
+
+/** Boolean representation of model capabilities for UI convenience */
+export interface ModelCapabilityFlags {
+  completion: boolean;  // Text generation
+  vision: boolean;      // Image understanding
+  tools: boolean;       // Function calling
+  embedding: boolean;   // Vector embeddings
+  thinking: boolean;    // Reasoning/deliberation (e.g., deepseek-r1)
+}
+
+/**
+ * Convert ProviderCapability array to boolean flags for UI
+ * @param capabilities Array of capability strings
+ * @returns Boolean flags for each capability
+ */
+export function capabilitiesToFlags(capabilities?: ProviderCapability[]): ModelCapabilityFlags {
+  const caps = capabilities || [];
+  return {
+    completion: caps.includes("generate") || caps.includes("chat") || caps.length === 0,
+    vision: caps.includes("vision"),
+    tools: false, // Currently no "tools" capability in ProviderCapability
+    embedding: caps.includes("embeddings"),
+    thinking: false, // Currently no "thinking" capability in ProviderCapability
+  };
+}
+
+/**
+ * Format capabilities as display tags
+ * Returns: "[text]", "[vision] [text]", "[text] [tools]", etc.
+ * Follows Ollama library display order.
+ */
+export function formatCapabilityTags(capabilities?: ProviderCapability[]): string {
+  const flags = capabilitiesToFlags(capabilities);
+  const tags: string[] = [];
+
+  // Order: vision, thinking, tools, text, embedding (following ollama.com/library)
+  if (flags.vision) tags.push("[vision]");
+  if (flags.thinking) tags.push("[thinking]");
+  if (flags.tools) tags.push("[tools]");
+  if (flags.completion) tags.push("[text]");
+  if (flags.embedding) tags.push("[embed]");
+
+  return tags.join(" ");
 }
 
 /** Progress info for model pull operations */
