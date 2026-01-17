@@ -8,6 +8,7 @@
 import { walk } from "https://deno.land/std@0.208.0/fs/walk.ts";
 import type { ProjectIndex } from "./project-index.ts";
 import { analyzeDocument } from "../analysis.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 /** Directories to skip during scanning */
 const SKIP_PATTERNS = [
@@ -74,7 +75,7 @@ export class WorkspaceScanner {
    */
   private async indexFile(filePath: string): Promise<boolean> {
     try {
-      const content = await Deno.readTextFile(filePath);
+      const content = await getPlatform().fs.readTextFile(filePath);
       const analysis = analyzeDocument(content, filePath);
       this.projectIndex.indexFile(filePath, analysis);
       return true;

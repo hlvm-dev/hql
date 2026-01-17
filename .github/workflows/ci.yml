@@ -47,3 +47,6 @@ jobs:
 
       - name: Lint
         run: deno lint
+
+      - name: Check platform abstraction
+        run: deno task check:platform

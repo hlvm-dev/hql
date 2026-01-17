@@ -16,6 +16,7 @@
 
 import { getHistoryPath, ensureHlvmDir, ensureHlvmDirSync } from "../../../common/paths.ts";
 import { getLegacyHistoryPath } from "../../../common/legacy-migration.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 // ============================================================================
 // Types
@@ -45,15 +46,7 @@ const DEFAULT_CONFIG: HistoryStorageConfig = {
 let legacyMigrationChecked = false;
 
 async function pathExists(path: string): Promise<boolean> {
-  try {
-    await Deno.stat(path);
-    return true;
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
-      return false;
-    }
-    return false;
-  }
+  return await getPlatform().fs.exists(path);
 }
 
 function parseHistoryContent(content: string): HistoryEntry[] {
@@ -76,11 +69,12 @@ function parseHistoryContent(content: string): HistoryEntry[] {
 }
 
 async function readHistoryEntries(path: string): Promise<HistoryEntry[]> {
+  const platform = getPlatform();
   try {
-    const content = await Deno.readTextFile(path);
+    const content = await platform.fs.readTextFile(path);
     return parseHistoryContent(content);
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error instanceof Error && error.name === "NotFound") {
       return [];
     }
     throw error;
@@ -91,7 +85,7 @@ async function writeHistoryEntries(path: string, entries: HistoryEntry[]): Promi
   await ensureHlvmDir();
   const lines = entries.map((entry) => JSON.stringify(entry)).join("\n");
   const content = lines ? `${lines}\n` : "";
-  await Deno.writeTextFile(path, content);
+  await getPlatform().fs.writeTextFile(path, content);
 }
 
 async function ensureLegacyHistoryMerged(maxEntries: number): Promise<void> {
@@ -177,10 +171,11 @@ export class HistoryStorage {
    */
   private async load(): Promise<void> {
     await ensureLegacyHistoryMerged(this.config.maxEntries);
+    const platform = getPlatform();
     const path = getHistoryPath();
 
     try {
-      const content = await Deno.readTextFile(path);
+      const content = await platform.fs.readTextFile(path);
       const allEntries = parseHistoryContent(content);
       const trimmed = content.trim();
       this.lineCount = trimmed ? trimmed.split("\n").filter(Boolean).length : 0;
@@ -200,7 +195,7 @@ export class HistoryStorage {
       // Keep only max entries (most recent)
       this.entries = deduplicated.slice(-this.config.maxEntries);
     } catch (err) {
-      if (!(err instanceof Deno.errors.NotFound)) {
+      if (!(err instanceof Error && err.name === "NotFound")) {
         // Log error but continue with empty history
         console.error("Failed to load history:", err);
       }
@@ -300,7 +295,7 @@ export class HistoryStorage {
     try {
       await ensureHlvmDir();
       const lines = toWrite.map((e) => JSON.stringify(e) + "\n").join("");
-      await Deno.writeTextFile(path, lines, { append: true });
+      await getPlatform().fs.writeTextFile(path, lines, { append: true });
       this.lineCount += toWrite.length;
       this.maybeScheduleCompaction();
     } catch (err) {
@@ -323,7 +318,7 @@ export class HistoryStorage {
       const lines = this.pendingWrites
         .map((e) => JSON.stringify(e) + "\n")
         .join("");
-      Deno.writeTextFileSync(path, lines, { append: true });
+      getPlatform().fs.writeTextFileSync(path, lines, { append: true });
       this.lineCount += this.pendingWrites.length;
       this.pendingWrites = [];
       this.maybeScheduleCompaction();
@@ -347,9 +342,9 @@ export class HistoryStorage {
     this.lineCount = 0;
 
     try {
-      await Deno.remove(getHistoryPath());
+      await getPlatform().fs.remove(getHistoryPath());
     } catch (err) {
-      if (!(err instanceof Deno.errors.NotFound)) {
+      if (!(err instanceof Error && err.name === "NotFound")) {
         throw err;
       }
     }
@@ -364,6 +359,7 @@ export class HistoryStorage {
     this.compacting = true;
 
     try {
+      const platform = getPlatform();
       // Flush pending writes first
       await this.flush();
 
@@ -375,8 +371,8 @@ export class HistoryStorage {
       const tempPath = `${path}.tmp.${Date.now()}`;
       const content = toKeep.map((e) => JSON.stringify(e) + "\n").join("");
 
-      await Deno.writeTextFile(tempPath, content);
-      await Deno.rename(tempPath, path);
+      await platform.fs.writeTextFile(tempPath, content);
+      await platform.fs.rename(tempPath, path);
 
       this.entries = toKeep;
       this.lineCount = toKeep.length;

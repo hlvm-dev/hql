@@ -168,9 +168,9 @@ export enum HQLErrorCode {
  * NOTE: Error documentation URLs are disabled until the documentation site exists.
  * Set HLVM_ERROR_DOC_BASE_URL environment variable to enable.
  */
-const ERROR_DOC_BASE_URL =
-  (typeof Deno !== "undefined" && Deno.env?.get?.("HLVM_ERROR_DOC_BASE_URL")) ||
-  null; // Disabled until docs exist
+// Error documentation is disabled until the docs site exists.
+// When enabled, use getPlatform().env.get("HLVM_ERROR_DOC_BASE_URL")
+const ERROR_DOC_BASE_URL: string | null = null;
 
 /**
  * Detailed error information including description and common causes

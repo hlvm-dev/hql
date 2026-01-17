@@ -7,10 +7,11 @@
 
 import { basename, dirname, join, resolve } from "jsr:@std/path@1";
 import { ensureDir } from "jsr:@std/fs@1";
+import { getPlatform } from "../platform/platform.ts";
 
 function getEnvVar(key: string): string | undefined {
   try {
-    return Deno.env.get(key);
+    return getPlatform().env.get(key);
   } catch {
     return undefined;
   }
@@ -54,21 +55,14 @@ export function getLegacyRuntimeOllamaPath(): string {
 }
 
 async function pathExists(path: string): Promise<boolean> {
-  try {
-    await Deno.stat(path);
-    return true;
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
-      return false;
-    }
-    return false;
-  }
+  return await getPlatform().fs.exists(path);
 }
 
 export async function migrateLegacyFileIfMissing(
   legacyPath: string,
   targetPath: string
 ): Promise<boolean> {
+  const platform = getPlatform();
   if (await pathExists(targetPath)) {
     return false;
   }
@@ -76,15 +70,16 @@ export async function migrateLegacyFileIfMissing(
     return false;
   }
   await ensureDir(dirname(targetPath));
-  await Deno.copyFile(legacyPath, targetPath);
+  await platform.fs.copyFile(legacyPath, targetPath);
   return true;
 }
 
 export async function listLegacySessionFiles(legacySessionsDir: string): Promise<string[]> {
+  const platform = getPlatform();
   const results: string[] = [];
 
   async function walk(dir: string): Promise<void> {
-    for await (const entry of Deno.readDir(dir)) {
+    for await (const entry of platform.fs.readDir(dir)) {
       const entryPath = join(dir, entry.name);
       if (entry.isDirectory) {
         await walk(entryPath);

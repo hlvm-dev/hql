@@ -4,17 +4,18 @@
  * Removes HLVM from the system by deleting the ~/.hlvm directory.
  */
 
-import { exit as platformExit } from "../../../platform/platform.ts";
+import { exit as platformExit, getPlatform } from "../../../platform/platform.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 
 /**
  * Main uninstall command handler.
  */
 export async function uninstall(args: string[]): Promise<void> {
+  const platform = getPlatform();
   const force = args.includes("-y") || args.includes("--yes");
 
   // Get home directory (cross-platform)
-  const home = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || "";
+  const home = platform.env.get("HOME") || platform.env.get("USERPROFILE") || "";
   if (!home) {
     console.error("Could not determine home directory");
     platformExit(1);
@@ -24,7 +25,7 @@ export async function uninstall(args: string[]): Promise<void> {
 
   // Check if HLVM is installed
   try {
-    await Deno.stat(hlvmDir);
+    await platform.fs.stat(hlvmDir);
   } catch {
     console.log("HLVM does not appear to be installed.");
     console.log(`(Directory not found: ${hlvmDir})`);
@@ -50,7 +51,7 @@ export async function uninstall(args: string[]): Promise<void> {
   console.log("\nUninstalling HLVM...");
 
   try {
-    await Deno.remove(hlvmDir, { recursive: true });
+    await platform.fs.remove(hlvmDir, { recursive: true });
     console.log(`Removed: ${hlvmDir}`);
   } catch (error) {
     console.error(`Failed to remove ${hlvmDir}: ${getErrorMessage(error)}`);

@@ -1,5 +1,6 @@
 import { join } from "https://deno.land/std@0.224.0/path/join.ts";
 import { SimpleReadline } from "./simple-readline.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 import type {
   EvalResult,
   REPLCommand,
@@ -67,9 +68,9 @@ export class REPL {
 
   async init(): Promise<void> {
     if (this.initialized) return;
-    this.tempDir = await Deno.makeTempDir({ prefix: "hlvm-repl-" });
+    this.tempDir = await getPlatform().fs.makeTempDir({ prefix: "hlvm-repl-" });
     this.modulePath = join(this.tempDir, "repl-module.mjs");
-    await Deno.writeTextFile(this.modulePath, INITIAL_MODULE);
+    await getPlatform().fs.writeTextFile(this.modulePath, INITIAL_MODULE);
     this.moduleBuffer = INITIAL_MODULE;
     this.lineNumber = INITIAL_LINES;
     this.initialized = true;
@@ -103,7 +104,7 @@ export class REPL {
 
     if (this.tempDir) {
       try {
-        await Deno.remove(this.tempDir, { recursive: true });
+        await getPlatform().fs.remove(this.tempDir, { recursive: true });
       } catch {
         // Ignore cleanup errors
       }
@@ -114,7 +115,7 @@ export class REPL {
     await this.init();
     const commands = this.composeCommands();
     const prompt = this.config.prompt ?? "> ";
-    const isTTY = typeof Deno.stdin.isTerminal === "function" ? Deno.stdin.isTerminal() : true;
+    const isTTY = getPlatform().terminal.stdin.isTerminal();
 
     if (!isTTY) {
       try {
@@ -149,7 +150,7 @@ export class REPL {
     let pending = "";
 
     while (true) {
-      const read = await Deno.stdin.read(buffer);
+      const read = await getPlatform().terminal.stdin.read(buffer);
       if (read === null) {
         if (pending.length > 0) {
           await this.handleInputLine(pending, commands);
@@ -259,11 +260,11 @@ export class REPL {
       },
       appendToModule: async (code: string) => {
         instance.moduleBuffer += code;
-        await Deno.writeTextFile(instance.modulePath, instance.moduleBuffer);
+        await getPlatform().fs.writeTextFile(instance.modulePath, instance.moduleBuffer);
       },
       overwriteModule: async (code: string) => {
         instance.moduleBuffer = code;
-        await Deno.writeTextFile(instance.modulePath, instance.moduleBuffer);
+        await getPlatform().fs.writeTextFile(instance.modulePath, instance.moduleBuffer);
       },
       reimportModule: async <T>() => {
         const specifier = `file://${instance.modulePath}?ts=${Date.now()}&r=${crypto.randomUUID()}`;
@@ -315,7 +316,7 @@ export class REPL {
   private async resetSession(): Promise<void> {
     this.moduleBuffer = INITIAL_MODULE;
     this.lineNumber = INITIAL_LINES;
-    await Deno.writeTextFile(this.modulePath, this.moduleBuffer);
+    await getPlatform().fs.writeTextFile(this.modulePath, this.moduleBuffer);
     this.pluginState.forEach((state) => state.clear());
   }
 

@@ -369,7 +369,7 @@ export function mapPositionSync(
   line: number,
   column: number,
 ): Position | null {
-  const DEBUG = Deno.env.get("HLVM_DEBUG_ERROR") === "1";
+  const DEBUG = platformGetEnv("HLVM_DEBUG_ERROR") === "1";
   if (DEBUG) {
     console.log("[mapPositionSync] Looking up:", jsFilePath, line, column);
   }

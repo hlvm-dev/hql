@@ -10,6 +10,7 @@
 
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { LINE_SPLIT_REGEX, countLines } from "../../../common/line-utils.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 // ============================================================================
 // Types
@@ -259,16 +260,17 @@ export async function createAttachment(
   path: string,
   id: number
 ): Promise<Attachment | AttachmentError> {
+  const platform = getPlatform();
   try {
     // Check if file exists and get info
-    let fileInfo: Deno.FileInfo;
+    let fileInfo: { isFile: boolean; isDirectory: boolean; size: number };
     try {
-      fileInfo = await Deno.stat(path);
+      fileInfo = await platform.fs.stat(path);
     } catch (err) {
-      if (err instanceof Deno.errors.NotFound) {
+      if (err instanceof Error && err.name === "NotFound") {
         return { type: "not_found", message: `File not found: ${path}`, path };
       }
-      if (err instanceof Deno.errors.PermissionDenied) {
+      if (err instanceof Error && err.name === "PermissionDenied") {
         return { type: "permission_denied", message: `Permission denied: ${path}`, path };
       }
       throw err;
@@ -294,7 +296,7 @@ export async function createAttachment(
     }
 
     // Read file and encode as base64
-    const bytes = await Deno.readFile(path);
+    const bytes = await platform.fs.readFile(path);
     const base64Data = encodeBase64(bytes);
 
     // Create attachment object

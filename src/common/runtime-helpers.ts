@@ -1,5 +1,6 @@
 import { globalLogger as logger } from "../logger.ts";
 import { isNullish, getErrorMessage } from "./utils.ts";
+import { getPlatform } from "../platform/platform.ts";
 import {
   __hql_deepFreeze,
   __hql_for_each,
@@ -64,7 +65,33 @@ type GlobalHlvmHelpers = {
   __hql_delay?: typeof __hql_delay;
   gensym?: (prefix?: string) => string;
   _?: unknown;
+  hlvm?: HlvmHostApi;
 } & Omit<typeof globalThis, "__hql_get" | "__hql_call" | "__hql_callFn">;
+
+/**
+ * Host API exposed to HQL code as `hlvm` global
+ * This allows HQL packages to access platform operations without directly using Deno/Node APIs
+ * Naming follows industry standard: Deno, Bun, process (no underscores for public APIs)
+ */
+export interface HlvmHostApi {
+  fs: {
+    readTextFile: (path: string) => Promise<string>;
+    readFile: (path: string) => Promise<Uint8Array>;
+    writeTextFile: (path: string, content: string) => Promise<void>;
+    remove: (path: string) => Promise<void>;
+    stat: (path: string) => Promise<{ isFile: boolean; isDirectory: boolean; size: number }>;
+    statSync: (path: string) => { isFile: boolean; isDirectory: boolean; size: number } | null;
+    cwd: () => string;
+  };
+  env: {
+    get: (key: string) => string | undefined;
+    set: (key: string, value: string) => void;
+  };
+  log: {
+    debug: (category: string, message: string, data?: unknown) => void;
+    writeSync: (path: string, line: string) => void;
+  };
+}
 
 const HLVM_META_KEY = "__hlvmMeta";
 
@@ -367,6 +394,59 @@ function ensureHelpers(): void {
     if (typeof (globalAny as unknown as Record<string, unknown>)[name] !== "function") {
       (globalAny as unknown as Record<string, unknown>)[name] = func;
     }
+  }
+
+  // Expose platform host API to HQL code as `hlvm` global
+  // This allows HQL packages to use platform-agnostic operations
+  if (!globalAny.hlvm) {
+    const platform = getPlatform();
+    globalAny.hlvm = {
+      fs: {
+        readTextFile: (path: string) => platform.fs.readTextFile(path),
+        readFile: (path: string) => platform.fs.readFile(path),
+        writeTextFile: (path: string, content: string) => platform.fs.writeTextFile(path, content),
+        remove: (path: string) => platform.fs.remove(path),
+        stat: async (path: string) => {
+          const info = await platform.fs.stat(path);
+          return { isFile: info.isFile, isDirectory: info.isDirectory, size: info.size };
+        },
+        statSync: (path: string) => {
+          try {
+            const info = platform.fs.statSync(path);
+            return { isFile: info.isFile, isDirectory: info.isDirectory, size: info.size };
+          } catch {
+            return null;
+          }
+        },
+        cwd: () => platform.process.cwd(),
+      },
+      env: {
+        get: (key: string) => platform.env.get(key),
+        set: (key: string, value: string) => platform.env.set(key, value),
+      },
+      log: {
+        debug: (category: string, message: string, data?: unknown) => {
+          // Debug logging - writes to ~/.hlvm/debug.log
+          try {
+            const home = platform.env.get("HOME") || "~";
+            const logFile = `${home}/.hlvm/debug.log`;
+            const timestamp = new Date().toISOString();
+            const dataStr = data !== undefined ? ` | ${JSON.stringify(data)}` : "";
+            const line = `[${timestamp}] [${category}] ${message}${dataStr}\n`;
+            platform.fs.writeTextFileSync(logFile, line, { append: true });
+          } catch {
+            // Ignore logging errors
+          }
+        },
+        writeSync: (path: string, line: string) => {
+          try {
+            platform.fs.writeTextFileSync(path, line, { append: true });
+          } catch {
+            // Ignore errors
+          }
+        },
+      },
+    };
   }
 }
 

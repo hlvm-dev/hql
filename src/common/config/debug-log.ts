@@ -6,6 +6,7 @@
  */
 
 import { ensureHlvmDir, ensureHlvmDirSync, getDebugLogPath } from "../paths.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
 let initialized = false;
 
@@ -30,7 +31,7 @@ export async function debugLog(category: string, message: string, data?: unknown
     const dataStr = data !== undefined ? ` | ${JSON.stringify(data)}` : "";
     const line = `[${timestamp}] [${category}] ${message}${dataStr}\n`;
 
-    await Deno.writeTextFile(getDebugLogPath(), line, { append: true });
+    await getPlatform().fs.writeTextFile(getDebugLogPath(), line, { append: true });
   } catch {
     // Ignore logging errors.
   }
@@ -42,7 +43,7 @@ export async function debugLog(category: string, message: string, data?: unknown
 export async function clearDebugLog(): Promise<void> {
   try {
     await ensureLogFile();
-    await Deno.writeTextFile(
+    await getPlatform().fs.writeTextFile(
       getDebugLogPath(),
       `--- Debug Log Started: ${new Date().toISOString()} ---\n`,
     );
@@ -60,7 +61,7 @@ export function debugLogSync(category: string, message: string, data?: unknown):
     const timestamp = new Date().toISOString();
     const dataStr = data !== undefined ? ` | ${JSON.stringify(data)}` : "";
     const line = `[${timestamp}] [${category}] ${message}${dataStr}\n`;
-    Deno.writeTextFileSync(getDebugLogPath(), line, { append: true });
+    getPlatform().fs.writeTextFileSync(getDebugLogPath(), line, { append: true });
   } catch {
     // Ignore errors in sync logging.
   }

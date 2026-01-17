@@ -10,11 +10,12 @@
 import { ai } from "../api/ai.ts";
 import { ensureRuntimeDir, getRuntimeDir } from "../../common/paths.ts";
 import { findLegacyRuntimeEngine } from "../../common/legacy-migration.ts";
+import { getPlatform, type PlatformCommandProcess } from "../../platform/platform.ts";
 
 const RUNTIME_DIR = getRuntimeDir();
 const AI_ENGINE_PATH = `${RUNTIME_DIR}/engine`;
 
-let aiProcess: Deno.ChildProcess | null = null;
+let aiProcess: PlatformCommandProcess | null = null;
 let initialized = false;
 
 /**
@@ -35,8 +36,9 @@ async function isAIRunning(): Promise<boolean> {
  * Extract embedded AI engine if needed
  */
 async function extractAIEngine(): Promise<void> {
+  const platform = getPlatform();
   try {
-    await Deno.stat(AI_ENGINE_PATH);
+    await platform.fs.stat(AI_ENGINE_PATH);
     return; // Already extracted
   } catch {
     // Need to extract
@@ -47,22 +49,22 @@ async function extractAIEngine(): Promise<void> {
     const legacyEnginePath = await findLegacyRuntimeEngine();
     if (legacyEnginePath) {
       await ensureRuntimeDir();
-      await Deno.copyFile(legacyEnginePath, AI_ENGINE_PATH);
-      await Deno.chmod(AI_ENGINE_PATH, 0o755);
+      await platform.fs.copyFile(legacyEnginePath, AI_ENGINE_PATH);
+      await platform.fs.chmod(AI_ENGINE_PATH, 0o755);
       return;
     }
 
     // Read embedded AI engine from compiled binary
-    const engineBytes = await Deno.readFile(
-      new URL("../../resources/ai-engine", import.meta.url)
+    const engineBytes = await platform.fs.readFile(
+      platform.path.fromFileUrl(new URL("../../resources/ai-engine", import.meta.url))
     );
 
     // Create runtime directory
     await ensureRuntimeDir();
 
     // Write AI engine
-    await Deno.writeFile(AI_ENGINE_PATH, engineBytes);
-    await Deno.chmod(AI_ENGINE_PATH, 0o755);
+    await platform.fs.writeFile(AI_ENGINE_PATH, engineBytes);
+    await platform.fs.chmod(AI_ENGINE_PATH, 0o755);
   } catch (error) {
     // In development mode, AI engine might not be embedded
     // This is OK - user might have Ollama installed separately
@@ -77,27 +79,27 @@ async function extractAIEngine(): Promise<void> {
  * Start the AI engine
  */
 async function startAIEngine(): Promise<void> {
+  const platform = getPlatform();
   // Try embedded engine first
   let enginePath = AI_ENGINE_PATH;
 
   try {
-    await Deno.stat(enginePath);
+    await platform.fs.stat(enginePath);
   } catch {
     // Try system ollama
     enginePath = "ollama";
   }
 
   try {
-    const command = new Deno.Command(enginePath, {
-      args: ["serve"],
+    aiProcess = platform.command.run({
+      cmd: [enginePath, "serve"],
       stdout: "null",
       stderr: "null",
     });
-    aiProcess = command.spawn();
 
     // Unref the process so Node/Deno can exit without waiting for it
     // This prevents the CLI from hanging after AI operations complete
-    aiProcess.unref();
+    aiProcess.unref?.();
 
     // Wait for AI engine to be ready
     for (let i = 0; i < 30; i++) {
@@ -123,7 +125,7 @@ export async function initAIRuntime(): Promise<void> {
   initialized = true;
 
   // Check for disable flag (e.g. during tests)
-  if (Deno.env.get("HLVM_DISABLE_AI_AUTOSTART")) {
+  if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) {
     return;
   }
 
@@ -146,7 +148,7 @@ export async function initAIRuntime(): Promise<void> {
 export function shutdownAIRuntime(): void {
   if (aiProcess) {
     try {
-      aiProcess.kill("SIGTERM");
+      aiProcess.kill?.("SIGTERM");
       aiProcess = null;
     } catch {
       // Ignore shutdown errors

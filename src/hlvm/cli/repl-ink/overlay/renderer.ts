@@ -14,6 +14,8 @@
  * So we draw the overlay AFTER Ink renders, and it appears on top.
  */
 
+import { getPlatform } from "../../../../platform/platform.ts";
+
 // ANSI escape sequences
 const ESC = "\x1b";
 const CSI = `${ESC}[`;
@@ -79,7 +81,7 @@ export function clearOverlay(region: ClearRegion): void {
   output += ansi.cursorRestore;
 
   const encoder = new TextEncoder();
-  Deno.stdout.writeSync(encoder.encode(output));
+  getPlatform().terminal.stdout.writeSync(encoder.encode(output));
 }
 
 /**
@@ -87,7 +89,7 @@ export function clearOverlay(region: ClearRegion): void {
  */
 export function getTerminalSize(): { columns: number; rows: number } {
   try {
-    const size = Deno.consoleSize();
+    const size = getPlatform().terminal.consoleSize();
     return {
       columns: size.columns || 80,
       rows: size.rows || 24,

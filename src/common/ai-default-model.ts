@@ -8,6 +8,7 @@ import { parseModelString } from "../hlvm/providers/index.ts";
 import type { ModelInfo, PullProgress } from "../hlvm/providers/types.ts";
 import { DEFAULT_MODEL_ID } from "./config/defaults.ts";
 import { getErrorMessage } from "./utils.ts";
+import { getPlatform } from "../platform/platform.ts";
 
 let defaultModelEnsured = false;
 
@@ -74,7 +75,7 @@ export async function ensureDefaultModelInstalled(
   options: EnsureDefaultModelOptions = {}
 ): Promise<boolean> {
   if (defaultModelEnsured) return true;
-  if (Deno.env.get("HLVM_DISABLE_AI_AUTOSTART")) return false;
+  if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) return false;
 
   const log = options.log;
   const configuredModel = getConfiguredModel();

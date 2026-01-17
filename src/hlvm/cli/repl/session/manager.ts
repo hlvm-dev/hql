@@ -21,6 +21,7 @@ import {
   updateTitle,
   initSessionsDir,
 } from "./storage.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
 
 // ============================================================================
 // SessionManager Class
@@ -55,7 +56,7 @@ export class SessionManager {
    * Create a SessionManager for a project.
    * @param projectPath - The project directory path (defaults to cwd)
    */
-  constructor(projectPath: string = Deno.cwd()) {
+  constructor(projectPath: string = getPlatform().process.cwd()) {
     this.projectPath = projectPath;
     this.projectHash = hashProjectPath(projectPath);
   }

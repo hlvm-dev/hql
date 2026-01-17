@@ -8,6 +8,7 @@
 import type { Location } from "npm:vscode-languageserver@9.0.1";
 import { walk } from "https://deno.land/std@0.208.0/fs/walk.ts";
 import { filePathToUri } from "../documents.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 /**
  * Reference location with additional context
@@ -64,7 +65,7 @@ export async function findReferencesInWorkspace(
         ],
       })) {
         try {
-          const content = await Deno.readTextFile(entry.path);
+          const content = await getPlatform().fs.readTextFile(entry.path);
           const lines = content.split("\n");
 
           for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {

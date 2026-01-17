@@ -28,6 +28,7 @@ import { resetContext } from "../../repl/context.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
 import type { Session, SessionInitOptions, SessionMeta, SessionMessage } from "../../repl/session/types.ts";
 import { SessionManager } from "../../repl/session/manager.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
 import { ReplProvider, useReplContext } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 
@@ -145,7 +146,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
   // Initialize session manager
   useEffect(() => {
     const initSession = async () => {
-      const manager = new SessionManager(Deno.cwd());
+      const manager = new SessionManager(getPlatform().process.cwd());
       sessionManagerRef.current = manager;
 
       // SSOT: Register with session API

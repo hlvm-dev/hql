@@ -9,6 +9,7 @@ import {
   resolve,
   dirname,
   basename,
+  getPlatform,
 } from "../../../platform/platform.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { hasHelpFlag, getPositionalArgs } from "../utils/common-helpers.ts";
@@ -214,7 +215,7 @@ function deriveOutputNameForPlatform(baseName: string, target: string): string {
  */
 async function cleanupTempFile(filePath: string): Promise<void> {
   try {
-    await Deno.remove(filePath);
+    await getPlatform().fs.remove(filePath);
   } catch {
     // Ignore cleanup errors
   }
@@ -251,20 +252,24 @@ async function invokeDenoCompile(
   }
 
   // Execute deno compile
-  const cmd = new Deno.Command(denoBinary, {
-    args,
+  const process = getPlatform().command.run({
+    cmd: [denoBinary, ...args],
     stdout: "piped",
     stderr: "piped",
   });
 
-  const result = await cmd.output();
+  const status = await process.status;
 
-  if (!result.success) {
-    const stderr = new TextDecoder().decode(result.stderr);
+  if (!status.success) {
+    const stderr = process.stderr
+      ? new TextDecoder().decode(await new Response(process.stderr as ReadableStream).arrayBuffer())
+      : "";
     throw new Error(`Compilation to ${target} failed.\n${stderr}`);
   }
 
-  const stdout = new TextDecoder().decode(result.stdout);
+  const stdout = process.stdout
+    ? new TextDecoder().decode(await new Response(process.stdout as ReadableStream).arrayBuffer())
+    : "";
   if (stdout.trim()) {
     console.log(stdout);
   }

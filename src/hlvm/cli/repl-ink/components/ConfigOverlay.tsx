@@ -37,6 +37,7 @@ import {
   ansi,
   hexToRgb,
 } from "../overlay/index.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
 
 // ============================================================
 // Types
@@ -520,7 +521,7 @@ export function ConfigOverlay({
 
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
-    Deno.stdout.writeSync(encoder.encode(output));
+    getPlatform().terminal.stdout.writeSync(encoder.encode(output));
   }, [config, selectedIndex, mode, editValue, editCursor, cursorVisible, error, colors, formatValue, isDefault, modelInfo, fieldMeta.type]);
 
   // Draw cursor only (optimized for blink in edit mode)
@@ -550,7 +551,7 @@ export function ConfigOverlay({
       + colors.selectedBgStyle + cursorStyle
       + ansi.cursorRestore + ansi.cursorShow;
 
-    Deno.stdout.writeSync(encoder.encode(output));
+    getPlatform().terminal.stdout.writeSync(encoder.encode(output));
   }, [mode, selectedIndex, editValue, editCursor, cursorVisible, colors.selectedBgStyle]);
 
   // Cursor blink effect

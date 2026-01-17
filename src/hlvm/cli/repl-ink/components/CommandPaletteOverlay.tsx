@@ -23,6 +23,7 @@ import {
 } from "../overlay/index.ts";
 import { useTheme } from "../../theme/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
 
 // ============================================================
 // Types
@@ -262,7 +263,7 @@ export function CommandPaletteOverlay({
       + colors.bgStyle + cursorStyle
       + ansi.cursorRestore + ansi.cursorShow;
 
-    Deno.stdout.writeSync(encoder.encode(output));
+    getPlatform().terminal.stdout.writeSync(encoder.encode(output));
   }, [query, cursorPos, cursorVisible, colors.bgStyle]);
 
   // Draw full palette
@@ -437,7 +438,7 @@ export function CommandPaletteOverlay({
 
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
-    Deno.stdout.writeSync(encoder.encode(output));
+    getPlatform().terminal.stdout.writeSync(encoder.encode(output));
   }, [query, cursorPos, cursorVisible, flatList, selectableItems, selectedIndex, scrollOffset, colors, rebindMode, onRebind]);
 
   // Cursor blink effect

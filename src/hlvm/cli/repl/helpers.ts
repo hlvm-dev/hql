@@ -7,6 +7,7 @@ import { ANSI_COLORS } from "../ansi.ts";
 import { runCommand } from "./commands.ts";
 import type { ReplState } from "./state.ts";
 import { memory } from "../../api/memory.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
@@ -102,7 +103,7 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
         let explanation = "";
         for await (const chunk of response as AsyncIterable<unknown>) {
           if (typeof chunk === "string") {
-            Deno.stdout.writeSync(encoder.encode(chunk));
+            getPlatform().terminal.stdout.writeSync(encoder.encode(chunk));
             explanation += chunk;
           }
         }
@@ -129,7 +130,7 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
 
   globalAny.exit = () => {
     console.log("\nGoodbye!");
-    Deno.exit(0);
+    getPlatform().process.exit(0);
   };
 
   globalAny.clear = () => {

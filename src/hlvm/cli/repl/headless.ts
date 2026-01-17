@@ -10,6 +10,7 @@ import { registerApis } from "../../api/index.ts";
 import { registerReplHelpers } from "./helpers.ts";
 import { memory } from "../../api/memory.ts";
 import { config } from "../../api/config.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 export interface HeadlessReplOptions {
   jsMode?: boolean;
@@ -106,7 +107,7 @@ async function runHeadlessLoop(state: ReplState, jsMode: boolean): Promise<void>
   let pending = "";
 
   while (true) {
-    const read = await Deno.stdin.read(buffer);
+    const read = await getPlatform().terminal.stdin.read(buffer);
     if (read === null) {
       if (pending.length > 0) {
         await handleLine(pending, state, jsMode);

@@ -14,15 +14,17 @@ import { extractTypeFromSymbol } from "../../../hql/transpiler/tokenizer/type-to
 import type { ReplState } from "./state.ts";
 import { appendToMemory } from "./memory.ts";
 import { join } from "jsr:@std/path@1";
+import { getPlatform } from "../../../platform/platform.ts";
 
 // Debug logging to file (Ink captures console)
 async function debugLog(message: string): Promise<void> {
+  const platform = getPlatform();
   try {
-    const home = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || ".";
+    const home = platform.env.get("HOME") || platform.env.get("USERPROFILE") || ".";
     const logPath = join(home, ".hlvm", "memory-debug.log");
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] [evaluator] ${message}\n`;
-    await Deno.writeTextFile(logPath, line, { append: true });
+    await platform.fs.writeTextFile(logPath, line, { append: true });
   } catch { /* ignore */ }
 }
 import { evaluateJS, extractJSBindings } from "./js-eval.ts";
@@ -39,7 +41,7 @@ const GENERIC_BASE_TYPE_REGEX = /^([^<]+)/;
 const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
 const BINDING_OPS: Set<string> = new Set(BINDING_KEYWORDS);
 const REPL_RUN_OPTIONS = {
-  baseDir: Deno.cwd(),
+  baseDir: getPlatform().process.cwd(),
   currentFile: "<repl>",
   suppressUnknownNameErrors: true,  // REPL bindings are on globalThis, not known to TypeScript
 } as const;

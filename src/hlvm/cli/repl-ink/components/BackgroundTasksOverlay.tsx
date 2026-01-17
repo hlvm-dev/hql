@@ -25,6 +25,7 @@ import {
   ansi,
   hexToRgb,
 } from "../overlay/index.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
 
 // ============================================================
 // Types
@@ -336,7 +337,7 @@ export function BackgroundTasksOverlay({
 
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
-    Deno.stdout.writeSync(encoder.encode(output));
+    getPlatform().terminal.stdout.writeSync(encoder.encode(output));
   }, [colors, evalTasks, selectedIndex, viewMode, viewingTask, resultLines, resultScrollOffset]);
 
   // Draw overlay on changes

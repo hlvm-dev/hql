@@ -15,6 +15,7 @@ import {
 import {
   getArgs as platformGetArgs,
   exists as platformExists,
+  getPlatform,
 } from "../../platform/platform.ts";
 
 // Import the enhanced error handling system
@@ -311,6 +312,6 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
 if (import.meta.main) {
   run().then((code) => {
     // Explicitly exit to avoid hanging on background processes (like Ollama)
-    Deno.exit(code);
+    getPlatform().process.exit(code);
   });
 }

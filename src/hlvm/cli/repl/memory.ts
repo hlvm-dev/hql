@@ -11,6 +11,7 @@ import { ensureDir } from "jsr:@std/fs@1";
 import { escapeString } from "./string-utils.ts";
 import { getHlvmDir, getMemoryPath } from "../../../common/paths.ts";
 import { getLegacyMemoryPath } from "../../../common/legacy-migration.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 // ============================================================
 // Debug Logging (writes to ~/.hlvm/memory-debug.log)
@@ -21,7 +22,7 @@ async function debugLog(message: string): Promise<void> {
     const logPath = join(getHlvmDir(), "memory-debug.log");
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${message}\n`;
-    await Deno.writeTextFile(logPath, line, { append: true });
+    await getPlatform().fs.writeTextFile(logPath, line, { append: true });
   } catch {
     // Ignore logging errors
   }
@@ -55,7 +56,7 @@ async function ensureLegacyMemoryMigrated(): Promise<void> {
   const currentContent = await readFileIfExists(currentPath);
   if (currentContent === null) {
     await ensureDir(getHlvmDir());
-    await Deno.writeTextFile(currentPath, legacyContent);
+    await getPlatform().fs.writeTextFile(currentPath, legacyContent);
     return;
   }
 
@@ -76,10 +77,11 @@ async function ensureLegacyMemoryMigrated(): Promise<void> {
 }
 
 async function readFileIfExists(path: string): Promise<string | null> {
+  const platform = getPlatform();
   try {
-    return await Deno.readTextFile(path);
+    return await platform.fs.readTextFile(path);
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error instanceof Error && error.name === "NotFound") {
       return null;
     }
     throw error;
@@ -151,11 +153,12 @@ interface ParsedDefinition {
 /** Read and parse memory file, returns empty array if not found */
 async function readAndParseMemory(): Promise<ParsedDefinition[]> {
   await ensureLegacyMemoryMigrated();
+  const platform = getPlatform();
   try {
-    const content = await Deno.readTextFile(getMemoryFilePath());
+    const content = await platform.fs.readTextFile(getMemoryFilePath());
     return parseMemoryContent(content);
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error instanceof Error && error.name === "NotFound") {
       return [];
     }
     throw error;
@@ -168,7 +171,7 @@ async function writeMemoryFile(definitions: ParsedDefinition[]): Promise<void> {
   const content = definitions.length > 0
     ? MEMORY_HEADER + definitions.map(d => d.code).join("\n\n") + "\n"
     : MEMORY_HEADER;
-  await Deno.writeTextFile(getMemoryFilePath(), content);
+  await getPlatform().fs.writeTextFile(getMemoryFilePath(), content);
 }
 
 /**
@@ -457,16 +460,17 @@ export async function forgetFromMemory(name: string): Promise<boolean> {
  * Get memory file statistics
  */
 export async function getMemoryStats(): Promise<{ path: string; count: number; size: number } | null> {
+  const platform = getPlatform();
   const path = getMemoryFilePath();
 
   try {
     const [stat, definitions] = await Promise.all([
-      Deno.stat(path),
+      platform.fs.stat(path),
       readAndParseMemory(),
     ]);
     return { path, count: definitions.length, size: stat.size };
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error instanceof Error && error.name === "NotFound") {
       return { path, count: 0, size: 0 };
     }
     return null;

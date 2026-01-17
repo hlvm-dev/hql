@@ -6,6 +6,7 @@
  */
 
 import { VERSION } from "../../../version.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 const GITHUB_API = "https://api.github.com/repos/hlvm-dev/hlvm/releases/latest";
 const CACHE_FILE = ".update-check";
@@ -22,13 +23,14 @@ interface UpdateCache {
  */
 export async function checkForUpdates(): Promise<void> {
   try {
-    const home = Deno.env.get("HOME") || Deno.env.get("USERPROFILE") || "";
+    const platform = getPlatform();
+    const home = platform.env.get("HOME") || platform.env.get("USERPROFILE") || "";
     const hlvmDir = `${home}/.hlvm`;
     const cacheFile = `${hlvmDir}/${CACHE_FILE}`;
 
     // Check cache first
     try {
-      const content = await Deno.readTextFile(cacheFile);
+      const content = await platform.fs.readTextFile(cacheFile);
       const cached: UpdateCache = JSON.parse(content);
 
       // Cache is still fresh
@@ -72,8 +74,8 @@ export async function checkForUpdates(): Promise<void> {
 
       // Save to cache
       try {
-        await Deno.mkdir(hlvmDir, { recursive: true });
-        await Deno.writeTextFile(
+        await platform.fs.mkdir(hlvmDir, { recursive: true });
+        await platform.fs.writeTextFile(
           cacheFile,
           JSON.stringify({
             checkedAt: Date.now(),

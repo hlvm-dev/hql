@@ -6,13 +6,14 @@
  */
 
 import { join, resolve } from "jsr:@std/path@1";
+import { getPlatform } from "../platform/platform.ts";
 
 // Cached HLVM directory path
 let _hlvmDir: string | null = null;
 
 function getEnvVar(key: string): string | undefined {
   try {
-    return Deno.env.get(key);
+    return getPlatform().env.get(key);
   } catch {
     return undefined;
   }
@@ -29,19 +30,30 @@ function resolveHlvmDir(): string {
 
 
 function ensureWritableDir(path: string): boolean {
+  const platform = getPlatform();
   const probeId = typeof crypto?.randomUUID === "function"
     ? crypto.randomUUID()
     : String(Date.now());
   const probePath = join(path, `.hlvm-write-test-${probeId}`);
   try {
-    Deno.mkdirSync(path, { recursive: true });
-    Deno.writeTextFileSync(probePath, "", { append: true });
-    Deno.removeSync(probePath);
+    // Create directory synchronously
+    try {
+      const stat = platform.fs.statSync(path);
+      if (!stat.isDirectory) {
+        return false;
+      }
+    } catch {
+      // Directory doesn't exist, try to create it
+      platform.fs.mkdirSync(path, { recursive: true });
+    }
+    // Write probe file
+    platform.fs.writeTextFileSync(probePath, "");
+    platform.fs.removeSync(probePath);
     return true;
   } catch {
     try {
       // Best-effort cleanup if the probe was partially created.
-      Deno.removeSync(probePath);
+      platform.fs.removeSync(probePath);
     } catch {
       // Ignore cleanup errors.
     }
@@ -57,7 +69,7 @@ export function getHlvmDir(): string {
   if (!_hlvmDir) {
     let candidate = resolveHlvmDir();
     if (!ensureWritableDir(candidate)) {
-      const fallback = join(Deno.cwd(), ".hlvm");
+      const fallback = join(getPlatform().process.cwd(), ".hlvm");
       ensureWritableDir(fallback);
       candidate = fallback;
     }
@@ -123,7 +135,7 @@ export function getHistoryPath(): string {
  */
 export async function ensureHlvmDir(): Promise<void> {
   try {
-    await Deno.mkdir(getHlvmDir(), { recursive: true });
+    await getPlatform().fs.mkdir(getHlvmDir(), { recursive: true });
   } catch {
     // Ignore errors to keep callers resilient in restricted environments.
   }
@@ -134,7 +146,7 @@ export async function ensureHlvmDir(): Promise<void> {
  */
 export function ensureHlvmDirSync(): void {
   try {
-    Deno.mkdirSync(getHlvmDir(), { recursive: true });
+    getPlatform().fs.mkdirSync(getHlvmDir(), { recursive: true });
   } catch {
     // Ignore errors to keep callers resilient in restricted environments.
   }
@@ -144,14 +156,14 @@ export function ensureHlvmDirSync(): void {
  * Ensure the sessions directory exists
  */
 export async function ensureSessionsDir(): Promise<void> {
-  await Deno.mkdir(getSessionsDir(), { recursive: true });
+  await getPlatform().fs.mkdir(getSessionsDir(), { recursive: true });
 }
 
 /**
  * Ensure the runtime directory exists
  */
 export async function ensureRuntimeDir(): Promise<void> {
-  await Deno.mkdir(getRuntimeDir(), { recursive: true });
+  await getPlatform().fs.mkdir(getRuntimeDir(), { recursive: true });
 }
 
 /**

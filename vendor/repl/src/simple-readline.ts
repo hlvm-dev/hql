@@ -1,7 +1,9 @@
 /**
- * Simple readline implementation using Deno's raw stdin
+ * Simple readline implementation using platform-agnostic raw stdin
  * Supports arrow key history navigation without Node.js dependencies
  */
+
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 // Control characters
 const enum ControlChar {
@@ -76,12 +78,12 @@ export class SimpleReadline {
     await this.write(prompt + " ");
 
     this.reset();
-    Deno.stdin.setRaw(true);
+    getPlatform().terminal.stdin.setRaw(true);
 
     try {
       return await this.readLoop();
     } finally {
-      Deno.stdin.setRaw(false);
+      getPlatform().terminal.stdin.setRaw(false);
     }
   }
 
@@ -122,7 +124,7 @@ export class SimpleReadline {
    */
   private async readKey(): Promise<Uint8Array | null> {
     const buf = new Uint8Array(3);
-    const n = await Deno.stdin.read(buf);
+    const n = await getPlatform().terminal.stdin.read(buf);
     return n === null ? null : buf.subarray(0, n);
   }
 
@@ -413,6 +415,6 @@ export class SimpleReadline {
    * Write text to stdout
    */
   private async write(text: string): Promise<void> {
-    await Deno.stdout.write(this.encoder.encode(text));
+    await getPlatform().terminal.stdout.write(this.encoder.encode(text));
   }
 }

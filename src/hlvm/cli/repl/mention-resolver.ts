@@ -12,6 +12,7 @@
 
 import { escapeString } from "./string-utils.ts";
 import { MAX_SEQ_LENGTH } from "../../../common/limits.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 // Pre-compiled regex patterns (avoid repeated compilation)
 const MENTION_PATH_REGEX = /^@([a-zA-Z0-9_\-./]+)/;
@@ -102,7 +103,7 @@ async function resolveMention(mention: string): Promise<string> {
   const path = mention.slice(1);
 
   try {
-    const stat = await Deno.stat(path);
+    const stat = await getPlatform().fs.stat(path);
 
     if (stat.isDirectory) {
       return await resolveDirectory(path);
@@ -112,7 +113,7 @@ async function resolveMention(mention: string): Promise<string> {
       return `"[${mention}: unknown type]"`;
     }
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error instanceof Error && error.name === "NotFound") {
       return `"[${mention}: not found]"`;
     }
     return `"[${mention}: error reading]"`;
@@ -126,7 +127,7 @@ async function resolveDirectory(path: string): Promise<string> {
   const entries: string[] = [];
 
   try {
-    for await (const entry of Deno.readDir(path)) {
+    for await (const entry of getPlatform().fs.readDir(path)) {
       const name = entry.isDirectory ? `${entry.name}/` : entry.name;
       entries.push(name);
     }
@@ -153,7 +154,7 @@ async function resolveDirectory(path: string): Promise<string> {
  */
 async function resolveFile(path: string): Promise<string> {
   try {
-    const content = await Deno.readTextFile(path);
+    const content = await getPlatform().fs.readTextFile(path);
 
     // Escape quotes and newlines for string literal
     const escaped = escapeString(content);

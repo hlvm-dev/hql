@@ -6,6 +6,7 @@
  */
 
 import { config } from "../../../api/config.ts";
+import { getPlatform as getHostPlatform } from "../../../../platform/platform.ts";
 
 // ============================================================
 // Category Types
@@ -101,7 +102,7 @@ export const CATEGORY_ORDER: readonly KeybindingCategory[] = [
 
 /** Get current platform */
 export function getPlatform(): Platform {
-  const os = Deno.build.os;
+  const os = getHostPlatform().build.os;
   if (os === "darwin") return "darwin";
   if (os === "windows") return "win32";
   return "linux";

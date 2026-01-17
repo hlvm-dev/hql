@@ -5,7 +5,7 @@
  * Usage:
  * ```typescript
  * import { SessionManager } from "./session/index.ts";
- * const manager = new SessionManager(Deno.cwd());
+ * const manager = new SessionManager(getPlatform().process.cwd());
  * await manager.initialize();
  * await manager.recordMessage("user", "(+ 1 2)");
  * ```

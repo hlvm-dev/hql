@@ -11,6 +11,7 @@
  */
 
 import { getErrorMessage } from "../../../common/utils.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 export interface ModuleExport {
   name: string;
@@ -121,13 +122,11 @@ export class ModuleAnalyzer {
   private async doAnalyze(specifier: string): Promise<ModuleInfo> {
     try {
       // Use deno doc --json to extract exports
-      const command = new Deno.Command("deno", {
-        args: ["doc", "--json", specifier],
+      const { code, stdout, stderr } = await getPlatform().command.output({
+        cmd: ["deno", "doc", "--json", specifier],
         stdout: "piped",
         stderr: "piped",
       });
-
-      const { code, stdout, stderr } = await command.output();
 
       if (code !== 0) {
         // Fallback: try dynamic import for npm packages
@@ -188,16 +187,15 @@ export class ModuleAnalyzer {
   private async analyzeViaImport(specifier: string): Promise<ModuleInfo> {
     try {
       // Use deno eval to get exports (isolated process)
-      const command = new Deno.Command("deno", {
-        args: [
+      const { code, stdout } = await getPlatform().command.output({
+        cmd: [
+          "deno",
           "eval",
           `const m = await import("${specifier}"); console.log(JSON.stringify(Object.keys(m)));`,
         ],
         stdout: "piped",
         stderr: "null",
       });
-
-      const { code, stdout } = await command.output();
 
       if (code !== 0) {
         return {
@@ -300,13 +298,11 @@ export class ModuleAnalyzer {
    */
   private async getResolvedPath(specifier: string): Promise<string | undefined> {
     try {
-      const command = new Deno.Command("deno", {
-        args: ["info", "--json", specifier],
+      const { code, stdout } = await getPlatform().command.output({
+        cmd: ["deno", "info", "--json", specifier],
         stdout: "piped",
         stderr: "null",
       });
-
-      const { code, stdout } = await command.output();
       if (code !== 0) return undefined;
 
       const json = new TextDecoder().decode(stdout);

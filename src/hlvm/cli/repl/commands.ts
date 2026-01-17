@@ -7,6 +7,7 @@ import { ANSI_COLORS } from "../ansi.ts";
 import type { ReplState } from "./state.ts";
 import { handleConfigCommand } from "./config/index.ts";
 import { registry } from "../repl-ink/keybindings/index.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -91,7 +92,7 @@ export const commands: Record<string, Command> = {
       console.log("\nGoodbye!");
       await state.flushHistory();
       state.flushHistorySync();
-      Deno.exit(0);
+      getPlatform().process.exit(0);
     },
   },
 

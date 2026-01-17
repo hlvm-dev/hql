@@ -40,14 +40,14 @@
        (=== (js-get value "__hlvm_media__") true)))
 
 ; ============================================================================
-; Path Resolution
+; Path Resolution (uses hlvm global for platform-agnostic operations)
 ; ============================================================================
 
 (fn resolve-path [path]
   (cond
     ; Handle ~ home directory
     (path.startsWith "~")
-    (let home (or (when (isDefined js/Deno) (js/Deno.env.get "HOME")) ""))
+    (let home (or (js-call hlvm.env "get" "HOME") ""))
     (path.replace "~" home)
 
     ; Absolute paths stay as-is
@@ -56,7 +56,7 @@
 
     ; Relative paths resolve from cwd
     true
-    (str (when (isDefined js/Deno) (js/Deno.cwd) ".") "/" path)))
+    (str (js-call hlvm.fs "cwd") "/" path)))
 
 ; ============================================================================
 ; MIME Type Detection
@@ -132,7 +132,7 @@
   (when (not (mime.startsWith "image/"))
     (throw (new js/Error (str "Not an image file: " path " (detected: " mime ")"))))
 
-  (let bytes (await (js/Deno.readFile resolved)))
+  (let bytes (await (js-call hlvm.fs "readFile" resolved)))
   (let base64 (bytes-to-base64 bytes))
   (create-media MediaType.IMAGE mime base64 path))
 
@@ -143,7 +143,7 @@
   (let resolved (resolve-path path))
   (let mime (detect-mime resolved))
   (let type (mime-to-type mime))
-  (let bytes (await (js/Deno.readFile resolved)))
+  (let bytes (await (js-call hlvm.fs "readFile" resolved)))
   (let base64 (bytes-to-base64 bytes))
   (create-media type mime base64 path))
 

@@ -11,6 +11,7 @@ import type { REPLPlugin, REPLContext, EvalResult } from "@hlvm/repl";
 import { isVectorImport, isNamespaceImport } from "../../hql/transpiler/syntax/import-export.ts";
 import { sanitizeIdentifier } from "../../common/utils.ts";
 import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../../hql/transpiler/keyword/primitives.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
 // Special form operators (from primitives.ts - single source of truth)
 // Typed as Set<string> to allow .has() with any string operand
@@ -140,7 +141,7 @@ export const hlvmPlugin: REPLPlugin = {
 
     const transpileSource = async (source: string): Promise<string> => {
       const result = await transpile(source, {
-        baseDir: Deno.cwd(),
+        baseDir: getPlatform().process.cwd(),
         currentFile: `<repl>:${context.lineNumber}`,
       });
       return typeof result === "string" ? result : result.code;

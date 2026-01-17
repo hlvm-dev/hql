@@ -13,6 +13,7 @@ import { ProgressBar, formatBytes } from "./ProgressBar.tsx";
 import { isModelPullTask } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { DEFAULT_MODEL_NAME } from "../../../../common/config/defaults.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
 
 // ============================================================
 // Types
@@ -187,7 +188,7 @@ export function ModelSetupOverlay({
  */
 export async function checkDefaultModelInstalled(): Promise<boolean> {
   // Skip check if AI is disabled
-  if (Deno.env.get("HLVM_DISABLE_AI_AUTOSTART")) {
+  if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) {
     return true; // Pretend it's installed to skip setup
   }
 

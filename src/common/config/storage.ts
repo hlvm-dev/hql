@@ -14,6 +14,7 @@ import {
 } from "./types.ts";
 import { getHlvmDir, getConfigPath } from "../paths.ts";
 import { getLegacyConfigPath } from "../legacy-migration.ts";
+import { getPlatform, PlatformError } from "../../platform/platform.ts";
 
 // Re-export for backward compatibility
 export { getHlvmDir, getConfigPath };
@@ -30,11 +31,16 @@ interface ReadConfigResult {
 
 async function readJsonConfig(path: string): Promise<ReadConfigResult> {
   try {
-    const content = await Deno.readTextFile(path);
+    const content = await getPlatform().fs.readTextFile(path);
     const parsed = JSON.parse(content) as Record<string, unknown>;
     return { data: parsed, exists: true };
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    // Check for NotFound error using PlatformError type guard
+    if (PlatformError.isNotFound(error)) {
+      return { data: null, exists: false };
+    }
+    // Also check for Deno.errors.NotFound during transition period
+    if (error instanceof Error && error.name === "NotFound") {
       return { data: null, exists: false };
     }
     if (error instanceof SyntaxError) {
@@ -235,6 +241,7 @@ export async function loadConfig(): Promise<HlvmConfig> {
  * Save config to disk using atomic write (temp file + rename)
  */
 export async function saveConfig(config: HlvmConfig): Promise<void> {
+  const platform = getPlatform();
   const dir = getHlvmDir();
   const path = getConfigPath();
   const tempPath = `${path}.tmp`;
@@ -243,10 +250,10 @@ export async function saveConfig(config: HlvmConfig): Promise<void> {
 
   // Write to temp file first
   const content = JSON.stringify(config, null, 2) + "\n";
-  await Deno.writeTextFile(tempPath, content);
+  await platform.fs.writeTextFile(tempPath, content);
 
   // Atomic rename
-  await Deno.rename(tempPath, path);
+  await platform.fs.rename(tempPath, path);
 }
 
 // ============================================================

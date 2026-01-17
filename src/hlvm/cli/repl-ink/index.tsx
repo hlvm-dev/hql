@@ -7,6 +7,7 @@ import { render } from "npm:ink@5";
 import { App } from "./components/App.tsx";
 import { ThemeProvider } from "../theme/index.ts";
 import type { SessionInitOptions } from "../repl/session/types.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 export interface InkReplOptions {
   jsMode?: boolean;
@@ -16,7 +17,7 @@ export interface InkReplOptions {
 }
 
 export async function startInkRepl(options: InkReplOptions = {}): Promise<number> {
-  if (!Deno.stdin.isTerminal()) {
+  if (!getPlatform().terminal.stdin.isTerminal()) {
     console.error("Error: Requires interactive terminal.");
     return 1;
   }
@@ -32,7 +33,7 @@ export async function startInkRepl(options: InkReplOptions = {}): Promise<number
 }
 
 if (import.meta.main) {
-  const args = Deno.args;
+  const args = getPlatform().process.args();
 
   // Parse session flags
   let continueSession = false;
@@ -68,5 +69,5 @@ if (import.meta.main) {
     jsMode: args.includes("--js"),
     showBanner: !args.includes("--no-banner"),
     session: sessionOptions,
-  }).then(Deno.exit);
+  }).then((code) => getPlatform().process.exit(code));
 }

@@ -4,7 +4,7 @@
  * Dispatches to appropriate command handlers
  */
 
-import { getArgs as platformGetArgs } from "../../platform/platform.ts";
+import { getArgs as platformGetArgs, getPlatform } from "../../platform/platform.ts";
 import { compileCommand, showCompileHelp } from "./commands/compile.ts";
 import { init as initCommand, showInitHelp } from "./commands/init.ts";
 import { lspCommand, showLspHelp } from "./commands/lsp.ts";
@@ -108,7 +108,8 @@ EXAMPLES:
   const jsMode = args.includes("--js");
   const showBanner = !args.includes("--no-banner");
   const forceInk = args.includes("--ink");
-  const hasTty = typeof Deno.stdin.isTerminal === "function" ? Deno.stdin.isTerminal() : true;
+  const terminal = getPlatform().terminal;
+  const hasTty = typeof terminal.stdin.isTerminal === "function" ? terminal.stdin.isTerminal() : true;
 
   if (!hasTty) {
     if (forceInk) {
@@ -272,7 +273,7 @@ async function main(): Promise<void> {
 if (import.meta.main) {
   main().catch((error) => {
     console.error("Error:", error.message);
-    Deno.exit(1);
+    getPlatform().process.exit(1);
   });
 }
 

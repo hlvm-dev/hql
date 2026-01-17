@@ -46,6 +46,7 @@
     "test:ultimate": "echo '🚀 Running Ultimate HLVM Test Suite' && deno task test:unit && deno task test:binary && deno task test:compat && deno task test:e2e && echo '✅ All tests passed!'",
     "test:ultimate:quick": "echo '🚀 Running Quick Ultimate HLVM Test Suite' && deno task test:unit && deno task test:binary:quick && deno task test:e2e && echo '✅ All tests passed!'",
     "scrape-models": "deno run --allow-net --allow-write --allow-read --allow-env scripts/scrape-ollama-models.ts",
-    "scrape-models:sync": "deno run --allow-net --allow-write --allow-read --allow-env scripts/scrape-ollama-models.ts --sync"
+    "scrape-models:sync": "deno run --allow-net --allow-write --allow-read --allow-env scripts/scrape-ollama-models.ts --sync",
+    "check:platform": "deno run --allow-read scripts/check-platform-abstraction.ts"
   }
 }

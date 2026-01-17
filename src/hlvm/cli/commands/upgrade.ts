@@ -8,7 +8,7 @@
  */
 
 import { VERSION } from "../../../version.ts";
-import { exit as platformExit } from "../../../platform/platform.ts";
+import { exit as platformExit, getPlatform } from "../../../platform/platform.ts";
 import { isNewer } from "../utils/update-check.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 
@@ -75,8 +75,10 @@ export async function upgrade(args: string[]): Promise<void> {
     return;
   }
 
+  const platform = getPlatform();
+
   // Windows - show instructions instead of running sh
-  if (Deno.build.os === "windows") {
+  if (platform.build.os === "windows") {
     console.log(
       "\nWindows detected. To upgrade, run this command in PowerShell:",
     );
@@ -88,14 +90,14 @@ export async function upgrade(args: string[]): Promise<void> {
   console.log("\nUpgrading...");
 
   try {
-    const cmd = new Deno.Command("sh", {
-      args: ["-c", `curl -fsSL ${INSTALL_SCRIPT} | sh`],
+    const proc = platform.command.run({
+      cmd: ["sh", "-c", `curl -fsSL ${INSTALL_SCRIPT} | sh`],
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
     });
 
-    const result = await cmd.output();
+    const result = await proc.status;
 
     if (!result.success) {
       console.error("\nUpgrade failed. Please try running manually:");

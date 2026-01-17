@@ -1,3 +1,5 @@
+import { getPlatform } from "../../platform/platform.ts";
+
 /**
  * Shared ANSI color codes for CLI components.
  * Legacy constants - prefer using themed colors from theme system
@@ -35,7 +37,7 @@ export const ANSI_CONTROLS = {
  */
 export function clearTerminal(): void {
   const encoder = new TextEncoder();
-  Deno.stdout.writeSync(encoder.encode(
+  getPlatform().terminal.stdout.writeSync(encoder.encode(
     ANSI_CONTROLS.CLEAR_SCROLLBACK + ANSI_CONTROLS.CLEAR_SCREEN + ANSI_CONTROLS.CURSOR_HOME
   ));
 }

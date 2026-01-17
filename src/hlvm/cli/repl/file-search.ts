@@ -8,6 +8,7 @@
  */
 
 import { fuzzyMatchPath, binarySearchInsertIdx } from "./fuzzy.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 // ============================================================
 // Types
@@ -134,7 +135,7 @@ function isIgnored(path: string, patterns: GitignorePattern[]): boolean {
 
 async function loadGitignore(baseDir: string): Promise<GitignorePattern[]> {
   try {
-    const content = await Deno.readTextFile(`${baseDir}/.gitignore`);
+    const content = await getPlatform().fs.readTextFile(`${baseDir}/.gitignore`);
     return parseGitignore(content);
   } catch {
     return [];
@@ -142,6 +143,7 @@ async function loadGitignore(baseDir: string): Promise<GitignorePattern[]> {
 }
 
 async function indexDirectory(baseDir: string): Promise<FileIndex> {
+  const platform = getPlatform();
   const files: string[] = [];
   const dirs: string[] = [];
   const gitignorePatterns = await loadGitignore(baseDir);
@@ -151,7 +153,7 @@ async function indexDirectory(baseDir: string): Promise<FileIndex> {
     if (depth > 10) return;
 
     try {
-      for await (const entry of Deno.readDir(dir)) {
+      for await (const entry of platform.fs.readDir(dir)) {
         const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
 
         // Skip hidden files/dirs (except specific ones)
@@ -201,7 +203,7 @@ export async function getFileIndex(forceRefresh = false): Promise<FileIndex> {
     return indexCache;
   }
 
-  const baseDir = Deno.cwd();
+  const baseDir = getPlatform().process.cwd();
   indexCache = await indexDirectory(baseDir);
 
   return indexCache;
@@ -237,7 +239,7 @@ async function checkAbsolutePath(path: string): Promise<FileMatch | null> {
   const cleanPath = unescapeShellPath(path);
 
   try {
-    const stat = await Deno.stat(cleanPath);
+    const stat = await getPlatform().fs.stat(cleanPath);
     return {
       path: cleanPath,  // Return the clean path, not the escaped one
       isDirectory: stat.isDirectory,
@@ -258,7 +260,7 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
     // First unescape any shell-escaped characters
     const unescapedQuery = unescapeShellPath(query);
     const expandedPath = unescapedQuery.startsWith("~")
-      ? unescapedQuery.replace(/^~/, Deno.env.get("HOME") || "")
+      ? unescapedQuery.replace(/^~/, getPlatform().env.get("HOME") || "")
       : unescapedQuery;
 
     const match = await checkAbsolutePath(expandedPath);
@@ -273,7 +275,7 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
     try {
       const results: FileMatch[] = [];
       const partialLower = partial.toLowerCase(); // Pre-compute once outside loop
-      for await (const entry of Deno.readDir(parentDir)) {
+      for await (const entry of getPlatform().fs.readDir(parentDir)) {
         const nameLower = entry.name.toLowerCase();
         if (partial && !nameLower.includes(partialLower)) {
           continue;

@@ -16,6 +16,7 @@ import { getMedia } from "../../repl/context.ts";
 import { refreshKeybindingLookup } from "../keybindings/index.ts";
 import { KEYWORD_SET, MACRO_SET, OPERATOR_SET } from "../../../../common/known-identifiers.ts";
 import { checkDefaultModelInstalled, getDefaultModelName } from "../components/ModelSetupOverlay.tsx";
+import { getPlatform } from "../../../../platform/platform.ts";
 
 export interface InitializationState {
   loading: boolean;
@@ -119,7 +120,7 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
             const assignments = declaredNames
               .map(name => `(let ${name} (js-get globalThis "${name}"))`)
               .join("\n");
-            await run(assignments, { baseDir: Deno.cwd(), currentFile: "<repl>", suppressUnknownNameErrors: true });
+            await run(assignments, { baseDir: getPlatform().process.cwd(), currentFile: "<repl>", suppressUnknownNameErrors: true });
           }
         } catch {
           // AI module not available - continue without it

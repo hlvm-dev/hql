@@ -6,6 +6,7 @@
 
 import { basename, join, dirname } from "jsr:@std/path@1";
 import { ensureDir } from "jsr:@std/fs@1";
+import { getPlatform } from "../../../../platform/platform.ts";
 import type {
   SessionMeta,
   SessionHeader,
@@ -38,27 +39,20 @@ function getSessionPath(sessionId: string): string {
 }
 
 async function pathExists(path: string): Promise<boolean> {
-  try {
-    await Deno.stat(path);
-    return true;
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
-      return false;
-    }
-    return false;
-  }
+  return await getPlatform().fs.exists(path);
 }
 
 async function sessionsDirHasData(): Promise<boolean> {
+  const platform = getPlatform();
   try {
-    for await (const entry of Deno.readDir(getSessionsDir())) {
+    for await (const entry of platform.fs.readDir(getSessionsDir())) {
       if (entry.isFile && entry.name.endsWith(".jsonl")) {
         return true;
       }
     }
     return false;
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error instanceof Error && error.name === "NotFound") {
       return false;
     }
     throw error;
@@ -66,10 +60,11 @@ async function sessionsDirHasData(): Promise<boolean> {
 }
 
 async function rebuildIndexFromSessions(): Promise<void> {
+  const platform = getPlatform();
   const entries: SessionMeta[] = [];
 
   try {
-    for await (const entry of Deno.readDir(getSessionsDir())) {
+    for await (const entry of platform.fs.readDir(getSessionsDir())) {
       if (!entry.isFile) continue;
       if (!entry.name.endsWith(".jsonl") || entry.name === INDEX_FILE) continue;
 
@@ -109,7 +104,7 @@ async function rebuildIndexFromSessions(): Promise<void> {
       });
     }
   } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) {
+    if (!(error instanceof Error && error.name === "NotFound")) {
       throw error;
     }
   }
@@ -131,6 +126,7 @@ async function ensureLegacySessionsMigrated(): Promise<void> {
     await ensureDir(getSessionsDir());
   }
 
+  const platform = getPlatform();
   let copiedAny = false;
   for (const legacyFile of legacyFiles) {
     const filename = basename(legacyFile);
@@ -139,7 +135,7 @@ async function ensureLegacySessionsMigrated(): Promise<void> {
       continue;
     }
     try {
-      await Deno.copyFile(legacyFile, targetPath);
+      await platform.fs.copyFile(legacyFile, targetPath);
       copiedAny = true;
     } catch {
       // Ignore copy errors for individual files.
@@ -191,14 +187,15 @@ export function generateSessionId(): string {
  * Creates directory if needed.
  */
 async function appendJsonLine(path: string, record: unknown): Promise<void> {
+  const platform = getPlatform();
   const line = JSON.stringify(record) + "\n";
 
   try {
-    await Deno.writeTextFile(path, line, { append: true });
+    await platform.fs.writeTextFile(path, line, { append: true });
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error instanceof Error && error.name === "NotFound") {
       await ensureDir(dirname(path));
-      await Deno.writeTextFile(path, line);
+      await platform.fs.writeTextFile(path, line);
     } else {
       throw error;
     }
@@ -210,8 +207,9 @@ async function appendJsonLine(path: string, record: unknown): Promise<void> {
  * Skips empty lines and logs parse errors without failing.
  */
 async function readJsonLines<T>(path: string): Promise<T[]> {
+  const platform = getPlatform();
   try {
-    const content = await Deno.readTextFile(path);
+    const content = await platform.fs.readTextFile(path);
     const lines = content.split("\n").filter((line) => line.trim());
     const results: T[] = [];
 
@@ -225,7 +223,7 @@ async function readJsonLines<T>(path: string): Promise<T[]> {
 
     return results;
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error instanceof Error && error.name === "NotFound") {
       return [];
     }
     throw error;
@@ -237,15 +235,16 @@ async function readJsonLines<T>(path: string): Promise<T[]> {
  * Prevents corruption if process crashes mid-write.
  */
 async function atomicWriteFile(path: string, content: string): Promise<void> {
+  const platform = getPlatform();
   const tempPath = `${path}.tmp.${Date.now()}`;
 
   try {
     await ensureDir(dirname(path));
-    await Deno.writeTextFile(tempPath, content);
-    await Deno.rename(tempPath, path);
+    await platform.fs.writeTextFile(tempPath, content);
+    await platform.fs.rename(tempPath, path);
   } catch (error) {
     try {
-      await Deno.remove(tempPath);
+      await platform.fs.remove(tempPath);
     } catch {
       // Ignore cleanup errors
     }
@@ -510,7 +509,7 @@ export async function loadSession(
 
     return { meta, messages };
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error instanceof Error && error.name === "NotFound") {
       return null;
     }
     throw error;
@@ -564,13 +563,14 @@ export async function getLastSession(): Promise<SessionMeta | null> {
 export async function deleteSession(
   sessionId: string
 ): Promise<boolean> {
+  const platform = getPlatform();
   const sessionPath = getSessionPath(sessionId);
 
   // Remove session file
   try {
-    await Deno.remove(sessionPath);
+    await platform.fs.remove(sessionPath);
   } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) {
+    if (!(error instanceof Error && error.name === "NotFound")) {
       throw error;
     }
   }

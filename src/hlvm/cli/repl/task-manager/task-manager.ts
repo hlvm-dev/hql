@@ -22,6 +22,7 @@ import {
   type EvalProgress,
   canTransition,
 } from "./types.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
 
 // ============================================================
 // Resource Registry
@@ -722,7 +723,7 @@ function registerShutdownHandlers(): void {
 
   // Handle SIGINT (Ctrl+C)
   try {
-    Deno.addSignalListener("SIGINT", () => {
+    getPlatform().process.addSignalListener("SIGINT", () => {
       if (_instance) _instance.shutdown();
     });
   } catch {
@@ -731,7 +732,7 @@ function registerShutdownHandlers(): void {
 
   // Handle SIGTERM
   try {
-    Deno.addSignalListener("SIGTERM", () => {
+    getPlatform().process.addSignalListener("SIGTERM", () => {
       if (_instance) _instance.shutdown();
     });
   } catch {
