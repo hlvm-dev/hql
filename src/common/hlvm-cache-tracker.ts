@@ -35,11 +35,11 @@ const IMPORT_REGEX = /import\s+.*\s+from\s+['"]([^'"]+)['"]/g;
 const NAMED_IMPORT_REGEX = /import\s+{([^}]+)}\s+from/g;
 const NAMESPACE_IMPORT_REGEX = /import\s+\*\s+as\s+([a-zA-Z0-9_-]+)\s+from/g;
 const TS_IMPORT_REGEX = /import\s+.*\s+from\s+['"]([^'"]+\.ts)['"]/g;
-const HQL_IMPORT_REGEX = /import\s+.*\s+from\s+['"]([^'"]+\.(hql))['"]/g;
+const HLVM_HQL_IMPORT_REGEX = /import\s+.*\s+from\s+['"]([^'"]+\.(hql))['"]/g;
 
 // Pre-compiled file extension and path patterns (Performance: avoid per-call regex compilation)
 const REMOVE_EXTENSION_REGEX = /\.[^.]+$/;
-const HQL_EXTENSION_REGEX = /\.hql$/;
+const HLVM_HQL_EXTENSION_REGEX = /\.hql$/;
 const TS_EXTENSION_REGEX = /\.ts$/;
 const JS_EXTENSION_REGEX = /\.js$/;
 const PATH_SEPARATOR_REGEX = /[\\/]+/;
@@ -993,7 +993,7 @@ async function rewriteHqlImportsInJs(
 
   return await rewriteRelativeImports(
     content,
-    HQL_IMPORT_REGEX,
+    HLVM_HQL_IMPORT_REGEX,
     async ({ importPath, fullImport }) => {
       const resolvedImportPath = resolve(dirname(filePath), importPath);
 
@@ -1015,7 +1015,7 @@ async function rewriteHqlImportsInJs(
 
       registerImportMapping(resolvedImportPath, preTsPath);
       registerImportMapping(
-        resolvedImportPath.replace(HQL_EXTENSION_REGEX, ".ts"),
+        resolvedImportPath.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"),
         preTsPath,
       );
 
@@ -1209,7 +1209,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
         preserveRelative: true,
       });
       registerImportMapping(sourceFile, cached);
-      registerImportMapping(sourceFile.replace(HQL_EXTENSION_REGEX, ".ts"), cached);
+      registerImportMapping(sourceFile.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"), cached);
       return cached;
     }
     inProgressHql.add(sourceFile);
@@ -1230,7 +1230,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
         // Register the mapping for future use
         registerImportMapping(sourceFile, cachedTsPath);
         registerImportMapping(
-          sourceFile.replace(HQL_EXTENSION_REGEX, ".ts"),
+          sourceFile.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"),
           cachedTsPath,
         );
 
@@ -1258,7 +1258,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
 
     // Register the mapping for future use
     registerImportMapping(sourceFile, cachedTsPath);
-    registerImportMapping(sourceFile.replace(HQL_EXTENSION_REGEX, ".ts"), cachedTsPath);
+    registerImportMapping(sourceFile.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"), cachedTsPath);
 
     logger.debug(`Processed HQL file ${sourceFile} to ${cachedTsPath}`);
 
@@ -1291,7 +1291,7 @@ interface TempDirResult {
  */
 export async function createTempDirIfNeeded(
   options: { tempDir?: string; verbose?: boolean },
-  prefix: string = "hql_temp_",
+  prefix: string = "hlvm_temp_",
   logger?: {
     debug: (msg: string) => void;
     log: (msg: { text: string; namespace?: string }) => void;

@@ -39,7 +39,7 @@
       "type": "object",
       "title": "HLVM (HQL)",
       "properties": {
-        "hql.trace.server": {
+        "hlvm.trace.server": {
           "scope": "window",
           "type": "string",
           "enum": [

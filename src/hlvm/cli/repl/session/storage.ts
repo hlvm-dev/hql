@@ -528,7 +528,7 @@ export async function listSessions(
     sortOrder = "recent",
   } = options;
 
-  let entries = await readIndex();
+  const entries = await readIndex();
 
   // Sort
   switch (sortOrder) {

@@ -317,7 +317,7 @@ function ModelItem({
     if (progress.total && progress.completed) {
       sizeText = (
         <>
-          <ProgressBar percent={progress.percent || 0} width={10} showPercent={true} />
+          <ProgressBar percent={progress.percent || 0} width={10} showPercent />
           <Text dimColor> {formatBytes(progress.completed)}/{formatBytes(progress.total)}</Text>
         </>
       );
@@ -592,7 +592,7 @@ export function ModelBrowser({
     // Tab cycles filter forward (clears pending delete)
     // Use functional update to avoid stale closure issues
     if (key.tab && !key.shift) {
-      setViewFilter((current) => {
+      setViewFilter((current: ViewFilter) => {
         const idx = FILTER_CYCLE.indexOf(current);
         return FILTER_CYCLE[(idx + 1) % FILTER_CYCLE.length];
       });
@@ -604,7 +604,7 @@ export function ModelBrowser({
     // Shift+Tab cycles filter backward (clears pending delete)
     // Use functional update to avoid stale closure issues
     if (key.tab && key.shift) {
-      setViewFilter((current) => {
+      setViewFilter((current: ViewFilter) => {
         const idx = FILTER_CYCLE.indexOf(current);
         return FILTER_CYCLE[(idx - 1 + FILTER_CYCLE.length) % FILTER_CYCLE.length];
       });

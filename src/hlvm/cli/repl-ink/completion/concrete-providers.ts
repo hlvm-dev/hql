@@ -531,7 +531,7 @@ const AVAILABLE_COMMANDS: readonly { name: string; description: string }[] = [
   { name: "/tasks", description: "View background tasks" },
   { name: "/bg", description: "Push current eval to background" },
   { name: "/js", description: "Switch to JavaScript mode" },
-  { name: "/hql", description: "Switch to HQL mode" },
+  { name: "/hql", description: "Switch to HLVM HQL mode" },
   { name: "/resume", description: "Resume a previous session" },
 ];
 

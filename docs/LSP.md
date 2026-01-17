@@ -239,5 +239,5 @@ connection.onReferences((params) => {
 ## Related Files
 
 - `src/hql/lsp/` - LSP server implementation
-- `vscode-hql/` - HLVM HQL VSCode extension (package: `hlvm-hql-language`)
+- `vscode-hlvm/` - HLVM HQL VSCode extension (package: `hlvm-hql-language`)
 - `tests/unit/lsp/` - Unit tests

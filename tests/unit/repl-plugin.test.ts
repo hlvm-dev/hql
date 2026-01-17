@@ -1,7 +1,7 @@
 /**
  * Comprehensive Unit Tests for HLVM REPL Plugin
  *
- * Tests all exported functions from hql-plugin.ts with real inputs,
+ * Tests all exported functions from hlvm-plugin.ts with real inputs,
  * no mocks, no hardcoded workarounds.
  */
 
@@ -13,8 +13,8 @@ import {
   wrapInExportFunction,
   wrapInAsyncExportFunction,
   transformForGlobalThis,
-  hqlPlugin,
-} from "../../src/hlvm/cli/hql-plugin.ts";
+  hlvmPlugin,
+} from "../../src/hlvm/cli/hlvm-plugin.ts";
 import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
 import type { SList } from "../../src/hql/s-exp/types.ts";
 
@@ -292,7 +292,7 @@ Deno.test("transformForGlobalThis: handles function with complex body", () => {
 });
 
 // ============================================================================ 
-// Integration Tests - hqlPlugin.evaluate() with Mock Context
+// Integration Tests - hlvmPlugin.evaluate() with Mock Context
 // ============================================================================ 
 
 function createMockContext(lineNumber: number = 1) {
@@ -323,125 +323,125 @@ function createMockContext(lineNumber: number = 1) {
   };
 }
 
-Deno.test("hqlPlugin.evaluate: simple arithmetic expression", async () => {
+Deno.test("hlvmPlugin.evaluate: simple arithmetic expression", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate("(+ 1 2)", ctx as any);
+  const result = await hlvmPlugin.evaluate("(+ 1 2)", ctx as any);
   assertEquals((result as any).value, 3);
 });
 
-Deno.test("hqlPlugin.evaluate: string expression", async () => {
+Deno.test("hlvmPlugin.evaluate: string expression", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate('"hello"', ctx as any);
+  const result = await hlvmPlugin.evaluate('"hello"', ctx as any);
   assertEquals((result as any).value, "hello");
 });
 
-Deno.test("hqlPlugin.evaluate: boolean expression", async () => {
+Deno.test("hlvmPlugin.evaluate: boolean expression", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate("(> 5 3)", ctx as any);
+  const result = await hlvmPlugin.evaluate("(> 5 3)", ctx as any);
   assertEquals((result as any).value, true);
 });
 
-Deno.test("hqlPlugin.evaluate: let binding returns value", async () => {
+Deno.test("hlvmPlugin.evaluate: let binding returns value", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate("(let x 42)", ctx as any);
+  const result = await hlvmPlugin.evaluate("(let x 42)", ctx as any);
   assertEquals((result as any).value, 42);
 });
 
-Deno.test("hqlPlugin.evaluate: const binding returns value", async () => {
+Deno.test("hlvmPlugin.evaluate: const binding returns value", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate("(const PI 3.14159)", ctx as any);
+  const result = await hlvmPlugin.evaluate("(const PI 3.14159)", ctx as any);
   assertEquals((result as any).value, 3.14159);
 });
 
-Deno.test("hqlPlugin.evaluate: fn declaration returns function", async () => {
+Deno.test("hlvmPlugin.evaluate: fn declaration returns function", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate("(fn double [x] (* x 2))", ctx as any);
+  const result = await hlvmPlugin.evaluate("(fn double [x] (* x 2))", ctx as any);
   assertEquals(typeof (result as any).value, "function");
 });
 
-Deno.test("hqlPlugin.evaluate: class declaration returns constructor", async () => {
+Deno.test("hlvmPlugin.evaluate: class declaration returns constructor", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate("(class Box [value])", ctx as any);
+  const result = await hlvmPlugin.evaluate("(class Box [value])", ctx as any);
   assertEquals(typeof (result as any).value, "function");
 });
 
-Deno.test("hqlPlugin.evaluate: empty input returns suppressOutput", async () => {
+Deno.test("hlvmPlugin.evaluate: empty input returns suppressOutput", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate("", ctx as any);
+  const result = await hlvmPlugin.evaluate("", ctx as any);
   assertEquals((result as any).suppressOutput, true);
 });
 
-Deno.test("hqlPlugin.evaluate: comment-only input returns suppressOutput", async () => {
+Deno.test("hlvmPlugin.evaluate: comment-only input returns suppressOutput", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate("; this is a comment", ctx as any);
+  const result = await hlvmPlugin.evaluate("; this is a comment", ctx as any);
   assertEquals((result as any).suppressOutput, true);
 });
 
-Deno.test("hqlPlugin.evaluate: complex nested expression", async () => {
+Deno.test("hlvmPlugin.evaluate: complex nested expression", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate("(+ (* 2 3) (- 10 4))", ctx as any);
+  const result = await hlvmPlugin.evaluate("(+ (* 2 3) (- 10 4))", ctx as any);
   assertEquals((result as any).value, 12); // (2*3) + (10-4) = 6 + 6 = 12
 });
 
-Deno.test("hqlPlugin.evaluate: array literal", async () => {
+Deno.test("hlvmPlugin.evaluate: array literal", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate("[1 2 3]", ctx as any);
+  const result = await hlvmPlugin.evaluate("[1 2 3]", ctx as any);
   assertEquals((result as any).value, [1, 2, 3]);
 });
 
-Deno.test("hqlPlugin.evaluate: if expression returns value", async () => {
+Deno.test("hlvmPlugin.evaluate: if expression returns value", async () => {
   const ctx = createMockContext(1);
-  const result = await hqlPlugin.evaluate('(if true "yes" "no")', ctx as any);
+  const result = await hlvmPlugin.evaluate('(if true "yes" "no")', ctx as any);
   assertEquals((result as any).value, "yes");
 });
 
 // ============================================================================ 
-// hqlPlugin.detect() Tests
+// hlvmPlugin.detect() Tests
 // ============================================================================ 
 
-Deno.test("hqlPlugin.detect: returns 100 for parenthesis start", () => {
+Deno.test("hlvmPlugin.detect: returns 100 for parenthesis start", () => {
   const ctx = createMockContext(1);
-  const result = hqlPlugin.detect!("(+ 1 2)", ctx as any);
+  const result = hlvmPlugin.detect!("(+ 1 2)", ctx as any);
   assertEquals(result, 100);
 });
 
-Deno.test("hqlPlugin.detect: returns 100 for semicolon (comment) start", () => {
+Deno.test("hlvmPlugin.detect: returns 100 for semicolon (comment) start", () => {
   const ctx = createMockContext(1);
-  const result = hqlPlugin.detect!("; comment", ctx as any);
+  const result = hlvmPlugin.detect!("; comment", ctx as any);
   assertEquals(result, 100);
 });
 
-Deno.test("hqlPlugin.detect: returns 100 for hash start", () => {
+Deno.test("hlvmPlugin.detect: returns 100 for hash start", () => {
   const ctx = createMockContext(1);
-  const result = hqlPlugin.detect!("#(+ %1 1)", ctx as any);
+  const result = hlvmPlugin.detect!("#[1 2]", ctx as any);
   assertEquals(result, 100);
 });
 
-Deno.test("hqlPlugin.detect: returns false for JavaScript code", () => {
+Deno.test("hlvmPlugin.detect: returns false for JavaScript code", () => {
   const ctx = createMockContext(1);
-  const result = hqlPlugin.detect!("const x = 1;", ctx as any);
+  const result = hlvmPlugin.detect!("const x = 1;", ctx as any);
   assertEquals(result, false);
 });
 
-Deno.test("hqlPlugin.detect: returns false for empty string", () => {
+Deno.test("hlvmPlugin.detect: returns false for empty string", () => {
   const ctx = createMockContext(1);
-  const result = hqlPlugin.detect!("", ctx as any);
+  const result = hlvmPlugin.detect!("", ctx as any);
   assertEquals(result, false);
 });
 
-Deno.test("hqlPlugin.detect: handles whitespace before code", () => {
+Deno.test("hlvmPlugin.detect: handles whitespace before code", () => {
   const ctx = createMockContext(1);
-  const result = hqlPlugin.detect!("   (+ 1 2)", ctx as any);
+  const result = hlvmPlugin.detect!("   (+ 1 2)", ctx as any);
   assertEquals(result, 100);
 });
 
 // ============================================================================ 
-// hqlPlugin.init() Tests
+// hlvmPlugin.init() Tests
 // ============================================================================ 
 
-Deno.test("hqlPlugin.init: initializes declaredNames state", async () => {
+Deno.test("hlvmPlugin.init: initializes declaredNames state", async () => {
   const ctx = createMockContext(1);
-  await hqlPlugin.init!(ctx as any);
+  await hlvmPlugin.init!(ctx as any);
   const declaredNames = ctx.getState<Set<string>>("declaredNames");
   assert(declaredNames instanceof Set);
   assertEquals(declaredNames.size, 0);
@@ -451,11 +451,11 @@ Deno.test("hqlPlugin.init: initializes declaredNames state", async () => {
 // State Persistence Tests
 // ============================================================================ 
 
-Deno.test("hqlPlugin: variable persists across evaluations via globalThis", async () => {
+Deno.test("hlvmPlugin: variable persists across evaluations via globalThis", async () => {
   const ctx = createMockContext(1);
 
   // Define a variable
-  await hqlPlugin.evaluate("(let myVar 100)", ctx as any);
+  await hlvmPlugin.evaluate("(let myVar 100)", ctx as any);
 
   // Access it in next line (need to increment line number)
   ctx.lineNumber = 2;
@@ -467,11 +467,11 @@ Deno.test("hqlPlugin: variable persists across evaluations via globalThis", asyn
   delete (globalThis as any)["myVar"];
 });
 
-Deno.test("hqlPlugin: function persists and is callable via globalThis", async () => {
+Deno.test("hlvmPlugin: function persists and is callable via globalThis", async () => {
   const ctx = createMockContext(1);
 
   // Define a function
-  await hqlPlugin.evaluate("(fn triple [x] (* x 3))", ctx as any);
+  await hlvmPlugin.evaluate("(fn triple [x] (* x 3))", ctx as any);
 
   // Should be on globalThis
   const fn = (globalThis as any)["triple"];
@@ -486,22 +486,22 @@ Deno.test("hqlPlugin: function persists and is callable via globalThis", async (
 // Error Handling Tests
 // ============================================================================ 
 
-Deno.test("hqlPlugin.evaluate: throws on syntax error", async () => {
+Deno.test("hlvmPlugin.evaluate: throws on syntax error", async () => {
   const ctx = createMockContext(1);
   let threw = false;
   try {
-    await hqlPlugin.evaluate("(+ 1", ctx as any); // Missing closing paren
+    await hlvmPlugin.evaluate("(+ 1", ctx as any); // Missing closing paren
   } catch {
     threw = true;
   }
   assertEquals(threw, true);
 });
 
-Deno.test("hqlPlugin.evaluate: throws on runtime error", async () => {
+Deno.test("hlvmPlugin.evaluate: throws on runtime error", async () => {
   const ctx = createMockContext(1);
   let threw = false;
   try {
-    await hqlPlugin.evaluate("(throw (new Error \"test error\"))", ctx as any);
+    await hlvmPlugin.evaluate("(throw (new Error \"test error\"))", ctx as any);
   } catch (e) {
     threw = true;
     assert(e instanceof Error);

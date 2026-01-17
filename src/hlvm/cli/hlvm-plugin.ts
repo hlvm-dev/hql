@@ -1,6 +1,6 @@
 /**
- * HQL Plugin for Pure REPL
- * Implements the REPLPlugin interface for HQL language support
+ * HLVM HQL Plugin for Pure REPL
+ * Implements the REPLPlugin interface for HQL language support on HLVM
  */
 
 import { transpile } from "../../../mod.ts";
@@ -117,7 +117,7 @@ export function transformForGlobalThis(transpiled: string, name: string): string
 /**
  * HQL Plugin Implementation
  */
-export const hqlPlugin: REPLPlugin = {
+export const hlvmPlugin: REPLPlugin = {
   name: "HQL",
   description: "Lisp-like language for modern JavaScript",
 
@@ -138,7 +138,7 @@ export const hqlPlugin: REPLPlugin = {
     const comment = makeComment(context.lineNumber, code);
     const exportName = `__repl_line_${context.lineNumber}`;
 
-    const transpileHql = async (source: string): Promise<string> => {
+    const transpileSource = async (source: string): Promise<string> => {
       const result = await transpile(source, {
         baseDir: Deno.cwd(),
         currentFile: `<repl>:${context.lineNumber}`,
@@ -149,11 +149,11 @@ export const hqlPlugin: REPLPlugin = {
     let jsCode: string;
 
     if (exprType.kind === "import") {
-      jsCode = await handleImport(ast[0] as SList, exportName, comment, transpileHql, declaredNames);
+      jsCode = await handleImport(ast[0] as SList, exportName, comment, transpileSource, declaredNames);
 
     } else if (exprType.kind === "binding" && exprType.name) {
       const valueExpr = (ast[0] as SList).elements[2];
-      const jsValue = cleanJs(await transpileHql(sexpToString(valueExpr)), true);
+      const jsValue = cleanJs(await transpileSource(sexpToString(valueExpr)), true);
       const initFlag = `__init_${context.lineNumber}`;
       const name = exprType.name;
 
@@ -172,7 +172,7 @@ export function ${exportName}() {
       declaredNames.add(name);
 
     } else if (exprType.kind === "declaration") {
-      let transpiled = cleanJs(await transpileHql(code));
+      let transpiled = cleanJs(await transpileSource(code));
       if (exprType.name) {
         transpiled = transformForGlobalThis(transpiled, exprType.name);
         declaredNames.add(exprType.name);
@@ -180,7 +180,7 @@ export function ${exportName}() {
       jsCode = wrapInExportFunction(exportName, transpiled.replace(/;\s*$/, ''), comment);
 
     } else {
-      jsCode = wrapInExportFunction(exportName, cleanJs(await transpileHql(code), true), comment);
+      jsCode = wrapInExportFunction(exportName, cleanJs(await transpileSource(code), true), comment);
     }
 
     context.setState("declaredNames", declaredNames);
@@ -198,9 +198,9 @@ export function ${exportName}() {
 
   commands: {
     ".hql": {
-      description: "Force HQL mode (input next line as HQL)",
+      description: "Force HLVM HQL mode (input next line as HQL)",
       handler(_context: REPLContext) {
-        console.log("HQL mode active - enter HQL expression:");
+        console.log("HLVM HQL mode active - enter HQL expression:");
       }
     }
   }
@@ -211,7 +211,7 @@ async function handleImport(
   list: SList,
   exportName: string,
   comment: string,
-  transpileHql: (source: string) => Promise<string>,
+  transpileSource: (source: string) => Promise<string>,
   declaredNames: Set<string>
 ): Promise<string> {
   let dynamicImportCode = "";
@@ -261,7 +261,7 @@ async function handleImport(
 
   } else {
     // Fallback for complex imports
-    const match = cleanJs(await transpileHql(sexpToString(list)), true).match(/import\s+['"]([^'"]+)['"]/);
+    const match = cleanJs(await transpileSource(sexpToString(list)), true).match(/import\s+['"]([^'"]+)['"]/);
     if (!match) throw new Error("Unsupported import syntax in REPL");
     // Security: Use JSON.stringify to prevent code injection
     dynamicImportCode = `await import(${JSON.stringify(match[1])});`;

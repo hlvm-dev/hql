@@ -18,7 +18,7 @@ Language support for HQL on HLVM, including syntax highlighting, autocompletion,
 ## Quick Start
 
 ```bash
-cd vscode-hql
+cd vscode-hlvm
 npm run release    # Build, package, and install
 ```
 
@@ -51,7 +51,7 @@ src/hql/lsp/features/completion.ts     syntaxes/hql.tmLanguage.json
 ## Project Structure
 
 ```
-vscode-hql/
+vscode-hlvm/
 ├── src/extension.ts              # VSCode extension entry (starts LSP)
 ├── syntaxes/hql.tmLanguage.json  # TextMate grammar (GENERATED)
 ├── scripts/generate-grammar.ts   # Generates grammar from HQL sources
@@ -74,7 +74,7 @@ src/hql/lsp/
 ## Development
 
 ### Run in Debug Mode
-1. Open `vscode-hql/` in VSCode
+1. Open `vscode-hlvm/` in VSCode
 2. Press `F5` → launches Extension Development Host
 3. Open any `.hql` file to test
 

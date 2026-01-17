@@ -11,8 +11,8 @@ HQL provides syntactic sugar for common data structures:
 2. **Hash Maps (Objects)** - Key-value pairs with `{...}` syntax
 3. **Hash Sets** - Unique values with `#[...]` syntax
 
-All data structures follow JavaScript/JSON syntax (arrays and objects) or
-HQL-specific extensions (sets).
+Arrays and objects support both Lisp style and JavaScript/JSON style. Sets use
+HQL-specific `#[...]` syntax.
 
 ## Syntax
 
@@ -22,7 +22,10 @@ HQL-specific extensions (sets).
 ; Empty vector
 []
 
-; Vector with elements (JavaScript/JSON syntax)
+; Vector with elements (Lisp style)
+[1 2 3 4]
+
+; Vector with elements (JavaScript/JSON style)
 [1, 2, 3, 4]
 ["apple", "banana", "cherry"]
 
@@ -46,7 +49,11 @@ v.length   ; => 3
 ; Empty map
 {}
 
-; Map with key-value pairs (JavaScript/JSON syntax)
+; Map with key-value pairs (Lisp style)
+{name: "Alice" age: 30}
+{host: "localhost" port: 8080}
+
+; Map with key-value pairs (JavaScript/JSON style)
 {"name": "Alice", "age": 30}
 {"host": "localhost", "port": 8080}
 
@@ -69,8 +76,8 @@ v.length   ; => 3
 #[]
 
 ; Set with elements
-#[1, 2, 3]
-#["red", "green", "blue"]
+#[1 2 3]
+#["red" "green" "blue"]
 
 ; Automatic deduplication
 (var s #[1, 2, 2, 3, 3, 3])
@@ -92,31 +99,31 @@ HQL's parser transforms literal syntax into S-expressions:
 - **Literal:** `[1, 2, 3]`
 - **S-expression:** `(vector 1 2 3)`
 - **Empty:** `[]` → `(empty-array)`
-- **Parser:** `parseVector` in `src/hql/s-exp/parser.ts`
-- **Syntax:** Exact JavaScript/JSON - requires commas
+- **Parser:** `parseVector` in `src/hql/transpiler/pipeline/parser.ts`
+- **Syntax:** Lisp style or JSON style (commas optional)
 
 #### Hash Maps
 
 - **Literal:** `{"x": 10, "y": 20}`
 - **S-expression:** `(hash-map "x" 10 "y" 20)`
 - **Empty:** `{}` → `(empty-map)`
-- **Parser:** `parseMap` in `src/hql/s-exp/parser.ts`
-- **Syntax:** Exact JavaScript/JSON - requires colons and commas
+- **Parser:** `parseMap` in `src/hql/transpiler/pipeline/parser.ts`
+- **Syntax:** Lisp style or JSON style (commas optional)
 
 #### Hash Sets
 
 - **Literal:** `#[1, 2, 3]`
 - **S-expression:** `(hash-set 1 2 3)`
 - **Empty:** `#[]` → `(empty-set)`
-- **Parser:** `parseSet` in `src/hql/s-exp/parser.ts`
-- **Syntax:** HQL extension (JS has no Set literal) - requires commas
+- **Parser:** `parseSet` in `src/hql/transpiler/pipeline/parser.ts`
+- **Syntax:** HQL extension (JS has no Set literal) - commas optional
 
 ### JavaScript/JSON Compliance
 
-- **Arrays and Objects:** Valid JSON is valid HQL
+- **Arrays and Objects:** Valid JSON is valid HQL, and Lisp style is supported
 - **Sets:** HQL-specific extension using `#[...]` notation
-- **Commas:** Required between all elements (like JavaScript)
-- **Keys:** Must be strings in maps
+- **Commas:** Optional (JSON style accepted)
+- **Keys:** Symbols or strings (symbols are treated as string keys)
 
 ## Features Covered
 

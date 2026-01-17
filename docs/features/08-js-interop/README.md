@@ -642,18 +642,13 @@ async function getData() {
   (await (js-call response "json")))
 ```
 
-### ClojureScript
+### HQL Equivalent
 
-```clojure
-;; ClojureScript
-(.toUpperCase "hello")
-(.map #(* % 2) [1 2 3])
-
-;; HQL
+```lisp
 (js-call "hello" "toUpperCase")
 (js-call [1 2 3] "map" (fn [x] (* x 2)))
 
-;; Or with dot notation
+; Or with dot notation
 ("hello" .toUpperCase)
 ([1 2 3] .map (fn [x] (* x 2)))
 ```

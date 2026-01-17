@@ -328,22 +328,6 @@ default: return "other"
   (default "other"))
 ```
 
-### Clojure
-
-```clojure
-;; Clojure (core.match)
-(match x
-  42 "answer"
-  (n :guard pos?) "positive"
-  :else "other")
-
-;; HQL
-(match x
-  (case 42 "answer")
-  (case n (if (> n 0)) "positive")
-  (default "other"))
-```
-
 ### JavaScript
 
 ```javascript

@@ -724,25 +724,6 @@ public class Person {
     (+ "Hello, " this.name)))
 ```
 
-### Clojure Records (closest Lisp analogy)
-
-```clojure
-;; Clojure defrecord
-(defrecord Person [name age]
-  (greet [this]
-    (str "Hello, " (:name this))))
-
-;; HQL class
-(class Person
-  (constructor [name age]
-    (do
-      (= this.name name)
-      (= this.age age)))
-
-  (fn greet []
-    (+ "Hello, " this.name)))
-```
-
 ## Related Specs
 
 - Complete class system specification available in project specs

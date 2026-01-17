@@ -20,17 +20,17 @@ function createTestPNG(marker: number): Uint8Array {
   ]);
 }
 
-type HqlMediaItem = {
+type HlvmMediaItem = {
   type: string;
   mimeType: string;
   data: string;
   source: string;
-  __hql_media__: boolean;
+  __hlvm_media__: boolean;
 };
 
 function isMedia(v: unknown): boolean {
   if (v == null) return false;
-  return (v as Record<string, unknown>).__hql_media__ === true;
+  return (v as Record<string, unknown>).__hlvm_media__ === true;
 }
 
 console.log("╔══════════════════════════════════════════════════════════════════╗");
@@ -55,8 +55,8 @@ for (let i = 0; i < 3; i++) {
   addAttachment("image", `[Image #${i + 1}]`, testPaths[i], "image/png", bytes.length, base64Data);
 }
 
-const hqlMedia = (globalThis as Record<string, unknown>).__hqlMedia as HqlMediaItem[] || [];
-console.log(`\n  globalThis.__hqlMedia has ${hqlMedia.length} items`);
+const hqlMedia = (globalThis as Record<string, unknown>).__hlvmMedia as HlvmMediaItem[] || [];
+console.log(`\n  globalThis.__hlvmMedia has ${hqlMedia.length} items`);
 
 const images = hqlMedia
   .filter(m => isMedia(m) && m.type === "image")
@@ -87,7 +87,7 @@ const mediaObjects = testPaths.map((p, i) => ({
   mimeType: "image/png",
   data: `base64data_${i}`,
   source: p,
-  __hql_media__: true
+  __hlvm_media__: true
 }));
 
 // Simulate __getImages with explicit array
@@ -98,8 +98,8 @@ function getImagesExplicit(options: { media?: unknown }) {
 
     const mediaList = Array.isArray(options.media) ? options.media : [options.media];
     return mediaList
-      .filter(m => isMedia(m) && (m as HqlMediaItem).type === "image")
-      .map(m => (m as HqlMediaItem).data);
+      .filter(m => isMedia(m) && (m as HlvmMediaItem).type === "image")
+      .map(m => (m as HlvmMediaItem).data);
   }
   return [];
 }
@@ -132,11 +132,11 @@ const singleMedia = {
   mimeType: "image/png",
   data: "explicit_single_image",
   source: "/explicit/path.png",
-  __hql_media__: true
+  __hlvm_media__: true
 };
 
 const overrideImages = getImagesExplicit({ media: singleMedia });
-console.log("  3 images in globalThis.__hqlMedia");
+console.log("  3 images in globalThis.__hlvmMedia");
 console.log("  1 image passed explicitly in options.media");
 console.log(`  __getImages() returns ${overrideImages.length} image(s)`);
 
@@ -156,7 +156,7 @@ if (overrideImages.length === 1 && overrideImages[0] === "explicit_single_image"
 console.log("\n\n═══ TEST 4: Disable Auto-attach ═══\n");
 
 const disabledImages = getImagesExplicit({ media: [] });
-console.log("  3 images in globalThis.__hqlMedia");
+console.log("  3 images in globalThis.__hlvmMedia");
 console.log("  Empty array passed: {media: []}");
 console.log(`  __getImages() returns ${disabledImages.length} image(s)`);
 

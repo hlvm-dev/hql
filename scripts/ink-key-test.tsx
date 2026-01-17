@@ -37,6 +37,7 @@ function InkKeyTest() {
     // Build display
     const modStr = parts.length > 0 ? `[${parts.join("+")}]` : "[no mods]";
     const inputStr = input.length > 0
+      // deno-lint-ignore no-control-regex
       ? `input="${input.replace(/[\x00-\x1f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2,'0')}`)}"`
       : 'input=""';
     const codeStr = codes.length > 0 ? `codes=[${codes.join(",")}]` : "codes=[]";

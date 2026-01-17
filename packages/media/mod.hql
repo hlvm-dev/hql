@@ -31,13 +31,13 @@
     "mimeType": mime-type
     "data": base64-data
     "source": (or source nil)
-    "__hql_media__": true
+    "__hlvm_media__": true
   })
 
 ; Check if value is a media object
 (fn media? [value]
   (and (not (nil? value))
-       (=== (js-get value "__hql_media__") true)))
+       (=== (js-get value "__hlvm_media__") true)))
 
 ; ============================================================================
 ; Path Resolution

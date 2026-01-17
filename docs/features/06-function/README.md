@@ -796,29 +796,6 @@ def greet(name="World"):
 (fn greet {"name": "World"} (+ "Hello, " name "!"))
 ```
 
-### Clojure
-
-```clojure
-;; Clojure
-(defn add [a b]
-  (+ a b))
-
-;; Multi-arity
-(defn greet
-  ([] (greet "World"))
-  ([name] (str "Hello, " name "!")))
-
-;; HQL - multi-arity supported!
-(fn add [a b] (+ a b))
-(fn greet
-  ([] (greet "World"))
-  ([name] (+ "Hello, " name "!")))
-
-;; HQL - also supports JSON map params for config-style functions
-(fn connect {"host": "localhost", "port": 8080}
-  (+ host ":" port))
-```
-
 ## Best Practices
 
 ### Use Descriptive Names

@@ -106,7 +106,7 @@ Deno.test("withRecovery: complex object return", () => {
 });
 
 Deno.test("withRecovery: async-like patterns (sync simulation)", () => {
-  let executionOrder: string[] = [];
+  const executionOrder: string[] = [];
 
   const result = withRecovery(
     () => {

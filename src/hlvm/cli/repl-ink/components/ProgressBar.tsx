@@ -131,7 +131,7 @@ export function InlineProgress({
 
   return (
     <Text>
-      <ProgressBar percent={percent} width={width} showPercent={true} />
+      <ProgressBar percent={percent} width={width} showPercent />
       <Text dimColor> {formatBytes(completed || 0)}/{formatBytes(total)}</Text>
     </Text>
   );

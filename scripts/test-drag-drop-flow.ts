@@ -30,33 +30,33 @@ console.log("=== DRAG & DROP -> AUTO-ATTACH TEST ===\n");
 console.log("1. Simulating drag & drop (addAttachment with base64Data)...");
 addAttachment("image", "[Image #1]", testPath, "image/png", bytes.length, base64Data);
 
-// Check globalThis.__hqlMedia was populated
-type HqlMediaItem = {
+// Check globalThis.__hlvmMedia was populated
+type HlvmMediaItem = {
   type: string;
   mimeType: string;
   data: string;
   source: string;
-  __hql_media__: boolean;
+  __hlvm_media__: boolean;
 };
-const hqlMedia = (globalThis as Record<string, unknown>).__hqlMedia as HqlMediaItem[] || [];
+const hqlMedia = (globalThis as Record<string, unknown>).__hlvmMedia as HlvmMediaItem[] || [];
 
-console.log("2. Checking globalThis.__hqlMedia...");
+console.log("2. Checking globalThis.__hlvmMedia...");
 console.log("   Length:", hqlMedia.length);
+
+// Helper to check if value is media object
+const isMedia = (v: unknown): boolean => {
+  if (v == null) return false;
+  return (v as Record<string, unknown>).__hlvm_media__ === true;
+};
 
 if (hqlMedia.length > 0) {
   const media = hqlMedia[0];
   console.log("\n3. Media object structure:");
   console.log("   type:", media.type);
   console.log("   mimeType:", media.mimeType);
-  console.log("   __hql_media__:", media.__hql_media__);
+  console.log("   __hlvm_media__:", media.__hlvm_media__);
   console.log("   source:", media.source);
   console.log("   data length:", media.data?.length || 0, "chars");
-
-  // Verify it matches what __getImages would return
-  function isMedia(v: unknown): boolean {
-    if (v == null) return false;
-    return (v as Record<string, unknown>).__hql_media__ === true;
-  }
 
   const images = hqlMedia
     .filter(m => isMedia(m) && m.type === "image")
@@ -76,7 +76,7 @@ if (hqlMedia.length > 0) {
     Deno.exit(1);
   }
 } else {
-  console.log("\n❌ FAIL: globalThis.__hqlMedia is empty");
+  console.log("\n❌ FAIL: globalThis.__hlvmMedia is empty");
   Deno.exit(1);
 }
 

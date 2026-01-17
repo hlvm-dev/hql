@@ -161,14 +161,14 @@ async function getContextSourceMapConsumer(): Promise<
   return runtimeContext.sourceMapConsumer;
 }
 
-interface HqlMeta {
+interface HlvmMeta {
   filePath?: string;
   line?: number;
   column?: number;
 }
 
-function extractMetaFromError(error: Error): HqlMeta | null {
-  const candidate = (error as unknown as { __hqlMeta?: HqlMeta }).__hqlMeta;
+function extractMetaFromError(error: Error): HlvmMeta | null {
+  const candidate = (error as unknown as { __hlvmMeta?: HlvmMeta }).__hlvmMeta;
   if (candidate && typeof candidate === "object") {
     const { filePath, line, column } = candidate;
     if (typeof line === "number") {
@@ -496,7 +496,7 @@ export async function handleRuntimeError(
 ): Promise<RuntimeError> {
   // Prevent infinite recursion if error occurs during error handling
   if (isHandlingError) {
-    console.error("[HQL] Critical: Error in error handler:", error.message);
+    console.error("[HLVM] Critical: Error in error handler:", error.message);
     return new RuntimeError(error.message, { originalError: error });
   }
   isHandlingError = true;

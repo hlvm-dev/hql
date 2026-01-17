@@ -87,17 +87,17 @@ async function main() {
       mimeType: "image/png",
       data: "base64data",
       source: "test.png",
-      __hql_media__: true
+      __hlvm_media__: true
     };
-    if (!media.__hql_media__) throw new Error("Missing __hql_media__ tag");
+    if (!media.__hlvm_media__) throw new Error("Missing __hlvm_media__ tag");
     if (media.type !== "image") throw new Error("Wrong type");
   })();
 
   await test("isMedia check", () => {
-    const media = { __hql_media__: true, type: "image" };
+    const media = { __hlvm_media__: true, type: "image" };
     const notMedia = { type: "image" };
-    if (!media.__hql_media__) throw new Error("Should be media");
-    if (notMedia.__hql_media__ as unknown) throw new Error("Should not be media");
+    if (!media.__hlvm_media__) throw new Error("Should be media");
+    if (notMedia.__hlvm_media__ as unknown) throw new Error("Should not be media");
   })();
 
   // Test 2: Image loading
@@ -217,11 +217,11 @@ async function main() {
       mimeType: "image/png",
       data: testImageBase64,
       source: TEST_IMAGE_PATH,
-      __hql_media__: true
+      __hlvm_media__: true
     };
 
     // Simulate __isMedia check from ai.js
-    const isMedia = (v: unknown) => v != null && (v as Record<string, unknown>).__hql_media__ === true;
+    const isMedia = (v: unknown) => v != null && (v as Record<string, unknown>).__hlvm_media__ === true;
     if (!isMedia(media)) throw new Error("Should pass __isMedia check");
   })();
 
@@ -230,12 +230,12 @@ async function main() {
       type: "image",
       mimeType: "image/png",
       data: "base64data",
-      __hql_media__: true
+      __hlvm_media__: true
     };
 
     // Simulate __getImages from ai.js
     const options = { media: media };
-    const isMedia = (v: unknown) => v != null && (v as Record<string, unknown>).__hql_media__ === true;
+    const isMedia = (v: unknown) => v != null && (v as Record<string, unknown>).__hlvm_media__ === true;
     const mediaList = Array.isArray(options.media) ? options.media : [options.media];
     const images = mediaList
       .filter((m: unknown) => isMedia(m) && (m as Record<string, string>).type === "image")

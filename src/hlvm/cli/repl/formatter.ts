@@ -79,11 +79,11 @@ export function formatValue(value: unknown, depth = 0): string {
   }
 
   if (value instanceof Set) {
-    if (depth > 3) return `${DIM_GRAY}#{...}${RESET}`;
+    if (depth > 3) return `${DIM_GRAY}#[...]${RESET}`;
     const items = Array.from(value)
       .map(v => formatValue(v, depth + 1))
       .join(" ");
-    return `#{${items}}`;
+    return `#[${items}]`;
   }
 
   if (Array.isArray(value)) {
@@ -158,5 +158,4 @@ export function formatError(error: Error): string {
 
   return result;
 }
-
 

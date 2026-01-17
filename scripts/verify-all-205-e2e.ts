@@ -8,7 +8,7 @@
  * 1. Model appears in /config panel (from scraped JSON)
  * 2. User selects model → saved as "ollama/model:tag"
  * 3. Config persisted to ~/.hlvm/config.json
- * 4. REPL loads config → globalThis.__hqlConfig
+ * 4. REPL loads config → globalThis.__hlvmConfig
  * 5. AI function extracts model name → "model:tag"
  * 6. Ollama API called with correct model name
  *

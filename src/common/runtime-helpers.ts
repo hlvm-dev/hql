@@ -18,35 +18,35 @@ import { __hql_get_op, __hql_lazy_seq, __hql_delay } from "../hql/lib/stdlib/js/
 import { STDLIB_PUBLIC_API } from "../hql/lib/stdlib/js/stdlib.js";
 import { gensym as gensymImpl } from "../hql/gensym.ts";
 
-type HqlMeta = {
+type HlvmMeta = {
   filePath?: string;
   line?: number;
   column?: number;
 };
 
-type GlobalHqlHelpers = {
-  __hql_get: (target: unknown, property: unknown, meta?: HqlMeta) => unknown;
+type GlobalHlvmHelpers = {
+  __hql_get: (target: unknown, property: unknown, meta?: HlvmMeta) => unknown;
   __hql_call: (
     target: unknown,
     property: unknown,
-    meta: HqlMeta | undefined,
+    meta: HlvmMeta | undefined,
     ...args: unknown[]
   ) => unknown;
   __hql_set?: (
     target: unknown,
     property: unknown,
     value: unknown,
-    meta?: HqlMeta,
+    meta?: HlvmMeta,
   ) => unknown;
   __hql_callFn: (
     fn: unknown,
-    meta: HqlMeta | undefined,
+    meta: HlvmMeta | undefined,
     ...args: unknown[]
   ) => unknown;
   __hql_getNumeric?: (
     target: unknown,
     property: unknown,
-    meta?: HqlMeta,
+    meta?: HlvmMeta,
   ) => unknown;
   __hql_range?: typeof __hql_range;
   __hql_toSequence?: typeof __hql_toSequence;
@@ -66,10 +66,10 @@ type GlobalHqlHelpers = {
   _?: unknown;
 } & Omit<typeof globalThis, "__hql_get" | "__hql_call" | "__hql_callFn">;
 
-const HQL_META_KEY = "__hqlMeta";
+const HLVM_META_KEY = "__hlvmMeta";
 
-function attachMeta(error: Error, meta?: HqlMeta): Error {
-  const existing = (error as unknown as Record<string, unknown>)[HQL_META_KEY];
+function attachMeta(error: Error, meta?: HlvmMeta): Error {
+  const existing = (error as unknown as Record<string, unknown>)[HLVM_META_KEY];
   if (existing && typeof existing === "object") {
     return error;
   }
@@ -79,7 +79,7 @@ function attachMeta(error: Error, meta?: HqlMeta): Error {
   }
 
   try {
-    Object.defineProperty(error, HQL_META_KEY, {
+    Object.defineProperty(error, HLVM_META_KEY, {
       value: meta,
       enumerable: false,
       configurable: true,
@@ -87,7 +87,7 @@ function attachMeta(error: Error, meta?: HqlMeta): Error {
     });
   } catch (_) {
     try {
-      (error as unknown as Record<string, unknown>)[HQL_META_KEY] = meta;
+      (error as unknown as Record<string, unknown>)[HLVM_META_KEY] = meta;
     } catch (inner) {
       logger.debug(
         `Failed to attach meta to error: ${getErrorMessage(inner)}`,
@@ -117,7 +117,7 @@ function valueDescription(value: unknown): string {
 
 function ensureHelpers(): void {
   // Cast to our strict interface - we will ensure these exist
-  const globalAny = globalThis as unknown as GlobalHqlHelpers;
+  const globalAny = globalThis as unknown as GlobalHlvmHelpers;
   if (typeof globalAny.__hql_get === "function") {
     return;
   }
@@ -205,7 +205,7 @@ function ensureHelpers(): void {
   globalAny.__hql_call = function __hql_call(
     target: unknown,
     property: unknown,
-    meta: HqlMeta | undefined,
+    meta: HlvmMeta | undefined,
     ...args: unknown[]
   ) {
     const fn = globalAny.__hql_get(
@@ -262,7 +262,7 @@ function ensureHelpers(): void {
 
   globalAny.__hql_callFn = function __hql_callFn(
     fn: unknown,
-    meta: HqlMeta | undefined,
+    meta: HlvmMeta | undefined,
     ...args: unknown[]
   ) {
     if (typeof fn !== "function") {

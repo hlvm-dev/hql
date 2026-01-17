@@ -91,24 +91,12 @@ Convert non-tail to tail by adding an accumulator parameter:
 (fib 50 0 1)  ; Fast, no stack overflow
 ```
 
-## Comparison with Clojure
+## Tail-Call Detection
 
-| Feature | Clojure | HQL |
-|---------|---------|-----|
-| Syntax | `(recur ...)` required | Normal recursive call |
-| Detection | Manual | Automatic |
-| Transformation | JVM goto instruction | JavaScript while loop |
-
-```clojure
-;; Clojure - MUST use recur
-(defn factorial [n acc]
-  (if (<= n 1)
-    acc
-    (recur (dec n) (* n acc))))  ; explicit recur
-```
+HQL auto-detects tail calls and lowers them to loops. No special form is required.
 
 ```lisp
-;; HQL - just write normal recursion
+; HQL - write normal recursion
 (fn factorial [n acc]
   (if (<= n 1)
     acc

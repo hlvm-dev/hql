@@ -53,7 +53,7 @@ export function createHistoryApi() {
     /**
      * List all commands in history
      * @example (history.list)
-     * @example (history.list {:limit 10})
+     * @example (history.list {limit: 10})
      */
     list: (options?: { limit?: number; offset?: number }): string[] => {
       if (!_replState) {

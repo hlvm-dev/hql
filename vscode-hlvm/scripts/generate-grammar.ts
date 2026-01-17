@@ -9,7 +9,7 @@
  * NO HARDCODING - everything comes from the source of truth.
  *
  * Usage:
- *   deno run --allow-read --allow-write vscode-hql/scripts/generate-grammar.ts
+ *   deno run --allow-read --allow-write vscode-hlvm/scripts/generate-grammar.ts
  */
 
 import {

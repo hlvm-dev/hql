@@ -85,7 +85,7 @@ async function step1_fetchOllamaModels(): Promise<string[]> {
 // ============================================================================
 // Step 2: Simulate user selecting a model in ConfigPanel
 // ============================================================================
-async function step2_selectModel(ollamaModels: string[]): Promise<string | null> {
+function step2_selectModel(ollamaModels: string[]): string | null {
   log("\n=== STEP 2: User Selects Model (simulating ConfigPanel) ===\n");
 
   if (ollamaModels.length === 0) {
@@ -158,8 +158,8 @@ async function step4_loadConfig(): Promise<string | null> {
 
     pass("Load config", `Loaded model: "${model}"`);
 
-    // This is what gets set to globalThis.__hqlConfig
-    log(`   globalThis.__hqlConfig.model = "${model}"`);
+    // This is what gets set to globalThis.__hlvmConfig
+    log(`   globalThis.__hlvmConfig.model = "${model}"`);
 
     return model;
   } catch (err) {
@@ -368,7 +368,7 @@ async function main() {
   }
 
   // Step 2: Select model
-  const configValue = await step2_selectModel(ollamaModels);
+  const configValue = step2_selectModel(ollamaModels);
   if (!configValue) {
     console.log("\n❌ Cannot continue without selected model");
     Deno.exit(1);

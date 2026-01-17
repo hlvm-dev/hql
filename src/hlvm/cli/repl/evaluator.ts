@@ -140,20 +140,20 @@ function analyzeExpression(ast: SList): ExpressionType {
  * In jsMode, input not starting with '(' is evaluated as JavaScript.
  * Uses run() from mod.ts which properly handles EMBEDDED_PACKAGES.
  *
- * @param hqlCode - The code to evaluate
+ * @param sourceCode - The code to evaluate
  * @param state - REPL state for tracking bindings
  * @param jsMode - Whether to evaluate as JavaScript
  * @param attachments - Optional attachments (pasted text, images, etc.)
  * @param signal - Optional AbortSignal for cancellation support
  */
 export async function evaluate(
-  hqlCode: string,
+  sourceCode: string,
   state: ReplState,
   jsMode: boolean = false,
   attachments?: AnyAttachment[],
   signal?: AbortSignal
 ): Promise<EvalResult> {
-  const trimmed = hqlCode.trim();
+  const trimmed = sourceCode.trim();
   if (!trimmed) {
     return { success: true, suppressOutput: true };
   }
@@ -318,18 +318,18 @@ export async function evaluate(
     // Handle bindings (let/var/def) - need to persist to globalThis
     // Pass AST to avoid re-parsing
     if (exprType.kind === "binding" && exprType.name) {
-      return await handleBinding(hqlCode, firstExpr, exprType.name, exprType.operator || "let", state);
+      return await handleBinding(sourceCode, firstExpr, exprType.name, exprType.operator || "let", state);
     }
 
     // Handle declarations (fn/defn/class) - persist to globalThis
     if (exprType.kind === "declaration" && exprType.name) {
       const op = exprType.operator || "fn";
       const params = extractFnParams(firstExpr, op);
-      return await handleDeclaration(hqlCode, exprType.name, op, state, params);
+      return await handleDeclaration(sourceCode, exprType.name, op, state, params);
     }
 
     // Regular expression - evaluate and return result
-    return await handleExpression(hqlCode);
+    return await handleExpression(sourceCode);
   } catch (error) {
     return {
       success: false,
@@ -348,7 +348,7 @@ export async function evaluate(
  */
 async function handleImport(list: SList, state: ReplState): Promise<EvalResult> {
   try {
-    const hqlCode = sexpToString(list);
+    const sourceCode = sexpToString(list);
     const names: string[] = [];
 
     // Extract names being imported for tracking
@@ -384,8 +384,8 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
     // Each run() creates an isolated module scope, so we must explicitly persist
     const persistStatements = names.map(name => `(js-set globalThis "${name}" ${name})`).join("\n");
     const wrappedHql = persistStatements
-      ? `${hqlCode}\n${persistStatements}`
-      : hqlCode;
+      ? `${sourceCode}\n${persistStatements}`
+      : sourceCode;
 
     await run(wrappedHql, REPL_RUN_OPTIONS);
 
@@ -411,7 +411,7 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
  * Handle binding (let/var/def) statements
  * For "def" operator: also persist evaluated value to memory.hql
  */
-async function handleBinding(_hqlCode: string, ast: SList, name: string, operator: string, state: ReplState): Promise<EvalResult> {
+async function handleBinding(_sourceCode: string, ast: SList, name: string, operator: string, state: ReplState): Promise<EvalResult> {
   try {
     // Extract value expression from already-parsed AST (no re-parsing!)
     const valueExpr = sexpToString(ast.elements[2]);
@@ -461,7 +461,7 @@ async function handleBinding(_hqlCode: string, ast: SList, name: string, operato
  * Uses run() with globalThis assignment for REPL persistence
  * For "defn" operator: also persist source code to memory.hql
  */
-async function handleDeclaration(hqlCode: string, name: string, operator: string, state: ReplState, params?: string[]): Promise<EvalResult> {
+async function handleDeclaration(sourceCode: string, name: string, operator: string, state: ReplState, params?: string[]): Promise<EvalResult> {
   try {
     // Run the declaration, then assign to globalThis and return the value
     // Use js-set to assign to globalThis for REPL persistence
@@ -469,7 +469,7 @@ async function handleDeclaration(hqlCode: string, name: string, operator: string
     // (my-gen) -> my_gen -> globalThis.my_gen works correctly
     const jsName = sanitizeIdentifier(name);
     const wrappedHql = `
-      ${hqlCode}
+      ${sourceCode}
       (js-set globalThis "${jsName}" ${name})
       ${name}
     `;
@@ -486,7 +486,7 @@ async function handleDeclaration(hqlCode: string, name: string, operator: string
       try {
         // For defn, store the original source code (not the evaluated function)
         // state.getDocstring() is the single source of truth - appendToMemory strips any inline comments
-        await appendToMemory(name, "defn", hqlCode, state.getDocstring(name));
+        await appendToMemory(name, "defn", sourceCode, state.getDocstring(name));
         await debugLog(`appendToMemory completed for defn '${name}'`);
       } catch (err) {
         await debugLog(`appendToMemory FAILED for defn '${name}': ${err}`);
@@ -516,9 +516,9 @@ async function handleDeclaration(hqlCode: string, name: string, operator: string
 /**
  * Handle regular expressions
  */
-async function handleExpression(hqlCode: string): Promise<EvalResult> {
+async function handleExpression(sourceCode: string): Promise<EvalResult> {
   try {
-    const result = await run(hqlCode, REPL_RUN_OPTIONS);
+    const result = await run(sourceCode, REPL_RUN_OPTIONS);
     return { success: true, value: result };
   } catch (error) {
     return { success: false, error: ensureError(error) };

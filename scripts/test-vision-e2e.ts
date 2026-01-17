@@ -3,7 +3,7 @@
  * TRUE END-TO-END Vision Test
  *
  * Tests the FULL chain:
- * 1. Create image and add to globalThis.__hqlMedia (simulating drag & drop)
+ * 1. Create image and add to globalThis.__hlvmMedia (simulating drag & drop)
  * 2. Call ask() from ai.js through the provider chain
  * 3. Verify vision model receives and describes the image
  */
@@ -96,13 +96,13 @@ async function main() {
 
   // Set config (this is what HLVM runtime does)
   // Model format: "ollama:modelname" for provider routing
-  (globalThis as Record<string, unknown>).__hqlConfig = {
+  (globalThis as Record<string, unknown>).__hlvmConfig = {
     model: `ollama:${visionModel}`,
     endpoint: OLLAMA_API,
     temperature: 0.7,
     maxTokens: 100,
   };
-  console.log(`✓ Set globalThis.__hqlConfig with model: ollama:${visionModel}`);
+  console.log(`✓ Set globalThis.__hlvmConfig with model: ollama:${visionModel}`);
 
   // ============================================================
   // TEST 1: Explicit media parameter
@@ -119,7 +119,7 @@ async function main() {
     mimeType: "image/png",
     data: base64Data,
     source: testPath,
-    __hql_media__: true,
+    __hlvm_media__: true,
   };
 
   console.log("Calling: (ask \"What color is this image?\" {media: image})");
@@ -146,7 +146,7 @@ async function main() {
   }
 
   // ============================================================
-  // TEST 2: Auto-attach via globalThis.__hqlMedia (drag & drop)
+  // TEST 2: Auto-attach via globalThis.__hlvmMedia (drag & drop)
   // ============================================================
   console.log("\n═══ TEST 2: Auto-Attach (Drag & Drop Simulation) ═══\n");
 
@@ -154,12 +154,12 @@ async function main() {
   console.log("Simulating: Drag & drop image onto REPL");
   addAttachment("image", "[Image #1]", testPath, "image/png", bytes.length, base64Data);
 
-  // Check __hqlMedia is set
-  const hqlMedia = (globalThis as Record<string, unknown>).__hqlMedia as unknown[];
-  console.log(`globalThis.__hqlMedia has ${hqlMedia?.length || 0} items`);
+  // Check __hlvmMedia is set
+  const hqlMedia = (globalThis as Record<string, unknown>).__hlvmMedia as unknown[];
+  console.log(`globalThis.__hlvmMedia has ${hqlMedia?.length || 0} items`);
 
   if (!hqlMedia || hqlMedia.length === 0) {
-    console.log("\n❌ TEST 2 FAILED: globalThis.__hqlMedia not populated");
+    console.log("\n❌ TEST 2 FAILED: globalThis.__hlvmMedia not populated");
   } else {
     console.log("\nCalling: (ask \"Describe what you see.\")  // No explicit media");
     console.log("...");
@@ -189,7 +189,7 @@ async function main() {
   console.log("\n═══ TEST 3: chat() with Per-Message Images ═══\n");
 
   // Clear auto-attach to test explicit per-message
-  (globalThis as Record<string, unknown>).__hqlMedia = [];
+  (globalThis as Record<string, unknown>).__hlvmMedia = [];
 
   const messages = [
     {
@@ -228,7 +228,7 @@ async function main() {
 ╚══════════════════════════════════════════════════════════════════════════╝
 
 The tests above verify the FULL chain:
-  attachment.ts → context.ts → globalThis.__hqlMedia
+  attachment.ts → context.ts → globalThis.__hlvmMedia
                                       ↓
   ai.js ask() → __getImages() → __buildProviderOptions()
                                       ↓

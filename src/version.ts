@@ -1,7 +1,7 @@
 /**
- * HQL Version - Single Source of Truth
+ * HLVM Version - Single Source of Truth
  *
- * This file is the canonical source for the HQL version number.
+ * This file is the canonical source for the HLVM version number.
  * Update this value when releasing a new version.
  *
  * Keep in sync with deno.json version field.

@@ -67,7 +67,9 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
       {/* ═══ LOGO ═══ */}
       <Box flexDirection="column">
         {LOGO_LINES.map((line, index) => (
-          <Text key={index} color={color("primary")} bold>{line}</Text>
+          <React.Fragment key={index}>
+            <Text color={color("primary")} bold>{line}</Text>
+          </React.Fragment>
         ))}
       </Box>
 

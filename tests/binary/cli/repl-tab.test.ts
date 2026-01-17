@@ -26,7 +26,7 @@ console.log(`Testing REPL Tab behavior logic in ${USE_BINARY ? "BINARY" : "DENO 
 // Suggestion System Tests (underlying Tab accept logic)
 // ============================================================
 
-binaryTest("Tab suggestion: history suggestion works", async () => {
+binaryTest("Tab suggestion: history suggestion works", () => {
   // Simulate what happens when user types "(+ 1" and has "(+ 1 2)" in history
   const history = ["(+ 1 2)", "(def x 10)"];
   const suggestion = findSuggestion("(+ 1", history, new Set());
@@ -40,7 +40,7 @@ binaryTest("Tab suggestion: history suggestion works", async () => {
   assertEquals(accepted, "(+ 1 2)");
 });
 
-binaryTest("Tab suggestion: binding completion works", async () => {
+binaryTest("Tab suggestion: binding completion works", () => {
   // Simulate what happens when user types "fac" with "factorial" binding
   const bindings = new Set(["factorial", "filter", "fibonacci"]);
   const suggestion = findSuggestion("fac", [], bindings);
@@ -50,7 +50,7 @@ binaryTest("Tab suggestion: binding completion works", async () => {
   assertEquals(suggestion!.ghost, "torial");
 });
 
-binaryTest("Tab suggestion: skips exact match", async () => {
+binaryTest("Tab suggestion: skips exact match", () => {
   const history = ["def", "defn"];
   const suggestion = findSuggestion("def", history, new Set());
 
@@ -86,7 +86,7 @@ binaryTest("Tab completion: symbol provider includes user bindings", async () =>
   assert(texts.includes("myVariable"), "Should include myVariable");
 });
 
-binaryTest("Tab completion: getWordAtCursor extracts word correctly", async () => {
+binaryTest("Tab completion: getWordAtCursor extracts word correctly", () => {
   const { word, start } = getWordAtCursor("(defn foo", 9);
   assertEquals(word, "foo");
   assertEquals(start, 6);
@@ -114,7 +114,7 @@ binaryTest("Tab priority: uses real shouldTabAcceptSuggestion", async () => {
   assertEquals(shouldTabAcceptSuggestion(null, 4, 4, false), false);
 });
 
-binaryTest("Tab priority: mutual exclusivity of states", async () => {
+binaryTest("Tab priority: mutual exclusivity of states", () => {
   // When typing, showingCompletions should be cleared
   // This is handled in Input.tsx: clearCompletions() called on non-Tab keys
 
@@ -139,7 +139,7 @@ binaryTest("Tab priority: mutual exclusivity of states", async () => {
 // Function Parameter Completion Tests
 // ============================================================
 
-binaryTest("Tab function params: detects function position", async () => {
+binaryTest("Tab function params: detects function position", () => {
   // (add3| - cursor right after function name
   const { word, start } = getWordAtCursor("(add3", 5);
   assertEquals(word, "add3");
@@ -150,7 +150,7 @@ binaryTest("Tab function params: detects function position", async () => {
   assertEquals(isAfterOpenParen, true);
 });
 
-binaryTest("Tab function params: detects cursor after space pattern", async () => {
+binaryTest("Tab function params: detects cursor after space pattern", () => {
   // (add3 | - cursor after space
   const line = "(add3 ";
   const match = line.match(/\((\w+)\s+$/);

@@ -319,13 +319,9 @@ All macro operations happen at **compile time**, generating code before runtime.
 
 ## Comparison with Other Languages
 
-### Lisp/Clojure
+### Lisp-Style Quasiquote
 
-```clojure
-; Clojure quasiquote (similar)
-`(a ~x ~@ys)
-
-; HQL (same concept)
+```lisp
 `(a ~x ~@ys)
 ```
 

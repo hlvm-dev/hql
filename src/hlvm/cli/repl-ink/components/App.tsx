@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "npm:react@18";
-import { Box, Text, useInput, useApp } from "npm:ink@5";
+import { Box, Text, useInput, useApp, Static } from "npm:ink@5";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
@@ -190,6 +190,8 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
   const [nextId, setNextId] = useState(1);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
+  // Banner rendered once via Static to prevent double-render issues with Ink
+  const [bannerRendered, setBannerRendered] = useState(false);
 
   // Task manager for background evaluation
   const { createEvalTask, completeEvalTask, failEvalTask, updateEvalOutput, cancel } = useTaskManager();
@@ -215,6 +217,13 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
   // Session picker data (separate from panel state)
   const [pickerSessions, setPickerSessions] = useState<SessionMeta[]>([]);
   const [pendingResumeInput, setPendingResumeInput] = useState<string | null>(null);
+
+  // Mark banner as rendered once when init completes (for Static component)
+  useEffect(() => {
+    if (init.ready && !bannerRendered) {
+      setBannerRendered(true);
+    }
+  }, [init.ready, bannerRendered]);
 
   // Command palette persistent state (survives open/close)
   const [paletteState, setPaletteState] = useState<PaletteState>({
@@ -721,24 +730,40 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
     }
   });
 
+  // Prepare banner items for Static component (renders once, never re-renders)
+  const bannerItems = showBanner && !hasBeenCleared && bannerRendered
+    ? [{
+        id: "banner",
+        jsMode: repl.jsMode,
+        memoryNames,
+        aiExports: init.aiExports,
+        readyTime: init.readyTime,
+        errors: init.errors,
+        session: currentSession,
+      }]
+    : [];
+
   return (
     <Box key={clearKey} flexDirection="column" paddingX={1}>
-      {/* Show banner only after init complete (prevents double render), hide after Ctrl+L */}
-      {showBanner && !hasBeenCleared && (
-        init.ready ? (
-          <Banner
-            jsMode={repl.jsMode}
-            loading={false}
-            memoryNames={memoryNames}
-            aiExports={init.aiExports}
-            readyTime={init.readyTime}
-            errors={init.errors}
-            session={currentSession}
-          />
-        ) : (
-          <Text dimColor>Loading HLVM...</Text>
-        )
+      {/* Banner rendered via Static to prevent double-render issues */}
+      {showBanner && !hasBeenCleared && !bannerRendered && (
+        <Text dimColor>Loading HLVM...</Text>
       )}
+      <Static items={bannerItems}>
+        {(item: typeof bannerItems[number]) => (
+          <Box key={item.id}>
+            <Banner
+              jsMode={item.jsMode}
+              loading={false}
+              memoryNames={item.memoryNames}
+              aiExports={item.aiExports}
+              readyTime={item.readyTime}
+              errors={item.errors}
+              session={item.session}
+            />
+          </Box>
+        )}
+      </Static>
 
       {/* History of inputs and outputs */}
       {history.map((entry: HistoryEntry) => (
@@ -880,7 +905,7 @@ async function handleCommand(
       return "Switched to JavaScript mode";
     case "/hql":
       repl.setJsMode(false);
-      return "Switched to HQL mode";
+      return "Switched to HLVM HQL mode";
     case "/clear":
       return null; // Clear is handled by returning null
     case "/exit":
@@ -912,6 +937,7 @@ async function handleCommand(
 
   try {
     await runCommand(cmd, state);
+    // deno-lint-ignore no-control-regex
     return outputs.join("\n").replace(/\x1b\[[0-9;]*m/g, "") || null; // Strip ANSI
   } finally {
     console.log = originalLog;

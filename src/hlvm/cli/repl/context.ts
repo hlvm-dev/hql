@@ -2,9 +2,9 @@
  * REPL Context Management - Pure Data Structures
  *
  * Provides three vectors accessible as programming data:
- * - pastes: vector of {:id :content :lang :lines :chars :time}
- * - attachments: vector of {:id :type :name :path :mime :size :time}
- * - conversation: vector of {:role :content :time}
+ * - pastes: vector of {id: ..., content: ..., lang: ..., lines: ..., chars: ..., time: ...}
+ * - attachments: vector of {id: ..., type: ..., name: ..., path: ..., mime: ..., size: ..., time: ...}
+ * - conversation: vector of {role: ..., content: ..., time: ...}
  *
  * All vectors are accessible via globalThis and can be manipulated
  * with standard list operations (nth, filter, map, etc.)
@@ -45,12 +45,12 @@ export interface MediaAttachment {
 /**
  * Media object used by AI helpers (derived from attachments)
  */
-export interface HqlMedia {
+export interface HlvmMedia {
   readonly type: string;
   readonly mimeType: string;
   readonly data: string;
   readonly source: string;
-  readonly __hql_media__: true;
+  readonly __hlvm_media__: true;
 }
 
 /**
@@ -247,7 +247,7 @@ export function getAttachment(id: number): MediaAttachment | undefined {
 /**
  * Get Media objects derived from attachments (base64 only)
  */
-export function getMedia(): readonly HqlMedia[] {
+export function getMedia(): readonly HlvmMedia[] {
   return attachments
     .filter((a) => a.base64Data)
     .map((a) => ({
@@ -255,7 +255,7 @@ export function getMedia(): readonly HqlMedia[] {
       mimeType: a.mime,
       data: a.base64Data as string,
       source: a.path,
-      __hql_media__: true,
+      __hlvm_media__: true,
     }));
 }
 

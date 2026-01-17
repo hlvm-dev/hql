@@ -54,9 +54,9 @@ AI functions are auto-imported from `@hlvm/ai`:
 
 ; Multi-turn chat
 (chat [
-  {:role "user" :content "Hello"}
-  {:role "assistant" :content "Hi! How can I help?"}
-  {:role "user" :content "Explain recursion"}
+  {role: "user" content: "Hello"}
+  {role: "assistant" content: "Hi! How can I help?"}
+  {role: "user" content: "Explain recursion"}
 ])
 
 ; Generate code

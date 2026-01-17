@@ -63,7 +63,7 @@ export function createSessionApi() {
     /**
      * List all sessions (global)
      * @example (session.list)
-     * @example (session.list {:limit 10})
+     * @example (session.list {limit: 10})
      */
     list: async (options?: {
       limit?: number;

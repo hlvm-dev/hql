@@ -318,7 +318,7 @@ Deno.test("SessionManager: list returns all sessions globally", async () => {
   const testPath = "/tmp/test-manager-list-" + Date.now();
 
   const manager = new SessionManager(testPath);
-  let sessionIds: string[] = [];
+  const sessionIds: string[] = [];
 
   try {
     const s1 = (await manager.initialize({ forceNew: true }))!;

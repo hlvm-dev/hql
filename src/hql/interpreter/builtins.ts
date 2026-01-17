@@ -84,7 +84,7 @@ export function loadBuiltins(env: InterpreterEnv): void {
   env.define("hash-map", tagBuiltin(builtinHashMap));
   env.define("hash-set", tagBuiltin(builtinHashSet));
 
-  // Empty collection constructors (for [] {} #{} syntax)
+  // Empty collection constructors (for [] {} #[] syntax)
   env.define("empty-array", tagBuiltin(builtinEmptyArray));
   env.define("empty-map", tagBuiltin(builtinEmptyMap));
   env.define("empty-set", tagBuiltin(builtinEmptySet));
@@ -541,8 +541,8 @@ const builtinEmptyMap: BuiltinFn = () => {
 };
 
 /**
- * (empty-set) => #{}
- * Handles #{} syntax which parses to (empty-set)
+ * (empty-set) => #[]
+ * Handles #[] syntax which parses to (empty-set)
  */
 const builtinEmptySet: BuiltinFn = () => {
   return new Set<HQLValue>();

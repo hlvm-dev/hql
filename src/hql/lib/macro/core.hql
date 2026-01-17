@@ -217,7 +217,7 @@
 
 ;; cond - Supports BOTH syntaxes:
 ;; Grouped syntax: (cond ((< x 0) "neg") ((> x 0) "pos") (true "zero"))
-;; Flat syntax:    (cond (< x 0) "neg" (> x 0) "pos" :else "zero")
+;; Flat syntax:    (cond (< x 0) "neg" (> x 0) "pos" else "zero")
 ;; Detection: If first clause is a list with exactly 2 elements, use grouped syntax.
 ;; NOTE: Uses nested if instead of && to avoid circular dependency (and macro uses cond)
 (macro cond [& clauses]
@@ -259,7 +259,7 @@
                               `(if ~test ~result (cond ~@remaining)))))))
             ;; Not a list - flat syntax: test1 result1 test2 result2 ...
             (if (%empty? (%rest clauses))
-                ;; Single element - just return it (handles :else or true at end)
+                ;; Single element - just return it (handles else or true at end)
                 first-clause
                 (let (test first-clause
                       result (%first (%rest clauses))

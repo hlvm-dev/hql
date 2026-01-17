@@ -37,14 +37,15 @@ Self-hosting means a language's standard library is written in the language itse
 
 ### Why Clojure as Inspiration?
 
-Clojure's sequence abstraction is one of the most elegant in programming:
+Clojure's sequence abstraction is one of the most elegant in programming, and
+HQL follows the same shape:
 
-```clojure
-;; Clojure: Everything is a sequence
+```hql
+; HQL: Everything is a sequence
 (take 5 (filter even? (map inc (range 1000000))))
-;; Lazy - only computes what's needed
-;; Uniform - same operations work on lists, vectors, maps, strings
-;; Composable - small functions combine into complex pipelines
+; Lazy - only computes what's needed
+; Uniform - same operations work on lists, vectors, maps, strings
+; Composable - small functions combine into complex pipelines
 ```
 
 **Key Clojure concepts we adopt:**
@@ -438,15 +439,6 @@ This is how ALL self-hosted languages bootstrap (GCC was first compiled with a C
         (cons (first s) (take (- n 1) (rest s)))))))
 ```
 
-**Clojure Original:**
-```clojure
-(defn take [n coll]
-  (lazy-seq
-   (when (pos? n)
-     (when-let [s (seq coll)]
-       (cons (first s) (take (dec n) (rest s)))))))
-```
-
 **Transpiled JavaScript (self-hosted.js):**
 ```javascript
 export function take(n, coll) {
@@ -484,17 +476,6 @@ export function take(n, coll) {
         (recur (rest s) (- remaining 1))
         (when s
           (cons (first s) (drop 0 (rest s))))))))
-```
-
-**Clojure Original:**
-```clojure
-(defn drop [n coll]
-  (let step (fn [n coll]
-               (let s (seq coll))
-                 (if (and (pos? n) s)
-                   (recur (dec n) (rest s))
-                   s)))
-    (lazy-seq (step n coll))))
 ```
 
 **Note:** Our version wraps result in `cons` to ensure seq-protocol compatibility (see [Known Issues](#known-issues--technical-debt)).

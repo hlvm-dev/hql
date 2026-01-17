@@ -116,7 +116,7 @@ async function testModelPull(extractedName: string): Promise<{ valid: boolean; p
       }
     } finally {
       clearTimeout(timeout);
-      try { reader.releaseLock(); } catch {}
+      try { reader.releaseLock(); } catch { /* ignore lock release errors */ }
     }
 
     return { valid: false, error: "No manifest response" };

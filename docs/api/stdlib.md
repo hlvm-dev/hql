@@ -303,7 +303,7 @@ Returns first truthy value of (pred item), or nil.
 ```lisp
 (some isEven [1 3 5])              ;; → nil
 (some isEven [1 2 3])              ;; → 2 (first matching item)
-(some #(> % 5) [1 3 6 9])          ;; → 6
+(some (fn [x] (> x 5)) [1 3 6 9])  ;; → 6
 ```
 
 ---

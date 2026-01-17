@@ -220,7 +220,7 @@ async function fetchModelDetails(modelId: string): Promise<OllamaModel | null> {
                              /embedding\s+model|text\s+embed/i.test(html);
 
     // Extract variants/tags
-    const variants = await extractVariants(html, modelId, isVisionModel);
+    const variants = extractVariants(html, modelId, isVisionModel);
 
     // If no variants found, create a default "latest"
     if (variants.length === 0) {
@@ -254,7 +254,7 @@ async function fetchModelDetails(modelId: string): Promise<OllamaModel | null> {
   }
 }
 
-async function extractVariants(html: string, modelId: string, isVisionModel: boolean): Promise<OllamaVariant[]> {
+function extractVariants(html: string, modelId: string, isVisionModel: boolean): OllamaVariant[] {
   const variants: OllamaVariant[] = [];
   const seenTags = new Set<string>();
 

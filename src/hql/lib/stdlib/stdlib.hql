@@ -158,7 +158,7 @@
                      (if (contains? seen f)
                        (step (rest xs) seen)
                        (cons f (step (rest xs) (conj seen f))))))))]
-    (step coll #{})))
+    (step coll #[])))
 
 ;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ;; PHASE 2: INDEXED OPERATIONS
@@ -317,7 +317,7 @@
 ;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ;; interpose - Inserts separator between elements (lazy)
-;; Clojure: (interpose :x [1 2 3]) => (1 :x 2 :x 3)
+;; Example: (interpose "x" [1 2 3]) => (1 "x" 2 "x" 3)
 (fn interpose [sep coll]
   (let [interpose-rest
         (fn interpose-rest [sep coll]
@@ -329,7 +329,7 @@
         (cons (first s) (interpose-rest sep (rest s)))))))
 
 ;; interleave - Interleaves multiple sequences (lazy)
-;; Clojure: (interleave [1 2 3] [:a :b :c]) => (1 :a 2 :b 3 :c)
+;; Example: (interleave [1 2 3] ["a" "b" "c"]) => (1 "a" 2 "b" 3 "c")
 (fn interleave [& colls]
   (lazy-seq
     (let [seqs (map seq colls)]

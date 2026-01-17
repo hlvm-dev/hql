@@ -73,7 +73,7 @@ export function createAiApi() {
      * Generate text from a prompt (streaming)
      * Returns an async generator for token-by-token streaming
      * @example (ai.generate "Write a haiku")
-     * @example (ai.generate "Write code" {:model "ollama/codellama"})
+     * @example (ai.generate "Write code" {model: "ollama/codellama"})
      */
     generate: async function* (
       prompt: string,
@@ -94,7 +94,7 @@ export function createAiApi() {
 
     /**
      * Chat completion with message history (streaming)
-     * @example (ai.chat [{:role "user" :content "Hello"}])
+     * @example (ai.chat [{role: "user" content: "Hello"}])
      */
     chat: async function* (
       messages: Message[],
