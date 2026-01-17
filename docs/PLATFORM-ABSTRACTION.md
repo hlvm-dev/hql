@@ -165,7 +165,7 @@ try {
 
 The platform abstraction is enforced in CI via `deno task check:platform`. This script ensures:
 
-1. No `Deno.*` runtime calls outside `src/platform/deno-platform.ts` and `src/platform/errors.ts`
+1. No `Deno.*` runtime calls outside `src/platform/deno-platform.ts` (errors.ts is allowed for comments/strings only)
 2. No `js/Deno.*` usage in HQL packages (use `hlvm` global instead)
 3. Test files and scripts are excluded from enforcement
 4. `vendor/repl/src/` is included in enforcement (project code, not third-party)
