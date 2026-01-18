@@ -8,6 +8,7 @@
  */
 
 import { ai } from "../api/ai.ts";
+import { log } from "../api/log.ts";
 import { ensureRuntimeDir, getRuntimeDir } from "../../common/paths.ts";
 import { findLegacyRuntimeEngine } from "../../common/legacy-migration.ts";
 import { getPlatform, type PlatformCommandProcess } from "../../platform/platform.ts";
@@ -112,7 +113,7 @@ async function startAIEngine(): Promise<void> {
   } catch (error) {
     // If embedded engine fails, AI features will just not work
     // but HLVM itself continues to function
-    console.error("Warning: AI features unavailable -", (error as Error).message);
+    log.warn(`AI features unavailable: ${(error as Error).message}`);
   }
 }
 

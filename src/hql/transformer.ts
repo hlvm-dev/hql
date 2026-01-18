@@ -5,6 +5,7 @@
 
 import { transformToIR } from "./transpiler/pipeline/hql-ast-to-hql-ir.ts";
 import { globalLogger as logger } from "../logger.ts";
+import { log } from "../hlvm/api/log.ts";
 import { Environment } from "./environment.ts";
 import { HQLError, TransformError } from "../common/error.ts";
 import { getErrorMessage } from "../common/utils.ts";
@@ -196,7 +197,7 @@ export async function transformAST(
           continue;
         }
         const location = `${err.file || sourceFilePath}:${err.line}:${err.column}`;
-        console.error(`Type error at ${location}: ${err.message}`);
+        log.raw.error(`Type error at ${location}: ${err.message}`);
       }
     }
 

@@ -22,14 +22,7 @@ import { join, relative } from "jsr:@std/path";
 
 const MIGRATION_ALLOWLIST = {
   console: [
-    // === Batch 1: Low-effort files (7 files, ~13 calls) ===
-    "src/hlvm/runtime/ai-runtime.ts",
-    "src/hlvm/api/config.ts",
-    "src/hlvm/cli/theme/index.ts",
-    "src/hlvm/cli/utils/update-check.ts",
-    "src/hql/transformer.ts",
-    "src/hql/lsp/server.ts",
-    "src/hql/lsp/workspace/module-analyzer.ts",
+    // === Batch 1: MIGRATED ===
 
     // === Batch 2: Common module (7 files, ~14 calls) ===
     "src/common/config/runtime.ts",
@@ -112,11 +105,13 @@ const RULES: Rule[] = [
     ],
     // Note: log.ts uses console.* internally - this is the SSOT implementation
     excludePatterns: [
-      /\/\/.*console\./, // Comments
-      /\/\*[\s\S]*?console\.[\s\S]*?\*\//, // Multi-line comments
+      /\/\/.*console\./, // Single-line comments
+      /^\s*\*.*console\./, // JSDoc content lines (start with *)
+      /\/\*[\s\S]*?console\.[\s\S]*?\*\//, // Multi-line comments on same line
       /"[^"]*console\.[^"]*"/, // String literals
       /'[^']*console\.[^']*'/, // String literals
       /`[^`]*console\.[^`]*`/, // Template literals
+      /connection\.console\./, // LSP proper logging (connection.console.*)
     ],
     message: "Use globalThis.log instead of console.*",
     severity: "error",

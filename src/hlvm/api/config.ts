@@ -28,6 +28,7 @@ import {
   parseValue,
 } from "../../common/config/types.ts";
 import { syncProvidersFromConfig } from "../../common/config/provider-sync.ts";
+import { log } from "./log.ts";
 
 // ============================================================================
 // Config API Object
@@ -61,7 +62,7 @@ function createConfigApi() {
       const value = next[key as keyof HlvmConfig];
       const result = validateValue(key, value);
       if (!result.valid) {
-        console.warn(`Warning: config.${key} invalid - ${result.error}. Using default.`);
+        log.warn(`config.${key} invalid: ${result.error}. Using default.`);
         (next as unknown as Record<string, unknown>)[key] = DEFAULT_CONFIG[key as keyof HlvmConfig];
       }
     }

@@ -8,6 +8,7 @@
 import { VERSION } from "../../../version.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { http } from "../../../common/http-client.ts";
+import { log } from "../../api/log.ts";
 
 const GITHUB_API = "https://api.github.com/repos/hlvm-dev/hlvm/releases/latest";
 const CACHE_FILE = ".update-check";
@@ -114,8 +115,8 @@ function compareVersions(a: string, b: string): number {
  * Display update notification banner to stderr.
  */
 function showUpdateBanner(latestVersion: string): void {
-  console.error("");
-  console.error(`  Update available: ${VERSION} -> ${latestVersion}`);
-  console.error(`  Run: hlvm upgrade`);
-  console.error("");
+  log.raw.error("");
+  log.raw.error(`  Update available: ${VERSION} -> ${latestVersion}`);
+  log.raw.error(`  Run: hlvm upgrade`);
+  log.raw.error("");
 }
