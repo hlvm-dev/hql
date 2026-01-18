@@ -1573,13 +1573,12 @@ async function loadHqlModule(
       // For circular imports (without macros), we need to pre-register empty module
       // to allow imports to succeed, then fill it later
       const emptyExports: Record<string, Value> = {};
-      env.importModule(moduleName, emptyExports);
-
       for (const { name } of exportDefinitions) {
         logger.debug(`Pre-registering export for circular dependency: ${name}`);
         // Register placeholder null values that will be replaced later when fully processed
         emptyExports[name] = null;
       }
+      env.importModule(moduleName, emptyExports);
 
       return;
     } catch (error) {

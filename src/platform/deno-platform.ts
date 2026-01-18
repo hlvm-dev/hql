@@ -42,7 +42,15 @@ async function denoEnsureDir(directory: string): Promise<void> {
     await Deno.mkdir(directory, { recursive: true });
   } catch (error) {
     if (error instanceof Deno.errors.AlreadyExists) {
-      return;
+      // Verify it's actually a directory, not a file blocking the path
+      const stat = await Deno.stat(directory);
+      if (stat.isDirectory) {
+        return;
+      }
+      // A file exists at this path - throw descriptive error
+      throw new Deno.errors.NotADirectory(
+        `Cannot create directory '${directory}': a file exists at this path`,
+      );
     }
     throw error;
   }
@@ -315,12 +323,24 @@ export const DenoPlatform: Platform = {
   build: DenoBuild,
   command: DenoCommand,
   openUrl: async (url: string): Promise<void> => {
-    const cmd = Deno.build.os === "darwin"
-      ? "open"
-      : Deno.build.os === "windows"
-        ? "start"
-        : "xdg-open";
-    const command = new Deno.Command(cmd, { args: [url] });
-    await command.spawn().status;
+    const os = Deno.build.os;
+    let command: Deno.Command;
+
+    if (os === "darwin") {
+      command = new Deno.Command("open", { args: [url] });
+    } else if (os === "windows") {
+      // 'start' is a cmd.exe builtin, not a standalone executable
+      // Must run via: cmd.exe /c start "" "url"
+      // The empty string "" prevents start from treating the URL as window title
+      command = new Deno.Command("cmd.exe", { args: ["/c", "start", "", url] });
+    } else {
+      // Linux and other Unix-like systems
+      command = new Deno.Command("xdg-open", { args: [url] });
+    }
+
+    const status = await command.spawn().status;
+    if (!status.success) {
+      throw new Error(`Failed to open URL: ${url} (exit code: ${status.code})`);
+    }
   },
 };

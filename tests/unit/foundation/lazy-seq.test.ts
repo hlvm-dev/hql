@@ -6,6 +6,7 @@
  */
 
 import { assertEquals, assertThrows } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import hql from "../../../mod.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // FOUNDATION TESTS - Test seq-protocol.js DIRECTLY (not via core.js)
@@ -431,56 +432,42 @@ Deno.test("nth: on sequence with undefined values", () => {
 
 Deno.test("laziness: elements computed only when accessed", async () => {
   // This is the CRITICAL test that proves HQL-written stdlib will be lazy
-  const cmd = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", `
-      (var realized 0)
+  const result = await hql.run(`
+    (var realized 0)
 
-      (fn counting [n]
-        (lazy-seq
-          (do
-            (= realized (+ realized 1))
-            (cons n (counting (+ n 1))))))
+    (fn counting [n]
+      (lazy-seq
+        (do
+          (= realized (+ realized 1))
+          (cons n (counting (+ n 1))))))
 
-      (let nums (counting 1))
+    (let nums (counting 1))
 
-      ;; Access first 5 elements
-      (doall (take 5 nums))
+    ;; Access first 5 elements
+    (doall (take 5 nums))
 
-      ;; Print realized count - should be EXACTLY 5
-      (print realized)
-    `],
-    cwd: Deno.cwd(),
-  });
+    ;; Return realized count - should be EXACTLY 5
+    realized
+  `);
 
-  const { code, stdout } = await cmd.output();
-  const output = new TextDecoder().decode(stdout).trim();
-
-  assertEquals(code, 0);
-  assertEquals(output, "5");  // Must be exactly 5, not more!
+  assertEquals(result, 5);  // Must be exactly 5, not more!
 });
 
 Deno.test("laziness: first only realizes one element", async () => {
-  const cmd = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", `
-      (var realized 0)
+  const result = await hql.run(`
+    (var realized 0)
 
-      (fn counting [n]
-        (lazy-seq
-          (do
-            (= realized (+ realized 1))
-            (cons n (counting (+ n 1))))))
+    (fn counting [n]
+      (lazy-seq
+        (do
+          (= realized (+ realized 1))
+          (cons n (counting (+ n 1))))))
 
-      (first (counting 1))
-      (print realized)
-    `],
-    cwd: Deno.cwd(),
-  });
+    (first (counting 1))
+    realized
+  `);
 
-  const { code, stdout } = await cmd.output();
-  const output = new TextDecoder().decode(stdout).trim();
-
-  assertEquals(code, 0);
-  assertEquals(output, "1");  // Must be exactly 1!
+  assertEquals(result, 1);  // Must be exactly 1!
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -489,23 +476,14 @@ Deno.test("laziness: first only realizes one element", async () => {
 
 Deno.test("trampolining: deeply nested lazy-seq (10000 levels)", async () => {
   // This test would stack overflow without proper trampolining
+  const result = await hql.run(`
+    (fn natural-numbers [n]
+      (lazy-seq (cons n (natural-numbers (+ n 1)))))
 
-  // Run in HQL to test the full integration
-  const cmd = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", `
-      (fn natural-numbers [n]
-        (lazy-seq (cons n (natural-numbers (+ n 1)))))
+    (reduce + 0 (take 10000 (natural-numbers 1)))
+  `);
 
-      (print (reduce + 0 (take 10000 (natural-numbers 1))))
-    `],
-    cwd: Deno.cwd(),
-  });
-
-  const { code, stdout } = await cmd.output();
-  const output = new TextDecoder().decode(stdout).trim();
-
-  assertEquals(code, 0);
-  assertEquals(output, "50005000");
+  assertEquals(result, 50005000);
 });
 
 Deno.test("trampolining: deeply nested rest (1000 levels)", () => {

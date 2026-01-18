@@ -12,6 +12,7 @@ import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { getPlatform } from "../../src/platform/platform.ts";
 import hql from "../../mod.ts";
 import { ParseError, RuntimeError } from "../../src/common/error.ts";
+import { run } from "./helpers.ts";
 
 const path = () => getPlatform().path;
 const fs = () => getPlatform().fs;
@@ -20,10 +21,7 @@ const makeTempDir = (opts?: { prefix?: string }) => fs().makeTempDir(opts);
 const writeTextFile = (p: string, content: string) => fs().writeTextFile(p, content);
 const remove = (p: string, opts?: { recursive?: boolean }) => fs().remove(p, opts);
 
-async function run(code: string): Promise<unknown> {
-  return await hql.run(code);
-}
-
+// Uses hql.transpile (different from helpers.ts's transpileToJavascript)
 async function transpile(code: string): Promise<string> {
   const result = await hql.transpile(code);
   return typeof result === "string" ? result : result.code;

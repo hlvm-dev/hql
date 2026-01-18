@@ -3,17 +3,7 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
-import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
-
-async function transpile(code: string): Promise<string> {
-  const result = await transpileToJavascript(code);
-  return result.code.trim();
-}
-
-async function evalHql(code: string): Promise<unknown> {
-  const js = await transpile(code);
-  return eval(js);
-}
+import { transpile, evalHql } from "./helpers.ts";
 
 // ==========================================
 // Thread-First Macro (->)

@@ -12,6 +12,7 @@
 import { assertEquals, assertStringIncludes, assertMatch } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { transpile } from "../../src/hql/transpiler/index.ts";
 import hql from "../../mod.ts";
+import { captureConsole } from "./helpers.ts";
 
 /**
  * Helper to run HQL code and capture type errors and output
@@ -19,39 +20,27 @@ import hql from "../../mod.ts";
  */
 async function runHQL(code: string): Promise<{ stdout: string; stderr: string; success: boolean }> {
   // Capture type errors from transpile
-  const errors: string[] = [];
-  const originalError = console.error;
-  console.error = (...args: unknown[]) => {
-    errors.push(args.map(a => String(a)).join(" "));
-  };
+  const { stderr: transpileErrors } = await captureConsole(
+    () => transpile(code),
+    ["error"],
+  );
 
-  try {
-    await transpile(code);
-  } finally {
-    console.error = originalError;
+  let stderr = transpileErrors;
+
+  // Capture stdout from running the code, and any runtime errors
+  const { stdout, stderr: runErrors } = await captureConsole(async () => {
+    try {
+      await hql.run(code);
+    } catch (e) {
+      // Capture runtime errors too (for tests that check runtime behavior)
+      const errMsg = e instanceof Error ? e.message : String(e);
+      console.error(errMsg);
+    }
+  }, ["log", "error"]);
+
+  if (runErrors) {
+    stderr = stderr ? stderr + "\n" + runErrors : runErrors;
   }
-
-  let stderr = errors.join("\n");
-
-  // Also capture stdout from running the code
-  const outputs: string[] = [];
-  const originalLog = console.log;
-  console.log = (...args: unknown[]) => {
-    // Use Deno.inspect for proper formatting (matches HQL's print behavior)
-    outputs.push(args.map(a => typeof a === 'string' ? a : Deno.inspect(a)).join(" "));
-  };
-
-  try {
-    await hql.run(code);
-  } catch (e) {
-    // Capture runtime errors too (for tests that check runtime behavior)
-    const errMsg = e instanceof Error ? e.message : String(e);
-    stderr = stderr ? stderr + "\n" + errMsg : errMsg;
-  } finally {
-    console.log = originalLog;
-  }
-
-  const stdout = outputs.join("\n");
 
   return {
     stdout,

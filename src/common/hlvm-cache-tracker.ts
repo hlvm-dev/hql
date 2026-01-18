@@ -645,27 +645,6 @@ export async function createTempDir(
 }
 
 /**
- * Clear cache
- * This function removes all cached files to force regeneration
- */
-export async function clearCache(): Promise<void> {
-  const cacheDir = await getCacheDir();
-  try {
-    await fs().remove(cacheDir, { recursive: true });
-    logger.debug(`Cleared cache directory: ${cacheDir}`);
-  } catch (error) {
-    logger.debug(`Error clearing cache: ${getErrorMessage(error)}`);
-  }
-
-  // Reset in-memory caches too
-  contentHashCache.clear();
-  importPathMap.clear();
-
-  // Recreate the cache directory
-  await fs().ensureDir(cacheDir);
-}
-
-/**
  * Process JavaScript files to fix their import paths when copied to cache
  * This ensures relative imports still work after moving to the cache
  */

@@ -17,6 +17,7 @@ import {
   resetRuntime,
 } from "../../mod.ts";
 import hql from "../../mod.ts";
+import { captureConsole } from "./helpers.ts";
 
 Deno.test("Runtime Macros - Basic Definition", async () => {
   await resetRuntime();
@@ -181,28 +182,16 @@ Deno.test("Runtime Macros - No Re-tagging Warnings", async () => {
   await resetRuntime();
   await defineMacro("(macro test [] 42)");
 
-  const warnings: string[] = [];
-  const originalWarn = console.warn;
-  const originalError = console.error;
-
-  console.warn = (...args: unknown[]) => {
-    warnings.push(args.map(String).join(" "));
-  };
-  console.error = (...args: unknown[]) => {
-    warnings.push(args.map(String).join(" "));
-  };
-
-  try {
+  // Capture both warn and error channels
+  const { stderr, warnings } = await captureConsole(async () => {
     // Multiple evaluations should not produce redefinition warnings
     await hqlEval("(test)");
     await hqlEval("(test)");
     await hqlEval("(test)");
-  } finally {
-    console.warn = originalWarn;
-    console.error = originalError;
-  }
+  }, ["warn", "error"]);
 
-  const redefinitionWarnings = warnings.filter((msg) =>
+  const allOutput = [stderr, warnings].filter(Boolean).join("\n");
+  const redefinitionWarnings = allOutput.split("\n").filter((msg) =>
     msg.includes("Cannot redefine property") || msg.toLowerCase().includes("redefine")
   );
 

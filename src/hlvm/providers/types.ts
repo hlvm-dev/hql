@@ -18,7 +18,9 @@ export type ProviderCapability =
   | "models.catalog"
   | "models.pull"
   | "models.remove"
-  | "vision";
+  | "vision"
+  | "tools"
+  | "thinking";
 
 // ============================================================================
 // Message Types (Common across providers)
@@ -117,9 +119,9 @@ export function capabilitiesToFlags(capabilities?: ProviderCapability[]): ModelC
   return {
     completion: caps.includes("generate") || caps.includes("chat") || caps.length === 0,
     vision: caps.includes("vision"),
-    tools: false, // Currently no "tools" capability in ProviderCapability
+    tools: caps.includes("tools"),
     embedding: caps.includes("embeddings"),
-    thinking: false, // Currently no "thinking" capability in ProviderCapability
+    thinking: caps.includes("thinking"),
   };
 }
 

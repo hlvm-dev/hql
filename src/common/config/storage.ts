@@ -14,7 +14,7 @@ import {
 } from "./types.ts";
 import { getHlvmDir, getConfigPath } from "../paths.ts";
 import { getLegacyConfigPath } from "../legacy-migration.ts";
-import { getPlatform, PlatformError } from "../../platform/platform.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
 // Re-export for backward compatibility
 export { getHlvmDir, getConfigPath };
@@ -35,11 +35,7 @@ async function readJsonConfig(path: string): Promise<ReadConfigResult> {
     const parsed = JSON.parse(content) as Record<string, unknown>;
     return { data: parsed, exists: true };
   } catch (error) {
-    // Check for NotFound error using PlatformError type guard
-    if (PlatformError.isNotFound(error)) {
-      return { data: null, exists: false };
-    }
-    // Also check for Deno.errors.NotFound during transition period
+    // Check for NotFound error (file doesn't exist)
     if (error instanceof Error && error.name === "NotFound") {
       return { data: null, exists: false };
     }

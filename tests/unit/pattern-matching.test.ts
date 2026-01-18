@@ -9,7 +9,7 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
-import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
+import { transpile, evalHql } from "./helpers.ts";
 
 // Helper function needed for HQL hash-map literals
 // This should normally be embedded by the transpiler, but we include it here for test eval
@@ -39,16 +39,6 @@ import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.t
   }
   return true;
 };
-
-async function transpile(code: string): Promise<string> {
-  const result = await transpileToJavascript(code);
-  return result.code.trim();
-}
-
-async function evalHql(code: string): Promise<unknown> {
-  const js = await transpile(code);
-  return eval(js);
-}
 
 // ============================================
 // LITERAL MATCHING

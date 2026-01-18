@@ -15,7 +15,7 @@ import { isModelPullTask, isTaskActive } from "../../repl/task-manager/types.ts"
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
-import type { ModelInfo } from "../../../providers/types.ts";
+import type { ModelInfo, ProviderCapability } from "../../../providers/types.ts";
 
 // Local alias for platform openUrl
 const openUrl = (url: string) => getPlatform().openUrl(url);
@@ -180,23 +180,22 @@ function isPracticalModel(name: string): boolean {
   return !lower.includes("405b") && !lower.includes("671b") && !lower.includes("70b");
 }
 
-function getCatalogCapabilities(model: ModelInfo): string[] {
-  const meta = (model.metadata || {}) as Record<string, unknown>;
-  const metaCaps = Array.isArray(meta.capabilities)
-    ? meta.capabilities.map((c) => String(c))
-    : [];
-  if (metaCaps.length > 0) return metaCaps;
+/** Convert ProviderCapability[] to display tags for UI */
+function capabilitiesToDisplayTags(caps?: ProviderCapability[]): string[] {
+  if (!caps || caps.length === 0) return ["text"];
 
-  const caps: string[] = [];
-  if (model.capabilities?.includes("embeddings")) {
-    caps.push("embedding");
-  } else {
-    caps.push("text");
+  const tags: string[] = [];
+  if (caps.includes("embeddings")) {
+    tags.push("embedding");
+  } else if (caps.includes("generate") || caps.includes("chat")) {
+    tags.push("text");
   }
-  if (model.capabilities?.includes("vision")) {
-    caps.push("vision");
-  }
-  return caps;
+
+  if (caps.includes("vision")) tags.push("vision");
+  if (caps.includes("tools")) tags.push("tools");
+  if (caps.includes("thinking")) tags.push("thinking");
+
+  return tags;
 }
 
 function getCatalogSize(model: ModelInfo): string | undefined {
@@ -216,7 +215,7 @@ function toRemoteModel(model: ModelInfo): RemoteModel {
   return {
     name: model.name,
     description,
-    capabilities: getCatalogCapabilities(model),
+    capabilities: capabilitiesToDisplayTags(model.capabilities),
     size: getCatalogSize(model),
     provider: getProvider(modelId),
   };

@@ -25,6 +25,8 @@ interface ScrapedModel {
   downloads: number;
   model_type?: string;
   ollamaUrl?: string;
+  tools?: boolean;
+  thinking?: boolean;
 }
 
 interface ScrapedCatalog {
@@ -44,14 +46,8 @@ function buildCapabilityTags(model: ScrapedModel): string[] {
   }
 
   if (model.vision) tags.push("vision");
-
-  if (/llama3|qwen|mistral|gemma/i.test(model.id) && !model.vision && model.model_type !== "embedding") {
-    tags.push("tools");
-  }
-
-  if (/r1|qwq/i.test(model.id)) {
-    tags.push("thinking");
-  }
+  if (model.tools) tags.push("tools");
+  if (model.thinking) tags.push("thinking");
 
   return tags;
 }
@@ -70,6 +66,14 @@ function toModelInfo(model: ScrapedModel, variant?: ScrapedModelVariant): ModelI
     capabilities.push("vision");
   }
 
+  if (tags.includes("tools")) {
+    capabilities.push("tools");
+  }
+
+  if (tags.includes("thinking")) {
+    capabilities.push("thinking");
+  }
+
   const name = variant?.id ?? model.id;
   const displayParts = [model.name];
   if (variant?.parameters && variant.parameters !== "Unknown") {
@@ -85,7 +89,6 @@ function toModelInfo(model: ScrapedModel, variant?: ScrapedModelVariant): ModelI
     metadata: {
       description: model.description,
       sizes: variant?.size ? [variant.size] : undefined,
-      capabilities: tags,
       context: variant?.context,
       downloads: model.downloads,
       modelId: model.id,

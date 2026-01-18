@@ -32,9 +32,6 @@ export type {
   SignalType,
 } from "./types.ts";
 
-// Re-export error types
-export { PlatformError, PlatformErrorCode } from "./errors.ts";
-
 // Import and re-export the implementation
 import { DenoPlatform } from "./deno-platform.ts";
 export { DenoPlatform };

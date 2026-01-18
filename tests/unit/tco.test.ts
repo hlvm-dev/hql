@@ -9,20 +9,7 @@
  */
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
-import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
-import { initializeRuntimeHelpers } from "../../src/common/runtime-helpers.ts";
-
-async function transpile(code: string): Promise<string> {
-  const result = await transpileToJavascript(code);
-  return result.code.trim();
-}
-
-async function evalHql(code: string): Promise<unknown> {
-  // Ensure runtime helpers (like __hql_trampoline) are available in global scope
-  initializeRuntimeHelpers();
-  const js = await transpile(code);
-  return eval(js);
-}
+import { transpile, evalHql } from "./helpers.ts";
 
 // ==========================================
 // Basic Tail Recursion Detection

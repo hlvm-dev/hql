@@ -87,3 +87,62 @@ export function hqlToTypeScript(hql: string): string {
   const result = generateTypeScript(ir, {});
   return result.code;
 }
+
+// ============================================================================
+// Console Capture Helpers
+// ============================================================================
+
+/**
+ * Capture console output during async execution.
+ * Safely restores console methods even on error.
+ *
+ * @param fn - Async function to execute while capturing
+ * @param channels - Which console channels to capture (default: ['log', 'error'])
+ * @returns Object with result, stdout, stderr, and warnings
+ */
+export async function captureConsole<T>(
+  fn: () => Promise<T>,
+  channels: ("log" | "warn" | "error")[] = ["log", "error"],
+): Promise<{ result: T; stdout: string; stderr: string; warnings: string }> {
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+
+  const logs: string[] = [];
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (channels.includes("log")) {
+    console.log = (...args: unknown[]) => {
+      logs.push(
+        args.map((a) => (typeof a === "string" ? a : Deno.inspect(a))).join(
+          " ",
+        ),
+      );
+    };
+  }
+  if (channels.includes("error")) {
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    };
+  }
+  if (channels.includes("warn")) {
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    };
+  }
+
+  try {
+    const result = await fn();
+    return {
+      result,
+      stdout: logs.join("\n"),
+      stderr: errors.join("\n"),
+      warnings: warnings.join("\n"),
+    };
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+    console.warn = originalWarn;
+  }
+}

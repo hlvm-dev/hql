@@ -14,8 +14,7 @@ All platform-specific operations (file system, environment, terminal, process) a
 src/platform/
 ├── types.ts           # Platform interfaces (PlatformFs, PlatformEnv, etc.)
 ├── platform.ts        # Singleton getter/setter (getPlatform, setPlatform)
-├── deno-platform.ts   # Deno implementation (only file with Deno.* runtime calls)
-└── errors.ts          # Platform-agnostic error handling
+└── deno-platform.ts   # Deno implementation (only file with Deno.* runtime calls)
 ```
 
 ## Usage
@@ -144,26 +143,26 @@ interface PlatformCommand {
 
 ## Error Handling
 
-Instead of checking `error instanceof Deno.errors.NotFound`, use the platform error wrapper:
+For error checking, use the error's `name` property which is consistent across Deno's error types:
 
 ```typescript
-import { PlatformError } from "./platform/platform.ts";
-
 try {
-  // ...
+  await getPlatform().fs.readTextFile(path);
 } catch (error) {
-  const platformError = PlatformError.wrap(error);
-  if (PlatformError.isNotFound(platformError)) {
-  // Handle not found error
+  if (error instanceof Error && error.name === "NotFound") {
+    // Handle file not found
   }
+  throw error;
 }
 ```
+
+Common Deno error names: `NotFound`, `AlreadyExists`, `PermissionDenied`, `IsADirectory`, `NotADirectory`.
 
 ## Enforcement
 
 The platform abstraction is enforced in CI via `deno task check:platform`. This script ensures:
 
-1. No `Deno.*` runtime calls outside `src/platform/deno-platform.ts` (errors.ts is allowed for comments/strings only)
+1. No `Deno.*` runtime calls outside `src/platform/deno-platform.ts`
 2. No `js/Deno.*` usage in HQL packages (use `hlvm` global instead)
 3. Test files and scripts are excluded from enforcement
 4. `vendor/repl/src/` is included in enforcement (project code, not third-party)

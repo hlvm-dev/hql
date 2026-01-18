@@ -6,6 +6,7 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import hql from "../../mod.ts";
 import { defineMacro, hqlEval, resetRuntime, transpile } from "../../mod.ts";
+import { captureConsole } from "./helpers.ts";
 
 // ============================================================================
 // BUG 1: CACHE INVALIDATION
@@ -200,20 +201,10 @@ Deno.test({
 `;
 
   // Use transpile API to capture type errors
-  // Capture stderr by temporarily overriding console.error
-  const errors: string[] = [];
-  const originalError = console.error;
-  console.error = (...args: unknown[]) => {
-    errors.push(args.map(a => String(a)).join(" "));
-  };
-
-  try {
-    await transpile(code);
-  } finally {
-    console.error = originalError;
-  }
-
-  const stderr = errors.join("\n");
+  const { stderr } = await captureConsole(
+    () => transpile(code),
+    ["error"],
+  );
 
   // Should have a type error
   assertEquals(stderr.includes("Type error"), true, "Expected type error");

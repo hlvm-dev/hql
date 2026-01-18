@@ -43,7 +43,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama3.1",
-      "downloads": 108600000
+      "downloads": 108600000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "DeepSeek-R1 is a family of open reasoning models with performance approaching that of leading models, such as O3 and Gemini 2.5 Pro.",
@@ -117,7 +119,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepseek-r1",
-      "downloads": 76100000
+      "downloads": 76100000,
+      "tools": false,
+      "thinking": true
     },
     {
       "description": "Meta's Llama 3.2 goes small with 1B and 3B models. ",
@@ -151,7 +155,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama3.2",
-      "downloads": 52600000
+      "downloads": 52600000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "A high-performing open embedding model with a large token context window.",
@@ -186,7 +192,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/nomic-embed-text",
       "downloads": 49700000,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The current, most capable model that runs on a single GPU.",
@@ -277,7 +285,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/gemma3",
-      "downloads": 29600000
+      "downloads": 29600000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The 7B model released by Mistral AI, updated to version 0.3.",
@@ -303,7 +313,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/mistral",
-      "downloads": 24000000
+      "downloads": 24000000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Qwen2.5 models are pretrained on Alibaba's latest large-scale dataset, encompassing up to 18 trillion tokens. The model supports up to 128K tokens and has multilingual support. ",
@@ -377,7 +389,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/qwen2.5",
-      "downloads": 19100000
+      "downloads": 19100000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Qwen3 is the latest generation of large language models in Qwen series, offering a comprehensive suite of dense and mixture-of-experts (MoE) models.",
@@ -459,7 +473,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/qwen3",
-      "downloads": 17000000
+      "downloads": 17000000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Phi-3 is a family of lightweight 3B (Mini) and 14B (Medium) state-of-the-art open models by Microsoft.",
@@ -493,7 +509,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/phi3",
-      "downloads": 15500000
+      "downloads": 15500000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Meta Llama 3: The most capable openly available LLM to date",
@@ -527,7 +545,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama3",
-      "downloads": 13600000
+      "downloads": 13600000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Google Gemma 2 is a high-performing and efficient model available in three sizes: 2B, 9B, and 27B.",
@@ -569,7 +589,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/gemma2",
-      "downloads": 13300000
+      "downloads": 13300000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "🌋 LLaVA is a novel end-to-end trained large multimodal model that combines a vision encoder and Vicuna for general-purpose visual and language understanding. Updated to version 1.6.",
@@ -615,7 +637,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/llava",
-      "downloads": 12500000
+      "downloads": 12500000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The latest series of Code-Specific Qwen models, with significant improvements in code generation, code reasoning, and code fixing.",
@@ -681,7 +705,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/qwen2.5-coder",
-      "downloads": 9800000
+      "downloads": 9800000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Phi-4 is a 14B parameter, state-of-the-art open model from Microsoft.",
@@ -707,7 +733,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/phi4",
-      "downloads": 6800000
+      "downloads": 6800000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "State-of-the-art large embedding model from mixedbread.ai",
@@ -734,7 +762,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/mxbai-embed-large",
       "downloads": 6400000,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "OpenAI’s open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.",
@@ -784,7 +814,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/gpt-oss",
-      "downloads": 5800000
+      "downloads": 5800000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Gemma is a family of lightweight, state-of-the-art open models built by Google DeepMind. Updated to version 1.1",
@@ -818,7 +850,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/gemma",
-      "downloads": 5700000
+      "downloads": 5700000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Qwen 1.5 is a series of large language models by Alibaba Cloud spanning from 0.5B to 110B parameters",
@@ -900,7 +934,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/qwen",
-      "downloads": 5300000
+      "downloads": 5300000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Llama 2 is a collection of foundation language models ranging from 7B to 70B parameters.",
@@ -942,7 +978,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama2",
-      "downloads": 5000000
+      "downloads": 5000000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Qwen2 is a new series of large language models from Alibaba group",
@@ -992,7 +1030,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/qwen2",
-      "downloads": 4700000
+      "downloads": 4700000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "A series of multimodal LLMs (MLLMs) designed for vision-language understanding.",
@@ -1020,7 +1060,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/minicpm-v",
-      "downloads": 4400000
+      "downloads": 4400000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A large language model that can use text prompts to generate and discuss code.",
@@ -1070,7 +1112,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/codellama",
-      "downloads": 3900000
+      "downloads": 3900000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Dolphin 3.0 Llama 3.1 8B 🐬 is the next generation of the Dolphin series of instruct-tuned models designed to be the ultimate general purpose local model, enabling coding, math, agentic, function calling, and general use cases.",
@@ -1096,7 +1140,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/dolphin3",
-      "downloads": 3600000
+      "downloads": 3600000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Llama 3.2 Vision is a collection of instruction-tuned image reasoning generative models in 11B and 90B sizes.",
@@ -1133,7 +1179,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/llama3.2-vision",
-      "downloads": 3600000
+      "downloads": 3600000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "OLMo 2 is a new family of 7B and 13B models trained on up to 5T tokens. These models are on par with or better than equivalently sized fully open models, and competitive with open-weight models such as Llama 3.1 on English academic benchmarks.",
@@ -1167,7 +1215,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/olmo2",
-      "downloads": 3400000
+      "downloads": 3400000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The TinyLlama project is an open endeavor to train a compact 1.1B Llama model on 3 trillion tokens.",
@@ -1193,7 +1243,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/tinyllama",
-      "downloads": 3300000
+      "downloads": 3300000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A strong Mixture-of-Experts (MoE) language model with 671B total parameters with 37B activated for each token.",
@@ -1219,7 +1271,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepseek-v3",
-      "downloads": 3200000
+      "downloads": 3200000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A state-of-the-art 12B model with 128k context length, built by Mistral AI in collaboration with NVIDIA.",
@@ -1245,7 +1299,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/mistral-nemo",
-      "downloads": 3200000
+      "downloads": 3200000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "BGE-M3 is a new model from BAAI distinguished for its versatility in Multi-Functionality, Multi-Linguality, and Multi-Granularity.",
@@ -1272,7 +1328,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/bge-m3",
       "downloads": 3000000,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "New state of the art 70B model. Llama 3.3 70B offers similar performance compared to the Llama 3.1 405B model.",
@@ -1298,7 +1356,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama3.3",
-      "downloads": 3000000
+      "downloads": 3000000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "DeepSeek Coder is a capable coding model trained on two trillion code and natural language tokens.",
@@ -1340,7 +1400,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepseek-coder",
-      "downloads": 2600000
+      "downloads": 2600000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Mistral Small 3 sets a new benchmark in the “small” Large Language Models category below 70B.",
@@ -1374,7 +1436,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/mistral-small",
-      "downloads": 2300000
+      "downloads": 2300000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "SmolLM2 is a family of compact language models available in three size: 135M, 360M, and 1.7B parameters.",
@@ -1416,7 +1480,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/smollm2",
-      "downloads": 2300000
+      "downloads": 2300000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Embedding models on very large sentence level datasets.",
@@ -1451,7 +1517,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/all-minilm",
       "downloads": 2200000,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A LLaVA model fine-tuned from Llama 3 Instruct with better scores in several benchmarks.",
@@ -1479,7 +1547,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/llava-llama3",
-      "downloads": 2100000
+      "downloads": 2100000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Alibaba's performant long context models for agentic and coding tasks.",
@@ -1521,7 +1591,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/qwen3-coder",
-      "downloads": 2000000
+      "downloads": 2000000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "QwQ is the reasoning model of the Qwen series.",
@@ -1547,7 +1619,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/qwq",
-      "downloads": 2000000
+      "downloads": 2000000,
+      "tools": false,
+      "thinking": true
     },
     {
       "description": "CodeGemma is a collection of powerful, lightweight models that can perform a variety of coding tasks like fill-in-the-middle code completion, code generation, natural language understanding, mathematical reasoning, and instruction following.",
@@ -1581,7 +1655,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/codegemma",
-      "downloads": 1900000
+      "downloads": 1900000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "A family of efficient AI models under 10B parameters performant in science, math, and coding through innovative training techniques.",
@@ -1631,7 +1707,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/falcon3",
-      "downloads": 1900000
+      "downloads": 1900000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The IBM Granite 1B and 3B models are long-context mixture of experts (MoE) Granite models from IBM designed for low latency usage.",
@@ -1665,7 +1743,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/granite3.1-moe",
-      "downloads": 1900000
+      "downloads": 1900000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "StarCoder2 is the next generation of transparently trained open code LLMs that comes in three sizes: 3B, 7B and 15B parameters. ",
@@ -1707,7 +1787,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/starcoder2",
-      "downloads": 1800000
+      "downloads": 1800000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Uncensored Llama 2 model by George Sung and Jarrad Hope.",
@@ -1741,7 +1823,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama2-uncensored",
-      "downloads": 1600000
+      "downloads": 1600000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A set of Mixture of Experts (MoE) model with open weights by Mistral AI in 8x7b and 8x22b parameter sizes.",
@@ -1775,7 +1859,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/mixtral",
-      "downloads": 1600000
+      "downloads": 1600000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A general-purpose model ranging from 3 billion parameters to 70 billion, suitable for entry-level hardware.",
@@ -1825,7 +1911,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/orca-mini",
-      "downloads": 1600000
+      "downloads": 1600000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A suite of text embedding models by Snowflake, optimized for performance.",
@@ -1884,7 +1972,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/snowflake-arctic-embed",
       "downloads": 1600000,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "An open-source Mixture-of-Experts code language model that achieves performance comparable to GPT4-Turbo in code-specific tasks.",
@@ -1918,7 +2008,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepseek-coder-v2",
-      "downloads": 1400000
+      "downloads": 1400000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Cogito v1 Preview is a family of hybrid reasoning models by Deep Cogito that outperform the best available open models of the same size, including counterparts from LLaMA, DeepSeek, and Qwen across most standard benchmarks.",
@@ -1976,7 +2068,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/cogito",
-      "downloads": 1100000
+      "downloads": 1100000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Flagship vision-language model of Qwen and also a significant leap from the previous Qwen2-VL.",
@@ -2031,7 +2125,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/qwen2.5vl",
-      "downloads": 1100000
+      "downloads": 1100000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A fine-tuned version of Deepseek-R1-Distilled-Qwen-1.5B that surpasses the performance of OpenAI’s o1-preview with just 1.5B parameters on popular math evaluations.",
@@ -2057,7 +2153,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepscaler",
-      "downloads": 1000000
+      "downloads": 1000000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "2.7B uncensored Dolphin model by Eric Hartford, based on the Phi language model by Microsoft Research.",
@@ -2083,7 +2181,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/dolphin-phi",
-      "downloads": 1000000
+      "downloads": 1000000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Gemma 3n models are designed for efficient execution on everyday devices such as laptops, tablets or phones. ",
@@ -2117,7 +2217,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/gemma3n",
-      "downloads": 1000000
+      "downloads": 1000000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Meta's latest collection of multimodal models.",
@@ -2154,7 +2256,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/llama4",
-      "downloads": 1000000
+      "downloads": 1000000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "An update to Mistral Small that improves on function calling, instruction following, and less repetition errors.",
@@ -2182,7 +2286,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/mistral-small3.2",
-      "downloads": 1000000
+      "downloads": 1000000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The most powerful vision-language model in the Qwen model family to date. ",
@@ -2273,7 +2379,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/qwen3-vl",
-      "downloads": 1000000
+      "downloads": 1000000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Phi 4 reasoning and reasoning plus are 14-billion parameter open-weight reasoning models that rival much larger models on complex reasoning tasks. ",
@@ -2299,7 +2407,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/phi4-reasoning",
-      "downloads": 984600
+      "downloads": 984600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Magistral is a small, efficient reasoning model with 24B parameters.",
@@ -2325,7 +2435,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/magistral",
-      "downloads": 934700
+      "downloads": 934700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Phi-2: a 2.7B language model by Microsoft Research that demonstrates outstanding reasoning and language understanding capabilities.",
@@ -2351,7 +2463,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/phi",
-      "downloads": 888700
+      "downloads": 888700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Uncensored, 8x7b and 8x22b fine-tuned models based on the Mixtral mixture of experts models that excels at coding tasks. Created by Eric Hartford.",
@@ -2385,7 +2499,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/dolphin-mixtral",
-      "downloads": 850100
+      "downloads": 850100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "IBM Granite 2B and 8B models are 128K context length language models that have been fine-tuned for improved reasoning and instruction-following capabilities.",
@@ -2419,7 +2535,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/granite3.3",
-      "downloads": 817600
+      "downloads": 817600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Dolphin 2.9 is a new model with 8B and 70B sizes by Eric Hartford based on Llama 3 that has a variety of instruction, conversational, and coding skills.",
@@ -2453,7 +2571,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/dolphin-llama3",
-      "downloads": 764500
+      "downloads": 764500,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Phi-4-mini brings significant enhancements in multilingual support, reasoning, and mathematics, and now, the long-awaited function calling feature is finally supported.",
@@ -2479,7 +2599,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/phi4-mini",
-      "downloads": 735600
+      "downloads": 735600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A fully open-source family of reasoning models built using a dataset derived by distilling DeepSeek-R1.",
@@ -2513,7 +2635,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/openthinker",
-      "downloads": 682000
+      "downloads": 682000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "🪐 A family of small models with 135M, 360M, and 1.7B parameters, trained on a new high-quality dataset.",
@@ -2555,7 +2679,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/smollm",
-      "downloads": 676900
+      "downloads": 676900,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Codestral is Mistral AI’s first-ever code model designed for code generation tasks.",
@@ -2581,7 +2707,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/codestral",
-      "downloads": 668000
+      "downloads": 668000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A compact and efficient vision-language model, specifically designed for visual document understanding, enabling automated content extraction from tables, charts, infographics, plots, diagrams, and more.",
@@ -2609,7 +2737,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/granite3.2-vision",
-      "downloads": 632600
+      "downloads": 632600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Devstral: the best open source model for coding agents",
@@ -2635,7 +2765,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/devstral",
-      "downloads": 623200
+      "downloads": 623200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The uncensored Dolphin model based on Mistral that excels at coding tasks. Updated to version 2.8.",
@@ -2661,7 +2793,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/dolphin-mistral",
-      "downloads": 536600
+      "downloads": 536600,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "State of the art large language model from Microsoft AI with improved performance on complex chat, multilingual, reasoning and agent use cases.",
@@ -2695,7 +2829,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/wizardlm2",
-      "downloads": 531700
+      "downloads": 531700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "DeepCoder is a fully open-Source 14B coder model at O3-mini level, with a 1.5B version also available.",
@@ -2729,7 +2865,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepcoder",
-      "downloads": 520600
+      "downloads": 520600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "moondream2 is a small vision language model designed to run efficiently on edge devices.",
@@ -2757,7 +2895,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/moondream",
-      "downloads": 509800
+      "downloads": 509800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Command R is a Large Language Model optimized for conversational interaction and long context tasks.",
@@ -2783,7 +2923,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/command-r",
-      "downloads": 507400
+      "downloads": 507400,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Building upon Mistral Small 3, Mistral Small 3.1 (2503) adds state-of-the-art vision understanding and enhances long context capabilities up to 128k tokens without compromising text performance.",
@@ -2811,7 +2953,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/mistral-small3.1",
-      "downloads": 499200
+      "downloads": 499200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A family of open foundation models by IBM for Code Intelligence",
@@ -2861,7 +3005,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/granite-code",
-      "downloads": 496500
+      "downloads": 496500,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Granite 4 features improved instruction following (IF) and tool-calling capabilities, making them more effective in enterprise applications.",
@@ -2903,7 +3049,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/granite4",
-      "downloads": 455700
+      "downloads": 455700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Hermes 3 is the latest version of the flagship Hermes series of LLMs by Nous Research",
@@ -2953,7 +3101,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/hermes3",
-      "downloads": 440900
+      "downloads": 440900,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A lightweight AI model with 3.8 billion parameters with performance overtaking similarly and larger sized models.",
@@ -2979,7 +3129,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/phi3.5",
-      "downloads": 429000
+      "downloads": 429000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "BakLLaVA is a multimodal model consisting of the Mistral 7B base model augmented with the LLaVA  architecture.",
@@ -3007,7 +3159,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/bakllava",
-      "downloads": 412100
+      "downloads": 412100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Yi 1.5 is a high-performing, bilingual language model.",
@@ -3049,7 +3203,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/yi",
-      "downloads": 401600
+      "downloads": 401600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Zephyr is a series of fine-tuned versions of the Mistral and Mixtral models that are trained to act as helpful assistants.",
@@ -3083,7 +3239,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/zephyr",
-      "downloads": 384600
+      "downloads": 384600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "EXAONE Deep exhibits superior capabilities in various reasoning tasks including math and coding benchmarks, ranging from 2.4B to 32B parameters developed and released by LG AI Research.",
@@ -3125,7 +3283,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/exaone-deep",
-      "downloads": 370500
+      "downloads": 370500,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Mistral Large 2 is Mistral's new flagship model that is significantly more capable in code generation, mathematics, and reasoning with 128k context window and support for dozens of languages.",
@@ -3151,7 +3311,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/mistral-large",
-      "downloads": 368500
+      "downloads": 368500,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "EmbeddingGemma is a 300M parameter embedding model from Google.",
@@ -3178,7 +3340,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/embeddinggemma",
       "downloads": 364700,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Wizard Vicuna Uncensored is a 7B, 13B, and 30B parameter model based on Llama 2 uncensored by Eric Hartford.",
@@ -3220,7 +3384,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/wizard-vicuna-uncensored",
-      "downloads": 358200
+      "downloads": 358200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "StarCoder is a code generation model trained on 80&#43; programming languages.",
@@ -3270,7 +3436,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/starcoder",
-      "downloads": 320700
+      "downloads": 320700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "OpenCoder is an open and reproducible code LLM family which includes 1.5B and 8B models, supporting chat in English and Chinese languages.",
@@ -3304,7 +3472,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/opencoder",
-      "downloads": 320400
+      "downloads": 320400,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "General use models based on Llama and Llama 2 from Nous Research.",
@@ -3338,7 +3508,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/nous-hermes",
-      "downloads": 315400
+      "downloads": 315400,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "An advanced language model crafted with 2 trillion bilingual tokens.",
@@ -3372,7 +3544,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepseek-llm",
-      "downloads": 306100
+      "downloads": 306100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A large language model built by the Technology Innovation Institute (TII) for use in summarization, text generation, and chat bots.",
@@ -3414,7 +3588,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/falcon",
-      "downloads": 306000
+      "downloads": 306000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A family of open-source models trained on a wide variety of data, surpassing ChatGPT on various benchmarks. Updated to version 3.5-0106.",
@@ -3440,7 +3616,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/openchat",
-      "downloads": 299600
+      "downloads": 299600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "General use chat model based on Llama and Llama 2 with 2K to 16K context sizes.",
@@ -3482,7 +3660,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/vicuna",
-      "downloads": 298100
+      "downloads": 298100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A strong, economical, and efficient Mixture-of-Experts language model.",
@@ -3516,7 +3696,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepseek-v2",
-      "downloads": 297700
+      "downloads": 297700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Sentence-transformers model that can be used for tasks like clustering or semantic search.",
@@ -3542,7 +3724,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/paraphrase-multilingual",
-      "downloads": 287700
+      "downloads": 287700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "OpenHermes 2.5 is a 7B model fine-tuned by Teknium on Mistral with fully open datasets.",
@@ -3832,7 +4016,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/openhermes",
-      "downloads": 279800
+      "downloads": 279800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "CodeQwen1.5 is a large language model pretrained on a large amount of code data.",
@@ -3858,7 +4044,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/codeqwen",
-      "downloads": 278500
+      "downloads": 278500,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Qwen2 Math is a series of specialized math language models built upon the Qwen2 LLMs, which significantly outperforms the mathematical capabilities of open-source models and even closed-source models (e.g., GPT4o).",
@@ -3900,7 +4088,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/qwen2-math",
-      "downloads": 266500
+      "downloads": 266500,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Building upon the foundational models of the Qwen3 series, Qwen3 Embedding provides a comprehensive range of text embeddings models in various sizes",
@@ -3943,7 +4133,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/qwen3-embedding",
       "downloads": 262300,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A strong multi-lingual general language model with competitive performance to Llama 3.",
@@ -3969,7 +4161,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/glm4",
-      "downloads": 261500
+      "downloads": 261500,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Aya 23, released by Cohere, is a new family of state-of-the-art, multilingual models that support 23 languages. ",
@@ -4003,7 +4197,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/aya",
-      "downloads": 259800
+      "downloads": 259800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Llama 2 based model fine tuned to improve Chinese dialogue ability.",
@@ -4037,7 +4233,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama2-chinese",
-      "downloads": 256900
+      "downloads": 256900,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Command R&#43; is a powerful, scalable large language model purpose-built to excel at real-world enterprise use cases.",
@@ -4063,7 +4261,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/command-r-plus",
-      "downloads": 253800
+      "downloads": 253800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "DeepSeek-V3.1-Terminus is a hybrid model that supports both thinking mode and non-thinking mode.",
@@ -4097,7 +4297,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepseek-v3.1",
-      "downloads": 252300
+      "downloads": 252300,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A versatile model for AI software development scenarios, including code completion.",
@@ -4123,7 +4325,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/codegeex4",
-      "downloads": 251300
+      "downloads": 251300,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Mistral OpenOrca is a 7 billion parameter model, fine-tuned on top of the Mistral 7B model using the OpenOrca dataset.",
@@ -4149,7 +4353,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/mistral-openorca",
-      "downloads": 250200
+      "downloads": 250200,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Stable Code 3B is a coding model with instruct and code completion variants on par with models such as Code Llama 7B that are 2.5x larger.",
@@ -4175,7 +4381,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/stable-code",
-      "downloads": 248700
+      "downloads": 248700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A fine-tuned model based on Mistral with good coverage of domain and language.",
@@ -4201,7 +4409,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/neural-chat",
-      "downloads": 244900
+      "downloads": 244900,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The first installment in the Qwen3-Next series with strong performance in terms of both parameter efficiency and inference speed.",
@@ -4235,7 +4445,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/qwen3-next",
-      "downloads": 243700
+      "downloads": 243700,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "The powerful family of models by Nous Research that excels at scientific discussion and coding tasks.",
@@ -4269,7 +4481,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/nous-hermes2",
-      "downloads": 242800
+      "downloads": 242800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "An experimental 1.1B parameter model trained on the new Dolphin 2.8 dataset by Eric Hartford and based on TinyLlama.",
@@ -4295,7 +4509,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/tinydolphin",
-      "downloads": 238200
+      "downloads": 238200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "State-of-the-art code generation model",
@@ -4321,7 +4537,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/wizardcoder",
-      "downloads": 237800
+      "downloads": 237800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "SQLCoder is a code completion model fined-tuned on StarCoder for SQL generation tasks",
@@ -4355,7 +4573,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/sqlcoder",
-      "downloads": 235200
+      "downloads": 235200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Stable LM 2 is a state-of-the-art 1.6B and 12B parameter language model trained on multilingual data in English, Spanish, German, Italian, French, Portuguese, and Dutch.",
@@ -4389,7 +4609,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/stablelm2",
-      "downloads": 225200
+      "downloads": 225200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Yi-Coder is a series of open-source code language models that delivers state-of-the-art coding performance with fewer than 10 billion parameters.",
@@ -4423,7 +4645,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/yi-coder",
-      "downloads": 224400
+      "downloads": 224400,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A model from NVIDIA based on Llama 3 that excels at conversational question answering (QA) and retrieval-augmented generation (RAG).",
@@ -4457,7 +4681,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama3-chatqa",
-      "downloads": 222300
+      "downloads": 222300,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Snowflake's frontier embedding model. Arctic Embed 2.0 adds multilingual support without sacrificing English performance or scalability.",
@@ -4484,7 +4710,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/snowflake-arctic-embed2",
       "downloads": 220800,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The IBM Granite 2B and 8B models are designed to support tool-based use cases and support for retrieval augmented generation (RAG), streamlining code generation, translation and bug fixing.",
@@ -4518,7 +4746,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/granite3-dense",
-      "downloads": 219300
+      "downloads": 219300,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The IBM Granite 2B and 8B models are text-only dense LLMs trained on over 12 trillion tokens of data, demonstrated significant improvements over their predecessors in performance and speed in IBM’s initial testing.",
@@ -4552,7 +4782,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/granite3.1-dense",
-      "downloads": 218600
+      "downloads": 218600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The Ministral 3 family is designed for edge deployment, capable of running on a wide range of hardware.",
@@ -4625,7 +4857,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/ministral-3",
-      "downloads": 215000
+      "downloads": 215000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Granite-3.2 is a family of long-context AI models from IBM Granite fine-tuned for thinking capabilities.",
@@ -4659,7 +4893,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/granite3.2",
-      "downloads": 212500
+      "downloads": 212500,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Model focused on math and logic problems",
@@ -4701,7 +4937,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/wizard-math",
-      "downloads": 210100
+      "downloads": 210100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A 7B and 15B uncensored variant of the Dolphin model family that excels at coding, based on StarCoder2.",
@@ -4735,7 +4973,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/dolphincoder",
-      "downloads": 208500
+      "downloads": 208500,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "This model extends LLama-3 8B's context length from 8k to over 1m tokens.",
@@ -4769,7 +5009,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama3-gradient",
-      "downloads": 208400
+      "downloads": 208400,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "A companion assistant trained in philosophy, psychology, and personal relationships. Based on Mistral.",
@@ -4795,7 +5037,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/samantha-mistral",
-      "downloads": 205400
+      "downloads": 205400,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "InternLM2.5 is a 7B parameter model tailored for practical scenarios with outstanding reasoning capability.",
@@ -4845,7 +5089,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/internlm2",
-      "downloads": 198600
+      "downloads": 198600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A series of models from Groq that represent a significant advancement in open-source AI capabilities for tool use/function calling.",
@@ -4879,7 +5125,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama3-groq-tool-use",
-      "downloads": 193700
+      "downloads": 193700,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Starling is a large language model trained by reinforcement learning from AI feedback focused on improving chatbot helpfulness.",
@@ -4905,7 +5153,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/starling-lm",
-      "downloads": 193000
+      "downloads": 193000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Code generation model based on Code Llama.",
@@ -4931,7 +5181,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/phind-codellama",
-      "downloads": 191800
+      "downloads": 191800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A compact, yet powerful 10.7B large language model designed for single-turn conversation.",
@@ -4957,7 +5209,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/solar",
-      "downloads": 191000
+      "downloads": 191000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Llama Guard 3 is a series of models fine-tuned for content safety classification of LLM inputs and responses.",
@@ -4991,7 +5245,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama-guard3",
-      "downloads": 188700
+      "downloads": 188700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Conversational model based on Llama 2 that performs competitively on various benchmarks.",
@@ -5025,7 +5281,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/xwinlm",
-      "downloads": 188600
+      "downloads": 188600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A version of the DeepSeek-R1 model that has been post trained to provide unbiased, accurate, and factual information by Perplexity. ",
@@ -5059,7 +5317,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/r1-1776",
-      "downloads": 183500
+      "downloads": 183500,
+      "tools": false,
+      "thinking": true
     },
     {
       "description": "Cohere For AI's language models trained to perform well across 23 different languages.",
@@ -5093,7 +5353,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/aya-expanse",
-      "downloads": 183200
+      "downloads": 183200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A high-performing model trained with a new technique called Reflection-tuning that teaches a LLM to detect mistakes in its reasoning and correct course.",
@@ -5119,7 +5381,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/reflection",
-      "downloads": 182700
+      "downloads": 182700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "An extension of Llama 2 that supports a context of up to 128k tokens.",
@@ -5153,7 +5417,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/yarn-llama2",
-      "downloads": 182100
+      "downloads": 182100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The IBM Granite 1B and 3B models are the first mixture of experts (MoE) Granite models from IBM designed for low latency usage.",
@@ -5187,7 +5453,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/granite3-moe",
-      "downloads": 181000
+      "downloads": 181000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "EXAONE 3.5 is a collection of instruction-tuned bilingual (English and Korean) generative models ranging from 2.4B to 32B parameters, developed and released by LG AI Research. ",
@@ -5229,7 +5497,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/exaone3.5",
-      "downloads": 179400
+      "downloads": 179400,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Embedding model from BAAI mapping texts to vectors.",
@@ -5256,7 +5526,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/bge-large",
       "downloads": 175100,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A commercial-friendly small language model by NVIDIA optimized for roleplay, RAG QA, and function calling.",
@@ -5282,7 +5554,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/nemotron-mini",
-      "downloads": 173800
+      "downloads": 173800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Orca 2 is built by Microsoft research, and are a fine-tuned version of Meta's Llama 2 models.  The model is designed to excel particularly in reasoning.",
@@ -5316,7 +5590,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/orca2",
-      "downloads": 168800
+      "downloads": 168800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A new small LLaVA model fine-tuned from Phi 3 Mini.",
@@ -5344,7 +5620,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/llava-phi3",
-      "downloads": 168700
+      "downloads": 168700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Open-source medical large language model adapted from Llama 2 to the medical domain.",
@@ -5378,7 +5656,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/meditron",
-      "downloads": 168000
+      "downloads": 168000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Athene-V2 is a 72B parameter model which excels at code completion, mathematics, and log extraction tasks.",
@@ -5404,7 +5684,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/athene-v2",
-      "downloads": 164000
+      "downloads": 164000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The IBM Granite Embedding 30M and 278M models models are text-only dense biencoder embedding models, with 30M available in English only and 278M serving multilingual use cases.",
@@ -5439,7 +5721,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/granite-embedding",
       "downloads": 161900,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Llama 2 based model fine tuned on an Orca-style dataset. Originally called Free Willy.",
@@ -5481,7 +5765,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/stable-beluga",
-      "downloads": 161900
+      "downloads": 161900,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Llama-3.1-Nemotron-70B-Instruct is a large language model customized by NVIDIA to improve the helpfulness of LLM generated responses to user queries.",
@@ -5507,7 +5793,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/nemotron",
-      "downloads": 160000
+      "downloads": 160000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Uncensored version of Wizard LM model ",
@@ -5533,7 +5821,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/wizardlm-uncensored",
-      "downloads": 156900
+      "downloads": 156900,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A series of models that convert HTML content to Markdown content, which is useful for content conversion tasks.",
@@ -5567,7 +5857,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/reader-lm",
-      "downloads": 156000
+      "downloads": 156000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Tülu 3 is a leading instruction following model family, offering fully open-source data, code, and recipes by the The Allen Institute for AI.",
@@ -5601,7 +5893,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/tulu3",
-      "downloads": 151300
+      "downloads": 151300,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "ShieldGemma is set of instruction tuned models for evaluating the safety of text prompt input and text output responses against a set of defined safety policies.",
@@ -5643,7 +5937,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/shieldgemma",
-      "downloads": 151000
+      "downloads": 151000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "DBRX is an open, general-purpose LLM created by Databricks.",
@@ -5669,7 +5965,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/dbrx",
-      "downloads": 149600
+      "downloads": 149600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "An expansion of Llama 2 that specializes in integrating both general language understanding and domain-specific knowledge, particularly in programming and mathematics.",
@@ -5943,7 +6241,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/llama-pro",
-      "downloads": 148600
+      "downloads": 148600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "An extension of Mistral to support context windows of 64K or 128K.",
@@ -5969,7 +6269,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/yarn-mistral",
-      "downloads": 146000
+      "downloads": 146000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "General use model based on Llama 2.",
@@ -6563,7 +6865,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/wizardlm",
-      "downloads": 143700
+      "downloads": 143700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Nexus Raven is a 13B instruction tuned model for function calling tasks. ",
@@ -6589,7 +6893,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/nexusraven",
-      "downloads": 143300
+      "downloads": 143300,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Fine-tuned Llama 2 model to answer medical questions based on an open source medical dataset. ",
@@ -6615,7 +6921,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/medllama2",
-      "downloads": 140600
+      "downloads": 140600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The Nous Hermes 2 model from Nous Research, now trained over Mixtral.",
@@ -6641,7 +6949,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/nous-hermes2-mixtral",
-      "downloads": 138200
+      "downloads": 138200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A new small reasoning model fine-tuned from the Qwen 2.5 3B Instruct model.",
@@ -6667,7 +6977,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/smallthinker",
-      "downloads": 121700
+      "downloads": 121700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Great code generation model based on Llama2.",
@@ -6693,7 +7005,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/codeup",
-      "downloads": 119800
+      "downloads": 119800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "MathΣtral: a 7B model designed for math reasoning and scientific discovery by Mistral AI.",
@@ -6719,7 +7033,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/mathstral",
-      "downloads": 119800
+      "downloads": 119800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Uncensored Llama2 based model with support for a 16K context window.",
@@ -6745,7 +7061,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/everythinglm",
-      "downloads": 118900
+      "downloads": 118900,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Phi 4 mini reasoning is a lightweight open model that balances efficiency with advanced reasoning ability.",
@@ -6771,7 +7089,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/phi4-mini-reasoning",
-      "downloads": 114100
+      "downloads": 114100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The smallest model in Cohere's R series delivers top-tier speed, efficiency, and quality to build powerful AI applications on commodity GPUs and edge devices.",
@@ -6797,7 +7117,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/command-r7b",
-      "downloads": 113800
+      "downloads": 113800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A lightweight chat model allowing accurate, and responsive output without requiring high-end hardware.",
@@ -6823,7 +7145,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/stablelm-zephyr",
-      "downloads": 113300
+      "downloads": 113300,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Solar Pro Preview: an advanced large language model (LLM) with 22 billion parameters designed to fit into a single GPU",
@@ -6849,7 +7173,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/solar-pro",
-      "downloads": 113000
+      "downloads": 113000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Falcon2 is an 11B parameters causal decoder-only model built by TII and trained over 5T tokens.",
@@ -6875,7 +7201,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/falcon2",
-      "downloads": 111900
+      "downloads": 111900,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "An upgraded version of DeekSeek-V2  that integrates the general and coding abilities of both DeepSeek-V2-Chat and DeepSeek-Coder-V2-Instruct.",
@@ -6901,7 +7229,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepseek-v2.5",
-      "downloads": 109900
+      "downloads": 109900,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "7B parameter text-to-SQL model made by MotherDuck and Numbers Station.",
@@ -6927,7 +7257,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/duckdb-nsql",
-      "downloads": 109200
+      "downloads": 109200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "🎩 Magicoder is a family of 7B parameter models trained on 75K synthetic instruction data using OSS-Instruct, a novel approach to enlightening LLMs with open-source code snippets.",
@@ -6953,7 +7285,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/magicoder",
-      "downloads": 109000
+      "downloads": 109000,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "MistralLite is a fine-tuned model based on Mistral with enhanced capabilities of processing long contexts.",
@@ -6979,7 +7313,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/mistrallite",
-      "downloads": 107000
+      "downloads": 107000,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "A state-of-the-art fact-checking model developed by Bespoke Labs.",
@@ -7005,7 +7341,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/bespoke-minicheck",
-      "downloads": 106200
+      "downloads": 106200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A 3.8B model fine-tuned on a private high-quality synthetic dataset for information extraction, based on Phi-3.",
@@ -7031,7 +7369,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/nuextract",
-      "downloads": 106100
+      "downloads": 106100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A high-performing code instruct model created by merging two existing code models.",
@@ -7057,7 +7397,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/codebooga",
-      "downloads": 104300
+      "downloads": 104300,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Wizard Vicuna is a 13B parameter model based on Llama 2 trained by MelodysDreamj.",
@@ -7083,7 +7425,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/wizard-vicuna",
-      "downloads": 102600
+      "downloads": 102600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "MegaDolphin-2.2-120b is a transformation of Dolphin-2.2-70b created by interleaving the model with itself.",
@@ -7109,7 +7453,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/megadolphin",
-      "downloads": 101200
+      "downloads": 101200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A top-performing mixture of experts model, fine-tuned with high-quality data.",
@@ -7135,7 +7481,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/notux",
-      "downloads": 98400
+      "downloads": 98400,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "An open weights function calling model based on Llama 3, competitive with GPT-4o function calling capabilities.",
@@ -7161,7 +7509,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/firefunction-v2",
-      "downloads": 98100
+      "downloads": 98100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "111 billion parameter model optimized for demanding enterprises that require fast, secure, and high-quality AI",
@@ -7187,7 +7537,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/command-a",
-      "downloads": 97600
+      "downloads": 97600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A 7B chat model fine-tuned with high-quality data and based on Zephyr.",
@@ -7213,7 +7565,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/notus",
-      "downloads": 97600
+      "downloads": 97600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "DeepSeek-OCR is a vision-language model that can perform token-efficient OCR.",
@@ -7241,7 +7595,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/deepseek-ocr",
-      "downloads": 96200
+      "downloads": 96200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Merge of the Open Orca OpenChat model and the Garage-bAInd Platypus 2 model. Designed for chat and code generation.",
@@ -7267,7 +7623,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/open-orca-platypus2",
-      "downloads": 96100
+      "downloads": 96100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Nemotron 3 Nano - A new Standard for Efficient, Open, and Intelligent Agentic Models",
@@ -7301,7 +7659,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/nemotron-3-nano",
-      "downloads": 93200
+      "downloads": 93200,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A language model created by combining two fine-tuned Llama 2 70B models into one.",
@@ -7439,7 +7799,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/goliath",
-      "downloads": 91700
+      "downloads": 91700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "An open large reasoning model for real-world solutions by the Alibaba International Digital Commerce Group (AIDC-AI).",
@@ -7465,7 +7827,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/marco-o1",
-      "downloads": 87900
+      "downloads": 87900,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Sailor2 are multilingual language models made for South-East Asia. Available in 1B, 8B, and 20B parameter sizes.",
@@ -7507,7 +7871,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/sailor2",
-      "downloads": 87500
+      "downloads": 87500,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The IBM Granite Guardian 3.0 2B and 8B models are designed to detect risks in prompts and/or responses.",
@@ -7541,7 +7907,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/granite3-guardian",
-      "downloads": 85300
+      "downloads": 85300,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "24B model that excels at using tools to explore codebases, editing multiple files and power software engineering agents.",
@@ -7578,7 +7946,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/devstral-small-2",
-      "downloads": 80500
+      "downloads": 80500,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Google's most intelligent model with SOTA reasoning and multimodal understanding, and powerful agentic and vibe coding capabilities.",
@@ -7597,7 +7967,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/gemini-3-pro-preview",
-      "downloads": 78400
+      "downloads": 78400,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A robust conversational model designed to be used for both chat and instruct use cases.",
@@ -7623,7 +7995,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/alfred",
-      "downloads": 67600
+      "downloads": 67600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A new state-of-the-art version of the lightweight Command R7B model that excels in advanced Arabic language capabilities for enterprises in the Middle East and Northern Africa.",
@@ -7649,7 +8023,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/command-r7b-arabic",
-      "downloads": 55400
+      "downloads": 55400,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Olmo is a series of Open language models designed to enable the science of language models. These models are pre-trained on the Dolma 3 dataset and post-trained on the Dolci datasets.",
@@ -7683,7 +8059,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/olmo-3",
-      "downloads": 54700
+      "downloads": 54700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Advanced agentic, reasoning and coding capabilities.",
@@ -7701,7 +8079,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/glm-4.6",
-      "downloads": 43800
+      "downloads": 43800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "gpt-oss-safeguard-20b and gpt-oss-safeguard-120b are safety reasoning models built-upon gpt-oss",
@@ -7735,7 +8115,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/gpt-oss-safeguard",
-      "downloads": 43800
+      "downloads": 43800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "MiniMax M2 is a high-efficiency large language model built for coding and agentic workflows.",
@@ -7753,7 +8135,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/minimax-m2",
-      "downloads": 36600
+      "downloads": 36600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "123B model that excels at using tools to explore codebases, editing multiple files and power software engineering agents.",
@@ -7787,7 +8171,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/devstral-2",
-      "downloads": 35300
+      "downloads": 35300,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "The Cogito v2.1 LLMs are instruction tuned generative models. All models are released under MIT license for commercial use.",
@@ -7821,7 +8207,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/cogito-2.1",
-      "downloads": 34800
+      "downloads": 34800,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Olmo is a series of Open language models designed to enable the science of language models. These models are pre-trained on the Dolma 3 dataset and post-trained on the Dolci datasets.",
@@ -7847,7 +8235,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/olmo-3.1",
-      "downloads": 32300
+      "downloads": 32300,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Rnj-1 is a family of 8B parameter open-weight, dense models trained from scratch by Essential AI, optimized for code and STEM with capabilities on par with SOTA open-weight models.",
@@ -7881,7 +8271,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/rnj-1",
-      "downloads": 29500
+      "downloads": 29500,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "FunctionGemma is a specialized version of Google's Gemma 3 270M model fine-tuned explicitly for function calling. ",
@@ -7907,7 +8299,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/functiongemma",
-      "downloads": 28800
+      "downloads": 28800,
+      "tools": true,
+      "thinking": false
     },
     {
       "description": "Gemini 3 Flash offers frontier intelligence built for speed at a fraction of the cost.",
@@ -7935,7 +8329,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/gemini-3-flash-preview",
-      "downloads": 27600
+      "downloads": 27600,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A state-of-the-art mixture-of-experts (MoE) language model. Kimi K2-Instruct-0905 demonstrates significant improvements in performance on public benchmarks and real-world coding agent tasks.",
@@ -7953,7 +8349,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/kimi-k2",
-      "downloads": 27100
+      "downloads": 27100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Kimi K2 Thinking, Moonshot AI's best open-source thinking model.",
@@ -7971,7 +8369,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/kimi-k2-thinking",
-      "downloads": 19500
+      "downloads": 19500,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "nomic-embed-text-v2-moe is a multilingual MoE text embedding model that excels at multilingual retrieval.",
@@ -7990,7 +8390,9 @@
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/nomic-embed-text-v2-moe",
       "downloads": 17900,
-      "model_type": "embedding"
+      "model_type": "embedding",
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "DeepSeek-V3.2, a model that harmonizes high computational efficiency with superior reasoning and agent performance. ",
@@ -8008,7 +8410,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/deepseek-v3.2",
-      "downloads": 11700
+      "downloads": 11700,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Advancing the Coding Capability",
@@ -8026,7 +8430,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/glm-4.7",
-      "downloads": 10100
+      "downloads": 10100,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "A general-purpose multimodal mixture-of-experts model for production-grade tasks and enterprise workloads.",
@@ -8045,7 +8451,9 @@
       ],
       "vision": true,
       "ollamaUrl": "https://ollama.com/library/mistral-large-3",
-      "downloads": 9
+      "downloads": 9,
+      "tools": false,
+      "thinking": false
     },
     {
       "description": "Exceptional multilingual capabilities to elevate code engineering",
@@ -8063,7 +8471,9 @@
       ],
       "vision": false,
       "ollamaUrl": "https://ollama.com/library/minimax-m2.1",
-      "downloads": 6
+      "downloads": 6,
+      "tools": false,
+      "thinking": false
     }
   ]
 }
