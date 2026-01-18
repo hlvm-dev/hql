@@ -20,7 +20,6 @@ export { THEMES, THEME_NAMES, type ThemeName, type ThemePalette } from "./palett
 export {
   ThemeProvider,
   useTheme,
-  useThemeColor,
   ThemeContext,
   type ThemeContextValue,
   type ThemeProviderProps,

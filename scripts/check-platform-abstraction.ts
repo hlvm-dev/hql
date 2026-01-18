@@ -7,7 +7,6 @@
  *
  * Allowed locations:
  * - src/platform/deno-platform.ts (the implementation)
- * - src/platform/errors.ts (error type references)
  *
  * Excluded from enforcement:
  * - tests/ (test files can use Deno directly)
@@ -27,7 +26,6 @@ const DENO_PATTERN = /\bDeno\./g;
 // Paths that are allowed to use Deno.* directly
 const ALLOWED_PATHS = [
   "src/platform/deno-platform.ts",
-  "src/platform/errors.ts",
 ];
 
 // Directories to exclude from checking (excluding vendor/repl/src which we DO check)

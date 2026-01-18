@@ -27,4 +27,9 @@ export {
 } from "./types.ts";
 
 // TaskManager
-export { TaskManager, getTaskManager, resetTaskManager, friendlyError } from "./task-manager.ts";
+export {
+  TaskManager,
+  getTaskManager,
+  resetTaskManager,
+  friendlyError,
+} from "./task-manager.ts";

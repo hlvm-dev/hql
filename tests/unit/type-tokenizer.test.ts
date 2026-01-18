@@ -17,9 +17,7 @@ import {
   extractAndNormalizeType,
   extractTypeFromSymbol,
   findTypeAnnotationColon,
-  looksLikeTypeAnnotation,
   normalizeType,
-  scanBalancedBrackets,
   tokenizeFunctionType,
   tokenizeObjectType,
   tokenizeTupleType,
@@ -64,26 +62,6 @@ Deno.test("countParenDepth - balanced", () => {
 });
 
 // ============================================================================
-// LOOKS LIKE TYPE ANNOTATION TESTS
-// ============================================================================
-
-Deno.test("looksLikeTypeAnnotation - with colon", () => {
-  assertEquals(looksLikeTypeAnnotation("x:number"), true);
-  assertEquals(looksLikeTypeAnnotation("data:Array<string>"), true);
-});
-
-Deno.test("looksLikeTypeAnnotation - generic patterns", () => {
-  assertEquals(looksLikeTypeAnnotation("Array<T>"), true);
-  assertEquals(looksLikeTypeAnnotation("Map<string, number>"), true);
-});
-
-Deno.test("looksLikeTypeAnnotation - non-type patterns", () => {
-  assertEquals(looksLikeTypeAnnotation("x"), false);
-  assertEquals(looksLikeTypeAnnotation("myVariable"), false);
-  assertEquals(looksLikeTypeAnnotation("<"), false);
-});
-
-// ============================================================================
 // FIND TYPE ANNOTATION COLON TESTS
 // ============================================================================
 
@@ -107,41 +85,6 @@ Deno.test("findTypeAnnotationColon - nested generics with colons inside", () => 
 Deno.test("findTypeAnnotationColon - function types", () => {
   assertEquals(findTypeAnnotationColon("cb:(a: number) => string"), 2);
   assertEquals(findTypeAnnotationColon("fn:(x: A, y: B) => C"), 2);
-});
-
-// ============================================================================
-// SCAN BALANCED BRACKETS TESTS
-// ============================================================================
-
-Deno.test("scanBalancedBrackets - angle brackets", () => {
-  const input = "Record<string,number> rest";
-  // Starting after "Record<" with depth 1
-  const result = scanBalancedBrackets(input, 7, 1, 0);
-  assertEquals(result, "string,number>");
-});
-
-Deno.test("scanBalancedBrackets - nested angle brackets", () => {
-  const input = "Map<string,Array<number>> rest";
-  const result = scanBalancedBrackets(input, 4, 1, 0);
-  assertEquals(result, "string,Array<number>>");
-});
-
-Deno.test("scanBalancedBrackets - braces", () => {
-  const input = "{name: string} rest";
-  const result = scanBalancedBrackets(input, 1, 0, 1);
-  assertEquals(result, "name: string}");
-});
-
-Deno.test("scanBalancedBrackets - mixed", () => {
-  const input = "Map<string,{id: number}> rest";
-  const result = scanBalancedBrackets(input, 4, 1, 0);
-  assertEquals(result, "string,{id: number}>");
-});
-
-Deno.test("scanBalancedBrackets - trailing array", () => {
-  const input = "Array<number>[] rest";
-  const result = scanBalancedBrackets(input, 6, 1, 0);
-  assertEquals(result, "number>[]");
 });
 
 // ============================================================================

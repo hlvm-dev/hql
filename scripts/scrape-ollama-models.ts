@@ -32,8 +32,6 @@ interface OllamaVariant {
   parameters: string;   // e.g., "8B"
   size: string;         // e.g., "4.7GB"
   context: string;      // e.g., "8K"
-  vision: boolean;
-  input_types?: string; // e.g., "Text, Image" (only for vision models)
 }
 
 interface OllamaModel {
@@ -220,7 +218,7 @@ async function fetchModelDetails(modelId: string): Promise<OllamaModel | null> {
                              /embedding\s+model|text\s+embed/i.test(html);
 
     // Extract variants/tags
-    const variants = extractVariants(html, modelId, isVisionModel);
+    const variants = extractVariants(html, modelId);
 
     // If no variants found, create a default "latest"
     if (variants.length === 0) {
@@ -230,8 +228,6 @@ async function fetchModelDetails(modelId: string): Promise<OllamaModel | null> {
         parameters: "Unknown",
         size: "Unknown",
         context: "Unknown",
-        vision: isVisionModel,
-        ...(isVisionModel ? { input_types: "Text, Image" } : {}),
       });
     }
 
@@ -254,7 +250,7 @@ async function fetchModelDetails(modelId: string): Promise<OllamaModel | null> {
   }
 }
 
-function extractVariants(html: string, modelId: string, isVisionModel: boolean): OllamaVariant[] {
+function extractVariants(html: string, modelId: string): OllamaVariant[] {
   const variants: OllamaVariant[] = [];
   const seenTags = new Set<string>();
 
@@ -312,8 +308,6 @@ function extractVariants(html: string, modelId: string, isVisionModel: boolean):
       parameters,
       size,
       context,
-      vision: isVisionModel,
-      ...(isVisionModel ? { input_types: "Text, Image" } : {}),
     });
   }
 
@@ -348,8 +342,6 @@ function extractVariants(html: string, modelId: string, isVisionModel: boolean):
         parameters,
         size,
         context,
-        vision: isVisionModel,
-        ...(isVisionModel ? { input_types: "Text, Image" } : {}),
       });
     }
   }
@@ -387,8 +379,6 @@ function extractVariants(html: string, modelId: string, isVisionModel: boolean):
         parameters,
         size,
         context: "4K",
-        vision: isVisionModel,
-        ...(isVisionModel ? { input_types: "Text, Image" } : {}),
       });
     }
   }

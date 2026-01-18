@@ -11,7 +11,6 @@
 import * as nodePath from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
-  OperatingSystem,
   Platform,
   PlatformBuild,
   PlatformCommand,
@@ -248,16 +247,12 @@ const DenoProcess: PlatformProcess = {
 // Build Info Implementation
 // =============================================================================
 
-function mapOs(os: typeof Deno.build.os): OperatingSystem {
-  if (os === "darwin" || os === "linux" || os === "windows") {
-    return os;
-  }
-  // All other OS variants (freebsd, netbsd, aix, solaris, illumos, android) map to linux-like
-  return "linux";
-}
-
 const DenoBuild: PlatformBuild = {
-  os: mapOs(Deno.build.os),
+  // Map Deno.build.os to our supported OS types
+  // All other OS variants (freebsd, netbsd, aix, solaris, illumos, android) map to linux-like
+  os: (Deno.build.os === "darwin" || Deno.build.os === "linux" || Deno.build.os === "windows")
+    ? Deno.build.os
+    : "linux",
 };
 
 // =============================================================================

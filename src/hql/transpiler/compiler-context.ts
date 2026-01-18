@@ -108,14 +108,3 @@ export function hasMacroRegistry(
 export function getSymbolTable(context?: CompilerContext): SymbolTable {
   return context?.symbolTable ?? globalSymbolTable;
 }
-
-/**
- * Create a new isolated CompilerContext with its own symbol table.
- * Use this for parallel compilation or when isolation is needed.
- */
-export function createIsolatedContext(base?: Partial<CompilerContext>): CompilerContext {
-  return {
-    ...base,
-    symbolTable: new SymbolTable(null, "isolated"),
-  };
-}

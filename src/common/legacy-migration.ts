@@ -5,8 +5,7 @@
  * Used to preserve user config/history/memory after rebranding.
  */
 
-import { basename, dirname, join, resolve } from "jsr:@std/path@1";
-import { ensureDir } from "jsr:@std/fs@1";
+import { basename, join, resolve } from "jsr:@std/path@1";
 import { getPlatform } from "../platform/platform.ts";
 import { getEnvVar } from "./paths.ts";
 
@@ -35,36 +34,21 @@ export function getLegacySessionsDir(): string {
   return join(getLegacyHqlDir(), "sessions");
 }
 
-export function getLegacyRuntimeDir(): string {
+// Internal helpers (not exported)
+function pathExists(path: string): Promise<boolean> {
+  return getPlatform().fs.exists(path);
+}
+
+function getLegacyRuntimeDir(): string {
   return join(getLegacyHqlDir(), ".runtime");
 }
 
-export function getLegacyRuntimeEnginePath(): string {
+function getLegacyRuntimeEnginePath(): string {
   return join(getLegacyRuntimeDir(), "engine");
 }
 
-export function getLegacyRuntimeOllamaPath(): string {
+function getLegacyRuntimeOllamaPath(): string {
   return join(getLegacyRuntimeDir(), "ollama");
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  return await getPlatform().fs.exists(path);
-}
-
-export async function migrateLegacyFileIfMissing(
-  legacyPath: string,
-  targetPath: string
-): Promise<boolean> {
-  const platform = getPlatform();
-  if (await pathExists(targetPath)) {
-    return false;
-  }
-  if (!(await pathExists(legacyPath))) {
-    return false;
-  }
-  await ensureDir(dirname(targetPath));
-  await platform.fs.copyFile(legacyPath, targetPath);
-  return true;
 }
 
 export async function listLegacySessionFiles(legacySessionsDir: string): Promise<string[]> {

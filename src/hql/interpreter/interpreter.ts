@@ -185,13 +185,6 @@ export class Interpreter implements IInterpreter {
   }
 
   /**
-   * Get the current call depth (for debugging)
-   */
-  getCallDepth(): number {
-    return this.callDepth;
-  }
-
-  /**
    * Reset the interpreter state
    */
   reset(): void {

@@ -102,7 +102,7 @@ const TOKEN_PATTERNS = {
 };
 
 // Type tokenization functions are imported from ../tokenizer/type-tokenizer.ts:
-// countAngleBracketDepth, countBraceDepth, looksLikeTypeAnnotation, scanBalancedBrackets
+// countAngleBracketDepth, countBraceDepth
 
 /** Pre-compiled regex for BigInt literal detection (e.g., 123n, -456n) */
 const BIGINT_LITERAL_REGEX = /^-?\d+n$/;

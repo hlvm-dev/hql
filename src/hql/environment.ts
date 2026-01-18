@@ -1122,10 +1122,6 @@ export class Environment {
     return this.currentFilePath ?? "";
   }
 
-  getCurrentMacroContext(): string | null {
-    return this.currentMacroContext;
-  }
-
   setCurrentMacroContext(context: string | null): void {
     this.currentMacroContext = context;
   }
@@ -1139,29 +1135,6 @@ export class Environment {
    */
   getParent(): Environment | null {
     return this.parent;
-  }
-
-  clearCache(): void {
-    this.lookupCache.clear();
-    this.logger.debug("Lookup cache cleared");
-  }
-
-  /**
-   * Get all defined symbols in the environment
-   * Builds Set incrementally to avoid multiple intermediate array allocations
-   */
-  getAllDefinedSymbols(): string[] {
-    // Build Set incrementally - single allocation instead of 4
-    const symbolsSet = new Set(this.variables.keys());
-
-    // Add symbols from imported modules directly to Set
-    for (const exports of this.moduleExports.values()) {
-      for (const key of Object.keys(exports)) {
-        symbolsSet.add(key);
-      }
-    }
-
-    return Array.from(symbolsSet);
   }
 
   /**

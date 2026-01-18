@@ -123,7 +123,7 @@ export function parsePattern(exp: SExp): Pattern {
  * parseIdentifierPattern(createSymbol("_"))
  * // → { type: "IdentifierPattern", name: "_" }
  */
-export function parseIdentifierPattern(exp: SExp): IdentifierPattern {
+function parseIdentifierPattern(exp: SExp): IdentifierPattern {
   if (!isSymbol(exp)) {
     throw new Error(`Expected symbol for identifier pattern, got: ${exp.type}`);
   }
@@ -172,7 +172,7 @@ export function parseIdentifierPattern(exp: SExp): IdentifierPattern {
  *
  * @throws {Error} If pattern is invalid (literals, invalid rest position, etc.)
  */
-export function parseArrayPattern(exp: SExp): ArrayPattern {
+function parseArrayPattern(exp: SExp): ArrayPattern {
   if (!isList(exp)) {
     throw new Error(`Expected list for array pattern, got: ${exp.type}`);
   }
@@ -310,7 +310,7 @@ export function parseArrayPattern(exp: SExp): ArrayPattern {
  *
  * @throws {Error} If pattern structure is invalid
  */
-export function parseObjectPattern(exp: SExp): ObjectPattern {
+function parseObjectPattern(exp: SExp): ObjectPattern {
   if (!isList(exp)) {
     throw new Error(`Expected list for object pattern, got: ${exp.type}`);
   }

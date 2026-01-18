@@ -42,8 +42,8 @@ class LSPTestClient {
     this.writer = this.child.stdin.getWriter();
     this.reader = this.child.stdout.getReader();
 
-    // Wait for server to initialize
-    this.ready = new Promise((resolve) => setTimeout(resolve, 500));
+    // Wait for server to initialize (increased timeout for CI environments)
+    this.ready = new Promise((resolve) => setTimeout(resolve, 1500));
   }
 
   /**
@@ -103,7 +103,7 @@ class LSPTestClient {
   /**
    * Wait for a response with specific id
    */
-  async waitForResponse(id: number, timeoutMs = 5000): Promise<object | null> {
+  async waitForResponse(id: number, timeoutMs = 10000): Promise<object | null> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const msg = await this.readMessage(500);

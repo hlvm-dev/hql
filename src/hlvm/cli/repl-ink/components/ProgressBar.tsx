@@ -48,7 +48,7 @@ export function formatBytes(bytes: number): string {
 /**
  * Format elapsed time
  */
-export function formatElapsed(startTime: number): string {
+function formatElapsed(startTime: number): string {
   const elapsed = Math.floor((Date.now() - startTime) / 1000);
   if (elapsed < 60) return `${elapsed}s ago`;
   if (elapsed < 3600) return `${Math.floor(elapsed / 60)}m ago`;
@@ -115,7 +115,7 @@ interface InlineProgressProps {
 /**
  * Inline progress with size: ████████░░░░░░░░ 48% 7.1/14.7GB
  */
-export function InlineProgress({
+function InlineProgress({
   completed,
   total,
   status,

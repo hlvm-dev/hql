@@ -84,27 +84,12 @@ export function hasHandler(id: string): boolean {
 }
 
 /**
- * Get all registered handler IDs.
- */
-export function getHandlerIds(): string[] {
-  return Array.from(handlers.keys());
-}
-
-/**
  * Subscribe to registry changes.
  * Returns unsubscribe function.
  */
 export function onRegistryChange(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
-}
-
-/**
- * Clear all handlers (for testing/reset).
- */
-export function clearHandlers(): void {
-  handlers.clear();
-  notifyListeners();
 }
 
 // ============================================================

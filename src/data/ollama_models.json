@@ -13,32 +13,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "llama3.1:405b",
           "name": "405b",
           "parameters": "405B",
           "size": "243GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "llama3.1:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "43GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "llama3.1:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -57,64 +53,56 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.2GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "deepseek-r1:671b",
           "name": "671b",
           "parameters": "671B",
           "size": "404GB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         },
         {
           "id": "deepseek-r1:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "43GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "deepseek-r1:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "20GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "deepseek-r1:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "9.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "deepseek-r1:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "5.2GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "deepseek-r1:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.7GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "deepseek-r1:1.5b",
           "name": "1.5b",
           "parameters": "1.5B",
           "size": "1.1GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -133,24 +121,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "llama3.2:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "2.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "llama3.2:1b",
           "name": "1b",
           "parameters": "1B",
           "size": "1.3GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -169,24 +154,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "274MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "nomic-embed-text:137m-v1.5-fp16",
           "name": "137m-v1.5-fp16",
           "parameters": "137M",
           "size": "274MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "nomic-embed-text:v1.5",
           "name": "v1.5",
           "parameters": "Unknown",
           "size": "274MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -206,81 +188,63 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.3GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         },
         {
           "id": "gemma3:270m",
           "name": "270m",
           "parameters": "270M",
           "size": "292MB",
-          "context": "32K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "32K"
         },
         {
           "id": "gemma3:27b",
           "name": "27b",
           "parameters": "27B",
           "size": "17GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         },
         {
           "id": "gemma3:27b-cloud",
           "name": "27b-cloud",
           "parameters": "27B",
           "size": "Cloud (API only)",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         },
         {
           "id": "gemma3:12b",
           "name": "12b",
           "parameters": "12B",
           "size": "8.1GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         },
         {
           "id": "gemma3:12b-cloud",
           "name": "12b-cloud",
           "parameters": "12B",
           "size": "Cloud (API only)",
-          "context": "32K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "32K"
         },
         {
           "id": "gemma3:4b",
           "name": "4b",
           "parameters": "4B",
           "size": "3.3GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         },
         {
           "id": "gemma3:4b-cloud",
           "name": "4b-cloud",
           "parameters": "4B",
           "size": "Cloud (API only)",
-          "context": "32K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "32K"
         },
         {
           "id": "gemma3:1b",
           "name": "1b",
           "parameters": "1B",
           "size": "815MB",
-          "context": "32K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "32K"
         }
       ],
       "vision": true,
@@ -299,16 +263,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.4GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "mistral:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.4GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -327,64 +289,56 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5:72b",
           "name": "72b",
           "parameters": "72B",
           "size": "47GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "20GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "9.0GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "1.9GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5:1.5b",
           "name": "1.5b",
           "parameters": "1.5B",
           "size": "986MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5:0.5b",
           "name": "0.5b",
           "parameters": "0.5B",
           "size": "398MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -403,72 +357,63 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.2GB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         },
         {
           "id": "qwen3:235b",
           "name": "235b",
           "parameters": "235B",
           "size": "142GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         },
         {
           "id": "qwen3:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "20GB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         },
         {
           "id": "qwen3:30b",
           "name": "30b",
           "parameters": "30B",
           "size": "19GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         },
         {
           "id": "qwen3:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "9.3GB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         },
         {
           "id": "qwen3:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "5.2GB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         },
         {
           "id": "qwen3:4b",
           "name": "4b",
           "parameters": "4B",
           "size": "2.5GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         },
         {
           "id": "qwen3:1.7b",
           "name": "1.7b",
           "parameters": "1.7B",
           "size": "1.4GB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         },
         {
           "id": "qwen3:0.6b",
           "name": "0.6b",
           "parameters": "0.6B",
           "size": "523MB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         }
       ],
       "vision": false,
@@ -487,24 +432,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.2GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "phi3:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "7.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "phi3:3.8b",
           "name": "3.8b",
           "parameters": "3.8B",
           "size": "2.2GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -523,24 +465,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "llama3:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "40GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "llama3:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -559,32 +498,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.4GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "gemma2:27b",
           "name": "27b",
           "parameters": "27B",
           "size": "16GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "gemma2:9b",
           "name": "9b",
           "parameters": "9B",
           "size": "5.4GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "gemma2:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "1.6GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -603,36 +538,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "32K"
         },
         {
           "id": "llava:34b",
           "name": "34b",
           "parameters": "34B",
           "size": "20GB",
-          "context": "4K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "4K"
         },
         {
           "id": "llava:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "8.0GB",
-          "context": "4K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "4K"
         },
         {
           "id": "llava:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "32K"
         }
       ],
       "vision": true,
@@ -651,56 +578,49 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5-coder:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "20GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5-coder:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "9.0GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5-coder:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5-coder:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "1.9GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5-coder:1.5b",
           "name": "1.5b",
           "parameters": "1.5B",
           "size": "986MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2.5-coder:0.5b",
           "name": "0.5b",
           "parameters": "0.5B",
           "size": "398MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -719,16 +639,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "9.1GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "phi4:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "9.1GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -747,16 +665,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "670MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "mxbai-embed-large:335m",
           "name": "335m",
           "parameters": "335M",
           "size": "670MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         }
       ],
       "vision": false,
@@ -776,40 +692,35 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "14GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "gpt-oss:120b",
           "name": "120b",
           "parameters": "120B",
           "size": "65GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "gpt-oss:120b-cloud",
           "name": "120b-cloud",
           "parameters": "120B",
           "size": "Cloud (API only)",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "gpt-oss:20b",
           "name": "20b",
           "parameters": "20B",
           "size": "14GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "gpt-oss:20b-cloud",
           "name": "20b-cloud",
           "parameters": "20B",
           "size": "Cloud (API only)",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -828,24 +739,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.0GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "gemma:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "5.0GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "gemma:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "1.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -864,72 +772,63 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.3GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen:110b",
           "name": "110b",
           "parameters": "110B",
           "size": "63GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen:72b",
           "name": "72b",
           "parameters": "72B",
           "size": "41GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "18GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "8.2GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.5GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen:4b",
           "name": "4b",
           "parameters": "4B",
           "size": "2.3GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen:1.8b",
           "name": "1.8b",
           "parameters": "1.8B",
           "size": "1.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen:0.5b",
           "name": "0.5b",
           "parameters": "0.5B",
           "size": "395MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -948,32 +847,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama2:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "39GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama2:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama2:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -992,40 +887,35 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.4GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2:72b",
           "name": "72b",
           "parameters": "72B",
           "size": "41GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.4GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2:1.5b",
           "name": "1.5b",
           "parameters": "1.5B",
           "size": "935MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "qwen2:0.5b",
           "name": "0.5b",
           "parameters": "0.5B",
           "size": "352MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -1044,18 +934,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.5GB",
-          "context": "32K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "32K"
         },
         {
           "id": "minicpm-v:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "5.5GB",
-          "context": "32K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "32K"
         }
       ],
       "vision": true,
@@ -1074,40 +960,35 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "codellama:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "39GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "codellama:34b",
           "name": "34b",
           "parameters": "34B",
           "size": "19GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "codellama:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "codellama:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -1126,16 +1007,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "dolphin3:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -1154,27 +1033,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "7.8GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         },
         {
           "id": "llama3.2-vision:90b",
           "name": "90b",
           "parameters": "90B",
           "size": "55GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         },
         {
           "id": "llama3.2-vision:11b",
           "name": "11b",
           "parameters": "11B",
           "size": "7.8GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         }
       ],
       "vision": true,
@@ -1193,24 +1066,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.5GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "olmo2:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "8.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "olmo2:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.5GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -1229,16 +1099,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "638MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "tinyllama:1.1b",
           "name": "1.1b",
           "parameters": "1.1B",
           "size": "638MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -1257,16 +1125,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "404GB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         },
         {
           "id": "deepseek-v3:671b",
           "name": "671b",
           "parameters": "671B",
           "size": "404GB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         }
       ],
       "vision": false,
@@ -1285,16 +1151,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "7.1GB",
-          "context": "1000K",
-          "vision": false
+          "context": "1000K"
         },
         {
           "id": "mistral-nemo:12b",
           "name": "12b",
           "parameters": "12B",
           "size": "7.1GB",
-          "context": "1000K",
-          "vision": false
+          "context": "1000K"
         }
       ],
       "vision": false,
@@ -1313,16 +1177,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.2GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "bge-m3:567m",
           "name": "567m",
           "parameters": "567M",
           "size": "1.2GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -1342,16 +1204,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "43GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "llama3.3:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "43GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -1370,32 +1230,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "776MB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "deepseek-coder:33b",
           "name": "33b",
           "parameters": "33B",
           "size": "19GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "deepseek-coder:6.7b",
           "name": "6.7b",
           "parameters": "6.7B",
           "size": "3.8GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "deepseek-coder:1.3b",
           "name": "1.3b",
           "parameters": "1.3B",
           "size": "776MB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -1414,24 +1270,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "14GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "mistral-small:24b",
           "name": "24b",
           "parameters": "24B",
           "size": "14GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "mistral-small:22b",
           "name": "22b",
           "parameters": "22B",
           "size": "13GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -1450,32 +1303,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.8GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "smollm2:360m",
           "name": "360m",
           "parameters": "360M",
           "size": "726MB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "smollm2:135m",
           "name": "135m",
           "parameters": "135M",
           "size": "271MB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "smollm2:1.7b",
           "name": "1.7b",
           "parameters": "1.7B",
           "size": "1.8GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -1494,24 +1343,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "46MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "all-minilm:33m",
           "name": "33m",
           "parameters": "33M",
           "size": "67MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "all-minilm:22m",
           "name": "22m",
           "parameters": "22M",
           "size": "46MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         }
       ],
       "vision": false,
@@ -1531,18 +1377,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.5GB",
-          "context": "8K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "8K"
         },
         {
           "id": "llava-llama3:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "5.5GB",
-          "context": "8K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "8K"
         }
       ],
       "vision": true,
@@ -1561,32 +1403,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "19GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         },
         {
           "id": "qwen3-coder:480b",
           "name": "480b",
           "parameters": "480B",
           "size": "290GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         },
         {
           "id": "qwen3-coder:480b-cloud",
           "name": "480b-cloud",
           "parameters": "480B",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         },
         {
           "id": "qwen3-coder:30b",
           "name": "30b",
           "parameters": "30B",
           "size": "19GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         }
       ],
       "vision": false,
@@ -1605,16 +1443,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "20GB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         },
         {
           "id": "qwq:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "20GB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         }
       ],
       "vision": false,
@@ -1633,24 +1469,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.0GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "codegemma:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "5.0GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "codegemma:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "1.6GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -1669,40 +1502,35 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.6GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "falcon3:10b",
           "name": "10b",
           "parameters": "10B",
           "size": "6.3GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "falcon3:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.6GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "falcon3:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "2.0GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "falcon3:1b",
           "name": "1b",
           "parameters": "1B",
           "size": "1.8GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -1721,24 +1549,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "granite3.1-moe:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "2.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "granite3.1-moe:1b",
           "name": "1b",
           "parameters": "1B",
           "size": "1.4GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -1757,32 +1582,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.7GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "starcoder2:15b",
           "name": "15b",
           "parameters": "15B",
           "size": "9.1GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "starcoder2:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.0GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "starcoder2:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "1.7GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -1801,24 +1622,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "llama2-uncensored:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "39GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "llama2-uncensored:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -1837,24 +1655,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "26GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "mixtral:8x22b",
           "name": "8x22b",
           "parameters": "22B",
           "size": "80GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         },
         {
           "id": "mixtral:8x7b",
           "name": "8x7b",
           "parameters": "7B",
           "size": "26GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -1873,40 +1688,35 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.0GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "orca-mini:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "39GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "orca-mini:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "orca-mini:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "orca-mini:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "2.0GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -1925,48 +1735,42 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "669MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "snowflake-arctic-embed:335m",
           "name": "335m",
           "parameters": "335M",
           "size": "669MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "snowflake-arctic-embed:137m",
           "name": "137m",
           "parameters": "137M",
           "size": "274MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "snowflake-arctic-embed:110m",
           "name": "110m",
           "parameters": "110M",
           "size": "219MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "snowflake-arctic-embed:33m",
           "name": "33m",
           "parameters": "33M",
           "size": "67MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "snowflake-arctic-embed:22m",
           "name": "22m",
           "parameters": "22M",
           "size": "46MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         }
       ],
       "vision": false,
@@ -1986,24 +1790,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "8.9GB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         },
         {
           "id": "deepseek-coder-v2:236b",
           "name": "236b",
           "parameters": "236B",
           "size": "133GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "deepseek-coder-v2:16b",
           "name": "16b",
           "parameters": "16B",
           "size": "8.9GB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         }
       ],
       "vision": false,
@@ -2022,48 +1823,42 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "cogito:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "43GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "cogito:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "20GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "cogito:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "9.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "cogito:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "cogito:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "2.2GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -2082,45 +1877,35 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "6.0GB",
-          "context": "125K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "125K"
         },
         {
           "id": "qwen2.5vl:72b",
           "name": "72b",
           "parameters": "72B",
           "size": "49GB",
-          "context": "125K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "125K"
         },
         {
           "id": "qwen2.5vl:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "21GB",
-          "context": "125K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "125K"
         },
         {
           "id": "qwen2.5vl:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "6.0GB",
-          "context": "125K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "125K"
         },
         {
           "id": "qwen2.5vl:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "3.2GB",
-          "context": "125K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "125K"
         }
       ],
       "vision": true,
@@ -2139,16 +1924,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.6GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "deepscaler:1.5b",
           "name": "1.5b",
           "parameters": "1.5B",
           "size": "3.6GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -2167,16 +1950,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.6GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "dolphin-phi:2.7b",
           "name": "2.7b",
           "parameters": "2.7B",
           "size": "1.6GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -2195,24 +1976,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "7.5GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "gemma3n:e4b",
           "name": "e4b",
           "parameters": "4B",
           "size": "7.5GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "gemma3n:e2b",
           "name": "e2b",
           "parameters": "2B",
           "size": "5.6GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -2231,27 +2009,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "67GB",
-          "context": "10M",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "10M"
         },
         {
           "id": "llama4:16x17b",
           "name": "16x17b",
           "parameters": "17B",
           "size": "67GB",
-          "context": "10M",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "10M"
         },
         {
           "id": "llama4:128x17b",
           "name": "128x17b",
           "parameters": "17B",
           "size": "245GB",
-          "context": "1M",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "1M"
         }
       ],
       "vision": true,
@@ -2270,18 +2042,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "15GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         },
         {
           "id": "mistral-small3.2:24b",
           "name": "24b",
           "parameters": "24B",
           "size": "15GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         }
       ],
       "vision": true,
@@ -2300,81 +2068,63 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "6.1GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "qwen3-vl:235b",
           "name": "235b",
           "parameters": "235B",
           "size": "143GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "qwen3-vl:235b-cloud",
           "name": "235b-cloud",
           "parameters": "235B",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "qwen3-vl:235b-instruct-cloud",
           "name": "235b-instruct-cloud",
           "parameters": "235B",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "qwen3-vl:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "21GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "qwen3-vl:30b",
           "name": "30b",
           "parameters": "30B",
           "size": "20GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "qwen3-vl:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "6.1GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "qwen3-vl:4b",
           "name": "4b",
           "parameters": "4B",
           "size": "3.3GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "qwen3-vl:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "1.9GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         }
       ],
       "vision": true,
@@ -2393,16 +2143,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "11GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "phi4-reasoning:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "11GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -2421,16 +2169,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "14GB",
-          "context": "39K",
-          "vision": false
+          "context": "39K"
         },
         {
           "id": "magistral:24b",
           "name": "24b",
           "parameters": "24B",
           "size": "14GB",
-          "context": "39K",
-          "vision": false
+          "context": "39K"
         }
       ],
       "vision": false,
@@ -2449,16 +2195,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.6GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "phi:2.7b",
           "name": "2.7b",
           "parameters": "2.7B",
           "size": "1.6GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -2477,24 +2221,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "26GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "dolphin-mixtral:8x22b",
           "name": "8x22b",
           "parameters": "22B",
           "size": "80GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         },
         {
           "id": "dolphin-mixtral:8x7b",
           "name": "8x7b",
           "parameters": "7B",
           "size": "26GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -2513,24 +2254,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "granite3.3:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "granite3.3:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "1.5GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -2549,24 +2287,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "dolphin-llama3:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "40GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "dolphin-llama3:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -2585,16 +2320,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.5GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "phi4-mini:3.8b",
           "name": "3.8b",
           "parameters": "3.8B",
           "size": "2.5GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -2613,24 +2346,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openthinker:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "20GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openthinker:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -2649,32 +2379,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "991MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "smollm:360m",
           "name": "360m",
           "parameters": "360M",
           "size": "229MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "smollm:135m",
           "name": "135m",
           "parameters": "135M",
           "size": "92MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "smollm:1.7b",
           "name": "1.7b",
           "parameters": "1.7B",
           "size": "991MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -2693,16 +2419,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "13GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "codestral:22b",
           "name": "22b",
           "parameters": "22B",
           "size": "13GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -2721,18 +2445,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.4GB",
-          "context": "16K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "16K"
         },
         {
           "id": "granite3.2-vision:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "2.4GB",
-          "context": "16K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "16K"
         }
       ],
       "vision": true,
@@ -2751,16 +2471,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "14GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "devstral:24b",
           "name": "24b",
           "parameters": "24B",
           "size": "14GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -2779,16 +2497,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "dolphin-mistral:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -2807,24 +2523,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "wizardlm2:8x22b",
           "name": "8x22b",
           "parameters": "22B",
           "size": "80GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         },
         {
           "id": "wizardlm2:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -2843,24 +2556,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "9.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "deepcoder:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "9.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "deepcoder:1.5b",
           "name": "1.5b",
           "parameters": "1.5B",
           "size": "1.1GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -2879,18 +2589,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.7GB",
-          "context": "2K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "2K"
         },
         {
           "id": "moondream:1.8b",
           "name": "1.8b",
           "parameters": "1.8B",
           "size": "1.7GB",
-          "context": "2K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "2K"
         }
       ],
       "vision": true,
@@ -2909,16 +2615,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "19GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "command-r:35b",
           "name": "35b",
           "parameters": "35B",
           "size": "19GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -2937,18 +2641,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "15GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         },
         {
           "id": "mistral-small3.1:24b",
           "name": "24b",
           "parameters": "24B",
           "size": "15GB",
-          "context": "128K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "128K"
         }
       ],
       "vision": true,
@@ -2967,40 +2667,35 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.0GB",
-          "context": "125K",
-          "vision": false
+          "context": "125K"
         },
         {
           "id": "granite-code:34b",
           "name": "34b",
           "parameters": "34B",
           "size": "19GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "granite-code:20b",
           "name": "20b",
           "parameters": "20B",
           "size": "12GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "granite-code:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.6GB",
-          "context": "125K",
-          "vision": false
+          "context": "125K"
         },
         {
           "id": "granite-code:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "2.0GB",
-          "context": "125K",
-          "vision": false
+          "context": "125K"
         }
       ],
       "vision": false,
@@ -3019,32 +2714,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.1GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "granite4:350m",
           "name": "350m",
           "parameters": "350M",
           "size": "708MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "granite4:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "2.1GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "granite4:1b",
           "name": "1b",
           "parameters": "1B",
           "size": "3.3GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -3063,40 +2754,35 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "hermes3:405b",
           "name": "405b",
           "parameters": "405B",
           "size": "229GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "hermes3:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "40GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "hermes3:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.7GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "hermes3:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "2.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -3115,16 +2801,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.2GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "phi3.5:3.8b",
           "name": "3.8b",
           "parameters": "3.8B",
           "size": "2.2GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -3143,18 +2827,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "32K"
         },
         {
           "id": "bakllava:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "32K"
         }
       ],
       "vision": true,
@@ -3173,32 +2853,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.5GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "yi:34b",
           "name": "34b",
           "parameters": "34B",
           "size": "19GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "yi:9b",
           "name": "9b",
           "parameters": "9B",
           "size": "5.0GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "yi:6b",
           "name": "6b",
           "parameters": "6B",
           "size": "3.5GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -3217,24 +2893,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "zephyr:141b",
           "name": "141b",
           "parameters": "141B",
           "size": "80GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         },
         {
           "id": "zephyr:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -3253,32 +2926,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.8GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "exaone-deep:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "19GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "exaone-deep:7.8b",
           "name": "7.8b",
           "parameters": "7.8B",
           "size": "4.8GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "exaone-deep:2.4b",
           "name": "2.4b",
           "parameters": "2.4B",
           "size": "1.6GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -3297,16 +2966,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "73GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "mistral-large:123b",
           "name": "123b",
           "parameters": "123B",
           "size": "73GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -3325,16 +2992,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "622MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "embeddinggemma:300m",
           "name": "300m",
           "parameters": "300M",
           "size": "622MB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -3354,32 +3019,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizard-vicuna-uncensored:30b",
           "name": "30b",
           "parameters": "30B",
           "size": "18GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizard-vicuna-uncensored:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizard-vicuna-uncensored:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -3398,40 +3059,35 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.8GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "starcoder:15b",
           "name": "15b",
           "parameters": "15B",
           "size": "9.0GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "starcoder:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.3GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "starcoder:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "1.8GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "starcoder:1b",
           "name": "1b",
           "parameters": "1B",
           "size": "726MB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -3450,24 +3106,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "opencoder:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "opencoder:1.5b",
           "name": "1.5b",
           "parameters": "1.5B",
           "size": "1.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -3486,24 +3139,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "nous-hermes:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "nous-hermes:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -3522,24 +3172,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.0GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "deepseek-llm:67b",
           "name": "67b",
           "parameters": "67B",
           "size": "38GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "deepseek-llm:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.0GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -3558,32 +3205,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.2GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "falcon:180b",
           "name": "180b",
           "parameters": "180B",
           "size": "101GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "falcon:40b",
           "name": "40b",
           "parameters": "40B",
           "size": "24GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "falcon:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.2GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -3602,16 +3245,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "openchat:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -3630,32 +3271,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "vicuna:33b",
           "name": "33b",
           "parameters": "33B",
           "size": "18GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "vicuna:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "vicuna:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -3674,24 +3311,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "8.9GB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         },
         {
           "id": "deepseek-v2:236b",
           "name": "236b",
           "parameters": "236B",
           "size": "133GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "deepseek-v2:16b",
           "name": "16b",
           "parameters": "16B",
           "size": "8.9GB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         }
       ],
       "vision": false,
@@ -3710,16 +3344,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "563MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "paraphrase-multilingual:278m",
           "name": "278m",
           "parameters": "278M",
           "size": "563MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         }
       ],
       "vision": false,
@@ -3738,280 +3370,245 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q2_k",
           "name": "7b-mistral-v2-q2_k",
           "parameters": "7B",
           "size": "3.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q3_k_s",
           "name": "7b-mistral-v2-q3_k_s",
           "parameters": "7B",
           "size": "3.2GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q3_k_m",
           "name": "7b-mistral-v2-q3_k_m",
           "parameters": "7B",
           "size": "3.5GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q3_k_l",
           "name": "7b-mistral-v2-q3_k_l",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q4_0",
           "name": "7b-mistral-v2-q4_0",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q4_1",
           "name": "7b-mistral-v2-q4_1",
           "parameters": "7B",
           "size": "4.6GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q4_k_s",
           "name": "7b-mistral-v2-q4_k_s",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q4_k_m",
           "name": "7b-mistral-v2-q4_k_m",
           "parameters": "7B",
           "size": "4.4GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q5_0",
           "name": "7b-mistral-v2-q5_0",
           "parameters": "7B",
           "size": "5.0GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q5_1",
           "name": "7b-mistral-v2-q5_1",
           "parameters": "7B",
           "size": "5.4GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q5_k_s",
           "name": "7b-mistral-v2-q5_k_s",
           "parameters": "7B",
           "size": "5.0GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q5_k_m",
           "name": "7b-mistral-v2-q5_k_m",
           "parameters": "7B",
           "size": "5.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q6_k",
           "name": "7b-mistral-v2-q6_k",
           "parameters": "7B",
           "size": "5.9GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-q8_0",
           "name": "7b-mistral-v2-q8_0",
           "parameters": "7B",
           "size": "7.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2-fp16",
           "name": "7b-mistral-v2-fp16",
           "parameters": "7B",
           "size": "14GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q2_k",
           "name": "7b-mistral-v2.5-q2_k",
           "parameters": "7B",
           "size": "3.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q3_k_s",
           "name": "7b-mistral-v2.5-q3_k_s",
           "parameters": "7B",
           "size": "3.2GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q3_k_m",
           "name": "7b-mistral-v2.5-q3_k_m",
           "parameters": "7B",
           "size": "3.5GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q3_k_l",
           "name": "7b-mistral-v2.5-q3_k_l",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q4_0",
           "name": "7b-mistral-v2.5-q4_0",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q4_1",
           "name": "7b-mistral-v2.5-q4_1",
           "parameters": "7B",
           "size": "4.6GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q4_k_s",
           "name": "7b-mistral-v2.5-q4_k_s",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q4_k_m",
           "name": "7b-mistral-v2.5-q4_k_m",
           "parameters": "7B",
           "size": "4.4GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q5_0",
           "name": "7b-mistral-v2.5-q5_0",
           "parameters": "7B",
           "size": "5.0GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q5_1",
           "name": "7b-mistral-v2.5-q5_1",
           "parameters": "7B",
           "size": "5.4GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q5_k_s",
           "name": "7b-mistral-v2.5-q5_k_s",
           "parameters": "7B",
           "size": "5.0GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q5_k_m",
           "name": "7b-mistral-v2.5-q5_k_m",
           "parameters": "7B",
           "size": "5.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q6_k",
           "name": "7b-mistral-v2.5-q6_k",
           "parameters": "7B",
           "size": "5.9GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-q8_0",
           "name": "7b-mistral-v2.5-q8_0",
           "parameters": "7B",
           "size": "7.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-mistral-v2.5-fp16",
           "name": "7b-mistral-v2.5-fp16",
           "parameters": "7B",
           "size": "14GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-v2",
           "name": "7b-v2",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:7b-v2.5",
           "name": "7b-v2.5",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:v2",
           "name": "v2",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "openhermes:v2.5",
           "name": "v2.5",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -4030,16 +3627,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.2GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         },
         {
           "id": "codeqwen:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.2GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         }
       ],
       "vision": false,
@@ -4058,32 +3653,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "qwen2-math:72b",
           "name": "72b",
           "parameters": "72B",
           "size": "41GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "qwen2-math:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "qwen2-math:1.5b",
           "name": "1.5b",
           "parameters": "1.5B",
           "size": "935MB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -4102,32 +3693,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         },
         {
           "id": "qwen3-embedding:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.7GB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         },
         {
           "id": "qwen3-embedding:4b",
           "name": "4b",
           "parameters": "4B",
           "size": "2.5GB",
-          "context": "40K",
-          "vision": false
+          "context": "40K"
         },
         {
           "id": "qwen3-embedding:0.6b",
           "name": "0.6b",
           "parameters": "0.6B",
           "size": "639MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -4147,16 +3734,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.5GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "glm4:9b",
           "name": "9b",
           "parameters": "9B",
           "size": "5.5GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -4175,24 +3760,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.8GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "aya:35b",
           "name": "35b",
           "parameters": "35B",
           "size": "20GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "aya:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.8GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -4211,24 +3793,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama2-chinese:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama2-chinese:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -4247,16 +3826,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "59GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "command-r-plus:104b",
           "name": "104b",
           "parameters": "104B",
           "size": "59GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -4275,24 +3852,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "404GB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         },
         {
           "id": "deepseek-v3.1:671b",
           "name": "671b",
           "parameters": "671B",
           "size": "404GB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         },
         {
           "id": "deepseek-v3.1:671b-cloud",
           "name": "671b-cloud",
           "parameters": "671B",
           "size": "Cloud (API only)",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         }
       ],
       "vision": false,
@@ -4311,16 +3885,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.5GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "codegeex4:9b",
           "name": "9b",
           "parameters": "9B",
           "size": "5.5GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -4339,16 +3911,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "mistral-openorca:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -4367,16 +3937,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.6GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "stable-code:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "1.6GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -4395,16 +3963,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "neural-chat:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -4423,24 +3989,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "50GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         },
         {
           "id": "qwen3-next:80b",
           "name": "80b",
           "parameters": "80B",
           "size": "50GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         },
         {
           "id": "qwen3-next:80b-cloud",
           "name": "80b-cloud",
           "parameters": "80B",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         }
       ],
       "vision": false,
@@ -4459,24 +4022,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "6.1GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "nous-hermes2:34b",
           "name": "34b",
           "parameters": "34B",
           "size": "19GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "nous-hermes2:10.7b",
           "name": "10.7b",
           "parameters": "10.7B",
           "size": "6.1GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -4495,16 +4055,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "637MB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "tinydolphin:1.1b",
           "name": "1.1b",
           "parameters": "1.1B",
           "size": "637MB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -4523,16 +4081,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "wizardcoder:33b",
           "name": "33b",
           "parameters": "33B",
           "size": "19GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -4551,24 +4107,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "sqlcoder:15b",
           "name": "15b",
           "parameters": "15B",
           "size": "9.0GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "sqlcoder:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -4587,24 +4140,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "983MB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "stablelm2:12b",
           "name": "12b",
           "parameters": "12B",
           "size": "7.0GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "stablelm2:1.6b",
           "name": "1.6b",
           "parameters": "1.6B",
           "size": "983MB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -4623,24 +4173,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "yi-coder:9b",
           "name": "9b",
           "parameters": "9B",
           "size": "5.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "yi-coder:1.5b",
           "name": "1.5b",
           "parameters": "1.5B",
           "size": "866MB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -4659,24 +4206,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "llama3-chatqa:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "40GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "llama3-chatqa:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -4695,16 +4239,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.2GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "snowflake-arctic-embed2:568m",
           "name": "568m",
           "parameters": "568M",
           "size": "1.2GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -4724,24 +4266,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.6GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "granite3-dense:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.9GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "granite3-dense:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "1.6GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -4760,24 +4299,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "granite3.1-dense:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "5.0GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "granite3.1-dense:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "1.6GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -4796,63 +4332,49 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "6.0GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "ministral-3:14b",
           "name": "14b",
           "parameters": "14B",
           "size": "9.1GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "ministral-3:14b-cloud",
           "name": "14b-cloud",
           "parameters": "14B",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "ministral-3:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "6.0GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "ministral-3:8b-cloud",
           "name": "8b-cloud",
           "parameters": "8B",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "ministral-3:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "3.0GB",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         },
         {
           "id": "ministral-3:3b-cloud",
           "name": "3b-cloud",
           "parameters": "3B",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         }
       ],
       "vision": true,
@@ -4871,24 +4393,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "granite3.2:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "granite3.2:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "1.5GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -4907,32 +4426,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "wizard-math:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "39GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizard-math:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizard-math:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -4951,24 +4466,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.2GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "dolphincoder:15b",
           "name": "15b",
           "parameters": "15B",
           "size": "9.1GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "dolphincoder:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.2GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -4987,24 +4499,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "1M",
-          "vision": false
+          "context": "1M"
         },
         {
           "id": "llama3-gradient:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "40GB",
-          "context": "1M",
-          "vision": false
+          "context": "1M"
         },
         {
           "id": "llama3-gradient:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.7GB",
-          "context": "1M",
-          "vision": false
+          "context": "1M"
         }
       ],
       "vision": false,
@@ -5023,16 +4532,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "samantha-mistral:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -5051,40 +4558,35 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.5GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "internlm2:20b",
           "name": "20b",
           "parameters": "20B",
           "size": "11GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "internlm2:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.5GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "internlm2:1.8b",
           "name": "1.8b",
           "parameters": "1.8B",
           "size": "1.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "internlm2:1m",
           "name": "1m",
           "parameters": "1M",
           "size": "4.5GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         }
       ],
       "vision": false,
@@ -5103,24 +4605,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "llama3-groq-tool-use:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "40GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "llama3-groq-tool-use:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -5139,16 +4638,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "starling-lm:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -5167,16 +4664,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "19GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "phind-codellama:34b",
           "name": "34b",
           "parameters": "34B",
           "size": "19GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -5195,16 +4690,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "6.1GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "solar:10.7b",
           "name": "10.7b",
           "parameters": "10.7B",
           "size": "6.1GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -5223,24 +4716,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "llama-guard3:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "llama-guard3:1b",
           "name": "1b",
           "parameters": "1B",
           "size": "1.6GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -5259,24 +4749,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "xwinlm:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "xwinlm:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -5295,24 +4782,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "43GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "r1-1776:671b",
           "name": "671b",
           "parameters": "671B",
           "size": "404GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "r1-1776:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "43GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -5331,24 +4815,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.1GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "aya-expanse:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "20GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "aya-expanse:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "5.1GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -5367,16 +4848,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "40GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "reflection:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "40GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -5395,24 +4874,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         },
         {
           "id": "yarn-llama2:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         },
         {
           "id": "yarn-llama2:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         }
       ],
       "vision": false,
@@ -5431,24 +4907,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "822MB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "granite3-moe:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "2.1GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "granite3-moe:1b",
           "name": "1b",
           "parameters": "1B",
           "size": "822MB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -5467,32 +4940,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.8GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "exaone3.5:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "19GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "exaone3.5:7.8b",
           "name": "7.8b",
           "parameters": "7.8B",
           "size": "4.8GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "exaone3.5:2.4b",
           "name": "2.4b",
           "parameters": "2.4B",
           "size": "1.6GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -5511,16 +4980,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "671MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "bge-large:335m",
           "name": "335m",
           "parameters": "335M",
           "size": "671MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         }
       ],
       "vision": false,
@@ -5540,16 +5007,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.7GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "nemotron-mini:4b",
           "name": "4b",
           "parameters": "4B",
           "size": "2.7GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -5568,24 +5033,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "orca2:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "orca2:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -5604,18 +5066,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.9GB",
-          "context": "4K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "4K"
         },
         {
           "id": "llava-phi3:3.8b",
           "name": "3.8b",
           "parameters": "3.8B",
           "size": "2.9GB",
-          "context": "4K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "4K"
         }
       ],
       "vision": true,
@@ -5634,24 +5092,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "meditron:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "39GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "meditron:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -5670,16 +5125,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "47GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "athene-v2:72b",
           "name": "72b",
           "parameters": "72B",
           "size": "47GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -5698,24 +5151,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "63MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "granite-embedding:278m",
           "name": "278m",
           "parameters": "278M",
           "size": "563MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         },
         {
           "id": "granite-embedding:30m",
           "name": "30m",
           "parameters": "30M",
           "size": "63MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         }
       ],
       "vision": false,
@@ -5735,32 +5185,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "stable-beluga:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "39GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "stable-beluga:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "stable-beluga:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -5779,16 +5225,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "43GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "nemotron:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "43GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -5807,16 +5251,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm-uncensored:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -5835,24 +5277,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "935MB",
-          "context": "250K",
-          "vision": false
+          "context": "250K"
         },
         {
           "id": "reader-lm:1.5b",
           "name": "1.5b",
           "parameters": "1.5B",
           "size": "935MB",
-          "context": "250K",
-          "vision": false
+          "context": "250K"
         },
         {
           "id": "reader-lm:0.5b",
           "name": "0.5b",
           "parameters": "0.5B",
           "size": "352MB",
-          "context": "250K",
-          "vision": false
+          "context": "250K"
         }
       ],
       "vision": false,
@@ -5871,24 +5310,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "tulu3:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "43GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "tulu3:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "4.9GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -5907,32 +5343,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.8GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "shieldgemma:27b",
           "name": "27b",
           "parameters": "27B",
           "size": "17GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "shieldgemma:9b",
           "name": "9b",
           "parameters": "9B",
           "size": "5.8GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "shieldgemma:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "1.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -5951,16 +5383,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "74GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "dbrx:132b",
           "name": "132b",
           "parameters": "132B",
           "size": "74GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -5979,264 +5409,231 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q2_k",
           "name": "8b-instruct-q2_k",
           "parameters": "8B",
           "size": "3.5GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q3_k_s",
           "name": "8b-instruct-q3_k_s",
           "parameters": "8B",
           "size": "3.6GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q3_k_m",
           "name": "8b-instruct-q3_k_m",
           "parameters": "8B",
           "size": "4.1GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q3_k_l",
           "name": "8b-instruct-q3_k_l",
           "parameters": "8B",
           "size": "4.5GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q4_0",
           "name": "8b-instruct-q4_0",
           "parameters": "8B",
           "size": "4.7GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q4_1",
           "name": "8b-instruct-q4_1",
           "parameters": "8B",
           "size": "5.3GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q4_k_s",
           "name": "8b-instruct-q4_k_s",
           "parameters": "8B",
           "size": "4.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q4_k_m",
           "name": "8b-instruct-q4_k_m",
           "parameters": "8B",
           "size": "5.1GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q5_0",
           "name": "8b-instruct-q5_0",
           "parameters": "8B",
           "size": "5.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q5_1",
           "name": "8b-instruct-q5_1",
           "parameters": "8B",
           "size": "6.3GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q5_k_s",
           "name": "8b-instruct-q5_k_s",
           "parameters": "8B",
           "size": "5.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q5_k_m",
           "name": "8b-instruct-q5_k_m",
           "parameters": "8B",
           "size": "5.9GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q6_k",
           "name": "8b-instruct-q6_k",
           "parameters": "8B",
           "size": "6.9GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-q8_0",
           "name": "8b-instruct-q8_0",
           "parameters": "8B",
           "size": "8.9GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-instruct-fp16",
           "name": "8b-instruct-fp16",
           "parameters": "8B",
           "size": "17GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q2_k",
           "name": "8b-text-q2_k",
           "parameters": "8B",
           "size": "3.5GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q3_k_s",
           "name": "8b-text-q3_k_s",
           "parameters": "8B",
           "size": "3.6GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q3_k_m",
           "name": "8b-text-q3_k_m",
           "parameters": "8B",
           "size": "4.1GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q3_k_l",
           "name": "8b-text-q3_k_l",
           "parameters": "8B",
           "size": "4.5GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q4_0",
           "name": "8b-text-q4_0",
           "parameters": "8B",
           "size": "4.7GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q4_1",
           "name": "8b-text-q4_1",
           "parameters": "8B",
           "size": "5.3GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q4_k_s",
           "name": "8b-text-q4_k_s",
           "parameters": "8B",
           "size": "4.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q4_k_m",
           "name": "8b-text-q4_k_m",
           "parameters": "8B",
           "size": "5.1GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q5_0",
           "name": "8b-text-q5_0",
           "parameters": "8B",
           "size": "5.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q5_1",
           "name": "8b-text-q5_1",
           "parameters": "8B",
           "size": "6.3GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q5_k_s",
           "name": "8b-text-q5_k_s",
           "parameters": "8B",
           "size": "5.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q5_k_m",
           "name": "8b-text-q5_k_m",
           "parameters": "8B",
           "size": "5.9GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q6_k",
           "name": "8b-text-q6_k",
           "parameters": "8B",
           "size": "6.9GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-q8_0",
           "name": "8b-text-q8_0",
           "parameters": "8B",
           "size": "8.9GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:8b-text-fp16",
           "name": "8b-text-fp16",
           "parameters": "8B",
           "size": "17GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:instruct",
           "name": "instruct",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "llama-pro:text",
           "name": "text",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -6255,16 +5652,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "yarn-mistral:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -6283,584 +5678,511 @@
           "name": "70b-llama2-q2_k",
           "parameters": "70B",
           "size": "29GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q3_k_s",
           "name": "70b-llama2-q3_k_s",
           "parameters": "70B",
           "size": "30GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q3_k_m",
           "name": "70b-llama2-q3_k_m",
           "parameters": "70B",
           "size": "33GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q3_k_l",
           "name": "70b-llama2-q3_k_l",
           "parameters": "70B",
           "size": "36GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q4_0",
           "name": "70b-llama2-q4_0",
           "parameters": "70B",
           "size": "39GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q4_1",
           "name": "70b-llama2-q4_1",
           "parameters": "70B",
           "size": "43GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q4_k_s",
           "name": "70b-llama2-q4_k_s",
           "parameters": "70B",
           "size": "39GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q4_k_m",
           "name": "70b-llama2-q4_k_m",
           "parameters": "70B",
           "size": "41GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q5_0",
           "name": "70b-llama2-q5_0",
           "parameters": "70B",
           "size": "47GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q5_k_s",
           "name": "70b-llama2-q5_k_s",
           "parameters": "70B",
           "size": "47GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q5_k_m",
           "name": "70b-llama2-q5_k_m",
           "parameters": "70B",
           "size": "49GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q6_k",
           "name": "70b-llama2-q6_k",
           "parameters": "70B",
           "size": "57GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:70b-llama2-q8_0",
           "name": "70b-llama2-q8_0",
           "parameters": "70B",
           "size": "73GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:30b-q2_k",
           "name": "30b-q2_k",
           "parameters": "30B",
           "size": "14GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q3_k_s",
           "name": "30b-q3_k_s",
           "parameters": "30B",
           "size": "14GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q3_k_m",
           "name": "30b-q3_k_m",
           "parameters": "30B",
           "size": "16GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q3_k_l",
           "name": "30b-q3_k_l",
           "parameters": "30B",
           "size": "17GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q4_0",
           "name": "30b-q4_0",
           "parameters": "30B",
           "size": "18GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q4_1",
           "name": "30b-q4_1",
           "parameters": "30B",
           "size": "20GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q4_k_s",
           "name": "30b-q4_k_s",
           "parameters": "30B",
           "size": "18GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q4_k_m",
           "name": "30b-q4_k_m",
           "parameters": "30B",
           "size": "20GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q5_0",
           "name": "30b-q5_0",
           "parameters": "30B",
           "size": "22GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q5_1",
           "name": "30b-q5_1",
           "parameters": "30B",
           "size": "24GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q5_k_s",
           "name": "30b-q5_k_s",
           "parameters": "30B",
           "size": "22GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q5_k_m",
           "name": "30b-q5_k_m",
           "parameters": "30B",
           "size": "23GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q6_k",
           "name": "30b-q6_k",
           "parameters": "30B",
           "size": "27GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-q8_0",
           "name": "30b-q8_0",
           "parameters": "30B",
           "size": "35GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:30b-fp16",
           "name": "30b-fp16",
           "parameters": "30B",
           "size": "65GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-llama2-q2_k",
           "name": "13b-llama2-q2_k",
           "parameters": "13B",
           "size": "5.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q3_k_s",
           "name": "13b-llama2-q3_k_s",
           "parameters": "13B",
           "size": "5.7GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q3_k_m",
           "name": "13b-llama2-q3_k_m",
           "parameters": "13B",
           "size": "6.3GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q3_k_l",
           "name": "13b-llama2-q3_k_l",
           "parameters": "13B",
           "size": "6.9GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q4_0",
           "name": "13b-llama2-q4_0",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q4_1",
           "name": "13b-llama2-q4_1",
           "parameters": "13B",
           "size": "8.2GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q4_k_s",
           "name": "13b-llama2-q4_k_s",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q4_k_m",
           "name": "13b-llama2-q4_k_m",
           "parameters": "13B",
           "size": "7.9GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q5_0",
           "name": "13b-llama2-q5_0",
           "parameters": "13B",
           "size": "9.0GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q5_1",
           "name": "13b-llama2-q5_1",
           "parameters": "13B",
           "size": "9.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q5_k_s",
           "name": "13b-llama2-q5_k_s",
           "parameters": "13B",
           "size": "9.0GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q5_k_m",
           "name": "13b-llama2-q5_k_m",
           "parameters": "13B",
           "size": "9.2GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q6_k",
           "name": "13b-llama2-q6_k",
           "parameters": "13B",
           "size": "11GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-q8_0",
           "name": "13b-llama2-q8_0",
           "parameters": "13B",
           "size": "14GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-llama2-fp16",
           "name": "13b-llama2-fp16",
           "parameters": "13B",
           "size": "26GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "wizardlm:13b-q2_k",
           "name": "13b-q2_k",
           "parameters": "13B",
           "size": "5.4GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q3_k_s",
           "name": "13b-q3_k_s",
           "parameters": "13B",
           "size": "5.7GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q3_k_m",
           "name": "13b-q3_k_m",
           "parameters": "13B",
           "size": "6.3GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q3_k_l",
           "name": "13b-q3_k_l",
           "parameters": "13B",
           "size": "6.9GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q4_0",
           "name": "13b-q4_0",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q4_1",
           "name": "13b-q4_1",
           "parameters": "13B",
           "size": "8.2GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q4_k_s",
           "name": "13b-q4_k_s",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q4_k_m",
           "name": "13b-q4_k_m",
           "parameters": "13B",
           "size": "7.9GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q5_0",
           "name": "13b-q5_0",
           "parameters": "13B",
           "size": "9.0GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q5_1",
           "name": "13b-q5_1",
           "parameters": "13B",
           "size": "9.8GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q5_k_s",
           "name": "13b-q5_k_s",
           "parameters": "13B",
           "size": "9.0GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q5_k_m",
           "name": "13b-q5_k_m",
           "parameters": "13B",
           "size": "9.2GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q6_k",
           "name": "13b-q6_k",
           "parameters": "13B",
           "size": "11GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-q8_0",
           "name": "13b-q8_0",
           "parameters": "13B",
           "size": "14GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:13b-fp16",
           "name": "13b-fp16",
           "parameters": "13B",
           "size": "26GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q2_k",
           "name": "7b-q2_k",
           "parameters": "7B",
           "size": "2.8GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q3_k_s",
           "name": "7b-q3_k_s",
           "parameters": "7B",
           "size": "2.9GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q3_k_m",
           "name": "7b-q3_k_m",
           "parameters": "7B",
           "size": "3.3GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q3_k_l",
           "name": "7b-q3_k_l",
           "parameters": "7B",
           "size": "3.6GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q4_0",
           "name": "7b-q4_0",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q4_1",
           "name": "7b-q4_1",
           "parameters": "7B",
           "size": "4.2GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q4_k_s",
           "name": "7b-q4_k_s",
           "parameters": "7B",
           "size": "3.9GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q4_k_m",
           "name": "7b-q4_k_m",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q5_0",
           "name": "7b-q5_0",
           "parameters": "7B",
           "size": "4.7GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q5_1",
           "name": "7b-q5_1",
           "parameters": "7B",
           "size": "5.1GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q5_k_s",
           "name": "7b-q5_k_s",
           "parameters": "7B",
           "size": "4.7GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q5_k_m",
           "name": "7b-q5_k_m",
           "parameters": "7B",
           "size": "4.8GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q6_k",
           "name": "7b-q6_k",
           "parameters": "7B",
           "size": "5.5GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-q8_0",
           "name": "7b-q8_0",
           "parameters": "7B",
           "size": "7.2GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizardlm:7b-fp16",
           "name": "7b-fp16",
           "parameters": "7B",
           "size": "13GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -6879,16 +6201,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "7.4GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "nexusraven:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -6907,16 +6227,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "medllama2:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -6935,16 +6253,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "26GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "nous-hermes2-mixtral:8x7b",
           "name": "8x7b",
           "parameters": "7B",
           "size": "26GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -6963,16 +6279,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.6GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "smallthinker:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "3.6GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -6991,16 +6305,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "codeup:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -7019,16 +6331,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "mathstral:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -7047,16 +6357,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "7.4GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "everythinglm:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -7075,16 +6383,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.2GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "phi4-mini-reasoning:3.8b",
           "name": "3.8b",
           "parameters": "3.8B",
           "size": "3.2GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -7103,16 +6409,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.1GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "command-r7b:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "5.1GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -7131,16 +6435,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.6GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "stablelm-zephyr:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "1.6GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -7159,16 +6461,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "13GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "solar-pro:22b",
           "name": "22b",
           "parameters": "22B",
           "size": "13GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -7187,16 +6487,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "6.4GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "falcon2:11b",
           "name": "11b",
           "parameters": "11B",
           "size": "6.4GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -7215,16 +6513,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "133GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "deepseek-v2.5:236b",
           "name": "236b",
           "parameters": "236B",
           "size": "133GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -7243,16 +6539,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "duckdb-nsql:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -7271,16 +6565,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "3.8GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "magicoder:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "3.8GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -7299,16 +6591,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "mistrallite:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -7327,16 +6617,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "bespoke-minicheck:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -7355,16 +6643,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.2GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "nuextract:3.8b",
           "name": "3.8b",
           "parameters": "3.8B",
           "size": "2.2GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -7383,16 +6669,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "19GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "codebooga:34b",
           "name": "34b",
           "parameters": "34B",
           "size": "19GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -7411,16 +6695,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "7.4GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "wizard-vicuna:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -7439,16 +6721,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "68GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "megadolphin:120b",
           "name": "120b",
           "parameters": "120B",
           "size": "68GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -7467,16 +6747,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "26GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "notux:8x7b",
           "name": "8x7b",
           "parameters": "7B",
           "size": "26GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -7495,16 +6773,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "40GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "firefunction-v2:70b",
           "name": "70b",
           "parameters": "70B",
           "size": "40GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -7523,16 +6799,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "67GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "command-a:111b",
           "name": "111b",
           "parameters": "111B",
           "size": "67GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -7551,16 +6825,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "notus:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -7579,18 +6851,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "6.7GB",
-          "context": "8K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "8K"
         },
         {
           "id": "deepseek-ocr:3b",
           "name": "3b",
           "parameters": "3B",
           "size": "6.7GB",
-          "context": "8K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "8K"
         }
       ],
       "vision": true,
@@ -7609,16 +6877,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "open-orca-platypus2:13b",
           "name": "13b",
           "parameters": "13B",
           "size": "7.4GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -7637,24 +6903,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "24GB",
-          "context": "1M",
-          "vision": false
+          "context": "1M"
         },
         {
           "id": "nemotron-3-nano:30b",
           "name": "30b",
           "parameters": "30B",
           "size": "24GB",
-          "context": "1M",
-          "vision": false
+          "context": "1M"
         },
         {
           "id": "nemotron-3-nano:30b-cloud",
           "name": "30b-cloud",
           "parameters": "30B",
           "size": "Cloud (API only)",
-          "context": "1M",
-          "vision": false
+          "context": "1M"
         }
       ],
       "vision": false,
@@ -7673,128 +6936,112 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "66GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q2_k",
           "name": "120b-q2_k",
           "parameters": "120B",
           "size": "50GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q3_k_s",
           "name": "120b-q3_k_s",
           "parameters": "120B",
           "size": "51GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q3_k_m",
           "name": "120b-q3_k_m",
           "parameters": "120B",
           "size": "56GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q3_k_l",
           "name": "120b-q3_k_l",
           "parameters": "120B",
           "size": "62GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q4_0",
           "name": "120b-q4_0",
           "parameters": "120B",
           "size": "66GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q4_1",
           "name": "120b-q4_1",
           "parameters": "120B",
           "size": "74GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q4_k_s",
           "name": "120b-q4_k_s",
           "parameters": "120B",
           "size": "66GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q4_k_m",
           "name": "120b-q4_k_m",
           "parameters": "120B",
           "size": "71GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q5_0",
           "name": "120b-q5_0",
           "parameters": "120B",
           "size": "81GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q5_1",
           "name": "120b-q5_1",
           "parameters": "120B",
           "size": "88GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q5_k_s",
           "name": "120b-q5_k_s",
           "parameters": "120B",
           "size": "81GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q5_k_m",
           "name": "120b-q5_k_m",
           "parameters": "120B",
           "size": "83GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q6_k",
           "name": "120b-q6_k",
           "parameters": "120B",
           "size": "97GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-q8_0",
           "name": "120b-q8_0",
           "parameters": "120B",
           "size": "125GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         },
         {
           "id": "goliath:120b-fp16",
           "name": "120b-fp16",
           "parameters": "120B",
           "size": "236GB",
-          "context": "4K",
-          "vision": false
+          "context": "4K"
         }
       ],
       "vision": false,
@@ -7813,16 +7060,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "marco-o1:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.7GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -7841,32 +7086,28 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.2GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "sailor2:20b",
           "name": "20b",
           "parameters": "20B",
           "size": "12GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "sailor2:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "5.2GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "sailor2:1b",
           "name": "1b",
           "parameters": "1B",
           "size": "1.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -7885,24 +7126,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "2.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "granite3-guardian:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "5.8GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         },
         {
           "id": "granite3-guardian:2b",
           "name": "2b",
           "parameters": "2B",
           "size": "2.7GB",
-          "context": "8K",
-          "vision": false
+          "context": "8K"
         }
       ],
       "vision": false,
@@ -7921,27 +7159,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "15GB",
-          "context": "384K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "384K"
         },
         {
           "id": "devstral-small-2:24b",
           "name": "24b",
           "parameters": "24B",
           "size": "15GB",
-          "context": "384K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "384K"
         },
         {
           "id": "devstral-small-2:24b-cloud",
           "name": "24b-cloud",
           "parameters": "24B",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         }
       ],
       "vision": true,
@@ -7960,9 +7192,7 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "Cloud (API only)",
-          "context": "1M",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "1M"
         }
       ],
       "vision": true,
@@ -7981,16 +7211,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "24GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         },
         {
           "id": "alfred:40b",
           "name": "40b",
           "parameters": "40B",
           "size": "24GB",
-          "context": "2K",
-          "vision": false
+          "context": "2K"
         }
       ],
       "vision": false,
@@ -8009,16 +7237,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.1GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         },
         {
           "id": "command-r7b-arabic:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "5.1GB",
-          "context": "16K",
-          "vision": false
+          "context": "16K"
         }
       ],
       "vision": false,
@@ -8037,24 +7263,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "4.5GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         },
         {
           "id": "olmo-3:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "19GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         },
         {
           "id": "olmo-3:7b",
           "name": "7b",
           "parameters": "7B",
           "size": "4.5GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         }
       ],
       "vision": false,
@@ -8073,8 +7296,7 @@
           "name": "cloud",
           "parameters": "Unknown",
           "size": "Cloud (API only)",
-          "context": "198K",
-          "vision": false
+          "context": "198K"
         }
       ],
       "vision": false,
@@ -8093,24 +7315,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "14GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "gpt-oss-safeguard:120b",
           "name": "120b",
           "parameters": "120B",
           "size": "65GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         },
         {
           "id": "gpt-oss-safeguard:20b",
           "name": "20b",
           "parameters": "20B",
           "size": "14GB",
-          "context": "128K",
-          "vision": false
+          "context": "128K"
         }
       ],
       "vision": false,
@@ -8129,8 +7348,7 @@
           "name": "cloud",
           "parameters": "Unknown",
           "size": "Cloud (API only)",
-          "context": "200K",
-          "vision": false
+          "context": "200K"
         }
       ],
       "vision": false,
@@ -8149,24 +7367,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "75GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         },
         {
           "id": "devstral-2:123b",
           "name": "123b",
           "parameters": "123B",
           "size": "75GB",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         },
         {
           "id": "devstral-2:123b-cloud",
           "name": "123b-cloud",
           "parameters": "123B",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         }
       ],
       "vision": false,
@@ -8185,24 +7400,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "1.3TB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         },
         {
           "id": "cogito-2.1:671b",
           "name": "671b",
           "parameters": "671B",
           "size": "1.3TB",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         },
         {
           "id": "cogito-2.1:671b-cloud",
           "name": "671b-cloud",
           "parameters": "671B",
           "size": "Cloud (API only)",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         }
       ],
       "vision": false,
@@ -8221,16 +7433,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "19GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         },
         {
           "id": "olmo-3.1:32b",
           "name": "32b",
           "parameters": "32B",
           "size": "19GB",
-          "context": "64K",
-          "vision": false
+          "context": "64K"
         }
       ],
       "vision": false,
@@ -8249,24 +7459,21 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "5.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "rnj-1:8b",
           "name": "8b",
           "parameters": "8B",
           "size": "5.1GB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "rnj-1:8b-cloud",
           "name": "8b-cloud",
           "parameters": "8B",
           "size": "Cloud (API only)",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -8285,16 +7492,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "301MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         },
         {
           "id": "functiongemma:270m",
           "name": "270m",
           "parameters": "270M",
           "size": "301MB",
-          "context": "32K",
-          "vision": false
+          "context": "32K"
         }
       ],
       "vision": false,
@@ -8313,18 +7518,14 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "Cloud (API only)",
-          "context": "1M",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "1M"
         },
         {
           "id": "gemini-3-flash-preview:cloud",
           "name": "cloud",
           "parameters": "Unknown",
           "size": "Cloud (API only)",
-          "context": "1M",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "1M"
         }
       ],
       "vision": true,
@@ -8343,8 +7544,7 @@
           "name": "1t-cloud",
           "parameters": "Unknown",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         }
       ],
       "vision": false,
@@ -8363,8 +7563,7 @@
           "name": "cloud",
           "parameters": "Unknown",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": false
+          "context": "256K"
         }
       ],
       "vision": false,
@@ -8383,8 +7582,7 @@
           "name": "latest",
           "parameters": "Unknown",
           "size": "958MB",
-          "context": "512",
-          "vision": false
+          "context": "512"
         }
       ],
       "vision": false,
@@ -8404,8 +7602,7 @@
           "name": "cloud",
           "parameters": "Unknown",
           "size": "Cloud (API only)",
-          "context": "160K",
-          "vision": false
+          "context": "160K"
         }
       ],
       "vision": false,
@@ -8424,8 +7621,7 @@
           "name": "cloud",
           "parameters": "Unknown",
           "size": "Cloud (API only)",
-          "context": "198K",
-          "vision": false
+          "context": "198K"
         }
       ],
       "vision": false,
@@ -8444,9 +7640,7 @@
           "name": "675b-cloud",
           "parameters": "675B",
           "size": "Cloud (API only)",
-          "context": "256K",
-          "vision": true,
-          "input_types": "Text, Image"
+          "context": "256K"
         }
       ],
       "vision": true,
@@ -8465,8 +7659,7 @@
           "name": "cloud",
           "parameters": "Unknown",
           "size": "Cloud (API only)",
-          "context": "200K",
-          "vision": false
+          "context": "200K"
         }
       ],
       "vision": false,

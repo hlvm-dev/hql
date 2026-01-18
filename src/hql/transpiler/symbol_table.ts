@@ -154,38 +154,10 @@ export class SymbolTable {
   }
 
   /**
-   * Add a reference to a symbol
-   * Uses single get() instead of has()+get() to avoid double lookup
-   */
-  addReference(name: string, reference: HQLNode | IRNode): boolean {
-    const info = this.table.get(name);
-    if (info !== undefined) {
-      if (!info.references) {
-        info.references = [];
-      }
-      info.references.push(reference);
-      return true;
-    }
-
-    if (this.parent) {
-      return this.parent.addReference(name, reference);
-    }
-
-    return false;
-  }
-
-  /**
    * Create a new child scope
    */
   createChildScope(scopeName: string): SymbolTable {
     return new SymbolTable(this, scopeName);
-  }
-
-  /**
-   * Get all symbols in the current scope only
-   */
-  getAllSymbolsInCurrentScope(): SymbolInfo[] {
-    return Array.from(this.table.values());
   }
 
   /**
@@ -213,68 +185,6 @@ export class SymbolTable {
   }
 
   /**
-   * Get all symbols of a specific kind
-   */
-  /**
-   * Get all symbols of a specific kind
-   * Optimized: Direct traversal without intermediate array allocation
-   */
-  getSymbolsByKind(kind: SymbolKind): SymbolInfo[] {
-    const symbols: SymbolInfo[] = [];
-
-    // Add matching symbols from current scope
-    for (const symbol of this.table.values()) {
-      if (symbol.kind === kind) {
-        symbols.push(symbol);
-      }
-    }
-
-    // Walk up the parent chain iteratively
-    let current = this.parent;
-    while (current !== null) {
-      for (const symbol of current.table.values()) {
-        if (symbol.kind === kind) {
-          symbols.push(symbol);
-        }
-      }
-      current = current.parent;
-    }
-
-    return symbols;
-  }
-
-  /**
-   * Get all symbols in a specific scope
-   */
-  /**
-   * Get all symbols in a specific scope
-   * Optimized: Direct traversal without intermediate array allocation
-   */
-  getSymbolsByScope(scope: SymbolScope): SymbolInfo[] {
-    const symbols: SymbolInfo[] = [];
-
-    // Add matching symbols from current scope
-    for (const symbol of this.table.values()) {
-      if (symbol.scope === scope) {
-        symbols.push(symbol);
-      }
-    }
-
-    // Walk up the parent chain iteratively
-    let current = this.parent;
-    while (current !== null) {
-      for (const symbol of current.table.values()) {
-        if (symbol.scope === scope) {
-          symbols.push(symbol);
-        }
-      }
-      current = current.parent;
-    }
-
-    return symbols;
-  }
-
-  /**
    * Clear the current scope only
    */
   clear() {
@@ -294,132 +204,6 @@ export class SymbolTable {
   dump(): Record<string, SymbolInfo> {
     return Object.fromEntries(this.table.entries());
   }
-
-  /**
-   * Method to check if a symbol is a specific type of collection
-   */
-  isCollection(name: string): boolean {
-    const info = this.get(name);
-    if (!info || !info.type) return false;
-
-    return info.type === "Array" || info.type === "Set" || info.type === "Map";
-  }
-
-  /**
-   * Method to get the specific collection type
-   */
-  getCollectionType(name: string): string | undefined {
-    const info = this.get(name);
-    if (!info) return undefined;
-    return info.type;
-  }
-
-  /**
-   * Get all symbols that are exported
-   */
-  /**
-   * Get all symbols that are exported
-   * Optimized: Direct traversal without intermediate array allocation
-   */
-  getExportedSymbols(): SymbolInfo[] {
-    const symbols: SymbolInfo[] = [];
-
-    // Add matching symbols from current scope
-    for (const symbol of this.table.values()) {
-      if (symbol.isExported) {
-        symbols.push(symbol);
-      }
-    }
-
-    // Walk up the parent chain iteratively
-    let current = this.parent;
-    while (current !== null) {
-      for (const symbol of current.table.values()) {
-        if (symbol.isExported) {
-          symbols.push(symbol);
-        }
-      }
-      current = current.parent;
-    }
-
-    return symbols;
-  }
-
-  /**
-   * Get all symbols that are imported
-   */
-  /**
-   * Get all symbols that are imported
-   * Optimized: Direct traversal without intermediate array allocation
-   */
-  getImportedSymbols(): SymbolInfo[] {
-    const symbols: SymbolInfo[] = [];
-
-    // Add matching symbols from current scope
-    for (const symbol of this.table.values()) {
-      if (symbol.isImported) {
-        symbols.push(symbol);
-      }
-    }
-
-    // Walk up the parent chain iteratively
-    let current = this.parent;
-    while (current !== null) {
-      for (const symbol of current.table.values()) {
-        if (symbol.isImported) {
-          symbols.push(symbol);
-        }
-      }
-      current = current.parent;
-    }
-
-    return symbols;
-  }
-
-  /**
-   * Find symbols by their source module
-   */
-  /**
-   * Find symbols by their source module
-   * Optimized: Direct traversal without intermediate array allocation
-   */
-  getSymbolsBySourceModule(modulePath: string): SymbolInfo[] {
-    const symbols: SymbolInfo[] = [];
-
-    // Add matching symbols from current scope
-    for (const symbol of this.table.values()) {
-      if (symbol.sourceModule === modulePath) {
-        symbols.push(symbol);
-      }
-    }
-
-    // Walk up the parent chain iteratively
-    let current = this.parent;
-    while (current !== null) {
-      for (const symbol of current.table.values()) {
-        if (symbol.sourceModule === modulePath) {
-          symbols.push(symbol);
-        }
-      }
-      current = current.parent;
-    }
-
-    return symbols;
-  }
-
-  /**
-   * Get parent scope
-   */
-  getParentScope(): SymbolTable | null {
-    return this.parent;
-  }
-
-  /**
-   * Get scope name
-   */
-  getScopeName(): string {
-    return this.scopeName;
-  }
 }
 
 /**
@@ -430,6 +214,5 @@ export class SymbolTable {
  * when context.symbolTable is provided.
  *
  * @see getSymbolTable - Use this instead for new code
- * @see createIsolatedContext - Create a context with isolated symbol table
  */
 export const globalSymbolTable = new SymbolTable(null, "global");

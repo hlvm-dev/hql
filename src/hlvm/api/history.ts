@@ -48,7 +48,7 @@ export function setReplState(state: ReplStateRef): void {
  * Create the history API object
  * Designed to be registered on globalThis for REPL access
  */
-export function createHistoryApi() {
+function createHistoryApi() {
   return {
     /**
      * List all commands in history

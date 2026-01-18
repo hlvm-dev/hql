@@ -18,22 +18,22 @@
 // ============================================================================
 
 // Config API
-export { config, createConfigApi } from "./config.ts";
+export { config } from "./config.ts";
 
 // Memory API
-export { memory, createMemoryApi } from "./memory.ts";
+export { memory } from "./memory.ts";
 
 // Session API
-export { session, createSessionApi, setSessionManager } from "./session.ts";
+export { session, setSessionManager } from "./session.ts";
 
 // History API
-export { history, createHistoryApi, setReplState } from "./history.ts";
+export { history, setReplState } from "./history.ts";
 
 // AI API
-export { ai, createAiApi } from "./ai.ts";
+export { ai } from "./ai.ts";
 
 // Runtime API
-export { runtime, createRuntimeApi, setRuntimeState, setAbortSignal, getAbortSignal } from "./runtime.ts";
+export { runtime, setRuntimeState, setAbortSignal, getAbortSignal } from "./runtime.ts";
 
 // ============================================================================
 // Initialization Helper
@@ -89,15 +89,3 @@ export function registerApis(options?: RegisterApisOptions): void {
   global.ai = ai;
   global.runtime = runtime;
 }
-
-/**
- * All API objects as a single bundle
- */
-export const apis = {
-  config,
-  memory,
-  session,
-  history,
-  ai,
-  runtime,
-};

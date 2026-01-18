@@ -96,7 +96,7 @@ export function assertSuccessWithOutput(result: CommandResult, expected: string)
  * Create a binary test with standard options
  * Reduces boilerplate: sanitizeResources/sanitizeOps are always false for subprocess tests
  */
-export function binaryTest(name: string, fn: () => Promise<void>): void {
+export function binaryTest(name: string, fn: () => void | Promise<void>): void {
   Deno.test({ name, sanitizeResources: false, sanitizeOps: false, fn });
 }
 

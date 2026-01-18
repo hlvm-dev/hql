@@ -194,18 +194,4 @@ export class CodeBuffer {
       mappings: this.mappings,
     };
   }
-
-  /**
-   * Get just the generated code string.
-   */
-  getCode(): string {
-    return this.chunks.join("");
-  }
-
-  /**
-   * Get just the source mappings.
-   */
-  getMappings(): SourceMapping[] {
-    return this.mappings;
-  }
 }

@@ -51,9 +51,6 @@ export const DEEP_FREEZE_HELPER = "__hql_deepFreeze";
 /** Runtime helper for get operations (first-class) */
 export const GET_OP_HELPER = "__hql_get_op";
 
-/** Runtime helper for consuming async iterators in await expressions */
-export const CONSUME_ASYNC_ITER_HELPER = "__hql_consume_async_iter";
-
 /** Symbol for tagged generator thunks */
 export const GEN_THUNK_SYMBOL = Symbol.for("__hql_gen_thunk");
 

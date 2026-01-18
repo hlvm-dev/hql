@@ -11,11 +11,19 @@ import {
   type RestPattern,
   type SkipPattern,
 } from "../../src/hql/s-exp/types.ts";
-import {
-  parseArrayPattern,
-  parseIdentifierPattern,
-  parsePattern,
-} from "../../src/hql/s-exp/pattern-parser.ts";
+import { parsePattern } from "../../src/hql/s-exp/pattern-parser.ts";
+
+// Helper to parse array patterns (uses exported parsePattern)
+function parseArrayPattern(exp: ReturnType<typeof createList>): ArrayPattern {
+  return parsePattern(exp) as ArrayPattern;
+}
+
+// Helper to parse identifier patterns (uses exported parsePattern)
+function parseIdentifierPattern(
+  exp: ReturnType<typeof createSymbol>,
+): IdentifierPattern {
+  return parsePattern(exp) as IdentifierPattern;
+}
 
 // ============================================================================
 // POSITIVE CASES - Valid Array Patterns

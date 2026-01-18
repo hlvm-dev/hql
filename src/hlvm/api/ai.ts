@@ -43,7 +43,7 @@ interface AiOptions extends GenerateOptions {
  * Create the AI API object
  * Designed to be registered on globalThis for REPL access
  */
-export function createAiApi() {
+function createAiApi() {
   /**
    * Get the provider for a given model string
    */

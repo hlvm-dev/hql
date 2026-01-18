@@ -55,7 +55,7 @@ export type MemoryCallable = MemoryApi & (() => Promise<MemorySummary>);
  * Create the memory API object
  * Designed to be registered on globalThis for REPL access
  */
-export function createMemoryApi(): MemoryCallable {
+function createMemoryApi(): MemoryCallable {
   const api: MemoryApi = {
     /**
      * Load memory definitions from file

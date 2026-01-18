@@ -37,7 +37,7 @@ import { syncProvidersFromConfig } from "../../common/config/provider-sync.ts";
  * Create the config API object
  * This is designed to be registered on globalThis for REPL access
  */
-export function createConfigApi() {
+function createConfigApi() {
   /**
    * Internal reference to current config
    * Updated on load/save operations

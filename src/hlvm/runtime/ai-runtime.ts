@@ -140,18 +140,3 @@ export async function initAIRuntime(): Promise<void> {
   // Start AI engine
   await startAIEngine();
 }
-
-/**
- * Shutdown AI runtime
- * Call this when CLI exits
- */
-export function shutdownAIRuntime(): void {
-  if (aiProcess) {
-    try {
-      aiProcess.kill?.("SIGTERM");
-      aiProcess = null;
-    } catch {
-      // Ignore shutdown errors
-    }
-  }
-}

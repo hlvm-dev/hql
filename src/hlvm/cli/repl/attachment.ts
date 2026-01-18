@@ -233,7 +233,7 @@ export function getDisplayName(type: AttachmentType, id: number): string {
 /**
  * Format file size for display
  */
-export function formatFileSize(bytes: number): string {
+function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -243,7 +243,7 @@ export function formatFileSize(bytes: number): string {
 /**
  * Get size limit for attachment type
  */
-export function getSizeLimit(type: AttachmentType): number {
+function getSizeLimit(type: AttachmentType): number {
   return SIZE_LIMITS[type];
 }
 

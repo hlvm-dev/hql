@@ -13,7 +13,6 @@ interface ScrapedModelVariant {
   parameters: string;
   size: string;
   context: string;
-  vision: boolean;
 }
 
 interface ScrapedModel {

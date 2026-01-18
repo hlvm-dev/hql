@@ -471,36 +471,6 @@ export function missingError(
 }
 
 /**
- * Create an error for invalid identifier.
- * 
- * @param context - Where the error occurred
- * @param identifier - The invalid identifier
- * @param reason - Why it's invalid (optional)
- * @param position - Optional source position
- * @returns ValidationError
- * 
- * @example
- * throw invalidIdentifierError("variable name", "123abc", "cannot start with number", position);
- */
-export function invalidIdentifierError(
-  context: string,
-  identifier: string,
-  reason?: string,
-  position?: IR.SourcePosition,
-): ValidationError {
-  const msg = reason
-    ? `Invalid identifier "${identifier}" in ${context}: ${reason}`
-    : `Invalid identifier "${identifier}" in ${context}`;
-  return new ValidationError(
-    msg,
-    context,
-    "valid identifier",
-    `"${identifier}"`,
-    position,
-  );
-}
-
-/**
  * Create an error for unsupported operation.
  * 
  * @param context - Where the error occurred

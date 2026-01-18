@@ -180,92 +180,9 @@ function isValidTypeChar(c: string): boolean {
   return VALID_TYPE_CHAR_REGEX.test(c);
 }
 
-/**
- * Scan balanced brackets/braces from a starting position.
- * Handles both angle brackets (<>) and braces ({}) for type annotations.
- * This handles cases like `x:Record<string,number>` or `x:Map<string,{id:number}>`
- * where delimiters would normally split the symbol.
- *
- * @param input - The full input string
- * @param cursor - Position after the initial symbol match
- * @param angleDepth - Current angle bracket depth (positive means unbalanced '<')
- * @param braceDepth - Current brace depth (positive means unbalanced '{')
- * @returns Additional characters to append to the symbol, or empty string if none
- */
-export function scanBalancedBrackets(
-  input: string,
-  cursor: number,
-  angleDepth: number,
-  braceDepth: number = 0,
-): string {
-  if (angleDepth <= 0 && braceDepth <= 0) return "";
-
-  let result = "";
-  let pos = cursor;
-
-  while (pos < input.length && (angleDepth > 0 || braceDepth > 0)) {
-    const c = input[pos];
-
-    // Stop at delimiters that close the containing context
-    if (c === ")" || c === "]") break;
-
-    // Track bracket depths
-    if (c === "<") {
-      angleDepth++;
-      result += c;
-      pos++;
-    } else if (c === ">") {
-      angleDepth--;
-      result += c;
-      pos++;
-    } else if (c === "{") {
-      braceDepth++;
-      result += c;
-      pos++;
-    } else if (c === "}") {
-      braceDepth--;
-      result += c;
-      pos++;
-    } else if (isValidTypeChar(c)) {
-      result += c;
-      pos++;
-    } else {
-      // Invalid character for type parameter, stop
-      break;
-    }
-
-    // If balanced, check for trailing []
-    if (angleDepth === 0 && braceDepth === 0) {
-      if (pos + 1 < input.length && input[pos] === "[" && input[pos + 1] === "]") {
-        result += "[]";
-        pos += 2;
-      }
-      break;
-    }
-  }
-
-  return result;
-}
-
 // ============================================================================
 // TYPE TOKENIZATION
 // ============================================================================
-
-/**
- * Check if a symbol value looks like it contains a type annotation.
- * Used to determine whether to apply type scanning logic.
- *
- * @param value - Symbol value to check
- * @returns True if the value appears to contain a type annotation
- */
-export function looksLikeTypeAnnotation(value: string): boolean {
-  // Contains a colon (type annotation separator)
-  if (value.includes(":")) return true;
-  // Starts with identifier followed by angle bracket (generic)
-  // Uses pre-compiled module-level regex for performance
-  if (GENERIC_TYPE_LOOKAHEAD_REGEX.test(value)) return true;
-  return false;
-}
 
 /**
  * Tokenize a TypeScript type annotation from source string.

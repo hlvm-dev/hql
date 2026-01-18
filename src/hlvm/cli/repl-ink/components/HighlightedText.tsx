@@ -42,7 +42,7 @@ export interface HighlightedTextProps {
  * Split text into segments based on match indices.
  * Returns alternating normal/highlighted segments for rendering.
  */
-export function splitByIndices(text: string, indices: readonly number[]): TextSegment[] {
+function splitByIndices(text: string, indices: readonly number[]): TextSegment[] {
   if (!indices.length) {
     return [{ text, highlighted: false }];
   }

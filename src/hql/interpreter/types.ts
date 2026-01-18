@@ -9,13 +9,10 @@ import { MAX_SEQ_LENGTH } from "../../common/limits.ts";
  */
 export interface InterpreterEnv {
   lookup(name: string): HQLValue;
-  tryLookup(name: string): HQLValue | undefined;
   define(name: string, value: HQLValue): void;
   extend(): InterpreterEnv;
   isDefined(name: string): boolean;
-  getBindings(): Map<string, HQLValue>;
   getParent(): InterpreterEnv | null;
-  getDepth(): number;
 }
 
 /**

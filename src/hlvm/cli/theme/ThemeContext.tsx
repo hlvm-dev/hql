@@ -126,7 +126,7 @@ export function useTheme(): ThemeContextValue {
  * const primary = useThemeColor("primary");
  * ```
  */
-export function useThemeColor(key: keyof ThemePalette): string {
+function useThemeColor(key: keyof ThemePalette): string {
   const { color } = useTheme();
   return color(key);
 }

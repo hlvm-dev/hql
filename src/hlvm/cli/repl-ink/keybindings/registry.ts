@@ -52,20 +52,6 @@ class KeybindingRegistry {
   }
 
   /**
-   * Get keybindings grouped by category.
-   */
-  getByCategory(): ReadonlyMap<KeybindingCategory, readonly Keybinding[]> {
-    return this.byCategory;
-  }
-
-  /**
-   * Get keybindings for a specific category.
-   */
-  getCategory(category: KeybindingCategory): readonly Keybinding[] {
-    return this.byCategory.get(category) ?? [];
-  }
-
-  /**
    * Fuzzy search keybindings.
    * Searches label, description, and display string.
    *
@@ -130,14 +116,6 @@ class KeybindingRegistry {
     }
 
     return sections.join("\n\n");
-  }
-
-  /**
-   * Clear all keybindings (for testing).
-   */
-  clear(): void {
-    this.bindings = [];
-    this.byCategory.clear();
   }
 }
 

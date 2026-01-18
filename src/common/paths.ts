@@ -119,13 +119,6 @@ export function getRuntimeDir(): string {
 }
 
 /**
- * Get the Ollama binary path (~/.hlvm/.runtime/ollama)
- */
-export function getOllamaBinaryPath(): string {
-  return join(getRuntimeDir(), "ollama");
-}
-
-/**
  * Get the history file path (~/.hlvm/history.jsonl)
  * JSONL format: one JSON entry per line for append-only operations
  */
@@ -157,22 +150,9 @@ export function ensureHlvmDirSync(): void {
 }
 
 /**
- * Ensure the sessions directory exists
- */
-export async function ensureSessionsDir(): Promise<void> {
-  await getPlatform().fs.mkdir(getSessionsDir(), { recursive: true });
-}
-
-/**
  * Ensure the runtime directory exists
  */
 export async function ensureRuntimeDir(): Promise<void> {
   await getPlatform().fs.mkdir(getRuntimeDir(), { recursive: true });
 }
 
-/**
- * Reset cached paths (useful for testing)
- */
-export function resetPathCache(): void {
-  _hlvmDir = null;
-}

@@ -26,7 +26,7 @@ export function getAbortSignal(): AbortSignal | null {
   return abortSignal;
 }
 
-export function createRuntimeApi() {
+function createRuntimeApi() {
   return {
     get abortSignal(): AbortSignal | null {
       return abortSignal;

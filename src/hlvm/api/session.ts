@@ -57,7 +57,7 @@ export function setSessionManager(manager: SessionManagerRef): void {
  * Create the session API object
  * Designed to be registered on globalThis for REPL access
  */
-export function createSessionApi() {
+function createSessionApi() {
   return {
     /**
      * List all sessions (global)

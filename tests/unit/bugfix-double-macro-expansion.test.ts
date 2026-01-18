@@ -13,23 +13,18 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1";
 import { run } from "./helpers.ts";
 import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
-import { shutdownAIRuntime } from "../../src/hlvm/runtime/ai-runtime.ts";
 
 Deno.test("Bugfix #1: Built-in macros compile correctly after fix", async () => {
-  try {
-    // Test that built-in macros (when, unless, cond) work correctly
-    // This ensures we didn't break macro expansion by removing the second pass
+  // Test that built-in macros (when, unless, cond) work correctly
+  // This ensures we didn't break macro expansion by removing the second pass
 
-    const code = `
+  const code = `
 (when true
   (+ 1 2))
 `;
 
-    const result = await run(code);
-    assertEquals(result, 3, "when macro should expand correctly");
-  } finally {
-    await shutdownAIRuntime();
-  }
+  const result = await run(code);
+  assertEquals(result, 3, "when macro should expand correctly");
 });
 
 Deno.test("Bugfix #1: Multiple macro uses work correctly", async () => {

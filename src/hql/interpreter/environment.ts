@@ -59,40 +59,6 @@ export class InterpreterEnv {
   }
 
   /**
-   * Try to look up a symbol, returning undefined if not found
-   * (No exception thrown)
-   */
-  /**
-   * Try to look up a symbol, returning undefined if not found
-   * (No exception thrown)
-   * Optimized: Uses iterative traversal instead of try/catch
-   */
-  tryLookup(name: string): HQLValue | undefined {
-    // Check current scope first - single lookup
-    const value = this.bindings.get(name);
-    if (value !== undefined) {
-      return value;
-    }
-
-    // Try hyphen-to-underscore conversion (for kebab-case compatibility)
-    // Only perform conversion if the name contains a hyphen (avoid unnecessary work)
-    if (name.includes('-')) {
-      const underscoreName = hyphenToUnderscore(name);
-      const underscoreValue = this.bindings.get(underscoreName);
-      if (underscoreValue !== undefined) {
-        return underscoreValue;
-      }
-    }
-
-    // Traverse parent chain iteratively
-    if (this.parent) {
-      return this.parent.tryLookup(name);
-    }
-
-    return undefined;
-  }
-
-  /**
    * Define a binding in the current scope
    * If the name already exists in current scope, it is overwritten
    */
@@ -132,29 +98,9 @@ export class InterpreterEnv {
   }
 
   /**
-   * Get all bindings in current scope (for debugging)
-   */
-  getBindings(): Map<string, HQLValue> {
-    return new Map(this.bindings);
-  }
-
-  /**
    * Get the parent environment (for debugging)
    */
   getParent(): InterpreterEnv | null {
     return this.parent;
-  }
-
-  /**
-   * Get depth of scope chain (for debugging/limits)
-   */
-  getDepth(): number {
-    let depth = 1; // Count this environment
-    let env = this.parent;
-    while (env) {
-      depth++;
-      env = env.parent;
-    }
-    return depth;
   }
 }

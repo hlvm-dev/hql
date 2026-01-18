@@ -357,49 +357,6 @@ export function registerTypeAlias(
 }
 
 /**
- * Register a namespace import in the symbol table.
- *
- * @param name - The namespace name
- * @param sourceModule - The source module path
- * @param importedInFile - The file that imported this namespace
- *
- * @example
- * registerNamespace("utils", "./utils.hql", "/path/to/main.hql");
- */
-export function registerNamespace(
-  name: string,
-  sourceModule: string,
-  importedInFile?: string,
-): void {
-  globalSymbolTable.set({
-    name,
-    kind: "namespace",
-    scope: "module",
-    isImported: true,
-    sourceModule,
-    meta: importedInFile ? { importedInFile } : undefined,
-  });
-}
-
-/**
- * Register a special form in the symbol table.
- *
- * @param name - The special form name (e.g., "if", "let", "fn")
- *
- * @example
- * registerSpecialForm("if");
- * registerSpecialForm("let");
- */
-export function registerSpecialForm(name: string): void {
-  globalSymbolTable.set({
-    name,
-    kind: "special-form",
-    scope: "global",
-    meta: { isCore: true },
-  });
-}
-
-/**
  * Batch register symbols with a common configuration.
  *
  * @param symbols - Array of symbol configurations

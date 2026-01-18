@@ -109,18 +109,3 @@ export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
     return defaultInfo;
   }
 }
-
-/**
- * Get cached model info synchronously (if available)
- */
-export function getCachedModelInfo(modelName: string): ModelInfo | undefined {
-  const displayName = extractModelName(modelName);
-  return modelInfoCache.get(displayName);
-}
-
-/**
- * Clear model info cache
- */
-export function clearModelInfoCache(): void {
-  modelInfoCache.clear();
-}
