@@ -15,33 +15,21 @@ import { walk } from "jsr:@std/fs/walk";
 import { join, relative } from "jsr:@std/path";
 
 // ============================================================================
-// Migration Allowlist (Temporary)
+// Console Allowlist (Permanent Special Cases)
 // ============================================================================
-// Files currently being migrated to SSOT. Remove files as they are migrated.
-// This allows strict CI enforcement while providing a path to compliance.
+// Files that legitimately need direct console access for technical reasons.
+// See docs/SSOT-CONTRACT.md for details on each exception.
 
-const MIGRATION_ALLOWLIST = {
-  console: [
-    // === Batch 1: MIGRATED ===
-    // === Batch 2: MIGRATED (except special cases below) ===
-    // Special: Bootstrap guard (typeof console !== "undefined")
-    "src/common/known-identifiers.ts",
-    // Special: Crash handler hook (intentionally hooks console.error)
-    "src/common/runtime-error-handler.ts",
-    // Special: Stringified runtime helper (cannot use imports)
-    "src/common/runtime-helper-impl.ts",
-
-    // === Batch 3: MIGRATED (except special cases below) ===
-    // Special: DEBUG-gated console.log for source map debugging (HLVM_DEBUG_ERROR=1)
-    "src/hql/transpiler/pipeline/source-map-support.ts",
-
-    // === Batch 4: MIGRATED ===
-    // === Batch 5: MIGRATED ===
-    // === Batch 6: MIGRATED ===
-    // === Batch 7: MIGRATED ===
-    // === Batch 8: MIGRATED ===
-  ],
-};
+const CONSOLE_ALLOWLIST = [
+  // Bootstrap guard: typeof console !== "undefined" check
+  "src/common/known-identifiers.ts",
+  // Crash handler: intentionally hooks console.error for error reporting
+  "src/common/runtime-error-handler.ts",
+  // Stringified runtime helper: cannot use imports in stringified code
+  "src/common/runtime-helper-impl.ts",
+  // DEBUG-gated: console.log only when HLVM_DEBUG_ERROR=1
+  "src/hql/transpiler/pipeline/source-map-support.ts",
+];
 
 // ============================================================================
 // Rule Definitions
@@ -63,7 +51,7 @@ const RULES: Rule[] = [
     allowedPaths: [
       "src/logger.ts",
       "src/hlvm/api/log.ts",
-      ...MIGRATION_ALLOWLIST.console, // Temporary: remove as files are migrated
+      ...CONSOLE_ALLOWLIST,
     ],
     // Note: log.ts uses console.* internally - this is the SSOT implementation
     excludePatterns: [
