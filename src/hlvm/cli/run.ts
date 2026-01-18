@@ -3,6 +3,7 @@
 import { run as hqlRun, runFile } from "../../../mod.ts";
 import { transpileCLI } from "../../hql/bundler.ts"; // Import bundler for hybrid execution
 import { globalLogger as logger, Logger } from "../../logger.ts";
+import { log } from "../api/log.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { createTempDir, getCachedPath } from "../../common/hlvm-cache-tracker.ts";
 import {
@@ -41,29 +42,29 @@ const PRINT_COMMAND_PREFIXES = new Set([
  * Print CLI usage information
  */
 function printHelp(): void {
-  console.error(
+  log.raw.error(
     "Usage: hlvm run <target.hql|target.js> [options]",
   );
-  console.error("       hlvm run '<expression>' [options]");
-  console.error("\nOptions:");
-  console.error(
+  log.raw.error("       hlvm run '<expression>' [options]");
+  log.raw.error("\nOptions:");
+  log.raw.error(
     "  --verbose             Enable verbose logging and enhanced error formatting",
   );
-  console.error("  --time                Show performance timing information");
-  console.error(
+  log.raw.error("  --time                Show performance timing information");
+  log.raw.error(
     "  --log <namespaces>    Filter logging to specified namespaces",
   );
-  console.error(
+  log.raw.error(
     "  --print               Print final JS output without executing",
   );
-  console.error(
+  log.raw.error(
     "  --debug               Show detailed debug information and stack traces",
   );
-  console.error("  --help, -h            Display this help message");
-  console.error("\nExamples:");
-  console.error("  hlvm run '(+ 1 1)'        # Auto-prints: 2");
-  console.error("  hlvm run '(* 5 6)'        # Auto-prints: 30");
-  console.error("  hlvm run hello.hql        # Run file");
+  log.raw.error("  --help, -h            Display this help message");
+  log.raw.error("\nExamples:");
+  log.raw.error("  hlvm run '(+ 1 1)'        # Auto-prints: 2");
+  log.raw.error("  hlvm run '(* 5 6)'        # Auto-prints: 30");
+  log.raw.error("  hlvm run hello.hql        # Run file");
 }
 
 /**
@@ -179,7 +180,7 @@ async function executeHql(
 
       // Auto-print single expressions if they don't already print
       if (shouldAutoPrint(input) && result !== undefined) {
-        console.log(result);
+        log.raw.log(result);
       }
     } else {
       // Execute file
@@ -253,7 +254,7 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
 
     if (namespaces.length) {
       Logger.setAllowedNamespaces(namespaces);
-      console.log(`Logging restricted to namespaces: ${namespaces.join(", ")}`);
+      log.raw.log(`Logging restricted to namespaces: ${namespaces.join(", ")}`);
     }
 
     const positional = parseNonOptionArgs(args);
@@ -268,7 +269,7 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
     if (args.includes("--debug")) {
       cliOptions.debug = true;
       updateErrorConfig({ debug: true, showInternalErrors: true });
-      console.log("Debug mode enabled - showing extended error information");
+      log.raw.log("Debug mode enabled - showing extended error information");
     }
 
     logger.startTiming("run", "Total Processing");

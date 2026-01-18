@@ -37,10 +37,7 @@ const MIGRATION_ALLOWLIST = {
 
     // === Batch 4: MIGRATED ===
     // === Batch 5: MIGRATED ===
-
-    // === Batch 6: CLI Root (2 files, ~23 calls) ===
-    "src/hlvm/cli/cli.ts",
-    "src/hlvm/cli/run.ts",
+    // === Batch 6: MIGRATED ===
 
     // === Batch 7: Publish (7 files, ~58 calls) ===
     "src/hlvm/cli/publish/build_js_module.ts",

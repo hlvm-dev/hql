@@ -5,6 +5,7 @@
  */
 
 import { getPlatform } from "../../platform/platform.ts";
+import { log } from "../api/log.ts";
 
 // Local alias for platform getArgs
 const platformGetArgs = () => getPlatform().process.args();
@@ -32,7 +33,7 @@ import { VERSION } from "../../version.ts";
 async function replCommand(args: string[]): Promise<number> {
   // Handle help
   if (args.includes("--help") || args.includes("-h")) {
-    console.log(`
+    log.raw.log(`
 HLVM REPL - Interactive HQL/JS Read-Eval-Print Loop
 
 USAGE:
@@ -72,7 +73,7 @@ EXAMPLES:
 
   // Handle version
   if (args.includes("--version")) {
-    console.log(`HLVM REPL v${VERSION}`);
+    log.raw.log(`HLVM REPL v${VERSION}`);
     return 0;
   }
 
@@ -116,7 +117,7 @@ EXAMPLES:
 
   if (!hasTty) {
     if (forceInk) {
-      console.error("Error: Requires interactive terminal.");
+      log.raw.error("Error: Requires interactive terminal.");
       return 1;
     }
     return await startHeadlessRepl({ jsMode, showBanner });
@@ -135,7 +136,7 @@ EXAMPLES:
  * Display main CLI help
  */
 function showHelp(): void {
-  console.log(`
+  log.raw.log(`
 HLVM - Runtime platform for HQL and JavaScript
 
 Usage: hlvm <command> [options]
@@ -170,7 +171,7 @@ For command-specific help:
  * Show version information
  */
 function showVersion(): void {
-  console.log(`HLVM version ${VERSION}`);
+  log.raw.log(`HLVM version ${VERSION}`);
 }
 
 /**
@@ -275,7 +276,7 @@ async function main(): Promise<void> {
 // Run if executed directly
 if (import.meta.main) {
   main().catch((error) => {
-    console.error("Error:", error.message);
+    log.raw.error("Error:", error.message);
     getPlatform().process.exit(1);
   });
 }
