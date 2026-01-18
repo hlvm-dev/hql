@@ -7,6 +7,7 @@ const join = (...paths: string[]) => p().path.join(...paths);
 const platformMkdir = (path: string) => p().fs.mkdir(path);
 const platformWriteTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
 import { globalLogger as logger } from "../../../logger.ts";
+import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import {
   detectMetadataFiles,
@@ -75,7 +76,7 @@ export async function publishJSR(
       publishCmd.push("--allow-dirty");
     }
 
-    console.log(`\n🚀 Publishing to JSR...`);
+    log.raw.log(`\n🚀 Publishing to JSR...`);
     
     const result = await executeCommand({
       cmd: publishCmd,
@@ -90,7 +91,7 @@ export async function publishJSR(
 
     // Generate link (placeholder for now)
     link = `https://jsr.io/${name}@${version}`;
-    console.log(`\n✅ JSR publish completed successfully!`);
+    log.raw.log(`\n✅ JSR publish completed successfully!`);
 
     return {
       registry: "jsr",

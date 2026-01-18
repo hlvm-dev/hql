@@ -13,6 +13,7 @@ const stat = (path: string) => p().fs.stat(path);
 const writeTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
 import { exists } from "jsr:@std/fs@1.0.13";
 import { globalLogger as logger } from "../../../logger.ts";
+import { log } from "../../api/log.ts";
 import { checkForHqlImports, getErrorMessage } from "../../../common/utils.ts";
 import {
   isHqlFile,
@@ -36,7 +37,7 @@ async function removeBuildDirectory(
     }
   } catch (error) {
     // Log but don't fail the build process if cleanup fails
-    console.warn(
+    log.raw.warn(
       `\n⚠️ Failed to clean up build directory: ${
         getErrorMessage(error)
       }`,
@@ -58,7 +59,7 @@ async function checkIsFile(
     }
     return isFile;
   } catch (error) {
-    console.error(
+    log.raw.error(
       `\n❌ Error accessing path: ${
         getErrorMessage(error)
       }`,
@@ -81,7 +82,7 @@ async function createBuildDirectories(
       logger.debug(`Using distribution directory: ${distDir}`);
     }
   } catch (error) {
-    console.error(
+    log.raw.error(
       `\n❌ Failed to create directories: ${
         getErrorMessage(error)
       }`,
@@ -130,14 +131,14 @@ async function bundleSourceFile(
   jsOutputPath: string,
   verbose?: boolean,
 ): Promise<{ externals?: string[] }> {
-  console.log(`\n🔨 Transpiling and bundling ${absoluteInputPath}...`);
+  log.raw.log(`\n🔨 Transpiling and bundling ${absoluteInputPath}...`);
 
   try {
     const result = await processSourceFile(absoluteInputPath, jsOutputPath, verbose);
-    console.log(`✅ Successfully bundled to ${jsOutputPath}`);
+    log.raw.log(`✅ Successfully bundled to ${jsOutputPath}`);
     return result;
   } catch (error) {
-    console.error(
+    log.raw.error(
       `\n❌ Bundling failed: ${
         getErrorMessage(error)
       }`,
@@ -170,7 +171,7 @@ async function prepareDistributionFiles(
         logger.debug(`Copied JS bundle to ${esmIndexPath}`);
       }
     } else {
-      console.warn(
+      log.raw.warn(
         `\n⚠️ Transpiled output file not found. Package may be incomplete.`,
       );
     }
@@ -216,7 +217,7 @@ async function prepareDistributionFiles(
       }
     }
   } catch (error) {
-    console.error(
+    log.raw.error(
       `\n❌ Error preparing distribution files: ${
         getErrorMessage(error)
       }`,
@@ -252,7 +253,7 @@ async function rewriteExternalSpecifiers(
       }
     }
   } catch (error) {
-    console.warn(
+    log.raw.warn(
       `\n⚠️ Failed to normalize module specifiers in ${filePath}: ${
         getErrorMessage(error)
       }`,
@@ -297,11 +298,11 @@ export async function buildJsModule(
       externals,
     );
 
-    console.log(`\n✅ Module build completed successfully in ${distDir}`);
+    log.raw.log(`\n✅ Module build completed successfully in ${distDir}`);
 
     return distDir;
   } catch (error) {
-    console.error(
+    log.raw.error(
       `\n❌ Module build failed: ${
         getErrorMessage(error)
       }`,

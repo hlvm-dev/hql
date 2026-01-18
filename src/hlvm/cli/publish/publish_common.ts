@@ -21,6 +21,7 @@ import {
   type HlvmProjectConfig,
 } from "./utils.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
+import { log } from "../../api/log.ts";
 
 // Common interfaces for publishing options - Single Source of Truth
 export interface PublishOptions {
@@ -177,7 +178,7 @@ export async function attemptPublish(
   const { distDir, packageName, config, dryRun, verbose, metadataType } =
     context;
 
-  console.log(
+  log.raw.log(
     `\n🚀 Publishing ${packageName}@${currentVersion} to ${publisher.registryName}...`,
   );
 
@@ -187,7 +188,7 @@ export async function attemptPublish(
   // Visualize the files to be published
   const highlightFiles = ["esm/index.js", "types/index.d.ts"];
   const tree = await visualizeTree(distDir, highlightFiles);
-  console.log(tree);
+  log.raw.log(tree);
 
   let publishResult = await publisher.runPublish(distDir, { dryRun, verbose });
 
@@ -211,7 +212,7 @@ export async function attemptPublish(
   }
 
   if (publishResult.success) {
-    console.log(
+    log.raw.log(
       `\n✅ Successfully published ${packageName}@${currentVersion} to ${publisher.registryName}`,
     );
     await publisher.updateMetadata(distDir, currentVersion, config);
@@ -254,7 +255,7 @@ export async function attemptPublish(
     return attemptPublish(context, userInput, attempt + 1, publisher);
   }
 
-  console.error(
+  log.raw.error(
     `\n❌ ${publisher.registryName.toUpperCase()} publish failed: ${errorAnalysis.message}`,
   );
   return {
@@ -274,14 +275,14 @@ export async function publishPackage(
   publisher: RegistryPublisher,
 ): Promise<PublishSummary> {
   try {
-    console.log(`\n🔨 Building module from "${options.entryFile}"...`);
+    log.raw.log(`\n🔨 Building module from "${options.entryFile}"...`);
     const distDir = await getCachedBuild(options.entryFile, {
       verbose: options.verbose,
       dryRun: options.dryRun,
     });
-    console.log(`  → Module built successfully to: ${distDir}`);
+    log.raw.log(`  → Module built successfully to: ${distDir}`);
 
-    console.log(
+    log.raw.log(
       `\n📝 Configuring ${publisher.registryName.toUpperCase()} package...`,
     );
     const { packageName, packageVersion, config: newConfig } = await publisher
@@ -290,7 +291,7 @@ export async function publishPackage(
     await ensureReadme(distDir, newConfig);
 
     if (options.dryRun) {
-      console.log(
+      log.raw.log(
         `\n🔍 Dry run mode - package ${packageName}@${packageVersion} would be published to ${publisher.registryName.toUpperCase()}`,
       );
 
@@ -317,7 +318,7 @@ export async function publishPackage(
     return await attemptPublish(context, packageVersion, 0, publisher);
   } catch (error) {
     const errorMessage = getErrorMessage(error);
-    console.error(
+    log.raw.error(
       `\n❌ ${publisher.registryName.toUpperCase()} publish failed: ${errorMessage}`,
     );
     return {

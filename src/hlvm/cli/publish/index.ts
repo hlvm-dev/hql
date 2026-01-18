@@ -11,6 +11,7 @@ import { publishNpm } from "./publish_npm.ts";
 import { publishJSR } from "./publish_jsr.ts";
 import { printPublishSummary, type PublishSummary } from "./publish_summary.ts";
 import { globalLogger as logger } from "../../../logger.ts";
+import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { SEMVER_REGEX } from "../commands/shared.ts";
 import {
@@ -28,7 +29,7 @@ export type { PublishOptions } from "./publish_common.ts";
 import type { PublishOptions } from "./publish_common.ts";
 
 function showHelp() {
-  console.log(`
+  log.raw.log(`
 HLVM Publish Tool - Publish HLVM modules to NPM or JSR
 
 USAGE:
@@ -81,7 +82,7 @@ function parsePublishArgs(args: string[]): PublishOptions {
   });
 
   if (parsed._.length === 0) {
-    console.error(
+    log.raw.error(
       "\n❌ Error: Missing entry file path. You must specify the module's entry .hql file.",
     );
     showHelp();
@@ -104,7 +105,7 @@ function parsePublishArgs(args: string[]): PublishOptions {
   }
 
   if (version && !SEMVER_REGEX.test(version)) {
-    console.error(`\n❌ Invalid version format: ${version}. Expected "X.Y.Z"`);
+    log.raw.error(`\n❌ Invalid version format: ${version}. Expected "X.Y.Z"`);
     exit(1);
   }
 
@@ -133,7 +134,7 @@ function printPublishInfo(
     ? "Using existing metadata"
     : "Will create metadata";
 
-  console.log(`
+  log.raw.log(`
 🚀 Preparing to publish your HLVM module!
   Entry file: "${entryFile}"
   Version: ${options.version ? options.version : "(auto-determined)"}
@@ -150,7 +151,7 @@ function buildFailureSummary(
   error: unknown,
 ): PublishSummary {
   const errorMessage = getErrorMessage(error);
-  console.error(
+  log.raw.error(
     `\n❌ ${registry.toUpperCase()} publish failed: ${errorMessage}`,
   );
 
@@ -168,7 +169,7 @@ async function publishToRegistry(
   options: PublishOptions,
   metadataType: MetadataFileType | null,
 ): Promise<PublishSummary> {
-  console.log(
+  log.raw.log(
     `\n📦 Starting ${registry.toUpperCase()} package publishing process`,
   );
 
@@ -195,7 +196,7 @@ async function migrateLegacyProjectConfig(moduleDir: string): Promise<void> {
   }
   const legacyConfig = await readJSONFile(legacyPath);
   await writeJSONFile(configPath, legacyConfig as Record<string, unknown>);
-  console.log(`✅ Migrated ${legacyPath} to ${configPath}`);
+  log.raw.log(`✅ Migrated ${legacyPath} to ${configPath}`);
 }
 
 export async function publish(args: string[]): Promise<void> {
@@ -213,7 +214,7 @@ export async function publish(args: string[]): Promise<void> {
     // Read config from hlvm.json
     const configPath = `${moduleDir}/hlvm.json`;
     if (!await exists(configPath)) {
-      console.error(
+      log.raw.error(
         `\n❌ hlvm.json not found in entry file directory: ${moduleDir}`,
       );
       exit(1);
@@ -221,7 +222,7 @@ export async function publish(args: string[]): Promise<void> {
     const config = (await readJSONFile(configPath)) as unknown as HlvmProjectConfig;
 
     if (!await exists(options.entryFile)) {
-      console.error(`\n❌ Entry file not found: ${options.entryFile}`);
+      log.raw.error(`\n❌ Entry file not found: ${options.entryFile}`);
       exit(1);
     }
 
@@ -253,12 +254,12 @@ export async function publish(args: string[]): Promise<void> {
     if (allFailed) {
       exit(1);
     } else if (summaries.some((summary) => summary.link.startsWith("❌"))) {
-      console.log(
+      log.raw.log(
         "\n⚠️ Some publishing operations failed. Check the summary for details.",
       );
     }
   } catch (error) {
-    console.error(
+    log.raw.error(
       `\n❌ Publish failed: ${
         getErrorMessage(error)
       }`,

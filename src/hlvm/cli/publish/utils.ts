@@ -10,6 +10,7 @@ const readDir = (path: string) => p().fs.readDir(path);
 const runCmd = (cmd: string[]) => p().command.run(cmd);
 const dirname = (path: string) => p().path.dirname(path);
 import { globalLogger as logger } from "../../../logger.ts";
+import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { buildJsModule } from "./build_js_module.ts";
 import { ANSI_COLORS } from "../ansi.ts";
@@ -207,7 +208,7 @@ Edit this file (\`README.md\`) to add your own project description, usage exampl
 
   try {
     await writeTextFile(readmePath, template);
-    console.log("Created README.md template.");
+    log.raw.log("Created README.md template.");
   } catch (error) {
     logger.warn(`Failed to create README.md: ${getErrorMessage(error)}`);
   }
@@ -288,7 +289,7 @@ export function promptUser(
     ? `${message} (${defaultValue}):`
     : `${message}:`;
 
-  console.log(promptMessage);
+  log.raw.log(promptMessage);
 
   const input = prompt("> ") ?? "";
   return Promise.resolve(input.trim() || defaultValue);
@@ -383,7 +384,7 @@ export async function resolveNextPublishVersion(
 
     if (comparison < 0) {
       const suggested = incrementPatchVersionFn(localVersion);
-      console.warn(
+      log.raw.warn(
         `  → Warning: Remote ${registryName} version (${remoteVersion}) is lower than local version (${localVersion}).`,
       );
       return await promptUserFn(
@@ -420,11 +421,11 @@ export async function updateSourceMetadataFiles(
         const sourceConfig = await readJSONFile(sourceMetaPath);
         sourceConfig.version = version;
         await writeJSONFile(sourceMetaPath, sourceConfig);
-        console.log(
+        log.raw.log(
           `  → Updated source ${metaFile} file with version ${version}`,
         );
       } catch (e) {
-        console.warn(`  → Warning: Could not update source ${metaFile}: ${getErrorMessage(e)}`);
+        log.raw.warn(`  → Warning: Could not update source ${metaFile}: ${getErrorMessage(e)}`);
       }
     }
   }

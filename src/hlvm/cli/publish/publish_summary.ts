@@ -1,3 +1,5 @@
+import { log } from "../../api/log.ts";
+
 export type RegistryType = "npm" | "jsr";
 
 export interface PublishSummary {
@@ -45,16 +47,16 @@ export function printPublishSummary(summaries: PublishSummary[]) {
   const pad = Math.max(0, Math.floor((tableWidth - title.length) / 2));
   const centeredTitle = " ".repeat(pad) + title + " ".repeat(pad);
 
-  console.log("\n" + centeredTitle + "\n");
-  console.log(top);
-  console.log(row(["Registry", "Name", "Version", "Status", "Link/Error"]));
-  console.log(sep);
+  log.raw.log("\n" + centeredTitle + "\n");
+  log.raw.log(top);
+  log.raw.log(row(["Registry", "Name", "Version", "Status", "Link/Error"]));
+  log.raw.log(sep);
 
   for (const s of summaries) {
     const status = s.link.startsWith("❌") ? "❌" : "✅";
     const link = s.link.startsWith("❌") ? s.link.substring(2).trim() : s.link;
 
-    console.log(row([
+    log.raw.log(row([
       s.registry.toUpperCase(),
       s.name,
       s.version,
@@ -65,13 +67,13 @@ export function printPublishSummary(summaries: PublishSummary[]) {
     ]));
   }
 
-  console.log(bottom + "\n");
+  log.raw.log(bottom + "\n");
 
   for (const s of summaries) {
     if (s.link.startsWith("❌")) {
-      console.log(`❌ ${s.registry.toUpperCase()}: ${s.link.substring(2)}`);
+      log.raw.log(`❌ ${s.registry.toUpperCase()}: ${s.link.substring(2)}`);
     } else {
-      console.log(`✅ ${s.registry.toUpperCase()}: ${s.link}`);
+      log.raw.log(`✅ ${s.registry.toUpperCase()}: ${s.link}`);
     }
   }
 
@@ -79,12 +81,12 @@ export function printPublishSummary(summaries: PublishSummary[]) {
   const failCount = summaries.length - successCount;
 
   if (successCount > 0 && failCount === 0) {
-    console.log(`\n✅ All publishing operations completed successfully!`);
+    log.raw.log(`\n✅ All publishing operations completed successfully!`);
   } else if (successCount > 0 && failCount > 0) {
-    console.log(
+    log.raw.log(
       `\n⚠️ ${successCount} operation(s) succeeded, ${failCount} operation(s) failed.`,
     );
   } else if (successCount === 0 && failCount > 0) {
-    console.log(`\n❌ All publishing operations failed.`);
+    log.raw.log(`\n❌ All publishing operations failed.`);
   }
 }

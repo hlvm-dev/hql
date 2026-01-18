@@ -2,6 +2,7 @@ import type { PublishSummary } from "./publish_summary.ts";
 import { getNpmLatestVersion } from "./remote_registry.ts";
 import { detectNpmError } from "./error_handlers.ts";
 import { globalLogger as logger } from "../../../logger.ts";
+import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
   executeCommand,
@@ -44,7 +45,7 @@ const npmPublisher: RegistryPublisher = {
 
       if (options.version) {
         packageVersion = options.version;
-        console.log(`  → Using specified version: ${packageVersion}`);
+        log.raw.log(`  → Using specified version: ${packageVersion}`);
       } else {
         let latestVersion: string | null = null;
         const localVersion: string | null = existingConfig.version
@@ -66,12 +67,12 @@ const npmPublisher: RegistryPublisher = {
         );
         packageVersion = candidateVersion;
         if (latestVersion) {
-          console.log(`  → Found latest version on NPM: ${latestVersion}`);
+          log.raw.log(`  → Found latest version on NPM: ${latestVersion}`);
         }
         if (localVersion) {
-          console.log(`  → Local package.json version: ${localVersion}`);
+          log.raw.log(`  → Local package.json version: ${localVersion}`);
         }
-        console.log(`  → Using next available version: ${packageVersion}`);
+        log.raw.log(`  → Using next available version: ${packageVersion}`);
       }
 
       // Merge with the passed config, not an empty object
@@ -86,7 +87,7 @@ const npmPublisher: RegistryPublisher = {
 
       if (options.dryRun) {
         packageName = defaultName;
-        console.log(
+        log.raw.log(
           `  → Using auto-generated package name: ${packageName} (dry-run)`,
         );
       } else {
@@ -99,14 +100,14 @@ const npmPublisher: RegistryPublisher = {
       const defaultVersion = options.version || "0.0.1";
       if (options.dryRun) {
         packageVersion = defaultVersion;
-        console.log(`  → Using default version: ${packageVersion} (dry-run)`);
+        log.raw.log(`  → Using default version: ${packageVersion} (dry-run)`);
       } else {
         packageVersion = await promptUser(`Enter version`, defaultVersion);
       }
 
       // Merge with the passed config, not an empty object
       config = mergeConfigWithDefaults(config, packageName, packageVersion, false); // Use passed config
-      console.log(
+      log.raw.log(
         `  → Will create new package.json file after successful publish`,
       );
     }
@@ -118,7 +119,7 @@ const npmPublisher: RegistryPublisher = {
 
     const packageJsonPath = getPlatform().path.join(distDir, "package.json");
     await writeJSONFile(packageJsonPath, config as unknown as Record<string, unknown>); // Cast to Record
-    console.log(
+    log.raw.log(
       `  → Updated dist/package.json file with version ${packageVersion}`,
     );
 
@@ -134,7 +135,7 @@ const npmPublisher: RegistryPublisher = {
     options: { dryRun?: boolean; verbose?: boolean; allowDirty?: boolean },
   ) {
     if (options.dryRun) {
-      console.log(`  → Skipping actual npm publish in dry-run mode`);
+      log.raw.log(`  → Skipping actual npm publish in dry-run mode`);
       return { success: true };
     }
 
@@ -144,7 +145,7 @@ const npmPublisher: RegistryPublisher = {
     }
 
     const baseCmd = ["npm", "publish"];
-    console.log(`  → Running: ${[...baseCmd, ...extraFlags].join(" ")}`);
+    log.raw.log(`  → Running: ${[...baseCmd, ...extraFlags].join(" ")}`);
 
     return await executeCommand({
       cmd: baseCmd,
