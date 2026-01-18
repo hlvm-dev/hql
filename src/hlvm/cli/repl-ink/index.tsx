@@ -8,6 +8,7 @@ import { App } from "./components/App.tsx";
 import { ThemeProvider } from "../theme/index.ts";
 import type { SessionInitOptions } from "../repl/session/types.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { log } from "../../api/log.ts";
 
 export interface InkReplOptions {
   jsMode?: boolean;
@@ -18,7 +19,7 @@ export interface InkReplOptions {
 
 export async function startInkRepl(options: InkReplOptions = {}): Promise<number> {
   if (!getPlatform().terminal.stdin.isTerminal()) {
-    console.error("Error: Requires interactive terminal.");
+    log.raw.error("Error: Requires interactive terminal.");
     return 1;
   }
 

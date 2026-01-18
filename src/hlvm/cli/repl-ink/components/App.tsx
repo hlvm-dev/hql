@@ -31,6 +31,7 @@ import { SessionManager } from "../../repl/session/manager.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { ReplProvider, useReplContext } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
+import { log } from "../../../api/log.ts";
 
 interface HistoryEntry {
   id: number;
@@ -171,7 +172,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         }
       } catch (error) {
         // Session initialization failed - continue without sessions
-        console.error("Session init failed:", error);
+        log.error(`Session init failed: ${error}`);
       }
     };
 

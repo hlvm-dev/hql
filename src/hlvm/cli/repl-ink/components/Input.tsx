@@ -54,6 +54,7 @@ import {
 
 // FRP Context - reactive state
 import { useReplContext } from "../context/index.ts";
+import { log } from "../../../api/log.ts";
 
 // Handler Registry - for palette/keybinding execution
 import {
@@ -900,7 +901,7 @@ export function Input({
       const errorMsg = err instanceof Error ? err.message : String(err);
       // Only log cancellation errors, don't show to user
       if (errorMsg !== "Cancelled" && !errorMsg.includes("AbortError")) {
-        console.error("Example generation error:", errorMsg);
+        log.error(`Example generation error: ${errorMsg}`);
       }
     }
   }, [completion, onChange]);

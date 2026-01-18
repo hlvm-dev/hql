@@ -15,6 +15,8 @@
  * executeHandler("paredit.slurp-forward");
  */
 
+import { log } from "../../../api/log.ts";
+
 // ============================================================
 // Types
 // ============================================================
@@ -63,7 +65,7 @@ export function unregisterHandler(id: string): void {
 export async function executeHandler(id: string): Promise<boolean> {
   const info = handlers.get(id);
   if (!info) {
-    console.warn(`[handler-registry] Handler not found: ${id}`);
+    log.warn(`[handler-registry] Handler not found: ${id}`);
     return false;
   }
 
@@ -71,7 +73,7 @@ export async function executeHandler(id: string): Promise<boolean> {
     await info.handler();
     return true;
   } catch (error) {
-    console.error(`[handler-registry] Handler error for ${id}:`, error);
+    log.error(`[handler-registry] Handler error for ${id}: ${error}`);
     return false;
   }
 }
@@ -101,7 +103,7 @@ function notifyListeners(): void {
     try {
       listener();
     } catch (error) {
-      console.error("[handler-registry] Listener error:", error);
+      log.error(`[handler-registry] Listener error: ${error}`);
     }
   }
 }

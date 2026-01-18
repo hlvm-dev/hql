@@ -17,6 +17,7 @@ import { refreshKeybindingLookup } from "../keybindings/index.ts";
 import { KEYWORD_SET, MACRO_SET, OPERATOR_SET } from "../../../../common/known-identifiers.ts";
 import { checkDefaultModelInstalled, getDefaultModelName } from "../components/ModelSetupOverlay.tsx";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { log } from "../../../api/log.ts";
 
 export interface InitializationState {
   loading: boolean;
@@ -54,7 +55,7 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
 
         // Load persistent history early (in parallel with other init)
         const historyInit = state.initHistory().catch((err) => {
-          console.error("History init failed:", err);
+          log.error(`History init failed: ${err}`);
         });
 
         // Initialize runtime

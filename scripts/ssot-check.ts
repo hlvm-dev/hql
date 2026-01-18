@@ -35,12 +35,7 @@ const MIGRATION_ALLOWLIST = {
     // Special: DEBUG-gated console.log for source map debugging (HLVM_DEBUG_ERROR=1)
     "src/hql/transpiler/pipeline/source-map-support.ts",
 
-    // === Batch 4: REPL-Ink (5 files, ~12 calls) ===
-    "src/hlvm/cli/repl-ink/components/App.tsx",
-    "src/hlvm/cli/repl-ink/components/Input.tsx",
-    "src/hlvm/cli/repl-ink/hooks/useInitialization.ts",
-    "src/hlvm/cli/repl-ink/index.tsx",
-    "src/hlvm/cli/repl-ink/keybindings/handler-registry.ts",
+    // === Batch 4: MIGRATED ===
 
     // === Batch 5: REPL Core (8 files, ~82 calls) ===
     "src/hlvm/cli/repl/commands.ts",
