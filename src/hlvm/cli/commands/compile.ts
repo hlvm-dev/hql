@@ -4,6 +4,7 @@
  */
 
 import { transpileCLI } from "../../../hql/bundler.ts";
+import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 
 const p = () => getPlatform();
@@ -58,7 +59,7 @@ interface CompileOptions {
  * Display compile command help
  */
 export function showCompileHelp(): void {
-  console.log(`
+  log.raw.log(`
 HLVM Compile - Compile HQL to JavaScript or native binary
 
 USAGE:
@@ -145,7 +146,7 @@ function parseCompileOptions(args: string[]): CompileOptions {
 
   const inputFile = positional[0];
   if (!inputFile) {
-    console.error("Error: No input file specified");
+    log.raw.error("Error: No input file specified");
     showCompileHelp();
     platformExit(1);
   }
@@ -248,7 +249,7 @@ async function invokeDenoCompile(
   args.push(jsFile);
 
   if (verbose) {
-    console.log(`[compile] Invoking: ${denoBinary} ${args.join(" ")}`);
+    log.raw.log(`[compile] Invoking: ${denoBinary} ${args.join(" ")}`);
   }
 
   // Execute deno compile
@@ -271,7 +272,7 @@ async function invokeDenoCompile(
     ? new TextDecoder().decode(await new Response(process.stdout as ReadableStream).arrayBuffer())
     : "";
   if (stdout.trim()) {
-    console.log(stdout);
+    log.raw.log(stdout);
   }
 }
 
@@ -287,22 +288,22 @@ async function compileForAllPlatforms(
   const outputs: string[] = [];
   const errors: string[] = [];
 
-  console.log(`\nCompiling for ${ALL_BINARY_TARGETS.length} platforms...`);
+  log.raw.log(`\nCompiling for ${ALL_BINARY_TARGETS.length} platforms...`);
 
   for (const target of ALL_BINARY_TARGETS) {
     const outputName = deriveOutputNameForPlatform(baseName, target);
     const outputPath = resolve(outputDir, outputName);
 
-    console.log(`  [${target}] Creating binary...`);
+    log.raw.log(`  [${target}] Creating binary...`);
 
     try {
       await invokeDenoCompile(jsFile, target, outputPath, verbose);
       outputs.push(outputPath);
-      console.log(`  [${target}] Done: ${outputName}`);
+      log.raw.log(`  [${target}] Done: ${outputName}`);
     } catch (error) {
       const msg = getErrorMessage(error);
       errors.push(`${target}: ${msg}`);
-      console.error(`  [${target}] Failed: ${msg}`);
+      log.raw.error(`  [${target}] Failed: ${msg}`);
     }
   }
 
@@ -332,9 +333,9 @@ export async function compileCommand(args: string[]): Promise<void> {
   const isDenoTarget = target.includes("-") && target.includes("unknown");
 
   if (!isFriendlyTarget && !isDenoTarget) {
-    console.error(`Unknown target '${target}'.`);
-    console.error(`Valid targets: ${FRIENDLY_TARGETS.join(", ")}`);
-    console.error("Or use a full Deno target like: x86_64-unknown-linux-gnu");
+    log.raw.error(`Unknown target '${target}'.`);
+    log.raw.error(`Valid targets: ${FRIENDLY_TARGETS.join(", ")}`);
+    log.raw.error("Or use a full Deno target like: x86_64-unknown-linux-gnu");
     platformExit(1);
   }
 
@@ -357,16 +358,16 @@ export async function compileCommand(args: string[]): Promise<void> {
   const sourcemap = options.noSourcemap ? false : "inline";
 
   if (options.verbose) {
-    console.log(`[compile] Input: ${resolvedInput}`);
-    console.log(`[compile] Target: ${target}`);
-    console.log(`[compile] Output: ${outputPath}`);
-    console.log(`[compile] Mode: ${isRelease ? "release (minified)" : "dev (readable)"}`);
-    console.log(`[compile] Sourcemap: ${sourcemap}`);
+    log.raw.log(`[compile] Input: ${resolvedInput}`);
+    log.raw.log(`[compile] Target: ${target}`);
+    log.raw.log(`[compile] Output: ${outputPath}`);
+    log.raw.log(`[compile] Mode: ${isRelease ? "release (minified)" : "dev (readable)"}`);
+    log.raw.log(`[compile] Sourcemap: ${sourcemap}`);
   }
 
   // Step 1: Transpile HQL to JavaScript
   const modeLabel = isRelease ? "release" : "dev";
-  console.log(`Compiling ${options.inputFile} (${modeLabel})...`);
+  log.raw.log(`Compiling ${options.inputFile} (${modeLabel})...`);
 
   const jsOutputPath = target === "js"
     ? outputPath
@@ -382,7 +383,7 @@ export async function compileCommand(args: string[]): Promise<void> {
 
     // Step 2: Handle different target types
     if (target === "js") {
-      console.log(`JavaScript output: ${outputPath}`);
+      log.raw.log(`JavaScript output: ${outputPath}`);
     } else if (target === "all") {
       // Compile for all platforms
       const baseName = options.outputPath || basename(options.inputFile).replace(/\.(hql|js|ts)$/, "");
@@ -390,16 +391,16 @@ export async function compileCommand(args: string[]): Promise<void> {
       const outputs = await compileForAllPlatforms(jsOutputPath, baseName, outputDir, options.verbose ?? false);
       await cleanupTempFile(jsOutputPath);
 
-      console.log(`\nCreated ${outputs.length} binaries:`);
+      log.raw.log(`\nCreated ${outputs.length} binaries:`);
       for (const out of outputs) {
-        console.log(`  - ${basename(out)}`);
+        log.raw.log(`  - ${basename(out)}`);
       }
     } else {
       // Single platform target
-      console.log(`Creating ${target} binary...`);
+      log.raw.log(`Creating ${target} binary...`);
       await invokeDenoCompile(jsOutputPath, target, outputPath, options.verbose ?? false);
       await cleanupTempFile(jsOutputPath);
-      console.log(`Binary created: ${outputPath}`);
+      log.raw.log(`Binary created: ${outputPath}`);
     }
   } catch (error) {
     if (target !== "js") {

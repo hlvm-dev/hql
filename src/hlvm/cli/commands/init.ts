@@ -1,4 +1,5 @@
 import { getPlatform } from "../../../platform/platform.ts";
+import { log } from "../../api/log.ts";
 
 const p = () => getPlatform();
 const exists = (path: string) => p().fs.exists(path);
@@ -26,7 +27,7 @@ export interface HlvmProjectConfig {
  */
 async function createSampleModHql(entryPoint: string): Promise<void> {
   if (await exists(entryPoint)) {
-    console.log(`  → ${entryPoint} already exists, skipping sample code`);
+    log.raw.log(`  → ${entryPoint} already exists, skipping sample code`);
     return;
   }
 
@@ -57,7 +58,7 @@ async function createSampleModHql(entryPoint: string): Promise<void> {
 `;
 
   await platformWriteTextFile(entryPoint, sampleCode);
-  console.log(`  ✓ ${entryPoint} (sample code included)`);
+  log.raw.log(`  ✓ ${entryPoint} (sample code included)`);
 }
 
 /**
@@ -83,7 +84,7 @@ dist/
 `,
       { append: true },
     );
-    console.log(`  ✓ .gitignore (updated with HLVM entries)`);
+    log.raw.log(`  ✓ .gitignore (updated with HLVM entries)`);
   } else {
     // Create new .gitignore
     const gitignoreContent = `# HLVM
@@ -98,7 +99,7 @@ Thumbs.db
 node_modules/
 `;
     await platformWriteTextFile(gitignorePath, gitignoreContent);
-    console.log(`  ✓ .gitignore`);
+    log.raw.log(`  ✓ .gitignore`);
   }
 }
 
@@ -112,7 +113,7 @@ async function createReadme(
   const readmePath = "README.md";
 
   if (await exists(readmePath)) {
-    console.log(`  → README.md already exists, skipping`);
+    log.raw.log(`  → README.md already exists, skipping`);
     return;
   }
 
@@ -145,26 +146,26 @@ MIT
 `;
 
   await platformWriteTextFile(readmePath, readmeContent);
-  console.log(`  ✓ README.md`);
+  log.raw.log(`  ✓ README.md`);
 }
 
 /**
  * Initialize HLVM project with hlvm.json and optional files
  */
 export async function init(args: string[]): Promise<void> {
-  console.log("\n✨ Initializing HLVM project...\n");
+  log.raw.log("\n✨ Initializing HLVM project...\n");
 
   const configPath = "./hlvm.json";
   const hasYesFlag = args.includes("-y") || args.includes("--yes");
 
   // Check if hlvm.json already exists
   if (await exists(configPath)) {
-    console.log("⚠️  hlvm.json already exists");
+    log.raw.log("⚠️  hlvm.json already exists");
     const overwrite = hasYesFlag ||
       (await promptUser("Overwrite existing hlvm.json? (y/N)", "n"));
 
     if (typeof overwrite === 'string' && overwrite.toLowerCase() !== "y") {
-      console.log("\n❌ Cancelled");
+      log.raw.log("\n❌ Cancelled");
       platformExit(0);
     }
   }
@@ -184,10 +185,10 @@ export async function init(args: string[]): Promise<void> {
     version = defaultVersion;
     entryPoint = defaultEntry;
 
-    console.log(`Using defaults:`);
-    console.log(`  Name: ${name}`);
-    console.log(`  Version: ${version}`);
-    console.log(`  Entry: ${entryPoint}\n`);
+    log.raw.log(`Using defaults:`);
+    log.raw.log(`  Name: ${name}`);
+    log.raw.log(`  Version: ${version}`);
+    log.raw.log(`  Entry: ${entryPoint}\n`);
   } else {
     // Interactive mode - prompt with defaults
     name = await promptUser(`Package name`, defaultName);
@@ -208,8 +209,8 @@ export async function init(args: string[]): Promise<void> {
 
   await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
 
-  console.log(`\n📁 Created:`);
-  console.log(`  ✓ hlvm.json (${name} v${version})`);
+  log.raw.log(`\n📁 Created:`);
+  log.raw.log(`  ✓ hlvm.json (${name} v${version})`);
 
   // Create sample files
   await createSampleModHql(entryPoint);
@@ -217,21 +218,21 @@ export async function init(args: string[]): Promise<void> {
   await createReadme(name, entryPoint);
 
   // Success message
-  console.log(`\n✅ Project initialized!`);
-  console.log(`\nNext steps:`);
-  console.log(`  1. Edit ${entryPoint} to implement your code`);
-  console.log(`  2. Run: hlvm run ${entryPoint}`);
-  console.log(`  3. Publish: hlvm publish`);
+  log.raw.log(`\n✅ Project initialized!`);
+  log.raw.log(`\nNext steps:`);
+  log.raw.log(`  1. Edit ${entryPoint} to implement your code`);
+  log.raw.log(`  2. Run: hlvm run ${entryPoint}`);
+  log.raw.log(`  3. Publish: hlvm publish`);
 
-  console.log(`\nTry running the sample code:`);
-  console.log(`  hlvm run ${entryPoint}`);
+  log.raw.log(`\nTry running the sample code:`);
+  log.raw.log(`  hlvm run ${entryPoint}`);
 }
 
 /**
  * Show help for init command
  */
 export function showInitHelp(): void {
-  console.log(`
+  log.raw.log(`
 
 HLVM Init - Initialize a new HLVM project
 

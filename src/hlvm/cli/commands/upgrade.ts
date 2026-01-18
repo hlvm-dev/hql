@@ -8,6 +8,7 @@
  */
 
 import { VERSION } from "../../../version.ts";
+import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { http } from "../../../common/http-client.ts";
 
@@ -28,8 +29,8 @@ const INSTALL_PS1 =
 export async function upgrade(args: string[]): Promise<void> {
   const checkOnly = args.includes("--check") || args.includes("-c");
 
-  console.log(`Current version: ${VERSION}`);
-  console.log("Checking for updates...");
+  log.raw.log(`Current version: ${VERSION}`);
+  log.raw.log("Checking for updates...");
 
   // Fetch latest release info (SSOT: use http client)
   let latestVersion: string;
@@ -44,31 +45,31 @@ export async function upgrade(args: string[]): Promise<void> {
     latestVersion = (release.tag_name || "").replace(/^v/, "");
 
     if (!latestVersion) {
-      console.error("Failed to parse latest version");
+      log.raw.error("Failed to parse latest version");
       platformExit(1);
     }
   } catch (error) {
-    console.error(`Failed to check for updates: ${getErrorMessage(error)}`);
+    log.raw.error(`Failed to check for updates: ${getErrorMessage(error)}`);
     platformExit(1);
   }
 
   // Compare versions
   if (latestVersion === VERSION) {
-    console.log("\nAlready up to date!");
+    log.raw.log("\nAlready up to date!");
     return;
   }
 
   if (!isNewer(latestVersion, VERSION)) {
-    console.log(`\nYou have version ${VERSION}, latest is ${latestVersion}`);
-    console.log("You're on a newer or equal version.");
+    log.raw.log(`\nYou have version ${VERSION}, latest is ${latestVersion}`);
+    log.raw.log("You're on a newer or equal version.");
     return;
   }
 
-  console.log(`\nNew version available: ${latestVersion}`);
+  log.raw.log(`\nNew version available: ${latestVersion}`);
 
   // Check-only mode
   if (checkOnly) {
-    console.log("\nRun 'hlvm upgrade' to update.");
+    log.raw.log("\nRun 'hlvm upgrade' to update.");
     return;
   }
 
@@ -76,15 +77,15 @@ export async function upgrade(args: string[]): Promise<void> {
 
   // Windows - show instructions instead of running sh
   if (platform.build.os === "windows") {
-    console.log(
+    log.raw.log(
       "\nWindows detected. To upgrade, run this command in PowerShell:",
     );
-    console.log(`  irm ${INSTALL_PS1} | iex`);
+    log.raw.log(`  irm ${INSTALL_PS1} | iex`);
     return;
   }
 
   // macOS/Linux - run install script
-  console.log("\nUpgrading...");
+  log.raw.log("\nUpgrading...");
 
   try {
     const proc = platform.command.run({
@@ -97,16 +98,16 @@ export async function upgrade(args: string[]): Promise<void> {
     const result = await proc.status;
 
     if (!result.success) {
-      console.error("\nUpgrade failed. Please try running manually:");
-      console.error(`  curl -fsSL ${INSTALL_SCRIPT} | sh`);
+      log.raw.error("\nUpgrade failed. Please try running manually:");
+      log.raw.error(`  curl -fsSL ${INSTALL_SCRIPT} | sh`);
       platformExit(1);
     }
 
-    console.log("\nUpgrade complete! Run 'hlvm --version' to verify.");
+    log.raw.log("\nUpgrade complete! Run 'hlvm --version' to verify.");
   } catch (error) {
-    console.error(`\nUpgrade failed: ${getErrorMessage(error)}`);
-    console.error("\nPlease try running manually:");
-    console.error(`  curl -fsSL ${INSTALL_SCRIPT} | sh`);
+    log.raw.error(`\nUpgrade failed: ${getErrorMessage(error)}`);
+    log.raw.error("\nPlease try running manually:");
+    log.raw.error(`  curl -fsSL ${INSTALL_SCRIPT} | sh`);
     platformExit(1);
   }
 }
@@ -115,7 +116,7 @@ export async function upgrade(args: string[]): Promise<void> {
  * Display help for upgrade command.
  */
 export function showUpgradeHelp(): void {
-  console.log(`
+  log.raw.log(`
 HLVM Upgrade - Update HLVM to the latest version
 
 USAGE:

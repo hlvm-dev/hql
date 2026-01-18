@@ -1,4 +1,5 @@
 import { getPlatform } from "../../../platform/platform.ts";
+import { log } from "../../api/log.ts";
 
 // Local aliases for frequently used platform functions
 const exists = () => getPlatform().fs.exists;
@@ -29,7 +30,7 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
   if (!await exists()(configPath) && await exists()(legacyConfigPath)) {
     const legacyConfig = await readJSONFile(legacyConfigPath);
     await writeJSONFile(configPath, legacyConfig as Record<string, unknown>);
-    console.log("✅ Migrated hql.json to hlvm.json");
+    log.raw.log("✅ Migrated hql.json to hlvm.json");
   }
 
   // If hlvm.json exists, read and return it
@@ -38,9 +39,9 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
 
     // Validate required fields
     if (!config.name || !config.version || !config.exports) {
-      console.error("\n❌ Error: Invalid hlvm.json");
-      console.error("Required fields: name, version, exports");
-      console.error("\nRun: hlvm init");
+      log.raw.error("\n❌ Error: Invalid hlvm.json");
+      log.raw.error("Required fields: name, version, exports");
+      log.raw.error("\nRun: hlvm init");
       platformExit(1);
     }
 
@@ -51,7 +52,7 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
   }
 
   // No hlvm.json - need to create one
-  console.log("\n⚠️  No hlvm.json found. Let's create one!\n");
+  log.raw.log("\n⚠️  No hlvm.json found. Let's create one!\n");
 
   const defaultName = generateDefaultPackageName();
   const defaultVersion = "0.0.1";
@@ -67,13 +68,13 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
     version = defaultVersion;
     entryPoint = defaultEntry;
 
-    console.log(`Auto-detected:`);
-    console.log(`  Name: ${name}`);
-    console.log(`  Version: ${version}`);
-    console.log(`  Entry: ${entryPoint}\n`);
+    log.raw.log(`Auto-detected:`);
+    log.raw.log(`  Name: ${name}`);
+    log.raw.log(`  Version: ${version}`);
+    log.raw.log(`  Entry: ${entryPoint}\n`);
   } else {
     // Prompt user with smart defaults
-    console.log(`Auto-detected values (press Enter to accept):\n`);
+    log.raw.log(`Auto-detected values (press Enter to accept):\n`);
 
     name = await promptUser(`Package name`, defaultName);
     version = await promptUser(`Version`, defaultVersion);
@@ -86,8 +87,8 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
 
   // Check if entry point exists
   if (!await exists()(entryPoint)) {
-    console.error(`\n❌ Entry point not found: ${entryPoint}`);
-    console.error(`\nCreate ${entryPoint} first, or run: hlvm init`);
+    log.raw.error(`\n❌ Entry point not found: ${entryPoint}`);
+    log.raw.error(`\nCreate ${entryPoint} first, or run: hlvm init`);
     platformExit(1);
   }
 
@@ -100,8 +101,8 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
 
   await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
 
-  console.log(`\n✨ Created hlvm.json`);
-  console.log(`  → ${name} v${version}\n`);
+  log.raw.log(`\n✨ Created hlvm.json`);
+  log.raw.log(`  → ${name} v${version}\n`);
 
   return config;
 }
@@ -120,7 +121,7 @@ async function updateConfigVersion(newVersion: string): Promise<void> {
   config.version = newVersion;
 
   await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
-  console.log(`\n  → Updated hlvm.json to version ${newVersion}`);
+  log.raw.log(`\n  → Updated hlvm.json to version ${newVersion}`);
 }
 
 /**
@@ -158,8 +159,8 @@ function parsePublishArgs(args: string[]): {
     } else if (registry === "all") {
       registries = ["jsr", "npm"];
     } else {
-      console.error(`\n❌ Invalid registry: ${registry}`);
-      console.error(`Valid options: jsr, npm, all`);
+      log.raw.error(`\n❌ Invalid registry: ${registry}`);
+      log.raw.error(`Valid options: jsr, npm, all`);
       platformExit(1);
     }
   }
@@ -221,8 +222,8 @@ export async function publishCommand(args: string[]): Promise<void> {
 
   // Check entry file exists
   if (!await exists()(entryFile)) {
-    console.error(`\n❌ Entry file not found: ${entryFile}`);
-    console.error(`\nSpecified in hlvm.json: ${config.exports}`);
+    log.raw.error(`\n❌ Entry file not found: ${entryFile}`);
+    log.raw.error(`\nSpecified in hlvm.json: ${config.exports}`);
     platformExit(1);
   }
 
@@ -234,15 +235,15 @@ export async function publishCommand(args: string[]): Promise<void> {
     publishVersion = incrementPatchVersion(config.version);
   }
 
-  console.log(`\n📦 Publishing ${config.name}@${publishVersion}...`);
-  console.log(`  → Entry: ${entryFile}`);
-  console.log(
+  log.raw.log(`\n📦 Publishing ${config.name}@${publishVersion}...`);
+  log.raw.log(`  → Entry: ${entryFile}`);
+  log.raw.log(
     `  → Registries: ${parsedArgs.registries.join(", ").toUpperCase()}`,
   );
   if (parsedArgs.dryRun) {
-    console.log(`  → Mode: Dry run (no actual publishing)`);
+    log.raw.log(`  → Mode: Dry run (no actual publishing)`);
   }
-  console.log();
+  log.raw.log();
 
   // Create metadata files in source directory so core publish can use them
   // This ensures the package name from hlvm.json is used instead of prompting
@@ -276,7 +277,7 @@ export async function publishCommand(args: string[]): Promise<void> {
  * Show help for publish command
  */
 export function showPublishHelp(): void {
-  console.log(`
+  log.raw.log(`
 HLVM Publish - Publish HLVM modules to JSR and NPM
 
 USAGE:

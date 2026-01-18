@@ -1,3 +1,5 @@
+import { log } from "../../api/log.ts";
+
 /**
  * HLVM HQL LSP Command
  *
@@ -13,7 +15,7 @@
  * Show help for the LSP command
  */
 export function showLspHelp(): void {
-  console.log(`
+  log.raw.log(`
 HLVM HQL Language Server
 
 USAGE:

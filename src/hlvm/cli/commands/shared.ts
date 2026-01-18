@@ -1,4 +1,5 @@
 import { getPlatform } from "../../../platform/platform.ts";
+import { log } from "../../api/log.ts";
 
 const p = () => getPlatform();
 const basename = (path: string) => p().path.basename(path);
@@ -39,9 +40,9 @@ export function generateDefaultPackageName(): string {
  */
 export function validatePackageName(name: string): void {
   if (!name.startsWith("@") || !name.includes("/")) {
-    console.error(`\n❌ Invalid package name format: ${name}`);
-    console.error(`Expected format: @username/package-name`);
-    console.error(`Example: @john/my-lib`);
+    log.raw.error(`\n❌ Invalid package name format: ${name}`);
+    log.raw.error(`Expected format: @username/package-name`);
+    log.raw.error(`Example: @john/my-lib`);
     platformExit(1);
   }
 }
@@ -52,8 +53,8 @@ export function validatePackageName(name: string): void {
  */
 export function validateVersion(version: string): void {
   if (!SEMVER_REGEX.test(version)) {
-    console.error(`\n❌ Invalid version format: ${version}`);
-    console.error(`Expected format: X.Y.Z (e.g., 0.0.1)`);
+    log.raw.error(`\n❌ Invalid version format: ${version}`);
+    log.raw.error(`Expected format: X.Y.Z (e.g., 0.0.1)`);
     platformExit(1);
   }
 }

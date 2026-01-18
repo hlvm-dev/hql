@@ -39,16 +39,7 @@ const MIGRATION_ALLOWLIST = {
     // === Batch 5: MIGRATED ===
     // === Batch 6: MIGRATED ===
     // === Batch 7: MIGRATED ===
-
-    // === Batch 8: CLI Commands (8 files, ~114 calls) ===
-    "src/hlvm/cli/commands/ai.ts",
-    "src/hlvm/cli/commands/compile.ts",
-    "src/hlvm/cli/commands/init.ts",
-    "src/hlvm/cli/commands/lsp.ts",
-    "src/hlvm/cli/commands/publish.ts",
-    "src/hlvm/cli/commands/shared.ts",
-    "src/hlvm/cli/commands/uninstall.ts",
-    "src/hlvm/cli/commands/upgrade.ts",
+    // === Batch 8: MIGRATED ===
   ],
 };
 
@@ -83,6 +74,7 @@ const RULES: Rule[] = [
       /'[^']*console\.[^']*'/, // String literals
       /`[^`]*console\.[^`]*`/, // Template literals
       /connection\.console\./, // LSP proper logging (connection.console.*)
+      /^\s*\(console\./, // S-expression style (HQL code examples)
     ],
     message: "Use globalThis.log instead of console.*",
     severity: "error",

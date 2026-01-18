@@ -1,4 +1,5 @@
 import { ai } from "../../api/ai.ts";
+import { log } from "../../api/log.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import {
   ensureDefaultModelInstalled,
@@ -7,7 +8,7 @@ import {
 import { parseModelString } from "../../providers/index.ts";
 
 export function showAiHelp(): void {
-  console.log(`
+  log.raw.log(`
 HLVM AI - Model Setup
 
 USAGE:
@@ -33,7 +34,7 @@ export async function aiCommand(args: string[]): Promise<void> {
 
   switch (subcommand) {
     case "setup": {
-      await ensureDefaultModelInstalled({ log: (message) => console.log(message) });
+      await ensureDefaultModelInstalled({ log: (message) => log.raw.log(message) });
       return;
     }
     case "pull": {
@@ -42,19 +43,19 @@ export async function aiCommand(args: string[]): Promise<void> {
         throw new Error("Missing model name. Usage: hlvm ai pull <model>");
       }
       const [providerName, modelName] = parseModelString(modelArg);
-      console.log(`Downloading model (${modelName})...`);
-      await pullModelWithProgress(modelName, providerName ?? undefined, (message) => console.log(message));
-      console.log(`Model ready: ${modelName}`);
+      log.raw.log(`Downloading model (${modelName})...`);
+      await pullModelWithProgress(modelName, providerName ?? undefined, (message) => log.raw.log(message));
+      log.raw.log(`Model ready: ${modelName}`);
       return;
     }
     case "list": {
       const models = await ai.models.list();
       if (models.length === 0) {
-        console.log("No models installed.");
+        log.raw.log("No models installed.");
         return;
       }
       for (const model of models) {
-        console.log(model.name);
+        log.raw.log(model.name);
       }
       return;
     }
