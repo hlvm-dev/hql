@@ -33,6 +33,7 @@ import type { AnyAttachment } from "./attachment-protocol.ts";
 import type { TextAttachment, Attachment } from "./attachment.ts";
 import { extractDocstrings } from "./docstring.ts";
 import { getAbortSignal, setAbortSignal } from "../../api/runtime.ts";
+import { log } from "../../api/log.ts";
 
 // Pre-compiled pattern for extracting generic base type
 const GENERIC_BASE_TYPE_REGEX = /^([^<]+)/;
@@ -276,7 +277,7 @@ export async function evaluate(
               const value = (globalThis as Record<string, unknown>)[sanitizeIdentifier(name)];
               await appendToMemory(name, "def", value, state.getDocstring(name));
             } catch (err) {
-              console.error(`[memory] Failed to persist def '${name}':`, err);
+              log.error(`[memory] Failed to persist def '${name}': ${err}`);
             }
           }
         }
@@ -285,7 +286,7 @@ export async function evaluate(
             try {
               await appendToMemory(name, "defn", source, state.getDocstring(name));
             } catch (err) {
-              console.error(`[memory] Failed to persist defn '${name}':`, err);
+              log.error(`[memory] Failed to persist defn '${name}': ${err}`);
             }
           }
         }

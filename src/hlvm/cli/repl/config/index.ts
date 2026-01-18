@@ -7,6 +7,7 @@
 export * from "../../../../common/config/index.ts";
 
 import { ANSI_COLORS } from "../../ansi.ts";
+import { log } from "../../../api/log.ts";
 import {
   type ConfigKey,
   type HlvmConfig,
@@ -48,7 +49,7 @@ export async function handleConfigCommand(args: string): Promise<void> {
 
   // /config path - show file location
   if (subcommand === "path") {
-    console.log(`${CYAN}Config file:${RESET} ${getConfigPath()}`);
+    log.raw.log(`${CYAN}Config file:${RESET} ${getConfigPath()}`);
     return;
   }
 
@@ -59,11 +60,11 @@ export async function handleConfigCommand(args: string): Promise<void> {
       reset: () => Promise<unknown>;
     } | undefined;
     if (!configApi?.reset) {
-      console.log(`${YELLOW}Config API not initialized${RESET}`);
+      log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
       return;
     }
     await configApi.reset();
-    console.log(`${GREEN}Config reset to defaults.${RESET}`);
+    log.raw.log(`${GREEN}Config reset to defaults.${RESET}`);
     return;
   }
 
@@ -74,11 +75,11 @@ export async function handleConfigCommand(args: string): Promise<void> {
       reload: () => Promise<unknown>;
     } | undefined;
     if (!configApi?.reload) {
-      console.log(`${YELLOW}Config API not initialized${RESET}`);
+      log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
       return;
     }
     await configApi.reload();
-    console.log(`${GREEN}Config reloaded from file.${RESET}`);
+    log.raw.log(`${GREEN}Config reloaded from file.${RESET}`);
     return;
   }
 
@@ -88,8 +89,8 @@ export async function handleConfigCommand(args: string): Promise<void> {
     const value = parts.slice(2).join(" ");
 
     if (!key || !value) {
-      console.log(`${YELLOW}Usage: /config set <key> <value>${RESET}`);
-      console.log(`${DIM_GRAY}Keys: ${CONFIG_KEYS.join(", ")}${RESET}`);
+      log.raw.log(`${YELLOW}Usage: /config set <key> <value>${RESET}`);
+      log.raw.log(`${DIM_GRAY}Keys: ${CONFIG_KEYS.join(", ")}${RESET}`);
       return;
     }
 
@@ -113,7 +114,7 @@ export async function handleConfigCommand(args: string): Promise<void> {
   }
 
   // Unknown subcommand
-  console.log(`${YELLOW}Unknown config command: ${subcommand}${RESET}`);
+  log.raw.log(`${YELLOW}Unknown config command: ${subcommand}${RESET}`);
   showConfigHelp();
 }
 
@@ -128,21 +129,21 @@ async function showAllConfig(): Promise<void> {
   } | undefined;
 
   if (!configApi?.all) {
-    console.log(`${YELLOW}Config API not initialized${RESET}`);
+    log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
     return;
   }
 
   const config = await configApi.all;
 
-  console.log(`${BOLD}Configuration:${RESET}`);
+  log.raw.log(`${BOLD}Configuration:${RESET}`);
   for (const key of CONFIG_KEYS) {
     const value = getConfigValue(config, key);
     const defaultValue = DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG];
     const isDefault = value === defaultValue;
     const suffix = isDefault ? ` ${DIM_GRAY}(default)${RESET}` : "";
-    console.log(`  ${CYAN}${key}${RESET}: ${formatValue(value)}${suffix}`);
+    log.raw.log(`  ${CYAN}${key}${RESET}: ${formatValue(value)}${suffix}`);
   }
-  console.log(`\n${DIM_GRAY}File: ${getConfigPath()}${RESET}`);
+  log.raw.log(`\n${DIM_GRAY}File: ${getConfigPath()}${RESET}`);
 }
 
 async function showSingleConfig(key: ConfigKey): Promise<void> {
@@ -152,19 +153,19 @@ async function showSingleConfig(key: ConfigKey): Promise<void> {
   } | undefined;
 
   if (!configApi?.all) {
-    console.log(`${YELLOW}Config API not initialized${RESET}`);
+    log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
     return;
   }
 
   const config = await configApi.all;
   const value = getConfigValue(config, key);
-  console.log(`${CYAN}${key}${RESET}: ${formatValue(value)}`);
+  log.raw.log(`${CYAN}${key}${RESET}: ${formatValue(value)}`);
 }
 
 async function setConfigByKey(keyStr: string, valueStr: string): Promise<void> {
   if (!isConfigKey(keyStr)) {
-    console.log(`${YELLOW}Unknown config key: ${keyStr}${RESET}`);
-    console.log(`${DIM_GRAY}Valid keys: ${CONFIG_KEYS.join(", ")}${RESET}`);
+    log.raw.log(`${YELLOW}Unknown config key: ${keyStr}${RESET}`);
+    log.raw.log(`${DIM_GRAY}Valid keys: ${CONFIG_KEYS.join(", ")}${RESET}`);
     return;
   }
 
@@ -174,7 +175,7 @@ async function setConfigByKey(keyStr: string, valueStr: string): Promise<void> {
   // Validate before setting
   const validation = validateValue(key, parsedValue);
   if (!validation.valid) {
-    console.log(`${YELLOW}${validation.error}${RESET}`);
+    log.raw.log(`${YELLOW}${validation.error}${RESET}`);
     return;
   }
 
@@ -184,12 +185,12 @@ async function setConfigByKey(keyStr: string, valueStr: string): Promise<void> {
   } | undefined;
 
   if (!configApi?.set) {
-    console.log(`${YELLOW}Config API not initialized${RESET}`);
+    log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
     return;
   }
 
   await configApi.set(key, parsedValue);
-  console.log(`${GREEN}Set ${key} = ${formatValue(parsedValue)}${RESET}`);
+  log.raw.log(`${GREEN}Set ${key} = ${formatValue(parsedValue)}${RESET}`);
 }
 
 function formatValue(value: unknown): string {
@@ -200,12 +201,12 @@ function formatValue(value: unknown): string {
 }
 
 function showConfigHelp(): void {
-  console.log(`${BOLD}Usage:${RESET}`);
-  console.log(`  ${CYAN}/config${RESET}                     Show all settings`);
-  console.log(`  ${CYAN}/config <key>${RESET}               Show single value`);
-  console.log(`  ${CYAN}/config <key> <value>${RESET}       Set value`);
-  console.log(`  ${CYAN}/config reset${RESET}               Reset to defaults`);
-  console.log(`  ${CYAN}/config reload${RESET}              Reload from file`);
-  console.log(`  ${CYAN}/config path${RESET}                Show config file location`);
-  console.log(`\n${DIM_GRAY}Keys: ${CONFIG_KEYS.join(", ")}${RESET}`);
+  log.raw.log(`${BOLD}Usage:${RESET}`);
+  log.raw.log(`  ${CYAN}/config${RESET}                     Show all settings`);
+  log.raw.log(`  ${CYAN}/config <key>${RESET}               Show single value`);
+  log.raw.log(`  ${CYAN}/config <key> <value>${RESET}       Set value`);
+  log.raw.log(`  ${CYAN}/config reset${RESET}               Reset to defaults`);
+  log.raw.log(`  ${CYAN}/config reload${RESET}              Reload from file`);
+  log.raw.log(`  ${CYAN}/config path${RESET}                Show config file location`);
+  log.raw.log(`\n${DIM_GRAY}Keys: ${CONFIG_KEYS.join(", ")}${RESET}`);
 }

@@ -8,6 +8,7 @@ import type { ReplState } from "./state.ts";
 import { handleConfigCommand } from "./config/index.ts";
 import { registry } from "../repl-ink/keybindings/index.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { log } from "../../api/log.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -62,14 +63,14 @@ export const commands: Record<string, Command> = {
   "/help": {
     description: "Show help message",
     handler: () => {
-      console.log(generateHelpText());
+      log.raw.log(generateHelpText());
     },
   },
 
   "/clear": {
     description: "Clear the screen",
     handler: () => {
-      console.clear();
+      log.raw.clear();
     },
   },
 
@@ -82,14 +83,14 @@ export const commands: Record<string, Command> = {
       if (memoryApi?.clear) {
         await memoryApi.clear();
       }
-      console.log(`${GREEN}REPL state reset. All bindings and memory cleared.${RESET}`);
+      log.raw.log(`${GREEN}REPL state reset. All bindings and memory cleared.${RESET}`);
     },
   },
 
   "/exit": {
     description: "Exit the REPL",
     handler: async (state: ReplState) => {
-      console.log("\nGoodbye!");
+      log.raw.log("\nGoodbye!");
       await state.flushHistory();
       state.flushHistorySync();
       getPlatform().process.exit(0);
@@ -106,22 +107,22 @@ export const commands: Record<string, Command> = {
       } | undefined;
 
       if (!memoryApi) {
-        console.log(`${YELLOW}Memory API not initialized.${RESET}`);
+        log.raw.log(`${YELLOW}Memory API not initialized.${RESET}`);
         return;
       }
 
       const stats = await memoryApi.stats();
       if (stats) {
-        console.log(`${BOLD}Memory:${RESET}`);
-        console.log(`  ${CYAN}Location:${RESET} ${stats.path}`);
-        console.log(`  ${CYAN}Definitions:${RESET} ${stats.count}`);
-        console.log(`  ${CYAN}Size:${RESET} ${stats.size} bytes`);
+        log.raw.log(`${BOLD}Memory:${RESET}`);
+        log.raw.log(`  ${CYAN}Location:${RESET} ${stats.path}`);
+        log.raw.log(`  ${CYAN}Definitions:${RESET} ${stats.count}`);
+        log.raw.log(`  ${CYAN}Size:${RESET} ${stats.size} bytes`);
         if (stats.count > 0) {
           const names = await memoryApi.list();
-          console.log(`  ${CYAN}Names:${RESET} ${names.join(", ")}`);
+          log.raw.log(`  ${CYAN}Names:${RESET} ${names.join(", ")}`);
         }
       } else {
-        console.log(`${YELLOW}Could not read memory file.${RESET}`);
+        log.raw.log(`${YELLOW}Could not read memory file.${RESET}`);
       }
     },
   },
@@ -131,8 +132,8 @@ export const commands: Record<string, Command> = {
     handler: async (_state: ReplState, args: string) => {
       const name = args.trim();
       if (!name) {
-        console.log(`${YELLOW}Usage: /forget <name>${RESET}`);
-        console.log(`${DIM_GRAY}Example: /forget myFunction${RESET}`);
+        log.raw.log(`${YELLOW}Usage: /forget <name>${RESET}`);
+        log.raw.log(`${DIM_GRAY}Example: /forget myFunction${RESET}`);
         return;
       }
 
@@ -142,16 +143,16 @@ export const commands: Record<string, Command> = {
       } | undefined;
 
       if (!memoryApi) {
-        console.log(`${YELLOW}Memory API not initialized.${RESET}`);
+        log.raw.log(`${YELLOW}Memory API not initialized.${RESET}`);
         return;
       }
 
       const removed = await memoryApi.remove(name);
       if (removed) {
-        console.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
-        console.log(`${DIM_GRAY}Note: The binding still exists in this session. Use /reset to clear all bindings.${RESET}`);
+        log.raw.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
+        log.raw.log(`${DIM_GRAY}Note: The binding still exists in this session. Use /reset to clear all bindings.${RESET}`);
       } else {
-        console.log(`${YELLOW}'${name}' not found in memory.${RESET}`);
+        log.raw.log(`${YELLOW}'${name}' not found in memory.${RESET}`);
       }
     },
   },
@@ -182,7 +183,7 @@ export async function runCommand(input: string, state: ReplState): Promise<void>
   if (command) {
     await command.handler(state, args.join(" "));
   } else {
-    console.log(`${YELLOW}Unknown command: ${cmdName}${RESET}`);
-    console.log(`${DIM_GRAY}Type /help for available commands.${RESET}`);
+    log.raw.log(`${YELLOW}Unknown command: ${cmdName}${RESET}`);
+    log.raw.log(`${DIM_GRAY}Type /help for available commands.${RESET}`);
   }
 }

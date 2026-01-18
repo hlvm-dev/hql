@@ -8,6 +8,7 @@ import { runCommand } from "./commands.ts";
 import type { ReplState } from "./state.ts";
 import { memory } from "../../api/memory.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { log } from "../../api/log.ts";
 
 const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
@@ -23,12 +24,12 @@ export function registerReplHelpers(state: ReplState): void {
     if (memoryApi?.remove) {
       const removed = await memoryApi.remove(name);
       if (removed) {
-        console.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
+        log.raw.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
       } else {
-        console.log(`${YELLOW}Binding '${name}' not found in memory.${RESET}`);
+        log.raw.log(`${YELLOW}Binding '${name}' not found in memory.${RESET}`);
       }
     } else {
-      console.log(`${YELLOW}Memory API not ready.${RESET}`);
+      log.raw.log(`${YELLOW}Memory API not ready.${RESET}`);
     }
   };
 
@@ -41,9 +42,9 @@ export function registerReplHelpers(state: ReplState): void {
       const name = fn.name || "<anonymous>";
       const source = memoryApi?.get ? await memoryApi.get(name) : null;
 
-      console.log(`${CYAN}${name}${RESET}: ${DIM_GRAY}function${RESET}`);
+      log.raw.log(`${CYAN}${name}${RESET}: ${DIM_GRAY}function${RESET}`);
       if (source) {
-        console.log(`${DIM_GRAY}${source}${RESET}`);
+        log.raw.log(`${DIM_GRAY}${source}${RESET}`);
       }
       return { name, type: "function", source };
     }
@@ -51,18 +52,18 @@ export function registerReplHelpers(state: ReplState): void {
     if (type === "string") {
       const source = memoryApi?.get ? await memoryApi.get(value as string) : null;
       if (source) {
-        console.log(`${CYAN}${value}${RESET}:`);
-        console.log(`${DIM_GRAY}${source}${RESET}`);
+        log.raw.log(`${CYAN}${value}${RESET}:`);
+        log.raw.log(`${DIM_GRAY}${source}${RESET}`);
         return { name: value, type: "definition", source };
       }
     }
 
-    console.log(`${CYAN}<value>${RESET}: ${DIM_GRAY}${type}${RESET}`);
+    log.raw.log(`${CYAN}<value>${RESET}: ${DIM_GRAY}${type}${RESET}`);
     if (value !== null && value !== undefined) {
       try {
-        console.log(`${DIM_GRAY}${JSON.stringify(value, null, 2)}${RESET}`);
+        log.raw.log(`${DIM_GRAY}${JSON.stringify(value, null, 2)}${RESET}`);
       } catch {
-        console.log(`${DIM_GRAY}[non-serializable]${RESET}`);
+        log.raw.log(`${DIM_GRAY}[non-serializable]${RESET}`);
       }
     }
     return { name: null, type, source: null };
@@ -78,11 +79,11 @@ export function registerReplHelpers(state: ReplState): void {
 
     const ask = globalAny.ask as ((prompt: string) => Promise<unknown>) | undefined;
     if (typeof ask !== "function") {
-      console.log(`\n${YELLOW}AI not available. Check @hlvm/ai installation and API key.${RESET}`);
+      log.raw.log(`\n${YELLOW}AI not available. Check @hlvm/ai installation and API key.${RESET}`);
       return { ...info, explanation: null };
     }
 
-    console.log(`\n${CYAN}── AI Explanation ──${RESET}\n`);
+    log.raw.log(`\n${CYAN}── AI Explanation ──${RESET}\n`);
 
     const prompt = `You are explaining an HQL function. HQL is a Lisp-like language that compiles to JavaScript.
 
@@ -107,18 +108,18 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
             explanation += chunk;
           }
         }
-        console.log();
+        log.raw.log();
         return { ...info, explanation };
       } else if (typeof response === "string") {
-        console.log(response);
+        log.raw.log(response);
         return { ...info, explanation: response };
       } else {
-        console.log(String(response));
+        log.raw.log(String(response));
         return { ...info, explanation: String(response) };
       }
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.log(`${YELLOW}AI error: ${errMsg}${RESET}`);
+      log.raw.log(`${YELLOW}AI error: ${errMsg}${RESET}`);
       return { ...info, explanation: null };
     }
   };
@@ -129,12 +130,12 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
   };
 
   globalAny.exit = () => {
-    console.log("\nGoodbye!");
+    log.raw.log("\nGoodbye!");
     getPlatform().process.exit(0);
   };
 
   globalAny.clear = () => {
-    console.clear();
+    log.raw.clear();
     return null;
   };
 

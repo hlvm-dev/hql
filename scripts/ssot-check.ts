@@ -36,16 +36,7 @@ const MIGRATION_ALLOWLIST = {
     "src/hql/transpiler/pipeline/source-map-support.ts",
 
     // === Batch 4: MIGRATED ===
-
-    // === Batch 5: REPL Core (8 files, ~82 calls) ===
-    "src/hlvm/cli/repl/commands.ts",
-    "src/hlvm/cli/repl/evaluator.ts",
-    "src/hlvm/cli/repl/headless.ts",
-    "src/hlvm/cli/repl/helpers.ts",
-    "src/hlvm/cli/repl/history-storage.ts",
-    "src/hlvm/cli/repl/state.ts",
-    "src/hlvm/cli/repl/task-manager/task-manager.ts",
-    "src/hlvm/cli/repl/config/index.ts",
+    // === Batch 5: MIGRATED ===
 
     // === Batch 6: CLI Root (2 files, ~23 calls) ===
     "src/hlvm/cli/cli.ts",

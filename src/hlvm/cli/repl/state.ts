@@ -5,6 +5,7 @@
 
 import { getGlobalRecord } from "./string-utils.ts";
 import { getHistoryStorage, HistoryStorage } from "./history-storage.ts";
+import { log } from "../../api/log.ts";
 
 // Pre-compiled regex patterns (avoid compilation per-call)
 /** Matches function parameter declarations in all JS function forms */
@@ -242,7 +243,7 @@ export class ReplState {
       this.notify();
     } catch (err) {
       // Continue without persistence on error
-      console.error("Failed to initialize history storage:", err);
+      log.error(`Failed to initialize history storage: ${err}`);
       this._historyInitialized = true;
     }
   }

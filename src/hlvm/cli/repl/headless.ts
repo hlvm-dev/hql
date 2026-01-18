@@ -11,6 +11,7 @@ import { registerReplHelpers } from "./helpers.ts";
 import { memory } from "../../api/memory.ts";
 import { config } from "../../api/config.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { log } from "../../api/log.ts";
 
 export interface HeadlessReplOptions {
   jsMode?: boolean;
@@ -73,7 +74,7 @@ export async function startHeadlessRepl(options: HeadlessReplOptions = {}): Prom
 }
 
 async function printBanner(loadErrors: string[]): Promise<void> {
-  console.log("HLVM REPL");
+  log.raw.log("HLVM REPL");
   const memoryNames = await memory.list();
   const memoryDisplay = memoryNames.length > 0
     ? memoryNames.length <= 5
@@ -82,21 +83,21 @@ async function printBanner(loadErrors: string[]): Promise<void> {
     : "empty - def/defn auto-save here";
 
   if (memoryNames.length > 0) {
-    console.log(`Memory: ${memoryDisplay} (${memoryNames.length} definition${memoryNames.length === 1 ? "" : "s"})`);
+    log.raw.log(`Memory: ${memoryDisplay} (${memoryNames.length} definition${memoryNames.length === 1 ? "" : "s"})`);
   } else {
-    console.log(`Memory: ${memoryDisplay}`);
+    log.raw.log(`Memory: ${memoryDisplay}`);
   }
 
-  console.log("AI: not available - install @hlvm/ai");
-  console.log('(memory) | (forget "x") | (inspect x) | (describe x) AI | (help)');
+  log.raw.log("AI: not available - install @hlvm/ai");
+  log.raw.log('(memory) | (forget "x") | (inspect x) | (describe x) AI | (help)');
 
   if (loadErrors.length > 0) {
-    console.log("Memory warnings:");
+    log.raw.log("Memory warnings:");
     for (const err of loadErrors.slice(0, 3)) {
-      console.log(`  ${err}`);
+      log.raw.log(`  ${err}`);
     }
     if (loadErrors.length > 3) {
-      console.log(`  ... and ${loadErrors.length - 3} more`);
+      log.raw.log(`  ... and ${loadErrors.length - 3} more`);
     }
   }
 }
@@ -138,34 +139,34 @@ async function handleLine(line: string, state: ReplState, jsMode: boolean): Prom
 
   if (!result.success) {
     if (result.error) {
-      console.error(`${result.error.name}: ${result.error.message}`);
+      log.raw.error(`${result.error.name}: ${result.error.message}`);
     }
     return;
   }
 
   if (result.streamTaskId) {
-    console.log("[streaming output]");
+    log.raw.log("[streaming output]");
     return;
   }
 
   if (result.value && typeof result.value === "object" && Symbol.asyncIterator in result.value) {
     for await (const chunk of result.value as AsyncIterable<unknown>) {
       if (typeof chunk === "string") {
-        console.log(chunk);
+        log.raw.log(chunk);
       } else {
-        console.log(String(chunk));
+        log.raw.log(String(chunk));
       }
     }
     return;
   }
 
   if (result.isCommandOutput && typeof result.value === "string") {
-    console.log(result.value);
+    log.raw.log(result.value);
     return;
   }
 
   const formatted = formatValue(result.value);
   if (formatted) {
-    console.log(formatted);
+    log.raw.log(formatted);
   }
 }

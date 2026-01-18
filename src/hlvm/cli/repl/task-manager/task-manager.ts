@@ -23,6 +23,7 @@ import {
   canTransition,
 } from "./types.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { log } from "../../../api/log.ts";
 
 // ============================================================
 // Resource Registry
@@ -198,7 +199,7 @@ export class TaskManager {
 
     // Validate transition
     if (!canTransition(task.status, newStatus)) {
-      console.warn(`[TaskManager] Invalid transition: ${task.status} → ${newStatus} for task ${taskId}`);
+      log.warn(`[TaskManager] Invalid transition: ${task.status} → ${newStatus} for task ${taskId}`);
       return false;
     }
 

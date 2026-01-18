@@ -17,6 +17,7 @@
 import { getHistoryPath, ensureHlvmDir, ensureHlvmDirSync } from "../../../common/paths.ts";
 import { getLegacyHistoryPath } from "../../../common/legacy-migration.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { log } from "../../api/log.ts";
 
 // ============================================================================
 // Types
@@ -197,7 +198,7 @@ export class HistoryStorage {
     } catch (err) {
       if (!(err instanceof Error && err.name === "NotFound")) {
         // Log error but continue with empty history
-        console.error("Failed to load history:", err);
+        log.error(`Failed to load history: ${err}`);
       }
       this.entries = [];
       this.lineCount = 0;
@@ -287,7 +288,7 @@ export class HistoryStorage {
     } catch (err) {
       // Re-queue on failure
       this.pendingWrites.unshift(...toWrite);
-      console.error("Failed to save history:", err);
+      log.error(`Failed to save history: ${err}`);
     }
   }
 
@@ -363,7 +364,7 @@ export class HistoryStorage {
       this.entries = toKeep;
       this.lineCount = toKeep.length;
     } catch (err) {
-      console.error("Failed to compact history:", err);
+      log.error(`Failed to compact history: ${err}`);
     } finally {
       this.compacting = false;
     }
