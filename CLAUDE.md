@@ -1,6 +1,8 @@
 # HLVM Project Guidelines
 
-This file is intentionally minimal to avoid drift.
-Follow `AGENTS.md` for the authoritative instructions for all AI agents in this repo.
-After meaningful changes, run tests and ensure they pass.
-Tests must be real and meaningful; avoid fake tests that always pass.
+Follow `AGENTS.md` for authoritative AI agent instructions.
+
+**Key rules:**
+- Run `deno task test:unit` after meaningful changes
+- SSOT is mandatory - no scattered logic (see `AGENTS.md`)
+- Validate with `deno task ssot:check` before committing
