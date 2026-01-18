@@ -31,11 +31,9 @@ const MIGRATION_ALLOWLIST = {
     // Special: Stringified runtime helper (cannot use imports)
     "src/common/runtime-helper-impl.ts",
 
-    // === Batch 3: Transpiler (4 files, ~19 calls) ===
-    "src/hql/transpiler/hql-transpiler.ts",
+    // === Batch 3: MIGRATED (except special cases below) ===
+    // Special: DEBUG-gated console.log for source map debugging (HLVM_DEBUG_ERROR=1)
     "src/hql/transpiler/pipeline/source-map-support.ts",
-    "src/hql/transpiler/pipeline/syntax-transformer.ts",
-    "src/hql/transpiler/pipeline/transform-stack-trace.ts",
 
     // === Batch 4: REPL-Ink (5 files, ~12 calls) ===
     "src/hlvm/cli/repl-ink/components/App.tsx",
