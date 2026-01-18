@@ -50,3 +50,7 @@ jobs:
 
       - name: Check platform abstraction
         run: deno task check:platform
+
+      - name: SSOT enforcement check
+        run: deno task ssot:check
+        # Strict enforcement via MIGRATION_ALLOWLIST in scripts/ssot-check.ts

@@ -7,6 +7,7 @@
 
 import { VERSION } from "../../../version.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { http } from "../../../common/http-client.ts";
 
 const GITHUB_API = "https://api.github.com/repos/hlvm-dev/hlvm/releases/latest";
 const CACHE_FILE = ".update-check";
@@ -47,27 +48,16 @@ export async function checkForUpdates(): Promise<void> {
       // Cache miss or invalid - continue to fetch
     }
 
-    // Fetch latest version from GitHub API with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-
+    // Fetch latest version from GitHub API (SSOT: use http client)
     try {
-      const resp = await fetch(GITHUB_API, {
-        signal: controller.signal,
+      const release = await http.get<{ tag_name?: string }>(GITHUB_API, {
+        timeout: 3000, // 3 second timeout
         headers: {
           "Accept": "application/vnd.github.v3+json",
           "User-Agent": "hlvm-cli",
         },
       });
 
-      clearTimeout(timeoutId);
-
-      if (!resp.ok) {
-        if (resp.body) await resp.body.cancel();
-        return;
-      }
-
-      const release = await resp.json();
       const latestVersion = (release.tag_name || "").replace(/^v/, "");
 
       if (!latestVersion) return;
@@ -91,8 +81,7 @@ export async function checkForUpdates(): Promise<void> {
         showUpdateBanner(latestVersion);
       }
     } catch {
-      clearTimeout(timeoutId);
-      // Network error - silent fail
+      // Network error or timeout - silent fail
     }
   } catch {
     // Silent fail - don't break CLI for update check issues

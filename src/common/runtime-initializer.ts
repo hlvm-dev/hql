@@ -3,6 +3,9 @@
  *
  * This module provides a centralized system for tracking and managing
  * initialization states of various HLVM runtime components.
+ *
+ * SSOT: This is the ONLY entry point for runtime initialization.
+ * All other code should use initializeRuntime() from this module.
  */
 
 import { globalLogger as logger } from "../logger.ts";
@@ -14,6 +17,23 @@ import { initAIRuntime } from "../hlvm/runtime/ai-runtime.ts";
 import { config } from "../hlvm/api/config.ts";
 // Note: Model installation is now handled by the REPL's ModelSetupOverlay
 // for better UX with progress display. See useInitialization.ts
+
+/**
+ * Options for partial runtime initialization.
+ * All options default to true if not specified.
+ */
+export interface InitOptions {
+  /** Initialize runtime helpers (required for most operations) */
+  helpers?: boolean;
+  /** Load configuration from file */
+  config?: boolean;
+  /** Initialize standard library */
+  stdlib?: boolean;
+  /** Initialize cache system */
+  cache?: boolean;
+  /** Initialize AI runtime (Ollama) */
+  ai?: boolean;
+}
 
 // Runtime component initialization states
 interface InitializationState {
@@ -42,31 +62,55 @@ class HlvmRuntimeInitializer {
 
   /**
    * Initialize all core components
+   * @param options - Partial initialization options (all default to true)
    */
-  public async initializeRuntime(): Promise<void> {
-    logger.debug("Initializing HLVM runtime...");
+  public async initializeRuntime(options?: InitOptions): Promise<void> {
+    const opts: Required<InitOptions> = {
+      helpers: true,
+      config: true,
+      stdlib: true,
+      cache: true,
+      ai: true,
+      ...options,
+    };
 
-    initializeRuntimeHelpers();
+    logger.debug && logger.debug(`Initializing HLVM runtime with options: ${JSON.stringify(opts)}`);
 
-    try {
-      await config.reload();
-    } catch (error) {
-      logger.debug(`Config load failed (using defaults): ${getErrorMessage(error)}`);
+    // Initialize runtime helpers (usually required)
+    if (opts.helpers) {
+      initializeRuntimeHelpers();
     }
 
-    // Initialize components in parallel
-    await Promise.all([
-      this.initializeStdlib(),
-      this.initializeCache(),
-    ]);
+    // Load configuration
+    if (opts.config) {
+      try {
+        await config.reload();
+      } catch (error) {
+        logger.debug(`Config load failed (using defaults): ${getErrorMessage(error)}`);
+      }
+    }
+
+    // Initialize stdlib and cache in parallel (if enabled)
+    const parallelInits: Promise<void>[] = [];
+    if (opts.stdlib) {
+      parallelInits.push(this.initializeStdlib());
+    }
+    if (opts.cache) {
+      parallelInits.push(this.initializeCache());
+    }
+    if (parallelInits.length > 0) {
+      await Promise.all(parallelInits);
+    }
 
     // Initialize AI runtime (checks if Ollama is running, starts if embedded)
-    try {
-      await initAIRuntime();
-    } catch (error) {
-      // AI initialization is optional - don't fail if it doesn't work
-      // Log the actual error for debugging purposes
-      logger.debug(`AI runtime not available (optional): ${getErrorMessage(error)}`);
+    if (opts.ai) {
+      try {
+        await initAIRuntime();
+      } catch (error) {
+        // AI initialization is optional - don't fail if it doesn't work
+        // Log the actual error for debugging purposes
+        logger.debug(`AI runtime not available (optional): ${getErrorMessage(error)}`);
+      }
     }
 
     // Note: Default model installation is handled by REPL's ModelSetupOverlay
@@ -200,6 +244,24 @@ class HlvmRuntimeInitializer {
 
 const runtimeInitializer = new HlvmRuntimeInitializer();
 
-export async function initializeRuntime(): Promise<void> {
-  await runtimeInitializer.initializeRuntime();
+/**
+ * SSOT entry point for runtime initialization.
+ * This is the ONLY function that should be used to initialize the runtime.
+ *
+ * @param options - Partial initialization options (all default to true)
+ *
+ * @example
+ * // Full initialization (default)
+ * await initializeRuntime();
+ *
+ * @example
+ * // Config-only initialization (no AI startup)
+ * await initializeRuntime({ ai: false });
+ *
+ * @example
+ * // Minimal initialization
+ * await initializeRuntime({ helpers: true, config: true, stdlib: false, cache: false, ai: false });
+ */
+export async function initializeRuntime(options?: InitOptions): Promise<void> {
+  await runtimeInitializer.initializeRuntime(options);
 }

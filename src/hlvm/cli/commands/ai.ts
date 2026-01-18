@@ -1,6 +1,5 @@
 import { ai } from "../../api/ai.ts";
-import { config } from "../../api/config.ts";
-import { initAIRuntime } from "../../runtime/ai-runtime.ts";
+import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import {
   ensureDefaultModelInstalled,
   pullModelWithProgress,
@@ -29,13 +28,8 @@ export async function aiCommand(args: string[]): Promise<void> {
 
   const subcommand = args[0] ?? "setup";
 
-  try {
-    await config.reload();
-  } catch {
-    // Defaults will be used if config can't be loaded.
-  }
-
-  await initAIRuntime();
+  // Initialize runtime with AI (SSOT for all initialization)
+  await initializeRuntime({ stdlib: false, cache: false });
 
   switch (subcommand) {
     case "setup": {

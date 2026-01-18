@@ -15,7 +15,7 @@ import { publishCommand, showPublishHelp } from "./commands/publish.ts";
 import { uninstall as uninstallCommand, showUninstallHelp } from "./commands/uninstall.ts";
 import { upgrade as upgradeCommand, showUpgradeHelp } from "./commands/upgrade.ts";
 import { aiCommand, showAiHelp } from "./commands/ai.ts";
-import { initConfigRuntime } from "../../common/config/runtime.ts";
+import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { registerApis } from "../api/index.ts";
 
 // Import run command from run.ts
@@ -177,9 +177,9 @@ function showVersion(): void {
  * Main CLI entry point
  */
 async function main(): Promise<void> {
-  // Initialize config runtime before any command
-  // Ensures config API is ready for commands and packages
-  await initConfigRuntime();
+  // Initialize runtime with config only (no AI autostart for CLI dispatcher)
+  // Individual commands (repl, ai, run) handle their own AI initialization
+  await initializeRuntime({ ai: false, stdlib: false, cache: false });
   registerApis();
 
   const args = platformGetArgs();

@@ -9,6 +9,7 @@
 
 import { VERSION } from "../../../version.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { http } from "../../../common/http-client.ts";
 
 // Local alias for platform exit
 const platformExit = (code: number) => getPlatform().process.exit(code);
@@ -30,23 +31,16 @@ export async function upgrade(args: string[]): Promise<void> {
   console.log(`Current version: ${VERSION}`);
   console.log("Checking for updates...");
 
-  // Fetch latest release info
+  // Fetch latest release info (SSOT: use http client)
   let latestVersion: string;
   try {
-    const resp = await fetch(GITHUB_API, {
+    const release = await http.get<{ tag_name?: string }>(GITHUB_API, {
       headers: {
         Accept: "application/vnd.github.v3+json",
-          "User-Agent": "hlvm-cli",
+        "User-Agent": "hlvm-cli",
       },
     });
 
-    if (!resp.ok) {
-      if (resp.body) await resp.body.cancel();
-      console.error(`Failed to check for updates (HTTP ${resp.status})`);
-      platformExit(1);
-    }
-
-    const release = await resp.json();
     latestVersion = (release.tag_name || "").replace(/^v/, "");
 
     if (!latestVersion) {

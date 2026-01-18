@@ -35,6 +35,12 @@ export { ai } from "./ai.ts";
 // Runtime API
 export { runtime, setRuntimeState, setAbortSignal, getAbortSignal } from "./runtime.ts";
 
+// Log API (SSOT for all logging)
+export { log } from "./log.ts";
+
+// Errors API (SSOT for error creation)
+export { errors } from "./errors.ts";
+
 // ============================================================================
 // Initialization Helper
 // ============================================================================
@@ -45,6 +51,8 @@ import { session, setSessionManager } from "./session.ts";
 import { history, setReplState } from "./history.ts";
 import { ai } from "./ai.ts";
 import { runtime, setRuntimeState, type RuntimeState } from "./runtime.ts";
+import { log } from "./log.ts";
+import { errors } from "./errors.ts";
 
 /**
  * Options for registering APIs on globalThis
@@ -88,4 +96,6 @@ export function registerApis(options?: RegisterApisOptions): void {
   global.history = history;
   global.ai = ai;
   global.runtime = runtime;
+  global.log = log;
+  global.errors = errors;
 }

@@ -1,5 +1,11 @@
 import { globalLogger as logger } from "../../../logger.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
+import { http, HttpError } from "../../../common/http-client.ts";
+
+interface NpmRegistryResponse {
+  "dist-tags"?: { latest?: string };
+  versions?: Record<string, unknown>;
+}
 
 export async function getNpmLatestVersion(
   name: string,
@@ -8,17 +14,10 @@ export async function getNpmLatestVersion(
     logger.debug &&
       logger.debug(`Fetching latest version for NPM package: ${name}`);
 
-    const resp = await fetch(
+    // SSOT: use http client for external HTTP calls
+    const data = await http.get<NpmRegistryResponse>(
       `https://registry.npmjs.org/${encodeURIComponent(name)}`,
     );
-    if (!resp.ok) {
-      if (resp.body) await resp.body.cancel();
-      logger.debug &&
-        logger.debug(`NPM registry returned status: ${resp.status}`);
-      return null;
-    }
-
-    const data = await resp.json();
 
     if (data && data["dist-tags"] && data["dist-tags"].latest) {
       const version = data["dist-tags"].latest;
@@ -38,6 +37,11 @@ export async function getNpmLatestVersion(
     logger.debug && logger.debug(`No versions found for NPM package: ${name}`);
     return null;
   } catch (err) {
+    // Handle HTTP errors (e.g., 404 not found)
+    if (err instanceof HttpError) {
+      logger.debug && logger.debug(`NPM registry returned status: ${err.status}`);
+      return null;
+    }
     logger.debug && logger.debug(`Error fetching NPM version: ${getErrorMessage(err)}`);
     return null;
   }
