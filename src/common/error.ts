@@ -12,6 +12,7 @@
  */
 
 import { globalLogger as logger, Logger } from "../logger.ts";
+import { log } from "../hlvm/api/log.ts";
 import { getPlatform } from "../platform/platform.ts";
 import {
   ERROR_REPORTED_SYMBOL,
@@ -1869,12 +1870,12 @@ export class ErrorReporter {
       const formattedError = error instanceof HQLError
         ? await formatHQLError(error, isDebug)
         : formatErrorMessage(error);
-      console.error(formattedError);
+      log.raw.error(formattedError);
     } catch (_formatError) {
       // Fallback in case formatting itself fails
-      console.error(`Error: ${error.message}`);
+      log.raw.error(`Error: ${error.message}`);
       if (isDebug) {
-        console.error(error.stack);
+        log.raw.error(error.stack);
       }
     }
   }

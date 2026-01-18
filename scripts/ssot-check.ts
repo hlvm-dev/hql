@@ -23,14 +23,12 @@ import { join, relative } from "jsr:@std/path";
 const MIGRATION_ALLOWLIST = {
   console: [
     // === Batch 1: MIGRATED ===
-
-    // === Batch 2: Common module (7 files, ~14 calls) ===
-    "src/common/config/runtime.ts",
-    "src/common/config/storage.ts",
-    "src/common/context-helpers.ts",
-    "src/common/error.ts",
+    // === Batch 2: MIGRATED (except special cases below) ===
+    // Special: Bootstrap guard (typeof console !== "undefined")
     "src/common/known-identifiers.ts",
+    // Special: Crash handler hook (intentionally hooks console.error)
     "src/common/runtime-error-handler.ts",
+    // Special: Stringified runtime helper (cannot use imports)
     "src/common/runtime-helper-impl.ts",
 
     // === Batch 3: Transpiler (4 files, ~19 calls) ===

@@ -15,6 +15,7 @@ import {
 import { getHlvmDir, getConfigPath } from "../paths.ts";
 import { getLegacyConfigPath } from "../legacy-migration.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { log } from "../../hlvm/api/log.ts";
 
 // Re-export for backward compatibility
 export { getHlvmDir, getConfigPath };
@@ -210,10 +211,10 @@ export async function loadConfig(): Promise<HlvmConfig> {
   const legacyResult = await readJsonConfig(legacyPath);
 
   if (currentResult.error) {
-    console.warn("Warning: config.json is corrupted, using defaults or legacy config");
+    log.raw.warn("Warning: config.json is corrupted, using defaults or legacy config");
   }
   if (legacyResult.error) {
-    console.warn("Warning: legacy config.json is corrupted, ignoring");
+    log.raw.warn("Warning: legacy config.json is corrupted, ignoring");
   }
 
   const currentConfig = normalizeConfigInput(currentResult.data);
@@ -226,7 +227,7 @@ export async function loadConfig(): Promise<HlvmConfig> {
     try {
       await saveConfig(config);
     } catch (error) {
-      console.warn(`Warning: failed to persist migrated config: ${(error as Error).message}`);
+      log.raw.warn(`Warning: failed to persist migrated config: ${(error as Error).message}`);
     }
   }
 

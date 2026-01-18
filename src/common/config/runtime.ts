@@ -6,6 +6,7 @@
 import { type HlvmConfig } from "./types.ts";
 import { debugLog } from "./debug-log.ts";
 import { ai } from "../../hlvm/api/ai.ts";
+import { log } from "../../hlvm/api/log.ts";
 import { parseModelString } from "../../hlvm/providers/index.ts";
 import { config } from "../../hlvm/api/config.ts";
 
@@ -40,7 +41,7 @@ async function verifyAndSelectModel(): Promise<void> {
 
     if (models.length === 0) {
       // No models installed - warn user
-      console.warn("\x1b[33m⚠ No models installed. Use the Model Browser (Tab → Enter on Model) to download one.\x1b[0m");
+      log.raw.warn("\x1b[33m⚠ No models installed. Use the Model Browser (Tab → Enter on Model) to download one.\x1b[0m");
       return;
     }
 
@@ -54,7 +55,7 @@ async function verifyAndSelectModel(): Promise<void> {
     });
 
     if (!modelExists) {
-      console.warn(
+      log.raw.warn(
         `\x1b[33m⚠ Model '${configuredModel}' not found. It will be downloaded on startup.\x1b[0m`
       );
     }
