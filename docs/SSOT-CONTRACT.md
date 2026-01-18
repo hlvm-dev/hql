@@ -101,12 +101,27 @@ Some patterns are explicitly allowed in specific contexts:
 | Pattern | Allowed In | Reason |
 |---------|-----------|--------|
 | `console.*` | `src/logger.ts`, `src/hlvm/api/log.ts` | Internal implementation |
+| `console.*` | CONSOLE_ALLOWLIST files (see below) | Technical requirements |
+| `connection.console.*` | `src/hql/lsp/*.ts` | LSP proper logging |
+| `(console.log ...)` | HQL code examples in strings | S-expression syntax |
 | `fetch()` | `src/hlvm/providers/*` | Provider-specific HTTP needs |
+| `fetch()` | `src/hql/lib/stdlib/js/*` | Stdlib utility code |
 | `fetch()` | `embedded-packages/*` | Third-party code |
 | `Deno.*` | `src/platform/deno-platform.ts` | Platform implementation |
 | `throw new Error` | Test files (`*.test.ts`) | Test assertions |
 | `throw new TypeError` | Anywhere | JS semantic correctness |
 | `throw new RangeError` | Anywhere | JS semantic correctness |
+
+### CONSOLE_ALLOWLIST (Permanent Exceptions)
+
+These files have legitimate technical reasons for direct console access:
+
+| File | Reason |
+|------|--------|
+| `src/common/known-identifiers.ts` | Bootstrap guard (`typeof console !== "undefined"`) |
+| `src/common/runtime-error-handler.ts` | Crash handler hooks `console.error` |
+| `src/common/runtime-helper-impl.ts` | Stringified runtime code (cannot use imports) |
+| `src/hql/transpiler/pipeline/source-map-support.ts` | DEBUG-gated (`HLVM_DEBUG_ERROR=1`) |
 
 ## API Layer (globalThis)
 
@@ -133,8 +148,8 @@ deno task ssot:check
 ```
 
 This checks for:
-- `console.*` outside allowed files
-- `await fetch(` outside allowed locations
+- `console.*` outside allowed files and CONSOLE_ALLOWLIST
+- `fetch(` outside allowed locations (providers, stdlib, http-client)
 - `Deno.*` outside platform layer
 - `throw new Error(` (warning level)
 
@@ -142,8 +157,8 @@ This checks for:
 
 **GitHub Actions:**
 - `lint` job includes SSOT check step
-- Currently in warning mode (`continue-on-error: true`)
-- Will become blocking once violations are fixed
+- **Strict enforcement enabled** - violations block CI
+- Managed via CONSOLE_ALLOWLIST in `scripts/ssot-check.ts`
 
 **Local Pre-commit Hook:**
 ```bash

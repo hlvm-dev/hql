@@ -15,6 +15,8 @@ import { getErrorMessage } from "./utils.ts";
 import { initializeRuntimeHelpers } from "./runtime-helpers.ts";
 import { initAIRuntime } from "../hlvm/runtime/ai-runtime.ts";
 import { config } from "../hlvm/api/config.ts";
+import { initContext } from "../hlvm/cli/repl/context.ts";
+import { initSessionsDir } from "../hlvm/cli/repl/session/storage.ts";
 // Note: Model installation is now handled by the REPL's ModelSetupOverlay
 // for better UX with progress display. See useInitialization.ts
 
@@ -33,6 +35,10 @@ export interface InitOptions {
   cache?: boolean;
   /** Initialize AI runtime (Ollama) */
   ai?: boolean;
+  /** Initialize REPL context on globalThis */
+  context?: boolean;
+  /** Initialize sessions directory */
+  sessions?: boolean;
 }
 
 // Runtime component initialization states
@@ -71,6 +77,8 @@ class HlvmRuntimeInitializer {
       stdlib: true,
       cache: true,
       ai: true,
+      context: true,
+      sessions: true,
       ...options,
     };
 
@@ -87,6 +95,20 @@ class HlvmRuntimeInitializer {
         await config.reload();
       } catch (error) {
         logger.debug(`Config load failed (using defaults): ${getErrorMessage(error)}`);
+      }
+    }
+
+    // Initialize REPL context on globalThis
+    if (opts.context) {
+      initContext();
+    }
+
+    // Initialize sessions directory
+    if (opts.sessions) {
+      try {
+        await initSessionsDir();
+      } catch (error) {
+        logger.debug(`Sessions dir init failed (optional): ${getErrorMessage(error)}`);
       }
     }
 

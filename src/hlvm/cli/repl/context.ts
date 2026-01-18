@@ -313,11 +313,8 @@ function syncToGlobal(): void {
 
 /**
  * Initialize context on globalThis
- * Call this at REPL startup
+ * Call this at REPL startup via initializeRuntime()
  */
 export function initContext(): void {
   syncToGlobal();
 }
-
-// Initialize on module load
-initContext();

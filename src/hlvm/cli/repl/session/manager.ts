@@ -18,7 +18,6 @@ import {
   getLastSession,
   deleteSession as deleteSessionStorage,
   updateTitle,
-  initSessionsDir,
 } from "./storage.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 
@@ -72,9 +71,7 @@ export class SessionManager {
    * @returns The active session metadata, or null if deferred
    */
   async initialize(options: SessionInitOptions = {}): Promise<SessionMeta | null> {
-    // Ensure sessions directory exists
-    await initSessionsDir();
-
+    // Note: Sessions directory is initialized via initializeRuntime()
     // Handle different initialization modes
     if (options.resumeId) {
       // Resume specific session

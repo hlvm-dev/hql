@@ -69,7 +69,7 @@ const RULES: Rule[] = [
   },
   {
     name: "fetch-leak",
-    pattern: /\bawait\s+fetch\s*\(/g,
+    pattern: /\bfetch\s*\(/g,
     allowedPaths: [
       "src/common/http-client.ts",
     ],
@@ -77,6 +77,9 @@ const RULES: Rule[] = [
       /\/\/.*fetch\s*\(/, // Comments
       /\/\*[\s\S]*?fetch[\s\S]*?\*\//, // Multi-line comments
       /"[^"]*fetch[^"]*"/, // String literals
+      /'[^']*fetch[^']*'/, // Single-quoted string literals
+      /`[^`]*fetch[^`]*`/, // Template literals
+      /declare\s+function\s+fetch/, // TypeScript type declarations
     ],
     message: "Use http.* from http-client.ts instead of direct fetch",
     severity: "error",
