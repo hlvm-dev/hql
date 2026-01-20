@@ -1,10 +1,7 @@
 // HQL - ESM module for JSR
 // Minimal API for transpiling HQL to JavaScript
 
-import {
-  expandHql,
-  transpileToJavascript,
-} from "./src/hql/transpiler/hql-transpiler.ts";
+import { transpileToJavascript } from "./src/hql/transpiler/hql-transpiler.ts";
 import { transpileCLI } from "./src/hql/bundler.ts";
 import { initializeRuntime } from "./src/common/runtime-initializer.ts";
 import {
@@ -16,6 +13,7 @@ import {
   getRuntimeCacheDir,
 } from "./src/common/hlvm-cache-tracker.ts";
 import { getPlatform } from "./src/platform/platform.ts";
+import { macroexpand, type MacroExpandOptions } from "./src/hql/macroexpand.ts";
 
 // Local aliases for frequently used platform functions
 const _p = () => getPlatform();
@@ -36,12 +34,7 @@ const platformResolve = (...paths: string[]) => _path().resolve(...paths);
 const platformToFileUrl = (path: string) => _path().toFileUrl(path);
 const platformWriteTextFile = (path: string, content: string) => _fs().writeTextFile(path, content);
 import * as acorn from "npm:acorn@8.11.3";
-import { sexpToString } from "./src/hql/s-exp/types.ts";
 import { installSourceMapSupport, preloadSourceMap } from "./src/hql/transpiler/pipeline/source-map-support.ts";
-import {
-  transformStackTrace,
-  withTransformedStackTraces,
-} from "./src/hql/transpiler/pipeline/transform-stack-trace.ts";
 import {
   handleRuntimeError,
   setRuntimeContext,
@@ -79,24 +72,13 @@ export interface HQLModule {
   ) => Promise<string | TranspileResult>;
   run: (source: string, options?: RunOptions) => Promise<unknown>;
   runFile?: (filePath: string, options?: RunOptions) => Promise<unknown>;
-  macroexpand?: (
-    source: string,
-    options?: MacroExpandOptions,
-  ) => Promise<string[]>;
-  macroexpand1?: (
-    source: string,
-    options?: MacroExpandOptions,
-  ) => Promise<string[]>;
+  macroexpand?: (source: string, options?: MacroExpandOptions) => Promise<string[]>;
   version: string;
 }
 
 export type HqlAdapter = (js: string) => unknown | Promise<unknown>;
 
-export interface MacroExpandOptions {
-  baseDir?: string;
-  currentFile?: string;
-  verbose?: boolean;
-}
+export type { MacroExpandOptions };
 
 export interface TranspileOptions extends Record<string, unknown> {
   baseDir?: string;
@@ -845,48 +827,7 @@ export async function run(
   }
 }
 
-async function macroexpandInternal(
-  source: string,
-  iterationLimit: number | undefined,
-  options: MacroExpandOptions = {},
-  macroOverrides: { maxExpandDepth?: number } = {},
-): Promise<string[]> {
-  const processOptions = {
-    baseDir: options.baseDir ?? platformCwd(),
-    currentFile: options.currentFile,
-    verbose: options.verbose,
-  };
-
-  const expanded = await expandHql(source, processOptions, {
-    iterationLimit,
-    currentFile: options.currentFile,
-    verbose: options.verbose,
-    maxExpandDepth: macroOverrides.maxExpandDepth,
-  });
-
-  return expanded.map((expr) => sexpToString(expr));
-}
-
-export function macroexpand(
-  source: string,
-  options: MacroExpandOptions = {},
-): Promise<string[]> {
-  return macroexpandInternal(source, undefined, options);
-}
-
-export function macroexpand1(
-  source: string,
-  options: MacroExpandOptions = {},
-): Promise<string[]> {
-  return macroexpandInternal(source, 1, options, { maxExpandDepth: 0 });
-}
-
-export {
-  DenoPlatform,
-  getPlatform,
-  type Platform,
-  setPlatform,
-} from "./src/platform/platform.ts";
+export { macroexpand } from "./src/hql/macroexpand.ts";
 
 interface ModuleProcessingContext {
   importerDir: string;
@@ -1221,19 +1162,6 @@ export async function runFile(
   }
 }
 
-// Export runtime features
-export {
-  defineMacro,
-  gensym,
-  getMacros,
-  hasMacro,
-  hqlEval,
-  HQLRuntime,
-  macroexpand as macroexpandRuntime,
-  macroexpand1 as macroexpand1Runtime,
-  resetRuntime,
-} from "./src/hql/runtime/index.ts";
-
 // Version imported from single source of truth
 import { VERSION } from "./src/version.ts";
 export const version = VERSION;
@@ -1244,17 +1172,6 @@ const hql: HQLModule = {
   run,
   runFile,
   macroexpand,
-  macroexpand1,
   version,
 } as HQLModule;
 export default hql;
-
-// Export source map utilities
-export { transformStackTrace, withTransformedStackTraces };
-
-// Export tooling API
-export {
-  mapPosition,
-  loadSourceMap,
-  invalidateSourceMapCache,
-} from "./src/hql/transpiler/pipeline/source-map-support.ts";

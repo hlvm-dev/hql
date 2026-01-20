@@ -4,7 +4,7 @@
  */
 
 import { assertEquals, assertNotEquals } from "jsr:@std/assert@1";
-import { resetRuntime } from "../../mod.ts";
+import { resetRuntime } from "../../src/hql/runtime/index.ts";
 import { run } from "./helpers.ts";
 
 // =============================================================================

@@ -1,10 +1,11 @@
 import { assertEquals, assertNotEquals } from "jsr:@std/assert@1";
 import { getPlatform } from "../../src/platform/platform.ts";
-import hql, {
+import hql from "../../mod.ts";
+import {
   mapPosition,
   loadSourceMap,
-  invalidateSourceMapCache
-} from "../../mod.ts";
+  invalidateSourceMapCache,
+} from "../../src/hql/transpiler/pipeline/source-map-support.ts";
 
 const path = () => getPlatform().path;
 const fs = () => getPlatform().fs;
@@ -127,14 +128,11 @@ Deno.test("Tooling: hql.transpile defaults to generating source maps for string 
 });
 
 // ============================================================================
-// TEST 3: PUBLIC API EXPORTS (Ecosystem Enablement)
+// TEST 3: INTERNAL TOOLING EXPORTS (Source Map Helpers)
 // ============================================================================
 
-Deno.test("Tooling: Public API functions are exported and usable", () => {
-  // Verify exports exist
-  if (typeof mapPosition !== 'function') throw new Error("mapPosition not exported");
-  if (typeof loadSourceMap !== 'function') throw new Error("loadSourceMap not exported");
-  if (typeof invalidateSourceMapCache !== 'function') throw new Error("invalidateSourceMapCache not exported");
-
-  console.log("Tooling API exports verified successfully.");
+Deno.test("Tooling: Source map helpers are available for internal tooling", () => {
+  assertEquals(typeof mapPosition, "function");
+  assertEquals(typeof loadSourceMap, "function");
+  assertEquals(typeof invalidateSourceMapCache, "function");
 });

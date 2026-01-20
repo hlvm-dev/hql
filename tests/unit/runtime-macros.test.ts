@@ -12,10 +12,10 @@ import {
   getMacros,
   hasMacro,
   hqlEval,
-  macroexpand1Runtime,
-  macroexpandRuntime,
+  macroexpand as macroexpandRuntime,
+  macroexpand1 as macroexpand1Runtime,
   resetRuntime,
-} from "../../mod.ts";
+} from "../../src/hql/runtime/index.ts";
 import hql from "../../mod.ts";
 import { captureConsole } from "./helpers.ts";
 

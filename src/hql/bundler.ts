@@ -14,6 +14,7 @@ import type {
   PluginBuild,
 } from "npm:esbuild-wasm@^0.17.0";
 import { transpileToJavascript } from "./transpiler/hql-transpiler.ts";
+import { transpileHqlFile } from "./bundler-internal.ts";
 import { formatErrorMessage } from "../common/error.ts";
 import { ERROR_REPORTED_SYMBOL } from "../common/error-codes.ts";
 import {
@@ -23,12 +24,10 @@ import {
 } from "../common/import-utils.ts";
 import {
   checkForHqlImports,
-  escapeRegExp,
   findActualFilePath,
   getErrorMessage,
   isObjectValue,
   readFile,
-  sanitizeIdentifier,
 } from "../common/utils.ts";
 import { initializeRuntime } from "../common/runtime-initializer.ts";
 import { globalLogger as logger } from "../logger.ts";
@@ -51,7 +50,6 @@ import {
   registerImportMapping,
   writeToCachedPath,
 } from "../common/hlvm-cache-tracker.ts";
-import { transpile, type TranspileOptions } from "./transpiler/index.ts";
 import { preloadSourceMap } from "./transpiler/pipeline/source-map-support.ts";
 import { LRUCache } from "../common/lru-cache.ts";
 import { DEFAULT_LRU_CACHE_SIZE } from "../common/limits.ts";
@@ -115,7 +113,7 @@ const ERROR_ALREADY_INITIALIZED = "already been initialized";
 const ERROR_INITIALIZE = "initialize";
 
 // Interfaces
-export interface BundleOptions {
+interface BundleOptions {
   verbose?: boolean;
   standalone?: boolean;
   /** Enable minification (default: false for dev, true for --release) */
@@ -1108,42 +1106,6 @@ async function resolveHqlImport(
 }
 
 /**
- * Transpile an HQL file to JavaScript
- */
-export async function transpileHqlFile(
-  hqlFilePath: string,
-  sourceDir: string = "",
-  verbose: boolean = false,
-): Promise<string> {
-  try {
-    // Read the HQL file
-    const hqlContent = await fsUtil().readTextFile(hqlFilePath);
-
-    if (verbose) {
-      logger.debug(`Transpiling HQL file: ${hqlFilePath}`);
-    }
-
-    // Set up options
-    const options: TranspileOptions = {
-      verbose,
-      baseDir: pathUtil().dirname(hqlFilePath),
-      currentFile: hqlFilePath,
-    };
-
-    if (sourceDir) {
-      options.sourceDir = sourceDir;
-    }
-
-    // Pass source file explicitly to ensure accurate location
-    const result = await transpile(hqlContent, options);
-
-    return result.code;
-  } catch (error) {
-    throw wrapError(error, `Error transpiling HQL for JS import ${hqlFilePath}`);
-  }
-}
-
-/**
  * Determine the appropriate output path based on input file type
  */
 function determineOutputPath(
@@ -1188,91 +1150,6 @@ async function loadTranspiledFile(
       `Failed to load transpiled file: ${filePath}: ${
         formatErrorMessage(error)
       }`,
-    );
-  }
-}
-
-/**
- * Transpile HQL content to JavaScript from a path
- * Used by the prebundleHqlImportsInJs function
- */
-export async function transpileHqlInJs(
-  hqlPath: string,
-  basePath: string,
-): Promise<string> {
-  try {
-    // Read the HQL content
-    const hqlContent = await fsUtil().readTextFile(hqlPath);
-
-    // Transpile to JavaScript using the existing transpileToJavascript function
-    const { code: jsContent } = await transpileToJavascript(hqlContent, {
-      baseDir: pathUtil().dirname(hqlPath),
-      sourceDir: basePath,
-      currentFile: hqlPath,
-      sourceContent: hqlContent,
-    });
-
-    // Sanitize identifiers with hyphens
-    // PERFORMANCE: Use single-pass approach instead of nested replacements
-    // Old approach: O(n×m) - for each identifier, scan entire file
-    // New approach: O(m) - collect identifiers, then one replacement pass
-
-    // Step 1: Collect all identifiers that need sanitization
-    const identifiersToSanitize = new Map<string, string>(); // old -> new mapping
-
-    // Find exported identifiers with hyphens
-    const exportMatches = jsContent.matchAll(
-      /export\s+(const|let|var|function)\s+([a-zA-Z0-9_-]+)/g,
-    );
-    for (const match of exportMatches) {
-      const exportName = match[2];
-      if (exportName.includes("-")) {
-        identifiersToSanitize.set(exportName, sanitizeIdentifier(exportName));
-      }
-    }
-
-    // Find namespace import identifiers with hyphens
-    const importMatches = jsContent.matchAll(
-      /import\s+\*\s+as\s+([a-zA-Z0-9_-]+)\s+from/g,
-    );
-    for (const match of importMatches) {
-      const importName = match[1];
-      if (importName.includes("-")) {
-        identifiersToSanitize.set(importName, sanitizeIdentifier(importName));
-      }
-    }
-
-    // Step 2: If we have identifiers to sanitize, do a single replacement pass
-    let processedContent = jsContent;
-    if (identifiersToSanitize.size > 0) {
-      // Build a regex that matches any of the identifiers (longest first to avoid partial matches)
-      const sortedIdentifiers = Array.from(identifiersToSanitize.keys())
-        .sort((a, b) => b.length - a.length); // Longest first
-
-      // Escape special regex characters in identifiers (using DRY utility)
-      const escapedIdentifiers = sortedIdentifiers.map(escapeRegExp);
-
-      // Create pattern that matches identifiers as whole words or before dots (for namespaces)
-      const identifierPattern = new RegExp(
-        `\\b(${escapedIdentifiers.join('|')})(\\b|\\.)`,
-        'g'
-      );
-
-      // Single pass replacement
-      processedContent = processedContent.replace(
-        identifierPattern,
-        (match, identifier, suffix) => {
-          const sanitized = identifiersToSanitize.get(identifier);
-          return sanitized ? sanitized + suffix : match;
-        }
-      );
-    }
-
-    // Prepend runtime get snippet
-    return RUNTIME_GET_SNIPPET + processedContent;
-  } catch (error) {
-    throw new Error(
-      `Error transpiling HQL for JS import ${hqlPath}: ${getErrorMessage(error)}`,
     );
   }
 }

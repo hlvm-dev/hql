@@ -5,7 +5,8 @@
 
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import hql from "../../mod.ts";
-import { defineMacro, hqlEval, resetRuntime, transpile } from "../../mod.ts";
+import { transpile } from "../../mod.ts";
+import { defineMacro, hqlEval, resetRuntime } from "../../src/hql/runtime/index.ts";
 import { captureConsole } from "./helpers.ts";
 
 // ============================================================================

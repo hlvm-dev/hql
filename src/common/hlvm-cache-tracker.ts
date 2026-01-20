@@ -4,7 +4,7 @@ import { getPlatform } from "../platform/platform.ts";
 const p = () => getPlatform();
 const path = () => p().path;
 const fs = () => p().fs;
-import { transpileHqlInJs } from "../hql/bundler.ts";
+import { transpileHqlInJs } from "../hql/bundler-internal.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { sanitizeIdentifier, getErrorMessage, normalizePath, hyphenToUnderscore } from "./utils.ts";
 import { isHqlFile, isJsFile } from "./import-utils.ts";

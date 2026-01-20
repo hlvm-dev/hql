@@ -7,16 +7,14 @@ or using the named exports below).
 
 ## Overview
 
-| Function                 | Description                                              |
-| ------------------------ | -------------------------------------------------------- |
-| `run`                    | Transpile an HQL string and return the last expression.  |
-| `runFile`                | Execute an HQL file on disk, resolving relative imports. |
-| `transpile`              | Convert HQL into raw JavaScript code string.  |
-| `macroexpand`            | Expand all macros in a source string.                    |
-| `macroexpand1`           | Expand only the outer-most macro call.                   |
-| `hqlEval`                | Evaluate HQL directly from the initialized runtime.      |
-| `resetRuntime`           | Reset user-defined macros and runtime state.             |
-| `getMacros` / `hasMacro` | Inspect runtime macro registry.                          |
+| Function      | Description                                              |
+| ------------- | -------------------------------------------------------- |
+| `isHQL`       | Quick check if a string looks like HQL.                  |
+| `run`         | Transpile an HQL string and return the last expression.  |
+| `runFile`     | Execute an HQL file on disk, resolving relative imports. |
+| `transpile`   | Convert HQL into raw JavaScript code string.             |
+| `macroexpand` | Expand all macros in a source string.                    |
+| `version`     | HLVM version string.                                     |
 
 All helpers accept optional `baseDir`/`currentFile` options so they can resolve
 relative imports exactly the same way the CLI does.
@@ -50,6 +48,19 @@ console.log(result); // "Hello, World!"
 > `run` automatically detects ESM `import`/`export` statements. When present, it
 > wires the compiled code through a temporary `.mjs` file inside `.hlvm-cache/rt`
 > so standard dynamic imports keep working.
+
+---
+
+## `isHQL(code)`
+
+Lightweight check that a string looks like HQL based on leading delimiters.
+
+```ts
+import { isHQL } from "./mod.ts";
+
+console.log(isHQL("(+ 1 2)")); // true
+console.log(isHQL("const x = 1;")); // false
+```
 
 ---
 
@@ -91,7 +102,7 @@ interface TranspileResult {
 
 ---
 
-## Macro utilities
+## Macro expansion
 
 ### `macroexpand(source, options?)`
 
@@ -108,26 +119,30 @@ const [expanded] = await macroexpand(`
 console.log(expanded);
 ```
 
-### `macroexpand1(source, options?)`
-
-Like `macroexpand` but expands only the outer-most call (useful for macro
-debugging).
-
 ---
 
-## Runtime inspection
+## Default export
 
-The default export (`import hql from "./mod.ts"`) exposes additional helpers
-that mirror the named ones above. After running HQL code you can introspect
-macros:
+The default export (`import hql from "./mod.ts"`) exposes the same helpers as
+the named exports above.
 
 ```ts
 import hql from "./mod.ts";
 
-await hql.run("(macro twice [x] `(+ ~x ~x))");
-console.log(await hql.hasMacro("twice")); // true
-console.log(await hql.getMacros()); // Map of runtime macros
-await hql.resetRuntime(); // Clear macros/state
+await hql.run("(+ 1 2)");
+console.log(hql.version);
+```
+
+---
+
+## `version`
+
+Current HLVM version string.
+
+```ts
+import { version } from "./mod.ts";
+
+console.log(version);
 ```
 
 ---

@@ -2,7 +2,8 @@ import {
   assertEquals,
   assertMatch,
 } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { macroexpand, macroexpand1 } from "../../mod.ts";
+import { macroexpand } from "../../mod.ts";
+import { macroexpand1 } from "../../src/hql/macroexpand.ts";
 
 Deno.test("macroexpand expands nested macro definition", async () => {
   const source = `(do
