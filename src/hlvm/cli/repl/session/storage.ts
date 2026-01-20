@@ -4,9 +4,11 @@
  * Follows patterns from memory.ts for file I/O
  */
 
-import { basename, join, dirname } from "jsr:@std/path@1";
-import { ensureDir } from "jsr:@std/fs@1";
 import { getPlatform } from "../../../../platform/platform.ts";
+
+// SSOT: Use platform layer for all file/path operations
+const fs = () => getPlatform().fs;
+const path = () => getPlatform().path;
 import type {
   SessionMeta,
   SessionHeader,
@@ -30,12 +32,12 @@ let legacyMigrationChecked = false;
 
 /** Get index file path: ~/.hlvm/sessions/index.jsonl */
 function getIndexPath(): string {
-  return join(getSessionsDir(), INDEX_FILE);
+  return path().join(getSessionsDir(), INDEX_FILE);
 }
 
 /** Get session file path (global - no project subdirectory) */
 function getSessionPath(sessionId: string): string {
-  return join(getSessionsDir(), `${sessionId}.jsonl`);
+  return path().join(getSessionsDir(), `${sessionId}.jsonl`);
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -123,14 +125,14 @@ async function ensureLegacySessionsMigrated(): Promise<void> {
   const hasLegacyFiles = legacyFiles.length > 0;
 
   if (hasLegacyFiles) {
-    await ensureDir(getSessionsDir());
+    await fs().ensureDir(getSessionsDir());
   }
 
   const platform = getPlatform();
   let copiedAny = false;
   for (const legacyFile of legacyFiles) {
-    const filename = basename(legacyFile);
-    const targetPath = join(getSessionsDir(), filename);
+    const filename = path().basename(legacyFile);
+    const targetPath = path().join(getSessionsDir(), filename);
     if (await pathExists(targetPath)) {
       continue;
     }
@@ -186,16 +188,16 @@ export function generateSessionId(): string {
  * Append a JSON line to a file.
  * Creates directory if needed.
  */
-async function appendJsonLine(path: string, record: unknown): Promise<void> {
+async function appendJsonLine(filePath: string, record: unknown): Promise<void> {
   const platform = getPlatform();
   const line = JSON.stringify(record) + "\n";
 
   try {
-    await platform.fs.writeTextFile(path, line, { append: true });
+    await platform.fs.writeTextFile(filePath, line, { append: true });
   } catch (error) {
     if (error instanceof Error && error.name === "NotFound") {
-      await ensureDir(dirname(path));
-      await platform.fs.writeTextFile(path, line);
+      await fs().ensureDir(path().dirname(filePath));
+      await platform.fs.writeTextFile(filePath, line);
     } else {
       throw error;
     }
@@ -234,14 +236,14 @@ async function readJsonLines<T>(path: string): Promise<T[]> {
  * Atomic write: write to temp file, then rename.
  * Prevents corruption if process crashes mid-write.
  */
-async function atomicWriteFile(path: string, content: string): Promise<void> {
+async function atomicWriteFile(filePath: string, content: string): Promise<void> {
   const platform = getPlatform();
-  const tempPath = `${path}.tmp.${Date.now()}`;
+  const tempPath = `${filePath}.tmp.${Date.now()}`;
 
   try {
-    await ensureDir(dirname(path));
+    await fs().ensureDir(path().dirname(filePath));
     await platform.fs.writeTextFile(tempPath, content);
-    await platform.fs.rename(tempPath, path);
+    await platform.fs.rename(tempPath, filePath);
   } catch (error) {
     try {
       await platform.fs.remove(tempPath);
@@ -648,5 +650,5 @@ export async function exportSession(
  * Initialize sessions directory structure.
  */
 export async function initSessionsDir(): Promise<void> {
-  await ensureDir(getSessionsDir());
+  await fs().ensureDir(getSessionsDir());
 }

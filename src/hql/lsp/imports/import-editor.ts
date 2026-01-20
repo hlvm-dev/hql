@@ -16,7 +16,10 @@ import {
 import type { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import type { UnusedImport, ParsedImport } from "./types.ts";
 import { findAllImports } from "./import-parser.ts";
-import * as path from "node:path";
+import { getPlatform } from "../../../platform/platform.ts";
+
+// SSOT: Use platform layer for path operations
+const path = () => getPlatform().path;
 
 /**
  * Create a code action to remove an unused import symbol
@@ -212,8 +215,8 @@ export function createNewImport(symbols: string[], modulePath: string): string {
  * Calculate relative path from one file to another
  */
 export function calculateRelativePath(fromFile: string, toFile: string): string {
-  const fromDir = path.dirname(fromFile);
-  let relativePath = path.relative(fromDir, toFile);
+  const fromDir = path().dirname(fromFile);
+  let relativePath = path().relative(fromDir, toFile);
 
   // Ensure path starts with ./ or ../
   if (!relativePath.startsWith(".") && !relativePath.startsWith("/")) {

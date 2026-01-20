@@ -6,12 +6,14 @@
 
 import { parse } from "../../../hql/transpiler/pipeline/parser.ts";
 import { isList, isSymbol, type SList, type SSymbol } from "../../../hql/s-exp/types.ts";
-import { join } from "jsr:@std/path@1";
-import { ensureDir } from "jsr:@std/fs@1";
 import { escapeString } from "./string-utils.ts";
 import { getHlvmDir, getMemoryPath } from "../../../common/paths.ts";
 import { getLegacyMemoryPath } from "../../../common/legacy-migration.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+
+// SSOT: Use platform layer for all file/path operations
+const fs = () => getPlatform().fs;
+const path = () => getPlatform().path;
 
 // ============================================================
 // Debug Logging (writes to ~/.hlvm/memory-debug.log)
@@ -19,7 +21,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 
 async function debugLog(message: string): Promise<void> {
   try {
-    const logPath = join(getHlvmDir(), "memory-debug.log");
+    const logPath = path().join(getHlvmDir(), "memory-debug.log");
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${message}\n`;
     await getPlatform().fs.writeTextFile(logPath, line, { append: true });
@@ -55,7 +57,7 @@ async function ensureLegacyMemoryMigrated(): Promise<void> {
 
   const currentContent = await readFileIfExists(currentPath);
   if (currentContent === null) {
-    await ensureDir(getHlvmDir());
+    await fs().ensureDir(getHlvmDir());
     await getPlatform().fs.writeTextFile(currentPath, legacyContent);
     return;
   }
@@ -431,7 +433,7 @@ export async function appendToMemory(
 
   // Write back (ensures no duplicates)
   try {
-    await ensureDir(getHlvmDir());
+    await fs().ensureDir(getHlvmDir());
     await debugLog(`ensureDir succeeded`);
     await writeMemoryFile(filtered);
     await debugLog(`writeMemoryFile succeeded - DONE`);

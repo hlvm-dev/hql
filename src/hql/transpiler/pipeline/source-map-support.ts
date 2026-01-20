@@ -312,14 +312,14 @@ function loadSourceMapSync(
   }
 
   if (DEBUG) {
-    console.log("[loadSourceMapSync] Normalized path:", normalizedPath);
+    logger.debug(`[loadSourceMapSync] Normalized path: ${normalizedPath}`);
   }
 
   // Check cache - this is now the ONLY source of data (no file I/O)
   if (sourceMapCache.has(normalizedPath)) {
     logger.debug(`Source map cache hit (sync): ${normalizedPath}`);
     if (DEBUG) {
-      console.log("[loadSourceMapSync] Cache hit!");
+      logger.debug("[loadSourceMapSync] Cache hit!");
     }
     return sourceMapCache.get(normalizedPath)!;
   }
@@ -333,10 +333,7 @@ function loadSourceMapSync(
       `Call preloadSourceMap() after transpilation to enable source mapping for errors.`
     );
     if (DEBUG) {
-      console.log(
-        "[loadSourceMapSync] Cache miss! Source map not preloaded for:",
-        normalizedPath
-      );
+      logger.debug(`[loadSourceMapSync] Cache miss! Source map not preloaded for: ${normalizedPath}`);
     }
   }
 
@@ -367,20 +364,20 @@ export function mapPositionSync(
 ): Position | null {
   const DEBUG = getPlatform().env.get("HLVM_DEBUG_ERROR") === "1";
   if (DEBUG) {
-    console.log("[mapPositionSync] Looking up:", jsFilePath, line, column);
+    logger.debug(`[mapPositionSync] Looking up: ${jsFilePath} ${line} ${column}`);
   }
 
   const consumer = loadSourceMapSync(jsFilePath);
 
   if (!consumer) {
     if (DEBUG) {
-      console.log("[mapPositionSync] No consumer found for:", jsFilePath);
+      logger.debug(`[mapPositionSync] No consumer found for: ${jsFilePath}`);
     }
     return null;
   }
 
   if (DEBUG) {
-    console.log("[mapPositionSync] Consumer found, looking up position...");
+    logger.debug("[mapPositionSync] Consumer found, looking up position...");
   }
 
   try {
@@ -392,7 +389,7 @@ export function mapPositionSync(
 
     if (original.source && original.line !== null) {
       if (DEBUG) {
-        console.log("[mapPositionSync] Direct mapping found:", original);
+        logger.debug(`[mapPositionSync] Direct mapping found: ${JSON.stringify(original)}`);
       }
       return {
         source: original.source,
@@ -407,7 +404,7 @@ export function mapPositionSync(
     // In this case, the line number we receive is already the source line number,
     // so we need to look up in the source file's source map instead.
     if (DEBUG) {
-      console.log("[mapPositionSync] No direct mapping, checking source map chain...");
+      logger.debug("[mapPositionSync] No direct mapping, checking source map chain...");
     }
 
     // Get the sources from this source map
@@ -416,7 +413,7 @@ export function mapPositionSync(
       // The source file might have its own source map
       const sourceFile = sources[0];
       if (DEBUG) {
-        console.log("[mapPositionSync] Source file from map:", sourceFile);
+        logger.debug(`[mapPositionSync] Source file from map: ${sourceFile}`);
       }
 
       // Resolve the source file path relative to the JS file
@@ -426,7 +423,7 @@ export function mapPositionSync(
         : jsDir + '/' + sourceFile;
 
       if (DEBUG) {
-        console.log("[mapPositionSync] Resolved source path:", resolvedSource);
+        logger.debug(`[mapPositionSync] Resolved source path: ${resolvedSource}`);
       }
 
       // Try to load the source file's source map
@@ -434,7 +431,7 @@ export function mapPositionSync(
       const sourceConsumer = loadSourceMapSync(resolvedSource);
       if (sourceConsumer) {
         if (DEBUG) {
-          console.log("[mapPositionSync] Found source map for:", resolvedSource);
+          logger.debug(`[mapPositionSync] Found source map for: ${resolvedSource}`);
         }
 
         // Look up in the source file's source map using the line/column we received
@@ -447,7 +444,7 @@ export function mapPositionSync(
 
         if (chained.source && chained.line !== null) {
           if (DEBUG) {
-            console.log("[mapPositionSync] Chained mapping found:", chained);
+            logger.debug(`[mapPositionSync] Chained mapping found: ${JSON.stringify(chained)}`);
           }
           return {
             source: chained.source,
@@ -460,7 +457,7 @@ export function mapPositionSync(
     }
 
     if (DEBUG) {
-      console.log("[mapPositionSync] No mapping found after chain lookup");
+      logger.debug("[mapPositionSync] No mapping found after chain lookup");
     }
     return null;
   } catch (error) {

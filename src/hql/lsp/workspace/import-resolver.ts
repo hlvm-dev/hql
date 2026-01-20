@@ -14,8 +14,11 @@
  * - http/https: imports
  */
 
-import * as path from "node:path";
-import * as fs from "node:fs";
+import { getPlatform } from "../../../platform/platform.ts";
+
+// SSOT: Use platform layer for all file/path operations
+const path = () => getPlatform().path;
+const fs = () => getPlatform().fs;
 
 export class ImportResolver {
   private workspaceRoots: string[] = [];
@@ -61,8 +64,8 @@ export class ImportResolver {
 
     // Relative paths: ./foo.hql, ../bar.hql
     if (importPath.startsWith("./") || importPath.startsWith("../")) {
-      const containingDir = path.dirname(containingFile);
-      let resolvedPath = path.resolve(containingDir, importPath);
+      const containingDir = path().dirname(containingFile);
+      let resolvedPath = path().resolve(containingDir, importPath);
 
       // Add .hql extension if missing
       if (!this.hasKnownExtension(resolvedPath)) {
@@ -78,7 +81,7 @@ export class ImportResolver {
     }
 
     // Absolute paths
-    if (path.isAbsolute(importPath)) {
+    if (path().isAbsolute(importPath)) {
       if (this.fileExists(importPath)) {
         return importPath;
       }
@@ -87,7 +90,7 @@ export class ImportResolver {
 
     // Bare specifier - try workspace roots
     for (const root of this.workspaceRoots) {
-      let candidate = path.join(root, importPath);
+      let candidate = path().join(root, importPath);
 
       if (!this.hasKnownExtension(candidate)) {
         candidate += ".hql";
@@ -118,7 +121,7 @@ export class ImportResolver {
    * Check if path has a known file extension
    */
   private hasKnownExtension(filePath: string): boolean {
-    const ext = path.extname(filePath).toLowerCase();
+    const ext = path().extname(filePath).toLowerCase();
     return [".hql", ".ts", ".js", ".mjs", ".cjs"].includes(ext);
   }
 
@@ -127,7 +130,8 @@ export class ImportResolver {
    */
   private fileExists(filePath: string): boolean {
     try {
-      return fs.existsSync(filePath) && fs.statSync(filePath).isFile();
+      const stat = fs().statSync(filePath);
+      return stat.isFile;
     } catch {
       return false;
     }

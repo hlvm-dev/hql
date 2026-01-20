@@ -5,9 +5,14 @@
  * Used to preserve user config/history/memory after rebranding.
  */
 
-import { basename, join, resolve } from "jsr:@std/path@1";
 import { getPlatform } from "../platform/platform.ts";
 import { getEnvVar } from "./paths.ts";
+
+// SSOT: Use platform layer for all file/path operations
+const path = () => getPlatform().path;
+const basename = (p: string) => path().basename(p);
+const join = (...paths: string[]) => path().join(...paths);
+const resolve = (...paths: string[]) => path().resolve(...paths);
 
 export function getLegacyHqlDir(): string {
   const override = getEnvVar("HQL_DIR") || getEnvVar("HQL_HOME");

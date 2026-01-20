@@ -13,15 +13,17 @@ import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../../../hql/transpiler/
 import { extractTypeFromSymbol } from "../../../hql/transpiler/tokenizer/type-tokenizer.ts";
 import type { ReplState } from "./state.ts";
 import { appendToMemory } from "./memory.ts";
-import { join } from "jsr:@std/path@1";
 import { getPlatform } from "../../../platform/platform.ts";
+
+// SSOT: Use platform layer for all file/path operations
+const path = () => getPlatform().path;
 
 // Debug logging to file (Ink captures console)
 async function debugLog(message: string): Promise<void> {
   const platform = getPlatform();
   try {
     const home = platform.env.get("HOME") || platform.env.get("USERPROFILE") || ".";
-    const logPath = join(home, ".hlvm", "memory-debug.log");
+    const logPath = path().join(home, ".hlvm", "memory-debug.log");
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] [evaluator] ${message}\n`;
     await platform.fs.writeTextFile(logPath, line, { append: true });

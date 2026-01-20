@@ -3,7 +3,6 @@
  * File I/O with atomic writes for ~/.hlvm/config.json
  */
 
-import { ensureDir } from "jsr:@std/fs@1";
 import {
   type HlvmConfig,
   type KeybindingsConfig,
@@ -15,6 +14,9 @@ import {
 import { getHlvmDir, getConfigPath } from "../paths.ts";
 import { getLegacyConfigPath } from "../legacy-migration.ts";
 import { getPlatform } from "../../platform/platform.ts";
+
+// SSOT: Use platform layer for all file/path operations
+const fs = () => getPlatform().fs;
 import { log } from "../../hlvm/api/log.ts";
 
 // Re-export for backward compatibility
@@ -243,7 +245,7 @@ export async function saveConfig(config: HlvmConfig): Promise<void> {
   const path = getConfigPath();
   const tempPath = `${path}.tmp`;
 
-  await ensureDir(dir);
+  await fs().ensureDir(dir);
 
   // Write to temp file first
   const content = JSON.stringify(config, null, 2) + "\n";

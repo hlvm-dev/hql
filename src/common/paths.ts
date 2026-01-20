@@ -5,8 +5,12 @@
  * This eliminates duplication and ensures consistent path handling.
  */
 
-import { join, resolve } from "jsr:@std/path@1";
 import { getPlatform } from "../platform/platform.ts";
+
+// SSOT: Use platform layer for all file/path operations
+const path = () => getPlatform().path;
+const join = (...paths: string[]) => path().join(...paths);
+const resolve = (...paths: string[]) => path().resolve(...paths);
 
 // Cached HLVM directory path
 let _hlvmDir: string | null = null;
