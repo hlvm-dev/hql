@@ -109,10 +109,47 @@ Some patterns are explicitly allowed in specific contexts:
 | `fetch()` | `embedded-packages/*` | Third-party code |
 | `Deno.*` | `src/platform/deno-platform.ts` | Platform implementation |
 | `throw new Error` | Test files (`*.test.ts`) | Test assertions |
+| `throw new Error` | RAW_ERROR_ALLOWLIST files (see below) | Technical requirements |
 | `throw new TypeError` | Anywhere | JS semantic correctness |
 | `throw new RangeError` | Anywhere | JS semantic correctness |
 
 ### CONSOLE_ALLOWLIST (Permanent Exceptions)
+
+These files have legitimate technical reasons for direct console access:
+
+| File | Reason |
+|------|--------|
+| `src/common/known-identifiers.ts` | Bootstrap guard (`typeof console !== "undefined"`) |
+| `src/common/runtime-error-handler.ts` | Crash handler hooks `console.error` |
+| `src/common/runtime-helper-impl.ts` | Stringified runtime code (cannot use imports) |
+| `src/hql/transpiler/pipeline/source-map-support.ts` | DEBUG-gated (`HLVM_DEBUG_ERROR=1`) |
+
+### RAW_ERROR_ALLOWLIST (Permanent Exceptions)
+
+These files cannot use typed errors from `src/common/error.ts` due to architectural constraints:
+
+| File/Path | Reason |
+|-----------|--------|
+| `src/common/utils.ts` | Circular dependency: error.ts → logger.ts → utils.ts |
+| `src/platform/deno-platform.ts` | Circular dependency: error.ts → logger.ts → utils.ts → platform.ts |
+| `src/hql/lib/stdlib/js/` | Pure JavaScript runtime files (cannot use TypeScript types) |
+| `src/hql/embedded-packages.ts` | Embedded JS code in string literals |
+| `src/hql/transpiler/pipeline/source-map-support.ts` | JSDoc examples |
+| `src/hql/transpiler/syntax/function.ts` | JSDoc examples |
+
+**Circular Dependency Explanation:**
+```
+error.ts imports logger.ts
+  → logger.ts imports utils.ts (for getErrorMessage)
+    → utils.ts imports platform.ts (for getPlatform)
+      → platform.ts imports deno-platform.ts
+```
+If any file in this chain imports from `error.ts`, it creates a circular dependency causing:
+```
+ReferenceError: Cannot access 'logger' before initialization
+```
+
+### API Layer (globalThis)
 
 These files have legitimate technical reasons for direct console access:
 
