@@ -8,6 +8,20 @@ Follow `AGENTS.md` for authoritative AI agent instructions.
 
 All code MUST use designated SSOT entry points. Direct calls to `console.*`, `Deno.*`, `fetch()`, or file I/O APIs are **FORBIDDEN**.
 
+## DRY & KISS - MANDATORY
+
+**No scattered logic. No redundancy. No duplication.**
+
+Every piece of logic must exist in **exactly ONE place**. Zero tolerance for copy-paste programming.
+
+**Requirements:**
+- Before writing code → Search for existing implementations
+- When finding duplication → Consolidate immediately into one SSOT
+- Similar logic in 2+ places → VIOLATION (refactor required)
+- Copy-paste code → FORBIDDEN (extract to shared location)
+
+See `AGENTS.md` for detailed DRY/KISS guidelines and examples.
+
 ### Required Patterns
 
 **Always use SSOT entry points:**
