@@ -18,6 +18,7 @@ import {
 
 import type { SessionMeta, Session } from "../cli/repl/session/types.ts";
 import { getSessionsDir } from "../../common/paths.ts";
+import { ValidationError } from "../../common/error.ts";
 
 // ============================================================================
 // Session Manager Reference
@@ -80,7 +81,7 @@ function createSessionApi() {
      */
     get: async (sessionId: string): Promise<Session | null> => {
       if (!sessionId || typeof sessionId !== "string") {
-        throw new Error("session.get requires a session ID string");
+        throw new ValidationError("session.get requires a session ID string", "session.get");
       }
 
       return loadSession(sessionId);
@@ -93,12 +94,12 @@ function createSessionApi() {
      */
     resume: async (sessionId: string): Promise<Session | null> => {
       if (!sessionId || typeof sessionId !== "string") {
-        throw new Error("session.resume requires a session ID string");
+        throw new ValidationError("session.resume requires a session ID string", "session.resume");
       }
 
       // 100% SSOT: Use manager's resumeSession only - no fallback bypass
       if (!_sessionManager?.resumeSession) {
-        throw new Error("Session manager not initialized - session.resume requires active REPL session");
+        throw new ValidationError("Session manager not initialized - session.resume requires active REPL session", "session.resume");
       }
 
       return _sessionManager.resumeSession(sessionId);
@@ -111,7 +112,7 @@ function createSessionApi() {
      */
     listForProject: async (limit: number = 50): Promise<SessionMeta[]> => {
       if (!_sessionManager?.listForProject) {
-        throw new Error("Session manager not initialized - session.listForProject requires active REPL session");
+        throw new ValidationError("Session manager not initialized - session.listForProject requires active REPL session", "session.listForProject");
       }
       return _sessionManager.listForProject(limit);
     },
@@ -135,7 +136,7 @@ function createSessionApi() {
       attachments?: string[]
     ): Promise<void> => {
       if (!_sessionManager) {
-        throw new Error("Session manager not initialized - session.record requires active REPL session");
+        throw new ValidationError("Session manager not initialized - session.record requires active REPL session", "session.record");
       }
       await _sessionManager.recordMessage(role, content, attachments);
     },
@@ -146,7 +147,7 @@ function createSessionApi() {
      */
     remove: async (sessionId: string): Promise<boolean> => {
       if (!sessionId || typeof sessionId !== "string") {
-        throw new Error("session.remove requires a session ID string");
+        throw new ValidationError("session.remove requires a session ID string", "session.remove");
       }
 
       return deleteSession(sessionId);
@@ -158,7 +159,7 @@ function createSessionApi() {
      */
     export: async (sessionId: string): Promise<string | null> => {
       if (!sessionId || typeof sessionId !== "string") {
-        throw new Error("session.export requires a session ID string");
+        throw new ValidationError("session.export requires a session ID string", "session.export");
       }
 
       return exportSession(sessionId);
@@ -187,7 +188,7 @@ function createSessionApi() {
      */
     has: async (sessionId: string): Promise<boolean> => {
       if (!sessionId || typeof sessionId !== "string") {
-        throw new Error("session.has requires a session ID string");
+        throw new ValidationError("session.has requires a session ID string", "session.has");
       }
 
       const session = await loadSession(sessionId);

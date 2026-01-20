@@ -420,10 +420,11 @@ function processParamList(
 
   elements.forEach((param, index) => {
     if (!isSymbol(param)) {
-      throw new Error(
+      throw new MacroError(
         `Macro parameter at position ${index + 1} must be a symbol, got: ${
           sexpToString(param)
         }`,
+        "parameter parsing"
       );
     }
 
@@ -434,8 +435,9 @@ function processParamList(
 
     if (restMode) {
       if (restParam !== null) {
-        throw new Error(
+        throw new MacroError(
           `Multiple rest parameters not allowed: found '${restParam}' and '${param.name}'`,
+          "parameter parsing"
         );
       }
       restParam = param.name;

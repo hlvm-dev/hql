@@ -29,6 +29,7 @@ import {
 } from "../../common/config/types.ts";
 import { syncProvidersFromConfig } from "../../common/config/provider-sync.ts";
 import { log } from "./log.ts";
+import { ValidationError } from "../../common/error.ts";
 
 // ============================================================================
 // Config API Object
@@ -76,7 +77,7 @@ function createConfigApi() {
      */
     get: async (key: string): Promise<unknown> => {
       if (!isConfigKey(key)) {
-        throw new Error(`Unknown config key: ${key}. Valid keys: ${CONFIG_KEYS.join(", ")}`);
+        throw new ValidationError(`Unknown config key: ${key}. Valid keys: ${CONFIG_KEYS.join(", ")}`, "config.get");
       }
       const cfg = await ensureConfig();
       return cfg[key];
@@ -88,7 +89,7 @@ function createConfigApi() {
      */
     set: async (key: string, value: unknown): Promise<void> => {
       if (!isConfigKey(key)) {
-        throw new Error(`Unknown config key: ${key}. Valid keys: ${CONFIG_KEYS.join(", ")}`);
+        throw new ValidationError(`Unknown config key: ${key}. Valid keys: ${CONFIG_KEYS.join(", ")}`, "config.set");
       }
 
       // Parse string values for numeric keys
@@ -99,7 +100,7 @@ function createConfigApi() {
 
       const validation = validateValue(key, parsedValue);
       if (!validation.valid) {
-        throw new Error(validation.error);
+        throw new ValidationError(validation.error ?? "Invalid value", "config.set");
       }
 
       const cfg = await ensureConfig();

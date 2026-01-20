@@ -4,6 +4,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
+import { RuntimeError } from "../../../common/error.ts";
 
 /**
  * Get the path to the Deno executable
@@ -23,7 +24,7 @@ export async function ensureDenoAvailable(): Promise<string> {
     if (systemDeno) {
       return systemDeno;
     }
-    throw new Error(
+    throw new RuntimeError(
       "Deno not found in PATH. Native compilation requires Deno to be installed.\n" +
       "Please install Deno: https://deno.land"
     );
@@ -40,7 +41,7 @@ export async function ensureDenoAvailable(): Promise<string> {
     return systemDeno;
   }
 
-  throw new Error(
+  throw new RuntimeError(
     "Deno runtime not found. This is unexpected - HLVM requires Deno to run.\n" +
     "Please ensure Deno is installed: https://deno.land"
   );

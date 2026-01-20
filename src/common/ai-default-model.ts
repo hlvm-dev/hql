@@ -9,6 +9,7 @@ import type { ModelInfo, PullProgress } from "../hlvm/providers/types.ts";
 import { DEFAULT_MODEL_ID } from "./config/types.ts";
 import { getErrorMessage } from "./utils.ts";
 import { getPlatform } from "../platform/platform.ts";
+import { RuntimeError } from "./error.ts";
 
 let defaultModelEnsured = false;
 
@@ -89,7 +90,7 @@ export async function ensureDefaultModelInstalled(
   try {
     models = await ai.models.list(providerName ?? undefined);
   } catch (error) {
-    throw new Error(
+    throw new RuntimeError(
       `AI provider unavailable while checking models. Ensure Ollama is running: ${getErrorMessage(error)}`
     );
   }
@@ -106,7 +107,7 @@ export async function ensureDefaultModelInstalled(
   try {
     await pullModelWithProgress(modelName, providerName ?? undefined, log);
   } catch (error) {
-    throw new Error(
+    throw new RuntimeError(
       `Default model download failed (${modelName}): ${getErrorMessage(error)}`
     );
   }
@@ -114,13 +115,13 @@ export async function ensureDefaultModelInstalled(
   try {
     models = await ai.models.list(providerName ?? undefined);
   } catch (error) {
-    throw new Error(
+    throw new RuntimeError(
       `Unable to verify default model installation: ${getErrorMessage(error)}`
     );
   }
 
   if (!isModelInstalled(models, modelName)) {
-    throw new Error(`Default model download did not complete: ${modelName}`);
+    throw new RuntimeError(`Default model download did not complete: ${modelName}`);
   }
 
   defaultModelEnsured = true;

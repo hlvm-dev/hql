@@ -6,6 +6,8 @@
  * case receives type `never`. If a case is missing, TypeScript will error.
  */
 
+import { RuntimeError } from "../../../common/error.ts";
+
 /**
  * Assert that a value is of type `never`.
  *
@@ -20,5 +22,5 @@
  * }
  */
 export function assertNever(x: never, msg?: string): never {
-  throw new Error(msg ?? `Unhandled case: ${JSON.stringify(x)}`);
+  throw new RuntimeError(msg ?? `Unhandled case: ${JSON.stringify(x)}`);
 }

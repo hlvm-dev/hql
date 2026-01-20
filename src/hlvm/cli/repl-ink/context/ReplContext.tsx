@@ -6,6 +6,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from "npm:react@18";
 import type { ReplState } from "../../repl/state.ts";
 import { useReplStateBridge, type ReplStateSnapshot } from "../hooks/useReplStateBridge.ts";
+import { ValidationError } from "../../../../common/error.ts";
 
 /**
  * Context value containing all reactive REPL state
@@ -67,7 +68,7 @@ export function ReplProvider({ children, replState }: ReplProviderProps): React.
 export function useReplContext(): ReplContextValue {
   const ctx = useContext(ReplContext);
   if (!ctx) {
-    throw new Error("useReplContext must be used within ReplProvider");
+    throw new ValidationError("useReplContext must be used within ReplProvider", "useReplContext");
   }
   return ctx;
 }

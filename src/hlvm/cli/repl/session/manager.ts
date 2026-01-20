@@ -20,6 +20,7 @@ import {
   updateTitle,
 } from "./storage.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { RuntimeError } from "../../../../common/error.ts";
 
 // ============================================================================
 // SessionManager Class
@@ -118,7 +119,7 @@ export class SessionManager {
     }
 
     if (!this.sessionDeferred) {
-      throw new Error("SessionManager not initialized. Call initialize() first.");
+      throw new RuntimeError("SessionManager not initialized. Call initialize() first.");
     }
 
     // Create session now (lazy creation on first message)
@@ -271,7 +272,7 @@ export class SessionManager {
    */
   async renameSession(title: string): Promise<void> {
     if (!this.currentSession) {
-      throw new Error("No active session to rename.");
+      throw new RuntimeError("No active session to rename.");
     }
 
     await updateTitle(this.currentSession.id, title);

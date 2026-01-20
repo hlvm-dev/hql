@@ -104,10 +104,26 @@ const RULES: Rule[] = [
   {
     name: "raw-error",
     pattern: /\bthrow\s+new\s+Error\s*\(/g,
-    allowedPaths: [], // Warning everywhere
+    allowedPaths: [
+      // Embedded JavaScript code cannot use TypeScript error types
+      "src/hql/embedded-packages.ts",
+      // JSDoc examples showing error usage
+      "src/hql/transpiler/pipeline/source-map-support.ts",
+      "src/hql/transpiler/syntax/function.ts",
+      // Runtime JS stdlib files cannot use TypeScript error types
+      "src/hql/lib/stdlib/js/",
+      // Foundation utility - cannot import error.ts due to circular dependency
+      "src/common/utils.ts",
+      // Platform layer - cannot import error.ts due to circular dependency
+      "src/platform/deno-platform.ts",
+    ],
     excludePatterns: [
       /\/\/.*throw\s+new\s+Error/, // Comments
       /\/\*[\s\S]*?throw\s+new\s+Error[\s\S]*?\*\//, // Multi-line comments
+      /^\s*\*.*throw\s+new\s+Error/, // JSDoc content lines (start with *)
+      /"[^"]*throw\s+new\s+Error[^"]*"/, // String literals (double quotes)
+      /'[^']*throw\s+new\s+Error[^']*'/, // String literals (single quotes)
+      /`[^`]*throw\s+new\s+Error[^`]*`/, // Template literals
     ],
     message: "Consider using typed errors from src/common/error.ts",
     severity: "warn",
@@ -165,7 +181,15 @@ function isInStdlibJsPath(filePath: string): boolean {
 
 function isAllowedPath(filePath: string, rule: Rule): boolean {
   // Check if file is in allowed paths
-  if (rule.allowedPaths.some((p) => filePath === p || filePath.endsWith(p))) {
+  // Supports both exact file matches and directory prefixes (ending with /)
+  if (rule.allowedPaths.some((p) => {
+    if (p.endsWith("/")) {
+      // Directory prefix: check if file is inside this directory
+      return filePath.includes(p);
+    }
+    // File path: exact match or suffix match
+    return filePath === p || filePath.endsWith(p);
+  })) {
     return true;
   }
 
@@ -322,8 +346,13 @@ async function main() {
 
     for (const [rule, violations] of byRule) {
       console.log(`  \x1b[1m${rule}\x1b[0m (${violations.length}):`);
-      // Just show count for warnings
-      console.log(`    ${violations.length} instances`);
+      for (const v of violations.slice(0, 20)) {
+        console.log(`    ${v.file}:${v.line}`);
+        console.log(`      ${v.content}`);
+      }
+      if (violations.length > 20) {
+        console.log(`    ... and ${violations.length - 20} more`);
+      }
       console.log(`    Consider: ${violations[0].message}\n`);
     }
   }

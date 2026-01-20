@@ -7,6 +7,7 @@
  * SSOT: Uses ai.status() from the API module directly - no fallback fetch.
  */
 
+import { RuntimeError } from "../../common/error.ts";
 import { ai } from "../api/ai.ts";
 import { log } from "../api/log.ts";
 import { ensureRuntimeDir, getRuntimeDir } from "../../common/paths.ts";
@@ -109,7 +110,7 @@ async function startAIEngine(): Promise<void> {
       }
       await new Promise(r => setTimeout(r, 300));
     }
-    throw new Error("AI engine failed to start");
+    throw new RuntimeError("AI engine failed to start");
   } catch (error) {
     // If embedded engine fails, AI features will just not work
     // but HLVM itself continues to function

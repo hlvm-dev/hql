@@ -9,6 +9,7 @@ import { globalLogger as logger } from "../logger.ts";
 import { sanitizeIdentifier, getErrorMessage, normalizePath, hyphenToUnderscore } from "./utils.ts";
 import { isHqlFile, isJsFile } from "./import-utils.ts";
 import { LRUCache } from "./lru-cache.ts";
+import { RuntimeError } from "./error.ts";
 
 // Cache directory configuration
 const HLVM_CACHE_DIR = ".hlvm-cache";
@@ -208,7 +209,7 @@ export async function getContentHash(filePath: string): Promise<string> {
     return hash;
   } catch (error) {
     logger.debug(`Error getting content hash for ${filePath}: ${getErrorMessage(error)}`);
-    throw new Error(`Failed to hash ${filePath}: ${getErrorMessage(error)}`);
+    throw new RuntimeError(`Failed to hash ${filePath}: ${getErrorMessage(error)}`);
   }
 }
 
@@ -1290,7 +1291,7 @@ export async function createTempDirIfNeeded(
     return { tempDir, created: true };
   } catch (error) {
     const errorMsg = getErrorMessage(error);
-    throw new Error(`Creating temporary directory: ${errorMsg}`);
+    throw new RuntimeError(`Creating temporary directory: ${errorMsg}`);
   }
 }
 

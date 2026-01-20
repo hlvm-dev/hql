@@ -24,6 +24,7 @@ import {
 } from "./types.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { log } from "../../../api/log.ts";
+import { ValidationError, RuntimeError } from "../../../../common/error.ts";
 
 // ============================================================
 // Resource Registry
@@ -322,19 +323,19 @@ export class TaskManager {
   pullModel(modelName: string): string {
     // Validate input
     if (!modelName?.trim()) {
-      throw new Error("Model name is required");
+      throw new ValidationError("Model name is required", "TaskManager.pullModel");
     }
 
     const normalizedName = modelName.trim();
 
     // Prevent duplicate downloads
     if (this.isModelPulling(normalizedName)) {
-      throw new Error(`Model ${normalizedName} is already being pulled`);
+      throw new ValidationError(`Model ${normalizedName} is already being pulled`, "TaskManager.pullModel");
     }
 
     // Check if shutting down
     if (this.resources.shuttingDown) {
-      throw new Error("TaskManager is shutting down");
+      throw new RuntimeError("TaskManager is shutting down");
     }
 
     const id = crypto.randomUUID();
@@ -394,7 +395,7 @@ export class TaskManager {
       } | undefined;
 
       if (!aiApi?.models?.pull) {
-        throw new Error("AI Provider API not initialized. Cannot pull model.");
+        throw new RuntimeError("AI Provider API not initialized. Cannot pull model.");
       }
 
       // Use API (single source of truth)
@@ -463,11 +464,11 @@ export class TaskManager {
    */
   createEvalTask(code: string, controller?: AbortController): string {
     if (!code?.trim()) {
-      throw new Error("Code is required");
+      throw new ValidationError("Code is required", "TaskManager.createEvalTask");
     }
 
     if (this.resources.shuttingDown) {
-      throw new Error("TaskManager is shutting down");
+      throw new RuntimeError("TaskManager is shutting down");
     }
 
     const id = crypto.randomUUID();

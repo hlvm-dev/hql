@@ -6,6 +6,7 @@ import {
   pullModelWithProgress,
 } from "../../../common/ai-default-model.ts";
 import { parseModelString } from "../../providers/index.ts";
+import { ValidationError } from "../../../common/error.ts";
 
 export function showAiHelp(): void {
   log.raw.log(`
@@ -40,7 +41,7 @@ export async function aiCommand(args: string[]): Promise<void> {
     case "pull": {
       const modelArg = args[1];
       if (!modelArg) {
-        throw new Error("Missing model name. Usage: hlvm ai pull <model>");
+        throw new ValidationError("Missing model name. Usage: hlvm ai pull <model>");
       }
       const [providerName, modelName] = parseModelString(modelArg);
       log.raw.log(`Downloading model (${modelName})...`);
@@ -60,6 +61,6 @@ export async function aiCommand(args: string[]): Promise<void> {
       return;
     }
     default:
-      throw new Error(`Unknown ai command: ${subcommand}`);
+      throw new ValidationError(`Unknown ai command: ${subcommand}`);
   }
 }

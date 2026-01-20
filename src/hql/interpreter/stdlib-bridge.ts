@@ -8,6 +8,7 @@ import { isHQLFunction, isSExp } from "./types.ts";
 import type { Interpreter } from "./interpreter.ts";
 import { sexpToJs } from "../s-exp/types.ts";
 import { MAX_SEQ_LENGTH } from "../../common/limits.ts";
+import { RuntimeError } from "../../common/error.ts";
 
 /** Marker symbol to identify wrapped BuiltinFn functions */
 export const BUILTIN_MARKER = Symbol.for("hql-builtin-fn");
@@ -101,7 +102,7 @@ export function hqlToJs(
     }
     // No interpreter context - throw error
     return (..._args: unknown[]) => {
-      throw new Error(
+      throw new RuntimeError(
         `Cannot call HQL function "${value.name || "anonymous"}" directly from stdlib. ` +
         `Use interpreter.eval() instead.`
       );
@@ -145,7 +146,7 @@ export function hqlToJs(
 
         // Safe check: verify env and interp are available before calling
         if (!env || !interp) {
-          throw new Error(
+          throw new RuntimeError(
             `Cannot call builtin function without interpreter context. ` +
             `Ensure hqlToJs is called with interpreter and environment parameters.`
           );

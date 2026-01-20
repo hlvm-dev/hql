@@ -13,6 +13,7 @@ import type {
 import type { TextDocument } from "npm:vscode-languageserver-textdocument@1.0.11";
 import { findReferencesInWorkspace, findReferencesInContent } from "./references.ts";
 import { uriToFilePath } from "../documents.ts";
+import { ValidationError } from "../../../common/error.ts";
 
 /**
  * Check if a symbol can be renamed (prepareRename)
@@ -77,12 +78,12 @@ export async function performRename(
 ): Promise<WorkspaceEdit> {
   // Validate new name
   if (!isValidIdentifier(newName)) {
-    throw new Error(`Invalid identifier: ${newName}`);
+    throw new ValidationError(`Invalid identifier: ${newName}`, "rename validation", "valid identifier", newName);
   }
 
   // Don't allow renaming to special forms
   if (isSpecialForm(newName)) {
-    throw new Error(`Cannot rename to reserved keyword: ${newName}`);
+    throw new ValidationError(`Cannot rename to reserved keyword: ${newName}`, "rename validation", "user identifier", newName);
   }
 
   const changes: { [uri: string]: TextEdit[] } = {};

@@ -15,6 +15,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from "npm:react@18";
 import { THEMES, type ThemeName, type ThemePalette } from "./palettes.ts";
 import { config } from "../../api/config.ts";
+import { ValidationError } from "../../../common/error.ts";
 
 // ============================================================
 // Types
@@ -113,7 +114,7 @@ export function ThemeProvider({ children, initialTheme }: ThemeProviderProps): R
 export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext);
   if (!context) {
-    throw new Error("useTheme must be used within a ThemeProvider");
+    throw new ValidationError("useTheme must be used within a ThemeProvider", "useTheme");
   }
   return context;
 }

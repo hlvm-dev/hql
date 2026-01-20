@@ -1,6 +1,6 @@
 import { transpileToJavascript } from "./transpiler/hql-transpiler.ts";
 import { transpile, type TranspileOptions } from "./transpiler/index.ts";
-import { TranspilerError } from "../common/error.ts";
+import { TranspilerError, RuntimeError } from "../common/error.ts";
 import { ERROR_REPORTED_SYMBOL } from "../common/error-codes.ts";
 import {
   escapeRegExp,
@@ -129,8 +129,8 @@ export async function transpileHqlInJs(
 
     return RUNTIME_GET_SNIPPET + processedContent;
   } catch (error) {
-    throw new Error(
-      `Error transpiling HQL for JS import ${hqlPath}: ${getErrorMessage(error)}`,
+    throw new RuntimeError(
+      `Error transpiling HQL for JS import ${hqlPath}: ${getErrorMessage(error)}`
     );
   }
 }

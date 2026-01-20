@@ -29,6 +29,7 @@ import {
   mapTsToHql,
 } from "./source-map-chain.ts";
 import { isHqlFile, isTypeScriptFile } from "../../../common/import-utils.ts";
+import { CodeGenError } from "../../../common/error.ts";
 
 // ============================================================================
 // Helpers
@@ -198,8 +199,9 @@ export async function generateJavaScript(
       );
 
       if (options.failOnTypeErrors && errorCount > 0) {
-        throw new Error(
+        throw new CodeGenError(
           `Type checking failed:\n${formatDiagnostics(hqlTypeErrors)}`,
+          "type checking"
         );
       }
     }

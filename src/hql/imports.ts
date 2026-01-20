@@ -61,7 +61,7 @@ import {
   ValidationError,
   wrapError,
 } from "../common/error.ts";
-import { ImportError, MacroError } from "../common/error.ts";
+import { ImportError, MacroError, RuntimeError } from "../common/error.ts";
 import { globalSymbolTable } from "./transpiler/symbol_table.ts";
 import {
   createBasicSymbolInfo,
@@ -388,7 +388,7 @@ function wrapImportError(
   if (error instanceof Error) {
     throw error;
   } else {
-    throw new Error(`${context}: ${getErrorMessage(error)}`);
+    throw new RuntimeError(`${context}: ${getErrorMessage(error)}`);
   }
 }
 
@@ -1561,11 +1561,11 @@ async function loadHqlModule(
 
       for (const { name } of exportDefinitions) {
         if (tempEnv.hasMacro(name)) {
-          throw new Error(
+          throw new RuntimeError(
             `Circular import involving macro '${name}' detected.\n` +
               `File: ${resolvedPath}\n` +
               `Macros cannot be used in circular imports because they need to be expanded at compile-time.\n` +
-              `Please restructure your code to avoid circular dependencies with macros.`,
+              `Please restructure your code to avoid circular dependencies with macros.`
           );
         }
       }
@@ -1862,10 +1862,10 @@ async function transpileTypeScriptToJavaScript(
 
     logger.debug(`Transpiled ${tsPath} to ${jsPath}`);
   } catch (error) {
-    throw new Error(
+    throw new RuntimeError(
       `Failed to transpile TypeScript: ${
         getErrorMessage(error)
-      }`,
+      }`
     );
   }
 }

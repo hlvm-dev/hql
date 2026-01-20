@@ -1,4 +1,5 @@
 import { getPlatform } from "../../../platform/platform.ts";
+import { RuntimeError } from "../../../common/error.ts";
 
 const p = () => getPlatform();
 const platformCwd = () => p().process.cwd();
@@ -49,7 +50,7 @@ export async function publishJSR(
       // Generate temporary deno.json for publishing
       const { jsr } = await generatePackageMetadata(config, platformCwd());
       if (!jsr) {
-        throw new Error("Failed to generate JSR metadata");
+        throw new RuntimeError("Failed to generate JSR metadata");
       }
       denoJsonPath = jsr.path;
       await platformWriteTextFile(denoJsonPath, jsr.content);
@@ -59,7 +60,7 @@ export async function publishJSR(
     // 2. Build JS module (not explicitly done here, assumed part of setup or handled by deno publish)
     const entryFile = config.exports || "./mod.hql";
     if (!(await exists(entryFile))) {
-      throw new Error(`Entry file not found: ${entryFile}`);
+      throw new RuntimeError(`Entry file not found: ${entryFile}`);
     }
 
     const buildDir = join(platformCwd(), "dist_jsr");
@@ -86,7 +87,7 @@ export async function publishJSR(
     });
 
     if (!result.success) {
-      throw new Error(`JSR publish failed: ${result.error}`);
+      throw new RuntimeError(`JSR publish failed: ${result.error}`);
     }
 
     // Generate link (placeholder for now)

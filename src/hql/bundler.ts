@@ -39,7 +39,7 @@ const pathUtil = () => p().path;
 const fsUtil = () => p().fs;
 const cwd = () => p().process.cwd();
 
-import { TranspilerError, ValidationError } from "../common/error.ts";
+import { TranspilerError, ValidationError, RuntimeError } from "../common/error.ts";
 import {
   createTempDir,
   createTempDirIfNeeded,
@@ -247,8 +247,8 @@ async function prebundleHqlImports(
       options,
     );
     if (!resolvedHqlPath) {
-      throw new Error(
-        `Could not resolve import: ${importInfo.path} from ${filePath}`,
+      throw new RuntimeError(
+        `Could not resolve import: ${importInfo.path} from ${filePath}`
       );
     }
 

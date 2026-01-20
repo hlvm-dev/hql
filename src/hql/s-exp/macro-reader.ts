@@ -13,6 +13,7 @@ import {
 } from "./types.ts";
 import { globalLogger as logger } from "../../logger.ts";
 import type { Logger } from "../../logger.ts";
+import { ParseError } from "../../common/error.ts";
 
 /**
  * Options for normalizing S-expressions for the transpiler
@@ -43,7 +44,7 @@ function normalizeExpr(sexp: SExp, logger: Logger): SExp {
     return normalizeList(sexp as SList, logger);
   }
   logger.error(`Unknown S-expression type: ${JSON.stringify(sexp)}`);
-  throw new Error(`Unknown S-expression type: ${JSON.stringify(sexp)}`);
+  throw new ParseError(`Unknown S-expression type: ${JSON.stringify(sexp)}`, { line: 0, column: 0 });
 }
 
 /**

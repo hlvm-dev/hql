@@ -24,6 +24,7 @@ import {
   type PullProgress,
   type ProviderStatus,
 } from "../providers/index.ts";
+import { RuntimeError, ValidationError } from "../../common/error.ts";
 
 // ============================================================================
 // Helper Types
@@ -53,7 +54,7 @@ function createAiApi() {
       : getDefaultProvider();
 
     if (!provider) {
-      throw new Error(
+      throw new RuntimeError(
         modelString
           ? `No provider found for model: ${modelString}`
           : "No default AI provider configured"
@@ -175,7 +176,7 @@ function createAiApi() {
           : getDefaultProvider();
 
         if (!provider?.models?.pull) {
-          throw new Error(`Provider does not support model pulling`);
+          throw new ValidationError("Provider does not support model pulling", "ai.models.pull");
         }
         yield* provider.models.pull(name, signal);
       },

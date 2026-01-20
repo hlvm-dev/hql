@@ -6,6 +6,7 @@
 import { transpileCLI } from "../../../hql/bundler.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { RuntimeError } from "../../../common/error.ts";
 
 const p = () => getPlatform();
 const platformExit = (code: number) => p().process.exit(code);
@@ -265,7 +266,7 @@ async function invokeDenoCompile(
     const stderr = process.stderr
       ? new TextDecoder().decode(await new Response(process.stderr as ReadableStream).arrayBuffer())
       : "";
-    throw new Error(`Compilation to ${target} failed.\n${stderr}`);
+    throw new RuntimeError(`Compilation to ${target} failed.\n${stderr}`);
   }
 
   const stdout = process.stdout
@@ -308,7 +309,7 @@ async function compileForAllPlatforms(
   }
 
   if (errors.length > 0 && outputs.length === 0) {
-    throw new Error(`All platform compilations failed:\n${errors.join("\n")}`);
+    throw new RuntimeError(`All platform compilations failed:\n${errors.join("\n")}`);
   }
 
   return outputs;

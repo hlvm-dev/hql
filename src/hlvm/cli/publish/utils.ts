@@ -1,4 +1,5 @@
 import { getPlatform } from "../../../platform/platform.ts";
+import { RuntimeError } from "../../../common/error.ts";
 
 const p = () => getPlatform();
 const exists = (path: string) => p().fs.exists(path);
@@ -58,7 +59,7 @@ export async function readJSONFile(path: string): Promise<Record<string, unknown
     const content = await readTextFile(path);
     return JSON.parse(content);
   } catch (error) {
-    throw new Error(
+    throw new RuntimeError(
       `Failed to read JSON file ${path}: ${
         getErrorMessage(error)
       }`,
@@ -77,7 +78,7 @@ export async function writeJSONFile(
     const content = JSON.stringify(data, null, 2);
     await writeTextFile(path, content);
   } catch (error) {
-    throw new Error(
+    throw new RuntimeError(
       `Failed to write JSON file ${path}: ${
         getErrorMessage(error)
       }`,

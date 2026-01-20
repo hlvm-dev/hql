@@ -12,6 +12,8 @@
  * @see docs/SSOT-CONTRACT.md for allowed bypasses
  */
 
+import { RuntimeError } from "./error.ts";
+
 /**
  * HTTP request options
  */
@@ -169,7 +171,7 @@ class HttpClient {
 
         // Don't retry on abort or client errors (4xx)
         if (error instanceof DOMException && error.name === "AbortError") {
-          throw new Error(`Request timeout after ${timeout}ms: ${url}`);
+          throw new RuntimeError(`Request timeout after ${timeout}ms: ${url}`);
         }
         if (error instanceof HttpError && error.status >= 400 && error.status < 500) {
           throw error;

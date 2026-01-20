@@ -19,6 +19,7 @@ import {
 import { sanitizeIdentifier } from "../../../common/utils.ts";
 import type { HQLNode } from "../type/hql_ast.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
+import { TransformError } from "../../../common/error.ts";
 
 // Type for the transformation function - accepts both HQLNode and SExp since they're structurally compatible
 // (SExp is used by pattern parser for default values, HQLNode is the main AST type)
@@ -101,7 +102,7 @@ export function patternToIR(
     return restPatternToIR(pattern);
   }
 
-  throw new Error(`Unknown pattern type: ${JSON.stringify(pattern)}`);
+  throw new TransformError(`Unknown pattern type: ${JSON.stringify(pattern)}`, "pattern transformation");
 }
 
 /**
@@ -131,8 +132,9 @@ function wrapWithDefault(
   // Convert default SExp to IR
   const defaultIR = transformNode(defaultValue, currentDir);
   if (!defaultIR) {
-    throw new Error(
+    throw new TransformError(
       `Failed to convert default value: ${JSON.stringify(defaultValue)}`,
+      "pattern transformation"
     );
   }
 
@@ -231,7 +233,7 @@ function arrayPatternToIR(
       return converted;
     }
 
-    throw new Error(`Invalid array pattern element: ${JSON.stringify(elem)}`);
+    throw new TransformError(`Invalid array pattern element: ${JSON.stringify(elem)}`, "pattern transformation");
   });
 
   const arrayPattern: IR.IRArrayPattern = {
@@ -305,8 +307,9 @@ function objectPatternToIR(
       }
 
       if (!valueIR) {
-        throw new Error(
+        throw new TransformError(
           `Object pattern property value cannot be null: ${prop.key}`,
+          "pattern transformation"
         );
       }
 

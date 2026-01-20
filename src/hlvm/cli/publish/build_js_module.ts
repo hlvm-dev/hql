@@ -1,5 +1,6 @@
 import { prebundleHqlImportsInJs, transpileCLI } from "../../../hql/bundler.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { RuntimeError } from "../../../common/error.ts";
 
 // SSOT: Use platform layer for all file/path operations
 const p = () => getPlatform();
@@ -123,7 +124,7 @@ async function processSourceFile(
     });
     return { externals };
   } else {
-    throw new Error(`Unsupported file type: ${inputPath}`);
+    throw new RuntimeError(`Unsupported file type: ${inputPath}`);
   }
 }
 

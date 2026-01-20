@@ -27,6 +27,7 @@ import {
   setErrorContext,
   updateErrorConfig,
 } from "../../common/error-system.ts";
+import { RuntimeError } from "../../common/error.ts";
 
 import { hasHelpFlag } from "./utils/common-helpers.ts";
 
@@ -188,7 +189,7 @@ async function executeHql(
 
       // Check if file exists first
       if (!await platformExists(input)) {
-        throw new Error(`File not found: ${input}`);
+        throw new RuntimeError(`File not found: ${input}`);
       }
 
       // Smart Runner Logic: Check extension

@@ -5,6 +5,7 @@
  * Handles streaming, error handling, and response parsing.
  */
 
+import { RuntimeError } from "../../../common/error.ts";
 import type {
   Message,
   GenerateOptions,
@@ -121,12 +122,12 @@ async function* streamRequest<T>(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Ollama request failed: ${response.status} ${text}`);
+    throw new RuntimeError(`Ollama request failed: ${response.status} ${text}`);
   }
 
   const reader = response.body?.getReader();
   if (!reader) {
-    throw new Error("No response body");
+    throw new RuntimeError("No response body");
   }
 
   const decoder = new TextDecoder();
@@ -188,7 +189,7 @@ async function jsonRequest<T>(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Ollama request failed: ${response.status} ${text}`);
+    throw new RuntimeError(`Ollama request failed: ${response.status} ${text}`);
   }
 
   return response.json();
