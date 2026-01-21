@@ -14,6 +14,7 @@ import {
 } from "./src/common/hlvm-cache-tracker.ts";
 import { getPlatform } from "./src/platform/platform.ts";
 import { macroexpand, type MacroExpandOptions } from "./src/hql/macroexpand.ts";
+import { createEmbeddedPackageLookup } from "./src/hql/embedded-package-utils.ts";
 
 // Local aliases for frequently used platform functions
 const _p = () => getPlatform();
@@ -50,6 +51,7 @@ try {
 } catch {
   // No embedded packages (development mode, using file system)
 }
+const embeddedPackageLookup = createEmbeddedPackageLookup(EMBEDDED_PACKAGES);
 
 // Get the directory where this mod.ts file is located (HLVM HQL module directory)
 // This is used to resolve @hlvm/* stdlib packages relative to the HLVM HQL module,
@@ -946,7 +948,7 @@ async function rewriteImportStatement(
   // Resolve @hlvm/* stdlib packages to embedded or actual paths
   if (specifier.startsWith("@hlvm/")) {
     // For compiled binary or dev mode with embedded packages
-    if (EMBEDDED_PACKAGES[specifier]) {
+    if (embeddedPackageLookup.hasSpecifier(specifier)) {
       const compiledPath = await compileHqlModule(specifier, context);
       replacement = platformToFileUrl(compiledPath).href;
       
@@ -1049,28 +1051,12 @@ async function compileHqlModule(
   const compilationPromise = (async () => {
     // Check if this is an embedded @hlvm/ package first
     let source: string;
-    
-    if (EMBEDDED_PACKAGES[modulePath]) {
-        source = EMBEDDED_PACKAGES[modulePath];
+    const embeddedSource = embeddedPackageLookup.getBySpecifierOrPath(modulePath) ??
+      embeddedPackageLookup.getByPath(normalized);
+    if (embeddedSource) {
+      source = embeddedSource;
     } else {
-      // Fallback logic for other embedded paths or file system
-      const isEmbeddedPackage = Object.keys(EMBEDDED_PACKAGES).some(key =>
-        normalized.includes(key.replace("@hlvm/", "packages/"))
-      );
-
-      if (isEmbeddedPackage) {
-        // Find the matching embedded package
-        const packageKey = Object.keys(EMBEDDED_PACKAGES).find(key =>
-          normalized.includes(key.replace("@hlvm/", "packages/"))
-        );
-        if (packageKey) {
-          source = EMBEDDED_PACKAGES[packageKey];
-        } else {
-          source = await platformReadTextFile(normalized);
-        }
-      } else {
-        source = await platformReadTextFile(normalized);
-      }
+      source = await platformReadTextFile(normalized);
     }
 
     // IMPORTANT: Use the module's directory as baseDir for resolving relative imports,

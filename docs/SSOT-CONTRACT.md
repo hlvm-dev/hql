@@ -84,8 +84,7 @@ throw new RangeError("Index out of bounds");
 ### 5. Direct Init Calls
 ```typescript
 // FORBIDDEN - bypasses unified initialization
-import { initConfigRuntime } from "../common/config/runtime.ts";
-await initConfigRuntime();
+// Direct init helpers are not allowed. Use initializeRuntime instead.
 
 // USE INSTEAD
 import { initializeRuntime } from "../common/runtime-initializer.ts";
@@ -102,7 +101,6 @@ Some patterns are explicitly allowed in specific contexts:
 |---------|-----------|--------|
 | `console.*` | `src/logger.ts`, `src/hlvm/api/log.ts` | Internal implementation |
 | `console.*` | CONSOLE_ALLOWLIST files (see below) | Technical requirements |
-| `connection.console.*` | `src/hql/lsp/*.ts` | LSP proper logging |
 | `(console.log ...)` | HQL code examples in strings | S-expression syntax |
 | `fetch()` | `src/hlvm/providers/*` | Provider-specific HTTP needs |
 | `fetch()` | `src/hql/lib/stdlib/js/*` | Stdlib utility code |

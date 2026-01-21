@@ -4,7 +4,7 @@
  */
 
 import { assertEquals, assertNotEquals } from "jsr:@std/assert@1";
-import { resetRuntime } from "../../src/hql/runtime/index.ts";
+import { resetGensymCounter } from "../../src/hql/gensym.ts";
 import { run } from "./helpers.ts";
 
 // =============================================================================
@@ -27,21 +27,21 @@ Deno.test("gensym: generates unique symbols", async () => {
 });
 
 Deno.test("gensym: uses default prefix 'g'", async () => {
-  await resetRuntime();
+  resetGensymCounter();
   const code = `(gensym)`;
   const result = await run(code) as string;
   assertEquals(result.startsWith("g_"), true, "Default prefix should be 'g'");
 });
 
 Deno.test("gensym: accepts custom prefix", async () => {
-  await resetRuntime();
+  resetGensymCounter();
   const code = `(gensym "temp")`;
   const result = await run(code) as string;
   assertEquals(result.startsWith("temp_"), true, "Should use custom prefix");
 });
 
 Deno.test("gensym: generates sequential unique names", async () => {
-  await resetRuntime();
+  resetGensymCounter();
   const code = `
 [
   (gensym "x")

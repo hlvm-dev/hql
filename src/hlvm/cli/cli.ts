@@ -11,7 +11,6 @@ import { log } from "../api/log.ts";
 const platformGetArgs = () => getPlatform().process.args();
 import { compileCommand, showCompileHelp } from "./commands/compile.ts";
 import { init as initCommand, showInitHelp } from "./commands/init.ts";
-import { lspCommand, showLspHelp } from "./commands/lsp.ts";
 import { publishCommand, showPublishHelp } from "./commands/publish.ts";
 import { uninstall as uninstallCommand, showUninstallHelp } from "./commands/uninstall.ts";
 import { upgrade as upgradeCommand, showUpgradeHelp } from "./commands/upgrade.ts";
@@ -146,7 +145,6 @@ Commands:
   repl               Start interactive REPL
   compile <file>     Compile HQL to JavaScript or native binary
   init               Initialize a new HLVM project
-  lsp                Start the Language Server Protocol server
   publish            Publish an HLVM package
   ai                 Setup and manage AI models
   upgrade            Upgrade HLVM to the latest version
@@ -225,13 +223,6 @@ async function main(): Promise<void> {
       }
       break;
 
-    case "lsp":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showLspHelp();
-      } else {
-        await lspCommand(commandArgs);
-      }
-      break;
 
     case "publish":
       if (commandArgs.includes("-h") || commandArgs.includes("--help")) {

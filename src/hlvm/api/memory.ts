@@ -21,7 +21,7 @@ import {
   loadMemory,
   compactMemory,
 } from "../cli/repl/memory.ts";
-import { ValidationError } from "../../common/error.ts";
+import { assertString } from "./validation.ts";
 
 export interface MemorySummary {
   count: number;
@@ -89,9 +89,7 @@ function createMemoryApi(): MemoryCallable {
      * @example (memory.get "myFn")
      */
     get: async (name: string): Promise<string | null> => {
-      if (!name || typeof name !== "string") {
-        throw new ValidationError("memory.get requires a name string", "memory.get");
-      }
+      assertString(name, "memory.get", "memory.get requires a name string");
       return getDefinitionSource(name);
     },
 
@@ -100,9 +98,7 @@ function createMemoryApi(): MemoryCallable {
      * @example (memory.remove "myFn")
      */
     remove: async (name: string): Promise<boolean> => {
-      if (!name || typeof name !== "string") {
-        throw new ValidationError("memory.remove requires a name string", "memory.remove");
-      }
+      assertString(name, "memory.remove", "memory.remove requires a name string");
       return forgetFromMemory(name);
     },
 
@@ -135,9 +131,7 @@ function createMemoryApi(): MemoryCallable {
      * @example (memory.has "myFn")
      */
     has: async (name: string): Promise<boolean> => {
-      if (!name || typeof name !== "string") {
-        throw new ValidationError("memory.has requires a name string", "memory.has");
-      }
+      assertString(name, "memory.has", "memory.has requires a name string");
       const source = await getDefinitionSource(name);
       return source !== null;
     },

@@ -92,8 +92,6 @@ export interface ModelInfo {
   capabilities?: ProviderCapability[];
   /** Provider-specific metadata */
   metadata?: Record<string, unknown>;
-  /** Link to model page (e.g., ollama.com/library/modelname) */
-  link?: string;
 }
 
 // ============================================================================
@@ -144,6 +142,27 @@ export function formatCapabilityTags(capabilities?: ProviderCapability[]): strin
   return tags.join(" ");
 }
 
+/**
+ * Convert capabilities to human-friendly tags for UI lists.
+ * Returns tags like ["text", "vision"] or ["embedding"].
+ */
+export function capabilitiesToDisplayTags(capabilities?: ProviderCapability[]): string[] {
+  const flags = capabilitiesToFlags(capabilities);
+  const tags: string[] = [];
+
+  if (flags.embedding) {
+    tags.push("embedding");
+  } else if (flags.completion) {
+    tags.push("text");
+  }
+
+  if (flags.vision) tags.push("vision");
+  if (flags.tools) tags.push("tools");
+  if (flags.thinking) tags.push("thinking");
+
+  return tags;
+}
+
 /** Progress info for model pull operations */
 export interface PullProgress {
   /** Current status message */
@@ -170,10 +189,6 @@ export interface ProviderStatus {
   version?: string;
   /** Error message if not available */
   error?: string;
-  /** Endpoint URL */
-  endpoint?: string;
-  /** Additional status info */
-  info?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -220,8 +235,6 @@ export interface AIProvider {
     get(name: string): Promise<ModelInfo | null>;
     /** List catalog models (remote/curated) */
     catalog?(): Promise<ModelInfo[]>;
-    /** Search catalog models */
-    search?(query: string): Promise<ModelInfo[]>;
     /** Pull/download a model (streaming progress) */
     pull?(name: string, signal?: AbortSignal): AsyncGenerator<PullProgress, void, unknown>;
     /** Remove/delete a model */
@@ -240,8 +253,6 @@ export interface AIProvider {
 
 /** Configuration for creating a provider instance */
 export interface ProviderConfig {
-  /** API key (for cloud providers) */
-  apiKey?: string;
   /** Endpoint URL override */
   endpoint?: string;
   /** Default model */
@@ -263,6 +274,4 @@ export interface RegisteredProvider {
   factory: ProviderFactory;
   /** Default configuration */
   defaultConfig?: ProviderConfig;
-  /** Whether this is the default provider */
-  isDefault?: boolean;
 }

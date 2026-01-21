@@ -9,6 +9,7 @@
 
 import { transpile } from "../../mod.ts";
 import { assertEquals } from "jsr:@std/assert";
+import { getErrorMessage } from "../../src/common/utils.ts";
 
 Deno.test("Helper Embedding: __hql_deepFreeze is embedded when const is used", async () => {
   const hqlCode = `(const x 42)`;
@@ -35,7 +36,7 @@ Deno.test("Helper Embedding: __hql_deepFreeze is embedded when const is used", a
     fn(); // Should not throw ReferenceError
   } catch (error) {
     throw new Error(
-      `Transpiled code failed standalone execution: ${error instanceof Error ? error.message : String(error)}`
+      `Transpiled code failed standalone execution: ${getErrorMessage(error)}`
     );
   }
 });
@@ -94,7 +95,7 @@ Deno.test("Helper Embedding: __hql_deepFreeze handles multiple const bindings", 
     fn();
   } catch (error) {
     throw new Error(
-      `Multiple let bindings failed standalone: ${error instanceof Error ? error.message : String(error)}`
+      `Multiple let bindings failed standalone: ${getErrorMessage(error)}`
     );
   }
 });

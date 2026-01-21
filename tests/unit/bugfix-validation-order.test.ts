@@ -22,6 +22,7 @@
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
+import { getErrorMessage } from "../../src/common/utils.ts";
 import { run } from "./helpers.ts";
 
 Deno.test("Bugfix #3: Duplicate variable declarations detected", async () => {
@@ -105,7 +106,7 @@ Deno.test("Bugfix #3: Error messages are clear and accurate", async () => {
     await transpileToJavascript(code);
     throw new Error("Should have thrown validation error");
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
 
     // Error message should mention 'result' variable or declare/declaration
     assertEquals(

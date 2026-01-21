@@ -28,10 +28,8 @@
 
 interface OllamaVariant {
   id: string;           // e.g., "llama3:8b"
-  name: string;         // e.g., "8b"
   parameters: string;   // e.g., "8B"
   size: string;         // e.g., "4.7GB"
-  context: string;      // e.g., "8K"
 }
 
 interface OllamaModel {
@@ -40,16 +38,15 @@ interface OllamaModel {
   name: string;         // e.g., "Llama 3"
   variants: OllamaVariant[];
   vision: boolean;
-  ollamaUrl: string;    // e.g., "https://ollama.com/library/llama3"
-  downloads: number;
   model_type?: string;  // e.g., "embedding" (optional)
 }
 
 interface OllamaModelsJSON {
-  version: string;
-  last_updated: string;
-  total_models: number;
   models: OllamaModel[];
+}
+
+interface OllamaModelInternal extends OllamaModel {
+  downloads: number;
 }
 
 // ============================================================
@@ -103,28 +100,6 @@ function parseSize(sizeStr: string): string {
   return sizeStr.replace(/\s+/g, "").toUpperCase();
 }
 
-function parseContext(contextStr: string): string {
-  // Normalize context: "128k" -> "128K", "8192" -> "8K"
-  const match = contextStr.match(/([\d.]+)\s*([KkMm])?/);
-  if (!match) return contextStr;
-
-  let num = parseFloat(match[1]);
-  const suffix = (match[2] || "").toUpperCase();
-
-  // Convert raw numbers >= 1000 to K (e.g., 8192 -> 8K)
-  if (!suffix && num >= 1000) {
-    num = num / 1024;
-    return `${Math.round(num)}K`;
-  }
-
-  // For small numbers without suffix (like 512 for embedding models), keep as-is
-  if (!suffix && num < 1000) {
-    return String(Math.round(num));
-  }
-
-  return `${match[1]}${suffix}`;
-}
-
 function parseParameters(paramStr: string): string {
   // Normalize: "7b" -> "7B", "1.1b" -> "1.1B", "137m" -> "137M"
   return paramStr.toUpperCase();
@@ -174,7 +149,7 @@ async function fetchModelList(): Promise<string[]> {
   return modelList;
 }
 
-async function fetchModelDetails(modelId: string): Promise<OllamaModel | null> {
+async function fetchModelDetails(modelId: string): Promise<OllamaModelInternal | null> {
   try {
     const url = `${BASE_URL}/library/${modelId}`;
     const html = await fetchHTML(url);
@@ -224,20 +199,17 @@ async function fetchModelDetails(modelId: string): Promise<OllamaModel | null> {
     if (variants.length === 0) {
       variants.push({
         id: `${modelId}:latest`,
-        name: "latest",
         parameters: "Unknown",
         size: "Unknown",
-        context: "Unknown",
       });
     }
 
-    const model: OllamaModel = {
+    const model: OllamaModelInternal = {
       description: description || formatModelName(modelId),
       id: modelId,
       name: formatModelName(modelId),
       variants,
       vision: isVisionModel,
-      ollamaUrl: url,
       downloads,
       ...(isEmbeddingModel ? { model_type: "embedding" } : {}),
     };
@@ -277,19 +249,16 @@ function extractVariants(html: string, modelId: string): OllamaVariant[] {
     // Pattern 2 (cloud): 128K context window · Text (no size - runs on remote API)
 
     let size = "Unknown";
-    let context = "Unknown";
 
     // Try normal pattern first: SIZE · CONTEXT context
     const normalMatch = fullBlock.match(/(\d+(?:\.\d+)?\s*[GMKTMB]+)\s*·\s*(\d+[KkMm]?)\s*context/i);
     if (normalMatch) {
       size = parseSize(normalMatch[1]);
-      context = parseContext(normalMatch[2]);
     } else {
       // No size in HTML = cloud-hosted model (runs via API, no local download)
       // Pattern: just "128K context window" without preceding size
       const cloudMatch = fullBlock.match(/>(\d+[KkMm]?)\s*context\s*window/i);
       if (cloudMatch) {
-        context = parseContext(cloudMatch[1]);
         // Informative message: no hardcoding, detected by absence of size in HTML
         size = "Cloud (API only)";
       }
@@ -304,10 +273,8 @@ function extractVariants(html: string, modelId: string): OllamaVariant[] {
 
     variants.push({
       id: `${modelId}:${tagLower}`,
-      name: tagLower,
       parameters,
       size,
-      context,
     });
   }
 
@@ -328,7 +295,6 @@ function extractVariants(html: string, modelId: string): OllamaVariant[] {
       seenTags.add(tag);
 
       const size = parseSize(match[2].trim());
-      const context = parseContext(match[3].trim());
 
       let parameters = "Unknown";
       const paramMatch = tag.match(/(\d+(?:\.\d+)?)(b|m)/i);
@@ -338,10 +304,8 @@ function extractVariants(html: string, modelId: string): OllamaVariant[] {
 
       variants.push({
         id: `${modelId}:${tag}`,
-        name: tag,
         parameters,
         size,
-        context,
       });
     }
   }
@@ -375,18 +339,18 @@ function extractVariants(html: string, modelId: string): OllamaVariant[] {
 
       variants.push({
         id: `${modelId}:${tag}`,
-        name: tag,
         parameters,
         size,
-        context: "4K",
       });
     }
   }
 
   // Sort variants: latest first, then by parameter size (descending)
   variants.sort((a, b) => {
-    if (a.name === "latest") return -1;
-    if (b.name === "latest") return 1;
+    const aTag = a.id.split(":").pop() ?? a.id;
+    const bTag = b.id.split(":").pop() ?? b.id;
+    if (aTag === "latest") return -1;
+    if (bTag === "latest") return 1;
 
     const aParam = parseFloat(a.parameters) || 0;
     const bParam = parseFloat(b.parameters) || 0;
@@ -410,7 +374,7 @@ async function scrapeOllamaModels(): Promise<OllamaModelsJSON> {
   // Step 2: Fetch details for each model (with concurrency limit)
   console.log(`\n📊 Fetching details for ${modelIds.length} models...`);
 
-  const models: OllamaModel[] = [];
+  const models: OllamaModelInternal[] = [];
   const chunks: string[][] = [];
 
   // Split into chunks for controlled concurrency
@@ -442,14 +406,8 @@ async function scrapeOllamaModels(): Promise<OllamaModelsJSON> {
   models.sort((a, b) => b.downloads - a.downloads);
 
   // Step 4: Build final JSON
-  const today = new Date().toISOString().split("T")[0];
-
-  const output: OllamaModelsJSON = {
-    version: "2.0",
-    last_updated: today,
-    total_models: models.length,
-    models,
-  };
+  const outputModels = models.map(({ downloads, ...model }) => model);
+  const output: OllamaModelsJSON = { models: outputModels };
 
   console.log(`\n✅ Successfully scraped ${models.length} models`);
 
@@ -493,10 +451,10 @@ async function main() {
 
     // Print summary
     console.log("\n📈 Summary:");
-    console.log(`   Total models: ${result.total_models}`);
+    console.log(`   Total models: ${result.models.length}`);
     console.log(`   Vision models: ${result.models.filter(m => m.vision).length}`);
     console.log(`   Embedding models: ${result.models.filter(m => m.model_type === "embedding").length}`);
-    console.log(`   Most popular: ${result.models[0]?.id} (${result.models[0]?.downloads.toLocaleString()} pulls)`);
+    console.log(`   Most popular: ${result.models[0]?.id}`);
 
   } catch (error) {
     console.error("\n❌ Error:", error instanceof Error ? error.message : error);

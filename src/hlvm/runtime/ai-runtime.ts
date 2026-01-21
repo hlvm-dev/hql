@@ -12,12 +12,11 @@ import { ai } from "../api/ai.ts";
 import { log } from "../api/log.ts";
 import { ensureRuntimeDir, getRuntimeDir } from "../../common/paths.ts";
 import { findLegacyRuntimeEngine } from "../../common/legacy-migration.ts";
-import { getPlatform, type PlatformCommandProcess } from "../../platform/platform.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
 const RUNTIME_DIR = getRuntimeDir();
 const AI_ENGINE_PATH = `${RUNTIME_DIR}/engine`;
 
-let aiProcess: PlatformCommandProcess | null = null;
 let initialized = false;
 
 /**
@@ -93,7 +92,7 @@ async function startAIEngine(): Promise<void> {
   }
 
   try {
-    aiProcess = platform.command.run({
+    const aiProcess = platform.command.run({
       cmd: [enginePath, "serve"],
       stdout: "null",
       stderr: "null",

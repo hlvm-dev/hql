@@ -45,7 +45,6 @@ export function registerProvider(
   const entry: RegisteredProvider = {
     factory,
     defaultConfig: config,
-    isDefault: config?.isDefault,
   };
 
   providers.set(name.toLowerCase(), entry);

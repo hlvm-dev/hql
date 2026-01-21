@@ -417,18 +417,16 @@ export async function checkStatus(endpoint: string): Promise<ProviderStatus> {
         return {
           available: true,
           version: version.version,
-          endpoint,
         };
       } catch {
-        return { available: true, endpoint };
+        return { available: true };
       }
     }
-    return { available: false, error: `Status ${response.status}`, endpoint };
+    return { available: false, error: `Status ${response.status}` };
   } catch (err) {
     return {
       available: false,
       error: err instanceof Error ? err.message : "Connection failed",
-      endpoint,
     };
   }
 }

@@ -9,7 +9,7 @@
  */
 
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
-import { countLines } from "../../../common/utils.ts";
+import { countLines, getErrorMessage } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 
 // ============================================================================
@@ -315,7 +315,7 @@ export async function createAttachment(
   } catch (err) {
     return {
       type: "read_error",
-      message: `Failed to read file: ${err instanceof Error ? err.message : String(err)}`,
+      message: `Failed to read file: ${getErrorMessage(err)}`,
       path,
     };
   }

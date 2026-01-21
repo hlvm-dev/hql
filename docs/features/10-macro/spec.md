@@ -94,12 +94,11 @@ if (macroContext && currentFile) {
 
 ### ❌ REJECTED: Issue #3 - gensym Counter Never Resets
 
-**Claim:** Counter increments forever, `resetRuntime()` doesn't reset it
+**Claim:** Counter increments forever with no public reset API
 
 **Verification:**
 
 - ✅ CONFIRMED: Counter never resets
-- ✅ CONFIRMED: `resetRuntime()` doesn't touch counter
 
 **Impact Analysis:**
 
@@ -442,8 +441,6 @@ function preExpandMacroArgs<T>(
 
 **Files Changed:**
 - `src/hql/s-exp/macro.ts:224` - Removed cache declaration, added comment
-- `src/hql/runtime/hql-runtime.ts` - Removed 2 cache.clear() calls
-- `src/hql/runtime/index.ts` - Removed cache.clear() call
 
 ### Removed `useCache` Option
 

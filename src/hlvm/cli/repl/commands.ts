@@ -20,6 +20,21 @@ export interface Command {
   handler: (state: ReplState, args: string) => void | Promise<void>;
 }
 
+export const COMMAND_CATALOG: readonly { name: string; description: string }[] = [
+  { name: "/help", description: "Show help message" },
+  { name: "/clear", description: "Clear the screen" },
+  { name: "/reset", description: "Reset REPL state and clear memory" },
+  { name: "/exit", description: "Exit the REPL" },
+  { name: "/memory", description: "Show memory file location and stats" },
+  { name: "/forget", description: "Remove a definition from memory" },
+  { name: "/config", description: "View/set configuration" },
+  { name: "/tasks", description: "View background tasks" },
+  { name: "/bg", description: "Push current eval to background" },
+  { name: "/resume", description: "Resume a previous session" },
+  { name: "/js", description: "Switch to JavaScript mode" },
+  { name: "/hql", description: "Switch to HLVM HQL mode" },
+];
+
 /** Generate help text dynamically using keybinding registry */
 function generateHelpText(): string {
   const shortcuts = registry.generateHelpText();

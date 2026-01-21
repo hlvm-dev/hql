@@ -6,20 +6,20 @@ Complete guide from beginner to advanced.
 
 Get running immediately:
 
-```bash
-# Install
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
+Build HLVM first (see the [Build Guide](./BUILD.md)), then:
 
-# Create hello.hql
+```bash
 echo '(print "Hello, World!")' > hello.hql
 
 # Run it
-hlvm run hello.hql
+./hlvm run hello.hql
 ```
+
+If you install system-wide, use `hlvm` instead of `./hlvm`.
 
 Try the REPL:
 ```bash
-hlvm repl
+./hlvm repl
 ```
 
 ```lisp
@@ -44,17 +44,7 @@ You should know:
 
 ## Installation
 
-Install HLVM:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
-```
-
-Verify:
-
-```bash
-hlvm --version
-```
+See the [build guide](./BUILD.md) for build and install options.
 
 ## Level 1: Basics (30 minutes)
 
@@ -545,14 +535,6 @@ make test
 ```
 
 See [Testing Guide](./TESTING.md) for writing your own tests.
-
-## Building from Source
-
-```bash
-make build
-```
-
-See [Build Guide](./BUILD.md) for details.
 
 ## Next Steps
 

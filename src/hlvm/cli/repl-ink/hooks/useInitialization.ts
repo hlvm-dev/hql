@@ -18,6 +18,7 @@ import { KEYWORD_SET, MACRO_SET, OPERATOR_SET } from "../../../../common/known-i
 import { checkDefaultModelInstalled, getDefaultModelName } from "../components/ModelSetupOverlay.tsx";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { log } from "../../../api/log.ts";
+import { getErrorMessage } from "../../../../common/utils.ts";
 
 export interface InitializationState {
   loading: boolean;
@@ -184,7 +185,7 @@ export function useInitialization(state: ReplState, jsMode: boolean): Initializa
         setLoading(false);
         setReady(true);
       } catch (error) {
-        setErrors([error instanceof Error ? error.message : String(error)]);
+        setErrors([getErrorMessage(error)]);
         setLoading(false);
       }
     })();

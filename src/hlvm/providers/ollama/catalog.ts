@@ -9,10 +9,8 @@ import type { ModelInfo, ProviderCapability } from "../types.ts";
 
 interface ScrapedModelVariant {
   id: string;
-  name: string;
   parameters: string;
   size: string;
-  context: string;
 }
 
 interface ScrapedModel {
@@ -21,9 +19,7 @@ interface ScrapedModel {
   description: string;
   variants: ScrapedModelVariant[];
   vision: boolean;
-  downloads: number;
   model_type?: string;
-  ollamaUrl?: string;
   tools?: boolean;
   thinking?: boolean;
 }
@@ -88,11 +84,6 @@ function toModelInfo(model: ScrapedModel, variant?: ScrapedModelVariant): ModelI
     metadata: {
       description: model.description,
       sizes: variant?.size ? [variant.size] : undefined,
-      context: variant?.context,
-      downloads: model.downloads,
-      modelId: model.id,
-      modelName: model.name,
-      url: model.ollamaUrl,
     },
   };
 }

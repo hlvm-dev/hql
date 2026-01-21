@@ -3,8 +3,7 @@
  *
  * Updates HLVM to the latest version from GitHub releases.
  *
- * WARNING: The upgrade command uses `sh` and `curl` which only works on macOS/Linux.
- * Windows users must re-run install.ps1 to upgrade.
+ * NOTE: HLVM upgrades require rebuilding from source.
  */
 
 import { VERSION } from "../../../version.ts";
@@ -18,10 +17,6 @@ import { isNewer } from "../utils/update-check.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 
 const GITHUB_API = "https://api.github.com/repos/hlvm-dev/hlvm/releases/latest";
-const INSTALL_SCRIPT =
-  "https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh";
-const INSTALL_PS1 =
-  "https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.ps1";
 
 /**
  * Main upgrade command handler.
@@ -69,47 +64,14 @@ export async function upgrade(args: string[]): Promise<void> {
 
   // Check-only mode
   if (checkOnly) {
-    log.raw.log("\nRun 'hlvm upgrade' to update.");
+    log.raw.log("\nRun 'hlvm upgrade' to see update instructions.");
     return;
   }
 
-  const platform = getPlatform();
-
-  // Windows - show instructions instead of running sh
-  if (platform.build.os === "windows") {
-    log.raw.log(
-      "\nWindows detected. To upgrade, run this command in PowerShell:",
-    );
-    log.raw.log(`  irm ${INSTALL_PS1} | iex`);
-    return;
-  }
-
-  // macOS/Linux - run install script
-  log.raw.log("\nUpgrading...");
-
-  try {
-    const proc = platform.command.run({
-      cmd: ["sh", "-c", `curl -fsSL ${INSTALL_SCRIPT} | sh`],
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-
-    const result = await proc.status;
-
-    if (!result.success) {
-      log.raw.error("\nUpgrade failed. Please try running manually:");
-      log.raw.error(`  curl -fsSL ${INSTALL_SCRIPT} | sh`);
-      platformExit(1);
-    }
-
-    log.raw.log("\nUpgrade complete! Run 'hlvm --version' to verify.");
-  } catch (error) {
-    log.raw.error(`\nUpgrade failed: ${getErrorMessage(error)}`);
-    log.raw.error("\nPlease try running manually:");
-    log.raw.error(`  curl -fsSL ${INSTALL_SCRIPT} | sh`);
-    platformExit(1);
-  }
+  log.raw.log("\nTo upgrade, rebuild HLVM from source:");
+  log.raw.log("  make build");
+  log.raw.log("  ./hlvm --version");
+  log.raw.log("\nSee docs/BUILD.md for more options.");
 }
 
 /**
@@ -117,22 +79,21 @@ export async function upgrade(args: string[]): Promise<void> {
  */
 export function showUpgradeHelp(): void {
   log.raw.log(`
-HLVM Upgrade - Update HLVM to the latest version
+HLVM Upgrade - Show upgrade instructions
 
 USAGE:
-  hlvm upgrade           Upgrade to latest version
-  hlvm upgrade --check   Check for updates only (don't install)
+  hlvm upgrade           Show upgrade instructions
+  hlvm upgrade --check   Check for updates only
 
 OPTIONS:
   -c, --check   Check for updates without installing
   -h, --help    Show this help message
 
 NOTES:
-  - On macOS/Linux: Downloads and runs the install script
-  - On Windows: Shows PowerShell command to run manually
+  - Upgrades require rebuilding from source
 
 EXAMPLES:
-  hlvm upgrade           # Upgrade to latest
-  hlvm upgrade --check   # Just check, don't install
+  hlvm upgrade           # Show upgrade instructions
+  hlvm upgrade --check   # Just check
 `);
 }

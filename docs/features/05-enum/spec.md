@@ -3,7 +3,7 @@
 
 This document outlines the design for basic, type-safe enumerations in HQL,
 using a Lisp-style syntax implemented as a core compiler feature for optimal
-tooling support (LSP, autocompletion).
+tooling support (autocompletion).
 
 ## 1. Goal
 
@@ -23,9 +23,8 @@ language feature**.
   syntax. Specific internal representations (e.g., `EnumDefinitionNode`,
   `EnumCaseNode` in the AST/IR) are created.
 - **Rationale:** This provides the most explicit and analyzable structure for
-  Language Server Protocols (LSPs) and other tools, leading to reliable
-  autocompletion, type hinting, and potential future static analysis. It treats
-  enums as a fundamental part of the language.
+  other tools, leading to reliable autocompletion, type hinting, and potential
+  future static analysis. It treats enums as a fundamental part of the language.
 - **Alternatives Not Chosen:** Implementing via the Syntax Transformer stage or
   solely via Macros would obscure the enum's semantic meaning earlier in the
   pipeline, making robust tooling integration significantly more challenging.

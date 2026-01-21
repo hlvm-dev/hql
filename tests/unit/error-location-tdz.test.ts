@@ -4,6 +4,7 @@
 
 import { assertEquals, assertMatch } from "jsr:@std/assert@1";
 import { run } from "../../mod.ts";
+import { getErrorMessage } from "../../src/common/utils.ts";
 
 Deno.test("TDZ error reports correct line number with source maps", async () => {
   // This HQL code has shadowed variables that trigger TDZ errors
@@ -26,7 +27,7 @@ Deno.test("TDZ error reports correct line number with source maps", async () => 
   } catch (error) {
     // The error should mention the correct line number
     // It should NOT report line 1 (the fallback)
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     const errorStack = error instanceof Error ? error.stack : "";
 
     console.log("Error message:", errorMessage);
@@ -54,7 +55,7 @@ Deno.test("Reference error reports correct location with source maps", async () 
     });
     throw new Error("Expected error to be thrown");
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     const errorStack = error instanceof Error ? error.stack : "";
     console.log("Error message:", errorMessage);
 
@@ -81,7 +82,7 @@ Deno.test("Function call error reports correct location with source maps", async
     });
     throw new Error("Expected error to be thrown");
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     console.log("Error message:", errorMessage);
 
     // Should report line 3 where (add 1) is called with missing argument

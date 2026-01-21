@@ -12,6 +12,7 @@
 import { assertEquals, assertStringIncludes, assertMatch } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { transpile } from "../../src/hql/transpiler/index.ts";
 import hql from "../../mod.ts";
+import { getErrorMessage } from "../../src/common/utils.ts";
 import { captureConsole } from "./helpers.ts";
 
 /**
@@ -33,7 +34,7 @@ async function runHQL(code: string): Promise<{ stdout: string; stderr: string; s
       await hql.run(code);
     } catch (e) {
       // Capture runtime errors too (for tests that check runtime behavior)
-      const errMsg = e instanceof Error ? e.message : String(e);
+      const errMsg = getErrorMessage(e);
       console.error(errMsg);
     }
   }, ["log", "error"]);

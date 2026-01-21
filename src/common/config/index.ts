@@ -25,5 +25,4 @@ export {
   resetConfig,
 } from "./storage.ts";
 
-// Note: initConfigRuntime is internal to runtime-initializer.ts (SSOT)
 // Use initializeRuntime() from common/runtime-initializer.ts instead

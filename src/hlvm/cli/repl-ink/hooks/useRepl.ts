@@ -8,7 +8,7 @@ import { ReplState } from "../../repl/state.ts";
 import { evaluate as hqlEvaluate } from "../../repl/evaluator.ts";
 import { resolveAtMentions } from "../../repl/mention-resolver.ts";
 import type { EvalResult } from "../types.ts";
-import { attachmentsToContentBlocks, type AnyAttachment } from "../../repl/attachment-protocol.ts";
+import type { AnyAttachment } from "../../repl/attachment.ts";
 
 interface UseReplOptions {
   jsMode?: boolean;
@@ -58,17 +58,6 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
       // Check abort after async operation
       if (signal?.aborted) {
         return { success: false, error: new Error("Cancelled") };
-      }
-
-      // If attachments are present, prepare content blocks for AI backend
-      // NOTE: Backend integration is a separate story. For now, we log and
-      // proceed with normal evaluation. The attachments are formatted and
-      // Prepare content blocks for when multimodal AI support is implemented.
-      if (attachments && attachments.length > 0) {
-        const contentBlocks = attachmentsToContentBlocks(resolvedCode, attachments);
-        // The contentBlocks are ready to be sent to a multimodal AI API
-        // when backend support is implemented
-        void contentBlocks; // Suppress unused variable warning
       }
 
       // Pass attachments and signal to evaluator

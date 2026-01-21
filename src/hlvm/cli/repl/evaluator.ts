@@ -31,7 +31,7 @@ async function debugLog(message: string): Promise<void> {
 }
 import { evaluateJS, extractJSBindings } from "./js-eval.ts";
 import { addPaste, addAttachment, addConversationTurn } from "./context.ts";
-import type { AnyAttachment } from "./attachment-protocol.ts";
+import type { AnyAttachment } from "./attachment.ts";
 import type { TextAttachment, Attachment } from "./attachment.ts";
 import { extractDocstrings } from "./docstring.ts";
 import { getAbortSignal, setAbortSignal } from "../../api/runtime.ts";

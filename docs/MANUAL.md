@@ -18,22 +18,9 @@ This manual covers installation, CLI usage, and key workflows. For complete synt
 
 ## Installation
 
-### Quick Install
+### Build from Source
 
-**macOS / Linux:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
-```
-
-**Windows:**
-
-Download the binary from [releases](https://github.com/hlvm-dev/hlvm/releases).
-
-### Verify Installation
-
-```bash
-hlvm --version
-```
+See the [build guide](./BUILD.md) for build and install steps. If you do not install system-wide, use `./hlvm` in the examples below.
 
 ---
 
@@ -48,13 +35,13 @@ Create `hello.hql`:
 
 Run it:
 ```bash
-hlvm run hello.hql
+./hlvm run hello.hql
 ```
 
 ### Interactive REPL
 
 ```bash
-hlvm repl
+./hlvm repl
 ```
 
 ```clojure
@@ -109,8 +96,7 @@ See [HQL-SYNTAX.md](./HQL-SYNTAX.md) for complete syntax reference.
 | `hlvm repl` | Start interactive REPL |
 | `hlvm compile <file>` | Compile to JavaScript |
 | `hlvm init` | Initialize new project |
-| `hlvm lsp` | Start Language Server |
-| `hlvm upgrade` | Update HLVM to latest |
+| `hlvm upgrade` | Show upgrade instructions |
 
 ### Compile Options
 
@@ -190,7 +176,6 @@ See [Standard Library Reference](./api/stdlib.md) for complete documentation.
 | [TYPE-SYSTEM.md](./TYPE-SYSTEM.md) | TypeScript type system coverage |
 | [api/](./api/) | Complete API documentation |
 | [api/stdlib.md](./api/stdlib.md) | Built-in functions |
-| [LSP.md](./LSP.md) | Language Server Protocol support |
 | [GUIDE.md](./GUIDE.md) | Learning guide from beginner to advanced |
 
 ---

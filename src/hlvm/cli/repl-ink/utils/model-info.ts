@@ -36,14 +36,6 @@ export function extractModelName(fullName: string): string {
   return fullName.replace(/^ollama\//, "");
 }
 
-/**
- * Get base model name for Ollama library link
- * "qwen2.5-coder:1.5b" -> "qwen2.5-coder"
- */
-export function getBaseModelName(name: string): string {
-  return name.split(":")[0];
-}
-
 // ============================================================
 // API
 // ============================================================
@@ -54,7 +46,6 @@ export function getBaseModelName(name: string): string {
  */
 export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
   const displayName = extractModelName(modelName);
-  const baseName = getBaseModelName(displayName);
 
   // Check cache first
   const cached = modelInfoCache.get(displayName);
@@ -65,7 +56,6 @@ export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
     name: modelName,
     displayName,
     capabilities: ["generate", "chat"] as ProviderCapability[],
-    link: `ollama.com/library/${baseName}`,
   };
 
   try {
@@ -92,7 +82,6 @@ export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
           parameterSize: result.parameterSize,
           quantization: result.quantization,
           capabilities: result.capabilities,
-          link: `ollama.com/library/${baseName}`,
         };
 
         modelInfoCache.set(displayName, info);

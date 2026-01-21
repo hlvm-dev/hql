@@ -36,6 +36,7 @@ import {
   getImportMapping,
   processJavaScriptFile,
 } from "../common/hlvm-cache-tracker.ts";
+import { createEmbeddedPackageLookup } from "./embedded-package-utils.ts";
 import {
   isImport,
   isLiteral,
@@ -1612,27 +1613,11 @@ async function loadHqlModule(
 
     // Also check embedded packages for @hlvm/* imports
     const { EMBEDDED_PACKAGES } = await import("./embedded-packages.ts");
-
-    // Helper to check embedded packages by modulePath (e.g., "@hlvm/http")
-    const getEmbeddedPackageContent = (path: string): string | undefined => {
-      // Check direct match first (e.g., "@hlvm/http")
-      if (EMBEDDED_PACKAGES[path]) {
-        return EMBEDDED_PACKAGES[path];
-      }
-      // Check if path ends with a package path pattern
-      // Cache keys to avoid repeated Object.keys() allocation per call
-      const packageKeys = Object.keys(EMBEDDED_PACKAGES);
-      for (const key of packageKeys) {
-        if (path.endsWith(`packages/${key.replace("@hlvm/", "")}/mod.hql`)) {
-          return EMBEDDED_PACKAGES[key];
-        }
-      }
-      return undefined;
-    };
+    const embeddedPackageLookup = createEmbeddedPackageLookup(EMBEDDED_PACKAGES);
 
     // First check embedded packages (for @hlvm/* imports in compiled binary)
-    const embeddedPkgContent = getEmbeddedPackageContent(modulePath) ||
-                               getEmbeddedPackageContent(resolvedPath);
+    const embeddedPkgContent = embeddedPackageLookup.getBySpecifierOrPath(modulePath) ||
+      embeddedPackageLookup.getBySpecifierOrPath(resolvedPath);
     if (embeddedPkgContent) {
       fileContent = embeddedPkgContent;
       importedExprs = parse(fileContent, resolvedPath);

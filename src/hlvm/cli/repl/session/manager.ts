@@ -243,14 +243,6 @@ export class SessionManager {
   }
 
   /**
-   * Alias for list() - kept for compatibility.
-   * @deprecated Use list() instead
-   */
-  async listForProject(limit: number = 50): Promise<SessionMeta[]> {
-    return this.list(limit);
-  }
-
-  /**
    * Delete a session.
    * @param sessionId - The session ID to delete
    * @returns true if deleted, false if not found

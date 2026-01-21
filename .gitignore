@@ -44,6 +44,10 @@ verify-output.log
 .hlvm-cache/
 # Legacy cache (cleanup safe)
 .hql-cache/
+#
+# Local HLVM/HQL runtime data
+.hlvm/
+.hql/
 
 # Build intermediate directory (auto-deleted after hlvm build completes)
 .build/

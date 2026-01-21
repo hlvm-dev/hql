@@ -135,8 +135,8 @@ a convenience `throw` function that raises a `TranspilerError`.
 
 ## Notes
 
-- Built-ins live inside each `Environment` instance; re-initializing the runtime
-  (via `resetRuntime`) restores the defaults.
+- Built-ins live inside each `Environment` instance; re-initializing the
+  environment restores the defaults.
 - Many built-ins (e.g., `%first`) intentionally return S-expression literals so
   macros can reason about code-as-data during compilation.
 - Any additions to the built-in set should be documented here to keep API

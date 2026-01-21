@@ -12,6 +12,7 @@ import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { getPlatform } from "../../src/platform/platform.ts";
 import hql from "../../mod.ts";
 import { ParseError, RuntimeError } from "../../src/common/error.ts";
+import { getErrorMessage } from "../../src/common/utils.ts";
 import { run } from "./helpers.ts";
 
 const path = () => getPlatform().path;
@@ -217,7 +218,7 @@ Deno.test("Error Reporting: Error contains source location info", async () => {
     await run(code);
     throw new Error("Should have thrown an error");
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     // Check if error message contains useful info
     // (Exact format depends on HQL's error formatting)
     console.log("\n=== Error Message Sample ===");
@@ -238,7 +239,7 @@ Deno.test("Error Reporting: Parse error shows context lines", async () => {
     await transpile(code);
     throw new Error("Should have thrown a parse error");
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     console.log("\n=== Parse Error with Context ===");
     console.log(errorMessage);
     console.log("================================\n");

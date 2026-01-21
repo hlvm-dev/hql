@@ -15,7 +15,8 @@ import { isModelPullTask, isTaskActive } from "../../repl/task-manager/types.ts"
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
-import type { ModelInfo, ProviderCapability } from "../../../providers/types.ts";
+import { capabilitiesToDisplayTags } from "../../../providers/types.ts";
+import type { ModelInfo } from "../../../providers/types.ts";
 
 // Local alias for platform openUrl
 const openUrl = (url: string) => getPlatform().openUrl(url);
@@ -178,24 +179,6 @@ function parseSizeToBytes(sizeStr: string): number {
 function isPracticalModel(name: string): boolean {
   const lower = name.toLowerCase();
   return !lower.includes("405b") && !lower.includes("671b") && !lower.includes("70b");
-}
-
-/** Convert ProviderCapability[] to display tags for UI */
-function capabilitiesToDisplayTags(caps?: ProviderCapability[]): string[] {
-  if (!caps || caps.length === 0) return ["text"];
-
-  const tags: string[] = [];
-  if (caps.includes("embeddings")) {
-    tags.push("embedding");
-  } else if (caps.includes("generate") || caps.includes("chat")) {
-    tags.push("text");
-  }
-
-  if (caps.includes("vision")) tags.push("vision");
-  if (caps.includes("tools")) tags.push("tools");
-  if (caps.includes("thinking")) tags.push("thinking");
-
-  return tags;
 }
 
 function getCatalogSize(model: ModelInfo): string | undefined {

@@ -29,6 +29,7 @@ export type {
 // Capability helpers
 export {
   capabilitiesToFlags,
+  capabilitiesToDisplayTags,
   formatCapabilityTags,
 } from "./types.ts";
 

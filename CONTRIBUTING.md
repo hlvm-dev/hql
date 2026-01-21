@@ -90,7 +90,7 @@ Include:
 
 ## Releases
 
-See [Release Guide](./docs/RELEASING.md) for release process.
+See [Build Guide](./docs/BUILD.md) for build details.
 
 ## Community
 

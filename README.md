@@ -10,42 +10,7 @@ HLVM runs HQL (a Lisp that compiles to JavaScript) alongside first-class JS, wit
 
 ## Installation
 
-**macOS (Intel & Apple Silicon):**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
-```
-
-**Linux x86_64:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
-```
-
-> **Note:** Linux installer has limited testing. Please [report issues](https://github.com/hlvm-dev/hlvm/issues).
-
-**Windows (PowerShell):**
-
-```powershell
-irm https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.ps1 | iex
-```
-
-> **Note:** Windows installer has limited testing. Please [report issues](https://github.com/hlvm-dev/hlvm/issues).
-
-**From source:**
-
-```bash
-make build
-```
-
-See [build guide](./docs/BUILD.md) for details.
-
-**Update & Uninstall:**
-
-```bash
-hlvm upgrade      # Update to latest version
-hlvm uninstall    # Remove HLVM from system
-```
+See the [build guide](./docs/BUILD.md) for build and install steps.
 
 ---
 
@@ -102,11 +67,9 @@ hlvm repl
 - [Build Guide](./docs/BUILD.md) - Building from source
 - [Testing Guide](./docs/TESTING.md) - Running and writing tests
 - [Contributing](./CONTRIBUTING.md) - Contribution guidelines
-- [Release Guide](./docs/RELEASING.md) - Creating releases
 
 **Tooling:**
 
-- [LSP & Editor Support](./docs/LSP.md) - VS Code extension
 - [Error System](./docs/ERROR-SYSTEM.md) - Error reporting and source maps
 
 **Internals:**

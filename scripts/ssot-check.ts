@@ -61,7 +61,6 @@ const RULES: Rule[] = [
       /"[^"]*console\.[^"]*"/, // String literals
       /'[^']*console\.[^']*'/, // String literals
       /`[^`]*console\.[^`]*`/, // Template literals
-      /connection\.console\./, // LSP proper logging (connection.console.*)
       /^\s*\(console\./, // S-expression style (HQL code examples)
     ],
     message: "Use globalThis.log instead of console.*",

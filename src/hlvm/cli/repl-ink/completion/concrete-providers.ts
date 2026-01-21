@@ -50,6 +50,7 @@ import {
   initializeIdentifiers,
   classifyIdentifier as baseClassify,
 } from "../../../../common/known-identifiers.ts";
+import { COMMAND_CATALOG } from "../../repl/commands.ts";
 
 /**
  * Classify an identifier into a completion type.
@@ -516,25 +517,6 @@ export const FileProvider: CompletionProvider = {
 // Command Provider
 // ============================================================
 
-// Available commands (subset for autocompletion)
-const AVAILABLE_COMMANDS: readonly { name: string; description: string }[] = [
-  { name: "/help", description: "Show help message" },
-  { name: "/clear", description: "Clear the screen" },
-  { name: "/reset", description: "Reset REPL state" },
-  { name: "/bindings", description: "Show current bindings" },
-  { name: "/history", description: "Show command history" },
-  { name: "/exit", description: "Exit the REPL" },
-  { name: "/memory", description: "List saved definitions" },
-  { name: "/forget", description: "Remove a definition" },
-  { name: "/compact", description: "Compact memory file" },
-  { name: "/config", description: "View/set AI configuration" },
-  { name: "/tasks", description: "View background tasks" },
-  { name: "/bg", description: "Push current eval to background" },
-  { name: "/js", description: "Switch to JavaScript mode" },
-  { name: "/hql", description: "Switch to HLVM HQL mode" },
-  { name: "/resume", description: "Resume a previous session" },
-];
-
 /**
  * Create applyAction for command items.
  * Commands only have SELECT - no drilling.
@@ -616,7 +598,7 @@ export const CommandProvider: CompletionProvider = {
     // Use fuzzy matching for command filtering
     const items: CompletionItem[] = [];
 
-    for (const cmd of AVAILABLE_COMMANDS) {
+    for (const cmd of COMMAND_CATALOG) {
       // Fuzzy match against command name without the leading /
       const cmdName = cmd.name.slice(1); // Remove /
       const matchResult = query ? fuzzyMatch(query, cmdName) : null;
