@@ -194,13 +194,23 @@ export class TaskManager {
    * Returns false if the transition is invalid.
    * All state changes go through this method to prevent race conditions.
    */
-  private transition(taskId: string, newStatus: TaskStatus): boolean {
+  private transition(
+    taskId: string,
+    newStatus: TaskStatus,
+    options: { silent?: boolean } = {}
+  ): boolean {
     const task = this.tasks.get(taskId);
     if (!task) return false;
 
+    if (task.status === newStatus) return false;
+
     // Validate transition
     if (!canTransition(task.status, newStatus)) {
-      log.warn(`[TaskManager] Invalid transition: ${task.status} → ${newStatus} for task ${taskId}`);
+      if (options.silent) {
+        log.debug(`[TaskManager] Skipping invalid transition: ${task.status} → ${newStatus} for task ${taskId}`);
+      } else {
+        log.warn(`[TaskManager] Invalid transition: ${task.status} → ${newStatus} for task ${taskId}`);
+      }
       return false;
     }
 
@@ -374,7 +384,7 @@ export class TaskManager {
     signal: AbortSignal
   ): Promise<void> {
     // Transition to running using state machine
-    if (!this.transition(taskId, "running")) {
+    if (!this.transition(taskId, "running", { silent: true })) {
       // Invalid transition - task may have been cancelled already
       return;
     }
@@ -407,7 +417,7 @@ export class TaskManager {
       // Check if cancelled before marking complete
       if (signal.aborted) {
         // Only emit if transition succeeds (cancel() may have already done this)
-        if (this.transition(taskId, "cancelled")) {
+        if (this.transition(taskId, "cancelled", { silent: true })) {
           this.emit({ type: "task:cancelled", taskId });
         }
         return;
@@ -422,7 +432,7 @@ export class TaskManager {
       // Check if abort error
       if (signal.aborted || (error as Error).name === "AbortError") {
         // Only emit if transition succeeds (cancel() may have already done this)
-        if (this.transition(taskId, "cancelled")) {
+        if (this.transition(taskId, "cancelled", { silent: true })) {
           this.emit({ type: "task:cancelled", taskId });
         }
         return;
@@ -610,9 +620,11 @@ export class TaskManager {
       if (evalTask._controller && !evalTask._controller.signal.aborted) {
         evalTask._controller.abort();
       }
-      this.transition(taskId, "cancelled");
-      this.emit({ type: "task:cancelled", taskId });
-      return true;
+      if (this.transition(taskId, "cancelled", { silent: true })) {
+        this.emit({ type: "task:cancelled", taskId });
+        return true;
+      }
+      return false;
     }
 
     // Handle model pull tasks - abort the controller and transition state
@@ -621,9 +633,11 @@ export class TaskManager {
       if (controller && !controller.signal.aborted) {
         controller.abort();
       }
-      this.transition(taskId, "cancelled");
-      this.emit({ type: "task:cancelled", taskId });
-      return true;
+      if (this.transition(taskId, "cancelled", { silent: true })) {
+        this.emit({ type: "task:cancelled", taskId });
+        return true;
+      }
+      return false;
     }
 
     // Generic fallback

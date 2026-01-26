@@ -235,7 +235,7 @@ export class SessionManager {
    * List all sessions (global).
    * @param limit - Maximum number of sessions to return (default 50)
    */
-  async list(limit: number = 50): Promise<SessionMeta[]> {
+  list(limit: number = 50): Promise<SessionMeta[]> {
     return listSessions({
       limit,
       sortOrder: "recent",

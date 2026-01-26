@@ -1,6 +1,8 @@
 ;; HQL Enum Usage Patterns
 ;; This document demonstrates idiomatic ways to work with enums in HQL
 
+(import [assert] from "@hlvm/assert")
+
 ;; --------------------------------------
 ;; 1. Simple Enums - no associated values
 ;; --------------------------------------
@@ -13,6 +15,7 @@
 
 ;; Simple assignment
 (var heading Direction.north)
+(assert (=== heading Direction.north) "enum case assignment")
 
 ;; Value equality
 (if (=== heading Direction.west)
@@ -20,12 +23,14 @@
   (print "Not heading west"))
 
 ;; Pattern matching with cond
-(cond
-  ((=== heading Direction.north) (print "Going north"))
-  ((=== heading Direction.south) (print "Going south"))
-  ((=== heading Direction.east) (print "Going east"))
-  ((=== heading Direction.west) (print "Going west"))
-)
+(let headingLabel
+  (cond
+    ((=== heading Direction.north) (do (print "Going north") "Going north"))
+    ((=== heading Direction.south) (do (print "Going south") "Going south"))
+    ((=== heading Direction.east) (do (print "Going east") "Going east"))
+    ((=== heading Direction.west) (do (print "Going west") "Going west"))
+  ))
+(assert (=== headingLabel "Going north") "cond on enum")
 
 ;; ------------------------------
 ;; 2. Enums with Raw Values
@@ -40,11 +45,13 @@
 
 ;; Using raw values for comparison
 (let statusCode HttpStatus.notFound)
+(assert (=== statusCode 404) "enum raw value")
 
 ;; Numeric comparisons work with raw values
 (if (>= statusCode 400)
   (print "Error status code")
   (print "Success status code"))
+(assert (>= statusCode 400) "enum raw value comparison")
 
 ;; ------------------------------
 ;; HQL Enum Implementation with Associated Values
@@ -61,6 +68,14 @@
   "4111-1111-1111-1111"
   "12/25"
   "123"))
+(assert (js-call payment1 "is" "cash") "associated value is cash")
+(assert (js-call payment2 "is" "creditCard") "associated value is creditCard")
+(let payment1Amount (get (get payment1 "values") "amount"))
+(assert (=== payment1Amount 100) "cash amount")
+(let payment2Values (get payment2 "values"))
+(assert (=== (get payment2Values "number") "4111-1111-1111-1111") "card number")
+(assert (=== (get payment2Values "expiry") "12/25") "card expiry")
+(assert (=== (get payment2Values "cvv") "123") "card cvv")
 
 ;; Using type testing
 (if (js-call payment1 "is" "cash")
@@ -183,6 +198,9 @@
 (let mac-result (install OS.macOS))
 (let ios-result (install OS.iOS))
 (let linux-result (install OS.linux))
+(assert (=== mac-result "Installing on macOS") "install macOS")
+(assert (=== ios-result "Installing on iOS") "install iOS")
+(assert (=== linux-result "Installing on Linux") "install linux")
 
 ;; Using explicit enum references
 (let mac-result2 (install OS.macOS))
@@ -190,9 +208,20 @@
 ;; Status code check
 (let status (check-status StatusCode.ok))
 (let error-status (check-status StatusCode.serverError))
+(assert (=== status "Everything is ok!") "status ok")
+(assert (=== error-status "Server error!") "status serverError")
 
 ;; Test the second install function with dot notation
 (let mac-result3 (install2 OS.macOS))
+(assert (=== mac-result3 "Installing on macOS") "install2 macOS")
+
+;; Process status with when
+(let statusResult (process-status StatusCode.serverError))
+(assert (=== statusResult "Server error needs attention") "process-status when")
+
+;; Reverse check
+(assert (=== (reverse-check StatusCode.ok) "Status is ok!") "reverse-check ok")
+(assert (=== (reverse-check StatusCode.notFound) "Status is not ok!") "reverse-check not ok")
 
 ;; Return the status to test
 (print status)

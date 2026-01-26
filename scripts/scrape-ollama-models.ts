@@ -406,7 +406,7 @@ async function scrapeOllamaModels(): Promise<OllamaModelsJSON> {
   models.sort((a, b) => b.downloads - a.downloads);
 
   // Step 4: Build final JSON
-  const outputModels = models.map(({ downloads, ...model }) => model);
+  const outputModels = models.map(({ downloads: _downloads, ...model }) => model);
   const output: OllamaModelsJSON = { models: outputModels };
 
   console.log(`\n✅ Successfully scraped ${models.length} models`);

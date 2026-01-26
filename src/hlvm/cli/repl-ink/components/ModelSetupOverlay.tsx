@@ -12,8 +12,9 @@ import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { ProgressBar, formatBytes } from "./ProgressBar.tsx";
 import { isModelPullTask } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
-import { DEFAULT_MODEL_NAME } from "../../../../common/config/types.ts";
+import { getConfiguredModel, isModelInstalled } from "../../../../common/ai-default-model.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { parseModelString, type ModelInfo } from "../../../providers/index.ts";
 
 // ============================================================
 // Types
@@ -183,7 +184,7 @@ export function ModelSetupOverlay({
 // ============================================================
 
 /**
- * Check if the default AI model is installed.
+ * Check if the configured AI model is installed.
  * Non-blocking check that returns quickly.
  */
 export async function checkDefaultModelInstalled(): Promise<boolean> {
@@ -195,44 +196,30 @@ export async function checkDefaultModelInstalled(): Promise<boolean> {
   try {
     // Use ai.models.list() to check installed models
     const aiApi = (globalThis as Record<string, unknown>).ai as {
-      models?: { list?: () => Promise<{ name: string }[]> };
+      models?: { list?: (providerName?: string) => Promise<ModelInfo[]> };
     } | undefined;
 
     if (!aiApi?.models?.list) {
       return true; // API not ready, skip setup
     }
 
-    const models = await aiApi.models.list();
+    const configuredModel = getConfiguredModel();
+    const [providerName, modelName] = parseModelString(configuredModel);
+    if (!modelName) return true;
 
-    // No models at all means Ollama might not be running
+    // Model download UX is only supported for Ollama
+    if (providerName && providerName !== "ollama") {
+      return true;
+    }
+
+    const models = await aiApi.models.list(providerName ?? undefined);
+
+    // Empty list means nothing installed yet
     if (!models || models.length === 0) {
-      return true; // Skip setup to avoid blocking
+      return false;
     }
 
-    const targetModel = DEFAULT_MODEL_NAME;
-
-    // Check if model is installed (with or without :latest tag)
-    // Also handle case where model name might have different casing
-    const targetBase = targetModel.split(":")[0].toLowerCase();
-    const hasTag = targetModel.includes(":");
-
-    for (const m of models) {
-      const modelBase = m.name.split(":")[0].toLowerCase();
-      const modelTag = m.name.includes(":") ? m.name.split(":")[1] : "latest";
-
-      // Match by base name, treating missing tag as :latest
-      if (modelBase === targetBase) {
-        if (!hasTag) {
-          // No specific tag required - any version matches
-          return true;
-        }
-        // Check if tags match (both explicit or both default to latest)
-        const targetTag = targetModel.split(":")[1] || "latest";
-        if (modelTag === targetTag) return true;
-      }
-    }
-
-    return false;
+    return isModelInstalled(models, modelName);
   } catch {
     // If check fails, assume model is installed to avoid blocking
     return true;
@@ -243,5 +230,6 @@ export async function checkDefaultModelInstalled(): Promise<boolean> {
  * Get the default model name for setup.
  */
 export function getDefaultModelName(): string {
-  return DEFAULT_MODEL_NAME;
+  const [, modelName] = parseModelString(getConfiguredModel());
+  return modelName;
 }

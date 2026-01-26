@@ -64,7 +64,7 @@ function createSessionApi() {
      * @example (session.list)
      * @example (session.list {limit: 10})
      */
-    list: async (options?: {
+    list: (options?: {
       limit?: number;
       sortOrder?: "recent" | "oldest" | "alpha";
     }): Promise<SessionMeta[]> => {
@@ -78,7 +78,7 @@ function createSessionApi() {
      * Load a specific session by ID
      * @example (session.get "abc123")
      */
-    get: async (sessionId: string): Promise<Session | null> => {
+    get: (sessionId: string): Promise<Session | null> => {
       assertString(sessionId, "session.get", "session.get requires a session ID string");
 
       return loadSession(sessionId);
@@ -89,7 +89,7 @@ function createSessionApi() {
      * This is the SSOT method for resuming sessions - uses manager's resumeSession.
      * @example (session.resume "abc123")
      */
-    resume: async (sessionId: string): Promise<Session | null> => {
+    resume: (sessionId: string): Promise<Session | null> => {
       assertString(sessionId, "session.resume", "session.resume requires a session ID string");
 
       // 100% SSOT: Use manager's resumeSession only - no fallback bypass
@@ -128,7 +128,7 @@ function createSessionApi() {
      * Delete a session
      * @example (session.remove "abc123")
      */
-    remove: async (sessionId: string): Promise<boolean> => {
+    remove: (sessionId: string): Promise<boolean> => {
       assertString(sessionId, "session.remove", "session.remove requires a session ID string");
 
       return deleteSession(sessionId);
@@ -138,7 +138,7 @@ function createSessionApi() {
      * Export a session as plain text or markdown
      * @example (session.export "abc123")
      */
-    export: async (sessionId: string): Promise<string | null> => {
+    export: (sessionId: string): Promise<string | null> => {
       assertString(sessionId, "session.export", "session.export requires a session ID string");
 
       return exportSession(sessionId);

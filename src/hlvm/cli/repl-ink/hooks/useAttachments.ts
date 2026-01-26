@@ -85,7 +85,7 @@ export function useAttachments(): UseAttachmentsReturn {
   /**
    * Add a new attachment from file path (auto-assigns ID)
    */
-  const addAttachment = useCallback(async (path: string): Promise<Attachment | AttachmentError> => {
+  const addAttachment = useCallback((path: string): Promise<Attachment | AttachmentError> => {
     const id = reserveNextId();
     return addAttachmentWithId(path, id);
   }, [reserveNextId, addAttachmentWithId]);

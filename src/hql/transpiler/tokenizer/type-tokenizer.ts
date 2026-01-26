@@ -36,8 +36,6 @@ const WHITESPACE_REGEX = /\s/;
 const IDENTIFIER_CHAR_REGEX = /[a-zA-Z0-9_$]/;
 /** Matches valid characters inside type annotations */
 const VALID_TYPE_CHAR_REGEX = /[a-zA-Z0-9_$#<>,|&?:\s\-\+\.\{\}\[\]\(\)=`'"\/;!\\]/;
-/** Matches identifier followed by angle bracket (generic type lookahead) */
-const GENERIC_TYPE_LOOKAHEAD_REGEX = /^[a-zA-Z_$][a-zA-Z0-9_$]*</;
 /** Matches type continuation start characters */
 const TYPE_CONTINUATION_START_REGEX = /[a-zA-Z_$<\{\(\[]/;
 /** Matches type delimiter characters (whitespace, closing brackets) */

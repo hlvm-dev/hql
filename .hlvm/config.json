@@ -1,8 +1,0 @@
-{
-  "version": 1,
-  "model": "ollama/tinydolphin:latest",
-  "endpoint": "http://localhost:11434",
-  "temperature": 0.7,
-  "maxTokens": 4096,
-  "theme": "sicp"
-}

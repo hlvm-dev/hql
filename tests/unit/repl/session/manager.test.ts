@@ -5,7 +5,7 @@
 
 import { assertEquals, assert, assertExists, assertRejects } from "jsr:@std/assert";
 import { SessionManager } from "../../../../src/hlvm/cli/repl/session/manager.ts";
-import { getTestSessionsDir, cleanupSession, cleanupAllSessions } from "./helpers.ts";
+import { cleanupSession, cleanupAllSessions } from "./helpers.ts";
 
 // ============================================================================
 // Constructor Tests

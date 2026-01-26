@@ -9,7 +9,7 @@
  * These tests ensure genuine implementations, not hacks.
  */
 
-import { assertEquals, assertExists, assert } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals, assertExists, assert, assertMatch } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { withRecovery } from "../../src/common/error.ts";
 import hql from "../../mod.ts";
 
@@ -175,6 +175,7 @@ Deno.test("error handler: undefined variable error", async () => {
     assert(false, "Should have thrown");
   } catch (e) {
     assert(e instanceof Error);
+    assertMatch(e.message, /nonexistent[-_]variable/);
   }
 });
 
@@ -187,6 +188,7 @@ Deno.test("error handler: type error in function call", async () => {
     assert(false, "Should have thrown");
   } catch (e) {
     assert(e instanceof Error);
+    assertMatch(e.message, /x is not a function/i);
   }
 });
 

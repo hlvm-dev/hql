@@ -31,7 +31,7 @@ Thumbs.db
 *~
 
 # Claude Code
-.claude/settings.local.json
+.claude/
 
 # Serena MCP (AI assistant tool-specific)
 .serena/

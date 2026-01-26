@@ -4,11 +4,8 @@
 ; These examples serve as both documentation and executable tests
 ; Run with: hlvm examples.hql
 
-; Define assert for testing
-(fn assert [condition message]
-  (if condition
-    true
-    (throw (new Error (if message message "Assertion failed")))))
+; Shared test helpers
+(import [assert] from "@hlvm/assert")
 
 ; ============================================================================
 ; SECTION 1: ARITHMETIC OPERATORS

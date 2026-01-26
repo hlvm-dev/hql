@@ -62,14 +62,14 @@ class HttpClient {
   /**
    * Perform a GET request
    */
-  async get<T>(url: string, options?: HttpOptions): Promise<T> {
+  get<T>(url: string, options?: HttpOptions): Promise<T> {
     return this.request<T>(url, { method: "GET", ...options });
   }
 
   /**
    * Perform a POST request with JSON body
    */
-  async post<T>(url: string, body: unknown, options?: HttpOptions): Promise<T> {
+  post<T>(url: string, body: unknown, options?: HttpOptions): Promise<T> {
     return this.request<T>(url, {
       method: "POST",
       body: JSON.stringify(body),
@@ -84,7 +84,7 @@ class HttpClient {
   /**
    * Perform a PUT request with JSON body
    */
-  async put<T>(url: string, body: unknown, options?: HttpOptions): Promise<T> {
+  put<T>(url: string, body: unknown, options?: HttpOptions): Promise<T> {
     return this.request<T>(url, {
       method: "PUT",
       body: JSON.stringify(body),
@@ -99,14 +99,14 @@ class HttpClient {
   /**
    * Perform a DELETE request
    */
-  async delete<T>(url: string, options?: HttpOptions): Promise<T> {
+  delete<T>(url: string, options?: HttpOptions): Promise<T> {
     return this.request<T>(url, { method: "DELETE", ...options });
   }
 
   /**
    * Fetch JSON from a URL (alias for get)
    */
-  async fetchJson<T>(url: string, options?: HttpOptions): Promise<T> {
+  fetchJson<T>(url: string, options?: HttpOptions): Promise<T> {
     return this.get<T>(url, options);
   }
 

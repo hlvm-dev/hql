@@ -17,7 +17,7 @@ export interface EnsureDefaultModelOptions {
   log?: (message: string) => void;
 }
 
-function getConfiguredModel(): string {
+export function getConfiguredModel(): string {
   const snapshot = config.snapshot;
   if (snapshot?.model && typeof snapshot.model === "string") {
     return snapshot.model;
@@ -25,14 +25,18 @@ function getConfiguredModel(): string {
   return DEFAULT_MODEL_ID;
 }
 
-function isModelInstalled(models: ModelInfo[], target: string): boolean {
+export function isModelInstalled(models: ModelInfo[], target: string): boolean {
   if (!target) return false;
-  const hasTag = target.includes(":");
+  const normalizedTarget = target.toLowerCase();
+  const hasTag = normalizedTarget.includes(":");
   if (hasTag) {
-    return models.some((model) => model.name === target);
+    return models.some((model) => model.name.toLowerCase() === normalizedTarget);
   }
-  const latest = `${target}:latest`;
-  return models.some((model) => model.name === target || model.name === latest);
+  const latest = `${normalizedTarget}:latest`;
+  return models.some((model) => {
+    const name = model.name.toLowerCase();
+    return name === normalizedTarget || name === latest;
+  });
 }
 
 function getProgressPercent(progress: PullProgress): number | undefined {

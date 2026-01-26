@@ -45,16 +45,6 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-/**
- * Format elapsed time
- */
-function formatElapsed(startTime: number): string {
-  const elapsed = Math.floor((Date.now() - startTime) / 1000);
-  if (elapsed < 60) return `${elapsed}s ago`;
-  if (elapsed < 3600) return `${Math.floor(elapsed / 60)}m ago`;
-  return `${Math.floor(elapsed / 3600)}h ago`;
-}
-
 // ============================================================
 // Component
 // ============================================================
@@ -93,46 +83,6 @@ export function ProgressBar({
     <Text>
       <Text color={barColor}>{bar}</Text>
       {showPercent && <Text dimColor> {Math.round(clampedPercent)}%</Text>}
-    </Text>
-  );
-}
-
-// ============================================================
-// Inline Progress (with size info)
-// ============================================================
-
-interface InlineProgressProps {
-  /** Completed bytes */
-  completed?: number;
-  /** Total bytes */
-  total?: number;
-  /** Status text (fallback if no bytes) */
-  status?: string;
-  /** Bar width */
-  width?: number;
-}
-
-/**
- * Inline progress with size: ████████░░░░░░░░ 48% 7.1/14.7GB
- */
-function InlineProgress({
-  completed,
-  total,
-  status,
-  width = 16,
-}: InlineProgressProps): React.ReactElement {
-  // Calculate percent
-  const percent = total && completed ? Math.round((completed / total) * 100) : 0;
-
-  // If no total, show status text
-  if (!total) {
-    return <Text dimColor>{status || "..."}</Text>;
-  }
-
-  return (
-    <Text>
-      <ProgressBar percent={percent} width={width} showPercent />
-      <Text dimColor> {formatBytes(completed || 0)}/{formatBytes(total)}</Text>
     </Text>
   );
 }

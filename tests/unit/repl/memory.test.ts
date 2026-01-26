@@ -17,21 +17,32 @@ import {
 import { evaluate } from "../../../src/hlvm/cli/repl/evaluator.ts";
 import { ReplState } from "../../../src/hlvm/cli/repl/state.ts";
 import { initializeRuntime } from "../../../src/common/runtime-initializer.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
+
+const fs = () => getPlatform().fs;
+const platformPath = () => getPlatform().path;
+const getMemoryDir = () => platformPath().dirname(getMemoryFilePath());
 
 // Helper to clean memory file before tests
 async function cleanMemory(): Promise<void> {
-  try {
-    await Deno.remove(getMemoryFilePath());
-  } catch {
-    // Ignore if doesn't exist
+  const filePath = getMemoryFilePath();
+  if (await fs().exists(filePath)) {
+    await fs().remove(filePath);
   }
 }
 
 // Helper to create memory file with content
 async function createMemoryFile(content: string): Promise<void> {
-  const dir = getMemoryFilePath().replace("/memory.hql", "");
-  await Deno.mkdir(dir, { recursive: true });
-  await Deno.writeTextFile(getMemoryFilePath(), content);
+  await fs().mkdir(getMemoryDir(), { recursive: true });
+  await fs().writeTextFile(getMemoryFilePath(), content);
+}
+
+async function readMemoryFileIfExists(): Promise<string | null> {
+  const filePath = getMemoryFilePath();
+  if (!await fs().exists(filePath)) {
+    return null;
+  }
+  return await fs().readTextFile(filePath);
 }
 
 // Initialize runtime once
@@ -105,7 +116,7 @@ Deno.test("appendToMemory: creates file and appends def", async () => {
 
   await appendToMemory("testVar", "def", 42);
 
-  const content = await Deno.readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getMemoryFilePath());
   assert(content.includes("(def testVar 42)"));
 });
 
@@ -114,7 +125,7 @@ Deno.test("appendToMemory: appends defn with source code", async () => {
 
   await appendToMemory("testFn", "defn", "(defn testFn [x] (* x 2))");
 
-  const content = await Deno.readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getMemoryFilePath());
   assert(content.includes("(defn testFn [x] (* x 2))"));
 });
 
@@ -124,12 +135,8 @@ Deno.test("appendToMemory: skips unserializable values", async () => {
   // Functions can't be serialized for def
   await appendToMemory("myFn", "def", () => {});
 
-  try {
-    const content = await Deno.readTextFile(getMemoryFilePath());
-    assert(!content.includes("myFn"));
-  } catch {
-    // File might not exist if nothing was written - that's fine
-  }
+  const content = await readMemoryFileIfExists();
+  assert(!content || !content.includes("myFn"));
 });
 
 // ============================================================
@@ -151,7 +158,7 @@ Deno.test("compactMemory: removes duplicates", async () => {
   assertEquals(result.before, 3);
   assertEquals(result.after, 2);
 
-  const newContent = await Deno.readTextFile(getMemoryFilePath());
+  const newContent = await fs().readTextFile(getMemoryFilePath());
   const xMatches = newContent.match(/\(def x/g) || [];
   assertEquals(xMatches.length, 1);
   assert(newContent.includes("(def x 10)")); // Latest value kept
@@ -178,8 +185,8 @@ Deno.test("loadMemory: loads definitions", async () => {
 (def loadTestX 42)
 (defn loadTestDouble [n] (* n 2))
 `;
-  await Deno.mkdir(getMemoryFilePath().replace("/memory.hql", ""), { recursive: true });
-  await Deno.writeTextFile(getMemoryFilePath(), content);
+  await fs().mkdir(getMemoryDir(), { recursive: true });
+  await fs().writeTextFile(getMemoryFilePath(), content);
 
   const state = new ReplState();
   state.setLoadingMemory(true);
@@ -204,8 +211,8 @@ Deno.test("loadMemory: handles malformed code gracefully", async () => {
 (def badVar
 (defn goodFn [x] x)
 `;
-  await Deno.mkdir(getMemoryFilePath().replace("/memory.hql", ""), { recursive: true });
-  await Deno.writeTextFile(getMemoryFilePath(), content);
+  await fs().mkdir(getMemoryDir(), { recursive: true });
+  await fs().writeTextFile(getMemoryFilePath(), content);
 
   const state = new ReplState();
   state.setLoadingMemory(true);
@@ -233,14 +240,14 @@ Deno.test("forgetFromMemory: removes specific definition", async () => {
 (def forgetMe 2)
 (def alsoKeep 3)
 `;
-  await Deno.mkdir(getMemoryFilePath().replace("/memory.hql", ""), { recursive: true });
-  await Deno.writeTextFile(getMemoryFilePath(), content);
+  await fs().mkdir(getMemoryDir(), { recursive: true });
+  await fs().writeTextFile(getMemoryFilePath(), content);
 
   const removed = await forgetFromMemory("forgetMe");
 
   assertEquals(removed, true);
 
-  const newContent = await Deno.readTextFile(getMemoryFilePath());
+  const newContent = await fs().readTextFile(getMemoryFilePath());
   assert(!newContent.includes("forgetMe"));
   assert(newContent.includes("keepMe"));
   assert(newContent.includes("alsoKeep"));
@@ -252,8 +259,8 @@ Deno.test("forgetFromMemory: returns false for non-existent name", async () => {
   const content = `; HLVM Memory
 (def x 1)
 `;
-  await Deno.mkdir(getMemoryFilePath().replace("/memory.hql", ""), { recursive: true });
-  await Deno.writeTextFile(getMemoryFilePath(), content);
+  await fs().mkdir(getMemoryDir(), { recursive: true });
+  await fs().writeTextFile(getMemoryFilePath(), content);
 
   const removed = await forgetFromMemory("nonExistent");
 
@@ -272,8 +279,8 @@ Deno.test("getMemoryStats: returns correct stats", async () => {
 (def b 2)
 (defn c [x] x)
 `;
-  await Deno.mkdir(getMemoryFilePath().replace("/memory.hql", ""), { recursive: true });
-  await Deno.writeTextFile(getMemoryFilePath(), content);
+  await fs().mkdir(getMemoryDir(), { recursive: true });
+  await fs().writeTextFile(getMemoryFilePath(), content);
 
   const stats = await getMemoryStats();
 
@@ -291,8 +298,8 @@ Deno.test("getMemoryNames: returns all names", async () => {
 (defn beta [x] x)
 (def gamma 3)
 `;
-  await Deno.mkdir(getMemoryFilePath().replace("/memory.hql", ""), { recursive: true });
-  await Deno.writeTextFile(getMemoryFilePath(), content);
+  await fs().mkdir(getMemoryDir(), { recursive: true });
+  await fs().writeTextFile(getMemoryFilePath(), content);
 
   const names = await getMemoryNames();
 
@@ -314,7 +321,7 @@ Deno.test("integration: def persists evaluated value", async () => {
   // Evaluate (def x (+ 1 2)) - should persist VALUE 3, not expression
   await evaluate("(def intTestX (+ 10 32))", state);
 
-  const content = await Deno.readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getMemoryFilePath());
   assert(content.includes("(def intTestX 42)"));
   assert(!content.includes("(+ 10 32)")); // Should NOT contain expression
 });
@@ -326,7 +333,7 @@ Deno.test("integration: defn persists source code", async () => {
 
   await evaluate("(defn intTestFn [n] (* n 2))", state);
 
-  const content = await Deno.readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getMemoryFilePath());
   assert(content.includes("(defn intTestFn [n] (* n 2))"));
 });
 
@@ -337,16 +344,8 @@ Deno.test("integration: let does NOT persist", async () => {
 
   await evaluate("(let noPersistLet 999)", state);
 
-  // Check if file exists and if so, verify it doesn't contain the let binding
-  try {
-    const content = await Deno.readTextFile(getMemoryFilePath());
-    assert(!content.includes("noPersistLet"), "let should NOT persist to memory");
-  } catch (e) {
-    // File not existing is correct behavior - but only for NotFound errors
-    if (!(e instanceof Deno.errors.NotFound)) {
-      throw e; // Re-throw assertion errors and other real errors
-    }
-  }
+  const content = await readMemoryFileIfExists();
+  assert(!content || !content.includes("noPersistLet"), "let should NOT persist to memory");
 });
 
 Deno.test("integration: const does NOT persist", async () => {
@@ -356,14 +355,8 @@ Deno.test("integration: const does NOT persist", async () => {
 
   await evaluate("(const noPersistConst 888)", state);
 
-  try {
-    const content = await Deno.readTextFile(getMemoryFilePath());
-    assert(!content.includes("noPersistConst"), "const should NOT persist to memory");
-  } catch (e) {
-    if (!(e instanceof Deno.errors.NotFound)) {
-      throw e;
-    }
-  }
+  const content = await readMemoryFileIfExists();
+  assert(!content || !content.includes("noPersistConst"), "const should NOT persist to memory");
 });
 
 Deno.test("integration: fn does NOT persist", async () => {
@@ -373,14 +366,11 @@ Deno.test("integration: fn does NOT persist", async () => {
 
   await evaluate("(fn noPersistFn [x] x)", state);
 
-  try {
-    const content = await Deno.readTextFile(getMemoryFilePath());
-    assert(!content.includes("noPersistFn"), "fn should NOT persist to memory (only defn should)");
-  } catch (e) {
-    if (!(e instanceof Deno.errors.NotFound)) {
-      throw e;
-    }
-  }
+  const content = await readMemoryFileIfExists();
+  assert(
+    !content || !content.includes("noPersistFn"),
+    "fn should NOT persist to memory (only defn should)",
+  );
 });
 
 Deno.test("integration: loading does not re-persist", async () => {
@@ -390,10 +380,10 @@ Deno.test("integration: loading does not re-persist", async () => {
   const content = `; HLVM Memory
 (def reloadTest 42)
 `;
-  await Deno.mkdir(getMemoryFilePath().replace("/memory.hql", ""), { recursive: true });
-  await Deno.writeTextFile(getMemoryFilePath(), content);
+  await fs().mkdir(getMemoryDir(), { recursive: true });
+  await fs().writeTextFile(getMemoryFilePath(), content);
 
-  const beforeSize = (await Deno.stat(getMemoryFilePath())).size;
+  const beforeSize = (await fs().stat(getMemoryFilePath())).size;
 
   // Load memory (simulating REPL restart)
   const state = new ReplState();
@@ -404,7 +394,7 @@ Deno.test("integration: loading does not re-persist", async () => {
   });
   state.setLoadingMemory(false);
 
-  const afterSize = (await Deno.stat(getMemoryFilePath())).size;
+  const afterSize = (await fs().stat(getMemoryFilePath())).size;
 
   // File should not have grown
   assertEquals(afterSize, beforeSize);
@@ -420,7 +410,7 @@ Deno.test("edge: unicode in values", async () => {
   const state = new ReplState();
   await evaluate('(def unicodeTest "こんにちは")', state);
 
-  const content = await Deno.readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getMemoryFilePath());
   assert(content.includes("こんにちは"));
 });
 
@@ -430,7 +420,7 @@ Deno.test("edge: special characters in strings", async () => {
   const state = new ReplState();
   await evaluate('(def specialChars "a\\nb\\tc")', state);
 
-  const content = await Deno.readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getMemoryFilePath());
   assert(content.includes("specialChars"));
 });
 
@@ -440,7 +430,7 @@ Deno.test("edge: nested data structures", async () => {
   const state = new ReplState();
   await evaluate('(def nestedData {"a": [1, 2, {"b": 3}]})', state);
 
-  const content = await Deno.readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getMemoryFilePath());
   assert(content.includes("nestedData"));
 });
 
@@ -454,8 +444,8 @@ Deno.test("edge: corrupted file with unclosed paren skips malformed, loads rest"
 (def good2 200)
 (defn workingFn [x] (* x 2))
 `;
-  await Deno.mkdir(getMemoryFilePath().replace("/memory.hql", ""), { recursive: true });
-  await Deno.writeTextFile(getMemoryFilePath(), corruptedContent);
+  await fs().mkdir(getMemoryDir(), { recursive: true });
+  await fs().writeTextFile(getMemoryFilePath(), corruptedContent);
 
   const state = new ReplState();
   state.setLoadingMemory(true);
@@ -491,7 +481,7 @@ Deno.test("round-trip: def value is usable after reload", async () => {
   await evaluate("(def roundTripValue 42)", state1);
 
   // Verify it was persisted
-  const content = await Deno.readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getMemoryFilePath());
   assert(content.includes("(def roundTripValue 42)"), "Value should be persisted");
 
   // Step 2: Simulate REPL restart - new state, load from memory
@@ -520,7 +510,7 @@ Deno.test("round-trip: defn function executes after reload", async () => {
   await evaluate("(defn roundTripDouble [x] (* x 2))", state1);
 
   // Verify it was persisted
-  const content = await Deno.readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getMemoryFilePath());
   assert(content.includes("(defn roundTripDouble [x] (* x 2))"), "Function should be persisted");
 
   // Step 2: Simulate REPL restart
@@ -568,6 +558,9 @@ Deno.test("round-trip: multiple definitions persist and load correctly", async (
 });
 
 // Clean up after all tests
-Deno.test("cleanup", async () => {
+Deno.test("cleanup removes memory file", async () => {
+  await createMemoryFile(`; HLVM Memory\n(def cleanupTest 1)\n`);
+  assert(await fs().exists(getMemoryFilePath()));
   await cleanMemory();
+  assertEquals(await fs().exists(getMemoryFilePath()), false);
 });

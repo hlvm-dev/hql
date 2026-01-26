@@ -115,22 +115,21 @@ function createAiApi() {
        * List available models
        * @example (ai.models.list)
        */
-      list: async (providerName?: string): Promise<ModelInfo[]> => {
+      list: (providerName?: string): Promise<ModelInfo[]> => {
         const provider = providerName
           ? getProvider(providerName)
           : getDefaultProvider();
 
-        if (!provider?.models?.list) {
-          return [];
-        }
-        return provider.models.list();
+        return provider?.models?.list
+          ? provider.models.list()
+          : Promise.resolve([]);
       },
 
       /**
        * Get info about a specific model
        * @example (ai.models.get "llama3.2")
        */
-      get: async (
+      get: (
         name: string,
         providerName?: string
       ): Promise<ModelInfo | null> => {
@@ -138,25 +137,23 @@ function createAiApi() {
           ? getProvider(providerName)
           : getDefaultProvider();
 
-        if (!provider?.models?.get) {
-          return null;
-        }
-        return provider.models.get(name);
+        return provider?.models?.get
+          ? provider.models.get(name)
+          : Promise.resolve(null);
       },
 
       /**
        * List catalog models (remote/curated)
        * @example (ai.models.catalog)
        */
-      catalog: async (providerName?: string): Promise<ModelInfo[]> => {
+      catalog: (providerName?: string): Promise<ModelInfo[]> => {
         const provider = providerName
           ? getProvider(providerName)
           : getDefaultProvider();
 
-        if (!provider?.models?.catalog) {
-          return [];
-        }
-        return provider.models.catalog();
+        return provider?.models?.catalog
+          ? provider.models.catalog()
+          : Promise.resolve([]);
       },
 
       /**
@@ -185,15 +182,14 @@ function createAiApi() {
        * Remove/delete a model
        * @example (ai.models.remove "llama3.2")
        */
-      remove: async (name: string, providerName?: string): Promise<boolean> => {
+      remove: (name: string, providerName?: string): Promise<boolean> => {
         const provider = providerName
           ? getProvider(providerName)
           : getDefaultProvider();
 
-        if (!provider?.models?.remove) {
-          return false;
-        }
-        return provider.models.remove(name);
+        return provider?.models?.remove
+          ? provider.models.remove(name)
+          : Promise.resolve(false);
       },
     },
 
@@ -201,18 +197,18 @@ function createAiApi() {
      * Check provider status
      * @example (ai.status)
      */
-    status: async (providerName?: string): Promise<ProviderStatus> => {
+    status: (providerName?: string): Promise<ProviderStatus> => {
       const provider = providerName
         ? getProvider(providerName)
         : getDefaultProvider();
 
       if (!provider) {
-        return {
+        return Promise.resolve({
           available: false,
           error: providerName
             ? `Provider '${providerName}' not found`
             : "No default provider configured",
-        };
+        });
       }
       return provider.status();
     },

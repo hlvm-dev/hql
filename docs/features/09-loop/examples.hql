@@ -4,20 +4,8 @@
 ; These examples serve as both documentation and executable tests
 ; Run with: hlvm examples.hql
 
-; Define assert for testing
-(fn assert [condition message]
-  (if condition
-    true
-    (throw (new Error (if message message "Assertion failed")))))
-
-; Array/object equality helper (uses JSON.stringify for structural comparison)
-(fn assertEqual [actual expected message]
-  (let isEqual
-    (if (&& (|| (Array.isArray actual) (=== (typeof actual) "object"))
-            (|| (Array.isArray expected) (=== (typeof expected) "object")))
-      (=== (JSON.stringify actual) (JSON.stringify expected))
-      (=== actual expected)))
-  (assert isEqual message))
+; Shared test helpers
+(import [assert, assertEqual] from "@hlvm/assert")
 
 ; ============================================================================
 ; SECTION 1: LOOP/RECUR - TAIL-CALL OPTIMIZATION

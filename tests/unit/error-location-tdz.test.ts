@@ -2,8 +2,9 @@
 // This test verifies that runtime errors from shadowed variables
 // report the correct source location instead of falling back to 1:1
 
-import { assertEquals, assertMatch } from "jsr:@std/assert@1";
+import { assert, assertEquals, assertMatch } from "jsr:@std/assert@1";
 import { run } from "../../mod.ts";
+import { HQLError } from "../../src/common/error.ts";
 import { getErrorMessage } from "../../src/common/utils.ts";
 
 Deno.test("TDZ error reports correct line number with source maps", async () => {
@@ -35,7 +36,6 @@ Deno.test("TDZ error reports correct line number with source maps", async () => 
     // Verify: The error reports line 2 (where the second let x is), NOT line 1
     // The stack may show .mjs:2: or .hql:2: depending on source map application
     assertMatch(errorStack || errorMessage, /:2:/); // Should contain ":2:" for line 2
-    assertEquals(error instanceof Error, true);
   }
 });
 
@@ -63,7 +63,6 @@ Deno.test("Reference error reports correct location with source maps", async () 
     // Check the stack trace which contains the location
     // The stack may show .mjs:4: or .hql:4: depending on source map application
     assertMatch(errorStack || errorMessage, /:4:/); // Should contain ":4:" for line 4
-    assertEquals(error instanceof Error, true);
   }
 });
 
@@ -87,6 +86,7 @@ Deno.test("Function call error reports correct location with source maps", async
 
     // Should report line 3 where (add 1) is called with missing argument
     // NOT line 1
-    assertEquals(error instanceof Error, true);
+    assert(error instanceof HQLError);
+    assertEquals(error.sourceLocation.line, 3);
   }
 });

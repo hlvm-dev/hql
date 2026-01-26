@@ -593,13 +593,18 @@ export function transformSExpNode(
         }
       }
 
-      // Handle equality comparisons with enums - this is high priority to catch all cases
-      if (
-        list.elements.length >= 3 &&
-        isSymbol(list.elements[0]) &&
-        (list.elements[0] as SSymbol).name === "="
-      ) {
-        return transformEqualityExpression(list, enumDefinitions, logger);
+      // Handle equality/inequality comparisons with enums - this is high priority to catch all cases
+      if (list.elements.length >= 3 && isSymbol(list.elements[0])) {
+        const opName = (list.elements[0] as SSymbol).name;
+        if (
+          opName === "=" ||
+          opName === "==" ||
+          opName === "===" ||
+          opName === "!=" ||
+          opName === "!=="
+        ) {
+          return transformEqualityExpression(list, enumDefinitions, logger);
+        }
       }
 
       // Normalize spaceless dot chains before checking for dot-chain form

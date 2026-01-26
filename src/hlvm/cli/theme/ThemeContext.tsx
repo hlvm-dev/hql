@@ -119,19 +119,6 @@ export function useTheme(): ThemeContextValue {
   return context;
 }
 
-/**
- * useThemeColor - Shorthand to get a single color
- *
- * @example
- * ```tsx
- * const primary = useThemeColor("primary");
- * ```
- */
-function useThemeColor(key: keyof ThemePalette): string {
-  const { color } = useTheme();
-  return color(key);
-}
-
 // ============================================================
 // Exports
 // ============================================================

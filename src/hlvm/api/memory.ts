@@ -63,7 +63,7 @@ function createMemoryApi(): MemoryCallable {
      * System-level API - normally called by REPL initialization
      * @example (memory.load evaluator)
      */
-    load: async (evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>): Promise<{ docstrings: Map<string, string>; errors: string[] }> => {
+    load: (evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>): Promise<{ docstrings: Map<string, string>; errors: string[] }> => {
       return loadMemory(evaluator);
     },
 
@@ -80,7 +80,7 @@ function createMemoryApi(): MemoryCallable {
      * List all definition names in memory
      * @example (memory.list)
      */
-    list: async (): Promise<string[]> => {
+    list: (): Promise<string[]> => {
       return getMemoryNames();
     },
 
@@ -88,7 +88,7 @@ function createMemoryApi(): MemoryCallable {
      * Get the source code of a definition
      * @example (memory.get "myFn")
      */
-    get: async (name: string): Promise<string | null> => {
+    get: (name: string): Promise<string | null> => {
       assertString(name, "memory.get", "memory.get requires a name string");
       return getDefinitionSource(name);
     },
@@ -97,7 +97,7 @@ function createMemoryApi(): MemoryCallable {
      * Remove a definition from memory
      * @example (memory.remove "myFn")
      */
-    remove: async (name: string): Promise<boolean> => {
+    remove: (name: string): Promise<boolean> => {
       assertString(name, "memory.remove", "memory.remove requires a name string");
       return forgetFromMemory(name);
     },
@@ -114,7 +114,7 @@ function createMemoryApi(): MemoryCallable {
      * Get memory statistics
      * @example (memory.stats)
      */
-    stats: async (): Promise<{ path: string; count: number; size: number } | null> => {
+    stats: (): Promise<{ path: string; count: number; size: number } | null> => {
       return getMemoryStats();
     },
 

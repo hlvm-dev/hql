@@ -8,11 +8,10 @@
  * - Stack trace quality
  */
 
-import { assertEquals, assertRejects } from "jsr:@std/assert@1";
+import { assert, assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert@1";
 import { getPlatform } from "../../src/platform/platform.ts";
 import hql from "../../mod.ts";
 import { ParseError, RuntimeError } from "../../src/common/error.ts";
-import { getErrorMessage } from "../../src/common/utils.ts";
 import { run } from "./helpers.ts";
 
 const path = () => getPlatform().path;
@@ -21,6 +20,44 @@ const join = (...paths: string[]) => path().join(...paths);
 const makeTempDir = (opts?: { prefix?: string }) => fs().makeTempDir(opts);
 const writeTextFile = (p: string, content: string) => fs().writeTextFile(p, content);
 const remove = (p: string, opts?: { recursive?: boolean }) => fs().remove(p, opts);
+
+async function withTempHqlFile<T>(
+  code: string,
+  fn: (filePath: string) => Promise<T>,
+): Promise<T> {
+  const tempDir = await makeTempDir({
+    prefix: "hlvm-error-",
+  });
+  const filePath = join(tempDir, "error.hql");
+
+  try {
+    await writeTextFile(filePath, code);
+    return await fn(filePath);
+  } finally {
+    await remove(tempDir, { recursive: true });
+  }
+}
+
+async function runFileExpectRuntimeError(
+  code: string,
+): Promise<{ error: RuntimeError; filePath: string }> {
+  return await withTempHqlFile(code, async (filePath) => {
+    if (!hql.runFile) {
+      throw new Error("hql.runFile is not available in this runtime");
+    }
+
+    const error = await assertRejects(
+      async () => await hql.runFile!(filePath),
+      RuntimeError,
+    );
+
+    if (!(error instanceof RuntimeError)) {
+      throw error;
+    }
+
+    return { error, filePath };
+  });
+}
 
 // Uses hql.transpile (different from helpers.ts's transpileToJavascript)
 async function transpile(code: string): Promise<string> {
@@ -143,34 +180,12 @@ Deno.test("Error Reporting: Runtime - accurate location for shadowed binding", a
 (broken)
 `;
 
-  const tempDir = await makeTempDir({
-    prefix: "hlvm-shadow-",
-  });
-  try {
-    const filePath = join(tempDir, "shadow.hql");
-    await writeTextFile(filePath, code);
-
-    if (!hql.runFile) {
-      throw new Error("hql.runFile is not available in this runtime");
-    }
-
-    const error = await assertRejects(
-      async () => await hql.runFile!(filePath),
-      RuntimeError,
-    );
-
-    if (error instanceof RuntimeError) {
-      assertEquals(error.sourceLocation.filePath, filePath);
-      // With proper source maps, the error is now reported at the actual error location (line 5)
-      // where the TDZ error occurs when accessing 'foo' before its declaration
-      // Note: JavaScript TDZ errors are reported at the ACCESS point, not the DECLARATION point
-      assertEquals(error.sourceLocation.line, 5);
-    } else {
-      throw error;
-    }
-  } finally {
-    await remove(tempDir, { recursive: true });
-  }
+  const { error, filePath } = await runFileExpectRuntimeError(code);
+  assertEquals(error.sourceLocation.filePath, filePath);
+  // With proper source maps, the error is now reported at the actual error location (line 5)
+  // where the TDZ error occurs when accessing 'foo' before its declaration
+  // Note: JavaScript TDZ errors are reported at the ACCESS point, not the DECLARATION point
+  assertEquals(error.sourceLocation.line, 5);
 });
 
 Deno.test("Error Reporting: Runtime - type error in operation", async () => {
@@ -214,17 +229,16 @@ Deno.test("Error Reporting: Error contains source location info", async () => {
 (+ x y z)
 `;
 
-  try {
-    await run(code);
-    throw new Error("Should have thrown an error");
-  } catch (error) {
-    const errorMessage = getErrorMessage(error);
-    // Check if error message contains useful info
-    // (Exact format depends on HQL's error formatting)
-    console.log("\n=== Error Message Sample ===");
-    console.log(errorMessage);
-    console.log("============================\n");
-  }
+  const { error, filePath } = await runFileExpectRuntimeError(code);
+
+  assertEquals(error.sourceLocation.filePath, filePath);
+  assertEquals(error.sourceLocation.line, 4);
+  assertStringIncludes(error.message, "z");
+  assert(
+    error.contextLines.some((line) =>
+      line.isError && line.content.includes("(+ x y z)")
+    ),
+  );
 });
 
 Deno.test("Error Reporting: Parse error shows context lines", async () => {
@@ -235,57 +249,54 @@ Deno.test("Error Reporting: Parse error shows context lines", async () => {
 (let valid3 30)
 `;
 
-  try {
-    await transpile(code);
-    throw new Error("Should have thrown a parse error");
-  } catch (error) {
-    const errorMessage = getErrorMessage(error);
-    console.log("\n=== Parse Error with Context ===");
-    console.log(errorMessage);
-    console.log("================================\n");
+  const error = await assertRejects(
+    async () => await transpile(code),
+    ParseError,
+  );
 
-    // Verify error object has expected properties
-    // (depends on HQL's error class implementation)
+  if (!(error instanceof ParseError)) {
+    throw error;
   }
+
+  assert(error.sourceLocation.line && error.sourceLocation.line > 0);
+  assert(error.contextLines.length > 0);
+  assert(
+    error.contextLines.some((line) =>
+      line.isError && line.content.includes("(let broken (+ 1 2")
+    ),
+  );
 });
 
 // ============================================================================
 // STACK TRACE TESTS
 // ============================================================================
 
-Deno.test("Error Reporting: Stack trace in nested function calls", async () => {
-  const code = `
-(fn helper [x] (/ x 0))
+const nestedCallCode = `
+(fn helper [x] (unknownFunc x))
 (fn middle [x] (helper x))
 (fn outer [x] (middle x))
 (outer 10)
 `;
 
-  const result = await run(code);
-  assertEquals(result, Infinity); // No error, but test stack trace structure
+Deno.test("Error Reporting: Stack trace in nested function calls", async () => {
+  const { error, filePath } = await runFileExpectRuntimeError(nestedCallCode);
+  const stack = error.stack ?? "";
+
+  assert(stack.length > 0);
+  assertStringIncludes(stack, "helper");
+  assertStringIncludes(stack, "middle");
+  assertStringIncludes(stack, "outer");
+  assertStringIncludes(stack, filePath);
 });
 
 Deno.test("Error Reporting: Stack trace with actual error in nested calls", async () => {
-  const code = `
-(fn helper [x] (. x undefinedProp))
-(fn middle [x] (helper x))
-(fn outer [x] (middle x))
-(outer null)
-`;
+  const { error, filePath } = await runFileExpectRuntimeError(nestedCallCode);
+  const stack = error.stack ?? "";
 
-  try {
-    await run(code);
-    throw new Error("Should have thrown an error");
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    console.log("\n=== Nested Call Stack Trace ===");
-    console.log(err.message);
-    if (err.stack) {
-      console.log("\nStack:");
-      console.log(err.stack);
-    }
-    console.log("================================\n");
-  }
+  assertStringIncludes(error.message, "unknownFunc");
+  assert(stack.length > 0);
+  assertStringIncludes(stack, `${filePath}:2:`);
+  assertStringIncludes(stack, `${filePath}:5:`);
 });
 
 // ============================================================================

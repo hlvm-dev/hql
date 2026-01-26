@@ -77,18 +77,6 @@ async function checkFile(filePath: string): Promise<Violation[]> {
   return violations;
 }
 
-function shouldExclude(relativePath: string): boolean {
-  // Exclude vendor/ EXCEPT vendor/repl/src/
-  if (relativePath.startsWith("vendor/")) {
-    // Include vendor/repl/src/ in checks
-    if (relativePath.startsWith("vendor/repl/src/")) {
-      return false; // Don't exclude - we want to check this
-    }
-    return true; // Exclude other vendor/ paths
-  }
-  return false;
-}
-
 async function main() {
   const projectRoot = Deno.cwd();
   const srcDir = join(projectRoot, "src");

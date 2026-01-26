@@ -582,10 +582,10 @@ export const CommandProvider: CompletionProvider = {
     return shouldTriggerCommand(context);
   },
 
-  async getCompletions(context: CompletionContext): Promise<CompletionResult> {
+  getCompletions(context: CompletionContext): Promise<CompletionResult> {
     const query = extractCommandQuery(context);
     if (query === null) {
-      return { items: [], anchor: context.cursorPosition };
+      return Promise.resolve({ items: [], anchor: context.cursorPosition });
     }
 
     // Find the / position for anchor
@@ -627,10 +627,10 @@ export const CommandProvider: CompletionProvider = {
     // Sort by score (higher = better match)
     items.sort((a, b) => b.score - a.score);
 
-    return {
+    return Promise.resolve({
       items,
       anchor,
-    };
+    });
   },
 };
 

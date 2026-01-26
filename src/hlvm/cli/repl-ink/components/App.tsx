@@ -751,9 +751,8 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       {showBanner && !hasBeenCleared && !bannerRendered && (
         <Text dimColor>Loading HLVM...</Text>
       )}
-      <Static
-        items={bannerItems}
-        children={(item, _index) => (
+      <Static items={bannerItems}>
+        {(item, _index) => (
           <Box key={item.id}>
             <Banner
               jsMode={item.jsMode}
@@ -766,7 +765,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
             />
           </Box>
         )}
-      />
+      </Static>
 
       {/* History of inputs and outputs */}
       {history.map((entry: HistoryEntry) => (

@@ -240,6 +240,30 @@ Deno.test("TaskManager: cancel returns true for active task", () => {
   assertEquals(result, true);
 });
 
+Deno.test("TaskManager: cancel does not warn on invalid transitions", () => {
+  const manager = new TaskManager();
+  const originalWarn = console.warn;
+  const warnings: unknown[][] = [];
+
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+
+  try {
+    const taskId = manager.createEvalTask("(+ 1 2)");
+    manager.completeEvalTask(taskId, "done");
+    manager.cancel(taskId);
+  } finally {
+    console.warn = originalWarn;
+    manager.shutdown();
+  }
+
+  const taskManagerWarnings = warnings.filter((args) =>
+    args.some((arg) => typeof arg === "string" && arg.includes("[TaskManager]"))
+  );
+  assertEquals(taskManagerWarnings.length, 0);
+});
+
 Deno.test("TaskManager: cancelAll cancels all active tasks", async () => {
   const manager = new TaskManager();
   manager.pullModel("model1");

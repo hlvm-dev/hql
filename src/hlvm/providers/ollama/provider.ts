@@ -110,14 +110,14 @@ export class OllamaProvider implements AIProvider {
     /**
      * List available models
      */
-    list: async (): Promise<ModelInfo[]> => {
+    list: (): Promise<ModelInfo[]> => {
       return api.listModels(this.endpoint);
     },
 
     /**
      * Get info about a specific model
      */
-    get: async (name: string): Promise<ModelInfo | null> => {
+    get: (name: string): Promise<ModelInfo | null> => {
       return api.getModel(this.endpoint, name);
     },
 
@@ -140,7 +140,7 @@ export class OllamaProvider implements AIProvider {
     /**
      * Remove/delete a model
      */
-    remove: async (name: string): Promise<boolean> => {
+    remove: (name: string): Promise<boolean> => {
       return api.removeModel(this.endpoint, name);
     },
   };
@@ -148,7 +148,7 @@ export class OllamaProvider implements AIProvider {
   /**
    * Check provider status
    */
-  async status(): Promise<ProviderStatus> {
+  status(): Promise<ProviderStatus> {
     return api.checkStatus(this.endpoint);
   }
 }

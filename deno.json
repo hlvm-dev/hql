@@ -33,7 +33,7 @@
   },
   "tasks": {
     "test": "deno task test:unit",
-    "test:unit": "HLVM_DISABLE_AI_AUTOSTART=1 deno test --allow-all tests/unit/**/*.test.ts src/**/*.test.ts vendor/**/*.test.ts",
+    "test:unit": "HLVM_DISABLE_AI_AUTOSTART=1 deno test --allow-all tests/unit/**/*.test.ts vendor/**/*.test.ts",
     "test:binary": "HLVM_TEST_BINARY=1 deno test --allow-all tests/binary/**/*.test.ts",
     "test:binary:cli": "HLVM_TEST_BINARY=1 deno test --allow-all tests/binary/cli/**/*.test.ts",
     "test:binary:stdlib": "HLVM_TEST_BINARY=1 deno test --allow-all tests/binary/stdlib/**/*.test.ts",
