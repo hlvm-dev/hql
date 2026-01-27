@@ -36,6 +36,14 @@ export interface ToolExecutionResult {
   error?: string;
 }
 
+/** Trace event for observability/debugging */
+export type TraceEvent =
+  | { type: "iteration"; current: number; max: number }
+  | { type: "llm_call"; messageCount: number }
+  | { type: "llm_response"; length: number; truncated: string }
+  | { type: "tool_call"; toolName: string; args: unknown }
+  | { type: "tool_result"; toolName: string; success: boolean; result?: unknown; error?: string };
+
 /** Orchestrator configuration */
 export interface OrchestratorConfig {
   /** Workspace directory for tool execution */
@@ -48,6 +56,14 @@ export interface OrchestratorConfig {
   maxToolCalls?: number;
   /** Maximum consecutive denials before stopping (default: 3) */
   maxDenials?: number;
+  /** Trace callback for observability (--trace mode) */
+  onTrace?: (event: TraceEvent) => void;
+  /** LLM timeout in milliseconds (default: 30000) */
+  llmTimeout?: number;
+  /** Tool timeout in milliseconds (default: 60000) */
+  toolTimeout?: number;
+  /** Maximum retries for LLM calls (default: 3) */
+  maxRetries?: number;
 }
 
 /** Tool call envelope constants */
@@ -194,13 +210,30 @@ export async function executeToolCall(
   toolCall: ToolCall,
   config: OrchestratorConfig,
 ): Promise<ToolExecutionResult> {
+  // Emit trace event: tool call
+  config.onTrace?.({
+    type: "tool_call",
+    toolName: toolCall.toolName,
+    args: toolCall.args,
+  });
+
   try {
     // Validate tool exists
     if (!hasTool(toolCall.toolName)) {
-      return {
+      const result = {
         success: false,
         error: `Unknown tool: ${toolCall.toolName}`,
       };
+
+      // Emit trace event: tool result (error)
+      config.onTrace?.({
+        type: "tool_result",
+        toolName: toolCall.toolName,
+        success: false,
+        error: result.error,
+      });
+
+      return result;
     }
 
     // Check safety
@@ -211,15 +244,31 @@ export async function executeToolCall(
     );
 
     if (!approved) {
-      return {
+      const result = {
         success: false,
         error: `Tool execution denied by user: ${toolCall.toolName}`,
       };
+
+      // Emit trace event: tool result (denied)
+      config.onTrace?.({
+        type: "tool_result",
+        toolName: toolCall.toolName,
+        success: false,
+        error: result.error,
+      });
+
+      return result;
     }
 
-    // Get tool and execute
+    // Get tool and execute (with timeout)
     const tool = getTool(toolCall.toolName);
-    const result = await tool.fn(toolCall.args, config.workspace);
+    const toolTimeout = config.toolTimeout ?? 60000; // Default 60s
+    const result = await executeToolWithTimeout(
+      tool.fn,
+      toolCall.args,
+      config.workspace,
+      toolTimeout,
+    );
 
     // Truncate result if needed
     const resultStr = typeof result === "string"
@@ -228,15 +277,33 @@ export async function executeToolCall(
 
     const truncated = config.context.truncateResult(resultStr);
 
+    // Emit trace event: tool result (success)
+    config.onTrace?.({
+      type: "tool_result",
+      toolName: toolCall.toolName,
+      success: true,
+      result: truncated,
+    });
+
     return {
       success: true,
       result: truncated,
     };
   } catch (error) {
-    return {
+    const result = {
       success: false,
       error: error instanceof Error ? error.message : String(error),
     };
+
+    // Emit trace event: tool result (error)
+    config.onTrace?.({
+      type: "tool_result",
+      toolName: toolCall.toolName,
+      success: false,
+      error: result.error,
+    });
+
+    return result;
   }
 }
 
@@ -370,6 +437,119 @@ export async function processAgentResponse(
   };
 }
 
+// ============================================================
+// Timeout/Retry Logic (Week 3)
+// ============================================================
+
+/**
+ * Call LLM with timeout
+ *
+ * Wraps LLM call with timeout to prevent hangs.
+ *
+ * @param llmFn LLM function to call
+ * @param messages Messages to send
+ * @param timeout Timeout in milliseconds
+ * @returns LLM response
+ * @throws Error if timeout exceeded
+ */
+async function callLLMWithTimeout(
+  llmFn: (messages: Message[]) => Promise<string>,
+  messages: Message[],
+  timeout: number,
+): Promise<string> {
+  let timeoutId: number | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`LLM timeout after ${timeout}ms`)), timeout);
+  });
+
+  try {
+    const result = await Promise.race([llmFn(messages), timeoutPromise]);
+    clearTimeout(timeoutId); // Clean up timer on success
+    return result;
+  } catch (error) {
+    clearTimeout(timeoutId); // Clean up timer on error
+    throw error;
+  }
+}
+
+/**
+ * Call LLM with retry and exponential backoff
+ *
+ * Retries LLM call on failure with exponential backoff.
+ * Backoff schedule: 1s, 2s, 4s, 8s, ...
+ *
+ * @param llmFn LLM function to call
+ * @param messages Messages to send
+ * @param config Retry configuration
+ * @returns LLM response
+ * @throws Error if all retries exhausted
+ */
+async function callLLMWithRetry(
+  llmFn: (messages: Message[]) => Promise<string>,
+  messages: Message[],
+  config: { timeout: number; maxRetries: number },
+): Promise<string> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < config.maxRetries; attempt++) {
+    try {
+      return await callLLMWithTimeout(llmFn, messages, config.timeout);
+    } catch (error) {
+      lastError = error as Error;
+
+      // Don't retry on last attempt
+      if (attempt === config.maxRetries - 1) break;
+
+      // Exponential backoff: 1s, 2s, 4s, 8s
+      const delay = Math.pow(2, attempt) * 1000;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw new Error(
+    `LLM failed after ${config.maxRetries} retries: ${lastError?.message}`,
+  );
+}
+
+/**
+ * Execute tool with timeout
+ *
+ * Wraps tool execution with timeout to prevent hangs.
+ *
+ * @param toolFn Tool function to execute
+ * @param args Tool arguments
+ * @param workspace Workspace path
+ * @param timeout Timeout in milliseconds
+ * @returns Tool result
+ * @throws Error if timeout exceeded
+ */
+async function executeToolWithTimeout(
+  toolFn: (args: unknown, workspace: string) => Promise<unknown>,
+  args: unknown,
+  workspace: string,
+  timeout: number,
+): Promise<unknown> {
+  let timeoutId: number | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`Tool timeout after ${timeout}ms`)), timeout);
+  });
+
+  try {
+    const result = await Promise.race([toolFn(args, workspace), timeoutPromise]);
+    clearTimeout(timeoutId); // Clean up timer on success
+    return result;
+  } catch (error) {
+    clearTimeout(timeoutId); // Clean up timer on error
+    throw error;
+  }
+}
+
+// ============================================================
+// ReAct Loop
+// ============================================================
+
 /**
  * Run full ReAct loop
  *
@@ -410,12 +590,41 @@ export async function runReActLoop(
   let consecutiveDenials = 0;
   const maxDenials = config.maxDenials ?? 3;
 
+  // Timeout/retry configuration
+  const llmTimeout = config.llmTimeout ?? 30000; // Default 30s
+  const maxRetries = config.maxRetries ?? 3; // Default 3 retries
+
   while (iterations < maxIterations) {
     iterations++;
 
-    // Call LLM to get agent response
+    // Emit trace event: iteration
+    config.onTrace?.({
+      type: "iteration",
+      current: iterations,
+      max: maxIterations,
+    });
+
+    // Call LLM to get agent response (with retry)
     const messages = config.context.getMessages();
-    const agentResponse = await llmFunction(messages);
+
+    // Emit trace event: LLM call
+    config.onTrace?.({
+      type: "llm_call",
+      messageCount: messages.length,
+    });
+
+    const agentResponse = await callLLMWithRetry(
+      llmFunction,
+      messages,
+      { timeout: llmTimeout, maxRetries },
+    );
+
+    // Emit trace event: LLM response
+    config.onTrace?.({
+      type: "llm_response",
+      length: agentResponse.length,
+      truncated: agentResponse.substring(0, 200),
+    });
 
     // Process response and execute tools
     const result = await processAgentResponse(agentResponse, config);

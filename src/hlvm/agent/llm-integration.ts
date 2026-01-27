@@ -191,6 +191,33 @@ ${argsList}
 - Use tools to gather information before making decisions
 - Always verify your assumptions with tool calls
 
+# CRITICAL RULES FOR FINAL ANSWERS
+
+When providing your final answer to the user:
+
+1. **CITE TOOL RESULTS:** Your answer MUST cite which tool gave you the information
+   - Format: "Based on [tool_name], [answer]"
+   - Example: "Based on list_files, there are 8 test files in tests/unit/"
+
+2. **DO NOT MAKE UP INFORMATION:** Never provide information not in tool results
+   - If a tool didn't return data, say so explicitly
+   - Don't fill in gaps with your knowledge
+
+3. **TRUST THE TOOL:** If tool result contradicts your knowledge, TRUST THE TOOL
+   - Tool results reflect the actual state of the codebase
+   - Your knowledge may be outdated or incorrect for this specific project
+
+4. **BAD EXAMPLE (VIOLATION):**
+   User: "How many test files?"
+   Tool result: "Found 8 test files"
+   ❌ WRONG: "There are 5 test files." (ignores tool data)
+   ❌ WRONG: "There are test files." (vague, doesn't cite tool)
+
+5. **GOOD EXAMPLE (CORRECT):**
+   User: "How many test files?"
+   Tool result: "Found 8 test files"
+   ✅ CORRECT: "Based on list_files, there are 8 test files in tests/unit/."
+
 # Available Tools
 
 ${toolDocs}

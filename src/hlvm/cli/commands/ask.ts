@@ -9,7 +9,7 @@ import { log } from "../../api/log.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { ContextManager } from "../../agent/context.ts";
-import { runReActLoop } from "../../agent/orchestrator.ts";
+import { runReActLoop, type TraceEvent } from "../../agent/orchestrator.ts";
 import { createAgentLLM, generateSystemPrompt } from "../../agent/llm-integration.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
@@ -29,11 +29,13 @@ EXAMPLES:
   hlvm ask "list files in src/"
   hlvm ask "count test files in tests/unit"
   hlvm ask "what are recent downloaded files?"
+  hlvm ask --trace "count test files"  # Debug mode with detailed output
 
 OPTIONS:
   --help, -h                   Show this help message
   --model <model>              Specify model (default: ollama/llama3.1:8b)
   --max-calls <n>              Maximum tool calls (default: 10)
+  --trace                      Enable trace mode (show tool calls and results)
 `);
 }
 
@@ -48,6 +50,7 @@ export async function askCommand(args: string[]): Promise<void> {
   let query = "";
   let model: string | undefined;
   let maxCalls = 10;
+  let traceMode = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -66,6 +69,8 @@ export async function askCommand(args: string[]): Promise<void> {
       if (isNaN(maxCalls) || maxCalls < 1) {
         throw new ValidationError("max-calls must be a positive number");
       }
+    } else if (arg === "--trace") {
+      traceMode = true;
     } else if (!arg.startsWith("--")) {
       // Accumulate query parts (in case user forgets quotes)
       query += (query ? " " : "") + arg;
@@ -109,6 +114,43 @@ export async function askCommand(args: string[]): Promise<void> {
   // Get workspace
   const workspace = getPlatform().process.cwd();
 
+  // Create trace callback if trace mode enabled
+  const onTrace = traceMode
+    ? (event: TraceEvent) => {
+      switch (event.type) {
+        case "iteration":
+          log.raw.log(`\n[TRACE] Iteration ${event.current}/${event.max}`);
+          break;
+        case "llm_call":
+          log.raw.log(`[TRACE] Calling LLM with ${event.messageCount} messages`);
+          break;
+        case "llm_response":
+          log.raw.log(
+            `[TRACE] LLM responded (${event.length} chars): "${event.truncated}..."`
+          );
+          break;
+        case "tool_call":
+          log.raw.log(`[TRACE] Tool call: ${event.toolName}`);
+          log.raw.log(`[TRACE] Args: ${JSON.stringify(event.args, null, 2)}`);
+          break;
+        case "tool_result":
+          if (event.success) {
+            const resultStr = typeof event.result === "string"
+              ? event.result
+              : JSON.stringify(event.result);
+            const truncated = resultStr.length > 200
+              ? resultStr.substring(0, 200) + "..."
+              : resultStr;
+            log.raw.log(`[TRACE] Result: SUCCESS`);
+            log.raw.log(`[TRACE] ${truncated}`);
+          } else {
+            log.raw.log(`[TRACE] Result: FAILED - ${event.error}`);
+          }
+          break;
+      }
+    }
+    : undefined;
+
   // Show what we're doing
   log.raw.log(`\nAgent: ${query}\n`);
 
@@ -121,6 +163,7 @@ export async function askCommand(args: string[]): Promise<void> {
         context,
         autoApprove: false, // Safety layer auto-approves L0; prompts for L1/L2
         maxToolCalls: maxCalls,
+        onTrace, // Pass trace callback
       },
       llm,
     );
