@@ -100,6 +100,9 @@ async function printBanner(loadErrors: string[]): Promise<void> {
       log.raw.log(`  ... and ${loadErrors.length - 3} more`);
     }
   }
+
+  // Print initial prompt for GUI (GUI skips this - see ReplCollaborators.swift:151)
+  log.raw.log("> ");
 }
 
 async function runHeadlessLoop(state: ReplState, jsMode: boolean): Promise<void> {
@@ -141,6 +144,8 @@ async function handleLine(line: string, state: ReplState, jsMode: boolean): Prom
     if (result.error) {
       log.raw.error(`${result.error.name}: ${result.error.message}`);
     }
+    // Print prompt for GUI stdin/stdout detection
+    log.raw.log("> ");
     return;
   }
 
@@ -169,4 +174,7 @@ async function handleLine(line: string, state: ReplState, jsMode: boolean): Prom
   if (formatted) {
     log.raw.log(formatted);
   }
+
+  // Print prompt for GUI stdin/stdout detection
+  log.raw.log("> ");
 }
