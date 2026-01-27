@@ -1,0 +1,143 @@
+/**
+ * Ask Command - Interactive AI Agent
+ *
+ * Allows users to ask questions and execute tasks using the agent system.
+ * Entry point to the agent orchestrator pipeline.
+ */
+
+import { log } from "../../api/log.ts";
+import { initializeRuntime } from "../../../common/runtime-initializer.ts";
+import { ValidationError } from "../../../common/error.ts";
+import { ContextManager } from "../../agent/context.ts";
+import { runReActLoop } from "../../agent/orchestrator.ts";
+import { createAgentLLM, generateSystemPrompt } from "../../agent/llm-integration.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+import {
+  ensureDefaultModelInstalled,
+} from "../../../common/ai-default-model.ts";
+import { DEFAULT_MODEL_ID } from "../../../common/config/types.ts";
+
+export function showAskHelp(): void {
+  log.raw.log(`
+HLVM Ask - Interactive AI Agent
+
+USAGE:
+  hlvm ask "<query>"           Ask the agent to perform a task
+  hlvm ask --help              Show this help message
+
+EXAMPLES:
+  hlvm ask "list files in src/"
+  hlvm ask "count test files in tests/unit"
+  hlvm ask "what are recent downloaded files?"
+
+OPTIONS:
+  --help, -h                   Show this help message
+  --model <model>              Specify model (default: ollama/llama3.1:8b)
+  --max-calls <n>              Maximum tool calls (default: 10)
+`);
+}
+
+export async function askCommand(args: string[]): Promise<void> {
+  // Check for help flag
+  if (args.includes("--help") || args.includes("-h")) {
+    showAskHelp();
+    return;
+  }
+
+  // Parse arguments
+  let query = "";
+  let model: string | undefined;
+  let maxCalls = 10;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === "--model") {
+      model = args[++i];
+      if (!model) {
+        throw new ValidationError("Missing model value. Usage: --model <model>");
+      }
+    } else if (arg === "--max-calls") {
+      const value = args[++i];
+      if (!value) {
+        throw new ValidationError("Missing max-calls value. Usage: --max-calls <n>");
+      }
+      maxCalls = parseInt(value, 10);
+      if (isNaN(maxCalls) || maxCalls < 1) {
+        throw new ValidationError("max-calls must be a positive number");
+      }
+    } else if (!arg.startsWith("--")) {
+      // Accumulate query parts (in case user forgets quotes)
+      query += (query ? " " : "") + arg;
+    }
+  }
+
+  if (!query) {
+    throw new ValidationError("Missing query. Usage: hlvm ask \"<query>\"");
+  }
+
+  // Initialize runtime with AI
+  await initializeRuntime({ stdlib: false, cache: false });
+
+  // Use default model if no model specified
+  if (!model) {
+    model = DEFAULT_MODEL_ID;
+    try {
+      await ensureDefaultModelInstalled({
+        log: (message) => log.raw.log(message),
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        log.error(`Failed to setup default model: ${error.message}`);
+        log.raw.log("\nTip: Make sure Ollama is running, or specify a model:");
+        log.raw.log("  hlvm ask --model ollama/llama3.1:8b \"your query\"");
+      }
+      throw error;
+    }
+  }
+
+  // Setup context with system prompt
+  const context = new ContextManager({ maxTokens: 8000 });
+  context.addMessage({
+    role: "system",
+    content: generateSystemPrompt(),
+  });
+
+  // Create LLM function
+  const llm = createAgentLLM({ model });
+
+  // Get workspace
+  const workspace = getPlatform().process.cwd();
+
+  // Show what we're doing
+  log.raw.log(`\nAgent: ${query}\n`);
+
+  try {
+    // Run agent loop
+    const result = await runReActLoop(
+      query,
+      {
+        workspace,
+        context,
+        autoApprove: false, // Safety layer auto-approves L0; prompts for L1/L2
+        maxToolCalls: maxCalls,
+      },
+      llm,
+    );
+
+    // Display result
+    log.raw.log(`\nResult:\n${result}\n`);
+
+    // Show stats
+    const stats = context.getStats();
+    log.raw.log(
+      `[Stats: ${stats.messageCount} messages, ${stats.estimatedTokens} tokens, ${stats.toolMessages} tool messages]`,
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      log.error(`Agent error: ${error.message}`);
+      throw error;
+    }
+    throw error;
+  }
+}

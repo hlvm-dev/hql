@@ -1,0 +1,440 @@
+/**
+ * File Tools - SSOT-compliant file operations for AI agents
+ *
+ * Provides 4 core file operations with security sandboxing:
+ * 1. read_file - Read file contents
+ * 2. write_file - Write/create file
+ * 3. edit_file - Edit file using find/replace
+ * 4. list_files - List directory contents
+ *
+ * All operations:
+ * - Use path sandboxing (validatePath)
+ * - Use platform abstraction (getPlatform)
+ * - Handle errors gracefully
+ * - Return structured results
+ */
+
+import { getPlatform } from "../../../platform/platform.ts";
+import { validatePath } from "../security/path-sandbox.ts";
+
+// ============================================================
+// Types
+// ============================================================
+
+/** Result of a successful file operation */
+export interface FileOperationResult {
+  success: boolean;
+  message?: string;
+  data?: unknown;
+}
+
+/** Arguments for read_file tool */
+export interface ReadFileArgs {
+  path: string;
+  encoding?: "utf8" | "binary";
+}
+
+/** Result of read_file operation */
+export interface ReadFileResult extends FileOperationResult {
+  content?: string;
+  size?: number;
+}
+
+/** Arguments for write_file tool */
+export interface WriteFileArgs {
+  path: string;
+  content: string;
+  createDirs?: boolean;
+}
+
+/** Arguments for edit_file tool */
+export interface EditFileArgs {
+  path: string;
+  find: string;
+  replace: string;
+  mode?: "literal" | "regex";
+}
+
+/** Result of edit_file operation */
+export interface EditFileResult extends FileOperationResult {
+  replacements?: number;
+  preview?: string;
+}
+
+/** Arguments for list_files tool */
+export interface ListFilesArgs {
+  path: string;
+  recursive?: boolean;
+  pattern?: string;
+  maxDepth?: number;
+}
+
+/** File entry from list_files */
+export interface FileEntry {
+  path: string;
+  type: "file" | "directory";
+  size?: number;
+}
+
+/** Result of list_files operation */
+export interface ListFilesResult extends FileOperationResult {
+  entries?: FileEntry[];
+  count?: number;
+}
+
+// ============================================================
+// Tool 1: read_file
+// ============================================================
+
+/**
+ * Read file contents
+ *
+ * Security: Uses path sandboxing to ensure file is within workspace
+ *
+ * @example
+ * ```ts
+ * const result = await readFile({
+ *   path: "src/main.ts",
+ *   encoding: "utf8"
+ * }, "/workspace");
+ * ```
+ */
+export async function readFile(
+  args: ReadFileArgs,
+  workspace: string
+): Promise<ReadFileResult> {
+  try {
+    const platform = getPlatform();
+
+    // Validate path security
+    const validPath = await validatePath(args.path, workspace);
+
+    // Check if file exists
+    const stat = await platform.fs.stat(validPath);
+    if (stat.isDirectory) {
+      return {
+        success: false,
+        message: `Path is a directory, not a file: ${args.path}`,
+      };
+    }
+
+    // Read file contents
+    const content = await platform.fs.readTextFile(validPath);
+
+    return {
+      success: true,
+      content,
+      size: stat.size,
+      message: `Read ${stat.size} bytes from ${args.path}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to read file: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+// ============================================================
+// Tool 2: write_file
+// ============================================================
+
+/**
+ * Write content to file (creates file if it doesn't exist)
+ *
+ * Security: Uses path sandboxing to ensure file is within workspace
+ *
+ * @example
+ * ```ts
+ * const result = await writeFile({
+ *   path: "src/new.ts",
+ *   content: "export const x = 42;",
+ *   createDirs: true
+ * }, "/workspace");
+ * ```
+ */
+export async function writeFile(
+  args: WriteFileArgs,
+  workspace: string
+): Promise<FileOperationResult> {
+  try {
+    const platform = getPlatform();
+
+    // Validate path security
+    const validPath = await validatePath(args.path, workspace);
+
+    // Create parent directories if requested
+    if (args.createDirs) {
+      const parentDir = platform.path.dirname(validPath);
+      await platform.fs.mkdir(parentDir, { recursive: true });
+    }
+
+    // Write file
+    await platform.fs.writeTextFile(validPath, args.content);
+
+    return {
+      success: true,
+      message: `Wrote ${args.content.length} bytes to ${args.path}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to write file: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+// ============================================================
+// Tool 3: edit_file
+// ============================================================
+
+/**
+ * Edit file using find/replace
+ *
+ * Security: Uses path sandboxing to ensure file is within workspace
+ * Modes:
+ * - literal: Exact string match and replace
+ * - regex: Regular expression find and replace
+ *
+ * @example
+ * ```ts
+ * const result = await editFile({
+ *   path: "src/config.ts",
+ *   find: "DEBUG = false",
+ *   replace: "DEBUG = true",
+ *   mode: "literal"
+ * }, "/workspace");
+ * ```
+ */
+export async function editFile(
+  args: EditFileArgs,
+  workspace: string
+): Promise<EditFileResult> {
+  try {
+    const platform = getPlatform();
+
+    // Validate path security
+    const validPath = await validatePath(args.path, workspace);
+
+    // Read existing content
+    const content = await platform.fs.readTextFile(validPath);
+
+    // Perform find/replace
+    let newContent: string;
+    let replacements = 0;
+
+    if (args.mode === "regex") {
+      // Regex mode
+      try {
+        const regex = new RegExp(args.find, "g");
+        const matches = content.match(regex);
+        replacements = matches ? matches.length : 0;
+        newContent = content.replace(regex, args.replace);
+      } catch (error) {
+        return {
+          success: false,
+          message: `Invalid regex pattern: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    } else {
+      // Literal mode (default)
+      const parts = content.split(args.find);
+      replacements = parts.length - 1;
+      newContent = parts.join(args.replace);
+    }
+
+    // Check if any changes were made
+    if (replacements === 0) {
+      return {
+        success: false,
+        message: `Pattern not found in file: ${args.find}`,
+        replacements: 0,
+      };
+    }
+
+    // Write updated content
+    await platform.fs.writeTextFile(validPath, newContent);
+
+    // Generate preview (first 200 chars of changes)
+    const preview = newContent.length > 200
+      ? newContent.substring(0, 200) + "..."
+      : newContent;
+
+    return {
+      success: true,
+      message: `Made ${replacements} replacement(s) in ${args.path}`,
+      replacements,
+      preview,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to edit file: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+// ============================================================
+// Tool 4: list_files
+// ============================================================
+
+/**
+ * List files and directories in a path
+ *
+ * Security: Uses path sandboxing to ensure path is within workspace
+ *
+ * @example
+ * ```ts
+ * const result = await listFiles({
+ *   path: "src",
+ *   recursive: true,
+ *   pattern: "*.ts",
+ *   maxDepth: 3
+ * }, "/workspace");
+ * ```
+ */
+export async function listFiles(
+  args: ListFilesArgs,
+  workspace: string
+): Promise<ListFilesResult> {
+  try {
+    const platform = getPlatform();
+
+    // Validate path security
+    const validPath = await validatePath(args.path, workspace);
+
+    // Check if path exists and is a directory
+    const stat = await platform.fs.stat(validPath);
+    if (!stat.isDirectory) {
+      return {
+        success: false,
+        message: `Path is not a directory: ${args.path}`,
+      };
+    }
+
+    const entries: FileEntry[] = [];
+
+    // Helper to check if filename matches pattern
+    const matchesPattern = (name: string): boolean => {
+      if (!args.pattern) return true;
+
+      // Simple glob pattern matching (* wildcard)
+      const regexPattern = args.pattern
+        .replace(/\./g, "\\.")
+        .replace(/\*/g, ".*");
+      const regex = new RegExp(`^${regexPattern}$`);
+      return regex.test(name);
+    };
+
+    // Helper to walk directory
+    const walk = async (dir: string, relativePath: string, depth: number) => {
+      if (args.maxDepth !== undefined && depth > args.maxDepth) {
+        return;
+      }
+
+      for await (const entry of platform.fs.readDir(dir)) {
+        const entryRelativePath = relativePath
+          ? `${relativePath}/${entry.name}`
+          : entry.name;
+
+        // Check pattern match
+        if (!matchesPattern(entry.name)) {
+          continue;
+        }
+
+        // Get entry info
+        const entryPath = `${dir}/${entry.name}`;
+        let size: number | undefined;
+        try {
+          const entryStat = await platform.fs.stat(entryPath);
+          size = entryStat.isFile ? entryStat.size : undefined;
+        } catch {
+          // Skip if can't stat
+          continue;
+        }
+
+        entries.push({
+          path: entryRelativePath,
+          type: entry.isDirectory ? "directory" : "file",
+          size,
+        });
+
+        // Recurse into directories if recursive mode enabled
+        if (args.recursive && entry.isDirectory) {
+          await walk(entryPath, entryRelativePath, depth + 1);
+        }
+      }
+    };
+
+    // Start walking from validated path
+    await walk(validPath, "", 0);
+
+    // Sort entries (directories first, then alphabetically)
+    entries.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === "directory" ? -1 : 1;
+      }
+      return a.path.localeCompare(b.path);
+    });
+
+    return {
+      success: true,
+      entries,
+      count: entries.length,
+      message: `Found ${entries.length} entries in ${args.path}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to list files: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+// ============================================================
+// Tool Registry
+// ============================================================
+
+/**
+ * All file tools with metadata
+ * Used by orchestrator to discover and invoke tools
+ */
+export const FILE_TOOLS = {
+  read_file: {
+    fn: readFile,
+    description: "Read file contents",
+    args: {
+      path: "string - Relative path to file",
+      encoding: "string (optional) - 'utf8' or 'binary' (default: utf8)",
+    },
+  },
+  write_file: {
+    fn: writeFile,
+    description: "Write content to file",
+    args: {
+      path: "string - Relative path to file",
+      content: "string - Content to write",
+      createDirs: "boolean (optional) - Create parent directories (default: false)",
+    },
+  },
+  edit_file: {
+    fn: editFile,
+    description: "Edit file using find/replace",
+    args: {
+      path: "string - Relative path to file",
+      find: "string - Text to find",
+      replace: "string - Replacement text",
+      mode: "string (optional) - 'literal' or 'regex' (default: literal)",
+    },
+  },
+  list_files: {
+    fn: listFiles,
+    description: "List files and directories",
+    args: {
+      path: "string - Relative path to directory",
+      recursive: "boolean (optional) - Recurse into subdirectories (default: false)",
+      pattern: "string (optional) - Glob pattern to filter files (e.g., '*.ts')",
+      maxDepth: "number (optional) - Maximum recursion depth (default: unlimited)",
+    },
+  },
+} as const;

@@ -6,6 +6,7 @@ import { assertEquals, assertExists } from "jsr:@std/assert@1";
 import {
   DEFAULT_CONFIG,
   CONFIG_KEYS,
+  DEFAULT_MODEL_ID,
   validateValue,
   parseValue,
 } from "../../../src/common/config/types.ts";
@@ -29,7 +30,7 @@ Deno.test("DEFAULT_CONFIG - version is 1", () => {
 });
 
 Deno.test("DEFAULT_CONFIG - model follows provider/model format", () => {
-  assertEquals(DEFAULT_CONFIG.model, "ollama/llama3.2:latest");
+  assertEquals(DEFAULT_CONFIG.model, DEFAULT_MODEL_ID);
   assertEquals(DEFAULT_CONFIG.model.includes("/"), true);
 });
 

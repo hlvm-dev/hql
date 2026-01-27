@@ -15,6 +15,7 @@ import { publishCommand, showPublishHelp } from "./commands/publish.ts";
 import { uninstall as uninstallCommand, showUninstallHelp } from "./commands/uninstall.ts";
 import { upgrade as upgradeCommand, showUpgradeHelp } from "./commands/upgrade.ts";
 import { aiCommand, showAiHelp } from "./commands/ai.ts";
+import { askCommand, showAskHelp } from "./commands/ask.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { registerApis } from "../api/index.ts";
 
@@ -146,6 +147,7 @@ Commands:
   compile <file>     Compile HQL to JavaScript or native binary
   init               Initialize a new HLVM project
   publish            Publish an HLVM package
+  ask "<query>"      Ask AI agent to perform a task
   ai                 Setup and manage AI models
   upgrade            Upgrade HLVM to the latest version
   uninstall          Uninstall HLVM
@@ -237,6 +239,14 @@ async function main(): Promise<void> {
         showAiHelp();
       } else {
         await aiCommand(commandArgs);
+      }
+      break;
+
+    case "ask":
+      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
+        showAskHelp();
+      } else {
+        await askCommand(commandArgs);
       }
       break;
 

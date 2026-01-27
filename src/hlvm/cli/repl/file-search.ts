@@ -9,6 +9,12 @@
 
 import { fuzzyMatchPath, binarySearchInsertIdx } from "./fuzzy.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import {
+  parseGitignore,
+  isIgnored,
+  loadGitignore,
+  type GitignorePattern,
+} from "../../../common/file-utils.ts";
 
 // ============================================================
 // Types
@@ -64,83 +70,8 @@ function shouldSkipFile(name: string): boolean {
 let indexCache: FileIndex | null = null;
 
 // ============================================================
-// Gitignore Support
-// ============================================================
-
-interface GitignorePattern {
-  pattern: RegExp;
-  negated: boolean;
-}
-
-function parseGitignore(content: string): GitignorePattern[] {
-  const patterns: GitignorePattern[] = [];
-
-  for (let line of content.split("\n")) {
-    line = line.trim();
-
-    // Skip empty lines and comments
-    if (!line || line.startsWith("#")) continue;
-
-    // Handle negation
-    const negated = line.startsWith("!");
-    if (negated) line = line.slice(1);
-
-    // Convert gitignore pattern to regex
-    let regex = line
-      .replace(/\./g, "\\.")           // Escape dots
-      .replace(/\*\*/g, "<<<GLOBSTAR>>>")  // Temp placeholder
-      .replace(/\*/g, "[^/]*")         // Single * = anything except /
-      .replace(/<<<GLOBSTAR>>>/g, ".*") // ** = anything including /
-      .replace(/\?/g, "[^/]");         // ? = single char except /
-
-    // Handle directory-only patterns
-    if (line.endsWith("/")) {
-      regex = regex.slice(0, -2); // Remove trailing \/
-    }
-
-    // Handle patterns starting with /
-    if (regex.startsWith("\\/")) {
-      regex = "^" + regex.slice(2);
-    } else {
-      regex = "(^|/)" + regex;
-    }
-
-    regex += "($|/)";
-
-    try {
-      patterns.push({ pattern: new RegExp(regex), negated });
-    } catch {
-      // Invalid regex, skip
-    }
-  }
-
-  return patterns;
-}
-
-function isIgnored(path: string, patterns: GitignorePattern[]): boolean {
-  let ignored = false;
-
-  for (const { pattern, negated } of patterns) {
-    if (pattern.test(path)) {
-      ignored = !negated;
-    }
-  }
-
-  return ignored;
-}
-
-// ============================================================
 // File Indexing
 // ============================================================
-
-async function loadGitignore(baseDir: string): Promise<GitignorePattern[]> {
-  try {
-    const content = await getPlatform().fs.readTextFile(`${baseDir}/.gitignore`);
-    return parseGitignore(content);
-  } catch {
-    return [];
-  }
-}
 
 async function indexDirectory(baseDir: string): Promise<FileIndex> {
   const platform = getPlatform();
