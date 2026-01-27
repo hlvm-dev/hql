@@ -16,6 +16,7 @@
 import { FILE_TOOLS } from "./tools/file-tools.ts";
 import { CODE_TOOLS } from "./tools/code-tools.ts";
 import { SHELL_TOOLS } from "./tools/shell-tools.ts";
+import { META_TOOLS } from "./tools/meta-tools.ts";
 
 // ============================================================
 // Types
@@ -58,6 +59,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...FILE_TOOLS,
   ...CODE_TOOLS,
   ...SHELL_TOOLS,
+  ...META_TOOLS,
 } as Record<string, ToolMetadata>;
 
 // ============================================================

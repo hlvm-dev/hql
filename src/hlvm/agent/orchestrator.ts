@@ -46,6 +46,8 @@ export interface OrchestratorConfig {
   autoApprove?: boolean;
   /** Maximum tool calls per turn (prevent infinite loops) */
   maxToolCalls?: number;
+  /** Maximum consecutive denials before stopping (default: 3) */
+  maxDenials?: number;
 }
 
 /** Tool call envelope constants */
@@ -404,6 +406,10 @@ export async function runReActLoop(
   let iterations = 0;
   const maxIterations = 20; // Prevent infinite loops
 
+  // Denial tracking (stateful in loop)
+  let consecutiveDenials = 0;
+  const maxDenials = config.maxDenials ?? 3;
+
   while (iterations < maxIterations) {
     iterations++;
 
@@ -417,6 +423,30 @@ export async function runReActLoop(
     // If no tool calls, agent is done
     if (!result.shouldContinue) {
       return agentResponse;
+    }
+
+    // Check for denied tool calls
+    const anyDenied = result.results.some(
+      (r) => !r.success && r.error?.includes("denied"),
+    );
+
+    if (anyDenied) {
+      consecutiveDenials++;
+
+      if (consecutiveDenials >= maxDenials) {
+        // Stop and suggest ask_user
+        config.context.addMessage({
+          role: "tool",
+          content: `Maximum denials (${maxDenials}) reached. Consider using ask_user tool to clarify requirements or rephrase the task.`,
+        });
+
+        // Give agent one final chance to use ask_user
+        const finalResponse = await llmFunction(config.context.getMessages());
+        return finalResponse;
+      }
+    } else {
+      // Reset counter on successful tool execution
+      consecutiveDenials = 0;
     }
 
     // If any tool failed, agent might want to retry or give up

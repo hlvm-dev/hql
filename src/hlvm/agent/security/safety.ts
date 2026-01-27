@@ -103,6 +103,7 @@ export function getAllL1Confirmations(): Map<string, boolean> {
  * - search_code: Search code patterns
  * - find_symbol: Find symbol declarations
  * - get_structure: Get directory tree
+ * - ask_user: Ask user for clarification (safe interaction)
  */
 const L0_TOOLS = new Set([
   "read_file",
@@ -110,6 +111,7 @@ const L0_TOOLS = new Set([
   "search_code",
   "find_symbol",
   "get_structure",
+  "ask_user",
 ]);
 
 /**
