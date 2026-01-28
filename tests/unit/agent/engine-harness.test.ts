@@ -5,7 +5,7 @@
  * without external LLM dependencies.
  */
 
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert";
 import { runReActLoop, type LLMFunction } from "../../../src/hlvm/agent/orchestrator.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
@@ -118,6 +118,92 @@ Deno.test({
       // Deterministic transcript shape
       const roles = context.getMessages().map((m) => m.role);
       assertEquals(roles, ["system", "user", "assistant", "tool", "assistant"]);
+    } finally {
+      removeTool(toolName);
+    }
+  },
+});
+
+Deno.test({
+  name: "Engine harness: grounding strict retries once and succeeds",
+  async fn() {
+    const toolName = "fake_list_retry";
+    addFakeTool(toolName, ["a", "b"]);
+
+    try {
+      const llm = createScriptedLLM([
+        {
+          response: `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`,
+        },
+        {
+          response: "There are 2 items.",
+          expectLastIncludes: "Tool:",
+        },
+        {
+          response: `Based on ${toolName}, there are 2 items: a, b.`,
+          expectLastIncludes: "Grounding required.",
+        },
+      ]);
+
+      const context = createContext();
+      const result = await runReActLoop(
+        "List items",
+        {
+          workspace: "/tmp",
+          context,
+          autoApprove: true,
+          maxToolCalls: 3,
+          groundingMode: "strict",
+        },
+        llm,
+      );
+
+      assertStringIncludes(result, "Based on");
+      assertStringIncludes(result, "2");
+    } finally {
+      removeTool(toolName);
+    }
+  },
+});
+
+Deno.test({
+  name: "Engine harness: grounding strict fails after retry",
+  async fn() {
+    const toolName = "fake_list_fail";
+    addFakeTool(toolName, ["a", "b"]);
+
+    try {
+      const llm = createScriptedLLM([
+        {
+          response: `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`,
+        },
+        {
+          response: "There are 2 items.",
+          expectLastIncludes: "Tool:",
+        },
+        {
+          response: "Still ungrounded response.",
+          expectLastIncludes: "Grounding required.",
+        },
+      ]);
+
+      const context = createContext();
+      await assertRejects(
+        () =>
+          runReActLoop(
+            "List items",
+            {
+              workspace: "/tmp",
+              context,
+              autoApprove: true,
+              maxToolCalls: 3,
+              groundingMode: "strict",
+            },
+            llm,
+          ),
+        Error,
+        "Ungrounded response after",
+      );
     } finally {
       removeTool(toolName);
     }

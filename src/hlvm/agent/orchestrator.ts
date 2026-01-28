@@ -74,7 +74,15 @@ export type TraceEvent =
   | { type: "tool_call"; toolName: string; args: unknown }
   | { type: "tool_result"; toolName: string; success: boolean; result?: unknown; error?: string }
   | { type: "llm_retry"; attempt: number; max: number; class: string; retryable: boolean; error: string }
-  | { type: "context_overflow"; maxTokens: number; estimatedTokens: number };
+  | { type: "context_overflow"; maxTokens: number; estimatedTokens: number }
+  | {
+    type: "grounding_check";
+    mode: "off" | "warn" | "strict";
+    grounded: boolean;
+    warnings: string[];
+    retry: number;
+    maxRetry: number;
+  };
 
 /** Orchestrator configuration */
 export interface OrchestratorConfig {
@@ -744,6 +752,8 @@ export async function runReActLoop(
   const groundingMode = config.groundingMode ?? "off";
 
   const toolUses: ToolUse[] = [];
+  let groundingRetries = 0;
+  const maxGroundingRetries = groundingMode === "strict" ? 1 : 0;
 
   while (iterations < maxIterations) {
     iterations++;
@@ -785,10 +795,27 @@ export async function runReActLoop(
     if (!result.shouldContinue) {
       if (groundingMode !== "off") {
         const grounding = checkGrounding(agentResponse, toolUses);
+        config.onTrace?.({
+          type: "grounding_check",
+          mode: groundingMode,
+          grounded: grounding.grounded,
+          warnings: grounding.warnings,
+          retry: groundingRetries,
+          maxRetry: maxGroundingRetries,
+        });
+
         if (!grounding.grounded) {
           if (groundingMode === "strict") {
+            if (groundingRetries < maxGroundingRetries) {
+              groundingRetries++;
+              const warningText = `Grounding required. Revise your answer to cite tool results using tool names or "Based on ...".\n- ${
+                grounding.warnings.join("\n- ")
+              }`;
+              addContextMessage(config, { role: "tool", content: warningText });
+              continue;
+            }
             throw new Error(
-              `Ungrounded response: ${grounding.warnings.join(" ")}`,
+              `Ungrounded response after ${groundingRetries} retry: ${grounding.warnings.join(" ")}`,
             );
           }
           const warningText = `\n\n[Grounding warnings]\n- ${
@@ -814,6 +841,9 @@ export async function runReActLoop(
         toolName: call.toolName,
         result: resultText ?? "",
       });
+    }
+    if (result.toolCallsMade > 0) {
+      groundingRetries = 0;
     }
 
     // Check for denied tool calls - per-tool tracking (Issue #6)

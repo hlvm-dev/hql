@@ -173,6 +173,16 @@ export async function askCommand(args: string[]): Promise<void> {
             }: ${event.error}`,
           );
           break;
+        case "grounding_check":
+          log.raw.log(
+            `[TRACE] Grounding ${event.grounded ? "ok" : "warn"} mode=${event.mode} retry=${event.retry}/${event.maxRetry}`,
+          );
+          if (event.warnings.length > 0) {
+            for (const warning of event.warnings) {
+              log.raw.log(`[TRACE] Grounding warning: ${warning}`);
+            }
+          }
+          break;
         case "context_overflow":
           log.raw.log(
             `[TRACE] Context overflow: ${event.estimatedTokens} > ${event.maxTokens}`,
