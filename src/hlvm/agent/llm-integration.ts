@@ -373,8 +373,11 @@ export interface AgentLLMConfig {
  */
 export function createAgentLLM(
   config?: AgentLLMConfig,
-): (messages: AgentMessage[]) => Promise<string> {
-  return async (messages: AgentMessage[]): Promise<string> => {
+): (messages: AgentMessage[], signal?: AbortSignal) => Promise<string> {
+  return async (
+    messages: AgentMessage[],
+    signal?: AbortSignal,
+  ): Promise<string> => {
     // Lazy import to avoid circular dependencies and allow tree-shaking
     const { ai } = await import("../api/ai.ts");
 
@@ -391,10 +394,11 @@ export function createAgentLLM(
     const stream = (ai as {
       chat: (
         messages: ProviderMessage[],
-        options?: { model?: string },
+        options?: { model?: string; signal?: AbortSignal },
       ) => AsyncGenerator<string>;
     }).chat(providerMessages, {
       model: config?.model,
+      signal,
     });
 
     // Collect stream into complete response
@@ -427,7 +431,7 @@ export function createAgentLLM(
  * ```
  */
 export function createAgentWithSystemPrompt(config?: AgentLLMConfig): {
-  llm: (messages: AgentMessage[]) => Promise<string>;
+  llm: (messages: AgentMessage[], signal?: AbortSignal) => Promise<string>;
   getSystemPrompt: () => string;
 } {
   const llm = createAgentLLM(config);

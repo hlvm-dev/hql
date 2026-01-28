@@ -202,6 +202,23 @@ export interface PlatformCommand {
 }
 
 // =============================================================================
+// HTTP Server Sub-Interface
+// =============================================================================
+
+export interface PlatformHttpServeOptions {
+  port: number;
+  hostname?: string;
+  onListen?: (params: { hostname: string; port: number }) => void;
+}
+
+export interface PlatformHttp {
+  serve(
+    handler: (req: Request) => Response | Promise<Response>,
+    options: PlatformHttpServeOptions,
+  ): Promise<void>;
+}
+
+// =============================================================================
 // Main Platform Interface (Composed)
 // =============================================================================
 
@@ -233,6 +250,9 @@ export interface Platform {
 
   /** Command execution */
   command: PlatformCommand;
+
+  /** HTTP server operations */
+  http: PlatformHttp;
 
   /** Open URL in system browser */
   openUrl(url: string): Promise<void>;

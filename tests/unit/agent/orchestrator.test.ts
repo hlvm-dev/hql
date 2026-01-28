@@ -16,6 +16,7 @@ import {
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
+import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 
 // Test workspace
 const TEST_WORKSPACE = "/tmp/hlvm-test-orchestrator";
@@ -196,6 +197,39 @@ Deno.test({
 
     assertEquals(result.success, true);
     assertEquals(result.result !== undefined, true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall passes AbortSignal to tool",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    const toolName = "__test_signal_tool__";
+    let sawSignal = false;
+
+    TOOL_REGISTRY[toolName] = {
+      fn: async (_args: unknown, _workspace: string, options?: { signal?: AbortSignal }) => {
+        sawSignal = options?.signal instanceof AbortSignal;
+        return "ok";
+      },
+      description: "test tool",
+      args: {},
+      safetyLevel: "L0" as const,
+    };
+
+    try {
+      const result = await executeToolCall(
+        { toolName, args: {} },
+        { workspace: TEST_WORKSPACE, context, autoApprove: true },
+      );
+
+      assertEquals(result.success, true);
+      assertEquals(sawSignal, true);
+    } finally {
+      delete TOOL_REGISTRY[toolName];
+    }
   },
 });
 
@@ -452,6 +486,34 @@ Deno.test({
 
     assertEquals(typeof result, "string");
     assertEquals(result.includes("42"), true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: runReActLoop passes AbortSignal to LLM",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    let sawSignal = false;
+
+    const mockLLM = async (_messages: any[], signal?: AbortSignal) => {
+      sawSignal = signal instanceof AbortSignal;
+      return "Signal response";
+    };
+
+    const result = await runReActLoop(
+      "Signal task",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        autoApprove: true,
+      },
+      mockLLM,
+    );
+
+    assertEquals(result, "Signal response");
+    assertEquals(sawSignal, true);
   },
 });
 

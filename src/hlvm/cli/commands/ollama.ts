@@ -24,15 +24,13 @@ export async function ollamaCommand(args: string[]): Promise<number> {
 
   log.info(`Starting Ollama server: ${ollamaPath}`);
 
-  // Forward to system Ollama with all environment variables
-  const command = new Deno.Command(ollamaPath, {
-    args: ["serve"],
-    env: Deno.env.toObject(),
+  // Forward to system Ollama (inherits current env by default)
+  const platform = getPlatform();
+  const child = platform.command.run({
+    cmd: [ollamaPath, "serve"],
     stdout: "inherit",
     stderr: "inherit",
   });
-
-  const child = command.spawn();
   const status = await child.status;
 
   return status.code;
@@ -50,12 +48,12 @@ async function findSystemOllama(): Promise<string | null> {
 
   for (const path of locations) {
     try {
-      const cmd = new Deno.Command(path, {
-        args: ["--version"],
+      const platform = getPlatform();
+      await platform.command.output({
+        cmd: [path, "--version"],
         stdout: "null",
         stderr: "null",
       });
-      await cmd.output();
       return path;
     } catch {
       continue;

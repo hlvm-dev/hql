@@ -17,6 +17,8 @@ import type {
   PlatformCommandOptions,
   PlatformCommandOutput,
   PlatformCommandProcess,
+  PlatformHttp,
+  PlatformHttpServeOptions,
   PlatformDirEntry,
   PlatformEnv,
   PlatformFileInfo,
@@ -321,6 +323,26 @@ const DenoCommand: PlatformCommand = {
 };
 
 // =============================================================================
+// HTTP Server Implementation
+// =============================================================================
+
+const DenoHttp: PlatformHttp = {
+  serve: async (
+    handler: (req: Request) => Response | Promise<Response>,
+    options: PlatformHttpServeOptions,
+  ): Promise<void> => {
+    await Deno.serve(
+      {
+        port: options.port,
+        hostname: options.hostname,
+        onListen: options.onListen,
+      },
+      handler,
+    ).finished;
+  },
+};
+
+// =============================================================================
 // Main Platform Implementation
 // =============================================================================
 
@@ -336,6 +358,7 @@ export const DenoPlatform: Platform = {
   process: DenoProcess,
   build: DenoBuild,
   command: DenoCommand,
+  http: DenoHttp,
   openUrl: async (url: string): Promise<void> => {
     const os = Deno.build.os;
     let command: Deno.Command;

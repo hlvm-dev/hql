@@ -16,6 +16,7 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath, SecurityError } from "../security/path-sandbox.ts";
+import { globToRegex, GlobPatternError } from "../../../common/pattern-utils.ts";
 
 // ============================================================
 // Types
@@ -314,16 +315,32 @@ export async function listFiles(
 
     const entries: FileEntry[] = [];
 
-    // Helper to check if filename matches pattern
-    const matchesPattern = (name: string): boolean => {
-      if (!args.pattern) return true;
+    // Compile glob pattern once (path-aware by default)
+    let patternRegex: RegExp | null = null;
+    let basenameRegex: RegExp | null = null;
+    if (args.pattern) {
+      try {
+        patternRegex = globToRegex(args.pattern, { matchPath: true });
 
-      // Simple glob pattern matching (* wildcard)
-      const regexPattern = args.pattern
-        .replace(/\./g, "\\.")
-        .replace(/\*/g, ".*");
-      const regex = new RegExp(`^${regexPattern}$`);
-      return regex.test(name);
+        // Back-compat: if pattern has no path separators, also match basenames
+        if (args.recursive && !args.pattern.includes("/") && !args.pattern.includes("\\")) {
+          basenameRegex = globToRegex(args.pattern, { matchPath: false });
+        }
+      } catch (error) {
+        if (error instanceof GlobPatternError) {
+          return {
+            success: false,
+            message: error.message,
+          };
+        }
+        throw error;
+      }
+    }
+
+    const matchesPattern = (relativePath: string, name: string): boolean => {
+      if (!patternRegex) return true;
+      if (patternRegex.test(relativePath)) return true;
+      return basenameRegex ? basenameRegex.test(name) : false;
     };
 
     // Helper to walk directory
@@ -337,13 +354,8 @@ export async function listFiles(
           ? `${relativePath}/${entry.name}`
           : entry.name;
 
-        // Check pattern match
-        if (!matchesPattern(entry.name)) {
-          continue;
-        }
-
         // Get entry info
-        const entryPath = `${dir}/${entry.name}`;
+        const entryPath = platform.path.join(dir, entry.name);
         let size: number | undefined;
         try {
           const entryStat = await platform.fs.stat(entryPath);
@@ -353,13 +365,21 @@ export async function listFiles(
           continue;
         }
 
-        entries.push({
-          path: entryRelativePath,
-          type: entry.isDirectory ? "directory" : "file",
-          size,
-        });
+        // Check pattern match - ONLY for deciding whether to include in results
+        // Do NOT block recursion based on pattern!
+        const matchesCurrentPattern = matchesPattern(entryRelativePath, entry.name);
+
+        // Add to results only if matches pattern
+        if (matchesCurrentPattern) {
+          entries.push({
+            path: entryRelativePath,
+            type: entry.isDirectory ? "directory" : "file",
+            size,
+          });
+        }
 
         // Recurse into directories if recursive mode enabled
+        // ALWAYS recurse regardless of pattern match to find nested files
         if (args.recursive && entry.isDirectory) {
           // CRITICAL: Validate subdirectory isn't a symlink escape
           try {

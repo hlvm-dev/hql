@@ -15,6 +15,7 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getTool } from "../registry.ts";
+import { DEFAULT_TIMEOUTS, SHELL_ALLOWLIST_L1 } from "../constants.ts";
 
 // ============================================================
 // Types
@@ -47,15 +48,56 @@ export interface ConfirmationResult {
 const l1Confirmations = new Map<string, boolean>();
 
 /**
+ * Canonicalize object by sorting keys recursively
+ *
+ * Ensures consistent key ordering for stable hashing.
+ * Handles nested objects and arrays.
+ *
+ * @param obj Object to canonicalize
+ * @returns Canonicalized object with sorted keys
+ */
+function canonicalizeObject(obj: unknown): unknown {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(canonicalizeObject);
+  }
+
+  if (typeof obj === "object") {
+    const sorted: Record<string, unknown> = {};
+    const keys = Object.keys(obj).sort();
+    for (const key of keys) {
+      sorted[key] = canonicalizeObject((obj as Record<string, unknown>)[key]);
+    }
+    return sorted;
+  }
+
+  return obj;
+}
+
+/**
  * Generate unique key for tool + args combination
+ *
+ * Uses canonical JSON serialization to ensure consistent keys
+ * regardless of property order.
  *
  * @param toolName Tool name
  * @param args Tool arguments
  * @returns Unique key for this specific tool call
+ *
+ * @example
+ * ```ts
+ * // These produce the same key:
+ * makeL1Key("shell_exec", {command: "ls", cwd: "/tmp"})
+ * makeL1Key("shell_exec", {cwd: "/tmp", command: "ls"})
+ * ```
  */
 function makeL1Key(toolName: string, args: unknown): string {
-  // Serialize args to JSON for consistent key generation
-  const argsJson = JSON.stringify(args);
+  // Canonicalize args to ensure consistent key ordering
+  const canonical = canonicalizeObject(args);
+  const argsJson = JSON.stringify(canonical);
   return `${toolName}:${argsJson}`;
 }
 
@@ -239,15 +281,7 @@ function classifyShellExec(args: unknown): SafetyClassification {
 
   const command = (args as { command: string }).command.trim();
 
-  // Allow-list patterns (same as in shell-tools.ts)
-  const allowListPatterns = [
-    /^git\s+status$/,
-    /^git\s+log/,
-    /^git\s+diff/,
-    /^deno\s+test\s+.*--dry-run/,
-  ];
-
-  for (const pattern of allowListPatterns) {
+  for (const pattern of SHELL_ALLOWLIST_L1) {
     if (pattern.test(command)) {
       return {
         level: "L1",
@@ -295,7 +329,7 @@ export async function promptUserConfirmation(
   toolName: string,
   args: unknown,
   classification: SafetyClassification,
-  timeoutMs: number = 60000,
+  timeoutMs: number = DEFAULT_TIMEOUTS.userInput,
 ): Promise<ConfirmationResult> {
   const platform = getPlatform();
   const encoder = new TextEncoder();

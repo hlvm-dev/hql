@@ -67,8 +67,8 @@ export class TimeoutError extends Error {
  * // Simple timeout
  * const result = await withTimeout(
  *   async (signal) => {
- *     const response = await fetch(url, { signal });
- *     return response.json();
+ *     const response = await http.get(url, { signal });
+ *     return response;
  *   },
  *   { timeoutMs: 5000, label: "API call" }
  * );
@@ -166,7 +166,7 @@ export async function withTimeout<T>(
  * const combined = combineSignals(timeoutSignal, userSignal);
  *
  * // Operation aborts if EITHER timeout expires OR user cancels
- * await fetch(url, { signal: combined });
+ * await http.get(url, { signal: combined });
  * ```
  */
 export function combineSignals(...signals: AbortSignal[]): AbortSignal {
@@ -214,7 +214,7 @@ export function combineSignals(...signals: AbortSignal[]): AbortSignal {
  * @example
  * ```ts
  * try {
- *   await fetch(url, { signal });
+ *   await http.get(url, { signal });
  * } catch (error) {
  *   if (isAbortError(error)) {
  *     console.log("Request was cancelled");

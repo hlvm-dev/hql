@@ -15,9 +15,11 @@
  * - SSOT-compliant (uses all previous components)
  */
 
-import { getTool, hasTool } from "./registry.ts";
+import { getTool, hasTool, type ToolFunction } from "./registry.ts";
 import { checkToolSafety } from "./security/safety.ts";
 import { ContextManager, type Message } from "./context.ts";
+import { DEFAULT_TIMEOUTS, MAX_ITERATIONS, MAX_RETRIES } from "./constants.ts";
+import { withTimeout } from "../../common/timeout-utils.ts";
 
 // ============================================================
 // Types
@@ -55,6 +57,12 @@ export interface ToolExecutionResult {
   result?: unknown;
   error?: string;
 }
+
+/** LLM function signature used by orchestrator */
+export type LLMFunction = (
+  messages: Message[],
+  signal?: AbortSignal,
+) => Promise<string>;
 
 /** Trace event for observability/debugging */
 export type TraceEvent =
@@ -161,7 +169,9 @@ export function parseToolCalls(response: string, maxToolCalls: number = 10): Par
             "toolName" in parsed &&
             "args" in parsed &&
             typeof parsed.toolName === "string" &&
-            typeof parsed.args === "object"
+            typeof parsed.args === "object" &&
+            parsed.args !== null && // Reject null args (typeof null === "object" in JS!)
+            !Array.isArray(parsed.args) // Reject array args
           ) {
             calls.push({
               toolName: parsed.toolName,
@@ -327,7 +337,7 @@ export async function executeToolCall(
 
     // Get tool and execute (with timeout)
     const tool = getTool(toolCall.toolName);
-    const toolTimeout = config.toolTimeout ?? 60000; // Default 60s
+    const toolTimeout = config.toolTimeout ?? DEFAULT_TIMEOUTS.tool;
     const result = await executeToolWithTimeout(
       tool.fn,
       toolCall.args,
@@ -534,6 +544,15 @@ export async function processAgentResponse(
  *
  * Wraps LLM call with timeout to prevent hangs.
  *
+ * ⚠️ KNOWN LIMITATION: Promise.race rejects on timeout, but LLM stream
+ * continues consuming! This is a resource leak that needs architectural fix.
+ * See: Issue #5 (LLM timeouts don't abort streaming)
+ *
+ * FUTURE FIX: Requires LLM provider API to support:
+ * - AbortSignal/AbortController in ai.chat()
+ * - Generator cleanup/cancellation
+ * - Proper stream abortion
+ *
  * @param llmFn LLM function to call
  * @param messages Messages to send
  * @param timeout Timeout in milliseconds
@@ -541,24 +560,21 @@ export async function processAgentResponse(
  * @throws Error if timeout exceeded
  */
 async function callLLMWithTimeout(
-  llmFn: (messages: Message[]) => Promise<string>,
+  llmFn: LLMFunction,
   messages: Message[],
   timeout: number,
 ): Promise<string> {
-  let timeoutId: number | undefined;
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(`LLM timeout after ${timeout}ms`)), timeout);
-  });
-
-  try {
-    const result = await Promise.race([llmFn(messages), timeoutPromise]);
-    clearTimeout(timeoutId); // Clean up timer on success
-    return result;
-  } catch (error) {
-    clearTimeout(timeoutId); // Clean up timer on error
-    throw error;
-  }
+  // NOTE: If llmFn doesn't honor AbortSignal, underlying stream may continue.
+  return await withTimeout(
+    async (signal) => {
+      const response = await llmFn(messages, signal);
+      if (signal.aborted) {
+        throw new Error("LLM call aborted");
+      }
+      return response;
+    },
+    { timeoutMs: timeout, label: "LLM call" },
+  );
 }
 
 /**
@@ -574,7 +590,7 @@ async function callLLMWithTimeout(
  * @throws Error if all retries exhausted
  */
 async function callLLMWithRetry(
-  llmFn: (messages: Message[]) => Promise<string>,
+  llmFn: LLMFunction,
   messages: Message[],
   config: { timeout: number; maxRetries: number },
 ): Promise<string> {
@@ -605,6 +621,15 @@ async function callLLMWithRetry(
  *
  * Wraps tool execution with timeout to prevent hangs.
  *
+ * ⚠️ KNOWN LIMITATION: Promise.race rejects on timeout, but underlying process
+ * continues running! This is a resource leak that needs architectural fix.
+ * See: Issue #4 (Tool timeouts don't cancel processes)
+ *
+ * FUTURE FIX: Requires platform.command API to support:
+ * - AbortSignal/AbortController
+ * - Process kill on timeout
+ * - Proper cleanup of file descriptors/handles
+ *
  * @param toolFn Tool function to execute
  * @param args Tool arguments
  * @param workspace Workspace path
@@ -613,25 +638,22 @@ async function callLLMWithRetry(
  * @throws Error if timeout exceeded
  */
 async function executeToolWithTimeout(
-  toolFn: (args: unknown, workspace: string) => Promise<unknown>,
+  toolFn: ToolFunction,
   args: unknown,
   workspace: string,
   timeout: number,
 ): Promise<unknown> {
-  let timeoutId: number | undefined;
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(`Tool timeout after ${timeout}ms`)), timeout);
-  });
-
-  try {
-    const result = await Promise.race([toolFn(args, workspace), timeoutPromise]);
-    clearTimeout(timeoutId); // Clean up timer on success
-    return result;
-  } catch (error) {
-    clearTimeout(timeoutId); // Clean up timer on error
-    throw error;
-  }
+  // NOTE: If toolFn doesn't honor AbortSignal, underlying work may continue.
+  return await withTimeout(
+    async (signal) => {
+      const result = await toolFn(args, workspace, { signal });
+      if (signal.aborted) {
+        throw new Error("Tool execution aborted");
+      }
+      return result;
+    },
+    { timeoutMs: timeout, label: "Tool execution" },
+  );
 }
 
 // ============================================================
@@ -663,7 +685,7 @@ async function executeToolWithTimeout(
 export async function runReActLoop(
   userRequest: string,
   config: OrchestratorConfig,
-  llmFunction: (messages: Message[]) => Promise<string>,
+  llmFunction: LLMFunction,
 ): Promise<string> {
   // Add user request to context
   config.context.addMessage({
@@ -672,15 +694,15 @@ export async function runReActLoop(
   });
 
   let iterations = 0;
-  const maxIterations = 20; // Prevent infinite loops
+  const maxIterations = MAX_ITERATIONS;
 
   // Denial tracking - per tool (Issue #6)
   const denialCountByTool = new Map<string, number>();
   const maxDenials = config.maxDenials ?? 3;
 
   // Timeout/retry configuration
-  const llmTimeout = config.llmTimeout ?? 30000; // Default 30s
-  const maxRetries = config.maxRetries ?? 3; // Default 3 retries
+  const llmTimeout = config.llmTimeout ?? DEFAULT_TIMEOUTS.llm;
+  const maxRetries = config.maxRetries ?? MAX_RETRIES;
 
   while (iterations < maxIterations) {
     iterations++;

@@ -12,6 +12,7 @@ import { registerReplHelpers } from "./helpers.ts";
 import { memory } from "../../api/memory.ts";
 import { config } from "../../api/config.ts";
 import { log } from "../../api/log.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 /**
  * REPL HTTP Server Port
@@ -26,8 +27,10 @@ import { log } from "../../api/log.ts";
  * - Can be overridden via HLVM_REPL_PORT environment variable (for testing)
  */
 const DEFAULT_PORT = 11435;
-const PORT = Deno.env.get("HLVM_REPL_PORT")
-  ? parseInt(Deno.env.get("HLVM_REPL_PORT")!, 10)
+const platform = getPlatform();
+const portOverride = platform.env.get("HLVM_REPL_PORT");
+const PORT = portOverride
+  ? parseInt(portOverride, 10)
   : DEFAULT_PORT;
 
 let replState: ReplState | null = null;
@@ -141,15 +144,15 @@ async function handleRequest(req: Request): Promise<Response> {
 export async function startHttpServer(): Promise<void> {
   try {
     log.info(`Starting REPL HTTP server on port ${PORT}...`);
-    await Deno.serve({
+    await platform.http.serve(handleRequest, {
       port: PORT,
       onListen: ({ hostname, port }) => {
         log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
       },
-    }, handleRequest).finished;
+    });
   } catch (error) {
     // Handle port in use error
-    if (error instanceof Deno.errors.AddrInUse) {
+    if (error instanceof Error && error.name === "AddrInUse") {
       log.error(
         `Port ${PORT} is already in use. Another HLVM instance may be running.`,
       );
@@ -157,7 +160,11 @@ export async function startHttpServer(): Promise<void> {
         `REPL server port ${PORT} is already in use`,
       );
     }
-    log.error(`Failed to start REPL HTTP server: ${error.message}`);
+    log.error(
+      `Failed to start REPL HTTP server: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
     throw error;
   }
 }

@@ -14,6 +14,8 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath } from "../security/path-sandbox.ts";
+import { parseShellCommand, isSafeCommand, getUnsafeReason } from "../../../common/shell-parser.ts";
+import { SHELL_ALLOWLIST_L1 } from "../constants.ts";
 
 // ============================================================
 // Types
@@ -57,23 +59,6 @@ export interface ShellScriptResult extends ShellResult {
 // ============================================================
 
 /**
- * Allow-list for L1 (confirm once) shell commands
- * Everything else defaults to L2 (always confirm)
- *
- * L1 commands are read-only and safe:
- * - git status: Show working tree status
- * - git log: Show commit history
- * - git diff: Show changes
- * - deno test --dry-run: Show tests without running
- */
-export const SHELL_ALLOWLIST_L1 = [
-  /^git\s+status$/,
-  /^git\s+log/,               // Any git log args (read-only)
-  /^git\s+diff/,              // Any git diff args (read-only)
-  /^deno\s+test\s+.*--dry-run/,  // Must have --dry-run flag
-];
-
-/**
  * Check if a command is in the L1 allow-list
  *
  * @param command Command string to check
@@ -115,7 +100,8 @@ export function classifyShellCommand(command: string): "L1" | "L2" {
  */
 export async function shellExec(
   args: ShellExecArgs,
-  workspace: string
+  workspace: string,
+  options?: { signal?: AbortSignal },
 ): Promise<ShellExecResult> {
   try {
     const platform = getPlatform();
@@ -128,36 +114,90 @@ export async function shellExec(
     // Classify command for safety level
     const safetyLevel = classifyShellCommand(args.command);
 
-    // Parse command into arguments
-    // Simple split on spaces (doesn't handle complex quoting)
-    const cmdArgs = args.command.trim().split(/\s+/);
-
-    if (cmdArgs.length === 0) {
+    // Parse command with proper quote/escape handling
+    let parsedCommand;
+    try {
+      parsedCommand = parseShellCommand(args.command);
+    } catch (error) {
       return {
         success: false,
-        message: "Empty command",
+        message: `Invalid shell command: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
         stdout: "",
-        stderr: "",
+        stderr: error instanceof Error ? error.message : String(error),
         exitCode: 1,
+        safetyLevel,
       };
     }
 
-    // Execute using platform command API
-    const result = await platform.command.output({
+    // Reject unsafe operators for shell_exec (use shell_script instead)
+    if (!isSafeCommand(parsedCommand)) {
+      return {
+        success: false,
+        message: `Unsafe shell command for shell_exec: ${getUnsafeReason(parsedCommand)}. Use shell_script for complex commands.`,
+        stdout: "",
+        stderr: getUnsafeReason(parsedCommand),
+        exitCode: 1,
+        safetyLevel,
+      };
+    }
+
+    const cmdArgs = [parsedCommand.program, ...parsedCommand.args];
+
+    if (options?.signal?.aborted) {
+      const error = new Error("Shell command aborted");
+      error.name = "AbortError";
+      throw error;
+    }
+
+    // Execute using platform command API (run + drain streams for cancellation)
+    const process = platform.command.run({
       cmd: cmdArgs,
       cwd: workDir,
+      stdout: "piped",
+      stderr: "piped",
+      stdin: "null",
     });
 
-    return {
-      success: result.code === 0,
-      stdout: new TextDecoder().decode(result.stdout),
-      stderr: new TextDecoder().decode(result.stderr),
-      exitCode: result.code,
-      safetyLevel,
-      message: result.code === 0
-        ? `Command executed successfully`
-        : `Command exited with code ${result.code}`,
+    let aborted = false;
+    const onAbort = (): void => {
+      aborted = true;
+      process.kill?.("SIGTERM");
     };
+
+    if (options?.signal) {
+      options.signal.addEventListener("abort", onAbort);
+    }
+
+    try {
+      const [stdoutBytes, stderrBytes, status] = await Promise.all([
+        readProcessStream(process.stdout, options?.signal),
+        readProcessStream(process.stderr, options?.signal),
+        process.status,
+      ]);
+
+      if (aborted) {
+        const error = new Error("Shell command aborted");
+        error.name = "AbortError";
+        throw error;
+      }
+
+      return {
+        success: status.code === 0,
+        stdout: new TextDecoder().decode(stdoutBytes),
+        stderr: new TextDecoder().decode(stderrBytes),
+        exitCode: status.code,
+        safetyLevel,
+        message: status.code === 0
+          ? `Command executed successfully`
+          : `Command exited with code ${status.code}`,
+      };
+    } finally {
+      if (options?.signal) {
+        options.signal.removeEventListener("abort", onAbort);
+      }
+    }
   } catch (error) {
     return {
       success: false,
@@ -198,7 +238,8 @@ export async function shellExec(
  */
 export async function shellScript(
   args: ShellScriptArgs,
-  workspace: string
+  workspace: string,
+  options?: { signal?: AbortSignal },
 ): Promise<ShellScriptResult> {
   const platform = getPlatform();
   let tempDir: string | undefined;
@@ -218,21 +259,58 @@ export async function shellScript(
     // Write script to temp file
     await platform.fs.writeTextFile(scriptPath, args.script);
 
-    // Execute script
-    const result = await platform.command.output({
+    if (options?.signal?.aborted) {
+      const error = new Error("Shell script aborted");
+      error.name = "AbortError";
+      throw error;
+    }
+
+    // Execute script (run + drain streams for cancellation)
+    const process = platform.command.run({
       cmd: [interpreter, scriptPath],
       cwd: workDir,
+      stdout: "piped",
+      stderr: "piped",
+      stdin: "null",
     });
 
-    return {
-      success: result.code === 0,
-      stdout: new TextDecoder().decode(result.stdout),
-      stderr: new TextDecoder().decode(result.stderr),
-      exitCode: result.code,
-      message: result.code === 0
-        ? `Script executed successfully`
-        : `Script exited with code ${result.code}`,
+    let aborted = false;
+    const onAbort = (): void => {
+      aborted = true;
+      process.kill?.("SIGTERM");
     };
+
+    if (options?.signal) {
+      options.signal.addEventListener("abort", onAbort);
+    }
+
+    try {
+      const [stdoutBytes, stderrBytes, status] = await Promise.all([
+        readProcessStream(process.stdout, options?.signal),
+        readProcessStream(process.stderr, options?.signal),
+        process.status,
+      ]);
+
+      if (aborted) {
+        const error = new Error("Shell script aborted");
+        error.name = "AbortError";
+        throw error;
+      }
+
+      return {
+        success: status.code === 0,
+        stdout: new TextDecoder().decode(stdoutBytes),
+        stderr: new TextDecoder().decode(stderrBytes),
+        exitCode: status.code,
+        message: status.code === 0
+          ? `Script executed successfully`
+          : `Script exited with code ${status.code}`,
+      };
+    } finally {
+      if (options?.signal) {
+        options.signal.removeEventListener("abort", onAbort);
+      }
+    }
   } catch (error) {
     return {
       success: false,
@@ -253,6 +331,65 @@ export async function shellScript(
       }
     }
   }
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+async function readProcessStream(
+  stream: unknown,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  if (!stream || typeof (stream as ReadableStream<Uint8Array>).getReader !== "function") {
+    return new Uint8Array();
+  }
+
+  const reader = (stream as ReadableStream<Uint8Array>).getReader();
+  const chunks: Uint8Array[] = [];
+
+  const onAbort = (): void => {
+    reader.cancel().catch(() => {});
+  };
+
+  if (signal) {
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener("abort", onAbort);
+    }
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+  } finally {
+    if (signal) {
+      signal.removeEventListener("abort", onAbort);
+    }
+    reader.releaseLock();
+  }
+
+  return concatUint8Arrays(chunks);
+}
+
+function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
+  if (chunks.length === 0) return new Uint8Array();
+  if (chunks.length === 1) return chunks[0];
+
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return result;
 }
 
 // ============================================================

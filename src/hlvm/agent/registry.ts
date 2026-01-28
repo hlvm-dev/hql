@@ -22,10 +22,16 @@ import { META_TOOLS } from "./tools/meta-tools.ts";
 // Types
 // ============================================================
 
+/** Optional execution options passed to tools (e.g., cancellation signal) */
+export interface ToolExecutionOptions {
+  signal?: AbortSignal;
+}
+
 /** Generic tool function signature */
 export type ToolFunction = (
   args: unknown,
   workspace: string,
+  options?: ToolExecutionOptions,
 ) => Promise<unknown>;
 
 /** Tool metadata with function and documentation */
