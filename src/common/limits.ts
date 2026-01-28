@@ -5,6 +5,29 @@
  */
 
 // ============================================================
+// Shared Constants
+// ============================================================
+
+/**
+ * Default LRU cache size for macro/import caches.
+ *
+ * Chosen to be safely above typical project sizes while
+ * preventing unbounded memory growth.
+ */
+export const DEFAULT_LRU_CACHE_SIZE = 5000;
+
+/**
+ * Maximum sequence length when realizing lazy seqs.
+ * See InterpreterConfig maxSeqLength default.
+ */
+export const MAX_SEQ_LENGTH = 10000;
+
+/**
+ * Maximum iterations for macro expansion to avoid infinite loops.
+ */
+export const MAX_EXPANSION_ITERATIONS = 1000;
+
+// ============================================================
 // Errors
 // ============================================================
 
