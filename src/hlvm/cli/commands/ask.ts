@@ -36,6 +36,7 @@ OPTIONS:
   --model <model>              Specify model (default: ollama/llama3.1:8b)
   --max-calls <n>              Maximum tool calls (default: 10)
   --trace                      Enable trace mode (show tool calls and results)
+  --fail-on-context-overflow   Fail instead of trimming when context exceeds max tokens
 `);
 }
 
@@ -51,6 +52,7 @@ export async function askCommand(args: string[]): Promise<void> {
   let model: string | undefined;
   let maxCalls = 10;
   let traceMode = false;
+  let failOnContextOverflow = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -71,6 +73,8 @@ export async function askCommand(args: string[]): Promise<void> {
       }
     } else if (arg === "--trace") {
       traceMode = true;
+    } else if (arg === "--fail-on-context-overflow") {
+      failOnContextOverflow = true;
     } else if (!arg.startsWith("--")) {
       // Accumulate query parts (in case user forgets quotes)
       query += (query ? " " : "") + arg;
@@ -102,7 +106,10 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   // Setup context with system prompt
-  const context = new ContextManager({ maxTokens: 8000 });
+  const context = new ContextManager({
+    maxTokens: 8000,
+    overflowStrategy: failOnContextOverflow ? "fail" : "trim",
+  });
   context.addMessage({
     role: "system",
     content: generateSystemPrompt(),
@@ -146,6 +153,18 @@ export async function askCommand(args: string[]): Promise<void> {
           } else {
             log.raw.log(`[TRACE] Result: FAILED - ${event.error}`);
           }
+          break;
+        case "llm_retry":
+          log.raw.log(
+            `[TRACE] LLM retry ${event.attempt}/${event.max} (${event.class})${
+              event.retryable ? "" : " [non-retryable]"
+            }: ${event.error}`,
+          );
+          break;
+        case "context_overflow":
+          log.raw.log(
+            `[TRACE] Context overflow: ${event.estimatedTokens} > ${event.maxTokens}`,
+          );
           break;
       }
     }

@@ -17,7 +17,7 @@
 
 import { getTool, hasTool, type ToolFunction } from "./registry.ts";
 import { checkToolSafety } from "./security/safety.ts";
-import { ContextManager, type Message } from "./context.ts";
+import { ContextManager, ContextOverflowError, type Message } from "./context.ts";
 import { DEFAULT_TIMEOUTS, MAX_ITERATIONS, MAX_RETRIES } from "./constants.ts";
 import { withTimeout } from "../../common/timeout-utils.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
@@ -72,7 +72,9 @@ export type TraceEvent =
   | { type: "llm_call"; messageCount: number }
   | { type: "llm_response"; length: number; truncated: string }
   | { type: "tool_call"; toolName: string; args: unknown }
-  | { type: "tool_result"; toolName: string; success: boolean; result?: unknown; error?: string };
+  | { type: "tool_result"; toolName: string; success: boolean; result?: unknown; error?: string }
+  | { type: "llm_retry"; attempt: number; max: number; class: string; retryable: boolean; error: string }
+  | { type: "context_overflow"; maxTokens: number; estimatedTokens: number };
 
 /** Orchestrator configuration */
 export interface OrchestratorConfig {
@@ -103,6 +105,24 @@ export interface OrchestratorConfig {
 /** Tool call envelope constants */
 const TOOL_CALL_START = "TOOL_CALL";
 const TOOL_CALL_END = "END_TOOL_CALL";
+
+function addContextMessage(
+  config: OrchestratorConfig,
+  message: Message,
+): void {
+  try {
+    config.context.addMessage(message);
+  } catch (error) {
+    if (error instanceof ContextOverflowError) {
+      config.onTrace?.({
+        type: "context_overflow",
+        maxTokens: error.maxTokens,
+        estimatedTokens: error.estimatedTokens,
+      });
+    }
+    throw error;
+  }
+}
 
 // ============================================================
 // Tool Call Parsing
@@ -461,7 +481,7 @@ export async function processAgentResponse(
   shouldContinue: boolean;
 }> {
   // Add agent response to context
-  config.context.addMessage({
+  addContextMessage(config, {
     role: "assistant",
     content: agentResponse,
   });
@@ -487,7 +507,7 @@ export async function processAgentResponse(
         errorMsg += `\n\n**Best Practices:**\n- Use 1-3 tool calls per turn for better control\n- Break complex tasks into multiple turns\n- Chain dependent operations: read → analyze → write\n- If you need more operations, complete current batch first`;
       }
 
-      config.context.addMessage({
+      addContextMessage(config, {
         role: "tool",
         content: errorMsg,
       });
@@ -525,7 +545,7 @@ export async function processAgentResponse(
       }`
       : `Tool: ${call.toolName}\nError: ${result.error}`;
 
-    config.context.addMessage({
+    addContextMessage(config, {
       role: "tool",
       content: observation,
     });
@@ -597,6 +617,7 @@ async function callLLMWithRetry(
   llmFn: LLMFunction,
   messages: Message[],
   config: { timeout: number; maxRetries: number },
+  onTrace?: (event: TraceEvent) => void,
 ): Promise<string> {
   let lastError: Error | null = null;
 
@@ -607,6 +628,14 @@ async function callLLMWithRetry(
       lastError = error as Error;
 
       const classified = classifyError(error);
+      onTrace?.({
+        type: "llm_retry",
+        attempt: attempt + 1,
+        max: config.maxRetries,
+        class: classified.class,
+        retryable: classified.retryable,
+        error: classified.message,
+      });
       if (!classified.retryable) {
         break;
       }
@@ -697,7 +726,7 @@ export async function runReActLoop(
   llmFunction: LLMFunction,
 ): Promise<string> {
   // Add user request to context
-  config.context.addMessage({
+  addContextMessage(config, {
     role: "user",
     content: userRequest,
   });
@@ -739,6 +768,7 @@ export async function runReActLoop(
       llmFunction,
       messages,
       { timeout: llmTimeout, maxRetries },
+      config.onTrace,
     );
 
     // Emit trace event: LLM response
@@ -800,10 +830,10 @@ export async function runReActLoop(
 
         // Check if this specific tool reached the limit
         if (denialCountByTool.get(toolName)! >= maxDenials) {
-          config.context.addMessage({
-            role: "tool",
-            content: `Maximum denials (${maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
-          });
+        addContextMessage(config, {
+          role: "tool",
+          content: `Maximum denials (${maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
+        });
         }
       }
     }
