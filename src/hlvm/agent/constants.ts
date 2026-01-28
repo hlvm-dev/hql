@@ -1,0 +1,154 @@
+/**
+ * Agent Constants - SSOT for agent configuration
+ *
+ * Consolidates all agent-related constants and configurations
+ * into a single source of truth.
+ *
+ * Eliminates duplications:
+ * - Shell allow-list: shell-tools.ts:69-74 + safety.ts:284-289 (2x)
+ * - Timeout values: orchestrator.ts + safety.ts (scattered)
+ * - Max iterations: orchestrator.ts:696 (1x, now centralized)
+ *
+ * Features:
+ * - SSOT for all agent configuration
+ * - Type-safe constants
+ * - Clear documentation
+ * - Easy to modify (single location)
+ */
+
+// ============================================================
+// Shell Command Allow-List (L1 Safety Level)
+// ============================================================
+
+/**
+ * Allow-list for L1 (confirm once) shell commands
+ *
+ * These commands are read-only and safe to execute after single confirmation.
+ * Everything else defaults to L2 (always confirm).
+ *
+ * Used by:
+ * - shell-tools.ts: classifyShellCommand()
+ * - safety.ts: classifyShellExec()
+ *
+ * L1 commands:
+ * - `git status`: Show working tree status (read-only)
+ * - `git log`: Show commit history (read-only, any args allowed)
+ * - `git diff`: Show changes (read-only, any args allowed)
+ * - `deno test --dry-run`: Show tests without running (must have --dry-run flag)
+ *
+ * @example
+ * ```ts
+ * import { SHELL_ALLOWLIST_L1 } from "./constants.ts";
+ *
+ * function classifyCommand(cmd: string): "L1" | "L2" {
+ *   for (const pattern of SHELL_ALLOWLIST_L1) {
+ *     if (pattern.test(cmd)) return "L1";
+ *   }
+ *   return "L2";
+ * }
+ * ```
+ */
+export const SHELL_ALLOWLIST_L1: readonly RegExp[] = [
+  /^git\s+status$/,           // Exact match: "git status" only
+  /^git\s+log/,               // Prefix match: "git log" with any args
+  /^git\s+diff/,              // Prefix match: "git diff" with any args
+  /^deno\s+test\s+.*--dry-run/,  // Must contain "--dry-run" flag
+] as const;
+
+// ============================================================
+// Timeout Configuration
+// ============================================================
+
+/**
+ * Default timeout values for agent operations
+ *
+ * Used by:
+ * - orchestrator.ts: LLM calls and tool execution
+ * - safety.ts: User confirmation prompts
+ *
+ * Values chosen based on:
+ * - LLM timeout: 30s allows complex reasoning without hanging
+ * - Tool timeout: 60s allows slow operations (network, builds)
+ * - User input timeout: 60s reasonable time for human response
+ * - Total timeout: 5min prevents infinite loops
+ *
+ * All values in milliseconds.
+ *
+ * @example
+ * ```ts
+ * import { DEFAULT_TIMEOUTS } from "./constants.ts";
+ *
+ * const timeout = config.llmTimeout ?? DEFAULT_TIMEOUTS.llm;
+ * ```
+ */
+export const DEFAULT_TIMEOUTS = {
+  /** LLM call timeout (default: 30000ms = 30 seconds) */
+  llm: 30000,
+
+  /** Tool execution timeout (default: 60000ms = 60 seconds) */
+  tool: 60000,
+
+  /** User input/confirmation timeout (default: 60000ms = 60 seconds) */
+  userInput: 60000,
+
+  /** Total agent loop timeout (default: 300000ms = 5 minutes) */
+  total: 300000,
+} as const;
+
+// ============================================================
+// Loop Limits
+// ============================================================
+
+/**
+ * Maximum iterations for agent ReAct loop
+ *
+ * Prevents infinite loops where agent keeps calling tools without progress.
+ * Set conservatively - most tasks complete in < 10 iterations.
+ *
+ * Used by:
+ * - orchestrator.ts: Main agent loop
+ *
+ * @example
+ * ```ts
+ * import { MAX_ITERATIONS } from "./constants.ts";
+ *
+ * while (iterations < MAX_ITERATIONS) {
+ *   // Agent loop
+ * }
+ * ```
+ */
+export const MAX_ITERATIONS = 20;
+
+/**
+ * Maximum retries for failed LLM calls
+ *
+ * Handles transient errors (network issues, rate limits).
+ * Uses exponential backoff between retries.
+ *
+ * Used by:
+ * - orchestrator.ts: LLM call retry logic
+ *
+ * @example
+ * ```ts
+ * import { MAX_RETRIES } from "./constants.ts";
+ *
+ * const retries = config.maxRetries ?? MAX_RETRIES;
+ * ```
+ */
+export const MAX_RETRIES = 3;
+
+// ============================================================
+// Type Exports
+// ============================================================
+
+/**
+ * Type-safe timeout keys
+ */
+export type TimeoutKey = keyof typeof DEFAULT_TIMEOUTS;
+
+/**
+ * Type-safe timeout configuration
+ */
+export type TimeoutConfig = {
+  [K in TimeoutKey]?: number;
+};

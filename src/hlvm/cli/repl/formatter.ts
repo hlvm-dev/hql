@@ -36,8 +36,27 @@ function realizeSeqForDisplay(value: unknown, maxItems = 100): unknown[] | null 
   }
 }
 
-/** Format a value for display */
-export function formatValue(value: unknown, depth = 0): string {
+/**
+ * No-color constants for plain text output (HTTP clients, logs, etc.)
+ */
+const NO_COLOR = {
+  CYAN: "",
+  YELLOW: "",
+  RED: "",
+  DIM_GRAY: "",
+  RESET: "",
+} as const;
+
+/**
+ * Format a value for display with optional color support
+ * @param value - Value to format
+ * @param depth - Current nesting depth (for recursion)
+ * @param useColor - Whether to include ANSI color codes (default: true)
+ */
+function formatValueInternal(value: unknown, depth = 0, useColor = true): string {
+  const colors = useColor ? ANSI_COLORS : NO_COLOR;
+  const { CYAN, YELLOW, RED, DIM_GRAY, RESET } = colors;
+
   if (value === undefined) return "";
   if (value === null) return `${DIM_GRAY}nil${RESET}`;
 
@@ -73,7 +92,7 @@ export function formatValue(value: unknown, depth = 0): string {
   if (value instanceof Map) {
     if (depth > 3) return `${DIM_GRAY}{...}${RESET}`;
     const entries = Array.from(value.entries())
-      .map(([k, v]) => `${formatValue(k, depth + 1)} ${formatValue(v, depth + 1)}`)
+      .map(([k, v]) => `${formatValueInternal(k, depth + 1, useColor)} ${formatValueInternal(v, depth + 1, useColor)}`)
       .join(", ");
     return `{${entries}}`;
   }
@@ -81,7 +100,7 @@ export function formatValue(value: unknown, depth = 0): string {
   if (value instanceof Set) {
     if (depth > 3) return `${DIM_GRAY}#[...]${RESET}`;
     const items = Array.from(value)
-      .map(v => formatValue(v, depth + 1))
+      .map(v => formatValueInternal(v, depth + 1, useColor))
       .join(" ");
     return `#[${items}]`;
   }
@@ -90,11 +109,11 @@ export function formatValue(value: unknown, depth = 0): string {
     if (depth > 3) return `${DIM_GRAY}[...]${RESET}`;
     if (value.length === 0) return "[]";
     if (value.length > 20) {
-      const first10 = value.slice(0, 10).map(v => formatValue(v, depth + 1)).join(" ");
-      const last3 = value.slice(-3).map(v => formatValue(v, depth + 1)).join(" ");
+      const first10 = value.slice(0, 10).map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
+      const last3 = value.slice(-3).map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
       return `[${first10} ${DIM_GRAY}... ${value.length - 13} more ...${RESET} ${last3}]`;
     }
-    const items = value.map(v => formatValue(v, depth + 1)).join(" ");
+    const items = value.map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
     return `[${items}]`;
   }
 
@@ -108,11 +127,11 @@ export function formatValue(value: unknown, depth = 0): string {
     }
     if (realized.length === 0) return "()";
     if (realized.length > 20) {
-      const first10 = realized.slice(0, 10).map(v => formatValue(v, depth + 1)).join(" ");
-      const last3 = realized.slice(-3).map(v => formatValue(v, depth + 1)).join(" ");
+      const first10 = realized.slice(0, 10).map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
+      const last3 = realized.slice(-3).map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
       return `(${first10} ${DIM_GRAY}... ${realized.length - 13} more ...${RESET} ${last3})`;
     }
-    const items = realized.map(v => formatValue(v, depth + 1)).join(" ");
+    const items = realized.map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
     return `(${items})`;
   }
 
@@ -122,17 +141,34 @@ export function formatValue(value: unknown, depth = 0): string {
     if (entries.length === 0) return "{}";
     if (entries.length > 10) {
       const first5 = entries.slice(0, 5)
-        .map(([k, v]) => `:${k} ${formatValue(v, depth + 1)}`)
+        .map(([k, v]) => `:${k} ${formatValueInternal(v, depth + 1, useColor)}`)
         .join(", ");
       return `{${first5}, ${DIM_GRAY}... ${entries.length - 5} more${RESET}}`;
     }
     const formatted = entries
-      .map(([k, v]) => `:${k} ${formatValue(v, depth + 1)}`)
+      .map(([k, v]) => `:${k} ${formatValueInternal(v, depth + 1, useColor)}`)
       .join(", ");
     return `{${formatted}}`;
   }
 
   return String(value);
+}
+
+/**
+ * Format a value for terminal display with ANSI colors
+ * @param value - Value to format
+ * @param depth - Current nesting depth
+ */
+export function formatValue(value: unknown, depth = 0): string {
+  return formatValueInternal(value, depth, true);
+}
+
+/**
+ * Format a value for plain text output (HTTP, logs, etc.) without ANSI colors
+ * @param value - Value to format
+ */
+export function formatPlainValue(value: unknown): string {
+  return formatValueInternal(value, 0, false);
 }
 
 /** Format an error for display */

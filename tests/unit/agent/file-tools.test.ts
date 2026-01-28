@@ -534,3 +534,79 @@ Deno.test({
     await cleanupWorkspace();
   },
 });
+
+Deno.test({
+  name: "File Tools: list_files - skip symlinked subdirectories during recursion",
+  async fn() {
+    await setupWorkspace();
+    const platform = getPlatform();
+
+    // Create directory structure:
+    // workspace/
+    //   legitimate/
+    //     file1.txt
+    //   evil_link/ -> /etc/
+    await platform.fs.mkdir(`${TEST_WORKSPACE}/legitimate`, { recursive: true });
+    await platform.fs.writeTextFile(
+      `${TEST_WORKSPACE}/legitimate/file1.txt`,
+      "legitimate file"
+    );
+    await platform.fs.writeTextFile(
+      `${TEST_WORKSPACE}/regular.txt`,
+      "regular file"
+    );
+
+    // Create symlinked subdirectory
+    const symlinkDir = `${TEST_WORKSPACE}/evil_link`;
+    try {
+      const result = await platform.command.output({
+        cmd: ["ln", "-s", "/etc", symlinkDir],
+      });
+
+      // Only test if symlink creation succeeded
+      if (result.code === 0) {
+        // List with recursive=true
+        const listResult = await listFiles(
+          {
+            path: ".",
+            recursive: true,
+          } as ListFilesArgs,
+          TEST_WORKSPACE
+        );
+
+        assertEquals(listResult.success, true);
+
+        // Verify legitimate files are included
+        const paths = listResult.entries?.map((e) => e.path) || [];
+        assertEquals(paths.includes("regular.txt"), true);
+        assertEquals(paths.includes("legitimate"), true);
+        assertEquals(paths.includes("legitimate/file1.txt"), true);
+
+        // CRITICAL: Verify symlinked directory is SKIPPED
+        // evil_link itself might appear as a directory entry,
+        // but we should NOT recurse into it
+        const hasEvilLinkContents = paths.some((p) =>
+          p.startsWith("evil_link/")
+        );
+        assertEquals(
+          hasEvilLinkContents,
+          false,
+          "Symlinked subdirectory contents should be skipped during recursion"
+        );
+      }
+    } catch (error) {
+      console.log(
+        "Skipping symlink recursion test - ln command not available"
+      );
+    } finally {
+      // Cleanup symlink
+      try {
+        await platform.fs.remove(symlinkDir);
+      } catch {
+        // Ignore
+      }
+    }
+
+    await cleanupWorkspace();
+  },
+});

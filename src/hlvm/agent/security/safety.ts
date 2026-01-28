@@ -36,42 +36,61 @@ export interface ConfirmationResult {
 }
 
 // ============================================================
-// L1 Confirmation Tracking
+// L1 Confirmation Tracking (Issue #11: Per-args confirmation)
 // ============================================================
 
 /**
- * Track which tools have been confirmed at L1
- * Key: tool name
+ * Track which tools+args have been confirmed at L1
+ * Key: tool name + serialized args (e.g., "read_file:{\"path\":\"src/main.ts\"}")
  * Value: true if confirmed
  */
 const l1Confirmations = new Map<string, boolean>();
 
 /**
- * Check if tool has L1 confirmation
+ * Generate unique key for tool + args combination
+ *
+ * @param toolName Tool name
+ * @param args Tool arguments
+ * @returns Unique key for this specific tool call
+ */
+function makeL1Key(toolName: string, args: unknown): string {
+  // Serialize args to JSON for consistent key generation
+  const argsJson = JSON.stringify(args);
+  return `${toolName}:${argsJson}`;
+}
+
+/**
+ * Check if tool+args combination has L1 confirmation
  *
  * @param toolName Tool name to check
- * @returns True if tool has been confirmed
+ * @param args Tool arguments
+ * @returns True if this specific tool+args has been confirmed
  */
-export function hasL1Confirmation(toolName: string): boolean {
-  return l1Confirmations.get(toolName) === true;
+export function hasL1Confirmation(toolName: string, args: unknown): boolean {
+  const key = makeL1Key(toolName, args);
+  return l1Confirmations.get(key) === true;
 }
 
 /**
- * Mark tool as L1 confirmed
+ * Mark tool+args combination as L1 confirmed
  *
  * @param toolName Tool name to confirm
+ * @param args Tool arguments
  */
-export function setL1Confirmation(toolName: string): void {
-  l1Confirmations.set(toolName, true);
+export function setL1Confirmation(toolName: string, args: unknown): void {
+  const key = makeL1Key(toolName, args);
+  l1Confirmations.set(key, true);
 }
 
 /**
- * Clear L1 confirmation for tool
+ * Clear L1 confirmation for tool+args combination
  *
  * @param toolName Tool name to clear
+ * @param args Tool arguments
  */
-export function clearL1Confirmation(toolName: string): void {
-  l1Confirmations.delete(toolName);
+export function clearL1Confirmation(toolName: string, args: unknown): void {
+  const key = makeL1Key(toolName, args);
+  l1Confirmations.delete(key);
 }
 
 /**
@@ -248,15 +267,17 @@ function classifyShellExec(args: unknown): SafetyClassification {
 // ============================================================
 
 /**
- * Prompt user for confirmation
+ * Prompt user for confirmation with timeout (Issue #12)
  *
  * Displays tool information and asks user to confirm execution.
  * For L1 tools, asks if user wants to remember the choice.
+ * Times out after 60 seconds if no response.
  *
  * @param toolName Tool name
  * @param args Tool arguments
  * @param classification Safety classification
- * @returns Confirmation result
+ * @param timeoutMs Timeout in milliseconds (default: 60000 = 60s)
+ * @returns Confirmation result (timeout treated as denial)
  *
  * @example
  * ```ts
@@ -274,6 +295,7 @@ export async function promptUserConfirmation(
   toolName: string,
   args: unknown,
   classification: SafetyClassification,
+  timeoutMs: number = 60000,
 ): Promise<ConfirmationResult> {
   const platform = getPlatform();
   const encoder = new TextEncoder();
@@ -299,19 +321,36 @@ export async function promptUserConfirmation(
   await write(displayArgs + "\n");
   await write("=".repeat(60) + "\n");
 
-  // Prompt for confirmation
+  // Prompt for confirmation with timeout
   await write("\nConfirm execution? (y/n): ");
 
-  // Read user input (simple implementation - reads until newline)
-  const input = await readLine(platform);
+  // Read user input with timeout
+  const input = await readLine(platform, timeoutMs);
+
+  // Timeout = automatic denial
+  if (input === null) {
+    await write("\n[Timeout - confirmation denied]\n");
+    return {
+      confirmed: false,
+      rememberChoice: false,
+    };
+  }
+
   const confirmed = input.toLowerCase().trim() === "y";
 
   // For L1 tools, ask if user wants to remember
   let rememberChoice = false;
   if (confirmed && classification.level === "L1") {
     await write("Remember this choice for future executions? (y/n): ");
-    const rememberInput = await readLine(platform);
-    rememberChoice = rememberInput.toLowerCase().trim() === "y";
+    const rememberInput = await readLine(platform, timeoutMs);
+
+    // Timeout on remember question = don't remember
+    if (rememberInput === null) {
+      await write("\n[Timeout - choice not remembered]\n");
+      rememberChoice = false;
+    } else {
+      rememberChoice = rememberInput.toLowerCase().trim() === "y";
+    }
   }
 
   return {
@@ -321,39 +360,67 @@ export async function promptUserConfirmation(
 }
 
 /**
- * Read a line of input from terminal
+ * Read a line of input from terminal with timeout (Issue #12)
  *
  * Helper function to read user input until newline.
- * Uses platform terminal abstraction.
+ * Uses platform terminal abstraction with timeout support.
  *
  * @param platform Platform instance
- * @returns User input as string
+ * @param timeoutMs Timeout in milliseconds (default: 60000 = 60s)
+ * @returns User input as string, or null if timeout
  */
 async function readLine(
   platform: ReturnType<typeof getPlatform>,
-): Promise<string> {
+  timeoutMs: number = 60000,
+): Promise<string | null> {
   const decoder = new TextDecoder();
   const buffer: string[] = [];
 
-  // Read byte by byte until newline
-  while (true) {
-    const byte = new Uint8Array(1);
-    const bytesRead = await platform.terminal.stdin.read(byte);
+  // Create timeout promise with cleanup
+  let timeoutId: number | undefined;
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timeoutId = setTimeout(() => resolve(null), timeoutMs);
+  });
 
-    if (bytesRead === null || bytesRead === 0) {
-      break;
+  // Read byte by byte until newline with timeout
+  const readPromise = (async () => {
+    while (true) {
+      const byte = new Uint8Array(1);
+      const bytesRead = await platform.terminal.stdin.read(byte);
+
+      if (bytesRead === null || bytesRead === 0) {
+        break;
+      }
+
+      const char = decoder.decode(byte);
+
+      if (char === "\n" || char === "\r") {
+        break;
+      }
+
+      buffer.push(char);
     }
 
-    const char = decoder.decode(byte);
+    return buffer.join("");
+  })();
 
-    if (char === "\n" || char === "\r") {
-      break;
+  // Race between reading and timeout
+  try {
+    const result = await Promise.race([readPromise, timeoutPromise]);
+
+    // Clean up timeout
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
     }
 
-    buffer.push(char);
+    return result;
+  } catch (error) {
+    // Clean up timeout on error
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+    throw error;
   }
-
-  return buffer.join("");
 }
 
 // ============================================================
@@ -403,9 +470,9 @@ export async function checkToolSafety(
     return true;
   }
 
-  // L1: Check confirmation cache
+  // L1: Check confirmation cache (per-args - Issue #11)
   if (classification.level === "L1") {
-    if (hasL1Confirmation(toolName)) {
+    if (hasL1Confirmation(toolName, args)) {
       return true;
     }
 
@@ -417,7 +484,7 @@ export async function checkToolSafety(
     );
 
     if (result.confirmed && result.rememberChoice) {
-      setL1Confirmation(toolName);
+      setL1Confirmation(toolName, args);
     }
 
     return result.confirmed;

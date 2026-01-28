@@ -15,7 +15,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { validatePath } from "../security/path-sandbox.ts";
+import { validatePath, SecurityError } from "../security/path-sandbox.ts";
 
 // ============================================================
 // Types
@@ -361,7 +361,18 @@ export async function listFiles(
 
         // Recurse into directories if recursive mode enabled
         if (args.recursive && entry.isDirectory) {
-          await walk(entryPath, entryRelativePath, depth + 1);
+          // CRITICAL: Validate subdirectory isn't a symlink escape
+          try {
+            await validatePath(entryPath, workspace);
+            // Only recurse if validation succeeds
+            await walk(entryPath, entryRelativePath, depth + 1);
+          } catch (error) {
+            if (error instanceof SecurityError) {
+              // Symlinked directory or escape attempt - SKIP silently
+              continue;
+            }
+            throw error; // Re-throw unexpected errors
+          }
         }
       }
     };

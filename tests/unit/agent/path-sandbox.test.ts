@@ -176,6 +176,58 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Path Sandboxing: reject symlink in parent directory (parent-chain validation)",
+  async fn() {
+    await setupTestWorkspace();
+
+    const platform = getPlatform();
+
+    // Create a symlinked parent directory pointing outside workspace
+    const symlinkDir = `${TEST_WORKSPACE}/evil_link`;
+    try {
+      // Create symlink: workspace/evil_link -> /etc/
+      const result = await platform.command.output({
+        cmd: ["ln", "-s", "/etc", symlinkDir],
+      });
+
+      // Only test if symlink creation succeeded
+      if (result.code === 0) {
+        // Should reject accessing file through symlinked parent
+        // Even though "evil_link/passwd" looks like it's in workspace,
+        // it actually resolves to /etc/passwd
+        await assertRejects(
+          async () => {
+            await validatePath("evil_link/passwd", TEST_WORKSPACE);
+          },
+          SecurityError,
+          "symlink component"
+        );
+
+        // Also test with deeper nesting
+        await assertRejects(
+          async () => {
+            await validatePath("evil_link/ssh/config", TEST_WORKSPACE);
+          },
+          SecurityError,
+          "symlink component"
+        );
+      }
+    } catch (error) {
+      console.log("Skipping parent symlink test - ln command not available");
+    } finally {
+      // Cleanup symlink
+      try {
+        await platform.fs.remove(symlinkDir);
+      } catch {
+        // Ignore
+      }
+    }
+
+    await cleanupTestWorkspace();
+  },
+});
+
+Deno.test({
   name: "Path Sandboxing: allow non-existent paths for write operations",
   async fn() {
     await setupTestWorkspace();

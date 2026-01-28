@@ -56,62 +56,96 @@ export class SecurityError extends Error {
  * await validatePath("./symlink", "/project");            // Symlink
  * ```
  */
+/**
+ * Validates that a path is within workspace and doesn't escape via symlinks.
+ *
+ * EDGE CASE: Parent-chain validation for non-existent paths
+ * - When validating /workspace/new/file.ts where 'new/' doesn't exist yet:
+ *   1. Split path into components: ['new', 'file.ts']
+ *   2. For each component, check if it exists
+ *   3. If component doesn't exist (like 'new/' or 'file.ts'):
+ *      - SKIP lstat check (file doesn't exist, can't be a symlink)
+ *      - Continue to parent validation
+ *   4. If component DOES exist:
+ *      - Use lstat() to check if it's a symlink
+ *      - If symlink: throw SecurityError (potential escape)
+ *   5. Validate all existing parents in the chain
+ *
+ * This allows write_file to create NEW files/dirs while still preventing
+ * symlink escapes through existing parent directories.
+ *
+ * @throws SecurityError if path escapes workspace or contains symlinks
+ */
 export async function validatePath(
   path: string,
   workspaceRoot: string
 ): Promise<string> {
   const platform = getPlatform();
 
-  // 1. Resolve to normalized absolute path
-  // This handles relative paths, '.', '..', and normalizes separators
-  const normalized = platform.path.resolve(workspaceRoot, path);
+  // 1. Normalize paths
+  const normalizedPath = platform.path.resolve(workspaceRoot, path);
+  const normalizedWorkspace = platform.path.resolve(workspaceRoot);
 
-  // 2. Check if path exists and if it's a symlink (reject for security)
-  // Symlinks can escape workspace boundaries, so we reject them entirely
-  try {
-    const stat = await platform.fs.stat(normalized);
-    if (stat.isSymlink) {
-      throw new SecurityError(
-        `Symlinks not allowed for security: ${path}`,
-        normalized
-      );
-    }
-  } catch (error) {
-    // If stat fails, path doesn't exist yet - that's OK for write operations
-    // Only re-throw if it's our SecurityError
-    if (error instanceof SecurityError) {
-      throw error;
-    }
-    // For other errors (e.g., ENOENT), continue - we'll validate the parent
-    // This allows creating new files within workspace
-  }
+  // 2. Check if path is within workspace (with proper boundary check)
+  const workspaceWithSep = normalizedWorkspace.endsWith("/")
+    ? normalizedWorkspace
+    : normalizedWorkspace + "/";
 
-  // 3. Verify path is within workspace (with proper boundary check)
-  // Important: must handle the case where normalized === rootNormalized
-  // (e.g., validatePath(".", "/workspace") should succeed)
-  const rootNormalized = platform.path.resolve(workspaceRoot);
-
-  // Add trailing separator to root for proper boundary checking
-  // Example: "/workspace" -> "/workspace/"
-  // This ensures "/workspace-other/file" doesn't match
-  const rootWithSep = rootNormalized.endsWith("/")
-    ? rootNormalized
-    : rootNormalized + "/";
-
-  // Check if path is within workspace:
-  // - Exact match: normalized === rootNormalized (e.g., "." resolves to root)
-  // - Prefix match: normalized starts with rootWithSep
   const isWithinWorkspace =
-    normalized === rootNormalized || normalized.startsWith(rootWithSep);
+    normalizedPath === normalizedWorkspace ||
+    normalizedPath.startsWith(workspaceWithSep);
 
   if (!isWithinWorkspace) {
     throw new SecurityError(
       `Path escapes workspace boundary: ${path}`,
-      normalized
+      normalizedPath
     );
   }
 
-  return normalized;
+  // 3. Validate each component in the path for symlinks
+  // Get relative path from workspace and split into components
+  const relativePath = platform.path.relative(
+    normalizedWorkspace,
+    normalizedPath
+  );
+
+  // If path is exactly the workspace root, no components to check
+  if (relativePath === "" || relativePath === ".") {
+    return normalizedPath;
+  }
+
+  const components = relativePath.split(platform.path.sep);
+
+  // Validate each component in the path chain
+  let currentPath = normalizedWorkspace;
+  for (const component of components) {
+    currentPath = platform.path.join(currentPath, component);
+
+    // CRITICAL: Check if this component exists
+    let exists = false;
+    try {
+      await platform.fs.lstat(currentPath); // Use lstat (doesn't follow symlinks)
+      exists = true;
+    } catch (_error) {
+      // Component doesn't exist - this is OK (user might be creating new file/dir)
+      // Skip symlink check for non-existent components
+      exists = false;
+    }
+
+    if (exists) {
+      // Component exists - check if it's a symlink using lstat
+      const info = await platform.fs.lstat(currentPath);
+      if (info.isSymlink) {
+        throw new SecurityError(
+          `Path contains symlink component: ${component}`,
+          currentPath
+        );
+      }
+    }
+    // If component doesn't exist, continue to check remaining parents
+  }
+
+  return normalizedPath;
 }
 
 /**

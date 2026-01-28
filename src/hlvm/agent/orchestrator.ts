@@ -29,6 +29,26 @@ export interface ToolCall {
   args: Record<string, unknown>;
 }
 
+/** Parse error from tool call extraction */
+export interface ParseError {
+  /** Type of parse error */
+  type: "json_parse" | "invalid_structure" | "unclosed_block" | "too_many_calls";
+  /** Human-readable error message */
+  message: string;
+  /** Line number where error occurred (if applicable) */
+  line?: number;
+  /** The invalid JSON that failed to parse (if applicable) */
+  json?: string;
+}
+
+/** Result of parsing tool calls from agent response */
+export interface ParseResult {
+  /** Successfully parsed tool calls */
+  calls: ToolCall[];
+  /** Parse errors encountered */
+  errors: ParseError[];
+}
+
 /** Result of tool execution */
 export interface ToolExecutionResult {
   success: boolean;
@@ -64,6 +84,8 @@ export interface OrchestratorConfig {
   toolTimeout?: number;
   /** Maximum retries for LLM calls (default: 3) */
   maxRetries?: number;
+  /** Continue executing remaining tool calls even if one fails (default: true) */
+  continueOnError?: boolean;
 }
 
 /** Tool call envelope constants */
@@ -86,8 +108,12 @@ const TOOL_CALL_END = "END_TOOL_CALL";
  *
  * Supports multiple tool calls in single response.
  *
+ * Returns both successfully parsed calls AND any errors encountered.
+ * Errors are reported back to LLM to prevent hallucination (Issues #2, #3).
+ *
  * @param response Agent response text
- * @returns Array of parsed tool calls
+ * @param maxToolCalls Maximum allowed tool calls per turn (default: 10)
+ * @returns Parse result with calls and errors
  *
  * @example
  * ```ts
@@ -96,32 +122,36 @@ const TOOL_CALL_END = "END_TOOL_CALL";
  * {"toolName": "read_file", "args": {"path": "src/main.ts"}}
  * END_TOOL_CALL`;
  *
- * const calls = parseToolCalls(response);
- * // Returns: [{ toolName: "read_file", args: { path: "src/main.ts" } }]
+ * const result = parseToolCalls(response, 10);
+ * // Returns: { calls: [...], errors: [] }
  * ```
  */
-export function parseToolCalls(response: string): ToolCall[] {
+export function parseToolCalls(response: string, maxToolCalls: number = 10): ParseResult {
   const calls: ToolCall[] = [];
+  const errors: ParseError[] = [];
 
   // Find all TOOL_CALL...END_TOOL_CALL blocks
   const lines = response.split("\n");
   let inToolCall = false;
   let jsonLines: string[] = [];
+  let toolCallStartLine = -1;
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimmed = line.trim();
 
     if (trimmed === TOOL_CALL_START) {
       inToolCall = true;
       jsonLines = [];
+      toolCallStartLine = i + 1; // Line number (1-indexed)
       continue;
     }
 
     if (trimmed === TOOL_CALL_END) {
       if (inToolCall && jsonLines.length > 0) {
         // Parse JSON
+        const json = jsonLines.join("\n");
         try {
-          const json = jsonLines.join("\n");
           const parsed = JSON.parse(json);
 
           // Validate structure
@@ -137,14 +167,30 @@ export function parseToolCalls(response: string): ToolCall[] {
               toolName: parsed.toolName,
               args: parsed.args as Record<string, unknown>,
             });
+          } else {
+            // Invalid structure - Issue #2
+            errors.push({
+              type: "invalid_structure",
+              message: `Tool call has invalid structure. Expected: {"toolName": "string", "args": {...}}. Got: ${json}`,
+              line: toolCallStartLine,
+              json: json,
+            });
           }
-        } catch {
-          // Skip invalid JSON
+        } catch (parseError) {
+          // JSON parse failed - Issue #2
+          const errorMsg = parseError instanceof Error ? parseError.message : String(parseError);
+          errors.push({
+            type: "json_parse",
+            message: `Invalid JSON in tool call: ${errorMsg}`,
+            line: toolCallStartLine,
+            json: json,
+          });
         }
       }
 
       inToolCall = false;
       jsonLines = [];
+      toolCallStartLine = -1;
       continue;
     }
 
@@ -153,7 +199,26 @@ export function parseToolCalls(response: string): ToolCall[] {
     }
   }
 
-  return calls;
+  // Check for unclosed TOOL_CALL block - Issue #3
+  if (inToolCall && jsonLines.length > 0) {
+    const json = jsonLines.join("\n");
+    errors.push({
+      type: "unclosed_block",
+      message: `Tool call block not closed. Missing END_TOOL_CALL after line ${toolCallStartLine}.`,
+      line: toolCallStartLine,
+      json: json,
+    });
+  }
+
+  // Check for too many tool calls - Issue #8
+  if (calls.length > maxToolCalls) {
+    errors.push({
+      type: "too_many_calls",
+      message: `You generated ${calls.length} tool calls, but the limit is ${maxToolCalls}. Only the first ${maxToolCalls} will be executed.`,
+    });
+  }
+
+  return { calls, errors };
 }
 
 /**
@@ -319,13 +384,14 @@ export async function executeToolCalls(
   config: OrchestratorConfig,
 ): Promise<ToolExecutionResult[]> {
   const results: ToolExecutionResult[] = [];
+  const continueOnError = config.continueOnError ?? true; // Default: continue
 
   for (const call of toolCalls) {
     const result = await executeToolCall(call, config);
     results.push(result);
 
-    // Stop on first error (optional - could continue)
-    if (!result.success) {
+    // Stop on first error only if continueOnError is false
+    if (!result.success && !continueOnError) {
       break;
     }
   }
@@ -377,6 +443,7 @@ export async function processAgentResponse(
 ): Promise<{
   toolCallsMade: number;
   results: ToolExecutionResult[];
+  toolCalls: ToolCall[]; // Added for per-tool denial tracking (Issue #6)
   shouldContinue: boolean;
 }> {
   // Add agent response to context
@@ -385,28 +452,48 @@ export async function processAgentResponse(
     content: agentResponse,
   });
 
-  // Parse tool calls
-  const toolCalls = parseToolCalls(agentResponse);
+  // Parse tool calls - Issues #2, #3, #8: Now returns errors too
+  const maxCalls = config.maxToolCalls ?? 10;
+  const parseResult = parseToolCalls(agentResponse, maxCalls);
+  const { calls: toolCalls, errors: parseErrors } = parseResult;
 
-  // No tool calls = agent finished
+  // Report parse errors to LLM with self-teaching examples (Issue #10)
+  if (parseErrors.length > 0) {
+    for (const error of parseErrors) {
+      let errorMsg = `❌ Parse Error${error.line ? ` (line ${error.line})` : ""}: ${error.message}`;
+
+      // Add self-teaching protocol based on error type
+      if (error.type === "json_parse") {
+        errorMsg += `\n\n**Your JSON:**\n${error.json}\n\n**Correct Format:**\nTOOL_CALL\n{"toolName": "tool_name", "args": {...}}\nEND_TOOL_CALL\n\n**Common JSON errors:**\n- Missing closing brace }\n- Extra comma after last property\n- Unescaped quotes in strings\n- Single quotes instead of double quotes`;
+      } else if (error.type === "invalid_structure") {
+        errorMsg += `\n\n**Your JSON:**\n${error.json}\n\n**Correct Format:**\n{"toolName": "string", "args": {...}}\n\n**Required:**\n- "toolName" must be a string\n- "args" must be an object {...}\n- No extra fields allowed`;
+      } else if (error.type === "unclosed_block") {
+        errorMsg += `\n\n**Your incomplete block:**\n${error.json}\n\n**You forgot END_TOOL_CALL!**\n\nCorrect format:\nTOOL_CALL\n{"toolName": "tool_name", "args": {...}}\nEND_TOOL_CALL  ← Don't forget this!`;
+      } else if (error.type === "too_many_calls") {
+        errorMsg += `\n\n**Best Practices:**\n- Use 1-3 tool calls per turn for better control\n- Break complex tasks into multiple turns\n- Chain dependent operations: read → analyze → write\n- If you need more operations, complete current batch first`;
+      }
+
+      config.context.addMessage({
+        role: "tool",
+        content: errorMsg,
+      });
+    }
+  }
+
+  // No tool calls = agent finished (or all failed to parse)
   if (toolCalls.length === 0) {
+    // If there were parse errors, continue to let LLM fix them
+    // Otherwise, agent is done
     return {
       toolCallsMade: 0,
       results: [],
-      shouldContinue: false,
+      toolCalls: [],
+      shouldContinue: parseErrors.length > 0,
     };
   }
 
-  // Limit tool calls per turn
-  const maxCalls = config.maxToolCalls ?? 10;
+  // Limit tool calls per turn (warning already reported at parse time)
   const limitedCalls = toolCalls.slice(0, maxCalls);
-
-  if (toolCalls.length > maxCalls) {
-    config.context.addMessage({
-      role: "tool",
-      content: `Warning: Too many tool calls (${toolCalls.length}). Limiting to ${maxCalls}.`,
-    });
-  }
 
   // Execute tool calls
   const results = await executeToolCalls(limitedCalls, config);
@@ -433,6 +520,7 @@ export async function processAgentResponse(
   return {
     toolCallsMade: results.length,
     results,
+    toolCalls: limitedCalls, // Return executed tool calls for denial tracking
     shouldContinue: true, // Always continue after tool calls
   };
 }
@@ -586,8 +674,8 @@ export async function runReActLoop(
   let iterations = 0;
   const maxIterations = 20; // Prevent infinite loops
 
-  // Denial tracking (stateful in loop)
-  let consecutiveDenials = 0;
+  // Denial tracking - per tool (Issue #6)
+  const denialCountByTool = new Map<string, number>();
   const maxDenials = config.maxDenials ?? 3;
 
   // Timeout/retry configuration
@@ -634,28 +722,45 @@ export async function runReActLoop(
       return agentResponse;
     }
 
-    // Check for denied tool calls
-    const anyDenied = result.results.some(
-      (r) => !r.success && r.error?.includes("denied"),
-    );
+    // Check for denied tool calls - per-tool tracking (Issue #6)
+    let anyDeniedThisTurn = false;
 
-    if (anyDenied) {
-      consecutiveDenials++;
+    for (let i = 0; i < result.results.length; i++) {
+      const toolName = result.toolCalls[i].toolName;
+      const toolResult = result.results[i];
 
-      if (consecutiveDenials >= maxDenials) {
-        // Stop and suggest ask_user
-        config.context.addMessage({
-          role: "tool",
-          content: `Maximum denials (${maxDenials}) reached. Consider using ask_user tool to clarify requirements or rephrase the task.`,
-        });
+      if (!toolResult.success && toolResult.error?.includes("denied")) {
+        anyDeniedThisTurn = true;
+        const currentCount = denialCountByTool.get(toolName) || 0;
+        denialCountByTool.set(toolName, currentCount + 1);
 
-        // Give agent one final chance to use ask_user
-        const finalResponse = await llmFunction(config.context.getMessages());
-        return finalResponse;
+        // Check if this specific tool reached the limit
+        if (denialCountByTool.get(toolName)! >= maxDenials) {
+          config.context.addMessage({
+            role: "tool",
+            content: `Maximum denials (${maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
+          });
+        }
       }
-    } else {
-      // Reset counter on successful tool execution
-      consecutiveDenials = 0;
+    }
+
+    if (!anyDeniedThisTurn) {
+      // Reset ALL denial counts if no denials this turn (matches old behavior)
+      // This allows agent to recover after using non-denied tools
+      denialCountByTool.clear();
+    }
+
+    // Check if ALL tools in this turn were denied AND at max denials
+    const allToolsBlocked = result.toolCalls.every((call) => {
+      const count = denialCountByTool.get(call.toolName) || 0;
+      return count >= maxDenials;
+    });
+
+    if (anyDeniedThisTurn && allToolsBlocked && result.toolCalls.length > 0) {
+      // Agent is stuck - all attempted tools are blocked
+      // Give one final chance to use ask_user or different tool
+      const finalResponse = await llmFunction(config.context.getMessages());
+      return finalResponse;
     }
 
     // If any tool failed, agent might want to retry or give up

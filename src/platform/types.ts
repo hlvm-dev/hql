@@ -119,6 +119,8 @@ export interface PlatformFs {
   // File info operations
   stat(path: string): Promise<PlatformFileInfo>;
   statSync(path: string): PlatformFileInfo;
+  lstat(path: string): Promise<PlatformFileInfo>; // Like stat, but doesn't follow symlinks
+  lstatSync(path: string): PlatformFileInfo; // Like statSync, but doesn't follow symlinks
   exists(path: string): Promise<boolean>;
 
   // Directory operations
@@ -141,6 +143,8 @@ export interface PlatformFs {
 // =============================================================================
 
 export interface PlatformPath {
+  /** Platform-specific path segment separator (e.g., '/' on Unix, '\\' on Windows) */
+  readonly sep: string;
   join(...segments: string[]): string;
   dirname(path: string): string;
   basename(path: string, ext?: string): string;

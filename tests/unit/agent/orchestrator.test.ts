@@ -32,10 +32,11 @@ TOOL_CALL
 {"toolName": "read_file", "args": {"path": "src/main.ts"}}
 END_TOOL_CALL`;
 
-    const calls = parseToolCalls(response);
-    assertEquals(calls.length, 1);
-    assertEquals(calls[0].toolName, "read_file");
-    assertEquals(calls[0].args.path, "src/main.ts");
+    const result = parseToolCalls(response);
+    assertEquals(result.calls.length, 1);
+    assertEquals(result.errors.length, 0);
+    assertEquals(result.calls[0].toolName, "read_file");
+    assertEquals(result.calls[0].args.path, "src/main.ts");
   },
 });
 
@@ -52,10 +53,11 @@ TOOL_CALL
 {"toolName": "read_file", "args": {"path": "src/main.ts"}}
 END_TOOL_CALL`;
 
-    const calls = parseToolCalls(response);
-    assertEquals(calls.length, 2);
-    assertEquals(calls[0].toolName, "search_code");
-    assertEquals(calls[1].toolName, "read_file");
+    const result = parseToolCalls(response);
+    assertEquals(result.calls.length, 2);
+    assertEquals(result.errors.length, 0);
+    assertEquals(result.calls[0].toolName, "search_code");
+    assertEquals(result.calls[1].toolName, "read_file");
   },
 });
 
@@ -63,55 +65,64 @@ Deno.test({
   name: "Orchestrator: parseToolCalls - no tool calls",
   fn() {
     const response = "Here is my analysis of the code...";
-    const calls = parseToolCalls(response);
-    assertEquals(calls.length, 0);
+    const result = parseToolCalls(response);
+    assertEquals(result.calls.length, 0);
+    assertEquals(result.errors.length, 0);
   },
 });
 
 Deno.test({
-  name: "Orchestrator: parseToolCalls - invalid JSON ignored",
+  name: "Orchestrator: parseToolCalls - invalid JSON reports error",
   fn() {
     const response = `
 TOOL_CALL
 {invalid json}
 END_TOOL_CALL`;
 
-    const calls = parseToolCalls(response);
-    assertEquals(calls.length, 0);
+    const result = parseToolCalls(response);
+    assertEquals(result.calls.length, 0);
+    assertEquals(result.errors.length, 1);
+    assertEquals(result.errors[0].type, "json_parse");
   },
 });
 
 Deno.test({
-  name: "Orchestrator: parseToolCalls - incomplete envelope ignored",
+  name: "Orchestrator: parseToolCalls - incomplete envelope reports error",
   fn() {
     const response = `
 TOOL_CALL
 {"toolName": "read_file", "args": {"path": "test.ts"}}
 `;
 
-    const calls = parseToolCalls(response);
-    assertEquals(calls.length, 0); // No END_TOOL_CALL
+    const result = parseToolCalls(response);
+    assertEquals(result.calls.length, 0); // No END_TOOL_CALL
+    assertEquals(result.errors.length, 1);
+    assertEquals(result.errors[0].type, "unclosed_block");
   },
 });
 
 Deno.test({
-  name: "Orchestrator: parseToolCalls - missing fields ignored",
+  name: "Orchestrator: parseToolCalls - missing fields reports errors",
   fn() {
     const response1 = `
 TOOL_CALL
 {"args": {"path": "test.ts"}}
 END_TOOL_CALL`;
 
-    const calls1 = parseToolCalls(response1);
-    assertEquals(calls1.length, 0); // No toolName
+    const result1 = parseToolCalls(response1);
+    assertEquals(result1.calls.length, 0); // No toolName
+    assertEquals(result1.errors.length, 1);
+    assertEquals(result1.errors[0].type, "invalid_structure");
 
     const response2 = `
 TOOL_CALL
 {"toolName": "read_file"}
 END_TOOL_CALL`;
 
-    const calls2 = parseToolCalls(response2);
-    assertEquals(calls2.length, 0); // No args
+    const result2 = parseToolCalls(response2);
+    assertEquals(result2.calls.length, 0); // No args
+    assertEquals(result2.errors.length, 1);
+    assertEquals(result2.errors[0].type, "invalid_structure");
   },
 });
 
@@ -129,10 +140,11 @@ TOOL_CALL
 }
 END_TOOL_CALL`;
 
-    const calls = parseToolCalls(response);
-    assertEquals(calls.length, 1);
-    assertEquals(calls[0].toolName, "write_file");
-    assertEquals(calls[0].args.path, "src/main.ts");
+    const result = parseToolCalls(response);
+    assertEquals(result.calls.length, 1);
+    assertEquals(result.errors.length, 0);
+    assertEquals(result.calls[0].toolName, "write_file");
+    assertEquals(result.calls[0].args.path, "src/main.ts");
   },
 });
 
@@ -154,9 +166,10 @@ Deno.test({
     assertEquals(formatted.includes("read_file"), true);
 
     // Should be parseable
-    const parsed = parseToolCalls(formatted);
-    assertEquals(parsed.length, 1);
-    assertEquals(parsed[0].toolName, "read_file");
+    const result = parseToolCalls(formatted);
+    assertEquals(result.calls.length, 1);
+    assertEquals(result.errors.length, 0);
+    assertEquals(result.calls[0].toolName, "read_file");
   },
 });
 
@@ -284,7 +297,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: executeToolCalls - stop on error",
+  name: "Orchestrator: executeToolCalls - stop on error (continueOnError: false)",
   async fn() {
     clearAllL1Confirmations();
 
@@ -298,10 +311,35 @@ Deno.test({
       workspace: TEST_WORKSPACE,
       context,
       autoApprove: true,
+      continueOnError: false, // Explicitly stop on error
     });
 
     assertEquals(results.length, 1); // Stopped after first error
     assertEquals(results[0].success, false);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCalls - continue on error (default behavior)",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    const calls: ToolCall[] = [
+      { toolName: "unknown_tool", args: {} }, // This will fail
+      { toolName: "search_code", args: { pattern: "test" } }, // Should still execute
+    ];
+
+    const results = await executeToolCalls(calls, {
+      workspace: TEST_WORKSPACE,
+      context,
+      autoApprove: true,
+      // continueOnError defaults to true
+    });
+
+    assertEquals(results.length, 2); // Both executed
+    assertEquals(results[0].success, false); // First failed
+    assertEquals(results[1].success, true); // Second succeeded
   },
 });
 
@@ -539,8 +577,9 @@ Deno.test({
   END_TOOL_CALL
 `;
 
-    const calls = parseToolCalls(response);
-    assertEquals(calls.length, 1);
+    const result = parseToolCalls(response);
+    assertEquals(result.calls.length, 1);
+    assertEquals(result.errors.length, 0);
   },
 });
 

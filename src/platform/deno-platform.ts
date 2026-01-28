@@ -155,6 +155,24 @@ const DenoFs: PlatformFs = {
       size: info.size ?? 0,
     };
   },
+  lstat: async (path: string): Promise<PlatformFileInfo> => {
+    const info = await Deno.lstat(path); // lstat doesn't follow symlinks
+    return {
+      isFile: info.isFile,
+      isDirectory: info.isDirectory,
+      isSymlink: info.isSymlink,
+      size: info.size ?? 0,
+    };
+  },
+  lstatSync: (path: string): PlatformFileInfo => {
+    const info = Deno.lstatSync(path); // lstat doesn't follow symlinks
+    return {
+      isFile: info.isFile,
+      isDirectory: info.isDirectory,
+      isSymlink: info.isSymlink,
+      size: info.size ?? 0,
+    };
+  },
   exists: async (path: string): Promise<boolean> => {
     return await denoExists(path);
   },
@@ -208,6 +226,7 @@ const DenoFs: PlatformFs = {
 // =============================================================================
 
 const DenoPath: PlatformPath = {
+  sep: nodePath.sep,
   join: (...segments: string[]): string => nodePath.join(...segments),
   dirname: (path: string): string => nodePath.dirname(path),
   basename: (path: string, ext?: string): string => nodePath.basename(path, ext),

@@ -142,33 +142,38 @@ Deno.test({
   name: "Safety: L1 confirmation - initially empty",
   fn() {
     clearAllL1Confirmations();
-    assertEquals(hasL1Confirmation("shell_exec"), false);
+    assertEquals(hasL1Confirmation("shell_exec", { command: "git status" }), false);
   },
 });
 
 Deno.test({
-  name: "Safety: L1 confirmation - set and check",
+  name: "Safety: L1 confirmation - set and check (per-args)",
   fn() {
     clearAllL1Confirmations();
 
-    setL1Confirmation("shell_exec");
-    assertEquals(hasL1Confirmation("shell_exec"), true);
+    const args1 = { command: "git status" };
+    setL1Confirmation("shell_exec", args1);
+    assertEquals(hasL1Confirmation("shell_exec", args1), true);
 
     // Other tools still not confirmed
-    assertEquals(hasL1Confirmation("other_tool"), false);
+    assertEquals(hasL1Confirmation("other_tool", {}), false);
+
+    // Same tool with different args NOT confirmed (per-args behavior)
+    assertEquals(hasL1Confirmation("shell_exec", { command: "git log" }), false);
   },
 });
 
 Deno.test({
-  name: "Safety: L1 confirmation - clear single",
+  name: "Safety: L1 confirmation - clear single (per-args)",
   fn() {
     clearAllL1Confirmations();
 
-    setL1Confirmation("shell_exec");
-    assertEquals(hasL1Confirmation("shell_exec"), true);
+    const args = { command: "git status" };
+    setL1Confirmation("shell_exec", args);
+    assertEquals(hasL1Confirmation("shell_exec", args), true);
 
-    clearL1Confirmation("shell_exec");
-    assertEquals(hasL1Confirmation("shell_exec"), false);
+    clearL1Confirmation("shell_exec", args);
+    assertEquals(hasL1Confirmation("shell_exec", args), false);
   },
 });
 
@@ -177,19 +182,23 @@ Deno.test({
   fn() {
     clearAllL1Confirmations();
 
-    setL1Confirmation("tool1");
-    setL1Confirmation("tool2");
-    setL1Confirmation("tool3");
+    const args1 = { id: 1 };
+    const args2 = { id: 2 };
+    const args3 = { id: 3 };
 
-    assertEquals(hasL1Confirmation("tool1"), true);
-    assertEquals(hasL1Confirmation("tool2"), true);
-    assertEquals(hasL1Confirmation("tool3"), true);
+    setL1Confirmation("tool1", args1);
+    setL1Confirmation("tool2", args2);
+    setL1Confirmation("tool3", args3);
+
+    assertEquals(hasL1Confirmation("tool1", args1), true);
+    assertEquals(hasL1Confirmation("tool2", args2), true);
+    assertEquals(hasL1Confirmation("tool3", args3), true);
 
     clearAllL1Confirmations();
 
-    assertEquals(hasL1Confirmation("tool1"), false);
-    assertEquals(hasL1Confirmation("tool2"), false);
-    assertEquals(hasL1Confirmation("tool3"), false);
+    assertEquals(hasL1Confirmation("tool1", args1), false);
+    assertEquals(hasL1Confirmation("tool2", args2), false);
+    assertEquals(hasL1Confirmation("tool3", args3), false);
   },
 });
 
@@ -198,13 +207,17 @@ Deno.test({
   fn() {
     clearAllL1Confirmations();
 
-    setL1Confirmation("tool1");
-    setL1Confirmation("tool2");
+    const args1 = { id: 1 };
+    const args2 = { id: 2 };
+
+    setL1Confirmation("tool1", args1);
+    setL1Confirmation("tool2", args2);
 
     const all = getAllL1Confirmations();
     assertEquals(all.size, 2);
-    assertEquals(all.get("tool1"), true);
-    assertEquals(all.get("tool2"), true);
+    // Keys now include tool name + args
+    assertEquals(all.get('tool1:{"id":1}'), true);
+    assertEquals(all.get('tool2:{"id":2}'), true);
   },
 });
 
@@ -213,7 +226,7 @@ Deno.test({
   fn() {
     clearAllL1Confirmations();
 
-    setL1Confirmation("tool1");
+    setL1Confirmation("tool1", { id: 1 });
 
     const all1 = getAllL1Confirmations();
     const all2 = getAllL1Confirmations();
@@ -275,17 +288,19 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Safety: checkToolSafety - L1 uses confirmation cache",
+  name: "Safety: checkToolSafety - L1 uses confirmation cache (per-args)",
   async fn() {
     clearAllL1Confirmations();
 
-    // Set L1 confirmation
-    setL1Confirmation("shell_exec");
+    const args = { command: "git status" };
+
+    // Set L1 confirmation for specific args
+    setL1Confirmation("shell_exec", args);
 
     // Should be approved without prompt (using cache)
     const result = await checkToolSafety(
       "shell_exec",
-      { command: "git status" },
+      args,
       false,
     );
     assertEquals(result, true);
@@ -353,20 +368,23 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Safety: L1 confirmation - multiple tools independent",
+  name: "Safety: L1 confirmation - multiple tools independent (per-args)",
   fn() {
     clearAllL1Confirmations();
 
-    setL1Confirmation("tool1");
-    setL1Confirmation("tool2");
+    const args1 = { id: 1 };
+    const args2 = { id: 2 };
 
-    assertEquals(hasL1Confirmation("tool1"), true);
-    assertEquals(hasL1Confirmation("tool2"), true);
+    setL1Confirmation("tool1", args1);
+    setL1Confirmation("tool2", args2);
 
-    clearL1Confirmation("tool1");
+    assertEquals(hasL1Confirmation("tool1", args1), true);
+    assertEquals(hasL1Confirmation("tool2", args2), true);
 
-    assertEquals(hasL1Confirmation("tool1"), false);
-    assertEquals(hasL1Confirmation("tool2"), true);
+    clearL1Confirmation("tool1", args1);
+
+    assertEquals(hasL1Confirmation("tool1", args1), false);
+    assertEquals(hasL1Confirmation("tool2", args2), true);
   },
 });
 

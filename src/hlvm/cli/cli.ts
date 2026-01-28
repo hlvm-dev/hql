@@ -17,6 +17,7 @@ import { upgrade as upgradeCommand, showUpgradeHelp } from "./commands/upgrade.t
 import { aiCommand, showAiHelp } from "./commands/ai.ts";
 import { askCommand, showAskHelp } from "./commands/ask.ts";
 import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
+import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { registerApis } from "../api/index.ts";
 
@@ -24,7 +25,6 @@ import { registerApis } from "../api/index.ts";
 import { run as runCommand } from "./run.ts";
 // Import repl command from Ink REPL
 import { startInkRepl, type InkReplOptions } from "./repl-ink/index.tsx";
-import { startHeadlessRepl } from "./repl/headless.ts";
 import type { SessionInitOptions } from "./repl/session/types.ts";
 import { VERSION } from "../../version.ts";
 
@@ -112,17 +112,6 @@ EXAMPLES:
 
   const jsMode = args.includes("--js");
   const showBanner = !args.includes("--no-banner");
-  const forceInk = args.includes("--ink");
-  const terminal = getPlatform().terminal;
-  const hasTty = typeof terminal.stdin.isTerminal === "function" ? terminal.stdin.isTerminal() : true;
-
-  if (!hasTty) {
-    if (forceInk) {
-      log.raw.error("Error: Requires interactive terminal.");
-      return 1;
-    }
-    return await startHeadlessRepl({ jsMode, showBanner });
-  }
 
   const replOptions: InkReplOptions = {
     jsMode,
@@ -145,6 +134,7 @@ Usage: hlvm <command> [options]
 Commands:
   run <file|expr>    Run an HQL file or expression
   repl               Start interactive REPL
+  serve              Start HTTP REPL server
   compile <file>     Compile HQL to JavaScript or native binary
   init               Initialize a new HLVM project
   publish            Publish an HLVM package
@@ -279,6 +269,14 @@ async function main(): Promise<void> {
         showOllamaHelp();
       } else {
         await ollamaCommand(commandArgs);
+      }
+      break;
+
+    case "serve":
+      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
+        showServeHelp();
+      } else {
+        await serveCommand(commandArgs);
       }
       break;
 
