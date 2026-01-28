@@ -137,6 +137,15 @@ export const MAX_ITERATIONS = 20;
  */
 export const MAX_RETRIES = 3;
 
+/**
+ * Default maximum tool calls per turn
+ *
+ * Used by:
+ * - orchestrator.ts: parseToolCalls + runReActLoop
+ * - cli/ask.ts: default max-calls
+ */
+export const DEFAULT_MAX_TOOL_CALLS = 10;
+
 // ============================================================
 // Resource Limits
 // ============================================================
@@ -185,6 +194,53 @@ export const RATE_LIMITS = {
   /** Max tool calls per minute */
   toolCalls: { maxCalls: 120, windowMs: 60_000 },
 } as const;
+
+// ============================================================
+// Context Defaults + Engine Profiles
+// ============================================================
+
+/**
+ * Default context configuration
+ *
+ * Used by:
+ * - context.ts: ContextManager defaults
+ */
+export const DEFAULT_CONTEXT_CONFIG = {
+  maxTokens: 12000,
+  maxResultLength: 5000,
+  preserveSystem: true,
+  minMessages: 2,
+  overflowStrategy: "trim",
+  summaryMaxChars: 1200,
+  summaryKeepRecent: 4,
+} as const;
+
+/**
+ * Engine profiles for deterministic behavior
+ *
+ * Used by:
+ * - cli/ask.ts: --engine-strict and default profile
+ */
+export const ENGINE_PROFILES = {
+  normal: {
+    maxToolCalls: DEFAULT_MAX_TOOL_CALLS,
+    groundingMode: "off",
+    context: {
+      maxTokens: 8000,
+      overflowStrategy: "trim",
+    },
+  },
+  strict: {
+    maxToolCalls: 5,
+    groundingMode: "strict",
+    context: {
+      maxTokens: 4000,
+      overflowStrategy: "fail",
+    },
+  },
+} as const;
+
+export type EngineProfileName = keyof typeof ENGINE_PROFILES;
 
 // ============================================================
 // Type Exports

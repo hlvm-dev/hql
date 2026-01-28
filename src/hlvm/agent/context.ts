@@ -14,6 +14,8 @@
  * - SSOT-compliant implementation
  */
 
+import { DEFAULT_CONTEXT_CONFIG } from "./constants.ts";
+
 // ============================================================
 // Types
 // ============================================================
@@ -96,13 +98,8 @@ export class ContextManager {
 
   constructor(config?: Partial<ContextConfig>) {
     this.config = {
-      maxTokens: config?.maxTokens ?? 12000,
-      maxResultLength: config?.maxResultLength ?? 5000,
-      preserveSystem: config?.preserveSystem ?? true,
-      minMessages: config?.minMessages ?? 2,
-      overflowStrategy: config?.overflowStrategy ?? "trim",
-      summaryMaxChars: config?.summaryMaxChars ?? 1200,
-      summaryKeepRecent: config?.summaryKeepRecent ?? 4,
+      ...DEFAULT_CONTEXT_CONFIG,
+      ...config,
     };
   }
 

@@ -20,6 +20,7 @@ import { checkToolSafety } from "./security/safety.ts";
 import { ContextManager, ContextOverflowError, type Message } from "./context.ts";
 import {
   DEFAULT_TIMEOUTS,
+  DEFAULT_MAX_TOOL_CALLS,
   MAX_ITERATIONS,
   MAX_RETRIES,
   RATE_LIMITS,
@@ -32,6 +33,7 @@ import {
   type RateLimitConfig,
 } from "../../common/rate-limiter.ts";
 import { assertMaxBytes } from "../../common/limits.ts";
+import { isObjectValue } from "../../common/utils.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
 import { classifyError } from "./error-taxonomy.ts";
@@ -212,7 +214,10 @@ function createRateLimiter(
  * // Returns: { calls: [...], errors: [] }
  * ```
  */
-export function parseToolCalls(response: string, maxToolCalls: number = 10): ParseResult {
+export function parseToolCalls(
+  response: string,
+  maxToolCalls: number = DEFAULT_MAX_TOOL_CALLS,
+): ParseResult {
   const calls: ToolCall[] = [];
   const errors: ParseError[] = [];
 
@@ -242,13 +247,11 @@ export function parseToolCalls(response: string, maxToolCalls: number = 10): Par
 
           // Validate structure
           if (
-            typeof parsed === "object" &&
-            parsed !== null &&
+            isObjectValue(parsed) &&
             "toolName" in parsed &&
             "args" in parsed &&
             typeof parsed.toolName === "string" &&
-            typeof parsed.args === "object" &&
-            parsed.args !== null && // Reject null args (typeof null === "object" in JS!)
+            isObjectValue(parsed.args) &&
             !Array.isArray(parsed.args) // Reject array args
           ) {
             calls.push({
@@ -570,7 +573,7 @@ export async function processAgentResponse(
   });
 
   // Parse tool calls - Issues #2, #3, #8: Now returns errors too
-  const maxCalls = config.maxToolCalls ?? 10;
+  const maxCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
   const parseResult = parseToolCalls(agentResponse, maxCalls);
   const { calls: toolCalls, errors: parseErrors } = parseResult;
 

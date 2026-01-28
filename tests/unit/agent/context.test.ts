@@ -11,6 +11,7 @@ import {
   type Message,
   type MessageRole,
 } from "../../../src/hlvm/agent/context.ts";
+import { DEFAULT_CONTEXT_CONFIG } from "../../../src/hlvm/agent/constants.ts";
 
 // ============================================================
 // Basic Message Management tests
@@ -453,12 +454,12 @@ Deno.test({
     const context = new ContextManager();
 
     const config = context.getConfig();
-    assertEquals(config.maxTokens, 12000);
-    assertEquals(config.maxResultLength, 5000);
-    assertEquals(config.preserveSystem, true);
-    assertEquals(config.minMessages, 2);
-    assertEquals(config.overflowStrategy, "trim");
-    assertEquals(config.summaryMaxChars, 1200);
-    assertEquals(config.summaryKeepRecent, 4);
+    assertEquals(config.maxTokens, DEFAULT_CONTEXT_CONFIG.maxTokens);
+    assertEquals(config.maxResultLength, DEFAULT_CONTEXT_CONFIG.maxResultLength);
+    assertEquals(config.preserveSystem, DEFAULT_CONTEXT_CONFIG.preserveSystem);
+    assertEquals(config.minMessages, DEFAULT_CONTEXT_CONFIG.minMessages);
+    assertEquals(config.overflowStrategy, DEFAULT_CONTEXT_CONFIG.overflowStrategy);
+    assertEquals(config.summaryMaxChars, DEFAULT_CONTEXT_CONFIG.summaryMaxChars);
+    assertEquals(config.summaryKeepRecent, DEFAULT_CONTEXT_CONFIG.summaryKeepRecent);
   },
 });

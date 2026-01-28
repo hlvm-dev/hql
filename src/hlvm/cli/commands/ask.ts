@@ -12,6 +12,7 @@ import { ContextManager } from "../../agent/context.ts";
 import { runReActLoop, type TraceEvent } from "../../agent/orchestrator.ts";
 import { createAgentLLM, generateSystemPrompt } from "../../agent/llm-integration.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { DEFAULT_MAX_TOOL_CALLS, ENGINE_PROFILES } from "../../agent/constants.ts";
 import {
   ensureDefaultModelInstalled,
 } from "../../../common/ai-default-model.ts";
@@ -51,7 +52,7 @@ export async function askCommand(args: string[]): Promise<void> {
   // Parse arguments
   let query = "";
   let model: string | undefined;
-  let maxCalls = 10;
+  let maxCalls = DEFAULT_MAX_TOOL_CALLS;
   let maxCallsProvided = false;
   let traceMode = false;
   let failOnContextOverflow = false;
@@ -111,17 +112,19 @@ export async function askCommand(args: string[]): Promise<void> {
     }
   }
 
-  const effectiveFailOnOverflow = failOnContextOverflow || engineStrict;
-  const contextBudget = engineStrict ? 4000 : 8000;
-  if (engineStrict && !maxCallsProvided) {
-    maxCalls = 5;
+  const profile = ENGINE_PROFILES[engineStrict ? "strict" : "normal"];
+  if (!maxCallsProvided) {
+    maxCalls = profile.maxToolCalls;
   }
 
   // Setup context with system prompt
-  const context = new ContextManager({
-    maxTokens: contextBudget,
-    overflowStrategy: effectiveFailOnOverflow ? "fail" : "trim",
-  });
+  const contextConfig = {
+    ...profile.context,
+  };
+  if (failOnContextOverflow) {
+    contextConfig.overflowStrategy = "fail";
+  }
+  const context = new ContextManager(contextConfig);
   context.addMessage({
     role: "system",
     content: generateSystemPrompt(),
@@ -214,7 +217,7 @@ export async function askCommand(args: string[]): Promise<void> {
         context,
         autoApprove: false, // Safety layer auto-approves L0; prompts for L1/L2
         maxToolCalls: maxCalls,
-        groundingMode: engineStrict ? "strict" : "off",
+        groundingMode: profile.groundingMode,
         onTrace, // Pass trace callback
       },
       llm,

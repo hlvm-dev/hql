@@ -16,6 +16,7 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { getTool } from "../registry.ts";
 import { DEFAULT_TIMEOUTS, SHELL_ALLOWLIST_L1 } from "../constants.ts";
+import { isObjectValue } from "../../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -65,7 +66,7 @@ function canonicalizeObject(obj: unknown): unknown {
     return obj.map(canonicalizeObject);
   }
 
-  if (typeof obj === "object") {
+  if (isObjectValue(obj)) {
     const sorted: Record<string, unknown> = {};
     const keys = Object.keys(obj).sort();
     for (const key of keys) {
