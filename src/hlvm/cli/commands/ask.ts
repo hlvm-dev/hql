@@ -13,6 +13,7 @@ import { runReActLoop, type TraceEvent } from "../../agent/orchestrator.ts";
 import { createAgentLLM, generateSystemPrompt } from "../../agent/llm-integration.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { DEFAULT_MAX_TOOL_CALLS, ENGINE_PROFILES } from "../../agent/constants.ts";
+import { loadAgentPolicy } from "../../agent/policy.ts";
 import {
   ensureDefaultModelInstalled,
 } from "../../../common/ai-default-model.ts";
@@ -135,6 +136,7 @@ export async function askCommand(args: string[]): Promise<void> {
 
   // Get workspace
   const workspace = getPlatform().process.cwd();
+  const policy = await loadAgentPolicy(workspace);
 
   // Create trace callback if trace mode enabled
   const onTrace = traceMode
@@ -196,6 +198,11 @@ export async function askCommand(args: string[]): Promise<void> {
             `[TRACE] Resource limit (${event.kind}): ${event.used} > ${event.limit}`,
           );
           break;
+        case "llm_usage":
+          log.raw.log(
+            `[TRACE] LLM usage: ${event.usage.totalTokens} tokens (${event.usage.source})`,
+          );
+          break;
         case "context_overflow":
           log.raw.log(
             `[TRACE] Context overflow: ${event.estimatedTokens} > ${event.maxTokens}`,
@@ -218,6 +225,7 @@ export async function askCommand(args: string[]): Promise<void> {
         autoApprove: false, // Safety layer auto-approves L0; prompts for L1/L2
         maxToolCalls: maxCalls,
         groundingMode: profile.groundingMode,
+        policy,
         onTrace, // Pass trace callback
       },
       llm,

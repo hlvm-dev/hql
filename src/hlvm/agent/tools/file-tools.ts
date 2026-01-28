@@ -16,6 +16,11 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath, SecurityError } from "../security/path-sandbox.ts";
+import {
+  enforcePathPolicy,
+  isPathAllowedAbsolute,
+  type AgentPolicy,
+} from "../policy.ts";
 import { globToRegex, GlobPatternError } from "../../../common/pattern-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import {
@@ -23,6 +28,7 @@ import {
   formatBytes,
   ResourceLimitError,
 } from "../../../common/limits.ts";
+import { throwIfAborted } from "../../../common/timeout-utils.ts";
 
 // ============================================================
 // Types
@@ -112,13 +118,16 @@ export interface ListFilesResult extends FileOperationResult {
  */
 export async function readFile(
   args: ReadFileArgs,
-  workspace: string
+  workspace: string,
+  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
 ): Promise<ReadFileResult> {
   try {
+    throwIfAborted(options?.signal);
     const platform = getPlatform();
 
     // Validate path security
     const validPath = await validatePath(args.path, workspace);
+    enforcePathPolicy(options?.policy ?? null, workspace, validPath, args.path);
 
     // Check if file exists
     const stat = await platform.fs.stat(validPath);
@@ -180,13 +189,16 @@ export async function readFile(
  */
 export async function writeFile(
   args: WriteFileArgs,
-  workspace: string
+  workspace: string,
+  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
 ): Promise<FileOperationResult> {
   try {
+    throwIfAborted(options?.signal);
     const platform = getPlatform();
 
     // Validate path security
     const validPath = await validatePath(args.path, workspace);
+    enforcePathPolicy(options?.policy ?? null, workspace, validPath, args.path);
 
     // Create parent directories if requested
     if (args.createDirs) {
@@ -248,13 +260,16 @@ export async function writeFile(
  */
 export async function editFile(
   args: EditFileArgs,
-  workspace: string
+  workspace: string,
+  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
 ): Promise<EditFileResult> {
   try {
+    throwIfAborted(options?.signal);
     const platform = getPlatform();
 
     // Validate path security
     const validPath = await validatePath(args.path, workspace);
+    enforcePathPolicy(options?.policy ?? null, workspace, validPath, args.path);
 
     // Enforce size limit before reading
     const stat = await platform.fs.stat(validPath);
@@ -266,6 +281,7 @@ export async function editFile(
 
     // Read existing content
     const content = await platform.fs.readTextFile(validPath);
+    throwIfAborted(options?.signal);
 
     // Perform find/replace
     let newContent: string;
@@ -358,13 +374,16 @@ export async function editFile(
  */
 export async function listFiles(
   args: ListFilesArgs,
-  workspace: string
+  workspace: string,
+  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
 ): Promise<ListFilesResult> {
   try {
+    throwIfAborted(options?.signal);
     const platform = getPlatform();
 
     // Validate path security
     const validPath = await validatePath(args.path, workspace);
+    enforcePathPolicy(options?.policy ?? null, workspace, validPath, args.path);
 
     // Check if path exists and is a directory
     const stat = await platform.fs.stat(validPath);
@@ -417,6 +436,7 @@ export async function listFiles(
       }
 
       for await (const entry of platform.fs.readDir(dir)) {
+        throwIfAborted(options?.signal);
         if (entries.length >= maxEntries) {
           return;
         }
@@ -428,7 +448,11 @@ export async function listFiles(
         const entryPath = platform.path.join(dir, entry.name);
         let size: number | undefined;
         try {
-          const entryStat = await platform.fs.stat(entryPath);
+          const entryStat = await platform.fs.lstat(entryPath);
+          if (entryStat.isSymlink) {
+            // Skip symlinks to avoid leaking info outside workspace
+            continue;
+          }
           size = entryStat.isFile ? entryStat.size : undefined;
         } catch {
           // Skip if can't stat
@@ -438,6 +462,12 @@ export async function listFiles(
         // Check pattern match - ONLY for deciding whether to include in results
         // Do NOT block recursion based on pattern!
         const matchesCurrentPattern = matchesPattern(entryRelativePath, entry.name);
+
+        // Enforce policy for this path before including
+        if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, entryPath)) {
+          // Skip disallowed paths entirely
+          continue;
+        }
 
         // Add to results only if matches pattern
         if (matchesCurrentPattern) {
@@ -454,6 +484,10 @@ export async function listFiles(
         // Recurse into directories if recursive mode enabled
         // ALWAYS recurse regardless of pattern match to find nested files
         if (args.recursive && entry.isDirectory) {
+          throwIfAborted(options?.signal);
+          if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, entryPath)) {
+            continue;
+          }
           // CRITICAL: Validate subdirectory isn't a symlink escape
           try {
             await validatePath(entryPath, workspace);

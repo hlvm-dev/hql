@@ -2,7 +2,7 @@
  * Tool Registry - Central registry for all AI agent tools
  *
  * Provides unified access to all tool collections:
- * - File tools (read_file, write_file, list_files, delete_file)
+ * - File tools (read_file, write_file, list_files, edit_file)
  * - Code tools (search_code, find_symbol, get_structure)
  * - Shell tools (shell_exec, shell_script)
  *
@@ -18,6 +18,7 @@ import { CODE_TOOLS } from "./tools/code-tools.ts";
 import { SHELL_TOOLS } from "./tools/shell-tools.ts";
 import { META_TOOLS } from "./tools/meta-tools.ts";
 import { ValidationError } from "../../common/error.ts";
+import type { AgentPolicy } from "./policy.ts";
 
 // ============================================================
 // Types
@@ -26,6 +27,7 @@ import { ValidationError } from "../../common/error.ts";
 /** Optional execution options passed to tools (e.g., cancellation signal) */
 export interface ToolExecutionOptions {
   signal?: AbortSignal;
+  policy?: AgentPolicy | null;
 }
 
 /** Generic tool function signature */

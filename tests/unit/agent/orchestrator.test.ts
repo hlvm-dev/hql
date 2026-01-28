@@ -73,6 +73,29 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: parseToolCalls - JSON tool call object",
+  fn() {
+    const response =
+      `{"toolName":"read_file","args":{"path":"src/main.ts"}}`;
+    const result = parseToolCalls(response);
+    assertEquals(result.calls.length, 1);
+    assertEquals(result.errors.length, 0);
+    assertEquals(result.calls[0].toolName, "read_file");
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: parseToolCalls - JSON tool call in code fence",
+  fn() {
+    const response = "```json\n{\"tool\":\"list_files\",\"args\":{}}\n```";
+    const result = parseToolCalls(response);
+    assertEquals(result.calls.length, 1);
+    assertEquals(result.errors.length, 0);
+    assertEquals(result.calls[0].toolName, "list_files");
+  },
+});
+
+Deno.test({
   name: "Orchestrator: parseToolCalls - invalid JSON reports error",
   fn() {
     const response = `

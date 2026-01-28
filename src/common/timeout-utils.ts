@@ -243,3 +243,19 @@ export function isAbortError(error: unknown): boolean {
 
   return false;
 }
+
+/**
+ * Throw AbortError if signal is already aborted.
+ *
+ * Useful for long-running loops to cooperatively cancel work.
+ */
+export function throwIfAborted(
+  signal?: AbortSignal,
+  message = "Operation aborted",
+): void {
+  if (!signal) return;
+  if (!signal.aborted) return;
+  const error = new Error(message);
+  error.name = "AbortError";
+  throw error;
+}

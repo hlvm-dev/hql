@@ -16,6 +16,11 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath } from "../security/path-sandbox.ts";
 import { parseShellCommand, isSafeCommand, getUnsafeReason } from "../../../common/shell-parser.ts";
 import { SHELL_ALLOWLIST_L1 } from "../constants.ts";
+import {
+  enforcePathPolicy,
+  isNetworkAllowed,
+  type AgentPolicy,
+} from "../policy.ts";
 
 // ============================================================
 // Types
@@ -101,7 +106,7 @@ export function classifyShellCommand(command: string): "L1" | "L2" {
 export async function shellExec(
   args: ShellExecArgs,
   workspace: string,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; policy?: AgentPolicy | null },
 ): Promise<ShellExecResult> {
   try {
     const platform = getPlatform();
@@ -110,6 +115,7 @@ export async function shellExec(
     const workDir = args.cwd
       ? await validatePath(args.cwd, workspace)
       : workspace;
+    enforcePathPolicy(options?.policy ?? null, workspace, workDir, args.cwd ?? ".");
 
     // Classify command for safety level
     const safetyLevel = classifyShellCommand(args.command);
@@ -144,6 +150,23 @@ export async function shellExec(
     }
 
     const cmdArgs = [parsedCommand.program, ...parsedCommand.args];
+
+    // Enforce optional network policy on URL-like args
+    if (options?.policy?.networkRules) {
+      const urls = extractUrlsFromArgs(cmdArgs);
+      for (const url of urls) {
+        if (!isNetworkAllowed(options.policy, url)) {
+          return {
+            success: false,
+            message: `Network access denied by policy: ${url}`,
+            stdout: "",
+            stderr: `Network access denied by policy: ${url}`,
+            exitCode: 1,
+            safetyLevel,
+          };
+        }
+      }
+    }
 
     if (options?.signal?.aborted) {
       const error = new Error("Shell command aborted");
@@ -239,7 +262,7 @@ export async function shellExec(
 export async function shellScript(
   args: ShellScriptArgs,
   workspace: string,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; policy?: AgentPolicy | null },
 ): Promise<ShellScriptResult> {
   const platform = getPlatform();
   let tempDir: string | undefined;
@@ -249,8 +272,25 @@ export async function shellScript(
     const workDir = args.cwd
       ? await validatePath(args.cwd, workspace)
       : workspace;
+    enforcePathPolicy(options?.policy ?? null, workspace, workDir, args.cwd ?? ".");
 
     const interpreter = args.interpreter || "sh";
+
+    // Enforce optional network policy on URLs in script
+    if (options?.policy?.networkRules) {
+      const urls = extractUrlsFromText(args.script);
+      for (const url of urls) {
+        if (!isNetworkAllowed(options.policy, url)) {
+          return {
+            success: false,
+            message: `Network access denied by policy: ${url}`,
+            stdout: "",
+            stderr: `Network access denied by policy: ${url}`,
+            exitCode: 1,
+          };
+        }
+      }
+    }
 
     // Create temp directory for script
     tempDir = await platform.fs.makeTempDir({ prefix: "hlvm-shell-" });
@@ -336,6 +376,24 @@ export async function shellScript(
 // ============================================================
 // Helpers
 // ============================================================
+
+function extractUrlsFromArgs(args: string[]): string[] {
+  const urls: string[] = [];
+  for (const arg of args) {
+    urls.push(...extractUrlsFromText(arg));
+  }
+  return urls;
+}
+
+function extractUrlsFromText(text: string): string[] {
+  const urls: string[] = [];
+  const regex = /https?:\/\/[^\s"'`]+/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    urls.push(match[0]);
+  }
+  return urls;
+}
 
 async function readProcessStream(
   stream: unknown,

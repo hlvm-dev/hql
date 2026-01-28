@@ -15,9 +15,13 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath } from "../security/path-sandbox.ts";
+import { isPathAllowedAbsolute, type AgentPolicy } from "../policy.ts";
+import { escapeRegExp } from "../../../common/utils.ts";
 import { walkDirectory, loadGitignore } from "../../../common/file-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import { assertMaxBytes, ResourceLimitError } from "../../../common/limits.ts";
+import { throwIfAborted } from "../../../common/timeout-utils.ts";
+import { matchGlob } from "../../../common/pattern-utils.ts";
 
 // ============================================================
 // Types
@@ -118,9 +122,11 @@ export interface GetStructureResult {
  */
 export async function searchCode(
   args: SearchCodeArgs,
-  workspace: string
+  workspace: string,
+  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
 ): Promise<SearchCodeResult> {
   try {
+    throwIfAborted(options?.signal);
     const platform = getPlatform();
 
     // Validate and resolve search path
@@ -143,16 +149,16 @@ export async function searchCode(
       RESOURCE_LIMITS.maxSearchFileBytes,
     );
 
-    // Helper to check if filename matches file pattern
-    const matchesFilePattern = (filename: string): boolean => {
+    // Helper to check if file matches file pattern
+    const matchesFilePattern = (relativePath: string): boolean => {
       if (!args.filePattern) return true;
-
-      // Simple glob pattern matching (* wildcard)
-      const regexPattern = args.filePattern
-        .replace(/\./g, "\\.")
-        .replace(/\*/g, ".*");
-      const regex = new RegExp(`^${regexPattern}$`);
-      return regex.test(filename);
+      const pattern = args.filePattern;
+      const hasPathSep = pattern.includes("/") || pattern.includes("\\");
+      if (hasPathSep) {
+        return matchGlob(relativePath, pattern, { matchPath: true });
+      }
+      const filename = platform.path.basename(relativePath);
+      return matchGlob(filename, pattern, { matchPath: false });
     };
 
     // Walk directory and search in files
@@ -163,12 +169,18 @@ export async function searchCode(
         gitignorePatterns,
       })
     ) {
+      throwIfAborted(options?.signal);
       // Skip directories
       if (entry.isDirectory) continue;
 
       // Check file pattern filter
+      if (!matchesFilePattern(entry.path)) continue;
       const filename = platform.path.basename(entry.path);
-      if (!matchesFilePattern(filename)) continue;
+
+      // Enforce policy path rules (relative to workspace)
+      if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, entry.fullPath)) {
+        continue;
+      }
 
       // Skip binary-like files
       if (filename.endsWith(".png") || filename.endsWith(".jpg") ||
@@ -188,6 +200,7 @@ export async function searchCode(
 
         // Search each line
         for (let i = 0; i < lines.length; i++) {
+          throwIfAborted(options?.signal);
           const line = lines[i];
           const matchResult = pattern.exec(line);
 
@@ -259,9 +272,11 @@ export async function searchCode(
  */
 export async function findSymbol(
   args: FindSymbolArgs,
-  workspace: string
+  workspace: string,
+  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
 ): Promise<FindSymbolResult> {
   try {
+    throwIfAborted(options?.signal);
     const platform = getPlatform();
 
     // Validate and resolve search path
@@ -277,17 +292,18 @@ export async function findSymbol(
     const gitignorePatterns = await loadGitignore(workspace);
 
     // Build regex patterns for different symbol types
+    const escapedName = escapeRegExp(args.name);
     const patterns: Record<string, RegExp> = {
       function: new RegExp(
-        `(?:export\\s+)?(?:async\\s+)?(?:function\\s+${args.name}|const\\s+${args.name}\\s*=.*(?:async\\s+)?(?:\\(|function))`,
+        `(?:export\\s+)?(?:async\\s+)?(?:function\\s+${escapedName}|const\\s+${escapedName}\\s*=.*(?:async\\s+)?(?:\\(|function))`,
         "i"
       ),
       class: new RegExp(
-        `(?:export\\s+)?(?:abstract\\s+)?class\\s+${args.name}\\s*[{<]`,
+        `(?:export\\s+)?(?:abstract\\s+)?class\\s+${escapedName}\\s*[{<]`,
         "i"
       ),
       const: new RegExp(
-        `(?:export\\s+)?const\\s+${args.name}\\s*[=:]`,
+        `(?:export\\s+)?const\\s+${escapedName}\\s*[=:]`,
         "i"
       ),
     };
@@ -311,6 +327,10 @@ export async function findSymbol(
 
     // Helper function to search in a single file
     const searchFile = async (filePath: string, relativePath: string) => {
+      throwIfAborted(options?.signal);
+      if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, filePath)) {
+        return;
+      }
       const filename = platform.path.basename(filePath);
 
       // Only search in code files
@@ -326,9 +346,11 @@ export async function findSymbol(
         const stat = await platform.fs.stat(filePath);
         assertMaxBytes("find_symbol file size", stat.size ?? 0, maxFileBytes);
         const content = await platform.fs.readTextFile(filePath);
+        throwIfAborted(options?.signal);
         const lines = content.split("\n");
 
         for (let i = 0; i < lines.length; i++) {
+          throwIfAborted(options?.signal);
           const line = lines[i];
 
           for (const [type, pattern] of Object.entries(searchPatterns)) {
@@ -365,6 +387,7 @@ export async function findSymbol(
           gitignorePatterns,
         })
       ) {
+        throwIfAborted(options?.signal);
         if (entry.isDirectory) continue;
         filesScanned++;
         if (filesScanned > maxFiles) {
@@ -415,15 +438,24 @@ export async function findSymbol(
  */
 export async function getStructure(
   args: GetStructureArgs,
-  workspace: string
+  workspace: string,
+  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
 ): Promise<GetStructureResult> {
   try {
+    throwIfAborted(options?.signal);
     const platform = getPlatform();
 
     // Validate and resolve path
     const targetPath = args.path
       ? await validatePath(args.path, workspace)
       : workspace;
+
+    if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, targetPath)) {
+      return {
+        success: false,
+        message: `Path denied by policy: ${args.path ?? "."}`,
+      };
+    }
 
     const maxDepth = args.maxDepth || 5;
     const maxNodes = Math.min(
@@ -458,6 +490,7 @@ export async function getStructure(
 
       try {
         for await (const entry of platform.fs.readDir(dir)) {
+          throwIfAborted(options?.signal);
           if (nodes >= maxNodes) {
             break;
           }
@@ -467,6 +500,9 @@ export async function getStructure(
           }
 
           const fullPath = platform.path.join(dir, entry.name);
+          if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, fullPath)) {
+            continue;
+          }
 
           if (entry.isDirectory) {
             nodes++;

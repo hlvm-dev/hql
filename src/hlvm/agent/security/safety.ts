@@ -16,6 +16,7 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { getTool } from "../registry.ts";
 import { DEFAULT_TIMEOUTS, SHELL_ALLOWLIST_L1 } from "../constants.ts";
+import { resolvePolicyDecision, type AgentPolicy } from "../policy.ts";
 import { isObjectValue } from "../../../common/utils.ts";
 
 // ============================================================
@@ -192,13 +193,11 @@ const L1_TOOLS = new Set([
  *
  * These tools modify state and always require confirmation:
  * - write_file: Write/modify files
- * - delete_file: Delete files
  * - shell_exec: Execute arbitrary commands (default)
  * - shell_script: Execute arbitrary scripts
  */
 const L2_TOOLS = new Set([
   "write_file",
-  "delete_file",
   "shell_exec",
   "shell_script",
 ]);
@@ -491,14 +490,28 @@ export async function checkToolSafety(
   toolName: string,
   args: unknown,
   autoApprove = false,
+  policy: AgentPolicy | null = null,
 ): Promise<boolean> {
+  // Classify tool
+  const classification = classifyTool(toolName, args);
+
+  // Apply policy override if present
+  const policyDecision = resolvePolicyDecision(
+    policy,
+    toolName,
+    classification.level,
+  );
+  if (policyDecision === "deny") {
+    return false;
+  }
+  if (policyDecision === "allow") {
+    return true;
+  }
+
   // Auto-approve mode (for testing/automation)
   if (autoApprove) {
     return true;
   }
-
-  // Classify tool
-  const classification = classifyTool(toolName, args);
 
   // L0: Auto-approve
   if (classification.level === "L0") {

@@ -37,6 +37,9 @@ import { isObjectValue } from "../../common/utils.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
 import { classifyError } from "./error-taxonomy.ts";
+import type { AgentPolicy } from "./policy.ts";
+import { UsageTracker, estimateUsage, type TokenUsage } from "./usage.ts";
+import type { MetricsSink } from "./metrics.ts";
 
 // ============================================================
 // Types
@@ -112,6 +115,10 @@ export type TraceEvent =
     kind: "tool_result_bytes";
     limit: number;
     used: number;
+  }
+  | {
+    type: "llm_usage";
+    usage: TokenUsage;
   };
 
 /** Orchestrator configuration */
@@ -148,6 +155,12 @@ export interface OrchestratorConfig {
   llmRateLimiter?: SlidingWindowRateLimiter | null;
   /** Internal prebuilt rate limiter (tools) */
   toolRateLimiter?: SlidingWindowRateLimiter | null;
+  /** Optional policy overrides (allow/deny/ask) */
+  policy?: AgentPolicy | null;
+  /** Optional usage tracker for LLM token accounting */
+  usage?: UsageTracker;
+  /** Optional metrics sink for structured events */
+  metrics?: MetricsSink;
 }
 
 /** Tool call envelope constants */
@@ -167,9 +180,26 @@ function addContextMessage(
         maxTokens: error.maxTokens,
         estimatedTokens: error.estimatedTokens,
       });
+      emitMetric(config, "context_overflow", {
+        maxTokens: error.maxTokens,
+        estimatedTokens: error.estimatedTokens,
+      });
     }
     throw error;
   }
+}
+
+function emitMetric(
+  config: OrchestratorConfig,
+  type: string,
+  data: Record<string, unknown>,
+): void {
+  if (!config.metrics) return;
+  config.metrics.emit({
+    ts: Date.now(),
+    type,
+    data,
+  });
 }
 
 function createRateLimiter(
@@ -301,6 +331,31 @@ export function parseToolCalls(
     });
   }
 
+  // If no envelope calls found, attempt JSON tool-call parsing (structured protocol)
+  if (calls.length === 0) {
+    const jsonCandidates = extractJsonCandidates(response);
+    for (const candidate of jsonCandidates) {
+      try {
+        const parsed = JSON.parse(candidate);
+        const extracted = extractToolCallsFromJson(parsed);
+        if (extracted.length > 0) {
+          calls.push(...extracted);
+          break;
+        }
+      } catch (parseError) {
+        // Only report JSON parse errors if candidate looks like a tool call
+        if (candidate.includes("tool") || candidate.includes("toolName")) {
+          const errorMsg = parseError instanceof Error ? parseError.message : String(parseError);
+          errors.push({
+            type: "json_parse",
+            message: `Invalid JSON tool call: ${errorMsg}`,
+            json: candidate.slice(0, 500),
+          });
+        }
+      }
+    }
+  }
+
   // Check for too many tool calls - Issue #8
   if (calls.length > maxToolCalls) {
     errors.push({
@@ -310,6 +365,94 @@ export function parseToolCalls(
   }
 
   return { calls, errors };
+}
+
+/**
+ * Extract JSON candidates from response:
+ * - Whole response if it looks like JSON
+ * - JSON code blocks (```json ... ```)
+ */
+function extractJsonCandidates(response: string): string[] {
+  const candidates: string[] = [];
+  const trimmed = response.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    candidates.push(trimmed);
+  }
+
+  const fenceRegex = /```(?:json)?\s*([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  while ((match = fenceRegex.exec(response)) !== null) {
+    const block = match[1]?.trim();
+    if (block && (block.startsWith("{") || block.startsWith("["))) {
+      candidates.push(block);
+    }
+  }
+
+  return candidates;
+}
+
+/**
+ * Extract tool calls from parsed JSON value.
+ */
+function extractToolCallsFromJson(value: unknown): ToolCall[] {
+  const calls: ToolCall[] = [];
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const call = normalizeToolCall(item);
+      if (call) calls.push(call);
+    }
+    return calls;
+  }
+
+  if (isObjectValue(value)) {
+    // tool_calls array (OpenAI-style)
+    if (Array.isArray((value as Record<string, unknown>).tool_calls)) {
+      for (const item of (value as Record<string, unknown>).tool_calls as unknown[]) {
+        const call = normalizeToolCall(item);
+        if (call) calls.push(call);
+      }
+      if (calls.length > 0) return calls;
+    }
+
+    // Single tool call object
+    const call = normalizeToolCall(value);
+    if (call) calls.push(call);
+  }
+
+  return calls;
+}
+
+/**
+ * Normalize various JSON tool-call shapes into ToolCall.
+ */
+function normalizeToolCall(value: unknown): ToolCall | null {
+  if (!isObjectValue(value)) return null;
+
+  const obj = value as Record<string, unknown>;
+  const toolName =
+    (typeof obj.toolName === "string" && obj.toolName) ||
+    (typeof obj.tool === "string" && obj.tool) ||
+    (typeof obj.name === "string" && obj.name) ||
+    null;
+
+  if (!toolName) return null;
+
+  let args: unknown = obj.args ?? obj.arguments ?? {};
+  if (typeof args === "string") {
+    try {
+      args = JSON.parse(args);
+    } catch {
+      // leave as string; will fail validation below
+    }
+  }
+
+  if (!isObjectValue(args) || Array.isArray(args)) return null;
+
+  return {
+    toolName,
+    args: args as Record<string, unknown>,
+  };
 }
 
 /**
@@ -366,11 +509,15 @@ export async function executeToolCall(
   toolCall: ToolCall,
   config: OrchestratorConfig,
 ): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
   // Emit trace event: tool call
   config.onTrace?.({
     type: "tool_call",
     toolName: toolCall.toolName,
     args: toolCall.args,
+  });
+  emitMetric(config, "tool_call", {
+    toolName: toolCall.toolName,
   });
 
   try {
@@ -388,6 +535,12 @@ export async function executeToolCall(
         success: false,
         error: result.error,
       });
+      emitMetric(config, "tool_result", {
+        toolName: toolCall.toolName,
+        success: false,
+        error: result.error,
+        durationMs: Date.now() - startedAt,
+      });
 
       return result;
     }
@@ -397,6 +550,7 @@ export async function executeToolCall(
       toolCall.toolName,
       toolCall.args,
       config.autoApprove ?? false,
+      config.policy ?? null,
     );
 
     if (!approved) {
@@ -412,6 +566,12 @@ export async function executeToolCall(
         success: false,
         error: result.error,
       });
+      emitMetric(config, "tool_result", {
+        toolName: toolCall.toolName,
+        success: false,
+        error: result.error,
+        durationMs: Date.now() - startedAt,
+      });
 
       return result;
     }
@@ -424,6 +584,7 @@ export async function executeToolCall(
       toolCall.args,
       config.workspace,
       toolTimeout,
+      config.policy ?? null,
     );
 
     // Truncate result if needed
@@ -439,6 +600,11 @@ export async function executeToolCall(
       toolName: toolCall.toolName,
       success: true,
       result: truncated,
+    });
+    emitMetric(config, "tool_result", {
+      toolName: toolCall.toolName,
+      success: true,
+      durationMs: Date.now() - startedAt,
     });
 
     return {
@@ -457,6 +623,12 @@ export async function executeToolCall(
       toolName: toolCall.toolName,
       success: false,
       error: result.error,
+    });
+    emitMetric(config, "tool_result", {
+      toolName: toolCall.toolName,
+      success: false,
+      error: result.error,
+      durationMs: Date.now() - startedAt,
     });
 
     return result;
@@ -486,6 +658,14 @@ export async function executeToolCalls(
       if (!status.allowed) {
         config.onTrace?.({
           type: "rate_limit",
+          target: "tool",
+          maxCalls: status.maxCalls,
+          windowMs: status.windowMs,
+          used: status.used,
+          remaining: status.remaining,
+          resetMs: status.resetMs,
+        });
+        emitMetric(config, "rate_limit", {
           target: "tool",
           maxCalls: status.maxCalls,
           windowMs: status.windowMs,
@@ -766,11 +946,12 @@ async function executeToolWithTimeout(
   args: unknown,
   workspace: string,
   timeout: number,
+  policy?: AgentPolicy | null,
 ): Promise<unknown> {
   // NOTE: If toolFn doesn't honor AbortSignal, underlying work may continue.
   return await withTimeout(
     async (signal) => {
-      const result = await toolFn(args, workspace, { signal });
+      const result = await toolFn(args, workspace, { signal, policy });
       if (signal.aborted) {
         throw new RuntimeError("Tool execution aborted");
       }
@@ -817,6 +998,10 @@ export async function runReActLoop(
     content: userRequest,
   });
 
+  // Initialize usage tracker if not provided
+  const usageTracker = config.usage ?? new UsageTracker();
+  config.usage = usageTracker;
+
   let iterations = 0;
   const maxIterations = MAX_ITERATIONS;
 
@@ -862,12 +1047,23 @@ export async function runReActLoop(
       type: "llm_call",
       messageCount: messages.length,
     });
+    emitMetric(config, "llm_call", {
+      messageCount: messages.length,
+    });
 
     if (llmLimiter) {
       const status = llmLimiter.consume(1);
       if (!status.allowed) {
         config.onTrace?.({
           type: "rate_limit",
+          target: "llm",
+          maxCalls: status.maxCalls,
+          windowMs: status.windowMs,
+          used: status.used,
+          remaining: status.remaining,
+          resetMs: status.resetMs,
+        });
+        emitMetric(config, "rate_limit", {
           target: "llm",
           maxCalls: status.maxCalls,
           windowMs: status.windowMs,
@@ -883,18 +1079,33 @@ export async function runReActLoop(
       }
     }
 
+    const llmStart = Date.now();
     const agentResponse = await callLLMWithRetry(
       llmFunction,
       messages,
       { timeout: llmTimeout, maxRetries },
       config.onTrace,
     );
+    const llmDuration = Date.now() - llmStart;
+
+    // Record token usage (estimated by default)
+    const usage = estimateUsage(messages, agentResponse);
+    usageTracker.record(usage);
+    config.onTrace?.({
+      type: "llm_usage",
+      usage,
+    });
+    emitMetric(config, "llm_usage", { ...usage });
 
     // Emit trace event: LLM response
     config.onTrace?.({
       type: "llm_response",
       length: agentResponse.length,
       truncated: agentResponse.substring(0, 200),
+    });
+    emitMetric(config, "llm_response", {
+      length: agentResponse.length,
+      durationMs: llmDuration,
     });
 
     // Process response and execute tools
@@ -906,6 +1117,13 @@ export async function runReActLoop(
         const grounding = checkGrounding(agentResponse, toolUses);
         config.onTrace?.({
           type: "grounding_check",
+          mode: groundingMode,
+          grounded: grounding.grounded,
+          warnings: grounding.warnings,
+          retry: groundingRetries,
+          maxRetry: maxGroundingRetries,
+        });
+        emitMetric(config, "grounding_check", {
           mode: groundingMode,
           grounded: grounding.grounded,
           warnings: grounding.warnings,
@@ -964,6 +1182,11 @@ export async function runReActLoop(
         } catch (error) {
           config.onTrace?.({
             type: "resource_limit",
+            kind: "tool_result_bytes",
+            limit: maxToolResultBytes,
+            used: totalToolResultBytes,
+          });
+          emitMetric(config, "resource_limit", {
             kind: "tool_result_bytes",
             limit: maxToolResultBytes,
             used: totalToolResultBytes,
