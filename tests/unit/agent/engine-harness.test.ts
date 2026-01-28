@@ -10,6 +10,9 @@ import { runReActLoop, type LLMFunction } from "../../../src/hlvm/agent/orchestr
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
+import { ENGINE_PROFILES } from "../../../src/hlvm/agent/constants.ts";
+
+const TEST_MAX_TOOL_CALLS = 3;
 
 // ============================================================
 // Test helpers
@@ -67,7 +70,9 @@ function removeTool(name: string): void {
 }
 
 function createContext(): ContextManager {
-  const context = new ContextManager({ maxTokens: 4000 });
+  const context = new ContextManager({
+    maxTokens: ENGINE_PROFILES.strict.context.maxTokens,
+  });
   context.addMessage({
     role: "system",
     content: generateSystemPrompt(),
@@ -103,7 +108,7 @@ Deno.test({
           workspace: "/tmp",
           context,
           autoApprove: true,
-          maxToolCalls: 3,
+          maxToolCalls: TEST_MAX_TOOL_CALLS,
           groundingMode: "strict",
         },
         llm,
@@ -152,7 +157,7 @@ Deno.test({
           workspace: "/tmp",
           context,
           autoApprove: true,
-          maxToolCalls: 3,
+          maxToolCalls: TEST_MAX_TOOL_CALLS,
           groundingMode: "strict",
         },
         llm,
@@ -196,7 +201,7 @@ Deno.test({
               workspace: "/tmp",
               context,
               autoApprove: true,
-              maxToolCalls: 3,
+              maxToolCalls: TEST_MAX_TOOL_CALLS,
               groundingMode: "strict",
             },
             llm,
@@ -240,7 +245,7 @@ Deno.test({
           workspace: "/tmp",
           context,
           autoApprove: true,
-          maxToolCalls: 3,
+          maxToolCalls: TEST_MAX_TOOL_CALLS,
           groundingMode: "strict",
         },
         llm,
@@ -295,7 +300,7 @@ Deno.test({
           workspace: "/tmp",
           context,
           autoApprove: true,
-          maxToolCalls: 3,
+          maxToolCalls: TEST_MAX_TOOL_CALLS,
           continueOnError: true,
         },
         llm,
@@ -339,7 +344,7 @@ Deno.test({
               workspace: "/tmp",
               context,
               autoApprove: true,
-              maxToolCalls: 3,
+              maxToolCalls: TEST_MAX_TOOL_CALLS,
               maxTotalToolResultBytes: 10,
             },
             llm,
