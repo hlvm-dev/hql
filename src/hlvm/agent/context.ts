@@ -38,6 +38,23 @@ export interface ContextConfig {
   preserveSystem: boolean;
   /** Minimum messages to keep (default: 2) */
   minMessages: number;
+  /** Overflow strategy when context exceeds maxTokens (default: "trim") */
+  overflowStrategy: "trim" | "fail";
+}
+
+/** Error thrown when context exceeds maxTokens in fail mode */
+export class ContextOverflowError extends Error {
+  readonly maxTokens: number;
+  readonly estimatedTokens: number;
+
+  constructor(maxTokens: number, estimatedTokens: number) {
+    super(
+      `Context overflow: estimated ${estimatedTokens} tokens exceeds max ${maxTokens}`,
+    );
+    this.name = "ContextOverflowError";
+    this.maxTokens = maxTokens;
+    this.estimatedTokens = estimatedTokens;
+  }
 }
 
 /** Context statistics */
@@ -79,6 +96,7 @@ export class ContextManager {
       maxResultLength: config?.maxResultLength ?? 5000,
       preserveSystem: config?.preserveSystem ?? true,
       minMessages: config?.minMessages ?? 2,
+      overflowStrategy: config?.overflowStrategy ?? "trim",
     };
   }
 
@@ -95,6 +113,19 @@ export class ContextManager {
       ...message,
       timestamp: message.timestamp ?? Date.now(),
     };
+
+    if (this.config.overflowStrategy === "fail") {
+      const projectedTokens = this.estimateTokensForMessages([
+        ...this.messages,
+        messageWithTimestamp,
+      ]);
+      if (projectedTokens > this.config.maxTokens) {
+        throw new ContextOverflowError(
+          this.config.maxTokens,
+          projectedTokens,
+        );
+      }
+    }
 
     this.messages.push(messageWithTimestamp);
 
@@ -289,7 +320,16 @@ export class ContextManager {
       ...config,
     };
 
-    // Trim if new config requires it
-    this.trimIfNeeded();
+    if (this.config.overflowStrategy === "trim") {
+      this.trimIfNeeded();
+      return;
+    }
+
+    if (this.needsTrimming()) {
+      throw new ContextOverflowError(
+        this.config.maxTokens,
+        this.estimateTokens(),
+      );
+    }
   }
 }

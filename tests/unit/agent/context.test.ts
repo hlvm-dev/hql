@@ -4,9 +4,10 @@
  * Verifies context management and token budget functionality
  */
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertThrows } from "jsr:@std/assert";
 import {
   ContextManager,
+  ContextOverflowError,
   type Message,
   type MessageRole,
 } from "../../../src/hlvm/agent/context.ts";
@@ -286,6 +287,40 @@ Deno.test({
 
     // Should keep at least minMessages
     assertEquals(messages.length >= 3, true);
+  },
+});
+
+Deno.test({
+  name: "Context: overflowStrategy=fail - throw on overflow",
+  fn() {
+    const context = new ContextManager({
+      maxTokens: 50,
+      overflowStrategy: "fail",
+    });
+
+    context.addMessage({ role: "user", content: "short" });
+
+    assertThrows(
+      () => context.addMessage({ role: "user", content: "a".repeat(400) }),
+      ContextOverflowError,
+    );
+  },
+});
+
+Deno.test({
+  name: "Context: updateConfig - fail strategy throws if already over budget",
+  fn() {
+    const context = new ContextManager({
+      maxTokens: 200,
+    });
+
+    context.addMessage({ role: "user", content: "a".repeat(400) });
+    context.addMessage({ role: "assistant", content: "b".repeat(400) });
+
+    assertThrows(
+      () => context.updateConfig({ maxTokens: 50, overflowStrategy: "fail" }),
+      ContextOverflowError,
+    );
   },
 });
 
