@@ -37,6 +37,7 @@ OPTIONS:
   --max-calls <n>              Maximum tool calls (default: 10)
   --trace                      Enable trace mode (show tool calls and results)
   --fail-on-context-overflow   Fail instead of trimming when context exceeds max tokens
+  --engine-strict              Deterministic profile (strict grounding, fail on overflow, lower context budget)
 `);
 }
 
@@ -51,8 +52,10 @@ export async function askCommand(args: string[]): Promise<void> {
   let query = "";
   let model: string | undefined;
   let maxCalls = 10;
+  let maxCallsProvided = false;
   let traceMode = false;
   let failOnContextOverflow = false;
+  let engineStrict = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -68,6 +71,7 @@ export async function askCommand(args: string[]): Promise<void> {
         throw new ValidationError("Missing max-calls value. Usage: --max-calls <n>");
       }
       maxCalls = parseInt(value, 10);
+      maxCallsProvided = true;
       if (isNaN(maxCalls) || maxCalls < 1) {
         throw new ValidationError("max-calls must be a positive number");
       }
@@ -75,6 +79,8 @@ export async function askCommand(args: string[]): Promise<void> {
       traceMode = true;
     } else if (arg === "--fail-on-context-overflow") {
       failOnContextOverflow = true;
+    } else if (arg === "--engine-strict") {
+      engineStrict = true;
     } else if (!arg.startsWith("--")) {
       // Accumulate query parts (in case user forgets quotes)
       query += (query ? " " : "") + arg;
@@ -105,10 +111,16 @@ export async function askCommand(args: string[]): Promise<void> {
     }
   }
 
+  const effectiveFailOnOverflow = failOnContextOverflow || engineStrict;
+  const contextBudget = engineStrict ? 4000 : 8000;
+  if (engineStrict && !maxCallsProvided) {
+    maxCalls = 5;
+  }
+
   // Setup context with system prompt
   const context = new ContextManager({
-    maxTokens: 8000,
-    overflowStrategy: failOnContextOverflow ? "fail" : "trim",
+    maxTokens: contextBudget,
+    overflowStrategy: effectiveFailOnOverflow ? "fail" : "trim",
   });
   context.addMessage({
     role: "system",
@@ -182,6 +194,7 @@ export async function askCommand(args: string[]): Promise<void> {
         context,
         autoApprove: false, // Safety layer auto-approves L0; prompts for L1/L2
         maxToolCalls: maxCalls,
+        groundingMode: engineStrict ? "strict" : "off",
         onTrace, // Pass trace callback
       },
       llm,
