@@ -21,6 +21,7 @@ import {
   isNetworkAllowed,
   type AgentPolicy,
 } from "../policy.ts";
+import { getErrorMessage } from "../../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -127,11 +128,9 @@ export async function shellExec(
     } catch (error) {
       return {
         success: false,
-        message: `Invalid shell command: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        message: `Invalid shell command: ${getErrorMessage(error)}`,
         stdout: "",
-        stderr: error instanceof Error ? error.message : String(error),
+        stderr: getErrorMessage(error),
         exitCode: 1,
         safetyLevel,
       };
@@ -139,11 +138,12 @@ export async function shellExec(
 
     // Reject unsafe operators for shell_exec (use shell_script instead)
     if (!isSafeCommand(parsedCommand)) {
+      const unsafeReason = getUnsafeReason(parsedCommand);
       return {
         success: false,
-        message: `Unsafe shell command for shell_exec: ${getUnsafeReason(parsedCommand)}. Use shell_script for complex commands.`,
+        message: `Unsafe shell command for shell_exec: ${unsafeReason}. Use shell_script for complex commands.`,
         stdout: "",
-        stderr: getUnsafeReason(parsedCommand),
+        stderr: unsafeReason,
         exitCode: 1,
         safetyLevel,
       };
@@ -224,11 +224,9 @@ export async function shellExec(
   } catch (error) {
     return {
       success: false,
-      message: `Failed to execute command: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      message: `Failed to execute command: ${getErrorMessage(error)}`,
       stdout: "",
-      stderr: error instanceof Error ? error.message : String(error),
+      stderr: getErrorMessage(error),
       exitCode: 1,
     };
   }
@@ -354,11 +352,9 @@ export async function shellScript(
   } catch (error) {
     return {
       success: false,
-      message: `Failed to execute script: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      message: `Failed to execute script: ${getErrorMessage(error)}`,
       stdout: "",
-      stderr: error instanceof Error ? error.message : String(error),
+      stderr: getErrorMessage(error),
       exitCode: 1,
     };
   } finally {

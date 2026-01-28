@@ -15,7 +15,7 @@
  */
 
 import { DEFAULT_CONTEXT_CONFIG } from "./constants.ts";
-import { estimateTokensFromCharCount, estimateTokensFromMessages } from "../../common/token-utils.ts";
+import { estimateTokensFromMessages } from "../../common/token-utils.ts";
 
 // ============================================================
 // Types
@@ -219,11 +219,7 @@ export class ContextManager {
    * @returns Estimated token count
    */
   estimateTokens(): number {
-    const totalChars = this.messages.reduce(
-      (sum, msg) => sum + msg.content.length,
-      0,
-    );
-    return estimateTokensFromCharCount(totalChars);
+    return estimateTokensFromMessages(this.messages);
   }
 
   /**

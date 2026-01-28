@@ -16,7 +16,7 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath } from "../security/path-sandbox.ts";
 import { isPathAllowedAbsolute, type AgentPolicy } from "../policy.ts";
-import { escapeRegExp } from "../../../common/utils.ts";
+import { escapeRegExp, getErrorMessage } from "../../../common/utils.ts";
 import { walkDirectory, loadGitignore } from "../../../common/file-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import { assertMaxBytes, ResourceLimitError } from "../../../common/limits.ts";
@@ -244,9 +244,7 @@ export async function searchCode(
   } catch (error) {
     return {
       success: false,
-      message: `Failed to search code: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      message: `Failed to search code: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -411,9 +409,7 @@ export async function findSymbol(
   } catch (error) {
     return {
       success: false,
-      message: `Failed to find symbol: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      message: `Failed to find symbol: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -560,9 +556,7 @@ export async function getStructure(
   } catch (error) {
     return {
       success: false,
-      message: `Failed to get structure: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      message: `Failed to get structure: ${getErrorMessage(error)}`,
     };
   }
 }

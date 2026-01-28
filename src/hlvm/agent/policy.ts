@@ -17,7 +17,7 @@
 import { getPlatform } from "../../platform/platform.ts";
 import { log } from "../api/log.ts";
 import { globToRegex, GlobPatternError } from "../../common/pattern-utils.ts";
-import { isObjectValue } from "../../common/utils.ts";
+import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
 import type { SafetyLevel } from "./security/safety.ts";
 import { SecurityError } from "./security/path-sandbox.ts";
 
@@ -90,7 +90,7 @@ export async function loadAgentPolicy(
       if (message.includes("not found") || message.includes("no such file")) {
         return null;
       }
-      log.warn(`Agent policy load failed (${path}): ${error.message}`);
+      log.warn(`Agent policy load failed (${path}): ${getErrorMessage(error)}`);
     }
     return null;
   }
@@ -100,9 +100,7 @@ export async function loadAgentPolicy(
     parsed = JSON.parse(content);
   } catch (error) {
     log.warn(
-      `Agent policy JSON invalid (${path}): ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `Agent policy JSON invalid (${path}): ${getErrorMessage(error)}`,
     );
     return null;
   }

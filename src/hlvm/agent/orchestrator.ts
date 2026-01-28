@@ -33,7 +33,7 @@ import {
   type RateLimitConfig,
 } from "../../common/rate-limiter.ts";
 import { assertMaxBytes } from "../../common/limits.ts";
-import { isObjectValue } from "../../common/utils.ts";
+import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
 import { classifyError } from "./error-taxonomy.ts";
@@ -614,7 +614,7 @@ export async function executeToolCall(
   } catch (error) {
     const result = {
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     };
 
     // Emit trace event: tool result (error)

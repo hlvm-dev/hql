@@ -15,6 +15,8 @@
  * - Efficient regex conversion
  */
 
+import { getErrorMessage } from "./utils.ts";
+
 // ============================================================
 // Types
 // ============================================================
@@ -147,7 +149,7 @@ export function globToRegex(pattern: string, options: GlobOptions = {}): RegExp 
   } catch (error) {
     throw new GlobPatternError(
       pattern,
-      `Failed to compile regex: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to compile regex: ${getErrorMessage(error)}`
     );
   }
 }

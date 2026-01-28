@@ -29,6 +29,7 @@ import {
   ResourceLimitError,
 } from "../../../common/limits.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
+import { getErrorMessage } from "../../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -164,7 +165,7 @@ export async function readFile(
     }
     return {
       success: false,
-      message: `Failed to read file: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Failed to read file: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -231,7 +232,7 @@ export async function writeFile(
     }
     return {
       success: false,
-      message: `Failed to write file: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Failed to write file: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -297,7 +298,7 @@ export async function editFile(
       } catch (error) {
         return {
           success: false,
-          message: `Invalid regex pattern: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Invalid regex pattern: ${getErrorMessage(error)}`,
         };
       }
     } else {
@@ -348,7 +349,7 @@ export async function editFile(
     }
     return {
       success: false,
-      message: `Failed to edit file: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Failed to edit file: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -485,9 +486,6 @@ export async function listFiles(
         // ALWAYS recurse regardless of pattern match to find nested files
         if (args.recursive && entry.isDirectory) {
           throwIfAborted(options?.signal);
-          if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, entryPath)) {
-            continue;
-          }
           // CRITICAL: Validate subdirectory isn't a symlink escape
           try {
             await validatePath(entryPath, workspace);
@@ -528,7 +526,7 @@ export async function listFiles(
   } catch (error) {
     return {
       success: false,
-      message: `Failed to list files: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Failed to list files: ${getErrorMessage(error)}`,
     };
   }
 }
