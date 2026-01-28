@@ -13,6 +13,7 @@ import { memory } from "../../api/memory.ts";
 import { config } from "../../api/config.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { RuntimeError } from "../../../common/error.ts";
 
 /**
  * REPL HTTP Server Port
@@ -156,7 +157,7 @@ export async function startHttpServer(): Promise<void> {
       log.error(
         `Port ${PORT} is already in use. Another HLVM instance may be running.`,
       );
-      throw new Error(
+      throw new RuntimeError(
         `REPL server port ${PORT} is already in use`,
       );
     }

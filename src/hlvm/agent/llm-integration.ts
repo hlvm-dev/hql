@@ -15,6 +15,7 @@
  */
 
 import { getAllTools } from "./registry.ts";
+import { RuntimeError } from "../../common/error.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type { Message as ProviderMessage } from "../providers/types.ts";
 
@@ -382,7 +383,7 @@ export function createAgentLLM(
     const { ai } = await import("../api/ai.ts");
 
     if (!ai || typeof ai !== "object" || !("chat" in ai)) {
-      throw new Error(
+      throw new RuntimeError(
         "AI API not available. Ensure HLVM is properly initialized.",
       );
     }

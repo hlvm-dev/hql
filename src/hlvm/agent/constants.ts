@@ -165,6 +165,25 @@ export const RESOURCE_LIMITS = {
 
   /** Max files scanned in find_symbol (default: 5000) */
   maxSymbolFiles: 5000,
+
+  /** Max total tool result bytes per run (default: 2MB) */
+  maxTotalToolResultBytes: 2 * 1024 * 1024,
+} as const;
+
+// ============================================================
+// Rate Limits
+// ============================================================
+
+/**
+ * Rate limits for agent operations (per sliding window)
+ *
+ * Defaults are conservative but should not impact normal usage.
+ */
+export const RATE_LIMITS = {
+  /** Max LLM calls per minute */
+  llmCalls: { maxCalls: 60, windowMs: 60_000 },
+  /** Max tool calls per minute */
+  toolCalls: { maxCalls: 120, windowMs: 60_000 },
 } as const;
 
 // ============================================================

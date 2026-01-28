@@ -4,7 +4,7 @@
  * Verifies tool call parsing and execution orchestration
  */
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert";
 import {
   parseToolCalls,
   formatToolCall,
@@ -331,6 +331,49 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: executeToolCalls - rate limit blocks extra tools",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const fakeOne = "fake_rate_one";
+    const fakeTwo = "fake_rate_two";
+    TOOL_REGISTRY[fakeOne] = {
+      fn: async () => "ok",
+      description: "fake",
+      args: {},
+    };
+    TOOL_REGISTRY[fakeTwo] = {
+      fn: async () => "ok",
+      description: "fake",
+      args: {},
+    };
+
+    try {
+      const context = new ContextManager();
+      const calls: ToolCall[] = [
+        { toolName: fakeOne, args: {} },
+        { toolName: fakeTwo, args: {} },
+      ];
+
+      const results = await executeToolCalls(calls, {
+        workspace: TEST_WORKSPACE,
+        context,
+        autoApprove: true,
+        toolRateLimit: { maxCalls: 1, windowMs: 1000 },
+      });
+
+      assertEquals(results.length, 2);
+      assertEquals(results[0].success, true);
+      assertEquals(results[1].success, false);
+      assertStringIncludes(results[1].error ?? "", "rate limit");
+    } finally {
+      delete TOOL_REGISTRY[fakeOne];
+      delete TOOL_REGISTRY[fakeTwo];
+    }
+  },
+});
+
+Deno.test({
   name: "Orchestrator: executeToolCalls - stop on error (continueOnError: false)",
   async fn() {
     clearAllL1Confirmations();
@@ -486,6 +529,47 @@ Deno.test({
 
     assertEquals(typeof result, "string");
     assertEquals(result.includes("42"), true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: runReActLoop - llm rate limit enforced",
+  async fn() {
+    const toolName = "fake_rate_tool";
+    TOOL_REGISTRY[toolName] = {
+      fn: async () => "ok",
+      description: "fake",
+      args: {},
+    };
+
+    try {
+      const llm = async () =>
+        `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`;
+
+      const context = new ContextManager();
+      context.addMessage({
+        role: "system",
+        content: "system",
+      });
+
+      await assertRejects(
+        () =>
+          runReActLoop(
+            "do rate limited run",
+            {
+              workspace: TEST_WORKSPACE,
+              context,
+              autoApprove: true,
+              llmRateLimit: { maxCalls: 1, windowMs: 1000 },
+            },
+            llm,
+          ),
+        Error,
+        "rate limit",
+      );
+    } finally {
+      delete TOOL_REGISTRY[toolName];
+    }
   },
 });
 

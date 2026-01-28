@@ -183,6 +183,16 @@ export async function askCommand(args: string[]): Promise<void> {
             }
           }
           break;
+        case "rate_limit":
+          log.raw.log(
+            `[TRACE] Rate limit (${event.target}): ${event.used}/${event.maxCalls} per ${event.windowMs}ms (reset ${event.resetMs}ms)`,
+          );
+          break;
+        case "resource_limit":
+          log.raw.log(
+            `[TRACE] Resource limit (${event.kind}): ${event.used} > ${event.limit}`,
+          );
+          break;
         case "context_overflow":
           log.raw.log(
             `[TRACE] Context overflow: ${event.estimatedTokens} > ${event.maxTokens}`,

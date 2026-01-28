@@ -12,6 +12,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
+import { ValidationError } from "../../../common/error.ts";
 import type { ToolMetadata } from "../registry.ts";
 
 // ============================================================
@@ -42,7 +43,7 @@ async function askUser(
 ): Promise<string> {
   // Type validation
   if (typeof args !== "object" || args === null) {
-    throw new Error("args must be an object");
+    throw new ValidationError("args must be an object", "ask_user");
   }
 
   const { question, options } = args as {
@@ -52,17 +53,17 @@ async function askUser(
 
   // Validate question
   if (typeof question !== "string" || question.trim() === "") {
-    throw new Error("question must be a non-empty string");
+    throw new ValidationError("question must be a non-empty string", "ask_user");
   }
 
   // Validate options if provided
   if (options !== undefined) {
     if (!Array.isArray(options)) {
-      throw new Error("options must be an array");
+      throw new ValidationError("options must be an array", "ask_user");
     }
     for (const opt of options) {
       if (typeof opt !== "string") {
-        throw new Error("all options must be strings");
+        throw new ValidationError("all options must be strings", "ask_user");
       }
     }
   }

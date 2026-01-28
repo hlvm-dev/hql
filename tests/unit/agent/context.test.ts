@@ -291,6 +291,37 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Context: overflowStrategy=summarize - inserts summary message",
+  fn() {
+    const context = new ContextManager({
+      maxTokens: 50,
+      overflowStrategy: "summarize",
+      summaryKeepRecent: 2,
+      summaryMaxChars: 200,
+    });
+
+    const longText = "a".repeat(200);
+    context.addMessage({ role: "system", content: "You are helpful." });
+    context.addMessage({ role: "user", content: `First ${longText}` });
+    context.addMessage({ role: "assistant", content: `First response ${longText}` });
+    context.addMessage({ role: "user", content: `Second ${longText}` });
+    context.addMessage({ role: "assistant", content: `Second response ${longText}` });
+    context.addMessage({ role: "user", content: `Third ${longText}` });
+
+    const messages = context.getMessages();
+    const summary = messages.find((m) =>
+      m.content.startsWith("Summary of earlier context:")
+    );
+    assertEquals(Boolean(summary), true);
+
+    // Should preserve recent messages
+    const last = context.getLastMessages(2);
+    assertEquals(last[0].role, "assistant");
+    assertEquals(last[1].role, "user");
+  },
+});
+
+Deno.test({
   name: "Context: overflowStrategy=fail - throw on overflow",
   fn() {
     const context = new ContextManager({
@@ -426,5 +457,8 @@ Deno.test({
     assertEquals(config.maxResultLength, 5000);
     assertEquals(config.preserveSystem, true);
     assertEquals(config.minMessages, 2);
+    assertEquals(config.overflowStrategy, "trim");
+    assertEquals(config.summaryMaxChars, 1200);
+    assertEquals(config.summaryKeepRecent, 4);
   },
 });

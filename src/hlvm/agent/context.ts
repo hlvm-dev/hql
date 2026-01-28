@@ -39,7 +39,11 @@ export interface ContextConfig {
   /** Minimum messages to keep (default: 2) */
   minMessages: number;
   /** Overflow strategy when context exceeds maxTokens (default: "trim") */
-  overflowStrategy: "trim" | "fail";
+  overflowStrategy: "trim" | "fail" | "summarize";
+  /** Maximum characters for summary message (default: 1200) */
+  summaryMaxChars: number;
+  /** Messages to preserve at end when summarizing (default: 4) */
+  summaryKeepRecent: number;
 }
 
 /** Error thrown when context exceeds maxTokens in fail mode */
@@ -97,6 +101,8 @@ export class ContextManager {
       preserveSystem: config?.preserveSystem ?? true,
       minMessages: config?.minMessages ?? 2,
       overflowStrategy: config?.overflowStrategy ?? "trim",
+      summaryMaxChars: config?.summaryMaxChars ?? 1200,
+      summaryKeepRecent: config?.summaryKeepRecent ?? 4,
     };
   }
 
@@ -129,7 +135,7 @@ export class ContextManager {
 
     this.messages.push(messageWithTimestamp);
 
-    // Trim if needed
+    // Handle overflow if needed
     this.trimIfNeeded();
   }
 
@@ -256,9 +262,25 @@ export class ContextManager {
       return;
     }
 
-    // Separate system messages from others
-    const systemMessages = this.messages.filter((m) => m.role === "system");
-    const nonSystemMessages = this.messages.filter((m) => m.role !== "system");
+    if (this.config.overflowStrategy === "summarize") {
+      this.summarizeIfNeeded();
+      // If still over budget, fall back to trimming
+      if (!this.needsTrimming()) {
+        return;
+      }
+    }
+
+    const isSummary = (m: Message) =>
+      m.role === "assistant" &&
+      m.content.startsWith("Summary of earlier context:");
+
+    // Separate system/summary messages from others
+    const systemMessages = this.messages.filter((m) =>
+      m.role === "system" || (this.config.overflowStrategy === "summarize" && isSummary(m))
+    );
+    const nonSystemMessages = this.messages.filter((m) =>
+      m.role !== "system" && !(this.config.overflowStrategy === "summarize" && isSummary(m))
+    );
 
     // Can't trim if too few messages
     if (nonSystemMessages.length <= this.config.minMessages) {
@@ -284,6 +306,60 @@ export class ContextManager {
     this.messages = this.config.preserveSystem
       ? [...systemMessages, ...trimmedMessages]
       : trimmedMessages;
+  }
+
+  /**
+   * Summarize older messages to reduce context size
+   *
+   * Replaces older non-system messages with a single summary message,
+   * while keeping the most recent messages intact.
+   */
+  private summarizeIfNeeded(): void {
+    if (!this.needsTrimming()) return;
+
+    const systemMessages = this.messages.filter((m) => m.role === "system");
+    const nonSystemMessages = this.messages.filter((m) => m.role !== "system");
+
+    const keepRecent = Math.max(
+      this.config.minMessages,
+      this.config.summaryKeepRecent,
+    );
+
+    if (nonSystemMessages.length <= keepRecent) {
+      return;
+    }
+
+    const splitIndex = Math.max(0, nonSystemMessages.length - keepRecent);
+    const toSummarize = nonSystemMessages.slice(0, splitIndex);
+    const recentMessages = nonSystemMessages.slice(splitIndex);
+
+    const summary = this.buildSummary(toSummarize);
+    const summaryMessage: Message = {
+      role: "assistant",
+      content: summary,
+      timestamp: Date.now(),
+    };
+
+    this.messages = this.config.preserveSystem
+      ? [...systemMessages, summaryMessage, ...recentMessages]
+      : [summaryMessage, ...recentMessages];
+  }
+
+  private buildSummary(messages: Message[]): string {
+    const lines: string[] = [];
+    for (const msg of messages) {
+      const normalized = msg.content.replace(/\s+/g, " ").trim();
+      const snippet = normalized.length > 200
+        ? `${normalized.slice(0, 200)}...`
+        : normalized;
+      lines.push(`- ${msg.role}: ${snippet}`);
+    }
+
+    let summary = `Summary of earlier context:\n${lines.join("\n")}`;
+    if (summary.length > this.config.summaryMaxChars) {
+      summary = summary.slice(0, this.config.summaryMaxChars) + "...";
+    }
+    return summary;
   }
 
   /**
@@ -320,7 +396,7 @@ export class ContextManager {
       ...config,
     };
 
-    if (this.config.overflowStrategy === "trim") {
+    if (this.config.overflowStrategy === "trim" || this.config.overflowStrategy === "summarize") {
       this.trimIfNeeded();
       return;
     }

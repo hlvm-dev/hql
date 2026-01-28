@@ -316,3 +316,39 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  name: "Engine harness: total tool result bytes limit enforced",
+  async fn() {
+    const toolName = "fake_big";
+    addFakeTool(toolName, "x".repeat(50));
+
+    try {
+      const llm = createScriptedLLM([
+        {
+          response: `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`,
+        },
+      ]);
+
+      const context = createContext();
+      await assertRejects(
+        () =>
+          runReActLoop(
+            "Get big result",
+            {
+              workspace: "/tmp",
+              context,
+              autoApprove: true,
+              maxToolCalls: 3,
+              maxTotalToolResultBytes: 10,
+            },
+            llm,
+          ),
+        Error,
+        "total tool result bytes",
+      );
+    } finally {
+      removeTool(toolName);
+    }
+  },
+});

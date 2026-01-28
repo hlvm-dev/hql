@@ -18,8 +18,21 @@
 import { getTool, hasTool, type ToolFunction } from "./registry.ts";
 import { checkToolSafety } from "./security/safety.ts";
 import { ContextManager, ContextOverflowError, type Message } from "./context.ts";
-import { DEFAULT_TIMEOUTS, MAX_ITERATIONS, MAX_RETRIES } from "./constants.ts";
+import {
+  DEFAULT_TIMEOUTS,
+  MAX_ITERATIONS,
+  MAX_RETRIES,
+  RATE_LIMITS,
+  RESOURCE_LIMITS,
+} from "./constants.ts";
 import { withTimeout } from "../../common/timeout-utils.ts";
+import {
+  RateLimitError,
+  SlidingWindowRateLimiter,
+  type RateLimitConfig,
+} from "../../common/rate-limiter.ts";
+import { assertMaxBytes } from "../../common/limits.ts";
+import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
 import { classifyError } from "./error-taxonomy.ts";
 
@@ -82,6 +95,21 @@ export type TraceEvent =
     warnings: string[];
     retry: number;
     maxRetry: number;
+  }
+  | {
+    type: "rate_limit";
+    target: "llm" | "tool";
+    maxCalls: number;
+    windowMs: number;
+    used: number;
+    remaining: number;
+    resetMs: number;
+  }
+  | {
+    type: "resource_limit";
+    kind: "tool_result_bytes";
+    limit: number;
+    used: number;
   };
 
 /** Orchestrator configuration */
@@ -108,6 +136,16 @@ export interface OrchestratorConfig {
   continueOnError?: boolean;
   /** Grounding enforcement mode (default: "off") */
   groundingMode?: "off" | "warn" | "strict";
+  /** Rate limit for LLM calls (per sliding window) */
+  llmRateLimit?: RateLimitConfig;
+  /** Rate limit for tool calls (per sliding window) */
+  toolRateLimit?: RateLimitConfig;
+  /** Max total tool result bytes per run */
+  maxTotalToolResultBytes?: number;
+  /** Internal prebuilt rate limiter (LLM) */
+  llmRateLimiter?: SlidingWindowRateLimiter | null;
+  /** Internal prebuilt rate limiter (tools) */
+  toolRateLimiter?: SlidingWindowRateLimiter | null;
 }
 
 /** Tool call envelope constants */
@@ -130,6 +168,14 @@ function addContextMessage(
     }
     throw error;
   }
+}
+
+function createRateLimiter(
+  config: RateLimitConfig | undefined,
+): SlidingWindowRateLimiter | null {
+  if (!config) return null;
+  if (config.maxCalls <= 0 || config.windowMs <= 0) return null;
+  return new SlidingWindowRateLimiter(config);
 }
 
 // ============================================================
@@ -427,8 +473,37 @@ export async function executeToolCalls(
 ): Promise<ToolExecutionResult[]> {
   const results: ToolExecutionResult[] = [];
   const continueOnError = config.continueOnError ?? true; // Default: continue
+  const toolLimiter = config.toolRateLimiter ??
+    createRateLimiter(config.toolRateLimit ?? RATE_LIMITS.toolCalls);
+  config.toolRateLimiter = toolLimiter;
 
   for (const call of toolCalls) {
+    if (toolLimiter) {
+      const status = toolLimiter.consume(1);
+      if (!status.allowed) {
+        config.onTrace?.({
+          type: "rate_limit",
+          target: "tool",
+          maxCalls: status.maxCalls,
+          windowMs: status.windowMs,
+          used: status.used,
+          remaining: status.remaining,
+          resetMs: status.resetMs,
+        });
+        const error = new RateLimitError(
+          `Tool rate limit exceeded (${status.used}/${status.maxCalls} per ${status.windowMs}ms)`,
+          status.maxCalls,
+          status.windowMs,
+        );
+        const result = { success: false, error: error.message };
+        results.push(result);
+        if (!continueOnError) {
+          break;
+        }
+        continue;
+      }
+    }
+
     const result = await executeToolCall(call, config);
     results.push(result);
 
@@ -601,7 +676,7 @@ async function callLLMWithTimeout(
     async (signal) => {
       const response = await llmFn(messages, signal);
       if (signal.aborted) {
-        throw new Error("LLM call aborted");
+        throw new RuntimeError("LLM call aborted");
       }
       return response;
     },
@@ -657,7 +732,7 @@ async function callLLMWithRetry(
     }
   }
 
-  throw new Error(
+  throw new RuntimeError(
     `LLM failed after ${config.maxRetries} retries: ${lastError?.message}`,
   );
 }
@@ -694,7 +769,7 @@ async function executeToolWithTimeout(
     async (signal) => {
       const result = await toolFn(args, workspace, { signal });
       if (signal.aborted) {
-        throw new Error("Tool execution aborted");
+        throw new RuntimeError("Tool execution aborted");
       }
       return result;
     },
@@ -750,6 +825,17 @@ export async function runReActLoop(
   const llmTimeout = config.llmTimeout ?? DEFAULT_TIMEOUTS.llm;
   const maxRetries = config.maxRetries ?? MAX_RETRIES;
   const groundingMode = config.groundingMode ?? "off";
+  const llmRateConfig = config.llmRateLimit ?? RATE_LIMITS.llmCalls;
+  const toolRateConfig = config.toolRateLimit ?? RATE_LIMITS.toolCalls;
+  const llmLimiter = config.llmRateLimiter ?? createRateLimiter(llmRateConfig);
+  const toolLimiter = config.toolRateLimiter ?? createRateLimiter(toolRateConfig);
+  config.llmRateLimiter = llmLimiter;
+  config.toolRateLimiter = toolLimiter;
+
+  const maxToolResultBytes = config.maxTotalToolResultBytes ??
+    RESOURCE_LIMITS.maxTotalToolResultBytes;
+  let totalToolResultBytes = 0;
+  const encoder = new TextEncoder();
 
   const toolUses: ToolUse[] = [];
   let groundingRetries = 0;
@@ -773,6 +859,26 @@ export async function runReActLoop(
       type: "llm_call",
       messageCount: messages.length,
     });
+
+    if (llmLimiter) {
+      const status = llmLimiter.consume(1);
+      if (!status.allowed) {
+        config.onTrace?.({
+          type: "rate_limit",
+          target: "llm",
+          maxCalls: status.maxCalls,
+          windowMs: status.windowMs,
+          used: status.used,
+          remaining: status.remaining,
+          resetMs: status.resetMs,
+        });
+        throw new RateLimitError(
+          `LLM rate limit exceeded (${status.used}/${status.maxCalls} per ${status.windowMs}ms)`,
+          status.maxCalls,
+          status.windowMs,
+        );
+      }
+    }
 
     const agentResponse = await callLLMWithRetry(
       llmFunction,
@@ -814,8 +920,9 @@ export async function runReActLoop(
               addContextMessage(config, { role: "tool", content: warningText });
               continue;
             }
-            throw new Error(
+            throw new ValidationError(
               `Ungrounded response after ${groundingRetries} retry: ${grounding.warnings.join(" ")}`,
+              "grounding",
             );
           }
           const warningText = `\n\n[Grounding warnings]\n- ${
@@ -841,6 +948,26 @@ export async function runReActLoop(
         toolName: call.toolName,
         result: resultText ?? "",
       });
+
+      const bytes = encoder.encode(resultText ?? "").length;
+      totalToolResultBytes += bytes;
+      if (maxToolResultBytes > 0) {
+        try {
+          assertMaxBytes(
+            "total tool result bytes",
+            totalToolResultBytes,
+            maxToolResultBytes,
+          );
+        } catch (error) {
+          config.onTrace?.({
+            type: "resource_limit",
+            kind: "tool_result_bytes",
+            limit: maxToolResultBytes,
+            used: totalToolResultBytes,
+          });
+          throw error;
+        }
+      }
     }
     if (result.toolCallsMade > 0) {
       groundingRetries = 0;

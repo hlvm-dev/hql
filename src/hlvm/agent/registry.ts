@@ -17,6 +17,7 @@ import { FILE_TOOLS } from "./tools/file-tools.ts";
 import { CODE_TOOLS } from "./tools/code-tools.ts";
 import { SHELL_TOOLS } from "./tools/shell-tools.ts";
 import { META_TOOLS } from "./tools/meta-tools.ts";
+import { ValidationError } from "../../common/error.ts";
 
 // ============================================================
 // Types
@@ -90,8 +91,9 @@ export function getTool(name: string): ToolMetadata {
 
   if (!tool) {
     const available = Object.keys(TOOL_REGISTRY).join(", ");
-    throw new Error(
+    throw new ValidationError(
       `Tool '${name}' not found. Available tools: ${available}`,
+      "tool_registry",
     );
   }
 
