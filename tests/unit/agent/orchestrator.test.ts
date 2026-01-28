@@ -518,6 +518,64 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: runReActLoop - does not retry on AbortError",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    let calls = 0;
+
+    const mockLLM = async () => {
+      calls++;
+      const err = new Error("aborted");
+      err.name = "AbortError";
+      throw err;
+    };
+
+    let threw = false;
+    try {
+      await runReActLoop(
+        "Abort task",
+        { workspace: TEST_WORKSPACE, context, autoApprove: true, maxRetries: 3 },
+        mockLLM,
+      );
+    } catch {
+      threw = true;
+    }
+
+    assertEquals(threw, true);
+    assertEquals(calls, 1);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: runReActLoop - retries on rate limit then succeeds",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    let calls = 0;
+
+    const mockLLM = async () => {
+      calls++;
+      if (calls < 2) {
+        throw new Error("Rate limit exceeded (429)");
+      }
+      return "done";
+    };
+
+    const result = await runReActLoop(
+      "Rate limit task",
+      { workspace: TEST_WORKSPACE, context, autoApprove: true, maxRetries: 2 },
+      mockLLM,
+    );
+
+    assertEquals(result, "done");
+    assertEquals(calls, 2);
+  },
+});
+
+Deno.test({
   name: "Orchestrator: runReActLoop - with tool calls",
   async fn() {
     clearAllL1Confirmations();

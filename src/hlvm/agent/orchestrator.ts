@@ -21,6 +21,7 @@ import { ContextManager, type Message } from "./context.ts";
 import { DEFAULT_TIMEOUTS, MAX_ITERATIONS, MAX_RETRIES } from "./constants.ts";
 import { withTimeout } from "../../common/timeout-utils.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
+import { classifyError } from "./error-taxonomy.ts";
 
 // ============================================================
 // Types
@@ -604,6 +605,11 @@ async function callLLMWithRetry(
       return await callLLMWithTimeout(llmFn, messages, config.timeout);
     } catch (error) {
       lastError = error as Error;
+
+      const classified = classifyError(error);
+      if (!classified.retryable) {
+        break;
+      }
 
       // Don't retry on last attempt
       if (attempt === config.maxRetries - 1) break;
