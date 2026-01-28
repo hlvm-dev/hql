@@ -20,6 +20,7 @@ import { checkToolSafety } from "./security/safety.ts";
 import { ContextManager, type Message } from "./context.ts";
 import { DEFAULT_TIMEOUTS, MAX_ITERATIONS, MAX_RETRIES } from "./constants.ts";
 import { withTimeout } from "../../common/timeout-utils.ts";
+import { checkGrounding, type ToolUse } from "./grounding.ts";
 
 // ============================================================
 // Types
@@ -94,6 +95,8 @@ export interface OrchestratorConfig {
   maxRetries?: number;
   /** Continue executing remaining tool calls even if one fails (default: true) */
   continueOnError?: boolean;
+  /** Grounding enforcement mode (default: "off") */
+  groundingMode?: "off" | "warn" | "strict";
 }
 
 /** Tool call envelope constants */
@@ -703,6 +706,9 @@ export async function runReActLoop(
   // Timeout/retry configuration
   const llmTimeout = config.llmTimeout ?? DEFAULT_TIMEOUTS.llm;
   const maxRetries = config.maxRetries ?? MAX_RETRIES;
+  const groundingMode = config.groundingMode ?? "off";
+
+  const toolUses: ToolUse[] = [];
 
   while (iterations < maxIterations) {
     iterations++;
@@ -741,7 +747,37 @@ export async function runReActLoop(
 
     // If no tool calls, agent is done
     if (!result.shouldContinue) {
+      if (groundingMode !== "off") {
+        const grounding = checkGrounding(agentResponse, toolUses);
+        if (!grounding.grounded) {
+          if (groundingMode === "strict") {
+            throw new Error(
+              `Ungrounded response: ${grounding.warnings.join(" ")}`,
+            );
+          }
+          const warningText = `\n\n[Grounding warnings]\n- ${
+            grounding.warnings.join("\n- ")
+          }`;
+          return `${agentResponse}${warningText}`;
+        }
+      }
       return agentResponse;
+    }
+
+    // Track tool uses for grounding checks
+    for (let i = 0; i < result.toolCalls.length; i++) {
+      const call = result.toolCalls[i];
+      const toolResult = result.results[i];
+      const resultText = toolResult.success
+        ? typeof toolResult.result === "string"
+          ? toolResult.result
+          : JSON.stringify(toolResult.result)
+        : `ERROR: ${toolResult.error}`;
+
+      toolUses.push({
+        toolName: call.toolName,
+        result: resultText ?? "",
+      });
     }
 
     // Check for denied tool calls - per-tool tracking (Issue #6)
