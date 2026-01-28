@@ -16,6 +16,8 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath } from "../security/path-sandbox.ts";
 import { walkDirectory, loadGitignore } from "../../../common/file-utils.ts";
+import { RESOURCE_LIMITS } from "../constants.ts";
+import { assertMaxBytes, ResourceLimitError } from "../../../common/limits.ts";
 
 // ============================================================
 // Types
@@ -35,6 +37,7 @@ export interface SearchCodeArgs {
   path?: string;
   filePattern?: string;
   maxResults?: number;
+  maxFileBytes?: number;
 }
 
 /** Result of search_code operation */
@@ -59,6 +62,8 @@ export interface FindSymbolArgs {
   name: string;
   type?: "function" | "class" | "const";
   path?: string;
+  maxFileBytes?: number;
+  maxResults?: number;
 }
 
 /** Result of find_symbol operation */
@@ -81,6 +86,7 @@ export interface TreeNode {
 export interface GetStructureArgs {
   path?: string;
   maxDepth?: number;
+  maxNodes?: number;
 }
 
 /** Result of get_structure operation */
@@ -128,7 +134,14 @@ export async function searchCode(
     // Walk directory to get files
     const matches: SearchMatch[] = [];
     const pattern = new RegExp(args.pattern, "gi");
-    const maxResults = args.maxResults || 100;
+    const maxResults = Math.min(
+      args.maxResults ?? RESOURCE_LIMITS.maxSearchResults,
+      RESOURCE_LIMITS.maxSearchResults,
+    );
+    const maxFileBytes = Math.min(
+      args.maxFileBytes ?? RESOURCE_LIMITS.maxSearchFileBytes,
+      RESOURCE_LIMITS.maxSearchFileBytes,
+    );
 
     // Helper to check if filename matches file pattern
     const matchesFilePattern = (filename: string): boolean => {
@@ -165,6 +178,10 @@ export async function searchCode(
       }
 
       try {
+        // Enforce per-file size limit
+        const stat = await platform.fs.stat(entry.fullPath);
+        assertMaxBytes("search_code file size", stat.size ?? 0, maxFileBytes);
+
         // Read file content
         const content = await platform.fs.readTextFile(entry.fullPath);
         const lines = content.split("\n");
@@ -197,7 +214,10 @@ export async function searchCode(
           pattern.lastIndex = 0;
         }
       } catch (error) {
-        // Skip files we can't read
+        // Skip files we can't read or exceed limits
+        if (error instanceof ResourceLimitError) {
+          continue;
+        }
         continue;
       }
     }
@@ -278,6 +298,16 @@ export async function findSymbol(
       : patterns;
 
     const symbols: SymbolMatch[] = [];
+    const maxResults = Math.min(
+      args.maxResults ?? RESOURCE_LIMITS.maxSearchResults,
+      RESOURCE_LIMITS.maxSearchResults,
+    );
+    const maxFileBytes = Math.min(
+      args.maxFileBytes ?? RESOURCE_LIMITS.maxSearchFileBytes,
+      RESOURCE_LIMITS.maxSearchFileBytes,
+    );
+    const maxFiles = RESOURCE_LIMITS.maxSymbolFiles;
+    let filesScanned = 0;
 
     // Helper function to search in a single file
     const searchFile = async (filePath: string, relativePath: string) => {
@@ -293,6 +323,8 @@ export async function findSymbol(
       }
 
       try {
+        const stat = await platform.fs.stat(filePath);
+        assertMaxBytes("find_symbol file size", stat.size ?? 0, maxFileBytes);
         const content = await platform.fs.readTextFile(filePath);
         const lines = content.split("\n");
 
@@ -308,6 +340,9 @@ export async function findSymbol(
                 name: args.name,
                 content: line.trim(),
               });
+              if (symbols.length >= maxResults) {
+                return;
+              }
               break;
             }
           }
@@ -331,7 +366,14 @@ export async function findSymbol(
         })
       ) {
         if (entry.isDirectory) continue;
+        filesScanned++;
+        if (filesScanned > maxFiles) {
+          break;
+        }
         await searchFile(entry.fullPath, entry.path);
+        if (symbols.length >= maxResults) {
+          break;
+        }
       }
     }
 
@@ -339,7 +381,9 @@ export async function findSymbol(
       success: true,
       symbols,
       count: symbols.length,
-      message: `Found ${symbols.length} symbol(s) matching '${args.name}'`,
+      message: symbols.length >= maxResults
+        ? `Found ${symbols.length} symbol(s) (limit reached)`
+        : `Found ${symbols.length} symbol(s) matching '${args.name}'`,
     };
   } catch (error) {
     return {
@@ -382,6 +426,11 @@ export async function getStructure(
       : workspace;
 
     const maxDepth = args.maxDepth || 5;
+    const maxNodes = Math.min(
+      args.maxNodes ?? RESOURCE_LIMITS.maxListEntries,
+      RESOURCE_LIMITS.maxListEntries,
+    );
+    let nodes = 0;
 
     // Check if path is a directory
     const stat = await platform.fs.stat(targetPath);
@@ -409,6 +458,9 @@ export async function getStructure(
 
       try {
         for await (const entry of platform.fs.readDir(dir)) {
+          if (nodes >= maxNodes) {
+            break;
+          }
           // Skip hidden files/dirs
           if (entry.name.startsWith(".") && entry.name !== ".github") {
             continue;
@@ -417,6 +469,7 @@ export async function getStructure(
           const fullPath = platform.path.join(dir, entry.name);
 
           if (entry.isDirectory) {
+            nodes++;
             // Recurse into directory
             const subtree = await buildTree(fullPath, depth + 1);
             entries.push(subtree);
@@ -424,12 +477,14 @@ export async function getStructure(
             // Add file node
             try {
               const fileStat = await platform.fs.stat(fullPath);
+              nodes++;
               entries.push({
                 name: entry.name,
                 type: "file",
                 size: fileStat.size,
               });
             } catch {
+              nodes++;
               // Skip if can't stat
               entries.push({
                 name: entry.name,
@@ -462,7 +517,9 @@ export async function getStructure(
     return {
       success: true,
       tree,
-      message: `Retrieved structure for ${args.path || "."}`,
+      message: nodes >= maxNodes
+        ? `Retrieved structure (limit reached)`
+        : `Retrieved structure for ${args.path || "."}`,
     };
   } catch (error) {
     return {
@@ -490,6 +547,7 @@ export const CODE_TOOLS = {
       path: "string (optional) - Directory to search in (default: workspace root)",
       filePattern: "string (optional) - Glob pattern to filter files (e.g., '*.ts')",
       maxResults: "number (optional) - Maximum results to return (default: 100)",
+      maxFileBytes: "number (optional) - Max file size to scan (capped by limits)",
     },
   },
   find_symbol: {
@@ -499,6 +557,8 @@ export const CODE_TOOLS = {
       name: "string - Symbol name to find",
       type: "string (optional) - 'function', 'class', or 'const' (default: all)",
       path: "string (optional) - Directory to search in (default: workspace root)",
+      maxResults: "number (optional) - Maximum results to return (capped by limits)",
+      maxFileBytes: "number (optional) - Max file size to scan (capped by limits)",
     },
   },
   get_structure: {
@@ -507,6 +567,7 @@ export const CODE_TOOLS = {
     args: {
       path: "string (optional) - Directory to get structure for (default: workspace root)",
       maxDepth: "number (optional) - Maximum recursion depth (default: 5)",
+      maxNodes: "number (optional) - Maximum nodes to include (capped by limits)",
     },
   },
 } as const;

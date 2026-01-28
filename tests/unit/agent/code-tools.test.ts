@@ -190,6 +190,33 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Code Tools: search_code - skip large files with maxFileBytes",
+  async fn() {
+    await setupWorkspace();
+    const platform = getPlatform();
+
+    const largeContent = "X".repeat(200);
+    await platform.fs.writeTextFile(
+      `${TEST_WORKSPACE}/src/large.ts`,
+      `// UNIQUE_LARGE\n${largeContent}`,
+    );
+
+    const result = await searchCode(
+      {
+        pattern: "UNIQUE_LARGE",
+        maxFileBytes: 10,
+      } as SearchCodeArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(result.count, 0);
+
+    await cleanupWorkspace();
+  },
+});
+
+Deno.test({
   name: "Code Tools: search_code - no matches",
   async fn() {
     await setupWorkspace();
@@ -291,6 +318,33 @@ Deno.test({
     assertEquals(result.success, true);
     assertEquals(result.count, 1);
     assertEquals(result.symbols?.[0].type, "class");
+
+    await cleanupWorkspace();
+  },
+});
+
+Deno.test({
+  name: "Code Tools: find_symbol - skip large files with maxFileBytes",
+  async fn() {
+    await setupWorkspace();
+    const platform = getPlatform();
+
+    const largeContent = "Y".repeat(200);
+    await platform.fs.writeTextFile(
+      `${TEST_WORKSPACE}/src/huge.ts`,
+      `export function HugeSymbol() { return 1; }\n${largeContent}`,
+    );
+
+    const result = await findSymbol(
+      {
+        name: "HugeSymbol",
+        maxFileBytes: 10,
+      } as FindSymbolArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(result.count, 0);
 
     await cleanupWorkspace();
   },
@@ -409,6 +463,23 @@ Deno.test({
 
     // Second level (inside src) should exist but third level (inside components) should be limited
     assertEquals(srcNode?.children !== undefined, true);
+
+    await cleanupWorkspace();
+  },
+});
+
+Deno.test({
+  name: "Code Tools: get_structure - enforce maxNodes",
+  async fn() {
+    await setupWorkspace();
+
+    const result = await getStructure(
+      { maxNodes: 1 } as GetStructureArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, true);
+    assertStringIncludes(result.message || "", "limit");
 
     await cleanupWorkspace();
   },

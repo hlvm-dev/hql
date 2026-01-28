@@ -138,6 +138,36 @@ export const MAX_ITERATIONS = 20;
 export const MAX_RETRIES = 3;
 
 // ============================================================
+// Resource Limits
+// ============================================================
+
+/**
+ * Resource limits for agent operations
+ *
+ * These limits prevent runaway memory/CPU usage and DoS from
+ * extremely large files or huge result sets.
+ */
+export const RESOURCE_LIMITS = {
+  /** Max bytes allowed for single file read (default: 2MB) */
+  maxReadBytes: 2 * 1024 * 1024,
+
+  /** Max bytes allowed for single file write (default: 2MB) */
+  maxWriteBytes: 2 * 1024 * 1024,
+
+  /** Max entries returned from list_files (default: 5000) */
+  maxListEntries: 5000,
+
+  /** Max search results returned from search_code (default: 5000) */
+  maxSearchResults: 5000,
+
+  /** Max bytes allowed to scan per file in search_code (default: 1MB) */
+  maxSearchFileBytes: 1 * 1024 * 1024,
+
+  /** Max files scanned in find_symbol (default: 5000) */
+  maxSymbolFiles: 5000,
+} as const;
+
+// ============================================================
 // Type Exports
 // ============================================================
 

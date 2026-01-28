@@ -17,6 +17,12 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath, SecurityError } from "../security/path-sandbox.ts";
 import { globToRegex, GlobPatternError } from "../../../common/pattern-utils.ts";
+import { RESOURCE_LIMITS } from "../constants.ts";
+import {
+  assertMaxBytes,
+  formatBytes,
+  ResourceLimitError,
+} from "../../../common/limits.ts";
 
 // ============================================================
 // Types
@@ -33,6 +39,7 @@ export interface FileOperationResult {
 export interface ReadFileArgs {
   path: string;
   encoding?: "utf8" | "binary";
+  maxBytes?: number;
 }
 
 /** Result of read_file operation */
@@ -46,6 +53,7 @@ export interface WriteFileArgs {
   path: string;
   content: string;
   createDirs?: boolean;
+  maxBytes?: number;
 }
 
 /** Arguments for edit_file tool */
@@ -54,6 +62,7 @@ export interface EditFileArgs {
   find: string;
   replace: string;
   mode?: "literal" | "regex";
+  maxBytes?: number;
 }
 
 /** Result of edit_file operation */
@@ -68,6 +77,7 @@ export interface ListFilesArgs {
   recursive?: boolean;
   pattern?: string;
   maxDepth?: number;
+  maxEntries?: number;
 }
 
 /** File entry from list_files */
@@ -119,6 +129,13 @@ export async function readFile(
       };
     }
 
+    // Enforce size limit
+    const maxBytes = Math.min(
+      args.maxBytes ?? RESOURCE_LIMITS.maxReadBytes,
+      RESOURCE_LIMITS.maxReadBytes,
+    );
+    assertMaxBytes("read_file size", stat.size ?? 0, maxBytes);
+
     // Read file contents
     const content = await platform.fs.readTextFile(validPath);
 
@@ -129,6 +146,13 @@ export async function readFile(
       message: `Read ${stat.size} bytes from ${args.path}`,
     };
   } catch (error) {
+    if (error instanceof ResourceLimitError) {
+      return {
+        success: false,
+        message:
+          `File too large to read. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
+      };
+    }
     return {
       success: false,
       message: `Failed to read file: ${error instanceof Error ? error.message : String(error)}`,
@@ -170,6 +194,14 @@ export async function writeFile(
       await platform.fs.mkdir(parentDir, { recursive: true });
     }
 
+    // Enforce size limit (bytes)
+    const byteLength = new TextEncoder().encode(args.content).length;
+    const maxBytes = Math.min(
+      args.maxBytes ?? RESOURCE_LIMITS.maxWriteBytes,
+      RESOURCE_LIMITS.maxWriteBytes,
+    );
+    assertMaxBytes("write_file size", byteLength, maxBytes);
+
     // Write file
     await platform.fs.writeTextFile(validPath, args.content);
 
@@ -178,6 +210,13 @@ export async function writeFile(
       message: `Wrote ${args.content.length} bytes to ${args.path}`,
     };
   } catch (error) {
+    if (error instanceof ResourceLimitError) {
+      return {
+        success: false,
+        message:
+          `Content too large to write. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
+      };
+    }
     return {
       success: false,
       message: `Failed to write file: ${error instanceof Error ? error.message : String(error)}`,
@@ -217,6 +256,14 @@ export async function editFile(
     // Validate path security
     const validPath = await validatePath(args.path, workspace);
 
+    // Enforce size limit before reading
+    const stat = await platform.fs.stat(validPath);
+    const maxReadBytes = Math.min(
+      args.maxBytes ?? RESOURCE_LIMITS.maxReadBytes,
+      RESOURCE_LIMITS.maxReadBytes,
+    );
+    assertMaxBytes("edit_file read size", stat.size ?? 0, maxReadBytes);
+
     // Read existing content
     const content = await platform.fs.readTextFile(validPath);
 
@@ -253,6 +300,14 @@ export async function editFile(
       };
     }
 
+    // Enforce size limit before writing
+    const byteLength = new TextEncoder().encode(newContent).length;
+    const maxWriteBytes = Math.min(
+      args.maxBytes ?? RESOURCE_LIMITS.maxWriteBytes,
+      RESOURCE_LIMITS.maxWriteBytes,
+    );
+    assertMaxBytes("edit_file write size", byteLength, maxWriteBytes);
+
     // Write updated content
     await platform.fs.writeTextFile(validPath, newContent);
 
@@ -268,6 +323,13 @@ export async function editFile(
       preview,
     };
   } catch (error) {
+    if (error instanceof ResourceLimitError) {
+      return {
+        success: false,
+        message:
+          `File too large to edit. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
+      };
+    }
     return {
       success: false,
       message: `Failed to edit file: ${error instanceof Error ? error.message : String(error)}`,
@@ -343,6 +405,11 @@ export async function listFiles(
       return basenameRegex ? basenameRegex.test(name) : false;
     };
 
+    const maxEntries = Math.min(
+      args.maxEntries ?? RESOURCE_LIMITS.maxListEntries,
+      RESOURCE_LIMITS.maxListEntries,
+    );
+
     // Helper to walk directory
     const walk = async (dir: string, relativePath: string, depth: number) => {
       if (args.maxDepth !== undefined && depth > args.maxDepth) {
@@ -350,6 +417,9 @@ export async function listFiles(
       }
 
       for await (const entry of platform.fs.readDir(dir)) {
+        if (entries.length >= maxEntries) {
+          return;
+        }
         const entryRelativePath = relativePath
           ? `${relativePath}/${entry.name}`
           : entry.name;
@@ -376,6 +446,9 @@ export async function listFiles(
             type: entry.isDirectory ? "directory" : "file",
             size,
           });
+          if (entries.length >= maxEntries) {
+            return;
+          }
         }
 
         // Recurse into directories if recursive mode enabled
@@ -408,11 +481,15 @@ export async function listFiles(
       return a.path.localeCompare(b.path);
     });
 
+    const truncated = entries.length >= maxEntries;
+
     return {
       success: true,
       entries,
       count: entries.length,
-      message: `Found ${entries.length} entries in ${args.path}`,
+      message: truncated
+        ? `Found ${entries.length} entries (limit reached)`
+        : `Found ${entries.length} entries in ${args.path}`,
     };
   } catch (error) {
     return {
@@ -437,6 +514,7 @@ export const FILE_TOOLS = {
     args: {
       path: "string - Relative path to file",
       encoding: "string (optional) - 'utf8' or 'binary' (default: utf8)",
+      maxBytes: "number (optional) - Max bytes to read (capped by limits)",
     },
   },
   write_file: {
@@ -446,6 +524,7 @@ export const FILE_TOOLS = {
       path: "string - Relative path to file",
       content: "string - Content to write",
       createDirs: "boolean (optional) - Create parent directories (default: false)",
+      maxBytes: "number (optional) - Max bytes to write (capped by limits)",
     },
   },
   edit_file: {
@@ -456,6 +535,7 @@ export const FILE_TOOLS = {
       find: "string - Text to find",
       replace: "string - Replacement text",
       mode: "string (optional) - 'literal' or 'regex' (default: literal)",
+      maxBytes: "number (optional) - Max bytes to read/write (capped by limits)",
     },
   },
   list_files: {
@@ -466,6 +546,7 @@ export const FILE_TOOLS = {
       recursive: "boolean (optional) - Recurse into subdirectories (default: false)",
       pattern: "string (optional) - Glob pattern to filter files (e.g., '*.ts')",
       maxDepth: "number (optional) - Maximum recursion depth (default: unlimited)",
+      maxEntries: "number (optional) - Max entries to return (capped by limits)",
     },
   },
 } as const;

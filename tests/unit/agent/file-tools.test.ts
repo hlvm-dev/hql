@@ -124,6 +124,30 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "File Tools: read_file - enforce maxBytes",
+  async fn() {
+    await setupWorkspace();
+    const platform = getPlatform();
+
+    const testContent = "0123456789";
+    await platform.fs.writeTextFile(
+      `${TEST_WORKSPACE}/big.txt`,
+      testContent,
+    );
+
+    const result = await readFile(
+      { path: "big.txt", maxBytes: 5 } as ReadFileArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, false);
+    assertStringIncludes(result.message || "", "Limit");
+
+    await cleanupWorkspace();
+  },
+});
+
 // ============================================================
 // write_file tests
 // ============================================================
@@ -150,6 +174,28 @@ Deno.test({
       `${TEST_WORKSPACE}/newfile.txt`
     );
     assertEquals(written, content);
+
+    await cleanupWorkspace();
+  },
+});
+
+Deno.test({
+  name: "File Tools: write_file - enforce maxBytes",
+  async fn() {
+    await setupWorkspace();
+
+    const content = "0123456789";
+    const result = await writeFile(
+      {
+        path: "too-big.txt",
+        content,
+        maxBytes: 5,
+      } as WriteFileArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, false);
+    assertStringIncludes(result.message || "", "Limit");
 
     await cleanupWorkspace();
   },
@@ -320,6 +366,35 @@ Deno.test({
 });
 
 Deno.test({
+  name: "File Tools: edit_file - enforce maxBytes",
+  async fn() {
+    await setupWorkspace();
+    const platform = getPlatform();
+
+    const content = "0123456789";
+    await platform.fs.writeTextFile(
+      `${TEST_WORKSPACE}/edit-big.txt`,
+      content,
+    );
+
+    const result = await editFile(
+      {
+        path: "edit-big.txt",
+        find: "0",
+        replace: "X",
+        maxBytes: 5,
+      } as EditFileArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, false);
+    assertStringIncludes(result.message || "", "Limit");
+
+    await cleanupWorkspace();
+  },
+});
+
+Deno.test({
   name: "File Tools: edit_file - fail when pattern not found",
   async fn() {
     await setupWorkspace();
@@ -427,6 +502,29 @@ Deno.test({
     assertEquals(result.success, true);
     // Should find: dir1/, root.txt, dir1/dir2/, dir1/file1.txt, dir1/dir2/file2.txt
     assertEquals(result.count, 5);
+
+    await cleanupWorkspace();
+  },
+});
+
+Deno.test({
+  name: "File Tools: list_files - enforce maxEntries",
+  async fn() {
+    await setupWorkspace();
+    const platform = getPlatform();
+
+    await platform.fs.writeTextFile(`${TEST_WORKSPACE}/a.txt`, "A");
+    await platform.fs.writeTextFile(`${TEST_WORKSPACE}/b.txt`, "B");
+    await platform.fs.writeTextFile(`${TEST_WORKSPACE}/c.txt`, "C");
+
+    const result = await listFiles(
+      { path: ".", maxEntries: 1 } as ListFilesArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(result.count, 1);
+    assertStringIncludes(result.message || "", "limit");
 
     await cleanupWorkspace();
   },
