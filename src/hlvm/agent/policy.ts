@@ -62,6 +62,12 @@ export interface AgentPolicy {
 /** Default policy filename within workspace */
 const POLICY_FILE_NAME = "agent-policy.json";
 const POLICY_DIR_NAME = ".hlvm";
+const POLICY_V1_EXAMPLE = `{
+  "version": 1,
+  "default": "ask",
+  "toolRules": { "read_file": "allow" },
+  "levelRules": { "L2": "deny" }
+}`;
 
 /**
  * Resolve default policy path for a workspace
@@ -107,7 +113,10 @@ export async function loadAgentPolicy(
 
   const normalized = normalizePolicy(parsed);
   if (!normalized) {
-    log.warn(`Agent policy schema invalid (${path}): expected version 1`);
+    const reason = describePolicyInvalid(parsed);
+    log.warn(`Agent policy invalid (${path}): ${reason}`);
+    log.warn("Policy was ignored. Update to version 1 schema. Example:");
+    log.warn(POLICY_V1_EXAMPLE);
     return null;
   }
 
@@ -157,6 +166,15 @@ function normalizeRules(input: unknown): PathRules | undefined {
 
   if (allow.length === 0 && deny.length === 0) return undefined;
   return { allow, deny };
+}
+
+function describePolicyInvalid(input: unknown): string {
+  if (!isObjectValue(input)) return "Policy must be a JSON object";
+  const version = input.version;
+  if (version !== 1) {
+    return `Unsupported policy version "${String(version)}" (expected 1)`;
+  }
+  return "Schema validation failed (check default/toolRules/levelRules types)";
 }
 
 // ============================================================

@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "name": "agent-e2e-fixture",
+  "cases": [
+    {
+      "name": "list_files agent",
+      "match": { "contains": ["list files in src/hlvm/agent"] },
+      "steps": [
+        {
+          "response": "TOOL_CALL\n{\"toolName\":\"list_files\",\"args\":{\"path\":\"src/hlvm/agent\"}}\nEND_TOOL_CALL"
+        },
+        {
+          "response": "Based on list_files, here are files in src/hlvm/agent: context.ts, llm-integration.ts, orchestrator.ts."
+        }
+      ]
+    },
+    {
+      "name": "search_code runReActLoop",
+      "match": { "contains": ["search for \"runReActLoop\""] },
+      "steps": [
+        {
+          "response": "TOOL_CALL\n{\"toolName\":\"search_code\",\"args\":{\"pattern\":\"runReActLoop\",\"path\":\"src/hlvm/agent\"}}\nEND_TOOL_CALL"
+        },
+        {
+          "response": "Based on search_code, found occurrences of runReActLoop in src/hlvm/agent/orchestrator.ts."
+        }
+      ]
+    },
+    {
+      "name": "find_symbol ContextManager",
+      "match": { "contains": ["find symbol ContextManager"] },
+      "steps": [
+        {
+          "response": "TOOL_CALL\n{\"toolName\":\"find_symbol\",\"args\":{\"name\":\"ContextManager\"}}\nEND_TOOL_CALL"
+        },
+        {
+          "response": "Based on find_symbol, ContextManager is declared in src/hlvm/agent/context.ts."
+        }
+      ]
+    },
+    {
+      "name": "get_structure security",
+      "match": { "contains": ["show structure of src/hlvm/agent/security"] },
+      "steps": [
+        {
+          "response": "TOOL_CALL\n{\"toolName\":\"get_structure\",\"args\":{\"path\":\"src/hlvm/agent/security\"}}\nEND_TOOL_CALL"
+        },
+        {
+          "response": "Based on get_structure, the security directory contains path-sandbox.ts and safety.ts."
+        }
+      ]
+    },
+    {
+      "name": "path sandbox rejection",
+      "match": { "contains": ["read file /etc/passwd"] },
+      "steps": [
+        {
+          "response": "TOOL_CALL\n{\"toolName\":\"read_file\",\"args\":{\"path\":\"/etc/passwd\"}}\nEND_TOOL_CALL"
+        },
+        {
+          "response": "Based on read_file, Error: SecurityError - path is outside the workspace."
+        }
+      ]
+    },
+    {
+      "name": "trace list tools",
+      "match": { "contains": ["list files in src/hlvm/agent/tools"] },
+      "steps": [
+        {
+          "response": "TOOL_CALL\n{\"toolName\":\"list_files\",\"args\":{\"path\":\"src/hlvm/agent/tools\"}}\nEND_TOOL_CALL"
+        },
+        {
+          "response": "Based on list_files, src/hlvm/agent/tools contains file-tools.ts, code-tools.ts, shell-tools.ts, meta-tools.ts."
+        }
+      ]
+    }
+  ]
+}

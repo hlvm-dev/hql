@@ -101,3 +101,22 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  name: "META_TOOLS: ask_user - abort signal should reject",
+  async fn() {
+    const controller = new AbortController();
+    controller.abort();
+
+    await assertRejects(
+      async () =>
+        await META_TOOLS.ask_user.fn(
+          { question: "Test?" },
+          "/workspace",
+          { signal: controller.signal },
+        ),
+      Error,
+      "aborted",
+    );
+  },
+});

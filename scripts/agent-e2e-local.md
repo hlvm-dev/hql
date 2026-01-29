@@ -9,8 +9,14 @@ backend (e.g., Ollama) is running and reachable.
 deno run -A scripts/agent-e2e-local.ts --model ollama/llama3.1:8b --strict --trace
 ```
 
+Deterministic (no live model) with fixture:
+```
+deno run -A scripts/agent-e2e-local.ts --fixture scripts/agent-e2e-fixture.json --strict --trace
+```
+
 Flags:
 - `--model <id>`: choose model (default CLI model if omitted).
+- `--fixture <path>`: deterministic fixture (bypasses live model).
 - `--strict`: use strict engine profile (deterministic).
 - `--trace`: require trace output in one test.
 - `--timeout <ms>`: per-test timeout (default 60000).

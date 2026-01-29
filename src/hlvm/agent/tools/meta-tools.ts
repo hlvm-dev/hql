@@ -13,7 +13,8 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { ValidationError } from "../../../common/error.ts";
-import type { ToolMetadata } from "../registry.ts";
+import { throwIfAborted } from "../../../common/timeout-utils.ts";
+import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 
 // ============================================================
 // Tool 1: ask_user
@@ -40,13 +41,16 @@ import type { ToolMetadata } from "../registry.ts";
 async function askUser(
   args: unknown,
   _workspace: string,
+  options?: ToolExecutionOptions,
 ): Promise<string> {
+  throwIfAborted(options?.signal);
+
   // Type validation
   if (typeof args !== "object" || args === null) {
     throw new ValidationError("args must be an object", "ask_user");
   }
 
-  const { question, options } = args as {
+  const { question, options: choices } = args as {
     question: unknown;
     options?: unknown;
   };
@@ -57,11 +61,11 @@ async function askUser(
   }
 
   // Validate options if provided
-  if (options !== undefined) {
-    if (!Array.isArray(options)) {
+  if (choices !== undefined) {
+    if (!Array.isArray(choices)) {
       throw new ValidationError("options must be an array", "ask_user");
     }
-    for (const opt of options) {
+    for (const opt of choices) {
       if (typeof opt !== "string") {
         throw new ValidationError("all options must be strings", "ask_user");
       }
@@ -75,10 +79,10 @@ async function askUser(
   await platform.terminal.stdout.write(encoder.encode(`\n${question}\n`));
 
   // Display options if provided
-  if (options && Array.isArray(options)) {
-    for (let i = 0; i < options.length; i++) {
+  if (choices && Array.isArray(choices)) {
+    for (let i = 0; i < choices.length; i++) {
       await platform.terminal.stdout.write(
-        encoder.encode(`  ${i + 1}. ${options[i]}\n`),
+        encoder.encode(`  ${i + 1}. ${choices[i]}\n`),
       );
     }
   }
@@ -86,9 +90,51 @@ async function askUser(
   // Read user input
   await platform.terminal.stdout.write(encoder.encode("> "));
   const buffer = new Uint8Array(1024);
-  const n = await platform.terminal.stdin.read(buffer);
+  const n = await readStdinWithAbort(
+    platform.terminal.stdin,
+    buffer,
+    options?.signal,
+  );
 
   return new TextDecoder().decode(buffer.subarray(0, n || 0)).trim();
+}
+
+async function readStdinWithAbort(
+  stdin: { read: (p: Uint8Array) => Promise<number | null> },
+  buffer: Uint8Array,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  throwIfAborted(signal);
+
+  if (!signal) {
+    return await stdin.read(buffer);
+  }
+
+  return await new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      const error = new Error("Ask user aborted");
+      error.name = "AbortError";
+      reject(error);
+    };
+
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    stdin.read(buffer).then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 // ============================================================

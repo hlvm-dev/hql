@@ -11,6 +11,7 @@ import { ValidationError } from "../../../common/error.ts";
 import { ContextManager } from "../../agent/context.ts";
 import { runReActLoop, type TraceEvent } from "../../agent/orchestrator.ts";
 import { createAgentLLM, generateSystemPrompt } from "../../agent/llm-integration.ts";
+import { createFixtureLLM, loadLlmFixture } from "../../agent/llm-fixtures.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { DEFAULT_MAX_TOOL_CALLS, ENGINE_PROFILES } from "../../agent/constants.ts";
 import { loadAgentPolicy } from "../../agent/policy.ts";
@@ -36,6 +37,7 @@ EXAMPLES:
 OPTIONS:
   --help, -h                   Show this help message
   --model <model>              Specify model (default: ollama/llama3.1:8b)
+  --llm-fixture <path>         Use deterministic LLM fixture (no live model)
   --max-calls <n>              Maximum tool calls (default: 10)
   --trace                      Enable trace mode (show tool calls and results)
   --fail-on-context-overflow   Fail instead of trimming when context exceeds max tokens
@@ -58,6 +60,7 @@ export async function askCommand(args: string[]): Promise<void> {
   let traceMode = false;
   let failOnContextOverflow = false;
   let engineStrict = false;
+  let fixturePath: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -66,6 +69,11 @@ export async function askCommand(args: string[]): Promise<void> {
       model = args[++i];
       if (!model) {
         throw new ValidationError("Missing model value. Usage: --model <model>");
+      }
+    } else if (arg === "--llm-fixture") {
+      fixturePath = args[++i];
+      if (!fixturePath) {
+        throw new ValidationError("Missing fixture path. Usage: --llm-fixture <path>");
       }
     } else if (arg === "--max-calls") {
       const value = args[++i];
@@ -96,21 +104,25 @@ export async function askCommand(args: string[]): Promise<void> {
   // Initialize runtime with AI
   await initializeRuntime({ stdlib: false, cache: false });
 
-  // Use default model if no model specified
-  if (!model) {
-    model = DEFAULT_MODEL_ID;
-    try {
-      await ensureDefaultModelInstalled({
-        log: (message) => log.raw.log(message),
-      });
-    } catch (error) {
-      if (error instanceof Error) {
-        log.error(`Failed to setup default model: ${error.message}`);
-        log.raw.log("\nTip: Make sure Ollama is running, or specify a model:");
-        log.raw.log("  hlvm ask --model ollama/llama3.1:8b \"your query\"");
+  // Use default model if no model specified (unless fixture is used)
+  if (!fixturePath) {
+    if (!model) {
+      model = DEFAULT_MODEL_ID;
+      try {
+        await ensureDefaultModelInstalled({
+          log: (message) => log.raw.log(message),
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          log.error(`Failed to setup default model: ${error.message}`);
+          log.raw.log("\nTip: Make sure Ollama is running, or specify a model:");
+          log.raw.log("  hlvm ask --model ollama/llama3.1:8b \"your query\"");
+        }
+        throw error;
       }
-      throw error;
     }
+  } else if (model) {
+    log.warn("Ignoring --model because --llm-fixture is set");
   }
 
   const profile = ENGINE_PROFILES[engineStrict ? "strict" : "normal"];
@@ -131,8 +143,10 @@ export async function askCommand(args: string[]): Promise<void> {
     content: generateSystemPrompt(),
   });
 
-  // Create LLM function
-  const llm = createAgentLLM({ model });
+  // Create LLM function (fixture or live model)
+  const llm = fixturePath
+    ? createFixtureLLM(await loadLlmFixture(fixturePath))
+    : createAgentLLM({ model });
 
   // Get workspace
   const workspace = getPlatform().process.cwd();

@@ -1,4 +1,4 @@
-// deno run -A scripts/agent-e2e-local.ts [--model <model>] [--strict] [--trace] [--timeout <ms>]
+// deno run -A scripts/agent-e2e-local.ts [--model <model>] [--fixture <path>] [--strict] [--trace] [--timeout <ms>]
 // Local black-box E2E for HLVM agent CLI (requires local LLM like Ollama).
 
 import { getPlatform } from "../src/platform/platform.ts";
@@ -21,6 +21,7 @@ const resolve = (...paths: string[]) => p().path.resolve(...paths);
 
 const args = p().process.args();
 let model: string | undefined;
+let fixture: string | undefined;
 let strictProfile = false;
 let traceMode = false;
 let timeoutMs = 60000;
@@ -29,6 +30,8 @@ for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (arg === "--model") {
     model = args[++i];
+  } else if (arg === "--fixture") {
+    fixture = args[++i];
   } else if (arg === "--strict") {
     strictProfile = true;
   } else if (arg === "--trace") {
@@ -45,6 +48,9 @@ const cliPath = resolve(p().process.cwd(), "src/hlvm/cli/cli.ts");
 const commonArgs = ["ask"];
 if (model) {
   commonArgs.push("--model", model);
+}
+if (fixture) {
+  commonArgs.push("--llm-fixture", resolve(fixture));
 }
 if (strictProfile) {
   commonArgs.push("--engine-strict");
