@@ -15,7 +15,7 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { resolveToolPath, isPathAllowedByPolicy } from "../path-utils.ts";
-import { type AgentPolicy } from "../policy.ts";
+import type { ToolExecutionOptions } from "../registry.ts";
 import { escapeRegExp } from "../../../common/utils.ts";
 import { formatToolError } from "../tool-errors.ts";
 import { okTool, failTool } from "../tool-results.ts";
@@ -125,7 +125,7 @@ export interface GetStructureResult {
 export async function searchCode(
   args: SearchCodeArgs,
   workspace: string,
-  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
+  options?: ToolExecutionOptions,
 ): Promise<SearchCodeResult> {
   try {
     throwIfAborted(options?.signal);
@@ -269,7 +269,7 @@ export async function searchCode(
 export async function findSymbol(
   args: FindSymbolArgs,
   workspace: string,
-  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
+  options?: ToolExecutionOptions,
 ): Promise<FindSymbolResult> {
   try {
     throwIfAborted(options?.signal);
@@ -430,7 +430,7 @@ export async function findSymbol(
 export async function getStructure(
   args: GetStructureArgs,
   workspace: string,
-  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
+  options?: ToolExecutionOptions,
 ): Promise<GetStructureResult> {
   try {
     throwIfAborted(options?.signal);

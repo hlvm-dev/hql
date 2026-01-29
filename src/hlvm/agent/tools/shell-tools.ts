@@ -16,10 +16,8 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { resolveToolPath } from "../path-utils.ts";
 import { parseShellCommand, isSafeCommand, getUnsafeReason } from "../../../common/shell-parser.ts";
 import { classifyShellCommand as classifyShellCommandWithReason } from "../security/shell-classifier.ts";
-import {
-  isNetworkAllowed,
-  type AgentPolicy,
-} from "../policy.ts";
+import { isNetworkAllowed } from "../policy.ts";
+import type { ToolExecutionOptions } from "../registry.ts";
 import { formatToolError } from "../tool-errors.ts";
 import { okTool, failTool } from "../tool-results.ts";
 
@@ -93,7 +91,7 @@ export function classifyShellCommand(command: string): "L1" | "L2" {
 export async function shellExec(
   args: ShellExecArgs,
   workspace: string,
-  options?: { signal?: AbortSignal; policy?: AgentPolicy | null },
+  options?: ToolExecutionOptions,
 ): Promise<ShellExecResult> {
   try {
     const platform = getPlatform();
@@ -254,7 +252,7 @@ export async function shellExec(
 export async function shellScript(
   args: ShellScriptArgs,
   workspace: string,
-  options?: { signal?: AbortSignal; policy?: AgentPolicy | null },
+  options?: ToolExecutionOptions,
 ): Promise<ShellScriptResult> {
   const platform = getPlatform();
   let tempDir: string | undefined;

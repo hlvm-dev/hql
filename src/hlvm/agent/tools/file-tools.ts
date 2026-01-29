@@ -16,7 +16,7 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath, SecurityError } from "../security/path-sandbox.ts";
-import { type AgentPolicy } from "../policy.ts";
+import type { ToolExecutionOptions } from "../registry.ts";
 import { resolveToolPath, isPathAllowedByPolicy } from "../path-utils.ts";
 import { globToRegex, GlobPatternError } from "../../../common/pattern-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
@@ -118,7 +118,7 @@ export interface ListFilesResult extends FileOperationResult {
 export async function readFile(
   args: ReadFileArgs,
   workspace: string,
-  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
+  options?: ToolExecutionOptions,
 ): Promise<ReadFileResult> {
   try {
     throwIfAborted(options?.signal);
@@ -184,7 +184,7 @@ export async function readFile(
 export async function writeFile(
   args: WriteFileArgs,
   workspace: string,
-  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
+  options?: ToolExecutionOptions,
 ): Promise<FileOperationResult> {
   try {
     throwIfAborted(options?.signal);
@@ -253,7 +253,7 @@ export async function writeFile(
 export async function editFile(
   args: EditFileArgs,
   workspace: string,
-  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
+  options?: ToolExecutionOptions,
 ): Promise<EditFileResult> {
   try {
     throwIfAborted(options?.signal);
@@ -361,7 +361,7 @@ export async function editFile(
 export async function listFiles(
   args: ListFilesArgs,
   workspace: string,
-  options?: { signal?: AbortSignal; policy?: AgentPolicy | null }
+  options?: ToolExecutionOptions,
 ): Promise<ListFilesResult> {
   try {
     throwIfAborted(options?.signal);
