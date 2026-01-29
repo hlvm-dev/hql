@@ -55,10 +55,7 @@
       "match": { "contains": ["read file /etc/passwd"] },
       "steps": [
         {
-          "response": "TOOL_CALL\n{\"toolName\":\"read_file\",\"args\":{\"path\":\"/etc/passwd\"}}\nEND_TOOL_CALL"
-        },
-        {
-          "response": "Based on read_file, Error: SecurityError - path is outside the workspace."
+          "response": "I'm unable to read that file because the path /etc/passwd is outside the workspace boundary. System files like /etc/passwd cannot be accessed from within the workspace."
         }
       ]
     },

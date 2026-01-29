@@ -98,10 +98,11 @@ async function handleEval(req: Request): Promise<Response> {
     }
 
     const result = await evaluate(code, replState, false);
+    const hasValue = Object.prototype.hasOwnProperty.call(result, "value");
 
     return Response.json({
       success: result.success,
-      value: result.value ? formatPlainValue(result.value) : null,  // Plain text, no ANSI codes
+      value: hasValue ? formatPlainValue(result.value) : null,  // Plain text, no ANSI codes
       error: result.error
         ? { name: result.error.name, message: result.error.message }
         : null,

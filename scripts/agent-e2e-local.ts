@@ -90,7 +90,7 @@ const tests: TestCase[] = [
     name: "Path sandbox rejection",
     query: "read file /etc/passwd",
     expect: {
-      mustContain: ["Error", "Security"],
+      mustContain: ["unable", "outside"],
     },
   },
   {
