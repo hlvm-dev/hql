@@ -12,6 +12,7 @@ type TestCase = {
     mustContain?: string[];
     mustNotContain?: string[];
   };
+  fixtureOnly?: boolean;
 };
 
 const p = () => getPlatform();
@@ -98,6 +99,30 @@ const tests: TestCase[] = [
     extraArgs: traceMode ? ["--trace"] : undefined,
     expect: traceMode ? { mustContain: ["[TRACE] Tool call"] } : undefined,
   },
+  {
+    name: "Multi-tool call",
+    query: "list files and read src/hlvm/agent/context.ts",
+    fixtureOnly: true,
+    expect: {
+      mustContain: ["Based on", "context.ts"],
+    },
+  },
+  {
+    name: "Invalid tool call recovery",
+    query: "simulate invalid tool call then read README",
+    fixtureOnly: true,
+    expect: {
+      mustContain: ["Based on", "README.md"],
+    },
+  },
+  {
+    name: "Tool error propagation",
+    query: "read missing file ./nope.txt",
+    fixtureOnly: true,
+    expect: {
+      mustContain: ["Error", "nope.txt"],
+    },
+  },
 ];
 
 async function readStream(stream: ReadableStream<Uint8Array> | null | undefined): Promise<string> {
@@ -106,6 +131,10 @@ async function readStream(stream: ReadableStream<Uint8Array> | null | undefined)
 }
 
 async function runTest(test: TestCase): Promise<boolean> {
+  if (test.fixtureOnly && !fixture) {
+    log.raw.log(`SKIP ${test.name} (fixture only)`);
+    return true;
+  }
   const extraArgs = test.extraArgs ?? [];
   const cmd = [
     "deno",

@@ -73,6 +73,45 @@
           "response": "Based on list_files, src/hlvm/agent/tools contains file-tools.ts, code-tools.ts, shell-tools.ts, meta-tools.ts."
         }
       ]
+    },
+    {
+      "name": "multi tool list then read",
+      "match": { "contains": ["list files and read src/hlvm/agent/context.ts"] },
+      "steps": [
+        {
+          "response": "TOOL_CALL\n{\"toolName\":\"list_files\",\"args\":{\"path\":\"src/hlvm/agent\"}}\nEND_TOOL_CALL\n\nTOOL_CALL\n{\"toolName\":\"read_file\",\"args\":{\"path\":\"src/hlvm/agent/context.ts\"}}\nEND_TOOL_CALL"
+        },
+        {
+          "response": "Based on read_file, src/hlvm/agent/context.ts defines the ContextManager for tracking messages."
+        }
+      ]
+    },
+    {
+      "name": "invalid tool call recovery",
+      "match": { "contains": ["simulate invalid tool call then read README"] },
+      "steps": [
+        {
+          "response": "TOOL_CALL\n{\"toolName\": \"read_file\", \"args\": {\"path\": \"README.md\"}\nEND_TOOL_CALL"
+        },
+        {
+          "response": "TOOL_CALL\n{\"toolName\":\"read_file\",\"args\":{\"path\":\"README.md\"}}\nEND_TOOL_CALL"
+        },
+        {
+          "response": "Based on read_file, README.md describes how to use HLVM."
+        }
+      ]
+    },
+    {
+      "name": "tool error propagation",
+      "match": { "contains": ["read missing file ./nope.txt"] },
+      "steps": [
+        {
+          "response": "TOOL_CALL\n{\"toolName\":\"read_file\",\"args\":{\"path\":\"./nope.txt\"}}\nEND_TOOL_CALL"
+        },
+        {
+          "response": "Based on read_file, Error: file not found at ./nope.txt."
+        }
+      ]
     }
   ]
 }

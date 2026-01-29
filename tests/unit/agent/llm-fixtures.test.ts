@@ -135,3 +135,28 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  name: "LLM Fixtures: respects AbortSignal",
+  async fn() {
+    const fixture: LlmFixture = {
+      version: 1,
+      cases: [
+        {
+          name: "abort",
+          steps: [{ response: "OK" }],
+        },
+      ],
+    };
+
+    const llm = createFixtureLLM(fixture);
+    const controller = new AbortController();
+    controller.abort();
+
+    await assertRejects(
+      async () => await llm([{ role: "user", content: "any" }], controller.signal),
+      Error,
+      "aborted",
+    );
+  },
+});
