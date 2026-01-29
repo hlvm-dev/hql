@@ -16,8 +16,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { resolveToolPath } from "../path-utils.ts";
 import { parseShellCommand, isSafeCommand, getUnsafeReason } from "../../../common/shell-parser.ts";
 import { classifyShellCommand as classifyShellCommandWithReason } from "../security/shell-classifier.ts";
-import { isNetworkAllowed } from "../policy.ts";
-import type { AgentPolicy } from "../policy.ts";
+import { getNetworkPolicyDeniedUrl } from "../policy.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { formatToolError } from "../tool-errors.ts";
 import { okTool, failTool } from "../tool-results.ts";
@@ -389,19 +388,6 @@ function extractUrlsFromText(text: string): string[] {
   return urls;
 }
 
-function getNetworkPolicyDeniedUrl(
-  policy: AgentPolicy | null | undefined,
-  urls: string[],
-): string | null {
-  if (!policy?.networkRules || urls.length === 0) return null;
-  for (const url of urls) {
-    if (!isNetworkAllowed(policy, url)) {
-      return url;
-    }
-  }
-  return null;
-}
-
 async function readProcessStream(
   stream: unknown,
   signal?: AbortSignal,
@@ -468,6 +454,7 @@ export const SHELL_TOOLS = {
   shell_exec: {
     fn: shellExec,
     description: "Execute shell command",
+    safetyLevel: "L2",
     args: {
       command: "string - Shell command to execute",
       cwd: "string (optional) - Working directory (default: workspace root)",
@@ -485,6 +472,7 @@ export const SHELL_TOOLS = {
   shell_script: {
     fn: shellScript,
     description: "Execute multi-line shell script",
+    safetyLevel: "L2",
     args: {
       script: "string - Shell script content",
       interpreter: "string (optional) - 'bash' or 'sh' (default: sh)",

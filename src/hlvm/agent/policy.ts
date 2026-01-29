@@ -287,6 +287,22 @@ export function isNetworkAllowed(
   return true;
 }
 
+/**
+ * Return the first URL denied by policy, or null if all allowed.
+ */
+export function getNetworkPolicyDeniedUrl(
+  policy: AgentPolicy | null | undefined,
+  urls: string[],
+): string | null {
+  if (!policy?.networkRules || urls.length === 0) return null;
+  for (const url of urls) {
+    if (!isNetworkAllowed(policy, url)) {
+      return url;
+    }
+  }
+  return null;
+}
+
 function matchesAny(
   patterns: string[],
   input: string,

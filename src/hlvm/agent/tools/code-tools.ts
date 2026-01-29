@@ -570,6 +570,7 @@ export const CODE_TOOLS = {
   search_code: {
     fn: searchCode,
     description: "Search for pattern in code files",
+    safetyLevel: "L0",
     args: {
       pattern: "string - Regex pattern to search for",
       path: "string (optional) - Directory to search in (default: workspace root)",
@@ -587,6 +588,7 @@ export const CODE_TOOLS = {
   find_symbol: {
     fn: findSymbol,
     description: "Find function/class/const declarations",
+    safetyLevel: "L0",
     args: {
       name: "string - Symbol name to find",
       type: "string (optional) - 'function', 'class', or 'const' (default: all)",
@@ -604,6 +606,7 @@ export const CODE_TOOLS = {
   get_structure: {
     fn: getStructure,
     description: "Get directory tree structure",
+    safetyLevel: "L0",
     args: {
       path: "string (optional) - Directory to get structure for (default: workspace root)",
       maxDepth: "number (optional) - Maximum recursion depth (default: 5)",

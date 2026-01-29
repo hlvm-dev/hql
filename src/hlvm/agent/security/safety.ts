@@ -160,49 +160,16 @@ export function getAllL1Confirmations(): Map<string, boolean> {
 // ============================================================
 
 /**
- * L0 (auto-approve) tools - Read-only with no side effects
- *
- * These tools only read data and have no destructive capabilities:
- * - read_file: Read file contents
- * - list_files: List directory contents
- * - search_code: Search code patterns
- * - find_symbol: Find symbol declarations
- * - get_structure: Get directory tree
- * - ask_user: Ask user for clarification (safe interaction)
+ * Get declared safety level from tool metadata (SSOT).
  */
-const L0_TOOLS = new Set([
-  "read_file",
-  "list_files",
-  "search_code",
-  "find_symbol",
-  "get_structure",
-  "ask_user",
-]);
-
-/**
- * L1 (confirm once) tools - Low-risk operations
- *
- * These tools have limited side effects and can be confirmed once:
- * - shell_exec with allow-list (git status/log/diff, deno test --dry-run)
- */
-const L1_TOOLS = new Set([
-  // shell_exec is L1 only when command is in allow-list
-  // This is checked dynamically in classifyShellExec()
-]);
-
-/**
- * L2 (always confirm) tools - Destructive/mutating operations
- *
- * These tools modify state and always require confirmation:
- * - write_file: Write/modify files
- * - shell_exec: Execute arbitrary commands (default)
- * - shell_script: Execute arbitrary scripts
- */
-const L2_TOOLS = new Set([
-  "write_file",
-  "shell_exec",
-  "shell_script",
-]);
+function getDeclaredSafetyLevel(toolName: string): SafetyLevel | null {
+  try {
+    const tool = getTool(toolName);
+    return tool.safetyLevel ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Classify tool execution safety level
@@ -229,25 +196,18 @@ export function classifyTool(
   toolName: string,
   args?: unknown,
 ): SafetyClassification {
-  // L0: Read-only tools
-  if (L0_TOOLS.has(toolName)) {
-    return {
-      level: "L0",
-      reason: "Read-only operation with no side effects",
-    };
-  }
-
   // L1/L2: shell_exec requires argument inspection
   if (toolName === "shell_exec") {
     return classifyShellExec(args);
   }
 
-  // L2: Destructive/mutating tools
-  if (L2_TOOLS.has(toolName)) {
-    return {
-      level: "L2",
-      reason: "Destructive or mutating operation requires confirmation",
-    };
+  // Use declared safety level from tool metadata (SSOT)
+  const declared = getDeclaredSafetyLevel(toolName);
+  if (declared) {
+    const reason = declared === "L0"
+      ? "Read-only operation with no side effects"
+      : "Destructive or mutating operation requires confirmation";
+    return { level: declared, reason };
   }
 
   // Default to L2 for unknown tools (safe default)

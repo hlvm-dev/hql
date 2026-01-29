@@ -79,6 +79,30 @@ export interface ToolExecutionResult {
   error?: string;
 }
 
+function buildToolErrorResult(
+  toolName: string,
+  error: string,
+  startedAt: number,
+  config: OrchestratorConfig,
+): ToolExecutionResult {
+  const result = { success: false, error };
+
+  config.onTrace?.({
+    type: "tool_result",
+    toolName,
+    success: false,
+    error,
+  });
+  emitMetric(config, "tool_result", {
+    toolName,
+    success: false,
+    error,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return result;
+}
+
 /** LLM function signature used by orchestrator */
 export type LLMFunction = (
   messages: Message[],
@@ -523,26 +547,12 @@ export async function executeToolCall(
   try {
     // Validate tool exists
     if (!hasTool(toolCall.toolName)) {
-      const result = {
-        success: false,
-        error: `Unknown tool: ${toolCall.toolName}`,
-      };
-
-      // Emit trace event: tool result (error)
-      config.onTrace?.({
-        type: "tool_result",
-        toolName: toolCall.toolName,
-        success: false,
-        error: result.error,
-      });
-      emitMetric(config, "tool_result", {
-        toolName: toolCall.toolName,
-        success: false,
-        error: result.error,
-        durationMs: Date.now() - startedAt,
-      });
-
-      return result;
+      return buildToolErrorResult(
+        toolCall.toolName,
+        `Unknown tool: ${toolCall.toolName}`,
+        startedAt,
+        config,
+      );
     }
 
     // Check safety
@@ -554,26 +564,12 @@ export async function executeToolCall(
     );
 
     if (!approved) {
-      const result = {
-        success: false,
-        error: `Tool execution denied by user: ${toolCall.toolName}`,
-      };
-
-      // Emit trace event: tool result (denied)
-      config.onTrace?.({
-        type: "tool_result",
-        toolName: toolCall.toolName,
-        success: false,
-        error: result.error,
-      });
-      emitMetric(config, "tool_result", {
-        toolName: toolCall.toolName,
-        success: false,
-        error: result.error,
-        durationMs: Date.now() - startedAt,
-      });
-
-      return result;
+      return buildToolErrorResult(
+        toolCall.toolName,
+        `Tool execution denied by user: ${toolCall.toolName}`,
+        startedAt,
+        config,
+      );
     }
 
     // Get tool and execute (with timeout)
@@ -612,26 +608,12 @@ export async function executeToolCall(
       result: truncated,
     };
   } catch (error) {
-    const result = {
-      success: false,
-      error: getErrorMessage(error),
-    };
-
-    // Emit trace event: tool result (error)
-    config.onTrace?.({
-      type: "tool_result",
-      toolName: toolCall.toolName,
-      success: false,
-      error: result.error,
-    });
-    emitMetric(config, "tool_result", {
-      toolName: toolCall.toolName,
-      success: false,
-      error: result.error,
-      durationMs: Date.now() - startedAt,
-    });
-
-    return result;
+    return buildToolErrorResult(
+      toolCall.toolName,
+      getErrorMessage(error),
+      startedAt,
+      config,
+    );
   }
 }
 

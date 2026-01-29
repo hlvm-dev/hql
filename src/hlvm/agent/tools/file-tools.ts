@@ -526,6 +526,7 @@ export const FILE_TOOLS = {
   read_file: {
     fn: readFile,
     description: "Read file contents",
+    safetyLevel: "L0",
     args: {
       path: "string - Relative path to file",
       encoding: "string (optional) - 'utf8' or 'binary' (default: utf8)",
@@ -541,6 +542,7 @@ export const FILE_TOOLS = {
   write_file: {
     fn: writeFile,
     description: "Write content to file",
+    safetyLevel: "L2",
     args: {
       path: "string - Relative path to file",
       content: "string - Content to write",
@@ -555,6 +557,7 @@ export const FILE_TOOLS = {
   edit_file: {
     fn: editFile,
     description: "Edit file using find/replace",
+    safetyLevel: "L2",
     args: {
       path: "string - Relative path to file",
       find: "string - Text to find",
@@ -572,6 +575,7 @@ export const FILE_TOOLS = {
   list_files: {
     fn: listFiles,
     description: "List files and directories",
+    safetyLevel: "L0",
     args: {
       path: "string - Relative path to directory",
       recursive: "boolean (optional) - Recurse into subdirectories (default: false)",

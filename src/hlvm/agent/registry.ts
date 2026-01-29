@@ -130,11 +130,13 @@ export function getToolsByCategory(): {
   file: string[];
   code: string[];
   shell: string[];
+  meta: string[];
 } {
   return {
     file: Object.keys(FILE_TOOLS),
     code: Object.keys(CODE_TOOLS),
     shell: Object.keys(SHELL_TOOLS),
+    meta: Object.keys(META_TOOLS),
   };
 }
 
