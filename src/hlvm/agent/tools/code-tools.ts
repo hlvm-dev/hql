@@ -14,7 +14,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { resolveToolPath, isPathAllowedByPolicy } from "../path-utils.ts";
+import { resolveToolPath, createPolicyPathChecker } from "../path-utils.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { escapeRegExp } from "../../../common/utils.ts";
 import { formatToolError } from "../tool-errors.ts";
@@ -130,6 +130,10 @@ export async function searchCode(
   try {
     throwIfAborted(options?.signal);
     const platform = getPlatform();
+    const isAllowedPath = createPolicyPathChecker(
+      options?.policy ?? null,
+      workspace,
+    );
 
     // Validate and resolve search path
     const searchPath = args.path
@@ -180,7 +184,7 @@ export async function searchCode(
       const filename = platform.path.basename(entry.path);
 
       // Enforce policy path rules (relative to workspace)
-      if (!isPathAllowedByPolicy(options?.policy ?? null, workspace, entry.fullPath)) {
+      if (!isAllowedPath(entry.fullPath)) {
         continue;
       }
 
@@ -274,6 +278,10 @@ export async function findSymbol(
   try {
     throwIfAborted(options?.signal);
     const platform = getPlatform();
+    const isAllowedPath = createPolicyPathChecker(
+      options?.policy ?? null,
+      workspace,
+    );
 
     // Validate and resolve search path
     const searchPath = args.path
@@ -324,7 +332,7 @@ export async function findSymbol(
     // Helper function to search in a single file
     const searchFile = async (filePath: string, relativePath: string) => {
       throwIfAborted(options?.signal);
-      if (!isPathAllowedByPolicy(options?.policy ?? null, workspace, filePath)) {
+      if (!isAllowedPath(filePath)) {
         return;
       }
       const filename = platform.path.basename(filePath);
@@ -435,17 +443,18 @@ export async function getStructure(
   try {
     throwIfAborted(options?.signal);
     const platform = getPlatform();
+    const isAllowedPath = createPolicyPathChecker(
+      options?.policy ?? null,
+      workspace,
+    );
 
     // Validate and resolve path
     const targetPath = args.path
       ? await resolveToolPath(args.path, workspace, options?.policy ?? null)
       : workspace;
 
-    if (!isPathAllowedByPolicy(options?.policy ?? null, workspace, targetPath)) {
-      return {
-        success: false,
-        message: `Path denied by policy: ${args.path ?? "."}`,
-      };
+    if (!isAllowedPath(targetPath)) {
+      return failTool(`Path denied by policy: ${args.path ?? "."}`);
     }
 
     const maxDepth = args.maxDepth || 5;
@@ -458,10 +467,7 @@ export async function getStructure(
     // Check if path is a directory
     const stat = await platform.fs.stat(targetPath);
     if (!stat.isDirectory) {
-      return {
-        success: false,
-        message: `Path is not a directory: ${args.path}`,
-      };
+      return failTool(`Path is not a directory: ${args.path}`);
     }
 
     // Build directory tree recursively
@@ -491,7 +497,7 @@ export async function getStructure(
           }
 
           const fullPath = platform.path.join(dir, entry.name);
-          if (!isPathAllowedByPolicy(options?.policy ?? null, workspace, fullPath)) {
+          if (!isAllowedPath(fullPath)) {
             continue;
           }
 
@@ -571,6 +577,12 @@ export const CODE_TOOLS = {
       maxResults: "number (optional) - Maximum results to return (default: 100)",
       maxFileBytes: "number (optional) - Max file size to scan (capped by limits)",
     },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      matches: "SearchMatch[] - Pattern matches (on success)",
+      count: "number - Number of matches (on success)",
+      message: "string - Human-readable result message",
+    },
   },
   find_symbol: {
     fn: findSymbol,
@@ -582,6 +594,12 @@ export const CODE_TOOLS = {
       maxResults: "number (optional) - Maximum results to return (capped by limits)",
       maxFileBytes: "number (optional) - Max file size to scan (capped by limits)",
     },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      symbols: "SymbolMatch[] - Matches found (on success)",
+      count: "number - Number of matches (on success)",
+      message: "string - Human-readable result message",
+    },
   },
   get_structure: {
     fn: getStructure,
@@ -590,6 +608,11 @@ export const CODE_TOOLS = {
       path: "string (optional) - Directory to get structure for (default: workspace root)",
       maxDepth: "number (optional) - Maximum recursion depth (default: 5)",
       maxNodes: "number (optional) - Maximum nodes to include (capped by limits)",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      tree: "TreeNode - Directory tree structure (on success)",
+      message: "string - Human-readable result message",
     },
   },
 } as const;

@@ -43,6 +43,7 @@ export interface ToolMetadata {
   fn: ToolFunction;
   description: string;
   args: Record<string, string>;
+  returns?: Record<string, string>;
   safetyLevel?: "L0" | "L1" | "L2";
   safety?: string; // Additional safety info
 }

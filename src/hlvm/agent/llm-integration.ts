@@ -171,6 +171,14 @@ export function generateSystemPrompt(): string {
       const argsList = Object.entries(meta.args)
         .map(([argName, argDesc]) => `  - ${argName}: ${argDesc}`)
         .join("\n");
+      const returnsList = meta.returns
+        ? Object.entries(meta.returns)
+          .map(([field, desc]) => `  - ${field}: ${desc}`)
+          .join("\n")
+        : "";
+      const returnsBlock = meta.returns
+        ? `\n**Returns:**\n${returnsList}\n`
+        : "\n";
 
       return `
 ### ${name}
@@ -178,8 +186,7 @@ ${meta.description}
 
 **Arguments:**
 ${argsList}
-
-**Safety Level:** ${meta.safetyLevel || meta.safety || "L2"}
+${returnsBlock}**Safety Level:** ${meta.safetyLevel || meta.safety || "L2"}
 `.trim();
     })
     .join("\n\n");

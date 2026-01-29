@@ -150,6 +150,9 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
       question: "string - Question to ask the user",
       options: "string[] (optional) - Multiple choice options",
     },
+    returns: {
+      value: "string - User input response",
+    },
     safetyLevel: "L0" as const,
   },
 };

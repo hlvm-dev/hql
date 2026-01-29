@@ -34,3 +34,14 @@ export function isPathAllowedByPolicy(
 ): boolean {
   return isPathAllowedAbsolute(policy, workspace, absolutePath);
 }
+
+/**
+ * Create a reusable policy path checker for a workspace.
+ */
+export function createPolicyPathChecker(
+  policy: AgentPolicy | null | undefined,
+  workspace: string,
+): (absolutePath: string) => boolean {
+  return (absolutePath: string) =>
+    isPathAllowedAbsolute(policy, workspace, absolutePath);
+}

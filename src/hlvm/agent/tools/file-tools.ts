@@ -17,7 +17,7 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath, SecurityError } from "../security/path-sandbox.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
-import { resolveToolPath, isPathAllowedByPolicy } from "../path-utils.ts";
+import { resolveToolPath, createPolicyPathChecker } from "../path-utils.ts";
 import { globToRegex, GlobPatternError } from "../../../common/pattern-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import {
@@ -381,6 +381,10 @@ export async function listFiles(
     }
 
     const entries: FileEntry[] = [];
+    const isAllowedPath = createPolicyPathChecker(
+      options?.policy ?? null,
+      workspace,
+    );
 
     // Compile glob pattern once (path-aware by default)
     let patternRegex: RegExp | null = null;
@@ -447,7 +451,7 @@ export async function listFiles(
         const matchesCurrentPattern = matchesPattern(entryRelativePath, entry.name);
 
         // Enforce policy for this path before including
-        if (!isPathAllowedByPolicy(options?.policy ?? null, workspace, entryPath)) {
+        if (!isAllowedPath(entryPath)) {
           // Skip disallowed paths entirely
           continue;
         }
@@ -527,6 +531,12 @@ export const FILE_TOOLS = {
       encoding: "string (optional) - 'utf8' or 'binary' (default: utf8)",
       maxBytes: "number (optional) - Max bytes to read (capped by limits)",
     },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      content: "string - File contents (on success)",
+      size: "number - File size in bytes (on success)",
+      message: "string - Human-readable result message",
+    },
   },
   write_file: {
     fn: writeFile,
@@ -536,6 +546,10 @@ export const FILE_TOOLS = {
       content: "string - Content to write",
       createDirs: "boolean (optional) - Create parent directories (default: false)",
       maxBytes: "number (optional) - Max bytes to write (capped by limits)",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      message: "string - Human-readable result message",
     },
   },
   edit_file: {
@@ -548,6 +562,12 @@ export const FILE_TOOLS = {
       mode: "string (optional) - 'literal' or 'regex' (default: literal)",
       maxBytes: "number (optional) - Max bytes to read/write (capped by limits)",
     },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      replacements: "number - Number of replacements made (on success)",
+      preview: "string - Preview of updated content (on success)",
+      message: "string - Human-readable result message",
+    },
   },
   list_files: {
     fn: listFiles,
@@ -558,6 +578,12 @@ export const FILE_TOOLS = {
       pattern: "string (optional) - Glob pattern to filter files (e.g., '*.ts')",
       maxDepth: "number (optional) - Maximum recursion depth (default: unlimited)",
       maxEntries: "number (optional) - Max entries to return (capped by limits)",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      entries: "FileEntry[] - Listed entries (on success)",
+      count: "number - Number of entries returned (on success)",
+      message: "string - Human-readable result message",
     },
   },
 } as const;

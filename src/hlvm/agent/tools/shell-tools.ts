@@ -460,6 +460,14 @@ export const SHELL_TOOLS = {
       command: "string - Shell command to execute",
       cwd: "string (optional) - Working directory (default: workspace root)",
     },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      stdout: "string - Standard output",
+      stderr: "string - Standard error",
+      exitCode: "number - Process exit code",
+      safetyLevel: "string - Applied safety level (L1/L2)",
+      message: "string - Human-readable result message",
+    },
     safety: "L2 by default, L1 if in allow-list (git status/log/diff, deno test --dry-run)",
   },
   shell_script: {
@@ -469,6 +477,13 @@ export const SHELL_TOOLS = {
       script: "string - Shell script content",
       interpreter: "string (optional) - 'bash' or 'sh' (default: sh)",
       cwd: "string (optional) - Working directory (default: workspace root)",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      stdout: "string - Standard output",
+      stderr: "string - Standard error",
+      exitCode: "number - Process exit code",
+      message: "string - Human-readable result message",
     },
     safety: "L2 always (always confirm)",
   },
