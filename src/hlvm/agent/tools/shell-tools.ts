@@ -17,6 +17,7 @@ import { resolveToolPath } from "../path-utils.ts";
 import { parseShellCommand, isSafeCommand, getUnsafeReason } from "../../../common/shell-parser.ts";
 import { classifyShellCommand as classifyShellCommandWithReason } from "../security/shell-classifier.ts";
 import { isNetworkAllowed } from "../policy.ts";
+import type { AgentPolicy } from "../policy.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { formatToolError } from "../tool-errors.ts";
 import { okTool, failTool } from "../tool-results.ts";
@@ -135,18 +136,17 @@ export async function shellExec(
     const cmdArgs = [parsedCommand.program, ...parsedCommand.args];
 
     // Enforce optional network policy on URL-like args
-    if (options?.policy?.networkRules) {
-      const urls = extractUrlsFromArgs(cmdArgs);
-      for (const url of urls) {
-        if (!isNetworkAllowed(options.policy, url)) {
-          return failTool(`Network access denied by policy: ${url}`, {
-            stdout: "",
-            stderr: `Network access denied by policy: ${url}`,
-            exitCode: 1,
-            safetyLevel,
-          });
-        }
-      }
+    const deniedUrl = getNetworkPolicyDeniedUrl(
+      options?.policy,
+      extractUrlsFromArgs(cmdArgs),
+    );
+    if (deniedUrl) {
+      return failTool(`Network access denied by policy: ${deniedUrl}`, {
+        stdout: "",
+        stderr: `Network access denied by policy: ${deniedUrl}`,
+        exitCode: 1,
+        safetyLevel,
+      });
     }
 
     if (options?.signal?.aborted) {
@@ -266,17 +266,16 @@ export async function shellScript(
     const interpreter = args.interpreter || "sh";
 
     // Enforce optional network policy on URLs in script
-    if (options?.policy?.networkRules) {
-      const urls = extractUrlsFromText(args.script);
-      for (const url of urls) {
-        if (!isNetworkAllowed(options.policy, url)) {
-          return failTool(`Network access denied by policy: ${url}`, {
-            stdout: "",
-            stderr: `Network access denied by policy: ${url}`,
-            exitCode: 1,
-          });
-        }
-      }
+    const deniedUrl = getNetworkPolicyDeniedUrl(
+      options?.policy,
+      extractUrlsFromText(args.script),
+    );
+    if (deniedUrl) {
+      return failTool(`Network access denied by policy: ${deniedUrl}`, {
+        stdout: "",
+        stderr: `Network access denied by policy: ${deniedUrl}`,
+        exitCode: 1,
+      });
     }
 
     // Create temp directory for script
@@ -388,6 +387,19 @@ function extractUrlsFromText(text: string): string[] {
     urls.push(match[0]);
   }
   return urls;
+}
+
+function getNetworkPolicyDeniedUrl(
+  policy: AgentPolicy | null | undefined,
+  urls: string[],
+): string | null {
+  if (!policy?.networkRules || urls.length === 0) return null;
+  for (const url of urls) {
+    if (!isNetworkAllowed(policy, url)) {
+      return url;
+    }
+  }
+  return null;
 }
 
 async function readProcessStream(
