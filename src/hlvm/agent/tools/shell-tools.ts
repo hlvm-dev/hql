@@ -48,7 +48,7 @@ export interface ShellExecResult extends ShellResult {
 /** Arguments for shell_script tool */
 export interface ShellScriptArgs {
   script: string;
-  interpreter?: "bash" | "sh";
+  interpreter?: "bash" | "sh" | "cmd" | "powershell";
   cwd?: string;
 }
 
@@ -132,12 +132,16 @@ export async function shellExec(
       );
     }
 
-    const cmdArgs = [parsedCommand.program, ...parsedCommand.args];
+    const isWindows = platform.build.os === "windows";
+    const cmdArgs = isWindows
+      ? ["cmd.exe", "/c", args.command]
+      : [parsedCommand.program, ...parsedCommand.args];
 
     // Enforce optional network policy on URL-like args
+    const urlSources = isWindows ? [args.command] : cmdArgs;
     const deniedUrl = getNetworkPolicyDeniedUrl(
       options?.policy,
-      extractUrlsFromArgs(cmdArgs),
+      extractUrlsFromArgs(urlSources),
     );
     if (deniedUrl) {
       return failTool(`Network access denied by policy: ${deniedUrl}`, {
@@ -262,7 +266,9 @@ export async function shellScript(
       ? await resolveToolPath(args.cwd, workspace, options?.policy ?? null)
       : workspace;
 
-    const interpreter = args.interpreter || "sh";
+    const isWindows = platform.build.os === "windows";
+    const interpreter = args.interpreter ||
+      (isWindows ? "cmd" : "sh");
 
     // Enforce optional network policy on URLs in script
     const deniedUrl = getNetworkPolicyDeniedUrl(
@@ -279,7 +285,15 @@ export async function shellScript(
 
     // Create temp directory for script
     tempDir = await platform.fs.makeTempDir({ prefix: "hlvm-shell-" });
-    const scriptPath = platform.path.join(tempDir, "script.sh");
+    const scriptExtension = interpreter === "powershell"
+      ? "ps1"
+      : interpreter === "cmd"
+      ? "cmd"
+      : "sh";
+    const scriptPath = platform.path.join(
+      tempDir,
+      `script.${scriptExtension}`,
+    );
 
     // Write script to temp file
     await platform.fs.writeTextFile(scriptPath, args.script);
@@ -290,9 +304,15 @@ export async function shellScript(
       throw error;
     }
 
+    const commandArgs = interpreter === "cmd"
+      ? ["cmd.exe", "/c", scriptPath]
+      : interpreter === "powershell"
+      ? ["powershell", "-ExecutionPolicy", "Bypass", "-File", scriptPath]
+      : [interpreter, scriptPath];
+
     // Execute script (run + drain streams for cancellation)
     const process = platform.command.run({
-      cmd: [interpreter, scriptPath],
+      cmd: commandArgs,
       cwd: workDir,
       stdout: "piped",
       stderr: "piped",
@@ -475,7 +495,7 @@ export const SHELL_TOOLS = {
     safetyLevel: "L2",
     args: {
       script: "string - Shell script content",
-      interpreter: "string (optional) - 'bash' or 'sh' (default: sh)",
+      interpreter: "string (optional) - 'bash', 'sh', 'cmd', or 'powershell' (default: sh or cmd on Windows)",
       cwd: "string (optional) - Working directory (default: workspace root)",
     },
     returns: {
