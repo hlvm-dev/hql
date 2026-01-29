@@ -15,7 +15,7 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath } from "../security/path-sandbox.ts";
 import { parseShellCommand, isSafeCommand, getUnsafeReason } from "../../../common/shell-parser.ts";
-import { SHELL_ALLOWLIST_L1 } from "../constants.ts";
+import { classifyShellCommand as classifyShellCommandWithReason } from "../security/shell-classifier.ts";
 import {
   enforcePathPolicy,
   isNetworkAllowed,
@@ -60,26 +60,12 @@ export interface ShellScriptResult extends ShellResult {
   message?: string;
 }
 
-// ============================================================
-// Safety Configuration
-// ============================================================
-
 /**
- * Check if a command is in the L1 allow-list
- *
- * @param command Command string to check
- * @returns "L1" if allow-listed, "L2" otherwise
+ * Backward-compatible classifier returning only safety level.
+ * Use classifyShellCommandWithReason for detailed reasons.
  */
 export function classifyShellCommand(command: string): "L1" | "L2" {
-  const trimmed = command.trim();
-
-  for (const pattern of SHELL_ALLOWLIST_L1) {
-    if (pattern.test(trimmed)) {
-      return "L1";
-    }
-  }
-
-  return "L2";
+  return classifyShellCommandWithReason(command).level;
 }
 
 // ============================================================

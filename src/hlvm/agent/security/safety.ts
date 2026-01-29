@@ -15,9 +15,10 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getTool } from "../registry.ts";
-import { DEFAULT_TIMEOUTS, SHELL_ALLOWLIST_L1 } from "../constants.ts";
+import { DEFAULT_TIMEOUTS } from "../constants.ts";
 import { resolvePolicyDecision, type AgentPolicy } from "../policy.ts";
 import { isObjectValue } from "../../../common/utils.ts";
+import { classifyShellCommand } from "./shell-classifier.ts";
 
 // ============================================================
 // Types
@@ -279,21 +280,11 @@ function classifyShellExec(args: unknown): SafetyClassification {
     };
   }
 
-  const command = (args as { command: string }).command.trim();
-
-  for (const pattern of SHELL_ALLOWLIST_L1) {
-    if (pattern.test(command)) {
-      return {
-        level: "L1",
-        reason: `Allow-listed read-only command: ${command}`,
-      };
-    }
-  }
-
-  return {
-    level: "L2",
-    reason: `Shell command requires confirmation: ${command}`,
-  };
+  const command = (args as { command: string }).command;
+  const classification = classifyShellCommand(command);
+  return classification.level === "L1"
+    ? { level: "L1", reason: classification.reason }
+    : { level: "L2", reason: classification.reason };
 }
 
 // ============================================================

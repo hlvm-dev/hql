@@ -27,7 +27,7 @@
  * Everything else defaults to L2 (always confirm).
  *
  * Used by:
- * - shell-tools.ts: classifyShellCommand()
+ * - security/shell-classifier.ts: classifyShellCommand()
  * - safety.ts: classifyShellExec()
  *
  * L1 commands:
