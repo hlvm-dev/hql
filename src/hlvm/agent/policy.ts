@@ -26,16 +26,16 @@ import { SecurityError } from "./security/path-sandbox.ts";
 // ============================================================
 
 /** Explicit decision from policy */
-export type PolicyDecision = "allow" | "deny" | "ask";
+type PolicyDecision = "allow" | "deny" | "ask";
 
 /** Path rules (glob patterns relative to workspace) */
-export interface PathRules {
+interface PathRules {
   allow?: string[];
   deny?: string[];
 }
 
 /** Network rules (glob patterns for URL strings) */
-export interface NetworkRules {
+interface NetworkRules {
   allow?: string[];
   deny?: string[];
 }
@@ -72,7 +72,7 @@ const POLICY_V1_EXAMPLE = `{
 /**
  * Resolve default policy path for a workspace
  */
-export function getDefaultPolicyPath(workspace: string): string {
+function getDefaultPolicyPath(workspace: string): string {
   const platform = getPlatform();
   return platform.path.join(workspace, POLICY_DIR_NAME, POLICY_FILE_NAME);
 }
@@ -126,7 +126,7 @@ export async function loadAgentPolicy(
 /**
  * Normalize policy object (minimal validation)
  */
-export function normalizePolicy(input: unknown): AgentPolicy | null {
+function normalizePolicy(input: unknown): AgentPolicy | null {
   if (!isObjectValue(input)) return null;
 
   const policy = input as Partial<AgentPolicy>;

@@ -9,7 +9,7 @@
 import { estimateTokensFromMessages, estimateTokensFromText } from "../../common/token-utils.ts";
 import type { Message } from "./context.ts";
 
-export type TokenUsageSource = "provider" | "estimated";
+type TokenUsageSource = "provider" | "estimated";
 
 export interface TokenUsage {
   promptTokens: number;
@@ -18,7 +18,7 @@ export interface TokenUsage {
   source: TokenUsageSource;
 }
 
-export interface UsageSnapshot {
+interface UsageSnapshot {
   calls: number;
   totalPromptTokens: number;
   totalCompletionTokens: number;

@@ -12,7 +12,7 @@
  * Simple heuristic: 4 characters ≈ 1 token.
  * Used consistently throughout the agent core.
  */
-export function estimateTokensFromCharCount(charCount: number): number {
+function estimateTokensFromCharCount(charCount: number): number {
   return Math.ceil(charCount / 4);
 }
 

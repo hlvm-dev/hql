@@ -108,13 +108,6 @@ export function getSessionsDir(): string {
 }
 
 /**
- * Get the debug log path (~/.hlvm/debug.log)
- */
-export function getDebugLogPath(): string {
-  return join(getHlvmDir(), "debug.log");
-}
-
-/**
  * Get the runtime directory (~/.hlvm/.runtime)
  * Used for embedded binaries and runtime state.
  */
@@ -159,4 +152,3 @@ export function ensureHlvmDirSync(): void {
 export async function ensureRuntimeDir(): Promise<void> {
   await getPlatform().fs.mkdir(getRuntimeDir(), { recursive: true });
 }
-

@@ -8,7 +8,7 @@
 import { TimeoutError } from "../../common/timeout-utils.ts";
 import { formatErrorMessage } from "../../common/error.ts";
 
-export type ErrorClass =
+type ErrorClass =
   | "abort"
   | "timeout"
   | "rate_limit"
@@ -16,7 +16,7 @@ export type ErrorClass =
   | "permanent"
   | "unknown";
 
-export interface ClassifiedError {
+interface ClassifiedError {
   class: ErrorClass;
   retryable: boolean;
   message: string;

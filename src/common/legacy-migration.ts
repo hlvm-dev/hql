@@ -14,7 +14,7 @@ const basename = (p: string) => path().basename(p);
 const join = (...paths: string[]) => path().join(...paths);
 const resolve = (...paths: string[]) => path().resolve(...paths);
 
-export function getLegacyHqlDir(): string {
+function getLegacyHqlDir(): string {
   const override = getEnvVar("HQL_DIR") || getEnvVar("HQL_HOME");
   if (override) {
     return resolve(override);

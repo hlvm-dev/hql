@@ -32,7 +32,7 @@ export interface Message {
 }
 
 /** Context manager configuration */
-export interface ContextConfig {
+interface ContextConfig {
   /** Maximum tokens allowed in context (default: 12000) */
   maxTokens: number;
   /** Maximum length for tool results before truncation (default: 5000 chars) */
@@ -65,7 +65,7 @@ export class ContextOverflowError extends Error {
 }
 
 /** Context statistics */
-export interface ContextStats {
+interface ContextStats {
   messageCount: number;
   estimatedTokens: number;
   systemMessages: number;

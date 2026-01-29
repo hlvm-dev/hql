@@ -53,12 +53,6 @@ export function assertMaxBytes(label: string, actual: number, limit: number): vo
   }
 }
 
-export function assertMaxCount(label: string, actual: number, limit: number): void {
-  if (actual > limit) {
-    throw new ResourceLimitError(label, actual, limit);
-  }
-}
-
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const kb = bytes / 1024;

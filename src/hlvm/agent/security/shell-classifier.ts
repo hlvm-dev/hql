@@ -7,7 +7,7 @@
 
 import { SHELL_ALLOWLIST_L1 } from "../constants.ts";
 
-export interface ShellCommandClassification {
+interface ShellCommandClassification {
   level: "L1" | "L2";
   reason: string;
 }

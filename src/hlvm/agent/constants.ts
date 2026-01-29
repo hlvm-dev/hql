@@ -240,7 +240,7 @@ export const ENGINE_PROFILES = {
   },
 } as const;
 
-export type EngineProfileName = keyof typeof ENGINE_PROFILES;
+type EngineProfileName = keyof typeof ENGINE_PROFILES;
 
 // ============================================================
 // Type Exports
@@ -249,11 +249,11 @@ export type EngineProfileName = keyof typeof ENGINE_PROFILES;
 /**
  * Type-safe timeout keys
  */
-export type TimeoutKey = keyof typeof DEFAULT_TIMEOUTS;
+type TimeoutKey = keyof typeof DEFAULT_TIMEOUTS;
 
 /**
  * Type-safe timeout configuration
  */
-export type TimeoutConfig = {
+type TimeoutConfig = {
   [K in TimeoutKey]?: number;
 };

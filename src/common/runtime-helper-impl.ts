@@ -441,7 +441,7 @@ export const runtimeHelperImplementations = {
  * All runtime helper names - SINGLE SOURCE OF TRUTH.
  * Used by ir-to-typescript.ts to detect which helpers are used.
  */
-export const RUNTIME_HELPER_NAMES = Object.keys(runtimeHelperImplementations) as RuntimeHelperName[];
+const RUNTIME_HELPER_NAMES = Object.keys(runtimeHelperImplementations) as RuntimeHelperName[];
 
 /**
  * Set version for O(1) lookup - use this for .has() checks instead of Array.includes()

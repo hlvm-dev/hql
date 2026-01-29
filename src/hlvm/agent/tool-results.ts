@@ -4,11 +4,11 @@
  * SSOT for success/failure result shapes.
  */
 
-export type ToolSuccess<T extends Record<string, unknown>> = T & {
+type ToolSuccess<T extends Record<string, unknown>> = T & {
   success: true;
 };
 
-export type ToolFailure<T extends Record<string, unknown> = Record<string, never>> = T & {
+type ToolFailure<T extends Record<string, unknown> = Record<string, never>> = T & {
   success: false;
   message: string;
 };

@@ -29,13 +29,13 @@ import { classifyShellCommand } from "./shell-classifier.ts";
 export type SafetyLevel = "L0" | "L1" | "L2";
 
 /** Classification result with reasoning */
-export interface SafetyClassification {
+interface SafetyClassification {
   level: SafetyLevel;
   reason: string;
 }
 
 /** Confirmation result from user */
-export interface ConfirmationResult {
+interface ConfirmationResult {
   confirmed: boolean;
   rememberChoice?: boolean;
 }
@@ -283,7 +283,7 @@ function classifyShellExec(args: unknown): SafetyClassification {
  * }
  * ```
  */
-export async function promptUserConfirmation(
+async function promptUserConfirmation(
   toolName: string,
   args: unknown,
   classification: SafetyClassification,

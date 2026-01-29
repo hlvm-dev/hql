@@ -16,7 +16,7 @@ export interface ToolUse {
   result: string;
 }
 
-export interface GroundingCheckResult {
+interface GroundingCheckResult {
   grounded: boolean;
   warnings: string[];
 }

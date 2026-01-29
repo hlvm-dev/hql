@@ -18,26 +18,26 @@ import type { Message as AgentMessage } from "./context.ts";
 // Types
 // ============================================================
 
-export interface FixtureStepExpect {
+interface FixtureStepExpect {
   /** Substrings that must appear in the concatenated message content */
   contains?: string[];
   /** Exact message count expected for this step */
   messageCount?: number;
 }
 
-export interface FixtureStep {
+interface FixtureStep {
   /** LLM response to return for this step */
   response: string;
   /** Optional expectations against input messages */
   expect?: FixtureStepExpect;
 }
 
-export interface FixtureCaseMatch {
+interface FixtureCaseMatch {
   /** Substrings required in the last user message */
   contains?: string[];
 }
 
-export interface FixtureCase {
+interface FixtureCase {
   name: string;
   match?: FixtureCaseMatch;
   steps: FixtureStep[];

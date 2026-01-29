@@ -334,7 +334,7 @@ Now, assist the user with their request.`;
 /**
  * Configuration for agent LLM
  */
-export interface AgentLLMConfig {
+interface AgentLLMConfig {
   /** Model to use (e.g., "ollama/llama3.2") */
   model?: string;
   /** Additional options for generation */
@@ -413,40 +413,5 @@ export function createAgentLLM(
     const response = await collectStream(stream);
 
     return response;
-  };
-}
-
-/**
- * Create agent LLM with system prompt pre-configured
- *
- * Convenience function that creates both LLM function and initial context
- * with system prompt.
- *
- * @param config Configuration options
- * @returns Object with llm function and initialized context
- *
- * @example
- * ```ts
- * const { llm, context } = createAgentWithSystemPrompt({
- *   model: "ollama/llama3.2"
- * });
- *
- * const result = await runReActLoop(
- *   "Your task here",
- *   { workspace: "/path/to/workspace", context, autoApprove: true },
- *   llm
- * );
- * ```
- */
-export function createAgentWithSystemPrompt(config?: AgentLLMConfig): {
-  llm: (messages: AgentMessage[], signal?: AbortSignal) => Promise<string>;
-  getSystemPrompt: () => string;
-} {
-  const llm = createAgentLLM(config);
-  const systemPrompt = generateSystemPrompt();
-
-  return {
-    llm,
-    getSystemPrompt: () => systemPrompt,
   };
 }

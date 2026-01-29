@@ -7,7 +7,7 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 
-export interface MetricEvent {
+interface MetricEvent {
   ts: number;
   type: string;
   data: Record<string, unknown>;

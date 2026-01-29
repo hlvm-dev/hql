@@ -25,17 +25,6 @@ export async function resolveToolPath(
 }
 
 /**
- * Check if an absolute path is allowed by policy (or no policy).
- */
-export function isPathAllowedByPolicy(
-  policy: AgentPolicy | null | undefined,
-  workspace: string,
-  absolutePath: string,
-): boolean {
-  return isPathAllowedAbsolute(policy, workspace, absolutePath);
-}
-
-/**
  * Create a reusable policy path checker for a workspace.
  */
 export function createPolicyPathChecker(

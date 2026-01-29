@@ -136,7 +136,7 @@ function getTempBase(): string {
 /**
  * Get the cache directory path
  */
-export async function getCacheDir(): Promise<string> {
+async function getCacheDir(): Promise<string> {
   // Allow host to override cache root (useful when packaged or running inside a larger platform like HLVM)
   let cacheRootBase: string | null = null;
   try {

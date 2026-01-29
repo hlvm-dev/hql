@@ -65,7 +65,7 @@ export interface ParseError {
 }
 
 /** Result of parsing tool calls from agent response */
-export interface ParseResult {
+interface ParseResult {
   /** Successfully parsed tool calls */
   calls: ToolCall[];
   /** Parse errors encountered */
@@ -73,7 +73,7 @@ export interface ParseResult {
 }
 
 /** Result of tool execution */
-export interface ToolExecutionResult {
+interface ToolExecutionResult {
   success: boolean;
   result?: unknown;
   error?: string;
@@ -147,7 +147,7 @@ export type TraceEvent =
   };
 
 /** Orchestrator configuration */
-export interface OrchestratorConfig {
+interface OrchestratorConfig {
   /** Workspace directory for tool execution */
   workspace: string;
   /** Context manager for message history */

@@ -26,7 +26,7 @@ import { okTool, failTool } from "../tool-results.ts";
 // ============================================================
 
 /** Result of shell command execution */
-export interface ShellResult {
+interface ShellResult {
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -39,7 +39,7 @@ export interface ShellExecArgs {
 }
 
 /** Result of shell_exec operation */
-export interface ShellExecResult extends ShellResult {
+interface ShellExecResult extends ShellResult {
   success: boolean;
   message?: string;
   safetyLevel?: "L1" | "L2";
@@ -53,7 +53,7 @@ export interface ShellScriptArgs {
 }
 
 /** Result of shell_script operation */
-export interface ShellScriptResult extends ShellResult {
+interface ShellScriptResult extends ShellResult {
   success: boolean;
   message?: string;
 }

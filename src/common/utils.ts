@@ -139,7 +139,7 @@ export async function readFile(
   }
 }
 
-export async function tryReadFile(
+async function tryReadFile(
   filePath: string,
   logger?: { debug: (msg: string) => void },
 ): Promise<string | null> {
@@ -320,4 +320,3 @@ export function mapTail<T, R>(arr: readonly T[], fn: (item: T) => R): R[] {
   }
   return result;
 }
-

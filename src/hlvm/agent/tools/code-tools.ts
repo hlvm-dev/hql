@@ -30,7 +30,7 @@ import { matchGlob } from "../../../common/pattern-utils.ts";
 // ============================================================
 
 /** Result of a code search match */
-export interface SearchMatch {
+interface SearchMatch {
   file: string;
   line: number;
   content: string;
@@ -47,7 +47,7 @@ export interface SearchCodeArgs {
 }
 
 /** Result of search_code operation */
-export interface SearchCodeResult {
+interface SearchCodeResult {
   success: boolean;
   matches?: SearchMatch[];
   count?: number;
@@ -55,7 +55,7 @@ export interface SearchCodeResult {
 }
 
 /** Result of a symbol find */
-export interface SymbolMatch {
+interface SymbolMatch {
   file: string;
   line: number;
   type: "function" | "class" | "const";
@@ -73,7 +73,7 @@ export interface FindSymbolArgs {
 }
 
 /** Result of find_symbol operation */
-export interface FindSymbolResult {
+interface FindSymbolResult {
   success: boolean;
   symbols?: SymbolMatch[];
   count?: number;
@@ -81,7 +81,7 @@ export interface FindSymbolResult {
 }
 
 /** Directory tree node */
-export interface TreeNode {
+interface TreeNode {
   name: string;
   type: "file" | "directory";
   size?: number;
@@ -96,7 +96,7 @@ export interface GetStructureArgs {
 }
 
 /** Result of get_structure operation */
-export interface GetStructureResult {
+interface GetStructureResult {
   success: boolean;
   tree?: TreeNode;
   message?: string;

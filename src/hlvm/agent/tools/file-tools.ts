@@ -34,7 +34,7 @@ import { okTool, failTool } from "../tool-results.ts";
 // ============================================================
 
 /** Result of a successful file operation */
-export interface FileOperationResult {
+interface FileOperationResult {
   success: boolean;
   message?: string;
   data?: unknown;
@@ -48,7 +48,7 @@ export interface ReadFileArgs {
 }
 
 /** Result of read_file operation */
-export interface ReadFileResult extends FileOperationResult {
+interface ReadFileResult extends FileOperationResult {
   content?: string;
   size?: number;
 }
@@ -71,7 +71,7 @@ export interface EditFileArgs {
 }
 
 /** Result of edit_file operation */
-export interface EditFileResult extends FileOperationResult {
+interface EditFileResult extends FileOperationResult {
   replacements?: number;
   preview?: string;
 }
@@ -86,14 +86,14 @@ export interface ListFilesArgs {
 }
 
 /** File entry from list_files */
-export interface FileEntry {
+interface FileEntry {
   path: string;
   type: "file" | "directory";
   size?: number;
 }
 
 /** Result of list_files operation */
-export interface ListFilesResult extends FileOperationResult {
+interface ListFilesResult extends FileOperationResult {
   entries?: FileEntry[];
   count?: number;
 }

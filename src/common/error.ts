@@ -1849,7 +1849,7 @@ export class SourceLocationInfo implements SourceLocation {
 // Error reporter
 // -----------------------------------------------------------------------------
 
-export class ErrorReporter {
+class ErrorReporter {
   private logger: Logger;
 
   constructor(logger?: Logger) {
@@ -1926,4 +1926,3 @@ export async function reportError(
 ): Promise<void> {
   await globalErrorReporter.reportError(error, isDebug);
 }
-

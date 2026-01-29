@@ -25,7 +25,7 @@ const BUILTIN_PREDICATE_NAMES = [
   "isList", "isSymbol",  // S-exp AST predicates (interpreter-only)
 ] as const;
 
-export const BUILTIN_FUNCTION_NAMES = [
+const BUILTIN_FUNCTION_NAMES = [
   "%first", "%rest", "%length", "%nth", "%empty?",
   "name", "gensym", "not", "str", "mod",
   "vector", "list", "hash-map", "hash-set",
@@ -36,7 +36,7 @@ export const BUILTIN_FUNCTION_NAMES = [
  * KERNEL_PRIMITIVES imported from primitives.ts.
  * Additional forms not in KERNEL_PRIMITIVES listed here.
  */
-export const ADDITIONAL_SPECIAL_FORMS = [
+const ADDITIONAL_SPECIAL_FORMS = [
   // macro is real HQL syntax: (macro name [params] body)
   // NOTE: defn and defmacro DO NOT EXIST in HQL - removed!
   // NOTE: doseq DOES NOT EXIST in HQL - use (for) instead!
@@ -49,23 +49,17 @@ export const ADDITIONAL_SPECIAL_FORMS = [
 ] as const;
 
 /**
- * Declaration-like special forms for syntax highlighting.
- * These forms appear in declaration context (highlighted as keywords).
- */
-export const DECLARATION_SPECIAL_FORMS = ["macro", "import", "export", "new"] as const;
-
-/**
  * Module syntax keywords - fixed parts of import/export syntax.
  * (import [x] from "path") - "from" and "as" are syntax keywords.
  * (class Name (field x)) - "field" is a syntax keyword.
  */
-export const MODULE_SYNTAX_KEYWORDS = ["from", "as", "field"] as const;
+const MODULE_SYNTAX_KEYWORDS = ["from", "as", "field"] as const;
 
 /**
  * Control flow keywords (for syntax highlighting categorization).
  * These act like keywords even though some are macros.
  */
-export const CONTROL_FLOW_KEYWORDS = [
+const CONTROL_FLOW_KEYWORDS = [
   // From KERNEL_PRIMITIVES
   "if", "do", "loop", "recur", "return",
   // Conditional macros
@@ -83,7 +77,7 @@ export const CONTROL_FLOW_KEYWORDS = [
 /**
  * Threading macro operators.
  */
-export const THREADING_MACROS = [
+const THREADING_MACROS = [
   "->", "->>", "some->", "some->>", "cond->", "cond->>",
 ] as const;
 
@@ -107,7 +101,7 @@ export const WORD_LOGICAL_OPERATORS = ["and", "or", "not"] as const;
 /**
  * Common JS globals accessible in HQL.
  */
-export const JS_GLOBAL_NAMES = [
+const JS_GLOBAL_NAMES = [
   "console", "Array", "Object", "String", "Number", "Boolean",
   "Map", "Set", "Promise", "JSON", "Math", "Date", "RegExp",
   "Error", "TypeError", "RangeError",
@@ -129,7 +123,7 @@ export const DECLARATION_KEYWORDS = [
  * Extract macro names from EMBEDDED_MACROS source code.
  * Parses (macro NAME ...) patterns from the HQL source.
  */
-export function extractMacroNames(): string[] {
+function extractMacroNames(): string[] {
   const allSource = Object.values(EMBEDDED_MACROS).join("\n");
   const macroRegex = /\(macro\s+([^\s\[\]]+)/g;
   const macros = new Set<string>();
