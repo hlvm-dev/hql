@@ -14,9 +14,10 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { validatePath } from "../security/path-sandbox.ts";
+import { resolveToolPath } from "../path-utils.ts";
 import { isPathAllowedAbsolute, type AgentPolicy } from "../policy.ts";
-import { escapeRegExp, getErrorMessage } from "../../../common/utils.ts";
+import { escapeRegExp } from "../../../common/utils.ts";
+import { formatToolError } from "../tool-errors.ts";
 import { walkDirectory, loadGitignore } from "../../../common/file-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import { assertMaxBytes, ResourceLimitError } from "../../../common/limits.ts";
@@ -131,7 +132,7 @@ export async function searchCode(
 
     // Validate and resolve search path
     const searchPath = args.path
-      ? await validatePath(args.path, workspace)
+      ? await resolveToolPath(args.path, workspace, options?.policy ?? null)
       : workspace;
 
     // Load gitignore patterns
@@ -242,9 +243,10 @@ export async function searchCode(
       message: `Found ${matches.length} matches`,
     };
   } catch (error) {
+    const { message } = formatToolError("Failed to search code", error);
     return {
       success: false,
-      message: `Failed to search code: ${getErrorMessage(error)}`,
+      message,
     };
   }
 }
@@ -279,7 +281,7 @@ export async function findSymbol(
 
     // Validate and resolve search path
     const searchPath = args.path
-      ? await validatePath(args.path, workspace)
+      ? await resolveToolPath(args.path, workspace, options?.policy ?? null)
       : workspace;
 
     // Check if search path is a file or directory
@@ -407,9 +409,10 @@ export async function findSymbol(
         : `Found ${symbols.length} symbol(s) matching '${args.name}'`,
     };
   } catch (error) {
+    const { message } = formatToolError("Failed to find symbol", error);
     return {
       success: false,
-      message: `Failed to find symbol: ${getErrorMessage(error)}`,
+      message,
     };
   }
 }
@@ -443,7 +446,7 @@ export async function getStructure(
 
     // Validate and resolve path
     const targetPath = args.path
-      ? await validatePath(args.path, workspace)
+      ? await resolveToolPath(args.path, workspace, options?.policy ?? null)
       : workspace;
 
     if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, targetPath)) {
@@ -554,9 +557,10 @@ export async function getStructure(
         : `Retrieved structure for ${args.path || "."}`,
     };
   } catch (error) {
+    const { message } = formatToolError("Failed to get structure", error);
     return {
       success: false,
-      message: `Failed to get structure: ${getErrorMessage(error)}`,
+      message,
     };
   }
 }

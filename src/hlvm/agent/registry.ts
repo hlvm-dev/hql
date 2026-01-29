@@ -19,6 +19,7 @@ import { SHELL_TOOLS } from "./tools/shell-tools.ts";
 import { META_TOOLS } from "./tools/meta-tools.ts";
 import { ValidationError } from "../../common/error.ts";
 import type { AgentPolicy } from "./policy.ts";
+import { isToolArgsObject } from "./validation.ts";
 
 // ============================================================
 // Types
@@ -183,7 +184,7 @@ export function validateToolArgs(
   const errors: string[] = [];
 
   // Check args is an object
-  if (typeof args !== "object" || args === null || Array.isArray(args)) {
+  if (!isToolArgsObject(args)) {
     errors.push("Arguments must be a plain object");
     return { valid: false, errors };
   }

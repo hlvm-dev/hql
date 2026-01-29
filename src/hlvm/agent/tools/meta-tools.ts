@@ -14,6 +14,7 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
+import { isToolArgsObject } from "../validation.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 
 // ============================================================
@@ -46,7 +47,7 @@ async function askUser(
   throwIfAborted(options?.signal);
 
   // Type validation
-  if (typeof args !== "object" || args === null) {
+  if (!isToolArgsObject(args)) {
     throw new ValidationError("args must be an object", "ask_user");
   }
 

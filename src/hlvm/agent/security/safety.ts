@@ -18,6 +18,7 @@ import { getTool } from "../registry.ts";
 import { DEFAULT_TIMEOUTS } from "../constants.ts";
 import { resolvePolicyDecision, type AgentPolicy } from "../policy.ts";
 import { isObjectValue } from "../../../common/utils.ts";
+import { isToolArgsObject } from "../validation.ts";
 import { classifyShellCommand } from "./shell-classifier.ts";
 
 // ============================================================
@@ -269,8 +270,14 @@ export function classifyTool(
  */
 function classifyShellExec(args: unknown): SafetyClassification {
   // Extract command from args
+  if (!isToolArgsObject(args)) {
+    return {
+      level: "L2",
+      reason: "Shell command requires confirmation (invalid args)",
+    };
+  }
+
   if (
-    typeof args !== "object" || args === null ||
     !("command" in args) ||
     typeof (args as { command: unknown }).command !== "string"
   ) {

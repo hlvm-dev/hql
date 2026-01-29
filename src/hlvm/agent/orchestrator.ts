@@ -40,6 +40,7 @@ import { classifyError } from "./error-taxonomy.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { UsageTracker, estimateUsage, type TokenUsage } from "./usage.ts";
 import type { MetricsSink } from "./metrics.ts";
+import { isToolArgsObject } from "./validation.ts";
 
 // ============================================================
 // Types
@@ -281,8 +282,7 @@ export function parseToolCalls(
             "toolName" in parsed &&
             "args" in parsed &&
             typeof parsed.toolName === "string" &&
-            isObjectValue(parsed.args) &&
-            !Array.isArray(parsed.args) // Reject array args
+            isToolArgsObject(parsed.args)
           ) {
             calls.push({
               toolName: parsed.toolName,
@@ -447,7 +447,7 @@ function normalizeToolCall(value: unknown): ToolCall | null {
     }
   }
 
-  if (!isObjectValue(args) || Array.isArray(args)) return null;
+  if (!isToolArgsObject(args)) return null;
 
   return {
     toolName,

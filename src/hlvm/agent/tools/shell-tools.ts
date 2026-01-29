@@ -13,15 +13,14 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { validatePath } from "../security/path-sandbox.ts";
+import { resolveToolPath } from "../path-utils.ts";
 import { parseShellCommand, isSafeCommand, getUnsafeReason } from "../../../common/shell-parser.ts";
 import { classifyShellCommand as classifyShellCommandWithReason } from "../security/shell-classifier.ts";
 import {
-  enforcePathPolicy,
   isNetworkAllowed,
   type AgentPolicy,
 } from "../policy.ts";
-import { getErrorMessage } from "../../../common/utils.ts";
+import { formatToolError } from "../tool-errors.ts";
 
 // ============================================================
 // Types
@@ -100,9 +99,8 @@ export async function shellExec(
 
     // Validate working directory
     const workDir = args.cwd
-      ? await validatePath(args.cwd, workspace)
+      ? await resolveToolPath(args.cwd, workspace, options?.policy ?? null)
       : workspace;
-    enforcePathPolicy(options?.policy ?? null, workspace, workDir, args.cwd ?? ".");
 
     // Classify command for safety level
     const safetyLevel = classifyShellCommand(args.command);
@@ -112,11 +110,12 @@ export async function shellExec(
     try {
       parsedCommand = parseShellCommand(args.command);
     } catch (error) {
+      const toolError = formatToolError("Invalid shell command", error);
       return {
         success: false,
-        message: `Invalid shell command: ${getErrorMessage(error)}`,
+        message: toolError.message,
         stdout: "",
-        stderr: getErrorMessage(error),
+        stderr: toolError.error,
         exitCode: 1,
         safetyLevel,
       };
@@ -208,11 +207,12 @@ export async function shellExec(
       }
     }
   } catch (error) {
+    const toolError = formatToolError("Failed to execute command", error);
     return {
       success: false,
-      message: `Failed to execute command: ${getErrorMessage(error)}`,
+      message: toolError.message,
       stdout: "",
-      stderr: getErrorMessage(error),
+      stderr: toolError.error,
       exitCode: 1,
     };
   }
@@ -254,9 +254,8 @@ export async function shellScript(
   try {
     // Validate working directory
     const workDir = args.cwd
-      ? await validatePath(args.cwd, workspace)
+      ? await resolveToolPath(args.cwd, workspace, options?.policy ?? null)
       : workspace;
-    enforcePathPolicy(options?.policy ?? null, workspace, workDir, args.cwd ?? ".");
 
     const interpreter = args.interpreter || "sh";
 
@@ -336,11 +335,12 @@ export async function shellScript(
       }
     }
   } catch (error) {
+    const toolError = formatToolError("Failed to execute script", error);
     return {
       success: false,
-      message: `Failed to execute script: ${getErrorMessage(error)}`,
+      message: toolError.message,
       stdout: "",
-      stderr: getErrorMessage(error),
+      stderr: toolError.error,
       exitCode: 1,
     };
   } finally {

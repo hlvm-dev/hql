@@ -16,11 +16,8 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath, SecurityError } from "../security/path-sandbox.ts";
-import {
-  enforcePathPolicy,
-  isPathAllowedAbsolute,
-  type AgentPolicy,
-} from "../policy.ts";
+import { isPathAllowedAbsolute, type AgentPolicy } from "../policy.ts";
+import { resolveToolPath } from "../path-utils.ts";
 import { globToRegex, GlobPatternError } from "../../../common/pattern-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import {
@@ -29,7 +26,7 @@ import {
   ResourceLimitError,
 } from "../../../common/limits.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
-import { getErrorMessage } from "../../../common/utils.ts";
+import { formatToolError } from "../tool-errors.ts";
 
 // ============================================================
 // Types
@@ -127,8 +124,11 @@ export async function readFile(
     const platform = getPlatform();
 
     // Validate path security
-    const validPath = await validatePath(args.path, workspace);
-    enforcePathPolicy(options?.policy ?? null, workspace, validPath, args.path);
+    const validPath = await resolveToolPath(
+      args.path,
+      workspace,
+      options?.policy ?? null,
+    );
 
     // Check if file exists
     const stat = await platform.fs.stat(validPath);
@@ -163,9 +163,10 @@ export async function readFile(
           `File too large to read. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
       };
     }
+    const { message } = formatToolError("Failed to read file", error);
     return {
       success: false,
-      message: `Failed to read file: ${getErrorMessage(error)}`,
+      message,
     };
   }
 }
@@ -198,8 +199,11 @@ export async function writeFile(
     const platform = getPlatform();
 
     // Validate path security
-    const validPath = await validatePath(args.path, workspace);
-    enforcePathPolicy(options?.policy ?? null, workspace, validPath, args.path);
+    const validPath = await resolveToolPath(
+      args.path,
+      workspace,
+      options?.policy ?? null,
+    );
 
     // Create parent directories if requested
     if (args.createDirs) {
@@ -230,9 +234,10 @@ export async function writeFile(
           `Content too large to write. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
       };
     }
+    const { message } = formatToolError("Failed to write file", error);
     return {
       success: false,
-      message: `Failed to write file: ${getErrorMessage(error)}`,
+      message,
     };
   }
 }
@@ -269,8 +274,11 @@ export async function editFile(
     const platform = getPlatform();
 
     // Validate path security
-    const validPath = await validatePath(args.path, workspace);
-    enforcePathPolicy(options?.policy ?? null, workspace, validPath, args.path);
+    const validPath = await resolveToolPath(
+      args.path,
+      workspace,
+      options?.policy ?? null,
+    );
 
     // Enforce size limit before reading
     const stat = await platform.fs.stat(validPath);
@@ -296,9 +304,10 @@ export async function editFile(
         replacements = matches ? matches.length : 0;
         newContent = content.replace(regex, args.replace);
       } catch (error) {
+        const { message } = formatToolError("Invalid regex pattern", error);
         return {
           success: false,
-          message: `Invalid regex pattern: ${getErrorMessage(error)}`,
+          message,
         };
       }
     } else {
@@ -347,9 +356,10 @@ export async function editFile(
           `File too large to edit. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
       };
     }
+    const { message } = formatToolError("Failed to edit file", error);
     return {
       success: false,
-      message: `Failed to edit file: ${getErrorMessage(error)}`,
+      message,
     };
   }
 }
@@ -383,8 +393,11 @@ export async function listFiles(
     const platform = getPlatform();
 
     // Validate path security
-    const validPath = await validatePath(args.path, workspace);
-    enforcePathPolicy(options?.policy ?? null, workspace, validPath, args.path);
+    const validPath = await resolveToolPath(
+      args.path,
+      workspace,
+      options?.policy ?? null,
+    );
 
     // Check if path exists and is a directory
     const stat = await platform.fs.stat(validPath);
@@ -524,9 +537,10 @@ export async function listFiles(
         : `Found ${entries.length} entries in ${args.path}`,
     };
   } catch (error) {
+    const { message } = formatToolError("Failed to list files", error);
     return {
       success: false,
-      message: `Failed to list files: ${getErrorMessage(error)}`,
+      message,
     };
   }
 }
