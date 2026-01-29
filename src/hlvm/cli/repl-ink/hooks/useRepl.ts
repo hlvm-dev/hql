@@ -9,6 +9,7 @@ import { evaluate as hqlEvaluate } from "../../repl/evaluator.ts";
 import { resolveAtMentions } from "../../repl/mention-resolver.ts";
 import type { EvalResult } from "../types.ts";
 import type { AnyAttachment } from "../../repl/attachment.ts";
+import { ensureError } from "../../../../common/utils.ts";
 
 interface UseReplOptions {
   jsMode?: boolean;
@@ -69,7 +70,7 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
       }
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: ensureError(error),
       };
     }
   }, [jsMode]);

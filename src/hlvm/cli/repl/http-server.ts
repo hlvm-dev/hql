@@ -14,6 +14,7 @@ import { config } from "../../api/config.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { RuntimeError } from "../../../common/error.ts";
+import { getErrorMessage } from "../../../common/utils.ts";
 
 /**
  * REPL HTTP Server Port
@@ -161,11 +162,7 @@ export async function startHttpServer(): Promise<void> {
         `REPL server port ${PORT} is already in use`,
       );
     }
-    log.error(
-      `Failed to start REPL HTTP server: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+    log.error(`Failed to start REPL HTTP server: ${getErrorMessage(error)}`);
     throw error;
   }
 }

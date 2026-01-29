@@ -29,6 +29,7 @@ import { isCommand, runCommand } from "../../repl/commands.ts";
 import type { Session, SessionInitOptions, SessionMeta, SessionMessage } from "../../repl/session/types.ts";
 import { SessionManager } from "../../repl/session/manager.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { ensureError } from "../../../../common/utils.ts";
 import { ReplProvider, useReplContext } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { log } from "../../../api/log.ts";
@@ -556,7 +557,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       result = await evalPromise;
     } catch (error) {
       if (evalState.cancelled) return;
-      const err = error instanceof Error ? error : new Error(String(error));
+      const err = ensureError(error);
       if (evalState.backgrounded || evalState.taskId) {
         const taskId = evalState.taskId ?? createEvalTask(code, controller);
         evalState.taskId = taskId;

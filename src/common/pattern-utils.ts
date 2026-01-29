@@ -47,6 +47,19 @@ export class GlobPatternError extends Error {
 }
 
 // ============================================================
+// Cache (performance, no behavior change)
+// ============================================================
+
+const REGEX_CACHE = new Map<string, RegExp>();
+const MAX_CACHE_ENTRIES = 1000;
+
+function getCacheKey(pattern: string, options: GlobOptions): string {
+  const caseSensitive = options.caseSensitive ?? true;
+  const matchPath = options.matchPath ?? true;
+  return `${pattern}\u0000${caseSensitive}\u0000${matchPath}`;
+}
+
+// ============================================================
 // Glob Conversion
 // ============================================================
 
@@ -87,6 +100,10 @@ export class GlobPatternError extends Error {
  * ```
  */
 export function globToRegex(pattern: string, options: GlobOptions = {}): RegExp {
+  const cacheKey = getCacheKey(pattern, options);
+  const cached = REGEX_CACHE.get(cacheKey);
+  if (cached) return cached;
+
   const caseSensitive = options.caseSensitive ?? true;
   const matchPath = options.matchPath ?? true;
 
@@ -145,7 +162,12 @@ export function globToRegex(pattern: string, options: GlobOptions = {}): RegExp 
   // Compile regex
   const flags = caseSensitive ? "" : "i";
   try {
-    return new RegExp(regex, flags);
+    const compiled = new RegExp(regex, flags);
+    if (REGEX_CACHE.size >= MAX_CACHE_ENTRIES) {
+      REGEX_CACHE.clear();
+    }
+    REGEX_CACHE.set(cacheKey, compiled);
+    return compiled;
   } catch (error) {
     throw new GlobPatternError(
       pattern,

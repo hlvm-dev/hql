@@ -25,6 +25,7 @@ import {
 import { getPlatform } from "../../../../platform/platform.ts";
 import { log } from "../../../api/log.ts";
 import { ValidationError, RuntimeError } from "../../../../common/error.ts";
+import { ensureError } from "../../../../common/utils.ts";
 
 // ============================================================
 // Resource Registry
@@ -449,7 +450,7 @@ export class TaskManager {
       }
 
       // Transition to failed using state machine
-      const taskError = error instanceof Error ? error : new Error(String(error));
+      const taskError = ensureError(error);
       this.setError(taskId, taskError);
       if (this.transition(taskId, "failed")) {
         this.emit({ type: "task:failed", taskId, error: taskError });

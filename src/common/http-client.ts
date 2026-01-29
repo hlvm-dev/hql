@@ -13,6 +13,7 @@
  */
 
 import { RuntimeError } from "./error.ts";
+import { ensureError } from "./utils.ts";
 
 /**
  * HTTP request options
@@ -167,7 +168,7 @@ class HttpClient {
         const data = await response.json() as T;
         return data;
       } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
+        lastError = ensureError(error);
 
         // Don't retry on abort or client errors (4xx)
         if (error instanceof DOMException && error.name === "AbortError") {
