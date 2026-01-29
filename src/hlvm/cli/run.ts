@@ -131,7 +131,7 @@ function isSingleExpression(expression: string): boolean {
   const afterFirst = expression.slice(firstExprEnd + 1).trim();
 
   // Nothing meaningful after first expression
-  return afterFirst === "" || afterFirst.startsWith(";");
+  return afterFirst === "" || afterFirst.startsWith("//") || afterFirst.startsWith("/*");
 }
 
 /**

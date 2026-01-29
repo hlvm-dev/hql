@@ -34,7 +34,7 @@ async function debugLog(message: string): Promise<void> {
 // Constants
 // ============================================================
 
-const MEMORY_HEADER = "; HLVM Memory - auto-persisted definitions\n; Edit freely - compacted on REPL startup\n\n";
+const MEMORY_HEADER = "// HLVM Memory - auto-persisted definitions\n// Edit freely - compacted on REPL startup\n\n";
 
 /** Get the memory file path: ~/.hlvm/memory.hql */
 export function getMemoryFilePath(): string {
@@ -186,7 +186,7 @@ function isDefinitionStart(trimmedLine: string): boolean {
 
 /**
  * Parse memory.hql content and extract definitions with docstrings.
- * Docstrings are stored as "; " prefixed comment lines above definitions.
+ * Docstrings are stored as "// " prefixed comment lines above definitions.
  * Robust handling: if a new (def or (defn starts before current expression closes,
  * the current expression is malformed - skip it and continue with the new one.
  */
@@ -208,9 +208,9 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
     }
 
     // Comment line: accumulate as potential docstring
-    if (trimmed.startsWith(";")) {
-      // Remove "; " prefix and store the content
-      const docLine = trimmed.startsWith("; ") ? trimmed.slice(2) : trimmed.slice(1);
+    if (trimmed.startsWith("//")) {
+      // Remove "// " prefix and store the content
+      const docLine = trimmed.startsWith("// ") ? trimmed.slice(3) : trimmed.slice(2);
       pendingDocLines.push(docLine);
       i++;
       continue;
@@ -237,7 +237,7 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
       const currentTrimmed = currentLine.trim();
 
       // Skip empty lines and comments within multi-line expressions
-      if (j > i && (currentTrimmed === "" || currentTrimmed.startsWith(";"))) {
+      if (j > i && (currentTrimmed === "" || currentTrimmed.startsWith("//"))) {
         codeLines.push(currentLine);
         continue;
       }
@@ -363,7 +363,7 @@ function stripLeadingComments(code: string): string {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     // Skip empty lines and comment lines at the start
-    if (trimmed === "" || trimmed.startsWith(";")) {
+    if (trimmed === "" || trimmed.startsWith("//")) {
       startIndex = i + 1;
     } else {
       break;

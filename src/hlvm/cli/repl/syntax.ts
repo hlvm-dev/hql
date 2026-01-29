@@ -114,10 +114,25 @@ export function tokenize(input: string): Token[] {
       continue;
     }
 
-    // Comment (;)
-    if (ch === ";") {
+    // Single-line comment (//)
+    if (ch === "/" && i + 1 < input.length && input[i + 1] === "/") {
       const start = i;
       while (i < input.length && input[i] !== "\n") i++;
+      tokens.push({ type: "comment", value: input.slice(start, i), start, end: i });
+      continue;
+    }
+
+    // Multi-line comment (/* */)
+    if (ch === "/" && i + 1 < input.length && input[i + 1] === "*") {
+      const start = i;
+      i += 2; // Skip /*
+      while (i < input.length - 1) {
+        if (input[i] === "*" && input[i + 1] === "/") {
+          i += 2; // Include */
+          break;
+        }
+        i++;
+      }
       tokens.push({ type: "comment", value: input.slice(start, i), start, end: i });
       continue;
     }
@@ -213,7 +228,7 @@ export function tokenize(input: string): Token[] {
 }
 
 function isDelimiter(ch: string): boolean {
-  return "()[]{}\"';,".includes(ch);
+  return "()[]{}\"',".includes(ch);
 }
 
 function classifySymbol(value: string): TokenType {
