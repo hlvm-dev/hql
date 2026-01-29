@@ -21,12 +21,12 @@ examples.
 | `%`      | `(number divisor)`            | Remainder; throws on divisor `0`.              |
 
 ```lisp
-(+ 1 2 3)        ;; → 6
-(- 10 4)         ;; → 6
-(- 5)            ;; → -5
-(* 2 3 4)        ;; → 24
-(/ 9 3)          ;; → 3
-(% 10 3)         ;; → 1
+(+ 1 2 3)        // → 6
+(- 10 4)         // → 6
+(- 5)            // → -5
+(* 2 3 4)        // → 24
+(/ 9 3)          // → 3
+(% 10 3)         // → 1
 ```
 
 ---
@@ -39,7 +39,7 @@ examples.
 
 ```lisp
 (let x 10)
-(= x 20)         ;; x is now 20
+(= x 20)         // x is now 20
 ```
 
 ---
@@ -58,10 +58,10 @@ examples.
 | `>=`     | `(number number)` | Greater-or-equal.        |
 
 ```lisp
-(=== 3 3)        ;; → true (strict equality)
-(!== 3 "3")      ;; → true (strict inequality)
-(< 1 2)          ;; → true
-(>= 10 5)        ;; → true
+(=== 3 3)        // → true (strict equality)
+(!== 3 "3")      // → true (strict inequality)
+(< 1 2)          // → true
+(>= 10 5)        // → true
 ```
 
 ---
@@ -75,8 +75,8 @@ Retrieve a value from arrays, objects, or S-expr lists. Returns the provided
 
 ```lisp
 (var arr ["a" "b" "c"])
-(get arr 1)           ;; → "b"
-(get arr 10 "n/a")   ;; → "n/a"
+(get arr 1)           // → "b"
+(get arr 10 "n/a")   // → "n/a"
 ```
 
 ### `js-get`
@@ -85,7 +85,7 @@ Direct property access on JavaScript objects. Throws a `ValidationError` if the
 target is `null`/`undefined`.
 
 ```lisp
-(js-get Date "name") ;; → "Date"
+(js-get Date "name") // → "Date"
 ```
 
 ### `js-call`
@@ -93,8 +93,8 @@ target is `null`/`undefined`.
 Invoke a method on a JavaScript object with proper `this` binding.
 
 ```lisp
-(js-call "hello" "toUpperCase")   ;; → "HELLO"
-(js-call Math "max" 10 20 30)       ;; → 30
+(js-call "hello" "toUpperCase")   // → "HELLO"
+(js-call Math "max" 10 20 30)       // → 30
 ```
 
 ---
@@ -109,10 +109,10 @@ Invoke a method on a JavaScript object with proper `this` binding.
 | `%empty?` | Whether the collection is empty.          |
 
 ```lisp
-(%first [1 2 3])      ;; → 1
-(%rest  [1 2 3])      ;; → (2 3)
-(%length [1 2 3])     ;; → 3
-(%empty? [])          ;; → true
+(%first [1 2 3])      // → 1
+(%rest  [1 2 3])      // → (2 3)
+(%length [1 2 3])     // → 3
+(%empty? [])          // → true
 ```
 
 ---
@@ -128,7 +128,7 @@ a convenience `throw` function that raises a `TranspilerError`.
     (throw "boom")
     "won't reach")
   (catch err
-    err))          ;; → "boom"
+    err))          // → "boom"
 ```
 
 ---

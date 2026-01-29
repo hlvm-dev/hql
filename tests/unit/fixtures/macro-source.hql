@@ -1,4 +1,4 @@
-;; Source file with mixed exports
+// Source file with mixed exports
 (macro double [x] `(* 2 ~x))
 (fn triple [x] (* 3 x))
 (var magic-number 42)

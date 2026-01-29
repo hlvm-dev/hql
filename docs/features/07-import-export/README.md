@@ -23,23 +23,23 @@ All imports are statically analyzed and resolved at compile time (except dynamic
 ### Basic Import - Named Exports
 
 ```lisp
-; Import single item
+// Import single item
 (import [functionName] from "./module.hql")
 
-; Import multiple items
+// Import multiple items
 (import [func1, func2, const1] from "./module.hql")
 
-; Use imported items
+// Use imported items
 (func1 arg1 arg2)
 ```
 
 ### Aliased Imports
 
 ```lisp
-; Rename imports with 'as'
+// Rename imports with 'as'
 (import [longFunctionName as short, anotherFunc as af] from "./module.hql")
 
-; Use aliased names
+// Use aliased names
 (short arg)
 (af arg)
 ```
@@ -47,10 +47,10 @@ All imports are statically analyzed and resolved at compile time (except dynamic
 ### Namespace Import
 
 ```lisp
-; Import entire module as namespace
+// Import entire module as namespace
 (import moduleName from "./module.hql")
 
-; Access via dot notation
+// Access via dot notation
 (moduleName.function arg)
 (moduleName.constant)
 ```
@@ -58,19 +58,19 @@ All imports are statically analyzed and resolved at compile time (except dynamic
 ### Re-Exports
 
 ```lisp
-; In middleware.hql:
+// In middleware.hql:
 (import [func1, func2] from "./original.hql")
 (export func1)
 (export func2)
 
-; In consumer.hql:
-(import [func1] from "./middleware.hql")  ; Gets func1 from original via middleware
+// In consumer.hql:
+(import [func1] from "./middleware.hql")  // Gets func1 from original via middleware
 ```
 
 ### TypeScript File Imports
 
 ```lisp
-; Import from .ts files
+// Import from .ts files
 (import [tsFunction, TS_CONSTANT] from "./module.ts")
 
 (tsFunction arg)
@@ -80,13 +80,13 @@ TS_CONSTANT
 ### Remote Imports
 
 ```lisp
-; JSR (Deno registry)
+// JSR (Deno registry)
 (import [assertEquals] from "jsr:@std/assert")
 
-; HTTPS (direct URL)
+// HTTPS (direct URL)
 (import [assertEquals] from "https://deno.land/std@0.208.0/assert/mod.ts")
 
-; NPM (Node packages)
+// NPM (Node packages)
 (import [default] from "npm:chalk@4.1.2")
 (var chalk default)
 ```
@@ -96,26 +96,26 @@ TS_CONSTANT
 Dynamic imports enable runtime module loading for code splitting and conditional loading:
 
 ```lisp
-; Basic dynamic import
+// Basic dynamic import
 (let module (await (import-dynamic "./heavy-module.hql")))
 (module.process data)
 
-; Conditional loading
+// Conditional loading
 (async fn load-feature [name]
   (let path (+ "./" name ".hql"))
   (await (import-dynamic path)))
 
-; With destructuring (in async context)
+// With destructuring (in async context)
 (async fn setup []
   (let {default as config} (await (import-dynamic "./config.hql")))
   (print config.version))
 
-; Lazy loading based on condition
+// Lazy loading based on condition
 (when needsFeature
   (let feature (await (import-dynamic "./optional-feature.hql")))
   (feature.init))
 
-; Error handling
+// Error handling
 (try
   (let mod (await (import-dynamic "./maybe-missing.hql")))
   (mod.run)
@@ -127,7 +127,7 @@ Dynamic imports enable runtime module loading for code splitting and conditional
 
 ```lisp
 (import-dynamic "./module.hql")
-; Compiles to:
+// Compiles to:
 import("./module.mjs")
 ```
 
@@ -147,8 +147,8 @@ import("./module.mjs")
 ```lisp
 (import [add, subtract] from "./math.hql")
 
-; Compiles to:
-import { add, subtract } from "./math.hql.js";
+// Compiles to:
+import { add, subtract } from "./math.hql.js"//
 ```
 
 **Characteristics:**
@@ -167,9 +167,9 @@ import { add, subtract } from "./math.hql.js";
 (import math from "./math.hql")
 (math.add 1 2)
 
-; Compiles to:
-import * as math from "./math.hql.js";
-math.add(1, 2);
+// Compiles to:
+import * as math from "./math.hql.js"//
+math.add(1, 2)//
 ```
 
 **Characteristics:**
@@ -186,8 +186,8 @@ math.add(1, 2);
 ```lisp
 (import [longName as short] from "./module.hql")
 
-; Compiles to:
-import { longName as short } from "./module.hql.js";
+// Compiles to:
+import { longName as short } from "./module.hql.js"//
 ```
 
 **Characteristics:**
@@ -202,12 +202,12 @@ import { longName as short } from "./module.hql.js";
 **Compilation:**
 
 ```lisp
-; middleware.hql
+// middleware.hql
 (import [func] from "./original.hql")
 (export func)
 
-; Compiles to:
-export { func } from "./original.hql.js";
+// Compiles to:
+export { func } from "./original.hql.js"//
 ```
 
 **Characteristics:**
@@ -224,8 +224,8 @@ export { func } from "./original.hql.js";
 ```lisp
 (import [tsFunc] from "./module.ts")
 
-; Compiles to:
-import { tsFunc } from "./module.ts";
+// Compiles to:
+import { tsFunc } from "./module.ts"//
 ```
 
 **Characteristics:**
@@ -242,8 +242,8 @@ import { tsFunc } from "./module.ts";
 ```lisp
 (import [assertEquals] from "jsr:@std/assert")
 
-; Compiles to:
-import { assertEquals } from "jsr:@std/assert";
+// Compiles to:
+import { assertEquals } from "jsr:@std/assert"//
 ```
 
 **Characteristics:**
@@ -260,8 +260,8 @@ import { assertEquals } from "jsr:@std/assert";
 ```lisp
 (import [assertEquals] from "https://deno.land/std@0.208.0/assert/mod.ts")
 
-; Compiles to:
-import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
+// Compiles to:
+import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts"//
 ```
 
 **Characteristics:**
@@ -278,8 +278,8 @@ import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 ```lisp
 (import [default] from "npm:chalk@4.1.2")
 
-; Compiles to:
-import _default from "npm:chalk@4.1.2";
+// Compiles to:
+import _default from "npm:chalk@4.1.2"//
 ```
 
 **Characteristics:**
@@ -360,11 +360,11 @@ assignment ✅ Dynamic import with await ✅ Dynamic import with computed path
 ### 1. Code Organization (Local Imports)
 
 ```lisp
-; math.hql
+// math.hql
 (export (fn add [a b] (+ a b)))
 (export (fn subtract [a b] (- a b)))
 
-; main.hql
+// main.hql
 (import [add, subtract] from "./math.hql")
 (add 10 5)
 ```
@@ -382,7 +382,7 @@ assignment ✅ Dynamic import with await ✅ Dynamic import with computed path
 ### 3. Library Facade (Re-Exports)
 
 ```lisp
-; public-api.hql
+// public-api.hql
 (import [func1] from "./internal/module1.hql")
 (import [func2] from "./internal/module2.hql")
 (export func1)
@@ -392,7 +392,7 @@ assignment ✅ Dynamic import with await ✅ Dynamic import with computed path
 ### 4. TypeScript Interop
 
 ```lisp
-; Use existing TypeScript code
+// Use existing TypeScript code
 (import [validate, parse] from "./validator.ts")
 
 (var result (parse input))
@@ -402,7 +402,7 @@ assignment ✅ Dynamic import with await ✅ Dynamic import with computed path
 ### 5. Use Standard Library (JSR)
 
 ```lisp
-; Test utilities
+// Test utilities
 (import [assertEquals, assertExists] from "jsr:@std/assert")
 
 (assertEquals actual expected)
@@ -412,14 +412,14 @@ assignment ✅ Dynamic import with await ✅ Dynamic import with computed path
 ### 6. Direct URL Imports (HTTPS)
 
 ```lisp
-; No package manager needed
+// No package manager needed
 (import [assertEquals] from "https://deno.land/std@0.208.0/assert/mod.ts")
 ```
 
 ### 7. Node.js Packages (NPM)
 
 ```lisp
-; Use npm ecosystem
+// Use npm ecosystem
 (import [default] from "npm:chalk@4.1.2")
 (var chalk default)
 (chalk.red "Error message")
@@ -431,9 +431,9 @@ assignment ✅ Dynamic import with await ✅ Dynamic import with computed path
 
 ```javascript
 // JavaScript
-import { add, subtract } from "./math.js";
-import * as math from "./math.js";
-import { add as sum } from "./math.js";
+import { add, subtract } from "./math.js"//
+import * as math from "./math.js"//
+import { add as sum } from "./math.js"//
 
 // HQL (same concept)
 (import [add, subtract] from "./math.hql")
@@ -459,7 +459,7 @@ from math import add as sum
 
 ```javascript
 // CommonJS (old)
-const { add, subtract } = require("./math");
+const { add, subtract } = require("./math")//
 
 // HQL (ESM-style)
 (import [add, subtract] from "./math.hql")
@@ -498,11 +498,11 @@ JavaScript ES Modules
 ### Use Named Exports (Not Default)
 
 ```lisp
-; ✅ Good: Named exports (explicit)
+// ✅ Good: Named exports (explicit)
 (export (fn add [a b] (+ a b)))
 (import [add] from "./math.hql")
 
-; ⚠️ Avoid: Default exports (less clear)
+// ⚠️ Avoid: Default exports (less clear)
 (export default add)
 (import [default] from "./math.hql")
 ```
@@ -510,11 +510,11 @@ JavaScript ES Modules
 ### Group Related Imports
 
 ```lisp
-; ✅ Good: Grouped by source
+// ✅ Good: Grouped by source
 (import [add, subtract, multiply] from "./math.hql")
 (import [validate, parse] from "./utils.hql")
 
-; ❌ Avoid: Scattered imports
+// ❌ Avoid: Scattered imports
 (import [add] from "./math.hql")
 (import [validate] from "./utils.hql")
 (import [subtract] from "./math.hql")
@@ -523,23 +523,23 @@ JavaScript ES Modules
 ### Use Aliases for Conflicts
 
 ```lisp
-; ✅ Good: Clear aliases
+// ✅ Good: Clear aliases
 (import [map as arrayMap] from "./array.hql")
 (import [map as objectMap] from "./object.hql")
 
-; ❌ Avoid: No aliases (naming conflict)
+// ❌ Avoid: No aliases (naming conflict)
 (import [map] from "./array.hql")
-(import [map] from "./object.hql")  ; Error!
+(import [map] from "./object.hql")  // Error!
 ```
 
 ### Prefer Relative Paths for Local
 
 ```lisp
-; ✅ Good: Relative path (explicit)
+// ✅ Good: Relative path (explicit)
 (import [util] from "./utils.hql")
 (import [helper] from "../helpers.hql")
 
-; ❌ Avoid: Absolute paths (fragile)
+// ❌ Avoid: Absolute paths (fragile)
 (import [util] from "/absolute/path/utils.hql")
 ```
 
@@ -557,18 +557,18 @@ Remote imports (JSR, HTTPS, NPM) ✅ NPM default exports ✅ Circular imports
 ### 1. Utility Module
 
 ```lisp
-; utils.hql
+// utils.hql
 (export (fn double [x] (* x 2)))
 (export (fn triple [x] (* x 3)))
 
-; main.hql
+// main.hql
 (import [double, triple] from "./utils.hql")
 ```
 
 ### 2. Barrel Exports (Re-exports)
 
 ```lisp
-; index.hql (public API)
+// index.hql (public API)
 (import [func1] from "./internal/a.hql")
 (import [func2] from "./internal/b.hql")
 (export func1)
@@ -578,7 +578,7 @@ Remote imports (JSR, HTTPS, NPM) ✅ NPM default exports ✅ Circular imports
 ### 3. Test Utilities
 
 ```lisp
-; tests/helpers.hql
+// tests/helpers.hql
 (import [assertEquals] from "jsr:@std/assert")
 (export (fn runTest [testFn] (testFn)))
 ```
@@ -586,7 +586,7 @@ Remote imports (JSR, HTTPS, NPM) ✅ NPM default exports ✅ Circular imports
 ### 4. External Library Usage
 
 ```lisp
-; Using lodash from npm
+// Using lodash from npm
 (import [default] from "npm:lodash@4.17.21")
 (var _ default)
 (_.map [1, 2, 3] double)
@@ -629,11 +629,11 @@ Remote imports (JSR, HTTPS, NPM) ✅ NPM default exports ✅ Circular imports
 HQL supports circular imports:
 
 ```lisp
-; a.hql
+// a.hql
 (import [funcB] from "./b.hql")
 (export (fn funcA [] (funcB)))
 
-; b.hql
+// b.hql
 (import [funcA] from "./a.hql")
 (export (fn funcB [] (funcA)))
 ```

@@ -1,14 +1,14 @@
-; ============================================================================
-; Template Literals Examples (v2.0) - Executable Demonstrations
-; ============================================================================
-; Run with: deno run -A src/hlvm/cli/run.ts docs/features/12-template-literals/examples.hql
+// ============================================================================
+// Template Literals Examples (v2.0) - Executable Demonstrations
+// ============================================================================
+// Run with: deno run -A src/hlvm/cli/run.ts docs/features/12-template-literals/examples.hql
 
 (import [assert] from "@hlvm/assert")
 
 (print "=== TEMPLATE LITERALS EXAMPLES ===")
 (print "")
 
-; Plain strings
+// Plain strings
 (print "1. Plain template strings:")
 (let plain-hello `hello world`)
 (let plain-empty ``)
@@ -18,7 +18,7 @@
 (print "  `` =>" plain-empty)
 (print "")
 
-; Single interpolation
+// Single interpolation
 (print "2. Single interpolation:")
 (let interp-apples `${10} apples`)
 (let interp-have `I have ${5} apples`)
@@ -31,7 +31,7 @@
 (print "  `Total: ${42}` =>" interp-total)
 (print "")
 
-; Multiple interpolations
+// Multiple interpolations
 (print "3. Multiple interpolations:")
 (let interp-sum `${1} + ${2} = 3`)
 (let interp-list `${1}, ${2}, ${3}`)
@@ -41,7 +41,7 @@
 (print "  `${1}, ${2}, ${3}` =>" interp-list)
 (print "")
 
-; Expressions in interpolations
+// Expressions in interpolations
 (print "4. Arithmetic expressions:")
 (let expr-sum `Sum: ${(+ 2 3)}`)
 (let expr-product `Product: ${(* 4 5)}`)
@@ -51,7 +51,7 @@
 (print "  `Product: ${(* 4 5)}` =>" expr-product)
 (print "")
 
-; Variables
+// Variables
 (print "5. Variable interpolation:")
 (let name "Alice")
 (let hello-name `Hello, ${name}!`)
@@ -64,7 +64,7 @@
 (print "  `${x} + ${y} = ${(+ x y)}` =>" interp-vars)
 (print "")
 
-; Function calls
+// Function calls
 (print "6. Function call interpolation:")
 (fn double [n] (* n 2))
 (let interp-double `Doubled: ${(double 5)}`)
@@ -72,7 +72,7 @@
 (print "  `Doubled: ${(double 5)}` =>" interp-double)
 (print "")
 
-; Type coercion
+// Type coercion
 (print "7. Type coercion:")
 (let interp-number `Number: ${42}`)
 (let interp-bool `Bool: ${true}`)
@@ -85,14 +85,14 @@
 (print "  `Null: ${null}` =>" interp-null)
 (print "")
 
-; Nested expressions
+// Nested expressions
 (print "8. Nested expressions:")
 (let interp-nested `Result: ${(* (+ 2 3) 4)}`)
 (assert (=== interp-nested "Result: 20") "nested interpolation")
 (print "  `Result: ${(* (+ 2 3) 4)}` =>" interp-nested)
 (print "")
 
-; Real-world patterns
+// Real-world patterns
 (print "9. Logging pattern:")
 (fn log [level message] `${level} - ${message}`)
 (let log-info (log "INFO" "Application started"))
@@ -103,7 +103,7 @@
 (print "  " log-error)
 (print "")
 
-; URL building
+// URL building
 (print "10. URL construction:")
 (fn buildUrl [base path params] `${base}/${path}?id=${params}`)
 (let url (buildUrl "https://api.example.com" "users" 123))
@@ -111,7 +111,7 @@
 (print "  " url)
 (print "")
 
-; User messages
+// User messages
 (print "11. User messages:")
 (fn welcomeMessage [userName taskCount] `Welcome back, ${userName}! You have ${taskCount} pending tasks.`)
 (let welcome (welcomeMessage "Alice" 5))
@@ -119,7 +119,7 @@
 (print "  " welcome)
 (print "")
 
-; Multiline templates
+// Multiline templates
 (print "12. Multiline templates:")
 (let multiline `Line 1
 Line 2

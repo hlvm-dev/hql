@@ -3,12 +3,12 @@
  *
  * Programmable access to AI capabilities through provider abstraction.
  * Usage in REPL:
- *   (ai.generate "prompt")       ; Generate text
- *   (ai.chat messages)           ; Chat completion
- *   (ai.models.list)             ; List available models
- *   (ai.models.catalog)          ; List catalog models
- *   (ai.models.pull "model")     ; Download a model
- *   (ai.status)                  ; Check provider status
+ *   (ai.generate "prompt")       // Generate text
+ *   (ai.chat messages)           // Chat completion
+ *   (ai.models.list)             // List available models
+ *   (ai.models.catalog)          // List catalog models
+ *   (ai.models.pull "model")     // Download a model
+ *   (ai.status)                  // Check provider status
  */
 
 import {

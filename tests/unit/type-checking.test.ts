@@ -460,36 +460,36 @@ Deno.test("Type Checking - Promise return type syntax", async () => {
 
 Deno.test("Type Checking - Comprehensive integration test", async () => {
   const code = `
-    ; All type features in one test
+    // All type features in one test
 
-    ; 1. Basic types
+    // 1. Basic types
     (fn add [a:number b:number] :number (+ a b))
 
-    ; 2. String types
+    // 2. String types
     (fn greet [name:string] :string (+ "Hi " name))
 
-    ; 3. Boolean types
+    // 3. Boolean types
     (fn is-positive [n:number] :boolean (> n 0))
 
-    ; 4. Union types
+    // 4. Union types
     (fn echo [v:string|number] :string|number v)
 
-    ; 6. void return
+    // 6. void return
     (fn log [msg:string] :void (print msg))
 
-    ; 7. any type
+    // 7. any type
     (fn identity [x:any] :any x)
 
-    ; 8. Gradual typing (mixed)
+    // 8. Gradual typing (mixed)
     (fn mixed [typed:number untyped] (+ typed untyped))
 
-    ; 9. Property access (FIXED)
+    // 9. Property access (FIXED)
     (fn str-len [s:string] :number s.length)
 
-    ; 10. Method calls (FIXED)
+    // 10. Method calls (FIXED)
     (fn upper [s:string] :string (.toUpperCase s))
 
-    ; Test correct usage
+    // Test correct usage
     (print (add 1 2))
     (print (greet "World"))
     (print (is-positive 5))

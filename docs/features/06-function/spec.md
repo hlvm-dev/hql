@@ -15,29 +15,29 @@
 #### ✅ STYLE 1: Positional Parameters `[]`
 
 ```lisp
-;; === NAMED FUNCTIONS ===
+// === NAMED FUNCTIONS ===
 (fn add [x y]
   (+ x y))
 
 (fn greet [name]
   (+ "Hello, " name))
 
-;; === ANONYMOUS FUNCTIONS ===
+// === ANONYMOUS FUNCTIONS ===
 (fn [x y] (+ x y))
 (let square (fn [x] (* x x)))
 
-;; === EMPTY PARAMETERS ===
+// === EMPTY PARAMETERS ===
 (fn get-value []
   42)
 
-;; === REST PARAMETERS ===
+// === REST PARAMETERS ===
 (fn sum [first & rest]
   (reduce + first rest))
 
 (fn log [level & messages]
   (console.log level messages))
 
-;; === DESTRUCTURING ===
+// === DESTRUCTURING ===
 (fn process [[a b] c]
   (+ a b c))
 
@@ -57,22 +57,22 @@
 #### ✅ STYLE 2: JSON Map Parameters `{}`
 
 ```lisp
-;; === LISP STYLE (Preferred) ===
+// === LISP STYLE (Preferred) ===
 (fn connect {host: "localhost" port: 8080 ssl: false}
   (+ (if ssl "https" "http") "://" host ":" port))
 
 (fn greet {name: "World" greeting: "Hello"}
   (+ greeting ", " name "!"))
 
-;; === JSON STYLE (Also Supported) ===
+// === JSON STYLE (Also Supported) ===
 (fn connect {"host": "localhost", "port": 8080, "ssl": false}
   (+ (if ssl "https" "http") "://" host ":" port))
 
-;; === CALLING MAP FUNCTIONS ===
-(connect)                            ;; all defaults
-(connect {port: 3000})               ;; override one
-(connect {host: "api.com" ssl: true}) ;; override multiple
-(connect {"host": "api.com"})        ;; JSON style call
+// === CALLING MAP FUNCTIONS ===
+(connect)                            // all defaults
+(connect {port: 3000})               // override one
+(connect {host: "api.com" ssl: true}) // override multiple
+(connect {"host": "api.com"})        // JSON style call
 ```
 
 **RULES:**
@@ -87,11 +87,11 @@
 #### ❌ INVALID SYNTAX (NOT Supported)
 
 ```lisp
-;; THESE DO NOT WORK - Will cause errors
-(fn name (x y) body...)      ;; ❌ Parentheses params
-(fn (x y) body...)           ;; ❌ Parentheses params
-(defn name [x y] body...)    ;; ❌ Clojure defn
-(def name (fn [x] x))        ;; ❌ Clojure def
+// THESE DO NOT WORK - Will cause errors
+(fn name (x y) body...)      // ❌ Parentheses params
+(fn (x y) body...)           // ❌ Parentheses params
+(defn name [x y] body...)    // ❌ Clojure defn
+(def name (fn [x] x))        // ❌ Clojure def
 ```
 
 ---
@@ -99,19 +99,19 @@
 ### 2. ASYNC FUNCTIONS
 
 ```lisp
-;; === ASYNC WITH POSITIONAL ===
+// === ASYNC WITH POSITIONAL ===
 (async fn fetch-data [url]
   (let response (await (js/fetch url)))
   (await (.json response)))
 
-;; === ASYNC WITH MAP PARAMS ===
+// === ASYNC WITH MAP PARAMS ===
 (async fn fetch-with-options {url: "" timeout: 5000 retries: 3}
   (await (js/fetch url)))
 
-;; === ASYNC ANONYMOUS ===
+// === ASYNC ANONYMOUS ===
 (let fetcher (async fn [url] (await (js/fetch url))))
 
-;; === AWAIT USAGE ===
+// === AWAIT USAGE ===
 (let data (await (fetch-data "https://api.example.com")))
 ```
 
@@ -125,22 +125,22 @@
 ### 3. ARROW LAMBDA `=>`
 
 ```lisp
-;; === IMPLICIT PARAMETERS ($0, $1, $2...) ===
-(map (=> (* $0 2)) [1 2 3])           ;; → [2 4 6]
-(filter (=> (> $0 5)) [3 7 2 9])      ;; → [7 9]
-(reduce (=> (+ $0 $1)) 0 [1 2 3])     ;; → 6
+// === IMPLICIT PARAMETERS ($0, $1, $2...) ===
+(map (=> (* $0 2)) [1 2 3])           // → [2 4 6]
+(filter (=> (> $0 5)) [3 7 2 9])      // → [7 9]
+(reduce (=> (+ $0 $1)) 0 [1 2 3])     // → 6
 
-;; === PROPERTY ACCESS ===
-(map (=> $0.name) users)              ;; → ["Alice", "Bob"]
-(map (=> $0.address.city) users)      ;; nested access
+// === PROPERTY ACCESS ===
+(map (=> $0.name) users)              // → ["Alice", "Bob"]
+(map (=> $0.address.city) users)      // nested access
 
-;; === EXPLICIT PARAMETERS ===
-(map (=> [x] (* x x)) [1 2 3])        ;; → [1 4 9]
-((=> [x y] (+ x y)) 5 7)              ;; → 12
-((=> [a b c] (+ a b c)) 1 2 3)        ;; → 6
+// === EXPLICIT PARAMETERS ===
+(map (=> [x] (* x x)) [1 2 3])        // → [1 4 9]
+((=> [x y] (+ x y)) 5 7)              // → 12
+((=> [a b c] (+ a b c)) 1 2 3)        // → 6
 
-;; === ZERO PARAMETERS ===
-((=> [] 42))                          ;; → 42
+// === ZERO PARAMETERS ===
+((=> [] 42))                          // → 42
 (let get-time (=> [] (Date.now)))
 ```
 
@@ -155,21 +155,21 @@
 ### 4. RETURN STATEMENTS
 
 ```lisp
-;; === IMPLICIT RETURN (Last Expression) ===
+// === IMPLICIT RETURN (Last Expression) ===
 (fn double [x]
-  (* x 2))              ;; returns (* x 2)
+  (* x 2))              // returns (* x 2)
 
-;; === EXPLICIT RETURN ===
+// === EXPLICIT RETURN ===
 (fn double [x]
-  (return (* x 2)))     ;; explicit return
+  (return (* x 2)))     // explicit return
 
-;; === EARLY RETURN ===
+// === EARLY RETURN ===
 (fn safe-divide [a b]
   (if (=== b 0)
-    (return 0))         ;; early exit
-  (/ a b))              ;; normal path
+    (return 0))         // early exit
+  (/ a b))              // normal path
 
-;; === MULTIPLE RETURN PATHS ===
+// === MULTIPLE RETURN PATHS ===
 (fn classify [x]
   (cond
     ((< x 0) (return "negative"))
@@ -187,23 +187,23 @@
 ### 5. CLOSURES & HIGHER-ORDER
 
 ```lisp
-;; === CLOSURE (Captures Outer Scope) ===
+// === CLOSURE (Captures Outer Scope) ===
 (let multiplier 10)
 (fn scale [x]
-  (* x multiplier))     ;; captures multiplier
+  (* x multiplier))     // captures multiplier
 
-;; === FUNCTION RETURNING FUNCTION ===
+// === FUNCTION RETURNING FUNCTION ===
 (fn make-adder [n]
-  (fn [x] (+ x n)))     ;; returns closure
+  (fn [x] (+ x n)))     // returns closure
 
 (let add5 (make-adder 5))
-(add5 10)               ;; → 15
+(add5 10)               // → 15
 
-;; === FUNCTION AS ARGUMENT ===
+// === FUNCTION AS ARGUMENT ===
 (fn apply-twice [f x]
   (f (f x)))
 
-;; === STATEFUL CLOSURE ===
+// === STATEFUL CLOSURE ===
 (fn make-counter []
   (var count 0)
   (fn []
@@ -295,8 +295,8 @@ flexibility for building applications.
 ### With Defaults
 
 ```lisp
-(function-name arg1)  ; Second parameter uses default value
-(function-name)       ; All parameters use default values
+(function-name arg1)  // Second parameter uses default value
+(function-name)       // All parameters use default values
 ```
 
 ## 3. In-depth Examples
@@ -307,8 +307,8 @@ flexibility for building applications.
 (fn add [x y]
   (+ x y))
 
-;; Usage
-(add 3 4)  ;; => 7
+// Usage
+(add 3 4)  // => 7
 ```
 
 ### Example 2: Function with Map Parameters
@@ -317,13 +317,13 @@ flexibility for building applications.
 (fn greet {name: "World" greeting: "Hello"}
   (+ greeting ", " name "!"))
 
-;; Usage
-(greet)                           ;; => "Hello, World!"
-(greet {name: "Jane"})            ;; => "Hello, Jane!"
-(greet {name: "Jane" greeting: "Hi"})  ;; => "Hi, Jane!"
+// Usage
+(greet)                           // => "Hello, World!"
+(greet {name: "Jane"})            // => "Hello, Jane!"
+(greet {name: "Jane" greeting: "Hi"})  // => "Hi, Jane!"
 
-;; JSON style also works
-(greet {"name": "Jane", "greeting": "Hi"})  ;; => "Hi, Jane!"
+// JSON style also works
+(greet {"name": "Jane", "greeting": "Hi"})  // => "Hi, Jane!"
 ```
 
 ### Example 3: Map Parameters for Config
@@ -334,11 +334,11 @@ flexibility for building applications.
     (+ "https://" host ":" port)
     (+ "http://" host ":" port)))
 
-;; Usage
-(connect)  ;; => "http://localhost:8080"
+// Usage
+(connect)  // => "http://localhost:8080"
 (connect {host: "api.example.com" ssl: true port: 443})
-;; => "https://api.example.com:443"
-(connect {port: 3000})  ;; => "http://localhost:3000"
+// => "https://api.example.com:443"
+(connect {port: 3000})  // => "http://localhost:3000"
 ```
 
 ### Example 4: Function with Rest Parameters
@@ -347,9 +347,9 @@ flexibility for building applications.
 (fn sum [x y & rest]
   (+ x y (reduce + 0 rest)))
 
-;; Usage
-(sum 1 2)        ;; => 3
-(sum 1 2 3 4 5)  ;; => 15
+// Usage
+(sum 1 2)        // => 3
+(sum 1 2 3 4 5)  // => 15
 ```
 
 ### Example 5: Using Map Parameters
@@ -358,9 +358,9 @@ flexibility for building applications.
 (fn configure {host: "localhost" port: 8080 protocol: "http"}
   (+ protocol "://" host ":" (str port)))
 
-;; Usage
-(configure {protocol: "https"})      ;; => "https://localhost:8080"
-(configure {host: "example.com"})    ;; => "http://example.com:8080"
+// Usage
+(configure {protocol: "https"})      // => "https://localhost:8080"
+(configure {host: "example.com"})    // => "http://example.com:8080"
 ```
 
 ## 4. Side Effects
@@ -374,8 +374,8 @@ flexibility for building applications.
   (= counter (+ counter amount))
   counter)
 
-(increment-counter)           ;; => 1
-(increment-counter {amount: 5})  ;; => 6
+(increment-counter)           // => 1
+(increment-counter {amount: 5})  // => 6
 ```
 
 ## 5. Common Use Cases
@@ -427,11 +427,11 @@ The `fn` construct defines general-purpose functions that:
 **Map Form (with defaults):**
 
 ```lisp
-;; Lisp style (preferred)
+// Lisp style (preferred)
 (fn function-name {param1: default1 param2: default2}
   body...)
 
-;; JSON style (also works)
+// JSON style (also works)
 (fn function-name {"param1": default1, "param2": default2}
   body...)
 ```
@@ -452,8 +452,8 @@ The `fn` construct defines general-purpose functions that:
 (fn add [x y]
   (+ x y))
 
-;; Usage with positional arguments
-(add 5 10)  ;; => 15
+// Usage with positional arguments
+(add 5 10)  // => 15
 ```
 
 **Function with Map Parameters:**
@@ -462,9 +462,9 @@ The `fn` construct defines general-purpose functions that:
 (fn add {x: 10 y: 20}
   (+ x y))
 
-;; Usage with partial arguments
-(add {x: 5})  ;; => 25
-(add)         ;; => 30
+// Usage with partial arguments
+(add {x: 5})  // => 25
+(add)         // => 30
 ```
 
 **Map Function for Config:**
@@ -473,9 +473,9 @@ The `fn` construct defines general-purpose functions that:
 (fn connect {host: "localhost" port: 8080 ssl: false}
   (+ (if ssl "https" "http") "://" host ":" port))
 
-;; Usage
-(connect {host: "api.example.com" ssl: true})  ;; => "https://api.example.com:8080"
-(connect)  ;; => "http://localhost:8080"
+// Usage
+(connect {host: "api.example.com" ssl: true})  // => "https://api.example.com:8080"
+(connect)  // => "http://localhost:8080"
 ```
 
 ## Function Features
@@ -526,50 +526,50 @@ Traditional parameter list with named parameters.
 **Implicit Single Parameter:**
 
 ```lisp
-; With map
+// With map
 (map (=> (* $0 2)) [1 2 3 4 5])
-;; → [2 4 6 8 10]
+// → [2 4 6 8 10]
 
-; Inline call
+// Inline call
 ((=> (* $0 3)) 7)
-;; → 21
+// → 21
 ```
 
 **Implicit Multiple Parameters:**
 
 ```lisp
-; With reduce
+// With reduce
 (reduce (=> (+ $0 $1)) 0 [1 2 3 4 5])
-;; → 15
+// → 15
 
-; Sort array
+// Sort array
 ((nums.slice 0).sort (=> (- $0 $1)))
 ```
 
 **Member Access:**
 
 ```lisp
-; Accessing properties
+// Accessing properties
 (map (=> ($0.name)) users)
 
-; Nested properties
+// Nested properties
 (map (=> ($0.user.email)) data)
 ```
 
 **Explicit Parameters:**
 
 ```lisp
-; Named parameters
+// Named parameters
 (map (=> [x] (* x x)) [1 2 3])
-;; → [1 4 9]
+// → [1 4 9]
 
-; Multiple parameters
+// Multiple parameters
 ((=> [x y] (+ x y)) 5 7)
-;; → 12
+// → 12
 
-; Zero parameters
+// Zero parameters
 ((=> [] 42))
-;; → 42
+// → 42
 ```
 
 **Chaining Operations:**
@@ -584,18 +584,18 @@ Traditional parameter list with named parameters.
 **Gap in Parameters:**
 
 ```lisp
-; Using $0 and $2 generates $0, $1, $2
+// Using $0 and $2 generates $0, $1, $2
 ((=> (+ $0 $2)) 10 999 20)
-;; → 30 (ignores $1)
+// → 30 (ignores $1)
 ```
 
 ### Comparison with `fn`
 
 ```lisp
-; Arrow lambda (concise for inline use)
+// Arrow lambda (concise for inline use)
 (map (=> (* $0 2)) numbers)
 
-; Regular fn (better for complex logic)
+// Regular fn (better for complex logic)
 (fn calculate-tax {amount: 0 rate: 0.1}
   (let base (* amount rate))
   (if (> amount 1000)

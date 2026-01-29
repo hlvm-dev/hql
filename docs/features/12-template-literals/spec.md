@@ -18,64 +18,64 @@ Template literals provide ES6-style string interpolation using backticks and `${
 ### Basic Template Literals
 
 ```lisp
-; Plain string with backticks
-`hello world`                    ; => "hello world"
+// Plain string with backticks
+`hello world`                    // => "hello world"
 
-; Empty template
-``                               ; => ""
+// Empty template
+``                               // => ""
 
-; String with spaces
-`  spaces around  `              ; => "  spaces around  "
+// String with spaces
+`  spaces around  `              // => "  spaces around  "
 ```
 
 ### Single Interpolation
 
 ```lisp
-; At beginning
-`${10} apples`                   ; => "10 apples"
+// At beginning
+`${10} apples`                   // => "10 apples"
 
-; In middle
-`I have ${5} apples`             ; => "I have 5 apples"
+// In middle
+`I have ${5} apples`             // => "I have 5 apples"
 
-; At end
-`Total: ${42}`                   ; => "Total: 42"
+// At end
+`Total: ${42}`                   // => "Total: 42"
 
-; Only interpolation
-`${100}`                         ; => "100"
+// Only interpolation
+`${100}`                         // => "100"
 ```
 
 ### Multiple Interpolations
 
 ```lisp
-; Two interpolations
-`${1} + ${2} = 3`                ; => "1 + 2 = 3"
+// Two interpolations
+`${1} + ${2} = 3`                // => "1 + 2 = 3"
 
-; Three interpolations
-`${1}, ${2}, ${3}`               ; => "1, 2, 3"
+// Three interpolations
+`${1}, ${2}, ${3}`               // => "1, 2, 3"
 
-; Consecutive interpolations
-`${10}${20}`                     ; => "1020"
+// Consecutive interpolations
+`${10}${20}`                     // => "1020"
 
-; Complex pattern
+// Complex pattern
 `Result: ${x} and ${y} = ${(+ x y)}`
 ```
 
 ### Expressions in Interpolations
 
 ```lisp
-; Arithmetic
-`Sum: ${(+ 2 3)}`                ; => "Sum: 5"
+// Arithmetic
+`Sum: ${(+ 2 3)}`                // => "Sum: 5"
 
-; Variables
+// Variables
 (let name "Alice")
-`Hello, ${name}!`                ; => "Hello, Alice!"
+`Hello, ${name}!`                // => "Hello, Alice!"
 
-; Function calls
+// Function calls
 (fn double [x] (* x 2))
-`Doubled: ${(double 5)}`         ; => "Doubled: 10"
+`Doubled: ${(double 5)}`         // => "Doubled: 10"
 
-; Nested expressions
-`Result: ${(* (+ 2 3) 4)}`       ; => "Result: 20"
+// Nested expressions
+`Result: ${(* (+ 2 3) 4)}`       // => "Result: 20"
 ```
 
 ## Implementation Details
@@ -83,10 +83,10 @@ Template literals provide ES6-style string interpolation using backticks and `${
 ### Compilation Target
 
 ```lisp
-; HQL template literal
+// HQL template literal
 `Hello ${name}, you are ${age} years old`
 
-; Compiles to JavaScript
+// Compiles to JavaScript
 `Hello ${name}, you are ${age} years old`
 ```
 
@@ -97,10 +97,10 @@ Template literals compile directly to JavaScript template literals, maintaining 
 Interpolated expressions are fully parsed HQL expressions:
 
 ```lisp
-; Nested function calls work
+// Nested function calls work
 `Value: ${(get (filter data predicate) 0)}`
 
-; Complex arithmetic works
+// Complex arithmetic works
 `Calculated: ${(/ (+ (* a b) c) d)}`
 ```
 
@@ -109,12 +109,12 @@ Interpolated expressions are fully parsed HQL expressions:
 Template literals follow JavaScript's `toString()` coercion rules:
 
 ```lisp
-`Number: ${42}`                  ; => "Number: 42"
-`Boolean: ${true}`               ; => "Boolean: true"
-`Array: ${[1 2 3]}`              ; => "Array: 1,2,3"
-`Object: ${{x: 10}}`             ; => "Object: [object Object]"
-`Null: ${null}`                  ; => "Null: null"
-`Undefined: ${undefined}`        ; => "Undefined: undefined"
+`Number: ${42}`                  // => "Number: 42"
+`Boolean: ${true}`               // => "Boolean: true"
+`Array: ${[1 2 3]}`              // => "Array: 1,2,3"
+`Object: ${{x: 10}}`             // => "Object: [object Object]"
+`Null: ${null}`                  // => "Null: null"
+`Undefined: ${undefined}`        // => "Undefined: undefined"
 ```
 
 ## Features Covered
@@ -181,20 +181,20 @@ Template literals follow JavaScript's `toString()` coercion rules:
 ### Before (String Concatenation)
 
 ```lisp
-; Verbose and error-prone
+// Verbose and error-prone
 (+ "Hello, " name "! You are " (toString age) " years old.")
 
-; Hard to read with many values
+// Hard to read with many values
 (+ "Result: " (toString (+ x y)) " (sum of " (toString x) " and " (toString y) ")")
 ```
 
 ### After (Template Literals)
 
 ```lisp
-; Clean and readable
+// Clean and readable
 `Hello, ${name}! You are ${age} years old.`
 
-; Easy to understand
+// Easy to understand
 `Result: ${(+ x y)} (sum of ${x} and ${y})`
 ```
 
@@ -207,7 +207,7 @@ Template literals follow JavaScript's `toString()` coercion rules:
   (print `DEBUG: ${variable} = ${value}`))
 
 (logDebug "userId" 12345)
-; => "DEBUG: userId = 12345"
+// => "DEBUG: userId = 12345"
 ```
 
 ### HTML/Template Generation
@@ -229,7 +229,7 @@ Template literals follow JavaScript's `toString()` coercion rules:
   `/api/${endpoint}?id=${params.id}&type=${params.type}`)
 
 (buildApiUrl "users" {id: 123 type: "admin"})
-; => "/api/users?id=123&type=admin"
+// => "/api/users?id=123&type=admin"
 ```
 
 ### Error Messages
@@ -246,26 +246,26 @@ Template literals follow JavaScript's `toString()` coercion rules:
 ### Use Template Literals for String Composition
 
 ```lisp
-; ✅ Good: Clear and maintainable
+// ✅ Good: Clear and maintainable
 `User ${userId} completed ${taskCount} tasks`
 
-; ❌ Avoid: Harder to read and maintain
+// ❌ Avoid: Harder to read and maintain
 (+ "User " (toString userId) " completed " (toString taskCount) " tasks")
 ```
 
 ### Keep Interpolations Simple
 
 ```lisp
-; ✅ Good: Simple expression
+// ✅ Good: Simple expression
 `Total: ${total}`
 
-; ✅ Acceptable: Short calculation
+// ✅ Acceptable: Short calculation
 `Price: ${(* quantity price)}`
 
-; ⚠️ Consider refactoring: Too complex
+// ⚠️ Consider refactoring: Too complex
 `Result: ${(reduce (map (filter data predicate) transform) combiner initial)}`
 
-; ✅ Better: Extract to variable
+// ✅ Better: Extract to variable
 (let result (reduce (map (filter data predicate) transform) combiner initial))
 `Result: ${result}`
 ```
@@ -273,7 +273,7 @@ Template literals follow JavaScript's `toString()` coercion rules:
 ### Multiline Templates
 
 ```lisp
-; Template literals support multiline strings
+// Template literals support multiline strings
 `This is a long message
  that spans multiple lines
  and includes ${variable}

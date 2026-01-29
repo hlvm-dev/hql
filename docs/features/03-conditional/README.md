@@ -21,17 +21,17 @@ All conditionals are **expressions** that return values (not statements).
 ### If Expression
 
 ```lisp
-; Basic if
+// Basic if
 (if condition then-expr else-expr)
 
-; Example
-(if true 1 2)  ; => 1
-(if false 1 2) ; => 2
+// Example
+(if true 1 2)  // => 1
+(if false 1 2) // => 2
 
-; If with comparison
-(if (> 5 3) "yes" "no")  ; => "yes"
+// If with comparison
+(if (> 5 3) "yes" "no")  // => "yes"
 
-; If with multiple statements (use do)
+// If with multiple statements (use do)
 (if condition
   (do
     (var x 10)
@@ -40,15 +40,15 @@ All conditionals are **expressions** that return values (not statements).
     (var y 20)
     (- y 5)))
 
-; Nested if
+// Nested if
 (if outer-condition
   (if inner-condition result1 result2)
   result3)
 
-; If as expression
+// If as expression
 (let result (if (< 3 5) "less" "greater"))
 
-; If as return value
+// If as return value
 (fn check [n]
   (if (> n 0) "positive" "non-positive"))
 ```
@@ -56,42 +56,42 @@ All conditionals are **expressions** that return values (not statements).
 ### Cond Expression
 
 ```lisp
-; Multi-way conditional
+// Multi-way conditional
 (cond
   (condition1 result1)
   (condition2 result2)
   (condition3 result3)
   (else default-result))
 
-; Example with else
+// Example with else
 (cond
   ((< x 5) "small")
   ((< x 15) "medium")
   (else "large"))
 
-; Example with true as fallback
+// Example with true as fallback
 (cond
   ((< 5 3) "won't match")
   (true "default"))
 
-; Cond with expressions
+// Cond with expressions
 (let x 10)
 (cond
   ((< x 5) "small")
   ((< x 15) "medium")
-  (true "large"))  ; => "medium"
+  (true "large"))  // => "medium"
 ```
 
 ### Switch Statement (v2.0)
 
 ```lisp
-; Basic switch
+// Basic switch
 (switch value
   (case 1 (print "one"))
   (case 2 (print "two"))
   (default (print "other")))
 
-; Switch with string cases
+// Switch with string cases
 (let status "active")
 (switch status
   (case "active" (print "Running"))
@@ -99,13 +99,13 @@ All conditionals are **expressions** that return values (not statements).
   (case "error" (print "Failed"))
   (default (print "Unknown")))
 
-; Switch with fallthrough
+// Switch with fallthrough
 (switch grade
   (case "A" :fallthrough)
   (case "B" (print "Good"))
   (default (print "Other")))
 
-; Switch as expression
+// Switch as expression
 (let result
   (switch code
     (case 200 "OK")
@@ -116,47 +116,47 @@ All conditionals are **expressions** that return values (not statements).
 ### When Expression (v2.0)
 
 ```lisp
-; Execute when true
+// Execute when true
 (when (> x 10)
   (print "x is large")
   (do-something))
 
-; when returns nil if condition is false
+// when returns nil if condition is false
 (when false
-  (print "never prints"))  ; => nil
+  (print "never prints"))  // => nil
 
-; Equivalent to (if condition (do body...) nil)
+// Equivalent to (if condition (do body...) nil)
 ```
 
 ### Unless Expression (v2.0)
 
 ```lisp
-; Execute when false
+// Execute when false
 (unless (isEmpty list)
   (print "list has items")
   (process list))
 
-; unless returns nil if condition is true
+// unless returns nil if condition is true
 (unless true
-  (print "never prints"))  ; => nil
+  (print "never prints"))  // => nil
 
-; Equivalent to (if (not condition) (do body...) nil)
+// Equivalent to (if (not condition) (do body...) nil)
 ```
 
 ### If-Let Expression (v2.0)
 
 ```lisp
-; Conditional binding - only execute then-branch if binding is truthy
+// Conditional binding - only execute then-branch if binding is truthy
 (if-let [user (find-user id)]
-  (greet user)                    ; user is bound and truthy
-  (print "User not found"))       ; else branch
+  (greet user)                    // user is bound and truthy
+  (print "User not found"))       // else branch
 
-; Bracket or paren syntax both work
+// Bracket or paren syntax both work
 (if-let (result (compute))
   (use result)
   (handle-error))
 
-; Common pattern for optional values
+// Common pattern for optional values
 (if-let [config (load-config)]
   (apply-config config)
   (use-defaults))
@@ -165,12 +165,12 @@ All conditionals are **expressions** that return values (not statements).
 ### When-Let Expression (v2.0)
 
 ```lisp
-; Conditional binding (single branch)
+// Conditional binding (single branch)
 (when-let [data (fetch-data)]
   (process data)
-  (save data))                    ; Only if data is truthy
+  (save data))                    // Only if data is truthy
 
-; Useful for chained optional access
+// Useful for chained optional access
 (when-let [user (get-user)]
   (when-let [email user.email]
     (send-notification email)))
@@ -179,26 +179,26 @@ All conditionals are **expressions** that return values (not statements).
 ### Match Expression (v2.0)
 
 ```lisp
-; Pattern matching
+// Pattern matching
 (match value
   (case 1 "one")
   (case 2 "two")
   (default "other"))
 
-; Match with destructuring
+// Match with destructuring
 (match point
   (case [0, 0] "origin")
   (case [x, 0] (+ "on x-axis at " x))
   (case [0, y] (+ "on y-axis at " y))
   (case [x, y] (+ "at (" x ", " y ")")))
 
-; Match with guards
+// Match with guards
 (match n
   (case x (if (> x 0)) "positive")
   (case x (if (< x 0)) "negative")
   (default "zero"))
 
-; Match as expression
+// Match as expression
 (let description
   (match status-code
     (case 200 "Success")
@@ -216,7 +216,7 @@ All conditionals are **expressions** that return values (not statements).
 ```lisp
 (if condition then else)
 
-; Compiles to:
+// Compiles to:
 condition ? then : else
 ```
 
@@ -238,7 +238,7 @@ condition ? then : else
   (test2 result2)
   (else default))
 
-; Compiles to nested ternaries:
+// Compiles to nested ternaries:
 test1 ? result1 :
 test2 ? result2 :
 default
@@ -346,9 +346,9 @@ default
 ```javascript
 // JavaScript if statement
 if (x > 5) {
-  return "yes";
+  return "yes"//
 } else {
-  return "no";
+  return "no"//
 }
 
 // HQL if expression
@@ -359,7 +359,7 @@ if (x > 5) {
 
 ```javascript
 // JavaScript ternary
-const result = x > 5 ? "yes" : "no";
+const result = x > 5 ? "yes" : "no"//
 
 // HQL if (same concept)
 (let result (if (> x 5) "yes" "no"))
@@ -370,9 +370,9 @@ const result = x > 5 ? "yes" : "no";
 ```javascript
 // JavaScript switch
 switch(true) {
-  case x < 5: return "small";
-  case x < 15: return "medium";
-  default: return "large";
+  case x < 5: return "small"//
+  case x < 15: return "medium"//
+  default: return "large"//
 }
 
 // HQL cond
@@ -412,10 +412,10 @@ JavaScript
 ### Prefer Expressions Over Statements
 
 ```lisp
-; ✅ Good: Expression style
+// ✅ Good: Expression style
 (let result (if condition "yes" "no"))
 
-; ❌ Avoid: Statement style (not idiomatic in HQL)
+// ❌ Avoid: Statement style (not idiomatic in HQL)
 (var result)
 (if condition
   (= result "yes")
@@ -425,13 +425,13 @@ JavaScript
 ### Use Cond for Multiple Conditions
 
 ```lisp
-; ✅ Good: Clear cond
+// ✅ Good: Clear cond
 (cond
   ((< x 5) "small")
   ((< x 15) "medium")
   (else "large"))
 
-; ❌ Avoid: Nested if
+// ❌ Avoid: Nested if
 (if (< x 5)
   "small"
   (if (< x 15)
@@ -442,7 +442,7 @@ JavaScript
 ### Always Handle Else Case
 
 ```lisp
-; ✅ Good: Explicit else
+// ✅ Good: Explicit else
 (if condition "yes" "no")
 
 (cond
@@ -450,8 +450,8 @@ JavaScript
   (test2 result2)
   (else "default"))
 
-; ⚠️ Be careful: No else (undefined if condition false)
-; This is allowed but may not be what you want
+// ⚠️ Be careful: No else (undefined if condition false)
+// This is allowed but may not be what you want
 ```
 
 ## Edge Cases Tested

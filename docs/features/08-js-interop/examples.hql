@@ -1,17 +1,17 @@
-; ============================================================================
-; JavaScript Interoperability Examples - Executable Specification
-; ============================================================================
-; These examples serve as both documentation and executable tests
-; Run with: hlvm examples.hql
+// ============================================================================
+// JavaScript Interoperability Examples - Executable Specification
+// ============================================================================
+// These examples serve as both documentation and executable tests
+// Run with: hlvm examples.hql
 
-; Shared test helpers
+// Shared test helpers
 (import [assert] from "@hlvm/assert")
 
-; ============================================================================
-; SECTION 1: BASIC JS INTEROP
-; ============================================================================
+// ============================================================================
+// SECTION 1: BASIC JS INTEROP
+// ============================================================================
 
-; js-call: Method invocation
+// js-call: Method invocation
 (var text "hello world")
 (var upper (js-call text "toUpperCase"))
 (assert (=== upper "HELLO WORLD") "js-call: toUpperCase")
@@ -20,7 +20,7 @@
 (var parts (js-call csv "split" ","))
 (assert (=== (get parts 1) "two") "js-call: split with arg")
 
-; js-get: Property access
+// js-get: Property access
 (var obj {"name": "Alice", "age": 30})
 (var name (js-get obj "name"))
 (assert (=== name "Alice") "js-get: object property")
@@ -29,42 +29,42 @@
 (var second-val (js-get arr 1))
 (assert (=== second-val 20) "js-get: array index")
 
-; js-set: Property mutation
+// js-set: Property mutation
 (var counter {"value": 0})
 (js-set counter "value" 42)
 (assert (=== (js-get counter "value") 42) "js-set: mutate property")
 
-; js-new: Object creation
+// js-new: Object creation
 (var date (js-new Date ("2023-12-25T00:00:00Z")))
 (var year (js-call date "getUTCFullYear"))
 (assert (=== year 2023) "js-new: Date constructor")
 
-; ============================================================================
-; SECTION 2: DOT NOTATION SYNTACTIC SUGAR
-; ============================================================================
+// ============================================================================
+// SECTION 2: DOT NOTATION SYNTACTIC SUGAR
+// ============================================================================
 
-; Property access
+// Property access
 (var numbers [1, 2, 3, 4, 5])
 (var len (numbers .length))
 (assert (=== len 5) "Dot notation: property access")
 
-; Method call
+// Method call
 (var greeting "  Hello  ")
 (var trimmed (greeting .trim))
 (assert (=== trimmed "Hello") "Dot notation: method call")
 
-; Method chaining
+// Method chaining
 (var message "  HELLO WORLD  ")
 (var result (message .trim .toLowerCase))
 (assert (=== result "hello world") "Dot notation: chaining")
 
-; ============================================================================
-; SECTION 3: ASYNC/AWAIT INTEROP
-; ============================================================================
+// ============================================================================
+// SECTION 3: ASYNC/AWAIT INTEROP
+// ============================================================================
 
-; Wrap async tests in IIFE to avoid top-level await (es2020 limitation)
+// Wrap async tests in IIFE to avoid top-level await (es2020 limitation)
 ((async fn []
-  ; Basic async function
+  // Basic async function
   (async fn get-value []
     (await (js-call Promise "resolve" 42)))
 
@@ -72,7 +72,7 @@
   (var value (await promise))
   (assert (=== value 42) "Async: basic await")
 
-  ; Multiple awaits in sequence
+  // Multiple awaits in sequence
   (async fn add-async [a b]
     (let x (await (js-call Promise "resolve" a)))
     (let y (await (js-call Promise "resolve" b)))
@@ -82,7 +82,7 @@
   (var sum (await sum-promise))
   (assert (=== sum 30) "Async: multiple awaits")
 
-  ; Promise.all
+  // Promise.all
   (async fn fetch-all []
     (let promises [
       (js-call Promise "resolve" 1)
@@ -93,12 +93,12 @@
   (var all-results (await (fetch-all)))
   (assert (=== (get all-results 0) 1) "Async: Promise.all")))
 
-; ============================================================================
-; SECTION 4: ERROR HANDLING
-; ============================================================================
+// ============================================================================
+// SECTION 4: ERROR HANDLING
+// ============================================================================
 
-; Basic try/catch
-; Note: Don't use throw in if expression - use do/when pattern
+// Basic try/catch
+// Note: Don't use throw in if expression - use do/when pattern
 (fn safe-divide [a b]
   (try
     (do
@@ -111,7 +111,7 @@
 (assert (=== (safe-divide 10 0) "error: division-by-zero") "Error: try/catch")
 (assert (=== (safe-divide 10 2) 5) "Error: no error case")
 
-; Try/catch/finally
+// Try/catch/finally
 (var cleanup-called false)
 (fn with-cleanup []
   (try
@@ -125,7 +125,7 @@
 (assert (=== cleanup-result "caught") "Error: catch executes")
 (assert cleanup-called "Error: finally executes")
 
-; Catching JS errors
+// Catching JS errors
 (fn parse-json [json-str]
   (try
     (js-call JSON "parse" json-str)
@@ -134,9 +134,9 @@
 
 (assert (=== (parse-json "invalid") "invalid-json") "Error: catch JS error")
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 1: ARRAY TRANSFORMATIONS
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 1: ARRAY TRANSFORMATIONS
+// ============================================================================
 
 (var users [
   {"name": "Alice", "age": 25, "active": true},
@@ -144,22 +144,22 @@
   {"name": "Charlie", "age": 35, "active": true}
 ])
 
-; Filter active users
+// Filter active users
 (var active-users 
   (users .filter (fn [u] (js-get u "active"))))
 
 (assert (=== (active-users .length) 2) "Filter: active users count")
 
-; Map to names
+// Map to names
 (var names 
   (active-users .map (fn [u] (js-get u "name"))))
 
 (assert (=== (get names 0) "Alice") "Map: first name")
 (assert (=== (get names 1) "Charlie") "Map: second name")
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 2: JSON MANIPULATION
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 2: JSON MANIPULATION
+// ============================================================================
 
 (fn serialize-user [user]
   (let json (js-call JSON "stringify" user))
@@ -175,9 +175,9 @@
 (assert (=== (js-get deserialized "name") "Alice") "JSON: round-trip name")
 (assert (=== (js-get deserialized "email") "alice@example.com") "JSON: round-trip email")
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 3: STRING UTILITIES
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 3: STRING UTILITIES
+// ============================================================================
 
 (fn slugify [text]
   (text .toLowerCase
@@ -196,11 +196,11 @@
 
 (var long-text "This is a very long text that needs to be truncated")
 (var short (truncate long-text 20))
-(assert (=== (short .length) 23) "String: truncate with ellipsis")  ; 20 chars + "..."
+(assert (=== (short .length) 23) "String: truncate with ellipsis")  // 20 chars + "..."
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 4: ARRAY AGGREGATION
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 4: ARRAY AGGREGATION
+// ============================================================================
 
 (fn sum-array [arr]
   (arr .reduce (fn [acc val] (+ acc val)) 0))
@@ -215,9 +215,9 @@
 (assert (=== total 433) "Array: sum")
 (assert (=== avg 86.6) "Array: average")
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 5: OBJECT UTILITIES
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 5: OBJECT UTILITIES
+// ============================================================================
 
 (fn get-keys [obj]
   (js-call Object "keys" obj))
@@ -236,9 +236,9 @@
 (assert (has-key? config "port") "Object: has key")
 (assert (not (has-key? config "timeout")) "Object: missing key")
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 6: ASYNC API CLIENT
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 6: ASYNC API CLIENT
+// ============================================================================
 
 (async fn fetch-user-safe [id]
   (try
@@ -250,12 +250,12 @@
     (catch e
       {"error": e, "id": id})))
 
-; Simulated usage (would work with real fetch)
-; (var user (await (fetch-user-safe 123)))
+// Simulated usage (would work with real fetch)
+// (var user (await (fetch-user-safe 123)))
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 7: DATA VALIDATION
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 7: DATA VALIDATION
+// ============================================================================
 
 (fn validate-email [email]
   (and (>= (email .length) 5)
@@ -275,9 +275,9 @@
 (assert (validate-email "user@example.com") "Validation: valid email")
 (assert (not (validate-email "invalid")) "Validation: invalid email")
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 8: DATE FORMATTING
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 8: DATE FORMATTING
+// ============================================================================
 
 (fn format-date [date]
   (let year (js-call date "getUTCFullYear"))
@@ -291,9 +291,9 @@
 (var formatted (format-date today))
 (assert (=== formatted "2023-12-25") "Date: formatting")
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 9: PROMISE UTILITIES
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 9: PROMISE UTILITIES
+// ============================================================================
 
 (async fn with-timeout [promise timeout-ms]
   (let timeout-promise 
@@ -301,12 +301,12 @@
       (js-call setTimeout (fn [] (reject "timeout")) timeout-ms)))))
   (await (js-call Promise "race" [promise timeout-promise])))
 
-; Simulated usage
-; (var result (await (with-timeout (fetch-user 123) 5000)))
+// Simulated usage
+// (var result (await (with-timeout (fetch-user 123) 5000)))
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 10: MAP AND SET UTILITIES
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 10: MAP AND SET UTILITIES
+// ============================================================================
 
 (var cache (js-new Map ()))
 (js-call cache "set" "key1" "value1")
@@ -319,11 +319,11 @@
 (var unique-ids (js-new Set ([1 2 2 3 3 3])))
 (assert (=== (js-get unique-ids "size") 3) "Set: deduplicate")
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 11: ARRAY UTILITIES
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 11: ARRAY UTILITIES
+// ============================================================================
 
-; Custom find function using for loop with early return
+// Custom find function using for loop with early return
 (fn find-by [arr predicate]
   (var result null)
   (for [item arr]
@@ -342,9 +342,9 @@
 (var banana (find-by products (fn [p] (=== (js-get p "name") "Banana"))))
 (assert (=== (js-get banana "price") 0.5) "Find: by predicate")
 
-; ============================================================================
-; REAL-WORLD EXAMPLE 12: ERROR RECOVERY
-; ============================================================================
+// ============================================================================
+// REAL-WORLD EXAMPLE 12: ERROR RECOVERY
+// ============================================================================
 
 (async fn retry [action max-attempts]
   (async fn attempt [attempts]
@@ -356,7 +356,7 @@
           (return (await (attempt (+ attempts 1))))))))
   (await (attempt 1)))
 
-; Simulated unreliable action - wrapped in async IIFE to avoid top-level await
+// Simulated unreliable action - wrapped in async IIFE to avoid top-level await
 ((async fn []
   (var attempt-count 0)
   (async fn unreliable-action []
@@ -368,9 +368,9 @@
   (var retry-result (await (retry unreliable-action 5)))
   (assert (=== retry-result "success") "Retry: eventually succeeds")))
 
-; ============================================================================
-; SUMMARY
-; ============================================================================
+// ============================================================================
+// SUMMARY
+// ============================================================================
 
 (print "✅ JavaScript Interop examples verified!")
 (print "   - Basic JS interop: ✓")

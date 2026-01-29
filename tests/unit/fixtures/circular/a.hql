@@ -1,5 +1,5 @@
-;; test/fixtures/circular/a.hql
-;; Basic circular dependency test - Module A
+// test/fixtures/circular/a.hql
+// Basic circular dependency test - Module A
 
 (var circularValue 10)
 

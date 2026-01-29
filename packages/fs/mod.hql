@@ -1,5 +1,5 @@
-;; @hlvm/fs - File system operations
-;; Uses hlvm global for platform-agnostic operations
+// @hlvm/fs - File system operations
+// Uses hlvm global for platform-agnostic operations
 
 (fn read [path] (js-call hlvm.fs "readTextFile" path))
 (fn write [path content] (js-call hlvm.fs "writeTextFile" path content))

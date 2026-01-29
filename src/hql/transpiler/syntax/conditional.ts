@@ -600,7 +600,7 @@ export function transformTernary(
  * Syntax:
  * (switch expr
  *   (case val1 body...)
- *   (case val2 :fallthrough body...)  ; fallthrough to next case
+ *   (case val2 :fallthrough body...)  // fallthrough to next case
  *   (default body...))
  *
  * Generates an IIFE-wrapped switch:
@@ -948,7 +948,7 @@ export function transformSwitch(
  * (case expr
  *   val1 result1
  *   val2 result2
- *   default-result)    ; optional default (odd number of args after expr)
+ *   default-result)    // optional default (odd number of args after expr)
  *
  * Examples:
  * (case day

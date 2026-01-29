@@ -9,8 +9,8 @@ import { extractDocstrings } from "../../../src/hlvm/cli/repl/docstring.ts";
 // Basic Extraction Tests
 // ============================================================
 
-Deno.test("extractDocstrings: semicolon comment before def", () => {
-  const input = `; Adds two numbers together
+Deno.test("extractDocstrings: line comment before def", () => {
+  const input = `// Adds two numbers together
 (def add (fn [x y] (+ x y)))`;
   const result = extractDocstrings(input);
   assertEquals(result.get("add"), "Adds two numbers together");
@@ -31,8 +31,8 @@ Deno.test("extractDocstrings: block comment before def", () => {
 });
 
 Deno.test("extractDocstrings: multiple comments preserve newlines", () => {
-  const input = `; First line of documentation
-; Second line continues
+  const input = `// First line of documentation
+// Second line continues
 (def foo 1)`;
   const result = extractDocstrings(input);
   // Multi-line comments preserve newlines for DocPanel formatting
@@ -44,28 +44,28 @@ Deno.test("extractDocstrings: multiple comments preserve newlines", () => {
 // ============================================================
 
 Deno.test("extractDocstrings: def form", () => {
-  const input = `; A constant
+  const input = `// A constant
 (def PI 3.14159)`;
   const result = extractDocstrings(input);
   assertEquals(result.get("PI"), "A constant");
 });
 
 Deno.test("extractDocstrings: defn form", () => {
-  const input = `; Squares a number
+  const input = `// Squares a number
 (defn square [x] (* x x))`;
   const result = extractDocstrings(input);
   assertEquals(result.get("square"), "Squares a number");
 });
 
 Deno.test("extractDocstrings: named fn form", () => {
-  const input = `; Named function
+  const input = `// Named function
 (fn helper [x] x)`;
   const result = extractDocstrings(input);
   assertEquals(result.get("helper"), "Named function");
 });
 
 Deno.test("extractDocstrings: let bindings", () => {
-  const input = `; Local variables
+  const input = `// Local variables
 (let [a 1 b 2] (+ a b))`;
   const result = extractDocstrings(input);
   assertEquals(result.get("a"), "Local variables");
@@ -73,28 +73,28 @@ Deno.test("extractDocstrings: let bindings", () => {
 });
 
 Deno.test("extractDocstrings: const form", () => {
-  const input = `; Maximum value
+  const input = `// Maximum value
 (const MAX_VALUE 100)`;
   const result = extractDocstrings(input);
   assertEquals(result.get("MAX_VALUE"), "Maximum value");
 });
 
 Deno.test("extractDocstrings: var form", () => {
-  const input = `; Mutable counter
+  const input = `// Mutable counter
 (var counter 0)`;
   const result = extractDocstrings(input);
   assertEquals(result.get("counter"), "Mutable counter");
 });
 
 Deno.test("extractDocstrings: macro form", () => {
-  const input = `; Threading macro
+  const input = `// Threading macro
 (macro my-thread [body] body)`;
   const result = extractDocstrings(input);
   assertEquals(result.get("my-thread"), "Threading macro");
 });
 
 Deno.test("extractDocstrings: import with vector", () => {
-  const input = `; AI utilities
+  const input = `// AI utilities
 (import [ask chat] from "@hlvm/ai")`;
   const result = extractDocstrings(input);
   assertEquals(result.get("ask"), "AI utilities");
@@ -102,7 +102,7 @@ Deno.test("extractDocstrings: import with vector", () => {
 });
 
 Deno.test("extractDocstrings: import namespace", () => {
-  const input = `; File system module
+  const input = `// File system module
 (import fs from "node:fs")`;
   const result = extractDocstrings(input);
   assertEquals(result.get("fs"), "File system module");
@@ -124,14 +124,14 @@ Deno.test("extractDocstrings: empty input", () => {
 });
 
 Deno.test("extractDocstrings: comment without definition", () => {
-  const input = `; Just a comment
-; Another comment`;
+  const input = `// Just a comment
+// Another comment`;
   const result = extractDocstrings(input);
   assertEquals(result.size, 0);
 });
 
 Deno.test("extractDocstrings: blank line between comment and def", () => {
-  const input = `; This comment
+  const input = `// This comment
 
 (def x 1)`;
   const result = extractDocstrings(input);
@@ -140,9 +140,9 @@ Deno.test("extractDocstrings: blank line between comment and def", () => {
 });
 
 Deno.test("extractDocstrings: multiple definitions", () => {
-  const input = `; First function
+  const input = `// First function
 (def foo 1)
-; Second function
+// Second function
 (def bar 2)
 (def noDoc 3)`;
   const result = extractDocstrings(input);
@@ -152,7 +152,7 @@ Deno.test("extractDocstrings: multiple definitions", () => {
 });
 
 Deno.test("extractDocstrings: anonymous fn (no name)", () => {
-  const input = `; Anonymous
+  const input = `// Anonymous
 (fn [x] x)`;
   const result = extractDocstrings(input);
   // Anonymous functions don't have a name to associate
@@ -160,7 +160,7 @@ Deno.test("extractDocstrings: anonymous fn (no name)", () => {
 });
 
 Deno.test("extractDocstrings: hyphenated names", () => {
-  const input = `; Kebab case function
+  const input = `// Kebab case function
 (defn my-cool-func [x] x)`;
   const result = extractDocstrings(input);
   assertEquals(result.get("my-cool-func"), "Kebab case function");

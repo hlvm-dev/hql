@@ -1,22 +1,22 @@
-; @hlvm/ai - AI-Native Functions for HQL
-; Usage: (import [ask] from "@hlvm/ai")
-;
-; SSOT: All functions delegate to globalThis.ai provider API
-; No direct Ollama fetch - 100% Single Source of Truth
-;
-; FUNDAMENTAL DUAL-MODE API:
-; One function, two behaviors - determined by how YOU call it:
-;
-;   (ask "hello")           → STREAMING: Live token-by-token output
-;   (await (ask "hello"))   → COMPLETION: Returns full response as string
-;
-; This is a fundamental HQL language feature:
-; - Direct call returns async generator → REPL streams automatically
-; - await consumes the generator → returns concatenated result
+// @hlvm/ai - AI-Native Functions for HQL
+// Usage: (import [ask] from "@hlvm/ai")
+//
+// SSOT: All functions delegate to globalThis.ai provider API
+// No direct Ollama fetch - 100% Single Source of Truth
+//
+// FUNDAMENTAL DUAL-MODE API:
+// One function, two behaviors - determined by how YOU call it:
+//
+//   (ask "hello")           → STREAMING: Live token-by-token output
+//   (await (ask "hello"))   → COMPLETION: Returns full response as string
+//
+// This is a fundamental HQL language feature:
+// - Direct call returns async generator → REPL streams automatically
+// - await consumes the generator → returns concatenated result
 
-; ============================================================================
-; Provider Helper - Gets globalThis.ai (SSOT)
-; ============================================================================
+// ============================================================================
+// Provider Helper - Gets globalThis.ai (SSOT)
+// ============================================================================
 
 (fn get-ai-provider []
   "Get the AI provider from globalThis.ai. Throws if not available."
@@ -27,9 +27,9 @@
     (throw (new js/Error "AI provider missing generate method.")))
   ai)
 
-; ============================================================================
-; Config Helpers - Read from globalThis.config snapshot (SSOT)
-; ============================================================================
+// ============================================================================
+// Config Helpers - Read from globalThis.config snapshot (SSOT)
+// ============================================================================
 
 (fn get-config []
   "Get config snapshot from globalThis.config"
@@ -60,13 +60,13 @@
   (when (and cfg-model (isString cfg-model))
     cfg-model))
 
-; ============================================================================
-; Public API - SSOT via globalThis.ai
-; ============================================================================
+// ============================================================================
+// Public API - SSOT via globalThis.ai
+// ============================================================================
 
-; (ask "question") - Returns async generator that yields tokens
-; REPL automatically streams the output
-; SSOT: Delegates to globalThis.ai.generate()
+// (ask "question") - Returns async generator that yields tokens
+// REPL automatically streams the output
+// SSOT: Delegates to globalThis.ai.generate()
 (async fn* ask [prompt & options]
   "Stream AI response via provider SSOT. Returns async generator."
   (let opts (first options))
@@ -76,8 +76,8 @@
                       "model": (get-model opts)})
   (yield* (ai.generate prompt provider-opts)))
 
-; (generate "description") - Stream code generation
-; SSOT: Delegates to globalThis.ai.generate()
+// (generate "description") - Stream code generation
+// SSOT: Delegates to globalThis.ai.generate()
 (async fn* generate [description & options]
   "Stream code generation via provider SSOT. Returns async generator."
   (let opts (first options))
@@ -88,8 +88,8 @@
                       "model": (get-model opts)})
   (yield* (ai.generate full-prompt provider-opts)))
 
-; (chat messages) - Stream chat response
-; SSOT: Delegates to globalThis.ai.chat()
+// (chat messages) - Stream chat response
+// SSOT: Delegates to globalThis.ai.chat()
 (async fn* chat [messages & options]
   "Stream chat response via provider SSOT. Returns async generator."
   (let opts (first options))
@@ -99,8 +99,8 @@
                       "model": (get-model opts)})
   (yield* (ai.chat messages provider-opts)))
 
-; (summarize text) - Stream summarization
-; SSOT: Delegates to globalThis.ai.generate()
+// (summarize text) - Stream summarization
+// SSOT: Delegates to globalThis.ai.generate()
 (async fn* summarize [text & options]
   "Stream summarization via provider SSOT. Returns async generator."
   (let opts (first options))

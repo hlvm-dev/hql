@@ -35,21 +35,18 @@ The definition uses an `(enum ...)` S-expression form, recognized by the
 compiler.
 
 ```hql
-;; Define a simple enumeration
-(enum OsType
+// Define a simple enumeration(enum OsType
   (case macOS)
   (case windowOS)
   (case linux)
 )
 
-;; Define an enum with Raw Values
-(enum StatusCodes
+// Define an enum with Raw Values(enum StatusCodes
   (case ok 200)
   (case notFound 404)
 )
 
-;; Define an enum with Associated Values
-(enum Barcode
+// Define an enum with Associated Values(enum Barcode
   (case upc system manufacturer product check)
   (case qrCode value)
 )
@@ -67,35 +64,35 @@ compiler.
 Access involves dot notation; shorthand may be possible with type inference.
 
 ```hql
-;; Assign simple case
+// Assign simple case
 (let currentOS OsType.macOS)
 
-;; Compare simple case
+// Compare simple case
 (if (=== currentOS OsType.linux) (print "Linux!"))
 
-;; Use raw value enum
+// Use raw value enum
 (let status StatusCodes.notFound)
-; (status.rawValue) ; Hypothetical access to raw value => 404
+// (status.rawValue) Hypothetical access to raw value => 404
 
-;; Create associated value case
+// Create associated value case
 (let code (Barcode.qrCode "hql-data"))
 
-;; Use with enum values
+// Use with enum values
 (fn processStatus [code] (print code))
-(processStatus StatusCodes.ok) ; Explicit enum value
+(processStatus StatusCodes.ok) // Explicit enum value
 ```
 
 ## 5. Dot Notation & Autocompletion Roles
 
 ```hql
-;; Define a simple OS enum.
+// Define a simple OS enum.
 (enum OS
   (case macOS)
   (case iOS)
   (case linux)
 )
 
-;; A function that “installs” based on the OS.
+// A function that “installs” based on the OS.
 (fn install [os]
   (cond
     ((=== os OS.macOS) (print "Installing on macOS"))
@@ -105,7 +102,7 @@ Access involves dot notation; shorthand may be possible with type inference.
   )
 )
 
-;; Positional calls
+// Positional calls
 (install OS.macOS)
 (install OS.iOS)
 (install OS.linux)

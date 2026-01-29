@@ -28,10 +28,10 @@ Your memory persists between gaming sessions. So should your programming environ
 HQL introduces two new keywords for persistent definitions:
 
 ```hql
-; Define a persistent value
+// Define a persistent value
 (def api-key "sk-xxx")
 
-; Define a persistent function
+// Define a persistent function
 (defn greet [name]
   (str "Hello " name))
 ```
@@ -54,7 +54,7 @@ These work exactly like `const` and `fn`, but with one key difference: **they au
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │  ~/.hlvm/memory.hql                                      │   │
 │   │                                                         │   │
-│   │  ; HLVM Memory - auto-persisted definitions              │   │
+│   │  // HLVM Memory - auto-persisted definitions              │   │
 │   │  (def api-key "sk-xxx")                                 │   │
 │   │  (defn greet [name] (str "Hello " name))                │   │
 │   │                                                         │   │
@@ -74,16 +74,16 @@ These work exactly like `const` and `fn`, but with one key difference: **they au
 For `def`, we store the **evaluated value**, not the original expression:
 
 ```hql
-; You type:
+// You type:
 (def result (+ 1 2))
 
-; Stored in memory.hql:
+// Stored in memory.hql:
 (def result 3)
 
-; You type:
+// You type:
 (def timestamp (js/Date.now))
 
-; Stored in memory.hql:
+// Stored in memory.hql:
 (def timestamp 1704500000000)
 ```
 
@@ -94,10 +94,10 @@ This prevents side effects on reload - API calls, file reads, etc. won't re-exec
 For `defn`, we store the **original source code**:
 
 ```hql
-; You type:
+// You type:
 (defn greet [name] (str "Hello " name))
 
-; Stored in memory.hql (unchanged):
+// Stored in memory.hql (unchanged):
 (defn greet [name] (str "Hello " name))
 ```
 
@@ -139,8 +139,8 @@ The `~/.hlvm/` directory is also used for:
 Plain HQL code - human-readable, git-friendly, editable:
 
 ```hql
-; HLVM Memory - auto-persisted definitions
-; Edit freely - compacted on REPL startup
+// HLVM Memory - auto-persisted definitions
+// Edit freely - compacted on REPL startup
 
 (def api-key "sk-xxx")
 
@@ -198,13 +198,13 @@ Compacted memory: 6 → 4 definitions.
 When you redefine a value, both versions are saved:
 
 ```hql
-; Session 1:
+// Session 1:
 (def x 1)
 
-; Session 2:
+// Session 2:
 (def x 10)
 
-; memory.hql now has both:
+// memory.hql now has both:
 (def x 1)
 (def x 10)
 ```
@@ -218,7 +218,7 @@ On REPL startup, compaction runs automatically:
 
 After compaction:
 ```hql
-(def x 10)  ; only latest
+(def x 10)  // only latest
 ```
 
 ### Manual Compaction
@@ -232,7 +232,7 @@ Use `/compact` during a session to trigger it manually.
 `def` and `defn` also work in regular HQL scripts:
 
 ```hql
-; my-script.hql
+// my-script.hql
 (def PI 3.14159)
 (defn circle-area [r] (* PI r r))
 (print (circle-area 5))
@@ -256,11 +256,11 @@ The goal is **invisible persistence**. Using existing syntax patterns means:
 Storing evaluated values prevents side effects:
 
 ```hql
-; If we stored the expression:
-(def data (http-get "https://api.com"))  ; Would call API every startup!
+// If we stored the expression:
+(def data (http-get "https://api.com"))  // Would call API every startup!
 
-; By storing the value:
-(def data {"cached": "response"})  ; No API call on startup
+// By storing the value:
+(def data {"cached": "response"})  // No API call on startup
 ```
 
 ### Why REPL Only (for persistence)?

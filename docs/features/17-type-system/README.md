@@ -13,14 +13,14 @@ HQL v2.0 provides a complete TypeScript type system with two approaches:
 ## Quick Example
 
 ```lisp
-; Type alias with union
+// Type alias with union
 (type Status (| "pending" "active" "done"))
 
-; Typed function
+// Typed function
 (fn add [a:number b:number] :number
   (+ a b))
 
-; String passthrough for complex types
+// String passthrough for complex types
 (deftype EventName "`on${string}`")
 ```
 

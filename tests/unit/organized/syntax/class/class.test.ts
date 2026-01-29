@@ -248,8 +248,8 @@ c.PI
 Deno.test("Class: mixed mutable and immutable fields", async () => {
   const code = `
 (class Account
-  (const bankName "MyBank")  ;; immutable (const)
-  (var balance 0)            ;; mutable (var)
+  (const bankName "MyBank")  // immutable (const)
+  (var balance 0)            // mutable (var)
 
   (constructor (accNum initialBalance)
     (do

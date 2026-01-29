@@ -25,40 +25,40 @@ All classes compile to JavaScript ES6 class syntax.
 ### Basic Class Definition
 
 ```lisp
-; Empty class
+// Empty class
 (class MyClass)
 
-; Class with constructor
+// Class with constructor
 (class Person
   (constructor [name age]
     (do
       (= this.name name)
       (= this.age age))))
 
-; Instantiate with 'new'
+// Instantiate with 'new'
 (var p (new Person "Alice" 30))
 ```
 
 ### Constructors
 
 ```lisp
-; Single parameter
+// Single parameter
 (class Counter
   (constructor [initial]
     (= this.count initial)))
 
-; Multiple parameters
+// Multiple parameters
 (class Point
   (constructor [x y]
     (do
       (= this.x x)
       (= this.y y))))
 
-; Empty constructor
+// Empty constructor
 (class Empty
   (constructor []))
 
-; Constructor with computation
+// Constructor with computation
 (class Circle
   (constructor [radius]
     (do
@@ -69,7 +69,7 @@ All classes compile to JavaScript ES6 class syntax.
 ### Methods
 
 ```lisp
-; Method without parameters
+// Method without parameters
 (class Counter
   (constructor [n]
     (= this.count n))
@@ -77,7 +77,7 @@ All classes compile to JavaScript ES6 class syntax.
   (fn getValue []
     this.count))
 
-; Method with parameters
+// Method with parameters
 (class Calculator
   (constructor []
     (= this.value 0))
@@ -85,7 +85,7 @@ All classes compile to JavaScript ES6 class syntax.
   (fn add [x y]
     (+ x y)))
 
-; Method accessing this properties
+// Method accessing this properties
 (class Person
   (constructor [name]
     (= this.name name))
@@ -93,7 +93,7 @@ All classes compile to JavaScript ES6 class syntax.
   (fn greet []
     (+ "Hello, " this.name)))
 
-; Method calling another method
+// Method calling another method
 (class Counter
   (constructor []
     (= this.count 0))
@@ -110,24 +110,24 @@ All classes compile to JavaScript ES6 class syntax.
 ### Field Declarations
 
 ```lisp
-; Mutable field (var)
+// Mutable field (var)
 (class Counter
-  (var count 0)      ; with default value
-  (var uninitialized) ; defaults to undefined
+  (var count 0)      // with default value
+  (var uninitialized) // defaults to undefined
 
   (constructor []
     (= this.count 0)))
 
-; Immutable field (const) - must have default value
+// Immutable field (const) - must have default value
 (class Config
   (const maxSize 100)
 
   (constructor []))
 
-; Mixed mutable and immutable fields
+// Mixed mutable and immutable fields
 (class Account
-  (const bankName "MyBank")  ; immutable constant
-  (var balance 0)            ; mutable state
+  (const bankName "MyBank")  // immutable constant
+  (var balance 0)            // mutable state
 
   (constructor [accNum initialBalance]
     (do
@@ -138,7 +138,7 @@ All classes compile to JavaScript ES6 class syntax.
 ### Static Members (v2.0)
 
 ```lisp
-; Static variable
+// Static variable
 (class Counter
   (static var count 0)
 
@@ -150,9 +150,9 @@ All classes compile to JavaScript ES6 class syntax.
 
 (new Counter)
 (new Counter)
-(Counter.getCount)  ; => 2
+(Counter.getCount)  // => 2
 
-; Static constants
+// Static constants
 (class MathUtils
   (static let PI 3.14159)
   (static let E 2.71828)
@@ -160,15 +160,15 @@ All classes compile to JavaScript ES6 class syntax.
   (static fn circleArea [r]
     (* MathUtils.PI r r)))
 
-(MathUtils.circleArea 5)  ; => 78.53975
+(MathUtils.circleArea 5)  // => 78.53975
 ```
 
 ### Private Fields (v2.0)
 
 ```lisp
-; Private fields start with #
+// Private fields start with #
 (class BankAccount
-  (#balance 0)  ; private field
+  (#balance 0)  // private field
 
   (constructor [initial]
     (= this.#balance initial))
@@ -181,14 +181,14 @@ All classes compile to JavaScript ES6 class syntax.
 
 (let account (new BankAccount 100))
 (.deposit account 50)
-(.getBalance account)  ; => 150
-; account.#balance     ; ERROR: Private field
+(.getBalance account)  // => 150
+// account.#balance     ERROR: Private field
 ```
 
 ### Getters and Setters (v2.0)
 
 ```lisp
-; Getter - computed property access
+// Getter - computed property access
 (class Circle
   (var _radius 0)
 
@@ -205,11 +205,11 @@ All classes compile to JavaScript ES6 class syntax.
     (* 3.14159 this._radius this._radius)))
 
 (let c (new Circle 5))
-c.radius    ; => 5 (calls getter)
-c.diameter  ; => 10
-c.area      ; => 78.53975
+c.radius    // => 5 (calls getter)
+c.diameter  // => 10
+c.area      // => 78.53975
 
-; Setter - property assignment
+// Setter - property assignment
 (class Temperature
   (var _celsius 0)
 
@@ -227,29 +227,29 @@ c.area      ; => 78.53975
 
 (let t (new Temperature))
 (= t.celsius 100)
-t.fahrenheit  ; => 212
+t.fahrenheit  // => 212
 (= t.fahrenheit 32)
-t.celsius     ; => 0
+t.celsius     // => 0
 ```
 
 ### Property Access and Modification
 
 ```lisp
-; Dot notation access
+// Dot notation access
 (var p (new Person "Alice" 25))
-p.name  ; → "Alice"
+p.name  // → "Alice"
 
-; Modify property
+// Modify property
 (= p.name "Bob")
 
-; Add new property dynamically
+// Add new property dynamically
 (= p.email "bob@example.com")
 ```
 
 ### Default Parameters
 
 ```lisp
-; Methods with JSON map parameters (defaults)
+// Methods with JSON map parameters (defaults)
 (class Calculator
   (constructor [baseValue]
     (= this.baseValue baseValue))
@@ -257,14 +257,14 @@ p.name  ; → "Alice"
   (fn multiply {"x": 10, "y": 2}
     (* x y)))
 
-; Use all defaults
-(calc.multiply)  ; → 20
+// Use all defaults
+(calc.multiply)  // → 20
 
-; Override first default
-(calc.multiply {"x": 5})  ; → 10 (5 * 2)
+// Override first default
+(calc.multiply {"x": 5})  // → 10 (5 * 2)
 
-; Override all defaults
-(calc.multiply {"x": 7, "y": 3})  ; → 21
+// Override all defaults
+(calc.multiply {"x": 7, "y": 3})  // → 21
 ```
 
 ## Implementation Details
@@ -289,12 +289,12 @@ p.name  ; → "Alice"
 ```javascript
 class Person {
   constructor(name, age) {
-    this.name = name;
-    this.age = age;
+    this.name = name//
+    this.age = age//
   }
 
   greet() {
-    return "Hello, " + this.name;
+    return "Hello, " + this.name//
   }
 }
 ```
@@ -305,14 +305,14 @@ class Person {
 
 ```lisp
 (var p (new Person "Alice" 30))
-(p.greet)  ; → "Hello, Alice"
+(p.greet)  // → "Hello, Alice"
 ```
 
 **Compiled:**
 
 ```javascript
-const p = new Person("Alice", 30);
-p.greet(); // → "Hello, Alice"
+const p = new Person("Alice", 30)//
+p.greet()// // → "Hello, Alice"
 ```
 
 ### Field Initialization
@@ -329,8 +329,8 @@ p.greet(); // → "Hello, Alice"
 
 ```javascript
 class Counter {
-  count = 0;
-  maxCount = 100;
+  count = 0//
+  maxCount = 100//
 }
 ```
 
@@ -347,7 +347,7 @@ class Counter {
 
 ```javascript
 increment() {
-  this.count = this.count + 1;
+  this.count = this.count + 1//
 }
 ```
 
@@ -454,7 +454,7 @@ in nested expressions ✅ Method returns object literal
 ### 1. Data Models
 
 ```lisp
-; User data model
+// User data model
 (class User
   (constructor [id name email]
     (do
@@ -466,13 +466,13 @@ in nested expressions ✅ Method returns object literal
     (+ this.name " (" this.email ")")))
 
 (var user (new User 1 "Alice" "alice@example.com"))
-(user.getDisplayName)  ; → "Alice (alice@example.com)"
+(user.getDisplayName)  // → "Alice (alice@example.com)"
 ```
 
 ### 2. State Management
 
 ```lisp
-; Counter with increment/decrement
+// Counter with increment/decrement
 (class Counter
   (constructor [initial]
     (= this.count initial))
@@ -489,13 +489,13 @@ in nested expressions ✅ Method returns object literal
 (var counter (new Counter 10))
 (counter.increment)
 (counter.increment)
-counter.count  ; → 12
+counter.count  // → 12
 ```
 
 ### 3. Calculations
 
 ```lisp
-; Rectangle with area and perimeter
+// Rectangle with area and perimeter
 (class Rectangle
   (constructor [width height]
     (do
@@ -509,14 +509,14 @@ counter.count  ; → 12
     (* 2 (+ this.width this.height))))
 
 (var rect (new Rectangle 5 10))
-(rect.area)       ; → 50
-(rect.perimeter)  ; → 30
+(rect.area)       // → 50
+(rect.perimeter)  // → 30
 ```
 
 ### 4. Configuration Objects
 
 ```lisp
-; Config with defaults
+// Config with defaults
 (class AppConfig
   (let defaultPort 3000)
   (let defaultHost "localhost")
@@ -532,13 +532,13 @@ counter.count  ; → 12
     (+ "http://" this.host ":" this.port)))
 
 (var config (new AppConfig 8080 "example.com"))
-(config.getUrl)  ; → "http://example.com:8080"
+(config.getUrl)  // → "http://example.com:8080"
 ```
 
 ### 5. Builder Pattern
 
 ```lisp
-; Builder for complex objects
+// Builder for complex objects
 (class UserBuilder
   (constructor []
     (do
@@ -547,7 +547,7 @@ counter.count  ; → 12
   (fn setName [name]
     (do
       (= this.data.name name)
-      this))  ; return self for chaining
+      this))  // return self for chaining
 
   (fn setAge [age]
     (do
@@ -559,13 +559,13 @@ counter.count  ; → 12
 
 (var builder (new UserBuilder))
 ((builder.setName "Alice").setAge 30)
-(builder.build)  ; → {name: "Alice", age: 30}
+(builder.build)  // → {name: "Alice", age: 30}
 ```
 
 ### 6. Banking/Financial
 
 ```lisp
-; Bank account with transactions
+// Bank account with transactions
 (class BankAccount
   (let bankName "MyBank")
   (var balance 0)
@@ -589,14 +589,14 @@ counter.count  ; → 12
     this.balance))
 
 (var account (new BankAccount "ACC123" 1000))
-(account.deposit 500)   ; → 1500
-(account.withdraw 200)  ; → 1300
+(account.deposit 500)   // → 1500
+(account.withdraw 200)  // → 1300
 ```
 
 ### 7. Geometry/Graphics
 
 ```lisp
-; Circle with computed properties
+// Circle with computed properties
 (class Circle
   (constructor [radius]
     (= this.radius radius))
@@ -611,15 +611,15 @@ counter.count  ; → 12
     (* 3.14159 this.radius this.radius)))
 
 (var circle (new Circle 5))
-(circle.diameter)        ; → 10
-(circle.circumference)   ; → 31.4159
-(circle.area)            ; → 78.53975
+(circle.diameter)        // → 10
+(circle.circumference)   // → 31.4159
+(circle.area)            // → 78.53975
 ```
 
 ### 8. Task/Todo Management
 
 ```lisp
-; Todo item with status
+// Todo item with status
 (class TodoItem
   (let STATUS_PENDING "pending")
   (let STATUS_DONE "done")
@@ -641,7 +641,7 @@ counter.count  ; → 12
 
 (var todo (new TodoItem "Write docs" "Complete README"))
 (todo.markDone)
-(todo.isDone)  ; → true
+(todo.isDone)  // → true
 ```
 
 ## Comparison with Other Languages
@@ -652,12 +652,12 @@ counter.count  ; → 12
 // JavaScript ES6
 class Person {
   constructor(name, age) {
-    this.name = name;
-    this.age = age;
+    this.name = name//
+    this.age = age//
   }
 
   greet() {
-    return "Hello, " + this.name;
+    return "Hello, " + this.name//
   }
 }
 
@@ -700,16 +700,16 @@ class Person:
 ```java
 // Java
 public class Person {
-    private String name;
-    private int age;
+    private String name//
+    private int age//
 
     public Person(String name, int age) {
-        this.name = name;
-        this.age = age;
+        this.name = name//
+        this.age = age//
     }
 
     public String greet() {
-        return "Hello, " + this.name;
+        return "Hello, " + this.name//
     }
 }
 
@@ -757,14 +757,14 @@ JavaScript ES6 Classes
 ### Use Constructors to Initialize State
 
 ```lisp
-; ✅ Good: Initialize in constructor
+// ✅ Good: Initialize in constructor
 (class Person
   (constructor [name age]
     (do
       (= this.name name)
       (= this.age age))))
 
-; ❌ Avoid: Uninitialized state
+// ❌ Avoid: Uninitialized state
 (class Person
   (fn setName [n] (= this.name n)))
 ```
@@ -772,7 +772,7 @@ JavaScript ES6 Classes
 ### Group Related Fields
 
 ```lisp
-; ✅ Good: Related fields together
+// ✅ Good: Related fields together
 (class Rectangle
   (var width 0)
   (var height 0)
@@ -783,7 +783,7 @@ JavaScript ES6 Classes
       (= this.width w)
       (= this.height h))))
 
-; ❌ Avoid: Scattered fields
+// ❌ Avoid: Scattered fields
 (class Rectangle
   (var width 0)
   (let unit "px")
@@ -793,12 +793,12 @@ JavaScript ES6 Classes
 ### Use let for Constants
 
 ```lisp
-; ✅ Good: Constants with let
+// ✅ Good: Constants with let
 (class Config
   (let MAX_CONNECTIONS 100)
   (let DEFAULT_TIMEOUT 5000))
 
-; ❌ Avoid: Mutable constants
+// ❌ Avoid: Mutable constants
 (class Config
   (var MAX_CONNECTIONS 100))
 ```
@@ -806,7 +806,7 @@ JavaScript ES6 Classes
 ### Return Self for Chaining
 
 ```lisp
-; ✅ Good: Return this for fluent API
+// ✅ Good: Return this for fluent API
 (class Builder
   (fn setName [n]
     (do
@@ -818,17 +818,17 @@ JavaScript ES6 Classes
       (= this.age a)
       this)))
 
-; Usage: chaining
+// Usage: chaining
 ((builder.setName "Alice").setAge 30)
 ```
 
 ### Document Methods with Examples
 
 ```lisp
-; ✅ Good: Clear method purpose
+// ✅ Good: Clear method purpose
 (class Calculator
   (fn add [x y]
-    ; Returns sum of x and y
+    // Returns sum of x and y
     (+ x y)))
 ```
 

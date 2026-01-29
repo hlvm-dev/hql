@@ -159,7 +159,7 @@ Deno.test("Macro HOF Integration: reduce to single value in macro", async () => 
 (macro const-sum [items]
   (reduce (fn [acc x] (+ acc x)) 0 items))
 
-; The macro computes the sum at compile time
+// The macro computes the sum at compile time
 (+ (const-sum [1 2 3 4 5]) 100)
 `;
   const result = await run(code);

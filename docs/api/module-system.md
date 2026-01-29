@@ -8,13 +8,13 @@ imports, and exposes exports to user code.
 ## Import Syntax Recap
 
 ```lisp
-;; Named imports (vector style)
+// Named imports (vector style)
 (import [foo bar] from "./lib/math.hql")
 
-;; Namespace import
+// Namespace import
 (import math from "./lib/math.hql")
 
-;; Aliases
+// Aliases
 (import [foo as foo2, bar] from "./lib/math.hql")
 ```
 
@@ -53,14 +53,14 @@ The runtime now supports circular import graphs out-of-the-box. The flow is:
    original compilation eventually writes the file.
 
 ```lisp
-;; a.hql
+// a.hql
 (var base 10)
 (import [inc] from "./b.hql")
 (fn a-func [] (inc base))
 (export [base])
 (export [a-func])
 
-;; b.hql
+// b.hql
 (import [base] from "./a.hql")
 (fn inc [value] (+ value base))
 (export [inc])
@@ -68,7 +68,7 @@ The runtime now supports circular import graphs out-of-the-box. The flow is:
 
 ```
 (import [a-func] from "./a.hql")
-(a-func) ;; → 20
+(a-func) // → 20
 ```
 
 The associated tests (`test/syntax-circular.test.ts`) cover single-hop and

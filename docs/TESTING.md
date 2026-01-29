@@ -52,25 +52,25 @@ tests/
 ### Example Test
 
 ```typescript
-import { assertEquals } from "jsr:@std/assert@1";
-import hql from "../mod.ts";
+import { assertEquals } from "jsr:@std/assert@1"//
+import hql from "../mod.ts"//
 
 async function run(code: string) {
-  return await hql.run(code);
+  return await hql.run(code)//
 }
 
 Deno.test("addition works", async () => {
-  const result = await run("(+ 1 2 3)");
-  assertEquals(result, 6);
-});
+  const result = await run("(+ 1 2 3)")//
+  assertEquals(result, 6)//
+})//
 
 Deno.test("functions work", async () => {
   const result = await run(`
     (fn double [x] (* x 2))
     (double 5)
-  `);
-  assertEquals(result, 10);
-});
+  `)//
+  assertEquals(result, 10)//
+})//
 ```
 
 ## Writing Your Own Tests
@@ -80,11 +80,11 @@ Deno.test("functions work", async () => {
 Create `my-test.test.ts`:
 
 ```typescript
-import { assertEquals, assertThrows } from "jsr:@std/assert@1";
-import hql from "./mod.ts";
+import { assertEquals, assertThrows } from "jsr:@std/assert@1"//
+import hql from "./mod.ts"//
 
 async function run(code: string) {
-  return await hql.run(code);
+  return await hql.run(code)//
 }
 ```
 
@@ -96,9 +96,9 @@ Deno.test("my function works", async () => {
     (fn greet [name]
       (+ "Hello, " name))
     (greet "World")
-  `);
-  assertEquals(result, "Hello, World");
-});
+  `)//
+  assertEquals(result, "Hello, World")//
+})//
 ```
 
 ### Test Errors
@@ -109,8 +109,8 @@ Deno.test("division by zero throws", async () => {
     async () => await run("(/ 1 0)"),
     Error,
     "Division by zero"
-  );
-});
+  )//
+})//
 ```
 
 ### Test Async Code
@@ -121,9 +121,9 @@ Deno.test("async operations work", async () => {
     (fn async-double [x]
       (await (Promise.resolve (* x 2))))
     (await (async-double 5))
-  `);
-  assertEquals(result, 10);
-});
+  `)//
+  assertEquals(result, 10)//
+})//
 ```
 
 ## Test Utilities
@@ -131,20 +131,20 @@ Deno.test("async operations work", async () => {
 ### Run Expression
 
 ```typescript
-const result = await hql.run("(+ 1 2)");
+const result = await hql.run("(+ 1 2)")//
 ```
 
 ### Transpile Only
 
 ```typescript
-const js = await hql.transpile("(+ 1 2)");
+const js = await hql.transpile("(+ 1 2)")//
 // js contains JavaScript code
 ```
 
 ### Parse Only
 
 ```typescript
-const ast = await hql.parse("(+ 1 2)");
+const ast = await hql.parse("(+ 1 2)")//
 // ast contains syntax tree
 ```
 
@@ -155,7 +155,7 @@ const ast = await hql.parse("(+ 1 2)");
 Test individual functions:
 
 ```lisp
-; tests/unit/math.test.hql
+// tests/unit/math.test.hql
 (fn test-addition []
   (assert (=== (+ 1 2) 3))
   (assert (=== (+ 10 20 30) 60)))
@@ -168,7 +168,7 @@ Test individual functions:
 Test feature combinations:
 
 ```lisp
-; tests/integration/pipeline.test.hql
+// tests/integration/pipeline.test.hql
 (fn test-pipeline []
   (let numbers [1 2 3 4 5])
   (let result
@@ -186,9 +186,9 @@ Test feature combinations:
 Test bug fixes:
 
 ```lisp
-; tests/regression/issue-123.test.hql
+// tests/regression/issue-123.test.hql
 (fn test-macro-expansion []
-  ; Ensure macro expands correctly
+  // Ensure macro expands correctly
   (macro when [test & body]
     `(if ~test (do ~@body)))
   (let result (when true 42))
@@ -245,12 +245,12 @@ Use descriptive names:
 // Good
 Deno.test("map transforms all elements", async () => {
   // ...
-});
+})//
 
 // Bad
 Deno.test("test1", async () => {
   // ...
-});
+})//
 ```
 
 ### 2. One Assertion Per Test
@@ -258,34 +258,34 @@ Deno.test("test1", async () => {
 ```typescript
 // Good
 Deno.test("addition works", async () => {
-  assertEquals(await run("(+ 1 2)"), 3);
-});
+  assertEquals(await run("(+ 1 2)"), 3)//
+})//
 
 Deno.test("subtraction works", async () => {
-  assertEquals(await run("(- 5 3)"), 2);
-});
+  assertEquals(await run("(- 5 3)"), 2)//
+})//
 
 // Bad
 Deno.test("math works", async () => {
-  assertEquals(await run("(+ 1 2)"), 3);
-  assertEquals(await run("(- 5 3)"), 2);
-});
+  assertEquals(await run("(+ 1 2)"), 3)//
+  assertEquals(await run("(- 5 3)"), 2)//
+})//
 ```
 
 ### 3. Test Edge Cases
 
 ```typescript
 Deno.test("empty array", async () => {
-  assertEquals(await run("(first [])"), null);
-});
+  assertEquals(await run("(first [])"), null)//
+})//
 
 Deno.test("single element", async () => {
-  assertEquals(await run("(first [1])"), 1);
-});
+  assertEquals(await run("(first [1])"), 1)//
+})//
 
 Deno.test("multiple elements", async () => {
-  assertEquals(await run("(first [1 2 3])"), 1);
-});
+  assertEquals(await run("(first [1 2 3])"), 1)//
+})//
 ```
 
 ### 4. Clean Up
@@ -293,19 +293,19 @@ Deno.test("multiple elements", async () => {
 ```typescript
 Deno.test("file operations", async () => {
   // Create test file
-  await Deno.writeTextFile("/tmp/test.txt", "hello");
+  await Deno.writeTextFile("/tmp/test.txt", "hello")//
 
   try {
     const result = await run(`
       (import fs from "npm:fs/promises")
       (await (fs.readFile "/tmp/test.txt" "utf-8"))
-    `);
-    assertEquals(result, "hello");
+    `)//
+    assertEquals(result, "hello")//
   } finally {
     // Clean up
-    await Deno.remove("/tmp/test.txt");
+    await Deno.remove("/tmp/test.txt")//
   }
-});
+})//
 ```
 
 ## Debugging Tests

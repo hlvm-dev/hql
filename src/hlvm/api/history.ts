@@ -5,13 +5,13 @@
  * History persists across sessions in ~/.hlvm/history.jsonl
  *
  * Usage in REPL:
- *   (history.list)              ; List all commands
- *   (history.get 0)             ; Get command at index
- *   (history.search "def")      ; Search commands
- *   (history.clear)             ; Clear history (memory + disk)
- *   history.count               ; Get command count
- *   (history.save)              ; Force flush to disk
- *   history.path                ; Get history file path
+ *   (history.list)              // List all commands
+ *   (history.get 0)             // Get command at index
+ *   (history.search "def")      // Search commands
+ *   (history.clear)             // Clear history (memory + disk)
+ *   history.count               // Get command count
+ *   (history.save)              // Force flush to disk
+ *   history.path                // Get history file path
  */
 
 import { getHistoryPath } from "../../common/paths.ts";

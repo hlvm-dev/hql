@@ -57,13 +57,13 @@ Deno.test("Edge Case: Circular imports with macros should throw error", async ()
 // Test 4: Import macro that uses another imported macro
 Deno.test("Edge Case: Transitive macro dependencies", async () => {
   const code = `
-;; Define base macro
+// Define base macro
 (macro base [x] \`(* ~x 3))
 
-;; Define macro that uses base
+// Define macro that uses base
 (macro derived [x] \`(+ (base ~x) 1))
 
-;; Use derived (which internally uses base)
+// Use derived (which internally uses base)
 (derived 5)
 `;
 

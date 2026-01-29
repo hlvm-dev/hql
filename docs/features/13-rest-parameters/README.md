@@ -18,44 +18,44 @@ Rest parameters provide JavaScript-style variadic function parameters using the 
 ### Basic Rest Parameters
 
 ```lisp
-; Only rest parameter
+// Only rest parameter
 (fn sum [...nums]
   (.reduce nums (fn [acc val] (+ acc val)) 0))
 
-(sum 1 2 3 4 5)  ; => 15
+(sum 1 2 3 4 5)  // => 15
 ```
 
 ### Rest with Regular Parameters
 
 ```lisp
-; Rest with single regular param
+// Rest with single regular param
 (fn sum [x ...rest]
   (+ x (.reduce rest (fn [acc val] (+ acc val)) 0)))
 
-(sum 10 1 2 3)  ; => 16
+(sum 10 1 2 3)  // => 16
 
-; Rest with multiple regular params
+// Rest with multiple regular params
 (fn sum [x y ...rest]
   (+ x y (.reduce rest (fn [acc val] (+ acc val)) 0)))
 
-(sum 10 20 1 2 3)  ; => 36
+(sum 10 20 1 2 3)  // => 36
 ```
 
 ### Empty Rest Arrays
 
 ```lisp
-; Rest parameter with no arguments
+// Rest parameter with no arguments
 (fn getLength [...items]
   (get items "length"))
 
-(getLength)      ; => 0 (empty array)
-(getLength 1 2)  ; => 2 (two items)
+(getLength)      // => 0 (empty array)
+(getLength 1 2)  // => 2 (two items)
 
-; Rest with required params, no extra args
+// Rest with required params, no extra args
 (fn sum [x y ...rest]
   (+ x y (get rest "length")))
 
-(sum 10 20)  ; => 30 (rest is empty array)
+(sum 10 20)  // => 30 (rest is empty array)
 ```
 
 ## Features
@@ -65,23 +65,23 @@ Rest parameters provide JavaScript-style variadic function parameters using the 
 Rest parameters are real JavaScript arrays with all array methods:
 
 ```lisp
-; Array indexing
+// Array indexing
 (fn getSecond [...items]
   (get items 1))
 
-(getSecond 10 20 30)  ; => 20
+(getSecond 10 20 30)  // => 20
 
-; Array length
+// Array length
 (fn count [...items]
   (get items "length"))
 
-(count 1 2 3 4 5)  ; => 5
+(count 1 2 3 4 5)  // => 5
 
-; Array methods
+// Array methods
 (fn sumAll [...nums]
   (.reduce nums (fn [a b] (+ a b)) 0))
 
-(sumAll 1 2 3 4)  ; => 10
+(sumAll 1 2 3 4)  // => 10
 ```
 
 ### Type Safety
@@ -89,12 +89,12 @@ Rest parameters are real JavaScript arrays with all array methods:
 Rest parameters collect any type of argument:
 
 ```lisp
-; Mixed types
+// Mixed types
 (fn collectAll [...items]
   items)
 
 (collectAll 1 "hello" true [1 2])
-; => [1, "hello", true, [1, 2]]
+// => [1, "hello", true, [1, 2]]
 ```
 
 ## Implementation Details
@@ -102,13 +102,13 @@ Rest parameters collect any type of argument:
 ### Compilation Target
 
 ```lisp
-; HQL rest parameter
+// HQL rest parameter
 (fn sum [...nums]
   (.reduce nums (fn [a b] (+ a b)) 0))
 
-; Compiles to JavaScript
+// Compiles to JavaScript
 function sum(...nums) {
-  return nums.reduce((a, b) => a + b, 0);
+  return nums.reduce((a, b) => a + b, 0)//
 }
 ```
 
@@ -119,14 +119,14 @@ function sum(...nums) {
 - Can follow zero or more regular parameters
 
 ```lisp
-; ✅ Valid
-(fn f [...rest])           ; Only rest
-(fn f [a ...rest])         ; One regular + rest
-(fn f [a b ...rest])       ; Two regular + rest
+// ✅ Valid
+(fn f [...rest])           // Only rest
+(fn f [a ...rest])         // One regular + rest
+(fn f [a b ...rest])       // Two regular + rest
 
-; ❌ Invalid (would cause transpiler error)
-; (fn f [...rest a])       ; Rest must be last
-; (fn f [...rest1 ...rest2])  ; Only one rest allowed
+// ❌ Invalid (would cause transpiler error)
+// (fn f [...rest a])       Rest must be last
+// (fn f [...rest1 ...rest2])  Only one rest allowed
 ```
 
 ## Features Covered
@@ -182,35 +182,35 @@ function sum(...nums) {
 ### Variadic Functions
 
 ```lisp
-; Sum any number of values
+// Sum any number of values
 (fn sum [...numbers]
   (.reduce numbers (fn [acc n] (+ acc n)) 0))
 
-(sum 1 2 3)     ; => 6
-(sum 10 20)     ; => 30
-(sum 5)         ; => 5
+(sum 1 2 3)     // => 6
+(sum 10 20)     // => 30
+(sum 5)         // => 5
 
-; Find maximum
+// Find maximum
 (fn max [...numbers]
   (.reduce numbers
     (fn [acc n] (? (> n acc) n acc))
     (get numbers 0)))
 
-(max 3 7 2 9 1)  ; => 9
+(max 3 7 2 9 1)  // => 9
 ```
 
 ### Required + Optional Parameters
 
 ```lisp
-; First param required, rest optional
+// First param required, rest optional
 (fn greet [name ...titles]
   (let titleStr (.join titles ", "))
   (? (> (get titles "length") 0)
      `${name}, ${titleStr}`
      name))
 
-(greet "Alice")                    ; => "Alice"
-(greet "Bob" "Dr." "PhD")          ; => "Bob, Dr., PhD"
+(greet "Alice")                    // => "Alice"
+(greet "Bob" "Dr." "PhD")          // => "Bob, Dr., PhD"
 ```
 
 ### Logging and Debugging
@@ -221,21 +221,21 @@ function sum(...nums) {
   `[${level}] ${combined}`)
 
 (log "INFO" "Server" "started" "successfully")
-; => "[INFO] Server started successfully"
+// => "[INFO] Server started successfully"
 
 (log "ERROR" "Connection" "failed" "after" "3" "retries")
-; => "[ERROR] Connection failed after 3 retries"
+// => "[ERROR] Connection failed after 3 retries"
 ```
 
 ### Function Composition
 
 ```lisp
-; Apply function to all arguments
+// Apply function to all arguments
 (fn applyToAll [fn ...args]
   (.map args fn))
 
 (fn double [x] (* x 2))
-(applyToAll double 1 2 3 4)  ; => [2, 4, 6, 8]
+(applyToAll double 1 2 3 4)  // => [2, 4, 6, 8]
 ```
 
 ## Real-World Examples
@@ -252,9 +252,9 @@ function sum(...nums) {
 (fn average [...nums]
   (/ (add ...nums) (get nums "length")))
 
-(add 1 2 3 4)        ; => 10
-(multiply 2 3 4)     ; => 24
-(average 10 20 30)   ; => 20
+(add 1 2 3 4)        // => 10
+(multiply 2 3 4)     // => 24
+(average 10 20 30)   // => 20
 ```
 
 ### String Building
@@ -266,8 +266,8 @@ function sum(...nums) {
 (fn concatWithSep [sep ...strings]
   (.join strings sep))
 
-(concat "Hello" " " "World")           ; => "Hello World"
-(concatWithSep ", " "apple" "banana")  ; => "apple, banana"
+(concat "Hello" " " "World")           // => "Hello World"
+(concatWithSep ", " "apple" "banana")  // => "apple, banana"
 ```
 
 ### Data Collection
@@ -279,7 +279,7 @@ function sum(...nums) {
      name: (get data 1)})))
 
 (collectUsers [1 "Alice"] [2 "Bob"] [3 "Charlie"])
-; => [{id: 1, name: "Alice"}, {id: 2, name: "Bob"}, {id: 3, name: "Charlie"}]
+// => [{id: 1, name: "Alice"}, {id: 2, name: "Bob"}, {id: 3, name: "Charlie"}]
 ```
 
 ## Best Practices
@@ -287,40 +287,40 @@ function sum(...nums) {
 ### Use Rest for True Variadic Functions
 
 ```lisp
-; ✅ Good: Truly variable number of arguments
+// ✅ Good: Truly variable number of arguments
 (fn sum [...numbers]
   (.reduce numbers + 0))
 
-; ❌ Avoid: Use array parameter instead
-; (fn sumArray [...numbers]  ; Caller must spread array
-;   ...)
-; Better:
-(fn sumArray [numbers]  ; Direct array parameter
+// ❌ Avoid: Use array parameter instead
+// (fn sumArray [...numbers]  Caller must spread array
+//   ...)
+// Better:
+(fn sumArray [numbers]  // Direct array parameter
   (.reduce numbers + 0))
 ```
 
 ### Name Rest Parameters Descriptively
 
 ```lisp
-; ✅ Good: Clear plural names
+// ✅ Good: Clear plural names
 (fn sum [...numbers])
 (fn concat [...strings])
 (fn log [...messages])
 
-; ❌ Avoid: Generic or confusing names
-; (fn sum [...args])
-; (fn concat [...rest])
+// ❌ Avoid: Generic or confusing names
+// (fn sum [...args])
+// (fn concat [...rest])
 ```
 
 ### Combine with Regular Parameters
 
 ```lisp
-; ✅ Good: Required param + optional rest
+// ✅ Good: Required param + optional rest
 (fn formatList [title ...items]
   `${title}: ${(.join items ", ")}`)
 
 (formatList "Colors" "red" "green" "blue")
-; => "Colors: red, green, blue"
+// => "Colors: red, green, blue"
 ```
 
 ### Validate Rest Parameter Count
@@ -331,8 +331,8 @@ function sum(...nums) {
     (throw (new Error "At least 2 arguments required"))
     (+ first (.reduce rest + 0))))
 
-(requireAtLeastTwo 1 2)    ; => 3 ✓
-(requireAtLeastTwo 1)      ; => Error ✗
+(requireAtLeastTwo 1 2)    // => 3 ✓
+(requireAtLeastTwo 1)      // => Error ✗
 ```
 
 ## Performance Notes
@@ -347,21 +347,21 @@ function sum(...nums) {
 ### Rest Parameters
 
 ```lisp
-; Caller provides individual arguments
+// Caller provides individual arguments
 (fn sum [...nums]
   (.reduce nums + 0))
 
-(sum 1 2 3 4)  ; Natural call syntax
+(sum 1 2 3 4)  // Natural call syntax
 ```
 
 ### Array Parameters
 
 ```lisp
-; Caller provides array
+// Caller provides array
 (fn sumArray [nums]
   (.reduce nums + 0))
 
-(sumArray [1 2 3 4])  ; Must construct array
+(sumArray [1 2 3 4])  // Must construct array
 ```
 
 **When to use rest:**

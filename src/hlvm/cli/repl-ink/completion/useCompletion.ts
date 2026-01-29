@@ -390,7 +390,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       return { text: applyResult.text, cursorPosition: applyResult.cursorPosition };
     },
     [dropdown]
-  );;
+  );
 
   // ============================================================
   // Computed Values

@@ -116,12 +116,12 @@ Deno.test("Parser: whitespace only", () => {
 });
 
 Deno.test("Parser: comments only", () => {
-  const result = parse(";; This is a comment\n;; Another comment");
+  const result = parse("// This is a comment\n// Another comment");
   assertEquals(result.length, 0);
 });
 
 Deno.test("Parser: code with comments", () => {
-  const result = parse(";; Add two numbers\n(+ 1 2)");
+  const result = parse("// Add two numbers\n(+ 1 2)");
   assertEquals(result.length, 1);
 });
 

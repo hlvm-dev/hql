@@ -19,52 +19,52 @@ HQL-specific `#[...]` syntax.
 ### Vectors (Arrays)
 
 ```lisp
-; Empty vector
+// Empty vector
 []
 
-; Vector with elements (Lisp style)
+// Vector with elements (Lisp style)
 [1 2 3 4]
 
-; Vector with elements (JavaScript/JSON style)
+// Vector with elements (JavaScript/JSON style)
 [1, 2, 3, 4]
 ["apple", "banana", "cherry"]
 
-; Mixed types
+// Mixed types
 [1, "hello", true, null]
 
-; Nested vectors
+// Nested vectors
 [[1, 2], [3, 4]]
 
-; Access by index
+// Access by index
 (var v ["a", "b", "c"])
-(get v 1)  ; => "b"
+(get v 1)  // => "b"
 
-; Property access
-v.length   ; => 3
+// Property access
+v.length   // => 3
 ```
 
 ### Hash Maps (Objects)
 
 ```lisp
-; Empty map
+// Empty map
 {}
 
-; Map with key-value pairs (Lisp style)
+// Map with key-value pairs (Lisp style)
 {name: "Alice" age: 30}
 {host: "localhost" port: 8080}
 
-; Map with key-value pairs (JavaScript/JSON style)
+// Map with key-value pairs (JavaScript/JSON style)
 {"name": "Alice", "age": 30}
 {"host": "localhost", "port": 8080}
 
-; Access by key
+// Access by key
 (var m {"name": "Alice"})
-(get m "name")  ; => "Alice"
+(get m "name")  // => "Alice"
 
-; Nested maps
+// Nested maps
 {"user": {"name": "Bob", "id": 123}}
 
-; Mutation
+// Mutation
 (var m {"count": 10})
 (= m.newProp "added")
 ```
@@ -72,20 +72,20 @@ v.length   ; => 3
 ### Hash Sets
 
 ```lisp
-; Empty set (HQL-specific syntax)
+// Empty set (HQL-specific syntax)
 #[]
 
-; Set with elements
+// Set with elements
 #[1 2 3]
 #["red" "green" "blue"]
 
-; Automatic deduplication
+// Automatic deduplication
 (var s #[1, 2, 2, 3, 3, 3])
-s.size  ; => 3
+s.size  // => 3
 
-; Membership check
+// Membership check
 (var colors #["red", "green", "blue"])
-(colors.has "green")  ; => true
+(colors.has "green")  // => true
 ```
 
 ## Implementation Details

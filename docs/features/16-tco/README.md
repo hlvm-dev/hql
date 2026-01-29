@@ -11,21 +11,21 @@ HQL automatically optimizes tail-recursive functions into loops at transpile tim
 ## Quick Example
 
 ```lisp
-;; Write natural recursive code
+// Write natural recursive code
 (fn factorial [n acc]
   (if (<= n 1)
     acc
     (factorial (- n 1) (* n acc))))
 
-;; Transpiles to efficient loop
-;; function factorial(n, acc) {
-;;   while (true) {
-;;     if (n <= 1) return acc;
-;;     [n, acc] = [n - 1, n * acc];
-;;   }
-;; }
+// Transpiles to efficient loop
+// function factorial(n, acc) {
+//   while (true) {
+//     if (n <= 1) return acc;
+//     [n, acc] = [n - 1, n * acc];
+//   }
+// }
 
-(factorial 100 1)  ; Works without stack overflow
+(factorial 100 1)  // Works without stack overflow
 ```
 
 ## What is Tail Recursion?
@@ -38,7 +38,7 @@ A function call is in **tail position** when it's the last operation before retu
 (fn factorial [n acc]
   (if (<= n 1)
     acc
-    (factorial (- n 1) (* n acc))))  ; Last operation - TAIL CALL
+    (factorial (- n 1) (* n acc))))  // Last operation - TAIL CALL
 ```
 
 ### NOT Tail Recursive (Not Optimized)
@@ -47,8 +47,8 @@ A function call is in **tail position** when it's the last operation before retu
 (fn factorial [n]
   (if (<= n 1)
     1
-    (* n (factorial (- n 1)))))  ; Must multiply AFTER recursive call
-;                                  ; NOT a tail call
+    (* n (factorial (- n 1)))))  // Must multiply AFTER recursive call
+//                                  NOT a tail call
 ```
 
 ## Common Patterns
@@ -58,13 +58,13 @@ A function call is in **tail position** when it's the last operation before retu
 Convert non-tail to tail by adding an accumulator parameter:
 
 ```lisp
-;; Non-tail (stack grows)
+// Non-tail (stack grows)
 (fn sum [n]
   (if (<= n 0)
     0
     (+ n (sum (- n 1)))))
 
-;; Tail (constant stack)
+// Tail (constant stack)
 (fn sum [n acc]
   (if (<= n 0)
     acc
@@ -88,7 +88,7 @@ Convert non-tail to tail by adding an accumulator parameter:
     a
     (fib (- n 1) b (+ a b))))
 
-(fib 50 0 1)  ; Fast, no stack overflow
+(fib 50 0 1)  // Fast, no stack overflow
 ```
 
 ## Tail-Call Detection
@@ -96,11 +96,11 @@ Convert non-tail to tail by adding an accumulator parameter:
 HQL auto-detects tail calls and lowers them to loops. No special form is required.
 
 ```lisp
-; HQL - write normal recursion
+// HQL - write normal recursion
 (fn factorial [n acc]
   (if (<= n 1)
     acc
-    (factorial (- n 1) (* n acc))))  ; auto-optimized
+    (factorial (- n 1) (* n acc))))  // auto-optimized
 ```
 
 ## Limitations

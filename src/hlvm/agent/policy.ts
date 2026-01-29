@@ -243,7 +243,10 @@ export function isPathAllowedAbsolute(
 ): boolean {
   if (!policy?.pathRules) return true;
   const platform = getPlatform();
-  const relative = platform.path.relative(workspace, absolutePath) || ".";
+  const relative = normalizePolicyPath(
+    platform.path.relative(workspace, absolutePath) || ".",
+    platform.path.sep,
+  );
   return isPathAllowed(policy, relative);
 }
 
@@ -258,7 +261,10 @@ export function enforcePathPolicy(
 ): void {
   if (!policy) return;
   const platform = getPlatform();
-  const relative = platform.path.relative(workspace, absolutePath) || ".";
+  const relative = normalizePolicyPath(
+    platform.path.relative(workspace, absolutePath) || ".",
+    platform.path.sep,
+  );
   if (!isPathAllowed(policy, relative)) {
     throw new SecurityError(
       `Path denied by policy: ${displayPath ?? relative}`,
@@ -321,4 +327,12 @@ function matchesAny(
     }
   }
   return false;
+}
+
+function normalizePolicyPath(relativePath: string, separator: string): string {
+  const normalized = relativePath
+    .split(separator)
+    .join("/")
+    .replace(/\\/g, "/");
+  return normalized === "" ? "." : normalized;
 }

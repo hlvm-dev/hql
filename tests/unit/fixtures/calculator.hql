@@ -1,5 +1,5 @@
-;; test/fixtures/calculator.hql
-;; Class for import testing (v2.0)
+// test/fixtures/calculator.hql
+// Class for import testing (v2.0)
 
 (class Calculator
   (var value 0)

@@ -18,106 +18,106 @@ HQL v2.0 provides three types of variable bindings:
 ### Mutable Bindings (`let`)
 
 ```lisp
-; Simple mutable binding
+// Simple mutable binding
 (let x 10)
-x  ; => 10
+x  // => 10
 
-; Reassignment allowed
+// Reassignment allowed
 (let x 10)
 (= x 20)
-x  ; => 20
+x  // => 20
 
-; Multiple bindings in one let
+// Multiple bindings in one let
 (let (x 10 y 20 z 30)
-  (+ x y z))  ; => 60
+  (+ x y z))  // => 60
 
-; Let with array (mutable)
+// Let with array (mutable)
 (let nums [1, 2, 3])
-(nums.push 4)  ; Allowed
-nums.length  ; => 4
+(nums.push 4)  // Allowed
+nums.length  // => 4
 ```
 
 ### Immutable Bindings (`const`)
 
 ```lisp
-; Simple immutable binding
+// Simple immutable binding
 (const PI 3.14159)
-PI  ; => 3.14159
-; (= PI 3.0)  ; ERROR: Cannot reassign const
+PI  // => 3.14159
+// (= PI 3.0)  ERROR: Cannot reassign const
 
-; Const with object (automatically frozen)
+// Const with object (automatically frozen)
 (const person {"name": "Alice", "age": 30})
-person.name  ; => "Alice"
-; (= person.age 31)  ; ERROR: Cannot mutate frozen object
+person.name  // => "Alice"
+// (= person.age 31)  ERROR: Cannot mutate frozen object
 
-; Const with array (automatically frozen)
+// Const with array (automatically frozen)
 (const nums [1, 2, 3])
-; (nums.push 4)  ; ERROR: Cannot mutate frozen array
+// (nums.push 4)  ERROR: Cannot mutate frozen array
 ```
 
 ### Function-Scoped Bindings (`var`)
 
 ```lisp
-; Simple function-scoped binding
+// Simple function-scoped binding
 (var x 10)
 (= x 20)
-x  ; => 20
+x  // => 20
 
-; Var is hoisted to function scope
+// Var is hoisted to function scope
 (fn example []
-  (print x)  ; undefined (hoisted)
+  (print x)  // undefined (hoisted)
   (var x 10)
-  (print x)) ; 10
+  (print x)) // 10
 ```
 
 ### Assignment (`=`)
 
 ```lisp
-; Update existing binding
+// Update existing binding
 (let x 10)
 (= x 20)
-x  ; => 20
+x  // => 20
 
-; Update object property
+// Update object property
 (let obj {"count": 0})
 (= obj.count 42)
-obj.count  ; => 42
+obj.count  // => 42
 
-; Compound assignment
+// Compound assignment
 (let x 10)
-(+= x 5)   ; x = x + 5
-(-= x 3)   ; x = x - 3
-(*= x 2)   ; x = x * 2
+(+= x 5)   // x = x + 5
+(-= x 3)   // x = x - 3
+(*= x 2)   // x = x * 2
 ```
 
 ### Destructuring
 
 ```lisp
-; Array destructuring
+// Array destructuring
 (let [a b c] [1 2 3])
-a  ; => 1
-b  ; => 2
-c  ; => 3
+a  // => 1
+b  // => 2
+c  // => 3
 
-; Array destructuring with rest
+// Array destructuring with rest
 (let [first & rest] [1 2 3 4])
-first  ; => 1
-rest   ; => [2 3 4]
+first  // => 1
+rest   // => [2 3 4]
 
-; Object destructuring
+// Object destructuring
 (let {name age} {"name": "Alice", "age": 30})
-name  ; => "Alice"
-age   ; => 30
+name  // => "Alice"
+age   // => 30
 ```
 
 ### Type Annotations
 
 ```lisp
-; Typed bindings (v2.0)
+// Typed bindings (v2.0)
 (let x:number 10)
 (const name:string "Alice")
 
-; Function with typed parameters
+// Function with typed parameters
 (fn add [a:number b:number] :number
   (+ a b))
 ```
@@ -136,12 +136,12 @@ age   ; => 30
 ```lisp
 (const data {"user": {"name": "Bob"}})
 
-; Both outer and inner objects are frozen:
-; Object.freeze(data)
-; Object.freeze(data.user)
+// Both outer and inner objects are frozen:
+// Object.freeze(data)
+// Object.freeze(data.user)
 
-; Mutation attempts throw in strict mode:
-; (= data.user.name "Charlie")  ; ERROR
+// Mutation attempts throw in strict mode:
+// (= data.user.name "Charlie")  ERROR
 ```
 
 ## Features Covered

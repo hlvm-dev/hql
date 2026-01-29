@@ -2026,25 +2026,25 @@ TOTAL TIMELINE: 24-34 weeks (6-8.5 months)
 │  COMPONENT              TECHNOLOGY           RATIONALE          │
 │  ────────────────────────────────────────────────────────────  │
 │  AI Models              • Anthropic Claude   Best function      │
-│                         • Ollama (local)     calling; privacy   │
+│                         • Ollama (local)     calling// privacy   │
 │                                                                 │
 │  Tool Protocol          • MCP Standard       Industry standard  │
 │                                              Interoperable      │
 │                                                                 │
-│  Embeddings             • sentence-trans-    Local; no API      │
-│                           formers            costs; privacy     │
+│  Embeddings             • sentence-trans-    Local// no API      │
+│                           formers            costs// privacy     │
 │                                                                 │
 │  Vector DB              • SQLite + vector    No dependencies    │
 │                           extension          Cross-platform     │
 │                         • Or Qdrant local    Lightweight        │
 │                                                                 │
-│  State Persistence      • SQLite             Built-in; simple   │
+│  State Persistence      • SQLite             Built-in// simple   │
 │                                              Cross-platform     │
 │                                                                 │
-│  Tracing                • OpenTelemetry      Standard; agnostic │
+│  Tracing                • OpenTelemetry      Standard// agnostic │
 │                                                                 │
 │  Sandboxing             • Node.js VM +       Lighter than       │
-│                           permissions        Docker; built-in   │
+│                           permissions        Docker// built-in   │
 │                                                                 │
 │  Language               • TypeScript         HQL already uses   │
 │                                              Type safety        │
@@ -2462,27 +2462,27 @@ Before deploying an AI agent to production:
 ```typescript
 async function parseGoal(text: string) {
   // Try fast path first (pattern matching)
-  const simple = matchCommonPatterns(text);
-  if (simple) return simple;  // <100ms
+  const simple = matchCommonPatterns(text)//
+  if (simple) return simple//  // <100ms
 
   // Fall back to AI for complex queries
-  return await parseWithAI(text);  // 1-3s
+  return await parseWithAI(text)//  // 1-3s
 }
 ```
 
 **Exponential Backoff with Jitter**:
 ```typescript
 async function retryWithBackoff(fn, maxAttempts = 3) {
-  for (let i = 0; i < maxAttempts; i++) {
+  for (let i = 0// i < maxAttempts; i++) {
     try {
-      return await fn();
+      return await fn()//
     } catch (error) {
       if (!isTransientError(error) || i === maxAttempts - 1) {
-        throw error;
+        throw error//
       }
-      const delay = Math.pow(2, i) * 1000;  // 1s, 2s, 4s
-      const jitter = Math.random() * 1000;   // 0-1s random
-      await sleep(delay + jitter);
+      const delay = Math.pow(2, i) * 1000//  // 1s, 2s, 4s
+      const jitter = Math.random() * 1000//   // 0-1s random
+      await sleep(delay + jitter)//
     }
   }
 }
@@ -2491,9 +2491,9 @@ async function retryWithBackoff(fn, maxAttempts = 3) {
 **Safety Router**:
 ```typescript
 function classifySafetyLevel(operation) {
-  if (isReadOnly(operation)) return 0;      // Execute immediately
-  if (isReversible(operation)) return 1;    // Single confirmation
-  if (isDestructive(operation)) return 2;   // Double confirmation + dry-run
+  if (isReadOnly(operation)) return 0//      // Execute immediately
+  if (isReversible(operation)) return 1//    // Single confirmation
+  if (isDestructive(operation)) return 2//   // Double confirmation + dry-run
 }
 ```
 

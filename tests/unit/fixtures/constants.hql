@@ -1,5 +1,5 @@
-;; test/fixtures/constants.hql
-;; Constants for import testing
+// test/fixtures/constants.hql
+// Constants for import testing
 
 (let PI 3.14159)
 (let E 2.71828)

@@ -33,17 +33,17 @@ HQL supports **both Lisp-style and JavaScript-style syntax** for maximum compati
 **Use this in HQL codebases** for concise, elegant code:
 
 ```lisp
-;; Map parameters - unquoted keys, no commas
+// Map parameters - unquoted keys, no commas
 (fn connect {host: "localhost" port: 8080 ssl: false}
   (+ (if ssl "https" "http") "://" host ":" port))
 
-;; Map call - unquoted keys
+// Map call - unquoted keys
 (connect {host: "api.example.com" ssl: true})
 
-;; Arrays - no commas
+// Arrays - no commas
 [1 2 3 4 5]
 
-;; Hash-maps - unquoted keys, no commas
+// Hash-maps - unquoted keys, no commas
 {name: "Alice" age: 25 city: "NYC"}
 ```
 
@@ -52,17 +52,17 @@ HQL supports **both Lisp-style and JavaScript-style syntax** for maximum compati
 **Perfect for copy-pasting** from APIs or JSON configs:
 
 ```lisp
-;; Map parameters - quoted keys, commas
+// Map parameters - quoted keys, commas
 (fn connect {"host": "localhost", "port": 8080, "ssl": false}
   (+ (if ssl "https" "http") "://" host ":" port))
 
-;; Map call - quoted keys, commas
+// Map call - quoted keys, commas
 (connect {"host": "api.example.com", "ssl": true})
 
-;; Arrays - commas
+// Arrays - commas
 [1, 2, 3, 4, 5]
 
-;; Hash-maps - quoted keys, commas
+// Hash-maps - quoted keys, commas
 {"name": "Alice", "age": 25, "city": "NYC"}
 ```
 
@@ -83,21 +83,21 @@ Following **Clojure's proven approach** (15+ years production use):
 ### Basic Functions
 
 ```lisp
-; Named function
+// Named function
 (fn add [a b]
   (+ a b))
 
-(add 3 5)  ; → 8
+(add 3 5)  // → 8
 
-; Anonymous function
+// Anonymous function
 (let square (fn [x] (* x x)))
-(square 5)  ; → 25
+(square 5)  // → 25
 
-; No parameters
+// No parameters
 (fn get-value []
   42)
 
-; Single parameter
+// Single parameter
 (fn double [x]
   (* x 2))
 ```
@@ -107,32 +107,32 @@ Following **Clojure's proven approach** (15+ years production use):
 HQL provides concise arrow lambda syntax with Swift-style `$N` parameters:
 
 ```lisp
-; Implicit parameters ($0, $1, $2...)
+// Implicit parameters ($0, $1, $2...)
 (let double (=> (* $0 2)))
-(double 5)  ; → 10
+(double 5)  // → 10
 
 (let add (=> (+ $0 $1)))
-(add 3 7)   ; → 10
+(add 3 7)   // → 10
 
-; With map/filter/reduce
-(map (=> (* $0 2)) [1 2 3 4 5])        ; → [2 4 6 8 10]
-(filter (=> (> $0 5)) [1 3 6 8 2 9])   ; → [6 8 9]
-(reduce (=> (+ $0 $1)) 0 [1 2 3 4 5])  ; → 15
+// With map/filter/reduce
+(map (=> (* $0 2)) [1 2 3 4 5])        // → [2 4 6 8 10]
+(filter (=> (> $0 5)) [1 3 6 8 2 9])   // → [6 8 9]
+(reduce (=> (+ $0 $1)) 0 [1 2 3 4 5])  // → 15
 
-; Member access
+// Member access
 (let users [{name: "Alice"}, {name: "Bob"}])
-(map (=> ($0.name)) users)  ; → ["Alice", "Bob"]
+(map (=> ($0.name)) users)  // → ["Alice", "Bob"]
 
-; Explicit parameters (traditional style)
+// Explicit parameters (traditional style)
 (let square (=> [x] (* x x)))
-(square 7)  ; → 49
+(square 7)  // → 49
 
 (let multiply (=> [x y] (* x y)))
-(multiply 6 7)  ; → 42
+(multiply 6 7)  // → 42
 
-; Zero parameters
+// Zero parameters
 (let get-value (=> [] 42))
-(get-value)  ; → 42
+(get-value)  // → 42
 ```
 
 **When to use arrow lambdas:**
@@ -153,17 +153,17 @@ See `arrow-lambda-examples.hql` for more examples.
 For functions with default values, use map parameter syntax:
 
 ```lisp
-; All defaults - map params with Lisp style
+// All defaults - map params with Lisp style
 (fn multiply {x: 10 y: 20}
   (* x y))
 
-(multiply)                ; → 200 (10 * 20)
-(multiply {x: 5})         ; → 100 (5 * 20)
-(multiply {x: 5 y: 3})    ; → 15  (5 * 3)
-(multiply {y: 7})         ; → 70  (10 * 7)
+(multiply)                // → 200 (10 * 20)
+(multiply {x: 5})         // → 100 (5 * 20)
+(multiply {x: 5 y: 3})    // → 15  (5 * 3)
+(multiply {y: 7})         // → 70  (10 * 7)
 
-; JSON style also works (for copy-paste compatibility)
-(multiply {"x": 5, "y": 3})  ; → 15 (same result)
+// JSON style also works (for copy-paste compatibility)
+(multiply {"x": 5, "y": 3})  // → 15 (same result)
 ```
 
 ### Map Parameters
@@ -171,75 +171,75 @@ For functions with default values, use map parameter syntax:
 For config-style functions with many parameters, use map syntax:
 
 ```lisp
-; All keys have defaults - Lisp style
+// All keys have defaults - Lisp style
 (fn connect {host: "localhost" port: 8080 ssl: false}
   (if ssl
     (+ "https://" host ":" port)
     (+ "http://" host ":" port)))
 
-; Call with all defaults
-(connect)  ; → "http://localhost:8080"
+// Call with all defaults
+(connect)  // → "http://localhost:8080"
 
-; Override specific keys
+// Override specific keys
 (connect {host: "api.example.com" ssl: true port: 443})
-; → "https://api.example.com:443"
+// → "https://api.example.com:443"
 
-; Partial override
-(connect {port: 3000})  ; → "http://localhost:3000"
+// Partial override
+(connect {port: 3000})  // → "http://localhost:3000"
 
-; JSON style also works
+// JSON style also works
 (connect {"host": "api.example.com", "ssl": true, "port": 443})
-; → "https://api.example.com:443" (same result)
+// → "https://api.example.com:443" (same result)
 ```
 
 ### Rest Parameters
 
 ```lisp
-; Rest only
+// Rest only
 (fn sum [& rest]
   (.reduce rest (fn [acc val] (+ acc val)) 0))
 
-(sum 1 2 3 4 5)  ; → 15
+(sum 1 2 3 4 5)  // → 15
 
-; With regular params
+// With regular params
 (fn sum [x y & rest]
   (+ x y (.reduce rest (fn [acc val] (+ acc val)) 0)))
 
-(sum 10 20 1 2 3)  ; → 36
+(sum 10 20 1 2 3)  // → 36
 ```
 
 ### Partial Application with Maps
 
 ```lisp
-; With maps, omit keys to use defaults
+// With maps, omit keys to use defaults
 (fn multiply {x: 10 y: 20}
   (* x y))
 
-(multiply {y: 5})   ; → 50 (uses x default, provides y)
-(multiply {x: 3})   ; → 60 (provides x, uses y default)
+(multiply {y: 5})   // → 50 (uses x default, provides y)
+(multiply {x: 3})   // → 60 (provides x, uses y default)
 
-; JSON style also works
-(multiply {"y": 5})   ; → 50 (same result)
+// JSON style also works
+(multiply {"y": 5})   // → 50 (same result)
 ```
 
 ### Return Statements
 
 ```lisp
-; Implicit return (last expression)
+// Implicit return (last expression)
 (fn double [x]
   (* x 2))
 
-; Explicit return
+// Explicit return
 (fn double [x]
   (return (* x 2)))
 
-; Early return
+// Early return
 (fn safe-divide [a b]
   (if (=== b 0)
     (return 0)
     (/ a b)))
 
-; Multiple return paths
+// Multiple return paths
 (fn classify [x]
   (cond
     ((< x 0) (return "negative"))
@@ -250,14 +250,14 @@ For config-style functions with many parameters, use map syntax:
 ### Closures
 
 ```lisp
-; Capturing outer variable
+// Capturing outer variable
 (let x 10)
 (fn add-x [n]
   (+ n x))
 
-(add-x 5)  ; → 15
+(add-x 5)  // → 15
 
-; Closure with state
+// Closure with state
 (fn make-counter []
   (var count 0)
   (fn []
@@ -265,38 +265,38 @@ For config-style functions with many parameters, use map syntax:
     count))
 
 (var counter (make-counter))
-(counter)  ; → 1
-(counter)  ; → 2
+(counter)  // → 1
+(counter)  // → 2
 ```
 
 ### Higher-Order Functions
 
 ```lisp
-; Function returning function
+// Function returning function
 (fn make-adder [n]
   (fn [x] (+ x n)))
 
 (let add5 (make-adder 5))
-(add5 10)  ; → 15
+(add5 10)  // → 15
 
-; Function as argument
+// Function as argument
 (fn apply-twice [f x]
   (f (f x)))
 
 (fn add-one [n] (+ n 1))
-(apply-twice add-one 5)  ; → 7
+(apply-twice add-one 5)  // → 7
 ```
 
 ### Recursive Functions
 
 ```lisp
-; Factorial
+// Factorial
 (fn factorial [n]
   (if (<= n 1)
     1
     (* n (factorial (- n 1)))))
 
-(factorial 5)  ; → 120
+(factorial 5)  // → 120
 ```
 
 ### Generator Functions (v2.0)
@@ -304,32 +304,32 @@ For config-style functions with many parameters, use map syntax:
 Generator functions use `fn*` syntax and produce iterators:
 
 ```lisp
-; Basic generator
+// Basic generator
 (fn* count-up [max]
   (loop [i 0]
     (when (< i max)
       (yield i)
       (recur (+ i 1)))))
 
-; Using generator
+// Using generator
 (let gen (count-up 3))
-(gen.next)  ; → { value: 0, done: false }
-(gen.next)  ; → { value: 1, done: false }
-(gen.next)  ; → { value: 2, done: false }
-(gen.next)  ; → { value: undefined, done: true }
+(gen.next)  // → { value: 0, done: false }
+(gen.next)  // → { value: 1, done: false }
+(gen.next)  // → { value: 2, done: false }
+(gen.next)  // → { value: undefined, done: true }
 
-; Iterate with for-of
+// Iterate with for-of
 (for [n (count-up 5)]
-  (print n))  ; Prints: 0, 1, 2, 3, 4
+  (print n))  // Prints: 0, 1, 2, 3, 4
 
-; Yield with value
+// Yield with value
 (fn* range [start end]
   (loop [i start]
     (when (< i end)
       (yield i)
       (recur (+ i 1)))))
 
-; Anonymous generator
+// Anonymous generator
 (let gen (fn* []
   (yield 1)
   (yield 2)
@@ -341,24 +341,24 @@ Generator functions use `fn*` syntax and produce iterators:
 Use `yield*` to delegate to another iterator:
 
 ```lisp
-; Delegate to another generator
+// Delegate to another generator
 (fn* numbers []
   (yield 1)
   (yield 2))
 
 (fn* more-numbers []
-  (yield* (numbers))  ; Yields 1, 2
+  (yield* (numbers))  // Yields 1, 2
   (yield 3))
 
 (for [n (more-numbers)]
-  (print n))  ; Prints: 1, 2, 3
+  (print n))  // Prints: 1, 2, 3
 
-; Delegate to array
+// Delegate to array
 (fn* from-array [arr]
   (yield* arr))
 
 (for [x (from-array [1 2 3])]
-  (print x))  ; Prints: 1, 2, 3
+  (print x))  // Prints: 1, 2, 3
 ```
 
 ### Async Generator Functions (v2.0)
@@ -366,19 +366,19 @@ Use `yield*` to delegate to another iterator:
 Async generators combine async/await with generators:
 
 ```lisp
-; Async generator
+// Async generator
 (async fn* fetch-pages [urls]
   (for [url urls]
     (let response (await (fetch url)))
     (let data (await (response.json)))
     (yield data)))
 
-; Use with for-await-of
+// Use with for-await-of
 (async fn process-all [urls]
   (for-await-of [page (fetch-pages urls)]
     (print page.title)))
 
-; Async generator with delay
+// Async generator with delay
 (async fn* ticker [interval count]
   (loop [i 0]
     (when (< i count)
@@ -386,7 +386,7 @@ Async generators combine async/await with generators:
       (yield i)
       (recur (+ i 1)))))
 
-; Anonymous async generator
+// Anonymous async generator
 (let asyncGen (async fn* []
   (yield (await (fetch-data 1)))
   (yield (await (fetch-data 2)))))
@@ -407,7 +407,7 @@ Async generators combine async/await with generators:
 
 ```javascript
 function add(a, b) {
-  return a + b;
+  return a + b//
 }
 ```
 
@@ -422,7 +422,7 @@ function add(a, b) {
 **Compiled:**
 
 ```javascript
-const square = (x) => x * x;
+const square = (x) => x * x//
 ```
 
 ### JSON Map Parameters (with Defaults)
@@ -438,9 +438,9 @@ const square = (x) => x * x;
 
 ```javascript
 function multiply(__hql_params = {}) {
-  const x = __hql_params.x ?? 10;
-  const y = __hql_params.y ?? 20;
-  return x * y;
+  const x = __hql_params.x ?? 10//
+  const y = __hql_params.y ?? 20//
+  return x * y//
 }
 ```
 
@@ -459,12 +459,12 @@ function multiply(__hql_params = {}) {
 
 ```javascript
 function connect(__hql_params = {}) {
-  const host = __hql_params.host ?? "localhost";
-  const port = __hql_params.port ?? 8080;
-  return host + ":" + port;
+  const host = __hql_params.host ?? "localhost"//
+  const port = __hql_params.port ?? 8080//
+  return host + ":" + port//
 }
 
-connect({ host: "api.example.com", port: 443 });
+connect({ host: "api.example.com", port: 443 })//
 ```
 
 ### Rest Parameters
@@ -480,7 +480,7 @@ connect({ host: "api.example.com", port: 443 });
 
 ```javascript
 function sum(x, y, ...rest) {
-  return x + y + rest.reduce((acc, val) => acc + val, 0);
+  return x + y + rest.reduce((acc, val) => acc + val, 0)//
 }
 ```
 
@@ -500,14 +500,14 @@ function sum(x, y, ...rest) {
 
 ```javascript
 function* countTo(n) {
-  let i = 0;
+  let i = 0//
   while (true) {
     if (i < n) {
-      yield i;
-      i = i + 1;
-      continue;
+      yield i//
+      i = i + 1//
+      continue//
     }
-    return;
+    return//
   }
 }
 ```
@@ -527,7 +527,7 @@ function* countTo(n) {
 ```javascript
 async function* fetchItems(urls) {
   for (const url of urls) {
-    yield await fetch(url);
+    yield await fetch(url)//
   }
 }
 ```
@@ -653,7 +653,7 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 
 ```lisp
 (fn fetch-data {"url": "", "method": "GET", "timeout": 5000}
-  ; Fetch data with optional method and timeout
+  // Fetch data with optional method and timeout
   ...)
 
 (fetch-data {"url": "https://api.example.com"})
@@ -664,7 +664,7 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 ### 3. Configuration Functions
 
 ```lisp
-; Use JSON map parameters for config-style functions
+// Use JSON map parameters for config-style functions
 (fn configure {"name": "app", "version": "1.0.0", "author": "Unknown", "license": "MIT"}
   [name version author license])
 
@@ -677,7 +677,7 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 (fn sum [& numbers]
   (.reduce numbers (fn [acc val] (+ acc val)) 0))
 
-(sum 1 2 3 4 5)  ; → 15
+(sum 1 2 3 4 5)  // → 15
 ```
 
 ### 5. Function Factories
@@ -689,8 +689,8 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 (let double (make-multiplier 2))
 (let triple (make-multiplier 3))
 
-(double 5)  ; → 10
-(triple 5)  ; → 15
+(double 5)  // → 10
+(triple 5)  // → 15
 ```
 
 ### 6. Guards with Early Returns
@@ -703,20 +703,20 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
   (if (< data.length 0)
     (return []))
 
-  ; Process data
+  // Process data
   data)
 ```
 
 ### 7. Generators for Lazy Sequences
 
 ```lisp
-; Infinite sequence generator
+// Infinite sequence generator
 (fn* naturals []
   (loop [n 0]
     (yield n)
     (recur (+ n 1))))
 
-; Take first n items
+// Take first n items
 (fn take [n gen]
   (var result [])
   (var iter (gen))
@@ -728,13 +728,13 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
         (recur (+ i 1)))))
   result)
 
-(take 5 naturals)  ; → [0, 1, 2, 3, 4]
+(take 5 naturals)  // → [0, 1, 2, 3, 4]
 ```
 
 ### 8. Async Generators for Streaming
 
 ```lisp
-; Stream data from paginated API
+// Stream data from paginated API
 (async fn* fetch-all-pages [baseUrl]
   (var page 1)
   (var hasMore true)
@@ -745,7 +745,7 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
     (= hasMore data.hasNextPage)
     (= page (+ page 1))))
 
-; Process stream
+// Process stream
 (async fn process-stream []
   (for-await-of [item (fetch-all-pages "/api/items")]
     (process item)))
@@ -758,19 +758,19 @@ functions ✅ Return - multiple return paths ✅ Return - in nested functions
 ```javascript
 // JavaScript ES6
 function add(a, b) {
-  return a + b;
+  return a + b//
 }
 
-const square = (x) => x * x;
+const square = (x) => x * x//
 
 // Default params
 function greet(name = "World") {
-  return `Hello, ${name}!`;
+  return `Hello, ${name}!`//
 }
 
 // Rest params
 function sum(...numbers) {
-  return numbers.reduce((a, b) => a + b, 0);
+  return numbers.reduce((a, b) => a + b, 0)//
 }
 
 // HQL (same concepts)
@@ -801,11 +801,11 @@ def greet(name="World"):
 ### Use Descriptive Names
 
 ```lisp
-; ✅ Good: Clear purpose
+// ✅ Good: Clear purpose
 (fn calculate-total-price [items tax-rate]
   (* (sum-prices items) (+ 1 tax-rate)))
 
-; ❌ Avoid: Unclear abbreviations
+// ❌ Avoid: Unclear abbreviations
 (fn calc [i t]
   (* (sp i) (+ 1 t)))
 ```
@@ -813,13 +813,13 @@ def greet(name="World"):
 ### Use JSON Maps for Config-Style Functions
 
 ```lisp
-; ✅ Good: JSON map for many optional params
+// ✅ Good: JSON map for many optional params
 (fn create-user {"email": "", "password": "", "name": "", "age": 0}
   ...)
 
 (create-user {"email": "alice@example.com", "name": "Alice", "age": 30})
 
-; ✅ Also good: Positional for simple cases
+// ✅ Also good: Positional for simple cases
 (fn add [a b]
   (+ a b))
 ```
@@ -827,18 +827,18 @@ def greet(name="World"):
 ### Use Early Returns for Guards
 
 ```lisp
-; ✅ Good: Early returns
+// ✅ Good: Early returns
 (fn process [data]
   (if (not data) (return null))
   (if (isEmpty data) (return []))
-  ; Main logic
+  // Main logic
   data)
 
-; ❌ Avoid: Deep nesting
+// ❌ Avoid: Deep nesting
 (fn process [data]
   (if data
     (if (not (isEmpty data))
-      ; Main logic
+      // Main logic
       data
       [])
     null))
@@ -847,7 +847,7 @@ def greet(name="World"):
 ### Keep Functions Small
 
 ```lisp
-; ✅ Good: Single responsibility
+// ✅ Good: Single responsibility
 (fn validate-email [email]
   (contains? email "@"))
 
@@ -855,7 +855,7 @@ def greet(name="World"):
   (and (validate-email user.email)
        (>= user.age 18)))
 
-; ❌ Avoid: Doing too much
+// ❌ Avoid: Doing too much
 (fn validate-user [user]
   (and (contains? user.email "@")
        (>= user.age 18)

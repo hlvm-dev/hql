@@ -19,9 +19,9 @@ default and support both arrays and lazy sequences.
 Returns the first element of a collection.
 
 ```lisp
-(first [1 2 3])        ;; → 1
-(first "hello")        ;; → "h"
-(first [])             ;; → undefined
+(first [1 2 3])        // → 1
+(first "hello")        // → "h"
+(first [])             // → undefined
 ```
 
 ---
@@ -31,9 +31,9 @@ Returns the first element of a collection.
 Returns all but the first element as a lazy sequence.
 
 ```lisp
-(rest [1 2 3])         ;; → (2 3)
-(rest [1])             ;; → ()
-(rest [])              ;; → ()
+(rest [1 2 3])         // → (2 3)
+(rest [1])             // → ()
+(rest [])              // → ()
 ```
 
 **Lazy:** Yes
@@ -45,8 +45,8 @@ Returns all but the first element as a lazy sequence.
 Prepends an item to a collection, returning a lazy sequence.
 
 ```lisp
-(cons 1 [2 3])         ;; → (1 2 3)
-(cons 0 [])            ;; → (0)
+(cons 1 [2 3])         // → (1 2 3)
+(cons 0 [])            // → (0)
 ```
 
 **Lazy:** Yes
@@ -60,9 +60,9 @@ Prepends an item to a collection, returning a lazy sequence.
 Takes the first `n` elements from a collection as a lazy sequence.
 
 ```lisp
-(take 3 [1 2 3 4 5])   ;; → (1 2 3)
-(take 10 [1 2])        ;; → (1 2)
-(take 0 [1 2])         ;; → ()
+(take 3 [1 2 3 4 5])   // → (1 2 3)
+(take 10 [1 2])        // → (1 2)
+(take 0 [1 2])         // → ()
 ```
 
 **Lazy:** Yes
@@ -74,8 +74,8 @@ Takes the first `n` elements from a collection as a lazy sequence.
 Drops the first `n` elements from a collection, returning lazy sequence.
 
 ```lisp
-(drop 2 [1 2 3 4 5])   ;; → (3 4 5)
-(drop 10 [1 2])        ;; → ()
+(drop 2 [1 2 3 4 5])   // → (3 4 5)
+(drop 10 [1 2])        // → ()
 ```
 
 **Lazy:** Yes
@@ -87,9 +87,9 @@ Drops the first `n` elements from a collection, returning lazy sequence.
 Concatenates multiple collections into a lazy sequence.
 
 ```lisp
-(concat [1 2] [3 4])   ;; → (1 2 3 4)
-(concat [] [1])        ;; → (1)
-(concat [1] [] [2])    ;; → (1 2)
+(concat [1 2] [3 4])   // → (1 2 3 4)
+(concat [] [1])        // → (1)
+(concat [1] [] [2])    // → (1 2)
 ```
 
 **Lazy:** Yes
@@ -101,9 +101,9 @@ Concatenates multiple collections into a lazy sequence.
 Flattens nested collections one level deep.
 
 ```lisp
-(flatten [[1 2] [3 4]])      ;; → (1 2 3 4)
-(flatten [1 [2 3] 4])        ;; → (1 2 3 4)
-(flatten [[[1]] [2]])        ;; → ([1] 2) ; only one level
+(flatten [[1 2] [3 4]])      // → (1 2 3 4)
+(flatten [1 [2 3] 4])        // → (1 2 3 4)
+(flatten [[[1]] [2]])        // → ([1] 2)  // only one level
 ```
 
 **Lazy:** Yes
@@ -115,8 +115,8 @@ Flattens nested collections one level deep.
 Returns lazy sequence of unique elements (preserves first occurrence).
 
 ```lisp
-(distinct [1 2 2 3 1])       ;; → (1 2 3)
-(distinct "hello")           ;; → ("h" "e" "l" "o")
+(distinct [1 2 2 3 1])       // → (1 2 3)
+(distinct "hello")           // → ("h" "e" "l" "o")
 ```
 
 **Lazy:** Yes
@@ -128,9 +128,9 @@ Returns lazy sequence of unique elements (preserves first occurrence).
 Generates a lazy sequence of numbers.
 
 ```lisp
-(range 5)                    ;; → (0 1 2 3 4)
-(range 2 5)                  ;; → (2 3 4)
-(range 0 10 2)               ;; → (0 2 4 6 8)
+(range 5)                    // → (0 1 2 3 4)
+(range 2 5)                  // → (2 3 4)
+(range 0 10 2)               // → (0 2 4 6 8)
 ```
 
 **Lazy:** Yes
@@ -144,8 +144,8 @@ Generates a lazy sequence of numbers.
 Applies function to each element, returning lazy sequence.
 
 ```lisp
-(map (fn [x] (* x 2)) [1 2 3])     ;; → (2 4 6)
-(map str [1 2 3])                  ;; → ("1" "2" "3")
+(map (fn [x] (* x 2)) [1 2 3])     // → (2 4 6)
+(map str [1 2 3])                  // → ("1" "2" "3")
 ```
 
 **Lazy:** Yes
@@ -157,8 +157,8 @@ Applies function to each element, returning lazy sequence.
 Returns lazy sequence of elements satisfying predicate.
 
 ```lisp
-(filter isEven [1 2 3 4])          ;; → (2 4)
-(filter (fn [x] (> x 5)) [3 6 9])  ;; → (6 9)
+(filter isEven [1 2 3 4])          // → (2 4)
+(filter (fn [x] (> x 5)) [3 6 9])  // → (6 9)
 ```
 
 **Lazy:** Yes
@@ -170,8 +170,8 @@ Returns lazy sequence of elements satisfying predicate.
 Reduces collection to single value.
 
 ```lisp
-(reduce + 0 [1 2 3 4])             ;; → 10
-(reduce * 1 [1 2 3 4])             ;; → 24
+(reduce + 0 [1 2 3 4])             // → 10
+(reduce * 1 [1 2 3 4])             // → 24
 ```
 
 **Lazy:** No (must realize entire collection)
@@ -184,10 +184,10 @@ Maps function receiving (index, item) over collection.
 
 ```lisp
 (mapIndexed (fn [i x] [i x]) ["a" "b" "c"])
-;; → ([0 "a"] [1 "b"] [2 "c"])
+// → ([0 "a"] [1 "b"] [2 "c"])
 
 (mapIndexed (fn [i x] (* i x)) [10 20 30])
-;; → (0 20 60)
+// → (0 20 60)
 ```
 
 **Lazy:** Yes
@@ -200,7 +200,7 @@ Like mapIndexed but filters nil results.
 
 ```lisp
 (keepIndexed (fn [i x] (if (isEven i) x nil)) ["a" "b" "c" "d"])
-;; → ("a" "c")
+// → ("a" "c")
 ```
 
 **Lazy:** Yes
@@ -212,8 +212,8 @@ Like mapIndexed but filters nil results.
 Maps function then concatenates results (flat-map).
 
 ```lisp
-(mapcat (fn [x] [x x]) [1 2 3])    ;; → (1 1 2 2 3 3)
-(mapcat rest [[1 2 3] [4 5] [6]])  ;; → (2 3 5)
+(mapcat (fn [x] [x x]) [1 2 3])    // → (1 1 2 2 3 3)
+(mapcat rest [[1 2 3] [4 5] [6]])  // → (2 3 5)
 ```
 
 **Lazy:** Yes
@@ -226,7 +226,7 @@ Maps function and filters nil results.
 
 ```lisp
 (keep (fn [x] (if (> x 0) x nil)) [-1 0 1 2])
-;; → (1 2)
+// → (1 2)
 ```
 
 **Lazy:** Yes
@@ -240,9 +240,9 @@ Maps function and filters nil results.
 Returns a sequence view of the collection, or nil if empty.
 
 ```lisp
-(seq [1 2 3])                      ;; → (1 2 3)
-(seq [])                           ;; → nil
-(seq "hello")                      ;; → ("h" "e" "l" "l" "o")
+(seq [1 2 3])                      // → (1 2 3)
+(seq [])                           // → nil
+(seq "hello")                      // → ("h" "e" "l" "l" "o")
 ```
 
 ---
@@ -252,8 +252,8 @@ Returns a sequence view of the collection, or nil if empty.
 Returns an empty collection of the same type.
 
 ```lisp
-(empty [1 2 3])                    ;; → []
-(empty #[1 2 3])                   ;; → #[]
+(empty [1 2 3])                    // → []
+(empty #[1 2 3])                   // → #[]
 ```
 
 ---
@@ -263,9 +263,9 @@ Returns an empty collection of the same type.
 Adds item to collection in type-appropriate position.
 
 ```lisp
-(conj [1 2] 3)                     ;; → [1 2 3]
-(conj #[1 2] 3)                    ;; → #[1 2 3]
-(conj '(1 2) 0)                    ;; → (0 1 2)
+(conj [1 2] 3)                     // → [1 2 3]
+(conj #[1 2] 3)                    // → #[1 2 3]
+(conj '(1 2) 0)                    // → (0 1 2)
 ```
 
 ---
@@ -275,9 +275,9 @@ Adds item to collection in type-appropriate position.
 Adds all elements from `from` into `to`.
 
 ```lisp
-(into [] [1 2 3])                  ;; → [1 2 3]
-(into #[] [1 2 2 3])               ;; → #[1 2 3]
-(into {} [["a" 1] ["b" 2]])        ;; → {a: 1, b: 2}
+(into [] [1 2 3])                  // → [1 2 3]
+(into #[] [1 2 2 3])               // → #[1 2 3]
+(into {} [["a" 1] ["b" 2]])        // → {a: 1, b: 2}
 ```
 
 ---
@@ -289,9 +289,9 @@ Adds all elements from `from` into `to`.
 Returns true if collection is empty.
 
 ```lisp
-(isEmpty [])                       ;; → true
-(isEmpty [1])                      ;; → false
-(isEmpty nil)                      ;; → true
+(isEmpty [])                       // → true
+(isEmpty [1])                      // → false
+(isEmpty nil)                      // → true
 ```
 
 ---
@@ -301,9 +301,9 @@ Returns true if collection is empty.
 Returns first truthy value of (pred item), or nil.
 
 ```lisp
-(some isEven [1 3 5])              ;; → nil
-(some isEven [1 2 3])              ;; → 2 (first matching item)
-(some (fn [x] (> x 5)) [1 3 6 9])  ;; → 6
+(some isEven [1 3 5])              // → nil
+(some isEven [1 2 3])              // → 2 (first matching item)
+(some (fn [x] (> x 5)) [1 3 6 9])  // → 6
 ```
 
 ---
@@ -313,9 +313,9 @@ Returns first truthy value of (pred item), or nil.
 Returns true if predicate returns truthy for all elements.
 
 ```lisp
-(every isEven [2 4 6])             ;; → true
-(every isEven [2 3 4])             ;; → false
-(every isPositive [])              ;; → true (vacuous truth)
+(every isEven [2 4 6])             // → true
+(every isEven [2 3 4])             // → false
+(every isPositive [])              // → true (vacuous truth)
 ```
 
 ---
@@ -325,8 +325,8 @@ Returns true if predicate returns truthy for all elements.
 Returns true if predicate returns false for all elements.
 
 ```lisp
-(notAny isEven [1 3 5])            ;; → true
-(notAny isEven [1 2 3])            ;; → false
+(notAny isEven [1 3 5])            // → true
+(notAny isEven [1 2 3])            // → false
 ```
 
 ---
@@ -336,8 +336,8 @@ Returns true if predicate returns false for all elements.
 Returns true if predicate returns false for at least one element.
 
 ```lisp
-(notEvery isEven [2 4 6])          ;; → false
-(notEvery isEven [2 3 4])          ;; → true
+(notEvery isEven [2 4 6])          // → false
+(notEvery isEven [2 3 4])          // → true
 ```
 
 ---
@@ -347,10 +347,10 @@ Returns true if predicate returns false for at least one element.
 Returns true if x is not nil (null or undefined).
 
 ```lisp
-(isSome 0)                         ;; → true
-(isSome false)                     ;; → true
-(isSome nil)                       ;; → false
-(isSome undefined)                 ;; → false
+(isSome 0)                         // → true
+(isSome false)                     // → true
+(isSome nil)                       // → false
+(isSome undefined)                 // → false
 ```
 
 ---
@@ -362,8 +362,8 @@ Returns true if x is not nil (null or undefined).
 Forces realization of lazy sequence, returning array.
 
 ```lisp
-(doall (take 3 [1 2 3 4]))         ;; → [1 2 3]
-(doall (map inc [1 2 3]))          ;; → [2 3 4]
+(doall (take 3 [1 2 3 4]))         // → [1 2 3]
+(doall (map inc [1 2 3]))          // → [2 3 4]
 ```
 
 **Use:** When you need an actual array instead of lazy sequence
@@ -376,9 +376,9 @@ Checks if a sequence has been realized.
 
 ```lisp
 (var lazySeq (take 5 [1 2 3 4 5]))
-(realized lazySeq)                 ;; → false
+(realized lazySeq)                 // → false
 (doall lazySeq)
-(realized lazySeq)                 ;; → true
+(realized lazySeq)                 // → true
 ```
 
 ---
@@ -391,7 +391,7 @@ Composes functions right-to-left.
 
 ```lisp
 (var addThenDouble (comp (fn [x] (* x 2)) (fn [x] (+ x 1))))
-(addThenDouble 5)                  ;; → 12  ; (5 + 1) * 2
+(addThenDouble 5)                  // → 12  // (5 + 1) * 2
 ```
 
 ---
@@ -402,8 +402,8 @@ Partially applies arguments to a function.
 
 ```lisp
 (var add10 (partial + 10))
-(add10 5)                          ;; → 15
-(add10 20)                         ;; → 30
+(add10 5)                          // → 15
+(add10 20)                         // → 30
 ```
 
 ---
@@ -413,8 +413,8 @@ Partially applies arguments to a function.
 Applies function to array of arguments.
 
 ```lisp
-(apply + [1 2 3 4])                ;; → 10
-(apply max [5 2 9 1])              ;; → 9
+(apply + [1 2 3 4])                // → 10
+(apply max [5 2 9 1])              // → 9
 ```
 
 ---
@@ -426,9 +426,9 @@ Applies function to array of arguments.
 Gets value from map by key.
 
 ```lisp
-(get {a: 1, b: 2} "a")             ;; → 1
-(get {a: 1} "b")                   ;; → undefined
-(get {a: 1} "b" "default")         ;; → "default"
+(get {a: 1, b: 2} "a")             // → 1
+(get {a: 1} "b")                   // → undefined
+(get {a: 1} "b" "default")         // → "default"
 ```
 
 ---
@@ -438,8 +438,8 @@ Gets value from map by key.
 Gets value at nested path (array of keys).
 
 ```lisp
-(getIn {a: {b: {c: 1}}} ["a" "b" "c"])  ;; → 1
-(getIn {a: {b: 1}} ["a" "x"] "n/a")     ;; → "n/a"
+(getIn {a: {b: {c: 1}}} ["a" "b" "c"])  // → 1
+(getIn {a: {b: 1}} ["a" "x"] "n/a")     // → "n/a"
 ```
 
 ---
@@ -449,8 +449,8 @@ Gets value at nested path (array of keys).
 Associates key with value in map, returning new map.
 
 ```lisp
-(assoc {a: 1} "b" 2)               ;; → {a: 1, b: 2}
-(assoc {} "x" 10)                  ;; → {x: 10}
+(assoc {a: 1} "b" 2)               // → {a: 1, b: 2}
+(assoc {} "x" 10)                  // → {x: 10}
 ```
 
 **Immutable:** Returns new map
@@ -462,8 +462,8 @@ Associates key with value in map, returning new map.
 Associates value at nested path.
 
 ```lisp
-(assocIn {} ["a" "b" "c"] 1)       ;; → {a: {b: {c: 1}}}
-(assocIn {a: {b: 1}} ["a" "c"] 2)  ;; → {a: {b: 1, c: 2}}
+(assocIn {} ["a" "b" "c"] 1)       // → {a: {b: {c: 1}}}
+(assocIn {a: {b: 1}} ["a" "c"] 2)  // → {a: {b: 1, c: 2}}
 ```
 
 **Immutable:** Returns new map
@@ -475,7 +475,7 @@ Associates value at nested path.
 Removes key from map, returning new map.
 
 ```lisp
-(dissoc {a: 1, b: 2} "b")          ;; → {a: 1}
+(dissoc {a: 1, b: 2} "b")          // → {a: 1}
 ```
 
 **Immutable:** Returns new map
@@ -487,8 +487,8 @@ Removes key from map, returning new map.
 Updates value at key by applying function.
 
 ```lisp
-(update {a: 1} "a" inc)            ;; → {a: 2}
-(update {a: 1} "a" (fn [x] (* x 10)))  ;; → {a: 10}
+(update {a: 1} "a" inc)            // → {a: 2}
+(update {a: 1} "a" (fn [x] (* x 10)))  // → {a: 10}
 ```
 
 **Immutable:** Returns new map
@@ -500,7 +500,7 @@ Updates value at key by applying function.
 Updates value at nested path by applying function.
 
 ```lisp
-(updateIn {a: {b: 1}} ["a" "b"] inc)  ;; → {a: {b: 2}}
+(updateIn {a: {b: 1}} ["a" "b"] inc)  // → {a: {b: 2}}
 ```
 
 **Immutable:** Returns new map
@@ -512,8 +512,8 @@ Updates value at nested path by applying function.
 Merges multiple maps, later values override.
 
 ```lisp
-(merge {a: 1} {b: 2})              ;; → {a: 1, b: 2}
-(merge {a: 1} {a: 2})              ;; → {a: 2}
+(merge {a: 1} {b: 2})              // → {a: 1, b: 2}
+(merge {a: 1} {a: 2})              // → {a: 2}
 ```
 
 **Immutable:** Returns new map
@@ -525,7 +525,7 @@ Merges multiple maps, later values override.
 Returns all keys from map.
 
 ```lisp
-(keys {a: 1, b: 2})                ;; → ["a", "b"]
+(keys {a: 1, b: 2})                // → ["a", "b"]
 ```
 
 ---
@@ -538,10 +538,10 @@ Groups collection by result of function.
 
 ```lisp
 (groupBy (fn [x] (% x 2)) [1 2 3 4 5])
-;; → {0: [2, 4], 1: [1, 3, 5]}
+// → {0: [2, 4], 1: [1, 3, 5]}
 
 (groupBy .length ["a" "bb" "ccc" "dd"])
-;; → {1: ["a"], 2: ["bb", "dd"], 3: ["ccc"]}
+// → {1: ["a"], 2: ["bb", "dd"], 3: ["ccc"]}
 ```
 
 ---
@@ -553,8 +553,8 @@ Groups collection by result of function.
 Generates infinite lazy sequence by repeatedly applying function.
 
 ```lisp
-(take 5 (iterate (fn [x] (+ x 1)) 0))     ;; → (0 1 2 3 4)
-(take 4 (iterate (fn [x] (* x 2)) 1))     ;; → (1 2 4 8)
+(take 5 (iterate (fn [x] (+ x 1)) 0))     // → (0 1 2 3 4)
+(take 4 (iterate (fn [x] (* x 2)) 1))     // → (1 2 4 8)
 ```
 
 **Lazy:** Yes (infinite sequence!)
@@ -566,8 +566,8 @@ Generates infinite lazy sequence by repeatedly applying function.
 Returns infinite lazy sequence of the same value.
 
 ```lisp
-(take 5 (repeat "hello"))          ;; → ("hello" "hello" "hello" "hello" "hello")
-(take 3 (repeat 42))               ;; → (42 42 42)
+(take 5 (repeat "hello"))          // → ("hello" "hello" "hello" "hello" "hello")
+(take 3 (repeat 42))               // → (42 42 42)
 ```
 
 **Lazy:** Yes (infinite sequence!)
@@ -579,8 +579,8 @@ Returns infinite lazy sequence of the same value.
 Returns infinite lazy sequence calling function each time.
 
 ```lisp
-(take 3 (repeatedly (fn [] (Math.random))))  ;; → (0.123 0.456 0.789)
-(take 4 (repeatedly (fn [] (Date.now))))     ;; → timestamps
+(take 3 (repeatedly (fn [] (Math.random))))  // → (0.123 0.456 0.789)
+(take 4 (repeatedly (fn [] (Date.now))))     // → timestamps
 ```
 
 **Lazy:** Yes (infinite sequence!)
@@ -592,8 +592,8 @@ Returns infinite lazy sequence calling function each time.
 Returns infinite lazy sequence cycling through collection.
 
 ```lisp
-(take 7 (cycle [1 2 3]))           ;; → (1 2 3 1 2 3 1)
-(take 5 (cycle "ab"))              ;; → ("a" "b" "a" "b" "a")
+(take 7 (cycle [1 2 3]))           // → (1 2 3 1 2 3 1)
+(take 5 (cycle "ab"))              // → ("a" "b" "a" "b" "a")
 ```
 
 **Lazy:** Yes (infinite sequence!)
@@ -607,9 +607,9 @@ Returns infinite lazy sequence cycling through collection.
 Returns count of elements in collection.
 
 ```lisp
-(count [1 2 3])                    ;; → 3
-(count "hello")                    ;; → 5
-(count [])                         ;; → 0
+(count [1 2 3])                    // → 3
+(count "hello")                    // → 5
+(count [])                         // → 0
 ```
 
 **Note:** Forces realization of lazy sequences
@@ -621,9 +621,9 @@ Returns count of elements in collection.
 Returns element at index n.
 
 ```lisp
-(nth [1 2 3] 1)                    ;; → 2
-(nth [1 2 3] 10)                   ;; → undefined
-(nth [1 2 3] 10 "n/a")             ;; → "n/a"
+(nth [1 2 3] 1)                    // → 2
+(nth [1 2 3] 10)                   // → undefined
+(nth [1 2 3] 10 "n/a")             // → "n/a"
 ```
 
 ---
@@ -633,8 +633,8 @@ Returns element at index n.
 Returns last element of collection.
 
 ```lisp
-(last [1 2 3])                     ;; → 3
-(last [])                          ;; → undefined
+(last [1 2 3])                     // → 3
+(last [])                          // → undefined
 ```
 
 **Note:** Forces realization of lazy sequences
@@ -646,8 +646,8 @@ Returns last element of collection.
 Returns second element of collection.
 
 ```lisp
-(second [1 2 3])                   ;; → 2
-(second [1])                       ;; → undefined
+(second [1 2 3])                   // → 2
+(second [1])                       // → undefined
 ```
 
 ---
@@ -657,9 +657,9 @@ Returns second element of collection.
 Returns (seq (rest coll)), or nil if empty.
 
 ```lisp
-(next [1 2 3])                     ;; → (2 3)
-(next [1])                         ;; → nil
-(next [])                          ;; → nil
+(next [1 2 3])                     // → (2 3)
+(next [1])                         // → nil
+(next [])                          // → nil
 ```
 
 **Note:** Unlike `rest` which returns empty seq, `next` returns nil.
@@ -671,8 +671,8 @@ Returns (seq (rest coll)), or nil if empty.
 Reverses a collection.
 
 ```lisp
-(reverse [1 2 3])                  ;; → [3 2 1]
-(reverse "hello")                  ;; → ["o" "l" "l" "e" "h"]
+(reverse [1 2 3])                  // → [3 2 1]
+(reverse "hello")                  // → ["o" "l" "l" "e" "h"]
 ```
 
 ---
@@ -682,8 +682,8 @@ Reverses a collection.
 Converts collection to vector (array).
 
 ```lisp
-(vec (take 3 [1 2 3 4]))           ;; → [1 2 3]
-(vec "hello")                      ;; → ["h" "e" "l" "l" "o"]
+(vec (take 3 [1 2 3 4]))           // → [1 2 3]
+(vec "hello")                      // → ["h" "e" "l" "l" "o"]
 ```
 
 **Same as:** `doall`
@@ -695,7 +695,7 @@ Converts collection to vector (array).
 Converts collection to set (unique values).
 
 ```lisp
-(set [1 2 2 3 1])                  ;; → Set{1, 2, 3}
+(set [1 2 2 3 1])                  // → Set{1, 2, 3}
 ```
 
 ---
@@ -724,11 +724,11 @@ Converts collection to set (unique values).
 Most stdlib functions return lazy sequences that are only realized when needed:
 
 ```lisp
-;; This doesn't compute anything yet
+// This doesn't compute anything yet
 (var lazyResult (map (fn [x] (* x 2)) (range 1000000)))
 
-;; This realizes only first 5 elements
-(take 5 lazyResult)   ;; Efficient!
+// This realizes only first 5 elements
+(take 5 lazyResult)   // Efficient!
 ```
 
 ### Force Realization
@@ -736,7 +736,7 @@ Most stdlib functions return lazy sequences that are only realized when needed:
 Use `doall` or `vec` to force realization:
 
 ```lisp
-(doall (map inc [1 2 3]))          ;; → [2 3 4] (array)
+(doall (map inc [1 2 3]))          // → [2 3 4] (array)
 ```
 
 ### Infinite Sequences
@@ -744,8 +744,8 @@ Use `doall` or `vec` to force realization:
 Some operations create infinite sequences - always limit them:
 
 ```lisp
-(take 10 (iterate inc 0))          ;; ✅ Safe
-(doall (iterate inc 0))            ;; ❌ NEVER DO THIS - infinite loop!
+(take 10 (iterate inc 0))          // ✅ Safe
+(doall (iterate inc 0))            // ❌ NEVER DO THIS - infinite loop!
 ```
 
 ---

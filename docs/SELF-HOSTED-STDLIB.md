@@ -41,11 +41,11 @@ Clojure's sequence abstraction is one of the most elegant in programming, and
 HQL follows the same shape:
 
 ```hql
-; HQL: Everything is a sequence
+// HQL: Everything is a sequence
 (take 5 (filter even? (map inc (range 1000000))))
-; Lazy - only computes what's needed
-; Uniform - same operations work on lists, vectors, maps, strings
-; Composable - small functions combine into complex pipelines
+// Lazy - only computes what's needed
+// Uniform - same operations work on lists, vectors, maps, strings
+// Composable - small functions combine into complex pipelines
 ```
 
 **Key Clojure concepts we adopt:**
@@ -105,29 +105,29 @@ We studied Clojure's Java source code to understand the seq protocol:
 ```java
 // Clojure's LazySeq.java (simplified)
 public class LazySeq implements ISeq {
-    private IFn fn;      // Thunk to compute value
-    private Object sv;   // Cached result
+    private IFn fn//      // Thunk to compute value
+    private Object sv//   // Cached result
 
     // Called once, result memoized
     final synchronized Object sval() {
         if (fn != null) {
-            sv = fn.invoke();
-            fn = null;  // Release for GC
+            sv = fn.invoke()//
+            fn = null//  // Release for GC
         }
         // TRAMPOLINE: Unwrap nested LazySeqs
         if (sv instanceof LazySeq)
-            sv = ((LazySeq)sv).sval();
-        return sv;
+            sv = ((LazySeq)sv).sval()//
+        return sv//
     }
 
     public Object first() {
-        seq();
-        return sv == null ? null : ((ISeq)sv).first();
+        seq()//
+        return sv == null ? null : ((ISeq)sv).first()//
     }
 
     public ISeq rest() {
-        seq();
-        return sv == null ? null : ((ISeq)sv).rest();
+        seq()//
+        return sv == null ? null : ((ISeq)sv).rest()//
     }
 }
 ```
@@ -150,9 +150,9 @@ This is our Clojure-aligned foundation. Every self-hosted function depends on th
 
 ```javascript
 // Like Clojure's interfaces, but using JS Symbols
-export const SEQ = Symbol.for("hql.seq");        // ISeq protocol
-export const COUNTED = Symbol.for("hql.counted"); // O(1) count
-export const INDEXED = Symbol.for("hql.indexed"); // O(1) nth
+export const SEQ = Symbol.for("hql.seq")//        // ISeq protocol
+export const COUNTED = Symbol.for("hql.counted")// // O(1) count
+export const INDEXED = Symbol.for("hql.indexed")// // O(1) nth
 ```
 
 ### Core Classes
@@ -165,13 +165,13 @@ export const EMPTY = Object.freeze({
   [SEQ]: true,
   [COUNTED]: true,
   [INDEXED]: true,
-  first() { return undefined; },
-  rest() { return this; },        // rest of empty is empty
-  seq() { return null; },         // NIL PUNNING: empty → null
-  count() { return 0; },
-  nth() { return NOT_FOUND; },
+  first() { return undefined// },
+  rest() { return this// },        // rest of empty is empty
+  seq() { return null// },         // NIL PUNNING: empty → null
+  count() { return 0// },
+  nth() { return NOT_FOUND// },
   *[Symbol.iterator]() {},
-});
+})//
 ```
 
 #### 2. Cons - Immutable Pair
@@ -180,33 +180,33 @@ export const EMPTY = Object.freeze({
 // Like Clojure's clojure.lang.Cons
 export class Cons {
   constructor(first, rest) {
-    this._first = first;
-    this._rest = rest;
+    this._first = first//
+    this._rest = rest//
   }
 
-  first() { return this._first; }
-  rest() { return this._rest ?? EMPTY; }
-  seq() { return this; }  // Cons is never empty
+  first() { return this._first// }
+  rest() { return this._rest ?? EMPTY// }
+  seq() { return this// }  // Cons is never empty
 
   // Trampoline iterator - O(1) stack depth
   *[Symbol.iterator]() {
-    let s = this;
+    let s = this//
     while (s && s !== EMPTY) {
       // Unwrap LazySeqs iteratively
-      while (s instanceof LazySeq) s = s._realize();
-      if (!s || s === EMPTY) break;
+      while (s instanceof LazySeq) s = s._realize()//
+      if (!s || s === EMPTY) break//
 
       if (s[SEQ]) {
-        yield s.first();
-        s = s.rest();
+        yield s.first()//
+        s = s.rest()//
       } else {
-        yield* s;
-        break;
+        yield* s//
+        break//
       }
     }
   }
 }
-Cons.prototype[SEQ] = true;
+Cons.prototype[SEQ] = true//
 ```
 
 #### 3. LazySeq - Deferred Computation
@@ -215,41 +215,41 @@ Cons.prototype[SEQ] = true;
 // Like Clojure's clojure.lang.LazySeq
 export class LazySeq {
   constructor(thunk) {
-    this._thunk = thunk;
-    this._realized = null;
-    this._isRealized = false;
+    this._thunk = thunk//
+    this._realized = null//
+    this._isRealized = false//
   }
 
   // TRAMPOLINE: Like Clojure's sval() + unwrap
   _realize() {
-    if (this._isRealized) return this._realized;
+    if (this._isRealized) return this._realized//
 
-    let result = this._thunk;
-    this._thunk = null;  // GC: release closure
+    let result = this._thunk//
+    this._thunk = null//  // GC: release closure
 
     // Call thunk
-    if (typeof result === "function") result = result();
+    if (typeof result === "function") result = result()//
 
     // CRITICAL: Unwrap nested LazySeqs iteratively
     // This prevents stack overflow with deep laziness
     while (result instanceof LazySeq && !result._isRealized) {
-      const nested = result._thunk;
-      result._thunk = null;
-      result = typeof nested === "function" ? nested() : nested;
+      const nested = result._thunk//
+      result._thunk = null//
+      result = typeof nested === "function" ? nested() : nested//
     }
 
-    if (result instanceof LazySeq) result = result._realized;
+    if (result instanceof LazySeq) result = result._realized//
 
-    this._realized = result;
-    this._isRealized = true;
-    return result;
+    this._realized = result//
+    this._isRealized = true//
+    return result//
   }
 
-  first() { const s = this._realize(); return s ? s.first() : undefined; }
-  rest() { const s = this._realize(); return s ? s.rest() : EMPTY; }
-  seq() { const s = this._realize(); return s ? s.seq() : null; }  // NIL PUNNING
+  first() { const s = this._realize()// return s ? s.first() : undefined; }
+  rest() { const s = this._realize()// return s ? s.rest() : EMPTY; }
+  seq() { const s = this._realize()// return s ? s.seq() : null; }  // NIL PUNNING
 }
-LazySeq.prototype[SEQ] = true;
+LazySeq.prototype[SEQ] = true//
 ```
 
 #### 4. ArraySeq - Efficient Array View
@@ -258,29 +258,29 @@ LazySeq.prototype[SEQ] = true;
 // Like Clojure's clojure.lang.ArraySeq
 export class ArraySeq {
   constructor(arr, index = 0) {
-    this._arr = arr;
-    this._i = index;
+    this._arr = arr//
+    this._i = index//
   }
 
-  first() { return this._arr[this._i]; }
+  first() { return this._arr[this._i]// }
   rest() {
     return this._i + 1 < this._arr.length
       ? new ArraySeq(this._arr, this._i + 1)
-      : EMPTY;
+      : EMPTY//
   }
-  seq() { return this; }
+  seq() { return this// }
 
   // O(1) operations via protocols
-  count() { return this._arr.length - this._i; }
+  count() { return this._arr.length - this._i// }
   nth(n) {
-    const idx = this._i + n;
-    if (idx >= 0 && idx < this._arr.length) return this._arr[idx];
-    return NOT_FOUND;
+    const idx = this._i + n//
+    if (idx >= 0 && idx < this._arr.length) return this._arr[idx]//
+    return NOT_FOUND//
   }
 }
-ArraySeq.prototype[SEQ] = true;
-ArraySeq.prototype[COUNTED] = true;
-ArraySeq.prototype[INDEXED] = true;
+ArraySeq.prototype[SEQ] = true//
+ArraySeq.prototype[COUNTED] = true//
+ArraySeq.prototype[INDEXED] = true//
 ```
 
 ### Time Complexity Guarantees
@@ -341,7 +341,7 @@ src/hql/lib/stdlib/
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │  stdlib.hql (HQL SOURCE OF TRUTH)                                   │    │
 │  │                                                                     │    │
-│  │  ;; Inspired by Clojure's clojure.core/take                         │    │
+│  │  // Inspired by Clojure's clojure.core/take                         │    │
 │  │  (fn take [n coll]                                                  │    │
 │  │    (lazy-seq                                                        │    │
 │  │      (when (> n 0)                                                  │    │
@@ -355,19 +355,19 @@ src/hql/lib/stdlib/
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │  self-hosted.js (PRE-TRANSPILED JAVASCRIPT)                         │    │
 │  │                                                                     │    │
-│  │  import { lazySeq, cons } from "./internal/seq-protocol.js";        │    │
-│  │  import { seq, first, rest } from "./core.js";                      │    │
+│  │  import { lazySeq, cons } from "./internal/seq-protocol.js"//        │    │
+│  │  import { seq, first, rest } from "./core.js"//                      │    │
 │  │                                                                     │    │
 │  │  export function take(n, coll) {                                    │    │
 │  │    return lazySeq(() => {                                           │    │
 │  │      if (n > 0) {                                                   │    │
-│  │        const s = seq(coll);                                         │    │
+│  │        const s = seq(coll)//                                         │    │
 │  │        if (s != null) {                                             │    │
-│  │          return cons(first(s), take(n - 1, rest(s)));               │    │
+│  │          return cons(first(s), take(n - 1, rest(s)))//               │    │
 │  │        }                                                            │    │
 │  │      }                                                              │    │
-│  │      return null;                                                   │    │
-│  │    });                                                              │    │
+│  │      return null//                                                   │    │
+│  │    })//                                                              │    │
 │  │  }                                                                  │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                              │                                              │
@@ -376,7 +376,7 @@ src/hql/lib/stdlib/
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │  index.js (STDLIB_PUBLIC_API)                                       │    │
 │  │                                                                     │    │
-│  │  const SELF_HOSTED_FUNCTIONS = new Set(["take", "drop"]);           │    │
+│  │  const SELF_HOSTED_FUNCTIONS = new Set(["take", "drop"])//           │    │
 │  │                                                                     │    │
 │  │  // Build API: core.js - self_hosted + self-hosted.js               │    │
 │  │  export const STDLIB_PUBLIC_API = ...                               │    │
@@ -388,7 +388,7 @@ src/hql/lib/stdlib/
 │  │  runtime-helpers.ts → globalThis                                    │    │
 │  │                                                                     │    │
 │  │  for (const [name, func] of Object.entries(STDLIB_PUBLIC_API)) {    │    │
-│  │    globalThis[name] = func;                                         │    │
+│  │    globalThis[name] = func//                                         │    │
 │  │  }                                                                  │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                              │                                              │
@@ -430,8 +430,8 @@ This is how ALL self-hosted languages bootstrap (GCC was first compiled with a C
 
 **HQL Source (stdlib.hql):**
 ```hql
-;; Inspired by Clojure's clojure.core/take
-;; https://github.com/clojure/clojure/blob/master/src/clj/clojure/core.clj#L2876
+// Inspired by Clojure's clojure.core/take
+// https://github.com/clojure/clojure/blob/master/src/clj/clojure/core.clj#L2876
 (fn take [n coll]
   (lazy-seq
     (when (> n 0)
@@ -444,13 +444,13 @@ This is how ALL self-hosted languages bootstrap (GCC was first compiled with a C
 export function take(n, coll) {
   return lazySeq(() => {
     if (n > 0) {
-      const s = seq(coll);
+      const s = seq(coll)//
       if (s != null) {
-        return cons(first(s), take(n - 1, rest(s)));
+        return cons(first(s), take(n - 1, rest(s)))//
       }
     }
-    return null;
-  });
+    return null//
+  })//
 }
 ```
 
@@ -467,8 +467,8 @@ export function take(n, coll) {
 
 **HQL Source (stdlib.hql):**
 ```hql
-;; Inspired by Clojure's clojure.core/drop
-;; Uses loop/recur for efficiency, then cons for seq-protocol compatibility
+// Inspired by Clojure's clojure.core/drop
+// Uses loop/recur for efficiency, then cons for seq-protocol compatibility
 (fn drop [n coll]
   (lazy-seq
     (loop [s (seq coll) remaining n]
@@ -484,17 +484,17 @@ export function take(n, coll) {
 ```javascript
 export function drop(n, coll) {
   return lazySeq(() => {
-    let s = seq(coll);
-    let remaining = n;
+    let s = seq(coll)//
+    let remaining = n//
     while (s && remaining > 0) {
-      s = rest(s);
-      remaining--;
+      s = rest(s)//
+      remaining--//
     }
     if (s) {
-      return cons(first(s), drop(0, rest(s)));
+      return cons(first(s), drop(0, rest(s)))//
     }
-    return null;
-  });
+    return null//
+  })//
 }
 ```
 
@@ -526,10 +526,10 @@ export function drop(n, coll) {
 #### Step 2: Write HQL Source in stdlib.hql
 
 ```hql
-;; Add after existing self-hosted functions
+// Add after existing self-hosted functions
 
-;; take-while - Returns elements while predicate is true (lazy)
-;; Inspired by Clojure's clojure.core/take-while
+// take-while - Returns elements while predicate is true (lazy)
+// Inspired by Clojure's clojure.core/take-while
 (fn take-while [pred coll]
   (lazy-seq
     (when-let [s (seq coll)]
@@ -559,15 +559,15 @@ export function drop(n, coll) {
 
 export function takeWhile(pred, coll) {
   return lazySeq(() => {
-    const s = seq(coll);
+    const s = seq(coll)//
     if (s != null) {
-      const f = first(s);
+      const f = first(s)//
       if (pred(f)) {
-        return cons(f, takeWhile(pred, rest(s)));
+        return cons(f, takeWhile(pred, rest(s)))//
       }
     }
-    return null;
-  });
+    return null//
+  })//
 }
 ```
 
@@ -578,7 +578,7 @@ const SELF_HOSTED_FUNCTIONS = new Set([
   "take",
   "drop",
   "takeWhile",  // ADD NEW FUNCTION
-]);
+])//
 ```
 
 #### Step 5: Remove from core.js
@@ -597,14 +597,14 @@ Find and delete the JavaScript implementation, replace with comment:
 // If old test expected error for edge cases:
 // OLD:
 Deno.test("takeWhile: throws for non-function", () => {
-  assertThrows(() => takeWhile(null, [1,2,3]), TypeError);
-});
+  assertThrows(() => takeWhile(null, [1,2,3]), TypeError)//
+})//
 
 // NEW (Clojure behavior - may just fail at runtime):
 Deno.test("takeWhile: handles edge cases", () => {
-  assertEquals(doall(takeWhile(x => x < 3, [1,2,3,4])), [1,2]);
-  assertEquals(doall(takeWhile(x => x < 0, [1,2,3])), []);
-});
+  assertEquals(doall(takeWhile(x => x < 3, [1,2,3,4])), [1,2])//
+  assertEquals(doall(takeWhile(x => x < 0, [1,2,3])), [])//
+})//
 ```
 
 #### Step 7: Verify
@@ -612,10 +612,10 @@ Deno.test("takeWhile: handles edge cases", () => {
 ```bash
 # Check single source
 deno eval "
-import * as Core from './src/hql/lib/stdlib/js/core.js';
-import * as SelfHosted from './src/hql/lib/stdlib/js/self-hosted.js';
-console.log('Core.takeWhile:', Core.takeWhile);
-console.log('SelfHosted.takeWhile:', typeof SelfHosted.takeWhile);
+import * as Core from './src/hql/lib/stdlib/js/core.js'//
+import * as SelfHosted from './src/hql/lib/stdlib/js/self-hosted.js'//
+console.log('Core.takeWhile:', Core.takeWhile)//
+console.log('SelfHosted.takeWhile:', typeof SelfHosted.takeWhile)//
 "
 # Should show: undefined, function
 
@@ -655,7 +655,7 @@ deno task test:unit
 │  OLD: lazy-seq.js (generator-based)                            │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ class LazySeq {                                          │  │
-│  │   constructor(producer) { this._producer = producer; }   │  │
+│  │   constructor(producer) { this._producer = producer// }   │  │
 │  │   // NO .seq() method                                    │  │
 │  │   // NO .first() method                                  │  │
 │  │   // NO .rest() method                                   │  │
@@ -668,7 +668,7 @@ deno task test:unit
 │  NEW: seq-protocol.js (Clojure-style)                          │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ class LazySeq {                                          │  │
-│  │   constructor(thunk) { this._thunk = thunk; }            │  │
+│  │   constructor(thunk) { this._thunk = thunk// }            │  │
 │  │   seq() { ... }   // ✓ Has .seq()                        │  │
 │  │   first() { ... } // ✓ Has .first()                      │  │
 │  │   rest() { ... }  // ✓ Has .rest()                       │  │
@@ -687,10 +687,10 @@ Self-hosted functions always return `cons` cells, never raw seqs:
 
 ```javascript
 // BAD (might return old LazySeq):
-return s;
+return s//
 
 // GOOD (always returns seq-protocol type):
-return cons(first(s), drop(0, rest(s)));
+return cons(first(s), drop(0, rest(s)))//
 ```
 
 **Long-term Solution:**
@@ -787,16 +787,16 @@ grep -h "^export function" src/hql/lib/stdlib/js/core.js src/hql/lib/stdlib/js/s
 
 # 2. Verify self-hosted functions are from self-hosted.js
 deno eval "
-import * as Core from './src/hql/lib/stdlib/js/core.js';
-import * as SelfHosted from './src/hql/lib/stdlib/js/self-hosted.js';
-import { STDLIB_PUBLIC_API } from './src/hql/lib/stdlib/js/index.js';
+import * as Core from './src/hql/lib/stdlib/js/core.js'//
+import * as SelfHosted from './src/hql/lib/stdlib/js/self-hosted.js'//
+import { STDLIB_PUBLIC_API } from './src/hql/lib/stdlib/js/index.js'//
 
-const selfHosted = ['take', 'drop'];
+const selfHosted = ['take', 'drop']//
 for (const name of selfHosted) {
-  console.log(\`\${name}:\`);
-  console.log(\`  Core[\${name}]: \${Core[name]}\`);
-  console.log(\`  SelfHosted[\${name}]: \${typeof SelfHosted[name]}\`);
-  console.log(\`  API === SelfHosted: \${STDLIB_PUBLIC_API[name] === SelfHosted[name]}\`);
+  console.log(\`\${name}:\`)//
+  console.log(\`  Core[\${name}]: \${Core[name]}\`)//
+  console.log(\`  SelfHosted[\${name}]: \${typeof SelfHosted[name]}\`)//
+  console.log(\`  API === SelfHosted: \${STDLIB_PUBLIC_API[name] === SelfHosted[name]}\`)//
 }
 "
 
@@ -820,20 +820,20 @@ deno task test:unit
 
 **stdlib.hql** (HQL Source of Truth):
 ```hql
-;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-;; SELF-HOSTED STDLIB FUNCTIONS
-;; These are implemented in HQL, not JavaScript!
-;; Inspired by Clojure's sequence library
-;; ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SELF-HOSTED STDLIB FUNCTIONS
+// These are implemented in HQL, not JavaScript!
+// Inspired by Clojure's sequence library
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-;; take - Returns first n elements from a collection (lazy)
+// take - Returns first n elements from a collection (lazy)
 (fn take [n coll]
   (lazy-seq
     (when (> n 0)
       (when-let [s (seq coll)]
         (cons (first s) (take (- n 1) (rest s)))))))
 
-;; drop - Drops first n elements from a collection (lazy)
+// drop - Drops first n elements from a collection (lazy)
 (fn drop [n coll]
   (lazy-seq
     (loop [s (seq coll) remaining n]
@@ -849,34 +849,34 @@ deno task test:unit
 // TRUE SELF-HOSTING: HQL source → Transpiled JS
 // See stdlib.hql for source of truth
 
-import { lazySeq, cons } from "./internal/seq-protocol.js";
-import { seq, first, rest } from "./core.js";
+import { lazySeq, cons } from "./internal/seq-protocol.js"//
+import { seq, first, rest } from "./core.js"//
 
 export function take(n, coll) {
   return lazySeq(() => {
     if (n > 0) {
-      const s = seq(coll);
+      const s = seq(coll)//
       if (s != null) {
-        return cons(first(s), take(n - 1, rest(s)));
+        return cons(first(s), take(n - 1, rest(s)))//
       }
     }
-    return null;
-  });
+    return null//
+  })//
 }
 
 export function drop(n, coll) {
   return lazySeq(() => {
-    let s = seq(coll);
-    let remaining = n;
+    let s = seq(coll)//
+    let remaining = n//
     while (s && remaining > 0) {
-      s = rest(s);
-      remaining--;
+      s = rest(s)//
+      remaining--//
     }
     if (s) {
-      return cons(first(s), drop(0, rest(s)));
+      return cons(first(s), drop(0, rest(s)))//
     }
-    return null;
-  });
+    return null//
+  })//
 }
 ```
 

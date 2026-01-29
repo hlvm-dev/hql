@@ -792,8 +792,8 @@ function evaluateLet(list: SList, env: Environment, logger: Logger): SExp {
  * (var name value) creates a binding in the CURRENT environment (not a new scope like let)
  * This is CRITICAL for gensym to work in macros:
  *   (macro with-temp [value & body]
- *     (var tmp (gensym "temp"))    ; ← Creates binding in macro's environment
- *     `(let (~tmp ~value) ~@body)) ; ← Uses the bound value
+ *     (var tmp (gensym "temp"))    // ← Creates binding in macro's environment
+ *     `(let (~tmp ~value) ~@body)) // ← Uses the bound value
  *
  * Returns the evaluated value
  */

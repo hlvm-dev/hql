@@ -5,13 +5,12 @@
  * Works with all definition forms: def, defn, fn, let, const, import, etc.
  *
  * Supported comment styles:
- * - ; lisp style
  * - // js style
  * - block style: slash-star ... star-slash (single line)
  *
  * @example
  * ```
- * ; Adds two numbers together
+ * // Adds two numbers together
  * (def add (fn [x y] (+ x y)))
  * ```
  * → Extracts: "add" → "Adds two numbers together"
@@ -93,11 +92,6 @@ export function extractDocstrings(source: string): Map<string, string> {
  * Extract comment text from a line, or null if not a comment.
  */
 function extractCommentText(line: string): string | null {
-  // Lisp-style: ; comment
-  if (line.startsWith(';')) {
-    return line.replace(/^;+\s*/, '').trim();
-  }
-
   // JS-style: // comment
   if (line.startsWith('//')) {
     return line.replace(/^\/\/+\s*/, '').trim();

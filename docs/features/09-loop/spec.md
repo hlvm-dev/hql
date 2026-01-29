@@ -220,15 +220,15 @@ Named loop 4: 9
 HQL provides a lazy `range` function in the standard library for generating sequences:
 
 ```lisp
-;; Iterate over a range
+// Iterate over a range
 (for [i 10]
   (print "Iteration:" i))
 
-;; Using range with doall for explicit sequence
+// Using range with doall for explicit sequence
 (doall (map (fn [i] (print "Value:" i)) (range 5)))
 
-;; Range with start, end, step
-(doall (range 0 10 2))  ;; => (0 2 4 6 8)
+// Range with start, end, step
+(doall (range 0 10 2))  // => (0 2 4 6 8)
 ```
 
 **Note:**\

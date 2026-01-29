@@ -3,12 +3,12 @@
  *
  * Programmable access to HLVM persistent definitions (HQL def/defn).
  * Usage in REPL:
- *   (memory.list)              ; List all definition names
- *   (memory.get "myFn")        ; Get source of a definition
- *   (memory.remove "myFn")     ; Remove a definition
- *   (memory.clear)             ; Clear all definitions
- *   (memory.stats)             ; Get memory stats
- *   (memory.path)              ; Get memory file path
+ *   (memory.list)              // List all definition names
+ *   (memory.get "myFn")        // Get source of a definition
+ *   (memory.remove "myFn")     // Remove a definition
+ *   (memory.clear)             // Clear all definitions
+ *   (memory.stats)             // Get memory stats
+ *   (memory.path)              // Get memory file path
  */
 
 import {

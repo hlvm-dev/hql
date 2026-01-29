@@ -31,28 +31,28 @@ async function createSampleModHql(entryPoint: string): Promise<void> {
     return;
   }
 
-  const sampleCode = `;; HLVM Module - Sample Code
-;; Edit this file to implement your library or application
+  const sampleCode = `// HLVM Module - Sample Code
+// Edit this file to implement your library or application
 
-;; This is a sample HLVM module (HQL).
-;; 
-;; To get started:
-;;   1. Edit this file and implement your functions
-;;   2. Test with: hlvm run ${entryPoint}
-;;   3. Publish with: hlvm publish
-;; 
-;; For more info: https://github.com/hlvm-dev/hlvm
+// This is a sample HLVM module (HQL).
+// 
+// To get started:
+//   1. Edit this file and implement your functions
+//   2. Test with: hlvm run ${entryPoint}
+//   3. Publish with: hlvm publish
+// 
+// For more info: https://github.com/hlvm-dev/hlvm
 
-;; Sample function - replace with your own code
+// Sample function - replace with your own code
 (fn greet [name]
   (+ "Hello from HLVM, " name "!"))
 
-;; Sample function
+// Sample function
 (fn add [a b]
   (+ a b))
 
-;; Try running: hlvm run ${entryPoint}
-;; You should see this output:
+// Try running: hlvm run ${entryPoint}
+// You should see this output:
 (print (greet "World"))
 (print "2 + 3 =" (add 2 3))
 `;

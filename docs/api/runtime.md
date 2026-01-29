@@ -27,14 +27,14 @@ Compile and execute a snippet of HQL. Returns a Promise that resolves to the
 value of the last expression in the snippet.
 
 ```ts
-import { run } from "./mod.ts";
+import { run } from "./mod.ts"//
 
 const result = await run(`
   (let greeting "Hello")
   (let subject "World")
   (+ greeting ", " subject "!")
-`);
-console.log(result); // "Hello, World!"
+`)//
+console.log(result)// // "Hello, World!"
 ```
 
 **Options**
@@ -56,10 +56,10 @@ console.log(result); // "Hello, World!"
 Lightweight check that a string looks like HQL based on leading delimiters.
 
 ```ts
-import { isHQL } from "./mod.ts";
+import { isHQL } from "./mod.ts"//
 
-console.log(isHQL("(+ 1 2)")); // true
-console.log(isHQL("const x = 1;")); // false
+console.log(isHQL("(+ 1 2)"))// // true
+console.log(isHQL("const x = 1;"))// // false
 ```
 
 ---
@@ -71,10 +71,10 @@ and, if an ESM-style import graph requires bundling, automatically falls back to
 `transpileCLI`.
 
 ```ts
-import { runFile } from "./mod.ts";
+import { runFile } from "./mod.ts"//
 
-const value = await runFile("./examples/pipeline.hql");
-console.log(value);
+const value = await runFile("./examples/pipeline.hql")//
+console.log(value)//
 ```
 
 ---
@@ -85,18 +85,18 @@ Return the raw JavaScript emitted by the transpiler **without** executing it.
 Useful for tooling, debugging, or snapshot tests.
 
 ```ts
-import { transpile } from "./mod.ts";
+import { transpile } from "./mod.ts"//
 
-const js = await transpile("(map (fn [x] (* x 2)) [1 2 3])");
-console.log(js);
+const js = await transpile("(map (fn [x] (* x 2)) [1 2 3])")//
+console.log(js)//
 ```
 
 **Returned structure**
 
 ```ts
 interface TranspileResult {
-  code: string; // Raw JS/TS code
-  sourceMap?: string; // Optional sourcemap if enabled
+  code: string// // Raw JS/TS code
+  sourceMap?: string// // Optional sourcemap if enabled
 }
 ```
 
@@ -109,14 +109,14 @@ interface TranspileResult {
 Expands all macros inside `source` and returns the resulting forms as strings.
 
 ```ts
-import { macroexpand } from "./mod.ts";
+import { macroexpand } from "./mod.ts"//
 
 const [expanded] = await macroexpand(`
   (let x 3)
   (when (> x 0)
     (print x))
-`);
-console.log(expanded);
+`)//
+console.log(expanded)//
 ```
 
 ---
@@ -127,10 +127,10 @@ The default export (`import hql from "./mod.ts"`) exposes the same helpers as
 the named exports above.
 
 ```ts
-import hql from "./mod.ts";
+import hql from "./mod.ts"//
 
-await hql.run("(+ 1 2)");
-console.log(hql.version);
+await hql.run("(+ 1 2)")//
+console.log(hql.version)//
 ```
 
 ---
@@ -140,9 +140,9 @@ console.log(hql.version);
 Current HLVM version string.
 
 ```ts
-import { version } from "./mod.ts";
+import { version } from "./mod.ts"//
 
-console.log(version);
+console.log(version)//
 ```
 
 ---
@@ -155,10 +155,10 @@ source.
 
 ```ts
 try {
-  await run("(let x 0) (/ 10 x)");
+  await run("(let x 0) (/ 10 x)")//
 } catch (err) {
-  console.error(err.message); // "Division by zero"
-  console.error(err.sourceLocation); // { filePath: ..., line: ..., column: ... }
+  console.error(err.message)// // "Division by zero"
+  console.error(err.sourceLocation)// // { filePath: ..., line: ..., column: ... }
 }
 ```
 

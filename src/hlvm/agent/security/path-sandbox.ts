@@ -81,19 +81,29 @@ export async function validatePath(
   workspaceRoot: string
 ): Promise<string> {
   const platform = getPlatform();
+  const isWindows = platform.build.os === "windows";
 
   // 1. Normalize paths
   const normalizedPath = platform.path.resolve(workspaceRoot, path);
   const normalizedWorkspace = platform.path.resolve(workspaceRoot);
 
+  const normalizedPathForCompare = isWindows
+    ? normalizedPath.toLowerCase()
+    : normalizedPath;
+  const normalizedWorkspaceForCompare = isWindows
+    ? normalizedWorkspace.toLowerCase()
+    : normalizedWorkspace;
+
   // 2. Check if path is within workspace (with proper boundary check)
-  const workspaceWithSep = normalizedWorkspace.endsWith("/")
-    ? normalizedWorkspace
-    : normalizedWorkspace + "/";
+  const workspaceWithSep = normalizedWorkspaceForCompare.endsWith(
+      platform.path.sep,
+    )
+    ? normalizedWorkspaceForCompare
+    : normalizedWorkspaceForCompare + platform.path.sep;
 
   const isWithinWorkspace =
-    normalizedPath === normalizedWorkspace ||
-    normalizedPath.startsWith(workspaceWithSep);
+    normalizedPathForCompare === normalizedWorkspaceForCompare ||
+    normalizedPathForCompare.startsWith(workspaceWithSep);
 
   if (!isWithinWorkspace) {
     throw new SecurityError(
@@ -105,8 +115,8 @@ export async function validatePath(
   // 3. Validate each component in the path for symlinks
   // Get relative path from workspace and split into components
   const relativePath = platform.path.relative(
-    normalizedWorkspace,
-    normalizedPath
+    isWindows ? normalizedWorkspaceForCompare : normalizedWorkspace,
+    isWindows ? normalizedPathForCompare : normalizedPath,
   );
 
   // If path is exactly the workspace root, no components to check
@@ -121,26 +131,18 @@ export async function validatePath(
   for (const component of components) {
     currentPath = platform.path.join(currentPath, component);
 
-    // CRITICAL: Check if this component exists
-    let exists = false;
+    // CRITICAL: Check if this component exists and is not a symlink
     try {
-      await platform.fs.lstat(currentPath); // Use lstat (doesn't follow symlinks)
-      exists = true;
-    } catch (_error) {
-      // Component doesn't exist - this is OK (user might be creating new file/dir)
-      // Skip symlink check for non-existent components
-      exists = false;
-    }
-
-    if (exists) {
-      // Component exists - check if it's a symlink using lstat
-      const info = await platform.fs.lstat(currentPath);
+      const info = await platform.fs.lstat(currentPath); // Use lstat (doesn't follow symlinks)
       if (info.isSymlink) {
         throw new SecurityError(
           `Path contains symlink component: ${component}`,
           currentPath
         );
       }
+    } catch (_error) {
+      // Component doesn't exist - this is OK (user might be creating new file/dir)
+      // Skip symlink check for non-existent components
     }
     // If component doesn't exist, continue to check remaining parents
   }

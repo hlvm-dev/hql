@@ -139,7 +139,9 @@ export function isIgnored(path: string, patterns: GitignorePattern[]): boolean {
  */
 export async function loadGitignore(baseDir: string): Promise<GitignorePattern[]> {
   try {
-    const content = await getPlatform().fs.readTextFile(`${baseDir}/.gitignore`);
+    const platform = getPlatform();
+    const gitignorePath = platform.path.join(baseDir, ".gitignore");
+    const content = await platform.fs.readTextFile(gitignorePath);
     return parseGitignore(content);
   } catch {
     return [];
@@ -189,9 +191,15 @@ export async function* walkDirectory(
     try {
       for await (const entry of platform.fs.readDir(dir)) {
         const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+        const fullPath = platform.path.join(dir, entry.name);
 
         // Skip hidden files/dirs (except specific ones)
         if (entry.name.startsWith(".") && entry.name !== ".github") {
+          continue;
+        }
+
+        // Skip symlinks to prevent escaping the workspace boundary
+        if (entry.isSymlink) {
           continue;
         }
 
@@ -203,7 +211,7 @@ export async function* walkDirectory(
         const walkEntry: WalkEntry = {
           path: relativePath,
           isDirectory: entry.isDirectory,
-          fullPath: `${dir}/${entry.name}`,
+          fullPath,
         };
 
         // Apply custom filter
@@ -216,7 +224,7 @@ export async function* walkDirectory(
           if (SKIP_DIRS.has(entry.name)) continue;
 
           yield walkEntry;
-          yield* walkRecursive(`${dir}/${entry.name}`, relativePath, depth + 1);
+          yield* walkRecursive(fullPath, relativePath, depth + 1);
         } else {
           // Skip known bad file patterns
           if (shouldSkipFile(entry.name)) continue;

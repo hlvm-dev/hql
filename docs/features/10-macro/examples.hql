@@ -8,7 +8,7 @@
   (+ 1 2)))
 (assert (=== do-result 3) "do returns last expression")
 
-; Macro examples - demonstrating core macro features
+// Macro examples - demonstrating core macro features
 (let hello-world (str "hello " "world"))
 (assert (=== hello-world "hello world") "str concatenation 1")
 (print hello-world)
@@ -26,10 +26,10 @@
 (print "Should be true:" set-has-3)
 (print "Should be false:" set-has-42)
 
-;; Create a vector for testing
+// Create a vector for testing
 (let my-vector [10, 20, 30, 40, 50])
 
-;; Retrieve elements using nth
+// Retrieve elements using nth
 (let nth-0 (nth my-vector 0))
 (let nth-2 (nth my-vector 2))
 (let nth-4 (nth my-vector 4))
@@ -41,9 +41,9 @@
 (print "Element at index 4 (should be 50):" nth-4)
 
 
-;; cond-test.hql - Test file specifically for cond macro
+// cond-test.hql - Test file specifically for cond macro
 
-;; Test the cond macro with a simple function
+// Test the cond macro with a simple function
 (fn test-cond [x]
   (cond
     ((< x 0) "negative")
@@ -52,7 +52,7 @@
     ((< x 100) "medium positive")
     (else "large positive")))
 
-;; Test with various values
+// Test with various values
 (let cond-neg5 (test-cond -5))
 (let cond-0 (test-cond 0))
 (let cond-5 (test-cond 5))
@@ -69,7 +69,7 @@
 (print "Testing cond with 50:" cond-50)
 (print "Testing cond with 500:" cond-500)
 
-;; Test empty cond (should return nil)
+// Test empty cond (should return nil)
 (fn test-empty-cond []
   (cond))
 
@@ -77,7 +77,7 @@
 (assert (=== empty-cond nil) "empty cond returns nil")
 (print "Testing empty cond:" empty-cond)
 
-;; Test nested cond expressions
+// Test nested cond expressions
 (fn test-nested-cond [x y]
   (cond
     ((< x 0) "x is negative")
@@ -98,9 +98,9 @@
 (print "Testing nested cond with (0, 5):" nested-0-5)
 
 
-;; Test file for HQL macro implementations
+// Test file for HQL macro implementations
 
-;; Test 'when' macro
+// Test 'when' macro
 (print "\n=== Testing 'when' macro ===")
 
 (fn test-when [value]
@@ -109,15 +109,15 @@
     (print "Value is positive")
     (print "Result is:" (* value 2))))
 
-(test-when 5)  ;; Should print both messages
-(test-when -3) ;; Should print nothing after the test line
-(test-when 0)  ;; Should print nothing after the test line
+(test-when 5)  // Should print both messages
+(test-when -3) // Should print nothing after the test line
+(test-when 0)  // Should print nothing after the test line
 (let when-positive (when (> 5 0) "ok"))
 (let when-negative (when (> -1 0) "no"))
 (assert (=== when-positive "ok") "when true returns body")
 (assert (=== when-negative nil) "when false returns nil")
 
-;; Test 'let' macro
+// Test 'let' macro
 (print "\n=== Testing 'let' macro ===")
 
 (fn test-let-simple []
@@ -155,7 +155,7 @@
 (test-let-multiple)
 (test-let-nested)
 
-;; Test 'if-let' macro
+// Test 'if-let' macro
 (print "\n=== Testing 'if-let' macro ===")
 
 (fn test-if-let [value]
@@ -164,15 +164,15 @@
     (print "Value is truthy, doubled:" (* x 2))
     (print "Value is falsy")))
 
-(test-if-let 10)  ;; Should print truthy branch
-(test-if-let 0)   ;; Should print falsy branch
-(test-if-let nil) ;; Should print falsy branch
+(test-if-let 10)  // Should print truthy branch
+(test-if-let 0)   // Should print falsy branch
+(test-if-let nil) // Should print falsy branch
 (let if-let-true (if-let [x 10] (* x 2) 0))
 (let if-let-false (if-let [x nil] (* x 2) 0))
 (assert (=== if-let-true 20) "if-let truthy")
 (assert (=== if-let-false 0) "if-let falsy")
 
-;; Testing if-let with computed value
+// Testing if-let with computed value
 (print "\nTesting if-let with computed value:")
 (if-let [result (if (> 5 3) "yes" nil)]
   (print "Got result:" result)
@@ -180,7 +180,7 @@
 (let if-let-computed (if-let [result (if (> 5 3) "yes" nil)] result "no"))
 (assert (=== if-let-computed "yes") "if-let computed binding")
 
-;; Run with all three macros together
+// Run with all three macros together
 (print "\n=== Combined test ===")
 (let (x 100)
   (when (> x 50)
@@ -188,19 +188,19 @@
       (print "x - 50 =" result)
       (print "Result was falsy"))))
 
-;; Test fn function definition
+// Test fn function definition
 (print "\n=== Testing 'fn' function definition ===")
 
-;; Define a function using fn
+// Define a function using fn
 (fn multiply [a b]
   (* a b))
 
-;; Test the function
+// Test the function
 (let multiply-3-4 (multiply 3 4))
 (assert (=== multiply-3-4 12) "fn multiply")
 (print "multiply(3, 4) =" multiply-3-4)
 
-;; Test with multiple body forms
+// Test with multiple body forms
 (fn calculate-area [radius]
   (let square (* radius radius))
   (* 3.14 square))

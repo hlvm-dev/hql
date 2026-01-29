@@ -1,5 +1,5 @@
-;; test/fixtures/circular/multihop-a.hql
-;; Multi-hop circular dependency - Module A
+// test/fixtures/circular/multihop-a.hql
+// Multi-hop circular dependency - Module A
 
 (var aBase 1)
 (import [bFunc] from "./multihop-b.hql")

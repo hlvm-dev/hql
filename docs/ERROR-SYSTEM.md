@@ -72,14 +72,14 @@ HQL has four main categories of errors, each occurring at different stages:
 Occur when HQL cannot understand your code's structure.
 
 ```clojure
-; Missing closing parenthesis
-(fn add [a b] (+ a b)   ; ← HQL1001: Unexpected end of input
+// Missing closing parenthesis
+(fn add [a b] (+ a b)   // ← HQL1001: Unexpected end of input
 
-; Invalid token
-(let x @invalid)        ; ← HQL1002: Unexpected character '@'
+// Invalid token
+(let x @invalid)        // ← HQL1002: Unexpected character '@'
 
-; Mismatched brackets
-(let arr [1 2 3)]       ; ← HQL1003: Mismatched brackets
+// Mismatched brackets
+(let arr [1 2 3)]       // ← HQL1003: Mismatched brackets
 ```
 
 ### 2. Transform Errors (HQL4xxx)
@@ -87,11 +87,11 @@ Occur when HQL cannot understand your code's structure.
 Occur during AST transformation or macro expansion.
 
 ```clojure
-; Invalid macro syntax
-(macro bad)             ; ← HQL4001: Macro requires name, params, and body
+// Invalid macro syntax
+(macro bad)             // ← HQL4001: Macro requires name, params, and body
 
-; Unknown special form
-(unknown-form x y)      ; ← HQL4002: Unknown special form
+// Unknown special form
+(unknown-form x y)      // ← HQL4002: Unknown special form
 ```
 
 ### 3. Type Errors (TSxxxx)
@@ -99,10 +99,10 @@ Occur during AST transformation or macro expansion.
 Occur when TypeScript's type checker finds type mismatches. These are **warnings** by default (code still runs).
 
 ```clojure
-; Type mismatch
+// Type mismatch
 (fn add [a:number b:number] :number (+ a b))
-(add "hello" "world")   ; ← TS2345: Argument of type 'string' is not
-                        ;           assignable to parameter of type 'number'
+(add "hello" "world")   // ← TS2345: Argument of type 'string' is not
+                        //           assignable to parameter of type 'number'
 ```
 
 ### 4. Runtime Errors (HQL5xxx)
@@ -110,12 +110,12 @@ Occur when TypeScript's type checker finds type mismatches. These are **warnings
 Occur when code executes but encounters a problem.
 
 ```clojure
-; Undefined variable
-(print unknown-var)     ; ← HQL5001: unknown-var is not defined
+// Undefined variable
+(print unknown-var)     // ← HQL5001: unknown-var is not defined
 
-; Not a function
+// Not a function
 (let x 5)
-(x 10)                  ; ← HQL5005: x is not a function
+(x 10)                  // ← HQL5005: x is not a function
 ```
 
 ---
@@ -269,7 +269,7 @@ HQL tracks the original position (line and column) of every piece of code throug
 
   Generated TypeScript:
   ─────────────────────
-  console.log(add("wrong", 5));
+  console.log(add("wrong", 5))//
                   ▲
                   └── Generated at: line=7, column=17
                       Maps to HQL: line=3, column=18
@@ -302,11 +302,11 @@ private emit(text: string, irPosition?: IR.SourcePosition): void {
         column: irPosition.column
       },
       source: irPosition.filePath
-    });
+    })//
   }
 
   // Update current position in generated code
-  this.code += text;
+  this.code += text//
   // ... update currentLine/currentColumn
 }
 ```
@@ -360,10 +360,10 @@ export async function chainSourceMaps(
 ): Promise<ChainedSourceMap> {
 
   // Build lookup: TS position → HQL position
-  const tsToHqlMap = new Map<string, Position>();
+  const tsToHqlMap = new Map<string, Position>()//
   for (const mapping of hqlToTsMappings) {
-    const key = `${mapping.generated.line}:${mapping.generated.column}`;
-    tsToHqlMap.set(key, mapping.original);
+    const key = `${mapping.generated.line}:${mapping.generated.column}`//
+    tsToHqlMap.set(key, mapping.original)//
   }
 
   // For each JS → TS mapping, look up TS → HQL
@@ -393,9 +393,9 @@ HQL leverages TypeScript's type checker as a "free" type system:
   2. GENERATED TYPESCRIPT
   ───────────────────────
   function add(a: number, b: number): number {
-    return a + b;
+    return a + b//
   }
-  console.log(add("wrong", 5));
+  console.log(add("wrong", 5))//
                   ▲
                   └── TypeScript sees this
 
@@ -577,10 +577,10 @@ If a type error isn't being caught:
 3. **Verify syntax** - Type annotation must be `:type` with no space
 
 ```clojure
-; Wrong - space before colon
+// Wrong - space before colon
 (fn add [a : number] ...)
 
-; Correct - no space
+// Correct - no space
 (fn add [a:number] ...)
 ```
 
@@ -668,14 +668,14 @@ This bug has been fixed. The `updateMetaRecursively` function in `src/hql/s-exp/
 3. Same file but expression comes from earlier in file (macro definition)
 
 ```clojure
-; Example - now correctly reports line 5
+// Example - now correctly reports line 5
 (macro my-add [a b]
-  `(+ ~a ~b))           ; Line 2 - macro definition
+  `(+ ~a ~b))           // Line 2 - macro definition
 
 (fn check [x:number] :number x)
-(check (my-add "x" 5))  ; Line 5 - call site
+(check (my-add "x" 5))  // Line 5 - call site
 
-; Error correctly reports: "Type error at test.hql:5:8"
+// Error correctly reports: "Type error at test.hql:5:8"
 ```
 
 #### 2. Property Access Syntax Limitation
@@ -685,13 +685,13 @@ This bug has been fixed. The `updateMetaRecursively` function in `src/hql/s-exp/
 Property access without method call syntax (`x.length`) on untyped variables does not trigger type errors - it returns `undefined` at runtime.
 
 ```clojure
-; No type error (returns undefined)
+// No type error (returns undefined)
 (let x 42)
-(print x.length)        ; → undefined (no error)
+(print x.length)        // → undefined (no error)
 
-; Type error IS caught with typed parameter
+// Type error IS caught with typed parameter
 (fn f [x:number] :number
-  (.length x))          ; → Type error: 'length' doesn't exist on number
+  (.length x))          // → Type error: 'length' doesn't exist on number
 ```
 
 **Workaround:** Use typed parameters in functions to get full type checking.

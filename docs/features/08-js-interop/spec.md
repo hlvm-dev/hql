@@ -25,56 +25,56 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
 ### js-call - Method Invocation
 
 ```lisp
-; Basic method call
+// Basic method call
 (js-call object "method")
 
-; With arguments
+// With arguments
 (js-call object "method" arg1 arg2)
 
-; Static method
+// Static method
 (js-call Array "from" [1, 2, 3])
 
-; Examples
+// Examples
 (var str "hello")
-(js-call str "toUpperCase")  ; → "HELLO"
+(js-call str "toUpperCase")  // → "HELLO"
 
 (var arr [1, 2, 3, 4, 5])
-(js-call arr "filter" (fn [x] (> x 2)))  ; → [3, 4, 5]
+(js-call arr "filter" (fn [x] (> x 2)))  // → [3, 4, 5]
 
-(js-call str "split" ",")  ; → ["hello"]
+(js-call str "split" ",")  // → ["hello"]
 ```
 
 ### js-get - Property Access
 
 ```lisp
-; Basic property access
+// Basic property access
 (js-get object "property")
 
-; Nested access
+// Nested access
 (var person {"address": {"city": "NYC"}})
 (var addr (js-get person "address"))
-(js-get addr "city")  ; → "NYC"
+(js-get addr "city")  // → "NYC"
 
-; Array access
+// Array access
 (var arr [10, 20, 30])
-(js-get arr 1)  ; → 20
+(js-get arr 1)  // → 20
 
-; Undefined properties
-(js-get obj "nonexistent")  ; → undefined
+// Undefined properties
+(js-get obj "nonexistent")  // → undefined
 ```
 
 ### js-set - Property Mutation
 
 ```lisp
-; Set property
+// Set property
 (js-set object "property" value)
 
-; Example
+// Example
 (var obj {"count": 0})
 (js-set obj "count" 42)
-(js-get obj "count")  ; → 42
+(js-get obj "count")  // → 42
 
-; Create new property
+// Create new property
 (var obj {})
 (js-set obj "newProp" "value")
 ```
@@ -82,15 +82,15 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
 ### js-new - Object Creation
 
 ```lisp
-; Create object with constructor
+// Create object with constructor
 (js-new Constructor (args...))
 
-; Examples
+// Examples
 (var date (js-new Date (2023 11 25)))
-(js-call date "getFullYear")  ; → 2023
+(js-call date "getFullYear")  // → 2023
 
 (var arr (js-new Array (5)))
-(js-get arr "length")  ; → 5
+(js-get arr "length")  // → 5
 
 (var map (js-new Map ()))
 (js-call map "set" "key" "value")
@@ -99,55 +99,55 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
 ### Dot Notation - Syntactic Sugar
 
 ```lisp
-; Property access
+// Property access
 (object .property)
 
-; Method call
+// Method call
 (object .method)
 (object .method arg1 arg2)
 
-; Chaining
+// Chaining
 (object .method1 .method2 .method3)
 
-; Examples
+// Examples
 (var arr [1, 2, 3])
-(arr .length)  ; → 3
+(arr .length)  // → 3
 
 (var text "  hello  ")
-(text .trim .toUpperCase)  ; → "HELLO"
+(text .trim .toUpperCase)  // → "HELLO"
 
 (var str "hello,world")
-(str .split ",")  ; → ["hello", "world"]
+(str .split ",")  // → ["hello", "world"]
 ```
 
 ### Async/Await Interop
 
 ```lisp
-; Async function
+// Async function
 (async fn function-name [params]
   (await async-operation)
   result)
 
-; Basic async
+// Basic async
 (async fn get-value []
   (await (js-call Promise "resolve" 42)))
 
-(get-value)  ; → Promise → 42
+(get-value)  // → Promise → 42
 
-; Multiple awaits
+// Multiple awaits
 (async fn add-async [a b]
   (let x (await (js-call Promise "resolve" a)))
   (let y (await (js-call Promise "resolve" b)))
   (+ x y))
 
-; Promise.all
+// Promise.all
 (async fn fetch-all []
   (let promises [
     (js-call Promise "resolve" 1)
     (js-call Promise "resolve" 2)])
   (await (js-call Promise "all" promises)))
 
-; Promise.race
+// Promise.race
 (async fn race []
   (await (js-call Promise "race" [p1 p2])))
 ```
@@ -155,13 +155,13 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
 ### Error Handling - Try/Catch/Finally
 
 ```lisp
-; Basic try/catch
+// Basic try/catch
 (try
   (throw "error-message")
   (catch e
     (+ "caught: " e)))
 
-; With finally
+// With finally
 (try
   risky-operation
   (catch e
@@ -169,13 +169,13 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
   (finally
     cleanup-code))
 
-; Catching JS errors
+// Catching JS errors
 (try
   (js-call JSON "parse" "invalid-json")
   (catch e
     "parse-error"))
 
-; Nested error handling
+// Nested error handling
 (try
   (try
     (throw "inner")
@@ -184,7 +184,7 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
   (catch e
     "outer-caught"))
 
-; Async error handling
+// Async error handling
 (async fn safe-operation []
   (try
     (await risky-call)
@@ -195,23 +195,23 @@ All HQL code compiles to valid JavaScript with full ES6+ support.
 ### Module System - Import/Export
 
 ```lisp
-; HQL importing JavaScript
+// HQL importing JavaScript
 (import [jsFunction] from "./module.js")
 (import [default as MyClass] from "./class.js")
 
-; HQL exporting to JavaScript
+// HQL exporting to JavaScript
 (fn myFunction [x] (* x 2))
 (export [myFunction])
 
-; JavaScript importing compiled HQL
+// JavaScript importing compiled HQL
 // Compile HQL to JS first
-const hql = await transpile(code);
+const hql = await transpile(code)//
 // Using platform abstraction
-import { writeTextFile } from "@hlvm/hql/src/platform/platform.ts";
-await writeTextFile("module.mjs", hql);
+import { writeTextFile } from "@hlvm/hql/src/platform/platform.ts"//
+await writeTextFile("module.mjs", hql)//
 
 // Import in JavaScript
-import { myFunction } from "./module.mjs";
+import { myFunction } from "./module.mjs"//
 ```
 
 ## Implementation Details
@@ -227,7 +227,7 @@ import { myFunction } from "./module.mjs";
 **Compiled JavaScript:**
 
 ```javascript
-obj["method"](arg1, arg2);
+obj["method"](arg1, arg2)//
 ```
 
 ### js-get Compilation
@@ -241,7 +241,7 @@ obj["method"](arg1, arg2);
 **Compiled:**
 
 ```javascript
-obj["property"];
+obj["property"]//
 ```
 
 ### js-set Compilation
@@ -255,7 +255,7 @@ obj["property"];
 **Compiled:**
 
 ```javascript
-obj["key"] = value;
+obj["key"] = value//
 ```
 
 ### js-new Compilation
@@ -269,7 +269,7 @@ obj["key"] = value;
 **Compiled:**
 
 ```javascript
-new Constructor(arg1, arg2);
+new Constructor(arg1, arg2)//
 ```
 
 ### Dot Notation Compilation
@@ -283,7 +283,7 @@ new Constructor(arg1, arg2);
 **Compiled:**
 
 ```javascript
-obj.method(arg1, arg2);
+obj.method(arg1, arg2)//
 ```
 
 ### Async/Await Compilation
@@ -299,7 +299,7 @@ obj.method(arg1, arg2);
 
 ```javascript
 async function getData() {
-  return await fetch(url);
+  return await fetch(url)//
 }
 ```
 
@@ -399,11 +399,11 @@ classes ✅ Circular imports - HQL ↔ JS
 ### 1. Using JavaScript Libraries
 
 ```lisp
-; Use lodash
+// Use lodash
 (import [default as _] from "https://deno.land/x/lodash/mod.ts")
-(js-call _ "chunk" [1 2 3 4] 2)  ; → [[1,2], [3,4]]
+(js-call _ "chunk" [1 2 3 4] 2)  // → [[1,2], [3,4]]
 
-; Use moment.js
+// Use moment.js
 (import [default as moment] from "moment")
 (var now (js-call moment))
 (js-call now "format" "YYYY-MM-DD")
@@ -483,15 +483,15 @@ classes ✅ Circular imports - HQL ↔ JS
 
 ```javascript
 // JavaScript
-const text = "hello";
-const upper = text.toUpperCase();
+const text = "hello"//
+const upper = text.toUpperCase()//
 
-const arr = [1, 2, 3];
-const doubled = arr.map(x => x * 2);
+const arr = [1, 2, 3]//
+const doubled = arr.map(x => x * 2)//
 
 async function getData() {
-  const response = await fetch(url);
-  return await response.json();
+  const response = await fetch(url)//
+  return await response.json()//
 }
 
 // HQL
@@ -512,7 +512,7 @@ async function getData() {
 (js-call "hello" "toUpperCase")
 (js-call [1 2 3] "map" (fn [x] (* x 2)))
 
-; Or with dot notation
+// Or with dot notation
 ("hello" .toUpperCase)
 ([1 2 3] .map (fn [x] (* x 2)))
 ```
@@ -522,18 +522,18 @@ async function getData() {
 ### Use Dot Notation for Clarity
 
 ```lisp
-; ✅ Good: Clear and concise
+// ✅ Good: Clear and concise
 (arr .map (fn [x] (* x 2)))
 (text .trim .toUpperCase)
 
-; ❌ Avoid: Verbose
+// ❌ Avoid: Verbose
 (js-call (js-call text "trim") "toUpperCase")
 ```
 
 ### Handle Errors Gracefully
 
 ```lisp
-; ✅ Good: Error handling
+// ✅ Good: Error handling
 (async fn safe-fetch [url]
   (try
     (await (js-call fetch url))
@@ -541,7 +541,7 @@ async function getData() {
       (console.log (+ "Error: " e))
       null)))
 
-; ❌ Avoid: No error handling
+// ❌ Avoid: No error handling
 (async fn unsafe-fetch [url]
   (await (js-call fetch url)))
 ```
@@ -549,25 +549,25 @@ async function getData() {
 ### Use Type Guards
 
 ```lisp
-; ✅ Good: Check before access
+// ✅ Good: Check before access
 (fn get-name [obj]
   (if obj
     (js-get obj "name")
     "unknown"))
 
-; ❌ Avoid: Unchecked access
+// ❌ Avoid: Unchecked access
 (fn get-name [obj]
-  (js-get obj "name"))  ; May throw on null
+  (js-get obj "name"))  // May throw on null
 ```
 
 ### Prefer Named Imports
 
 ```lisp
-; ✅ Good: Named imports
+// ✅ Good: Named imports
 (import [fetch] from "node:fetch")
 (import [readFile writeFile] from "node:fs/promises")
 
-; ❌ Avoid: Default imports with unclear naming
+// ❌ Avoid: Default imports with unclear naming
 (import [default as f] from "node:fetch")
 ```
 

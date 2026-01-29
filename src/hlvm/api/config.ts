@@ -3,12 +3,12 @@
  *
  * Programmable access to HLVM configuration.
  * Usage in REPL:
- *   (config.get "model")      ; Get a value
- *   (config.set "model" "ollama/llama3.2")  ; Set a value
- *   (config.reset)            ; Reset to defaults
- *   (config.all)              ; Get entire config
- *   (config.keys)             ; List available keys
- *   (config.defaults)         ; Get default values
+ *   (config.get "model")      // Get a value
+ *   (config.set "model" "ollama/llama3.2")  // Set a value
+ *   (config.reset)            // Reset to defaults
+ *   (config.all)              // Get entire config
+ *   (config.keys)             // List available keys
+ *   (config.defaults)         // Get default values
  */
 
 import {

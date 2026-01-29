@@ -23,50 +23,50 @@ All loops support breaking early and manipulating state during iteration.
 ### Loop/Recur - Tail-Call Optimization
 
 ```lisp
-; Basic loop/recur (uses [] for bindings, Clojure-style)
+// Basic loop/recur (uses [] for bindings, Clojure-style)
 (loop [binding init-value ...]
   body
   (recur new-value ...))
 
-; Example: Sum 0 to 4
+// Example: Sum 0 to 4
 (loop [i 0 sum 0]
   (if (< i 5)
     (recur (+ i 1) (+ sum i))
     sum))
-; => 10 (0+1+2+3+4)
+// => 10 (0+1+2+3+4)
 
-; Factorial
+// Factorial
 (loop [n 5 acc 1]
   (if (<= n 1)
     acc
     (recur (- n 1) (* acc n))))
-; => 120
+// => 120
 
-; Fibonacci
+// Fibonacci
 (loop [n 7 a 0 b 1]
   (if (=== n 0)
     a
     (recur (- n 1) b (+ a b))))
-; => 13 (7th fibonacci)
+// => 13 (7th fibonacci)
 ```
 
 ### While Loop - Condition-Based
 
 ```lisp
-; Basic while
+// Basic while
 (while condition
   body...)
 
-; Example: Count to 5
+// Example: Count to 5
 (var count 0)
 (var sum 0)
 (while (< count 5)
   (= sum (+ sum count))
   (= count (+ count 1)))
 sum
-; => 10
+// => 10
 
-; Early termination
+// Early termination
 (var i 0)
 (var found false)
 (while (and (< i nums.length) (not found))
@@ -82,78 +82,78 @@ sum
 > user code and the stdlib `repeat` function.
 
 ```lisp
-; Basic dotimes
+// Basic dotimes
 (dotimes count
   body...)
 
-; Example: Dotimes 3 times
+// Example: Dotimes 3 times
 (var result [])
 (dotimes 3
   (.push result "hello"))
 result
-; => ["hello", "hello", "hello"]
+// => ["hello", "hello", "hello"]
 
-; With counter
+// With counter
 (var sum 0)
 (var counter 0)
 (dotimes 5
   (= sum (+ sum counter))
   (= counter (+ counter 1)))
 sum
-; => 10 (0+1+2+3+4)
+// => 10 (0+1+2+3+4)
 ```
 
 ### For Loop - Range and Collection Iteration
 
 ```lisp
-; Range iterations
+// Range iterations
 (for [var range]
   body...)
 
-; Single arg: 0 to n-1
+// Single arg: 0 to n-1
 (for [i 3]
   (print i))
-; Prints: 0, 1, 2
+// Prints: 0, 1, 2
 
-; Two args: start to end-1
+// Two args: start to end-1
 (for [i 5 8]
   (print i))
-; Prints: 5, 6, 7
+// Prints: 5, 6, 7
 
-; Three args: start to end-1 by step
+// Three args: start to end-1 by step
 (for [i 0 10 2]
   (print i))
-; Prints: 0, 2, 4, 6, 8
+// Prints: 0, 2, 4, 6, 8
 
-; Named syntax: to:
+// Named syntax: to:
 (for [i to: 3]
   (print i))
-; Prints: 0, 1, 2
+// Prints: 0, 1, 2
 
-; Named syntax: from: to:
+// Named syntax: from: to:
 (for [i from: 5 to: 8]
   (print i))
-; Prints: 5, 6, 7
+// Prints: 5, 6, 7
 
-; Named syntax: from: to: by:
+// Named syntax: from: to: by:
 (for [i from: 0 to: 10 by: 2]
   (print i))
-; Prints: 0, 2, 4, 6, 8
+// Prints: 0, 2, 4, 6, 8
 
-; Collection iteration
+// Collection iteration
 (for [x [1, 2, 3]]
   (print (* x 2)))
-; Prints: 2, 4, 6
+// Prints: 2, 4, 6
 ```
 
 ### For-Await-Of (v2.0) - Async Iteration
 
 ```lisp
-; Iterate over async iterables
+// Iterate over async iterables
 (for-await-of [item asyncIterable]
   body...)
 
-; With async generator
+// With async generator
 (async fn* fetch-pages []
   (yield (await (fetch "/page1")))
   (yield (await (fetch "/page2"))))
@@ -162,7 +162,7 @@ sum
   (for-await-of [page (fetch-pages)]
     (print page.data)))
 
-; With async array operations
+// With async array operations
 (async fn process-urls [urls]
   (for-await-of [response (urls.map fetch)]
     (let data (await (response.json)))
@@ -172,14 +172,14 @@ sum
 ### Break Statement (v2.0)
 
 ```lisp
-; Exit loop early
+// Exit loop early
 (for [i 10]
   (when (=== i 5)
     (break))
   (print i))
-; Prints: 0, 1, 2, 3, 4
+// Prints: 0, 1, 2, 3, 4
 
-; Break in while loop
+// Break in while loop
 (var i 0)
 (while true
   (if (>= i 10)
@@ -188,53 +188,53 @@ sum
       (print i)
       (= i (+ i 1)))))
 
-; Break with label (multi-level)
+// Break with label (multi-level)
 (label outer
   (for [i 3]
     (for [j 3]
       (when (and (=== i 1) (=== j 1))
         (break outer))
       (print i j))))
-; Prints: 0 0, 0 1, 0 2, 1 0
+// Prints: 0 0, 0 1, 0 2, 1 0
 ```
 
 ### Continue Statement (v2.0)
 
 ```lisp
-; Skip iteration
+// Skip iteration
 (for [i 10]
   (when (=== (% i 2) 0)
     (continue))
   (print i))
-; Prints: 1, 3, 5, 7, 9
+// Prints: 1, 3, 5, 7, 9
 
-; Continue in while
+// Continue in while
 (var i 0)
 (while (< i 10)
   (= i (+ i 1))
   (when (=== (% i 2) 0)
     (continue))
   (print i))
-; Prints: 1, 3, 5, 7, 9
+// Prints: 1, 3, 5, 7, 9
 
-; Continue with label
+// Continue with label
 (label outer
   (for [i 3]
     (for [j 3]
       (when (=== j 1)
         (continue outer))
       (print i j))))
-; Prints: 0 0, 1 0, 2 0
+// Prints: 0 0, 1 0, 2 0
 ```
 
 ### Labeled Statements (v2.0)
 
 ```lisp
-; Label syntax
+// Label syntax
 (label name
   body...)
 
-; Nested loops with labels
+// Nested loops with labels
 (label outer
   (for [i from: 0 to: 5]
     (label inner
@@ -243,7 +243,7 @@ sum
           (break outer))
         (print (* i j))))))
 
-; Search with early exit
+// Search with early exit
 (label search
   (for [row matrix]
     (for [cell row]
@@ -257,28 +257,28 @@ sum
 The `range` function generates lazy sequences of numbers:
 
 ```lisp
-; Basic range (0 to n-1)
-(range 5)           ; => lazy seq of 0, 1, 2, 3, 4
+// Basic range (0 to n-1)
+(range 5)           // => lazy seq of 0, 1, 2, 3, 4
 
-; Range with start and end
-(range 1 6)         ; => lazy seq of 1, 2, 3, 4, 5
+// Range with start and end
+(range 1 6)         // => lazy seq of 1, 2, 3, 4, 5
 
-; Range with step
-(range 0 10 2)      ; => lazy seq of 0, 2, 4, 6, 8
+// Range with step
+(range 0 10 2)      // => lazy seq of 0, 2, 4, 6, 8
 
-; Negative step (countdown)
-(range 10 0 -1)     ; => lazy seq of 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+// Negative step (countdown)
+(range 10 0 -1)     // => lazy seq of 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
 
-; Use with for loop
+// Use with for loop
 (for [i (range 5)]
-  (print i))        ; Prints: 0, 1, 2, 3, 4
+  (print i))        // Prints: 0, 1, 2, 3, 4
 
-; Use with array methods
-(let nums (doall (range 5)))  ; Convert to array: [0, 1, 2, 3, 4]
+// Use with array methods
+(let nums (doall (range 5)))  // Convert to array: [0, 1, 2, 3, 4]
 
-; Lazy evaluation (only computes what's needed)
+// Lazy evaluation (only computes what's needed)
 (let first-three (take 3 (range 1000000)))
-; Only generates 0, 1, 2 - not all million numbers
+// Only generates 0, 1, 2 - not all million numbers
 ```
 
 **Characteristics:**
@@ -298,16 +298,16 @@ The `range` function generates lazy sequences of numbers:
   body
   (recur new-value))
 
-; Compiles to:
+// Compiles to:
 function loop() {
-  let binding = init_value;
+  let binding = init_value//
   while (true) {
     // body
     // when recur called:
-    binding = new_value;
-    continue;
+    binding = new_value//
+    continue//
     // when exit:
-    return result;
+    return result//
   }
 }
 loop()
@@ -328,9 +328,9 @@ loop()
 ```lisp
 (while condition body)
 
-; Compiles to:
+// Compiles to:
 while (condition) {
-  body;
+  body//
 }
 ```
 
@@ -349,9 +349,9 @@ while (condition) {
 ```lisp
 (dotimes count body)
 
-; Compiles to:
-for (let i = 0; i < count; i++) {
-  body;
+// Compiles to:
+for (let i = 0// i < count; i++) {
+  body//
 }
 ```
 
@@ -368,14 +368,14 @@ for (let i = 0; i < count; i++) {
 **Compilation:**
 
 ```lisp
-; Range: (for [i 0 10 2] body)
-for (let i = 0; i < 10; i += 2) {
-  body;
+// Range: (for [i 0 10 2] body)
+for (let i = 0// i < 10; i += 2) {
+  body//
 }
 
-; Collection: (for [x array] body)
+// Collection: (for [x array] body)
 for (const x of array) {
-  body;
+  body//
 }
 ```
 
@@ -395,9 +395,9 @@ for (const x of array) {
 (for-await-of [item asyncIterable]
   (process item))
 
-; Compiles to:
+// Compiles to:
 for await (const item of asyncIterable) {
-  process(item);
+  process(item)//
 }
 ```
 
@@ -413,8 +413,8 @@ for await (const item of asyncIterable) {
 **Compilation:**
 
 ```lisp
-(break)       ; Compiles to: break;
-(break outer) ; Compiles to: break outer;
+(break)       // Compiles to: break;
+(break outer) // Compiles to: break outer;
 ```
 
 **Characteristics:**
@@ -428,8 +428,8 @@ for await (const item of asyncIterable) {
 **Compilation:**
 
 ```lisp
-(continue)       ; Compiles to: continue;
-(continue outer) ; Compiles to: continue outer;
+(continue)       // Compiles to: continue;
+(continue outer) // Compiles to: continue outer;
 ```
 
 **Characteristics:**
@@ -447,9 +447,9 @@ for await (const item of asyncIterable) {
   (for [i 10]
     (break name)))
 
-; Compiles to:
-name: for (let i = 0; i < 10; i++) {
-  break name;
+// Compiles to:
+name: for (let i = 0// i < 10; i++) {
+  break name//
 }
 ```
 
@@ -545,20 +545,20 @@ For with named from: to: by: syntax ✅ For collection iteration
 ### 1. Tail-Call Optimization (Loop/Recur)
 
 ```lisp
-; Prevent stack overflow on deep recursion
+// Prevent stack overflow on deep recursion
 (fn sum-to [n]
   (loop [i 1 acc 0]
     (if (<= i n)
       (recur (+ i 1) (+ acc i))
       acc)))
 
-(sum-to 10000)  ; No stack overflow!
+(sum-to 10000)  // No stack overflow!
 ```
 
 ### 2. Stateful Iteration (While)
 
 ```lisp
-; Process until condition met
+// Process until condition met
 (var queue [1, 2, 3, 4, 5])
 (var sum 0)
 (while (> queue.length 0)
@@ -570,7 +570,7 @@ sum
 ### 3. Fixed Repetition (Dotimes)
 
 ```lisp
-; Retry logic
+// Retry logic
 (var attempts 0)
 (var succeeded false)
 (dotimes 3
@@ -584,24 +584,24 @@ sum
 ### 4. Range Iteration (For)
 
 ```lisp
-; Process numeric range
+// Process numeric range
 (var squares [])
 (for [i from: 1 to: 11]
   (.push squares (* i i)))
 squares
-; => [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+// => [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
 ```
 
 ### 5. Collection Processing (For)
 
 ```lisp
-; Transform array elements
+// Transform array elements
 (var users [{ name: "Alice" }, { name: "Bob" }])
 (var names [])
 (for [user users]
   (.push names user.name))
 names
-; => ["Alice", "Bob"]
+// => ["Alice", "Bob"]
 ```
 
 ## Comparison with Other Languages
@@ -610,8 +610,8 @@ names
 
 ```javascript
 // JavaScript
-for (let i = 0; i < 10; i += 2) {
-  console.log(i);
+for (let i = 0// i < 10; i += 2) {
+  console.log(i)//
 }
 
 // HQL
@@ -623,10 +623,10 @@ for (let i = 0; i < 10; i += 2) {
 
 ```javascript
 // JavaScript
-let count = 0;
+let count = 0//
 while (count < 5) {
-  console.log(count);
-  count++;
+  console.log(count)//
+  count++//
 }
 
 // HQL
@@ -641,7 +641,7 @@ while (count < 5) {
 ```javascript
 // JavaScript
 for (const item of items) {
-  console.log(item);
+  console.log(item)//
 }
 
 // HQL
@@ -652,13 +652,13 @@ for (const item of items) {
 ### Scheme/Clojure Loop
 
 ```scheme
-; Scheme (named let)
+// Scheme (named let)
 (let loop ((i 0) (acc 0))
   (if (< i 10)
       (loop (+ i 1) (+ acc i))
       acc))
 
-; HQL (Clojure-style with [])
+// HQL (Clojure-style with [])
 (loop [i 0 acc 0]
   (if (< i 10)
     (recur (+ i 1) (+ acc i))
@@ -696,28 +696,28 @@ JavaScript (while, for, for-of)
 ### Use Loop/Recur for Deep Recursion
 
 ```lisp
-; ✅ Good: Loop/recur (tail-call optimized)
+// ✅ Good: Loop/recur (tail-call optimized)
 (loop [i 0 sum 0]
   (if (< i 10000)
     (recur (+ i 1) (+ sum i))
     sum))
 
-; ❌ Bad: Regular recursion (stack overflow risk)
+// ❌ Bad: Regular recursion (stack overflow risk)
 (fn sum-recursive [i sum]
   (if (< i 10000)
     (sum-recursive (+ i 1) (+ sum i))
     sum))
-(sum-recursive 0 0)  ; Stack overflow!
+(sum-recursive 0 0)  // Stack overflow!
 ```
 
 ### Use For for Range Iteration
 
 ```lisp
-; ✅ Good: For loop (concise)
+// ✅ Good: For loop (concise)
 (for [i from: 0 to: 10]
   (print i))
 
-; ❌ Verbose: While loop
+// ❌ Verbose: While loop
 (var i 0)
 (while (< i 10)
   (print i)
@@ -727,11 +727,11 @@ JavaScript (while, for, for-of)
 ### Use While for Complex Conditions
 
 ```lisp
-; ✅ Good: While (clear condition)
+// ✅ Good: While (clear condition)
 (while (and (not done) (< attempts maxAttempts))
   (processItem))
 
-; ❌ Unclear: For loop with break
+// ❌ Unclear: For loop with break
 (for [i 0 to: maxAttempts]
   (if done (break) nil)
   (processItem))
@@ -740,11 +740,11 @@ JavaScript (while, for, for-of)
 ### Use Dotimes for Fixed Count
 
 ```lisp
-; ✅ Good: Dotimes (clear intent)
+// ✅ Good: Dotimes (clear intent)
 (dotimes 5
   (print "Hello"))
 
-; ❌ Unnecessary: For loop
+// ❌ Unnecessary: For loop
 (for [i from: 0 to: 5]
   (print "Hello"))
 ```
@@ -863,27 +863,27 @@ named args (to:, from:, by:) ✅ For collection iteration (for-of)
 **1. Infinite Loop**
 
 ```lisp
-; ❌ Bad: Forgot to increment
+// ❌ Bad: Forgot to increment
 (var i 0)
 (while (< i 10)
-  (print i))  ; Infinite! Missing (= i (+ i 1))
+  (print i))  // Infinite! Missing (= i (+ i 1))
 ```
 
 **2. Recur Not in Tail Position**
 
 ```lisp
-; ❌ Bad: Recur not last expression
+// ❌ Bad: Recur not last expression
 (loop [i 0]
   (if (< i 10)
-    (+ (recur (+ i 1)) 1)  ; Not tail position!
+    (+ (recur (+ i 1)) 1)  // Not tail position!
     i))
 ```
 
 **3. Off-by-One Error**
 
 ```lisp
-; ❌ Bad: Loops 0-9 instead of 1-10
-(for [i from: 0 to: 10]  ; Should be from: 1 to: 11
+// ❌ Bad: Loops 0-9 instead of 1-10
+(for [i from: 0 to: 10]  // Should be from: 1 to: 11
   (print i))
 ```
 

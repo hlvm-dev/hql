@@ -1,5 +1,5 @@
-;; test/fixtures/math.hql
-;; Basic math functions for import testing
+// test/fixtures/math.hql
+// Basic math functions for import testing
 
 (fn add [a b]
   (+ a b))

@@ -1,5 +1,5 @@
-;; test/fixtures/utils.hql
-;; Utility functions for import testing
+// test/fixtures/utils.hql
+// Utility functions for import testing
 
 (fn double [x]
   (* x 2))

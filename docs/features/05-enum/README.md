@@ -23,8 +23,8 @@ three types of enums:
   (case east)
   (case west))
 
-; Access
-Direction.north  ; => "north"
+// Access
+Direction.north  // => "north"
 ```
 
 ### Enum with Raw Values
@@ -35,8 +35,8 @@ Direction.north  ; => "north"
   (case notFound 404)
   (case serverError 500))
 
-; Access
-HttpStatus.notFound  ; => 404
+// Access
+HttpStatus.notFound  // => 404
 ```
 
 ### Enum with Associated Values
@@ -46,14 +46,14 @@ HttpStatus.notFound  ; => 404
   (case cash amount)
   (case creditCard number expiry))
 
-; Create instance
+// Create instance
 (var payment (Payment.cash 100))
 
-; Check type
-(payment.is "cash")  ; => true
+// Check type
+(payment.is "cash")  // => true
 
-; Access values
-(get payment.values "amount")  ; => 100
+// Access values
+(get payment.values "amount")  // => 100
 ```
 
 ## Implementation Details
@@ -83,10 +83,10 @@ HQL supports shorthand enum access with type inference:
 
 ```lisp
 (fn install [os]
-  (if (=== os .macOS)  ; .macOS inferred as OS.macOS
+  (if (=== os .macOS)  // .macOS inferred as OS.macOS
     "Installing on macOS"))
 
-(install OS.macOS)  ; Explicit enum value
+(install OS.macOS)  // Explicit enum value
 ```
 
 ## Features Covered

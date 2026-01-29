@@ -1,4 +1,4 @@
-;; Define a simple OS enum.
+// Define a simple OS enum.
 (import [assert] from "@hlvm/assert")
 
 (enum OS
@@ -7,7 +7,7 @@
   (case linux)
 )
 
-;; A function that "installs" based on the OS.
+// A function that "installs" based on the OS.
 (fn install [os]
   (cond
     ((=== os OS.macOS) "Installing on macOS")
@@ -17,7 +17,7 @@
   )
 )
 
-;; Positional calls
+// Positional calls
 (let mac (install OS.macOS))
 (let ios (install OS.iOS))
 (let linux (install OS.linux))

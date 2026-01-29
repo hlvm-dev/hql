@@ -134,7 +134,7 @@ Deno.test("compile with -o flag specifies output path", async () => {
 // Test with complex HQL code (TCO, macros, etc.)
 Deno.test("compile complex HQL with TCO", async () => {
   const tempFile = await createTempHqlFile(`
-    ;; Factorial with TCO
+    // Factorial with TCO
     (fn factorial [n acc]
       (if (<= n 1)
         acc

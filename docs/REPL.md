@@ -33,10 +33,10 @@ hlvm> (double 21)
 
 Memory commands:
 ```lisp
-; List all saved bindings
+// List all saved bindings
 (memory)
 
-; Forget a specific binding
+// Forget a specific binding
 (forget "greeting")
 ```
 
@@ -45,24 +45,24 @@ Memory commands:
 AI functions are auto-imported from `@hlvm/ai`:
 
 ```lisp
-; Ask AI a question (streaming response)
+// Ask AI a question (streaming response)
 (ask "What is functional programming?")
 
-; Ask with content and instruction (variadic)
+// Ask with content and instruction (variadic)
 (ask paste-1 "Summarize this code")
 (ask code-content "Find bugs in this" "Be concise")
 
-; Multi-turn chat
+// Multi-turn chat
 (chat [
   {role: "user" content: "Hello"}
   {role: "assistant" content: "Hi! How can I help?"}
   {role: "user" content: "Explain recursion"}
 ])
 
-; Generate code
+// Generate code
 (generate "a function that calculates fibonacci")
 
-; Summarize text
+// Summarize text
 (summarize long-text)
 ```
 
@@ -80,22 +80,22 @@ hlvm> [Pasted text #1 +245 lines]
 
 Access the content:
 ```lisp
-; Reference by display name (auto-transformed)
+// Reference by display name (auto-transformed)
 (ask [Pasted text #1 +245 lines] "explain this")
-; Transforms to: (ask paste-1 "explain this")
+// Transforms to: (ask paste-1 "explain this")
 
-; Or use the variable directly
+// Or use the variable directly
 (ask paste-1 "what does this do?")
-paste-1  ; Access raw content
+paste-1  // Access raw content
 ```
 
 #### Conversation Variables
 
 Track conversation context:
 ```lisp
-last-input     ; Last user command
-last-response  ; Last AI response
-conversation   ; Full conversation history
+last-input     // Last user command
+last-response  // Last AI response
+conversation   // Full conversation history
 ```
 
 Use in follow-ups:
@@ -108,8 +108,8 @@ Use in follow-ups:
 
 Save context for later use:
 ```lisp
-(def auth-code paste-1)     ; Save pasted code
-(def summary last-response) ; Save AI response
+(def auth-code paste-1)     // Save pasted code
+(def summary last-response) // Save AI response
 ```
 
 ### @ File Mentions
@@ -117,14 +117,14 @@ Save context for later use:
 Reference files directly in your input:
 
 ```lisp
-; Text files - content is inlined
+// Text files - content is inlined
 hlvm> (ask @src/main.ts "review this code")
 
-; Fuzzy search - type partial path
-hlvm> @ma<tab>  ; Shows matches like src/main.ts
+// Fuzzy search - type partial path
+hlvm> @ma<tab>  // Shows matches like src/main.ts
 
-; Images and media (Ink REPL)
-hlvm> (describe @screenshot.png)  ; Creates [Image #1] attachment
+// Images and media (Ink REPL)
+hlvm> (describe @screenshot.png)  // Creates [Image #1] attachment
 ```
 
 ### Slash Commands
@@ -203,14 +203,14 @@ hlvm> (filter (fn [x] (> x 2)) nums)
 ### AI-Powered Development
 
 ```lisp
-; Ask about code
+// Ask about code
 hlvm> (ask @src/parser.ts "What parsing strategy does this use?")
 
-; Generate and iterate
+// Generate and iterate
 hlvm> (generate "a sorting function in HQL")
 hlvm> (ask last-response "add error handling")
 
-; Code review with pasted content
+// Code review with pasted content
 hlvm> [Pasted text #1 +50 lines]
 hlvm> (ask paste-1 "find potential bugs and suggest fixes")
 ```
@@ -218,10 +218,10 @@ hlvm> (ask paste-1 "find potential bugs and suggest fixes")
 ### Multi-file Analysis
 
 ```lisp
-; Compare files
+// Compare files
 hlvm> (ask @old.ts @new.ts "what changed between these versions?")
 
-; Aggregate context
+// Aggregate context
 hlvm> (def context (str @types.ts "\n\n" @impl.ts))
 hlvm> (ask context "are there any type mismatches?")
 ```
@@ -229,11 +229,11 @@ hlvm> (ask context "are there any type mismatches?")
 ### Persistent Workflows
 
 ```lisp
-; Save important context
+// Save important context
 hlvm> (def project-context @README.md)
 hlvm> (def api-spec @api/schema.ts)
 
-; Use across sessions
+// Use across sessions
 hlvm> (memory)
 ["project-context", "api-spec", ...]
 

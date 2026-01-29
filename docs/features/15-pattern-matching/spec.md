@@ -134,8 +134,8 @@ Note: Object patterns use JavaScript destructuring, which extracts values even i
 ```
 compile(match e c₁ ... cₙ) =
   ((() => {
-    let $v = compile(e);
-    return compile-clause(c₁, $v, [c₂...cₙ]);
+    let $v = compile(e)//
+    return compile-clause(c₁, $v, [c₂...cₙ])//
   })())
 ```
 
@@ -180,9 +180,9 @@ compile-condition({...}, $v) =
 compile-body(literal, $v, r) = compile(r)
 compile-body(null, $v, r)    = compile(r)
 compile-body(_, $v, r)       = compile(r)
-compile-body(symbol, $v, r)  = (() => { let symbol = $v; return compile(r); })()
-compile-body(array-pat, $v, r) = (() => { let array-pat = $v; return compile(r); })()
-compile-body(object-pat, $v, r) = (() => { let object-pat = $v; return compile(r); })()
+compile-body(symbol, $v, r)  = (() => { let symbol = $v// return compile(r); })()
+compile-body(array-pat, $v, r) = (() => { let array-pat = $v// return compile(r); })()
+compile-body(object-pat, $v, r) = (() => { let object-pat = $v// return compile(r); })()
 ```
 
 ### Guarded Body Compilation
@@ -213,9 +213,9 @@ Variables bound by patterns are scoped to:
 
 ```lisp
 (match x
-  (case [a, b]           ; a, b bound here
-    (if (> a b))         ; a, b available in guard
-    (+ a b)))            ; a, b available in result
+  (case [a, b]           // a, b bound here
+    (if (> a b))         // a, b available in guard
+    (+ a b)))            // a, b available in result
 ```
 
 ## Evaluation Order
@@ -241,7 +241,7 @@ If no clause matches and no default provided:
 (match 999
   (case 1 "one")
   (case 2 "two"))
-; throws: Error("No matching pattern")
+// throws: Error("No matching pattern")
 ```
 
 ### Invalid Clause
@@ -250,8 +250,8 @@ If clause is not `case` or `default`:
 
 ```lisp
 (match x
-  (when true "yes"))  ; invalid clause type
-; throws: Error("Invalid match clause")
+  (when true "yes"))  // invalid clause type
+// throws: Error("Invalid match clause")
 ```
 
 ## Generated Code Examples
@@ -268,8 +268,8 @@ Compiles to:
 
 ```javascript
 (() => {
-  let match_0 = x;
-  return match_0 === 42 ? "answer" : "other";
+  let match_0 = x//
+  return match_0 === 42 ? "answer" : "other"//
 })()
 ```
 
@@ -284,11 +284,11 @@ Compiles to:
 
 ```javascript
 (() => {
-  let match_0 = x;
+  let match_0 = x//
   return true ? (() => {
-    let n = match_0;
-    return n + 1;
-  })() : (() => { throw new Error("No matching pattern"); })();
+    let n = match_0//
+    return n + 1//
+  })() : (() => { throw new Error("No matching pattern")// })();
 })()
 ```
 
@@ -304,10 +304,10 @@ Compiles to:
 
 ```javascript
 (() => {
-  let match_0 = arr;
+  let match_0 = arr//
   return (v => v ? match_0.length === 2 : v)(Array.isArray(match_0)) ?
-    (() => { let [a, b] = match_0; return a + b; })() :
-    0;
+    (() => { let [a, b] = match_0// return a + b; })() :
+    0//
 })()
 ```
 
@@ -323,11 +323,11 @@ Compiles to:
 
 ```javascript
 (() => {
-  let match_0 = n;
+  let match_0 = n//
   return true ? (() => {
-    let x = match_0;
-    return x > 0 ? "positive" : "non-positive";
-  })() : "non-positive";
+    let x = match_0//
+    return x > 0 ? "positive" : "non-positive"//
+  })() : "non-positive"//
 })()
 ```
 

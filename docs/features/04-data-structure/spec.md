@@ -47,7 +47,7 @@ space-separated Lisp style.
   [1 2 3 4]
   [1, 2, 3, 4]
   ["apple", "banana", "cherry"]
-  [] ; Empty vector
+  [] // Empty vector
   ```
 
 - **Canonical S-expression:** The parser transforms the literal syntax into a
@@ -56,7 +56,7 @@ space-separated Lisp style.
   ```hql
   (vector 1 2 3 4)
   (vector "apple" "banana" "cherry")
-  (empty-array) ; Canonical form for []
+  (empty-array) // Canonical form for []
   ```
 
 - **Parsing Mechanism (`src/hql/transpiler/pipeline/parser.ts` -> `parseVector`)**:
@@ -83,7 +83,7 @@ space-separated Lisp style.
   {host: "localhost" port: 8080}
   { "name": "Alice", "age": 30 }
   { "host": "localhost", "port": 8080 }
-  {} ; Empty map
+  {} // Empty map
   ```
 
 - **Canonical S-expression:** The parser transforms the literal syntax into a
@@ -92,7 +92,7 @@ space-separated Lisp style.
   ```hql
   (hash-map "name" "Alice" "age" 30)
   (hash-map "host" "localhost" "port" 8080)
-  (empty-map) ; Canonical form for {}
+  (empty-map) // Canonical form for {}
   ```
 
 - **Parsing Mechanism (`src/hql/transpiler/pipeline/parser.ts` -> `parseMap`)**:
@@ -117,10 +117,10 @@ space-separated Lisp style.
 - **Literal Syntax:** Uses `#[ ]`, with optional commas (for consistency with
   arrays and objects).
   ```hql
-  #[1 2 3 1] ; Duplicates are implicitly handled by the Set data structure itself
-  #[1, 2, 3, 1] ; Duplicates are implicitly handled by the Set data structure itself
+  #[1 2 3 1] // Duplicates are implicitly handled by the Set data structure itself
+  #[1, 2, 3, 1] // Duplicates are implicitly handled by the Set data structure itself
   #["red", "green", "blue"]
-  #[] ; Empty set
+  #[] // Empty set
   ```
 
   **Note:** JavaScript has no Set literal syntax. In JS, you must use
@@ -133,7 +133,7 @@ space-separated Lisp style.
   ```hql
   (hash-set 1 2 3 1)
   (hash-set "red" "green" "blue")
-  (empty-set) ; Canonical form for #[]
+  (empty-set) // Canonical form for #[]
   ```
 
 - **Parsing Mechanism (`src/hql/transpiler/pipeline/parser.ts` -> `parseSet`)**:

@@ -1,14 +1,14 @@
-; ============================================================================
-; Ternary Operator Examples (v2.0) - Executable Demonstrations
-; ============================================================================
-; Run with: deno run -A src/hlvm/cli/run.ts docs/features/11-operator/ternary-examples.hql
+// ============================================================================
+// Ternary Operator Examples (v2.0) - Executable Demonstrations
+// ============================================================================
+// Run with: deno run -A src/hlvm/cli/run.ts docs/features/11-operator/ternary-examples.hql
 
 (import [assert] from "@hlvm/assert")
 
 (print "=== TERNARY OPERATOR EXAMPLES ===")
 (print "")
 
-; Basic ternary usage
+// Basic ternary usage
 (print "1. Basic ternary:")
 (let ternary-true (? true "yes" "no"))
 (let ternary-false (? false "yes" "no"))
@@ -18,7 +18,7 @@
 (print "  (? false \"yes\" \"no\") =>" ternary-false)
 (print "")
 
-; With comparison
+// With comparison
 (print "2. With comparison:")
 (let compare-gt (? (> 10 5) "greater" "lesser"))
 (let compare-lt (? (< 3 7) "less" "more"))
@@ -28,7 +28,7 @@
 (print "  (? (< 3 7) \"less\" \"more\") =>" compare-lt)
 (print "")
 
-; In arithmetic expressions
+// In arithmetic expressions
 (print "3. In arithmetic:")
 (let arith-add (+ 10 (? true 5 3)))
 (let arith-mul (* 2 (? false 10 20)))
@@ -38,7 +38,7 @@
 (print "  (* 2 (? false 10 20)) =>" arith-mul)
 (print "")
 
-; Falsy values
+// Falsy values
 (print "4. Falsy values:")
 (let falsy-zero (? 0 "then" "else"))
 (let falsy-empty (? "" "then" "else"))
@@ -54,7 +54,7 @@
 (print "  (? false \"then\" \"else\") =>" falsy-false)
 (print "")
 
-; Truthy values
+// Truthy values
 (print "5. Truthy values:")
 (let truthy-one (? 1 "then" "else"))
 (let truthy-text (? "text" "then" "else"))
@@ -64,7 +64,7 @@
 (print "  (? \"text\" \"then\" \"else\") =>" truthy-text)
 (print "")
 
-; Nested ternaries
+// Nested ternaries
 (print "6. Nested ternaries:")
 (let score 85)
 (let grade (? (< score 60) "F"
@@ -75,7 +75,7 @@
 (print "  Score 85 grade:" grade)
 (print "")
 
-; In function returns
+// In function returns
 (print "7. In function returns:")
 (fn classify [n]
   (? (> n 0) "positive" "non-positive"))
@@ -87,7 +87,7 @@
 (print "  (classify -5) =>" class-neg)
 (print "")
 
-; With function calls
+// With function calls
 (print "8. With function calls:")
 (fn double [x] (* x 2))
 (fn triple [x] (* x 3))
@@ -99,7 +99,7 @@
 (print "  (? false (double 5) (triple 5)) =>" call-false)
 (print "")
 
-; In let bindings
+// In let bindings
 (print "9. In let bindings:")
 (let x 15)
 (let message (? (> x 10) "big" "small"))
@@ -107,7 +107,7 @@
 (print "  x=15, message:" message)
 (print "")
 
-; Real-world example: discount calculator
+// Real-world example: discount calculator
 (print "10. Real-world: discount calculator")
 (fn calculatePrice [basePrice isPremium quantity]
   (let discount (? isPremium 0.2 0.1))

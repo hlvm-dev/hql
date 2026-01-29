@@ -1,17 +1,17 @@
-; @hlvm/media - Media Handling for Vision Models
-; Usage: (import [read-image read-media] from "@hlvm/media")
-;
-; Provides functions to load media files for use with vision-capable AI models.
-; Media objects can be passed to AI functions via the {media: ...} option.
-;
-; Example:
-;   (import [ask] from "@hlvm/ai")
-;   (import [read-image] from "@hlvm/media")
-;   (ask "What's in this image?" {media: (read-image "./photo.jpg")})
+// @hlvm/media - Media Handling for Vision Models
+// Usage: (import [read-image read-media] from "@hlvm/media")
+//
+// Provides functions to load media files for use with vision-capable AI models.
+// Media objects can be passed to AI functions via the {media: ...} option.
+//
+// Example:
+//   (import [ask] from "@hlvm/ai")
+//   (import [read-image] from "@hlvm/media")
+//   (ask "What's in this image?" {media: (read-image "./photo.jpg")})
 
-; ============================================================================
-; Media Types
-; ============================================================================
+// ============================================================================
+// Media Types
+// ============================================================================
 
 (def MediaType {
   "IMAGE": "image"
@@ -20,11 +20,11 @@
   "DOCUMENT": "document"
 })
 
-; ============================================================================
-; Media Object Creation
-; ============================================================================
+// ============================================================================
+// Media Object Creation
+// ============================================================================
 
-; Create a media object from components
+// Create a media object from components
 (fn create-media [type mime-type base64-data source]
   {
     "type": type
@@ -34,36 +34,36 @@
     "__hlvm_media__": true
   })
 
-; Check if value is a media object
+// Check if value is a media object
 (fn media? [value]
   (and (not (nil? value))
        (=== (js-get value "__hlvm_media__") true)))
 
-; ============================================================================
-; Path Resolution (uses hlvm global for platform-agnostic operations)
-; ============================================================================
+// ============================================================================
+// Path Resolution (uses hlvm global for platform-agnostic operations)
+// ============================================================================
 
 (fn resolve-path [path]
   (cond
-    ; Handle ~ home directory
+    // Handle ~ home directory
     (path.startsWith "~")
     (let home (or (js-call hlvm.env "get" "HOME") ""))
     (path.replace "~" home)
 
-    ; Absolute paths stay as-is
+    // Absolute paths stay as-is
     (path.startsWith "/")
     path
 
-    ; Relative paths resolve from cwd
+    // Relative paths resolve from cwd
     true
     (str (js-call hlvm.fs "cwd") "/" path)))
 
-; ============================================================================
-; MIME Type Detection
-; ============================================================================
+// ============================================================================
+// MIME Type Detection
+// ============================================================================
 
 (def EXT_TO_MIME {
-  ; Images
+  // Images
   ".jpg": "image/jpeg"
   ".jpeg": "image/jpeg"
   ".png": "image/png"
@@ -73,15 +73,15 @@
   ".bmp": "image/bmp"
   ".heic": "image/heic"
   ".heif": "image/heif"
-  ; Audio
+  // Audio
   ".mp3": "audio/mpeg"
   ".wav": "audio/wav"
   ".ogg": "audio/ogg"
-  ; Video
+  // Video
   ".mp4": "video/mp4"
   ".webm": "video/webm"
   ".mov": "video/quicktime"
-  ; Documents
+  // Documents
   ".pdf": "application/pdf"
 })
 
@@ -97,16 +97,16 @@
     (=== mime "application/pdf") MediaType.DOCUMENT
     true MediaType.DOCUMENT))
 
-; ============================================================================
-; Base64 Encoding
-; ============================================================================
+// ============================================================================
+// Base64 Encoding
+// ============================================================================
 
-; Convert Uint8Array to base64 string (chunked for large files)
+// Convert Uint8Array to base64 string (chunked for large files)
 (fn bytes-to-base64 [bytes]
   (if (< bytes.length 32768)
-      ; Small files - simple approach
+      // Small files - simple approach
       (js/btoa (js/String.fromCharCode.apply nil bytes))
-      ; Large files - chunk to avoid stack overflow
+      // Large files - chunk to avoid stack overflow
       (do
         (var chunks [])
         (var i 0)
@@ -117,18 +117,18 @@
           (= i (+ i chunk-size)))
         (js/btoa (chunks.join "")))))
 
-; ============================================================================
-; Public API - Media Loading Functions
-; ============================================================================
+// ============================================================================
+// Public API - Media Loading Functions
+// ============================================================================
 
-; Read an image file and return a Media object
-; (read-image "./photo.jpg") -> Media
+// Read an image file and return a Media object
+// (read-image "./photo.jpg") -> Media
 (async fn read-image [path]
   "Read an image file and return a Media object for vision models"
   (let resolved (resolve-path path))
   (let mime (detect-mime resolved))
 
-  ; Validate it's an image
+  // Validate it's an image
   (when (not (mime.startsWith "image/"))
     (throw (new js/Error (str "Not an image file: " path " (detected: " mime ")"))))
 
@@ -136,8 +136,8 @@
   (let base64 (bytes-to-base64 bytes))
   (create-media MediaType.IMAGE mime base64 path))
 
-; Read any media file and return a Media object
-; (read-media "./file.mp4") -> Media
+// Read any media file and return a Media object
+// (read-media "./file.mp4") -> Media
 (async fn read-media [path]
   "Read any media file and return a Media object"
   (let resolved (resolve-path path))
@@ -147,22 +147,22 @@
   (let base64 (bytes-to-base64 bytes))
   (create-media type mime base64 path))
 
-; Create Media from raw base64 data
-; (media-from-base64 "image/png" "iVBORw0...") -> Media
+// Create Media from raw base64 data
+// (media-from-base64 "image/png" "iVBORw0...") -> Media
 (fn media-from-base64 [mime-type base64-data]
   "Create a Media object from raw base64 data"
   (let type (mime-to-type mime-type))
   (create-media type mime-type base64-data nil))
 
-; Fetch media from URL and return a Media object
-; (read-media-url "https://example.com/image.jpg") -> Media
+// Fetch media from URL and return a Media object
+// (read-media-url "https://example.com/image.jpg") -> Media
 (async fn read-media-url [url]
   "Fetch media from a URL and return a Media object"
   (let response (await (js/fetch url)))
   (when (not response.ok)
     (throw (new js/Error (str "Failed to fetch media: " response.status " " response.statusText))))
 
-  ; Get content type from response or guess from URL
+  // Get content type from response or guess from URL
   (let content-type-header (response.headers.get "content-type"))
   (let content-type (if content-type-header
                         (.trim ((content-type-header.split ";").at 0))
@@ -174,9 +174,9 @@
 
   (create-media type content-type base64 url))
 
-; ============================================================================
-; Exports
-; ============================================================================
+// ============================================================================
+// Exports
+// ============================================================================
 
 (export [
   MediaType

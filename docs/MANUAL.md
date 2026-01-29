@@ -55,25 +55,25 @@ Hello, HQL
 ### Quick Syntax Overview
 
 ```clojure
-; Variables
-(let x 10)            ; Block-scoped mutable
-(const PI 3.14159)    ; Immutable
-(var count 0)         ; Function-scoped mutable
+// Variables
+(let x 10)            // Block-scoped mutable
+(const PI 3.14159)    // Immutable
+(var count 0)         // Function-scoped mutable
 
-; Functions
+// Functions
 (fn add [a b] (+ a b))
 (fn greet [name = "World"]
   (print "Hello," name))
 
-; Type annotations (no space after colon!)
+// Type annotations (no space after colon!)
 (fn add [a:number b:number] :number
   (+ a b))
 
-; Data structures
+// Data structures
 (let nums [1 2 3])
 (let person {name: "Alice" age: 30})
 
-; Control flow
+// Control flow
 (if (> x 10) "big" "small")
 (cond
   ((< x 0) "negative")
@@ -125,45 +125,45 @@ See [Standard Library Reference](./api/stdlib.md) for complete documentation.
 ### Sequence Operations
 
 ```clojure
-(first [1 2 3])           ; 1
-(rest [1 2 3])            ; [2 3]
-(take 2 [1 2 3 4])        ; [1 2]
-(drop 2 [1 2 3 4])        ; [3 4]
-(nth [1 2 3] 1)           ; 2
+(first [1 2 3])           // 1
+(rest [1 2 3])            // [2 3]
+(take 2 [1 2 3 4])        // [1 2]
+(drop 2 [1 2 3 4])        // [3 4]
+(nth [1 2 3] 1)           // 2
 ```
 
 ### Transformations
 
 ```clojure
-; map and filter return lazy sequences (print as lists like Clojure)
-(map (fn [x] (* x 2)) [1 2 3])     ; (2 4 6)
-(filter (fn [x] (> x 2)) [1 2 3])  ; (3)
+// map and filter return lazy sequences (print as lists like Clojure)
+(map (fn [x] (* x 2)) [1 2 3])     // (2 4 6)
+(filter (fn [x] (> x 2)) [1 2 3])  // (3)
 
-; Use vec to get a concrete array
-(vec (map (fn [x] (* x 2)) [1 2 3])) ; [2 4 6]
+// Use vec to get a concrete array
+(vec (map (fn [x] (* x 2)) [1 2 3])) // [2 4 6]
 
-; reduce consumes the sequence
-(reduce + 0 [1 2 3 4])             ; 10
+// reduce consumes the sequence
+(reduce + 0 [1 2 3 4])             // 10
 ```
 
 ### Map Operations
 
 ```clojure
-(assoc {a: 1} "b" 2)      ; {a: 1, b: 2}
-(dissoc {a: 1, b: 2} "a") ; {b: 2}
-(keys {a: 1, b: 2})       ; ["a", "b"]
-(vals {a: 1, b: 2})       ; [1, 2]
+(assoc {a: 1} "b" 2)      // {a: 1, b: 2}
+(dissoc {a: 1, b: 2} "a") // {b: 2}
+(keys {a: 1, b: 2})       // ["a", "b"]
+(vals {a: 1, b: 2})       // [1, 2]
 ```
 
 ### Type Predicates
 
 ```clojure
-(isNull x)            ; x === null
-(isUndefined x)       ; x === undefined
-(isNil x)             ; x == null
-(isString x)          ; typeof x === "string"
-(isNumber x)          ; typeof x === "number"
-(isArray x)           ; Array.isArray(x)
+(isNull x)            // x === null
+(isUndefined x)       // x === undefined
+(isNil x)             // x == null
+(isString x)          // typeof x === "string"
+(isNumber x)          // typeof x === "number"
+(isArray x)           // Array.isArray(x)
 ```
 
 ---

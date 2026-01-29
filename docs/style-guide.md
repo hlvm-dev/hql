@@ -18,20 +18,20 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 **Use this for new HQL code:**
 
 ```lisp
-;; Objects/Maps - unquoted keys, no commas
+// Objects/Maps - unquoted keys, no commas
 {name: "Alice" age: 25 city: "NYC"}
 
-;; Arrays - no commas
+// Arrays - no commas
 [1 2 3 4 5]
 
-;; Function parameters - unquoted keys
+// Function parameters - unquoted keys
 (fn connect {host: "localhost" port: 8080 ssl: false}
   (+ (if ssl "https" "http") "://" host ":" port))
 
-;; Function calls - unquoted keys
+// Function calls - unquoted keys
 (connect {host: "api.example.com" ssl: true})
 
-;; Destructuring - unquoted
+// Destructuring - unquoted
 (let {x y z} point)
 (let {x: newX y: newY} point)
 ```
@@ -50,17 +50,17 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 **Use this when copy-pasting from JSON or when team prefers it:**
 
 ```lisp
-;; Objects/Maps - quoted keys, commas
+// Objects/Maps - quoted keys, commas
 {"name": "Alice", "age": 25, "city": "NYC"}
 
-;; Arrays - commas
+// Arrays - commas
 [1, 2, 3, 4, 5]
 
-;; Function parameters - quoted keys, commas
+// Function parameters - quoted keys, commas
 (fn connect {"host": "localhost", "port": 8080, "ssl": false}
   (+ (if ssl "https" "http") "://" host ":" port))
 
-;; Function calls - quoted keys, commas
+// Function calls - quoted keys, commas
 (connect {"host": "api.example.com", "ssl": true})
 ```
 
@@ -91,7 +91,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 **Use:** Pure Lisp style throughout
 
 ```lisp
-;; Preferred
+// Preferred
 (fn api-call {url: "" method: "GET" timeout: 30}
   (fetch url {method: method timeout: timeout}))
 
@@ -102,11 +102,11 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 **Use:** JSON style initially, migrate gradually
 
 ```lisp
-;; Start with JSON style (familiar)
+// Start with JSON style (familiar)
 (fn api-call {"url": "", "method": "GET", "timeout": 30}
   (fetch url {"method": method, "timeout": timeout}))
 
-;; Migrate to Lisp style over time
+// Migrate to Lisp style over time
 (fn api-call {url: "" method: "GET" timeout: 30}
   (fetch url {method: method timeout: timeout}))
 ```
@@ -115,7 +115,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 **Use:** Whichever matches your data source
 
 ```lisp
-;; Copy-paste JSON response directly
+// Copy-paste JSON response directly
 (let response {
   "status": 200,
   "data": {
@@ -126,7 +126,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
   }
 })
 
-;; Or convert to Lisp style if you prefer
+// Or convert to Lisp style if you prefer
 (let response {
   status: 200
   data: {
@@ -142,11 +142,11 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 **Use:** Pick one style and be consistent
 
 ```lisp
-;; Bad - mixed styles confuse readers
+// Bad - mixed styles confuse readers
 (fn process {url: ""} ...)
 (fn handle {"data": []} ...)
 
-;; Good - consistent throughout
+// Good - consistent throughout
 (fn process {url: ""} ...)
 (fn handle {data: []} ...)
 ```
@@ -158,19 +158,19 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### Variables and Functions
 
 ```lisp
-;; Use kebab-case (Lisp tradition)
+// Use kebab-case (Lisp tradition)
 (let user-name "Alice")
 (fn get-user-data [] ...)
 (fn parse-json-response [] ...)
 
-;; Not camelCase
-(let userName "Alice")      ;; Works but not idiomatic
+// Not camelCase
+(let userName "Alice")      // Works but not idiomatic
 ```
 
 ### Constants
 
 ```lisp
-;; Use SCREAMING-KEBAB-CASE
+// Use SCREAMING-KEBAB-CASE
 (let MAX-RETRIES 3)
 (let API-TIMEOUT 30)
 (let DEFAULT-HOST "localhost")
@@ -179,7 +179,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### Predicates (Boolean functions)
 
 ```lisp
-;; End with ? for predicates
+// End with ? for predicates
 (fn empty? [coll] ...)
 (fn valid-email? [email] ...)
 (fn authenticated? [] ...)
@@ -192,29 +192,29 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### Module Structure
 
 ```lisp
-;; 1. Imports first
+// 1. Imports first
 (import [helper1 helper2] from "./utils")
 
-;; 2. Constants
+// 2. Constants
 (let API-BASE "https://api.example.com")
 (let MAX-RETRIES 3)
 
-;; 3. Helper functions
+// 3. Helper functions
 (fn validate-input [data] ...)
 (fn format-response [res] ...)
 
-;; 4. Main functions
+// 4. Main functions
 (fn fetch-data {url: "" retries: MAX-RETRIES}
   ...)
 
-;; 5. Exports last
+// 5. Exports last
 (export [fetch-data] "./api")
 ```
 
 ### Function Organization
 
 ```lisp
-;; Small, focused functions
+// Small, focused functions
 (fn validate-email [email]
   (.includes email "@"))
 
@@ -223,9 +223,9 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
     (validate-email user.email)
     (> (.-length user.name) 0)))
 
-;; Not one giant function
+// Not one giant function
 (fn process-user [user]
-  ;; 100 lines of mixed concerns
+  // 100 lines of mixed concerns
   ...)
 ```
 
@@ -236,7 +236,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### Positional `[]` - Simple Functions
 
 ```lisp
-;; ≤3 parameters, no defaults needed
+// ≤3 parameters, no defaults needed
 (fn add [x y]
   (+ x y))
 
@@ -258,7 +258,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### Map `{}` - Config Functions
 
 ```lisp
-;; Many parameters, all have defaults
+// Many parameters, all have defaults
 (fn connect {
   host: "localhost"
   port: 8080
@@ -268,7 +268,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 }
   ...)
 
-;; Call with only what you need
+// Call with only what you need
 (connect {host: "api.com" ssl: true})
 ```
 
@@ -285,13 +285,13 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### Indentation
 
 ```lisp
-;; 2 spaces per level
+// 2 spaces per level
 (fn process-data [data]
   (let cleaned (clean data))
   (let validated (validate cleaned))
   validated)
 
-;; Align closing parens with opening line
+// Align closing parens with opening line
 (fn complex-logic []
   (if condition
     (do
@@ -303,15 +303,15 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### Line Length
 
 ```lisp
-;; Prefer ≤80 characters
-;; OK - fits in one line
+// Prefer ≤80 characters
+// OK - fits in one line
 (fn greet [name] (+ "Hello, " name "!"))
 
-;; Better - split long lines
+// Better - split long lines
 (fn greet [name]
   (+ "Hello, " name "!"))
 
-;; Long function calls - break at logical points
+// Long function calls - break at logical points
 (api-call
   {url: "https://api.example.com/v1/users"
    method: "POST"
@@ -326,28 +326,28 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### Inline Comments
 
 ```lisp
-;; Use ; for single-line comments
-; This is a comment
+// Use // for single-line comments
+// This is a comment
 
-;; Prefer comments above code, not inline
-(let result (+ x y))  ; Add numbers <- avoid
+// Prefer comments above code, not inline
+(let result (+ x y))  // Add numbers <- avoid
 
-;; Better:
-; Calculate sum of x and y
+// Better:
+// Calculate sum of x and y
 (let result (+ x y))
 ```
 
 ### Function Documentation
 
 ```lisp
-;; Document public functions
-; Fetches user data from the API
-;
-; Parameters:
-;   user-id: The unique identifier for the user
-;   options: Optional fetch configuration
-;
-; Returns: User object or null if not found
+// Document public functions
+// Fetches user data from the API
+//
+// Parameters:
+//   user-id: The unique identifier for the user
+//   options: Optional fetch configuration
+//
+// Returns: User object or null if not found
 (fn fetch-user {user-id: 0 options: {}}
   ...)
 ```
@@ -368,10 +368,10 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### Descriptive Error Messages
 
 ```lisp
-;; Bad
+// Bad
 (throw (Error "Invalid"))
 
-;; Good
+// Good
 (throw (Error "Invalid email format: expected user@domain.com"))
 ```
 
@@ -382,19 +382,19 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### What's Rejected (HQL1001 Error)
 
 ```lisp
-;; Named-arg call-site sugar is NOT supported
+// Named-arg call-site sugar is NOT supported
 (fn add [x y] (+ x y))
-(add x: 10 y: 20)  ;; ❌ HQL1001 error
+(add x: 10 y: 20)  // ❌ HQL1001 error
 
-;; Must use map instead:
-(add {x: 10 y: 20})  ;; ✅ Works (Lisp style)
-(add {"x": 10, "y": 20})  ;; ✅ Works (JSON style)
+// Must use map instead:
+(add {x: 10 y: 20})  // ✅ Works (Lisp style)
+(add {"x": 10, "y": 20})  // ✅ Works (JSON style)
 ```
 
 ### Loop Keywords (Exception)
 
 ```lisp
-;; Loop keywords to:, from:, by: ARE allowed (special form)
+// Loop keywords to:, from:, by: ARE allowed (special form)
 (for [i to: 10] ...)
 (for [i from: 0 to: 10 by: 2] ...)
 ```
@@ -406,7 +406,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### ✅ Do This (Preferred)
 
 ```lisp
-;; Lisp style
+// Lisp style
 {name: "Alice" age: 25}
 [1 2 3]
 (fn connect {host: "" port: 8080} ...)
@@ -416,7 +416,7 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### ✅ Also Fine (Supported)
 
 ```lisp
-;; JSON style
+// JSON style
 {"name": "Alice", "age": 25}
 [1, 2, 3]
 (fn connect {"host": "", "port": 8080} ...)
@@ -426,11 +426,11 @@ HQL embraces **maximum flexibility** while maintaining a **preferred style** for
 ### ❌ Don't Do This
 
 ```lisp
-;; Named-arg call-site syntax
-(add x: 10 y: 20)  ;; ❌ HQL1001 error
+// Named-arg call-site syntax
+(add x: 10 y: 20)  // ❌ HQL1001 error
 
-;; Mixing function param styles
-(fn bad [x {y: 0}] ...)  ;; ❌ Error - pick one style
+// Mixing function param styles
+(fn bad [x {y: 0}] ...)  // ❌ Error - pick one style
 ```
 
 ---

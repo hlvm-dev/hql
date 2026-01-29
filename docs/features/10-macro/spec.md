@@ -33,21 +33,21 @@ globally scoped:
 
 ```typescript
 // Before: 2-level map for global data
-const macroCache = new Map<string, Map<string, boolean>>();
+const macroCache = new Map<string, Map<string, boolean>>()//
 if (!macroCache.has(currentDir)) {
-  macroCache.set(currentDir, new Map<string, boolean>());
+  macroCache.set(currentDir, new Map<string, boolean>())//
 }
-const fileCache = macroCache.get(currentDir)!;
-if (fileCache.has(symbolName)) return fileCache.get(symbolName)!;
+const fileCache = macroCache.get(currentDir)!//
+if (fileCache.has(symbolName)) return fileCache.get(symbolName)!//
 ```
 
 **Fix Applied:**
 
 ```typescript
 // After: Simple 1-level map (lines 28-29, 270-298)
-const macroCache = new Map<string, boolean>();
+const macroCache = new Map<string, boolean>()//
 if (macroCache.has(symbolName)) {
-  return macroCache.get(symbolName)!;
+  return macroCache.get(symbolName)!//
 }
 ```
 
@@ -75,8 +75,8 @@ if (macroCache.has(symbolName)) {
 
 ```typescript
 // Line 321 - Result intentionally unused
-const macroContext = env.getCurrentMacroContext();
-const currentFile = env.getCurrentFile();
+const macroContext = env.getCurrentMacroContext()//
+const currentFile = env.getCurrentFile()//
 if (macroContext && currentFile) {
   // Reserved for future validation hooks
 }
@@ -139,7 +139,7 @@ and is cleared when macros are redefined.
 
 ```typescript
 // Line 724: Early return when debugging disabled
-if (!logger.isNamespaceEnabled("macro")) return;
+if (!logger.isNamespaceEnabled("macro")) return//
 ```
 
 **Assessment:**
@@ -199,10 +199,10 @@ Check file:///.../index.ts
 
 ```typescript
 // Before
-export const macroCache = new Map<string, Map<string, boolean>>();
+export const macroCache = new Map<string, Map<string, boolean>>()//
 
 // After
-export const macroCache = new Map<string, boolean>();
+export const macroCache = new Map<string, boolean>()//
 ```
 
 2. **Lines 270-298**: Simplified isMacro function
@@ -210,23 +210,23 @@ export const macroCache = new Map<string, boolean>();
 ```typescript
 // Before: 2-level map logic (14 lines)
 if (!macroCache.has(currentDir)) {
-  macroCache.set(currentDir, new Map<string, boolean>());
+  macroCache.set(currentDir, new Map<string, boolean>())//
 }
-const fileCache = macroCache.get(currentDir)!;
-if (fileCache.has(symbolName)) return fileCache.get(symbolName)!;
+const fileCache = macroCache.get(currentDir)!//
+if (fileCache.has(symbolName)) return fileCache.get(symbolName)!//
 // ...
-fileCache.set(symbolName, false);
+fileCache.set(symbolName, false)//
 // ...
-fileCache.set(symbolName, result);
+fileCache.set(symbolName, result)//
 
 // After: Simple 1-level map (6 lines)
 if (macroCache.has(symbolName)) {
-  return macroCache.get(symbolName)!;
+  return macroCache.get(symbolName)!//
 }
 // ...
-macroCache.set(symbolName, false);
+macroCache.set(symbolName, false)//
 // ...
-macroCache.set(symbolName, result);
+macroCache.set(symbolName, result)//
 ```
 
 **Net change:** -8 lines of complexity
@@ -363,7 +363,7 @@ const args = preExpandMacroArgs(
   list.elements.slice(1),
   env,
   (arg) => expandMacroExpression(arg, env, options, depth + 1),
-);
+)//
 ```
 
 ### ✅ Bug 2: Recursive Macros Only Execute Once
@@ -379,8 +379,8 @@ unevaluated S-expressions instead of computing their values.
 // src/hql/s-exp/macro.ts:906-910
 const args = list.elements.slice(1).map((arg) => {
   // Fully evaluate the argument at macro-time
-  return evaluateForMacro(arg, env, logger);
-});
+  return evaluateForMacro(arg, env, logger)//
+})//
 ```
 
 ### ✅ Bug 3: Macro in Function Call Arguments
@@ -398,7 +398,7 @@ const expandedArgs = preExpandMacroArgs(
   list.elements.slice(1),
   env,
   (arg) => evaluateForMacro(arg, env, logger),
-);
+)//
 ```
 
 ---
@@ -418,16 +418,16 @@ function preExpandMacroArgs<T>(
 ): (SExp | T)[] {
   return args.map((arg) => {
     if (isList(arg)) {
-      const argList = arg as SList;
+      const argList = arg as SList//
       if (argList.elements.length > 0 && isSymbol(argList.elements[0])) {
-        const argOp = (argList.elements[0] as SSymbol).name;
+        const argOp = (argList.elements[0] as SSymbol).name//
         if (env.hasMacro(argOp)) {
-          return expandFn(arg);
+          return expandFn(arg)//
         }
       }
     }
-    return arg;
-  });
+    return arg//
+  })//
 }
 ```
 

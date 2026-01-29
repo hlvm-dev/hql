@@ -42,8 +42,8 @@ tail-position(block s₁ s₂ ... sₙ) = tail-position(sₙ)
 ```javascript
 function name(p₁, p₂, ..., pₙ) {
   while (true) {
-    if (base-test) return base-value;
-    [p₁, p₂, ..., pₙ] = [arg₁, arg₂, ..., argₙ];
+    if (base-test) return base-value//
+    [p₁, p₂, ..., pₙ] = [arg₁, arg₂, ..., argₙ]//
   }
 }
 ```
@@ -141,9 +141,9 @@ Compiles to:
 function countdown(n) {
   while (true) {
     if (n <= 0)
-      return 'done';
+      return 'done'//
     else
-      [n] = [n - 1];
+      [n] = [n - 1]//
   }
 }
 ```
@@ -163,9 +163,9 @@ Compiles to:
 function factorial(n, acc) {
   while (true) {
     if (n <= 1)
-      return acc;
+      return acc//
     else
-      [n, acc] = [n - 1, n * acc];
+      [n, acc] = [n - 1, n * acc]//
   }
 }
 ```
@@ -187,11 +187,11 @@ Compiles to:
 function collatz(n, steps) {
   while (true) {
     if (n === 1)
-      return steps;
+      return steps//
     else if (n % 2 === 0)
-      [n, steps] = [n / 2, steps + 1];
+      [n, steps] = [n / 2, steps + 1]//
     else
-      [n, steps] = [n * 3 + 1, steps + 1];
+      [n, steps] = [n * 3 + 1, steps + 1]//
   }
 }
 ```
@@ -211,14 +211,14 @@ function collatz(n, steps) {
 (fn factorial [n]
   (if (<= n 1)
     1
-    (* n (factorial (- n 1)))))  ; Wrapped in multiplication
+    (* n (factorial (- n 1)))))  // Wrapped in multiplication
 ```
 
 Remains as:
 
 ```javascript
 function factorial(n) {
-  return n <= 1 ? 1 : n * factorial(n - 1);
+  return n <= 1 ? 1 : n * factorial(n - 1)//
 }
 ```
 

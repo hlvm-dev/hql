@@ -96,7 +96,7 @@ const TOKEN_PATTERNS = {
   OPTIONAL_METHOD: /\.\?[a-zA-Z_$][a-zA-Z0-9_$-]*/y,
   SPECIAL_TOKENS: /(#\[|\(|\)|\[|\]|\{|\}|\.|\:|,|'|`|~@|~)/y,
   STRING: /"(?:\\.|[^\\"])*"/y,
-  COMMENT: /(;.*|\/\/.*|\/\*[\s\S]*?\*\/)/y,
+  COMMENT: /(\/\/.*|\/\*[\s\S]*?\*\/)/y,
   WHITESPACE: /\s+/y,
   SYMBOL: /[^\s\(\)\[\]\{\}"'`,;]+/y, // Allow : in symbols for named params (y:)
 };

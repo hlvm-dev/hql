@@ -49,11 +49,11 @@ BEFORE                      AFTER
 **Use Case:** Adding a forgotten argument:
 
 ```clojure
-;; Oops, forgot the third argument
+// Oops, forgot the third argument
 (+ 10 20|) 30
 
-;; Press Ctrl+Shift+)
-(+ 10 20| 30)    ; Now all three are added together
+// Press Ctrl+Shift+)
+(+ 10 20| 30)    // Now all three are added together
 ```
 
 ### Slurp Backward (`Ctrl+Shift+(`)
@@ -71,11 +71,11 @@ square (|x y)               (square |x y)
 **Use Case:** Including a function name:
 
 ```clojure
-;; Function name should be inside
+// Function name should be inside
 map (fn [x] (* x x)|)
 
-;; Press Ctrl+Shift+(
-(map fn [x] (* x x)|)    ; Now map is the function being called
+// Press Ctrl+Shift+(
+(map fn [x] (* x x)|)    // Now map is the function being called
 ```
 
 ### Barf Forward (`Ctrl+Shift+}`)
@@ -93,11 +93,11 @@ BEFORE                      AFTER
 **Use Case:** Removing an extra argument:
 
 ```clojure
-;; Too many arguments in the function
+// Too many arguments in the function
 (+ 10 20| 30 40)
 
-;; Press Ctrl+Shift+} twice
-(+ 10 20|) 30 40    ; 30 and 40 are now outside
+// Press Ctrl+Shift+} twice
+(+ 10 20|) 30 40    // 30 and 40 are now outside
 ```
 
 ### Barf Backward (`Ctrl+Shift+{`)
@@ -115,11 +115,11 @@ BEFORE                      AFTER
 **Use Case:** Extracting an element:
 
 ```clojure
-;; "result" should be a separate binding name
+// "result" should be a separate binding name
 (let [(result (compute x)|])
 
-;; Press Ctrl+Shift+{
-(let [result (compute x)|])    ; Better structure
+// Press Ctrl+Shift+{
+(let [result (compute x)|])    // Better structure
 ```
 
 ---
@@ -143,17 +143,17 @@ cursor                      new parens around "foo"
 **Use Cases:**
 
 ```clojure
-;; Wrap a value to make it a function call
-|x                  ; Press Alt+(
-(|x)                ; Ready to add arguments
+// Wrap a value to make it a function call
+|x                  // Press Alt+(
+(|x)                // Ready to add arguments
 
-;; Wrap to create a list
-|1 2 3              ; Press Alt+(
-(|1) 2 3            ; First element wrapped
+// Wrap to create a list
+|1 2 3              // Press Alt+(
+(|1) 2 3            // First element wrapped
 
-;; Wrap an entire expression
-|(+ 1 2) 3          ; Press Alt+(
-(|(+ 1 2)) 3        ; Nested expression
+// Wrap an entire expression
+|(+ 1 2) 3          // Press Alt+(
+(|(+ 1 2)) 3        // Nested expression
 ```
 
 ### Splice (`Alt+s`)
@@ -171,13 +171,13 @@ BEFORE                      AFTER
 **Use Cases:**
 
 ```clojure
-;; Remove unnecessary nesting
-(+ 1 (|2) 3)        ; Press Alt+s
-(+ 1 |2 3)          ; Cleaner
+// Remove unnecessary nesting
+(+ 1 (|2) 3)        // Press Alt+s
+(+ 1 |2 3)          // Cleaner
 
-;; Flatten a structure
-(list (|a b c))     ; Press Alt+s
-(list |a b c)       ; Contents merged into parent
+// Flatten a structure
+(list (|a b c))     // Press Alt+s
+(list |a b c)       // Contents merged into parent
 ```
 
 ### Raise (`Alt+r`)
@@ -197,19 +197,19 @@ entire parent replaced
 **Use Cases:**
 
 ```clojure
-;; Simplify conditional - keep only one branch
+// Simplify conditional - keep only one branch
 (if always-true
-  (compute| result)    ; Keep this
-  (fallback))          ; Delete this
+  (compute| result)    // Keep this
+  (fallback))          // Delete this
 
-;; Press Alt+r
-(compute| result)      ; The entire if is replaced
+// Press Alt+r
+(compute| result)      // The entire if is replaced
 
-;; Extract from let binding
+// Extract from let binding
 (let [x 10]
-  (process| x))        ; Press Alt+r
+  (process| x))        // Press Alt+r
 
-(process| x)           ; let wrapper removed
+(process| x)           // let wrapper removed
 ```
 
 ---
@@ -233,15 +233,15 @@ BEFORE                      AFTER
 **Use Cases:**
 
 ```clojure
-;; Remove an argument
-(+ 1 |2 3 4)        ; Press Ctrl+Shift+K
-(+ 1 | 3 4)         ; "2" deleted
+// Remove an argument
+(+ 1 |2 3 4)        // Press Ctrl+Shift+K
+(+ 1 | 3 4)         // "2" deleted
 
-;; Remove a nested expression
-(+ 1 |(* 2 3) 4)    ; Press Ctrl+Shift+K
-(+ 1 | 4)           ; Entire (* 2 3) deleted
+// Remove a nested expression
+(+ 1 |(* 2 3) 4)    // Press Ctrl+Shift+K
+(+ 1 | 4)           // Entire (* 2 3) deleted
 
-;; Clean up a list
+// Clean up a list
 (list |:unused :keep :this)
 (list | :keep :this)
 ```
@@ -261,18 +261,18 @@ BEFORE                      AFTER
 **Use Cases:**
 
 ```clojure
-;; Fix argument order
-(- |5 10)           ; Should be 10 - 5
-;; Press Ctrl+Shift+T
-(- 10 5|)           ; Now correct
+// Fix argument order
+(- |5 10)           // Should be 10 - 5
+// Press Ctrl+Shift+T
+(- 10 5|)           // Now correct
 
-;; Reorder list elements
-(list :b| :a :c)    ; Press Ctrl+Shift+T
-(list :a :b| :c)    ; Swapped
+// Reorder list elements
+(list :b| :a :c)    // Press Ctrl+Shift+T
+(list :a :b| :c)    // Swapped
 
-;; Reorder function calls
-(foo) |(bar)        ; Press Ctrl+Shift+T
-(bar) (foo)|        ; Order changed
+// Reorder function calls
+(foo) |(bar)        // Press Ctrl+Shift+T
+(bar) (foo)|        // Order changed
 ```
 
 ---
@@ -282,68 +282,68 @@ BEFORE                      AFTER
 ### Building an Expression from Scratch
 
 ```clojure
-;; Start with just values
+// Start with just values
 + 1 2 3
 
-;; 1. Wrap the operator (Alt+( at +)
+// 1. Wrap the operator (Alt+( at +)
 (+) 1 2 3
 
-;; 2. Slurp all arguments (Ctrl+Shift+) × 3)
+// 2. Slurp all arguments (Ctrl+Shift+) × 3)
 (+ 1) 2 3
 (+ 1 2) 3
-(+ 1 2 3)          ; Done!
+(+ 1 2 3)          // Done!
 ```
 
 ### Refactoring a Conditional
 
 ```clojure
-;; Original: complex nested if
+// Original: complex nested if
 (if condition
   (if nested-condition
     (result|)
     (other))
   (fallback))
 
-;; Want to extract just (result)
-;; Press Alt+r twice:
-;; First raise: replaces inner if
-;; Second raise: replaces outer if
+// Want to extract just (result)
+// Press Alt+r twice:
+// First raise: replaces inner if
+// Second raise: replaces outer if
 (result|)
 ```
 
 ### Restructuring Arguments
 
 ```clojure
-;; Original: arguments in wrong order
+// Original: arguments in wrong order
 (create-user email| name age)
 
-;; Want: (create-user name email age)
-;; 1. Transpose email with name (Ctrl+Shift+T)
-(create-user name email| age)    ; Done!
+// Want: (create-user name email age)
+// 1. Transpose email with name (Ctrl+Shift+T)
+(create-user name email| age)    // Done!
 ```
 
 ### Wrapping in a Function Call
 
 ```clojure
-;; Original value
+// Original value
 |42
 
-;; Want to wrap in (identity 42)
-;; 1. Wrap (Alt+()
+// Want to wrap in (identity 42)
+// 1. Wrap (Alt+()
 (|42)
 
-;; 2. Type function name
+// 2. Type function name
 (identity| 42)
 
-;; Or with existing expression:
+// Or with existing expression:
 |(+ 1 2)
 
-;; 1. Wrap (Alt+()
+// 1. Wrap (Alt+()
 (|(+ 1 2))
 
-;; 2. Slurp backward to add function name typed before
-inc (|(+ 1 2))    ; Type "inc", then Ctrl+Shift+(
-(inc |(+ 1 2))    ; Now inc is called on the sum
+// 2. Slurp backward to add function name typed before
+inc (|(+ 1 2))    // Type "inc", then Ctrl+Shift+(
+(inc |(+ 1 2))    // Now inc is called on the sum
 ```
 
 ---
@@ -355,11 +355,11 @@ inc (|(+ 1 2))    ; Type "inc", then Ctrl+Shift+(
 Instead of deleting characters one by one, use Kill Sexp to remove entire expressions:
 
 ```clojure
-;; Bad: Delete 7 characters one by one
+// Bad: Delete 7 characters one by one
 (+ 1 2 (- 3 4) 5)
        ^^^^^^^
 
-;; Good: One Ctrl+Shift+K
+// Good: One Ctrl+Shift+K
 (+ 1 2 | 5)
 ```
 
@@ -368,10 +368,10 @@ Instead of deleting characters one by one, use Kill Sexp to remove entire expres
 When an expression is on the wrong side of a delimiter, slurp or barf it:
 
 ```clojure
-;; Instead of copy-paste
-(foo) bar    ; bar should be inside
+// Instead of copy-paste
+(foo) bar    // bar should be inside
 
-;; Just slurp forward
+// Just slurp forward
 (foo bar)
 ```
 
@@ -380,14 +380,14 @@ When an expression is on the wrong side of a delimiter, slurp or barf it:
 When you want to keep only part of a complex expression:
 
 ```clojure
-;; Instead of manual deletion
+// Instead of manual deletion
 (when condition
   (do
     (setup)
-    (main-work|)    ; This is all you need
+    (main-work|)    // This is all you need
     (cleanup)))
 
-;; Raise twice to get just (main-work)
+// Raise twice to get just (main-work)
 ```
 
 ### 4. Wrap + Slurp for New Containers
@@ -395,13 +395,13 @@ When you want to keep only part of a complex expression:
 To wrap multiple expressions in a new list:
 
 ```clojure
-a b c        ; Want (a b c)
+a b c        // Want (a b c)
 
-;; 1. Wrap first (Alt+()
+// 1. Wrap first (Alt+()
 (a) b c
 
-;; 2. Slurp the rest (Ctrl+Shift+) × 2)
-(a b c)      ; Done!
+// 2. Slurp the rest (Ctrl+Shift+) × 2)
+(a b c)      // Done!
 ```
 
 ---

@@ -1,14 +1,14 @@
-; ============================================================================
-; Spread Operator Examples (v2.0) - Executable Demonstrations
-; ============================================================================
-; Run with: deno run -A src/hlvm/cli/run.ts docs/features/14-spread-operator/examples.hql
+// ============================================================================
+// Spread Operator Examples (v2.0) - Executable Demonstrations
+// ============================================================================
+// Run with: deno run -A src/hlvm/cli/run.ts docs/features/14-spread-operator/examples.hql
 
 (import [assert, assertEqual] from "@hlvm/assert")
 
 (print "=== SPREAD OPERATOR EXAMPLES ===")
 (print "")
 
-; Array spread at different positions
+// Array spread at different positions
 (print "1. Array spread positions:")
 (let arr1 [1 2])
 (let spread-1 [...arr1 3 4])
@@ -24,7 +24,7 @@
 (print "  [1 2 ...arr3] =>" spread-3)
 (print "")
 
-; Multiple spreads
+// Multiple spreads
 (print "2. Multiple spreads:")
 (let a [1 2])
 (let b [5 6])
@@ -33,7 +33,7 @@
 (print "  [0 ...a 3 4 ...b 7] =>" spread-multi)
 (print "")
 
-; Empty array spread
+// Empty array spread
 (print "3. Empty array spread:")
 (let empty [])
 (let spread-empty [1 ...empty 2])
@@ -41,7 +41,7 @@
 (print "  [1 ...empty 2] =>" spread-empty)
 (print "")
 
-; Single element
+// Single element
 (print "4. Single element spread:")
 (let single [42])
 (let spread-single [1 ...single 3])
@@ -49,7 +49,7 @@
 (print "  [1 ...single 3] =>" spread-single)
 (print "")
 
-; Function call spread
+// Function call spread
 (print "5. Function call spread:")
 (fn add3 [x y z] (+ x y z))
 (let args [1 2 3])
@@ -58,7 +58,7 @@
 (print "  (add3 ...args) =>" add3-result)
 (print "")
 
-; Mixed positional and spread
+// Mixed positional and spread
 (print "6. Mixed positional and spread:")
 (fn add4 [w x y z] (+ w x y z))
 (let rest [3 4])
@@ -67,7 +67,7 @@
 (print "  (add4 1 2 ...rest) =>" add4-result)
 (print "")
 
-; Multiple spreads in function call
+// Multiple spreads in function call
 (print "7. Multiple spreads in call:")
 (fn sumAll [...nums]
   (.reduce nums (fn [a b] (+ a b)) 0))
@@ -78,7 +78,7 @@
 (print "  (sumAll ...nums1 ...nums2) =>" sumAll-result)
 (print "")
 
-; Spread same array twice
+// Spread same array twice
 (print "8. Spread same array twice:")
 (let repeat [1 2])
 (let spread-repeat [...repeat ...repeat])
@@ -86,7 +86,7 @@
 (print "  [...repeat ...repeat] =>" spread-repeat)
 (print "")
 
-; Deeply nested spreads
+// Deeply nested spreads
 (print "9. Deeply nested spreads:")
 (let level1 [1])
 (let level2 [...level1 2])
@@ -96,7 +96,7 @@
 (print "  Nested build:" level4)
 (print "")
 
-; Array copy
+// Array copy
 (print "10. Shallow copy:")
 (let original [1 2 3])
 (let copy [...original])
@@ -104,7 +104,7 @@
 (print "  [...original] =>" copy)
 (print "")
 
-; Append/prepend
+// Append/prepend
 (print "11. Append and prepend:")
 (let base [2 3 4])
 (let prepend [1 ...base])
@@ -115,7 +115,7 @@
 (print "  [...base 5] =>" append)
 (print "")
 
-; With map result
+// With map result
 (print "12. With map result:")
 (let nums [1 2 3])
 (let doubled (.map nums (fn [x] (* x 2))))
@@ -124,7 +124,7 @@
 (print "  [...doubled 7] =>" spread-doubled)
 (print "")
 
-; With filter result
+// With filter result
 (print "13. With filter result:")
 (let numbers [1 2 3 4 5])
 (let evens (.filter numbers (fn [x] (== (% x 2) 0))))
@@ -133,7 +133,7 @@
 (print "  [0 ...evens 6] =>" spread-evens)
 (print "")
 
-; Object spread
+// Object spread
 (print "14. Object spread:")
 (let obj1 {"a": 1, "b": 2})
 (let obj2 {...obj1, "c": 3})
@@ -141,7 +141,7 @@
 (print "  {...obj1, c: 3} =>" obj2)
 (print "")
 
-; Object merge
+// Object merge
 (print "15. Object merge:")
 (let defaults {"timeout": 30, "retries": 3})
 (let custom {"timeout": 60})
@@ -150,7 +150,7 @@
 (print "  {...defaults, ...custom} =>" config)
 (print "")
 
-; Object property override
+// Object property override
 (print "16. Property override:")
 (let baseObj {"a": 1, "b": 2})
 (let modified {...baseObj, "a": 99})
@@ -158,7 +158,7 @@
 (print "  {...baseObj, a: 99} =>" modified)
 (print "")
 
-; Combine let binding
+// Combine let binding
 (print "17. Combined array spread:")
 (let arrA [1 2])
 (let arrB [3 4])
@@ -167,7 +167,7 @@
 (print "  [...arrA ...arrB] =>" combined)
 (print "")
 
-; Spread with rest in function
+// Spread with rest in function
 (print "18. Spread with rest parameter:")
 (fn sumWithFirst [first ...rest]
   (+ first (.reduce rest (fn [a b] (+ a b)) 0)))

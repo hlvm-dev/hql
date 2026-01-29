@@ -46,7 +46,7 @@ log.raw.log(...)    // Intentional CLI output
 await fetch(url, ...)
 
 // USE INSTEAD
-import { http } from "../common/http-client.ts";
+import { http } from "../common/http-client.ts"//
 await http.get(url, options)
 await http.post(url, body, options)
 ```
@@ -59,8 +59,8 @@ Deno.writeTextFile(...)
 Deno.env.get(...)
 
 // USE INSTEAD
-import { getPlatform } from "../platform/platform.ts";
-const platform = getPlatform();
+import { getPlatform } from "../platform/platform.ts"//
+const platform = getPlatform()//
 await platform.fs.readTextFile(...)
 await platform.fs.writeTextFile(...)
 platform.env.get(...)
@@ -69,16 +69,16 @@ platform.env.get(...)
 ### 4. Raw Error Throws
 ```typescript
 // DISCOURAGED - use typed errors when possible
-throw new Error("Something went wrong");
+throw new Error("Something went wrong")//
 
 // PREFERRED
-import { ValidationError, RuntimeError } from "../common/error.ts";
-throw new ValidationError("Invalid pattern", { line, column });
-throw new RuntimeError("Operation failed");
+import { ValidationError, RuntimeError } from "../common/error.ts"//
+throw new ValidationError("Invalid pattern", { line, column })//
+throw new RuntimeError("Operation failed")//
 
 // ALLOWED - JS semantic errors
-throw new TypeError("Expected string");
-throw new RangeError("Index out of bounds");
+throw new TypeError("Expected string")//
+throw new RangeError("Index out of bounds")//
 ```
 
 ### 5. Direct Init Calls
@@ -87,10 +87,10 @@ throw new RangeError("Index out of bounds");
 // Direct init helpers are not allowed. Use initializeRuntime instead.
 
 // USE INSTEAD
-import { initializeRuntime } from "../common/runtime-initializer.ts";
-await initializeRuntime();
+import { initializeRuntime } from "../common/runtime-initializer.ts"//
+await initializeRuntime()//
 // Or with options:
-await initializeRuntime({ ai: false });
+await initializeRuntime({ ai: false })//
 ```
 
 ## Allowed Bypasses

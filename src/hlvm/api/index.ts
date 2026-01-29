@@ -5,12 +5,12 @@
  * These are designed to be registered on globalThis for REPL access.
  *
  * Usage in HLVM REPL:
- *   (config.get "model")       ; Configuration
- *   (memory.list)              ; Persistent definitions
- *   (session.list)             ; Chat sessions
- *   (history.list)             ; Command history
- *   (ai.generate "prompt")     ; AI capabilities
- *   (ai.models.list)           ; Model management
+ *   (config.get "model")       // Configuration
+ *   (memory.list)              // Persistent definitions
+ *   (session.list)             // Chat sessions
+ *   (history.list)             // Command history
+ *   (ai.generate "prompt")     // AI capabilities
+ *   (ai.models.list)           // Model management
  */
 
 // ============================================================================

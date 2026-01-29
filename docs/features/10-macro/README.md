@@ -22,77 +22,77 @@ All macro operations happen at **compile time**, generating code before runtime.
 ### Quote - Code as Data
 
 ```lisp
-; Basic quote
-(quote x)                    ; => "x" (symbol as string)
-(quote 42)                   ; => 42 (number)
-(quote "hello")              ; => "hello" (string)
-(quote true)                 ; => true (boolean)
+// Basic quote
+(quote x)                    // => "x" (symbol as string)
+(quote 42)                   // => 42 (number)
+(quote "hello")              // => "hello" (string)
+(quote true)                 // => true (boolean)
 
-; Quote lists
-(quote ())                   ; => [] (empty array)
-(quote (a b c))              ; => ["a", "b", "c"] (symbols as strings)
-(quote (a (b c) d))          ; => ["a", ["b", "c"], "d"] (nested)
+// Quote lists
+(quote ())                   // => [] (empty array)
+(quote (a b c))              // => ["a", "b", "c"] (symbols as strings)
+(quote (a (b c) d))          // => ["a", ["b", "c"], "d"] (nested)
 ```
 
 ### Quasiquote - Templates with Interpolation
 
 ```lisp
-; Quasiquote without unquote (acts like quote)
-(quasiquote (a b c))         ; => ["a", "b", "c"]
+// Quasiquote without unquote (acts like quote)
+(quasiquote (a b c))         // => ["a", "b", "c"]
 
-; Quasiquote with unquote (evaluate expression)
+// Quasiquote with unquote (evaluate expression)
 (var x 10)
-(quasiquote (a (unquote x) c))  ; => ["a", 10, "c"]
+(quasiquote (a (unquote x) c))  // => ["a", 10, "c"]
 
-; Multiple unquotes
+// Multiple unquotes
 (var x 5)
 (var y 10)
 (quasiquote ((unquote x) (unquote y) (unquote (+ x y))))
-; => [5, 10, 15]
+// => [5, 10, 15]
 
-; Unquote-splicing (splice array into template)
+// Unquote-splicing (splice array into template)
 (var nums [1, 2, 3])
 (quasiquote (a (unquote-splicing nums) b))
-; => ["a", 1, 2, 3, "b"]
+// => ["a", 1, 2, 3, "b"]
 
-; Multiple unquote-splicings
+// Multiple unquote-splicings
 (var first [1, 2])
 (var second [3, 4])
 (quasiquote ((unquote-splicing first) (unquote-splicing second)))
-; => [1, 2, 3, 4]
+// => [1, 2, 3, 4]
 ```
 
 ### Backtick Syntax (Shorthand)
 
 ```lisp
-; Backtick for quasiquote
-`(a b c)                     ; => ["a", "b", "c"]
+// Backtick for quasiquote
+`(a b c)                     // => ["a", "b", "c"]
 
-; Tilde (~) for unquote
+// Tilde (~) for unquote
 (var x 42)
-`(result is ~x)              ; => ["result", "is", 42]
+`(result is ~x)              // => ["result", "is", 42]
 
-; ~@ for unquote-splicing
+// ~@ for unquote-splicing
 (var items ["apple", "banana", "cherry"])
-`(fruits: ~@items)           ; => ["fruits:", "apple", "banana", "cherry"]
+`(fruits: ~@items)           // => ["fruits:", "apple", "banana", "cherry"]
 ```
 
 ### Macros - Compile-Time Transformations
 
 ```lisp
-; Define a macro
+// Define a macro
 (macro when [condition body]
   `(if ~condition ~body null))
 
-; Use the macro
+// Use the macro
 (var x 10)
-(when (> x 5) "x is greater than 5")  ; => "x is greater than 5"
+(when (> x 5) "x is greater than 5")  // => "x is greater than 5"
 
-; Macro with variadic arguments (using unquote-splicing)
+// Macro with variadic arguments (using unquote-splicing)
 (macro log-all [items]
   `(do ~@items))
 
-(log-all ((var a 1) (var b 2) (+ a b)))  ; => 3
+(log-all ((var a 1) (var b 2) (+ a b)))  // => 3
 ```
 
 ## Implementation Details
@@ -104,12 +104,12 @@ All macro operations happen at **compile time**, generating code before runtime.
 ```lisp
 (quote expr)
 
-; Compiles to:
-; - Symbols → strings
-; - Numbers → numbers
-; - Strings → strings
-; - Booleans → booleans
-; - Lists → arrays (recursively quoted)
+// Compiles to:
+// - Symbols → strings
+// - Numbers → numbers
+// - Strings → strings
+// - Booleans → booleans
+// - Lists → arrays (recursively quoted)
 ```
 
 **Characteristics:**
@@ -127,7 +127,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 ```lisp
 (quasiquote (a (unquote x) (unquote-splicing ys)))
 
-; Compiles to:
+// Compiles to:
 ["a", x, ...ys]  // Spread operator for splicing
 ```
 
@@ -146,7 +146,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 ```lisp
 `(a ~x ~@ys)
 
-; Transformed by reader to:
+// Transformed by reader to:
 (quasiquote (a (unquote x) (unquote-splicing ys)))
 ```
 
@@ -166,12 +166,12 @@ All macro operations happen at **compile time**, generating code before runtime.
 (macro name [params]
   body)
 
-; At compile time:
-; 1. Parse macro call
-; 2. Bind arguments
-; 3. Evaluate body (quasiquote/unquote)
-; 4. Replace call with result
-; 5. Continue compilation
+// At compile time:
+// 1. Parse macro call
+// 2. Bind arguments
+// 3. Evaluate body (quasiquote/unquote)
+// 4. Replace call with result
+// 5. Continue compilation
 ```
 
 **Characteristics:**
@@ -260,18 +260,18 @@ All macro operations happen at **compile time**, generating code before runtime.
 ### 1. Code Generation
 
 ```lisp
-; Generate repetitive code
+// Generate repetitive code
 (macro defgetter [name field]
   `(fn ~name [] this.~field))
 
-; Expands to:
+// Expands to:
 (fn getName [] this.name)
 ```
 
 ### 2. Control Flow Extensions
 
 ```lisp
-; Custom control structures
+// Custom control structures
 (macro unless [condition body]
   `(if (not ~condition) ~body null))
 
@@ -282,7 +282,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 ### 3. DSL Creation
 
 ```lisp
-; Domain-specific language
+// Domain-specific language
 (macro route [method path handler]
   `(app.~method ~path ~handler))
 
@@ -292,7 +292,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 ### 4. Assertion Helpers
 
 ```lisp
-; Expressive test assertions
+// Expressive test assertions
 (macro assert-equals [actual expected]
   `(if (!= ~actual ~expected)
      (throw (new Error (+ "Expected " ~expected " but got " ~actual)))
@@ -302,7 +302,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 ### 5. Logging with Context
 
 ```lisp
-; Auto-inject source location
+// Auto-inject source location
 (macro log-debug [message data]
   `(console.log "[DEBUG]" ~message ~data))
 ```
@@ -310,7 +310,7 @@ All macro operations happen at **compile time**, generating code before runtime.
 ### 6. Configuration DSL
 
 ```lisp
-; Environment-based config
+// Environment-based config
 (macro config [env settings]
   `(if (=== process.env.NODE_ENV ~env)
      ~settings
@@ -329,8 +329,8 @@ All macro operations happen at **compile time**, generating code before runtime.
 
 ```javascript
 // JavaScript (runtime interpolation)
-const x = 42;
-const result = `The answer is ${x}`;  // String only
+const x = 42//
+const result = `The answer is ${x}`//  // String only
 
 // HQL quasiquote (compile-time, code generation)
 (var x 42)
@@ -386,11 +386,11 @@ JavaScript
 ### Use Macros Sparingly
 
 ```lisp
-; ✅ Good: Simple helper function (no macro needed)
+// ✅ Good: Simple helper function (no macro needed)
 (fn unless [condition body]
   (if (not condition) body null))
 
-; ⚠️ Overkill: Macro for simple function
+// ⚠️ Overkill: Macro for simple function
 (macro unless [condition body]
   `(if (not ~condition) ~body null))
 ```
@@ -398,11 +398,11 @@ JavaScript
 ### Quote When You Need Code as Data
 
 ```lisp
-; ✅ Good: Code generation
+// ✅ Good: Code generation
 (macro defgetter [name field]
   `(fn ~name [] this.~field))
 
-; ❌ Wrong: Regular function (not code generation)
+// ❌ Wrong: Regular function (not code generation)
 (fn defgetter [name field]
   (fn [] this.field))  // Loses parameterization
 ```
@@ -410,21 +410,21 @@ JavaScript
 ### Prefer Backtick Syntax
 
 ```lisp
-; ✅ Good: Concise backtick
+// ✅ Good: Concise backtick
 `(if ~condition ~then ~else)
 
-; ❌ Verbose: Full form
+// ❌ Verbose: Full form
 (quasiquote (if (unquote condition) (unquote then) (unquote else)))
 ```
 
 ### Use Unquote-Splicing for Lists
 
 ```lisp
-; ✅ Good: Splice array elements
-`(do ~@statements)  ; => (do stmt1 stmt2 stmt3)
+// ✅ Good: Splice array elements
+`(do ~@statements)  // => (do stmt1 stmt2 stmt3)
 
-; ❌ Wrong: Unquote entire array
-`(do ~statements)   ; => (do [stmt1, stmt2, stmt3])
+// ❌ Wrong: Unquote entire array
+`(do ~statements)   // => (do [stmt1, stmt2, stmt3])
 ```
 
 ## Edge Cases Tested
@@ -490,22 +490,22 @@ Threading macros transform nested function calls into readable linear pipelines.
 Inserts the value as the **first argument** of each form:
 
 ```lisp
-; Basic threading
-(-> 5 inc inc)                    ; => 7 (same as (inc (inc 5)))
+// Basic threading
+(-> 5 inc inc)                    // => 7 (same as (inc (inc 5)))
 
-; With function calls
+// With function calls
 (-> "hello"
     (.toUpperCase)
-    (.substring 0 3))             ; => "HEL"
+    (.substring 0 3))             // => "HEL"
 
-; Complex pipeline
+// Complex pipeline
 (-> user
     (get-profile)
     (update-name "Alice")
     (save))
 
-; Compilation:
-; (-> x (f a) (g b)) => (g (f x a) b)
+// Compilation:
+// (-> x (f a) (g b)) => (g (f x a) b)
 ```
 
 #### Thread-Last (`->>`)
@@ -513,19 +513,19 @@ Inserts the value as the **first argument** of each form:
 Inserts the value as the **last argument** of each form:
 
 ```lisp
-; With collections
+// With collections
 (->> [1 2 3 4 5]
      (filter isOdd)
-     (map double))                ; => [2 6 10]
+     (map double))                // => [2 6 10]
 
-; String processing
+// String processing
 (->> items
      (filter active?)
      (map get-name)
      (join ", "))
 
-; Compilation:
-; (->> x (f a) (g b)) => (g b (f a x))
+// Compilation:
+// (->> x (f a) (g b)) => (g b (f a x))
 ```
 
 #### Thread-As (`as->`)
@@ -533,17 +533,17 @@ Inserts the value as the **last argument** of each form:
 Binds the value to a symbol for arbitrary placement:
 
 ```lisp
-; Place value anywhere
+// Place value anywhere
 (as-> 2 x
-  (+ x 1)                         ; x is 2, result is 3
-  (* 10 x)                        ; x is 3, result is 30
-  (- x 5))                        ; x is 30, result is 25
+  (+ x 1)                         // x is 2, result is 3
+  (* 10 x)                        // x is 3, result is 30
+  (- x 5))                        // x is 30, result is 25
 
-; Mixed positioning
+// Mixed positioning
 (as-> user u
-  (get-id u)                      ; thread-first style
+  (get-id u)                      // thread-first style
   (fetch-data u)
-  (process id: u name: "test"))   ; arbitrary position
+  (process id: u name: "test"))   // arbitrary position
 ```
 
 ### Logic Macros
@@ -551,31 +551,31 @@ Binds the value to a symbol for arbitrary placement:
 #### `and` - Logical AND with short-circuit
 
 ```lisp
-(and)                             ; => true (identity)
-(and x)                           ; => x
-(and x y z)                       ; => (&& (&& x y) z)
+(and)                             // => true (identity)
+(and x)                           // => x
+(and x y z)                       // => (&& (&& x y) z)
 
-; Short-circuit evaluation
-(and (> x 0) (< x 10))           ; Only evaluates second if first is truthy
+// Short-circuit evaluation
+(and (> x 0) (< x 10))           // Only evaluates second if first is truthy
 ```
 
 #### `or` - Logical OR with short-circuit
 
 ```lisp
-(or)                              ; => false (identity)
-(or x)                            ; => x
-(or x y z)                        ; => (|| (|| x y) z)
+(or)                              // => false (identity)
+(or x)                            // => x
+(or x y z)                        // => (|| (|| x y) z)
 
-; Default value pattern
-(or user.name "Anonymous")        ; Use name or default
+// Default value pattern
+(or user.name "Anonymous")        // Use name or default
 ```
 
 #### `not` - Logical negation
 
 ```lisp
-(not true)                        ; => false
-(not false)                       ; => true
-(not value)                       ; => (if value false true)
+(not true)                        // => false
+(not false)                       // => true
+(not value)                       // => (if value false true)
 ```
 
 ### Conditional Macros
@@ -585,10 +585,10 @@ Binds the value to a symbol for arbitrary placement:
 ```lisp
 (when condition
   (print "It's true!")
-  (do-something))                 ; Only executes if condition is truthy
+  (do-something))                 // Only executes if condition is truthy
 
-; Compiles to:
-; (if condition (do ...) nil)
+// Compiles to:
+// (if condition (do ...) nil)
 ```
 
 #### `unless` - Inverse conditional
@@ -596,21 +596,21 @@ Binds the value to a symbol for arbitrary placement:
 ```lisp
 (unless error
   (process data)
-  (save result))                  ; Only executes if error is falsy
+  (save result))                  // Only executes if error is falsy
 
-; Compiles to:
-; (if error nil (do ...))
+// Compiles to:
+// (if error nil (do ...))
 ```
 
 #### `if-let` - Conditional binding
 
 ```lisp
-; Only execute then-branch if binding is truthy
+// Only execute then-branch if binding is truthy
 (if-let [user (find-user id)]
-  (greet user)                    ; user is bound and truthy
-  (print "User not found"))       ; else branch
+  (greet user)                    // user is bound and truthy
+  (print "User not found"))       // else branch
 
-; Bracket or paren syntax both work
+// Bracket or paren syntax both work
 (if-let (result (compute))
   (use result)
   (handle-error))
@@ -619,12 +619,12 @@ Binds the value to a symbol for arbitrary placement:
 #### `when-let` - Conditional binding (single branch)
 
 ```lisp
-; Only execute body if binding is truthy
+// Only execute body if binding is truthy
 (when-let [data (fetch-data)]
   (process data)
-  (save data))                    ; Only if data is truthy
+  (save data))                    // Only if data is truthy
 
-; Useful for optional chaining
+// Useful for optional chaining
 (when-let [user (get-user)]
   (when-let [email user.email]
     (send-notification email)))
@@ -633,14 +633,14 @@ Binds the value to a symbol for arbitrary placement:
 #### `cond` - Multi-branch conditional
 
 ```lisp
-; Multiple conditions
+// Multiple conditions
 (cond
   ((< x 0) "negative")
   ((=== x 0) "zero")
   ((> x 0) "positive")
-  (else "unknown"))               ; else clause is optional
+  (else "unknown"))               // else clause is optional
 
-; Flat syntax also supported
+// Flat syntax also supported
 (cond
   (< x 0) "negative"
   (=== x 0) "zero"
@@ -654,23 +654,23 @@ All type predicates compile to **optimal inline JavaScript** with zero function 
 #### Nullish Checks
 
 ```lisp
-(isNull x)                        ; => (=== x null)
-(isUndefined x)                   ; => (=== x undefined)
-(isNil x)                         ; => (== x null)  ; catches null AND undefined
-(isDefined x)                     ; => (!== x undefined)
-(notNil x)                        ; => (!= x null)  ; neither null nor undefined
+(isNull x)                        // => (=== x null)
+(isUndefined x)                   // => (=== x undefined)
+(isNil x)                         // => (== x null)  // catches null AND undefined
+(isDefined x)                     // => (!== x undefined)
+(notNil x)                        // => (!= x null)  // neither null nor undefined
 ```
 
 #### Type Checks
 
 ```lisp
-(isString x)                      ; => (=== (typeof x) "string")
-(isNumber x)                      ; => (=== (typeof x) "number")
-(isBoolean x)                     ; => (=== (typeof x) "boolean")
-(isFunction x)                    ; => (=== (typeof x) "function")
-(isSymbol x)                      ; => (=== (typeof x) "symbol")
-(isArray x)                       ; => (Array.isArray x)
-(isObject x)                      ; => typeof object, not null, not array
+(isString x)                      // => (=== (typeof x) "string")
+(isNumber x)                      // => (=== (typeof x) "number")
+(isBoolean x)                     // => (=== (typeof x) "boolean")
+(isFunction x)                    // => (=== (typeof x) "function")
+(isSymbol x)                      // => (=== (typeof x) "symbol")
+(isArray x)                       // => (Array.isArray x)
+(isObject x)                      // => typeof object, not null, not array
 ```
 
 ### Utility Macros
@@ -678,61 +678,61 @@ All type predicates compile to **optimal inline JavaScript** with zero function 
 #### `inc` / `dec` - Increment/Decrement
 
 ```lisp
-(inc x)                           ; => (+ x 1)
-(dec x)                           ; => (- x 1)
+(inc x)                           // => (+ x 1)
+(dec x)                           // => (- x 1)
 
-; Common usage
+// Common usage
 (var count 0)
-(set count (inc count))           ; count is now 1
+(set count (inc count))           // count is now 1
 ```
 
 #### `print` - Console logging
 
 ```lisp
-(print "Hello")                   ; => console.log("Hello")
-(print "Value:" x)                ; => console.log("Value:", x)
-(print a b c)                     ; => console.log(a, b, c)
+(print "Hello")                   // => console.log("Hello")
+(print "Value:" x)                // => console.log("Value:", x)
+(print a b c)                     // => console.log(a, b, c)
 ```
 
 #### `str` - String concatenation
 
 ```lisp
-(str)                             ; => ""
-(str x)                           ; => (+ "" x)  ; coerce to string
-(str "Hello" " " name)            ; => (+ "Hello" " " name)
+(str)                             // => ""
+(str x)                           // => (+ "" x)  // coerce to string
+(str "Hello" " " name)            // => (+ "Hello" " " name)
 ```
 
 #### `length` - Collection length
 
 ```lisp
-(length arr)                      ; => arr.length (null-safe)
-(length null)                     ; => 0
+(length arr)                      // => arr.length (null-safe)
+(length null)                     // => 0
 ```
 
 #### `list` - Create array
 
 ```lisp
-(list 1 2 3)                      ; => [1, 2, 3]
-(list)                            ; => []
+(list 1 2 3)                      // => [1, 2, 3]
+(list)                            // => []
 ```
 
 #### `contains` - Map/Set membership
 
 ```lisp
-(contains myMap key)              ; => myMap.has(key)
-(contains mySet value)            ; => mySet.has(value)
+(contains myMap key)              // => myMap.has(key)
+(contains mySet value)            // => mySet.has(value)
 ```
 
 ### Collection Macros
 
 ```lisp
-(hash-map "a" 1 "b" 2)            ; => {a: 1, b: 2}
-(empty-map)                       ; => {}
-(empty-set)                       ; => new Set()
-(empty-array)                     ; => []
+(hash-map "a" 1 "b" 2)            // => {a: 1, b: 2}
+(empty-map)                       // => {}
+(empty-set)                       // => new Set()
+(empty-array)                     // => []
 
-(hasElements coll)                ; => (> (length coll) 0)
-(isEmptyList coll)                ; => (=== (length coll) 0)
+(hasElements coll)                // => (> (length coll) 0)
+(isEmptyList coll)                // => (=== (length coll) 0)
 ```
 
 ### Pattern Matching (`match`)
@@ -740,39 +740,39 @@ All type predicates compile to **optimal inline JavaScript** with zero function 
 The `match` macro provides powerful pattern matching similar to Swift/Scala:
 
 ```lisp
-; Basic literal matching
+// Basic literal matching
 (match value
   (case 1 "one")
   (case 2 "two")
   (default "other"))
 
-; Symbol binding
+// Symbol binding
 (match result
-  (case x (print "Got:" x)))      ; x binds to result
+  (case x (print "Got:" x)))      // x binds to result
 
-; Wildcard pattern
+// Wildcard pattern
 (match value
-  (case _ "anything"))            ; _ matches but doesn't bind
+  (case _ "anything"))            // _ matches but doesn't bind
 
-; Array destructuring
+// Array destructuring
 (match [1 2 3]
-  (case [a b c] (+ a b c)))       ; => 6
+  (case [a b c] (+ a b c)))       // => 6
 
-; Rest pattern
+// Rest pattern
 (match [1 2 3 4 5]
-  (case [h & t] (list h t)))      ; => [1, [2, 3, 4, 5]]
+  (case [h & t] (list h t)))      // => [1, [2, 3, 4, 5]]
 
-; Object destructuring
+// Object destructuring
 (match {name: "Alice", age: 30}
   (case {name age} (str name " is " age)))
 
-; Guards
+// Guards
 (match value
   (case n (if (> n 0)) "positive")
   (case n (if (< n 0)) "negative")
   (default "zero"))
 
-; Complex example
+// Complex example
 (match response
   (case {status: 200, data} (process data))
   (case {status: 404} (handle-not-found))
@@ -798,22 +798,22 @@ Additional utility macros available from the utils library:
 Executes forms with x as the first argument, then returns x:
 
 ```lisp
-; Chain method calls, return the object
+// Chain method calls, return the object
 (doto (new Map)
   (.set "a" 1)
   (.set "b" 2)
-  (.set "c" 3))   ; => Map with 3 entries
+  (.set "c" 3))   // => Map with 3 entries
 
-; Object initialization
+// Object initialization
 (doto {}
   (= .name "Alice")
-  (= .age 30))    ; => {name: "Alice", age: 30}
+  (= .age 30))    // => {name: "Alice", age: 30}
 
-; Array mutations
+// Array mutations
 (doto []
   (.push 1)
   (.push 2)
-  (.push 3))      ; => [1, 2, 3]
+  (.push 3))      // => [1, 2, 3]
 ```
 
 #### `if-not` - Inverse of If
@@ -822,7 +822,7 @@ Swaps the then and else branches:
 
 ```lisp
 (if-not condition then else)
-; Equivalent to: (if condition else then)
+// Equivalent to: (if condition else then)
 
 (if-not (isEmpty list)
   (process list)
@@ -838,7 +838,7 @@ Execute body when condition is false:
   (continue-processing)
   (save-results))
 
-; Equivalent to: (if error nil (do ...))
+// Equivalent to: (if error nil (do ...))
 ```
 
 #### `xor` - Logical XOR
@@ -846,10 +846,10 @@ Execute body when condition is false:
 Exclusive OR - true if exactly one operand is truthy:
 
 ```lisp
-(xor true false)   ; => true
-(xor true true)    ; => false
-(xor false false)  ; => false
-(xor a b)          ; => (if a (not b) b)
+(xor true false)   // => true
+(xor true true)    // => false
+(xor false false)  // => false
+(xor a b)          // => (if a (not b) b)
 ```
 
 #### `min` / `max` - Math Functions
@@ -857,10 +857,10 @@ Exclusive OR - true if exactly one operand is truthy:
 Wrapper macros for JavaScript Math functions:
 
 ```lisp
-(min 1 2 3)        ; => 1 (Math.min(1, 2, 3))
-(max 1 2 3)        ; => 3 (Math.max(1, 2, 3))
+(min 1 2 3)        // => 1 (Math.min(1, 2, 3))
+(max 1 2 3)        // => 3 (Math.max(1, 2, 3))
 
-; With expressions
+// With expressions
 (min (+ a 1) (- b 2) c)
 ```
 
@@ -891,19 +891,19 @@ Wrapper macros for JavaScript Math functions:
 **Understanding Expansion:**
 
 ```lisp
-; To understand what a macro generates:
-; 1. Read the macro definition
-; 2. Trace the quasiquote template
-; 3. Substitute unquoted expressions
-; 4. Verify the result makes sense
+// To understand what a macro generates:
+// 1. Read the macro definition
+// 2. Trace the quasiquote template
+// 3. Substitute unquoted expressions
+// 4. Verify the result makes sense
 
 (macro when [condition body]
   `(if ~condition ~body null))
 
-; Call:
+// Call:
 (when (> x 5) (print "yes"))
 
-; Expands to:
+// Expands to:
 (if (> x 5) (print "yes") null)
 ```
 

@@ -54,11 +54,11 @@ Deno.test("Tooling: Cache invalidation updates source maps for changed files", a
     
     // Step 3: Create file with Version B (different structure)
     // Insert 5 lines at top so 'test' function moves down
-    const codeB = `;; New line 1
-;; New line 2
-;; New line 3
-;; New line 4
-;; New line 5
+    const codeB = `// New line 1
+// New line 2
+// New line 3
+// New line 4
+// New line 5
 (print "Version B")
 (fn test [] (+ 1 2))
 (test)`;

@@ -1,10 +1,10 @@
-;; ====================================================
-;; HQL Utility Macros
-;; Common Lisp-style utilities
-;; ====================================================
+// ====================================================
+// HQL Utility Macros
+// Common Lisp-style utilities
+// ====================================================
 
-;; doto: Executes forms with x as first argument, returns x
-;; (doto (new HashMap) (.set "a" 1) (.set "b" 2))
+// doto: Executes forms with x as first argument, returns x
+// (doto (new HashMap) (.set "a" 1) (.set "b" 2))
 (macro doto [x & forms]
   (let (gx (gensym "doto"))
     `(let (~gx ~x)
@@ -21,15 +21,15 @@
               forms)
        ~gx)))
 
-;; if-not: Inverse of if
+// if-not: Inverse of if
 (macro if-not [test then else]
   `(if ~test ~else ~then))
 
-;; when-not: Inverse of when
+// when-not: Inverse of when
 (macro when-not [test & body]
   `(if ~test nil (do ~@body)))
 
-;; xor: Logical XOR
+// xor: Logical XOR
 (macro xor [a b]
   (let (ga (gensym "xor_a")
         gb (gensym "xor_b"))
@@ -37,25 +37,25 @@
            ~gb ~b)
        (if ~ga (not ~gb) ~gb))))
 
-;; min/max macros expanding to Math functions
+// min/max macros expanding to Math functions
 (macro min [& args]
   `(Math.min ~@args))
 
 (macro max [& args]
   `(Math.max ~@args))
 
-;; with-gensyms: Hygiene helper for macro writers
-;; Binds each name to a unique gensym for safe macro expansion.
-;;
-;; Usage:
-;;   (macro my-swap [a b]
-;;     (with-gensyms [tmp]
-;;       `(let (~tmp ~a)
-;;          (= ~a ~b)
-;;          (= ~b ~tmp))))
-;;
-;; Each name in the vector gets bound to (gensym "name"), making the
-;; macro hygienic by avoiding variable capture.
+// with-gensyms: Hygiene helper for macro writers
+// Binds each name to a unique gensym for safe macro expansion.
+//
+// Usage:
+//   (macro my-swap [a b]
+//     (with-gensyms [tmp]
+//       `(let (~tmp ~a)
+//          (= ~a ~b)
+//          (= ~b ~tmp))))
+//
+// Each name in the vector gets bound to (gensym "name"), making the
+// macro hygienic by avoiding variable capture.
 (macro with-gensyms [names & body]
   `(let ~(apply vector
            (apply concat

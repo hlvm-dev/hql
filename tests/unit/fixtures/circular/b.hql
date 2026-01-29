@@ -1,5 +1,5 @@
-;; test/fixtures/circular/b.hql
-;; Basic circular dependency test - Module B
+// test/fixtures/circular/b.hql
+// Basic circular dependency test - Module B
 
 (import [circularValue] from "./a.hql")
 

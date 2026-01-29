@@ -331,12 +331,12 @@ Deno.test("TCO: cross-group mutual recursion calls are trampolined", async () =>
   // calls a function in another group (B), the call is properly wrapped
   // in a trampoline instead of returning a raw thunk.
   const result = await evalHql(`
-    ;; Group A
+    // Group A
     (fn is-even [n] 
       (if (=== n 0) 
           (do 
-            ;; Call to Group B from inside Group A
-            ;; If not trampolined, ping returns a thunk that is ignored
+            // Call to Group B from inside Group A
+            // If not trampolined, ping returns a thunk that is ignored
             (ping 5) 
             true)
           (is-odd (- n 1))))
@@ -344,17 +344,17 @@ Deno.test("TCO: cross-group mutual recursion calls are trampolined", async () =>
     (fn is-odd [n] 
       (if (=== n 0) false (is-even (- n 1))))
 
-    ;; Group B
+    // Group B
     (fn ping [n]
       (if (=== n 0) "ponged" (pong (- n 1))))
 
     (fn pong [n]
       (if (=== n 0) "pinged" (ping (- n 1))))
       
-    ;; The side effect of ping is not easily observable here without console.log,
-    ;; but if ping returned a thunk, it wouldn't execute fully.
-    ;; We rely on the fact that if it CRASHES or returns weird type, this test fails.
-    ;; To be sure, let's return the result of ping
+    // The side effect of ping is not easily observable here without console.log,
+    // but if ping returned a thunk, it wouldn't execute fully.
+    // We rely on the fact that if it CRASHES or returns weird type, this test fails.
+    // To be sure, let's return the result of ping
     
     (fn test-cross-call []
       (let [res (ping 4)]

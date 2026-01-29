@@ -443,10 +443,10 @@ Deno.test("laziness: elements computed only when accessed", async () => {
 
     (let nums (counting 1))
 
-    ;; Access first 5 elements
+    // Access first 5 elements
     (doall (take 5 nums))
 
-    ;; Return realized count - should be EXACTLY 5
+    // Return realized count - should be EXACTLY 5
     realized
   `);
 

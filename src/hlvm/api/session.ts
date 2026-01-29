@@ -3,10 +3,10 @@
  *
  * Programmable access to HLVM chat sessions (global).
  * Usage in REPL:
- *   (session.list)                  ; List all sessions
- *   (session.get "id")              ; Load a specific session
- *   (session.current)               ; Get current session info
- *   (session.remove "id")           ; Delete a session
+ *   (session.list)                  // List all sessions
+ *   (session.get "id")              // Load a specific session
+ *   (session.current)               // Get current session info
+ *   (session.remove "id")           // Delete a session
  */
 
 import {

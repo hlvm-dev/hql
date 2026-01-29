@@ -1,14 +1,14 @@
-; ============================================================================
-; Rest Parameters Examples (v2.0) - Executable Demonstrations
-; ============================================================================
-; Run with: deno run -A src/hlvm/cli/run.ts docs/features/13-rest-parameters/examples.hql
+// ============================================================================
+// Rest Parameters Examples (v2.0) - Executable Demonstrations
+// ============================================================================
+// Run with: deno run -A src/hlvm/cli/run.ts docs/features/13-rest-parameters/examples.hql
 
 (import [assert, assertEqual] from "@hlvm/assert")
 
 (print "=== REST PARAMETERS EXAMPLES ===")
 (print "")
 
-; Basic rest parameter
+// Basic rest parameter
 (print "1. Basic rest parameter:")
 (fn sumAll [...nums]
   (.reduce nums (fn [acc val] (+ acc val)) 0))
@@ -23,7 +23,7 @@
 (print "  (sumAll 100) =>" sumAll-3)
 (print "")
 
-; Rest with regular param
+// Rest with regular param
 (print "2. Rest with regular param:")
 (fn addToBase [base ...nums]
   (+ base (.reduce nums (fn [acc val] (+ acc val)) 0)))
@@ -35,7 +35,7 @@
 (print "  (addToBase 50 10 20 30) =>" addToBase-2)
 (print "")
 
-; Rest with multiple regular params
+// Rest with multiple regular params
 (print "3. Rest with multiple regular params:")
 (fn addAll [x y z ...rest]
   (+ x y z (.reduce rest (fn [acc val] (+ acc val)) 0)))
@@ -47,7 +47,7 @@
 (print "  (addAll 5 10 15) =>" addAll-2)
 (print "")
 
-; Empty rest arrays
+// Empty rest arrays
 (print "4. Empty rest arrays:")
 (fn getLength [...items]
   (get items "length"))
@@ -62,7 +62,7 @@
 (print "  (getLength 1 2 3 4 5) =>" len-5)
 (print "")
 
-; Array indexing
+// Array indexing
 (print "5. Array indexing on rest:")
 (fn getFirst [...items]
   (get items 0))
@@ -76,7 +76,7 @@
 (print "  (getSecond 10 20 30) =>" second-item)
 (print "")
 
-; Array methods
+// Array methods
 (print "6. Array methods on rest:")
 (fn doubleAll [...nums]
   (.map nums (fn [n] (* n 2))))
@@ -85,7 +85,7 @@
 (print "  (doubleAll 1 2 3) =>" doubled)
 (print "")
 
-; Filter
+// Filter
 (print "7. Filter on rest:")
 (fn getEvens [...nums]
   (.filter nums (fn [n] (== (% n 2) 0))))
@@ -94,7 +94,7 @@
 (print "  (getEvens 1 2 3 4 5 6) =>" evens)
 (print "")
 
-; Multiply all
+// Multiply all
 (print "8. Product of all:")
 (fn multiply [...nums]
   (.reduce nums (fn [acc n] (* acc n)) 1))
@@ -106,7 +106,7 @@
 (print "  (multiply 5 5 5) =>" product-2)
 (print "")
 
-; String join
+// String join
 (print "9. Join strings:")
 (fn concatAll [...strs]
   (.join strs ""))
@@ -115,7 +115,7 @@
 (print "  (concatAll \"Hello\" \" \" \"World\") =>" concat)
 (print "")
 
-; Join with separator
+// Join with separator
 (print "10. Join with separator:")
 (fn joinWithSep [sep ...strs]
   (.join strs sep))
@@ -124,7 +124,7 @@
 (print "  (joinWithSep \", \" \"a\" \"b\" \"c\") =>" joined)
 (print "")
 
-; Real-world: max function
+// Real-world: max function
 (print "11. Max function:")
 (fn max [...nums]
   (.reduce nums (fn [acc n] (? (> n acc) n acc)) (get nums 0)))
@@ -136,7 +136,7 @@
 (print "  (max 100 50 75) =>" max-2)
 (print "")
 
-; Real-world: min function
+// Real-world: min function
 (print "12. Min function:")
 (fn min [...nums]
   (.reduce nums (fn [acc n] (? (< n acc) n acc)) (get nums 0)))
@@ -145,7 +145,7 @@
 (print "  (min 3 7 2 9 1 5) =>" min-1)
 (print "")
 
-; Real-world: average
+// Real-world: average
 (print "13. Average function:")
 (fn average [...nums]
   (let sum (.reduce nums (fn [a b] (+ a b)) 0))

@@ -63,7 +63,7 @@ Guards are checked **after** pattern binding, allowing use of bound variables.
 ```lisp
 (match x
   (case 0 "zero")
-  (case n (+ "value: " n)))  ; n binds to x
+  (case n (+ "value: " n)))  // n binds to x
 ```
 
 ### Wildcard Pattern
@@ -72,23 +72,23 @@ Guards are checked **after** pattern binding, allowing use of bound variables.
 (match value
   (case 1 "one")
   (case 2 "two")
-  (case _ "other"))  ; _ matches anything
+  (case _ "other"))  // _ matches anything
 ```
 
 ### Array Patterns
 
 ```lisp
-; Empty array
+// Empty array
 (match arr
   (case [] "empty")
   (default "not empty"))
 
-; Fixed-length array
+// Fixed-length array
 (match point
   (case [x, y] (+ x y))
   (default 0))
 
-; Rest pattern (head & tail)
+// Rest pattern (head & tail)
 (match numbers
   (case [] 0)
   (case [h, & t] (+ h (sum t))))
@@ -101,7 +101,7 @@ Guards are checked **after** pattern binding, allowing use of bound variables.
   (case {name: n, age: a} (+ n " is " a " years old"))
   (default "unknown user"))
 
-; Single key
+// Single key
 (match config
   (case {port: p} p)
   (default 8080))
@@ -115,7 +115,7 @@ Guards are checked **after** pattern binding, allowing use of bound variables.
   (case x (if (< x 0)) "negative")
   (default "zero"))
 
-; Guard with array binding
+// Guard with array binding
 (match pair
   (case [a, b] (if (> a b)) "a > b")
   (case [a, b] (if (< a b)) "a < b")
@@ -125,12 +125,12 @@ Guards are checked **after** pattern binding, allowing use of bound variables.
 ### Nested Patterns
 
 ```lisp
-; Nested arrays
+// Nested arrays
 (match matrix
   (case [[a, b], [c, d]] (+ a b c d))
   (default 0))
 
-; Object with array value
+// Object with array value
 (match point
   (case {coords: [x, y]} (+ x y))
   (default 0))
@@ -139,21 +139,21 @@ Guards are checked **after** pattern binding, allowing use of bound variables.
 ### Recursive Pattern Matching
 
 ```lisp
-; Sum of list
+// Sum of list
 (fn sum [lst]
   (match lst
     (case [] 0)
     (case [h, & t] (+ h (sum t)))))
 
-(sum [1, 2, 3, 4, 5])  ; => 15
+(sum [1, 2, 3, 4, 5])  // => 15
 
-; Length of list
+// Length of list
 (fn my-length [lst]
   (match lst
     (case [] 0)
     (case [_, & t] (+ 1 (my-length t)))))
 
-(my-length [1, 2, 3, 4])  ; => 4
+(my-length [1, 2, 3, 4])  // => 4
 ```
 
 ## Implementation Details
@@ -168,12 +168,12 @@ Pattern matching compiles to nested ternary expressions:
   (case n (+ n 1))
   (default "other"))
 
-; Compiles to:
+// Compiles to:
 (() => {
-  let match_0 = x;
+  let match_0 = x//
   return match_0 === 42 ? "answer" :
-         true ? (() => { let n = match_0; return n + 1; })() :
-         "other";
+         true ? (() => { let n = match_0// return n + 1; })() :
+         "other"//
 })()
 ```
 
@@ -332,9 +332,9 @@ default: return "other"
 
 ```javascript
 // JavaScript (no native pattern matching)
-if (x === 42) return "answer";
-if (x > 0) return "positive";
-return "other";
+if (x === 42) return "answer"//
+if (x > 0) return "positive"//
+return "other"//
 
 // HQL compiles to similar ternary chain
 ```
@@ -344,29 +344,29 @@ return "other";
 ### Use Specific Patterns First
 
 ```lisp
-; Good: specific cases first
+// Good: specific cases first
 (match x
   (case 0 "zero")
   (case 1 "one")
   (case n (+ "number: " n)))
 
-; Bad: catch-all first (unreachable cases)
+// Bad: catch-all first (unreachable cases)
 (match x
   (case n (+ "number: " n))
-  (case 0 "zero")       ; never reached!
-  (case 1 "one"))       ; never reached!
+  (case 0 "zero")       // never reached!
+  (case 1 "one"))       // never reached!
 ```
 
 ### Always Include Default/Wildcard
 
 ```lisp
-; Good: explicit fallback
+// Good: explicit fallback
 (match status
   (case 200 "ok")
   (case 404 "not found")
   (default "error"))
 
-; Risky: might throw "No matching pattern"
+// Risky: might throw "No matching pattern"
 (match status
   (case 200 "ok")
   (case 404 "not found"))
@@ -375,13 +375,13 @@ return "other";
 ### Use Guards for Complex Conditions
 
 ```lisp
-; Good: guards for conditions
+// Good: guards for conditions
 (match n
   (case x (if (> x 100)) "large")
   (case x (if (> x 10)) "medium")
   (case _ "small"))
 
-; Alternative: nested match (more verbose)
+// Alternative: nested match (more verbose)
 (match n
   (case x (match (> x 100)
             (case true "large")
@@ -393,11 +393,11 @@ return "other";
 ### Prefer Destructuring Over Manual Access
 
 ```lisp
-; Good: destructuring
+// Good: destructuring
 (match point
   (case [x, y] (+ x y)))
 
-; Verbose: manual access
+// Verbose: manual access
 (match point
   (case p (+ (nth p 0) (nth p 1))))
 ```

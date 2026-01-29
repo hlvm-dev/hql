@@ -394,8 +394,8 @@ export function* __hql_trampoline_gen<T>(
  *
  * @example
  * // In HQL:
- * (ask "hello")         ; → Returns async iterator, REPL streams live
- * (await (ask "hello")) ; → Consumes iterator, returns full string "Hello..."
+ * (ask "hello")         // → Returns async iterator, REPL streams live
+ * (await (ask "hello")) // → Consumes iterator, returns full string "Hello..."
  */
 export async function __hql_consume_async_iter(value: unknown): Promise<unknown> {
   // First await the value (handles Promises that resolve to async iterators)

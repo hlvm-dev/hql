@@ -70,42 +70,41 @@ Hello, World!
 ### Lesson 2: Variables
 
 ```lisp
-; Block-scoped mutable (like JS let)
+// Block-scoped mutable (like JS let)
 (let x 10)
 (let name "Alice")
 
-(print x)      ; → 10
-(print name)   ; → Alice
+(print x)      // → 10
+(print name)   // → Alice
 
-; Function-scoped mutable (like JS var)
+// Function-scoped mutable (like JS var)
 (var counter 0)
 (= counter 100)
-(print counter)  ; → 100
+(print counter)  // → 100
 
-; Immutable (like JS const)
+// Immutable (like JS const)
 (const PI 3.14159)
-(print PI)     ; → 3.14159
+(print PI)     // → 3.14159
 ```
 
 ### Lesson 3: Basic Math
 
 ```lisp
-(+ 1 2 3)           ; → 6
-(- 10 3)            ; → 7
-(* 2 3 4)           ; → 24
-(/ 10 2)            ; → 5
-(% 10 3)            ; → 1
+(+ 1 2 3)           // → 6
+(- 10 3)            // → 7
+(* 2 3 4)           // → 24
+(/ 10 2)            // → 5
+(% 10 3)            // → 1
 ```
 
 ### Lesson 4: Comments
 
 ```lisp
-; This is a single line comment
+// This is a single line comment
 
-;; Multiple semicolons are conventional
-;; for multi-line comments
+// Use /* ... */ for multi-line comments
 
-(+ 1 2)  ; inline comment
+(+ 1 2)  // inline comment
 ```
 
 ### Practice Problems
@@ -125,7 +124,7 @@ Simple function:
   (print "Hello," name))
 
 (greet "World")
-; → Hello, World
+// → Hello, World
 ```
 
 Return values:
@@ -135,7 +134,7 @@ Return values:
   (+ a b))
 
 (let result (add 5 3))
-(print result)  ; → 8
+(print result)  // → 8
 ```
 
 ### Lesson 6: Default Parameters
@@ -144,8 +143,8 @@ Return values:
 (fn greet [name = "World"]
   (print "Hello," name))
 
-(greet)          ; → Hello, World
-(greet "Alice")  ; → Hello, Alice
+(greet)          // → Hello, World
+(greet "Alice")  // → Hello, Alice
 ```
 
 ### Lesson 7: Multiple Parameters
@@ -158,8 +157,8 @@ Return values:
     ((=== op "mul") (* a b))
     (else "Unknown")))
 
-(calculate 10 5 "add")  ; → 15
-(calculate 10 5 "mul")  ; → 50
+(calculate 10 5 "add")  // → 15
+(calculate 10 5 "mul")  // → 50
 ```
 
 ### Practice Problems
@@ -175,9 +174,9 @@ Return values:
 ```lisp
 (let numbers [1 2 3 4 5])
 
-(get numbers 0)      ; → 1
-(first numbers)      ; → 1
-(rest numbers)       ; → [2 3 4 5]
+(get numbers 0)      // → 1
+(first numbers)      // → 1
+(rest numbers)       // → [2 3 4 5]
 ```
 
 ### Lesson 9: Maps
@@ -185,18 +184,18 @@ Return values:
 ```lisp
 (let person {name: "Alice", age: 30, city: "NYC"})
 
-(get person "name")  ; → "Alice"
-(get person "age")   ; → 30
+(get person "name")  // → "Alice"
+(get person "age")   // → 30
 ```
 
 Updating maps:
 
 ```lisp
 (let updated (assoc person "job" "Engineer"))
-; → {name: "Alice", age: 30, city: "NYC", job: "Engineer"}
+// → {name: "Alice", age: 30, city: "NYC", job: "Engineer"}
 
 (let removed (dissoc person "city"))
-; → {name: "Alice", age: 30}
+// → {name: "Alice", age: 30}
 ```
 
 ### Lesson 10: Working with Collections
@@ -206,21 +205,21 @@ Map (transform):
 ```lisp
 (let numbers [1 2 3 4 5])
 (let doubled (map (fn [x] (* x 2)) numbers))
-(print doubled)  ; → [2 4 6 8 10]
+(print doubled)  // → [2 4 6 8 10]
 ```
 
 Filter:
 
 ```lisp
 (let evens (filter (fn [x] (=== (% x 2) 0)) numbers))
-(print evens)  ; → [2 4]
+(print evens)  // → [2 4]
 ```
 
 Reduce (aggregate):
 
 ```lisp
 (let sum (reduce + 0 numbers))
-(print sum)  ; → 15
+(print sum)  // → 15
 ```
 
 ### Practice Problems
@@ -258,29 +257,29 @@ Cond (multi-way):
 Pattern matching:
 
 ```lisp
-;; Match values with patterns
+// Match values with patterns
 (match status-code
   (case 200 "OK")
   (case 404 "Not Found")
   (default "Unknown"))
 
-;; Destructure arrays
+// Destructure arrays
 (match point
   (case [x, y] (+ "x=" x ", y=" y))
   (default "Invalid point"))
 
-;; Destructure objects
+// Destructure objects
 (match user
   (case {name: n, age: a} (+ n " is " a))
   (default "Unknown user"))
 
-;; Guards for conditions
+// Guards for conditions
 (match n
   (case x (if (> x 0)) "positive")
   (case x (if (< x 0)) "negative")
   (default "zero"))
 
-;; Rest patterns for lists
+// Rest patterns for lists
 (fn sum [lst]
   (match lst
     (case [] 0)
@@ -316,16 +315,16 @@ While loop:
 ### Lesson 13: Calling JavaScript
 
 ```lisp
-;; Direct dot notation
+// Direct dot notation
 (console.log "Hello from HQL!")
-(Math.floor 3.7)            ; → 3
-(Math.random)               ; → random number
+(Math.floor 3.7)            // → 3
+(Math.random)               // → random number
 ```
 
 ### Lesson 14: Accessing Properties
 
 ```lisp
-Math.PI                     ; → 3.14159...
+Math.PI                     // → 3.14159...
 ```
 
 ### Lesson 15: Creating Objects
@@ -335,7 +334,7 @@ Math.PI                     ; → 3.14159...
 (date.toISOString)
 
 (let arr (new Array 1 2 3))
-(print arr)                 ; → [1, 2, 3]
+(print arr)                 // → [1, 2, 3]
 ```
 
 ### Lesson 16: Importing Modules
@@ -364,24 +363,24 @@ Macros transform code at compile time:
   `(if ~test
      (do ~@body)))
 
-; Use it
+// Use it
 (when (> x 10)
   (print "x is large")
   (print "Processing..."))
 
-; Expands to:
-; (if (> x 10)
-;   (do
-;     (print "x is large")
-;     (print "Processing...")))
+// Expands to:
+// (if (> x 10)
+//   (do
+//     (print "x is large")
+//     (print "Processing...")))
 ```
 
 ### Lesson 18: Quoting and Unquoting
 
 ```lisp
-; Quote (`) - creates template
-; Unquote (~) - inserts value
-; Unquote-splicing (~@) - inserts list items
+// Quote (`) - creates template
+// Unquote (~) - inserts value
+// Unquote-splicing (~@) - inserts list items
 
 (macro log [expr]
   `(do
@@ -391,9 +390,9 @@ Macros transform code at compile time:
      result))
 
 (log (+ 1 2))
-; Evaluating: (+ 1 2)
-; Result: 3
-; → 3
+// Evaluating: (+ 1 2)
+// Result: 3
+// → 3
 ```
 
 ### Lesson 19: Real-World Macros
@@ -463,8 +462,8 @@ Import in `main.hql`:
 ```lisp
 (import [add multiply] from "./src/utils.hql")
 
-(print (add 5 3))       ; → 8
-(print (multiply 4 2))  ; → 8
+(print (add 5 3))       // → 8
+(print (multiply 4 2))  // → 8
 ```
 
 ### Lesson 22: Building a CLI Tool

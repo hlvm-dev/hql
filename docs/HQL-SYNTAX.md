@@ -72,20 +72,20 @@ HQL (Homoiconic Query Language) is a Lisp dialect that transpiles to JavaScript/
 ### Comments
 
 ```clojure
-; Single-line comment
-;; Documentation comment (convention)
+// Single-line comment
+// Documentation comment (convention)
 ```
 
 ### Identifiers
 
 ```clojure
-foo              ; Simple
-my-function      ; Kebab-case (preferred)
-MyClass          ; PascalCase (classes)
-foo?             ; Predicate
-foo!             ; Mutating
-*global*         ; Earmuffs (dynamic vars)
-_private         ; Private convention
+foo              // Simple
+my-function      // Kebab-case (preferred)
+MyClass          // PascalCase (classes)
+foo?             // Predicate
+foo!             // Mutating
+*global*         // Earmuffs (dynamic vars)
+_private         // Private convention
 ```
 
 ### Reserved Symbols
@@ -109,54 +109,54 @@ const-enum declare fn-overload
 ### Primitives
 
 ```clojure
-; Numbers
-42                ; Integer
-3.14159           ; Float
--17               ; Negative
-1e10              ; Scientific
-123n              ; BigInt
+// Numbers
+42                // Integer
+3.14159           // Float
+-17               // Negative
+1e10              // Scientific
+123n              // BigInt
 
-; Strings
-"hello"           ; Double-quoted
-"line1\nline2"    ; Escape sequences
-`template ${x}`   ; Template literal
+// Strings
+"hello"           // Double-quoted
+"line1\nline2"    // Escape sequences
+`template ${x}`   // Template literal
 
-; Booleans
+// Booleans
 true
 false
 
-; Null
-nil               ; null/undefined
+// Null
+nil               // null/undefined
 ```
 
 ### Collections
 
 ```clojure
-; Vector (Array)
-[1 2 3]           ; No commas
-[1, 2, 3]         ; JSON style
+// Vector (Array)
+[1 2 3]           // No commas
+[1, 2, 3]         // JSON style
 
-; Hash-map (Object)
+// Hash-map (Object)
 {name: "Alice" age: 30}
 {"name": "Alice", "age": 30}
 
-; Set
+// Set
 #[1 2 3]
 
-; Nested
+// Nested
 {user: {name: "Bob" tags: ["admin" "user"]}}
 ```
 
 ### Collection Access
 
 ```clojure
-(get arr 0)           ; arr[0]
-(get arr 0 "default") ; with default
-(get obj "name")      ; obj.name
-obj.name              ; Dot notation
-(first [1 2 3])       ; → 1
-(rest [1 2 3])        ; → [2 3]
-(nth [1 2 3] 1)       ; → 2
+(get arr 0)           // arr[0]
+(get arr 0 "default") // with default
+(get obj "name")      // obj.name
+obj.name              // Dot notation
+(first [1 2 3])       // → 1
+(rest [1 2 3])        // → [2 3]
+(nth [1 2 3] 1)       // → 2
 ```
 
 ---
@@ -169,54 +169,54 @@ HQL bindings have the same semantics as JavaScript:
 
 ```clojure
 (let x 10)
-(= x 20)              ; Reassignment allowed
+(= x 20)              // Reassignment allowed
 
-; Multiple bindings with body
+// Multiple bindings with body
 (let (x 10 y 20)
   (= x 100)
-  (+ x y))            ; → 120
+  (+ x y))            // → 120
 ```
 
 ### Block-scoped Immutable (`const`)
 
 ```clojure
 (const PI 3.14159)
-; (= PI 3.0)          ; ERROR: Cannot reassign const
+// (= PI 3.0)          ERROR: Cannot reassign const
 
-; Objects/arrays are frozen (deep immutability)
+// Objects/arrays are frozen (deep immutability)
 (const data {"name": "Alice"})
-; (= data.name "Bob") ; ERROR: Cannot mutate frozen object
+// (= data.name "Bob") ERROR: Cannot mutate frozen object
 ```
 
 ### Function-scoped Mutable (`var`)
 
 ```clojure
 (var count 0)
-(= count (+ count 1)) ; Reassign
+(= count (+ count 1)) // Reassign
 
-; Multiple bindings with body
+// Multiple bindings with body
 (var (x 10 y 20)
   (= x 100)
-  (+ x y))            ; → 120
+  (+ x y))            // → 120
 ```
 
 ### Destructuring
 
 ```clojure
-; Array destructuring
+// Array destructuring
 (let [a b c] [1 2 3])
 
-; With rest
+// With rest
 (let [first & rest] [1 2 3 4])
 
-; Skip elements
+// Skip elements
 (let [a _ c] [1 2 3])
 
-; Object destructuring
+// Object destructuring
 (let {name age} person)
 
-; With defaults
-(let [x (= 10)] [])   ; x = 10 if undefined
+// With defaults
+(let [x (= 10)] [])   // x = 10 if undefined
 ```
 
 ---
@@ -226,11 +226,11 @@ HQL bindings have the same semantics as JavaScript:
 ### Named Functions
 
 ```clojure
-; Positional parameters
+// Positional parameters
 (fn add [a b]
   (+ a b))
 
-; Map parameters (all must have defaults)
+// Map parameters (all must have defaults)
 (fn connect {host: "localhost" port: 8080}
   (+ host ":" port))
 ```
@@ -238,11 +238,11 @@ HQL bindings have the same semantics as JavaScript:
 ### Type Annotations
 
 ```clojure
-; ⚠️ CRITICAL: NO SPACE after colon!
+// ⚠️ CRITICAL: NO SPACE after colon!
 (fn add [a:number b:number] :number
   (+ a b))
 
-; Union types
+// Union types
 (fn handle [value:string|number] :void
   (print value))
 ```
@@ -257,15 +257,15 @@ HQL bindings have the same semantics as JavaScript:
 ### Arrow Lambda (`=>`)
 
 ```clojure
-; Implicit parameters ($0, $1, $2...)
+// Implicit parameters ($0, $1, $2...)
 (=> (* $0 2))
 (=> (+ $0 $1))
 (map (=> (* $0 2)) [1 2 3])
 
-; Property access
+// Property access
 (=> $0.name)
 
-; Explicit parameters
+// Explicit parameters
 (=> [x] (* x x))
 (=> [x y] (+ x y))
 ```
@@ -290,33 +290,33 @@ HQL bindings have the same semantics as JavaScript:
 Functions can have multiple arities (parameter lists), dispatching based on argument count:
 
 ```clojure
-; Named multi-arity function
+// Named multi-arity function
 (fn greet
   ([] "Hello!")
   ([name] (+ "Hello, " name "!"))
   ([first last] (+ "Hello, " first " " last "!")))
 
-(greet)           ; → "Hello!"
-(greet "Alice")   ; → "Hello, Alice!"
-(greet "Alice" "Smith") ; → "Hello, Alice Smith!"
+(greet)           // → "Hello!"
+(greet "Alice")   // → "Hello, Alice!"
+(greet "Alice" "Smith") // → "Hello, Alice Smith!"
 
-; Anonymous multi-arity
+// Anonymous multi-arity
 (let handler (fn
   ([] (handle-empty))
   ([x] (handle-one x))
   ([x y] (handle-two x y))))
 
-; Multi-arity with rest parameters (catch-all)
+// Multi-arity with rest parameters (catch-all)
 (fn variadic
   ([x] (+ "one: " x))
   ([x y & more] (+ "two+: " x " " y " " (vec more))))
 
-; Async multi-arity
+// Async multi-arity
 (async fn fetch-data
   ([url] (await (fetch-data url {})))
   ([url opts] (await (js/fetch url opts))))
 
-; Generator multi-arity
+// Generator multi-arity
 (fn* range-gen
   ([end] (yield* (range-gen 0 end)))
   ([start end]
@@ -329,11 +329,11 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
 ### Return
 
 ```clojure
-; Implicit return (last expression)
+// Implicit return (last expression)
 (fn double [x]
   (* x 2))
 
-; Explicit return
+// Explicit return
 (fn safe-divide [a b]
   (if (=== b 0)
     (return 0))
@@ -365,7 +365,7 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
 ```clojure
 (class Counter
   (static var count 0)
-  (static const MAX 100)  ; Immutable static field
+  (static const MAX 100)  // Immutable static field
 
   (static fn increment []
     (= Counter.count (+ Counter.count 1))))
@@ -392,7 +392,7 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
 
 ```clojure
 (class BankAccount
-  (#balance 0)           ; Private field
+  (#balance 0)           // Private field
   (#transactions [])
 
   (fn deposit [amount]
@@ -402,13 +402,13 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
 ### Inheritance (Abstract Classes Only)
 
 ```clojure
-; Regular class inheritance is not yet implemented
-; Use abstract-class for inheritance patterns:
+// Regular class inheritance is not yet implemented
+// Use abstract-class for inheritance patterns:
 (abstract-class Animal [
   (abstract-method speak [] :string)
 ])
 
-; For regular classes, use composition instead:
+// For regular classes, use composition instead:
 (class Dog
   (var animal null)
   (constructor [name]
@@ -462,13 +462,13 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
   (case "waiting" (wait))
   (default (error)))
 
-; With fallthrough
+// With fallthrough
 (switch grade
   (case "A" :fallthrough)
   (case "B" (console.log "Good"))
   (default (console.log "Other")))
 
-; String cases
+// String cases
 (switch color
   (case "red" (setColor "#ff0000"))
   (case "green" (setColor "#00ff00"))
@@ -483,25 +483,25 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
   (case 2 "two")
   (default "other"))
 
-; Array patterns
+// Array patterns
 (match point
   (case [0, 0] "origin")
   (case [x, 0] "on x-axis")
   (case [0, y] "on y-axis")
   (case [x, y] "somewhere"))
 
-; Object patterns
+// Object patterns
 (match user
   (case {name: n, age: a} (+ n " is " a))
   (default "Unknown"))
 
-; With guards
+// With guards
 (match n
   (case x (if (> x 0)) "positive")
   (case x (if (< x 0)) "negative")
   (default "zero"))
 
-; Wildcard pattern
+// Wildcard pattern
 (match value
   (case _ "anything"))
 ```
@@ -512,7 +512,7 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
 (do
   (print "step 1")
   (print "step 2")
-  (+ 1 2))           ; Returns 3
+  (+ 1 2))           // Returns 3
 ```
 
 ---
@@ -525,9 +525,9 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
 (loop [i 0 sum 0]
   (if (< i 5)
     (recur (+ i 1) (+ sum i))
-    sum))             ; → 10
+    sum))             // → 10
 
-; Factorial
+// Factorial
 (loop [n 5 acc 1]
   (if (<= n 1)
     acc
@@ -537,17 +537,17 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
 ### For Loop
 
 ```clojure
-; Single arg: 0 to n-1
+// Single arg: 0 to n-1
 (for [i 3]
-  (print i))          ; 0, 1, 2
+  (print i))          // 0, 1, 2
 
-; Two args: start to end-1
+// Two args: start to end-1
 (for [i 5 8]
-  (print i))          ; 5, 6, 7
+  (print i))          // 5, 6, 7
 
-; Three args: start to end-1 by step
+// Three args: start to end-1 by step
 (for [i 0 10 2]
-  (print i))          ; 0, 2, 4, 6, 8
+  (print i))          // 0, 2, 4, 6, 8
 ```
 
 ### For-Of Loop
@@ -605,7 +605,7 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
     (when (matches item)
       (break search))))
 
-; Nested labels
+// Nested labels
 (label outer
   (while (< i n)
     (label inner
@@ -660,7 +660,7 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
   (yield 3))
 
 (fn* combined []
-  (yield* [1 2 3])    ; Delegate to iterable
+  (yield* [1 2 3])    // Delegate to iterable
   (yield 4))
 ```
 
@@ -692,7 +692,7 @@ HQL has native S-expression syntax for TypeScript types. All native type express
 (type ID number)
 (type Point {x: number, y: number})
 
-; With generics
+// With generics
 (type Container<T> T)
 (type Box<T> {value: T})
 ```
@@ -722,18 +722,18 @@ HQL has native S-expression syntax for TypeScript types. All native type express
 ### Indexed Access
 
 ```clojure
-(type NameType (indexed Person "name"))     ; Person["name"]
-(type Value<T> (indexed T (keyof T)))       ; T[keyof T]
+(type NameType (indexed Person "name"))     // Person["name"]
+(type Value<T> (indexed T (keyof T)))       // T[keyof T]
 ```
 
 ### Conditional Types
 
 ```clojure
 (type IsString<T> (if-extends T string true false))
-; → T extends string ? true : false
+// → T extends string ? true : false
 
 (type UnwrapPromise<T> (if-extends T (Promise (infer U)) U T))
-; → T extends Promise<infer U> ? U : T
+// → T extends Promise<infer U> ? U : T
 
 (type Deep<T> (if-extends T string "str" (if-extends T number "num" "other")))
 ```
@@ -742,7 +742,7 @@ HQL has native S-expression syntax for TypeScript types. All native type express
 
 ```clojure
 (type MyReadonly<T> (mapped K (keyof T) (indexed T K)))
-; → { [K in keyof T]: T[K] }
+// → { [K in keyof T]: T[K] }
 ```
 
 ### Tuple Types
@@ -751,23 +751,23 @@ HQL has native S-expression syntax for TypeScript types. All native type express
 (type Point (tuple number number))
 (type Entry (tuple string number boolean))
 
-; With rest
+// With rest
 (type Args (tuple string (rest (array number))))
-; → [string, ...number[]]
+// → [string, ...number[]]
 ```
 
 ### Array Types
 
 ```clojure
 (type Numbers (array number))
-(type MixedArray (array (| string number)))  ; → (string | number)[]
+(type MixedArray (array (| string number)))  // → (string | number)[]
 ```
 
 ### Readonly Modifier
 
 ```clojure
 (type ImmutableNumbers (readonly (array number)))
-; → readonly number[]
+// → readonly number[]
 ```
 
 ### Typeof Operator
@@ -800,9 +800,9 @@ For complex types, use string passthrough with `deftype` or `interface`.
 ### String Passthrough
 
 ```clojure
-; Any valid TypeScript type expression
+// Any valid TypeScript type expression
 (deftype Complex "Record<string, number>")
-(deftype EventName "`on${string}`")           ; Template literal types
+(deftype EventName "`on${string}`")           // Template literal types
 (deftype "Mutable<T>" "{ -readonly [K in keyof T]: T[K] }")
 ```
 
@@ -868,7 +868,7 @@ For complex types, use string passthrough with `deftype` or `interface`.
 ### Parameter Type Annotations
 
 ```clojure
-; ⚠️ NO SPACE after colon!
+// ⚠️ NO SPACE after colon!
 (fn add [a:number b:number] :number
   (+ a b))
 
@@ -878,7 +878,7 @@ For complex types, use string passthrough with `deftype` or `interface`.
 (fn handle [value:string|number] :void
   (print value))
 
-; Mixed typed and untyped (gradual typing)
+// Mixed typed and untyped (gradual typing)
 (fn greet [name:string times]
   (print name times))
 ```
@@ -943,10 +943,10 @@ For complex types, use string passthrough with `deftype` or `interface`.
 ### Global Access
 
 ```clojure
-js/console            ; console
-js/Math               ; Math
-js/Date               ; Date
-js/JSON               ; JSON
+js/console            // console
+js/Math               // Math
+js/Date               // Date
+js/JSON               // JSON
 
 (js/console.log "hello")
 (js/Math.floor 3.7)
@@ -956,9 +956,9 @@ js/JSON               ; JSON
 ### Method Calls
 
 ```clojure
-(.toLowerCase str)    ; str.toLowerCase()
-(.push arr item)      ; arr.push(item)
-(.map arr callback)   ; arr.map(callback)
+(.toLowerCase str)    // str.toLowerCase()
+(.push arr item)      // arr.push(item)
+(.map arr callback)   // arr.map(callback)
 ```
 
 ### Property Access
@@ -966,7 +966,7 @@ js/JSON               ; JSON
 ```clojure
 obj.property
 obj.nested.prop
-obj?.optionalProp     ; Optional chaining
+obj?.optionalProp     // Optional chaining
 ```
 
 ### Object Construction
@@ -1006,26 +1006,26 @@ obj?.optionalProp     ; Optional chaining
 ### Quoting
 
 ```clojure
-'(1 2 3)              ; Quote
-`(a b c)              ; Syntax quote
-`(1 2 ~x)             ; Unquote
-`(1 2 ~@rest)         ; Unquote-splicing
+'(1 2 3)              // Quote
+`(a b c)              // Syntax quote
+`(1 2 ~x)             // Unquote
+`(1 2 ~@rest)         // Unquote-splicing
 ```
 
 ### Threading Macros
 
 ```clojure
-; Thread-first
+// Thread-first
 (-> 5
     (+ 3)
-    (* 2))            ; → 16
+    (* 2))            // → 16
 
-; Thread-last
+// Thread-last
 (->> [1 2 3 4 5]
      (filter (=> (> $0 2)))
      (map (=> (* $0 2))))
 
-; Thread-as
+// Thread-as
 (as-> {name: "Alice"} user
       user.name
       (str "Hello, " user))
@@ -1034,27 +1034,27 @@ obj?.optionalProp     ; Optional chaining
 ### Type Predicates
 
 ```clojure
-(isNull x)            ; x === null
-(isUndefined x)       ; x === undefined
-(isNil x)             ; x == null
-(isDefined x)         ; x !== undefined
-(isString x)          ; typeof x === "string"
-(isNumber x)          ; typeof x === "number"
-(isBoolean x)         ; typeof x === "boolean"
-(isFunction x)        ; typeof x === "function"
-(isArray x)           ; Array.isArray(x)
-(isObject x)          ; typeof x === "object" && x !== null && !Array.isArray(x)
+(isNull x)            // x === null
+(isUndefined x)       // x === undefined
+(isNil x)             // x == null
+(isDefined x)         // x !== undefined
+(isString x)          // typeof x === "string"
+(isNumber x)          // typeof x === "number"
+(isBoolean x)         // typeof x === "boolean"
+(isFunction x)        // typeof x === "function"
+(isArray x)           // Array.isArray(x)
+(isObject x)          // typeof x === "object" && x !== null && !Array.isArray(x)
 ```
 
 ### Utility Macros
 
 ```clojure
-(inc x)               ; (+ x 1)
-(dec x)               ; (- x 1)
-(str a b c)           ; String concatenation
-(print & args)        ; console.log
-(isEmpty coll)        ; Check if empty
-(isNil x)             ; Check if nil
+(inc x)               // (+ x 1)
+(dec x)               // (- x 1)
+(str a b c)           // String concatenation
+(print & args)        // console.log
+(isEmpty coll)        // Check if empty
+(isNil x)             // Check if nil
 ```
 
 ---
@@ -1064,61 +1064,61 @@ obj?.optionalProp     ; Optional chaining
 ### Arithmetic
 
 ```clojure
-(+ a b c)             ; Addition
-(- a b)               ; Subtraction
-(* a b c)             ; Multiplication
-(/ a b)               ; Division
-(% a b)               ; Modulo
-(** a b)              ; Exponentiation
+(+ a b c)             // Addition
+(- a b)               // Subtraction
+(* a b c)             // Multiplication
+(/ a b)               // Division
+(% a b)               // Modulo
+(** a b)              // Exponentiation
 ```
 
 ### Comparison
 
 ```clojure
-; ⚠️ = is ASSIGNMENT, not comparison!
-(== a b)              ; Loose equality
-(=== a b)             ; Strict equality (preferred)
-(!= a b)              ; Loose inequality
-(!== a b)             ; Strict inequality
-(< a b)               ; Less than
-(> a b)               ; Greater than
-(<= a b)              ; Less or equal
-(>= a b)              ; Greater or equal
+// ⚠️ = is ASSIGNMENT, not comparison!
+(== a b)              // Loose equality
+(=== a b)             // Strict equality (preferred)
+(!= a b)              // Loose inequality
+(!== a b)             // Strict inequality
+(< a b)               // Less than
+(> a b)               // Greater than
+(<= a b)              // Less or equal
+(>= a b)              // Greater or equal
 ```
 
 ### Logical
 
 ```clojure
-(and a b c)           ; Logical AND
-(or a b c)            ; Logical OR
-(not a)               ; Logical NOT
+(and a b c)           // Logical AND
+(or a b c)            // Logical OR
+(not a)               // Logical NOT
 ```
 
 ### Nullish
 
 ```clojure
-(?? a b)              ; Nullish coalescing: a ?? b
-obj?.prop             ; Optional chaining
+(?? a b)              // Nullish coalescing: a ?? b
+obj?.prop             // Optional chaining
 ```
 
 ### Logical Assignment
 
 ```clojure
-(??= x 10)            ; x ??= 10
-(&&= x (getValue))    ; x &&= getValue()
-(||= name "default")  ; name ||= "default"
+(??= x 10)            // x ??= 10
+(&&= x (getValue))    // x &&= getValue()
+(||= name "default")  // name ||= "default"
 ```
 
 ### Bitwise
 
 ```clojure
-(& a b)               ; Bitwise AND
-(| a b)               ; Bitwise OR
-(^ a b)               ; Bitwise XOR
-(~ a)                 ; Bitwise NOT
-(<< a n)              ; Left shift
-(>> a n)              ; Signed right shift
-(>>> a n)             ; Unsigned right shift
+(& a b)               // Bitwise AND
+(| a b)               // Bitwise OR
+(^ a b)               // Bitwise XOR
+(~ a)                 // Bitwise NOT
+(<< a n)              // Left shift
+(>> a n)              // Signed right shift
+(>>> a n)             // Unsigned right shift
 ```
 
 ---

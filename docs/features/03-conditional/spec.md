@@ -17,17 +17,17 @@ All conditionals are **expressions** that return values (not statements).
 ### If Expression
 
 ```lisp
-; Basic if
+// Basic if
 (if condition then-expr else-expr)
 
-; Example
-(if true 1 2)  ; => 1
-(if false 1 2) ; => 2
+// Example
+(if true 1 2)  // => 1
+(if false 1 2) // => 2
 
-; If with comparison
-(if (> 5 3) "yes" "no")  ; => "yes"
+// If with comparison
+(if (> 5 3) "yes" "no")  // => "yes"
 
-; If with multiple statements (use do)
+// If with multiple statements (use do)
 (if condition
   (do
     (var x 10)
@@ -36,15 +36,15 @@ All conditionals are **expressions** that return values (not statements).
     (var y 20)
     (- y 5)))
 
-; Nested if
+// Nested if
 (if outer-condition
   (if inner-condition result1 result2)
   result3)
 
-; If as expression
+// If as expression
 (let result (if (< 3 5) "less" "greater"))
 
-; If as return value
+// If as return value
 (fn check [n]
   (if (> n 0) "positive" "non-positive"))
 ```
@@ -52,30 +52,30 @@ All conditionals are **expressions** that return values (not statements).
 ### Cond Expression
 
 ```lisp
-; Multi-way conditional
+// Multi-way conditional
 (cond
   (condition1 result1)
   (condition2 result2)
   (condition3 result3)
   (else default-result))
 
-; Example with else
+// Example with else
 (cond
   ((< x 5) "small")
   ((< x 15) "medium")
   (else "large"))
 
-; Example with true as fallback
+// Example with true as fallback
 (cond
   ((< 5 3) "won't match")
   (true "default"))
 
-; Cond with expressions
+// Cond with expressions
 (let x 10)
 (cond
   ((< x 5) "small")
   ((< x 15) "medium")
-  (true "large"))  ; => "medium"
+  (true "large"))  // => "medium"
 ```
 
 ## Implementation Details
@@ -87,7 +87,7 @@ All conditionals are **expressions** that return values (not statements).
 ```lisp
 (if condition then else)
 
-; Compiles to:
+// Compiles to:
 condition ? then : else
 ```
 
@@ -109,7 +109,7 @@ condition ? then : else
   (test2 result2)
   (else default))
 
-; Compiles to nested ternaries:
+// Compiles to nested ternaries:
 test1 ? result1 :
 test2 ? result2 :
 default
@@ -200,9 +200,9 @@ return value in functions ✅ Cond with multiple clauses ✅ Cond with else clau
 ```javascript
 // JavaScript if statement
 if (x > 5) {
-  return "yes";
+  return "yes"//
 } else {
-  return "no";
+  return "no"//
 }
 
 // HQL if expression
@@ -213,7 +213,7 @@ if (x > 5) {
 
 ```javascript
 // JavaScript ternary
-const result = x > 5 ? "yes" : "no";
+const result = x > 5 ? "yes" : "no"//
 
 // HQL if (same concept)
 (let result (if (> x 5) "yes" "no"))
@@ -224,9 +224,9 @@ const result = x > 5 ? "yes" : "no";
 ```javascript
 // JavaScript switch
 switch(true) {
-  case x < 5: return "small";
-  case x < 15: return "medium";
-  default: return "large";
+  case x < 5: return "small"//
+  case x < 15: return "medium"//
+  default: return "large"//
 }
 
 // HQL cond
@@ -266,10 +266,10 @@ JavaScript
 ### Prefer Expressions Over Statements
 
 ```lisp
-; ✅ Good: Expression style
+// ✅ Good: Expression style
 (let result (if condition "yes" "no"))
 
-; ❌ Avoid: Statement style (not idiomatic in HQL)
+// ❌ Avoid: Statement style (not idiomatic in HQL)
 (var result)
 (if condition
   (= result "yes")
@@ -279,13 +279,13 @@ JavaScript
 ### Use Cond for Multiple Conditions
 
 ```lisp
-; ✅ Good: Clear cond
+// ✅ Good: Clear cond
 (cond
   ((< x 5) "small")
   ((< x 15) "medium")
   (else "large"))
 
-; ❌ Avoid: Nested if
+// ❌ Avoid: Nested if
 (if (< x 5)
   "small"
   (if (< x 15)
@@ -296,7 +296,7 @@ JavaScript
 ### Always Handle Else Case
 
 ```lisp
-; ✅ Good: Explicit else
+// ✅ Good: Explicit else
 (if condition "yes" "no")
 
 (cond
@@ -304,8 +304,8 @@ JavaScript
   (test2 result2)
   (else "default"))
 
-; ⚠️ Be careful: No else (undefined if condition false)
-; This is allowed but may not be what you want
+// ⚠️ Be careful: No else (undefined if condition false)
+// This is allowed but may not be what you want
 ```
 
 ## Edge Cases Tested

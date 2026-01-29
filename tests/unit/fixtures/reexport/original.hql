@@ -1,5 +1,5 @@
-;; test/fixtures/reexport/original.hql
-;; Original module with functions to be re-exported
+// test/fixtures/reexport/original.hql
+// Original module with functions to be re-exported
 
 (fn greet [name]
   (+ "Hello, " name "!"))
