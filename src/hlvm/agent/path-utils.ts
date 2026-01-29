@@ -5,7 +5,11 @@
  */
 
 import { validatePath } from "./security/path-sandbox.ts";
-import { enforcePathPolicy, type AgentPolicy } from "./policy.ts";
+import {
+  enforcePathPolicy,
+  isPathAllowedAbsolute,
+  type AgentPolicy,
+} from "./policy.ts";
 
 /**
  * Resolve a user-provided path against workspace and policy.
@@ -21,13 +25,12 @@ export async function resolveToolPath(
 }
 
 /**
- * Resolve an optional path (defaults to workspace).
+ * Check if an absolute path is allowed by policy (or no policy).
  */
-export async function resolveToolPathOrWorkspace(
-  inputPath: string | undefined,
+export function isPathAllowedByPolicy(
+  policy: AgentPolicy | null | undefined,
   workspace: string,
-  policy?: AgentPolicy | null,
-): Promise<string> {
-  if (!inputPath) return workspace;
-  return await resolveToolPath(inputPath, workspace, policy);
+  absolutePath: string,
+): boolean {
+  return isPathAllowedAbsolute(policy, workspace, absolutePath);
 }

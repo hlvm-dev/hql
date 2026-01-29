@@ -5,7 +5,6 @@
  */
 
 import { isObjectValue } from "../../common/utils.ts";
-import { ValidationError } from "../../common/error.ts";
 
 /**
  * Check if a value is a valid tool args object.
@@ -17,15 +16,4 @@ export function isToolArgsObject(
   return isObjectValue(value) && !Array.isArray(value);
 }
 
-/**
- * Assert a value is a valid tool args object.
- * Throws a user-friendly error when invalid.
- */
-export function assertToolArgsObject(
-  value: unknown,
-  context = "Arguments",
-): asserts value is Record<string, unknown> {
-  if (!isToolArgsObject(value)) {
-    throw new ValidationError(`${context} must be a plain object`, context);
-  }
-}
+// Intentionally minimal: keep only the shared predicate to avoid unused exports.

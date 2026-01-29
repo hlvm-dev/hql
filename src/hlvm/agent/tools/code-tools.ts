@@ -14,10 +14,11 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { resolveToolPath } from "../path-utils.ts";
-import { isPathAllowedAbsolute, type AgentPolicy } from "../policy.ts";
+import { resolveToolPath, isPathAllowedByPolicy } from "../path-utils.ts";
+import { type AgentPolicy } from "../policy.ts";
 import { escapeRegExp } from "../../../common/utils.ts";
 import { formatToolError } from "../tool-errors.ts";
+import { okTool, failTool } from "../tool-results.ts";
 import { walkDirectory, loadGitignore } from "../../../common/file-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import { assertMaxBytes, ResourceLimitError } from "../../../common/limits.ts";
@@ -179,7 +180,7 @@ export async function searchCode(
       const filename = platform.path.basename(entry.path);
 
       // Enforce policy path rules (relative to workspace)
-      if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, entry.fullPath)) {
+      if (!isPathAllowedByPolicy(options?.policy ?? null, workspace, entry.fullPath)) {
         continue;
       }
 
@@ -215,12 +216,11 @@ export async function searchCode(
 
             // Stop if we hit max results
             if (matches.length >= maxResults) {
-              return {
-                success: true,
+              return okTool({
                 matches,
                 count: matches.length,
                 message: `Found ${matches.length} matches (limit reached)`,
-              };
+              });
             }
           }
 
@@ -236,18 +236,14 @@ export async function searchCode(
       }
     }
 
-    return {
-      success: true,
+    return okTool({
       matches,
       count: matches.length,
       message: `Found ${matches.length} matches`,
-    };
+    });
   } catch (error) {
     const { message } = formatToolError("Failed to search code", error);
-    return {
-      success: false,
-      message,
-    };
+    return failTool(message);
   }
 }
 
@@ -328,7 +324,7 @@ export async function findSymbol(
     // Helper function to search in a single file
     const searchFile = async (filePath: string, relativePath: string) => {
       throwIfAborted(options?.signal);
-      if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, filePath)) {
+      if (!isPathAllowedByPolicy(options?.policy ?? null, workspace, filePath)) {
         return;
       }
       const filename = platform.path.basename(filePath);
@@ -400,20 +396,16 @@ export async function findSymbol(
       }
     }
 
-    return {
-      success: true,
+    return okTool({
       symbols,
       count: symbols.length,
       message: symbols.length >= maxResults
         ? `Found ${symbols.length} symbol(s) (limit reached)`
         : `Found ${symbols.length} symbol(s) matching '${args.name}'`,
-    };
+    });
   } catch (error) {
     const { message } = formatToolError("Failed to find symbol", error);
-    return {
-      success: false,
-      message,
-    };
+    return failTool(message);
   }
 }
 
@@ -449,7 +441,7 @@ export async function getStructure(
       ? await resolveToolPath(args.path, workspace, options?.policy ?? null)
       : workspace;
 
-    if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, targetPath)) {
+    if (!isPathAllowedByPolicy(options?.policy ?? null, workspace, targetPath)) {
       return {
         success: false,
         message: `Path denied by policy: ${args.path ?? "."}`,
@@ -499,7 +491,7 @@ export async function getStructure(
           }
 
           const fullPath = platform.path.join(dir, entry.name);
-          if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, fullPath)) {
+          if (!isPathAllowedByPolicy(options?.policy ?? null, workspace, fullPath)) {
             continue;
           }
 
@@ -549,19 +541,15 @@ export async function getStructure(
 
     const tree = await buildTree(targetPath, 0);
 
-    return {
-      success: true,
+    return okTool({
       tree,
       message: nodes >= maxNodes
         ? `Retrieved structure (limit reached)`
         : `Retrieved structure for ${args.path || "."}`,
-    };
+    });
   } catch (error) {
     const { message } = formatToolError("Failed to get structure", error);
-    return {
-      success: false,
-      message,
-    };
+    return failTool(message);
   }
 }
 

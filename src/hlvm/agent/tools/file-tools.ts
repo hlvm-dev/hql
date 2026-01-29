@@ -16,8 +16,8 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { validatePath, SecurityError } from "../security/path-sandbox.ts";
-import { isPathAllowedAbsolute, type AgentPolicy } from "../policy.ts";
-import { resolveToolPath } from "../path-utils.ts";
+import { type AgentPolicy } from "../policy.ts";
+import { resolveToolPath, isPathAllowedByPolicy } from "../path-utils.ts";
 import { globToRegex, GlobPatternError } from "../../../common/pattern-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import {
@@ -27,6 +27,7 @@ import {
 } from "../../../common/limits.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
 import { formatToolError } from "../tool-errors.ts";
+import { okTool, failTool } from "../tool-results.ts";
 
 // ============================================================
 // Types
@@ -133,10 +134,7 @@ export async function readFile(
     // Check if file exists
     const stat = await platform.fs.stat(validPath);
     if (stat.isDirectory) {
-      return {
-        success: false,
-        message: `Path is a directory, not a file: ${args.path}`,
-      };
+      return failTool(`Path is a directory, not a file: ${args.path}`);
     }
 
     // Enforce size limit
@@ -149,25 +147,19 @@ export async function readFile(
     // Read file contents
     const content = await platform.fs.readTextFile(validPath);
 
-    return {
-      success: true,
+    return okTool({
       content,
       size: stat.size,
       message: `Read ${stat.size} bytes from ${args.path}`,
-    };
+    });
   } catch (error) {
     if (error instanceof ResourceLimitError) {
-      return {
-        success: false,
-        message:
-          `File too large to read. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
-      };
+      return failTool(
+        `File too large to read. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
+      );
     }
     const { message } = formatToolError("Failed to read file", error);
-    return {
-      success: false,
-      message,
-    };
+    return failTool(message);
   }
 }
 
@@ -222,23 +214,17 @@ export async function writeFile(
     // Write file
     await platform.fs.writeTextFile(validPath, args.content);
 
-    return {
-      success: true,
+    return okTool({
       message: `Wrote ${args.content.length} bytes to ${args.path}`,
-    };
+    });
   } catch (error) {
     if (error instanceof ResourceLimitError) {
-      return {
-        success: false,
-        message:
-          `Content too large to write. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
-      };
+      return failTool(
+        `Content too large to write. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
+      );
     }
     const { message } = formatToolError("Failed to write file", error);
-    return {
-      success: false,
-      message,
-    };
+    return failTool(message);
   }
 }
 
@@ -305,10 +291,7 @@ export async function editFile(
         newContent = content.replace(regex, args.replace);
       } catch (error) {
         const { message } = formatToolError("Invalid regex pattern", error);
-        return {
-          success: false,
-          message,
-        };
+        return failTool(message);
       }
     } else {
       // Literal mode (default)
@@ -319,11 +302,9 @@ export async function editFile(
 
     // Check if any changes were made
     if (replacements === 0) {
-      return {
-        success: false,
-        message: `Pattern not found in file: ${args.find}`,
+      return failTool(`Pattern not found in file: ${args.find}`, {
         replacements: 0,
-      };
+      });
     }
 
     // Enforce size limit before writing
@@ -342,25 +323,19 @@ export async function editFile(
       ? newContent.substring(0, 200) + "..."
       : newContent;
 
-    return {
-      success: true,
+    return okTool({
       message: `Made ${replacements} replacement(s) in ${args.path}`,
       replacements,
       preview,
-    };
+    });
   } catch (error) {
     if (error instanceof ResourceLimitError) {
-      return {
-        success: false,
-        message:
-          `File too large to edit. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
-      };
+      return failTool(
+        `File too large to edit. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
+      );
     }
     const { message } = formatToolError("Failed to edit file", error);
-    return {
-      success: false,
-      message,
-    };
+    return failTool(message);
   }
 }
 
@@ -402,10 +377,7 @@ export async function listFiles(
     // Check if path exists and is a directory
     const stat = await platform.fs.stat(validPath);
     if (!stat.isDirectory) {
-      return {
-        success: false,
-        message: `Path is not a directory: ${args.path}`,
-      };
+      return failTool(`Path is not a directory: ${args.path}`);
     }
 
     const entries: FileEntry[] = [];
@@ -423,10 +395,7 @@ export async function listFiles(
         }
       } catch (error) {
         if (error instanceof GlobPatternError) {
-          return {
-            success: false,
-            message: error.message,
-          };
+          return failTool(error.message);
         }
         throw error;
       }
@@ -478,7 +447,7 @@ export async function listFiles(
         const matchesCurrentPattern = matchesPattern(entryRelativePath, entry.name);
 
         // Enforce policy for this path before including
-        if (!isPathAllowedAbsolute(options?.policy ?? null, workspace, entryPath)) {
+        if (!isPathAllowedByPolicy(options?.policy ?? null, workspace, entryPath)) {
           // Skip disallowed paths entirely
           continue;
         }
@@ -528,20 +497,16 @@ export async function listFiles(
 
     const truncated = entries.length >= maxEntries;
 
-    return {
-      success: true,
+    return okTool({
       entries,
       count: entries.length,
       message: truncated
         ? `Found ${entries.length} entries (limit reached)`
         : `Found ${entries.length} entries in ${args.path}`,
-    };
+    });
   } catch (error) {
     const { message } = formatToolError("Failed to list files", error);
-    return {
-      success: false,
-      message,
-    };
+    return failTool(message);
   }
 }
 

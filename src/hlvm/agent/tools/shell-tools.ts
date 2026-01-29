@@ -21,6 +21,7 @@ import {
   type AgentPolicy,
 } from "../policy.ts";
 import { formatToolError } from "../tool-errors.ts";
+import { okTool, failTool } from "../tool-results.ts";
 
 // ============================================================
 // Types
@@ -111,27 +112,26 @@ export async function shellExec(
       parsedCommand = parseShellCommand(args.command);
     } catch (error) {
       const toolError = formatToolError("Invalid shell command", error);
-      return {
-        success: false,
-        message: toolError.message,
+      return failTool(toolError.message, {
         stdout: "",
         stderr: toolError.error,
         exitCode: 1,
         safetyLevel,
-      };
+      });
     }
 
     // Reject unsafe operators for shell_exec (use shell_script instead)
     if (!isSafeCommand(parsedCommand)) {
       const unsafeReason = getUnsafeReason(parsedCommand);
-      return {
-        success: false,
-        message: `Unsafe shell command for shell_exec: ${unsafeReason}. Use shell_script for complex commands.`,
-        stdout: "",
-        stderr: unsafeReason,
-        exitCode: 1,
-        safetyLevel,
-      };
+      return failTool(
+        `Unsafe shell command for shell_exec: ${unsafeReason}. Use shell_script for complex commands.`,
+        {
+          stdout: "",
+          stderr: unsafeReason,
+          exitCode: 1,
+          safetyLevel,
+        },
+      );
     }
 
     const cmdArgs = [parsedCommand.program, ...parsedCommand.args];
@@ -141,14 +141,12 @@ export async function shellExec(
       const urls = extractUrlsFromArgs(cmdArgs);
       for (const url of urls) {
         if (!isNetworkAllowed(options.policy, url)) {
-          return {
-            success: false,
-            message: `Network access denied by policy: ${url}`,
+          return failTool(`Network access denied by policy: ${url}`, {
             stdout: "",
             stderr: `Network access denied by policy: ${url}`,
             exitCode: 1,
             safetyLevel,
-          };
+          });
         }
       }
     }
@@ -191,16 +189,28 @@ export async function shellExec(
         throw error;
       }
 
-      return {
-        success: status.code === 0,
-        stdout: new TextDecoder().decode(stdoutBytes),
-        stderr: new TextDecoder().decode(stderrBytes),
+      const stdout = new TextDecoder().decode(stdoutBytes);
+      const stderr = new TextDecoder().decode(stderrBytes);
+      const message = status.code === 0
+        ? `Command executed successfully`
+        : `Command exited with code ${status.code}`;
+
+      if (status.code === 0) {
+        return okTool({
+          stdout,
+          stderr,
+          exitCode: status.code,
+          safetyLevel,
+          message,
+        });
+      }
+
+      return failTool(message, {
+        stdout,
+        stderr,
         exitCode: status.code,
         safetyLevel,
-        message: status.code === 0
-          ? `Command executed successfully`
-          : `Command exited with code ${status.code}`,
-      };
+      });
     } finally {
       if (options?.signal) {
         options.signal.removeEventListener("abort", onAbort);
@@ -208,13 +218,11 @@ export async function shellExec(
     }
   } catch (error) {
     const toolError = formatToolError("Failed to execute command", error);
-    return {
-      success: false,
-      message: toolError.message,
+    return failTool(toolError.message, {
       stdout: "",
       stderr: toolError.error,
       exitCode: 1,
-    };
+    });
   }
 }
 
@@ -264,13 +272,11 @@ export async function shellScript(
       const urls = extractUrlsFromText(args.script);
       for (const url of urls) {
         if (!isNetworkAllowed(options.policy, url)) {
-          return {
-            success: false,
-            message: `Network access denied by policy: ${url}`,
+          return failTool(`Network access denied by policy: ${url}`, {
             stdout: "",
             stderr: `Network access denied by policy: ${url}`,
             exitCode: 1,
-          };
+          });
         }
       }
     }
@@ -320,15 +326,26 @@ export async function shellScript(
         throw error;
       }
 
-      return {
-        success: status.code === 0,
-        stdout: new TextDecoder().decode(stdoutBytes),
-        stderr: new TextDecoder().decode(stderrBytes),
+      const stdout = new TextDecoder().decode(stdoutBytes);
+      const stderr = new TextDecoder().decode(stderrBytes);
+      const message = status.code === 0
+        ? `Script executed successfully`
+        : `Script exited with code ${status.code}`;
+
+      if (status.code === 0) {
+        return okTool({
+          stdout,
+          stderr,
+          exitCode: status.code,
+          message,
+        });
+      }
+
+      return failTool(message, {
+        stdout,
+        stderr,
         exitCode: status.code,
-        message: status.code === 0
-          ? `Script executed successfully`
-          : `Script exited with code ${status.code}`,
-      };
+      });
     } finally {
       if (options?.signal) {
         options.signal.removeEventListener("abort", onAbort);
@@ -336,13 +353,11 @@ export async function shellScript(
     }
   } catch (error) {
     const toolError = formatToolError("Failed to execute script", error);
-    return {
-      success: false,
-      message: toolError.message,
+    return failTool(toolError.message, {
       stdout: "",
       stderr: toolError.error,
       exitCode: 1,
-    };
+    });
   } finally {
     // Cleanup temp directory
     if (tempDir) {
