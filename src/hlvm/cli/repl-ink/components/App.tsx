@@ -51,7 +51,6 @@ interface CurrentEval {
 }
 
 interface AppProps {
-  jsMode?: boolean;
   showBanner?: boolean;
   sessionOptions?: SessionInitOptions;
 }
@@ -108,13 +107,12 @@ function stringifyOutput(value: unknown): string {
 /**
  * App wrapper - provides ReplContext for FRP state management
  */
-export function App({ jsMode: initialJsMode = false, showBanner = true, sessionOptions }: AppProps): React.ReactElement {
+export function App({ showBanner = true, sessionOptions }: AppProps): React.ReactElement {
   const stateRef = useRef<ReplState>(new ReplState());
 
   return (
     <ReplProvider replState={stateRef.current}>
       <AppContent
-        jsMode={initialJsMode}
         showBanner={showBanner}
         sessionOptions={sessionOptions}
         replState={stateRef.current}
@@ -130,16 +128,16 @@ interface AppContentProps extends AppProps {
 /**
  * AppContent - main REPL UI (uses ReplContext for reactive state)
  */
-function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionOptions, replState }: AppContentProps): React.ReactElement {
+function AppContent({ showBanner = true, sessionOptions, replState }: AppContentProps): React.ReactElement {
   const { exit } = useApp();
 
   // Get reactive state from context (bindings, docstrings, memoryNames auto-update)
   const { memoryNames } = useReplContext();
 
-  const repl = useRepl({ jsMode: initialJsMode, state: replState });
+  const repl = useRepl({ state: replState });
 
   // Initialize: runtime, memory, AI
-  const init = useInitialization(replState, initialJsMode);
+  const init = useInitialization(replState);
 
   // Session management
   const sessionManagerRef = useRef<SessionManager | null>(null);
@@ -737,7 +735,6 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
   const bannerItems = showBanner && !hasBeenCleared && bannerRendered
     ? [{
         id: "banner",
-        jsMode: repl.jsMode,
         memoryNames,
         aiExports: init.aiExports,
         readyTime: init.readyTime,
@@ -756,7 +753,6 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
         {(item, _index) => (
           <Box key={item.id}>
             <Banner
-              jsMode={item.jsMode}
               loading={false}
               memoryNames={item.memoryNames}
               aiExports={item.aiExports}
@@ -772,7 +768,7 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
       {history.map((entry: HistoryEntry) => (
         <Box key={entry.id} flexDirection="column" marginBottom={1}>
           <Box>
-            <Text color={color("primary")} bold>{repl.jsMode ? "js>" : "hlvm>"} </Text>
+            <Text color={color("primary")} bold>{"hlvm>"} </Text>
             <Text>{entry.input}</Text>
           </Box>
           <Output result={entry.result} />
@@ -875,7 +871,6 @@ function AppContent({ jsMode: initialJsMode = false, showBanner = true, sessionO
           value={input}
           onChange={setInput}
           onSubmit={handleSubmit}
-          jsMode={repl.jsMode}
           disabled={init.loading || activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay"}
         />
       )}
@@ -904,11 +899,9 @@ async function handleCommand(
   // Commands that need React state (not in commands.ts)
   switch (normalized) {
     case "/js":
-      repl.setJsMode(true);
-      return "Switched to JavaScript mode";
+      return "Polyglot mode is always on (HQL + JavaScript).";
     case "/hql":
-      repl.setJsMode(false);
-      return "Switched to HLVM HQL mode";
+      return "Polyglot mode is always on (HQL + JavaScript).";
     case "/clear":
       return null; // Clear is handled by returning null
     case "/exit":

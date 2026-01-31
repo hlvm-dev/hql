@@ -17,6 +17,7 @@ import { FILE_TOOLS } from "./tools/file-tools.ts";
 import { CODE_TOOLS } from "./tools/code-tools.ts";
 import { SHELL_TOOLS } from "./tools/shell-tools.ts";
 import { META_TOOLS } from "./tools/meta-tools.ts";
+import { WEB_TOOLS } from "./tools/web-tools.ts";
 import { ValidationError } from "../../common/error.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
@@ -46,6 +47,8 @@ export interface ToolMetadata {
   returns?: Record<string, string>;
   safetyLevel?: "L0" | "L1" | "L2";
   safety?: string; // Additional safety info
+  /** Skip argument validation (used for dynamic tools with unknown schemas) */
+  skipValidation?: boolean;
 }
 
 /** Result of argument validation */
@@ -71,7 +74,15 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...CODE_TOOLS,
   ...SHELL_TOOLS,
   ...META_TOOLS,
+  ...WEB_TOOLS,
 } as Record<string, ToolMetadata>;
+
+/**
+ * Dynamic registry for external tools (e.g., MCP)
+ *
+ * Stored separately to avoid mutating static registry.
+ */
+const DYNAMIC_TOOL_REGISTRY: Record<string, ToolMetadata> = {};
 
 // ============================================================
 // Registry API
@@ -91,10 +102,10 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
  * ```
  */
 export function getTool(name: string): ToolMetadata {
-  const tool = TOOL_REGISTRY[name];
+  const tool = DYNAMIC_TOOL_REGISTRY[name] ?? TOOL_REGISTRY[name];
 
   if (!tool) {
-    const available = Object.keys(TOOL_REGISTRY).join(", ");
+    const available = Object.keys(getAllTools()).join(", ");
     throw new ValidationError(
       `Tool '${name}' not found. Available tools: ${available}`,
       "tool_registry",
@@ -118,7 +129,7 @@ export function getTool(name: string): ToolMetadata {
  * ```
  */
 export function getAllTools(): Record<string, ToolMetadata> {
-  return { ...TOOL_REGISTRY };
+  return { ...TOOL_REGISTRY, ...DYNAMIC_TOOL_REGISTRY };
 }
 
 /**
@@ -131,12 +142,16 @@ export function getToolsByCategory(): {
   code: string[];
   shell: string[];
   meta: string[];
+  web: string[];
+  dynamic: string[];
 } {
   return {
     file: Object.keys(FILE_TOOLS),
     code: Object.keys(CODE_TOOLS),
     shell: Object.keys(SHELL_TOOLS),
     meta: Object.keys(META_TOOLS),
+    web: Object.keys(WEB_TOOLS),
+    dynamic: Object.keys(DYNAMIC_TOOL_REGISTRY),
   };
 }
 
@@ -154,7 +169,7 @@ export function getToolsByCategory(): {
  * ```
  */
 export function hasTool(name: string): boolean {
-  return name in TOOL_REGISTRY;
+  return name in TOOL_REGISTRY || name in DYNAMIC_TOOL_REGISTRY;
 }
 
 /**
@@ -184,6 +199,9 @@ export function validateToolArgs(
   args: unknown,
 ): ValidationResult {
   const tool = getTool(name);
+  if (tool.skipValidation) {
+    return { valid: true };
+  }
   const errors: string[] = [];
 
   // Check args is an object
@@ -232,7 +250,7 @@ export function validateToolArgs(
  * @returns Total number of registered tools
  */
 export function getToolCount(): number {
-  return Object.keys(TOOL_REGISTRY).length;
+  return Object.keys(getAllTools()).length;
 }
 
 /**
@@ -257,4 +275,66 @@ export function getToolDescription(name: string): string {
 export function getToolArgSchema(name: string): Record<string, string> {
   const tool = getTool(name);
   return { ...tool.args };
+}
+
+// ============================================================
+// Dynamic Tool Registration (e.g., MCP)
+// ============================================================
+
+/**
+ * Register a dynamic tool by name.
+ *
+ * Throws if the tool name collides with a built-in tool.
+ */
+export function registerTool(name: string, tool: ToolMetadata): void {
+  if (name in TOOL_REGISTRY) {
+    throw new ValidationError(
+      `Tool '${name}' already exists in built-in registry`,
+      "tool_registry",
+    );
+  }
+  if (name in DYNAMIC_TOOL_REGISTRY) {
+    throw new ValidationError(
+      `Tool '${name}' already exists in dynamic registry`,
+      "tool_registry",
+    );
+  }
+  DYNAMIC_TOOL_REGISTRY[name] = tool;
+}
+
+/**
+ * Register multiple dynamic tools.
+ *
+ * Returns the list of registered tool names.
+ */
+export function registerTools(tools: Record<string, ToolMetadata>): string[] {
+  const registered: string[] = [];
+  for (const [name, tool] of Object.entries(tools)) {
+    registerTool(name, tool);
+    registered.push(name);
+  }
+  return registered;
+}
+
+/**
+ * Clear all dynamic tools (used in tests or shutdown).
+ */
+export function clearDynamicTools(): void {
+  for (const key of Object.keys(DYNAMIC_TOOL_REGISTRY)) {
+    delete DYNAMIC_TOOL_REGISTRY[key];
+  }
+}
+
+/**
+ * Unregister a dynamic tool by name.
+ */
+export function unregisterTool(name: string): void {
+  delete DYNAMIC_TOOL_REGISTRY[name];
+}
+
+/**
+ * Get dynamic tools only.
+ */
+export function getDynamicTools(): Record<string, ToolMetadata> {
+  return { ...DYNAMIC_TOOL_REGISTRY };
 }

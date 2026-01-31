@@ -16,8 +16,8 @@ export async function serveCommand(args: string[]): Promise<number> {
     return 0;
   }
 
-  // Initialize runtime (stdlib + cache, no AI autostart)
-  await initializeRuntime({ ai: false, stdlib: true, cache: true });
+  // Initialize runtime (stdlib + cache + AI for full parity with terminal REPL)
+  await initializeRuntime({ ai: true, stdlib: true, cache: true });
 
   try {
     await startHttpServer();
@@ -39,18 +39,23 @@ USAGE:
   hlvm serve
 
 ENDPOINTS:
-  POST /eval      Evaluate HQL code
+  POST /eval      Evaluate HQL or JavaScript code (polyglot)
   GET  /health    Health check
 
 DESCRIPTION:
   Starts an HTTP server on port 11435 that provides a stateless
   REPL evaluation API. Used by HLVM GUI for code evaluation.
+  Polyglot mode is always enabled: input starting with '(' is HQL,
+  all other input is JavaScript.
 
 EXAMPLES:
   hlvm serve                                  # Start server
   curl http://localhost:11435/health          # Health check
   curl -X POST http://localhost:11435/eval \\
     -H "Content-Type: application/json" \\
-    -d '{"code":"(+ 1 2)"}'                   # Evaluate code
+    -d '{"code":"(+ 1 2)"}'                   # Evaluate HQL
+  curl -X POST http://localhost:11435/eval \\
+    -H "Content-Type: application/json" \\
+    -d '{"code":"let a = 10"}'                # Evaluate JavaScript
 `);
 }

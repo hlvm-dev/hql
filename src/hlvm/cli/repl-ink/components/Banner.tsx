@@ -32,7 +32,6 @@ const SYMBOLS = {
 } as const;
 
 interface BannerProps {
-  jsMode: boolean;
   loading: boolean;
   memoryNames: string[];
   aiExports: string[];
@@ -41,7 +40,7 @@ interface BannerProps {
   session?: SessionMeta | null;
 }
 
-export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, errors, session }: BannerProps): React.ReactElement {
+export function Banner({ loading, memoryNames, aiExports, readyTime, errors, session }: BannerProps): React.ReactElement {
   const { color } = useTheme();
 
   // Format displays
@@ -78,46 +77,42 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
       <Text> </Text>
 
       {/* ═══ QUICK START ═══ */}
-      {jsMode ? (
-        // JavaScript polyglot mode
-        <>
-          <Box>
-            <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
-            <Text color={color("success")} bold>Polyglot Mode</Text>
-            <Text dimColor>  (expr) → HQL  |  expr → JS</Text>
-          </Box>
-          <Box>
-            <Text>  </Text>
-            <Text color={color("accent")}>let x = 10</Text>
-            <Text>              </Text>
-            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> JS variable</Text>
-          </Box>
-          <Box>
-            <Text>  </Text>
-            <Text color={color("accent")}>(+ x 5)</Text>
-            <Text>                 </Text>
-            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> HQL with JS</Text>
-          </Box>
-          <Box>
-            <Text>  </Text>
-            <Text color={color("accent")}>const f = (a,b) =&gt; a+b</Text>
-            <Text>  </Text>
-            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> JS function</Text>
-          </Box>
-          <Box>
-            <Text>  </Text>
-            <Text color={color("accent")}>(f 3 4)</Text>
-            <Text>                 </Text>
-            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Call from HQL</Text>
-          </Box>
-        </>
-      ) : (
-        // Pure HQL mode
-        <>
-          <Box>
-            <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
-            <Text color={color("success")} bold>Quick Start</Text>
-          </Box>
+      <>
+        <Box>
+          <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
+          <Text color={color("success")} bold>Polyglot Mode</Text>
+          <Text dimColor>  (expr) → HQL  |  expr → JS</Text>
+        </Box>
+        <Box>
+          <Text>  </Text>
+          <Text color={color("accent")}>let x = 10</Text>
+          <Text>              </Text>
+          <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> JS variable</Text>
+        </Box>
+        <Box>
+          <Text>  </Text>
+          <Text color={color("accent")}>(+ x 5)</Text>
+          <Text>                 </Text>
+          <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> HQL with JS</Text>
+        </Box>
+        <Box>
+          <Text>  </Text>
+          <Text color={color("accent")}>const f = (a,b) =&gt; a+b</Text>
+          <Text>  </Text>
+          <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> JS function</Text>
+        </Box>
+        <Box>
+          <Text>  </Text>
+          <Text color={color("accent")}>(f 3 4)</Text>
+          <Text>                 </Text>
+          <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Call from HQL</Text>
+        </Box>
+      </>
+      <>
+        <Box>
+          <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
+          <Text color={color("success")} bold>Quick Start</Text>
+        </Box>
           <Box>
             <Text>  </Text>
             <Text color={color("accent")}>(+ 1 2)</Text>
@@ -149,7 +144,6 @@ export function Banner({ jsMode, loading, memoryNames, aiExports, readyTime, err
             <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> AI response</Text>
           </Box>
         </>
-      )}
 
       <Text> </Text>
 

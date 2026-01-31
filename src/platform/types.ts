@@ -50,6 +50,7 @@ export interface PlatformCommandResult {
 
 export interface PlatformCommandProcess {
   status: Promise<PlatformCommandResult>;
+  stdin?: unknown;
   stdout?: unknown;
   stderr?: unknown;
   kill?(signal?: string | number): void;

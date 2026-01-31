@@ -286,9 +286,11 @@ export function isNetworkAllowed(
   if (!policy?.networkRules) return true;
   const { allow = [], deny = [] } = policy.networkRules;
 
-  if (matchesAny(deny, url, { matchPath: true })) return false;
+  // Network rules should match the full URL string (including slashes).
+  // Use matchPath: false so "*" can match any URL.
+  if (matchesAny(deny, url, { matchPath: false })) return false;
   if (allow.length > 0) {
-    return matchesAny(allow, url, { matchPath: true });
+    return matchesAny(allow, url, { matchPath: false });
   }
   return true;
 }

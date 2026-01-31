@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "wire",
+  "cases": [
+    {
+      "name": "wire-basic",
+      "match": { "contains": ["wire test"] },
+      "steps": [
+        {
+          "response": "Final answer: ok"
+        }
+      ]
+    }
+  ]
+}

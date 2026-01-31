@@ -8,13 +8,10 @@
 import { log } from "../../api/log.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { ValidationError } from "../../../common/error.ts";
-import { ContextManager } from "../../agent/context.ts";
 import { runReActLoop, type TraceEvent } from "../../agent/orchestrator.ts";
-import { createAgentLLM, generateSystemPrompt } from "../../agent/llm-integration.ts";
-import { createFixtureLLM, loadLlmFixture } from "../../agent/llm-fixtures.ts";
+import { createAgentSession } from "../../agent/session.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { DEFAULT_MAX_TOOL_CALLS, ENGINE_PROFILES } from "../../agent/constants.ts";
-import { loadAgentPolicy } from "../../agent/policy.ts";
 import {
   ensureDefaultModelInstalled,
 } from "../../../common/ai-default-model.ts";
@@ -130,27 +127,16 @@ export async function askCommand(args: string[]): Promise<void> {
     maxCalls = profile.maxToolCalls;
   }
 
-  // Setup context with system prompt
-  const contextConfig = {
-    ...profile.context,
-  };
-  if (failOnContextOverflow) {
-    contextConfig.overflowStrategy = "fail";
-  }
-  const context = new ContextManager(contextConfig);
-  context.addMessage({
-    role: "system",
-    content: generateSystemPrompt(),
-  });
-
-  // Create LLM function (fixture or live model)
-  const llm = fixturePath
-    ? createFixtureLLM(await loadLlmFixture(fixturePath))
-    : createAgentLLM({ model });
-
   // Get workspace
   const workspace = getPlatform().process.cwd();
-  const policy = await loadAgentPolicy(workspace);
+
+  const session = await createAgentSession({
+    workspace,
+    model,
+    fixturePath,
+    engineProfile: engineStrict ? "strict" : "normal",
+    failOnContextOverflow,
+  });
 
   // Create trace callback if trace mode enabled
   const onTrace = traceMode
@@ -235,21 +221,21 @@ export async function askCommand(args: string[]): Promise<void> {
       query,
       {
         workspace,
-        context,
+        context: session.context,
         autoApprove: false, // Safety layer auto-approves L0; prompts for L1/L2
         maxToolCalls: maxCalls,
         groundingMode: profile.groundingMode,
-        policy,
+        policy: session.policy,
         onTrace, // Pass trace callback
       },
-      llm,
+      session.llm,
     );
 
     // Display result
     log.raw.log(`\nResult:\n${result}\n`);
 
     // Show stats
-    const stats = context.getStats();
+    const stats = session.context.getStats();
     log.raw.log(
       `[Stats: ${stats.messageCount} messages, ${stats.estimatedTokens} tokens, ${stats.toolMessages} tool messages]`,
     );
@@ -259,5 +245,7 @@ export async function askCommand(args: string[]): Promise<void> {
       throw error;
     }
     throw error;
+  } finally {
+    await session.dispose();
   }
 }

@@ -16,6 +16,7 @@ import { uninstall as uninstallCommand, showUninstallHelp } from "./commands/uni
 import { upgrade as upgradeCommand, showUpgradeHelp } from "./commands/upgrade.ts";
 import { aiCommand, showAiHelp } from "./commands/ai.ts";
 import { askCommand, showAskHelp } from "./commands/ask.ts";
+import { wireCommand, showWireHelp } from "./commands/wire.ts";
 import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
 import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
@@ -41,7 +42,6 @@ USAGE:
   hlvm repl [options]
 
 OPTIONS:
-  --js              Enable JavaScript polyglot mode (HQL + JS)
   --ink             Force Ink REPL (interactive terminal only)
   --no-banner       Skip the startup banner
   --help, -h        Show this help
@@ -57,7 +57,7 @@ SESSIONS:
   Use /resume in the REPL to switch sessions.
   Use /sessions to list all sessions.
 
-POLYGLOT MODE (--js):
+POLYGLOT MODE (always on):
   Input starting with ( is evaluated as HQL.
   All other input is evaluated as JavaScript.
   Both languages share variables via globalThis.
@@ -67,7 +67,6 @@ EXAMPLES:
   hlvm repl --continue   Resume last session
   hlvm repl -c           Resume last session (short form)
   hlvm repl --resume     Open session picker
-  hlvm repl --js         Start polyglot REPL (HQL + JavaScript)
 `);
     return 0;
   }
@@ -110,11 +109,9 @@ EXAMPLES:
     openPicker,
   };
 
-  const jsMode = args.includes("--js");
   const showBanner = !args.includes("--no-banner");
 
   const replOptions: InkReplOptions = {
-    jsMode,
     showBanner,
     session: sessionOptions,
   };
@@ -139,6 +136,7 @@ Commands:
   init               Initialize a new HLVM project
   publish            Publish an HLVM package
   ask "<query>"      Ask AI agent to perform a task
+  wire               Start JSON-RPC agent protocol (stdio)
   ai                 Setup and manage AI models
   ollama serve       Start Ollama server (forwards to system Ollama)
   upgrade            Upgrade HLVM to the latest version
@@ -245,6 +243,14 @@ async function main(): Promise<void> {
         showAskHelp();
       } else {
         await askCommand(commandArgs);
+      }
+      break;
+
+    case "wire":
+      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
+        showWireHelp();
+      } else {
+        await wireCommand(commandArgs);
       }
       break;
 

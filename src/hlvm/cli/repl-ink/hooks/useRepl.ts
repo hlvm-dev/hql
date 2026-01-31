@@ -3,7 +3,7 @@
  * Manages REPL state, evaluation, and mode switching
  */
 
-import { useState, useCallback, useRef } from "npm:react@18";
+import { useCallback, useRef } from "npm:react@18";
 import { ReplState } from "../../repl/state.ts";
 import { evaluate as hqlEvaluate } from "../../repl/evaluator.ts";
 import { resolveAtMentions } from "../../repl/mention-resolver.ts";
@@ -12,7 +12,6 @@ import type { AnyAttachment } from "../../repl/attachment.ts";
 import { ensureError } from "../../../../common/utils.ts";
 
 interface UseReplOptions {
-  jsMode?: boolean;
   state?: ReplState;
 }
 
@@ -23,17 +22,14 @@ export interface EvaluateOptions {
 }
 
 export interface UseReplReturn {
-  jsMode: boolean;
   evaluate: (code: string, options?: EvaluateOptions) => Promise<EvalResult>;
-  setJsMode: (mode: boolean) => void;
   reset: () => void;
   state: ReplState;
 }
 
 export function useRepl(options: UseReplOptions = {}): UseReplReturn {
-  const { jsMode: initialJsMode = false, state: providedState } = options;
+  const { state: providedState } = options;
   const stateRef = useRef<ReplState>(providedState || new ReplState());
-  const [jsMode, setJsMode] = useState(initialJsMode);
 
   const evaluate = useCallback(async (code: string, options?: EvaluateOptions): Promise<EvalResult> => {
     const { attachments, signal } = options ?? {};
@@ -62,7 +58,7 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
       }
 
       // Pass attachments and signal to evaluator
-      return await hqlEvaluate(resolvedCode, state, jsMode, attachments, signal);
+      return await hqlEvaluate(resolvedCode, state, true, attachments, signal);
     } catch (error) {
       // Check if this was an abort error
       if (error instanceof Error && error.name === "AbortError") {
@@ -73,16 +69,14 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
         error: ensureError(error),
       };
     }
-  }, [jsMode]);
+  }, []);
 
   const reset = useCallback(() => {
     stateRef.current.reset();
   }, []);
 
   return {
-    jsMode,
     evaluate,
-    setJsMode,
     reset,
     state: stateRef.current,
   };

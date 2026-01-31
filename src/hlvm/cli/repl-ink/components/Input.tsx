@@ -104,7 +104,6 @@ interface InputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string, attachments?: AnyAttachment[]) => void;
-  jsMode?: boolean;
   disabled?: boolean;
   // FRP: history, bindings, signatures, docstrings now come from ReplContext
 }
@@ -113,7 +112,6 @@ export function Input({
   value,
   onChange,
   onSubmit,
-  jsMode = false,
   disabled = false,
 }: InputProps): React.ReactElement {
   // FRP: Get all reactive state from context
@@ -1991,7 +1989,7 @@ export function Input({
     const isCurrentLine = lineIndex === cursorLine;
     // Show depth indicator on continuation lines: "..1>" or "..2>" etc.
     const prompt = lineIndex === 0
-      ? (jsMode ? "js>" : "hlvm>")
+      ? "hlvm>"
       : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>");
 
     if (!isCurrentLine) {

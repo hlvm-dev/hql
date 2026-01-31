@@ -31,8 +31,6 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
   { name: "/tasks", description: "View background tasks" },
   { name: "/bg", description: "Push current eval to background" },
   { name: "/resume", description: "Resume a previous session" },
-  { name: "/js", description: "Switch to JavaScript mode" },
-  { name: "/hql", description: "Switch to HLVM HQL mode" },
 ];
 
 /** Generate help text dynamically using keybinding registry */
@@ -57,6 +55,10 @@ ${BOLD}Memory (auto-persist def/defn):${RESET}
 
 ${BOLD}Keybindings & Commands:${RESET}
 ${shortcuts}
+
+${BOLD}Polyglot (always on):${RESET}
+  Input starting with ( is HQL.
+  All other input is JavaScript.
 
 ${BOLD}Tip:${RESET} Press ${YELLOW}Ctrl+P${RESET} to open the command palette with fuzzy search.
 

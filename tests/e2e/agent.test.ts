@@ -27,7 +27,7 @@ import { getPlatform } from "../../src/platform/platform.ts";
 // Test Configuration
 // ============================================================
 
-const MODEL = "ollama/llama3.2:1b"; // Fast, small model for testing
+const MODEL = "ollama/llama3.1:8b"; // Reliable model for E2E testing
 const TIMEOUT = 120000; // 2 minutes per test (LLM can be slow)
 
 // ============================================================
@@ -164,10 +164,9 @@ Deno.test({
   name: "E2E Agent: read file with real LLM",
   ignore: !(await isLLMAvailable()),
   async fn() {
-    // Create a temp test file
+    // Create a test file IN workspace (not temp dir, to avoid sandbox blocking)
     const platform = getPlatform();
-    const testDir = await platform.fs.makeTempDir({ prefix: "agent-e2e-" });
-    const testFile = platform.path.join(testDir, "test.txt");
+    const testFile = platform.path.join(Deno.cwd(), ".test-e2e-file.txt");
 
     try {
       await platform.fs.writeTextFile(testFile, "Hello from E2E test!");
@@ -186,7 +185,7 @@ Deno.test({
     } finally {
       // Cleanup
       try {
-        await platform.fs.remove(testDir, { recursive: true });
+        await platform.fs.remove(testFile);
       } catch {
         // Ignore cleanup errors
       }

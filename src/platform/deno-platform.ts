@@ -297,8 +297,11 @@ const DenoCommand: PlatformCommand = {
         code: status.code,
         signal: status.signal ?? undefined,
       })),
-      stdout: process.stdout,
-      stderr: process.stderr,
+      // Only access streams when explicitly piped.
+      // Accessing stdin/stdout/stderr when not piped throws in Deno.
+      stdin: options.stdin === "piped" ? process.stdin : undefined,
+      stdout: options.stdout === "piped" ? process.stdout : undefined,
+      stderr: options.stderr === "piped" ? process.stderr : undefined,
       kill: process.kill?.bind(process),
       unref: process.unref?.bind(process),
     };

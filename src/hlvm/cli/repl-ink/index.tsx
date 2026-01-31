@@ -11,7 +11,6 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 
 export interface InkReplOptions {
-  jsMode?: boolean;
   showBanner?: boolean;
   /** Session options for persistence */
   session?: SessionInitOptions;
@@ -23,10 +22,10 @@ export async function startInkRepl(options: InkReplOptions = {}): Promise<number
     return 1;
   }
 
-  const { jsMode = false, showBanner = true, session } = options;
+  const { showBanner = true, session } = options;
   const { waitUntilExit } = render(
     <ThemeProvider>
-      <App jsMode={jsMode} showBanner={showBanner} sessionOptions={session} />
+      <App showBanner={showBanner} sessionOptions={session} />
     </ThemeProvider>
   );
   await waitUntilExit();
@@ -67,7 +66,6 @@ if (import.meta.main) {
   };
 
   startInkRepl({
-    jsMode: args.includes("--js"),
     showBanner: !args.includes("--no-banner"),
     session: sessionOptions,
   }).then((code) => getPlatform().process.exit(code));
