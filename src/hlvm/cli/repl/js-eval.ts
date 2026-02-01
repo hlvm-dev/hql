@@ -191,10 +191,57 @@ export function transformJSForRepl(code: string): string {
  * Evaluate JavaScript code in REPL context.
  * Uses indirect eval for global scope execution.
  */
-export function evaluateJS(code: string): unknown {
+export function evaluateJS(code: string): { value: unknown; logs: string[] } {
   const transformed = transformJSForRepl(code);
-  // deno-lint-ignore no-eval
-  return (0, eval)(transformed);
+  const logs: string[] = [];
+  const toLogString = (arg: unknown): string => {
+    if (typeof arg === "string") return arg;
+    try {
+      return JSON.stringify(arg);
+    } catch {
+      return String(arg);
+    }
+  };
+  const pushLog = (...args: unknown[]) => {
+    logs.push(args.map(toLogString).join(" "));
+  };
+  // Shadow console for this eval only (prevents stdout errors).
+  const consoleProxy = {
+    log: pushLog,
+    info: pushLog,
+    warn: pushLog,
+    error: pushLog,
+    debug: pushLog,
+    trace: pushLog,
+    dir: pushLog,
+    dirxml: pushLog,
+    table: pushLog,
+    group: pushLog,
+    groupCollapsed: pushLog,
+    groupEnd: () => {},
+    time: () => {},
+    timeEnd: pushLog,
+    timeLog: pushLog,
+    timeStamp: () => {},
+    profile: () => {},
+    profileEnd: () => {},
+    clear: () => {},
+    count: pushLog,
+    countReset: pushLog,
+    assert: () => {},
+  };
+  const globalWithConsole = globalThis as typeof globalThis & {
+    console: typeof consoleProxy;
+  };
+  const originalConsole = globalWithConsole.console;
+  globalWithConsole.console = consoleProxy;
+  try {
+    // deno-lint-ignore no-eval
+    const value = (0, eval)(transformed);
+    return { value, logs };
+  } finally {
+    globalWithConsole.console = originalConsole;
+  }
 }
 
 /**

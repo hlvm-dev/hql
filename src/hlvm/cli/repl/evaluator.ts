@@ -54,6 +54,7 @@ export interface EvalResult {
   value?: unknown;
   error?: Error;
   suppressOutput?: boolean;
+  logs?: string[];
   /** When true, value is command output text (display as-is, not as quoted string) */
   isCommandOutput?: boolean;
   /** When set, output is streamed via task manager instead of direct iterator */
@@ -204,14 +205,14 @@ export async function evaluate(
       const bindings = extractJSBindings(trimmed);
 
       // Evaluate JavaScript (transforms to persist to globalThis)
-      const result = evaluateJS(trimmed);
+      const { value, logs } = evaluateJS(trimmed);
 
       // Track bindings in REPL state for autocompletion
       for (const name of bindings) {
         state.addBinding(name);
       }
 
-      return { success: true, value: result };
+      return { success: true, value, logs };
     } catch (error) {
       return { success: false, error: ensureError(error) };
     }

@@ -14,12 +14,6 @@ import { RuntimeError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { buildContext } from "../repl-ink/completion/providers.ts";
 import { getActiveProvider } from "../repl-ink/completion/concrete-providers.ts";
-import {
-  selectHqlForm,
-  splitTopLevelHqlForms,
-  type HqlRange,
-} from "../../../common/hql-selection.ts";
-import { parse } from "../../../hql/transpiler/pipeline/parser.ts";
 
 /**
  * REPL HTTP Server Port
@@ -37,6 +31,7 @@ const DEFAULT_PORT = 11435;
 const MAX_BODY_BYTES = 1_000_000;
 const platform = getPlatform();
 const textDecoder = new TextDecoder();
+const INSTANCE_ID = platform.env.get("HLVM_REPL_INSTANCE_ID") ?? null;
 
 function resolvePort(): number {
   const portOverride = platform.env.get("HLVM_REPL_PORT");
@@ -58,14 +53,6 @@ interface CompletionRequest {
   cursor: number;
 }
 
-interface SelectRequest {
-  code: string;
-  cursor: number;
-}
-
-interface SplitRequest {
-  code: string;
-}
 
 type JsonParseResult<T> =
   | { ok: true; value: T }
@@ -73,38 +60,6 @@ type JsonParseResult<T> =
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
-}
-
-function isValidHqlSnippet(code: string): boolean {
-  const trimmed = code.trim();
-  if (!trimmed) return false;
-  try {
-    const ast = parse(trimmed, "<repl-selection>");
-    return Array.isArray(ast) && ast.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function selectHqlRange(code: string, cursor: number): HqlRange | null {
-  const ranges = splitTopLevelHqlForms(code);
-  if (ranges.length === 0) return null;
-
-  for (const range of ranges) {
-    const slice = code.slice(range.start, range.end);
-    if (!isValidHqlSnippet(slice)) continue;
-    if (cursor >= range.start && cursor <= range.end) {
-      return range;
-    }
-  }
-
-  return null;
-}
-
-function splitHqlRanges(code: string): HqlRange[] {
-  const ranges = splitTopLevelHqlForms(code);
-  if (ranges.length === 0) return [];
-  return ranges.filter((range) => isValidHqlSnippet(code.slice(range.start, range.end)));
 }
 
 function addCorsHeaders(response: Response): Response {
@@ -224,6 +179,7 @@ async function handleEval(req: Request): Promise<Response> {
     return Response.json({
       success: result.success,
       value: hasValue ? formatPlainValue(result.value) : null,  // Plain text, no ANSI codes
+      logs: result.logs?.map((log) => log.trimEnd()) ?? [],
       error: result.error
         ? { name: result.error.name, message: result.error.message }
         : null,
@@ -307,59 +263,6 @@ async function handleComplete(req: Request): Promise<Response> {
 }
 
 /**
- * Handle POST /repl/selection - Select a top-level HQL form containing the cursor
- */
-async function handleSelect(req: Request): Promise<Response> {
-  try {
-    const parsed = await parseJsonBody<SelectRequest>(req);
-    if (!parsed.ok) return parsed.response;
-
-    const { code, cursor } = parsed.value;
-    if (typeof code !== "string") {
-      return jsonError("Missing code", 400);
-    }
-    if (typeof cursor !== "number" || Number.isNaN(cursor)) {
-      return jsonError("Missing cursor", 400);
-    }
-
-    const safeCursor = Math.max(0, Math.min(cursor, code.length));
-    const range = selectHqlRange(code, safeCursor) ??
-      (() => {
-        const candidate = selectHqlForm(code, safeCursor);
-        if (!candidate) return null;
-        const slice = code.slice(candidate.start, candidate.end);
-        return isValidHqlSnippet(slice) ? candidate : null;
-      })();
-
-    return Response.json({ range });
-  } catch (error) {
-    log.error("Select failed", error);
-    return jsonError(getErrorMessage(error), 500);
-  }
-}
-
-/**
- * Handle POST /repl/blocks - Split top-level HQL forms for a snippet
- */
-async function handleSplit(req: Request): Promise<Response> {
-  try {
-    const parsed = await parseJsonBody<SplitRequest>(req);
-    if (!parsed.ok) return parsed.response;
-
-    const { code } = parsed.value;
-    if (typeof code !== "string") {
-      return jsonError("Missing code", 400);
-    }
-
-    const ranges: HqlRange[] = splitHqlRanges(code);
-    return Response.json({ ranges });
-  } catch (error) {
-    log.error("Split failed", error);
-    return jsonError(getErrorMessage(error), 500);
-  }
-}
-
-/**
  * Handle GET /health - Health check endpoint
  */
 async function handleHealth(): Promise<Response> {
@@ -367,6 +270,7 @@ async function handleHealth(): Promise<Response> {
     status: "ok",
     initialized: replState !== null,
     definitions: replState?.getDocstrings().size ?? 0,
+    instanceId: INSTANCE_ID,
   });
 }
 
@@ -388,14 +292,6 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (req.method === "POST" && url.pathname === "/complete") {
     return addCorsHeaders(await handleComplete(req));
-  }
-
-  if (req.method === "POST" && url.pathname === "/repl/selection") {
-    return addCorsHeaders(await handleSelect(req));
-  }
-
-  if (req.method === "POST" && url.pathname === "/repl/blocks") {
-    return addCorsHeaders(await handleSplit(req));
   }
 
   if (req.method === "GET" && url.pathname === "/health") {

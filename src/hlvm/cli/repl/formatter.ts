@@ -57,7 +57,7 @@ function formatValueInternal(value: unknown, depth = 0, useColor = true): string
   const colors = useColor ? ANSI_COLORS : NO_COLOR;
   const { CYAN, YELLOW, RED, DIM_GRAY, RESET } = colors;
 
-  if (value === undefined) return "";
+  if (value === undefined) return `${DIM_GRAY}undefined${RESET}`;
   if (value === null) return `${DIM_GRAY}nil${RESET}`;
 
   if (typeof value === "string") {
@@ -194,4 +194,3 @@ export function formatError(error: Error): string {
 
   return result;
 }
-
