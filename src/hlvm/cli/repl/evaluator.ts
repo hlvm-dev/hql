@@ -10,10 +10,10 @@ import { isList, isSymbol, sexpToString, type SList, type SSymbol } from "../../
 import { isVectorImport, isNamespaceImport } from "../../../hql/transpiler/syntax/import-export.ts";
 import { sanitizeIdentifier, ensureError } from "../../../common/utils.ts";
 import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../../../hql/transpiler/keyword/primitives.ts";
-import { extractTypeFromSymbol } from "../../../hql/transpiler/tokenizer/type-tokenizer.ts";
 import type { ReplState } from "./state.ts";
 import { appendToMemory } from "./memory.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { extractFnParams, extractIdentifierName } from "./definition-utils.ts";
 
 // SSOT: Use platform layer for all file/path operations
 const path = () => getPlatform().path;
@@ -36,9 +36,6 @@ import type { TextAttachment, Attachment } from "./attachment.ts";
 import { extractDocstrings } from "./docstring.ts";
 import { getAbortSignal, setAbortSignal } from "../../api/runtime.ts";
 import { log } from "../../api/log.ts";
-
-// Pre-compiled pattern for extracting generic base type
-const GENERIC_BASE_TYPE_REGEX = /^([^<]+)/;
 
 // Constants
 const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
@@ -67,45 +64,6 @@ interface ExpressionType {
   readonly kind: ExpressionKind;
   readonly name?: string;
   readonly operator?: string;
-}
-
-/**
- * Extract just the identifier name from a symbol that may include type annotations and/or generics.
- * Examples:
- *   "greet" -> "greet"
- *   "greet:string" -> "greet"
- *   "identity<T>" -> "identity"
- *   "identity<T>:T" -> "identity"
- */
-function extractIdentifierName(symbolName: string): string {
-  // First remove type annotation (e.g., "greet:string" -> "greet")
-  const { name: withoutType } = extractTypeFromSymbol(symbolName);
-
-  // Then remove generic parameters (e.g., "identity<T>" -> "identity")
-  const genericMatch = withoutType.match(GENERIC_BASE_TYPE_REGEX);
-  return genericMatch ? genericMatch[1] : withoutType;
-}
-
-/**
- * Extract function parameters from a fn/defn/async fn declaration
- */
-function extractFnParams(expr: SList, operator: string): string[] | undefined {
-  const isAsyncFn = operator.startsWith("async ");
-  const isFnLike = operator === "fn" || operator === "defn" || operator === "async fn" || operator === "async fn*";
-
-  if (!isFnLike) return undefined;
-
-  const paramsIndex = isAsyncFn ? 3 : 2;
-  const minLength = isAsyncFn ? 4 : 3;
-
-  if (expr.elements.length < minLength) return undefined;
-
-  const paramsNode = expr.elements[paramsIndex];
-  if (!isList(paramsNode)) return undefined;
-
-  return paramsNode.elements
-    .filter((el): el is SSymbol => isSymbol(el) && el.name !== "vector" && el.name !== "empty-array")
-    .map(el => el.name);
 }
 
 /** Analyze expression type from AST */

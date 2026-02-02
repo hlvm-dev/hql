@@ -15,7 +15,7 @@
  * - SSOT-compliant (uses all previous components)
  */
 
-import { getTool, hasTool, type ToolFunction } from "./registry.ts";
+import { getAllTools, getTool, hasTool, type ToolFunction } from "./registry.ts";
 import { checkToolSafety } from "./security/safety.ts";
 import { ContextManager, ContextOverflowError, type Message } from "./context.ts";
 import {
@@ -41,6 +41,8 @@ import type { AgentPolicy } from "./policy.ts";
 import { UsageTracker, estimateUsage, type TokenUsage } from "./usage.ts";
 import type { MetricsSink } from "./metrics.ts";
 import { isToolArgsObject } from "./validation.ts";
+import { getPlatform } from "../../platform/platform.ts";
+import { log } from "../api/log.ts";
 
 // ============================================================
 // Types
@@ -182,6 +184,10 @@ interface OrchestratorConfig {
   toolRateLimiter?: SlidingWindowRateLimiter | null;
   /** Optional policy overrides (allow/deny/ask) */
   policy?: AgentPolicy | null;
+  /** Auto-run web tools for URL-centric requests */
+  autoWeb?: boolean;
+  /** Internal: prevent repeated Playwright install prompts */
+  playwrightInstallAttempted?: boolean;
   /** Optional usage tracker for LLM token accounting */
   usage?: UsageTracker;
   /** Optional metrics sink for structured events */
@@ -191,6 +197,72 @@ interface OrchestratorConfig {
 /** Tool call envelope constants */
 const TOOL_CALL_START = "TOOL_CALL";
 const TOOL_CALL_END = "END_TOOL_CALL";
+
+const URL_PATTERN = /https?:\/\/[^\s"'<>`)\]]+/i;
+const BARE_DOMAIN_PATTERN = /\b([a-z0-9][a-z0-9.-]+\.[a-z]{2,})(\/[^\s"'<>`)\]]*)?/i;
+const RENDER_KEYWORDS = [
+  "landing page",
+  "homepage",
+  "home page",
+  "front page",
+  "main page",
+  "videos",
+  "video",
+  "trending",
+  "recommended",
+  "feed",
+  "latest",
+  "current",
+  "today",
+  "what's on",
+  "what is on",
+  "top stories",
+];
+const SUMMARY_KEYWORDS = [
+  "summarize",
+  "summary",
+  "extract",
+  "list",
+  "show",
+  "what",
+  "content",
+  "contents",
+  "headline",
+  "headlines",
+  "articles",
+  "news",
+];
+const RAW_KEYWORDS = ["raw", "html", "headers", "fetch"];
+const VIDEO_LIST_KEYWORDS = [
+  "video list",
+  "videos",
+  "video",
+  "watch",
+  "what's on",
+  "what is on",
+  "trending",
+  "recommended",
+  "feed",
+];
+const JS_HEAVY_DOMAINS = new Set([
+  "youtube.com",
+  "www.youtube.com",
+  "naver.com",
+  "www.naver.com",
+  "m.naver.com",
+  "twitter.com",
+  "x.com",
+  "instagram.com",
+  "tiktok.com",
+  "facebook.com",
+  "linkedin.com",
+  "reddit.com",
+]);
+const PLAYWRIGHT_ERROR_MARKERS = [
+  "executable doesn't exist",
+  "install chromium",
+  "please run the following command to download new browsers",
+];
 
 function addContextMessage(
   config: OrchestratorConfig,
@@ -212,6 +284,274 @@ function addContextMessage(
     }
     throw error;
   }
+}
+
+function extractUrlFromText(input: string): string | null {
+  const direct = input.match(URL_PATTERN);
+  if (direct?.[0]) {
+    return trimUrl(direct[0]);
+  }
+
+  const bare = input.match(BARE_DOMAIN_PATTERN);
+  if (bare?.[0]) {
+    return `https://${trimUrl(bare[0])}`;
+  }
+
+  return null;
+}
+
+function trimUrl(raw: string): string {
+  return raw.replace(/[.,!?;:)\]]+$/g, "");
+}
+
+function hasKeyword(input: string, keywords: string[]): boolean {
+  const lower = input.toLowerCase();
+  return keywords.some((word) => lower.includes(word));
+}
+
+function getHost(url: string): string {
+  try {
+    return new URL(url).host.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function findRenderToolName(): string | null {
+  if (hasTool("mcp/playwright/render_url")) return "mcp/playwright/render_url";
+  if (hasTool("render_url")) return "render_url";
+  const tools = Object.keys(getAllTools());
+  for (const name of tools) {
+    if (name.endsWith("/render_url")) return name;
+  }
+  return null;
+}
+
+export function chooseAutoWebTool(
+  request: string,
+): { toolName: string; args: Record<string, unknown> } | null {
+  const url = extractUrlFromText(request);
+  if (!url) return null;
+
+  const wantsRaw = hasKeyword(request, RAW_KEYWORDS);
+  const wantsSummary = hasKeyword(request, SUMMARY_KEYWORDS);
+  const host = getHost(url);
+  const wantsVideoList = hasKeyword(request, VIDEO_LIST_KEYWORDS);
+  const wantsRender = hasKeyword(request, RENDER_KEYWORDS) ||
+    JS_HEAVY_DOMAINS.has(host);
+
+  const renderTool = findRenderToolName();
+  if (wantsRender && renderTool) {
+    const args: Record<string, unknown> = { url };
+    if (host.includes("youtube.com") && wantsVideoList) {
+      args.selector = "ytd-rich-item-renderer";
+      args.textSelector = "a#video-title";
+      args.textSelectorLimit = 20;
+      args.waitMs = 1500;
+    }
+    return { toolName: renderTool, args };
+  }
+
+  if (wantsRaw && hasTool("fetch_url")) {
+    return { toolName: "fetch_url", args: { url } };
+  }
+
+  if (hasTool("extract_url") && (wantsSummary || !wantsRaw)) {
+    return { toolName: "extract_url", args: { url } };
+  }
+
+  if (hasTool("fetch_url")) {
+    return { toolName: "fetch_url", args: { url } };
+  }
+
+  return null;
+}
+
+function isRenderToolName(toolName: string): boolean {
+  return toolName === "render_url" || toolName.endsWith("/render_url");
+}
+
+function isAutoWebToolName(toolName: string): boolean {
+  return toolName === "search_web" ||
+    toolName === "fetch_url" ||
+    toolName === "extract_url" ||
+    toolName === "extract_html" ||
+    isRenderToolName(toolName);
+}
+
+function chooseAutoWebFallback(
+  primaryTool: string,
+  request: string,
+): { toolName: string; args: Record<string, unknown> } | null {
+  const url = extractUrlFromText(request);
+  if (!url) return null;
+
+  const candidates: string[] = [];
+  if (primaryTool !== "extract_url" && hasTool("extract_url")) {
+    candidates.push("extract_url");
+  }
+  if (primaryTool !== "fetch_url" && hasTool("fetch_url")) {
+    candidates.push("fetch_url");
+  }
+
+  if (candidates.length === 0) return null;
+  return { toolName: candidates[0], args: { url } };
+}
+
+function formatAutoWebFailure(
+  primaryTool: string,
+  primaryError?: string,
+  fallbackTool?: string,
+  fallbackError?: string,
+): string {
+  const lines = [
+    `Web tool failed (${primaryTool}): ${primaryError ?? "Unknown error"}`,
+  ];
+  if (fallbackTool) {
+    lines.push(
+      `Fallback failed (${fallbackTool}): ${fallbackError ?? "Unknown error"}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+export function summarizeWebToolResult(
+  toolName: string,
+  result: unknown,
+): string | null {
+  if (!isAutoWebToolName(toolName)) return null;
+  if (!result || typeof result !== "object") return null;
+
+  const record = result as Record<string, unknown>;
+  if (typeof record !== "object") return null;
+
+  const lines: string[] = [];
+  const pushLine = (label: string, value: string) => {
+    if (!value) return;
+    lines.push(`${label}: ${value}`);
+  };
+
+  if (typeof record.url === "string") pushLine("URL", record.url);
+  if (typeof record.status === "number") pushLine("Status", String(record.status));
+  if (typeof record.ok === "boolean") pushLine("OK", String(record.ok));
+  if (typeof record.title === "string") pushLine("Title", record.title);
+  if (typeof record.description === "string") pushLine("Description", record.description);
+
+  const text = typeof record.text === "string" ? record.text.trim() : "";
+  const textMatches = Array.isArray(record.textMatches)
+    ? record.textMatches.filter((item) => typeof item === "string")
+    : [];
+  if (textMatches.length > 0) {
+    lines.push("Selected text:");
+    for (const match of textMatches.slice(0, 20)) {
+      const trimmed = String(match).trim();
+      if (trimmed) lines.push(`- ${trimmed}`);
+    }
+  }
+  if (text) {
+    const cleaned = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    const unique: string[] = [];
+    const seen = new Set<string>();
+    for (const line of cleaned) {
+      const key = line.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(line);
+      }
+      if (unique.length >= 25) break;
+    }
+    if (unique.length > 0) {
+      lines.push("Text (top lines):");
+      for (const line of unique) {
+        lines.push(`- ${line}`);
+      }
+    }
+  }
+
+  const links = Array.isArray(record.links) ? record.links : [];
+  if (links.length > 0) {
+    lines.push("Links (sample):");
+    for (const link of links.slice(0, 10)) {
+      if (typeof link === "string" && link.trim()) {
+        lines.push(`- ${link.trim()}`);
+      }
+    }
+  }
+
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+export function shouldAutoAnswerWebRequest(request: string): boolean {
+  const url = extractUrlFromText(request);
+  if (!url) return false;
+  return hasKeyword(request, SUMMARY_KEYWORDS) ||
+    hasKeyword(request, VIDEO_LIST_KEYWORDS) ||
+    hasKeyword(request, RENDER_KEYWORDS);
+}
+
+function isPlaywrightMissingError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return PLAYWRIGHT_ERROR_MARKERS.some((marker) => lower.includes(marker));
+}
+
+async function promptPlaywrightInstall(
+  config: OrchestratorConfig,
+): Promise<boolean> {
+  try {
+    const tool = getTool("ask_user");
+    const response = await tool.fn(
+      {
+        question:
+          "Playwright Chromium is required to render this page. Install now? (y/n)",
+      },
+      config.workspace,
+    );
+    return String(response).trim().toLowerCase().startsWith("y");
+  } catch (error) {
+    log.warn(`Playwright install prompt failed: ${getErrorMessage(error)}`);
+    return false;
+  }
+}
+
+async function runPlaywrightInstall(): Promise<boolean> {
+  const platform = getPlatform();
+  try {
+    const process = platform.command.run({
+      cmd: ["npx", "playwright", "install", "chromium"],
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    const status = await process.status;
+    if (!status.success) {
+      log.error("Playwright install failed");
+      return false;
+    }
+    return true;
+  } catch (error) {
+    log.error(`Playwright install failed: ${getErrorMessage(error)}`);
+    return false;
+  }
+}
+
+async function ensurePlaywrightChromium(
+  config: OrchestratorConfig,
+): Promise<boolean> {
+  if (config.playwrightInstallAttempted) return false;
+  config.playwrightInstallAttempted = true;
+
+  if (config.autoWeb) {
+    log.info("Installing Playwright Chromium (auto-web)...");
+    return await runPlaywrightInstall();
+  }
+
+  const confirmed = await promptPlaywrightInstall(config);
+  if (!confirmed) return false;
+
+  log.info("Installing Playwright Chromium...");
+  return await runPlaywrightInstall();
 }
 
 function emitMetric(
@@ -556,10 +896,13 @@ export async function executeToolCall(
     }
 
     // Check safety
+    const autoApprove =
+      (config.autoApprove ?? false) ||
+      ((config.autoWeb ?? false) && isAutoWebToolName(toolCall.toolName));
     const approved = await checkToolSafety(
       toolCall.toolName,
       toolCall.args,
-      config.autoApprove ?? false,
+      autoApprove,
       config.policy ?? null,
     );
 
@@ -575,13 +918,48 @@ export async function executeToolCall(
     // Get tool and execute (with timeout)
     const tool = getTool(toolCall.toolName);
     const toolTimeout = config.toolTimeout ?? DEFAULT_TIMEOUTS.tool;
-    const result = await executeToolWithTimeout(
-      tool.fn,
-      toolCall.args,
-      config.workspace,
-      toolTimeout,
-      config.policy ?? null,
-    );
+    let result: unknown;
+    try {
+      result = await executeToolWithTimeout(
+        tool.fn,
+        toolCall.args,
+        config.workspace,
+        toolTimeout,
+        config.policy ?? null,
+      );
+    } catch (error) {
+      const message = getErrorMessage(error);
+      if (
+        config.autoWeb &&
+        isRenderToolName(toolCall.toolName) &&
+        isPlaywrightMissingError(message)
+      ) {
+        const installed = await ensurePlaywrightChromium(config);
+        if (installed) {
+          result = await executeToolWithTimeout(
+            tool.fn,
+            toolCall.args,
+            config.workspace,
+            toolTimeout,
+            config.policy ?? null,
+          );
+        } else {
+          return buildToolErrorResult(
+            toolCall.toolName,
+            message,
+            startedAt,
+            config,
+          );
+        }
+      } else {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          message,
+          startedAt,
+          config,
+        );
+      }
+    }
 
     // Truncate result if needed
     const resultStr = typeof result === "string"
@@ -785,13 +1163,21 @@ export async function processAgentResponse(
     const call = limitedCalls[i];
     const result = results[i];
 
-    const observation = result.success
-      ? `Tool: ${call.toolName}\nResult: ${
-        typeof result.result === "string"
-          ? result.result
-          : JSON.stringify(result.result)
-      }`
-      : `Tool: ${call.toolName}\nError: ${result.error}`;
+    let observation: string;
+    if (result.success) {
+      const summary = summarizeWebToolResult(call.toolName, result.result);
+      if (summary) {
+        observation = `Tool: ${call.toolName}\nSummary:\n${summary}`;
+      } else {
+        observation = `Tool: ${call.toolName}\nResult: ${
+          typeof result.result === "string"
+            ? result.result
+            : JSON.stringify(result.result)
+        }`;
+      }
+    } else {
+      observation = `Tool: ${call.toolName}\nError: ${result.error}`;
+    }
 
     addContextMessage(config, {
       role: "tool",
@@ -1010,6 +1396,111 @@ export async function runReActLoop(
   const toolUses: ToolUse[] = [];
   let groundingRetries = 0;
   const maxGroundingRetries = groundingMode === "strict" ? 1 : 0;
+  const autoWebEnabled = config.autoWeb ?? false;
+  const autoWebAnswer = autoWebEnabled && shouldAutoAnswerWebRequest(userRequest);
+
+  const recordAutoWebResult = (
+    toolCall: ToolCall,
+    toolResult: ToolExecutionResult,
+  ): string => {
+    const resultText = toolResult.success
+      ? typeof toolResult.result === "string"
+        ? toolResult.result
+        : JSON.stringify(toolResult.result)
+      : `ERROR: ${toolResult.error}`;
+
+    const observation = toolResult.success
+      ? `Tool: ${toolCall.toolName}\nResult: ${resultText}`
+      : `Tool: ${toolCall.toolName}\nError: ${toolResult.error}`;
+
+    addContextMessage(config, { role: "tool", content: observation });
+
+    toolUses.push({
+      toolName: toolCall.toolName,
+      result: resultText ?? "",
+    });
+
+    const bytes = encoder.encode(resultText ?? "").length;
+    totalToolResultBytes += bytes;
+    if (maxToolResultBytes > 0) {
+      try {
+        assertMaxBytes(
+          "total tool result bytes",
+          totalToolResultBytes,
+          maxToolResultBytes,
+        );
+      } catch (error) {
+        config.onTrace?.({
+          type: "resource_limit",
+          kind: "tool_result_bytes",
+          limit: maxToolResultBytes,
+          used: totalToolResultBytes,
+        });
+        emitMetric(config, "resource_limit", {
+          kind: "tool_result_bytes",
+          limit: maxToolResultBytes,
+          used: totalToolResultBytes,
+        });
+        throw error;
+      }
+    }
+
+    return resultText;
+  };
+
+  if (autoWebEnabled) {
+    const autoCall = chooseAutoWebTool(userRequest);
+    if (autoCall) {
+      const autoResult = await executeToolCall(autoCall, config);
+      recordAutoWebResult(autoCall, autoResult);
+
+      if (autoResult.success && autoWebAnswer) {
+        const summary = summarizeWebToolResult(
+          autoCall.toolName,
+          autoResult.result,
+        );
+        if (summary) {
+          return summary;
+        }
+        if (typeof autoResult.result === "string") {
+          return autoResult.result;
+        }
+        return JSON.stringify(autoResult.result ?? "");
+      } else if (autoWebAnswer) {
+        const fallbackCall = chooseAutoWebFallback(
+          autoCall.toolName,
+          userRequest,
+        );
+        if (!fallbackCall) {
+          return formatAutoWebFailure(autoCall.toolName, autoResult.error);
+        }
+
+        const fallbackResult = await executeToolCall(fallbackCall, config);
+        recordAutoWebResult(fallbackCall, fallbackResult);
+
+        if (fallbackResult.success) {
+          const summary = summarizeWebToolResult(
+            fallbackCall.toolName,
+            fallbackResult.result,
+          );
+          if (summary) {
+            return summary;
+          }
+          if (typeof fallbackResult.result === "string") {
+            return fallbackResult.result;
+          }
+          return JSON.stringify(fallbackResult.result ?? "");
+        }
+
+        return formatAutoWebFailure(
+          autoCall.toolName,
+          autoResult.error,
+          fallbackCall.toolName,
+          fallbackResult.error,
+        );
+      }
+    }
+  }
 
   while (iterations < maxIterations) {
     iterations++;

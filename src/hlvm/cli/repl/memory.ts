@@ -7,6 +7,7 @@
 import { parse } from "../../../hql/transpiler/pipeline/parser.ts";
 import { isList, isSymbol, type SList, type SSymbol } from "../../../hql/s-exp/types.ts";
 import { escapeString } from "./string-utils.ts";
+import { extractFnParams } from "./definition-utils.ts";
 import { getHlvmDir, getMemoryPath } from "../../../common/paths.ts";
 import { getLegacyMemoryPath } from "../../../common/legacy-migration.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -148,6 +149,17 @@ interface ParsedDefinition {
   docstring?: string;
 }
 
+export interface MemoryFunctionItem {
+  id: string;
+  name: string;
+  kind: "def" | "defn";
+  arity: number;
+  params: string[];
+  docstring?: string;
+  icon?: string;
+  sourceCode: string;
+}
+
 // ============================================================
 // File I/O helpers (DRY)
 // ============================================================
@@ -170,8 +182,13 @@ async function readAndParseMemory(): Promise<ParsedDefinition[]> {
 /** Write definitions to memory file with header */
 async function writeMemoryFile(definitions: ParsedDefinition[]): Promise<void> {
   await ensureLegacyMemoryMigrated();
+  const formatted = definitions.map((def) => {
+    if (!def.docstring) return def.code;
+    const docLines = def.docstring.split("\n").map((line) => `// ${line}`).join("\n");
+    return `${docLines}\n${def.code}`;
+  });
   const content = definitions.length > 0
-    ? MEMORY_HEADER + definitions.map(d => d.code).join("\n\n") + "\n"
+    ? MEMORY_HEADER + formatted.join("\n\n") + "\n"
     : MEMORY_HEADER;
   await getPlatform().fs.writeTextFile(getMemoryFilePath(), content);
 }
@@ -182,6 +199,20 @@ async function writeMemoryFile(definitions: ParsedDefinition[]): Promise<void> {
  */
 function isDefinitionStart(trimmedLine: string): boolean {
   return trimmedLine.startsWith("(def ") || trimmedLine.startsWith("(defn ");
+}
+
+function isDocCommentLine(trimmedLine: string): boolean {
+  return trimmedLine.startsWith("//") || trimmedLine.startsWith(";");
+}
+
+function stripDocCommentPrefix(trimmedLine: string): string {
+  if (trimmedLine.startsWith("//")) {
+    return trimmedLine.startsWith("// ") ? trimmedLine.slice(3) : trimmedLine.slice(2);
+  }
+  if (trimmedLine.startsWith(";")) {
+    return trimmedLine.startsWith("; ") ? trimmedLine.slice(2) : trimmedLine.slice(1);
+  }
+  return trimmedLine;
 }
 
 /**
@@ -208,9 +239,9 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
     }
 
     // Comment line: accumulate as potential docstring
-    if (trimmed.startsWith("//")) {
-      // Remove "// " prefix and store the content
-      const docLine = trimmed.startsWith("// ") ? trimmed.slice(3) : trimmed.slice(2);
+    if (isDocCommentLine(trimmed)) {
+      // Remove comment prefix and store the content
+      const docLine = stripDocCommentPrefix(trimmed);
       pendingDocLines.push(docLine);
       i++;
       continue;
@@ -237,8 +268,10 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
       const currentTrimmed = currentLine.trim();
 
       // Skip empty lines and comments within multi-line expressions
-      if (j > i && (currentTrimmed === "" || currentTrimmed.startsWith("//"))) {
-        codeLines.push(currentLine);
+      if (j > i && (currentTrimmed === "" || isDocCommentLine(currentTrimmed))) {
+        if (currentTrimmed === "" || currentTrimmed.startsWith("//")) {
+          codeLines.push(currentLine);
+        }
         continue;
       }
 
@@ -352,6 +385,37 @@ export async function loadMemory(evaluator: (code: string) => Promise<{ success:
   return { count: successCount, errors, docstrings };
 }
 
+function extractParamsFromDefnCode(code: string): string[] {
+  try {
+    const ast = parse(code, "<memory>");
+    if (ast.length === 0 || !isList(ast[0])) return [];
+    const list = ast[0] as SList;
+    if (list.elements.length < 3 || !isSymbol(list.elements[0])) return [];
+    const op = (list.elements[0] as SSymbol).name;
+    const params = extractFnParams(list, op);
+    return params ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function listMemoryFunctions(): Promise<MemoryFunctionItem[]> {
+  const definitions = await readAndParseMemory();
+  return definitions.map((def) => {
+    const params = def.kind === "defn" ? extractParamsFromDefnCode(def.code) : [];
+    return {
+      id: def.name,
+      name: def.name,
+      kind: def.kind,
+      arity: def.kind === "defn" ? params.length : 0,
+      params,
+      docstring: def.docstring,
+      icon: undefined,
+      sourceCode: def.code,
+    };
+  });
+}
+
 /**
  * Strip leading comment lines from code.
  * Used to ensure docstring from state is the single source of truth.
@@ -363,7 +427,7 @@ function stripLeadingComments(code: string): string {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     // Skip empty lines and comment lines at the start
-    if (trimmed === "" || trimmed.startsWith("//")) {
+    if (trimmed === "" || isDocCommentLine(trimmed)) {
       startIndex = i + 1;
     } else {
       break;
@@ -409,13 +473,6 @@ export async function appendToMemory(
     }
     code = `(def ${name} ${serialized})`;
     await debugLog(`def code: ${code}`);
-  }
-
-  // Prepend docstring as comment if provided (single source of truth)
-  if (docstring) {
-    const docLines = docstring.split("\n").map(line => `; ${line}`).join("\n");
-    code = docLines + "\n" + code;
-    await debugLog(`Added docstring, final code length: ${code.length}`);
   }
 
   const path = getMemoryFilePath();

@@ -25,6 +25,20 @@ interface FetchUrlArgs {
   timeoutMs?: number;
 }
 
+interface ExtractUrlArgs {
+  url: string;
+  maxBytes?: number;
+  timeoutMs?: number;
+  maxTextLength?: number;
+  maxLinks?: number;
+}
+
+interface ExtractHtmlArgs {
+  html: string;
+  maxTextLength?: number;
+  maxLinks?: number;
+}
+
 interface SearchWebArgs {
   query: string;
   maxResults?: number;
@@ -43,6 +57,29 @@ interface SearchResult {
 
 const DEFAULT_WEB_MAX_BYTES = RESOURCE_LIMITS.maxTotalToolResultBytes;
 const DEFAULT_WEB_RESULTS = 10;
+const DEFAULT_HTML_TEXT_LIMIT = 4000;
+const DEFAULT_HTML_LINKS = 20;
+const MAIN_CONTENT_MIN_CHARS = 200;
+const BOILERPLATE_KEYWORDS = [
+  "nav",
+  "menu",
+  "footer",
+  "header",
+  "sidebar",
+  "sidenav",
+  "breadcrumb",
+  "ads",
+  "advert",
+  "promo",
+  "sponsor",
+  "cookie",
+  "banner",
+  "modal",
+  "popup",
+  "subscribe",
+  "signin",
+  "signup",
+];
 
 function assertUrlAllowed(
   url: string,
@@ -115,24 +152,264 @@ async function readResponseBody(
   };
 }
 
-// ============================================================
-// Tool Implementations
-// ============================================================
+function decodeHtmlEntities(input: string): string {
+  const map: Record<string, string> = {
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": "\"",
+    "&#39;": "'",
+    "&apos;": "'",
+    "&nbsp;": " ",
+  };
+  return input.replace(
+    /&(amp|lt|gt|quot|#39|apos|nbsp);/g,
+    (match) => map[match] ?? match,
+  );
+}
 
-async function fetchUrl(
-  args: unknown,
-  _workspace: string,
+function findLargestTagBlock(html: string, tag: string): string | null {
+  const regex = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "gi");
+  let match: RegExpExecArray | null;
+  let best = "";
+  while ((match = regex.exec(html)) !== null) {
+    const candidate = match[1] ?? "";
+    if (candidate.length > best.length) {
+      best = candidate;
+    }
+  }
+  return best.length > 0 ? best : null;
+}
+
+function pickMainHtml(html: string): string {
+  const main = findLargestTagBlock(html, "main");
+  if (main && main.length >= MAIN_CONTENT_MIN_CHARS) return main;
+
+  const article = findLargestTagBlock(html, "article");
+  if (article && article.length >= MAIN_CONTENT_MIN_CHARS) return article;
+
+  const body = findLargestTagBlock(html, "body");
+  if (body) return body;
+
+  return html;
+}
+
+function stripTagBlocks(html: string, tags: string[]): string {
+  let output = html;
+  for (const tag of tags) {
+    const regex = new RegExp(
+      `<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`,
+      "gi",
+    );
+    output = output.replace(regex, " ");
+  }
+  return output;
+}
+
+function stripBoilerplateByAttributes(html: string): string {
+  const keywordGroup = BOILERPLATE_KEYWORDS.join("|");
+  const regex = new RegExp(
+    `<([a-zA-Z0-9]+)\\b[^>]*(?:class|id)\\s*=\\s*["'][^"']*(?:${keywordGroup})[^"']*["'][^>]*>[\\s\\S]*?<\\/\\1>`,
+    "gi",
+  );
+  return html.replace(regex, " ");
+}
+
+function stripBoilerplateByRole(html: string): string {
+  const roleRegex = new RegExp(
+    `<([a-zA-Z0-9]+)\\b[^>]*\\brole\\s*=\\s*["'](?:navigation|banner|contentinfo|complementary)["'][^>]*>[\\s\\S]*?<\\/\\1>`,
+    "gi",
+  );
+  return html.replace(roleRegex, " ");
+}
+
+function normalizeHtmlForExtraction(html: string): string {
+  let output = pickMainHtml(html);
+  output = output.replace(/<!--[\s\S]*?-->/g, " ");
+  output = stripTagBlocks(output, [
+    "script",
+    "style",
+    "noscript",
+    "svg",
+    "canvas",
+    "iframe",
+    "template",
+    "figure",
+    "form",
+    "button",
+    "select",
+    "textarea",
+    "option",
+  ]);
+  output = stripTagBlocks(output, [
+    "nav",
+    "header",
+    "footer",
+    "aside",
+    "menu",
+  ]);
+  output = stripBoilerplateByRole(output);
+  output = stripBoilerplateByAttributes(output);
+  return output;
+}
+
+function parseAttributes(tag: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const attrRegex =
+    /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^"\s>]+))/g;
+  let match: RegExpExecArray | null;
+  while ((match = attrRegex.exec(tag)) !== null) {
+    const key = match[1].toLowerCase();
+    const value = match[2] ?? match[3] ?? match[4] ?? "";
+    attrs[key] = value;
+  }
+  return attrs;
+}
+
+function extractTitle(html: string): string {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (!match?.[1]) return "";
+  return decodeHtmlEntities(match[1].replace(/\s+/g, " ").trim());
+}
+
+function extractMetaDescription(html: string): string {
+  const metaRegex = /<meta\s+[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = metaRegex.exec(html)) !== null) {
+    const attrs = parseAttributes(match[0]);
+    const name = (attrs.name ?? attrs.property ?? "").toLowerCase();
+    if (name === "description" || name === "og:description") {
+      const content = attrs.content ?? "";
+      if (content) {
+        return decodeHtmlEntities(content.replace(/\s+/g, " ").trim());
+      }
+    }
+  }
+  return "";
+}
+
+function extractLinks(html: string, maxLinks: number): string[] {
+  const links: string[] = [];
+  const seen = new Set<string>();
+  const linkRegex = /<a\s+[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = linkRegex.exec(html)) !== null) {
+    const attrs = parseAttributes(match[0]);
+    const href = attrs.href;
+    if (!href) continue;
+    const decoded = decodeHtmlEntities(href.trim());
+    if (
+      decoded === "" ||
+      decoded.startsWith("#") ||
+      decoded.toLowerCase().startsWith("javascript:")
+    ) {
+      continue;
+    }
+    if (!seen.has(decoded)) {
+      seen.add(decoded);
+      links.push(decoded);
+      if (links.length >= maxLinks) break;
+    }
+  }
+  return links;
+}
+
+function extractTextContent(
+  html: string,
+  maxTextLength: number,
+): { text: string; truncated: boolean } {
+  const blockTags = [
+    "p",
+    "div",
+    "br",
+    "li",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "tr",
+    "td",
+    "th",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "nav",
+    "aside",
+    "ul",
+    "ol",
+    "table",
+    "tbody",
+    "thead",
+    "tfoot",
+    "hr",
+  ];
+  const blockRegex = new RegExp(
+    `<\\/?(?:${blockTags.join("|")})\\b[^>]*>`,
+    "gi",
+  );
+
+  let text = html
+    .replace(blockRegex, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\r/g, "");
+
+  text = decodeHtmlEntities(text);
+  text = text.replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n\n").trim();
+
+  let truncated = false;
+  if (text.length > maxTextLength) {
+    text = text.slice(0, maxTextLength);
+    truncated = true;
+  }
+
+  return { text, truncated };
+}
+
+function parseHtml(
+  html: string,
+  maxTextLength: number,
+  maxLinks: number,
+): {
+  title: string;
+  description: string;
+  text: string;
+  textTruncated: boolean;
+  links: string[];
+  linkCount: number;
+} {
+  const normalized = normalizeHtmlForExtraction(html);
+  const title = extractTitle(html);
+  const description = extractMetaDescription(html);
+  const { text, truncated } = extractTextContent(normalized, maxTextLength);
+  const links = extractLinks(normalized, maxLinks);
+
+  return {
+    title,
+    description,
+    text,
+    textTruncated: truncated,
+    links,
+    linkCount: links.length,
+  };
+}
+
+async function fetchUrlInternal(
+  url: string,
+  maxBytes: number | undefined,
+  timeoutMs: number | undefined,
   options?: ToolExecutionOptions,
-): Promise<Record<string, unknown>> {
-  if (!args || typeof args !== "object") {
-    throw new ValidationError("args must be an object", "fetch_url");
-  }
-
-  const { url, maxBytes, timeoutMs } = args as FetchUrlArgs;
-  if (!url || typeof url !== "string") {
-    throw new ValidationError("url is required", "fetch_url");
-  }
-
+): Promise<{
+  url: string;
+  status: number;
+  ok: boolean;
+  contentType: string;
+  bytes: number;
+  truncated: boolean;
+  text: string;
+}> {
   assertUrlAllowed(url, options);
 
   const response = await http.fetchRaw(url, {
@@ -152,6 +429,96 @@ async function fetchUrl(
     bytes: body.bytes,
     truncated: body.truncated,
     text: body.text,
+  };
+}
+
+// ============================================================
+// Tool Implementations
+// ============================================================
+
+async function fetchUrl(
+  args: unknown,
+  _workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<Record<string, unknown>> {
+  if (!args || typeof args !== "object") {
+    throw new ValidationError("args must be an object", "fetch_url");
+  }
+
+  const { url, maxBytes, timeoutMs } = args as FetchUrlArgs;
+  if (!url || typeof url !== "string") {
+    throw new ValidationError("url is required", "fetch_url");
+  }
+
+  return await fetchUrlInternal(url, maxBytes, timeoutMs, options);
+}
+
+async function extractUrl(
+  args: unknown,
+  _workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<Record<string, unknown>> {
+  if (!args || typeof args !== "object") {
+    throw new ValidationError("args must be an object", "extract_url");
+  }
+
+  const { url, maxBytes, timeoutMs, maxTextLength, maxLinks } =
+    args as ExtractUrlArgs;
+  if (!url || typeof url !== "string") {
+    throw new ValidationError("url is required", "extract_url");
+  }
+
+  const fetched = await fetchUrlInternal(url, maxBytes, timeoutMs, options);
+
+  const textLimit = typeof maxTextLength === "number" && maxTextLength > 0
+    ? maxTextLength
+    : DEFAULT_HTML_TEXT_LIMIT;
+  const linkLimit = typeof maxLinks === "number" && maxLinks > 0
+    ? maxLinks
+    : DEFAULT_HTML_LINKS;
+
+  const parsed = parseHtml(fetched.text, textLimit, linkLimit);
+
+  return {
+    ...fetched,
+    title: parsed.title,
+    description: parsed.description,
+    text: parsed.text,
+    textTruncated: parsed.textTruncated,
+    links: parsed.links,
+    linkCount: parsed.linkCount,
+  };
+}
+
+async function extractHtml(
+  args: unknown,
+  _workspace: string,
+): Promise<Record<string, unknown>> {
+  if (!args || typeof args !== "object") {
+    throw new ValidationError("args must be an object", "extract_html");
+  }
+
+  const { html, maxTextLength, maxLinks } = args as ExtractHtmlArgs;
+  if (!html || typeof html !== "string") {
+    throw new ValidationError("html is required", "extract_html");
+  }
+
+  const textLimit = typeof maxTextLength === "number" && maxTextLength > 0
+    ? maxTextLength
+    : DEFAULT_HTML_TEXT_LIMIT;
+  const linkLimit = typeof maxLinks === "number" && maxLinks > 0
+    ? maxLinks
+    : DEFAULT_HTML_LINKS;
+
+  const parsed = parseHtml(html, textLimit, linkLimit);
+
+  return {
+    title: parsed.title,
+    description: parsed.description,
+    text: parsed.text,
+    textTruncated: parsed.textTruncated,
+    links: parsed.links,
+    linkCount: parsed.linkCount,
   };
 }
 
@@ -268,5 +635,52 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L1",
     safety: "External network access (policy-gated).",
+  },
+  extract_url: {
+    fn: extractUrl,
+    description:
+      "Fetch a URL and extract title/description/text/links from HTML.",
+    args: {
+      url: "string - URL to fetch",
+      maxBytes: `number (optional) - Max bytes to read (default: ${DEFAULT_WEB_MAX_BYTES})`,
+      timeoutMs: "number (optional) - Request timeout in ms",
+      maxTextLength: `number (optional) - Max extracted text length (default: ${DEFAULT_HTML_TEXT_LIMIT})`,
+      maxLinks: `number (optional) - Max links to return (default: ${DEFAULT_HTML_LINKS})`,
+    },
+    returns: {
+      status: "number",
+      ok: "boolean",
+      contentType: "string",
+      bytes: "number",
+      truncated: "boolean",
+      title: "string",
+      description: "string",
+      text: "string",
+      textTruncated: "boolean",
+      links: "string[]",
+      linkCount: "number",
+    },
+    safetyLevel: "L1",
+    safety: "External network access (policy-gated).",
+  },
+  extract_html: {
+    fn: extractHtml,
+    description:
+      "Extract title/description/text/links from raw HTML.",
+    args: {
+      html: "string - HTML to parse",
+      maxTextLength: `number (optional) - Max extracted text length (default: ${DEFAULT_HTML_TEXT_LIMIT})`,
+      maxLinks: `number (optional) - Max links to return (default: ${DEFAULT_HTML_LINKS})`,
+    },
+    returns: {
+      title: "string",
+      description: "string",
+      text: "string",
+      textTruncated: "boolean",
+      links: "string[]",
+      linkCount: "number",
+    },
+    safetyLevel: "L0",
+    safety: "Pure parsing, no external access.",
   },
 };

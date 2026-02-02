@@ -28,6 +28,57 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Grounding: Tool Result header -> warning",
+  fn() {
+    const result = checkGrounding(
+      "Tool Result: stdout: 4\nFinal: 4",
+      [],
+    );
+    assertEquals(result.grounded, false);
+    assert(result.warnings.length >= 1);
+    assertStringIncludes(result.warnings.join("\n"), "Tool Result");
+  },
+});
+
+Deno.test({
+  name: "Grounding: tool result mention in sentence -> grounded",
+  fn() {
+    const result = checkGrounding(
+      "Based on the tool result from fetch_url, the page loads.",
+      [],
+    );
+    assertEquals(result.grounded, true);
+    assertEquals(result.warnings.length, 0);
+  },
+});
+
+Deno.test({
+  name: "Grounding: TOOL_CALL token outside envelope -> warning",
+  fn() {
+    const result = checkGrounding(
+      "TOOL_CALL: html-parse, URL: https://example.com",
+      [],
+    );
+    assertEquals(result.grounded, false);
+    assert(result.warnings.length >= 1);
+    assertStringIncludes(result.warnings.join("\n"), "TOOL_CALL");
+  },
+});
+
+Deno.test({
+  name: "Grounding: unknown tool mention -> warning",
+  fn() {
+    const result = checkGrounding(
+      'Using the "html-parse" tool, I extracted the content.',
+      [],
+    );
+    assertEquals(result.grounded, false);
+    assert(result.warnings.length >= 1);
+    assertStringIncludes(result.warnings.join("\n"), "unknown tool");
+  },
+});
+
+Deno.test({
   name: "Grounding: tools used but not cited -> warning",
   fn() {
     const toolUses: ToolUse[] = [

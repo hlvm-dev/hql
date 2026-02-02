@@ -224,7 +224,7 @@ export const DEFAULT_CONTEXT_CONFIG = {
 export const ENGINE_PROFILES = {
   normal: {
     maxToolCalls: DEFAULT_MAX_TOOL_CALLS,
-    groundingMode: "off",
+    groundingMode: "strict",
     context: {
       maxTokens: 8000,
       overflowStrategy: "trim",

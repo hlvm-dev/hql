@@ -16,8 +16,9 @@ import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { loadAgentPolicy, type AgentPolicy } from "./policy.ts";
 import { ENGINE_PROFILES } from "./constants.ts";
 import type { LLMFunction } from "./orchestrator.ts";
-import { loadMcpTools } from "./mcp.ts";
+import { loadMcpTools, type McpServerConfig } from "./mcp.ts";
 import { ValidationError } from "../../common/error.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
 export interface AgentSessionOptions {
   workspace: string;
@@ -27,6 +28,7 @@ export interface AgentSessionOptions {
   failOnContextOverflow?: boolean;
   policyPath?: string;
   mcpConfigPath?: string;
+  autoWeb?: boolean;
 }
 
 export interface AgentSession {
@@ -43,8 +45,40 @@ export async function createAgentSession(
   const profile = ENGINE_PROFILES[options.engineProfile ?? "normal"];
   const policy = await loadAgentPolicy(options.workspace, options.policyPath);
 
+  const platform = getPlatform();
+  const extraServers: McpServerConfig[] = [];
+  if (options.autoWeb) {
+    const nodeScriptPath = platform.path.join(
+      options.workspace,
+      "scripts",
+      "mcp",
+      "playwright-server.mjs",
+    );
+    const denoScriptPath = platform.path.join(
+      options.workspace,
+      "scripts",
+      "mcp",
+      "playwright-server.ts",
+    );
+    if (await platform.fs.exists(nodeScriptPath)) {
+      extraServers.push({
+        name: "playwright",
+        command: ["node", nodeScriptPath],
+      });
+    } else if (await platform.fs.exists(denoScriptPath)) {
+      extraServers.push({
+        name: "playwright",
+        command: ["deno", "run", "--node-modules-dir=auto", "-A", denoScriptPath],
+      });
+    }
+  }
+
   // Load MCP tools before generating system prompt
-  const mcp = await loadMcpTools(options.workspace, options.mcpConfigPath);
+  const mcp = await loadMcpTools(
+    options.workspace,
+    options.mcpConfigPath,
+    extraServers,
+  );
 
   const contextConfig = { ...profile.context };
   if (options.failOnContextOverflow) {

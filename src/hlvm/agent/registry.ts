@@ -317,24 +317,8 @@ export function registerTools(tools: Record<string, ToolMetadata>): string[] {
 }
 
 /**
- * Clear all dynamic tools (used in tests or shutdown).
- */
-export function clearDynamicTools(): void {
-  for (const key of Object.keys(DYNAMIC_TOOL_REGISTRY)) {
-    delete DYNAMIC_TOOL_REGISTRY[key];
-  }
-}
-
-/**
  * Unregister a dynamic tool by name.
  */
 export function unregisterTool(name: string): void {
   delete DYNAMIC_TOOL_REGISTRY[name];
-}
-
-/**
- * Get dynamic tools only.
- */
-export function getDynamicTools(): Record<string, ToolMetadata> {
-  return { ...DYNAMIC_TOOL_REGISTRY };
 }

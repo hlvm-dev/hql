@@ -8,6 +8,8 @@ import { evaluate } from "./evaluator.ts";
 import { formatPlainValue } from "./formatter.ts";
 import { initReplState } from "./init-repl-state.ts";
 import { ReplState } from "./state.ts";
+import { listMemoryFunctions, type MemoryFunctionItem } from "./memory.ts";
+import { escapeString } from "./string-utils.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { RuntimeError } from "../../../common/error.ts";
@@ -51,6 +53,24 @@ interface EvalRequest {
 interface CompletionRequest {
   text: string;
   cursor: number;
+}
+
+interface MemoryFunctionsResponse {
+  functions: MemoryFunctionItem[];
+}
+
+interface MemoryExecuteRequest {
+  functionName: string;
+  args?: string[];
+}
+
+interface MemoryExecuteResponse {
+  output: string;
+  status: "success" | "error";
+  error?: {
+    message: string;
+    code: string;
+  };
 }
 
 
@@ -274,6 +294,103 @@ async function handleHealth(): Promise<Response> {
   });
 }
 
+function encodeHqlString(value: string): string {
+  return `"${escapeString(value)}"`;
+}
+
+function buildExecuteCode(definition: MemoryFunctionItem, args: string[]): string {
+  if (definition.kind === "def") {
+    return `(do ${definition.name})`;
+  }
+  const encodedArgs = args.map((arg) => encodeHqlString(arg));
+  const argList = encodedArgs.length > 0 ? ` ${encodedArgs.join(" ")}` : "";
+  return `(${definition.name}${argList})`;
+}
+
+async function handleMemoryFunctions(): Promise<Response> {
+  try {
+    const functions = await listMemoryFunctions();
+    const payload: MemoryFunctionsResponse = { functions };
+    return Response.json(payload);
+  } catch (error) {
+    log.error("Memory functions list failed", error);
+    return jsonError(getErrorMessage(error), 500);
+  }
+}
+
+async function handleMemoryExecute(req: Request): Promise<Response> {
+  try {
+    const parsed = await parseJsonBody<MemoryExecuteRequest>(req);
+    if (!parsed.ok) return parsed.response;
+
+    const { functionName, args = [] } = parsed.value;
+    if (typeof functionName !== "string" || functionName.length === 0) {
+      return jsonError("Missing functionName", 400);
+    }
+    if (!Array.isArray(args) || !args.every((arg) => typeof arg === "string")) {
+      return jsonError("args must be an array of strings", 400);
+    }
+
+    const definitions = await listMemoryFunctions();
+    const definition = definitions.find((def) => def.name === functionName);
+    if (!definition) {
+      const response: MemoryExecuteResponse = {
+        output: "",
+        status: "error",
+        error: { message: `Function '${functionName}' not found`, code: "FUNCTION_NOT_FOUND" },
+      };
+      return Response.json(response);
+    }
+
+    const expectedArity = definition.arity;
+    if (definition.kind === "defn" && args.length !== expectedArity) {
+      const response: MemoryExecuteResponse = {
+        output: "",
+        status: "error",
+        error: {
+          message: `Arity mismatch: expected ${expectedArity} args, got ${args.length}`,
+          code: "ARITY_MISMATCH",
+        },
+      };
+      return Response.json(response);
+    }
+    if (definition.kind === "def" && args.length !== 0) {
+      const response: MemoryExecuteResponse = {
+        output: "",
+        status: "error",
+        error: {
+          message: "def values do not accept arguments",
+          code: "ARITY_MISMATCH",
+        },
+      };
+      return Response.json(response);
+    }
+
+    if (!replState) {
+      replState = await initState();
+    }
+
+    const code = buildExecuteCode(definition, args);
+    const result = await evaluate(code, replState, false);
+    if (!result.success) {
+      const response: MemoryExecuteResponse = {
+        output: "",
+        status: "error",
+        error: { message: result.error?.message ?? "Execution failed", code: "EXECUTION_ERROR" },
+      };
+      return Response.json(response);
+    }
+
+    const hasValue = Object.prototype.hasOwnProperty.call(result, "value");
+    const output = hasValue ? formatPlainValue(result.value) : "";
+    const response: MemoryExecuteResponse = { output, status: "success" };
+    return Response.json(response);
+  } catch (error) {
+    log.error("Memory execute failed", error);
+    return jsonError(getErrorMessage(error), 500);
+  }
+}
+
 /**
  * Main request router
  */
@@ -296,6 +413,14 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (req.method === "GET" && url.pathname === "/health") {
     return addCorsHeaders(await handleHealth());
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/memory/functions") {
+    return addCorsHeaders(await handleMemoryFunctions());
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/memory/functions/execute") {
+    return addCorsHeaders(await handleMemoryExecute(req));
   }
 
   return addCorsHeaders(jsonError("Not found", 404));

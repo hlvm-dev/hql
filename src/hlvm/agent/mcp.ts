@@ -381,16 +381,21 @@ export interface McpLoadResult {
 export async function loadMcpTools(
   workspace: string,
   configPath?: string,
+  extraServers?: McpServerConfig[],
 ): Promise<McpLoadResult> {
   const config = await loadMcpConfig(workspace, configPath);
-  if (!config) {
+  const servers = [
+    ...(config?.servers ?? []),
+    ...(extraServers ?? []),
+  ];
+  if (servers.length === 0) {
     return { tools: [], dispose: async () => {} };
   }
 
   const clients: McpClient[] = [];
   const registered: string[] = [];
 
-  for (const server of config.servers) {
+  for (const server of servers) {
     const client = new McpClient(server);
     clients.push(client);
     await client.start();

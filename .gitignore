@@ -1,6 +1,9 @@
 # Build outputs
 dist/
 
+# Dependencies
+node_modules/
+
 # HLVM compiled binaries (only in root, not source files in subdirs)
 /hlvm
 /hlvm-*

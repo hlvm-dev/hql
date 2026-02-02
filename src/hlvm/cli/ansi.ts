@@ -22,7 +22,7 @@ export { getThemedAnsi } from "./theme/index.ts";
 /**
  * Terminal control sequences for screen manipulation.
  */
-export const ANSI_CONTROLS = {
+const ANSI_CONTROLS = {
   CLEAR_SCREEN: "\x1b[2J",      // Clear entire screen
   CLEAR_SCROLLBACK: "\x1b[3J",  // Clear scrollback buffer (iTerm2, Terminal.app)
   CURSOR_HOME: "\x1b[H",        // Move cursor to top-left

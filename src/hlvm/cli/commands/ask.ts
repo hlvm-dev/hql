@@ -8,8 +8,18 @@
 import { log } from "../../api/log.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { ValidationError } from "../../../common/error.ts";
-import { runReActLoop, type TraceEvent } from "../../agent/orchestrator.ts";
+import {
+  runReActLoop,
+  shouldAutoAnswerWebRequest,
+  type TraceEvent,
+} from "../../agent/orchestrator.ts";
 import { createAgentSession } from "../../agent/session.ts";
+import type { AgentPolicy } from "../../agent/policy.ts";
+import {
+  formatAnswer,
+  getFormatInstruction,
+  type OutputFormat,
+} from "../../agent/answer-format.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { DEFAULT_MAX_TOOL_CALLS, ENGINE_PROFILES } from "../../agent/constants.ts";
 import {
@@ -39,7 +49,22 @@ OPTIONS:
   --trace                      Enable trace mode (show tool calls and results)
   --fail-on-context-overflow   Fail instead of trimming when context exceeds max tokens
   --engine-strict              Deterministic profile (strict grounding, fail on overflow, lower context budget)
+  --no-auto-web                Disable automatic web tool routing (default: enabled)
+  --no-input                   Non-interactive: auto-approve tools, disallow ask_user prompts
+  --format <text|raw|json>     Output format (default: text)
 `);
+}
+
+function buildNoInputPolicy(base: AgentPolicy | null): AgentPolicy {
+  const policy: AgentPolicy = base ?? { version: 1 };
+  return {
+    ...policy,
+    version: 1,
+    toolRules: {
+      ...(policy.toolRules ?? {}),
+      ask_user: "deny",
+    },
+  };
 }
 
 export async function askCommand(args: string[]): Promise<void> {
@@ -57,7 +82,10 @@ export async function askCommand(args: string[]): Promise<void> {
   let traceMode = false;
   let failOnContextOverflow = false;
   let engineStrict = false;
+  let noInput = false;
+  let outputFormat: OutputFormat = "text";
   let fixturePath: string | undefined;
+  let autoWeb = true;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -88,6 +116,19 @@ export async function askCommand(args: string[]): Promise<void> {
       failOnContextOverflow = true;
     } else if (arg === "--engine-strict") {
       engineStrict = true;
+    } else if (arg === "--no-auto-web") {
+      autoWeb = false;
+    } else if (arg === "--no-input") {
+      noInput = true;
+    } else if (arg === "--format") {
+      const value = args[++i];
+      if (!value) {
+        throw new ValidationError("Missing format value. Usage: --format <text|raw|json>");
+      }
+      if (value !== "text" && value !== "raw" && value !== "json") {
+        throw new ValidationError("Invalid format. Use: text, raw, or json.");
+      }
+      outputFormat = value;
     } else if (!arg.startsWith("--")) {
       // Accumulate query parts (in case user forgets quotes)
       query += (query ? " " : "") + arg;
@@ -101,21 +142,29 @@ export async function askCommand(args: string[]): Promise<void> {
   // Initialize runtime with AI
   await initializeRuntime({ stdlib: false, cache: false });
 
+  const autoWebAnswer = autoWeb && shouldAutoAnswerWebRequest(query);
+
   // Use default model if no model specified (unless fixture is used)
   if (!fixturePath) {
     if (!model) {
       model = DEFAULT_MODEL_ID;
-      try {
-        await ensureDefaultModelInstalled({
-          log: (message) => log.raw.log(message),
-        });
-      } catch (error) {
-        if (error instanceof Error) {
-          log.error(`Failed to setup default model: ${error.message}`);
-          log.raw.log("\nTip: Make sure Ollama is running, or specify a model:");
-          log.raw.log("  hlvm ask --model ollama/llama3.1:8b \"your query\"");
+      if (!autoWebAnswer) {
+        try {
+          await ensureDefaultModelInstalled({
+            log: (message) => log.raw.log(message),
+          });
+        } catch (error) {
+          if (error instanceof Error) {
+            log.error(`Failed to setup default model: ${error.message}`);
+            log.raw.log("\nTip: Make sure Ollama is running, or specify a model:");
+            log.raw.log("  hlvm ask --model ollama/llama3.1:8b \"your query\"");
+          }
+          throw error;
         }
-        throw error;
+      } else {
+        log.warn(
+          "Skipping model setup for web-only request (auto-web summary mode).",
+        );
       }
     }
   } else if (model) {
@@ -136,7 +185,26 @@ export async function askCommand(args: string[]): Promise<void> {
     fixturePath,
     engineProfile: engineStrict ? "strict" : "normal",
     failOnContextOverflow,
+    autoWeb,
   });
+
+  if (noInput) {
+    session.context.addMessage({
+      role: "system",
+      content:
+        "NO-INPUT MODE: Do not request user input or call ask_user. Proceed autonomously and use tools directly when needed.",
+    });
+  }
+
+  const formatInstruction = getFormatInstruction(outputFormat);
+  if (formatInstruction) {
+    session.context.addMessage({
+      role: "system",
+      content: formatInstruction,
+    });
+  }
+
+  const policy = noInput ? buildNoInputPolicy(session.policy) : session.policy;
 
   // Create trace callback if trace mode enabled
   const onTrace = traceMode
@@ -212,8 +280,11 @@ export async function askCommand(args: string[]): Promise<void> {
     }
     : undefined;
 
-  // Show what we're doing
-  log.raw.log(`\nAgent: ${query}\n`);
+  const verboseOutput = outputFormat === "text";
+  if (verboseOutput) {
+    // Show what we're doing
+    log.raw.log(`\nAgent: ${query}\n`);
+  }
 
   try {
     // Run agent loop
@@ -222,23 +293,33 @@ export async function askCommand(args: string[]): Promise<void> {
       {
         workspace,
         context: session.context,
-        autoApprove: false, // Safety layer auto-approves L0; prompts for L1/L2
+        autoApprove: noInput, // Safety layer auto-approves L0; prompts for L1/L2
         maxToolCalls: maxCalls,
         groundingMode: profile.groundingMode,
-        policy: session.policy,
+        policy,
         onTrace, // Pass trace callback
+        autoWeb,
       },
       session.llm,
     );
 
-    // Display result
-    log.raw.log(`\nResult:\n${result}\n`);
+    const formatted = await formatAnswer(result, {
+      format: outputFormat,
+      model,
+      useModel: !fixturePath,
+    });
+    if (verboseOutput) {
+      // Display result
+      log.raw.log(`\nResult:\n${formatted}\n`);
 
-    // Show stats
-    const stats = session.context.getStats();
-    log.raw.log(
-      `[Stats: ${stats.messageCount} messages, ${stats.estimatedTokens} tokens, ${stats.toolMessages} tool messages]`,
-    );
+      // Show stats
+      const stats = session.context.getStats();
+      log.raw.log(
+        `[Stats: ${stats.messageCount} messages, ${stats.estimatedTokens} tokens, ${stats.toolMessages} tool messages]`,
+      );
+    } else {
+      log.raw.log(`${formatted}\n`);
+    }
   } catch (error) {
     if (error instanceof Error) {
       log.error(`Agent error: ${error.message}`);
