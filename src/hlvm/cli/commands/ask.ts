@@ -67,7 +67,7 @@ EXAMPLES:
 
 OPTIONS:
   --help, -h                   Show this help message
-  --verbose, --debug           Show agent header, tool labels, stats, and trace output
+  --verbose                    Show agent header, tool labels, stats, and trace output
 `);
 }
 
@@ -102,7 +102,7 @@ export async function askCommand(args: string[]): Promise<void> {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg === "--verbose" || arg === "--debug") {
+    if (arg === "--verbose") {
       verbose = true;
     } else if (!arg.startsWith("--")) {
       // Accumulate query parts (in case user forgets quotes)

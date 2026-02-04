@@ -26,7 +26,7 @@ Requirements:
 
 For `hlvm ask`:
 - Default output shows only tool results (no extra narration).
-- `--verbose` / `--debug` enable agent header, tool labels, stats, and trace events.
+- `--verbose` enables agent header, tool labels, stats, and trace events.
 
 Do not add new CLI flags unless explicitly requested.
 
