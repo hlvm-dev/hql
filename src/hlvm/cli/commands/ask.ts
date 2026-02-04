@@ -10,10 +10,7 @@ import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { ValidationError } from "../../../common/error.ts";
 import {
   runReActLoop,
-  shouldAutoAnswerWebRequest,
-  shouldAutoResearchWebRequest,
   shouldSuppressFinalResponse,
-  extractUrlFromText,
   type TraceEvent,
   type ToolDisplay,
 } from "../../agent/orchestrator.ts";
@@ -21,25 +18,18 @@ import { createAgentSession } from "../../agent/session.ts";
 import { createDelegateHandler } from "../../agent/delegation.ts";
 import {
   appendSessionMessages,
-  createSession,
   getOrCreateSession,
-  listSessions,
   loadSessionMessages,
   type AgentSessionEntry,
 } from "../../agent/session-store.ts";
 import type { AgentPolicy } from "../../agent/policy.ts";
-import {
-  formatAnswer,
-  getFormatInstruction,
-  type OutputFormat,
-} from "../../agent/answer-format.ts";
 import {
   selectToolAllowlist,
   shouldRequireToolCalls,
 } from "../../agent/tool-selection.ts";
 import { inferRequestHints } from "../../agent/request-hints.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-import { DEFAULT_MAX_TOOL_CALLS, ENGINE_PROFILES } from "../../agent/constants.ts";
+import { ENGINE_PROFILES } from "../../agent/constants.ts";
 import {
   ensureDefaultModelInstalled,
 } from "../../../common/ai-default-model.ts";
@@ -77,37 +67,8 @@ EXAMPLES:
 
 OPTIONS:
   --help, -h                   Show this help message
-  --model <model>              Specify model (default: ollama/llama3.1:8b)
-  --llm-fixture <path>         Use deterministic LLM fixture (no live model)
-  --max-calls <n>              Maximum tool calls (default: 10)
   --verbose, --debug           Show agent header, tool labels, stats, and trace output
-  --fail-on-context-overflow   Fail instead of trimming when context exceeds max tokens
-  --engine-strict              Deterministic profile (strict grounding, fail on overflow, lower context budget)
-  --plan                       Enable explicit planning (always)
-  --plan-auto                  Enable heuristic planning (auto)
-  --no-plan                    Disable planning
-  --plan-steps <n>             Max plan steps (default: 6)
-  --session <id|key>           Load or create a persistent session
-  --new-session [key]          Create a new session (optional key)
-  --list-sessions              List saved sessions and exit
-  --no-session                 Disable session persistence
-  --auto-web                   Enable automatic web tool routing (default: disabled)
-  --no-input                   Non-interactive: auto-approve tools, disallow ask_user prompts
-  --allow-path <path>          Allow file access under an absolute path root (can repeat)
-  --format <text|raw|json|tool>  Output format (default: text)
 `);
-}
-
-function buildNoInputPolicy(base: AgentPolicy | null): AgentPolicy {
-  const policy: AgentPolicy = base ?? { version: 1 };
-  return {
-    ...policy,
-    version: 1,
-    toolRules: {
-      ...(policy.toolRules ?? {}),
-      ask_user: "deny",
-    },
-  };
 }
 
 function mergePolicyPathRoots(
@@ -136,129 +97,19 @@ export async function askCommand(args: string[]): Promise<void> {
 
   // Parse arguments
   let query = "";
-  let model: string | undefined;
-  let maxCalls = DEFAULT_MAX_TOOL_CALLS;
-  let maxCallsProvided = false;
   let verbose = false;
-  let failOnContextOverflow = false;
-  let engineStrict = false;
-  let noInput = false;
-  let outputFormat: OutputFormat = "text";
-  let fixturePath: string | undefined;
-  let autoWeb = false;
-  const pathRoots: string[] = [];
-  let planningMode: "off" | "auto" | "always" = "auto";
-  let planningMaxSteps: number | undefined;
-  let requireStepMarkers = true;
-  let sessionKey: string | undefined;
-  let forceNewSession = false;
-  let listSessionsOnly = false;
-  let disableSession = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg === "--model") {
-      model = args[++i];
-      if (!model) {
-        throw new ValidationError("Missing model value. Usage: --model <model>");
-      }
-    } else if (arg === "--llm-fixture") {
-      fixturePath = args[++i];
-      if (!fixturePath) {
-        throw new ValidationError("Missing fixture path. Usage: --llm-fixture <path>");
-      }
-    } else if (arg === "--max-calls") {
-      const value = args[++i];
-      if (!value) {
-        throw new ValidationError("Missing max-calls value. Usage: --max-calls <n>");
-      }
-      maxCalls = parseInt(value, 10);
-      maxCallsProvided = true;
-      if (isNaN(maxCalls) || maxCalls < 1) {
-        throw new ValidationError("max-calls must be a positive number");
-      }
-    } else if (arg === "--verbose" || arg === "--debug") {
+    if (arg === "--verbose" || arg === "--debug") {
       verbose = true;
-    } else if (arg === "--fail-on-context-overflow") {
-      failOnContextOverflow = true;
-    } else if (arg === "--engine-strict") {
-      engineStrict = true;
-    } else if (arg === "--plan") {
-      planningMode = "always";
-      requireStepMarkers = true;
-    } else if (arg === "--plan-auto") {
-      planningMode = "auto";
-      requireStepMarkers = true;
-    } else if (arg === "--no-plan") {
-      planningMode = "off";
-      requireStepMarkers = false;
-    } else if (arg === "--plan-steps") {
-      const value = args[++i];
-      if (!value) {
-        throw new ValidationError("Missing plan-steps value. Usage: --plan-steps <n>");
-      }
-      planningMaxSteps = parseInt(value, 10);
-      if (isNaN(planningMaxSteps) || planningMaxSteps < 1) {
-        throw new ValidationError("plan-steps must be a positive number");
-      }
-    } else if (arg === "--session") {
-      const value = args[++i];
-      if (!value) {
-        throw new ValidationError("Missing session value. Usage: --session <id|key>");
-      }
-      sessionKey = value;
-    } else if (arg === "--new-session") {
-      forceNewSession = true;
-      const value = args[i + 1];
-      if (value && !value.startsWith("--")) {
-        sessionKey = value;
-        i += 1;
-      }
-    } else if (arg === "--list-sessions") {
-      listSessionsOnly = true;
-    } else if (arg === "--no-session") {
-      disableSession = true;
-    } else if (arg === "--auto-web") {
-      autoWeb = true;
-    } else if (arg === "--no-auto-web") {
-      autoWeb = false;
-    } else if (arg === "--allow-path") {
-      const value = args[++i];
-      if (!value) {
-        throw new ValidationError("Missing allow-path value. Usage: --allow-path <path>");
-      }
-      pathRoots.push(value);
-    } else if (arg === "--no-input") {
-      noInput = true;
-    } else if (arg === "--format") {
-      const value = args[++i];
-      if (!value) {
-        throw new ValidationError("Missing format value. Usage: --format <text|raw|json|tool>");
-      }
-      if (value !== "text" && value !== "raw" && value !== "json" && value !== "tool") {
-        throw new ValidationError("Invalid format. Use: text, raw, json, or tool.");
-      }
-      outputFormat = value;
     } else if (!arg.startsWith("--")) {
       // Accumulate query parts (in case user forgets quotes)
       query += (query ? " " : "") + arg;
+    } else {
+      throw new ValidationError(`Unknown option: ${arg}`);
     }
-  }
-
-  if (listSessionsOnly) {
-    const sessions = await listSessions();
-    if (sessions.length === 0) {
-      log.raw.log("No saved sessions.");
-      return;
-    }
-    log.raw.log("Sessions:");
-    for (const session of sessions) {
-      log.raw.log(
-        `- ${session.id} (${session.key}) messages=${session.messageCount} updated=${session.updatedAt}`,
-      );
-    }
-    return;
   }
 
   if (!query) {
@@ -268,48 +119,24 @@ export async function askCommand(args: string[]): Promise<void> {
   // Initialize runtime with AI
   await initializeRuntime({ stdlib: false, cache: false });
 
-  const autoWebAnswer = autoWeb && shouldAutoAnswerWebRequest(query);
-  const autoWebIntent = autoWeb &&
-    (autoWebAnswer ||
-      shouldAutoResearchWebRequest(query) ||
-      Boolean(extractUrlFromText(query)));
+  const autoWeb = false;
+  const autoWebIntent = false;
 
-  // Use default model if no model specified (unless fixture is used)
-  if (!fixturePath) {
-    if (!model) {
-      model = DEFAULT_MODEL_ID;
-      if (!autoWebAnswer) {
-        try {
-          await ensureDefaultModelInstalled({
-            log: (message) => log.raw.log(message),
-          });
-        } catch (error) {
-          if (error instanceof Error) {
-            log.error(`Failed to setup default model: ${error.message}`);
-            log.raw.log("\nTip: Make sure Ollama is running, or specify a model:");
-            log.raw.log("  hlvm ask --model ollama/llama3.1:8b \"your query\"");
-          }
-          throw error;
-        }
-      } else {
-        log.warn(
-          "Skipping model setup for web-only request (auto-web summary mode).",
-        );
-      }
+  const model = DEFAULT_MODEL_ID;
+  try {
+    await ensureDefaultModelInstalled({
+      log: (message) => log.raw.log(message),
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      log.error(`Failed to setup default model: ${error.message}`);
+      log.raw.log("\nTip: Make sure Ollama is running.");
     }
-  } else if (model) {
-    log.warn("Ignoring --model because --llm-fixture is set");
+    throw error;
   }
 
-  const profile = ENGINE_PROFILES[engineStrict ? "strict" : "normal"];
-  if (!maxCallsProvided) {
-    maxCalls = profile.maxToolCalls;
-  }
-
-  if (engineStrict && planningMode === "off") {
-    planningMode = "auto";
-    requireStepMarkers = true;
-  }
+  const profile = ENGINE_PROFILES.normal;
+  const maxCalls = profile.maxToolCalls;
 
   // Get workspace
   const workspace = getPlatform().process.cwd();
@@ -320,54 +147,26 @@ export async function askCommand(args: string[]): Promise<void> {
   const session = await createAgentSession({
     workspace,
     model,
-    fixturePath,
-    engineProfile: engineStrict ? "strict" : "normal",
-    failOnContextOverflow,
+    engineProfile: "normal",
+    failOnContextOverflow: false,
     autoWeb,
     toolAllowlist,
   });
 
   let sessionEntry: AgentSessionEntry | null = null;
-  if (!disableSession) {
-    if (!sessionKey && !forceNewSession) {
-      sessionKey = deriveDefaultSessionKey(workspace);
-    }
-    if (sessionKey || forceNewSession) {
-      sessionEntry = forceNewSession
-        ? await createSession(sessionKey)
-        : await getOrCreateSession(sessionKey);
-      const historyMessages = await loadSessionMessages(sessionEntry);
-      for (const message of historyMessages) {
-        session.context.addMessage({ ...message, fromSession: true });
-      }
-    }
+  const sessionKey = deriveDefaultSessionKey(workspace);
+  sessionEntry = await getOrCreateSession(sessionKey);
+  const historyMessages = await loadSessionMessages(sessionEntry);
+  for (const message of historyMessages) {
+    session.context.addMessage({ ...message, fromSession: true });
   }
 
-  const noInputMode = noInput || autoWebIntent;
-
-  if (noInputMode) {
-    session.context.addMessage({
-      role: "system",
-      content:
-        "NO-INPUT MODE: Do not request user input or call ask_user. Do not ask follow-up questions; make reasonable assumptions and proceed autonomously using tools.",
-    });
-  }
-
-  const formatInstruction = getFormatInstruction(outputFormat);
-  if (formatInstruction) {
-    session.context.addMessage({
-      role: "system",
-      content: formatInstruction,
-    });
-  }
-
-  let policy = noInputMode ? buildNoInputPolicy(session.policy) : session.policy;
+  let policy = session.policy;
   const requestHints = inferRequestHints(query);
-  policy = mergePolicyPathRoots(policy, pathRoots);
   policy = mergePolicyPathRoots(policy, requestHints.file?.pathRoots ?? []);
   const delegate = createDelegateHandler(session.llm, {
     policy,
-    autoApprove: noInputMode,
+    autoApprove: false,
     autoWeb,
   });
 
@@ -455,32 +254,17 @@ export async function askCommand(args: string[]): Promise<void> {
     }
     : undefined;
 
-  const toolJsonOutput = outputFormat === "tool";
-  const onToolDisplay = outputFormat === "text"
-    ? (event: ToolDisplay) => {
-      if (event.toolName === "ask_user") return;
-      if (verbose) {
-        const label = event.success ? "Tool Result" : "Tool Error";
-        log.raw.log(`\n[${label}] ${event.toolName}\n${event.content}\n`);
-      } else {
-        log.raw.log(`${event.content}\n`);
-      }
+  const onToolDisplay = (event: ToolDisplay) => {
+    if (event.toolName === "ask_user") return;
+    if (verbose) {
+      const label = event.success ? "Tool Result" : "Tool Error";
+      log.raw.log(`\n[${label}] ${event.toolName}\n${event.content}\n`);
+    } else {
+      log.raw.log(`${event.content}\n`);
     }
-    : toolJsonOutput
-    ? (event: ToolDisplay) => {
-      log.raw.log(
-        JSON.stringify({
-          type: "tool_result",
-          toolName: event.toolName,
-          success: event.success,
-          content: event.content,
-        }),
-      );
-    }
-    : undefined;
+  };
 
-  const textOutput = outputFormat === "text";
-  if (textOutput && verbose) {
+  if (verbose) {
     // Show what we're doing
     log.raw.log(`\nAgent: ${query}\n`);
   }
@@ -492,25 +276,22 @@ export async function askCommand(args: string[]): Promise<void> {
       {
         workspace,
         context: session.context,
-        autoApprove: noInputMode, // Safety layer auto-approves L0; prompts for L1/L2
+        autoApprove: false, // Safety layer auto-approves L0; prompts for L1/L2
         maxToolCalls: maxCalls,
         groundingMode: profile.groundingMode,
         policy,
         onTrace, // Pass trace callback
         onToolDisplay,
         autoWeb,
-        noInput: noInputMode,
+        noInput: false,
         delegate,
         toolAllowlist,
         requireToolCalls,
         requestHints,
-        planning: planningMode === "off"
-          ? undefined
-          : {
-            mode: planningMode,
-            maxSteps: planningMaxSteps,
-            requireStepMarkers,
-          },
+        planning: {
+          mode: "auto",
+          requireStepMarkers: true,
+        },
       },
       session.llm,
     );
@@ -522,33 +303,20 @@ export async function askCommand(args: string[]): Promise<void> {
       );
     }
 
-    if (toolJsonOutput) {
-      log.raw.log(JSON.stringify({ type: "final", content: result }));
-    } else {
-      const formatted = await formatAnswer(result, {
-        format: outputFormat,
-        model,
-        useModel: !fixturePath,
-      });
-      if (textOutput) {
-        const stats = session.context.getStats();
-        const suppressFinal = stats.toolMessages > 0 &&
-          shouldSuppressFinalResponse(formatted);
-        if (!suppressFinal) {
-          if (verbose) {
-            log.raw.log(`\nResult:\n${formatted}\n`);
-          } else {
-            log.raw.log(`${formatted}\n`);
-          }
-        }
-        if (verbose) {
-          log.raw.log(
-            `[Stats: ${stats.messageCount} messages, ${stats.estimatedTokens} tokens, ${stats.toolMessages} tool messages]`,
-          );
-        }
+    const stats = session.context.getStats();
+    const suppressFinal = stats.toolMessages > 0 &&
+      shouldSuppressFinalResponse(result);
+    if (!suppressFinal) {
+      if (verbose) {
+        log.raw.log(`\nResult:\n${result}\n`);
       } else {
-        log.raw.log(`${formatted}\n`);
+        log.raw.log(`${result}\n`);
       }
+    }
+    if (verbose) {
+      log.raw.log(
+        `[Stats: ${stats.messageCount} messages, ${stats.estimatedTokens} tokens, ${stats.toolMessages} tool messages]`,
+      );
     }
   } catch (error) {
     if (error instanceof Error) {

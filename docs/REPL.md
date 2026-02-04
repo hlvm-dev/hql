@@ -129,11 +129,8 @@ hlvm> (describe @screenshot.png)  // Creates [Image #1] attachment
 
 ### Headless Web Browsing (Playwright)
 
-For JS-rendered sites (YouTube, Naver, etc.), the CLI auto-starts a Playwright MCP server
-when `--no-auto-web` is not set. On first use, it will prompt to install Chromium.
-Web tools are auto-approved in this mode and summarized before the model replies; pass `--no-auto-web` to restore confirmations.
-
-For YouTube/video lists, the agent will also attempt to extract visible titles from the page using a CSS selector when possible.
+For JS-rendered sites (YouTube, Naver, etc.), configure a Playwright MCP server so the agent can use it when needed.
+On first use, Playwright may prompt to install Chromium.
 
 Install Playwright + Chromium:
 ```bash
@@ -145,20 +142,7 @@ Then just ask normally:
 deno run -A src/hlvm/cli/cli.ts ask "Summarize what's on https://youtube.com right now."
 ```
 
-Non-interactive (no user prompts, tools auto-approved):
-```bash
-deno run -A src/hlvm/cli/cli.ts ask --no-input "Summarize what's on https://youtube.com right now."
-```
-
-Answer-only output (machine-friendly):
-```bash
-deno run -A src/hlvm/cli/cli.ts ask --no-input --format raw "what is 2+2"
-```
-
-Structured JSON output:
-```bash
-deno run -A src/hlvm/cli/cli.ts ask --no-input --format json "what is 2+2"
-```
+Use `--verbose` to see tool calls and trace output.
 
 Manual MCP config (optional):
 ```bash

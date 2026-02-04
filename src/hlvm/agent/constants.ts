@@ -219,7 +219,7 @@ export const DEFAULT_CONTEXT_CONFIG = {
  * Engine profiles for deterministic behavior
  *
  * Used by:
- * - cli/ask.ts: --engine-strict and default profile
+ * - cli/ask.ts: default profile
  */
 export const ENGINE_PROFILES = {
   normal: {

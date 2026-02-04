@@ -1,4 +1,4 @@
-// deno run -A scripts/agent-e2e-local.ts [--model <model>] [--fixture <path>] [--strict] [--verbose] [--timeout <ms>]
+// deno run -A scripts/agent-e2e-local.ts [--verbose] [--timeout <ms>]
 // Local black-box E2E for HLVM agent CLI (requires local LLM like Ollama).
 
 import { getPlatform } from "../src/platform/platform.ts";
@@ -12,7 +12,6 @@ type TestCase = {
     mustContain?: string[];
     mustNotContain?: string[];
   };
-  fixtureOnly?: boolean;
 };
 
 const p = () => getPlatform();
@@ -21,21 +20,12 @@ const runCmd = (options: Parameters<ReturnType<typeof p>["command"]["run"]>[0]) 
 const resolve = (...paths: string[]) => p().path.resolve(...paths);
 
 const args = p().process.args();
-let model: string | undefined;
-let fixture: string | undefined;
-let strictProfile = false;
 let verboseMode = false;
 let timeoutMs = 60000;
 
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
-  if (arg === "--model") {
-    model = args[++i];
-  } else if (arg === "--fixture") {
-    fixture = args[++i];
-  } else if (arg === "--strict") {
-    strictProfile = true;
-  } else if (arg === "--verbose") {
+  if (arg === "--verbose") {
     verboseMode = true;
   } else if (arg === "--timeout") {
     const value = Number(args[++i]);
@@ -47,15 +37,6 @@ for (let i = 0; i < args.length; i++) {
 
 const cliPath = resolve(p().process.cwd(), "src/hlvm/cli/cli.ts");
 const commonArgs = ["ask"];
-if (model) {
-  commonArgs.push("--model", model);
-}
-if (fixture) {
-  commonArgs.push("--llm-fixture", resolve(fixture));
-}
-if (strictProfile) {
-  commonArgs.push("--engine-strict");
-}
 
 const tests: TestCase[] = [
   {
@@ -100,25 +81,8 @@ const tests: TestCase[] = [
     expect: verboseMode ? { mustContain: ["[TRACE] Tool call"] } : undefined,
   },
   {
-    name: "Multi-tool call",
-    query: "list files and read src/hlvm/agent/context.ts",
-    fixtureOnly: true,
-    expect: {
-      mustContain: ["Based on", "context.ts"],
-    },
-  },
-  {
-    name: "Invalid tool call recovery",
-    query: "simulate invalid tool call then read README",
-    fixtureOnly: true,
-    expect: {
-      mustContain: ["Based on", "README.md"],
-    },
-  },
-  {
     name: "Tool error propagation",
     query: "read missing file ./nope.txt",
-    fixtureOnly: true,
     expect: {
       mustContain: ["Error", "nope.txt"],
     },
@@ -131,10 +95,6 @@ async function readStream(stream: ReadableStream<Uint8Array> | null | undefined)
 }
 
 async function runTest(test: TestCase): Promise<boolean> {
-  if (test.fixtureOnly && !fixture) {
-    log.raw.log(`SKIP ${test.name} (fixture only)`);
-    return true;
-  }
   const extraArgs = test.extraArgs ?? [];
   const cmd = [
     "deno",
@@ -198,7 +158,7 @@ let passed = 0;
 let failed = 0;
 
 log.raw.log("=== HLVM Agent CLI E2E (Local) ===");
-log.raw.log(`Model: ${model ?? "default"} | strict=${strictProfile} | trace=${traceMode} | timeout=${timeoutMs}ms`);
+log.raw.log(`Verbose=${verboseMode} | timeout=${timeoutMs}ms`);
 
 for (const test of tests) {
   const ok = await runTest(test);

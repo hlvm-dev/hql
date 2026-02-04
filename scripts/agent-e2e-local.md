@@ -6,18 +6,10 @@ backend (e.g., Ollama) is running and reachable.
 ## Quick automated run
 
 ```
-deno run -A scripts/agent-e2e-local.ts --model ollama/llama3.1:8b --strict --verbose
-```
-
-Deterministic (no live model) with fixture:
-```
-deno run -A scripts/agent-e2e-local.ts --fixture scripts/agent-e2e-fixture.json --strict --verbose
+deno run -A scripts/agent-e2e-local.ts --verbose
 ```
 
 Flags:
-- `--model <id>`: choose model (default CLI model if omitted).
-- `--fixture <path>`: deterministic fixture (bypasses live model).
-- `--strict`: use strict engine profile (deterministic).
 - `--verbose`: require verbose output in one test.
 - `--timeout <ms>`: per-test timeout (default 60000).
 
@@ -25,7 +17,7 @@ Flags:
 
 ### L1 (confirm once)
 ```
-deno run -A src/hlvm/cli/cli.ts ask --model ollama/llama3.1:8b "run git status"
+deno run -A src/hlvm/cli/cli.ts ask "run git status"
 ```
 Expected:
 - Prompt once with Safety L1.
@@ -33,7 +25,7 @@ Expected:
 
 ### L2 (always confirm)
 ```
-deno run -A src/hlvm/cli/cli.ts ask --model ollama/llama3.1:8b "write a file test.txt with hello"
+deno run -A src/hlvm/cli/cli.ts ask "write a file test.txt with hello"
 ```
 Expected:
 - Safety L2 prompt every time.
@@ -43,14 +35,14 @@ Expected:
 
 ### Path sandbox
 ```
-deno run -A src/hlvm/cli/cli.ts ask --model ollama/llama3.1:8b "read file /etc/passwd"
+deno run -A src/hlvm/cli/cli.ts ask "read file /etc/passwd"
 ```
 Expected:
 - Error mentioning security / workspace boundary.
 
 ### Invalid tool args (self‑correction)
 ```
-deno run -A src/hlvm/cli/cli.ts ask --model ollama/llama3.1:8b --verbose "call an invalid tool"
+deno run -A src/hlvm/cli/cli.ts ask --verbose "call an invalid tool"
 ```
 Expected:
 - Trace shows invalid-args feedback.
