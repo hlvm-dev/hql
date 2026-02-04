@@ -102,6 +102,15 @@ export function applyRequestHintsToToolArgs(
     changed = true;
   }
 
+  if (
+    hints.file.mimePrefix &&
+    !hints.file.pattern &&
+    merged.pattern !== undefined
+  ) {
+    delete merged.pattern;
+    changed = true;
+  }
+
   if (hints.file.mimePrefix && merged.mimePrefix !== hints.file.mimePrefix) {
     merged.mimePrefix = hints.file.mimePrefix;
     changed = true;

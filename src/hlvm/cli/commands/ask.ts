@@ -23,10 +23,6 @@ import {
   type AgentSessionEntry,
 } from "../../agent/session-store.ts";
 import type { AgentPolicy } from "../../agent/policy.ts";
-import {
-  selectToolAllowlist,
-  shouldRequireToolCalls,
-} from "../../agent/tool-selection.ts";
 import { inferRequestHints } from "../../agent/request-hints.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { ENGINE_PROFILES } from "../../agent/constants.ts";
@@ -141,8 +137,9 @@ export async function askCommand(args: string[]): Promise<void> {
   // Get workspace
   const workspace = getPlatform().process.cwd();
 
-  const toolAllowlist = selectToolAllowlist(query, { autoWeb: autoWebIntent });
-  const requireToolCalls = shouldRequireToolCalls(toolAllowlist);
+  // No tool filtering - give LLM all tools and let schemas guide selection
+  const toolAllowlist = undefined;
+  const requireToolCalls = false;
 
   const session = await createAgentSession({
     workspace,
@@ -304,14 +301,12 @@ export async function askCommand(args: string[]): Promise<void> {
     }
 
     const stats = session.context.getStats();
-    const suppressFinal = stats.toolMessages > 0 &&
-      shouldSuppressFinalResponse(result);
-    if (!suppressFinal) {
-      if (verbose) {
+    if (verbose) {
+      if (!shouldSuppressFinalResponse(result)) {
         log.raw.log(`\nResult:\n${result}\n`);
-      } else {
-        log.raw.log(`${result}\n`);
       }
+    } else if (stats.toolMessages === 0 && result.trim()) {
+      log.raw.log(`${result}\n`);
     }
     if (verbose) {
       log.raw.log(

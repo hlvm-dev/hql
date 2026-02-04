@@ -617,16 +617,29 @@ export const FILE_TOOLS = {
   },
   list_files: {
     fn: listFiles,
-    description: "List files and directories",
+    description: `List files and directories in a path.
+
+IMPORTANT:
+- For "all/every/entire" requests, set recursive: true
+- For specific file types, use pattern with glob syntax (e.g., "*.pdf", "*.{jpg,png}", "*.ts")
+- For common folders use "~/Downloads", "~/Desktop", "~/Documents"
+
+Examples:
+1. "list all TypeScript files in src"
+   → list_files({path: "src", recursive: true, pattern: "*.ts"})
+2. "show images in Downloads"
+   → list_files({path: "~/Downloads", recursive: true, mimePrefix: "image/"})
+3. "list PDF files in Documents"
+   → list_files({path: "~/Documents", pattern: "*.pdf"})`,
     safetyLevel: "L0",
     formatResult: formatListFilesResult,
     args: {
-      path: "string - Path to directory (relative to workspace or absolute if allowed by policy)",
-      recursive: "boolean (optional) - Recurse into subdirectories (default: false)",
-      pattern: "string (optional) - Glob pattern to filter files (e.g., '*.ts')",
-      mimePrefix: "string (optional) - MIME type prefix filter (e.g., 'image/')",
-      maxDepth: "number (optional) - Maximum recursion depth (default: unlimited)",
-      maxEntries: "number (optional) - Max entries to return (capped by limits)",
+      path: "string - Path to directory. Use '.' for current, '~/Downloads' for user folders, or relative paths like 'src/components'",
+      recursive: "boolean (optional) - Search subdirectories? Use true for 'all/every/entire' requests. Default: false",
+      pattern: "string (optional) - Glob pattern to filter files. Examples: '*.ts', '*.{jpg,png}', '*.pdf'. Omit to list all files",
+      mimePrefix: "string (optional) - MIME type prefix filter (e.g., 'image/', 'video/', 'application/pdf'). Use pattern instead for most cases",
+      maxDepth: "number (optional) - Maximum recursion depth. Rarely needed",
+      maxEntries: "number (optional) - Max entries to return. Rarely needed",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",

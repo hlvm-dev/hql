@@ -10,6 +10,7 @@ export function buildGlobForExtensions(extensions: string[]): string | undefined
     .filter((ext) => ext.length > 0);
   const unique = Array.from(new Set(normalized));
   if (unique.length === 0) return undefined;
+  if (unique.length === 1) return `*.${unique[0]}`;
   return `*.{${unique.join(",")}}`;
 }
 

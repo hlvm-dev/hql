@@ -52,10 +52,6 @@ export function inferFilePattern(requestLower: string): string | undefined {
   if (explicitExtensions.length > 0) {
     return buildGlobForExtensions(explicitExtensions);
   }
-
-  if (/\bpdfs?\b/.test(requestLower) || /\.pdf\b/.test(requestLower)) {
-    return "*.pdf";
-  }
   return undefined;
 }
 
@@ -64,12 +60,18 @@ function extractExplicitExtensions(requestLower: string): string[] {
   const fromDots = matches
     ? matches.map((value) => value.replace(/^\./, ""))
     : [];
-  const tokenPattern = /\b([a-z0-9]{2,6})s?\b(?=\s+files?\b)/gi;
+  const tokenPattern =
+    /\b([a-z0-9]{2,6})s?\b(?=\s+(files?|in|from|within|inside|under|at)\b)/gi;
   const fromTokens: string[] = [];
   for (const match of requestLower.matchAll(tokenPattern)) {
-    const token = match[1];
+    let token = match[1];
     if (fromDots.includes(token)) continue;
-    const mime = getMimeTypeForExtension(token);
+    let mime = getMimeTypeForExtension(token);
+    if (!mime && token.endsWith("s")) {
+      const singular = token.slice(0, -1);
+      mime = getMimeTypeForExtension(singular);
+      if (mime) token = singular;
+    }
     if (mime) fromTokens.push(token);
   }
   return Array.from(new Set([...fromDots, ...fromTokens]));
