@@ -16,6 +16,8 @@ import {
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
+import { inferRequestHints } from "../../../src/hlvm/agent/request-hints.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 // Test workspace
 const TEST_WORKSPACE = "/tmp/hlvm-test-orchestrator";
@@ -420,6 +422,42 @@ Deno.test({
     const messages = context.getMessages();
     const toolMessages = messages.filter((m) => m.role === "tool");
     assertEquals(toolMessages.length >= 1, true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: processAgentResponse - unknown list_* uses list_files with file hints",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const platform = getPlatform();
+    const workspace = await platform.fs.makeTempDir({
+      prefix: "hlvm-orchestrator-videos-",
+    });
+    const filePath = platform.path.join(workspace, "video.mov");
+    await platform.fs.writeTextFile(filePath, "test");
+
+    const context = new ContextManager();
+    const response: LLMResponse = {
+      content: "",
+      toolCalls: [{ toolName: "list_videos", args: { path: workspace } }],
+    };
+
+    const result = await processAgentResponse(response, {
+      workspace,
+      context,
+      autoApprove: true,
+      requestHints: inferRequestHints(`list all videos in ${workspace}`),
+    });
+
+    assertEquals(result.toolCallsMade, 1);
+    assertEquals(result.results[0].success, true);
+    const resultValue = result.results[0].result as Record<string, unknown>;
+    const entries = Array.isArray(resultValue.entries) ? resultValue.entries : [];
+    const names = entries.map((entry) =>
+      typeof entry === "object" && entry ? (entry as { path?: string }).path : ""
+    );
+    assertEquals(names.includes("video.mov"), true);
   },
 });
 

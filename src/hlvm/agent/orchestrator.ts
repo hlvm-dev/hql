@@ -1464,17 +1464,23 @@ export async function processAgentResponse(
 
   const limitedCalls = toolCalls.slice(0, maxCalls);
   const hintedCalls = limitedCalls.map((call) => {
-    const baseArgs = normalizeToolArgs(call.args);
+    let nextCall = call;
+    const hasFileHints = Boolean(config.requestHints?.file);
+    if (!hasTool(call.toolName) && hasFileHints && call.toolName.startsWith("list_")) {
+      nextCall = { ...call, toolName: "list_files" };
+    }
+
+    const baseArgs = normalizeToolArgs(nextCall.args);
     const nextArgs = applyRequestHintsToToolArgs(
-      call.toolName,
+      nextCall.toolName,
       baseArgs,
       config.requestHints,
     );
-    if (nextArgs === baseArgs) {
+    if (nextArgs === baseArgs && nextCall === call) {
       return call;
     }
     return {
-      ...call,
+      ...nextCall,
       args: nextArgs,
     };
   });
