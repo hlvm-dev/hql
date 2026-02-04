@@ -969,6 +969,30 @@ function stripToolCallJsonFromText(text: string): string {
   return cleaned.trim();
 }
 
+function looksLikeToolInstruction(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (/(function call|tool call)/.test(lower)) return true;
+  if (/\bparameters\b/.test(lower) && /\btool\b/.test(lower)) return true;
+  if (/\b(use|call|invoke|execute)\b/.test(lower) && /\btool\b/.test(lower)) {
+    return true;
+  }
+  return false;
+}
+
+function stripToolInstructionText(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const filtered = lines.filter((line) => !looksLikeToolInstruction(line));
+  return filtered.join("\n").trim();
+}
+
+function buildToolBasedCompletion(toolUses: ToolUse[]): string {
+  const toolNames = Array.from(new Set(toolUses.map((tool) => tool.toolName)));
+  const prefix = toolNames.length > 0
+    ? `Based on ${toolNames.join(", ")}`
+    : "Based on tool results";
+  return `${prefix}, see results above.`;
+}
+
 function chooseAutoWebFallback(
   primaryTool: string,
   request: string,
@@ -2155,7 +2179,7 @@ export async function runReActLoop(
     ) {
       if (toolUses.length > 0) {
         const cleaned = stripToolCallJsonFromText(responseText);
-        return cleaned || "Completed. See tool results above.";
+        return cleaned || buildToolBasedCompletion(toolUses);
       }
       if (toolFormatRetries < maxToolCallRetries) {
         toolFormatRetries++;
@@ -2248,6 +2272,17 @@ export async function runReActLoop(
             "No-input mode: Do not ask questions. Provide a best-effort answer based on available tool results and reasonable assumptions.",
         });
         continue;
+      }
+
+      if (toolUses.length > 0) {
+        const cleaned = stripToolInstructionText(
+          stripToolCallJsonFromText(finalResponse),
+        );
+        if (looksLikeToolInstruction(finalResponse)) {
+          finalResponse = cleaned || buildToolBasedCompletion(toolUses);
+        } else if (cleaned !== finalResponse && cleaned) {
+          finalResponse = cleaned;
+        }
       }
 
       if (groundingMode !== "off" && toolUses.length > 0) {
