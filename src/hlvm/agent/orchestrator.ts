@@ -41,7 +41,7 @@ import type { AgentPolicy } from "./policy.ts";
 import { loadWebConfig } from "./web-config.ts";
 import { UsageTracker, estimateUsage, type TokenUsage } from "./usage.ts";
 import type { MetricsSink } from "./metrics.ts";
-import { isToolArgsObject } from "./validation.ts";
+import { isToolArgsObject, normalizeToolArgs } from "./validation.ts";
 import { type LLMResponse, type ToolCall } from "./tool-call.ts";
 import {
   applyRequestHintsToToolArgs,
@@ -325,56 +325,8 @@ export interface OrchestratorConfig {
 
 const URL_PATTERN = /https?:\/\/[^\s"'<>`)\]]+/i;
 const BARE_DOMAIN_PATTERN = /\b([a-z0-9][a-z0-9.-]+\.[a-z]{2,})(\/[^\s"'<>`)\]]*)?/i;
-const RENDER_KEYWORDS = [
-  "landing page",
-  "homepage",
-  "home page",
-  "front page",
-  "main page",
-  "videos",
-  "video",
-  "trending",
-  "recommended",
-  "feed",
-  "latest",
-  "current",
-  "today",
-  "what's on",
-  "what is on",
-  "top stories",
-];
-const SUMMARY_KEYWORDS = [
-  "summarize",
-  "summary",
-  "extract",
-  "list",
-  "show",
-  "what",
-  "content",
-  "contents",
-  "headline",
-  "headlines",
-  "articles",
-  "news",
-];
-const RESEARCH_KEYWORDS = [
-  "news",
-  "latest",
-  "today",
-  "headline",
-  "headlines",
-  "trending",
-  "top stories",
-  "search",
-  "find",
-  "look up",
-  "research",
-  "go to",
-  "open",
-  "website",
-  "web",
-  "online",
-];
+// Removed keyword-based routing (RENDER_KEYWORDS, SUMMARY_KEYWORDS, RESEARCH_KEYWORDS)
+// to match competitor CLI behavior - LLM chooses tools based on schemas, not keywords
 const AUTO_WEB_MIN_TEXT_CHARS = 200;
 const AUTO_WEB_DRILLDOWN_LINKS = 3;
 const LOCAL_SEARCH_URL_TEMPLATE = "https://duckduckgo.com/?q={{query}}&t=h_&ia=web";
@@ -487,9 +439,8 @@ function requiresReasoning(input: string): boolean {
 }
 
 export function shouldAutoResearchWebRequest(request: string): boolean {
-  if (extractUrlFromText(request)) return false;
-  if (hasKeyword(request, CODEBASE_HINTS)) return false;
-  return hasKeyword(request, RESEARCH_KEYWORDS);
+  // No keyword-based auto-routing - let LLM decide when to search web
+  return false;
 }
 
 function hasSearchApiKey(search: {
@@ -799,39 +750,7 @@ function pickBestAutoWebResult(
 export function chooseAutoWebTool(
   request: string,
 ): { toolName: string; args: Record<string, unknown> } | null {
-  const url = extractUrlFromText(request);
-  if (!url) return null;
-
-  const wantsRaw = hasKeyword(request, RAW_KEYWORDS);
-  const wantsSummary = hasKeyword(request, SUMMARY_KEYWORDS);
-  const renderTool = findRenderToolName();
-  const wantsRender = Boolean(renderTool) && !wantsRaw;
-
-  if (wantsRender && renderTool) {
-    const args: Record<string, unknown> = { url };
-    return { toolName: renderTool, args };
-  }
-
-  if (wantsRaw && hasTool("fetch_url")) {
-    return { toolName: "fetch_url", args: { url } };
-  }
-
-  if (hasTool("web_fetch") && (wantsSummary || !wantsRaw)) {
-    return { toolName: "web_fetch", args: { url } };
-  }
-
-  if (hasTool("extract_url") && (wantsSummary || !wantsRaw)) {
-    return { toolName: "extract_url", args: { url } };
-  }
-
-  if (hasTool("fetch_url")) {
-    return { toolName: "fetch_url", args: { url } };
-  }
-
-  if (hasTool("web_fetch")) {
-    return { toolName: "web_fetch", args: { url } };
-  }
-
+  // No keyword-based tool selection - let LLM choose which web tool to use
   return null;
 }
 
@@ -1060,12 +979,8 @@ function formatAutoWebFailure(
 }
 
 export function shouldAutoAnswerWebRequest(request: string): boolean {
-  const url = extractUrlFromText(request);
-  if (!url) return false;
-  if (requiresReasoning(request)) return false;
-  return hasKeyword(request, SUMMARY_KEYWORDS) ||
-    hasKeyword(request, VIDEO_LIST_KEYWORDS) ||
-    hasKeyword(request, RENDER_KEYWORDS);
+  // No keyword-based auto-routing - let LLM decide when to fetch/render URLs
+  return false;
 }
 
 function isPlaywrightMissingError(message: string): boolean {
@@ -1185,7 +1100,7 @@ export async function executeToolCall(
   config: OrchestratorConfig,
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
-  const normalizedArgs = sanitizeArgs(toolCall.args);
+  const normalizedArgs = sanitizeArgs(normalizeToolArgs(toolCall.args));
   // Emit trace event: tool call
   config.onTrace?.({
     type: "tool_call",
@@ -1514,7 +1429,7 @@ export async function processAgentResponse(
 
   const limitedCalls = toolCalls.slice(0, maxCalls);
   const hintedCalls = limitedCalls.map((call) => {
-    const baseArgs = isToolArgsObject(call.args) ? call.args : {};
+    const baseArgs = normalizeToolArgs(call.args);
     const nextArgs = applyRequestHintsToToolArgs(
       call.toolName,
       baseArgs,

@@ -81,16 +81,17 @@ export function applyRequestHintsToToolArgs(
   const normalizedPath = currentPath
     ? currentPath.replace(/[\\/]+$/, "").toLowerCase()
     : "";
+  const normalizedSegments = normalizedPath.split(/[\\/]+/).filter(Boolean);
+  const normalizedTail = normalizedSegments.at(-1) ?? "";
   const isBareFolder = !!currentPath &&
     !currentPath.startsWith(".") &&
     !currentPath.startsWith("~") &&
     !currentPath.includes("/") &&
     !currentPath.includes("\\");
-  const shouldOverridePath = !currentPath ||
-    isBareFolder ||
-    normalizedPath === "/downloads" ||
-    normalizedPath === "/documents" ||
-    normalizedPath === "/desktop";
+  const isNamedFolder = normalizedTail === "downloads" ||
+    normalizedTail === "documents" ||
+    normalizedTail === "desktop";
+  const shouldOverridePath = !currentPath || isBareFolder || isNamedFolder;
 
   if (hints.file.path && shouldOverridePath) {
     merged.path = hints.file.path;

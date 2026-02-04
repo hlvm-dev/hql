@@ -25,6 +25,17 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Request hints: override absolute named-folder paths",
+  fn() {
+    const hints = inferRequestHints("list files in Downloads");
+    const updated = applyRequestHintsToToolArgs("list_files", {
+      path: "/home/user/Downloads",
+    }, hints);
+    assertEquals(updated, { path: "~/Downloads" });
+  },
+});
+
+Deno.test({
   name: "Request hints: infer Downloads path and image pattern",
   fn() {
     const hints = inferFileRequestHints("list all image files in Downloads");

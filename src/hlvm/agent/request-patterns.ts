@@ -13,6 +13,27 @@ const PATH_TOKEN =
   /(~\/[^\s"'`]+|\/[^\s"'`]+|\.\.?\/[^\s"'`]+|[A-Za-z]:\\[^\s"'`]+)/;
 const FILE_EXTENSION_PATTERN = /\.[a-z0-9]{2,6}\b/gi;
 const FILE_EXTENSION_TEST = /\.[a-z0-9]{2,6}\b/i;
+const EXTENSION_STOP_TOKENS = new Set([
+  "list",
+  "show",
+  "find",
+  "get",
+  "all",
+  "every",
+  "each",
+  "any",
+  "my",
+  "file",
+  "files",
+  "image",
+  "images",
+  "photo",
+  "photos",
+  "picture",
+  "pictures",
+  "video",
+  "videos",
+]);
 
 const NAMED_FOLDERS: Array<{ regex: RegExp; path: string }> = [
   { regex: /\bdownloads?\b/i, path: "~/Downloads" },
@@ -65,10 +86,12 @@ function extractExplicitExtensions(requestLower: string): string[] {
   const fromTokens: string[] = [];
   for (const match of requestLower.matchAll(tokenPattern)) {
     let token = match[1];
+    if (EXTENSION_STOP_TOKENS.has(token)) continue;
     if (fromDots.includes(token)) continue;
     let mime = getMimeTypeForExtension(token);
     if (!mime && token.endsWith("s")) {
       const singular = token.slice(0, -1);
+      if (EXTENSION_STOP_TOKENS.has(singular)) continue;
       mime = getMimeTypeForExtension(singular);
       if (mime) token = singular;
     }
