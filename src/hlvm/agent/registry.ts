@@ -20,6 +20,7 @@ import { META_TOOLS } from "./tools/meta-tools.ts";
 import { WEB_TOOLS } from "./tools/web-tools.ts";
 import { MEMORY_TOOLS } from "./tools/memory-tools.ts";
 import { AGENT_TOOLS } from "./tools/agent-tools.ts";
+import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { ValidationError } from "../../common/error.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
@@ -76,6 +77,7 @@ export interface ValidationResult {
  * - File tools: Direct file system operations
  * - Code tools: Code search and analysis
  * - Shell tools: Shell command execution
+ * - Data tools: Generic aggregation/filtering/transformation
  */
 export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...FILE_TOOLS,
@@ -85,6 +87,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...WEB_TOOLS,
   ...MEMORY_TOOLS,
   ...AGENT_TOOLS,
+  ...DATA_TOOLS,
 } as Record<string, ToolMetadata>;
 
 /**
@@ -185,6 +188,7 @@ export function getToolsByCategory(): {
   web: string[];
   memory: string[];
   agent: string[];
+  data: string[];
   dynamic: string[];
 } {
   return {
@@ -195,6 +199,7 @@ export function getToolsByCategory(): {
     web: Object.keys(WEB_TOOLS),
     memory: Object.keys(MEMORY_TOOLS),
     agent: Object.keys(AGENT_TOOLS),
+    data: Object.keys(DATA_TOOLS),
     dynamic: Object.keys(DYNAMIC_TOOL_REGISTRY),
   };
 }
