@@ -954,6 +954,21 @@ function looksLikeToolCallJsonAnywhere(text: string): boolean {
   return containsToolCallJsonSnippet(text);
 }
 
+function stripToolCallJsonFromText(text: string): string {
+  let cleaned = text;
+  const fencedPattern = /```(?:json)?\s*([\s\S]*?)\s*```/g;
+  cleaned = cleaned.replaceAll(fencedPattern, (match, body) => {
+    if (looksLikeToolCallJsonAnywhere(String(body))) {
+      return "";
+    }
+    return match;
+  });
+  const inlinePattern =
+    /\{[\s\S]*?"(toolName|tool_name|function_name|name)"\s*:\s*"[^"]+"[\s\S]*?"(args|parameters|arguments)"\s*:\s*[\s\S]*?\}/g;
+  cleaned = cleaned.replaceAll(inlinePattern, "");
+  return cleaned.trim();
+}
+
 function chooseAutoWebFallback(
   primaryTool: string,
   request: string,
@@ -2138,6 +2153,10 @@ export async function runReActLoop(
       (agentResponse.toolCalls?.length ?? 0) === 0 &&
       looksLikeToolCallJsonAnywhere(responseText)
     ) {
+      if (toolUses.length > 0) {
+        const cleaned = stripToolCallJsonFromText(responseText);
+        return cleaned || "Completed. See tool results above.";
+      }
       if (toolFormatRetries < maxToolCallRetries) {
         toolFormatRetries++;
         const hasPriorTools = toolUses.length > 0;
