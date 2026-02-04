@@ -11,6 +11,7 @@ export interface FileRequestHints {
   pattern?: string;
   recursive?: boolean;
   mimePrefix?: string;
+  needsAggregation?: boolean;
 }
 
 export interface RequestHints {
@@ -31,12 +32,30 @@ function inferRecursive(requestLower: string): boolean | undefined {
   return undefined;
 }
 
+function inferNeedsAggregation(requestLower: string): boolean {
+  if (
+    /\b(size|bytes?|kb|mb|gb|gigabytes?|megabytes?|kilobytes?)\b/.test(
+      requestLower,
+    )
+  ) {
+    return true;
+  }
+  if (/\b(total|sum|add|combined|aggregate)\b/.test(requestLower)) {
+    return true;
+  }
+  if (/\bhow\s+many\b/.test(requestLower)) {
+    return true;
+  }
+  return false;
+}
+
 export function inferFileRequestHints(request: string): FileRequestHints | null {
   const requestLower = request.toLowerCase();
   const path = extractPathToken(request) ?? inferNamedFolderPath(requestLower);
   const pattern = inferFilePattern(requestLower);
   const mimePrefix = inferMimePrefix(requestLower);
   let recursive = inferRecursive(requestLower);
+  const needsAggregation = inferNeedsAggregation(requestLower);
   if (
     recursive === undefined &&
     path &&
@@ -57,6 +76,7 @@ export function inferFileRequestHints(request: string): FileRequestHints | null 
     pattern,
     mimePrefix,
     recursive,
+    needsAggregation: needsAggregation || undefined,
   };
 }
 

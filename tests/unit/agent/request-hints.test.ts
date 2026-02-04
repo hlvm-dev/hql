@@ -87,3 +87,13 @@ Deno.test({
     });
   },
 });
+
+Deno.test({
+  name: "Request hints: detect aggregation for size requests",
+  fn() {
+    const hints = inferFileRequestHints(
+      "list all videos in Desktop and give me total size",
+    );
+    assertEquals(hints?.needsAggregation, true);
+  },
+});

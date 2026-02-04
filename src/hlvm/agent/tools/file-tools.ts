@@ -554,7 +554,26 @@ function formatListFilesResult(
     ? `${message}\n${lines.join("\n")}`
     : message;
 
-  return { returnDisplay: display };
+  const llmEntries = entriesRaw
+    .filter(isObjectValue)
+    .map((entry) => ({
+      path: typeof entry.path === "string" ? entry.path : undefined,
+      type: entry.type === "directory" ? "directory" : "file",
+      size: typeof entry.size === "number" ? entry.size : undefined,
+    }));
+
+  return {
+    returnDisplay: display,
+    llmContent: JSON.stringify(
+      {
+        message,
+        entries: llmEntries,
+        count: llmEntries.length,
+      },
+      null,
+      2,
+    ),
+  };
 }
 
 // ============================================================

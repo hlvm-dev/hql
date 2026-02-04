@@ -1532,6 +1532,7 @@ export async function processAgentResponse(
 
   const shouldStopAfterListFiles =
     Boolean(config.requestHints?.file) &&
+    !config.requestHints?.file?.needsAggregation &&
     hintedCalls.length > 0 &&
     hintedCalls.every((call) => call.toolName === "list_files") &&
     results.every((result) => result.success);
