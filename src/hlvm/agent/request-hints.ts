@@ -10,6 +10,7 @@ export interface FileRequestHints {
   pathRoots: string[];
   pattern?: string;
   recursive?: boolean;
+  mimePrefix?: string;
 }
 
 export interface RequestHints {
@@ -19,6 +20,7 @@ export interface RequestHints {
 import {
   extractPathToken,
   inferFilePattern,
+  inferMimePrefix,
   inferNamedFolderPath,
 } from "./request-patterns.ts";
 
@@ -33,10 +35,11 @@ export function inferFileRequestHints(request: string): FileRequestHints | null 
   const requestLower = request.toLowerCase();
   const path = extractPathToken(request) ?? inferNamedFolderPath(requestLower);
   const pattern = inferFilePattern(requestLower);
+  const mimePrefix = inferMimePrefix(requestLower);
   const recursive = inferRecursive(requestLower);
   const pathRoots = path ? [path] : [];
 
-  if (!path && !pattern && recursive === undefined) {
+  if (!path && !pattern && !mimePrefix && recursive === undefined) {
     return null;
   }
 
@@ -44,6 +47,7 @@ export function inferFileRequestHints(request: string): FileRequestHints | null 
     path: path || undefined,
     pathRoots,
     pattern,
+    mimePrefix,
     recursive,
   };
 }
@@ -87,6 +91,11 @@ export function applyRequestHintsToToolArgs(
 
   if ((merged.pattern === undefined || merged.pattern === "") && hints.file.pattern) {
     merged.pattern = hints.file.pattern;
+    changed = true;
+  }
+
+  if (merged.mimePrefix === undefined && hints.file.mimePrefix) {
+    merged.mimePrefix = hints.file.mimePrefix;
     changed = true;
   }
 

@@ -4,25 +4,15 @@
  * SSOT for request pattern detection shared by tool selection and hints.
  */
 
+import {
+  buildGlobForExtensions,
+  getMimeTypeForExtension,
+} from "../../common/file-kinds.ts";
+
 const PATH_TOKEN =
   /(~\/[^\s"'`]+|\/[^\s"'`]+|\.\.?\/[^\s"'`]+|[A-Za-z]:\\[^\s"'`]+)/;
-const FILE_EXTENSION_PATTERN = /\.[a-z0-9]{2,4}\b/i;
-const IMAGE_EXTENSIONS = [
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "webp",
-  "heic",
-  "heif",
-  "bmp",
-  "tif",
-  "tiff",
-  "svg",
-  "ico",
-  "avif",
-] as const;
-const IMAGE_PATTERN = `*.{${IMAGE_EXTENSIONS.join(",")}}`;
+const FILE_EXTENSION_PATTERN = /\.[a-z0-9]{2,6}\b/gi;
+const FILE_EXTENSION_TEST = /\.[a-z0-9]{2,6}\b/i;
 
 const NAMED_FOLDERS: Array<{ regex: RegExp; path: string }> = [
   { regex: /\bdownloads?\b/i, path: "~/Downloads" },
@@ -45,7 +35,7 @@ export function hasPathLike(request: string): boolean {
 }
 
 export function hasFileExtension(request: string): boolean {
-  return FILE_EXTENSION_PATTERN.test(request);
+  return FILE_EXTENSION_TEST.test(request);
 }
 
 export function inferNamedFolderPath(requestLower: string): string | undefined {
@@ -58,19 +48,36 @@ export function inferNamedFolderPath(requestLower: string): string | undefined {
 }
 
 export function inferFilePattern(requestLower: string): string | undefined {
+  const explicitExtensions = extractExplicitExtensions(requestLower);
+  if (explicitExtensions.length > 0) {
+    return buildGlobForExtensions(explicitExtensions);
+  }
+
   if (/\bpdfs?\b/.test(requestLower) || /\.pdf\b/.test(requestLower)) {
     return "*.pdf";
   }
-  if (
-    /\b(images?|photos?|pictures?|pics?|screenshots?)\b/.test(requestLower) ||
-    /\.(png|jpe?g|gif|webp|heic|heif|bmp|tiff?|svg|ico|avif)\b/.test(
-      requestLower,
-    ) ||
-    /\b(png|jpe?g|gif|webp|heic|heif|bmp|tiff?|svg|ico|avif)\b/.test(
-      requestLower,
-    )
-  ) {
-    return IMAGE_PATTERN;
+  return undefined;
+}
+
+function extractExplicitExtensions(requestLower: string): string[] {
+  const matches = requestLower.match(FILE_EXTENSION_PATTERN);
+  const fromDots = matches
+    ? matches.map((value) => value.replace(/^\./, ""))
+    : [];
+  const tokenPattern = /\b([a-z0-9]{2,6})s?\b(?=\s+files?\b)/gi;
+  const fromTokens: string[] = [];
+  for (const match of requestLower.matchAll(tokenPattern)) {
+    const token = match[1];
+    if (fromDots.includes(token)) continue;
+    const mime = getMimeTypeForExtension(token);
+    if (mime) fromTokens.push(token);
+  }
+  return Array.from(new Set([...fromDots, ...fromTokens]));
+}
+
+export function inferMimePrefix(requestLower: string): string | undefined {
+  if (/\b(images?|photos?|pictures?|pics?|screenshots?)\b/.test(requestLower)) {
+    return "image/";
   }
   return undefined;
 }

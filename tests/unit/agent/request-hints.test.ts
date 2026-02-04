@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
   applyRequestHintsToToolArgs,
   inferFileRequestHints,
@@ -29,10 +29,8 @@ Deno.test({
   fn() {
     const hints = inferFileRequestHints("list all image files in Downloads");
     assertEquals(hints?.path, "~/Downloads");
-    assertEquals(
-      hints?.pattern,
-      "*.{png,jpg,jpeg,gif,webp,heic,heif,bmp,tif,tiff,svg,ico,avif}",
-    );
+    assertEquals(hints?.pattern, undefined);
+    assertEquals(hints?.mimePrefix, "image/");
     assertEquals(hints?.pathRoots, ["~/Downloads"]);
   },
 });
@@ -44,7 +42,7 @@ Deno.test({
     const updated = applyRequestHintsToToolArgs("list_files", {}, hints);
     assertEquals(updated, {
       path: "~/Downloads",
-      pattern: "*.{png,jpg,jpeg,gif,webp,heic,heif,bmp,tif,tiff,svg,ico,avif}",
+      mimePrefix: "image/",
     });
   },
 });

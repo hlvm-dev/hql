@@ -29,6 +29,7 @@ import { throwIfAborted } from "../../../common/timeout-utils.ts";
 import { formatToolError } from "../tool-errors.ts";
 import { okTool, failTool } from "../tool-results.ts";
 import { isObjectValue } from "../../../common/utils.ts";
+import { getMimeTypeForExtension } from "../../../common/file-kinds.ts";
 
 // ============================================================
 // Types
@@ -82,6 +83,7 @@ export interface ListFilesArgs {
   path: string;
   recursive?: boolean;
   pattern?: string;
+  mimePrefix?: string;
   maxDepth?: number;
   maxEntries?: number;
 }
@@ -412,6 +414,17 @@ export async function listFiles(
       return basenameRegex ? basenameRegex.test(name) : false;
     };
 
+    const mimePrefix = typeof args.mimePrefix === "string"
+      ? args.mimePrefix.toLowerCase()
+      : undefined;
+    const matchesMime = (name: string): boolean => {
+      if (!mimePrefix) return true;
+      const ext = platform.path.extname(name);
+      if (!ext) return false;
+      const mime = getMimeTypeForExtension(ext);
+      return mime ? mime.toLowerCase().startsWith(mimePrefix) : false;
+    };
+
     const maxEntries = Math.min(
       args.maxEntries ?? RESOURCE_LIMITS.maxListEntries,
       RESOURCE_LIMITS.maxListEntries,
@@ -450,6 +463,8 @@ export async function listFiles(
         // Check pattern match - ONLY for deciding whether to include in results
         // Do NOT block recursion based on pattern!
         const matchesCurrentPattern = matchesPattern(entryRelativePath, entry.name);
+        const matchesCurrentMime = !mimePrefix ||
+          (entry.isFile && matchesMime(entry.name));
 
         // Enforce policy for this path before including
         if (!isAllowedPath(entryPath)) {
@@ -458,7 +473,7 @@ export async function listFiles(
         }
 
         // Add to results only if matches pattern
-        if (matchesCurrentPattern) {
+        if (matchesCurrentPattern && matchesCurrentMime) {
           entries.push({
             path: entryRelativePath,
             type: entry.isDirectory ? "directory" : "file",
@@ -609,6 +624,7 @@ export const FILE_TOOLS = {
       path: "string - Path to directory (relative to workspace or absolute if allowed by policy)",
       recursive: "boolean (optional) - Recurse into subdirectories (default: false)",
       pattern: "string (optional) - Glob pattern to filter files (e.g., '*.ts')",
+      mimePrefix: "string (optional) - MIME type prefix filter (e.g., 'image/')",
       maxDepth: "number (optional) - Maximum recursion depth (default: unlimited)",
       maxEntries: "number (optional) - Max entries to return (capped by limits)",
     },
