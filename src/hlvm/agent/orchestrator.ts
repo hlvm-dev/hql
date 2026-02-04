@@ -971,6 +971,7 @@ function stripToolCallJsonFromText(text: string): string {
 
 function looksLikeToolInstruction(text: string): boolean {
   const lower = text.toLowerCase();
+  if (/\bjson object\b/.test(lower)) return true;
   if (/(function call|tool call)/.test(lower)) return true;
   if (/\bparameters\b/.test(lower) && /\btool\b/.test(lower)) return true;
   if (/\b(use|call|invoke|execute)\b/.test(lower) && /\btool\b/.test(lower)) {
@@ -1010,6 +1011,13 @@ function buildToolBasedCompletion(toolUses: ToolUse[]): string {
     ? `Based on ${toolNames.join(", ")}`
     : "Based on tool results";
   return `${prefix}, see results above.`;
+}
+
+export function shouldSuppressFinalResponse(response: string): boolean {
+  if (!response.trim()) return true;
+  if (looksLikeToolCallJsonAnywhere(response)) return true;
+  if (looksLikeToolInstruction(response)) return true;
+  return false;
 }
 
 function chooseAutoWebFallback(

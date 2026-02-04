@@ -12,6 +12,7 @@ import {
   runReActLoop,
   shouldAutoAnswerWebRequest,
   shouldAutoResearchWebRequest,
+  shouldSuppressFinalResponse,
   extractUrlFromText,
   type TraceEvent,
   type ToolDisplay,
@@ -541,14 +542,17 @@ export async function askCommand(args: string[]): Promise<void> {
         useModel: !fixturePath,
       });
       if (verboseOutput) {
-        // Display result
-        log.raw.log(`\nResult:\n${formatted}\n`);
-
-        // Show stats
         const stats = session.context.getStats();
-        log.raw.log(
-          `[Stats: ${stats.messageCount} messages, ${stats.estimatedTokens} tokens, ${stats.toolMessages} tool messages]`,
-        );
+        const suppressFinal = stats.toolMessages > 0 &&
+          shouldSuppressFinalResponse(formatted);
+        if (!suppressFinal) {
+          // Display result
+          log.raw.log(`\nResult:\n${formatted}\n`);
+          // Show stats
+          log.raw.log(
+            `[Stats: ${stats.messageCount} messages, ${stats.estimatedTokens} tokens, ${stats.toolMessages} tool messages]`,
+          );
+        }
       } else {
         log.raw.log(`${formatted}\n`);
       }
