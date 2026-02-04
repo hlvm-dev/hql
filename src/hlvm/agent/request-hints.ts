@@ -36,7 +36,15 @@ export function inferFileRequestHints(request: string): FileRequestHints | null 
   const path = extractPathToken(request) ?? inferNamedFolderPath(requestLower);
   const pattern = inferFilePattern(requestLower);
   const mimePrefix = inferMimePrefix(requestLower);
-  const recursive = inferRecursive(requestLower);
+  let recursive = inferRecursive(requestLower);
+  if (
+    recursive === undefined &&
+    path &&
+    /\ball\b/.test(requestLower) &&
+    (/\bfiles?\b/.test(requestLower) || pattern || mimePrefix)
+  ) {
+    recursive = true;
+  }
   const pathRoots = path ? [path] : [];
 
   if (!path && !pattern && !mimePrefix && recursive === undefined) {
@@ -89,17 +97,20 @@ export function applyRequestHintsToToolArgs(
     changed = true;
   }
 
-  if ((merged.pattern === undefined || merged.pattern === "") && hints.file.pattern) {
+  if (hints.file.pattern && merged.pattern !== hints.file.pattern) {
     merged.pattern = hints.file.pattern;
     changed = true;
   }
 
-  if (merged.mimePrefix === undefined && hints.file.mimePrefix) {
+  if (hints.file.mimePrefix && merged.mimePrefix !== hints.file.mimePrefix) {
     merged.mimePrefix = hints.file.mimePrefix;
     changed = true;
   }
 
-  if (merged.recursive === undefined && hints.file.recursive !== undefined) {
+  if (
+    hints.file.recursive !== undefined &&
+    merged.recursive !== hints.file.recursive
+  ) {
     merged.recursive = hints.file.recursive;
     changed = true;
   }

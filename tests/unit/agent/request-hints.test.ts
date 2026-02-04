@@ -31,6 +31,7 @@ Deno.test({
     assertEquals(hints?.path, "~/Downloads");
     assertEquals(hints?.pattern, undefined);
     assertEquals(hints?.mimePrefix, "image/");
+    assertEquals(hints?.recursive, true);
     assertEquals(hints?.pathRoots, ["~/Downloads"]);
   },
 });
@@ -43,6 +44,7 @@ Deno.test({
     assertEquals(updated, {
       path: "~/Downloads",
       mimePrefix: "image/",
+      recursive: true,
     });
   },
 });
