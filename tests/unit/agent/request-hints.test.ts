@@ -23,3 +23,28 @@ Deno.test({
     assertEquals(updated, { path: "~/Downloads", pattern: "*.pdf" });
   },
 });
+
+Deno.test({
+  name: "Request hints: infer Downloads path and image pattern",
+  fn() {
+    const hints = inferFileRequestHints("list all image files in Downloads");
+    assertEquals(hints?.path, "~/Downloads");
+    assertEquals(
+      hints?.pattern,
+      "*.{png,jpg,jpeg,gif,webp,heic,heif,bmp,tif,tiff,svg,ico,avif}",
+    );
+    assertEquals(hints?.pathRoots, ["~/Downloads"]);
+  },
+});
+
+Deno.test({
+  name: "Request hints: apply list_files args for images",
+  fn() {
+    const hints = inferRequestHints("list all image files in Downloads");
+    const updated = applyRequestHintsToToolArgs("list_files", {}, hints);
+    assertEquals(updated, {
+      path: "~/Downloads",
+      pattern: "*.{png,jpg,jpeg,gif,webp,heic,heif,bmp,tif,tiff,svg,ico,avif}",
+    });
+  },
+});

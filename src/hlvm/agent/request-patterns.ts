@@ -7,6 +7,22 @@
 const PATH_TOKEN =
   /(~\/[^\s"'`]+|\/[^\s"'`]+|\.\.?\/[^\s"'`]+|[A-Za-z]:\\[^\s"'`]+)/;
 const FILE_EXTENSION_PATTERN = /\.[a-z0-9]{2,4}\b/i;
+const IMAGE_EXTENSIONS = [
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "heic",
+  "heif",
+  "bmp",
+  "tif",
+  "tiff",
+  "svg",
+  "ico",
+  "avif",
+] as const;
+const IMAGE_PATTERN = `*.{${IMAGE_EXTENSIONS.join(",")}}`;
 
 const NAMED_FOLDERS: Array<{ regex: RegExp; path: string }> = [
   { regex: /\bdownloads?\b/i, path: "~/Downloads" },
@@ -44,6 +60,17 @@ export function inferNamedFolderPath(requestLower: string): string | undefined {
 export function inferFilePattern(requestLower: string): string | undefined {
   if (/\bpdfs?\b/.test(requestLower) || /\.pdf\b/.test(requestLower)) {
     return "*.pdf";
+  }
+  if (
+    /\b(images?|photos?|pictures?|pics?|screenshots?)\b/.test(requestLower) ||
+    /\.(png|jpe?g|gif|webp|heic|heif|bmp|tiff?|svg|ico|avif)\b/.test(
+      requestLower,
+    ) ||
+    /\b(png|jpe?g|gif|webp|heic|heif|bmp|tiff?|svg|ico|avif)\b/.test(
+      requestLower,
+    )
+  ) {
+    return IMAGE_PATTERN;
   }
   return undefined;
 }
