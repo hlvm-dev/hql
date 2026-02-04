@@ -148,6 +148,7 @@ export async function askCommand(args: string[]): Promise<void> {
     failOnContextOverflow: false,
     autoWeb,
     toolAllowlist,
+    toolDenylist: ["delegate_agent"],
   });
 
   let sessionEntry: AgentSessionEntry | null = null;

@@ -823,9 +823,7 @@ function parseToolCallJsonCandidate(text: string): unknown | null {
   }
 }
 
-function isToolCallShape(value: unknown): boolean {
-  if (!isObjectValue(value)) return false;
-  const record = value as Record<string, unknown>;
+function coerceToolCallName(record: Record<string, unknown>): string {
   const functionObj = isObjectValue(record.function)
     ? (record.function as Record<string, unknown>)
     : null;
@@ -840,14 +838,51 @@ function isToolCallShape(value: unknown): boolean {
     : functionObj && typeof functionObj.name === "string"
     ? functionObj.name
     : "";
+  return toolName.trim();
+}
 
+function coerceToolCallArgs(record: Record<string, unknown>): Record<string, unknown> {
+  if ("args" in record) return normalizeToolArgs(record.args);
+  if ("parameters" in record) return normalizeToolArgs(record.parameters);
+  if ("arguments" in record) return normalizeToolArgs(record.arguments);
+  const functionObj = isObjectValue(record.function)
+    ? (record.function as Record<string, unknown>)
+    : null;
+  if (functionObj) {
+    if ("arguments" in functionObj) return normalizeToolArgs(functionObj.arguments);
+    if ("parameters" in functionObj) return normalizeToolArgs(functionObj.parameters);
+  }
+  return {};
+}
+
+function extractToolCallsFromJson(text: string): ToolCall[] {
+  const parsed = parseToolCallJsonCandidate(text);
+  if (!parsed) return [];
+  const records = Array.isArray(parsed) ? parsed : [parsed];
+  const calls: ToolCall[] = [];
+  for (const entry of records) {
+    if (!isObjectValue(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    const name = coerceToolCallName(record);
+    if (!name) continue;
+    const args = coerceToolCallArgs(record);
+    calls.push({ toolName: name, args });
+  }
+  return calls;
+}
+
+function isToolCallShape(value: unknown): boolean {
+  if (!isObjectValue(value)) return false;
+  const record = value as Record<string, unknown>;
+  const toolName = coerceToolCallName(record);
   if (!toolName.trim()) return false;
 
   const hasArgs = "args" in record ||
     "parameters" in record ||
     "arguments" in record ||
-    (functionObj
-      ? ("arguments" in functionObj || "parameters" in functionObj)
+    (isObjectValue(record.function)
+      ? ("arguments" in (record.function as Record<string, unknown>) ||
+        "parameters" in (record.function as Record<string, unknown>))
       : false);
 
   return hasArgs;
@@ -1489,6 +1524,24 @@ export async function processAgentResponse(
     }
   }
 
+  const shouldStopAfterListFiles =
+    Boolean(config.requestHints?.file) &&
+    hintedCalls.length > 0 &&
+    hintedCalls.every((call) => call.toolName === "list_files") &&
+    results.every((result) => result.success);
+  if (shouldStopAfterListFiles && !finalResponse) {
+    finalResponse = "";
+    return {
+      toolCallsMade: results.length,
+      results,
+      toolCalls: hintedCalls,
+      toolUses,
+      toolBytes,
+      shouldContinue: false,
+      finalResponse,
+    };
+  }
+
   return {
     toolCallsMade: results.length,
     results,
@@ -2093,7 +2146,8 @@ export async function runReActLoop(
     const llmDuration = Date.now() - llmStart;
 
     // Record token usage (estimated by default)
-    const responseText = agentResponse.content ?? "";
+    let responseText = agentResponse.content ?? "";
+    let response = agentResponse;
     const usage = estimateUsage(messages, responseText);
     usageTracker.record(usage);
     config.onTrace?.({
@@ -2116,14 +2170,21 @@ export async function runReActLoop(
     });
 
     if (
-      (agentResponse.toolCalls?.length ?? 0) === 0 &&
+      (response.toolCalls?.length ?? 0) === 0 &&
       looksLikeToolCallJsonAnywhere(responseText)
     ) {
-      if (toolUses.length > 0) {
+      const repairedCalls = extractToolCallsFromJson(responseText);
+      if (repairedCalls.length > 0) {
+        response = {
+          ...response,
+          content: "",
+          toolCalls: repairedCalls,
+        };
+        responseText = "";
+      } else if (toolUses.length > 0) {
         const cleaned = stripToolCallJsonFromText(responseText);
         return cleaned || buildToolBasedCompletion(toolUses);
-      }
-      if (toolFormatRetries < maxToolCallRetries) {
+      } else if (toolFormatRetries < maxToolCallRetries) {
         toolFormatRetries++;
         const hasPriorTools = toolUses.length > 0;
         addContextMessage(config, {
@@ -2133,15 +2194,16 @@ export async function runReActLoop(
             : "Native tool calling required. Do not output tool call JSON in text. Retry using structured tool calls.",
         });
         continue;
+      } else {
+        throw new ValidationError(
+          "Model returned tool call JSON instead of native tool calls.",
+          "tool_call_format",
+        );
       }
-      throw new ValidationError(
-        "Model returned tool call JSON instead of native tool calls.",
-        "tool_call_format",
-      );
     }
 
     // Process response and execute tools
-    const result = await processAgentResponse(agentResponse, config);
+    const result = await processAgentResponse(response, config);
 
     // If no tool calls, agent is done
     if (!result.shouldContinue) {
