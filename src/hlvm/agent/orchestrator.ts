@@ -943,6 +943,17 @@ function looksLikeToolCallJson(text: string): boolean {
   return isToolCallShape(parsed);
 }
 
+function containsToolCallJsonSnippet(text: string): boolean {
+  const pattern =
+    /\{[\s\S]*?"(toolName|tool_name|function_name|name)"\s*:\s*"[^"]+"[\s\S]*?"(args|parameters|arguments)"\s*:\s*[\s\S]*?\}/m;
+  return pattern.test(text);
+}
+
+function looksLikeToolCallJsonAnywhere(text: string): boolean {
+  if (looksLikeToolCallJson(text)) return true;
+  return containsToolCallJsonSnippet(text);
+}
+
 function chooseAutoWebFallback(
   primaryTool: string,
   request: string,
@@ -2125,14 +2136,16 @@ export async function runReActLoop(
 
     if (
       (agentResponse.toolCalls?.length ?? 0) === 0 &&
-      looksLikeToolCallJson(responseText)
+      looksLikeToolCallJsonAnywhere(responseText)
     ) {
       if (toolFormatRetries < maxToolCallRetries) {
         toolFormatRetries++;
+        const hasPriorTools = toolUses.length > 0;
         addContextMessage(config, {
           role: "tool",
-          content:
-            "Native tool calling required. Do not output tool call JSON in text. Retry using structured tool calls.",
+          content: hasPriorTools
+            ? "Do not output tool call JSON. Provide a final answer based on the tool results."
+            : "Native tool calling required. Do not output tool call JSON in text. Retry using structured tool calls.",
         });
         continue;
       }

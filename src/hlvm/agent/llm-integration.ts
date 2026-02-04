@@ -318,6 +318,7 @@ Tools are invoked via native function calling. Do NOT output tool call JSON
 or any TOOL_CALL/END_TOOL_CALL markers in your response.
 When you need a tool, call it through the tool-calling mechanism.
 After tool execution, you'll receive results from the system.
+Never explain or demonstrate tool invocations in your final answer.
 
 # Examples
 
