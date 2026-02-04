@@ -15,7 +15,7 @@
  * - SSOT-compliant (uses all previous components)
  */
 
-import { getAllTools, getTool, hasTool, validateToolArgs, type ToolFunction } from "./registry.ts";
+import { getTool, hasTool, validateToolArgs, type ToolFunction } from "./registry.ts";
 import { checkToolSafety } from "./security/safety.ts";
 import { ContextManager, ContextOverflowError, type Message } from "./context.ts";
 import {
@@ -38,20 +38,14 @@ import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
 import { classifyError } from "./error-taxonomy.ts";
 import type { AgentPolicy } from "./policy.ts";
-import { loadWebConfig } from "./web-config.ts";
 import { UsageTracker, estimateUsage, type TokenUsage } from "./usage.ts";
 import type { MetricsSink } from "./metrics.ts";
 import { isToolArgsObject, normalizeToolArgs } from "./validation.ts";
 import { type LLMResponse, type ToolCall } from "./tool-call.ts";
-import {
-  applyRequestHintsToToolArgs,
-  inferRequestHints,
-  type RequestHints,
-} from "./request-hints.ts";
+import { log } from "../api/log.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
 export type { LLMResponse, ToolCall } from "./tool-call.ts";
-import { getPlatform } from "../../platform/platform.ts";
-import { log } from "../api/log.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
 import {
   advancePlanState,
@@ -292,8 +286,6 @@ export interface OrchestratorConfig {
   toolRateLimiter?: SlidingWindowRateLimiter | null;
   /** Optional policy overrides (allow/deny/ask) */
   policy?: AgentPolicy | null;
-  /** Auto-run web tools for URL-centric requests */
-  autoWeb?: boolean;
   /** Internal: prevent repeated Playwright install prompts */
   playwrightInstallAttempted?: boolean;
   /** Optional usage tracker for LLM token accounting */
@@ -317,67 +309,10 @@ export interface OrchestratorConfig {
   maxToolCallRetries?: number;
   /** No-input mode: do not ask the user questions */
   noInput?: boolean;
-  /** Optional request hints inferred from user input */
-  requestHints?: RequestHints;
 }
 
 /** Tool call envelope constants */
 
-const URL_PATTERN = /https?:\/\/[^\s"'<>`)\]]+/i;
-const BARE_DOMAIN_PATTERN = /\b([a-z0-9][a-z0-9.-]+\.[a-z]{2,})(\/[^\s"'<>`)\]]*)?/i;
-// Removed keyword-based routing (RENDER_KEYWORDS, SUMMARY_KEYWORDS, RESEARCH_KEYWORDS)
-// to match competitor CLI behavior - LLM chooses tools based on schemas, not keywords
-const AUTO_WEB_MIN_TEXT_CHARS = 200;
-const AUTO_WEB_DRILLDOWN_LINKS = 3;
-const LOCAL_SEARCH_URL_TEMPLATE = "https://duckduckgo.com/?q={{query}}&t=h_&ia=web";
-const LOCAL_SEARCH_RENDER_DEFAULTS = {
-  waitMs: 1500,
-  maxTextLength: 6000,
-  maxLinks: 40,
-  textSelector: "a",
-  textSelectorLimit: 40,
-} as const;
-const REASONING_KEYWORDS = [
-  "pick",
-  "choose",
-  "best",
-  "top",
-  "funnest",
-  "funniest",
-  "recommend",
-  "compare",
-  "rank",
-];
-const CODEBASE_HINTS = [
-  "src",
-  "tests",
-  "file",
-  "files",
-  "directory",
-  "repo",
-  "repository",
-  "code",
-  "function",
-  "class",
-  "method",
-  ".ts",
-  ".js",
-  ".hql",
-  "workspace",
-  "project",
-];
-const RAW_KEYWORDS = ["raw", "html", "headers", "fetch"];
-const VIDEO_LIST_KEYWORDS = [
-  "video list",
-  "videos",
-  "video",
-  "watch",
-  "what's on",
-  "what is on",
-  "trending",
-  "recommended",
-  "feed",
-];
 const PLAYWRIGHT_ERROR_MARKERS = [
   "executable doesn't exist",
   "install chromium",
@@ -406,392 +341,13 @@ function addContextMessage(
   }
 }
 
-export function extractUrlFromText(input: string): string | null {
-  const direct = input.match(URL_PATTERN);
-  if (direct?.[0]) {
-    return trimUrl(direct[0]);
-  }
-
-  const bare = input.match(BARE_DOMAIN_PATTERN);
-  if (bare?.[0]) {
-    return `https://${trimUrl(bare[0])}`;
-  }
-
-  return null;
-}
-
-function trimUrl(raw: string): string {
-  return raw.replace(/[.,!?;:)\]]+$/g, "");
-}
-
-function hasKeyword(input: string, keywords: string[]): boolean {
-  const lower = input.toLowerCase();
-  return keywords.some((word) => lower.includes(word));
-}
-
 function responseAsksQuestion(response: string): boolean {
   if (!response) return false;
   return response.includes("?");
 }
 
-function requiresReasoning(input: string): boolean {
-  return hasKeyword(input, REASONING_KEYWORDS);
-}
-
-export function shouldAutoResearchWebRequest(request: string): boolean {
-  // No keyword-based auto-routing - let LLM decide when to search web
-  return false;
-}
-
-function hasSearchApiKey(search: {
-  provider: string;
-  brave?: { apiKey?: string };
-  perplexity?: { apiKey?: string };
-  openrouter?: { apiKey?: string };
-}): boolean {
-  const provider = search.provider?.toLowerCase?.() ?? "";
-  if (provider === "brave") return Boolean(search.brave?.apiKey?.trim());
-  if (provider === "perplexity") return Boolean(search.perplexity?.apiKey?.trim());
-  if (provider === "openrouter") return Boolean(search.openrouter?.apiKey?.trim());
-  return Boolean(
-    search.brave?.apiKey?.trim() ||
-      search.perplexity?.apiKey?.trim() ||
-      search.openrouter?.apiKey?.trim(),
-  );
-}
-
-function buildLocalSearchUrl(
-  query: string,
-): string {
-  const template = LOCAL_SEARCH_URL_TEMPLATE;
-  const encoded = encodeURIComponent(query.trim());
-  if (!template.includes("{{query}}")) return template;
-  return template.split("{{query}}").join(encoded);
-}
-
-function normalizeSearchHost(host: string): string {
-  if (!host) return host;
-  return host.startsWith("www.") ? host.slice(4) : host;
-}
-
-function buildSiteSearchQuery(request: string, host: string): string {
-  const normalizedHost = normalizeSearchHost(host);
-  const withoutUrl = request.replace(URL_PATTERN, " ");
-  const cleaned = withoutUrl
-    .replace(/\s+/g, " ")
-    .trim();
-  const core = cleaned || normalizedHost;
-  return normalizedHost ? `site:${normalizedHost} ${core}`.trim() : core;
-}
-
-function buildLocalSearchToolCall(
-  request: string,
-): { toolName: string; args: Record<string, unknown> } | null {
-  const url = buildLocalSearchUrl(request);
-  const renderTool = findRenderToolName();
-  if (renderTool) {
-    const args: Record<string, unknown> = {
-      url,
-      waitMs: LOCAL_SEARCH_RENDER_DEFAULTS.waitMs,
-      maxTextLength: LOCAL_SEARCH_RENDER_DEFAULTS.maxTextLength,
-      maxLinks: LOCAL_SEARCH_RENDER_DEFAULTS.maxLinks,
-    };
-    if (LOCAL_SEARCH_RENDER_DEFAULTS.textSelector) {
-      args.textSelector = LOCAL_SEARCH_RENDER_DEFAULTS.textSelector;
-    }
-    if (LOCAL_SEARCH_RENDER_DEFAULTS.textSelectorLimit) {
-      args.textSelectorLimit = LOCAL_SEARCH_RENDER_DEFAULTS.textSelectorLimit;
-    }
-    return { toolName: renderTool, args };
-  }
-  if (hasTool("web_fetch")) {
-    return { toolName: "web_fetch", args: { url } };
-  }
-  if (hasTool("fetch_url")) {
-    return { toolName: "fetch_url", args: { url } };
-  }
-  return null;
-}
-
-function getHost(url: string): string {
-  try {
-    return new URL(url).host.toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-function findRenderToolName(): string | null {
-  if (hasTool("mcp/playwright/render_url")) return "mcp/playwright/render_url";
-  if (hasTool("render_url")) return "render_url";
-  const tools = Object.keys(getAllTools());
-  for (const name of tools) {
-    if (name.endsWith("/render_url")) return name;
-  }
-  return null;
-}
-
-function normalizeSearchRedirect(link: string): string {
-  try {
-    const url = new URL(link);
-    for (const value of url.searchParams.values()) {
-      try {
-        const decoded = decodeURIComponent(value);
-        if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
-          return decoded;
-        }
-      } catch {
-        // ignore bad decode
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return link;
-}
-
-function hasMeaningfulText(result: unknown, requestHost?: string): boolean {
-  if (!result || typeof result !== "object") return false;
-  const record = result as Record<string, unknown>;
-  if (requestHost) {
-    const resultHost = typeof record.url === "string" ? getHost(record.url) : "";
-    if (
-      resultHost &&
-      requestHost !== resultHost &&
-      !requestHost.endsWith(`.${resultHost}`) &&
-      !resultHost.endsWith(`.${requestHost}`)
-    ) {
-      return false;
-    }
-  }
-  const text = typeof record.text === "string" ? record.text.trim() : "";
-  if (text.length >= AUTO_WEB_MIN_TEXT_CHARS) return true;
-  const content = typeof record.content === "string"
-    ? record.content.trim()
-    : "";
-  if (content.length >= AUTO_WEB_MIN_TEXT_CHARS) return true;
-  const matches = Array.isArray(record.textMatches)
-    ? record.textMatches.filter((item) => typeof item === "string")
-    : [];
-  return matches.length >= 5;
-}
-
-function extractLinksFromResult(result: unknown, baseUrl?: string): string[] {
-  if (!result || typeof result !== "object") return [];
-  const record = result as Record<string, unknown>;
-  const base = typeof record.url === "string"
-    ? record.url
-    : baseUrl;
-  const links = Array.isArray(record.links)
-    ? record.links.filter((item) => typeof item === "string")
-    : [];
-  const output: string[] = [];
-  const seen = new Set<string>();
-  for (const link of links) {
-    const trimmed = link.trim();
-    if (!trimmed) continue;
-    let resolved = trimmed;
-    if (trimmed.startsWith("//")) {
-      resolved = `https:${trimmed}`;
-    } else if (!trimmed.startsWith("http") && base) {
-      try {
-        resolved = new URL(trimmed, base).toString();
-      } catch {
-        continue;
-      }
-    }
-    if (!resolved.startsWith("http")) continue;
-    const normalized = normalizeSearchRedirect(resolved);
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    output.push(normalized);
-  }
-  return output;
-}
-
-function isSameSite(link: string, host: string): boolean {
-  if (!host) return false;
-  try {
-    const linkHost = new URL(link).host.toLowerCase();
-    return linkHost === host || linkHost.endsWith(`.${host}`) ||
-      host.endsWith(`.${linkHost}`);
-  } catch {
-    return false;
-  }
-}
-
-function selectCandidateLinks(
-  links: string[],
-  host: string,
-): string[] {
-  if (links.length === 0) return [];
-  const sameSite: string[] = [];
-  const other: string[] = [];
-  for (const link of links) {
-    if (host && isSameSite(link, host)) {
-      sameSite.push(link);
-    } else {
-      other.push(link);
-    }
-  }
-  const ordered = sameSite.length > 0 ? sameSite : links;
-  const output: string[] = [];
-  for (const link of ordered) {
-    if (output.length >= AUTO_WEB_DRILLDOWN_LINKS) break;
-    output.push(link);
-  }
-  return output;
-}
-
-function buildAutoWebContentCall(url: string): ToolCall | null {
-  const renderTool = findRenderToolName();
-  if (renderTool) {
-    return {
-      toolName: renderTool,
-      args: {
-        url,
-        waitMs: 1200,
-        maxTextLength: 6000,
-        maxLinks: 25,
-      },
-    };
-  }
-  if (hasTool("extract_url")) {
-    return {
-      toolName: "extract_url",
-      args: {
-        url,
-        maxTextLength: 6000,
-        maxLinks: 25,
-      },
-    };
-  }
-  if (hasTool("web_fetch")) {
-    return {
-      toolName: "web_fetch",
-      args: {
-        url,
-        maxChars: 6000,
-      },
-    };
-  }
-  if (hasTool("fetch_url")) {
-    return { toolName: "fetch_url", args: { url } };
-  }
-  return null;
-}
-
-async function runAutoWebDrilldown(
-  request: string,
-  baseResult: unknown,
-  config: OrchestratorConfig,
-  record: (call: ToolCall, result: ToolExecutionResult) => void,
-): Promise<Array<{ call: ToolCall; result: ToolExecutionResult }>> {
-  const url = extractUrlFromText(request);
-  if (!url) return [];
-  const host = getHost(url);
-  let links = extractLinksFromResult(baseResult, url);
-  if (links.length === 0) {
-    const searchQuery = buildSiteSearchQuery(request, host);
-    const searchCall = buildLocalSearchToolCall(searchQuery);
-    if (searchCall) {
-      const searchResult = await executeToolCall(searchCall, config);
-      record(searchCall, searchResult);
-      if (searchResult.success) {
-        links = extractLinksFromResult(searchResult.result);
-      }
-    }
-  }
-  if (links.length === 0) return [];
-  const candidates = selectCandidateLinks(links, host);
-  if (candidates.length === 0) return [];
-
-  const results: Array<{ call: ToolCall; result: ToolExecutionResult }> = [];
-  for (const link of candidates) {
-    const call = buildAutoWebContentCall(link);
-    if (!call) continue;
-    const toolResult = await executeToolCall(call, config);
-    record(call, toolResult);
-    results.push({ call, result: toolResult });
-  }
-  return results;
-}
-
-function pickBestAutoWebResult(
-  primary: { call: ToolCall; result: ToolExecutionResult } | null,
-  fallback: { call: ToolCall; result: ToolExecutionResult } | null,
-  local: { call: ToolCall; result: ToolExecutionResult } | null,
-  drilldown: Array<{ call: ToolCall; result: ToolExecutionResult }>,
-  requestHost?: string,
-): { call: ToolCall; result: ToolExecutionResult } | null {
-  const candidates: Array<{ call: ToolCall; result: ToolExecutionResult }> = [];
-  for (const entry of drilldown) {
-    if (entry) candidates.push(entry);
-  }
-  if (primary) candidates.push(primary);
-  if (fallback) candidates.push(fallback);
-  if (local) candidates.push(local);
-
-  for (const candidate of candidates) {
-    if (
-      candidate.result.success &&
-      hasMeaningfulText(candidate.result.result, requestHost)
-    ) {
-      return candidate;
-    }
-  }
-  for (const candidate of candidates) {
-    if (candidate.result.success) return candidate;
-  }
-  return null;
-}
-
-export function chooseAutoWebTool(
-  request: string,
-): { toolName: string; args: Record<string, unknown> } | null {
-  // No keyword-based tool selection - let LLM choose which web tool to use
-  return null;
-}
-
 function isRenderToolName(toolName: string): boolean {
   return toolName === "render_url" || toolName.endsWith("/render_url");
-}
-
-function isAutoWebToolName(toolName: string): boolean {
-  return toolName === "search_web" ||
-    toolName === "web_search" ||
-    toolName === "research_web" ||
-    toolName === "fetch_url" ||
-    toolName === "web_fetch" ||
-    toolName === "extract_url" ||
-    toolName === "extract_html" ||
-    isRenderToolName(toolName);
-}
-
-function isSearchToolName(toolName: string): boolean {
-  return toolName === "search_web" ||
-    toolName === "web_search" ||
-    toolName === "research_web";
-}
-
-function isEmptySearchResult(result: unknown): boolean {
-  if (!result || typeof result !== "object") return false;
-  const record = result as Record<string, unknown>;
-  const results = Array.isArray(record.results) ? record.results : [];
-  const citations = Array.isArray(record.citations) ? record.citations : [];
-  const answer = typeof record.answer === "string" ? record.answer.trim() : "";
-  const count = typeof record.count === "number" ? record.count : results.length;
-  return count === 0 && results.length === 0 && citations.length === 0 && !answer;
-}
-
-function buildEmptySearchWarning(toolName: string): string {
-  return [
-    `Tool: ${toolName}`,
-    "Search returned no results.",
-    "Ask the user to clarify the query, provide a URL, or retry with a different query.",
-    "Do not call unrelated tools.",
-  ].join("\n");
 }
 
 function buildToolSignature(calls: ToolCall[]): string {
@@ -812,115 +368,10 @@ function buildToolRequiredMessage(allowlist?: string[]): string {
   ].join("\n");
 }
 
-function parseToolCallJsonCandidate(text: string): unknown | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
-}
-
-function coerceToolCallName(record: Record<string, unknown>): string {
-  const functionObj = isObjectValue(record.function)
-    ? (record.function as Record<string, unknown>)
-    : null;
-  const toolName = typeof record.toolName === "string"
-    ? record.toolName
-    : typeof record.tool_name === "string"
-    ? record.tool_name
-    : typeof record.function_name === "string"
-    ? record.function_name
-    : typeof record.name === "string"
-    ? record.name
-    : functionObj && typeof functionObj.name === "string"
-    ? functionObj.name
-    : "";
-  return toolName.trim();
-}
-
-function coerceToolCallArgs(record: Record<string, unknown>): Record<string, unknown> {
-  if ("args" in record) return normalizeToolArgs(record.args);
-  if ("parameters" in record) return normalizeToolArgs(record.parameters);
-  if ("arguments" in record) return normalizeToolArgs(record.arguments);
-  const functionObj = isObjectValue(record.function)
-    ? (record.function as Record<string, unknown>)
-    : null;
-  if (functionObj) {
-    if ("arguments" in functionObj) return normalizeToolArgs(functionObj.arguments);
-    if ("parameters" in functionObj) return normalizeToolArgs(functionObj.parameters);
-  }
-  return {};
-}
-
-function extractToolCallsFromJson(text: string): ToolCall[] {
-  const parsed = parseToolCallJsonCandidate(text);
-  if (!parsed) return [];
-  const records = Array.isArray(parsed) ? parsed : [parsed];
-  const calls: ToolCall[] = [];
-  for (const entry of records) {
-    if (!isObjectValue(entry)) continue;
-    const record = entry as Record<string, unknown>;
-    const name = coerceToolCallName(record);
-    if (!name) continue;
-    const args = coerceToolCallArgs(record);
-    calls.push({ toolName: name, args });
-  }
-  return calls;
-}
-
-function isToolCallShape(value: unknown): boolean {
-  if (!isObjectValue(value)) return false;
-  const record = value as Record<string, unknown>;
-  const toolName = coerceToolCallName(record);
-  if (!toolName.trim()) return false;
-
-  const hasArgs = "args" in record ||
-    "parameters" in record ||
-    "arguments" in record ||
-    (isObjectValue(record.function)
-      ? ("arguments" in (record.function as Record<string, unknown>) ||
-        "parameters" in (record.function as Record<string, unknown>))
-      : false);
-
-  return hasArgs;
-}
-
-function looksLikeToolCallJson(text: string): boolean {
-  const parsed = parseToolCallJsonCandidate(text);
-  if (!parsed) return false;
-  if (Array.isArray(parsed)) {
-    return parsed.some((entry) => isToolCallShape(entry));
-  }
-  return isToolCallShape(parsed);
-}
-
-function containsToolCallJsonSnippet(text: string): boolean {
+function looksLikeToolCallJsonAnywhere(text: string): boolean {
   const pattern =
     /\{[\s\S]*?"(toolName|tool_name|function_name|name)"\s*:\s*"[^"]+"[\s\S]*?"(args|parameters|arguments)"\s*:\s*[\s\S]*?\}/m;
   return pattern.test(text);
-}
-
-function looksLikeToolCallJsonAnywhere(text: string): boolean {
-  if (looksLikeToolCallJson(text)) return true;
-  return containsToolCallJsonSnippet(text);
-}
-
-function stripToolCallJsonFromText(text: string): string {
-  let cleaned = text;
-  const fencedPattern = /```(?:json)?\s*([\s\S]*?)\s*```/g;
-  cleaned = cleaned.replaceAll(fencedPattern, (match, body) => {
-    if (looksLikeToolCallJsonAnywhere(String(body))) {
-      return "";
-    }
-    return match;
-  });
-  const inlinePattern =
-    /\{[\s\S]*?"(toolName|tool_name|function_name|name)"\s*:\s*"[^"]+"[\s\S]*?"(args|parameters|arguments)"\s*:\s*[\s\S]*?\}/g;
-  cleaned = cleaned.replaceAll(inlinePattern, "");
-  return cleaned.trim();
 }
 
 function looksLikeToolInstruction(text: string): boolean {
@@ -934,87 +385,10 @@ function looksLikeToolInstruction(text: string): boolean {
   return false;
 }
 
-function stripToolInstructionText(text: string): string {
-  const lines = text.split(/\r?\n/);
-  const filtered = lines.filter((line) => !looksLikeToolInstruction(line));
-  return filtered.join("\n").trim();
-}
-
-function responseMentionsToolName(text: string, toolName: string): boolean {
-  const lower = text.toLowerCase();
-  const normalized = toolName.toLowerCase();
-  const spaced = normalized.replace(/_/g, " ");
-  return lower.includes(normalized) || lower.includes(spaced);
-}
-
-function looksLikeToolInstructionResponse(
-  text: string,
-  toolNames: string[],
-): boolean {
-  const lower = text.toLowerCase();
-  const hasAction =
-    /\b(use|call|invoke|execute|run)\b/.test(lower) ||
-    /function call|tool call|parameters|json/.test(lower);
-  if (!hasAction) return false;
-  return toolNames.some((name) => responseMentionsToolName(text, name));
-}
-
-function buildToolBasedCompletion(toolUses: ToolUse[]): string {
-  const toolNames = Array.from(new Set(toolUses.map((tool) => tool.toolName)));
-  const prefix = toolNames.length > 0
-    ? `Based on ${toolNames.join(", ")}`
-    : "Based on tool results";
-  return `${prefix}, see results above.`;
-}
-
 export function shouldSuppressFinalResponse(response: string): boolean {
   if (!response.trim()) return true;
   if (looksLikeToolCallJsonAnywhere(response)) return true;
   if (looksLikeToolInstruction(response)) return true;
-  return false;
-}
-
-function chooseAutoWebFallback(
-  primaryTool: string,
-  request: string,
-): { toolName: string; args: Record<string, unknown> } | null {
-  const url = extractUrlFromText(request);
-  if (!url) return null;
-
-  const candidates: string[] = [];
-  if (primaryTool !== "web_fetch" && hasTool("web_fetch")) {
-    candidates.push("web_fetch");
-  }
-  if (primaryTool !== "extract_url" && hasTool("extract_url")) {
-    candidates.push("extract_url");
-  }
-  if (primaryTool !== "fetch_url" && hasTool("fetch_url")) {
-    candidates.push("fetch_url");
-  }
-
-  if (candidates.length === 0) return null;
-  return { toolName: candidates[0], args: { url } };
-}
-
-function formatAutoWebFailure(
-  primaryTool: string,
-  primaryError?: string,
-  fallbackTool?: string,
-  fallbackError?: string,
-): string {
-  const lines = [
-    `Web tool failed (${primaryTool}): ${primaryError ?? "Unknown error"}`,
-  ];
-  if (fallbackTool) {
-    lines.push(
-      `Fallback failed (${fallbackTool}): ${fallbackError ?? "Unknown error"}`,
-    );
-  }
-  return lines.join("\n");
-}
-
-export function shouldAutoAnswerWebRequest(request: string): boolean {
-  // No keyword-based auto-routing - let LLM decide when to fetch/render URLs
   return false;
 }
 
@@ -1067,12 +441,6 @@ async function ensurePlaywrightChromium(
 ): Promise<boolean> {
   if (config.playwrightInstallAttempted) return false;
   config.playwrightInstallAttempted = true;
-
-  if (config.autoWeb) {
-    log.info("Installing Playwright Chromium (auto-web)...");
-    return await runPlaywrightInstall();
-  }
-
   const confirmed = await promptPlaywrightInstall(config);
   if (!confirmed) return false;
 
@@ -1178,9 +546,7 @@ export async function executeToolCall(
     }
 
     // Check safety
-    const autoApprove =
-      (config.autoApprove ?? false) ||
-      ((config.autoWeb ?? false) && isAutoWebToolName(toolCall.toolName));
+    const autoApprove = config.autoApprove ?? false;
     const approved = await checkToolSafety(
       toolCall.toolName,
       normalizedArgs,
@@ -1243,11 +609,7 @@ export async function executeToolCall(
       );
     } catch (error) {
       const message = getErrorMessage(error);
-      if (
-        config.autoWeb &&
-        isRenderToolName(toolCall.toolName) &&
-        isPlaywrightMissingError(message)
-      ) {
+      if (isRenderToolName(toolCall.toolName) && isPlaywrightMissingError(message)) {
         const installed = await ensurePlaywrightChromium(config);
         if (installed) {
           result = await executeToolWithTimeout(
@@ -1463,37 +825,16 @@ export async function processAgentResponse(
   }
 
   const limitedCalls = toolCalls.slice(0, maxCalls);
-  const hintedCalls = limitedCalls.map((call) => {
-    let nextCall = call;
-    const hasFileHints = Boolean(config.requestHints?.file);
-    if (!hasTool(call.toolName) && hasFileHints && call.toolName.startsWith("list_")) {
-      nextCall = { ...call, toolName: "list_files" };
-    }
-
-    const baseArgs = normalizeToolArgs(nextCall.args);
-    const nextArgs = applyRequestHintsToToolArgs(
-      nextCall.toolName,
-      baseArgs,
-      config.requestHints,
-    );
-    if (nextArgs === baseArgs && nextCall === call) {
-      return call;
-    }
-    return {
-      ...nextCall,
-      args: nextArgs,
-    };
-  });
 
   // Execute tool calls
-  const results = await executeToolCalls(hintedCalls, config);
+  const results = await executeToolCalls(limitedCalls, config);
 
   // Add tool results to context + gather tool uses
   const toolUses: ToolUse[] = [];
   let toolBytes = 0;
   const encoder = new TextEncoder();
   for (let i = 0; i < results.length; i++) {
-    const call = hintedCalls[i];
+    const call = limitedCalls[i];
     const result = results[i];
     const { observation, resultText } = buildToolObservation(call, result);
 
@@ -1507,16 +848,10 @@ export async function processAgentResponse(
     });
     toolBytes += encoder.encode(resultText ?? "").length;
 
-    if (result.success && isSearchToolName(call.toolName) && isEmptySearchResult(result.result)) {
-      addContextMessage(config, {
-        role: "tool",
-        content: buildEmptySearchWarning(call.toolName),
-      });
-    }
   }
 
   let finalResponse: string | undefined;
-  const completeIndex = hintedCalls.findIndex((call) =>
+  const completeIndex = limitedCalls.findIndex((call) =>
     call.toolName === "complete_task"
   );
   if (completeIndex >= 0) {
@@ -1530,29 +865,10 @@ export async function processAgentResponse(
     }
   }
 
-  const shouldStopAfterListFiles =
-    Boolean(config.requestHints?.file) &&
-    !config.requestHints?.file?.needsAggregation &&
-    hintedCalls.length > 0 &&
-    hintedCalls.every((call) => call.toolName === "list_files") &&
-    results.every((result) => result.success);
-  if (shouldStopAfterListFiles && !finalResponse) {
-    finalResponse = "";
-    return {
-      toolCallsMade: results.length,
-      results,
-      toolCalls: hintedCalls,
-      toolUses,
-      toolBytes,
-      shouldContinue: false,
-      finalResponse,
-    };
-  }
-
   return {
     toolCallsMade: results.length,
     results,
-    toolCalls: hintedCalls, // Return executed tool calls for denial tracking
+    toolCalls: limitedCalls, // Return executed tool calls for denial tracking
     toolUses,
     toolBytes,
     shouldContinue: completeIndex < 0,
@@ -1736,10 +1052,6 @@ export async function runReActLoop(
   // Initialize usage tracker if not provided
   const usageTracker = config.usage ?? new UsageTracker();
   config.usage = usageTracker;
-  if (!config.requestHints) {
-    config.requestHints = inferRequestHints(userRequest);
-  }
-
   let iterations = 0;
   const maxIterations = MAX_ITERATIONS;
 
@@ -1792,18 +1104,6 @@ export async function runReActLoop(
   const toolUses: ToolUse[] = [];
   let groundingRetries = 0;
   const maxGroundingRetries = groundingMode === "strict" ? 1 : 0;
-  const autoWebEnabled = config.autoWeb ?? false;
-  const autoWebAnswer = autoWebEnabled &&
-    shouldAutoAnswerWebRequest(userRequest);
-  const autoWebResearch = autoWebEnabled &&
-    shouldAutoResearchWebRequest(userRequest);
-  const requestUrl = extractUrlFromText(userRequest);
-  const requestHost = requestUrl ? getHost(requestUrl) : "";
-  const webConfig = autoWebEnabled ? await loadWebConfig() : null;
-  const searchApiAvailable = webConfig ? hasSearchApiKey(webConfig.search) : false;
-  let autoWebAttempted = false;
-  let autoWebSucceeded = false;
-  let autoWebFailure: string | null = null;
   const noInputEnabled = config.noInput ?? false;
   let noInputRetries = 0;
   const maxNoInputRetries = 1;
@@ -1814,220 +1114,6 @@ export async function runReActLoop(
   const maxRepeatToolCalls = config.maxToolCallRepeat ?? 3;
   let lastToolSignature = "";
   let repeatToolCount = 0;
-
-  const recordAutoWebResult = (
-    toolCall: ToolCall,
-    toolResult: ToolExecutionResult,
-  ): void => {
-    const { observation, resultText } = buildToolObservation(toolCall, toolResult);
-    addContextMessage(config, { role: "tool", content: observation });
-    toolUses.push({
-      toolName: toolCall.toolName,
-      result: resultText ?? "",
-    });
-    updateToolResultBytes(encoder.encode(resultText ?? "").length);
-  };
-
-  if (autoWebEnabled) {
-    const autoCall = chooseAutoWebTool(userRequest);
-    if (autoCall) {
-      autoWebAttempted = true;
-      const autoResult = await executeToolCall(autoCall, config);
-      recordAutoWebResult(autoCall, autoResult);
-
-      let fallbackCall: ToolCall | null = null;
-      let fallbackResult: ToolExecutionResult | null = null;
-      let localCall: ToolCall | null = null;
-      let localResult: ToolExecutionResult | null = null;
-
-      if (autoResult.success) {
-        autoWebSucceeded = true;
-      } else {
-        fallbackCall = chooseAutoWebFallback(
-          autoCall.toolName,
-          userRequest,
-        );
-        if (fallbackCall) {
-          fallbackResult = await executeToolCall(fallbackCall, config);
-          recordAutoWebResult(fallbackCall, fallbackResult);
-          if (fallbackResult.success) {
-            autoWebSucceeded = true;
-          }
-        }
-
-        if (!autoWebSucceeded && !searchApiAvailable) {
-          localCall = buildLocalSearchToolCall(userRequest);
-          if (localCall) {
-            localResult = await executeToolCall(localCall, config);
-            recordAutoWebResult(localCall, localResult);
-            if (localResult.success) {
-              autoWebSucceeded = true;
-            }
-          }
-        }
-      }
-
-      if (autoWebAnswer) {
-        const baseResult = autoResult.success
-          ? autoResult.result
-          : fallbackResult?.success
-          ? fallbackResult.result
-          : localResult?.success
-          ? localResult.result
-          : null;
-        let drilldownResults: Array<{ call: ToolCall; result: ToolExecutionResult }> = [];
-        if (baseResult && !hasMeaningfulText(baseResult, requestHost)) {
-          drilldownResults = await runAutoWebDrilldown(
-            userRequest,
-            baseResult,
-            config,
-            recordAutoWebResult,
-          );
-        }
-
-        const resolved = pickBestAutoWebResult(
-          autoResult.success ? { call: autoCall, result: autoResult } : null,
-          fallbackResult?.success && fallbackCall
-            ? { call: fallbackCall, result: fallbackResult }
-            : null,
-          localResult?.success && localCall
-            ? { call: localCall, result: localResult }
-            : null,
-          drilldownResults,
-          requestHost,
-        );
-
-        if (resolved) {
-          if (
-            isSearchToolName(resolved.call.toolName) &&
-            isEmptySearchResult(resolved.result.result)
-          ) {
-            return buildEmptySearchWarning(resolved.call.toolName);
-          }
-          return resolved.result.returnDisplay ??
-            stringifyToolResult(resolved.result.result);
-        }
-
-        autoWebFailure = formatAutoWebFailure(
-          autoCall.toolName,
-          autoResult.error,
-          fallbackCall?.toolName,
-          fallbackResult?.error,
-        );
-        if (localCall && localResult && !localResult.success) {
-          autoWebFailure +=
-            `\nFallback failed (${localCall.toolName}): ${localResult.error}`;
-        }
-        return autoWebFailure;
-      }
-
-      const baseResult = autoResult.success
-        ? autoResult.result
-        : fallbackResult?.success
-        ? fallbackResult.result
-        : localResult?.success
-        ? localResult.result
-        : null;
-      if (baseResult && !hasMeaningfulText(baseResult, requestHost)) {
-        const drilldownResults = await runAutoWebDrilldown(
-          userRequest,
-          baseResult,
-          config,
-          recordAutoWebResult,
-        );
-        if (drilldownResults.some((entry) => entry.result.success)) {
-          autoWebSucceeded = true;
-        }
-      }
-
-      if (!autoWebSucceeded) {
-        autoWebFailure = formatAutoWebFailure(
-          autoCall.toolName,
-          autoResult.error,
-          fallbackCall?.toolName,
-          fallbackResult?.error,
-        );
-        if (localCall && localResult && !localResult.success) {
-          autoWebFailure +=
-            `\nFallback failed (${localCall.toolName}): ${localResult.error}`;
-        }
-      }
-    }
-
-    if (!autoCall && autoWebResearch) {
-      autoWebAttempted = true;
-      let localCall: ToolCall | null = null;
-      let localResult: ToolExecutionResult | null = null;
-
-      if (!searchApiAvailable) {
-        localCall = buildLocalSearchToolCall(userRequest);
-        if (localCall) {
-          localResult = await executeToolCall(localCall, config);
-          recordAutoWebResult(localCall, localResult);
-          if (localResult.success) {
-            autoWebSucceeded = true;
-          }
-          if (autoWebAnswer && localResult.success) {
-            if (
-              isSearchToolName(localCall.toolName) &&
-              isEmptySearchResult(localResult.result)
-            ) {
-              return buildEmptySearchWarning(localCall.toolName);
-            }
-            return localResult.returnDisplay ??
-              stringifyToolResult(localResult.result);
-          }
-        }
-      }
-
-      let researchCall: ToolCall | null = null;
-      let researchResult: ToolExecutionResult | null = null;
-      if ((!localResult?.success) && hasTool("research_web")) {
-        researchCall = {
-          toolName: "research_web",
-          args: {
-            query: userRequest,
-            maxSources: 3,
-          },
-        };
-        researchResult = await executeToolCall(researchCall, config);
-        recordAutoWebResult(researchCall, researchResult);
-        if (researchResult.success) {
-          autoWebSucceeded = true;
-        }
-        if (autoWebAnswer && researchResult.success) {
-          if (
-            isSearchToolName(researchCall.toolName) &&
-            isEmptySearchResult(researchResult.result)
-          ) {
-            return buildEmptySearchWarning(researchCall.toolName);
-          }
-          return researchResult.returnDisplay ??
-            stringifyToolResult(researchResult.result);
-        }
-      }
-
-      if (!autoWebSucceeded) {
-        if (researchCall && researchResult) {
-          autoWebFailure = formatAutoWebFailure(
-            researchCall.toolName,
-            researchResult.error,
-            localCall?.toolName,
-            localResult?.error,
-          );
-        } else if (localCall && localResult) {
-          autoWebFailure = formatAutoWebFailure(
-            localCall.toolName,
-            localResult.error,
-          );
-        }
-      }
-    }
-
-    if (!autoWebAnswer && autoWebAttempted && !autoWebSucceeded && autoWebFailure) {
-      return autoWebFailure;
-    }
-  }
 
   // Planning (optional)
   const planningConfig: PlanningConfig = config.planning ?? { mode: "off" };
@@ -2095,7 +1181,6 @@ export async function runReActLoop(
             args: delegateArgs,
           };
           const delegateResult = await executeToolCall(delegateCall, config);
-          recordAutoWebResult(delegateCall, delegateResult);
           planState.delegatedIds.push(currentStep.id);
           // Give the main LLM a chance to synthesize and mark STEP_DONE.
           continue;
@@ -2180,18 +1265,7 @@ export async function runReActLoop(
       (response.toolCalls?.length ?? 0) === 0 &&
       looksLikeToolCallJsonAnywhere(responseText)
     ) {
-      const repairedCalls = extractToolCallsFromJson(responseText);
-      if (repairedCalls.length > 0) {
-        response = {
-          ...response,
-          content: "",
-          toolCalls: repairedCalls,
-        };
-        responseText = "";
-      } else if (toolUses.length > 0) {
-        const cleaned = stripToolCallJsonFromText(responseText);
-        return cleaned || buildToolBasedCompletion(toolUses);
-      } else if (toolFormatRetries < maxToolCallRetries) {
+      if (toolFormatRetries < maxToolCallRetries) {
         toolFormatRetries++;
         const hasPriorTools = toolUses.length > 0;
         addContextMessage(config, {
@@ -2201,12 +1275,11 @@ export async function runReActLoop(
             : "Native tool calling required. Do not output tool call JSON in text. Retry using structured tool calls.",
         });
         continue;
-      } else {
-        throw new ValidationError(
-          "Model returned tool call JSON instead of native tool calls.",
-          "tool_call_format",
-        );
       }
+      throw new ValidationError(
+        "Model returned tool call JSON instead of native tool calls.",
+        "tool_call_format",
+      );
     }
 
     // Process response and execute tools
@@ -2285,20 +1358,24 @@ export async function runReActLoop(
         continue;
       }
 
-      if (toolUses.length > 0) {
-        const cleaned = stripToolInstructionText(
-          stripToolCallJsonFromText(finalResponse),
-        );
-        const toolNames = Array.from(
-          new Set(toolUses.map((tool) => tool.toolName)),
-        );
-        if (looksLikeToolInstructionResponse(finalResponse, toolNames)) {
-          finalResponse = buildToolBasedCompletion(toolUses);
-        } else if (looksLikeToolInstruction(finalResponse)) {
-          finalResponse = cleaned || buildToolBasedCompletion(toolUses);
-        } else if (cleaned !== finalResponse && cleaned) {
-          finalResponse = cleaned;
+      if (
+        toolUses.length > 0 &&
+        (looksLikeToolCallJsonAnywhere(finalResponse) ||
+          looksLikeToolInstruction(finalResponse))
+      ) {
+        if (toolFormatRetries < maxToolCallRetries) {
+          toolFormatRetries++;
+          addContextMessage(config, {
+            role: "tool",
+            content:
+              "Provide a final answer based on the tool results. Do not output tool call JSON or tool instructions.",
+          });
+          continue;
         }
+        throw new ValidationError(
+          "Model returned tool instructions instead of a final answer.",
+          "tool_call_format",
+        );
       }
 
       if (groundingMode !== "off" && toolUses.length > 0) {

@@ -23,7 +23,6 @@ import {
   type AgentSessionEntry,
 } from "../../agent/session-store.ts";
 import type { AgentPolicy } from "../../agent/policy.ts";
-import { inferRequestHints } from "../../agent/request-hints.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { ENGINE_PROFILES } from "../../agent/constants.ts";
 import {
@@ -84,6 +83,12 @@ function mergePolicyPathRoots(
   };
 }
 
+const DEFAULT_AGENT_PATH_ROOTS = [
+  "~/Downloads",
+  "~/Desktop",
+  "~/Documents",
+];
+
 export async function askCommand(args: string[]): Promise<void> {
   // Check for help flag
   if (args.includes("--help") || args.includes("-h")) {
@@ -115,9 +120,6 @@ export async function askCommand(args: string[]): Promise<void> {
   // Initialize runtime with AI
   await initializeRuntime({ stdlib: false, cache: false });
 
-  const autoWeb = false;
-  const autoWebIntent = false;
-
   const model = DEFAULT_MODEL_ID;
   try {
     await ensureDefaultModelInstalled({
@@ -146,7 +148,6 @@ export async function askCommand(args: string[]): Promise<void> {
     model,
     engineProfile: "normal",
     failOnContextOverflow: false,
-    autoWeb,
     toolAllowlist,
     toolDenylist: ["delegate_agent"],
   });
@@ -160,12 +161,10 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   let policy = session.policy;
-  const requestHints = inferRequestHints(query);
-  policy = mergePolicyPathRoots(policy, requestHints.file?.pathRoots ?? []);
+  policy = mergePolicyPathRoots(policy, DEFAULT_AGENT_PATH_ROOTS);
   const delegate = createDelegateHandler(session.llm, {
     policy,
     autoApprove: false,
-    autoWeb,
   });
 
   // Create trace callback if verbose mode enabled
@@ -280,12 +279,10 @@ export async function askCommand(args: string[]): Promise<void> {
         policy,
         onTrace, // Pass trace callback
         onToolDisplay,
-        autoWeb,
         noInput: false,
         delegate,
         toolAllowlist,
         requireToolCalls,
-        requestHints,
         planning: {
           mode: "auto",
           requireStepMarkers: true,

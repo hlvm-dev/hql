@@ -140,7 +140,6 @@ export async function handleWireRequest(
         const delegate = createDelegateHandler(session.llm, {
           policy: session.policy,
           autoApprove: false,
-          autoWeb: false,
         });
         const result = await runReActLoop(
           task,

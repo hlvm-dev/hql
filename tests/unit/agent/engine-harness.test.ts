@@ -175,7 +175,6 @@ Deno.test({
         {
           content:
             "Based on search_web, the search returned no results. Please clarify the query.",
-          expectLastIncludes: "Search returned no results.",
         },
       ]);
 

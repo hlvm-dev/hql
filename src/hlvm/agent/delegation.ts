@@ -38,7 +38,7 @@ function resolveAllowedTools(profileName: string): string[] {
 
 export function createDelegateHandler(
   llm: LLMFunction,
-  baseConfig: Pick<OrchestratorConfig, "policy" | "autoApprove" | "autoWeb">,
+  baseConfig: Pick<OrchestratorConfig, "policy" | "autoApprove">,
 ): (args: unknown, config: OrchestratorConfig) => Promise<unknown> {
   return async (args: unknown, config: OrchestratorConfig): Promise<unknown> => {
     const record = args as Record<string, unknown>;
@@ -88,7 +88,6 @@ export function createDelegateHandler(
         groundingMode: (record.groundingMode as "off" | "warn" | "strict") ??
           config.groundingMode,
         policy: baseConfig.policy ?? null,
-        autoWeb: baseConfig.autoWeb ?? false,
         toolAllowlist: allowedTools,
         toolDenylist: ["delegate_agent"],
         planning: { mode: "off" },
