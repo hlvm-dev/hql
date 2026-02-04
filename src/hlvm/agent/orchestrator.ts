@@ -985,6 +985,25 @@ function stripToolInstructionText(text: string): string {
   return filtered.join("\n").trim();
 }
 
+function responseMentionsToolName(text: string, toolName: string): boolean {
+  const lower = text.toLowerCase();
+  const normalized = toolName.toLowerCase();
+  const spaced = normalized.replace(/_/g, " ");
+  return lower.includes(normalized) || lower.includes(spaced);
+}
+
+function looksLikeToolInstructionResponse(
+  text: string,
+  toolNames: string[],
+): boolean {
+  const lower = text.toLowerCase();
+  const hasAction =
+    /\b(use|call|invoke|execute|run)\b/.test(lower) ||
+    /function call|tool call|parameters|json/.test(lower);
+  if (!hasAction) return false;
+  return toolNames.some((name) => responseMentionsToolName(text, name));
+}
+
 function buildToolBasedCompletion(toolUses: ToolUse[]): string {
   const toolNames = Array.from(new Set(toolUses.map((tool) => tool.toolName)));
   const prefix = toolNames.length > 0
@@ -2278,7 +2297,12 @@ export async function runReActLoop(
         const cleaned = stripToolInstructionText(
           stripToolCallJsonFromText(finalResponse),
         );
-        if (looksLikeToolInstruction(finalResponse)) {
+        const toolNames = Array.from(
+          new Set(toolUses.map((tool) => tool.toolName)),
+        );
+        if (looksLikeToolInstructionResponse(finalResponse, toolNames)) {
+          finalResponse = buildToolBasedCompletion(toolUses);
+        } else if (looksLikeToolInstruction(finalResponse)) {
           finalResponse = cleaned || buildToolBasedCompletion(toolUses);
         } else if (cleaned !== finalResponse && cleaned) {
           finalResponse = cleaned;
