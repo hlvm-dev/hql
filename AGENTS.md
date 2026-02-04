@@ -8,6 +8,7 @@ Authoritative instructions for all AI agents working on this repository.
 2. **Tests must be real** - No fake tests that always pass
 3. **SSOT enforcement is mandatory** - See below
 4. **Native tool calling only** - No text envelopes or compatibility shims
+5. **CLI output must stay minimal** - Avoid extra narration; keep flags lean
 
 ## Native Function Calling - MANDATORY
 
@@ -18,6 +19,16 @@ Requirements:
 - Orchestrator consumes structured tool calls directly
 - **No fallback** to text-based tool envelopes unless explicitly requested
 - Providers without native tool calling should fail fast
+
+## CLI Simplicity - MANDATORY
+
+**Keep CLI output minimal and flags lean (YAGNI).**
+
+For `hlvm ask`:
+- Default output shows only tool results (no extra narration).
+- `--verbose` / `--debug` enable agent header, tool labels, stats, and trace events.
+
+Do not add new CLI flags unless explicitly requested.
 
 ## SSOT (Single Source of Truth) - MANDATORY
 

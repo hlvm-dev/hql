@@ -264,7 +264,7 @@ export interface OrchestratorConfig {
   maxToolCalls?: number;
   /** Maximum consecutive denials before stopping (default: 3) */
   maxDenials?: number;
-  /** Trace callback for observability (--trace mode) */
+  /** Trace callback for observability (verbose/debug mode) */
   onTrace?: (event: TraceEvent) => void;
   /** Tool output callback for UI display */
   onToolDisplay?: (display: ToolDisplay) => void;

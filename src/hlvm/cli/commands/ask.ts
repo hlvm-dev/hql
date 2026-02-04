@@ -73,16 +73,14 @@ EXAMPLES:
   hlvm ask "list files in src/"
   hlvm ask "count test files in tests/unit"
   hlvm ask "what are recent downloaded files?"
-  hlvm ask --trace "count test files"  # Debug mode with detailed output
+  hlvm ask --verbose "count test files"  # Debug mode with detailed output
 
 OPTIONS:
   --help, -h                   Show this help message
   --model <model>              Specify model (default: ollama/llama3.1:8b)
   --llm-fixture <path>         Use deterministic LLM fixture (no live model)
   --max-calls <n>              Maximum tool calls (default: 10)
-  --trace                      Enable trace mode (show tool calls and results)
-  --trace-full                 Show full trace outputs (no truncation)
-  --verbose, --debug           Show agent header, tool labels, and stats
+  --verbose, --debug           Show agent header, tool labels, stats, and trace output
   --fail-on-context-overflow   Fail instead of trimming when context exceeds max tokens
   --engine-strict              Deterministic profile (strict grounding, fail on overflow, lower context budget)
   --plan                       Enable explicit planning (always)
@@ -141,8 +139,6 @@ export async function askCommand(args: string[]): Promise<void> {
   let model: string | undefined;
   let maxCalls = DEFAULT_MAX_TOOL_CALLS;
   let maxCallsProvided = false;
-  let traceMode = false;
-  let traceFull = false;
   let verbose = false;
   let failOnContextOverflow = false;
   let engineStrict = false;
@@ -182,11 +178,6 @@ export async function askCommand(args: string[]): Promise<void> {
       if (isNaN(maxCalls) || maxCalls < 1) {
         throw new ValidationError("max-calls must be a positive number");
       }
-    } else if (arg === "--trace") {
-      traceMode = true;
-    } else if (arg === "--trace-full") {
-      traceMode = true;
-      traceFull = true;
     } else if (arg === "--verbose" || arg === "--debug") {
       verbose = true;
     } else if (arg === "--fail-on-context-overflow") {
@@ -380,8 +371,8 @@ export async function askCommand(args: string[]): Promise<void> {
     autoWeb,
   });
 
-  // Create trace callback if trace mode enabled
-  const onTrace = traceMode
+  // Create trace callback if verbose mode enabled
+  const onTrace = verbose
     ? (event: TraceEvent) => {
       switch (event.type) {
         case "iteration":
@@ -391,15 +382,9 @@ export async function askCommand(args: string[]): Promise<void> {
           log.raw.log(`[TRACE] Calling LLM with ${event.messageCount} messages`);
           break;
         case "llm_response":
-          if (traceFull && event.content !== undefined) {
-            log.raw.log(
-              `[TRACE] LLM responded (${event.length} chars):\n${event.content}`
-            );
-          } else {
-            log.raw.log(
-              `[TRACE] LLM responded (${event.length} chars): "${event.truncated}..."`
-            );
-          }
+          log.raw.log(
+            `[TRACE] LLM responded (${event.length} chars): "${event.truncated}..."`
+          );
           break;
         case "tool_call":
           log.raw.log(`[TRACE] Tool call: ${event.toolName}`);
@@ -407,14 +392,10 @@ export async function askCommand(args: string[]): Promise<void> {
           break;
         case "tool_result":
           if (event.success) {
-            const raw = traceFull && event.display !== undefined
-              ? event.display
-              : typeof event.result === "string"
+            const raw = typeof event.result === "string"
               ? event.result
               : JSON.stringify(event.result);
-            const truncated = traceFull
-              ? raw
-              : raw.length > 200
+            const truncated = raw.length > 200
               ? raw.substring(0, 200) + "..."
               : raw;
             log.raw.log(`[TRACE] Result: SUCCESS`);
@@ -474,12 +455,8 @@ export async function askCommand(args: string[]): Promise<void> {
     }
     : undefined;
 
-  if (traceMode) {
-    verbose = true;
-  }
-
   const toolJsonOutput = outputFormat === "tool";
-  const onToolDisplay = !traceMode && outputFormat === "text"
+  const onToolDisplay = outputFormat === "text"
     ? (event: ToolDisplay) => {
       if (event.toolName === "ask_user") return;
       if (verbose) {

@@ -18,6 +18,16 @@ Requirements:
 - **No fallback** to text-based envelopes unless explicitly requested
 - Providers without native tool calling should fail fast
 
+## CLI Simplicity - MANDATORY
+
+**Keep CLI output minimal and flags lean (YAGNI).**
+
+For `hlvm ask`:
+- Default output shows only tool results (no extra narration).
+- `--verbose` / `--debug` enable agent header, tool labels, stats, and trace events.
+
+Do not add new CLI flags unless explicitly requested.
+
 ## DRY & KISS - MANDATORY
 
 **No scattered logic. No redundancy. No duplication.**

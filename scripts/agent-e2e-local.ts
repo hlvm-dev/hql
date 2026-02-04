@@ -1,4 +1,4 @@
-// deno run -A scripts/agent-e2e-local.ts [--model <model>] [--fixture <path>] [--strict] [--trace] [--timeout <ms>]
+// deno run -A scripts/agent-e2e-local.ts [--model <model>] [--fixture <path>] [--strict] [--verbose] [--timeout <ms>]
 // Local black-box E2E for HLVM agent CLI (requires local LLM like Ollama).
 
 import { getPlatform } from "../src/platform/platform.ts";
@@ -24,7 +24,7 @@ const args = p().process.args();
 let model: string | undefined;
 let fixture: string | undefined;
 let strictProfile = false;
-let traceMode = false;
+let verboseMode = false;
 let timeoutMs = 60000;
 
 for (let i = 0; i < args.length; i++) {
@@ -35,8 +35,8 @@ for (let i = 0; i < args.length; i++) {
     fixture = args[++i];
   } else if (arg === "--strict") {
     strictProfile = true;
-  } else if (arg === "--trace") {
-    traceMode = true;
+  } else if (arg === "--verbose") {
+    verboseMode = true;
   } else if (arg === "--timeout") {
     const value = Number(args[++i]);
     if (Number.isFinite(value) && value > 0) {
@@ -62,7 +62,7 @@ const tests: TestCase[] = [
     name: "L0 list_files",
     query: "list files in src/hlvm/agent",
     expect: {
-      mustContain: ["Result:", "src/hlvm/agent"],
+      mustContain: ["Found", "src/hlvm/agent"],
     },
   },
   {
@@ -94,10 +94,10 @@ const tests: TestCase[] = [
     },
   },
   {
-    name: "Trace mode (optional)",
+    name: "Verbose mode (optional)",
     query: "list files in src/hlvm/agent/tools",
-    extraArgs: traceMode ? ["--trace"] : undefined,
-    expect: traceMode ? { mustContain: ["[TRACE] Tool call"] } : undefined,
+    extraArgs: verboseMode ? ["--verbose"] : undefined,
+    expect: verboseMode ? { mustContain: ["[TRACE] Tool call"] } : undefined,
   },
   {
     name: "Multi-tool call",
