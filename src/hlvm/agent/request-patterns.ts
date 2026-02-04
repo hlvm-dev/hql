@@ -104,5 +104,8 @@ export function inferMimePrefix(requestLower: string): string | undefined {
   if (/\b(images?|photos?|pictures?|pics?|screenshots?)\b/.test(requestLower)) {
     return "image/";
   }
+  if (/\b(videos?|video\s+files?|movies?|movie\s+files?|clips?)\b/.test(requestLower)) {
+    return "video/";
+  }
   return undefined;
 }
