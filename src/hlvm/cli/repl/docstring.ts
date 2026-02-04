@@ -1,19 +1,21 @@
 /**
- * Docstring Extraction from Comments
+ * Docstring Extraction from JSDoc/TSDoc Blocks
  *
- * Extracts documentation comments that precede HQL definitions.
- * Works with all definition forms: def, defn, fn, let, const, import, etc.
- *
- * Supported comment styles:
- * - // js style
- * - block style: slash-star ... star-slash (single line)
+ * HQL adopts industry-standard JSDoc/TSDoc as the canonical doc format.
+ * We only treat blocks that start with `/**` and end with `* /` as docstrings
+ * (space added to avoid closing this comment).
+ * next definition form (def/defn/fn/let/const/import/macro).
  *
  * @example
  * ```
- * // Adds two numbers together
+ * / ** 
+ *  * Adds two numbers together.
+ *  * @param x First number
+ *  * @param y Second number
+ *  * /
  * (def add (fn [x y] (+ x y)))
  * ```
- * → Extracts: "add" → "Adds two numbers together"
+ * → Extracts: "add" → "/** ... * /" (space added to avoid closing this comment)
  */
 
 /**
@@ -34,54 +36,49 @@ const DEFINITION_KEYWORDS = new Set([
 /**
  * Extract docstrings from source code.
  *
- * Scans for comment lines followed by definition forms,
- * associates the comment text with the defined name.
+ * Scans for JSDoc/TSDoc blocks followed by definition forms and associates
+ * the full comment block with the defined name.
  *
  * @param source - HQL source code
- * @returns Map of name → docstring
+ * @returns Map of name → JSDoc/TSDoc block (including /** ... * /)
  */
 export function extractDocstrings(source: string): Map<string, string> {
   const docstrings = new Map<string, string>();
   const lines = source.split('\n');
 
-  let pendingComments: string[] = [];
+  let pendingDocBlock: string | null = null;
   let i = 0;
 
   while (i < lines.length) {
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Skip empty lines (but don't clear pending comments)
+    // Skip empty lines (but don't clear pending doc block)
     if (!trimmed) {
       i++;
       continue;
     }
 
-    // Accumulate comment lines
-    const comment = extractCommentText(trimmed);
-    if (comment !== null) {
-      pendingComments.push(comment);
-      i++;
+    if (!pendingDocBlock && trimmed.startsWith('/**')) {
+      const extracted = extractJsDocBlock(lines, i);
+      pendingDocBlock = extracted.block;
+      i = extracted.endIndex + 1;
       continue;
     }
 
     // Check for definition form
-    if (pendingComments.length > 0 && trimmed.startsWith('(')) {
+    if (pendingDocBlock && trimmed.startsWith('(')) {
       const names = extractDefinedNames(trimmed, lines, i);
 
       if (names.length > 0) {
-        // Join with newlines to preserve multi-line formatting in DocPanel
-        const docstring = pendingComments.join('\n').trim();
         for (const name of names) {
-          if (docstring) {
-            docstrings.set(name, docstring);
-          }
+          docstrings.set(name, pendingDocBlock);
         }
       }
     }
 
-    // Clear pending comments on non-comment, non-empty line
-    pendingComments = [];
+    // Clear pending doc block on non-empty line
+    pendingDocBlock = null;
     i++;
   }
 
@@ -89,21 +86,79 @@ export function extractDocstrings(source: string): Map<string, string> {
 }
 
 /**
- * Extract comment text from a line, or null if not a comment.
+ * Extract a JSDoc/TSDoc block starting at the given line.
+ * Returns the full block string and the index of the final line.
  */
-function extractCommentText(line: string): string | null {
-  // JS-style: // comment
-  if (line.startsWith('//')) {
-    return line.replace(/^\/\/+\s*/, '').trim();
+export function extractJsDocBlock(lines: string[], startIndex: number): { block: string; endIndex: number } {
+  const rawLines: string[] = [];
+  let endIndex = startIndex;
+
+  for (let i = startIndex; i < lines.length; i++) {
+    const currentLine = lines[i];
+    rawLines.push(currentLine);
+    endIndex = i;
+    if (currentLine.includes('*/')) {
+      break;
+    }
   }
 
-  // Block comment on single line: /* comment */
-  const blockMatch = line.match(/^\/\*\s*(.*?)\s*\*\/$/);
-  if (blockMatch) {
-    return blockMatch[1].trim();
+  return { block: normalizeDocBlock(rawLines), endIndex };
+}
+
+export function normalizeDocBlock(lines: string[]): string {
+  const indents = lines
+    .filter((line) => line.trim().length > 0)
+    .map((line) => line.match(/^\s*/)?.[0].length ?? 0);
+  const minIndent = indents.length > 0 ? Math.min(...indents) : 0;
+  return lines.map((line) => line.slice(minIndent)).join('\n').trimEnd();
+}
+
+/**
+ * Strip leading comments (line or block) and blank lines from source.
+ * Used to detect whether input should be treated as HQL or JS.
+ */
+export function stripLeadingComments(source: string): string {
+  const lines = source.split("\n");
+  let index = 0;
+
+  while (index < lines.length) {
+    const trimmed = lines[index].trim();
+    if (trimmed === "") {
+      index++;
+      continue;
+    }
+
+    if (isLineComment(trimmed)) {
+      index++;
+      continue;
+    }
+
+    if (trimmed.startsWith("/*")) {
+      index = findBlockCommentEnd(lines, index) + 1;
+      continue;
+    }
+
+    break;
   }
 
-  return null;
+  const remaining = lines.slice(index);
+  if (remaining.length > 0) {
+    remaining[0] = remaining[0].trimStart();
+  }
+  return remaining.join("\n");
+}
+
+function findBlockCommentEnd(lines: string[], startIndex: number): number {
+  for (let i = startIndex; i < lines.length; i++) {
+    if (lines[i].includes("*/")) {
+      return i;
+    }
+  }
+  return lines.length - 1;
+}
+
+export function isLineComment(trimmedLine: string): boolean {
+  return trimmedLine.startsWith("//") || trimmedLine.startsWith(";");
 }
 
 /**

@@ -13,6 +13,7 @@ import { ValidationError } from "../../common/error.ts";
 import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
 import { throwIfAborted } from "../../common/timeout-utils.ts";
 import type { Message as AgentMessage } from "./context.ts";
+import type { LLMResponse, ToolCall } from "./tool-call.ts";
 
 // ============================================================
 // Types
@@ -26,8 +27,12 @@ interface FixtureStepExpect {
 }
 
 interface FixtureStep {
-  /** LLM response to return for this step */
-  response: string;
+  /** LLM response content to return for this step */
+  response?: string;
+  /** Alias for response */
+  content?: string;
+  /** Optional structured tool calls */
+  toolCalls?: ToolCall[];
   /** Optional expectations against input messages */
   expect?: FixtureStepExpect;
 }
@@ -131,10 +136,19 @@ function normalizeSteps(input: unknown): FixtureStep[] | null {
 
   for (const entry of input) {
     if (!isObjectValue(entry)) continue;
-    if (typeof entry.response !== "string") continue;
+    const response = typeof entry.response === "string"
+      ? entry.response
+      : undefined;
+    const content = typeof entry.content === "string" ? entry.content : undefined;
+    const toolCalls = Array.isArray(entry.toolCalls)
+      ? entry.toolCalls.filter((call) =>
+        isObjectValue(call) && typeof call.toolName === "string"
+      ) as ToolCall[]
+      : undefined;
+    if (!response && !content && (!toolCalls || toolCalls.length === 0)) continue;
 
     const expect = normalizeExpect(entry.expect);
-    steps.push({ response: entry.response, expect });
+    steps.push({ response, content, toolCalls, expect });
   }
 
   return steps.length > 0 ? steps : null;
@@ -166,11 +180,14 @@ function normalizeExpect(input: unknown): FixtureStepExpect | undefined {
 
 export function createFixtureLLM(
   fixture: LlmFixture,
-): (messages: AgentMessage[], signal?: AbortSignal) => Promise<string> {
+): (messages: AgentMessage[], signal?: AbortSignal) => Promise<LLMResponse> {
   let currentCase: FixtureCase | null = null;
   let stepIndex = 0;
 
-  return async (messages: AgentMessage[], signal?: AbortSignal): Promise<string> => {
+  return async (
+    messages: AgentMessage[],
+    signal?: AbortSignal,
+  ): Promise<LLMResponse> => {
     throwIfAborted(signal);
 
     if (!currentCase) {
@@ -191,7 +208,10 @@ export function createFixtureLLM(
       assertStepExpect(step.expect, messages, currentCase.name, stepIndex);
     }
 
-    return step.response;
+    return {
+      content: step.content ?? step.response ?? "",
+      toolCalls: step.toolCalls ?? [],
+    };
   };
 }
 

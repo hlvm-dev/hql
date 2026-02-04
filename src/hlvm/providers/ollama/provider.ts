@@ -15,6 +15,7 @@ import type {
   Message,
   ModelInfo,
   PullProgress,
+  ChatStructuredResponse,
 } from "../types.ts";
 
 import * as api from "./api.ts";
@@ -44,6 +45,7 @@ export class OllamaProvider implements AIProvider {
   readonly capabilities: ProviderCapability[] = [
     "generate",
     "chat",
+    "tools",
     "models.list",
     "models.catalog",
     "models.pull",
@@ -101,6 +103,20 @@ export class OllamaProvider implements AIProvider {
     const signal = opts.raw?.signal as AbortSignal | undefined;
 
     yield* api.chat(this.endpoint, model, messages, opts, signal);
+  }
+
+  /**
+   * Chat completion returning structured response (native tool calling)
+   */
+  async chatStructured(
+    messages: Message[],
+    options?: ChatOptions,
+  ): Promise<ChatStructuredResponse> {
+    const opts = this.mergeOptions(options);
+    const model = this.getModel(opts);
+    const signal = opts.raw?.signal as AbortSignal | undefined;
+
+    return await api.chatStructured(this.endpoint, model, messages, opts, signal);
   }
 
   /**

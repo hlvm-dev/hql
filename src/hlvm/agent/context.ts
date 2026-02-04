@@ -29,6 +29,16 @@ export interface Message {
   role: MessageRole;
   content: string;
   timestamp?: number;
+  /**
+   * Internal marker for session persistence.
+   * Messages loaded from a session transcript should set this to true.
+   */
+  fromSession?: boolean;
+}
+
+export function isSummaryMessage(message: Message): boolean {
+  return message.role === "assistant" &&
+    message.content.startsWith("Summary of earlier context:");
 }
 
 /** Context manager configuration */
@@ -264,16 +274,14 @@ export class ContextManager {
       }
     }
 
-    const isSummary = (m: Message) =>
-      m.role === "assistant" &&
-      m.content.startsWith("Summary of earlier context:");
-
     // Separate system/summary messages from others
     const systemMessages = this.messages.filter((m) =>
-      m.role === "system" || (this.config.overflowStrategy === "summarize" && isSummary(m))
+      m.role === "system" ||
+      (this.config.overflowStrategy === "summarize" && isSummaryMessage(m))
     );
     const nonSystemMessages = this.messages.filter((m) =>
-      m.role !== "system" && !(this.config.overflowStrategy === "summarize" && isSummary(m))
+      m.role !== "system" &&
+      !(this.config.overflowStrategy === "summarize" && isSummaryMessage(m))
     );
 
     // Can't trim if too few messages

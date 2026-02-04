@@ -28,6 +28,7 @@ import {
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
 import { formatToolError } from "../tool-errors.ts";
 import { okTool, failTool } from "../tool-results.ts";
+import { isObjectValue } from "../../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -514,6 +515,33 @@ export async function listFiles(
   }
 }
 
+function formatListFilesResult(
+  result: unknown,
+): { returnDisplay: string; llmContent?: string } | null {
+  if (!isObjectValue(result)) return null;
+  if (result.success !== true) return null;
+  const entriesRaw = (result as { entries?: unknown }).entries;
+  if (!Array.isArray(entriesRaw)) return null;
+  const message = typeof (result as { message?: unknown }).message === "string"
+    ? String((result as { message?: unknown }).message)
+    : `Found ${entriesRaw.length} entries`;
+
+  const lines: string[] = [];
+  for (const entry of entriesRaw) {
+    if (!isObjectValue(entry)) continue;
+    const path = typeof entry.path === "string" ? entry.path : "";
+    if (!path) continue;
+    const type = entry.type === "directory" ? "directory" : "file";
+    lines.push(type === "directory" ? `${path}/` : path);
+  }
+
+  const display = lines.length > 0
+    ? `${message}\n${lines.join("\n")}`
+    : message;
+
+  return { returnDisplay: display };
+}
+
 // ============================================================
 // Tool Registry
 // ============================================================
@@ -528,7 +556,7 @@ export const FILE_TOOLS = {
     description: "Read file contents",
     safetyLevel: "L0",
     args: {
-      path: "string - Relative path to file",
+      path: "string - Path to file (relative to workspace or absolute if allowed by policy)",
       encoding: "string (optional) - 'utf8' or 'binary' (default: utf8)",
       maxBytes: "number (optional) - Max bytes to read (capped by limits)",
     },
@@ -544,7 +572,7 @@ export const FILE_TOOLS = {
     description: "Write content to file",
     safetyLevel: "L2",
     args: {
-      path: "string - Relative path to file",
+      path: "string - Path to file (relative to workspace or absolute if allowed by policy)",
       content: "string - Content to write",
       createDirs: "boolean (optional) - Create parent directories (default: false)",
       maxBytes: "number (optional) - Max bytes to write (capped by limits)",
@@ -559,7 +587,7 @@ export const FILE_TOOLS = {
     description: "Edit file using find/replace",
     safetyLevel: "L2",
     args: {
-      path: "string - Relative path to file",
+      path: "string - Path to file (relative to workspace or absolute if allowed by policy)",
       find: "string - Text to find",
       replace: "string - Replacement text",
       mode: "string (optional) - 'literal' or 'regex' (default: literal)",
@@ -576,8 +604,9 @@ export const FILE_TOOLS = {
     fn: listFiles,
     description: "List files and directories",
     safetyLevel: "L0",
+    formatResult: formatListFilesResult,
     args: {
-      path: "string - Relative path to directory",
+      path: "string - Path to directory (relative to workspace or absolute if allowed by policy)",
       recursive: "boolean (optional) - Recurse into subdirectories (default: false)",
       pattern: "string (optional) - Glob pattern to filter files (e.g., '*.ts')",
       maxDepth: "number (optional) - Maximum recursion depth (default: unlimited)",

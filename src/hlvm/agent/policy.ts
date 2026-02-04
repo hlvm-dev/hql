@@ -19,7 +19,7 @@ import { log } from "../api/log.ts";
 import { globToRegex, GlobPatternError } from "../../common/pattern-utils.ts";
 import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
 import type { SafetyLevel } from "./security/safety.ts";
-import { SecurityError } from "./security/path-sandbox.ts";
+import { SecurityError, isPathWithinRoot } from "./security/path-sandbox.ts";
 
 // ============================================================
 // Types
@@ -32,6 +32,7 @@ type PolicyDecision = "allow" | "deny" | "ask";
 interface PathRules {
   allow?: string[];
   deny?: string[];
+  roots?: string[];
 }
 
 /** Network rules (glob patterns for URL strings) */
@@ -139,8 +140,8 @@ function normalizePolicy(input: unknown): AgentPolicy | null {
     levelRules: normalizeDecisionMap(policy.levelRules) as Partial<
       Record<SafetyLevel, PolicyDecision>
     >,
-    pathRules: normalizeRules(policy.pathRules),
-    networkRules: normalizeRules(policy.networkRules),
+    pathRules: normalizePathRules(policy.pathRules),
+    networkRules: normalizeRuleSet(policy.networkRules),
   };
 }
 
@@ -159,13 +160,28 @@ function normalizeDecisionMap(
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function normalizeRules(input: unknown): PathRules | undefined {
+function normalizeRuleSet(input: unknown): NetworkRules | undefined {
   if (!isObjectValue(input)) return undefined;
   const allow = Array.isArray(input.allow) ? input.allow.filter((s) => typeof s === "string") : [];
   const deny = Array.isArray(input.deny) ? input.deny.filter((s) => typeof s === "string") : [];
 
   if (allow.length === 0 && deny.length === 0) return undefined;
   return { allow, deny };
+}
+
+function normalizePathRules(input: unknown): PathRules | undefined {
+  if (!isObjectValue(input)) return undefined;
+  const base = normalizeRuleSet(input);
+  const roots = Array.isArray(input.roots)
+    ? input.roots.filter((s) => typeof s === "string")
+    : [];
+
+  if (!base && roots.length === 0) return undefined;
+  return {
+    allow: base?.allow ?? [],
+    deny: base?.deny ?? [],
+    roots: roots.length > 0 ? roots : undefined,
+  };
 }
 
 function describePolicyInvalid(input: unknown): string {
@@ -242,6 +258,10 @@ export function isPathAllowedAbsolute(
   absolutePath: string,
 ): boolean {
   if (!policy?.pathRules) return true;
+  const roots = resolvePolicyPathRoots(policy, workspace);
+  if (roots.length > 0 && roots.some((root) => isPathWithinRoot(absolutePath, root))) {
+    return true;
+  }
   const platform = getPlatform();
   const relative = normalizePolicyPath(
     platform.path.relative(workspace, absolutePath) || ".",
@@ -260,6 +280,10 @@ export function enforcePathPolicy(
   displayPath?: string,
 ): void {
   if (!policy) return;
+  const roots = resolvePolicyPathRoots(policy, workspace);
+  if (roots.length > 0 && roots.some((root) => isPathWithinRoot(absolutePath, root))) {
+    return;
+  }
   const platform = getPlatform();
   const relative = normalizePolicyPath(
     platform.path.relative(workspace, absolutePath) || ".",
@@ -271,6 +295,23 @@ export function enforcePathPolicy(
       absolutePath,
     );
   }
+}
+
+export function resolvePolicyPathRoots(
+  policy: AgentPolicy | null | undefined,
+  workspace: string,
+): string[] {
+  if (!policy?.pathRules?.roots) return [];
+  const platform = getPlatform();
+  const home = platform.env.get("HOME") || "";
+  const expandHome = (path: string): string => {
+    if (!path.startsWith("~")) return path;
+    if (!home) return path;
+    return path.replace(/^~(?=$|\/)/, home);
+  };
+  return policy.pathRules.roots.map((root) =>
+    platform.path.resolve(workspace, expandHome(root))
+  );
 }
 
 /**

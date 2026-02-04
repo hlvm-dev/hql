@@ -38,6 +38,35 @@ export interface Message {
 }
 
 // ============================================================================
+// Tool Calling Types
+// ============================================================================
+
+export interface ToolFunctionDefinition {
+  name: string;
+  description?: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface ToolDefinition {
+  type: "function";
+  function: ToolFunctionDefinition;
+}
+
+export interface ProviderToolCall {
+  id?: string;
+  type?: string;
+  function: {
+    name: string;
+    arguments: unknown;
+  };
+}
+
+export interface ChatStructuredResponse {
+  content: string;
+  toolCalls?: ProviderToolCall[];
+}
+
+// ============================================================================
 // Generation Options
 // ============================================================================
 
@@ -65,7 +94,8 @@ export interface GenerateOptions {
 
 /** Options for chat completion */
 export interface ChatOptions extends GenerateOptions {
-  // Chat inherits all generate options
+  /** Optional tool definitions for native function calling */
+  tools?: ToolDefinition[];
 }
 
 // ============================================================================
@@ -224,6 +254,15 @@ export interface AIProvider {
    * @yields Response text chunks
    */
   chat(messages: Message[], options?: ChatOptions): AsyncGenerator<string, void, unknown>;
+
+  /**
+   * Chat completion returning a structured response (non-streaming).
+   * Optional for providers that support native tool calling.
+   */
+  chatStructured?(
+    messages: Message[],
+    options?: ChatOptions,
+  ): Promise<ChatStructuredResponse>;
 
   /**
    * Model management operations (optional)

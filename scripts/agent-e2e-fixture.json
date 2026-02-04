@@ -7,10 +7,12 @@
       "match": { "contains": ["list files in src/hlvm/agent"] },
       "steps": [
         {
-          "response": "TOOL_CALL\n{\"toolName\":\"list_files\",\"args\":{\"path\":\"src/hlvm/agent\"}}\nEND_TOOL_CALL"
+          "toolCalls": [
+            { "toolName": "list_files", "args": { "path": "src/hlvm/agent" } }
+          ]
         },
         {
-          "response": "Based on list_files, here are files in src/hlvm/agent: context.ts, llm-integration.ts, orchestrator.ts."
+          "content": "Based on list_files, here are files in src/hlvm/agent: context.ts, llm-integration.ts, orchestrator.ts."
         }
       ]
     },
@@ -19,10 +21,12 @@
       "match": { "contains": ["search for \"runReActLoop\""] },
       "steps": [
         {
-          "response": "TOOL_CALL\n{\"toolName\":\"search_code\",\"args\":{\"pattern\":\"runReActLoop\",\"path\":\"src/hlvm/agent\"}}\nEND_TOOL_CALL"
+          "toolCalls": [
+            { "toolName": "search_code", "args": { "pattern": "runReActLoop", "path": "src/hlvm/agent" } }
+          ]
         },
         {
-          "response": "Based on search_code, found occurrences of runReActLoop in src/hlvm/agent/orchestrator.ts."
+          "content": "Based on search_code, found occurrences of runReActLoop in src/hlvm/agent/orchestrator.ts."
         }
       ]
     },
@@ -31,10 +35,12 @@
       "match": { "contains": ["find symbol ContextManager"] },
       "steps": [
         {
-          "response": "TOOL_CALL\n{\"toolName\":\"find_symbol\",\"args\":{\"name\":\"ContextManager\"}}\nEND_TOOL_CALL"
+          "toolCalls": [
+            { "toolName": "find_symbol", "args": { "name": "ContextManager" } }
+          ]
         },
         {
-          "response": "Based on find_symbol, ContextManager is declared in src/hlvm/agent/context.ts."
+          "content": "Based on find_symbol, ContextManager is declared in src/hlvm/agent/context.ts."
         }
       ]
     },
@@ -43,10 +49,12 @@
       "match": { "contains": ["show structure of src/hlvm/agent/security"] },
       "steps": [
         {
-          "response": "TOOL_CALL\n{\"toolName\":\"get_structure\",\"args\":{\"path\":\"src/hlvm/agent/security\"}}\nEND_TOOL_CALL"
+          "toolCalls": [
+            { "toolName": "get_structure", "args": { "path": "src/hlvm/agent/security" } }
+          ]
         },
         {
-          "response": "Based on get_structure, the security directory contains path-sandbox.ts and safety.ts."
+          "content": "Based on get_structure, the security directory contains path-sandbox.ts and safety.ts."
         }
       ]
     },
@@ -55,7 +63,7 @@
       "match": { "contains": ["read file /etc/passwd"] },
       "steps": [
         {
-          "response": "I'm unable to read that file because the path /etc/passwd is outside the workspace boundary. System files like /etc/passwd cannot be accessed from within the workspace."
+          "content": "I'm unable to read that file because the path /etc/passwd is outside the workspace boundary. System files like /etc/passwd cannot be accessed from within the workspace."
         }
       ]
     },
@@ -64,10 +72,12 @@
       "match": { "contains": ["list files in src/hlvm/agent/tools"] },
       "steps": [
         {
-          "response": "TOOL_CALL\n{\"toolName\":\"list_files\",\"args\":{\"path\":\"src/hlvm/agent/tools\"}}\nEND_TOOL_CALL"
+          "toolCalls": [
+            { "toolName": "list_files", "args": { "path": "src/hlvm/agent/tools" } }
+          ]
         },
         {
-          "response": "Based on list_files, src/hlvm/agent/tools contains file-tools.ts, code-tools.ts, shell-tools.ts, meta-tools.ts."
+          "content": "Based on list_files, src/hlvm/agent/tools contains file-tools.ts, code-tools.ts, shell-tools.ts, meta-tools.ts."
         }
       ]
     },
@@ -76,10 +86,13 @@
       "match": { "contains": ["list files and read src/hlvm/agent/context.ts"] },
       "steps": [
         {
-          "response": "TOOL_CALL\n{\"toolName\":\"list_files\",\"args\":{\"path\":\"src/hlvm/agent\"}}\nEND_TOOL_CALL\n\nTOOL_CALL\n{\"toolName\":\"read_file\",\"args\":{\"path\":\"src/hlvm/agent/context.ts\"}}\nEND_TOOL_CALL"
+          "toolCalls": [
+            { "toolName": "list_files", "args": { "path": "src/hlvm/agent" } },
+            { "toolName": "read_file", "args": { "path": "src/hlvm/agent/context.ts" } }
+          ]
         },
         {
-          "response": "Based on read_file, src/hlvm/agent/context.ts defines the ContextManager for tracking messages."
+          "content": "Based on read_file, src/hlvm/agent/context.ts defines the ContextManager for tracking messages."
         }
       ]
     },
@@ -88,13 +101,17 @@
       "match": { "contains": ["simulate invalid tool call then read README"] },
       "steps": [
         {
-          "response": "TOOL_CALL\n{\"toolName\": \"read_file\", \"args\": {\"path\": \"README.md\"}\nEND_TOOL_CALL"
+          "toolCalls": [
+            { "toolName": "read_file", "args": {} }
+          ]
         },
         {
-          "response": "TOOL_CALL\n{\"toolName\":\"read_file\",\"args\":{\"path\":\"README.md\"}}\nEND_TOOL_CALL"
+          "toolCalls": [
+            { "toolName": "read_file", "args": { "path": "README.md" } }
+          ]
         },
         {
-          "response": "Based on read_file, README.md describes how to use HLVM."
+          "content": "Based on read_file, README.md describes how to use HLVM."
         }
       ]
     },
@@ -103,10 +120,12 @@
       "match": { "contains": ["read missing file ./nope.txt"] },
       "steps": [
         {
-          "response": "TOOL_CALL\n{\"toolName\":\"read_file\",\"args\":{\"path\":\"./nope.txt\"}}\nEND_TOOL_CALL"
+          "toolCalls": [
+            { "toolName": "read_file", "args": { "path": "./nope.txt" } }
+          ]
         },
         {
-          "response": "Based on read_file, Error: file not found at ./nope.txt."
+          "content": "Based on read_file, Error: file not found at ./nope.txt."
         }
       ]
     }

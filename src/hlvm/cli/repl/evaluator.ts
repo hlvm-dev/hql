@@ -33,7 +33,7 @@ import { evaluateJS, extractJSBindings } from "./js-eval.ts";
 import { addPaste, addAttachment, addConversationTurn } from "./context.ts";
 import type { AnyAttachment } from "./attachment.ts";
 import type { TextAttachment, Attachment } from "./attachment.ts";
-import { extractDocstrings } from "./docstring.ts";
+import { extractDocstrings, stripLeadingComments } from "./docstring.ts";
 import { getAbortSignal, setAbortSignal } from "../../api/runtime.ts";
 import { log } from "../../api/log.ts";
 
@@ -156,8 +156,13 @@ export async function evaluate(
   // Record user input to conversation
   addConversationTurn("user", trimmed);
 
+  const modeTrimmed = stripLeadingComments(trimmed).trim();
+  if (!modeTrimmed) {
+    return { success: true, suppressOutput: true };
+  }
+
   // JavaScript mode: if input doesn't start with '(', evaluate as JavaScript
-  if (jsMode && !trimmed.startsWith("(")) {
+  if (jsMode && !modeTrimmed.startsWith("(")) {
     try {
       // Extract bindings for state tracking
       const bindings = extractJSBindings(trimmed);

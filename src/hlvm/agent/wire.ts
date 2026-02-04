@@ -11,6 +11,7 @@ import { getPlatform } from "../../platform/platform.ts";
 import { getAllTools } from "./registry.ts";
 import { runReActLoop, type TraceEvent } from "./orchestrator.ts";
 import { createAgentSession } from "./session.ts";
+import { createDelegateHandler } from "./delegation.ts";
 import { DEFAULT_MODEL_ID } from "../../common/config/types.ts";
 import { ValidationError } from "../../common/error.ts";
 
@@ -136,6 +137,11 @@ export async function handleWireRequest(
         });
 
       try {
+        const delegate = createDelegateHandler(session.llm, {
+          policy: session.policy,
+          autoApprove: false,
+          autoWeb: false,
+        });
         const result = await runReActLoop(
           task,
           {
@@ -144,6 +150,7 @@ export async function handleWireRequest(
             maxToolCalls: maxCalls,
             policy: session.policy,
             onTrace,
+            delegate,
           },
           session.llm,
         );

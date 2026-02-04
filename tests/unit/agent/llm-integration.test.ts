@@ -265,14 +265,12 @@ Deno.test({
 });
 
 Deno.test({
-  name: "LLM Integration: generateSystemPrompt - includes envelope format",
+  name: "LLM Integration: generateSystemPrompt - includes native tool calling instructions",
   fn() {
     const prompt = generateSystemPrompt();
 
-    assertStringIncludes(prompt, "TOOL_CALL");
-    assertStringIncludes(prompt, "END_TOOL_CALL");
-    assertStringIncludes(prompt, "toolName");
-    assertStringIncludes(prompt, "args");
+    assertStringIncludes(prompt, "Native Function Calling");
+    assertStringIncludes(prompt, "Do NOT output tool call JSON");
   },
 });
 

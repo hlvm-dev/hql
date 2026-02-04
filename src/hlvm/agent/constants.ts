@@ -141,7 +141,7 @@ export const MAX_RETRIES = 3;
  * Default maximum tool calls per turn
  *
  * Used by:
- * - orchestrator.ts: parseToolCalls + runReActLoop
+ * - orchestrator.ts: runReActLoop
  * - cli/ask.ts: default max-calls
  */
 export const DEFAULT_MAX_TOOL_CALLS = 10;

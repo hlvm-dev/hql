@@ -134,6 +134,44 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Path Sandboxing: allow paths within approved roots",
+  async fn() {
+    await setupTestWorkspace();
+    const platform = getPlatform();
+    const externalRoot = "/tmp/hlvm-external-root";
+
+    try {
+      await platform.fs.mkdir(externalRoot, { recursive: true });
+      const externalFile = `${externalRoot}/external.txt`;
+      await platform.fs.writeTextFile(externalFile, "external");
+
+      const result = await validatePath(
+        externalFile,
+        TEST_WORKSPACE,
+        [externalRoot],
+      );
+      assertEquals(result, externalFile);
+
+      await assertRejects(
+        async () => {
+          await validatePath("/etc/passwd", TEST_WORKSPACE, [externalRoot]);
+        },
+        SecurityError,
+        "Path escapes workspace",
+      );
+    } finally {
+      try {
+        await platform.fs.remove(externalRoot, { recursive: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
+    await cleanupTestWorkspace();
+  },
+});
+
+Deno.test({
   name: "Path Sandboxing: reject symlinks",
   async fn() {
     await setupTestWorkspace();

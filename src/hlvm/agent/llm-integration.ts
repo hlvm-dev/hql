@@ -14,10 +14,19 @@
  * SSOT-compliant: Uses existing ai API and platform abstraction
  */
 
-import { getAllTools } from "./registry.ts";
+import { resolveTools } from "./registry.ts";
+import { listAgentProfiles } from "./agent-registry.ts";
 import { RuntimeError } from "../../common/error.ts";
+import { collectStream } from "../../common/async-stream.ts";
+import { buildToolJsonSchema } from "./tool-schema.ts";
+import { type LLMResponse, type ToolCall } from "./tool-call.ts";
+import { isToolArgsObject } from "./validation.ts";
 import type { Message as AgentMessage } from "./context.ts";
-import type { Message as ProviderMessage } from "../providers/types.ts";
+import type {
+  Message as ProviderMessage,
+  ProviderToolCall,
+  ToolDefinition,
+} from "../providers/types.ts";
 
 // Re-export for convenience
 export type { AgentMessage, ProviderMessage };
@@ -126,16 +135,54 @@ export function convertProviderMessagesToAgent(
  * const fullResponse = await collectStream(stream);
  * ```
  */
-export async function collectStream(
-  stream: AsyncGenerator<string, void, unknown>,
-): Promise<string> {
-  const chunks: string[] = [];
+export { collectStream };
 
-  for await (const chunk of stream) {
-    chunks.push(chunk);
+// ============================================================
+// Tool Schema + Native Tool Calling
+// ============================================================
+
+function buildToolDefinitions(
+  options?: { allowlist?: string[]; denylist?: string[] },
+): ToolDefinition[] {
+  const tools = resolveTools(options);
+  return Object.entries(tools).map(([name, meta]) => {
+    const parameters = meta.skipValidation
+      ? { type: "object", properties: {}, additionalProperties: true }
+      : buildToolJsonSchema(meta);
+
+    return {
+      type: "function",
+      function: {
+        name,
+        description: meta.description,
+        parameters: parameters as Record<string, unknown>,
+      },
+    };
+  });
+}
+
+function parseProviderToolArgs(raw: unknown): Record<string, unknown> {
+  if (!raw) return {};
+  if (isToolArgsObject(raw)) return raw;
+  if (typeof raw !== "string") return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return isToolArgsObject(parsed) ? parsed : {};
+  } catch {
+    return {};
   }
+}
 
-  return chunks.join("");
+function convertProviderToolCalls(calls: ProviderToolCall[] | undefined): ToolCall[] {
+  if (!calls || calls.length === 0) return [];
+  return calls
+    .map((call) => {
+      const name = call.function?.name ?? "";
+      if (!name) return null;
+      const args = parseProviderToolArgs(call.function?.arguments ?? "");
+      return { toolName: name, args };
+    })
+    .filter((call): call is ToolCall => Boolean(call));
 }
 
 // ============================================================
@@ -148,7 +195,7 @@ export async function collectStream(
  * Creates comprehensive system prompt that:
  * 1. Explains agent role
  * 2. Lists all available tools
- * 3. Describes tool call envelope format
+ * 3. Describes native tool calling expectations
  * 4. Provides examples
  * 5. Explains ReAct loop
  *
@@ -162,8 +209,16 @@ export async function collectStream(
  * context.addMessage({ role: "system", content: systemPrompt });
  * ```
  */
-export function generateSystemPrompt(): string {
-  const tools = getAllTools();
+export interface SystemPromptOptions {
+  toolAllowlist?: string[];
+  toolDenylist?: string[];
+}
+
+export function generateSystemPrompt(options: SystemPromptOptions = {}): string {
+  const tools = resolveTools({
+    allowlist: options.toolAllowlist,
+    denylist: options.toolDenylist,
+  });
 
   // Generate tool documentation
   const toolDocs = Object.entries(tools)
@@ -191,15 +246,32 @@ ${returnsBlock}**Safety Level:** ${meta.safetyLevel || meta.safety || "L2"}
     })
     .join("\n\n");
 
-  return `You are an AI coding agent with access to tools for file operations, code analysis, and shell execution.
+  const agents = listAgentProfiles();
+  const agentList = agents.map((agent) => `${agent.name}: ${agent.description}`).join("\n");
+
+  return `You are an AI coding agent with access to tools for file operations, code analysis, web research, and shell execution.
 
 # Your Role
 - Help users with coding tasks by using available tools
+- Use tools when you need information from the workspace, the web, or command output
+- If a request is a greeting, simple question, or clarification that doesn't require tools, respond directly
 - Think step-by-step and explain your reasoning
-- Use tools to gather information before making decisions
-- Always verify your assumptions with tool calls
+- Verify assumptions with tools only when the answer depends on project state
+
+# When to Use Tools vs Direct Response
+- Use tools for: files, code search, command execution, web research, or project state checks
+- Direct response is OK for: greetings, simple math, clarifying questions, or general conversation
+- Use ONLY the tools listed below. Do NOT invent tools.
+
+# Delegation (Multi-Agent)
+- You may delegate a subtask using the delegate_agent tool when specialized expertise is helpful.
+- Prefer delegation for focused tasks (web research, code analysis, shell work, memory lookup).
+- Available agents:
+${agentList}
 
 # CRITICAL RULES FOR FINAL ANSWERS
+
+SCOPE: These rules apply when your answer is based on tool results. If you did not use tools, respond naturally and do not cite tools.
 
 When providing your final answer to the user:
 
@@ -215,15 +287,15 @@ When providing your final answer to the user:
    - Tool results reflect the actual state of the codebase
    - Your knowledge may be outdated or incorrect for this specific project
 
-4. **NEVER FABRICATE TOOL RESULTS:** Do NOT make up tool results or write "[Tool Result]" yourself
+4. **NEVER FABRICATE TOOL RESULTS:** Do NOT make up tool results or write "Tool:" headers yourself
    - You CANNOT see tool results until the system provides them
    - Do NOT write "Tool: tool_name\\nResult: ..." in your own responses
    - Wait for the system to execute your tool call and provide the actual result
    - If you fabricate a tool result, it will be WRONG and mislead the user
    - Example of FORBIDDEN behavior:
-     ❌ "TOOL_CALL\\n{...}\\nEND_TOOL_CALL\\n\\n[Tool Result] output: '4'" (fabricated result!)
+     ❌ "Tool: list_files\\nResult: Found 8 files" (fabricated result!)
    - Correct behavior:
-     ✅ "TOOL_CALL\\n{...}\\nEND_TOOL_CALL" (then WAIT for system to provide result)
+     ✅ Call the appropriate tool via function calling, then WAIT for the system to provide results
 
 6. **BAD EXAMPLE (VIOLATION):**
    User: "How many test files?"
@@ -240,77 +312,37 @@ When providing your final answer to the user:
 
 ${toolDocs}
 
-# Tool Call Format
+# Tool Use (Native Function Calling)
 
-To use a tool, output the following envelope format:
-
-\`\`\`
-TOOL_CALL
-{"toolName": "tool_name", "args": {"arg1": "value1", "arg2": "value2"}}
-END_TOOL_CALL
-\`\`\`
-
-**IMPORTANT FORMAT RULES:**
-- Use EXACT format: TOOL_CALL on its own line, then JSON, then END_TOOL_CALL on its own line
-- JSON must be valid and properly formatted (no trailing commas, no comments)
-- Do NOT indent the JSON inside the envelope
-- Do NOT add extra whitespace or blank lines inside the envelope
-- Do NOT use code fences (\`\`\`) around the envelope
-- You can make multiple tool calls in one response
-- After tool execution, you'll receive results from the system
-
-**FORBIDDEN:**
-❌ Indented JSON inside envelope
-❌ Comments in JSON (like /* comment */)
-❌ Code fences around envelope
-❌ Extra blank lines between TOOL_CALL and JSON
-❌ Writing "[Tool Result]" yourself (system provides this)
+Tools are invoked via native function calling. Do NOT output tool call JSON
+or any TOOL_CALL/END_TOOL_CALL markers in your response.
+When you need a tool, call it through the tool-calling mechanism.
+After tool execution, you'll receive results from the system.
 
 # Examples
 
-**Example 1: Reading a file**
-\`\`\`
-Let me read that file to see its contents.
+**Example 0: Greeting (no tools needed)**
+User: "hello"
+Assistant: "Hello! How can I help you today?"
 
-TOOL_CALL
-{"toolName": "read_file", "args": {"path": "src/main.ts"}}
-END_TOOL_CALL
-\`\`\`
-
-**Example 2: Searching code**
-\`\`\`
-I'll search for all TODO comments in the codebase.
-
-TOOL_CALL
-{"toolName": "search_code", "args": {"pattern": "TODO", "path": "src"}}
-END_TOOL_CALL
-\`\`\`
-
-**Example 3: Multiple tools**
-\`\`\`
-Let me first list the files, then read the main file.
-
-TOOL_CALL
-{"toolName": "list_files", "args": {"path": "src"}}
-END_TOOL_CALL
-
-TOOL_CALL
-{"toolName": "read_file", "args": {"path": "src/main.ts"}}
-END_TOOL_CALL
-\`\`\`
+**Example 0b: Simple question (no tools needed)**
+User: "what is 2+2"
+Assistant: "4."
 
 # ReAct Loop
 
 You operate in a Thought-Action-Observation loop:
 1. **Thought:** Analyze the user's request and plan your approach
 2. **Action:** Call tools to gather information or make changes
-3. **Observation:** You'll receive tool results marked as [Tool Result]
+3. **Observation:** You'll receive tool results marked as "Tool: <tool_name>" with a Result or Error
 4. **Response:** After receiving tool results, ALWAYS provide a response that:
    - Analyzes what you learned from the tool results
    - Answers the user's question based on the information
    - Makes additional tool calls if more information is needed
 
-**IMPORTANT:** After you receive [Tool Result], you MUST either:
+If no tool calls are needed, provide a direct response without tool citations.
+
+**IMPORTANT:** After you receive tool results, you MUST either:
 - Make more tool calls if you need additional information, OR
 - Provide a final answer to the user (without any tool calls)
 
@@ -342,6 +374,10 @@ interface AgentLLMConfig {
     temperature?: number;
     maxTokens?: number;
   };
+  /** Optional tool allowlist */
+  toolAllowlist?: string[];
+  /** Optional tool denylist */
+  toolDenylist?: string[];
 }
 
 /**
@@ -381,15 +417,15 @@ interface AgentLLMConfig {
  */
 export function createAgentLLM(
   config?: AgentLLMConfig,
-): (messages: AgentMessage[], signal?: AbortSignal) => Promise<string> {
+): (messages: AgentMessage[], signal?: AbortSignal) => Promise<LLMResponse> {
   return async (
     messages: AgentMessage[],
     signal?: AbortSignal,
-  ): Promise<string> => {
+  ): Promise<LLMResponse> => {
     // Lazy import to avoid circular dependencies and allow tree-shaking
     const { ai } = await import("../api/ai.ts");
 
-    if (!ai || typeof ai !== "object" || !("chat" in ai)) {
+    if (!ai || typeof ai !== "object" || !("chatStructured" in ai)) {
       throw new RuntimeError(
         "AI API not available. Ensure HLVM is properly initialized.",
       );
@@ -398,20 +434,26 @@ export function createAgentLLM(
     // Convert messages to provider format
     const providerMessages = convertAgentMessagesToProvider(messages);
 
-    // Call LLM with streaming
-    const stream = (ai as {
-      chat: (
+    const api = ai as {
+      chatStructured: (
         messages: ProviderMessage[],
-        options?: { model?: string; signal?: AbortSignal },
-      ) => AsyncGenerator<string>;
-    }).chat(providerMessages, {
-      model: config?.model,
-      signal,
+        options?: { model?: string; signal?: AbortSignal; tools?: ToolDefinition[] },
+      ) => Promise<{ content: string; toolCalls?: ProviderToolCall[] }>;
+    };
+
+    const tools = buildToolDefinitions({
+      allowlist: config?.toolAllowlist,
+      denylist: config?.toolDenylist,
     });
 
-    // Collect stream into complete response
-    const response = await collectStream(stream);
-
-    return response;
+    const response = await api.chatStructured(providerMessages, {
+      model: config?.model,
+      signal,
+      tools,
+    });
+    return {
+      content: response.content ?? "",
+      toolCalls: convertProviderToolCalls(response.toolCalls),
+    };
   };
 }

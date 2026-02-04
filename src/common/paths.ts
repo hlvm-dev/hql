@@ -87,6 +87,13 @@ export function getHlvmDir(): string {
 }
 
 /**
+ * Reset cached HLVM dir (used in tests)
+ */
+export function resetHlvmDirCache(): void {
+  _hlvmDir = null;
+}
+
+/**
  * Get the config file path (~/.hlvm/config.json)
  */
 export function getConfigPath(): string {
@@ -98,6 +105,20 @@ export function getConfigPath(): string {
  */
 export function getMemoryPath(): string {
   return join(getHlvmDir(), "memory.hql");
+}
+
+/**
+ * Get the agent memory file path (~/.hlvm/agent-memory.jsonl)
+ */
+export function getAgentMemoryPath(): string {
+  return join(getHlvmDir(), "agent-memory.jsonl");
+}
+
+/**
+ * Get the web cache file path (~/.hlvm/web-cache.json)
+ */
+export function getWebCachePath(): string {
+  return join(getHlvmDir(), "web-cache.json");
 }
 
 /**

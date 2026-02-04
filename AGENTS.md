@@ -7,6 +7,17 @@ Authoritative instructions for all AI agents working on this repository.
 1. **Run tests after meaningful changes** - `deno task test:unit`
 2. **Tests must be real** - No fake tests that always pass
 3. **SSOT enforcement is mandatory** - See below
+4. **Native tool calling only** - No text envelopes or compatibility shims
+
+## Native Function Calling - MANDATORY
+
+**End-to-end tool calling must be structured. No TOOL_CALL/END_TOOL_CALL parsing.**
+
+Requirements:
+- Use provider native tool calling (`tool_calls` / structured function calls)
+- Orchestrator consumes structured tool calls directly
+- **No fallback** to text-based tool envelopes unless explicitly requested
+- Providers without native tool calling should fail fast
 
 ## SSOT (Single Source of Truth) - MANDATORY
 

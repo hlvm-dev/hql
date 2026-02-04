@@ -48,12 +48,12 @@ deno run -A src/hlvm/cli/cli.ts ask --model ollama/llama3.1:8b "read file /etc/p
 Expected:
 - Error mentioning security / workspace boundary.
 
-### Invalid tool format (self‑correction)
+### Invalid tool args (self‑correction)
 ```
 deno run -A src/hlvm/cli/cli.ts ask --model ollama/llama3.1:8b --trace "call an invalid tool"
 ```
 Expected:
-- Trace shows parse error feedback.
+- Trace shows invalid-args feedback.
 - Model retries with valid tool call or exits cleanly.
 
 ## Troubleshooting

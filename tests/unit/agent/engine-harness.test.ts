@@ -6,7 +6,11 @@
  */
 
 import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert";
-import { runReActLoop, type LLMFunction } from "../../../src/hlvm/agent/orchestrator.ts";
+import {
+  runReActLoop,
+  type LLMFunction,
+  type ToolCall,
+} from "../../../src/hlvm/agent/orchestrator.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
@@ -19,7 +23,8 @@ const TEST_MAX_TOOL_CALLS = 3;
 // ============================================================
 
 interface ScriptedStep {
-  response: string;
+  content?: string;
+  toolCalls?: ToolCall[];
   expectLastIncludes?: string;
 }
 
@@ -43,7 +48,10 @@ function createScriptedLLM(steps: ScriptedStep[]): LLMFunction {
       assertStringIncludes(last.content, step.expectLastIncludes);
     }
 
-    return step.response;
+    return {
+      content: step.content ?? "",
+      toolCalls: step.toolCalls ?? [],
+    };
   };
 }
 
@@ -52,6 +60,19 @@ function addFakeTool(name: string, result: unknown): void {
     fn: async () => result,
     description: "Fake tool for deterministic tests",
     args: {},
+    skipValidation: true,
+  };
+}
+
+function addValidatingTool(
+  name: string,
+  result: unknown,
+  args: Record<string, string>,
+): void {
+  TOOL_REGISTRY[name] = {
+    fn: async () => result,
+    description: "Fake tool for deterministic tests",
+    args,
   };
 }
 
@@ -62,6 +83,7 @@ function addFailingTool(name: string, message: string): void {
     },
     description: "Fake failing tool for deterministic tests",
     args: {},
+    skipValidation: true,
   };
 }
 
@@ -69,9 +91,25 @@ function removeTool(name: string): void {
   delete TOOL_REGISTRY[name];
 }
 
+function overrideTool(
+  name: string,
+  tool: typeof TOOL_REGISTRY[string],
+): () => void {
+  const original = TOOL_REGISTRY[name];
+  TOOL_REGISTRY[name] = tool;
+  return () => {
+    if (original) {
+      TOOL_REGISTRY[name] = original;
+    } else {
+      delete TOOL_REGISTRY[name];
+    }
+  };
+}
+
 function createContext(): ContextManager {
   const context = new ContextManager({
-    maxTokens: ENGINE_PROFILES.strict.context.maxTokens,
+    maxTokens: Math.max(ENGINE_PROFILES.normal.context.maxTokens, 12000),
+    overflowStrategy: "fail",
   });
   context.addMessage({
     role: "system",
@@ -85,6 +123,83 @@ function createContext(): ContextManager {
 // ============================================================
 
 Deno.test({
+  name: "Engine harness: complete_task ends the loop with summary",
+  async fn() {
+    const llm = createScriptedLLM([
+      {
+        toolCalls: [
+          { toolName: "complete_task", args: { summary: "Done." } },
+        ],
+      },
+    ]);
+
+    const context = createContext();
+    const result = await runReActLoop(
+      "Finish task",
+      {
+        workspace: "/tmp",
+        context,
+        autoApprove: true,
+        maxToolCalls: TEST_MAX_TOOL_CALLS,
+        groundingMode: "strict",
+      },
+      llm,
+    );
+
+    assertEquals(result, "Done.");
+  },
+});
+
+Deno.test({
+  name: "Engine harness: empty search prompts clarification",
+  async fn() {
+    const restore = overrideTool("search_web", {
+      fn: async () => ({
+        query: "hlvm",
+        provider: "brave",
+        results: [],
+        count: 0,
+      }),
+      description: "Fake search tool for tests",
+      args: { query: "string - Query to search" },
+      safetyLevel: "L1" as const,
+    });
+
+    try {
+      const llm = createScriptedLLM([
+        {
+          toolCalls: [
+            { toolName: "search_web", args: { query: "hlvm" } },
+          ],
+        },
+        {
+          content:
+            "Based on search_web, the search returned no results. Please clarify the query.",
+          expectLastIncludes: "Search returned no results.",
+        },
+      ]);
+
+      const context = createContext();
+      const result = await runReActLoop(
+        "Find info",
+        {
+          workspace: "/tmp",
+          context,
+          autoApprove: true,
+          maxToolCalls: TEST_MAX_TOOL_CALLS,
+          groundingMode: "strict",
+        },
+        llm,
+      );
+
+      assertStringIncludes(result, "clarify");
+    } finally {
+      restore();
+    }
+  },
+});
+
+Deno.test({
   name: "Engine harness: deterministic tool call -> grounded final answer",
   async fn() {
     const toolName = "fake_list";
@@ -93,10 +208,10 @@ Deno.test({
     try {
       const llm = createScriptedLLM([
         {
-          response: `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`,
+          toolCalls: [{ toolName, args: {} }],
         },
         {
-          response: `Based on ${toolName}, there are 2 items: a, b.`,
+          content: `Based on ${toolName}, there are 2 items: a, b.`,
           expectLastIncludes: "Tool:",
         },
       ]);
@@ -122,7 +237,7 @@ Deno.test({
 
       // Deterministic transcript shape
       const roles = context.getMessages().map((m) => m.role);
-      assertEquals(roles, ["system", "user", "assistant", "tool", "assistant"]);
+      assertEquals(roles, ["system", "user", "tool", "assistant"]);
     } finally {
       removeTool(toolName);
     }
@@ -138,14 +253,14 @@ Deno.test({
     try {
       const llm = createScriptedLLM([
         {
-          response: `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`,
+          toolCalls: [{ toolName, args: {} }],
         },
         {
-          response: "There are 2 items.",
+          content: "There are 2 items.",
           expectLastIncludes: "Tool:",
         },
         {
-          response: `Based on ${toolName}, there are 2 items: a, b.`,
+          content: `Based on ${toolName}, there are 2 items: a, b.`,
           expectLastIncludes: "Grounding required.",
         },
       ]);
@@ -180,14 +295,14 @@ Deno.test({
     try {
       const llm = createScriptedLLM([
         {
-          response: `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`,
+          toolCalls: [{ toolName, args: {} }],
         },
         {
-          response: "There are 2 items.",
+          content: "There are 2 items.",
           expectLastIncludes: "Tool:",
         },
         {
-          response: "Still ungrounded response.",
+          content: "Still ungrounded response.",
           expectLastIncludes: "Grounding required.",
         },
       ]);
@@ -216,24 +331,93 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Engine harness: parse error recovery continues loop",
+  name: "Engine harness: multi-step search -> read -> summarize",
   async fn() {
-    const toolName = "fake_echo";
-    addFakeTool(toolName, "ok");
+    const searchTool = "fake_search_code";
+    const readTool = "fake_read_file";
+
+    addFakeTool(searchTool, {
+      matches: [
+        {
+          file: "src/hlvm/agent/llm-integration.ts",
+          line: 200,
+          content: "export function generateSystemPrompt()",
+        },
+      ],
+      count: 1,
+    });
+    addFakeTool(
+      readTool,
+      "export function generateSystemPrompt() {\n  return `You are an AI coding agent...`;\n}",
+    );
 
     try {
       const llm = createScriptedLLM([
         {
-          // Invalid JSON to trigger parse error
-          response: `TOOL_CALL\n{"toolName":"${toolName}","args":{}\nEND_TOOL_CALL`,
+          toolCalls: [
+            {
+              toolName: searchTool,
+              args: { pattern: "generateSystemPrompt", path: "src" },
+            },
+          ],
         },
         {
-          // LLM sees parse error message from tool role
-          response: `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`,
-          expectLastIncludes: "Parse Error",
+          toolCalls: [
+            { toolName: readTool, args: { path: "src/hlvm/agent/llm-integration.ts" } },
+          ],
+          expectLastIncludes: "generateSystemPrompt",
         },
         {
-          response: `Based on ${toolName}, result is ok.`,
+          content:
+            `Based on ${searchTool} and ${readTool}, generateSystemPrompt defines the system prompt and returns a large instruction string.`,
+          expectLastIncludes: "Tool: fake_read_file",
+        },
+      ]);
+
+      const context = createContext();
+      const result = await runReActLoop(
+        "Find generateSystemPrompt and summarize its key sections.",
+        {
+          workspace: "/tmp",
+          context,
+          autoApprove: true,
+          maxToolCalls: TEST_MAX_TOOL_CALLS,
+          groundingMode: "strict",
+        },
+        llm,
+      );
+
+      assertStringIncludes(result, "generateSystemPrompt");
+      const stats = context.getStats();
+      assertEquals(stats.toolMessages >= 2, true);
+    } finally {
+      removeTool(searchTool);
+      removeTool(readTool);
+    }
+  },
+});
+
+Deno.test({
+  name: "Engine harness: invalid args recovery continues loop",
+  async fn() {
+    const toolName = "fake_echo";
+    addValidatingTool(toolName, "ok", {
+      path: "string - Required path",
+    });
+
+    try {
+      const llm = createScriptedLLM([
+        {
+          // Missing required argument triggers validation error
+          toolCalls: [{ toolName, args: {} }],
+        },
+        {
+          // LLM sees invalid-args message from tool role
+          toolCalls: [{ toolName, args: { path: "ok" } }],
+          expectLastIncludes: "Invalid arguments",
+        },
+        {
+          content: `Based on ${toolName}, result is ok.`,
           expectLastIncludes: "Tool:",
         },
       ]);
@@ -254,14 +438,12 @@ Deno.test({
       assertStringIncludes(result, "Based on");
       assertStringIncludes(result, "ok");
 
-      // Transcript shape includes parse error tool message
+      // Transcript shape includes tool error message
       const roles = context.getMessages().map((m) => m.role);
       assertEquals(roles, [
         "system",
         "user",
-        "assistant",
         "tool",
-        "assistant",
         "tool",
         "assistant",
       ]);
@@ -283,12 +465,13 @@ Deno.test({
     try {
       const llm = createScriptedLLM([
         {
-          response:
-            `TOOL_CALL\n{"toolName":"${okTool}","args":{}}\nEND_TOOL_CALL\n` +
-            `TOOL_CALL\n{"toolName":"${failTool}","args":{}}\nEND_TOOL_CALL`,
+          toolCalls: [
+            { toolName: okTool, args: {} },
+            { toolName: failTool, args: {} },
+          ],
         },
         {
-          response: `Based on ${okTool}, got ok. ${failTool} failed.`,
+          content: `Based on ${okTool}, got ok. ${failTool} failed.`,
           expectLastIncludes: "Tool:",
         },
       ]);
@@ -331,7 +514,7 @@ Deno.test({
     try {
       const llm = createScriptedLLM([
         {
-          response: `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`,
+          toolCalls: [{ toolName, args: {} }],
         },
       ]);
 
@@ -354,6 +537,60 @@ Deno.test({
       );
     } finally {
       removeTool(toolName);
+    }
+  },
+});
+
+Deno.test({
+  name: "Engine harness: planning enforces step progression",
+  async fn() {
+    const toolA = "fake_plan_tool_a";
+    const toolB = "fake_plan_tool_b";
+    addFakeTool(toolA, "A");
+    addFakeTool(toolB, "B");
+
+    try {
+      const llm = createScriptedLLM([
+        {
+          content: `PLAN
+{"goal":"Do two steps","steps":[{"id":"step-1","title":"Run A","tools":["${toolA}"]},{"id":"step-2","title":"Run B","tools":["${toolB}"]}]}
+END_PLAN`,
+        },
+        {
+          toolCalls: [{ toolName: toolA, args: {} }],
+        },
+        {
+          content: `Step 1 done.\nSTEP_DONE step-1`,
+          expectLastIncludes: "Tool:",
+        },
+        {
+          toolCalls: [{ toolName: toolB, args: {} }],
+        },
+        {
+          content: `All done.\nSTEP_DONE step-2`,
+          expectLastIncludes: "Tool:",
+        },
+      ]);
+
+      const context = createContext();
+      const result = await runReActLoop(
+        "Do two steps",
+        {
+          workspace: "/tmp",
+          context,
+          autoApprove: true,
+          maxToolCalls: TEST_MAX_TOOL_CALLS,
+          planning: { mode: "always", requireStepMarkers: true },
+        },
+        llm,
+      );
+
+      assertStringIncludes(result, "All done.");
+      const stats = context.getStats();
+      assertEquals(stats.toolMessages >= 2, true);
+    } finally {
+      removeTool(toolA);
+      removeTool(toolB);
     }
   },
 });

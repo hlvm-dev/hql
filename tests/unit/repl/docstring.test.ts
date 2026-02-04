@@ -3,40 +3,45 @@
  */
 
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { extractDocstrings } from "../../../src/hlvm/cli/repl/docstring.ts";
+import { extractDocstrings, stripLeadingComments } from "../../../src/hlvm/cli/repl/docstring.ts";
+
+const singleLineDoc = (text: string): string => `/** ${text} */`;
+const multiLineDoc = (lines: string[]): string =>
+  ["/**", ...lines.map((line) => ` * ${line}`), " */"].join("\n");
 
 // ============================================================
 // Basic Extraction Tests
 // ============================================================
 
-Deno.test("extractDocstrings: line comment before def", () => {
-  const input = `// Adds two numbers together
+Deno.test("extractDocstrings: JSDoc before def", () => {
+  const doc = singleLineDoc("Adds two numbers together");
+  const input = `${doc}
 (def add (fn [x y] (+ x y)))`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("add"), "Adds two numbers together");
+  assertEquals(result.get("add"), doc);
 });
 
-Deno.test("extractDocstrings: double-slash comment before defn", () => {
-  const input = `// Multiplies two values
+Deno.test("extractDocstrings: JSDoc before defn", () => {
+  const doc = singleLineDoc("Multiplies two values");
+  const input = `${doc}
 (defn multiply [a b] (* a b))`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("multiply"), "Multiplies two values");
+  assertEquals(result.get("multiply"), doc);
 });
 
-Deno.test("extractDocstrings: block comment before def", () => {
+Deno.test("extractDocstrings: non-doc block comment ignored", () => {
   const input = `/* Calculates the sum */
 (def sum 42)`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("sum"), "Calculates the sum");
+  assertEquals(result.size, 0);
 });
 
-Deno.test("extractDocstrings: multiple comments preserve newlines", () => {
-  const input = `// First line of documentation
-// Second line continues
+Deno.test("extractDocstrings: multi-line JSDoc preserves newlines", () => {
+  const doc = multiLineDoc(["First line of documentation", "Second line continues"]);
+  const input = `${doc}
 (def foo 1)`;
   const result = extractDocstrings(input);
-  // Multi-line comments preserve newlines for DocPanel formatting
-  assertEquals(result.get("foo"), "First line of documentation\nSecond line continues");
+  assertEquals(result.get("foo"), doc);
 });
 
 // ============================================================
@@ -44,68 +49,77 @@ Deno.test("extractDocstrings: multiple comments preserve newlines", () => {
 // ============================================================
 
 Deno.test("extractDocstrings: def form", () => {
-  const input = `// A constant
+  const doc = singleLineDoc("A constant");
+  const input = `${doc}
 (def PI 3.14159)`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("PI"), "A constant");
+  assertEquals(result.get("PI"), doc);
 });
 
 Deno.test("extractDocstrings: defn form", () => {
-  const input = `// Squares a number
+  const doc = singleLineDoc("Squares a number");
+  const input = `${doc}
 (defn square [x] (* x x))`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("square"), "Squares a number");
+  assertEquals(result.get("square"), doc);
 });
 
 Deno.test("extractDocstrings: named fn form", () => {
-  const input = `// Named function
+  const doc = singleLineDoc("Named function");
+  const input = `${doc}
 (fn helper [x] x)`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("helper"), "Named function");
+  assertEquals(result.get("helper"), doc);
 });
 
 Deno.test("extractDocstrings: let bindings", () => {
-  const input = `// Local variables
+  const doc = singleLineDoc("Local variables");
+  const input = `${doc}
 (let [a 1 b 2] (+ a b))`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("a"), "Local variables");
-  assertEquals(result.get("b"), "Local variables");
+  assertEquals(result.get("a"), doc);
+  assertEquals(result.get("b"), doc);
 });
 
 Deno.test("extractDocstrings: const form", () => {
-  const input = `// Maximum value
+  const doc = singleLineDoc("Maximum value");
+  const input = `${doc}
 (const MAX_VALUE 100)`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("MAX_VALUE"), "Maximum value");
+  assertEquals(result.get("MAX_VALUE"), doc);
 });
 
 Deno.test("extractDocstrings: var form", () => {
-  const input = `// Mutable counter
+  const doc = singleLineDoc("Mutable counter");
+  const input = `${doc}
 (var counter 0)`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("counter"), "Mutable counter");
+  assertEquals(result.get("counter"), doc);
 });
 
 Deno.test("extractDocstrings: macro form", () => {
-  const input = `// Threading macro
+  const doc = singleLineDoc("Threading macro");
+  const input = `${doc}
 (macro my-thread [body] body)`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("my-thread"), "Threading macro");
+  assertEquals(result.get("my-thread"), doc);
 });
 
 Deno.test("extractDocstrings: import with vector", () => {
-  const input = `// AI utilities
+  const doc = singleLineDoc("AI utilities");
+  const input = `${doc}
 (import [ask chat] from "@hlvm/ai")`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("ask"), "AI utilities");
-  assertEquals(result.get("chat"), "AI utilities");
+  assertEquals(result.get("ask"), doc);
+  assertEquals(result.get("chat"), doc);
 });
 
 Deno.test("extractDocstrings: import namespace", () => {
-  const input = `// File system module
+  const doc = singleLineDoc("File system module");
+  const input = `${doc}
 (import fs from "node:fs")`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("fs"), "File system module");
+  assertEquals(result.get("fs"), doc);
 });
 
 // ============================================================
@@ -124,35 +138,44 @@ Deno.test("extractDocstrings: empty input", () => {
 });
 
 Deno.test("extractDocstrings: comment without definition", () => {
-  const input = `// Just a comment
-// Another comment`;
+  const input = singleLineDoc("Just a comment");
+  const result = extractDocstrings(input);
+  assertEquals(result.size, 0);
+});
+
+Deno.test("extractDocstrings: line comment ignored", () => {
+  const input = `// Not a doc block
+(def ignored 1)`;
   const result = extractDocstrings(input);
   assertEquals(result.size, 0);
 });
 
 Deno.test("extractDocstrings: blank line between comment and def", () => {
-  const input = `// This comment
+  const doc = singleLineDoc("This comment");
+  const input = `${doc}
 
 (def x 1)`;
   const result = extractDocstrings(input);
   // Empty lines don't break the association
-  assertEquals(result.get("x"), "This comment");
+  assertEquals(result.get("x"), doc);
 });
 
 Deno.test("extractDocstrings: multiple definitions", () => {
-  const input = `// First function
+  const first = singleLineDoc("First function");
+  const second = singleLineDoc("Second function");
+  const input = `${first}
 (def foo 1)
-// Second function
+${second}
 (def bar 2)
 (def noDoc 3)`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("foo"), "First function");
-  assertEquals(result.get("bar"), "Second function");
+  assertEquals(result.get("foo"), first);
+  assertEquals(result.get("bar"), second);
   assertEquals(result.has("noDoc"), false);
 });
 
 Deno.test("extractDocstrings: anonymous fn (no name)", () => {
-  const input = `// Anonymous
+  const input = `${singleLineDoc("Anonymous")}
 (fn [x] x)`;
   const result = extractDocstrings(input);
   // Anonymous functions don't have a name to associate
@@ -160,8 +183,27 @@ Deno.test("extractDocstrings: anonymous fn (no name)", () => {
 });
 
 Deno.test("extractDocstrings: hyphenated names", () => {
-  const input = `// Kebab case function
+  const doc = singleLineDoc("Kebab case function");
+  const input = `${doc}
 (defn my-cool-func [x] x)`;
   const result = extractDocstrings(input);
-  assertEquals(result.get("my-cool-func"), "Kebab case function");
+  assertEquals(result.get("my-cool-func"), doc);
+});
+
+// ============================================================
+// Leading Comment Stripping
+// ============================================================
+
+Deno.test("stripLeadingComments: removes JSDoc and line comments", () => {
+  const input = `/** Adds two numbers */
+// extra note
+(defn add [a b] (+ a b))`;
+  const output = stripLeadingComments(input).trimStart();
+  assertEquals(output.startsWith("(defn add"), true);
+});
+
+Deno.test("stripLeadingComments: ignores non-comment content", () => {
+  const input = `(defn noop [] nil)`;
+  const output = stripLeadingComments(input).trimStart();
+  assertEquals(output, input);
 });

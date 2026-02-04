@@ -8,8 +8,10 @@ import { validatePath } from "./security/path-sandbox.ts";
 import {
   enforcePathPolicy,
   isPathAllowedAbsolute,
+  resolvePolicyPathRoots,
   type AgentPolicy,
 } from "./policy.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
 /**
  * Resolve a user-provided path against workspace and policy.
@@ -19,7 +21,10 @@ export async function resolveToolPath(
   workspace: string,
   policy?: AgentPolicy | null,
 ): Promise<string> {
-  const validPath = await validatePath(inputPath, workspace);
+  const platform = getPlatform();
+  const expandedPath = expandUserHome(inputPath, platform.env.get("HOME") ?? "");
+  const roots = resolvePolicyPathRoots(policy ?? null, workspace);
+  const validPath = await validatePath(expandedPath, workspace, roots);
   enforcePathPolicy(policy ?? null, workspace, validPath, inputPath);
   return validPath;
 }
@@ -33,4 +38,10 @@ export function createPolicyPathChecker(
 ): (absolutePath: string) => boolean {
   return (absolutePath: string) =>
     isPathAllowedAbsolute(policy, workspace, absolutePath);
+}
+
+function expandUserHome(path: string, home: string): string {
+  if (!path.startsWith("~")) return path;
+  if (!home) return path;
+  return path.replace(/^~(?=$|\/)/, home);
 }

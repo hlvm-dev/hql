@@ -105,3 +105,86 @@ Deno.test("DTS Generation: class with constructor and methods", async () => {
   assertEquals(result.dts!.includes("add(x: any): any"), true);
   assertEquals(result.dts!.includes("multiply(x: any, y: any): any"), true);
 });
+
+Deno.test("DTS Generation: includes JSDoc from comments", async () => {
+  const code = `
+    /** Adds two numbers together */
+    (fn add [a b] (+ a b))
+    (export [add])
+  `;
+  const result = await transpile(code, { baseDir: Deno.cwd(), generateDts: true });
+  assertEquals(result.dts !== undefined, true);
+  assertEquals(result.dts!.includes("/** Adds two numbers together */"), true);
+  assertEquals(result.dts!.includes("export declare function add"), true);
+});
+
+Deno.test("DTS Generation: handles multi-line comments", async () => {
+  const code = `
+    /**
+     * This function performs addition.
+     * It takes two parameters and returns their sum.
+     */
+    (fn add [a b] (+ a b))
+    (export [add])
+  `;
+  const result = await transpile(code, { baseDir: Deno.cwd(), generateDts: true });
+  assertEquals(result.dts !== undefined, true);
+  assertEquals(result.dts!.includes("/**"), true);
+  assertEquals(result.dts!.includes("* This function performs addition."), true);
+  assertEquals(result.dts!.includes("* It takes two parameters and returns their sum."), true);
+  assertEquals(result.dts!.includes("*/"), true);
+});
+
+Deno.test("DTS Generation: gracefully handles missing docstrings", async () => {
+  const code = `
+    (fn add [a b] (+ a b))
+    (export [add])
+  `;
+  const result = await transpile(code, { baseDir: Deno.cwd(), generateDts: true });
+  assertEquals(result.dts !== undefined, true);
+  assertEquals(result.dts!.includes("export declare function add"), true);
+  assertEquals(result.dts!.includes("/**"), false);
+});
+
+Deno.test("DTS Generation: JSDoc with export alias", async () => {
+  const code = `
+    /** Adds two numbers together */
+    (fn add [a b] (+ a b))
+    (export [add as addition])
+  `;
+  const result = await transpile(code, { baseDir: Deno.cwd(), generateDts: true });
+  assertEquals(result.dts !== undefined, true);
+  assertEquals(result.dts!.includes("/** Adds two numbers together */"), true);
+  assertEquals(result.dts!.includes("export declare function addition"), true);
+});
+
+Deno.test("DTS Generation: preserves JSDoc tags", async () => {
+  const code = `
+    /**
+     * Adds two numbers.
+     * @param a First number
+     * @param b Second number
+     * @returns Sum
+     */
+    (fn add [a b] (+ a b))
+    (export [add])
+  `;
+  const result = await transpile(code, { baseDir: Deno.cwd(), generateDts: true });
+  assertEquals(result.dts !== undefined, true);
+  assertEquals(result.dts!.includes("@param a First number"), true);
+  assertEquals(result.dts!.includes("@param b Second number"), true);
+  assertEquals(result.dts!.includes("@returns Sum"), true);
+  assertEquals(result.dts!.includes("export declare function add"), true);
+});
+
+Deno.test("DTS Generation: default export preserves docstring", async () => {
+  const code = `
+    /** The main function */
+    (fn main [] "main")
+    (export default main)
+  `;
+  const result = await transpile(code, { baseDir: Deno.cwd(), generateDts: true });
+  assertEquals(result.dts !== undefined, true);
+  assertEquals(result.dts!.includes("/** The main function */"), true);
+  assertEquals(result.dts!.includes("declare function _default"), true);
+});

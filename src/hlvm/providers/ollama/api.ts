@@ -10,6 +10,9 @@ import type {
   Message,
   GenerateOptions,
   ChatOptions,
+  ToolDefinition,
+  ProviderToolCall,
+  ChatStructuredResponse,
   ModelInfo,
   PullProgress,
   ProviderStatus,
@@ -42,6 +45,7 @@ interface OllamaChatRequest {
     content: string;
     images?: string[];
   }>;
+  tools?: ToolDefinition[];
   stream?: boolean;
   format?: string;
   options?: {
@@ -67,6 +71,15 @@ interface OllamaChatChunk {
   model: string;
   message?: { role: string; content: string };
   done: boolean;
+}
+
+/** Ollama chat response */
+interface OllamaChatResponse {
+  message?: {
+    role: string;
+    content?: string;
+    tool_calls?: ProviderToolCall[];
+  };
 }
 
 /** Ollama model info from /api/tags */
@@ -299,6 +312,48 @@ export async function* chat(
       yield chunk.message.content;
     }
   }
+}
+
+/**
+ * Chat completion (non-streaming) with native tool calls
+ */
+export async function chatStructured(
+  endpoint: string,
+  model: string,
+  messages: Message[],
+  options?: ChatOptions,
+  _signal?: AbortSignal,
+): Promise<ChatStructuredResponse> {
+  const ollamaMessages = messages.map((msg) => ({
+    role: msg.role,
+    content: msg.content,
+    ...(msg.images?.length ? { images: msg.images } : {}),
+  }));
+
+  const body: OllamaChatRequest = {
+    model,
+    messages: ollamaMessages,
+    stream: false,
+    options: {
+      temperature: options?.temperature,
+      num_predict: options?.maxTokens,
+      stop: options?.stop,
+    },
+  };
+
+  if (options?.format) body.format = options.format;
+  if (options?.tools?.length) body.tools = options.tools;
+
+  const result = await jsonRequest<OllamaChatResponse>(
+    endpoint,
+    "/api/chat",
+    body,
+  );
+
+  return {
+    content: (result.message?.content || "").trim(),
+    toolCalls: result.message?.tool_calls ?? [],
+  };
 }
 
 /**

@@ -8,14 +8,14 @@
  * 4. Repeat until task complete
  *
  * Features:
- * - Tool call envelope parsing (TOOL_CALL\n{json}\nEND_TOOL_CALL)
+ * - Native tool calling execution
  * - Safety checks before execution
  * - Context management
  * - Error handling with retry
  * - SSOT-compliant (uses all previous components)
  */
 
-import { getAllTools, getTool, hasTool, type ToolFunction } from "./registry.ts";
+import { getAllTools, getTool, hasTool, validateToolArgs, type ToolFunction } from "./registry.ts";
 import { checkToolSafety } from "./security/safety.ts";
 import { ContextManager, ContextOverflowError, type Message } from "./context.ts";
 import {
@@ -38,47 +38,88 @@ import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
 import { classifyError } from "./error-taxonomy.ts";
 import type { AgentPolicy } from "./policy.ts";
+import { loadWebConfig } from "./web-config.ts";
 import { UsageTracker, estimateUsage, type TokenUsage } from "./usage.ts";
 import type { MetricsSink } from "./metrics.ts";
 import { isToolArgsObject } from "./validation.ts";
+import { type LLMResponse, type ToolCall } from "./tool-call.ts";
+import {
+  applyRequestHintsToToolArgs,
+  inferRequestHints,
+  type RequestHints,
+} from "./request-hints.ts";
+
+export type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { log } from "../api/log.ts";
+import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
+import {
+  advancePlanState,
+  createPlanState,
+  extractStepDoneId,
+  formatPlanForContext,
+  requestPlan,
+  stripStepMarkers,
+  type Plan,
+  type PlanState,
+  type PlanningConfig,
+  shouldPlanRequest,
+} from "./planning.ts";
 
 // ============================================================
 // Types
 // ============================================================
 
-/** Tool call parsed from agent response */
-export interface ToolCall {
-  toolName: string;
-  args: Record<string, unknown>;
-}
-
-/** Parse error from tool call extraction */
-export interface ParseError {
-  /** Type of parse error */
-  type: "json_parse" | "invalid_structure" | "unclosed_block" | "too_many_calls";
-  /** Human-readable error message */
-  message: string;
-  /** Line number where error occurred (if applicable) */
-  line?: number;
-  /** The invalid JSON that failed to parse (if applicable) */
-  json?: string;
-}
-
-/** Result of parsing tool calls from agent response */
-interface ParseResult {
-  /** Successfully parsed tool calls */
-  calls: ToolCall[];
-  /** Parse errors encountered */
-  errors: ParseError[];
-}
-
 /** Result of tool execution */
 interface ToolExecutionResult {
   success: boolean;
   result?: unknown;
+  llmContent?: string;
+  returnDisplay?: string;
   error?: string;
+}
+
+function stringifyToolResult(result: unknown): string {
+  if (typeof result === "string") {
+    return result;
+  }
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return String(result ?? "");
+  }
+}
+
+function buildToolResultOutputs(
+  toolName: string,
+  result: unknown,
+  config: OrchestratorConfig,
+): { llmContent: string; returnDisplay: string } {
+  let formatted: { returnDisplay: string; llmContent?: string } | null = null;
+  try {
+    const tool = hasTool(toolName) ? getTool(toolName) : null;
+    formatted = tool?.formatResult ? tool.formatResult(result) : null;
+  } catch {
+    formatted = null;
+  }
+
+  if (formatted && formatted.returnDisplay) {
+    const returnDisplay = formatted.returnDisplay;
+    const llmContent = formatted.llmContent ??
+      config.context.truncateResult(returnDisplay);
+    return { llmContent, returnDisplay };
+  }
+
+  const returnDisplay = stringifyToolResult(result);
+  const llmContent = config.context.truncateResult(returnDisplay);
+  return { llmContent, returnDisplay };
+}
+
+function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const entries = Object.entries(args).filter(([, value]) =>
+    value !== undefined
+  );
+  return Object.fromEntries(entries);
 }
 
 function buildToolErrorResult(
@@ -87,13 +128,25 @@ function buildToolErrorResult(
   startedAt: number,
   config: OrchestratorConfig,
 ): ToolExecutionResult {
-  const result = { success: false, error };
+  const display = error;
+  const result = {
+    success: false,
+    error,
+    llmContent: display,
+    returnDisplay: display,
+  };
 
   config.onTrace?.({
     type: "tool_result",
     toolName,
     success: false,
     error,
+    display,
+  });
+  config.onToolDisplay?.({
+    toolName,
+    success: false,
+    content: display,
   });
   emitMetric(config, "tool_result", {
     toolName,
@@ -105,19 +158,47 @@ function buildToolErrorResult(
   return result;
 }
 
+function isToolAllowed(
+  toolName: string,
+  config: OrchestratorConfig,
+): boolean {
+  if (config.toolAllowlist && config.toolAllowlist.length > 0) {
+    return config.toolAllowlist.includes(toolName);
+  }
+  if (config.toolDenylist && config.toolDenylist.length > 0) {
+    return !config.toolDenylist.includes(toolName);
+  }
+  return true;
+}
+
 /** LLM function signature used by orchestrator */
 export type LLMFunction = (
   messages: Message[],
   signal?: AbortSignal,
-) => Promise<string>;
+) => Promise<LLMResponse>;
 
 /** Trace event for observability/debugging */
 export type TraceEvent =
   | { type: "iteration"; current: number; max: number }
   | { type: "llm_call"; messageCount: number }
-  | { type: "llm_response"; length: number; truncated: string }
+  | {
+    type: "llm_response";
+    length: number;
+    truncated: string;
+    content?: string;
+    toolCalls?: number;
+  }
   | { type: "tool_call"; toolName: string; args: unknown }
-  | { type: "tool_result"; toolName: string; success: boolean; result?: unknown; error?: string }
+  | {
+    type: "tool_result";
+    toolName: string;
+    success: boolean;
+    result?: unknown;
+    error?: string;
+    display?: string;
+  }
+  | { type: "plan_created"; plan: Plan }
+  | { type: "plan_step"; stepId: string; index: number; completed: boolean }
   | { type: "llm_retry"; attempt: number; max: number; class: string; retryable: boolean; error: string }
   | { type: "context_overflow"; maxTokens: number; estimatedTokens: number }
   | {
@@ -146,10 +227,18 @@ export type TraceEvent =
   | {
     type: "llm_usage";
     usage: TokenUsage;
-  };
+  }
+  | { type: "loop_detected"; signature: string; count: number };
+
+/** Tool output event for UI display */
+export interface ToolDisplay {
+  toolName: string;
+  success: boolean;
+  content: string;
+}
 
 /** Orchestrator configuration */
-interface OrchestratorConfig {
+export interface OrchestratorConfig {
   /** Workspace directory for tool execution */
   workspace: string;
   /** Context manager for message history */
@@ -162,12 +251,16 @@ interface OrchestratorConfig {
   maxDenials?: number;
   /** Trace callback for observability (--trace mode) */
   onTrace?: (event: TraceEvent) => void;
+  /** Tool output callback for UI display */
+  onToolDisplay?: (display: ToolDisplay) => void;
   /** LLM timeout in milliseconds (default: 30000) */
   llmTimeout?: number;
   /** Tool timeout in milliseconds (default: 60000) */
   toolTimeout?: number;
   /** Maximum retries for LLM calls (default: 3) */
   maxRetries?: number;
+  /** Maximum consecutive identical tool call batches before stopping */
+  maxToolCallRepeat?: number;
   /** Continue executing remaining tool calls even if one fails (default: true) */
   continueOnError?: boolean;
   /** Grounding enforcement mode (default: "off") */
@@ -192,11 +285,28 @@ interface OrchestratorConfig {
   usage?: UsageTracker;
   /** Optional metrics sink for structured events */
   metrics?: MetricsSink;
+  /** Planning configuration (optional) */
+  planning?: PlanningConfig;
+  /** Optional delegate handler for multi-agent orchestration */
+  delegate?: (
+    args: unknown,
+    config: OrchestratorConfig,
+  ) => Promise<unknown>;
+  /** Optional tool allowlist (restrict tools for this run) */
+  toolAllowlist?: string[];
+  /** Optional tool denylist (block tools for this run) */
+  toolDenylist?: string[];
+  /** Require at least one tool call before answering */
+  requireToolCalls?: boolean;
+  /** Max retries when tool calls are required */
+  maxToolCallRetries?: number;
+  /** No-input mode: do not ask the user questions */
+  noInput?: boolean;
+  /** Optional request hints inferred from user input */
+  requestHints?: RequestHints;
 }
 
 /** Tool call envelope constants */
-const TOOL_CALL_START = "TOOL_CALL";
-const TOOL_CALL_END = "END_TOOL_CALL";
 
 const URL_PATTERN = /https?:\/\/[^\s"'<>`)\]]+/i;
 const BARE_DOMAIN_PATTERN = /\b([a-z0-9][a-z0-9.-]+\.[a-z]{2,})(\/[^\s"'<>`)\]]*)?/i;
@@ -232,6 +342,63 @@ const SUMMARY_KEYWORDS = [
   "articles",
   "news",
 ];
+const RESEARCH_KEYWORDS = [
+  "news",
+  "latest",
+  "today",
+  "headline",
+  "headlines",
+  "trending",
+  "top stories",
+  "search",
+  "find",
+  "look up",
+  "research",
+  "go to",
+  "open",
+  "website",
+  "web",
+  "online",
+];
+const AUTO_WEB_MIN_TEXT_CHARS = 200;
+const AUTO_WEB_DRILLDOWN_LINKS = 3;
+const LOCAL_SEARCH_URL_TEMPLATE = "https://duckduckgo.com/?q={{query}}&t=h_&ia=web";
+const LOCAL_SEARCH_RENDER_DEFAULTS = {
+  waitMs: 1500,
+  maxTextLength: 6000,
+  maxLinks: 40,
+  textSelector: "a",
+  textSelectorLimit: 40,
+} as const;
+const REASONING_KEYWORDS = [
+  "pick",
+  "choose",
+  "best",
+  "top",
+  "funnest",
+  "funniest",
+  "recommend",
+  "compare",
+  "rank",
+];
+const CODEBASE_HINTS = [
+  "src",
+  "tests",
+  "file",
+  "files",
+  "directory",
+  "repo",
+  "repository",
+  "code",
+  "function",
+  "class",
+  "method",
+  ".ts",
+  ".js",
+  ".hql",
+  "workspace",
+  "project",
+];
 const RAW_KEYWORDS = ["raw", "html", "headers", "fetch"];
 const VIDEO_LIST_KEYWORDS = [
   "video list",
@@ -244,20 +411,6 @@ const VIDEO_LIST_KEYWORDS = [
   "recommended",
   "feed",
 ];
-const JS_HEAVY_DOMAINS = new Set([
-  "youtube.com",
-  "www.youtube.com",
-  "naver.com",
-  "www.naver.com",
-  "m.naver.com",
-  "twitter.com",
-  "x.com",
-  "instagram.com",
-  "tiktok.com",
-  "facebook.com",
-  "linkedin.com",
-  "reddit.com",
-]);
 const PLAYWRIGHT_ERROR_MARKERS = [
   "executable doesn't exist",
   "install chromium",
@@ -286,7 +439,7 @@ function addContextMessage(
   }
 }
 
-function extractUrlFromText(input: string): string | null {
+export function extractUrlFromText(input: string): string | null {
   const direct = input.match(URL_PATTERN);
   if (direct?.[0]) {
     return trimUrl(direct[0]);
@@ -309,6 +462,91 @@ function hasKeyword(input: string, keywords: string[]): boolean {
   return keywords.some((word) => lower.includes(word));
 }
 
+function responseAsksQuestion(response: string): boolean {
+  if (!response) return false;
+  return response.includes("?");
+}
+
+function requiresReasoning(input: string): boolean {
+  return hasKeyword(input, REASONING_KEYWORDS);
+}
+
+export function shouldAutoResearchWebRequest(request: string): boolean {
+  if (extractUrlFromText(request)) return false;
+  if (hasKeyword(request, CODEBASE_HINTS)) return false;
+  return hasKeyword(request, RESEARCH_KEYWORDS);
+}
+
+function hasSearchApiKey(search: {
+  provider: string;
+  brave?: { apiKey?: string };
+  perplexity?: { apiKey?: string };
+  openrouter?: { apiKey?: string };
+}): boolean {
+  const provider = search.provider?.toLowerCase?.() ?? "";
+  if (provider === "brave") return Boolean(search.brave?.apiKey?.trim());
+  if (provider === "perplexity") return Boolean(search.perplexity?.apiKey?.trim());
+  if (provider === "openrouter") return Boolean(search.openrouter?.apiKey?.trim());
+  return Boolean(
+    search.brave?.apiKey?.trim() ||
+      search.perplexity?.apiKey?.trim() ||
+      search.openrouter?.apiKey?.trim(),
+  );
+}
+
+function buildLocalSearchUrl(
+  query: string,
+): string {
+  const template = LOCAL_SEARCH_URL_TEMPLATE;
+  const encoded = encodeURIComponent(query.trim());
+  if (!template.includes("{{query}}")) return template;
+  return template.split("{{query}}").join(encoded);
+}
+
+function normalizeSearchHost(host: string): string {
+  if (!host) return host;
+  return host.startsWith("www.") ? host.slice(4) : host;
+}
+
+function buildSiteSearchQuery(request: string, host: string): string {
+  const normalizedHost = normalizeSearchHost(host);
+  const withoutUrl = request.replace(URL_PATTERN, " ");
+  const cleaned = withoutUrl
+    .replace(/\s+/g, " ")
+    .trim();
+  const core = cleaned || normalizedHost;
+  return normalizedHost ? `site:${normalizedHost} ${core}`.trim() : core;
+}
+
+function buildLocalSearchToolCall(
+  request: string,
+): { toolName: string; args: Record<string, unknown> } | null {
+  const url = buildLocalSearchUrl(request);
+  const renderTool = findRenderToolName();
+  if (renderTool) {
+    const args: Record<string, unknown> = {
+      url,
+      waitMs: LOCAL_SEARCH_RENDER_DEFAULTS.waitMs,
+      maxTextLength: LOCAL_SEARCH_RENDER_DEFAULTS.maxTextLength,
+      maxLinks: LOCAL_SEARCH_RENDER_DEFAULTS.maxLinks,
+    };
+    if (LOCAL_SEARCH_RENDER_DEFAULTS.textSelector) {
+      args.textSelector = LOCAL_SEARCH_RENDER_DEFAULTS.textSelector;
+    }
+    if (LOCAL_SEARCH_RENDER_DEFAULTS.textSelectorLimit) {
+      args.textSelectorLimit = LOCAL_SEARCH_RENDER_DEFAULTS.textSelectorLimit;
+    }
+    return { toolName: renderTool, args };
+  }
+  if (hasTool("web_fetch")) {
+    return { toolName: "web_fetch", args: { url } };
+  }
+  if (hasTool("fetch_url")) {
+    return { toolName: "fetch_url", args: { url } };
+  }
+  return null;
+}
+
 function getHost(url: string): string {
   try {
     return new URL(url).host.toLowerCase();
@@ -327,6 +565,222 @@ function findRenderToolName(): string | null {
   return null;
 }
 
+function normalizeSearchRedirect(link: string): string {
+  try {
+    const url = new URL(link);
+    for (const value of url.searchParams.values()) {
+      try {
+        const decoded = decodeURIComponent(value);
+        if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+          return decoded;
+        }
+      } catch {
+        // ignore bad decode
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return link;
+}
+
+function hasMeaningfulText(result: unknown, requestHost?: string): boolean {
+  if (!result || typeof result !== "object") return false;
+  const record = result as Record<string, unknown>;
+  if (requestHost) {
+    const resultHost = typeof record.url === "string" ? getHost(record.url) : "";
+    if (
+      resultHost &&
+      requestHost !== resultHost &&
+      !requestHost.endsWith(`.${resultHost}`) &&
+      !resultHost.endsWith(`.${requestHost}`)
+    ) {
+      return false;
+    }
+  }
+  const text = typeof record.text === "string" ? record.text.trim() : "";
+  if (text.length >= AUTO_WEB_MIN_TEXT_CHARS) return true;
+  const content = typeof record.content === "string"
+    ? record.content.trim()
+    : "";
+  if (content.length >= AUTO_WEB_MIN_TEXT_CHARS) return true;
+  const matches = Array.isArray(record.textMatches)
+    ? record.textMatches.filter((item) => typeof item === "string")
+    : [];
+  return matches.length >= 5;
+}
+
+function extractLinksFromResult(result: unknown, baseUrl?: string): string[] {
+  if (!result || typeof result !== "object") return [];
+  const record = result as Record<string, unknown>;
+  const base = typeof record.url === "string"
+    ? record.url
+    : baseUrl;
+  const links = Array.isArray(record.links)
+    ? record.links.filter((item) => typeof item === "string")
+    : [];
+  const output: string[] = [];
+  const seen = new Set<string>();
+  for (const link of links) {
+    const trimmed = link.trim();
+    if (!trimmed) continue;
+    let resolved = trimmed;
+    if (trimmed.startsWith("//")) {
+      resolved = `https:${trimmed}`;
+    } else if (!trimmed.startsWith("http") && base) {
+      try {
+        resolved = new URL(trimmed, base).toString();
+      } catch {
+        continue;
+      }
+    }
+    if (!resolved.startsWith("http")) continue;
+    const normalized = normalizeSearchRedirect(resolved);
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function isSameSite(link: string, host: string): boolean {
+  if (!host) return false;
+  try {
+    const linkHost = new URL(link).host.toLowerCase();
+    return linkHost === host || linkHost.endsWith(`.${host}`) ||
+      host.endsWith(`.${linkHost}`);
+  } catch {
+    return false;
+  }
+}
+
+function selectCandidateLinks(
+  links: string[],
+  host: string,
+): string[] {
+  if (links.length === 0) return [];
+  const sameSite: string[] = [];
+  const other: string[] = [];
+  for (const link of links) {
+    if (host && isSameSite(link, host)) {
+      sameSite.push(link);
+    } else {
+      other.push(link);
+    }
+  }
+  const ordered = sameSite.length > 0 ? sameSite : links;
+  const output: string[] = [];
+  for (const link of ordered) {
+    if (output.length >= AUTO_WEB_DRILLDOWN_LINKS) break;
+    output.push(link);
+  }
+  return output;
+}
+
+function buildAutoWebContentCall(url: string): ToolCall | null {
+  const renderTool = findRenderToolName();
+  if (renderTool) {
+    return {
+      toolName: renderTool,
+      args: {
+        url,
+        waitMs: 1200,
+        maxTextLength: 6000,
+        maxLinks: 25,
+      },
+    };
+  }
+  if (hasTool("extract_url")) {
+    return {
+      toolName: "extract_url",
+      args: {
+        url,
+        maxTextLength: 6000,
+        maxLinks: 25,
+      },
+    };
+  }
+  if (hasTool("web_fetch")) {
+    return {
+      toolName: "web_fetch",
+      args: {
+        url,
+        maxChars: 6000,
+      },
+    };
+  }
+  if (hasTool("fetch_url")) {
+    return { toolName: "fetch_url", args: { url } };
+  }
+  return null;
+}
+
+async function runAutoWebDrilldown(
+  request: string,
+  baseResult: unknown,
+  config: OrchestratorConfig,
+  record: (call: ToolCall, result: ToolExecutionResult) => string,
+): Promise<Array<{ call: ToolCall; result: ToolExecutionResult }>> {
+  const url = extractUrlFromText(request);
+  if (!url) return [];
+  const host = getHost(url);
+  let links = extractLinksFromResult(baseResult, url);
+  if (links.length === 0) {
+    const searchQuery = buildSiteSearchQuery(request, host);
+    const searchCall = buildLocalSearchToolCall(searchQuery);
+    if (searchCall) {
+      const searchResult = await executeToolCall(searchCall, config);
+      record(searchCall, searchResult);
+      if (searchResult.success) {
+        links = extractLinksFromResult(searchResult.result);
+      }
+    }
+  }
+  if (links.length === 0) return [];
+  const candidates = selectCandidateLinks(links, host);
+  if (candidates.length === 0) return [];
+
+  const results: Array<{ call: ToolCall; result: ToolExecutionResult }> = [];
+  for (const link of candidates) {
+    const call = buildAutoWebContentCall(link);
+    if (!call) continue;
+    const toolResult = await executeToolCall(call, config);
+    record(call, toolResult);
+    results.push({ call, result: toolResult });
+  }
+  return results;
+}
+
+function pickBestAutoWebResult(
+  primary: { call: ToolCall; result: ToolExecutionResult } | null,
+  fallback: { call: ToolCall; result: ToolExecutionResult } | null,
+  local: { call: ToolCall; result: ToolExecutionResult } | null,
+  drilldown: Array<{ call: ToolCall; result: ToolExecutionResult }>,
+  requestHost?: string,
+): { call: ToolCall; result: ToolExecutionResult } | null {
+  const candidates: Array<{ call: ToolCall; result: ToolExecutionResult }> = [];
+  for (const entry of drilldown) {
+    if (entry) candidates.push(entry);
+  }
+  if (primary) candidates.push(primary);
+  if (fallback) candidates.push(fallback);
+  if (local) candidates.push(local);
+
+  for (const candidate of candidates) {
+    if (
+      candidate.result.success &&
+      hasMeaningfulText(candidate.result.result, requestHost)
+    ) {
+      return candidate;
+    }
+  }
+  for (const candidate of candidates) {
+    if (candidate.result.success) return candidate;
+  }
+  return null;
+}
+
 export function chooseAutoWebTool(
   request: string,
 ): { toolName: string; args: Record<string, unknown> } | null {
@@ -335,25 +789,20 @@ export function chooseAutoWebTool(
 
   const wantsRaw = hasKeyword(request, RAW_KEYWORDS);
   const wantsSummary = hasKeyword(request, SUMMARY_KEYWORDS);
-  const host = getHost(url);
-  const wantsVideoList = hasKeyword(request, VIDEO_LIST_KEYWORDS);
-  const wantsRender = hasKeyword(request, RENDER_KEYWORDS) ||
-    JS_HEAVY_DOMAINS.has(host);
-
   const renderTool = findRenderToolName();
+  const wantsRender = Boolean(renderTool) && !wantsRaw;
+
   if (wantsRender && renderTool) {
     const args: Record<string, unknown> = { url };
-    if (host.includes("youtube.com") && wantsVideoList) {
-      args.selector = "ytd-rich-item-renderer";
-      args.textSelector = "a#video-title";
-      args.textSelectorLimit = 20;
-      args.waitMs = 1500;
-    }
     return { toolName: renderTool, args };
   }
 
   if (wantsRaw && hasTool("fetch_url")) {
     return { toolName: "fetch_url", args: { url } };
+  }
+
+  if (hasTool("web_fetch") && (wantsSummary || !wantsRaw)) {
+    return { toolName: "web_fetch", args: { url } };
   }
 
   if (hasTool("extract_url") && (wantsSummary || !wantsRaw)) {
@@ -362,6 +811,10 @@ export function chooseAutoWebTool(
 
   if (hasTool("fetch_url")) {
     return { toolName: "fetch_url", args: { url } };
+  }
+
+  if (hasTool("web_fetch")) {
+    return { toolName: "web_fetch", args: { url } };
   }
 
   return null;
@@ -373,10 +826,106 @@ function isRenderToolName(toolName: string): boolean {
 
 function isAutoWebToolName(toolName: string): boolean {
   return toolName === "search_web" ||
+    toolName === "web_search" ||
+    toolName === "research_web" ||
     toolName === "fetch_url" ||
+    toolName === "web_fetch" ||
     toolName === "extract_url" ||
     toolName === "extract_html" ||
     isRenderToolName(toolName);
+}
+
+function isSearchToolName(toolName: string): boolean {
+  return toolName === "search_web" ||
+    toolName === "web_search" ||
+    toolName === "research_web";
+}
+
+function isEmptySearchResult(result: unknown): boolean {
+  if (!result || typeof result !== "object") return false;
+  const record = result as Record<string, unknown>;
+  const results = Array.isArray(record.results) ? record.results : [];
+  const citations = Array.isArray(record.citations) ? record.citations : [];
+  const answer = typeof record.answer === "string" ? record.answer.trim() : "";
+  const count = typeof record.count === "number" ? record.count : results.length;
+  return count === 0 && results.length === 0 && citations.length === 0 && !answer;
+}
+
+function buildEmptySearchWarning(toolName: string): string {
+  return [
+    `Tool: ${toolName}`,
+    "Search returned no results.",
+    "Ask the user to clarify the query, provide a URL, or retry with a different query.",
+    "Do not call unrelated tools.",
+  ].join("\n");
+}
+
+function buildToolSignature(calls: ToolCall[]): string {
+  return calls.map((call) => {
+    const args = JSON.stringify(call.args ?? {});
+    return `${call.toolName}:${args}`;
+  }).join("|");
+}
+
+function buildToolRequiredMessage(allowlist?: string[]): string {
+  const tools = allowlist && allowlist.length > 0
+    ? allowlist.join(", ")
+    : "the available tools";
+  return [
+    "Tool use is required to complete this request.",
+    `Use one of: ${tools}.`,
+    "Call the appropriate tool using native function calling.",
+  ].join("\n");
+}
+
+function parseToolCallJsonCandidate(text: string): unknown | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function isToolCallShape(value: unknown): boolean {
+  if (!isObjectValue(value)) return false;
+  const record = value as Record<string, unknown>;
+  const functionObj = isObjectValue(record.function)
+    ? (record.function as Record<string, unknown>)
+    : null;
+  const toolName = typeof record.toolName === "string"
+    ? record.toolName
+    : typeof record.tool_name === "string"
+    ? record.tool_name
+    : typeof record.function_name === "string"
+    ? record.function_name
+    : typeof record.name === "string"
+    ? record.name
+    : functionObj && typeof functionObj.name === "string"
+    ? functionObj.name
+    : "";
+
+  if (!toolName.trim()) return false;
+
+  const hasArgs = "args" in record ||
+    "parameters" in record ||
+    "arguments" in record ||
+    (functionObj
+      ? ("arguments" in functionObj || "parameters" in functionObj)
+      : false);
+
+  return hasArgs;
+}
+
+function looksLikeToolCallJson(text: string): boolean {
+  const parsed = parseToolCallJsonCandidate(text);
+  if (!parsed) return false;
+  if (Array.isArray(parsed)) {
+    return parsed.some((entry) => isToolCallShape(entry));
+  }
+  return isToolCallShape(parsed);
 }
 
 function chooseAutoWebFallback(
@@ -387,6 +936,9 @@ function chooseAutoWebFallback(
   if (!url) return null;
 
   const candidates: string[] = [];
+  if (primaryTool !== "web_fetch" && hasTool("web_fetch")) {
+    candidates.push("web_fetch");
+  }
   if (primaryTool !== "extract_url" && hasTool("extract_url")) {
     candidates.push("extract_url");
   }
@@ -415,78 +967,10 @@ function formatAutoWebFailure(
   return lines.join("\n");
 }
 
-export function summarizeWebToolResult(
-  toolName: string,
-  result: unknown,
-): string | null {
-  if (!isAutoWebToolName(toolName)) return null;
-  if (!result || typeof result !== "object") return null;
-
-  const record = result as Record<string, unknown>;
-  if (typeof record !== "object") return null;
-
-  const lines: string[] = [];
-  const pushLine = (label: string, value: string) => {
-    if (!value) return;
-    lines.push(`${label}: ${value}`);
-  };
-
-  if (typeof record.url === "string") pushLine("URL", record.url);
-  if (typeof record.status === "number") pushLine("Status", String(record.status));
-  if (typeof record.ok === "boolean") pushLine("OK", String(record.ok));
-  if (typeof record.title === "string") pushLine("Title", record.title);
-  if (typeof record.description === "string") pushLine("Description", record.description);
-
-  const text = typeof record.text === "string" ? record.text.trim() : "";
-  const textMatches = Array.isArray(record.textMatches)
-    ? record.textMatches.filter((item) => typeof item === "string")
-    : [];
-  if (textMatches.length > 0) {
-    lines.push("Selected text:");
-    for (const match of textMatches.slice(0, 20)) {
-      const trimmed = String(match).trim();
-      if (trimmed) lines.push(`- ${trimmed}`);
-    }
-  }
-  if (text) {
-    const cleaned = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    const unique: string[] = [];
-    const seen = new Set<string>();
-    for (const line of cleaned) {
-      const key = line.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        unique.push(line);
-      }
-      if (unique.length >= 25) break;
-    }
-    if (unique.length > 0) {
-      lines.push("Text (top lines):");
-      for (const line of unique) {
-        lines.push(`- ${line}`);
-      }
-    }
-  }
-
-  const links = Array.isArray(record.links) ? record.links : [];
-  if (links.length > 0) {
-    lines.push("Links (sample):");
-    for (const link of links.slice(0, 10)) {
-      if (typeof link === "string" && link.trim()) {
-        lines.push(`- ${link.trim()}`);
-      }
-    }
-  }
-
-  return lines.length > 0 ? lines.join("\n") : null;
-}
-
 export function shouldAutoAnswerWebRequest(request: string): boolean {
   const url = extractUrlFromText(request);
   if (!url) return false;
+  if (requiresReasoning(request)) return false;
   return hasKeyword(request, SUMMARY_KEYWORDS) ||
     hasKeyword(request, VIDEO_LIST_KEYWORDS) ||
     hasKeyword(request, RENDER_KEYWORDS);
@@ -576,271 +1060,6 @@ function createRateLimiter(
 }
 
 // ============================================================
-// Tool Call Parsing
-// ============================================================
-
-/**
- * Parse tool calls from agent response
- *
- * Expected format:
- * ```
- * TOOL_CALL
- * {"toolName": "read_file", "args": {"path": "src/main.ts"}}
- * END_TOOL_CALL
- * ```
- *
- * Supports multiple tool calls in single response.
- *
- * Returns both successfully parsed calls AND any errors encountered.
- * Errors are reported back to LLM to prevent hallucination (Issues #2, #3).
- *
- * @param response Agent response text
- * @param maxToolCalls Maximum allowed tool calls per turn (default: 10)
- * @returns Parse result with calls and errors
- *
- * @example
- * ```ts
- * const response = `Let me read that file.
- * TOOL_CALL
- * {"toolName": "read_file", "args": {"path": "src/main.ts"}}
- * END_TOOL_CALL`;
- *
- * const result = parseToolCalls(response, 10);
- * // Returns: { calls: [...], errors: [] }
- * ```
- */
-export function parseToolCalls(
-  response: string,
-  maxToolCalls: number = DEFAULT_MAX_TOOL_CALLS,
-): ParseResult {
-  const calls: ToolCall[] = [];
-  const errors: ParseError[] = [];
-
-  // Find all TOOL_CALL...END_TOOL_CALL blocks
-  const lines = response.split("\n");
-  let inToolCall = false;
-  let jsonLines: string[] = [];
-  let toolCallStartLine = -1;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed === TOOL_CALL_START) {
-      inToolCall = true;
-      jsonLines = [];
-      toolCallStartLine = i + 1; // Line number (1-indexed)
-      continue;
-    }
-
-    if (trimmed === TOOL_CALL_END) {
-      if (inToolCall && jsonLines.length > 0) {
-        // Parse JSON
-        const json = jsonLines.join("\n");
-        try {
-          const parsed = JSON.parse(json);
-
-          // Validate structure
-          if (
-            isObjectValue(parsed) &&
-            "toolName" in parsed &&
-            "args" in parsed &&
-            typeof parsed.toolName === "string" &&
-            isToolArgsObject(parsed.args)
-          ) {
-            calls.push({
-              toolName: parsed.toolName,
-              args: parsed.args as Record<string, unknown>,
-            });
-          } else {
-            // Invalid structure - Issue #2
-            errors.push({
-              type: "invalid_structure",
-              message: `Tool call has invalid structure. Expected: {"toolName": "string", "args": {...}}. Got: ${json}`,
-              line: toolCallStartLine,
-              json: json,
-            });
-          }
-        } catch (parseError) {
-          // JSON parse failed - Issue #2
-          const errorMsg = parseError instanceof Error ? parseError.message : String(parseError);
-          errors.push({
-            type: "json_parse",
-            message: `Invalid JSON in tool call: ${errorMsg}`,
-            line: toolCallStartLine,
-            json: json,
-          });
-        }
-      }
-
-      inToolCall = false;
-      jsonLines = [];
-      toolCallStartLine = -1;
-      continue;
-    }
-
-    if (inToolCall) {
-      jsonLines.push(line);
-    }
-  }
-
-  // Check for unclosed TOOL_CALL block - Issue #3
-  if (inToolCall && jsonLines.length > 0) {
-    const json = jsonLines.join("\n");
-    errors.push({
-      type: "unclosed_block",
-      message: `Tool call block not closed. Missing END_TOOL_CALL after line ${toolCallStartLine}.`,
-      line: toolCallStartLine,
-      json: json,
-    });
-  }
-
-  // If no envelope calls found, attempt JSON tool-call parsing (structured protocol)
-  if (calls.length === 0) {
-    const jsonCandidates = extractJsonCandidates(response);
-    for (const candidate of jsonCandidates) {
-      try {
-        const parsed = JSON.parse(candidate);
-        const extracted = extractToolCallsFromJson(parsed);
-        if (extracted.length > 0) {
-          calls.push(...extracted);
-          break;
-        }
-      } catch (parseError) {
-        // Only report JSON parse errors if candidate looks like a tool call
-        if (candidate.includes("tool") || candidate.includes("toolName")) {
-          const errorMsg = parseError instanceof Error ? parseError.message : String(parseError);
-          errors.push({
-            type: "json_parse",
-            message: `Invalid JSON tool call: ${errorMsg}`,
-            json: candidate.slice(0, 500),
-          });
-        }
-      }
-    }
-  }
-
-  // Check for too many tool calls - Issue #8
-  if (calls.length > maxToolCalls) {
-    errors.push({
-      type: "too_many_calls",
-      message: `You generated ${calls.length} tool calls, but the limit is ${maxToolCalls}. Only the first ${maxToolCalls} will be executed.`,
-    });
-  }
-
-  return { calls, errors };
-}
-
-/**
- * Extract JSON candidates from response:
- * - Whole response if it looks like JSON
- * - JSON code blocks (```json ... ```)
- */
-function extractJsonCandidates(response: string): string[] {
-  const candidates: string[] = [];
-  const trimmed = response.trim();
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    candidates.push(trimmed);
-  }
-
-  const fenceRegex = /```(?:json)?\s*([\s\S]*?)```/g;
-  let match: RegExpExecArray | null;
-  while ((match = fenceRegex.exec(response)) !== null) {
-    const block = match[1]?.trim();
-    if (block && (block.startsWith("{") || block.startsWith("["))) {
-      candidates.push(block);
-    }
-  }
-
-  return candidates;
-}
-
-/**
- * Extract tool calls from parsed JSON value.
- */
-function extractToolCallsFromJson(value: unknown): ToolCall[] {
-  const calls: ToolCall[] = [];
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const call = normalizeToolCall(item);
-      if (call) calls.push(call);
-    }
-    return calls;
-  }
-
-  if (isObjectValue(value)) {
-    // tool_calls array (OpenAI-style)
-    if (Array.isArray((value as Record<string, unknown>).tool_calls)) {
-      for (const item of (value as Record<string, unknown>).tool_calls as unknown[]) {
-        const call = normalizeToolCall(item);
-        if (call) calls.push(call);
-      }
-      if (calls.length > 0) return calls;
-    }
-
-    // Single tool call object
-    const call = normalizeToolCall(value);
-    if (call) calls.push(call);
-  }
-
-  return calls;
-}
-
-/**
- * Normalize various JSON tool-call shapes into ToolCall.
- */
-function normalizeToolCall(value: unknown): ToolCall | null {
-  if (!isObjectValue(value)) return null;
-
-  const obj = value as Record<string, unknown>;
-  const toolName =
-    (typeof obj.toolName === "string" && obj.toolName) ||
-    (typeof obj.tool === "string" && obj.tool) ||
-    (typeof obj.name === "string" && obj.name) ||
-    null;
-
-  if (!toolName) return null;
-
-  let args: unknown = obj.args ?? obj.arguments ?? {};
-  if (typeof args === "string") {
-    try {
-      args = JSON.parse(args);
-    } catch {
-      // leave as string; will fail validation below
-    }
-  }
-
-  if (!isToolArgsObject(args)) return null;
-
-  return {
-    toolName,
-    args: args as Record<string, unknown>,
-  };
-}
-
-/**
- * Format tool call for agent prompt
- *
- * Creates properly formatted envelope for documentation/examples.
- *
- * @param toolCall Tool call to format
- * @returns Formatted string
- */
-export function formatToolCall(toolCall: ToolCall): string {
-  const json = JSON.stringify(
-    {
-      toolName: toolCall.toolName,
-      args: toolCall.args,
-    },
-    null,
-    2,
-  );
-
-  return `${TOOL_CALL_START}\n${json}\n${TOOL_CALL_END}`;
-}
-
-// ============================================================
 // Tool Execution
 // ============================================================
 
@@ -874,11 +1093,12 @@ export async function executeToolCall(
   config: OrchestratorConfig,
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
+  const normalizedArgs = sanitizeArgs(toolCall.args);
   // Emit trace event: tool call
   config.onTrace?.({
     type: "tool_call",
     toolName: toolCall.toolName,
-    args: toolCall.args,
+    args: normalizedArgs,
   });
   emitMetric(config, "tool_call", {
     toolName: toolCall.toolName,
@@ -895,13 +1115,33 @@ export async function executeToolCall(
       );
     }
 
+    if (!isToolAllowed(toolCall.toolName, config)) {
+      return buildToolErrorResult(
+        toolCall.toolName,
+        `Tool not allowed by orchestrator: ${toolCall.toolName}`,
+        startedAt,
+        config,
+      );
+    }
+
+    const validation = validateToolArgs(toolCall.toolName, normalizedArgs);
+    if (!validation.valid) {
+      const details = (validation.errors ?? []).join("; ");
+      return buildToolErrorResult(
+        toolCall.toolName,
+        `Invalid arguments for ${toolCall.toolName}: ${details}`,
+        startedAt,
+        config,
+      );
+    }
+
     // Check safety
     const autoApprove =
       (config.autoApprove ?? false) ||
       ((config.autoWeb ?? false) && isAutoWebToolName(toolCall.toolName));
     const approved = await checkToolSafety(
       toolCall.toolName,
-      toolCall.args,
+      normalizedArgs,
       autoApprove,
       config.policy ?? null,
     );
@@ -915,6 +1155,38 @@ export async function executeToolCall(
       );
     }
 
+    if (toolCall.toolName === "delegate_agent" && config.delegate) {
+      const result = await config.delegate(normalizedArgs, config);
+      const { llmContent, returnDisplay } = buildToolResultOutputs(
+        toolCall.toolName,
+        result,
+        config,
+      );
+      config.onTrace?.({
+        type: "tool_result",
+        toolName: toolCall.toolName,
+        success: true,
+        result: llmContent,
+        display: returnDisplay,
+      });
+      config.onToolDisplay?.({
+        toolName: toolCall.toolName,
+        success: true,
+        content: returnDisplay,
+      });
+      emitMetric(config, "tool_result", {
+        toolName: toolCall.toolName,
+        success: true,
+        durationMs: Date.now() - startedAt,
+      });
+      return {
+        success: true,
+        result,
+        llmContent,
+        returnDisplay,
+      };
+    }
+
     // Get tool and execute (with timeout)
     const tool = getTool(toolCall.toolName);
     const toolTimeout = config.toolTimeout ?? DEFAULT_TIMEOUTS.tool;
@@ -922,7 +1194,7 @@ export async function executeToolCall(
     try {
       result = await executeToolWithTimeout(
         tool.fn,
-        toolCall.args,
+        normalizedArgs,
         config.workspace,
         toolTimeout,
         config.policy ?? null,
@@ -938,7 +1210,7 @@ export async function executeToolCall(
         if (installed) {
           result = await executeToolWithTimeout(
             tool.fn,
-            toolCall.args,
+            normalizedArgs,
             config.workspace,
             toolTimeout,
             config.policy ?? null,
@@ -961,19 +1233,24 @@ export async function executeToolCall(
       }
     }
 
-    // Truncate result if needed
-    const resultStr = typeof result === "string"
-      ? result
-      : JSON.stringify(result, null, 2);
-
-    const truncated = config.context.truncateResult(resultStr);
+    const { llmContent, returnDisplay } = buildToolResultOutputs(
+      toolCall.toolName,
+      result,
+      config,
+    );
 
     // Emit trace event: tool result (success)
     config.onTrace?.({
       type: "tool_result",
       toolName: toolCall.toolName,
       success: true,
-      result: truncated,
+      result: llmContent,
+      display: returnDisplay,
+    });
+    config.onToolDisplay?.({
+      toolName: toolCall.toolName,
+      success: true,
+      content: returnDisplay,
     });
     emitMetric(config, "tool_result", {
       toolName: toolCall.toolName,
@@ -983,7 +1260,9 @@ export async function executeToolCall(
 
     return {
       success: true,
-      result: truncated,
+      result,
+      llmContent,
+      returnDisplay,
     };
   } catch (error) {
     return buildToolErrorResult(
@@ -1068,10 +1347,9 @@ export async function executeToolCalls(
  *
  * Main orchestration function:
  * 1. Add agent response to context
- * 2. Parse tool calls from response
- * 3. Execute tool calls with safety checks
- * 4. Add tool results to context
- * 5. Return results for next agent turn
+ * 2. Execute structured tool calls with safety checks
+ * 3. Add tool results to context
+ * 4. Return results for next agent turn
  *
  * @param agentResponse Agent's response (may contain tool calls)
  * @param config Orchestrator configuration
@@ -1080,10 +1358,10 @@ export async function executeToolCalls(
  * @example
  * ```ts
  * // Agent generates response with tool call
- * const agentResponse = `Let me read that file.
- * TOOL_CALL
- * {"toolName": "read_file", "args": {"path": "src/main.ts"}}
- * END_TOOL_CALL`;
+ * const agentResponse = {
+ *   content: "Let me read that file.",
+ *   toolCalls: [{ toolName: "read_file", args: { path: "src/main.ts" } }],
+ * };
  *
  * const result = await processAgentResponse(
  *   agentResponse,
@@ -1098,98 +1376,112 @@ export async function executeToolCalls(
  * ```
  */
 export async function processAgentResponse(
-  agentResponse: string,
+  agentResponse: LLMResponse,
   config: OrchestratorConfig,
 ): Promise<{
   toolCallsMade: number;
   results: ToolExecutionResult[];
   toolCalls: ToolCall[]; // Added for per-tool denial tracking (Issue #6)
   shouldContinue: boolean;
+  finalResponse?: string;
 }> {
-  // Add agent response to context
-  addContextMessage(config, {
-    role: "assistant",
-    content: agentResponse,
-  });
-
-  // Parse tool calls - Issues #2, #3, #8: Now returns errors too
-  const maxCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
-  const parseResult = parseToolCalls(agentResponse, maxCalls);
-  const { calls: toolCalls, errors: parseErrors } = parseResult;
-
-  // Report parse errors to LLM with self-teaching examples (Issue #10)
-  if (parseErrors.length > 0) {
-    for (const error of parseErrors) {
-      let errorMsg = `❌ Parse Error${error.line ? ` (line ${error.line})` : ""}: ${error.message}`;
-
-      // Add self-teaching protocol based on error type
-      if (error.type === "json_parse") {
-        errorMsg += `\n\n**Your JSON:**\n${error.json}\n\n**Correct Format:**\nTOOL_CALL\n{"toolName": "tool_name", "args": {...}}\nEND_TOOL_CALL\n\n**Common JSON errors:**\n- Missing closing brace }\n- Extra comma after last property\n- Unescaped quotes in strings\n- Single quotes instead of double quotes`;
-      } else if (error.type === "invalid_structure") {
-        errorMsg += `\n\n**Your JSON:**\n${error.json}\n\n**Correct Format:**\n{"toolName": "string", "args": {...}}\n\n**Required:**\n- "toolName" must be a string\n- "args" must be an object {...}\n- No extra fields allowed`;
-      } else if (error.type === "unclosed_block") {
-        errorMsg += `\n\n**Your incomplete block:**\n${error.json}\n\n**You forgot END_TOOL_CALL!**\n\nCorrect format:\nTOOL_CALL\n{"toolName": "tool_name", "args": {...}}\nEND_TOOL_CALL  ← Don't forget this!`;
-      } else if (error.type === "too_many_calls") {
-        errorMsg += `\n\n**Best Practices:**\n- Use 1-3 tool calls per turn for better control\n- Break complex tasks into multiple turns\n- Chain dependent operations: read → analyze → write\n- If you need more operations, complete current batch first`;
-      }
-
-      addContextMessage(config, {
-        role: "tool",
-        content: errorMsg,
-      });
-    }
+  const content = (agentResponse.content ?? "").trim();
+  if (content) {
+    addContextMessage(config, {
+      role: "assistant",
+      content,
+    });
   }
 
-  // No tool calls = agent finished (or all failed to parse)
+  const maxCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
+  const toolCalls = Array.isArray(agentResponse.toolCalls)
+    ? agentResponse.toolCalls
+    : [];
+
+  if (toolCalls.length > maxCalls) {
+    addContextMessage(config, {
+      role: "tool",
+      content:
+        `Too many tool calls (${toolCalls.length}). Only the first ${maxCalls} will be executed.`,
+    });
+  }
+
   if (toolCalls.length === 0) {
-    // If there were parse errors, continue to let LLM fix them
-    // Otherwise, agent is done
     return {
       toolCallsMade: 0,
       results: [],
       toolCalls: [],
-      shouldContinue: parseErrors.length > 0,
+      shouldContinue: false,
+      finalResponse: content,
     };
   }
 
-  // Limit tool calls per turn (warning already reported at parse time)
   const limitedCalls = toolCalls.slice(0, maxCalls);
+  const hintedCalls = limitedCalls.map((call) => {
+    const baseArgs = isToolArgsObject(call.args) ? call.args : {};
+    const nextArgs = applyRequestHintsToToolArgs(
+      call.toolName,
+      baseArgs,
+      config.requestHints,
+    );
+    if (nextArgs === baseArgs) {
+      return call;
+    }
+    return {
+      ...call,
+      args: nextArgs,
+    };
+  });
 
   // Execute tool calls
-  const results = await executeToolCalls(limitedCalls, config);
+  const results = await executeToolCalls(hintedCalls, config);
 
   // Add tool results to context
   for (let i = 0; i < results.length; i++) {
-    const call = limitedCalls[i];
+    const call = hintedCalls[i];
     const result = results[i];
 
-    let observation: string;
-    if (result.success) {
-      const summary = summarizeWebToolResult(call.toolName, result.result);
-      if (summary) {
-        observation = `Tool: ${call.toolName}\nSummary:\n${summary}`;
-      } else {
-        observation = `Tool: ${call.toolName}\nResult: ${
-          typeof result.result === "string"
-            ? result.result
-            : JSON.stringify(result.result)
-        }`;
-      }
-    } else {
-      observation = `Tool: ${call.toolName}\nError: ${result.error}`;
-    }
+    const resultText = result.success
+      ? result.llmContent ?? stringifyToolResult(result.result)
+      : `ERROR: ${result.error}`;
+    const observation = result.success
+      ? `Tool: ${call.toolName}\nResult: ${resultText}`
+      : `Tool: ${call.toolName}\nError: ${result.error}`;
 
     addContextMessage(config, {
       role: "tool",
       content: observation,
     });
+
+    if (result.success && isSearchToolName(call.toolName) && isEmptySearchResult(result.result)) {
+      addContextMessage(config, {
+        role: "tool",
+        content: buildEmptySearchWarning(call.toolName),
+      });
+    }
+  }
+
+  let finalResponse: string | undefined;
+  const completeIndex = hintedCalls.findIndex((call) =>
+    call.toolName === "complete_task"
+  );
+  if (completeIndex >= 0) {
+    const completeResult = results[completeIndex];
+    if (completeResult?.success) {
+      finalResponse = completeResult.returnDisplay ??
+        completeResult.llmContent ??
+        stringifyToolResult(completeResult.result);
+    } else if (completeResult?.error) {
+      finalResponse = `complete_task failed: ${completeResult.error}`;
+    }
   }
 
   return {
     toolCallsMade: results.length,
     results,
-    toolCalls: limitedCalls, // Return executed tool calls for denial tracking
-    shouldContinue: true, // Always continue after tool calls
+    toolCalls: hintedCalls, // Return executed tool calls for denial tracking
+    shouldContinue: completeIndex < 0,
+    finalResponse,
   };
 }
 
@@ -1221,7 +1513,7 @@ async function callLLMWithTimeout(
   llmFn: LLMFunction,
   messages: Message[],
   timeout: number,
-): Promise<string> {
+): Promise<LLMResponse> {
   // NOTE: If llmFn doesn't honor AbortSignal, underlying stream may continue.
   return await withTimeout(
     async (signal) => {
@@ -1252,7 +1544,7 @@ async function callLLMWithRetry(
   messages: Message[],
   config: { timeout: number; maxRetries: number },
   onTrace?: (event: TraceEvent) => void,
-): Promise<string> {
+): Promise<LLMResponse> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < config.maxRetries; attempt++) {
@@ -1369,6 +1661,9 @@ export async function runReActLoop(
   // Initialize usage tracker if not provided
   const usageTracker = config.usage ?? new UsageTracker();
   config.usage = usageTracker;
+  if (!config.requestHints) {
+    config.requestHints = inferRequestHints(userRequest);
+  }
 
   let iterations = 0;
   const maxIterations = MAX_ITERATIONS;
@@ -1397,16 +1692,34 @@ export async function runReActLoop(
   let groundingRetries = 0;
   const maxGroundingRetries = groundingMode === "strict" ? 1 : 0;
   const autoWebEnabled = config.autoWeb ?? false;
-  const autoWebAnswer = autoWebEnabled && shouldAutoAnswerWebRequest(userRequest);
+  const autoWebAnswer = autoWebEnabled &&
+    shouldAutoAnswerWebRequest(userRequest);
+  const autoWebResearch = autoWebEnabled &&
+    shouldAutoResearchWebRequest(userRequest);
+  const requestUrl = extractUrlFromText(userRequest);
+  const requestHost = requestUrl ? getHost(requestUrl) : "";
+  const webConfig = autoWebEnabled ? await loadWebConfig() : null;
+  const searchApiAvailable = webConfig ? hasSearchApiKey(webConfig.search) : false;
+  let autoWebAttempted = false;
+  let autoWebSucceeded = false;
+  let autoWebFailure: string | null = null;
+  const noInputEnabled = config.noInput ?? false;
+  let noInputRetries = 0;
+  const maxNoInputRetries = 1;
+  const requireToolCalls = config.requireToolCalls ?? false;
+  let toolCallRetries = 0;
+  const maxToolCallRetries = config.maxToolCallRetries ?? 1;
+  let toolFormatRetries = 0;
+  const maxRepeatToolCalls = config.maxToolCallRepeat ?? 3;
+  let lastToolSignature = "";
+  let repeatToolCount = 0;
 
   const recordAutoWebResult = (
     toolCall: ToolCall,
     toolResult: ToolExecutionResult,
   ): string => {
     const resultText = toolResult.success
-      ? typeof toolResult.result === "string"
-        ? toolResult.result
-        : JSON.stringify(toolResult.result)
+      ? toolResult.llmContent ?? stringifyToolResult(toolResult.result)
       : `ERROR: ${toolResult.error}`;
 
     const observation = toolResult.success
@@ -1451,54 +1764,233 @@ export async function runReActLoop(
   if (autoWebEnabled) {
     const autoCall = chooseAutoWebTool(userRequest);
     if (autoCall) {
+      autoWebAttempted = true;
       const autoResult = await executeToolCall(autoCall, config);
       recordAutoWebResult(autoCall, autoResult);
 
-      if (autoResult.success && autoWebAnswer) {
-        const summary = summarizeWebToolResult(
-          autoCall.toolName,
-          autoResult.result,
-        );
-        if (summary) {
-          return summary;
-        }
-        if (typeof autoResult.result === "string") {
-          return autoResult.result;
-        }
-        return JSON.stringify(autoResult.result ?? "");
-      } else if (autoWebAnswer) {
-        const fallbackCall = chooseAutoWebFallback(
+      let fallbackCall: ToolCall | null = null;
+      let fallbackResult: ToolExecutionResult | null = null;
+      let localCall: ToolCall | null = null;
+      let localResult: ToolExecutionResult | null = null;
+
+      if (autoResult.success) {
+        autoWebSucceeded = true;
+      } else {
+        fallbackCall = chooseAutoWebFallback(
           autoCall.toolName,
           userRequest,
         );
-        if (!fallbackCall) {
-          return formatAutoWebFailure(autoCall.toolName, autoResult.error);
+        if (fallbackCall) {
+          fallbackResult = await executeToolCall(fallbackCall, config);
+          recordAutoWebResult(fallbackCall, fallbackResult);
+          if (fallbackResult.success) {
+            autoWebSucceeded = true;
+          }
         }
 
-        const fallbackResult = await executeToolCall(fallbackCall, config);
-        recordAutoWebResult(fallbackCall, fallbackResult);
+        if (!autoWebSucceeded && !searchApiAvailable) {
+          localCall = buildLocalSearchToolCall(userRequest);
+          if (localCall) {
+            localResult = await executeToolCall(localCall, config);
+            recordAutoWebResult(localCall, localResult);
+            if (localResult.success) {
+              autoWebSucceeded = true;
+            }
+          }
+        }
+      }
 
-        if (fallbackResult.success) {
-          const summary = summarizeWebToolResult(
-            fallbackCall.toolName,
-            fallbackResult.result,
+      if (autoWebAnswer) {
+        const baseResult = autoResult.success
+          ? autoResult.result
+          : fallbackResult?.success
+          ? fallbackResult.result
+          : localResult?.success
+          ? localResult.result
+          : null;
+        let drilldownResults: Array<{ call: ToolCall; result: ToolExecutionResult }> = [];
+        if (baseResult && !hasMeaningfulText(baseResult, requestHost)) {
+          drilldownResults = await runAutoWebDrilldown(
+            userRequest,
+            baseResult,
+            config,
+            recordAutoWebResult,
           );
-          if (summary) {
-            return summary;
-          }
-          if (typeof fallbackResult.result === "string") {
-            return fallbackResult.result;
-          }
-          return JSON.stringify(fallbackResult.result ?? "");
         }
 
-        return formatAutoWebFailure(
+        const resolved = pickBestAutoWebResult(
+          autoResult.success ? { call: autoCall, result: autoResult } : null,
+          fallbackResult?.success && fallbackCall
+            ? { call: fallbackCall, result: fallbackResult }
+            : null,
+          localResult?.success && localCall
+            ? { call: localCall, result: localResult }
+            : null,
+          drilldownResults,
+          requestHost,
+        );
+
+        if (resolved) {
+          if (
+            isSearchToolName(resolved.call.toolName) &&
+            isEmptySearchResult(resolved.result.result)
+          ) {
+            return buildEmptySearchWarning(resolved.call.toolName);
+          }
+          return resolved.result.returnDisplay ??
+            stringifyToolResult(resolved.result.result);
+        }
+
+        autoWebFailure = formatAutoWebFailure(
           autoCall.toolName,
           autoResult.error,
-          fallbackCall.toolName,
-          fallbackResult.error,
+          fallbackCall?.toolName,
+          fallbackResult?.error,
         );
+        if (localCall && localResult && !localResult.success) {
+          autoWebFailure +=
+            `\nFallback failed (${localCall.toolName}): ${localResult.error}`;
+        }
+        return autoWebFailure;
       }
+
+      const baseResult = autoResult.success
+        ? autoResult.result
+        : fallbackResult?.success
+        ? fallbackResult.result
+        : localResult?.success
+        ? localResult.result
+        : null;
+      if (baseResult && !hasMeaningfulText(baseResult, requestHost)) {
+        const drilldownResults = await runAutoWebDrilldown(
+          userRequest,
+          baseResult,
+          config,
+          recordAutoWebResult,
+        );
+        if (drilldownResults.some((entry) => entry.result.success)) {
+          autoWebSucceeded = true;
+        }
+      }
+
+      if (!autoWebSucceeded) {
+        autoWebFailure = formatAutoWebFailure(
+          autoCall.toolName,
+          autoResult.error,
+          fallbackCall?.toolName,
+          fallbackResult?.error,
+        );
+        if (localCall && localResult && !localResult.success) {
+          autoWebFailure +=
+            `\nFallback failed (${localCall.toolName}): ${localResult.error}`;
+        }
+      }
+    }
+
+    if (!autoCall && autoWebResearch) {
+      autoWebAttempted = true;
+      let localCall: ToolCall | null = null;
+      let localResult: ToolExecutionResult | null = null;
+
+      if (!searchApiAvailable) {
+        localCall = buildLocalSearchToolCall(userRequest);
+        if (localCall) {
+          localResult = await executeToolCall(localCall, config);
+          recordAutoWebResult(localCall, localResult);
+          if (localResult.success) {
+            autoWebSucceeded = true;
+          }
+          if (autoWebAnswer && localResult.success) {
+            if (
+              isSearchToolName(localCall.toolName) &&
+              isEmptySearchResult(localResult.result)
+            ) {
+              return buildEmptySearchWarning(localCall.toolName);
+            }
+            return localResult.returnDisplay ??
+              stringifyToolResult(localResult.result);
+          }
+        }
+      }
+
+      let researchCall: ToolCall | null = null;
+      let researchResult: ToolExecutionResult | null = null;
+      if ((!localResult?.success) && hasTool("research_web")) {
+        researchCall = {
+          toolName: "research_web",
+          args: {
+            query: userRequest,
+            maxSources: 3,
+          },
+        };
+        researchResult = await executeToolCall(researchCall, config);
+        recordAutoWebResult(researchCall, researchResult);
+        if (researchResult.success) {
+          autoWebSucceeded = true;
+        }
+        if (autoWebAnswer && researchResult.success) {
+          if (
+            isSearchToolName(researchCall.toolName) &&
+            isEmptySearchResult(researchResult.result)
+          ) {
+            return buildEmptySearchWarning(researchCall.toolName);
+          }
+          return researchResult.returnDisplay ??
+            stringifyToolResult(researchResult.result);
+        }
+      }
+
+      if (!autoWebSucceeded) {
+        if (researchCall && researchResult) {
+          autoWebFailure = formatAutoWebFailure(
+            researchCall.toolName,
+            researchResult.error,
+            localCall?.toolName,
+            localResult?.error,
+          );
+        } else if (localCall && localResult) {
+          autoWebFailure = formatAutoWebFailure(
+            localCall.toolName,
+            localResult.error,
+          );
+        }
+      }
+    }
+
+    if (!autoWebAnswer && autoWebAttempted && !autoWebSucceeded && autoWebFailure) {
+      return autoWebFailure;
+    }
+  }
+
+  // Planning (optional)
+  const planningConfig: PlanningConfig = config.planning ?? { mode: "off" };
+  let planState: PlanState | null = null;
+  if (
+    planningConfig.mode !== "off" &&
+    shouldPlanRequest(userRequest, planningConfig.mode ?? "off")
+  ) {
+    try {
+      const agentNames = listAgentProfiles().map((agent) => agent.name);
+      const plan = await requestPlan(
+        llmFunction,
+        config.context.getMessages(),
+        userRequest,
+        planningConfig,
+        agentNames,
+      );
+      if (plan) {
+        addContextMessage(config, {
+          role: "system",
+          content: formatPlanForContext(plan, planningConfig),
+        });
+        const trackPlan = (planningConfig.mode ?? "off") === "always";
+        if (trackPlan) {
+          planState = createPlanState(plan);
+        }
+        config.onTrace?.({ type: "plan_created", plan });
+      }
+    } catch (error) {
+      log.warn(`Planning skipped: ${getErrorMessage(error)}`);
     }
   }
 
@@ -1511,6 +2003,38 @@ export async function runReActLoop(
       current: iterations,
       max: maxIterations,
     });
+
+    if (planState) {
+      const currentStep = planState.plan.steps[planState.currentIndex];
+      if (
+        currentStep?.agent &&
+        !planState.delegatedIds.includes(currentStep.id) &&
+        config.delegate
+      ) {
+        const profile = getAgentProfile(currentStep.agent);
+        if (profile) {
+          const delegateArgs: Record<string, unknown> = {
+            agent: profile.name,
+            task: currentStep.goal ?? currentStep.title,
+          };
+          if (typeof config.maxToolCalls === "number") {
+            delegateArgs.maxToolCalls = config.maxToolCalls;
+          }
+          if (config.groundingMode) {
+            delegateArgs.groundingMode = config.groundingMode;
+          }
+          const delegateCall: ToolCall = {
+            toolName: "delegate_agent",
+            args: delegateArgs,
+          };
+          const delegateResult = await executeToolCall(delegateCall, config);
+          recordAutoWebResult(delegateCall, delegateResult);
+          planState.delegatedIds.push(currentStep.id);
+          // Give the main LLM a chance to synthesize and mark STEP_DONE.
+          continue;
+        }
+      }
+    }
 
     // Call LLM to get agent response (with retry)
     const messages = config.context.getMessages();
@@ -1562,7 +2086,8 @@ export async function runReActLoop(
     const llmDuration = Date.now() - llmStart;
 
     // Record token usage (estimated by default)
-    const usage = estimateUsage(messages, agentResponse);
+    const responseText = agentResponse.content ?? "";
+    const usage = estimateUsage(messages, responseText);
     usageTracker.record(usage);
     config.onTrace?.({
       type: "llm_usage",
@@ -1573,21 +2098,113 @@ export async function runReActLoop(
     // Emit trace event: LLM response
     config.onTrace?.({
       type: "llm_response",
-      length: agentResponse.length,
-      truncated: agentResponse.substring(0, 200),
+      length: responseText.length,
+      truncated: responseText.substring(0, 200),
+      content: responseText,
+      toolCalls: agentResponse.toolCalls?.length ?? 0,
     });
     emitMetric(config, "llm_response", {
-      length: agentResponse.length,
+      length: responseText.length,
       durationMs: llmDuration,
     });
+
+    if (
+      (agentResponse.toolCalls?.length ?? 0) === 0 &&
+      looksLikeToolCallJson(responseText)
+    ) {
+      if (toolFormatRetries < maxToolCallRetries) {
+        toolFormatRetries++;
+        addContextMessage(config, {
+          role: "tool",
+          content:
+            "Native tool calling required. Do not output tool call JSON in text. Retry using structured tool calls.",
+        });
+        continue;
+      }
+      throw new ValidationError(
+        "Model returned tool call JSON instead of native tool calls.",
+        "tool_call_format",
+      );
+    }
 
     // Process response and execute tools
     const result = await processAgentResponse(agentResponse, config);
 
     // If no tool calls, agent is done
     if (!result.shouldContinue) {
-      if (groundingMode !== "off") {
-        const grounding = checkGrounding(agentResponse, toolUses);
+      if (
+        requireToolCalls &&
+        result.toolCallsMade === 0 &&
+        toolUses.length === 0
+      ) {
+        toolCallRetries += 1;
+        if (toolCallRetries > maxToolCallRetries) {
+          return "Tool call required but none provided. Task incomplete.";
+        }
+        addContextMessage(config, {
+          role: "tool",
+          content: buildToolRequiredMessage(config.toolAllowlist),
+        });
+        continue;
+      }
+
+      let finalResponse = result.finalResponse ?? responseText;
+
+      if (planState) {
+        const stepDoneId = extractStepDoneId(responseText);
+        const requireMarkers = planningConfig.requireStepMarkers ?? false;
+        if (requireMarkers && !stepDoneId) {
+          const currentStep = planState.plan.steps[planState.currentIndex];
+          const id = currentStep?.id ?? "unknown";
+          addContextMessage(config, {
+            role: "tool",
+            content:
+              `Plan tracking required. End your response with STEP_DONE ${id} when the step is complete.`,
+          });
+          continue;
+        }
+
+        finalResponse = stripStepMarkers(responseText);
+
+        const advance = advancePlanState(planState, stepDoneId);
+        planState = advance.state;
+        const completedIndex = planState.currentIndex - 1;
+        const completedStep = planState.plan.steps[completedIndex];
+        if (completedStep) {
+          config.onTrace?.({
+            type: "plan_step",
+            stepId: completedStep.id,
+            index: completedIndex,
+            completed: true,
+          });
+        }
+
+        if (!advance.finished && advance.nextStep) {
+          addContextMessage(config, {
+            role: "tool",
+            content:
+              `Plan step completed. Next step: [${advance.nextStep.id}] ${advance.nextStep.title}. Continue.`,
+          });
+          continue;
+        }
+      }
+
+      if (
+        noInputEnabled &&
+        noInputRetries < maxNoInputRetries &&
+        responseAsksQuestion(finalResponse)
+      ) {
+        noInputRetries++;
+        addContextMessage(config, {
+          role: "tool",
+          content:
+            "No-input mode: Do not ask questions. Provide a best-effort answer based on available tool results and reasonable assumptions.",
+        });
+        continue;
+      }
+
+      if (groundingMode !== "off" && toolUses.length > 0) {
+        const grounding = checkGrounding(finalResponse, toolUses);
         config.onTrace?.({
           type: "grounding_check",
           mode: groundingMode,
@@ -1622,10 +2239,77 @@ export async function runReActLoop(
           const warningText = `\n\n[Grounding warnings]\n- ${
             grounding.warnings.join("\n- ")
           }`;
-          return `${agentResponse}${warningText}`;
+          return `${finalResponse}${warningText}`;
         }
       }
-      return agentResponse;
+      return finalResponse;
+    }
+
+    // Check for denied tool calls - per-tool tracking (Issue #6)
+    let anyDeniedThisTurn = false;
+
+    for (let i = 0; i < result.results.length; i++) {
+      const toolName = result.toolCalls[i].toolName;
+      const toolResult = result.results[i];
+
+      if (!toolResult.success && toolResult.error?.includes("denied")) {
+        anyDeniedThisTurn = true;
+        const currentCount = denialCountByTool.get(toolName) || 0;
+        denialCountByTool.set(toolName, currentCount + 1);
+
+        // Check if this specific tool reached the limit
+        if (denialCountByTool.get(toolName)! >= maxDenials) {
+          addContextMessage(config, {
+            role: "tool",
+            content: `Maximum denials (${maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
+          });
+        }
+      }
+    }
+
+    if (!anyDeniedThisTurn) {
+      // Reset ALL denial counts if no denials this turn (matches old behavior)
+      // This allows agent to recover after using non-denied tools
+      denialCountByTool.clear();
+    }
+
+    // Check if ALL tools in this turn were denied AND at max denials
+    const allToolsBlocked = result.toolCalls.every((call) => {
+      const count = denialCountByTool.get(call.toolName) || 0;
+      return count >= maxDenials;
+    });
+
+    if (anyDeniedThisTurn && allToolsBlocked && result.toolCalls.length > 0) {
+      // Agent is stuck - all attempted tools are blocked
+      // Give one final chance to use ask_user or different tool
+      const finalResponse = await llmFunction(config.context.getMessages());
+      return finalResponse.content ?? "";
+    }
+
+    if (!anyDeniedThisTurn && result.toolCallsMade > 0) {
+      const signature = buildToolSignature(result.toolCalls);
+      if (signature && signature === lastToolSignature) {
+        repeatToolCount += 1;
+      } else {
+        repeatToolCount = 1;
+        lastToolSignature = signature;
+      }
+
+      if (repeatToolCount >= maxRepeatToolCalls) {
+        config.onTrace?.({
+          type: "loop_detected",
+          signature,
+          count: repeatToolCount,
+        });
+        return [
+          "Tool call loop detected.",
+          "The same tool calls were repeated multiple times without progress.",
+          "Please clarify the request or provide additional guidance.",
+        ].join("\n");
+      }
+    } else {
+      lastToolSignature = "";
+      repeatToolCount = 0;
     }
 
     // Track tool uses for grounding checks
@@ -1633,9 +2317,7 @@ export async function runReActLoop(
       const call = result.toolCalls[i];
       const toolResult = result.results[i];
       const resultText = toolResult.success
-        ? typeof toolResult.result === "string"
-          ? toolResult.result
-          : JSON.stringify(toolResult.result)
+        ? toolResult.llmContent ?? stringifyToolResult(toolResult.result)
         : `ERROR: ${toolResult.error}`;
 
       toolUses.push({
@@ -1672,52 +2354,11 @@ export async function runReActLoop(
       groundingRetries = 0;
     }
 
-    // Check for denied tool calls - per-tool tracking (Issue #6)
-    let anyDeniedThisTurn = false;
-
-    for (let i = 0; i < result.results.length; i++) {
-      const toolName = result.toolCalls[i].toolName;
-      const toolResult = result.results[i];
-
-      if (!toolResult.success && toolResult.error?.includes("denied")) {
-        anyDeniedThisTurn = true;
-        const currentCount = denialCountByTool.get(toolName) || 0;
-        denialCountByTool.set(toolName, currentCount + 1);
-
-        // Check if this specific tool reached the limit
-        if (denialCountByTool.get(toolName)! >= maxDenials) {
-        addContextMessage(config, {
-          role: "tool",
-          content: `Maximum denials (${maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
-        });
-        }
-      }
-    }
-
-    if (!anyDeniedThisTurn) {
-      // Reset ALL denial counts if no denials this turn (matches old behavior)
-      // This allows agent to recover after using non-denied tools
-      denialCountByTool.clear();
-    }
-
-    // Check if ALL tools in this turn were denied AND at max denials
-    const allToolsBlocked = result.toolCalls.every((call) => {
-      const count = denialCountByTool.get(call.toolName) || 0;
-      return count >= maxDenials;
-    });
-
-    if (anyDeniedThisTurn && allToolsBlocked && result.toolCalls.length > 0) {
-      // Agent is stuck - all attempted tools are blocked
-      // Give one final chance to use ask_user or different tool
-      const finalResponse = await llmFunction(config.context.getMessages());
-      return finalResponse;
-    }
-
     // If any tool failed, agent might want to retry or give up
     const anyFailed = result.results.some((r) => !r.success);
     if (anyFailed && iterations >= maxIterations / 2) {
       // Stop early if tools keep failing
-      return agentResponse;
+      return responseText;
     }
   }
 

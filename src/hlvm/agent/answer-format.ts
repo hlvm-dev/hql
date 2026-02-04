@@ -8,7 +8,7 @@ import { ai } from "../api/ai.ts";
 import { collectStream } from "./llm-integration.ts";
 import { isObjectValue } from "../../common/utils.ts";
 
-export type OutputFormat = "text" | "raw" | "json";
+export type OutputFormat = "text" | "raw" | "json" | "tool";
 
 export interface AnswerFormatOptions {
   format: OutputFormat;
@@ -34,6 +34,9 @@ export function getFormatInstruction(format: OutputFormat): string | null {
       "No extra keys, no code fences, no surrounding text.",
     ].join("\n");
   }
+  if (format === "tool") {
+    return null;
+  }
   return null;
 }
 
@@ -41,7 +44,7 @@ export async function formatAnswer(
   answer: string,
   options: AnswerFormatOptions,
 ): Promise<string> {
-  if (options.format === "text") {
+  if (options.format === "text" || options.format === "tool") {
     return answer;
   }
 

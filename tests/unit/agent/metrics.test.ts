@@ -5,7 +5,12 @@
  */
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
-import { runReActLoop, type LLMFunction } from "../../../src/hlvm/agent/orchestrator.ts";
+import {
+  runReActLoop,
+  type LLMFunction,
+  type LLMResponse,
+  type ToolCall,
+} from "../../../src/hlvm/agent/orchestrator.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
@@ -16,7 +21,7 @@ import { getPlatform } from "../../../src/platform/platform.ts";
 // Helpers
 // ============================================================
 
-function createScriptedLLM(responses: string[]): LLMFunction {
+function createScriptedLLM(responses: LLMResponse[]): LLMFunction {
   let index = 0;
   return async () => {
     if (index >= responses.length) {
@@ -24,6 +29,10 @@ function createScriptedLLM(responses: string[]): LLMFunction {
     }
     return responses[index++];
   };
+}
+
+function makeResponse(content: string, toolCalls: ToolCall[] = []): LLMResponse {
+  return { content, toolCalls };
 }
 
 function addFakeTool(name: string, result: unknown): void {
@@ -51,8 +60,8 @@ Deno.test({
 
     try {
       const llm = createScriptedLLM([
-        `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`,
-        `Based on ${toolName}, done.`,
+        makeResponse("", [{ toolName, args: {} }]),
+        makeResponse(`Based on ${toolName}, done.`),
       ]);
 
       const context = new ContextManager();

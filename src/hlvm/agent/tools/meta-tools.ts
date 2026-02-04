@@ -155,4 +155,24 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0" as const,
   },
+  complete_task: {
+    fn: async (args: unknown): Promise<string> => {
+      if (!isToolArgsObject(args)) {
+        return "Task complete.";
+      }
+      const summary = (args as { summary?: unknown }).summary;
+      return typeof summary === "string" && summary.trim()
+        ? summary.trim()
+        : "Task complete.";
+    },
+    description:
+      "Signal task completion with an optional summary. Prefer this when finished.",
+    args: {
+      summary: "string (optional) - Final summary to return to the user",
+    },
+    returns: {
+      summary: "string - Completion summary",
+    },
+    safetyLevel: "L0" as const,
+  },
 };

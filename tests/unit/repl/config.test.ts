@@ -44,6 +44,7 @@ Deno.test("CONFIG_KEYS - contains expected keys", () => {
   assertEquals(CONFIG_KEYS.includes("temperature"), true);
   assertEquals(CONFIG_KEYS.includes("maxTokens"), true);
   assertEquals(CONFIG_KEYS.includes("theme"), true);
+  assertEquals(CONFIG_KEYS.includes("tools"), true);
 });
 
 Deno.test("isConfigKey - valid keys", () => {
@@ -52,6 +53,7 @@ Deno.test("isConfigKey - valid keys", () => {
   assertEquals(isConfigKey("temperature"), true);
   assertEquals(isConfigKey("maxTokens"), true);
   assertEquals(isConfigKey("theme"), true);
+  assertEquals(isConfigKey("tools"), true);
 });
 
 Deno.test("isConfigKey - invalid keys", () => {
@@ -119,6 +121,11 @@ Deno.test("validateValue - theme valid", () => {
   assertEquals(validateValue("theme", "nord").valid, true);
   assertEquals(validateValue("theme", "oneDark").valid, true);
   assertEquals(validateValue("theme", "gruvbox").valid, true);
+});
+
+Deno.test("validateValue - tools valid", () => {
+  assertEquals(validateValue("tools", {}).valid, true);
+  assertEquals(validateValue("tools", { web: {} }).valid, true);
 });
 
 Deno.test("validateValue - theme invalid", () => {

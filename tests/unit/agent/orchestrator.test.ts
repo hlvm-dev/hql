@@ -1,17 +1,16 @@
 /**
  * ReAct Orchestrator Tests
  *
- * Verifies tool call parsing and execution orchestration
+ * Verifies structured tool call execution and orchestration
  */
 
 import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert";
 import {
-  parseToolCalls,
-  formatToolCall,
   executeToolCall,
   executeToolCalls,
   processAgentResponse,
   runReActLoop,
+  type LLMResponse,
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
@@ -21,181 +20,9 @@ import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 // Test workspace
 const TEST_WORKSPACE = "/tmp/hlvm-test-orchestrator";
 
-// ============================================================
-// Tool Call Parsing tests
-// ============================================================
-
-Deno.test({
-  name: "Orchestrator: parseToolCalls - parse single tool call",
-  fn() {
-    const response = `Let me read that file.
-TOOL_CALL
-{"toolName": "read_file", "args": {"path": "src/main.ts"}}
-END_TOOL_CALL`;
-
-    const result = parseToolCalls(response);
-    assertEquals(result.calls.length, 1);
-    assertEquals(result.errors.length, 0);
-    assertEquals(result.calls[0].toolName, "read_file");
-    assertEquals(result.calls[0].args.path, "src/main.ts");
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: parseToolCalls - parse multiple tool calls",
-  fn() {
-    const response = `Let me search and then read.
-TOOL_CALL
-{"toolName": "search_code", "args": {"pattern": "test"}}
-END_TOOL_CALL
-
-Now let me read:
-TOOL_CALL
-{"toolName": "read_file", "args": {"path": "src/main.ts"}}
-END_TOOL_CALL`;
-
-    const result = parseToolCalls(response);
-    assertEquals(result.calls.length, 2);
-    assertEquals(result.errors.length, 0);
-    assertEquals(result.calls[0].toolName, "search_code");
-    assertEquals(result.calls[1].toolName, "read_file");
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: parseToolCalls - no tool calls",
-  fn() {
-    const response = "Here is my analysis of the code...";
-    const result = parseToolCalls(response);
-    assertEquals(result.calls.length, 0);
-    assertEquals(result.errors.length, 0);
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: parseToolCalls - JSON tool call object",
-  fn() {
-    const response =
-      `{"toolName":"read_file","args":{"path":"src/main.ts"}}`;
-    const result = parseToolCalls(response);
-    assertEquals(result.calls.length, 1);
-    assertEquals(result.errors.length, 0);
-    assertEquals(result.calls[0].toolName, "read_file");
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: parseToolCalls - JSON tool call in code fence",
-  fn() {
-    const response = "```json\n{\"tool\":\"list_files\",\"args\":{}}\n```";
-    const result = parseToolCalls(response);
-    assertEquals(result.calls.length, 1);
-    assertEquals(result.errors.length, 0);
-    assertEquals(result.calls[0].toolName, "list_files");
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: parseToolCalls - invalid JSON reports error",
-  fn() {
-    const response = `
-TOOL_CALL
-{invalid json}
-END_TOOL_CALL`;
-
-    const result = parseToolCalls(response);
-    assertEquals(result.calls.length, 0);
-    assertEquals(result.errors.length, 1);
-    assertEquals(result.errors[0].type, "json_parse");
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: parseToolCalls - incomplete envelope reports error",
-  fn() {
-    const response = `
-TOOL_CALL
-{"toolName": "read_file", "args": {"path": "test.ts"}}
-`;
-
-    const result = parseToolCalls(response);
-    assertEquals(result.calls.length, 0); // No END_TOOL_CALL
-    assertEquals(result.errors.length, 1);
-    assertEquals(result.errors[0].type, "unclosed_block");
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: parseToolCalls - missing fields reports errors",
-  fn() {
-    const response1 = `
-TOOL_CALL
-{"args": {"path": "test.ts"}}
-END_TOOL_CALL`;
-
-    const result1 = parseToolCalls(response1);
-    assertEquals(result1.calls.length, 0); // No toolName
-    assertEquals(result1.errors.length, 1);
-    assertEquals(result1.errors[0].type, "invalid_structure");
-
-    const response2 = `
-TOOL_CALL
-{"toolName": "read_file"}
-END_TOOL_CALL`;
-
-    const result2 = parseToolCalls(response2);
-    assertEquals(result2.calls.length, 0); // No args
-    assertEquals(result2.errors.length, 1);
-    assertEquals(result2.errors[0].type, "invalid_structure");
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: parseToolCalls - multiline JSON",
-  fn() {
-    const response = `
-TOOL_CALL
-{
-  "toolName": "write_file",
-  "args": {
-    "path": "src/main.ts",
-    "content": "function test() {\\n  return true;\\n}"
-  }
+function makeResponse(content: string, toolCalls: ToolCall[] = []): LLMResponse {
+  return { content, toolCalls };
 }
-END_TOOL_CALL`;
-
-    const result = parseToolCalls(response);
-    assertEquals(result.calls.length, 1);
-    assertEquals(result.errors.length, 0);
-    assertEquals(result.calls[0].toolName, "write_file");
-    assertEquals(result.calls[0].args.path, "src/main.ts");
-  },
-});
-
-// ============================================================
-// Tool Call Formatting tests
-// ============================================================
-
-Deno.test({
-  name: "Orchestrator: formatToolCall - format tool call",
-  fn() {
-    const call: ToolCall = {
-      toolName: "read_file",
-      args: { path: "src/main.ts" },
-    };
-
-    const formatted = formatToolCall(call);
-    assertEquals(formatted.includes("TOOL_CALL"), true);
-    assertEquals(formatted.includes("END_TOOL_CALL"), true);
-    assertEquals(formatted.includes("read_file"), true);
-
-    // Should be parseable
-    const result = parseToolCalls(formatted);
-    assertEquals(result.calls.length, 1);
-    assertEquals(result.errors.length, 0);
-    assertEquals(result.calls[0].toolName, "read_file");
-  },
-});
 
 // ============================================================
 // Tool Execution tests
@@ -220,6 +47,100 @@ Deno.test({
 
     assertEquals(result.success, true);
     assertEquals(result.result !== undefined, true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - respects tool allowlist",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    const call: ToolCall = {
+      toolName: "search_code",
+      args: { pattern: "test" },
+    };
+
+    const result = await executeToolCall(call, {
+      workspace: TEST_WORKSPACE,
+      context,
+      autoApprove: true,
+      toolAllowlist: ["read_file"],
+    });
+
+    assertEquals(result.success, false);
+    assertStringIncludes(result.error ?? "", "Tool not allowed");
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - delegate_agent uses handler",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    let captured: Record<string, unknown> | null = null;
+
+    const result = await executeToolCall(
+      {
+        toolName: "delegate_agent",
+        args: { agent: "web", task: "test delegation" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        autoApprove: true,
+        delegate: async (args) => {
+          captured = args as Record<string, unknown>;
+          return { ok: true };
+        },
+      },
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(captured?.["agent"], "web");
+    assertEquals(captured?.["task"], "test delegation");
+    assertStringIncludes(String(result.returnDisplay), "\"ok\": true");
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: runReActLoop - auto delegates plan step",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    let calls = 0;
+    let delegated = false;
+
+    const llm = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return makeResponse(`PLAN
+{\"goal\":\"Test\",\"steps\":[{\"id\":\"step-1\",\"title\":\"Research\",\"agent\":\"web\",\"goal\":\"Find details\"}]}
+END_PLAN`);
+      }
+      return makeResponse("Done.\nSTEP_DONE step-1");
+    };
+
+    const result = await runReActLoop(
+      "Plan test",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        autoApprove: true,
+        groundingMode: "off",
+        planning: { mode: "always", requireStepMarkers: true },
+        delegate: async () => {
+          delegated = true;
+          return { note: "delegated" };
+        },
+      },
+      llm,
+    );
+
+    assertEquals(delegated, true);
+    assertStringIncludes(result, "Done.");
   },
 });
 
@@ -324,8 +245,8 @@ Deno.test({
     assertEquals(result.success, true);
 
     // If result is large, should be truncated
-    if (typeof result.result === "string" && result.result.length > 100) {
-      assertEquals(result.result.includes("[Result truncated"), true);
+    if (typeof result.llmContent === "string" && result.llmContent.length > 100) {
+      assertEquals(result.llmContent.includes("[Result truncated"), true);
     }
   },
 });
@@ -453,7 +374,10 @@ Deno.test({
     clearAllL1Confirmations();
 
     const context = new ContextManager();
-    const response = "Here is my analysis...";
+    const response: LLMResponse = {
+      content: "Here is my analysis...",
+      toolCalls: [],
+    };
 
     const result = await processAgentResponse(response, {
       workspace: TEST_WORKSPACE,
@@ -477,10 +401,10 @@ Deno.test({
     clearAllL1Confirmations();
 
     const context = new ContextManager();
-    const response = `Let me search for that.
-TOOL_CALL
-{"toolName": "search_code", "args": {"pattern": "test"}}
-END_TOOL_CALL`;
+    const response: LLMResponse = {
+      content: "Let me search for that.",
+      toolCalls: [{ toolName: "search_code", args: { pattern: "test" } }],
+    };
 
     const result = await processAgentResponse(response, {
       workspace: TEST_WORKSPACE,
@@ -505,12 +429,17 @@ Deno.test({
     clearAllL1Confirmations();
 
     const context = new ContextManager();
-
-    // Create response with many tool calls
-    let response = "Let me do many searches.\n";
+    const toolCalls: ToolCall[] = [];
     for (let i = 0; i < 20; i++) {
-      response += `TOOL_CALL\n{"toolName": "search_code", "args": {"pattern": "test${i}"}}\nEND_TOOL_CALL\n`;
+      toolCalls.push({
+        toolName: "search_code",
+        args: { pattern: `test${i}` },
+      });
     }
+    const response: LLMResponse = {
+      content: "Let me do many searches.",
+      toolCalls,
+    };
 
     const result = await processAgentResponse(response, {
       workspace: TEST_WORKSPACE,
@@ -537,7 +466,7 @@ Deno.test({
 
     // Mock LLM that returns final response immediately
     const mockLLM = async () => {
-      return "I can help with that. The answer is 42.";
+      return makeResponse("I can help with that. The answer is 42.");
     };
 
     const result = await runReActLoop(
@@ -567,7 +496,7 @@ Deno.test({
 
     try {
       const llm = async () =>
-        `TOOL_CALL\n{"toolName":"${toolName}","args":{}}\nEND_TOOL_CALL`;
+        makeResponse("", [{ toolName, args: {} }]);
 
       const context = new ContextManager();
       context.addMessage({
@@ -606,7 +535,7 @@ Deno.test({
 
     const mockLLM = async (_messages: any[], signal?: AbortSignal) => {
       sawSignal = signal instanceof AbortSignal;
-      return "Signal response";
+      return makeResponse("Signal response");
     };
 
     const result = await runReActLoop(
@@ -668,7 +597,7 @@ Deno.test({
       if (calls < 2) {
         throw new Error("Rate limit exceeded (429)");
       }
-      return "done";
+      return makeResponse("done");
     };
 
     const result = await runReActLoop(
@@ -696,14 +625,12 @@ Deno.test({
       callCount++;
 
       if (callCount === 1) {
-        // First call: make tool call
-        return `Let me search for that.
-TOOL_CALL
-{"toolName": "search_code", "args": {"pattern": "test"}}
-END_TOOL_CALL`;
+        return makeResponse("Let me search for that.", [{
+          toolName: "search_code",
+          args: { pattern: "test" },
+        }]);
       } else {
-        // Second call: final response
-        return "Found the code. Here is my analysis...";
+        return makeResponse("Found the code. Here is my analysis...");
       }
     };
 
@@ -730,12 +657,11 @@ Deno.test({
     const context = new ContextManager();
 
     // Mock LLM that always makes tool calls (infinite loop)
-    const mockLLM = async () => {
-      return `Let me search again.
-TOOL_CALL
-{"toolName": "search_code", "args": {"pattern": "test"}}
-END_TOOL_CALL`;
-    };
+    const mockLLM = async () =>
+      makeResponse("Let me search again.", [{
+        toolName: "search_code",
+        args: { pattern: "test" },
+      }]);
 
     const result = await runReActLoop(
       "Find something",
@@ -747,7 +673,9 @@ END_TOOL_CALL`;
       mockLLM,
     );
 
-    assertEquals(result.includes("Maximum iterations"), true);
+    const hitMaxIterations = result.includes("Maximum iterations");
+    const loopDetected = result.includes("Tool call loop detected");
+    assertEquals(hitMaxIterations || loopDetected, true);
   },
 });
 
@@ -765,14 +693,12 @@ Deno.test({
       callCount++;
 
       if (callCount === 1) {
-        // First call: try invalid tool
-        return `Let me try this tool.
-TOOL_CALL
-{"toolName": "invalid_tool", "args": {}}
-END_TOOL_CALL`;
+        return makeResponse("Let me try this tool.", [{
+          toolName: "invalid_tool",
+          args: {},
+        }]);
       } else {
-        // Second call: give up
-        return "Sorry, the tool failed. I cannot complete this task.";
+        return makeResponse("Sorry, the tool failed. I cannot complete this task.");
       }
     };
 
@@ -796,21 +722,6 @@ END_TOOL_CALL`;
 // ============================================================
 
 Deno.test({
-  name: "Orchestrator: parseToolCalls - whitespace tolerance",
-  fn() {
-    const response = `
-  TOOL_CALL
-{"toolName": "read_file", "args": {"path": "test.ts"}}
-  END_TOOL_CALL
-`;
-
-    const result = parseToolCalls(response);
-    assertEquals(result.calls.length, 1);
-    assertEquals(result.errors.length, 0);
-  },
-});
-
-Deno.test({
   name: "Orchestrator: processAgentResponse - adds all messages to context",
   async fn() {
     clearAllL1Confirmations();
@@ -818,10 +729,10 @@ Deno.test({
     const context = new ContextManager();
     const initialCount = context.getMessages().length;
 
-    const response = `Let me help.
-TOOL_CALL
-{"toolName": "search_code", "args": {"pattern": "test"}}
-END_TOOL_CALL`;
+    const response: LLMResponse = {
+      content: "Let me help.",
+      toolCalls: [{ toolName: "search_code", args: { pattern: "test" } }],
+    };
 
     await processAgentResponse(response, {
       workspace: TEST_WORKSPACE,
@@ -853,17 +764,15 @@ Deno.test({
       callCount++;
 
       if (callCount <= 3) {
-        // First 3 calls: try write_file (L2, will be denied)
-        return `Let me write the file.
-TOOL_CALL
-{"toolName": "write_file", "args": {"path": "test.ts", "content": "test"}}
-END_TOOL_CALL`;
+        return makeResponse("Let me write the file.", [{
+          toolName: "write_file",
+          args: { path: "test.ts", content: "test" },
+        }]);
       } else {
-        // 4th call: after max denials message, use ask_user
-        return `Let me clarify the requirements.
-TOOL_CALL
-{"toolName": "ask_user", "args": {"question": "What should I do?"}}
-END_TOOL_CALL`;
+        return makeResponse("Let me clarify the requirements.", [{
+          toolName: "ask_user",
+          args: { question: "What should I do?" },
+        }]);
       }
     };
 
@@ -905,20 +814,17 @@ Deno.test({
       callCount++;
 
       if (callCount === 1 || callCount === 3) {
-        // Calls 1, 3: try L2 tool (denied)
-        return `Let me write.
-TOOL_CALL
-{"toolName": "write_file", "args": {"path": "test.ts", "content": "test"}}
-END_TOOL_CALL`;
+        return makeResponse("Let me write.", [{
+          toolName: "write_file",
+          args: { path: "test.ts", content: "test" },
+        }]);
       } else if (callCount === 2 || callCount === 4) {
-        // Calls 2, 4: use L0 tool (succeeds, resets counter)
-        return `Let me read instead.
-TOOL_CALL
-{"toolName": "read_file", "args": {"path": "test.ts"}}
-END_TOOL_CALL`;
+        return makeResponse("Let me read instead.", [{
+          toolName: "read_file",
+          args: { path: "test.ts" },
+        }]);
       } else {
-        // Call 5: finish
-        return "Done analyzing.";
+        return makeResponse("Done analyzing.");
       }
     };
 
@@ -958,10 +864,10 @@ Deno.test({
     // Mock LLM that keeps trying L2 tool
     const mockLLM = async () => {
       callCount++;
-      return `Let me write.
-TOOL_CALL
-{"toolName": "write_file", "args": {"path": "test.ts", "content": "test"}}
-END_TOOL_CALL`;
+      return makeResponse("Let me write.", [{
+        toolName: "write_file",
+        args: { path: "test.ts", content: "test" },
+      }]);
     };
 
     const result = await runReActLoop(
@@ -999,10 +905,10 @@ Deno.test({
     // Mock LLM that keeps trying L2 tool
     const mockLLM = async () => {
       callCount++;
-      return `Let me write.
-TOOL_CALL
-{"toolName": "write_file", "args": {"path": "test.ts", "content": "test"}}
-END_TOOL_CALL`;
+      return makeResponse("Let me write.", [{
+        toolName: "write_file",
+        args: { path: "test.ts", content: "test" },
+      }]);
     };
 
     const result = await runReActLoop(
@@ -1038,10 +944,10 @@ Deno.test({
 
     // Mock LLM that keeps trying L2 tool
     const mockLLM = async () => {
-      return `Let me write.
-TOOL_CALL
-{"toolName": "write_file", "args": {"path": "test.ts", "content": "test"}}
-END_TOOL_CALL`;
+      return makeResponse("Let me write.", [{
+        toolName: "write_file",
+        args: { path: "test.ts", content: "test" },
+      }]);
     };
 
     await runReActLoop(

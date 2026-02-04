@@ -19,6 +19,51 @@ export const DEFAULT_MODEL_NAME = DEFAULT_MODEL_ID.split("/")[1];
 /** User-customized keybindings (action ID -> key combo) */
 export type KeybindingsConfig = Record<string, string>;
 
+export interface WebSearchProviderConfig {
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+}
+
+export interface WebSearchConfig {
+  enabled?: boolean;
+  provider?: "brave" | "perplexity" | "openrouter" | "serpapi";
+  maxResults?: number;
+  timeoutSeconds?: number;
+  cacheTtlMinutes?: number;
+  brave?: WebSearchProviderConfig;
+  perplexity?: WebSearchProviderConfig;
+  openrouter?: WebSearchProviderConfig;
+  serpapi?: WebSearchProviderConfig;
+}
+
+export interface WebFetchFirecrawlConfig {
+  enabled?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  onlyMainContent?: boolean;
+  maxAgeMs?: number;
+  timeoutSeconds?: number;
+}
+
+export interface WebFetchConfig {
+  enabled?: boolean;
+  maxChars?: number;
+  timeoutSeconds?: number;
+  cacheTtlMinutes?: number;
+  maxRedirects?: number;
+  userAgent?: string;
+  readability?: boolean;
+  firecrawl?: WebFetchFirecrawlConfig;
+}
+
+export interface ToolsConfig {
+  web?: {
+    search?: WebSearchConfig;
+    fetch?: WebFetchConfig;
+  };
+}
+
 export interface HlvmConfig {
   version: number;
   model: string;           // "provider/model" format (e.g., "ollama/llama3.2")
@@ -27,11 +72,61 @@ export interface HlvmConfig {
   maxTokens: number;       // Max response tokens
   theme: string;           // UI theme
   keybindings?: KeybindingsConfig;  // Custom keybindings (optional)
+  tools?: ToolsConfig;              // Tool-specific configuration (optional)
 }
 
 // ============================================================
 // Defaults
 // ============================================================
+
+export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
+  enabled: true,
+  provider: "brave",
+  maxResults: 5,
+  timeoutSeconds: 30,
+  cacheTtlMinutes: 15,
+  brave: { apiKey: "" },
+  perplexity: {
+    apiKey: "",
+    baseUrl: "https://api.perplexity.ai",
+    model: "sonar",
+  },
+  openrouter: {
+    apiKey: "",
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "perplexity/sonar",
+  },
+  serpapi: {
+    apiKey: "",
+    baseUrl: "https://serpapi.com",
+  },
+};
+
+export const DEFAULT_WEB_FETCH_CONFIG: WebFetchConfig = {
+  enabled: true,
+  maxChars: 50000,
+  timeoutSeconds: 30,
+  cacheTtlMinutes: 15,
+  maxRedirects: 3,
+  userAgent:
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  readability: true,
+  firecrawl: {
+    enabled: false,
+    apiKey: "",
+    baseUrl: "https://api.firecrawl.dev",
+    onlyMainContent: true,
+    maxAgeMs: 900000,
+    timeoutSeconds: 30,
+  },
+};
+
+export const DEFAULT_TOOLS_CONFIG: ToolsConfig = {
+  web: {
+    search: { ...DEFAULT_WEB_SEARCH_CONFIG },
+    fetch: { ...DEFAULT_WEB_FETCH_CONFIG },
+  },
+};
 
 export const DEFAULT_CONFIG: HlvmConfig = {
   version: 1,
@@ -40,13 +135,27 @@ export const DEFAULT_CONFIG: HlvmConfig = {
   temperature: 0.7,
   maxTokens: 4096,
   theme: "sicp",
+  tools: {
+    web: {
+      search: {
+        ...DEFAULT_WEB_SEARCH_CONFIG,
+        brave: { ...DEFAULT_WEB_SEARCH_CONFIG.brave },
+        perplexity: { ...DEFAULT_WEB_SEARCH_CONFIG.perplexity },
+        openrouter: { ...DEFAULT_WEB_SEARCH_CONFIG.openrouter },
+      },
+      fetch: {
+        ...DEFAULT_WEB_FETCH_CONFIG,
+        firecrawl: { ...DEFAULT_WEB_FETCH_CONFIG.firecrawl },
+      },
+    },
+  },
 };
 
 // ============================================================
 // Config Keys
 // ============================================================
 
-export const CONFIG_KEYS = ["model", "endpoint", "temperature", "maxTokens", "theme"] as const;
+export const CONFIG_KEYS = ["model", "endpoint", "temperature", "maxTokens", "theme", "tools"] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
 // ============================================================
@@ -114,6 +223,11 @@ export function validateValue(key: ConfigKey, value: unknown): ValidationResult 
       }
       if (!THEME_NAMES.includes(value as typeof THEME_NAMES[number])) {
         return { valid: false, error: `theme must be one of: ${THEME_NAMES.join(", ")}` };
+      }
+      return { valid: true };
+    case "tools":
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { valid: false, error: "tools must be an object" };
       }
       return { valid: true };
 

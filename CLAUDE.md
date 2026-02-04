@@ -8,6 +8,16 @@ Follow `AGENTS.md` for authoritative AI agent instructions.
 
 All code MUST use designated SSOT entry points. Direct calls to `console.*`, `Deno.*`, `fetch()`, or file I/O APIs are **FORBIDDEN**.
 
+## Native Function Calling - MANDATORY
+
+**End-to-end tool calling must be structured. No text-based TOOL_CALL/END_TOOL_CALL envelopes.**
+
+Requirements:
+- Use provider native tool calling (`tool_calls` / structured function calls)
+- Orchestrator consumes structured tool calls directly
+- **No fallback** to text-based envelopes unless explicitly requested
+- Providers without native tool calling should fail fast
+
 ## DRY & KISS - MANDATORY
 
 **No scattered logic. No redundancy. No duplication.**

@@ -29,6 +29,8 @@ export interface AgentSessionOptions {
   policyPath?: string;
   mcpConfigPath?: string;
   autoWeb?: boolean;
+  toolAllowlist?: string[];
+  toolDenylist?: string[];
 }
 
 export interface AgentSession {
@@ -88,7 +90,10 @@ export async function createAgentSession(
   const context = new ContextManager(contextConfig);
   context.addMessage({
     role: "system",
-    content: generateSystemPrompt(),
+    content: generateSystemPrompt({
+      toolAllowlist: options.toolAllowlist,
+      toolDenylist: options.toolDenylist,
+    }),
   });
 
   const llm = options.fixturePath
@@ -100,6 +105,8 @@ export async function createAgentSession(
           "agent_session",
         );
       })(),
+      toolAllowlist: options.toolAllowlist,
+      toolDenylist: options.toolDenylist,
     });
 
   return {

@@ -18,9 +18,12 @@ import { CODE_TOOLS } from "./tools/code-tools.ts";
 import { SHELL_TOOLS } from "./tools/shell-tools.ts";
 import { META_TOOLS } from "./tools/meta-tools.ts";
 import { WEB_TOOLS } from "./tools/web-tools.ts";
+import { MEMORY_TOOLS } from "./tools/memory-tools.ts";
+import { AGENT_TOOLS } from "./tools/agent-tools.ts";
 import { ValidationError } from "../../common/error.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
+import { buildToolJsonSchema, validateArgsAgainstSchema } from "./tool-schema.ts";
 
 // ============================================================
 // Types
@@ -49,6 +52,11 @@ export interface ToolMetadata {
   safety?: string; // Additional safety info
   /** Skip argument validation (used for dynamic tools with unknown schemas) */
   skipValidation?: boolean;
+  /** Optional formatter for tool results (for display/LLM output) */
+  formatResult?: (result: unknown) => {
+    returnDisplay: string;
+    llmContent?: string;
+  } | null;
 }
 
 /** Result of argument validation */
@@ -75,6 +83,8 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...SHELL_TOOLS,
   ...META_TOOLS,
   ...WEB_TOOLS,
+  ...MEMORY_TOOLS,
+  ...AGENT_TOOLS,
 } as Record<string, ToolMetadata>;
 
 /**
@@ -133,6 +143,36 @@ export function getAllTools(): Record<string, ToolMetadata> {
 }
 
 /**
+ * Resolve tools with optional allow/deny filtering.
+ */
+export function resolveTools(
+  options?: { allowlist?: string[]; denylist?: string[] },
+): Record<string, ToolMetadata> {
+  const tools = getAllTools();
+  const allowlist = options?.allowlist?.filter((name) => name in tools) ?? [];
+  if (allowlist.length > 0) {
+    const selected: Record<string, ToolMetadata> = {};
+    for (const name of allowlist) {
+      selected[name] = tools[name];
+    }
+    return selected;
+  }
+
+  const denylist = options?.denylist?.filter((name) => name in tools) ?? [];
+  if (denylist.length > 0) {
+    const selected: Record<string, ToolMetadata> = {};
+    for (const [name, tool] of Object.entries(tools)) {
+      if (!denylist.includes(name)) {
+        selected[name] = tool;
+      }
+    }
+    return selected;
+  }
+
+  return tools;
+}
+
+/**
  * Get tool names by category
  *
  * @returns Categorized tool names
@@ -143,6 +183,8 @@ export function getToolsByCategory(): {
   shell: string[];
   meta: string[];
   web: string[];
+  memory: string[];
+  agent: string[];
   dynamic: string[];
 } {
   return {
@@ -151,6 +193,8 @@ export function getToolsByCategory(): {
     shell: Object.keys(SHELL_TOOLS),
     meta: Object.keys(META_TOOLS),
     web: Object.keys(WEB_TOOLS),
+    memory: Object.keys(MEMORY_TOOLS),
+    agent: Object.keys(AGENT_TOOLS),
     dynamic: Object.keys(DYNAMIC_TOOL_REGISTRY),
   };
 }
@@ -202,41 +246,12 @@ export function validateToolArgs(
   if (tool.skipValidation) {
     return { valid: true };
   }
-  const errors: string[] = [];
-
-  // Check args is an object
   if (!isToolArgsObject(args)) {
-    errors.push("Arguments must be a plain object");
-    return { valid: false, errors };
+    return { valid: false, errors: ["Arguments must be a plain object"] };
   }
 
-  // Extract required argument names from metadata
-  // Format: "name: string - description" or "name: string (optional) - description"
-  const argNames = Object.keys(tool.args);
-  const requiredArgs = argNames.filter((key) => {
-    const value = tool.args[key];
-    return !value.includes("(optional)");
-  });
-
-  // Check required arguments are present
-  const providedArgs = args as Record<string, unknown>;
-  for (const required of requiredArgs) {
-    if (!(required in providedArgs)) {
-      errors.push(`Missing required argument: ${required}`);
-    }
-  }
-
-  // Check for unexpected arguments
-  const validArgNames = argNames;
-  for (const provided of Object.keys(providedArgs)) {
-    if (!validArgNames.includes(provided)) {
-      errors.push(
-        `Unexpected argument: ${provided}. Valid arguments: ${
-          validArgNames.join(", ")
-        }`,
-      );
-    }
-  }
+  const schema = buildToolJsonSchema(tool);
+  const errors = validateArgsAgainstSchema(args, schema);
 
   return {
     valid: errors.length === 0,

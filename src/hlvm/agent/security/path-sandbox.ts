@@ -31,6 +31,28 @@ export class SecurityError extends Error {
 // ============================================================
 
 /**
+ * Check if an absolute path is within a root directory.
+ */
+export function isPathWithinRoot(
+  absolutePath: string,
+  root: string,
+): boolean {
+  const platform = getPlatform();
+  const isWindows = platform.build.os === "windows";
+  const normalizedPath = platform.path.resolve(absolutePath);
+  const normalizedRoot = platform.path.resolve(root);
+
+  const pathForCompare = isWindows ? normalizedPath.toLowerCase() : normalizedPath;
+  const rootForCompare = isWindows ? normalizedRoot.toLowerCase() : normalizedRoot;
+
+  const rootWithSep = rootForCompare.endsWith(platform.path.sep)
+    ? rootForCompare
+    : rootForCompare + platform.path.sep;
+
+  return pathForCompare === rootForCompare || pathForCompare.startsWith(rootWithSep);
+}
+
+/**
  * Validate and normalize a path, ensuring it stays within workspace boundaries
  *
  * Security guarantees:
@@ -78,46 +100,30 @@ export class SecurityError extends Error {
  */
 export async function validatePath(
   path: string,
-  workspaceRoot: string
+  workspaceRoot: string,
+  allowedRoots: string[] = [],
 ): Promise<string> {
   const platform = getPlatform();
-  const isWindows = platform.build.os === "windows";
-
-  // 1. Normalize paths
   const normalizedPath = platform.path.resolve(workspaceRoot, path);
   const normalizedWorkspace = platform.path.resolve(workspaceRoot);
+  const normalizedRoots = allowedRoots.map((root) =>
+    platform.path.resolve(workspaceRoot, root)
+  );
+  const candidateRoots = [normalizedWorkspace, ...normalizedRoots];
+  const matchedRoot = candidateRoots.find((root) =>
+    isPathWithinRoot(normalizedPath, root)
+  );
 
-  const normalizedPathForCompare = isWindows
-    ? normalizedPath.toLowerCase()
-    : normalizedPath;
-  const normalizedWorkspaceForCompare = isWindows
-    ? normalizedWorkspace.toLowerCase()
-    : normalizedWorkspace;
-
-  // 2. Check if path is within workspace (with proper boundary check)
-  const workspaceWithSep = normalizedWorkspaceForCompare.endsWith(
-      platform.path.sep,
-    )
-    ? normalizedWorkspaceForCompare
-    : normalizedWorkspaceForCompare + platform.path.sep;
-
-  const isWithinWorkspace =
-    normalizedPathForCompare === normalizedWorkspaceForCompare ||
-    normalizedPathForCompare.startsWith(workspaceWithSep);
-
-  if (!isWithinWorkspace) {
+  if (!matchedRoot) {
     throw new SecurityError(
       `Path escapes workspace boundary: ${path}`,
-      normalizedPath
+      normalizedPath,
     );
   }
 
   // 3. Validate each component in the path for symlinks
   // Get relative path from workspace and split into components
-  const relativePath = platform.path.relative(
-    isWindows ? normalizedWorkspaceForCompare : normalizedWorkspace,
-    isWindows ? normalizedPathForCompare : normalizedPath,
-  );
+  const relativePath = platform.path.relative(matchedRoot, normalizedPath);
 
   // If path is exactly the workspace root, no components to check
   if (relativePath === "" || relativePath === ".") {
@@ -127,7 +133,7 @@ export async function validatePath(
   const components = relativePath.split(platform.path.sep);
 
   // Validate each component in the path chain
-  let currentPath = normalizedWorkspace;
+  let currentPath = matchedRoot;
   for (const component of components) {
     currentPath = platform.path.join(currentPath, component);
 
@@ -161,9 +167,12 @@ export async function validatePath(
  */
 export async function validatePaths(
   paths: string[],
-  workspaceRoot: string
+  workspaceRoot: string,
+  allowedRoots: string[] = [],
 ): Promise<string[]> {
-  return await Promise.all(paths.map((p) => validatePath(p, workspaceRoot)));
+  return await Promise.all(
+    paths.map((p) => validatePath(p, workspaceRoot, allowedRoots)),
+  );
 }
 
 /**
@@ -176,10 +185,11 @@ export async function validatePaths(
  */
 export async function isPathValid(
   path: string,
-  workspaceRoot: string
+  workspaceRoot: string,
+  allowedRoots: string[] = [],
 ): Promise<boolean> {
   try {
-    await validatePath(path, workspaceRoot);
+    await validatePath(path, workspaceRoot, allowedRoots);
     return true;
   } catch (error) {
     if (error instanceof SecurityError) {

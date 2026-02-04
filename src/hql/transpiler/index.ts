@@ -1,6 +1,7 @@
 // Core transpiler API entry point
 import { transpileToJavascript, transpileToJavascriptWithIR } from "./hql-transpiler.ts";
 import { generateDts } from "./dts-generator.ts";
+import { extractDocstrings } from "../../hlvm/cli/repl/docstring.ts";
 
 export interface TranspileOptions {
   /** Enable verbose logging */
@@ -52,7 +53,8 @@ export async function transpile(
 
     let dts: string;
     try {
-      dts = generateDts(ir);
+      const docstrings = extractDocstrings(source);
+      dts = generateDts(ir, docstrings);
     } catch {
       dts = "export {};\n";
     }

@@ -8,6 +8,7 @@ import { parse } from "../../../hql/transpiler/pipeline/parser.ts";
 import { isList, isSymbol, type SList, type SSymbol } from "../../../hql/s-exp/types.ts";
 import { escapeString } from "./string-utils.ts";
 import { extractFnParams } from "./definition-utils.ts";
+import { extractJsDocBlock, isLineComment, stripLeadingComments } from "./docstring.ts";
 import { getHlvmDir, getMemoryPath } from "../../../common/paths.ts";
 import { getLegacyMemoryPath } from "../../../common/legacy-migration.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -179,17 +180,42 @@ async function readAndParseMemory(): Promise<ParsedDefinition[]> {
   }
 }
 
+function formatDefinition(def: ParsedDefinition): string {
+  if (!def.docstring) return def.code;
+  const block = def.docstring.trimEnd();
+  return `${block}\n${def.code}`;
+}
+
+function buildMemoryContent(definitions: ParsedDefinition[]): string {
+  if (definitions.length === 0) {
+    return MEMORY_HEADER;
+  }
+  const formatted = definitions.map((def) => formatDefinition(def));
+  return MEMORY_HEADER + formatted.join("\n\n") + "\n";
+}
+
+function appendDefinitionToContent(content: string, def: ParsedDefinition): string {
+  if (content.trim().length === 0) {
+    return buildMemoryContent([def]);
+  }
+  let output = content;
+  if (!output.endsWith("\n")) {
+    output += "\n";
+  }
+  if (!output.endsWith("\n\n")) {
+    output += "\n";
+  }
+  return `${output}${formatDefinition(def)}\n`;
+}
+
+function contentHasDefinitions(content: string): boolean {
+  return /\(defn\s+|\(def\s+/.test(content);
+}
+
 /** Write definitions to memory file with header */
 async function writeMemoryFile(definitions: ParsedDefinition[]): Promise<void> {
   await ensureLegacyMemoryMigrated();
-  const formatted = definitions.map((def) => {
-    if (!def.docstring) return def.code;
-    const docLines = def.docstring.split("\n").map((line) => `// ${line}`).join("\n");
-    return `${docLines}\n${def.code}`;
-  });
-  const content = definitions.length > 0
-    ? MEMORY_HEADER + formatted.join("\n\n") + "\n"
-    : MEMORY_HEADER;
+  const content = buildMemoryContent(definitions);
   await getPlatform().fs.writeTextFile(getMemoryFilePath(), content);
 }
 
@@ -201,23 +227,9 @@ function isDefinitionStart(trimmedLine: string): boolean {
   return trimmedLine.startsWith("(def ") || trimmedLine.startsWith("(defn ");
 }
 
-function isDocCommentLine(trimmedLine: string): boolean {
-  return trimmedLine.startsWith("//") || trimmedLine.startsWith(";");
-}
-
-function stripDocCommentPrefix(trimmedLine: string): string {
-  if (trimmedLine.startsWith("//")) {
-    return trimmedLine.startsWith("// ") ? trimmedLine.slice(3) : trimmedLine.slice(2);
-  }
-  if (trimmedLine.startsWith(";")) {
-    return trimmedLine.startsWith("; ") ? trimmedLine.slice(2) : trimmedLine.slice(1);
-  }
-  return trimmedLine;
-}
-
 /**
  * Parse memory.hql content and extract definitions with docstrings.
- * Docstrings are stored as "// " prefixed comment lines above definitions.
+ * Docstrings are stored as JSDoc/TSDoc blocks (starting with `/**` and ending with `* /`).
  * Robust handling: if a new (def or (defn starts before current expression closes,
  * the current expression is malformed - skip it and continue with the new one.
  */
@@ -226,37 +238,41 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
   const lines = content.split("\n");
 
   let i = 0;
-  let pendingDocLines: string[] = []; // Accumulate docstring comment lines
+  let pendingDocBlock: string | null = null;
 
   while (i < lines.length) {
     const trimmed = lines[i].trim();
 
-    // Empty line: reset pending docstring
+    // Empty line: keep pending doc block (allows spacing)
     if (trimmed === "") {
-      pendingDocLines = [];
       i++;
       continue;
     }
 
-    // Comment line: accumulate as potential docstring
-    if (isDocCommentLine(trimmed)) {
-      // Remove comment prefix and store the content
-      const docLine = stripDocCommentPrefix(trimmed);
-      pendingDocLines.push(docLine);
+    if (!pendingDocBlock && trimmed.startsWith("/**")) {
+      const extracted = extractJsDocBlock(lines, i);
+      pendingDocBlock = extracted.block;
+      i = extracted.endIndex + 1;
+      continue;
+    }
+
+    // Non-doc comment lines break doc association
+    if (isLineComment(trimmed)) {
+      pendingDocBlock = null;
       i++;
       continue;
     }
 
     // Only process lines that start a definition
     if (!isDefinitionStart(trimmed)) {
-      pendingDocLines = []; // Reset - not a docstring
+      pendingDocBlock = null; // Reset - not a docstring
       i++;
       continue;
     }
 
     // Found a definition start - capture docstring from pending comments
-    const docstring = pendingDocLines.length > 0 ? pendingDocLines.join("\n") : undefined;
-    pendingDocLines = []; // Reset for next definition
+    const docstring = pendingDocBlock ?? undefined;
+    pendingDocBlock = null; // Reset for next definition
 
     // Extract the complete expression
     const codeLines: string[] = [];
@@ -267,11 +283,17 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
       const currentLine = lines[j];
       const currentTrimmed = currentLine.trim();
 
-      // Skip empty lines and comments within multi-line expressions
-      if (j > i && (currentTrimmed === "" || isDocCommentLine(currentTrimmed))) {
+      // Skip empty lines and line comments within multi-line expressions
+      if (j > i && (currentTrimmed === "" || isLineComment(currentTrimmed))) {
         if (currentTrimmed === "" || currentTrimmed.startsWith("//")) {
           codeLines.push(currentLine);
         }
+        continue;
+      }
+
+      if (j > i && currentTrimmed.startsWith("/**")) {
+        const extracted = extractJsDocBlock(lines, j);
+        j = extracted.endIndex;
         continue;
       }
 
@@ -417,31 +439,6 @@ export async function listMemoryFunctions(): Promise<MemoryFunctionItem[]> {
 }
 
 /**
- * Strip leading comment lines from code.
- * Used to ensure docstring from state is the single source of truth.
- * Also trims leading whitespace from the first code line.
- */
-function stripLeadingComments(code: string): string {
-  const lines = code.split("\n");
-  let startIndex = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    // Skip empty lines and comment lines at the start
-    if (trimmed === "" || isDocCommentLine(trimmed)) {
-      startIndex = i + 1;
-    } else {
-      break;
-    }
-  }
-  // Get remaining lines, trim leading whitespace from first line only
-  const remaining = lines.slice(startIndex);
-  if (remaining.length > 0) {
-    remaining[0] = remaining[0].trimStart();
-  }
-  return remaining.join("\n");
-}
-
-/**
  * Save a definition to memory.hql (overwrites existing definition with same name)
  * For def: stores the serialized VALUE
  * For defn: stores the original source code (comments stripped, docstring from state used)
@@ -449,7 +446,7 @@ function stripLeadingComments(code: string): string {
  * Single source of truth: docstring parameter is canonical, any comments in code are stripped.
  * Auto-deduplicates: if a definition with the same name exists, it's replaced (no duplicates).
  *
- * @param docstring Optional docstring to preserve (stored as comment above definition)
+ * @param docstring Optional JSDoc/TSDoc block to preserve (stored above definition)
  */
 export async function appendToMemory(
   name: string,
@@ -478,17 +475,31 @@ export async function appendToMemory(
   const path = getMemoryFilePath();
   await debugLog(`Memory file path: ${path}`);
 
-  // Read existing definitions, filter out any with same name (auto-overwrite)
+  const existingContent = await readFileIfExists(path);
   const existing = await readAndParseMemory();
   await debugLog(`Existing definitions: ${existing.length}`);
-  const filtered = existing.filter(d => d.name !== name);
 
-  // Add new definition
   const newDef: ParsedDefinition = { kind, name, code, docstring };
+
+  if (existing.length === 0 && existingContent && contentHasDefinitions(existingContent)) {
+    await debugLog("Parse returned 0 definitions but file has content; appending without rewrite");
+    const appended = appendDefinitionToContent(existingContent, newDef);
+    try {
+      await fs().ensureDir(getHlvmDir());
+      await debugLog("ensureDir succeeded");
+      await getPlatform().fs.writeTextFile(path, appended);
+      await debugLog("appendDefinitionToContent succeeded - DONE");
+    } catch (err) {
+      await debugLog(`ERROR in append fallback: ${err}`);
+      throw err;
+    }
+    return;
+  }
+
+  const filtered = existing.filter(d => d.name !== name);
   filtered.push(newDef);
   await debugLog(`Total definitions to write: ${filtered.length}`);
 
-  // Write back (ensures no duplicates)
   try {
     await fs().ensureDir(getHlvmDir());
     await debugLog(`ensureDir succeeded`);

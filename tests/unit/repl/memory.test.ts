@@ -129,6 +129,25 @@ Deno.test("appendToMemory: appends defn with source code", async () => {
   assert(content.includes("(defn testFn [x] (* x 2))"));
 });
 
+Deno.test("appendToMemory: preserves existing content when parse yields no definitions", async () => {
+  await cleanMemory();
+
+  const content = `// HLVM Memory - auto-persisted definitions
+// Edit freely - compacted on REPL startup
+
+/**
+ * Missing end
+(defn existingFn [] 1)
+`;
+  await createMemoryFile(content);
+
+  await appendToMemory("newFn", "defn", "(defn newFn [] 2)");
+
+  const updated = await fs().readTextFile(getMemoryFilePath());
+  assert(updated.includes("(defn existingFn [] 1)"));
+  assert(updated.includes("(defn newFn [] 2)"));
+});
+
 Deno.test("appendToMemory: skips unserializable values", async () => {
   await cleanMemory();
 

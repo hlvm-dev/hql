@@ -78,7 +78,8 @@ Deno.test({
 
     const llm = createFixtureLLM(fixture);
     const response = await llm([{ role: "user", content: "beta task" }]);
-    assertEquals(response, "B1");
+    assertEquals(response.content, "B1");
+    assertEquals(response.toolCalls.length, 0);
   },
 });
 
@@ -126,7 +127,7 @@ Deno.test({
 
     const llm = createFixtureLLM(fixture);
     const response = await llm([{ role: "user", content: "any" }]);
-    assertEquals(response, "only");
+    assertEquals(response.content, "only");
 
     await assertRejects(
       async () => await llm([{ role: "user", content: "any" }]),

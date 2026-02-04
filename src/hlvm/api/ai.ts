@@ -20,6 +20,7 @@ import {
   type Message,
   type GenerateOptions,
   type ChatOptions,
+  type ChatStructuredResponse,
   type ModelInfo,
   type PullProgress,
   type ProviderStatus,
@@ -105,6 +106,33 @@ function createAiApi() {
       };
 
       yield* provider.chat(messages, opts);
+    },
+
+    /**
+     * Chat completion returning structured response (non-streaming).
+     * Uses native tool calling when available.
+     */
+    chatStructured: async function (
+      messages: Message[],
+      options?: ChatOptions & { signal?: AbortSignal }
+    ): Promise<ChatStructuredResponse> {
+      const provider = getProviderOrThrow(options?.model);
+
+      const [, modelName] = parseModelString(options?.model || "");
+      const opts: ChatOptions = {
+        ...options,
+        model: modelName || undefined,
+        raw: options?.signal ? { signal: options.signal } : undefined,
+      };
+
+      if (!provider.chatStructured) {
+        throw new ValidationError(
+          `Provider "${provider.name}" does not support native tool calling.`,
+          "ai_chat_structured",
+        );
+      }
+
+      return await provider.chatStructured(messages, opts);
     },
 
     /**

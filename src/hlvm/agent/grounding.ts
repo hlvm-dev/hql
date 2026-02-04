@@ -30,7 +30,6 @@ interface GroundingCheckResult {
 const TOOL_NAME_PATTERN = "[a-zA-Z0-9_-]{2,}";
 
 const TOOL_CLAIM_PATTERNS: RegExp[] = [
-  new RegExp(`TOOL_CALL\\s*[:\\s]+(${TOOL_NAME_PATTERN})`, "g"),
   new RegExp(`\\bTool:\\s*(${TOOL_NAME_PATTERN})`, "gi"),
   new RegExp(`\\btool\\s+call\\s*[:\\s]+(${TOOL_NAME_PATTERN})`, "gi"),
   new RegExp(`"(${TOOL_NAME_PATTERN})"\\s+tool`, "gi"),
@@ -74,18 +73,13 @@ export function checkGrounding(
     );
   }
 
-  // Rule 1c: TOOL_CALL markers should only appear in tool envelopes
-  if (/\bTOOL_CALL\b/.test(response)) {
-    warnings.push(
-      "Response includes 'TOOL_CALL' outside the required tool envelope.",
-    );
-  }
-
   // Rule 1d: Unknown tool names should never be claimed
   const claimedTools = extractClaimedToolNames(response);
   if (claimedTools.length > 0) {
     const knownTools = new Set(Object.keys(getAllTools()));
-    const unknownTools = claimedTools.filter((name) => !knownTools.has(name));
+    const unknownTools = claimedTools.filter(
+      (name) => !knownTools.has(name) && /[_-]/.test(name),
+    );
     if (unknownTools.length > 0) {
       warnings.push(
         `Response references unknown tool(s): ${unknownTools.join(", ")}.`,

@@ -19,6 +19,7 @@ interface ClassInfo {
 
 interface ExportInfo {
   name: string;
+  localName?: string;
   kind: "function" | "variable" | "class" | "default";
   params?: string[];
   isAsync?: boolean;
@@ -86,6 +87,7 @@ function extractExports(program: IR.IRProgram): ExportInfo[] {
           const fnInfo = definedFunctions.get(localName)!;
           exports.push({
             name,
+            localName,
             kind: "function",
             params: fnInfo.params,
             isAsync: fnInfo.isAsync,
@@ -94,11 +96,12 @@ function extractExports(program: IR.IRProgram): ExportInfo[] {
           const classInfo = definedClasses.get(localName)!;
           exports.push({
             name,
+            localName,
             kind: "class",
             classInfo,
           });
         } else {
-          exports.push({ name, kind: "variable" });
+          exports.push({ name, localName, kind: "variable" });
         }
       }
     } else if (node.type === IR.IRNodeType.ExportDefaultDeclaration) {
@@ -111,12 +114,13 @@ function extractExports(program: IR.IRProgram): ExportInfo[] {
           const fnInfo = definedFunctions.get(name)!;
           exports.push({
             name: "default",
+            localName: name,
             kind: "default",
             params: fnInfo.params,
             isAsync: fnInfo.isAsync,
           });
         } else {
-          exports.push({ name: "default", kind: "default" });
+          exports.push({ name: "default", localName: name, kind: "default" });
         }
       } else if (declaration.type === IR.IRNodeType.FunctionExpression) {
         const fn = declaration as IR.IRFunctionExpression;
@@ -144,10 +148,18 @@ function extractExports(program: IR.IRProgram): ExportInfo[] {
 /**
  * Generate TypeScript declaration content from export information
  */
-function generateDeclarationContent(exports: ExportInfo[]): string {
+function generateDeclarationContent(
+  exports: ExportInfo[],
+  docstrings?: Map<string, string>
+): string {
   const lines: string[] = [];
 
   for (const exp of exports) {
+    const lookupName = exp.localName || exp.name;
+    if (docstrings?.has(lookupName)) {
+      lines.push(docstrings.get(lookupName)!);
+    }
+
     if (exp.kind === "default") {
       if (exp.params) {
         const paramStr = exp.params.map(p => `${p}: any`).join(", ");
@@ -189,7 +201,10 @@ function generateDeclarationContent(exports: ExportInfo[]): string {
 /**
  * Generate TypeScript declaration file content from an IR program
  */
-export function generateDts(program: IR.IRProgram): string {
+export function generateDts(
+  program: IR.IRProgram,
+  docstrings?: Map<string, string>
+): string {
   const exports = extractExports(program);
-  return generateDeclarationContent(exports);
+  return generateDeclarationContent(exports, docstrings);
 }

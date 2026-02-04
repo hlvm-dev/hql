@@ -53,19 +53,6 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Grounding: TOOL_CALL token outside envelope -> warning",
-  fn() {
-    const result = checkGrounding(
-      "TOOL_CALL: html-parse, URL: https://example.com",
-      [],
-    );
-    assertEquals(result.grounded, false);
-    assert(result.warnings.length >= 1);
-    assertStringIncludes(result.warnings.join("\n"), "TOOL_CALL");
-  },
-});
-
-Deno.test({
   name: "Grounding: unknown tool mention -> warning",
   fn() {
     const result = checkGrounding(
