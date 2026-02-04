@@ -82,6 +82,7 @@ OPTIONS:
   --max-calls <n>              Maximum tool calls (default: 10)
   --trace                      Enable trace mode (show tool calls and results)
   --trace-full                 Show full trace outputs (no truncation)
+  --verbose, --debug           Show agent header, tool labels, and stats
   --fail-on-context-overflow   Fail instead of trimming when context exceeds max tokens
   --engine-strict              Deterministic profile (strict grounding, fail on overflow, lower context budget)
   --plan                       Enable explicit planning (always)
@@ -142,6 +143,7 @@ export async function askCommand(args: string[]): Promise<void> {
   let maxCallsProvided = false;
   let traceMode = false;
   let traceFull = false;
+  let verbose = false;
   let failOnContextOverflow = false;
   let engineStrict = false;
   let noInput = false;
@@ -185,6 +187,8 @@ export async function askCommand(args: string[]): Promise<void> {
     } else if (arg === "--trace-full") {
       traceMode = true;
       traceFull = true;
+    } else if (arg === "--verbose" || arg === "--debug") {
+      verbose = true;
     } else if (arg === "--fail-on-context-overflow") {
       failOnContextOverflow = true;
     } else if (arg === "--engine-strict") {
@@ -470,12 +474,20 @@ export async function askCommand(args: string[]): Promise<void> {
     }
     : undefined;
 
+  if (traceMode) {
+    verbose = true;
+  }
+
   const toolJsonOutput = outputFormat === "tool";
   const onToolDisplay = !traceMode && outputFormat === "text"
     ? (event: ToolDisplay) => {
       if (event.toolName === "ask_user") return;
-      const label = event.success ? "Tool Result" : "Tool Error";
-      log.raw.log(`\n[${label}] ${event.toolName}\n${event.content}\n`);
+      if (verbose) {
+        const label = event.success ? "Tool Result" : "Tool Error";
+        log.raw.log(`\n[${label}] ${event.toolName}\n${event.content}\n`);
+      } else {
+        log.raw.log(`${event.content}\n`);
+      }
     }
     : toolJsonOutput
     ? (event: ToolDisplay) => {
@@ -490,8 +502,8 @@ export async function askCommand(args: string[]): Promise<void> {
     }
     : undefined;
 
-  const verboseOutput = outputFormat === "text";
-  if (verboseOutput) {
+  const textOutput = outputFormat === "text";
+  if (textOutput && verbose) {
     // Show what we're doing
     log.raw.log(`\nAgent: ${query}\n`);
   }
@@ -541,14 +553,18 @@ export async function askCommand(args: string[]): Promise<void> {
         model,
         useModel: !fixturePath,
       });
-      if (verboseOutput) {
+      if (textOutput) {
         const stats = session.context.getStats();
         const suppressFinal = stats.toolMessages > 0 &&
           shouldSuppressFinalResponse(formatted);
         if (!suppressFinal) {
-          // Display result
-          log.raw.log(`\nResult:\n${formatted}\n`);
-          // Show stats
+          if (verbose) {
+            log.raw.log(`\nResult:\n${formatted}\n`);
+          } else {
+            log.raw.log(`${formatted}\n`);
+          }
+        }
+        if (verbose) {
           log.raw.log(
             `[Stats: ${stats.messageCount} messages, ${stats.estimatedTokens} tokens, ${stats.toolMessages} tool messages]`,
           );
