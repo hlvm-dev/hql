@@ -115,6 +115,21 @@ function buildToolResultOutputs(
   return { llmContent, returnDisplay };
 }
 
+function buildToolObservation(
+  toolCall: ToolCall,
+  toolResult: ToolExecutionResult,
+): { observation: string; resultText: string } {
+  const resultText = toolResult.success
+    ? toolResult.llmContent ?? stringifyToolResult(toolResult.result)
+    : `ERROR: ${toolResult.error}`;
+
+  const observation = toolResult.success
+    ? `Tool: ${toolCall.toolName}\nResult: ${resultText}`
+    : `Tool: ${toolCall.toolName}\nError: ${toolResult.error}`;
+
+  return { observation, resultText };
+}
+
 function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
   const entries = Object.entries(args).filter(([, value]) =>
     value !== undefined
@@ -720,7 +735,7 @@ async function runAutoWebDrilldown(
   request: string,
   baseResult: unknown,
   config: OrchestratorConfig,
-  record: (call: ToolCall, result: ToolExecutionResult) => string,
+  record: (call: ToolCall, result: ToolExecutionResult) => void,
 ): Promise<Array<{ call: ToolCall; result: ToolExecutionResult }>> {
   const url = extractUrlFromText(request);
   if (!url) return [];
@@ -1382,6 +1397,8 @@ export async function processAgentResponse(
   toolCallsMade: number;
   results: ToolExecutionResult[];
   toolCalls: ToolCall[]; // Added for per-tool denial tracking (Issue #6)
+  toolUses: ToolUse[];
+  toolBytes: number;
   shouldContinue: boolean;
   finalResponse?: string;
 }> {
@@ -1411,6 +1428,8 @@ export async function processAgentResponse(
       toolCallsMade: 0,
       results: [],
       toolCalls: [],
+      toolUses: [],
+      toolBytes: 0,
       shouldContinue: false,
       finalResponse: content,
     };
@@ -1436,22 +1455,24 @@ export async function processAgentResponse(
   // Execute tool calls
   const results = await executeToolCalls(hintedCalls, config);
 
-  // Add tool results to context
+  // Add tool results to context + gather tool uses
+  const toolUses: ToolUse[] = [];
+  let toolBytes = 0;
+  const encoder = new TextEncoder();
   for (let i = 0; i < results.length; i++) {
     const call = hintedCalls[i];
     const result = results[i];
-
-    const resultText = result.success
-      ? result.llmContent ?? stringifyToolResult(result.result)
-      : `ERROR: ${result.error}`;
-    const observation = result.success
-      ? `Tool: ${call.toolName}\nResult: ${resultText}`
-      : `Tool: ${call.toolName}\nError: ${result.error}`;
+    const { observation, resultText } = buildToolObservation(call, result);
 
     addContextMessage(config, {
       role: "tool",
       content: observation,
     });
+    toolUses.push({
+      toolName: call.toolName,
+      result: resultText ?? "",
+    });
+    toolBytes += encoder.encode(resultText ?? "").length;
 
     if (result.success && isSearchToolName(call.toolName) && isEmptySearchResult(result.result)) {
       addContextMessage(config, {
@@ -1480,6 +1501,8 @@ export async function processAgentResponse(
     toolCallsMade: results.length,
     results,
     toolCalls: hintedCalls, // Return executed tool calls for denial tracking
+    toolUses,
+    toolBytes,
     shouldContinue: completeIndex < 0,
     finalResponse,
   };
@@ -1688,6 +1711,32 @@ export async function runReActLoop(
   let totalToolResultBytes = 0;
   const encoder = new TextEncoder();
 
+  const updateToolResultBytes = (delta: number): void => {
+    totalToolResultBytes += delta;
+    if (maxToolResultBytes > 0) {
+      try {
+        assertMaxBytes(
+          "total tool result bytes",
+          totalToolResultBytes,
+          maxToolResultBytes,
+        );
+      } catch (error) {
+        config.onTrace?.({
+          type: "resource_limit",
+          kind: "tool_result_bytes",
+          limit: maxToolResultBytes,
+          used: totalToolResultBytes,
+        });
+        emitMetric(config, "resource_limit", {
+          kind: "tool_result_bytes",
+          limit: maxToolResultBytes,
+          used: totalToolResultBytes,
+        });
+        throw error;
+      }
+    }
+  };
+
   const toolUses: ToolUse[] = [];
   let groundingRetries = 0;
   const maxGroundingRetries = groundingMode === "strict" ? 1 : 0;
@@ -1717,48 +1766,14 @@ export async function runReActLoop(
   const recordAutoWebResult = (
     toolCall: ToolCall,
     toolResult: ToolExecutionResult,
-  ): string => {
-    const resultText = toolResult.success
-      ? toolResult.llmContent ?? stringifyToolResult(toolResult.result)
-      : `ERROR: ${toolResult.error}`;
-
-    const observation = toolResult.success
-      ? `Tool: ${toolCall.toolName}\nResult: ${resultText}`
-      : `Tool: ${toolCall.toolName}\nError: ${toolResult.error}`;
-
+  ): void => {
+    const { observation, resultText } = buildToolObservation(toolCall, toolResult);
     addContextMessage(config, { role: "tool", content: observation });
-
     toolUses.push({
       toolName: toolCall.toolName,
       result: resultText ?? "",
     });
-
-    const bytes = encoder.encode(resultText ?? "").length;
-    totalToolResultBytes += bytes;
-    if (maxToolResultBytes > 0) {
-      try {
-        assertMaxBytes(
-          "total tool result bytes",
-          totalToolResultBytes,
-          maxToolResultBytes,
-        );
-      } catch (error) {
-        config.onTrace?.({
-          type: "resource_limit",
-          kind: "tool_result_bytes",
-          limit: maxToolResultBytes,
-          used: totalToolResultBytes,
-        });
-        emitMetric(config, "resource_limit", {
-          kind: "tool_result_bytes",
-          limit: maxToolResultBytes,
-          used: totalToolResultBytes,
-        });
-        throw error;
-      }
-    }
-
-    return resultText;
+    updateToolResultBytes(encoder.encode(resultText ?? "").length);
   };
 
   if (autoWebEnabled) {
@@ -2313,41 +2328,10 @@ export async function runReActLoop(
     }
 
     // Track tool uses for grounding checks
-    for (let i = 0; i < result.toolCalls.length; i++) {
-      const call = result.toolCalls[i];
-      const toolResult = result.results[i];
-      const resultText = toolResult.success
-        ? toolResult.llmContent ?? stringifyToolResult(toolResult.result)
-        : `ERROR: ${toolResult.error}`;
-
-      toolUses.push({
-        toolName: call.toolName,
-        result: resultText ?? "",
-      });
-
-      const bytes = encoder.encode(resultText ?? "").length;
-      totalToolResultBytes += bytes;
-      if (maxToolResultBytes > 0) {
-        try {
-          assertMaxBytes(
-            "total tool result bytes",
-            totalToolResultBytes,
-            maxToolResultBytes,
-          );
-        } catch (error) {
-          config.onTrace?.({
-            type: "resource_limit",
-            kind: "tool_result_bytes",
-            limit: maxToolResultBytes,
-            used: totalToolResultBytes,
-          });
-          emitMetric(config, "resource_limit", {
-            kind: "tool_result_bytes",
-            limit: maxToolResultBytes,
-            used: totalToolResultBytes,
-          });
-          throw error;
-        }
+    if (result.toolUses.length > 0) {
+      toolUses.push(...result.toolUses);
+      if (result.toolBytes > 0) {
+        updateToolResultBytes(result.toolBytes);
       }
     }
     if (result.toolCallsMade > 0) {

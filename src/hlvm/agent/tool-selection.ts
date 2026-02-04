@@ -6,6 +6,12 @@
  */
 
 import { getToolsByCategory } from "./registry.ts";
+import {
+  hasFileExtension,
+  hasPathLike,
+  inferFilePattern,
+  inferNamedFolderPath,
+} from "./request-patterns.ts";
 
 export interface ToolSelectionOptions {
   autoWeb?: boolean;
@@ -20,9 +26,6 @@ const FILE_KEYWORDS = [
   "directories",
   "path",
   "paths",
-  "download",
-  "downloads",
-  "pdf",
   "doc",
   "docx",
   "xls",
@@ -98,14 +101,6 @@ function hasAnyKeyword(text: string, keywords: string[]): boolean {
   return keywords.some((keyword) => text.includes(keyword));
 }
 
-function hasPathLike(text: string): boolean {
-  return /(~\/|\.\/|\.\.\/|\/|\\|[A-Za-z]:\\)/.test(text);
-}
-
-function hasFileExtension(text: string): boolean {
-  return /\.[a-z0-9]{2,4}\b/.test(text);
-}
-
 export function selectToolAllowlist(
   request: string,
   options: ToolSelectionOptions = {},
@@ -114,8 +109,10 @@ export function selectToolAllowlist(
   const categories = getToolsByCategory();
   const selected = new Set<string>(categories.meta);
 
-  const wantsFiles = hasPathLike(lower) ||
-    hasFileExtension(lower) ||
+  const wantsFiles = hasPathLike(request) ||
+    hasFileExtension(request) ||
+    inferNamedFolderPath(lower) !== undefined ||
+    inferFilePattern(lower) !== undefined ||
     hasAnyKeyword(lower, FILE_KEYWORDS);
   const wantsCode = hasAnyKeyword(lower, CODE_KEYWORDS);
   const wantsShell = hasAnyKeyword(lower, SHELL_KEYWORDS);
