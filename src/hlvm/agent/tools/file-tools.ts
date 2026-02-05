@@ -648,7 +648,9 @@ Examples:
    → list_files({path: "src", recursive: true, pattern: "*.ts"})
 2. "show images in Downloads"
    → list_files({path: "~/Downloads", recursive: true, mimePrefix: "image/"})
-3. "list PDF files in Documents"
+3. "list all images in Downloads"
+   → list_files({path: "~/Downloads", recursive: true, mimePrefix: "image/"})
+4. "list PDF files in Documents"
    → list_files({path: "~/Documents", pattern: "*.pdf"})`,
     safetyLevel: "L0",
     formatResult: formatListFilesResult,

@@ -116,7 +116,7 @@ export async function validatePath(
 
   if (!matchedRoot) {
     throw new SecurityError(
-      `Path escapes workspace boundary: ${path}`,
+      `Path escapes workspace boundary: ${path}. Use a path inside the workspace or allowed roots like "~/Downloads", "~/Desktop", or "~/Documents".`,
       normalizedPath,
     );
   }

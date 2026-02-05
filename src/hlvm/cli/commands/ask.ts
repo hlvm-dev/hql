@@ -149,7 +149,13 @@ export async function askCommand(args: string[]): Promise<void> {
     engineProfile: "normal",
     failOnContextOverflow: false,
     toolAllowlist,
-    toolDenylist: ["delegate_agent"],
+    toolDenylist: [
+      "delegate_agent",
+      "memory_add",
+      "memory_search",
+      "memory_list",
+      "memory_clear",
+    ],
   });
 
   let sessionEntry: AgentSessionEntry | null = null;
@@ -159,6 +165,12 @@ export async function askCommand(args: string[]): Promise<void> {
   for (const message of historyMessages) {
     session.context.addMessage({ ...message, fromSession: true });
   }
+
+  session.context.addMessage({
+    role: "system",
+    content:
+      `Allowed file roots: ${DEFAULT_AGENT_PATH_ROOTS.join(", ")}. Use list_files for user folders.`,
+  });
 
   let policy = session.policy;
   policy = mergePolicyPathRoots(policy, DEFAULT_AGENT_PATH_ROOTS);

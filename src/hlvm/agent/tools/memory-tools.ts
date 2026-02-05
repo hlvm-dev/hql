@@ -71,7 +71,8 @@ async function memoryClear(): Promise<Record<string, unknown>> {
 export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
   memory_add: {
     fn: async (args) => await memoryAdd(args),
-    description: "Store a memory entry for future retrieval",
+    description:
+      "Store a memory entry for future retrieval. Use only when the user explicitly asks to remember something.",
     args: {
       content: "string - Memory content to store",
       tags: "string[] (optional) - Tags for retrieval",
@@ -87,7 +88,8 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
   },
   memory_search: {
     fn: async (args) => await memorySearch(args),
-    description: "Search stored memory entries by query",
+    description:
+      "Search stored memory entries by query. Use only when the user asks to recall memory.",
     args: {
       query: "string - Search query",
       limit: "number (optional) - Max results (default: 5)",
@@ -101,7 +103,8 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
   },
   memory_list: {
     fn: async (args) => await memoryList(args),
-    description: "List recent memory entries",
+    description:
+      "List recent memory entries. Use only when the user asks to view memory.",
     args: {
       limit: "number (optional) - Max results (default: 50)",
     },
@@ -114,7 +117,8 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
   },
   memory_clear: {
     fn: async () => await memoryClear(),
-    description: "Clear all stored memory entries",
+    description:
+      "Clear all stored memory entries. Use only when the user asks to clear memory.",
     args: {},
     returns: {
       cleared: "boolean",

@@ -605,7 +605,8 @@ export const CODE_TOOLS = {
   },
   get_structure: {
     fn: getStructure,
-    description: "Get directory tree structure",
+    description:
+      "Get directory tree structure for the workspace (codebase). Use list_files for user folders like ~/Downloads.",
     safetyLevel: "L0",
     args: {
       path: "string (optional) - Directory to get structure for (default: workspace root)",

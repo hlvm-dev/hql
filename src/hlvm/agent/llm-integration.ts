@@ -263,6 +263,16 @@ ${returnsBlock}**Safety Level:** ${meta.safetyLevel || meta.safety || "L2"}
 - Direct response is OK for: greetings, simple math, clarifying questions, or general conversation
 - Use ONLY the tools listed below. Do NOT invent tools.
 
+# File & Path Guidance
+- For listing files in user folders, use list_files (not get_structure).
+- Common user folders: "~/Downloads", "~/Desktop", "~/Documents".
+- Avoid OS-specific guesses like "/home/user" or "/Downloads" unless explicitly provided by the user.
+- For totals, counts, max/min, or other aggregations, use aggregate_entries on prior tool results.
+
+# Memory Tools (Important)
+- Use memory_* tools ONLY when the user explicitly asks to remember, store, recall, or clear memory.
+- Do NOT store transient errors or tool failures in memory.
+
 # Delegation (Multi-Agent)
 - You may delegate a subtask using the delegate_agent tool when specialized expertise is helpful.
 - Prefer delegation for focused tasks (web research, code analysis, shell work, memory lookup).
