@@ -1,36 +1,38 @@
 # Function Feature Documentation
 
-**Implementation:** Transpiler function syntax transformers
-**Coverage:** ✅ 100%
+**Implementation:** `src/hql/transpiler/syntax/function.ts`, `src/hql/transpiler/pipeline/transform/async-generators.ts`
 
-> **📋 Source of Truth:** See [`spec.md`](./spec.md) for the definitive THESIS on function parameter syntax (two styles: `[]` positional and `{}` JSON map).
+> See [`spec.md`](./spec.md) for the definitive reference on function parameter syntax.
 
 ## Overview
 
-HQL provides comprehensive function support with modern features:
+HQL provides function support with these features:
 
-1. **Basic functions** - Named and anonymous functions
-2. **Arrow lambda shorthand** - Concise `=>` syntax with `$0, $1, $2` params
-3. **Default parameters** - Optional arguments with default values
-4. **Rest parameters** - Variable-length argument lists (`& rest`)
-5. **JSON map parameters** - Config-style functions with `{key: default}` syntax
-6. **Placeholders** - Skip arguments with `_` to use defaults
-7. **Return statements** - Explicit and implicit returns
-8. **Closures** - Functions capturing outer scope
-9. **Higher-order functions** - Functions as arguments/return values
-10. **Recursive functions** - Self-referencing functions
-11. **Generator functions** - `fn*` with `yield`/`yield*` (v2.0)
-12. **Async generators** - `async fn*` for async iteration (v2.0)
+1. **Basic functions** - Named and anonymous functions via `fn`
+2. **defn** - Alias for `fn` (used in REPL memory persistence)
+3. **Arrow lambda shorthand** - Concise `=>` syntax with `$0, $1, $2` params
+4. **Default parameters** - Optional arguments with default values in positional params `[x = 10]`
+5. **Rest parameters** - Variable-length argument lists (`& rest`)
+6. **JSON map parameters** - Config-style functions with `{key: default}` syntax
+7. **Placeholders** - Skip arguments with `_` to use defaults (positional only)
+8. **Multi-arity functions** - Different implementations per argument count
+9. **Return statements** - Explicit and implicit returns
+10. **Closures** - Functions capturing outer scope
+11. **Higher-order functions** - Functions as arguments/return values
+12. **Recursive functions** - Self-referencing functions
+13. **Type annotations** - Parameter and return type annotations
+14. **Generic type parameters** - `<T>` syntax on function names
+15. **Destructuring parameters** - Array/object patterns in parameter lists
+16. **Generator functions** - `fn*` with `yield`/`yield*`
+17. **Async generators** - `async fn*` for async iteration
 
-All functions compile to JavaScript functions with full ES6+ support.
+All functions compile to JavaScript functions with ES6+ support.
 
 ## Syntax Flexibility
 
-HQL supports **both Lisp-style and JavaScript-style syntax** for maximum compatibility:
+HQL supports both Lisp-style and JSON-style syntax for map parameters and data literals:
 
-### ✅ Preferred: Pure Lisp Style
-
-**Use this in HQL codebases** for concise, elegant code:
+### Lisp Style (Preferred)
 
 ```lisp
 // Map parameters - unquoted keys, no commas
@@ -47,9 +49,7 @@ HQL supports **both Lisp-style and JavaScript-style syntax** for maximum compati
 {name: "Alice" age: 25 city: "NYC"}
 ```
 
-### ✅ Also Supported: Strict JSON Style
-
-**Perfect for copy-pasting** from APIs or JSON configs:
+### JSON Style (Also Supported)
 
 ```lisp
 // Map parameters - quoted keys, commas
@@ -66,15 +66,7 @@ HQL supports **both Lisp-style and JavaScript-style syntax** for maximum compati
 {"name": "Alice", "age": 25, "city": "NYC"}
 ```
 
-### 🎨 Why Both?
-
-Following **Clojure's proven approach** (15+ years production use):
-- **Maximum compatibility:** Copy-paste JSON works immediately
-- **Developer choice:** Write what feels natural
-- **No cost:** Both compile to identical JavaScript
-- **Best of both worlds:** Lisp elegance + JS familiarity
-
-**Recommendation:** Use Lisp style for new code (examples below use this). JSON style works anytime for compatibility.
+Both styles compile to identical JavaScript.
 
 ---
 
@@ -87,11 +79,11 @@ Following **Clojure's proven approach** (15+ years production use):
 (fn add [a b]
   (+ a b))
 
-(add 3 5)  // → 8
+(add 3 5)  // => 8
 
 // Anonymous function
 (let square (fn [x] (* x x)))
-(square 5)  // → 25
+(square 5)  // => 25
 
 // No parameters
 (fn get-value []
@@ -102,94 +94,88 @@ Following **Clojure's proven approach** (15+ years production use):
   (* x 2))
 ```
 
+### defn (Alias for fn)
+
+`defn` is an alias for `fn`, primarily used for REPL memory persistence:
+
+```lisp
+(defn add [a b]
+  (+ a b))
+
+// Equivalent to:
+(fn add [a b]
+  (+ a b))
+```
+
 ### Arrow Lambda Shorthand (`=>`)
 
-HQL provides concise arrow lambda syntax with Swift-style `$N` parameters:
+Concise arrow lambda syntax with Swift-style `$N` parameters:
 
 ```lisp
 // Implicit parameters ($0, $1, $2...)
 (let double (=> (* $0 2)))
-(double 5)  // → 10
+(double 5)  // => 10
 
 (let add (=> (+ $0 $1)))
-(add 3 7)   // → 10
+(add 3 7)   // => 10
 
 // With map/filter/reduce
-(map (=> (* $0 2)) [1 2 3 4 5])        // → [2 4 6 8 10]
-(filter (=> (> $0 5)) [1 3 6 8 2 9])   // → [6 8 9]
-(reduce (=> (+ $0 $1)) 0 [1 2 3 4 5])  // → 15
+(map (=> (* $0 2)) [1 2 3 4 5])        // => [2 4 6 8 10]
+(filter (=> (> $0 5)) [1 3 6 8 2 9])   // => [6 8 9]
+(reduce (=> (+ $0 $1)) 0 [1 2 3 4 5])  // => 15
 
 // Member access
 (let users [{name: "Alice"}, {name: "Bob"}])
-(map (=> ($0.name)) users)  // → ["Alice", "Bob"]
+(map (=> ($0.name)) users)  // => ["Alice", "Bob"]
 
-// Explicit parameters (traditional style)
+// Explicit parameters (both bracket and paren syntax work)
 (let square (=> [x] (* x x)))
-(square 7)  // → 49
+(square 7)  // => 49
 
-(let multiply (=> [x y] (* x y)))
-(multiply 6 7)  // → 42
+(let multiply (=> (x y) (* x y)))
+(multiply 6 7)  // => 42
 
 // Zero parameters
-(let get-value (=> [] 42))
-(get-value)  // → 42
+(let get-value (=> () 42))
+(get-value)  // => 42
 ```
 
-**When to use arrow lambdas:**
-- ✅ Short inline lambdas in `map`/`filter`/`reduce`
-- ✅ Single-expression functions
-- ✅ Quick transformations
+### Default Parameters (Positional Style)
 
-**When to use `fn`:**
-- ✅ Named functions
-- ✅ Multi-line bodies
-- ✅ Complex logic
-- ✅ When parameter names improve readability
-
-See `arrow-lambda-examples.hql` for more examples.
-
-### Default Parameters (Use Map Syntax)
-
-For functions with default values, use map parameter syntax:
+Default values use `=` syntax inside positional parameter lists:
 
 ```lisp
-// All defaults - map params with Lisp style
-(fn multiply {x: 10 y: 20}
+(fn multiply [x = 10 y = 20]
   (* x y))
 
-(multiply)                // → 200 (10 * 20)
-(multiply {x: 5})         // → 100 (5 * 20)
-(multiply {x: 5 y: 3})    // → 15  (5 * 3)
-(multiply {y: 7})         // → 70  (10 * 7)
-
-// JSON style also works (for copy-paste compatibility)
-(multiply {"x": 5, "y": 3})  // → 15 (same result)
+(multiply)          // => 200 (10 * 20)
+(multiply 5)        // => 100 (5 * 20)
+(multiply 5 3)      // => 15  (5 * 3)
+(multiply _ 7)      // => 70  (10 * 7) - placeholder skips to default
 ```
 
-### Map Parameters
+### JSON Map Parameters
 
-For config-style functions with many parameters, use map syntax:
+For config-style functions with many parameters, use map syntax. All keys must have defaults:
 
 ```lisp
-// All keys have defaults - Lisp style
 (fn connect {host: "localhost" port: 8080 ssl: false}
   (if ssl
     (+ "https://" host ":" port)
     (+ "http://" host ":" port)))
 
 // Call with all defaults
-(connect)  // → "http://localhost:8080"
+(connect)  // => "http://localhost:8080"
 
 // Override specific keys
 (connect {host: "api.example.com" ssl: true port: 443})
-// → "https://api.example.com:443"
+// => "https://api.example.com:443"
 
 // Partial override
-(connect {port: 3000})  // → "http://localhost:3000"
+(connect {port: 3000})  // => "http://localhost:3000"
 
 // JSON style also works
 (connect {"host": "api.example.com", "ssl": true, "port": 443})
-// → "https://api.example.com:443" (same result)
 ```
 
 ### Rest Parameters
@@ -199,27 +185,83 @@ For config-style functions with many parameters, use map syntax:
 (fn sum [& rest]
   (.reduce rest (fn [acc val] (+ acc val)) 0))
 
-(sum 1 2 3 4 5)  // → 15
+(sum 1 2 3 4 5)  // => 15
 
 // With regular params
 (fn sum [x y & rest]
   (+ x y (.reduce rest (fn [acc val] (+ acc val)) 0)))
 
-(sum 10 20 1 2 3)  // → 36
+(sum 10 20 1 2 3)  // => 36
 ```
 
-### Partial Application with Maps
+### Placeholders
+
+Use `_` to skip arguments and use their default values (positional params with defaults only):
 
 ```lisp
-// With maps, omit keys to use defaults
-(fn multiply {x: 10 y: 20}
-  (* x y))
+(fn calc [a = 1 b = 2 c = 3 d = 4]
+  (+ a b c d))
 
-(multiply {y: 5})   // → 50 (uses x default, provides y)
-(multiply {x: 3})   // → 60 (provides x, uses y default)
+(calc _ _ 30 _)  // => 37 (a=1, b=2, c=30, d=4)
+(calc _ _ _ _)   // => 10 (all defaults: 1 + 2 + 3 + 4)
+```
 
-// JSON style also works
-(multiply {"y": 5})   // → 50 (same result)
+### Multi-Arity Functions
+
+Define different implementations based on argument count:
+
+```lisp
+// Named multi-arity
+(fn greet
+  ([] "Hello!")
+  ([name] (+ "Hello, " name "!"))
+  ([greeting name] (+ greeting ", " name "!")))
+
+(greet)              // => "Hello!"
+(greet "Alice")      // => "Hello, Alice!"
+(greet "Hi" "Bob")   // => "Hi, Bob!"
+
+// Anonymous multi-arity
+(let handler (fn
+  ([] "no args")
+  ([x] (+ "one: " x))
+  ([x y] (+ "two: " x " " y))))
+```
+
+Multi-arity functions compile to a switch on `arguments.length`. A rest parameter clause becomes the default case. If no arity matches and there is no rest clause, an error is thrown.
+
+### Destructuring Parameters
+
+Array and object destructuring patterns work in parameter lists:
+
+```lisp
+(fn process [[a b] c]
+  (+ a b c))
+
+(fn swap [[x y]]
+  [y x])
+```
+
+### Type Annotations
+
+Parameters and return types support TypeScript-style annotations:
+
+```lisp
+// Parameter type annotation (no space after colon)
+(fn add [a:number b:number]
+  (+ a b))
+
+// Return type annotation on function name
+(fn add:number [a b]
+  (+ a b))
+
+// Return type annotation after parameter list
+(fn add [a b] :number
+  (+ a b))
+
+// Generic type parameters
+(fn identity<T> [x:T] :T
+  x)
 ```
 
 ### Return Statements
@@ -255,7 +297,7 @@ For config-style functions with many parameters, use map syntax:
 (fn add-x [n]
   (+ n x))
 
-(add-x 5)  // → 15
+(add-x 5)  // => 15
 
 // Closure with state
 (fn make-counter []
@@ -265,8 +307,8 @@ For config-style functions with many parameters, use map syntax:
     count))
 
 (var counter (make-counter))
-(counter)  // → 1
-(counter)  // → 2
+(counter)  // => 1
+(counter)  // => 2
 ```
 
 ### Higher-Order Functions
@@ -277,119 +319,104 @@ For config-style functions with many parameters, use map syntax:
   (fn [x] (+ x n)))
 
 (let add5 (make-adder 5))
-(add5 10)  // → 15
+(add5 10)  // => 15
 
 // Function as argument
 (fn apply-twice [f x]
   (f (f x)))
 
 (fn add-one [n] (+ n 1))
-(apply-twice add-one 5)  // → 7
+(apply-twice add-one 5)  // => 7
 ```
 
 ### Recursive Functions
 
 ```lisp
-// Factorial
 (fn factorial [n]
   (if (<= n 1)
     1
     (* n (factorial (- n 1)))))
 
-(factorial 5)  // → 120
+(factorial 5)  // => 120
 ```
 
-### Generator Functions (v2.0)
+### Generator Functions (`fn*`)
 
-Generator functions use `fn*` syntax and produce iterators:
+Generator functions produce iterators using `yield`:
 
 ```lisp
-// Basic generator
-(fn* count-up [max]
-  (loop [i 0]
-    (when (< i max)
-      (yield i)
-      (recur (+ i 1)))))
-
-// Using generator
-(let gen (count-up 3))
-(gen.next)  // → { value: 0, done: false }
-(gen.next)  // → { value: 1, done: false }
-(gen.next)  // → { value: 2, done: false }
-(gen.next)  // → { value: undefined, done: true }
-
-// Iterate with for-of
-(for [n (count-up 5)]
-  (print n))  // Prints: 0, 1, 2, 3, 4
-
-// Yield with value
+// Named generator
 (fn* range [start end]
-  (loop [i start]
-    (when (< i end)
-      (yield i)
-      (recur (+ i 1)))))
+  (var i start)
+  (while (< i end)
+    (yield i)
+    (= i (+ i 1))))
 
 // Anonymous generator
-(let gen (fn* []
+(fn* []
   (yield 1)
   (yield 2)
-  (yield 3)))
-```
-
-### Yield* (Delegate Yield)
-
-Use `yield*` to delegate to another iterator:
-
-```lisp
-// Delegate to another generator
-(fn* numbers []
-  (yield 1)
-  (yield 2))
-
-(fn* more-numbers []
-  (yield* (numbers))  // Yields 1, 2
   (yield 3))
 
-(for [n (more-numbers)]
-  (print n))  // Prints: 1, 2, 3
+// Yield without value
+(fn* simple []
+  (yield)
+  (yield 42))
 
-// Delegate to array
-(fn* from-array [arr]
-  (yield* arr))
+// yield* delegates to another iterator
+(fn* combined []
+  (yield* [1 2 3])
+  (yield 4))
 
-(for [x (from-array [1 2 3])]
-  (print x))  // Prints: 1, 2, 3
+// Infinite sequence
+(fn* fibonacci []
+  (var a 0)
+  (var b 1)
+  (while true
+    (yield a)
+    (var temp b)
+    (= b (+ a b))
+    (= a temp)))
 ```
 
-### Async Generator Functions (v2.0)
-
-Async generators combine async/await with generators:
+### Async Functions
 
 ```lisp
-// Async generator
-(async fn* fetch-pages [urls]
-  (for [url urls]
-    (let response (await (fetch url)))
-    (let data (await (response.json)))
-    (yield data)))
+// Async named function
+(async fn fetch-data [url]
+  (let response (await (js/fetch url)))
+  (await (.json response)))
 
-// Use with for-await-of
-(async fn process-all [urls]
-  (for-await-of [page (fetch-pages urls)]
-    (print page.title)))
+// Async anonymous function
+(let fetcher (async fn [url] (await (js/fetch url))))
 
-// Async generator with delay
-(async fn* ticker [interval count]
-  (loop [i 0]
-    (when (< i count)
-      (await (delay interval))
-      (yield i)
-      (recur (+ i 1)))))
+// Async with map params
+(async fn fetch-with-options {url: "" timeout: 5000}
+  (await (js/fetch url)))
+```
+
+### Async Generator Functions (`async fn*`)
+
+Combine async/await with generators:
+
+```lisp
+// Named async generator
+(async fn* fetchPages [urls]
+  (for-of [url urls]
+    (yield (await (fetch url)))))
+
+// Async generator with pagination
+(async fn* paginate [startPage maxPages]
+  (var page startPage)
+  (while (<= page maxPages)
+    (const data (await (fetchPage page)))
+    (yield data)
+    (= page (+ page 1))))
 
 // Anonymous async generator
-(let asyncGen (async fn* []
-  (yield (await (fetch-data 1)))
-  (yield (await (fetch-data 2)))))
+(async fn* []
+  (yield (await (Promise.resolve 1)))
+  (yield (await (Promise.resolve 2))))
 ```
 
 ## Implementation Details
@@ -407,7 +434,7 @@ Async generators combine async/await with generators:
 
 ```javascript
 function add(a, b) {
-  return a + b//
+  return a + b;
 }
 ```
 
@@ -422,8 +449,10 @@ function add(a, b) {
 **Compiled:**
 
 ```javascript
-const square = (x) => x * x//
+const square = (x) => x * x;
 ```
+
+Anonymous functions that reference `this` compile to regular `function` expressions instead of arrow functions.
 
 ### JSON Map Parameters (with Defaults)
 
@@ -437,34 +466,9 @@ const square = (x) => x * x//
 **Compiled:**
 
 ```javascript
-function multiply(__hql_params = {}) {
-  const x = __hql_params.x ?? 10//
-  const y = __hql_params.y ?? 20//
-  return x * y//
+function multiply({ x = 10, y = 20 } = {}) {
+  return x * y;
 }
-```
-
-### JSON Map Parameters
-
-**HQL:**
-
-```lisp
-(fn connect {"host": "localhost", "port": 8080}
-  (+ host ":" port))
-
-(connect {"host": "api.example.com", "port": 443})
-```
-
-**Compiled:**
-
-```javascript
-function connect(__hql_params = {}) {
-  const host = __hql_params.host ?? "localhost"//
-  const port = __hql_params.port ?? 8080//
-  return host + ":" + port//
-}
-
-connect({ host: "api.example.com", port: 443 })//
 ```
 
 ### Rest Parameters
@@ -480,7 +484,35 @@ connect({ host: "api.example.com", port: 443 })//
 
 ```javascript
 function sum(x, y, ...rest) {
-  return x + y + rest.reduce((acc, val) => acc + val, 0)//
+  return x + y + rest.reduce((acc, val) => acc + val, 0);
+}
+```
+
+### Multi-Arity Functions
+
+**HQL:**
+
+```lisp
+(fn greet
+  ([] "Hello!")
+  ([name] (+ "Hello, " name "!")))
+```
+
+**Compiled:**
+
+```javascript
+function greet(...__args) {
+  switch (__args.length) {
+    case 0: {
+      return "Hello!";
+    }
+    case 1: {
+      const name = __args[0];
+      return "Hello, " + name + "!";
+    }
+    default:
+      throw new Error("No matching arity for function 'greet' with " + __args.length + " arguments");
+  }
 }
 ```
 
@@ -489,25 +521,21 @@ function sum(x, y, ...rest) {
 **HQL:**
 
 ```lisp
-(fn* count-to [n]
-  (loop [i 0]
-    (when (< i n)
-      (yield i)
-      (recur (+ i 1)))))
+(fn* range [start end]
+  (var i start)
+  (while (< i end)
+    (yield i)
+    (= i (+ i 1))))
 ```
 
 **Compiled:**
 
 ```javascript
-function* countTo(n) {
-  let i = 0//
-  while (true) {
-    if (i < n) {
-      yield i//
-      i = i + 1//
-      continue//
-    }
-    return//
+function* range(start, end) {
+  let i = start;
+  while (i < end) {
+    yield i;
+    i = i + 1;
   }
 }
 ```
@@ -517,8 +545,8 @@ function* countTo(n) {
 **HQL:**
 
 ```lisp
-(async fn* fetch-items [urls]
-  (for [url urls]
+(async fn* fetchItems [urls]
+  (for-of [url urls]
     (yield (await (fetch url)))))
 ```
 
@@ -527,435 +555,100 @@ function* countTo(n) {
 ```javascript
 async function* fetchItems(urls) {
   for (const url of urls) {
-    yield await fetch(url)//
+    yield await fetch(url);
   }
 }
 ```
 
-## Features Covered
-
-✅ Simple function definition ✅ Function with single parameter ✅ Function with
-no parameters ✅ Function with multiple parameters ✅ Anonymous function
-expression ✅ Nested function calls ✅ Function returning function ✅ Recursive
-function ✅ Function with multiple expressions ✅ Function as argument ✅
-Higher-order functions ✅ Immediately invoked function (IIFE) ✅ Closure
-capturing variable ✅ Arrow lambda - implicit single param ✅ Arrow lambda -
-implicit multiple params ✅ Arrow lambda - gaps in params ✅ Arrow lambda -
-explicit params ✅ Arrow lambda - with map/filter/reduce ✅ Arrow lambda -
-nested lambdas ✅ Arrow lambda - member access ✅ Arrow lambda - error cases ✅
-Default params - all defaults used ✅ Default params - override first param ✅
-Default params - override with placeholder ✅ Default params - override both
-params ✅ JSON map params - basic usage ✅ JSON map params - partial override ✅
-JSON map params - all defaults ✅ Rest params - rest only ✅ Rest params - with
-regular params ✅ Rest params - empty rest array ✅ Placeholder - multiple
-placeholders ✅ Return - implicit return ✅ Return - explicit return ✅ Return -
-early return ✅ Return - in conditional branches ✅ Return - in anonymous
-functions ✅ Return - multiple return paths ✅ Return - in nested functions
-✅ Generator functions (`fn*`) ✅ Yield expression (`yield`) ✅ Delegate yield (`yield*`)
-✅ Async generator functions (`async fn*`) ✅ Generator iteration (for-of)
-
 ## Test Coverage
 
+### Section 1: Basic Functions (15 tests)
 
+- Simple definition, parameters (none, single, multiple)
+- Anonymous functions, nested calls
+- Higher-order functions, recursive functions
+- Closures, IIFE, function as argument
 
-### Section 1: Basic Functions
+### Section 2: Default Parameters (6 tests)
 
-- Simple definition
-- Parameters (none, single, multiple)
-- Anonymous functions
-- Nested calls
-- Higher-order functions
-- Recursive functions
-- Closures
-- IIFE
+- All defaults used, override first/second/both
+- Single param defaults, placeholder usage
 
-### Section 2: Arrow Lambda Shorthand
+### Section 3: Rest Parameters (4 tests)
 
-- Implicit parameters (`$0`, `$1`, `$2`)
-- Single, multiple, and gaps in parameter usage
-- Explicit parameters `(=> (x y) body)`
-- Integration with `map`/`filter`/`reduce`
-- Nested arrow lambdas
-- Complex expressions (conditionals, member access)
-- Error cases (missing params, missing body)
-- Real-world use cases (sort, find, transform)
-- Edge cases (empty params, nested structures)
+- Rest only, with regular params
+- Empty rest array, accessing rest properties
 
-### Section 3: Default Parameters
+### Section 4: JSON Map Parameters (6 tests)
 
-- All defaults used
-- Override parameters
-- Placeholder usage
-- Single param defaults
+- Basic definition, all defaults used
+- Partial/full override, computed access, nested values
 
-### Section 4: JSON Map Parameters
+### Section 5: Placeholders (2 tests)
 
-- All defaults used
-- Partial override
-- Full override
+- Multiple placeholders, all placeholders
 
-### Section 5: Rest Parameters
-
-- Rest only
-- With regular params
-- Empty rest array
-- Accessing rest properties
-
-### Section 6: Placeholders
-
-- Multiple placeholders
-- All placeholders
-
-### Section 7: Return Statements
-
-- Implicit returns
-- Explicit returns
-- Early returns
-- Multiple return paths
-- In nested functions
-- In loops/conditionals
-
-### Section 8: Comprehensive (1 test)
+### Section 6: Comprehensive (1 test)
 
 - Defaults + rest combined
 
-### Section 9: Generator Functions (v2.0)
+### Section 7: Return Statements (15 tests)
 
-- Basic generator with `fn*`
-- Yield expression
-- Yield without value
-- Yield* (delegate to iterator)
-- Generator iteration (for-of)
-- Generator manual iteration (.next())
-- Named and anonymous generators
-- Generators with parameters
-- Generators with loop/recur
-- Async generators (`async fn*`)
-- Async generator with await
-- For-await-of with async generators
+- Implicit/explicit returns, early returns
+- Multiple return paths, in nested functions
+- In do blocks, conditionals
 
-## Use Cases
+### Section 8: Validation & Errors (2 tests)
 
-### 1. Simple Utilities
+- Named arguments rejected with helpful error
+- Error mentions migration options
 
-```lisp
-(fn add [a b]
-  (+ a b))
+### Section 9: Syntax Flexibility (16 tests)
 
-(fn square [x]
-  (* x x))
+- Lisp-style and JSON-style map parameters
+- Mixed styles, cross-style calls
+- Positional params with/without commas
+- Array/hash-map literals in both styles
 
-(fn max [a b]
-  (if (> a b) a b))
-```
+### Arrow Lambda Tests (26 tests in syntax-arrow-lambda.test.ts)
 
-### 2. Optional Parameters
+- Implicit parameters ($0, $1, $2), gaps
+- Explicit parameters with both `()` and `[]`
+- Integration with map/filter/reduce
+- Nested lambdas, complex expressions
+- Error cases (no params, missing body, too many params)
+- Real-world use cases (sort, find, transform)
 
-```lisp
-(fn fetch-data {"url": "", "method": "GET", "timeout": 5000}
-  // Fetch data with optional method and timeout
-  ...)
+### Generator Tests (5 tests in generators.test.ts)
 
-(fetch-data {"url": "https://api.example.com"})
-(fetch-data {"url": "https://api.example.com", "method": "POST"})
-(fetch-data {"url": "https://api.example.com", "method": "POST", "timeout": 3000})
-```
+- Anonymous/named generators
+- yield with/without value
+- yield* delegation
+- Iterator usage pattern (fibonacci)
 
-### 3. Configuration Functions
+### Async Generator Tests (5 tests in async-generators.test.ts)
 
-```lisp
-// Use JSON map parameters for config-style functions
-(fn configure {"name": "app", "version": "1.0.0", "author": "Unknown", "license": "MIT"}
-  [name version author license])
-
-(configure {"name": "my-app", "author": "Alice"})
-```
-
-### 4. Variadic Functions
-
-```lisp
-(fn sum [& numbers]
-  (.reduce numbers (fn [acc val] (+ acc val)) 0))
-
-(sum 1 2 3 4 5)  // → 15
-```
-
-### 5. Function Factories
-
-```lisp
-(fn make-multiplier [factor]
-  (fn [x] (* x factor)))
-
-(let double (make-multiplier 2))
-(let triple (make-multiplier 3))
-
-(double 5)  // → 10
-(triple 5)  // → 15
-```
-
-### 6. Guards with Early Returns
-
-```lisp
-(fn process-data [data]
-  (if (not data)
-    (return null))
-
-  (if (< data.length 0)
-    (return []))
-
-  // Process data
-  data)
-```
-
-### 7. Generators for Lazy Sequences
-
-```lisp
-// Infinite sequence generator
-(fn* naturals []
-  (loop [n 0]
-    (yield n)
-    (recur (+ n 1))))
-
-// Take first n items
-(fn take [n gen]
-  (var result [])
-  (var iter (gen))
-  (loop [i 0]
-    (when (< i n)
-      (let val (iter.next))
-      (when (not val.done)
-        (.push result val.value)
-        (recur (+ i 1)))))
-  result)
-
-(take 5 naturals)  // → [0, 1, 2, 3, 4]
-```
-
-### 8. Async Generators for Streaming
-
-```lisp
-// Stream data from paginated API
-(async fn* fetch-all-pages [baseUrl]
-  (var page 1)
-  (var hasMore true)
-  (while hasMore
-    (let response (await (fetch (+ baseUrl "?page=" page))))
-    (let data (await (response.json)))
-    (yield* data.items)
-    (= hasMore data.hasNextPage)
-    (= page (+ page 1))))
-
-// Process stream
-(async fn process-stream []
-  (for-await-of [item (fetch-all-pages "/api/items")]
-    (process item)))
-```
-
-## Comparison with Other Languages
-
-### JavaScript/TypeScript
-
-```javascript
-// JavaScript ES6
-function add(a, b) {
-  return a + b//
-}
-
-const square = (x) => x * x//
-
-// Default params
-function greet(name = "World") {
-  return `Hello, ${name}!`//
-}
-
-// Rest params
-function sum(...numbers) {
-  return numbers.reduce((a, b) => a + b, 0)//
-}
-
-// HQL (same concepts)
-(fn add [a b] (+ a b))
-(let square (fn [x] (* x x)))
-(fn greet {"name": "World"} (+ "Hello, " name "!"))
-(fn sum [& numbers] (.reduce numbers (fn [a b] (+ a b)) 0))
-```
-
-### Python
-
-```python
-# Python
-def add(a, b):
-    return a + b
-
-# Default params
-def greet(name="World"):
-    return f"Hello, {name}!"
-
-# HQL
-(fn add [a b] (+ a b))
-(fn greet {"name": "World"} (+ "Hello, " name "!"))
-```
-
-## Best Practices
-
-### Use Descriptive Names
-
-```lisp
-// ✅ Good: Clear purpose
-(fn calculate-total-price [items tax-rate]
-  (* (sum-prices items) (+ 1 tax-rate)))
-
-// ❌ Avoid: Unclear abbreviations
-(fn calc [i t]
-  (* (sp i) (+ 1 t)))
-```
-
-### Use JSON Maps for Config-Style Functions
-
-```lisp
-// ✅ Good: JSON map for many optional params
-(fn create-user {"email": "", "password": "", "name": "", "age": 0}
-  ...)
-
-(create-user {"email": "alice@example.com", "name": "Alice", "age": 30})
-
-// ✅ Also good: Positional for simple cases
-(fn add [a b]
-  (+ a b))
-```
-
-### Use Early Returns for Guards
-
-```lisp
-// ✅ Good: Early returns
-(fn process [data]
-  (if (not data) (return null))
-  (if (isEmpty data) (return []))
-  // Main logic
-  data)
-
-// ❌ Avoid: Deep nesting
-(fn process [data]
-  (if data
-    (if (not (isEmpty data))
-      // Main logic
-      data
-      [])
-    null))
-```
-
-### Keep Functions Small
-
-```lisp
-// ✅ Good: Single responsibility
-(fn validate-email [email]
-  (contains? email "@"))
-
-(fn validate-user [user]
-  (and (validate-email user.email)
-       (>= user.age 18)))
-
-// ❌ Avoid: Doing too much
-(fn validate-user [user]
-  (and (contains? user.email "@")
-       (>= user.age 18)
-       (< user.age 120)
-       (not (isEmpty user.name))
-       ...))
-```
-
-## Edge Cases Tested
-
-✅ Function with no parameters ✅ Function with single parameter ✅ Function
-with multiple parameters ✅ Anonymous functions ✅ Immediately invoked functions
-(IIFE) ✅ Nested function calls ✅ Recursive functions ✅ Functions returning
-functions ✅ Functions as arguments ✅ Closures capturing variables ✅ Default
-parameters (all combinations) ✅ Placeholder with defaults ✅ JSON map
-parameters (all keys, partial, empty) ✅ Rest parameters (empty and non-empty)
-✅ Error: Duplicate parameters ✅ Implicit returns ✅ Explicit returns ✅ Early
-returns ✅ Multiple return paths ✅ Returns in conditionals ✅ Returns in nested
-functions ✅ Returns in loops/do blocks
-
-## Common Patterns
-
-### 1. Callback Functions
-
-```lisp
-(var numbers [1, 2, 3, 4, 5])
-(numbers.map (fn [n] (* n 2)))
-```
-
-### 2. Predicate Functions
-
-```lisp
-(fn is-even? [n]
-  (= (% n 2) 0))
-
-(fn is-positive? [n]
-  (> n 0))
-```
-
-### 3. Reducer Functions
-
-```lisp
-(fn sum-reducer [acc val]
-  (+ acc val))
-
-(nums.reduce sum-reducer 0)
-```
-
-### 4. Partial Application
-
-```lisp
-(fn add [a b]
-  (+ a b))
-
-(fn make-adder [n]
-  (fn [x] (add n x)))
-
-(let add10 (make-adder 10))
-```
-
-## Performance Considerations
-
-**Function Calls:**
-
-- ✅ Compiled to native JavaScript function calls
-- ✅ Inline optimization possible for simple functions
-- ✅ Closures have minimal overhead
-
-**Best Practices:**
-
-- Avoid deeply nested function calls in hot loops
-- Use closures sparingly in performance-critical code
-- Prefer iteration over deep recursion (stack limits)
-- JSON map parameters have slight overhead vs positional
+- Anonymous/named async generators
+- yield* delegation with await
+- Pagination pattern, async iteration source
 
 ## Summary
 
-HQL's function system provides:
+HQL functions provide:
 
-- ✅ **Named and anonymous functions**
-- ✅ **Arrow lambda shorthand** (`=>` with `$0, $1, $2` params)
-- ✅ **Default parameters** (like Python, JavaScript)
-- ✅ **JSON map parameters** (config-style with `{key: default}`)
-- ✅ **Rest parameters** (`& rest`, like JavaScript `...args`)
-- ✅ **Placeholders** (`_` for skipping args)
-- ✅ **Explicit/implicit returns**
-- ✅ **Closures** (capturing outer scope)
-- ✅ **Higher-order functions** (functions as values)
-- ✅ **Recursion** (self-referencing functions)
-- ✅ **Generator functions** (`fn*` with `yield`/`yield*`)
-- ✅ **Async generators** (`async fn*` for streaming)
-
-Choose the right pattern:
-
-- **Inline callbacks**: Arrow lambdas `(=> (* $0 2))`
-- **Simple utilities**: Basic named functions `(fn add [a b] ...)`
-- **Optional params**: JSON map parameters `{"x": 10, "y": 20}`
-- **Config functions**: JSON map parameters `{"host": "localhost", "port": 8080}`
-- **Variable length**: Rest parameters `[& rest]`
-- **Factories**: Functions returning functions
-- **Guards**: Early returns with conditionals
-- **Lazy sequences**: Generator functions `(fn* range [...] (yield ...))`
-- **Async streaming**: Async generators with `for-await-of`
+- **Named and anonymous functions** via `fn` (and `defn` alias)
+- **Arrow lambda shorthand** (`=>` with `$0, $1, $2` params)
+- **Default parameters** (`[x = 10 y = 20]` with `_` placeholders)
+- **JSON map parameters** (config-style with `{key: default}`)
+- **Rest parameters** (`& rest`, like JavaScript `...args`)
+- **Multi-arity functions** (dispatch on argument count)
+- **Type annotations** (`:type` on params and return)
+- **Generic type parameters** (`<T>` on function names)
+- **Destructuring parameters** (array/object patterns)
+- **Explicit/implicit returns**
+- **Closures** (capturing outer scope)
+- **Higher-order functions** (functions as values)
+- **Recursion** (self-referencing functions)
+- **Generator functions** (`fn*` with `yield`/`yield*`)
+- **Async functions** (`async fn`)
+- **Async generators** (`async fn*`)

@@ -14,6 +14,7 @@ import { isModelPullTask } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { getConfiguredModel, isModelInstalled } from "../../../../common/ai-default-model.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { parseModelString, type ModelInfo } from "../../../providers/index.ts";
 
 // ============================================================
@@ -39,7 +40,7 @@ export function ModelSetupOverlay({
   modelName,
   onComplete,
   onCancel,
-  endpoint = "http://127.0.0.1:11434",
+  endpoint = DEFAULT_OLLAMA_ENDPOINT,
 }: ModelSetupOverlayProps): React.ReactElement {
   const { color } = useTheme();
   const { tasks, cancel } = useTaskManager();

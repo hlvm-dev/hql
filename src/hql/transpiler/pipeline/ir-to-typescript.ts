@@ -2434,6 +2434,11 @@ class TSGenerator {
       this.emit(node.typeParameters.join(", "));
       this.emit(">");
     }
+    // Emit extends clause if present
+    if (node.superClass) {
+      this.emit(" extends ");
+      this.generateNode(node.superClass);
+    }
     this.emit(" {\n");
     this.indent();
     this.generateClassBody(node);
@@ -2463,6 +2468,11 @@ class TSGenerator {
       this.emit("<");
       this.emit(node.typeParameters.join(", "));
       this.emit(">");
+    }
+    // Emit extends clause if present
+    if (node.superClass) {
+      this.emit(" extends ");
+      this.generateNode(node.superClass);
     }
     this.emit(" {\n");
     this.indent();

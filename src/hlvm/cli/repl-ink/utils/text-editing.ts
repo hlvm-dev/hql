@@ -331,13 +331,16 @@ export function handleTextEditingKey(
     if (key.rightArrow) return handleRightArrow(value, cursor);
   }
 
-  // Character input - printable characters only
-  if (input && !key.ctrl && !key.meta && input.length === 1) {
-    const charCode = input.charCodeAt(0);
-    // Skip control characters (codes 0-31) except tab is handled elsewhere
-    if (charCode > 31) {
-      return insertChar(value, cursor, input);
+  // Character input - printable characters only (supports paste)
+  if (input && !key.ctrl && !key.meta) {
+    const sanitized = input.replace(/[\r\n]/g, "");
+    if (!sanitized) return null;
+
+    for (const ch of sanitized) {
+      if (ch.charCodeAt(0) <= 31) return null;
     }
+
+    return insertChar(value, cursor, sanitized);
   }
 
   return null;

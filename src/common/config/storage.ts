@@ -13,6 +13,7 @@ import {
   CONFIG_KEYS,
   type ConfigKey,
   validateValue,
+  normalizeModelId,
   type ToolsConfig,
   type WebFetchConfig,
   type WebSearchConfig,
@@ -53,14 +54,6 @@ async function readJsonConfig(path: string): Promise<ReadConfigResult> {
     }
     throw error;
   }
-}
-
-function normalizeModel(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.includes("/")) return trimmed;
-  return `ollama/${trimmed}`;
 }
 
 function normalizeEndpoint(value: unknown): string | undefined {
@@ -238,7 +231,7 @@ function normalizeConfigInput(raw: Record<string, unknown> | null): Partial<Hlvm
     normalized.version = raw.version;
   }
 
-  const model = normalizeModel(raw.model);
+  const model = normalizeModelId(raw.model);
   if (model && validateValue("model", model).valid) {
     normalized.model = model;
   }
@@ -358,6 +351,7 @@ export async function loadConfig(): Promise<HlvmConfig> {
 
   const currentResult = await readJsonConfig(path);
   const legacyResult = await readJsonConfig(legacyPath);
+  const canUseLegacy = !currentResult.exists || !!currentResult.error;
 
   if (currentResult.error) {
     log.raw.warn("Warning: config.json is corrupted, using defaults or legacy config");
@@ -367,11 +361,11 @@ export async function loadConfig(): Promise<HlvmConfig> {
   }
 
   const currentConfig = normalizeConfigInput(currentResult.data);
-  const legacyConfig = normalizeConfigInput(legacyResult.data);
+  const legacyConfig = canUseLegacy ? normalizeConfigInput(legacyResult.data) : null;
 
   const { config, usedLegacy } = mergeConfigs(currentConfig, legacyConfig);
 
-  const shouldPersistLegacy = usedLegacy && (!currentResult.exists || isDefaultLikeConfig(currentConfig));
+  const shouldPersistLegacy = usedLegacy && canUseLegacy && isDefaultLikeConfig(currentConfig);
   if (shouldPersistLegacy) {
     try {
       await saveConfig(config);

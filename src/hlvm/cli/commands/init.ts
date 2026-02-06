@@ -6,21 +6,12 @@ const exists = (path: string) => p().fs.exists(path);
 const platformExit = (code: number) => p().process.exit(code);
 const platformReadTextFile = (path: string) => p().fs.readTextFile(path);
 const platformWriteTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
-import { promptUser, writeJSONFile } from "../publish/utils.ts";
+import { promptUser, writeJSONFile, type HlvmProjectConfig } from "../publish/utils.ts";
 import {
   generateDefaultPackageName,
   validatePackageName,
   validateVersion,
 } from "./shared.ts";
-
-export interface HlvmProjectConfig {
-  name: string;
-  version: string;
-  exports: string;
-  description?: string;
-  author?: string;
-  license?: string;
-}
 
 /**
  * Create sample mod.hql file with working example code

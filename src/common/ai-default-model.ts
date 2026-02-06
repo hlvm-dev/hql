@@ -6,7 +6,7 @@ import { ai } from "../hlvm/api/ai.ts";
 import { config } from "../hlvm/api/config.ts";
 import { parseModelString } from "../hlvm/providers/index.ts";
 import type { ModelInfo, PullProgress } from "../hlvm/providers/types.ts";
-import { DEFAULT_MODEL_ID } from "./config/types.ts";
+import { DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER } from "./config/types.ts";
 import { getErrorMessage } from "./utils.ts";
 import { getPlatform } from "../platform/platform.ts";
 import { RuntimeError } from "./error.ts";
@@ -39,7 +39,7 @@ export function isModelInstalled(models: ModelInfo[], target: string): boolean {
   });
 }
 
-function getProgressPercent(progress: PullProgress): number | undefined {
+export function getProgressPercent(progress: PullProgress): number | undefined {
   if (typeof progress.percent === "number") {
     return Math.round(progress.percent);
   }
@@ -87,7 +87,8 @@ export async function ensureDefaultModelInstalled(
   let [providerName, modelName] = parseModelString(configuredModel);
 
   if (!modelName) {
-    [providerName, modelName] = parseModelString(DEFAULT_MODEL_ID);
+    providerName = DEFAULT_MODEL_PROVIDER;
+    modelName = DEFAULT_MODEL_ID.split("/")[1];
   }
 
   let models: ModelInfo[] = [];

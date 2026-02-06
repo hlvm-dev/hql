@@ -15,7 +15,7 @@
  * - SSOT-compliant (uses all previous components)
  */
 
-import { getTool, hasTool, validateToolArgs, type ToolFunction } from "./registry.ts";
+import { coerceToolArgs, getTool, hasTool, normalizeToolName, suggestToolNames, validateToolArgs, type ToolFunction } from "./registry.ts";
 import { checkToolSafety } from "./security/safety.ts";
 import { ContextManager, ContextOverflowError, type Message } from "./context.ts";
 import {
@@ -33,20 +33,30 @@ import {
   type RateLimitConfig,
 } from "../../common/rate-limiter.ts";
 import { assertMaxBytes } from "../../common/limits.ts";
-import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
+import { getErrorMessage, isObjectValue, truncate } from "../../common/utils.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
 import { classifyError } from "./error-taxonomy.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { UsageTracker, estimateUsage, type TokenUsage } from "./usage.ts";
 import type { MetricsSink } from "./metrics.ts";
-import { isToolArgsObject, normalizeToolArgs } from "./validation.ts";
+import { normalizeToolArgs } from "./validation.ts";
 import { type LLMResponse, type ToolCall } from "./tool-call.ts";
 import { log } from "../api/log.ts";
-import { getPlatform } from "../../platform/platform.ts";
 
 export type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
+import {
+  looksLikeToolCallJsonAnywhere,
+  looksLikeToolInstruction,
+  responseAsksQuestion,
+  tryParseToolCallsFromText,
+} from "./model-compat.ts";
+import {
+  isPlaywrightMissingError,
+  ensurePlaywrightChromium,
+} from "./playwright-support.ts";
+
 import {
   advancePlanState,
   createPlanState,
@@ -112,16 +122,17 @@ function buildToolResultOutputs(
 function buildToolObservation(
   toolCall: ToolCall,
   toolResult: ToolExecutionResult,
-): { observation: string; resultText: string } {
+): { observation: string; resultText: string; toolName: string } {
   const resultText = toolResult.success
     ? toolResult.llmContent ?? stringifyToolResult(toolResult.result)
     : `ERROR: ${toolResult.error}`;
 
+  // Keep content simple — tool identity is carried by toolName field
   const observation = toolResult.success
-    ? `Tool: ${toolCall.toolName}\nResult: ${resultText}`
-    : `Tool: ${toolCall.toolName}\nError: ${toolResult.error}`;
+    ? resultText
+    : `Error: ${toolResult.error}`;
 
-  return { observation, resultText };
+  return { observation, resultText, toolName: toolCall.toolName };
 }
 
 function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
@@ -167,15 +178,29 @@ function buildToolErrorResult(
   return result;
 }
 
+/** Cached Sets for allow/deny lookups (O(1) vs O(n)) */
+let _cachedAllowSet: { source: string[]; set: Set<string> } | null = null;
+let _cachedDenySet: { source: string[]; set: Set<string> } | null = null;
+
+function getOrCreateSet(
+  list: string[],
+  cached: { source: string[]; set: Set<string> } | null,
+): { source: string[]; set: Set<string> } {
+  if (cached && cached.source === list) return cached;
+  return { source: list, set: new Set(list) };
+}
+
 function isToolAllowed(
   toolName: string,
   config: OrchestratorConfig,
 ): boolean {
   if (config.toolAllowlist && config.toolAllowlist.length > 0) {
-    return config.toolAllowlist.includes(toolName);
+    _cachedAllowSet = getOrCreateSet(config.toolAllowlist, _cachedAllowSet);
+    return _cachedAllowSet.set.has(toolName);
   }
   if (config.toolDenylist && config.toolDenylist.length > 0) {
-    return !config.toolDenylist.includes(toolName);
+    _cachedDenySet = getOrCreateSet(config.toolDenylist, _cachedDenySet);
+    return !_cachedDenySet.set.has(toolName);
   }
   return true;
 }
@@ -262,7 +287,7 @@ export interface OrchestratorConfig {
   onTrace?: (event: TraceEvent) => void;
   /** Tool output callback for UI display */
   onToolDisplay?: (display: ToolDisplay) => void;
-  /** LLM timeout in milliseconds (default: 30000) */
+  /** LLM timeout in milliseconds (default: 60000) */
   llmTimeout?: number;
   /** Tool timeout in milliseconds (default: 60000) */
   toolTimeout?: number;
@@ -311,13 +336,8 @@ export interface OrchestratorConfig {
   noInput?: boolean;
 }
 
-/** Tool call envelope constants */
-
-const PLAYWRIGHT_ERROR_MARKERS = [
-  "executable doesn't exist",
-  "install chromium",
-  "please run the following command to download new browsers",
-];
+/** Reusable TextEncoder (stateless, no need to recreate) */
+const TEXT_ENCODER = new TextEncoder();
 
 function addContextMessage(
   config: OrchestratorConfig,
@@ -341,11 +361,6 @@ function addContextMessage(
   }
 }
 
-function responseAsksQuestion(response: string): boolean {
-  if (!response) return false;
-  return response.includes("?");
-}
-
 function isRenderToolName(toolName: string): boolean {
   return toolName === "render_url" || toolName.endsWith("/render_url");
 }
@@ -366,86 +381,6 @@ function buildToolRequiredMessage(allowlist?: string[]): string {
     `Use one of: ${tools}.`,
     "Call the appropriate tool using native function calling.",
   ].join("\n");
-}
-
-function looksLikeToolCallJsonAnywhere(text: string): boolean {
-  const pattern =
-    /\{[\s\S]*?"(toolName|tool_name|function_name|name)"\s*:\s*"[^"]+"[\s\S]*?"(args|parameters|arguments)"\s*:\s*[\s\S]*?\}/m;
-  return pattern.test(text);
-}
-
-function looksLikeToolInstruction(text: string): boolean {
-  const lower = text.toLowerCase();
-  if (/\bjson object\b/.test(lower)) return true;
-  if (/(function call|tool call)/.test(lower)) return true;
-  if (/\bparameters\b/.test(lower) && /\btool\b/.test(lower)) return true;
-  if (/\b(use|call|invoke|execute)\b/.test(lower) && /\btool\b/.test(lower)) {
-    return true;
-  }
-  return false;
-}
-
-export function shouldSuppressFinalResponse(response: string): boolean {
-  if (!response.trim()) return true;
-  if (looksLikeToolCallJsonAnywhere(response)) return true;
-  if (looksLikeToolInstruction(response)) return true;
-  return false;
-}
-
-function isPlaywrightMissingError(message: string): boolean {
-  const lower = message.toLowerCase();
-  return PLAYWRIGHT_ERROR_MARKERS.some((marker) => lower.includes(marker));
-}
-
-async function promptPlaywrightInstall(
-  config: OrchestratorConfig,
-): Promise<boolean> {
-  try {
-    const tool = getTool("ask_user");
-    const response = await tool.fn(
-      {
-        question:
-          "Playwright Chromium is required to render this page. Install now? (y/n)",
-      },
-      config.workspace,
-    );
-    return String(response).trim().toLowerCase().startsWith("y");
-  } catch (error) {
-    log.warn(`Playwright install prompt failed: ${getErrorMessage(error)}`);
-    return false;
-  }
-}
-
-async function runPlaywrightInstall(): Promise<boolean> {
-  const platform = getPlatform();
-  try {
-    const process = platform.command.run({
-      cmd: ["npx", "playwright", "install", "chromium"],
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-    const status = await process.status;
-    if (!status.success) {
-      log.error("Playwright install failed");
-      return false;
-    }
-    return true;
-  } catch (error) {
-    log.error(`Playwright install failed: ${getErrorMessage(error)}`);
-    return false;
-  }
-}
-
-async function ensurePlaywrightChromium(
-  config: OrchestratorConfig,
-): Promise<boolean> {
-  if (config.playwrightInstallAttempted) return false;
-  config.playwrightInstallAttempted = true;
-  const confirmed = await promptPlaywrightInstall(config);
-  if (!confirmed) return false;
-
-  log.info("Installing Playwright Chromium...");
-  return await runPlaywrightInstall();
 }
 
 function emitMetric(
@@ -503,12 +438,23 @@ export async function executeToolCall(
   config: OrchestratorConfig,
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
+  // Normalize tool name (handle camelCase, casing, separators)
+  const resolvedName = normalizeToolName(toolCall.toolName) ?? toolCall.toolName;
+  if (resolvedName !== toolCall.toolName) {
+    log.debug(`Tool name normalized: ${toolCall.toolName} → ${resolvedName}`);
+    toolCall = { ...toolCall, toolName: resolvedName };
+  }
+
   const normalizedArgs = sanitizeArgs(normalizeToolArgs(toolCall.args));
+  const toolExists = hasTool(toolCall.toolName);
+  const coercedArgs = toolExists
+    ? coerceToolArgs(toolCall.toolName, normalizedArgs)
+    : normalizedArgs;
   // Emit trace event: tool call
   config.onTrace?.({
     type: "tool_call",
     toolName: toolCall.toolName,
-    args: normalizedArgs,
+    args: coercedArgs,
   });
   emitMetric(config, "tool_call", {
     toolName: toolCall.toolName,
@@ -516,10 +462,14 @@ export async function executeToolCall(
 
   try {
     // Validate tool exists
-    if (!hasTool(toolCall.toolName)) {
+    if (!toolExists) {
+      const suggestions = suggestToolNames(toolCall.toolName);
+      const hint = suggestions.length > 0
+        ? ` Did you mean: ${suggestions.join(", ")}?`
+        : "";
       return buildToolErrorResult(
         toolCall.toolName,
-        `Unknown tool: ${toolCall.toolName}`,
+        `Unknown tool: ${toolCall.toolName}.${hint}`,
         startedAt,
         config,
       );
@@ -534,7 +484,7 @@ export async function executeToolCall(
       );
     }
 
-    const validation = validateToolArgs(toolCall.toolName, normalizedArgs);
+    const validation = validateToolArgs(toolCall.toolName, coercedArgs);
     if (!validation.valid) {
       const details = (validation.errors ?? []).join("; ");
       return buildToolErrorResult(
@@ -549,7 +499,7 @@ export async function executeToolCall(
     const autoApprove = config.autoApprove ?? false;
     const approved = await checkToolSafety(
       toolCall.toolName,
-      normalizedArgs,
+      coercedArgs,
       autoApprove,
       config.policy ?? null,
     );
@@ -564,7 +514,7 @@ export async function executeToolCall(
     }
 
     if (toolCall.toolName === "delegate_agent" && config.delegate) {
-      const result = await config.delegate(normalizedArgs, config);
+      const result = await config.delegate(coercedArgs, config);
       const { llmContent, returnDisplay } = buildToolResultOutputs(
         toolCall.toolName,
         result,
@@ -602,7 +552,7 @@ export async function executeToolCall(
     try {
       result = await executeToolWithTimeout(
         tool.fn,
-        normalizedArgs,
+        coercedArgs,
         config.workspace,
         toolTimeout,
         config.policy ?? null,
@@ -614,7 +564,7 @@ export async function executeToolCall(
         if (installed) {
           result = await executeToolWithTimeout(
             tool.fn,
-            normalizedArgs,
+            coercedArgs,
             config.workspace,
             toolTimeout,
             config.policy ?? null,
@@ -679,7 +629,10 @@ export async function executeToolCall(
 }
 
 /**
- * Execute multiple tool calls sequentially
+ * Execute multiple tool calls
+ *
+ * Default: parallel execution via Promise.all for better performance.
+ * When continueOnError is false, uses sequential execution to stop on first error.
  *
  * @param toolCalls Tool calls to execute
  * @param config Orchestrator configuration
@@ -689,57 +642,61 @@ export async function executeToolCalls(
   toolCalls: ToolCall[],
   config: OrchestratorConfig,
 ): Promise<ToolExecutionResult[]> {
-  const results: ToolExecutionResult[] = [];
-  const continueOnError = config.continueOnError ?? true; // Default: continue
+  const continueOnError = config.continueOnError ?? true;
   const toolLimiter = config.toolRateLimiter ??
     createRateLimiter(config.toolRateLimit ?? RATE_LIMITS.toolCalls);
   config.toolRateLimiter = toolLimiter;
 
-  for (const call of toolCalls) {
-    if (toolLimiter) {
-      const status = toolLimiter.consume(1);
-      if (!status.allowed) {
-        config.onTrace?.({
-          type: "rate_limit",
-          target: "tool",
-          maxCalls: status.maxCalls,
-          windowMs: status.windowMs,
-          used: status.used,
-          remaining: status.remaining,
-          resetMs: status.resetMs,
-        });
-        emitMetric(config, "rate_limit", {
-          target: "tool",
-          maxCalls: status.maxCalls,
-          windowMs: status.windowMs,
-          used: status.used,
-          remaining: status.remaining,
-          resetMs: status.resetMs,
-        });
-        const error = new RateLimitError(
-          `Tool rate limit exceeded (${status.used}/${status.maxCalls} per ${status.windowMs}ms)`,
-          status.maxCalls,
-          status.windowMs,
-        );
-        const result = { success: false, error: error.message };
-        results.push(result);
-        if (!continueOnError) {
-          break;
-        }
-        continue;
+  const checkRateLimit = (call: ToolCall): ToolExecutionResult | null => {
+    if (!toolLimiter) return null;
+    const status = toolLimiter.consume(1);
+    if (status.allowed) return null;
+    config.onTrace?.({
+      type: "rate_limit",
+      target: "tool",
+      maxCalls: status.maxCalls,
+      windowMs: status.windowMs,
+      used: status.used,
+      remaining: status.remaining,
+      resetMs: status.resetMs,
+    });
+    emitMetric(config, "rate_limit", {
+      target: "tool",
+      maxCalls: status.maxCalls,
+      windowMs: status.windowMs,
+      used: status.used,
+      remaining: status.remaining,
+      resetMs: status.resetMs,
+    });
+    return {
+      success: false,
+      error: `Tool rate limit exceeded (${status.used}/${status.maxCalls} per ${status.windowMs}ms)`,
+    };
+  };
+
+  // Sequential execution: stop on first error
+  if (!continueOnError) {
+    const results: ToolExecutionResult[] = [];
+    for (const call of toolCalls) {
+      const rateLimited = checkRateLimit(call);
+      if (rateLimited) {
+        results.push(rateLimited);
+        break;
       }
+      const result = await executeToolCall(call, config);
+      results.push(result);
+      if (!result.success) break;
     }
-
-    const result = await executeToolCall(call, config);
-    results.push(result);
-
-    // Stop on first error only if continueOnError is false
-    if (!result.success && !continueOnError) {
-      break;
-    }
+    return results;
   }
 
-  return results;
+  // Parallel execution (default): run all calls concurrently
+  const promises = toolCalls.map(async (call): Promise<ToolExecutionResult> => {
+    const rateLimited = checkRateLimit(call);
+    if (rateLimited) return rateLimited;
+    return executeToolCall(call, config);
+  });
+  return Promise.all(promises);
 }
 
 // ============================================================
@@ -792,27 +749,19 @@ export async function processAgentResponse(
   finalResponse?: string;
 }> {
   const content = (agentResponse.content ?? "").trim();
-  if (content) {
-    addContextMessage(config, {
-      role: "assistant",
-      content,
-    });
-  }
-
   const maxCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
   const toolCalls = Array.isArray(agentResponse.toolCalls)
     ? agentResponse.toolCalls
     : [];
 
-  if (toolCalls.length > maxCalls) {
-    addContextMessage(config, {
-      role: "tool",
-      content:
-        `Too many tool calls (${toolCalls.length}). Only the first ${maxCalls} will be executed.`,
-    });
-  }
-
   if (toolCalls.length === 0) {
+    // No tool calls — just add the assistant text
+    if (content) {
+      addContextMessage(config, {
+        role: "assistant",
+        content,
+      });
+    }
     return {
       toolCallsMade: 0,
       results: [],
@@ -824,6 +773,23 @@ export async function processAgentResponse(
     };
   }
 
+  // Always add assistant message with tool_calls metadata for proper conversation flow
+  addContextMessage(config, {
+    role: "assistant",
+    content: content || "",
+    toolCalls: toolCalls.map((tc) => ({
+      function: { name: tc.toolName, arguments: tc.args },
+    })),
+  });
+
+  if (toolCalls.length > maxCalls) {
+    addContextMessage(config, {
+      role: "tool",
+      content:
+        `Too many tool calls (${toolCalls.length}). Only the first ${maxCalls} will be executed.`,
+    });
+  }
+
   const limitedCalls = toolCalls.slice(0, maxCalls);
 
   // Execute tool calls
@@ -832,15 +798,16 @@ export async function processAgentResponse(
   // Add tool results to context + gather tool uses
   const toolUses: ToolUse[] = [];
   let toolBytes = 0;
-  const encoder = new TextEncoder();
+  const encoder = TEXT_ENCODER;
   for (let i = 0; i < results.length; i++) {
     const call = limitedCalls[i];
     const result = results[i];
-    const { observation, resultText } = buildToolObservation(call, result);
+    const { observation, resultText, toolName } = buildToolObservation(call, result);
 
     addContextMessage(config, {
       role: "tool",
       content: observation,
+      toolName,
     });
     toolUses.push({
       toolName: call.toolName,
@@ -1073,7 +1040,7 @@ export async function runReActLoop(
   const maxToolResultBytes = config.maxTotalToolResultBytes ??
     RESOURCE_LIMITS.maxTotalToolResultBytes;
   let totalToolResultBytes = 0;
-  const encoder = new TextEncoder();
+  const encoder = TEXT_ENCODER;
 
   const updateToolResultBytes = (delta: number): void => {
     totalToolResultBytes += delta;
@@ -1161,7 +1128,7 @@ export async function runReActLoop(
       const currentStep = planState.plan.steps[planState.currentIndex];
       if (
         currentStep?.agent &&
-        !planState.delegatedIds.includes(currentStep.id) &&
+        !planState.delegatedIds.has(currentStep.id) &&
         config.delegate
       ) {
         const profile = getAgentProfile(currentStep.agent);
@@ -1181,7 +1148,7 @@ export async function runReActLoop(
             args: delegateArgs,
           };
           const delegateResult = await executeToolCall(delegateCall, config);
-          planState.delegatedIds.push(currentStep.id);
+          planState.delegatedIds.add(currentStep.id);
           // Give the main LLM a chance to synthesize and mark STEP_DONE.
           continue;
         }
@@ -1228,6 +1195,9 @@ export async function runReActLoop(
       }
     }
 
+    // Proactive context compaction before LLM call
+    await config.context.compactIfNeeded();
+
     const llmStart = Date.now();
     const agentResponse = await callLLMWithRetry(
       llmFunction,
@@ -1252,7 +1222,7 @@ export async function runReActLoop(
     config.onTrace?.({
       type: "llm_response",
       length: responseText.length,
-      truncated: responseText.substring(0, 200),
+      truncated: truncate(responseText, 200),
       content: responseText,
       toolCalls: agentResponse.toolCalls?.length ?? 0,
     });
@@ -1276,10 +1246,14 @@ export async function runReActLoop(
         });
         continue;
       }
-      throw new ValidationError(
-        "Model returned tool call JSON instead of native tool calls.",
-        "tool_call_format",
-      );
+      // Fallback: try to parse tool calls from the text response
+      const parsed = tryParseToolCallsFromText(responseText);
+      if (parsed.length > 0) {
+        response = { content: responseText, toolCalls: parsed };
+        // Fall through to processAgentResponse with repaired tool calls
+      } else {
+        return responseText;
+      }
     }
 
     // Process response and execute tools
@@ -1360,22 +1334,19 @@ export async function runReActLoop(
 
       if (
         toolUses.length > 0 &&
-        (looksLikeToolCallJsonAnywhere(finalResponse) ||
-          looksLikeToolInstruction(finalResponse))
+        looksLikeToolCallJsonAnywhere(finalResponse)
       ) {
         if (toolFormatRetries < maxToolCallRetries) {
           toolFormatRetries++;
           addContextMessage(config, {
             role: "tool",
             content:
-              "Provide a final answer based on the tool results. Do not output tool call JSON or tool instructions.",
+              "Provide a final answer based on the tool results. Do not output tool call JSON.",
           });
           continue;
         }
-        throw new ValidationError(
-          "Model returned tool instructions instead of a final answer.",
-          "tool_call_format",
-        );
+        // Return as-is rather than crashing
+        return finalResponse;
       }
 
       if (groundingMode !== "off" && toolUses.length > 0) {
@@ -1406,10 +1377,11 @@ export async function runReActLoop(
               addContextMessage(config, { role: "tool", content: warningText });
               continue;
             }
-            throw new ValidationError(
-              `Ungrounded response after ${groundingRetries} retry: ${grounding.warnings.join(" ")}`,
-              "grounding",
-            );
+            // Return with warnings rather than crashing — response may still be usable
+            const warningText = `\n\n[Grounding warnings]\n- ${
+              grounding.warnings.join("\n- ")
+            }`;
+            return `${finalResponse}${warningText}`;
           }
           const warningText = `\n\n[Grounding warnings]\n- ${
             grounding.warnings.join("\n- ")

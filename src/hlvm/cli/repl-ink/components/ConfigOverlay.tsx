@@ -38,6 +38,7 @@ import {
   hexToRgb,
 } from "../overlay/index.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { CURSOR_BLINK_MS } from "../ui-constants.ts";
 
 // ============================================================
 // Types
@@ -85,9 +86,6 @@ const VISIBLE_FIELDS = CONFIG_KEYS.length;  // 5 fields
 const OVERLAY_HEIGHT = PADDING.top + HEADER_ROWS + VISIBLE_FIELDS + 1 + 1 + PADDING.bottom;  // 11
 const BG_COLOR: RGB = [35, 35, 40];
 const SELECTED_BG_COLOR: RGB = [55, 55, 65];  // Brighter background for selected row
-
-// Cursor blink timing (macOS standard)
-const CURSOR_BLINK_MS = 530;
 
 // Shared encoder for terminal output
 const encoder = new TextEncoder();

@@ -69,7 +69,7 @@ export function createDelegateHandler(
     });
     context.addMessage({
       role: "system",
-      content: generateSystemPrompt(),
+      content: generateSystemPrompt({ toolAllowlist: allowedTools }),
     });
     context.addMessage({
       role: "system",

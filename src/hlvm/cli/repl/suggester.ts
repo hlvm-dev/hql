@@ -5,7 +5,7 @@
  * Shows gray text after cursor, accept with → or End.
  */
 
-import { getWordAtCursor } from "./completer.ts";
+import { getWordAtCursor } from "./string-utils.ts";
 
 // ============================================================
 // Binding Sort Cache (avoids O(n log n) sort on every keystroke)

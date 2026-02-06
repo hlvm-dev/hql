@@ -8,7 +8,7 @@
 import { assertEquals, assert } from "jsr:@std/assert";
 import { shouldTabAcceptSuggestion } from "../../../src/hlvm/cli/repl/tab-logic.ts";
 import { findSuggestion, acceptSuggestion } from "../../../src/hlvm/cli/repl/suggester.ts";
-import { getWordAtCursor } from "../../../src/hlvm/cli/repl/completer.ts";
+import { getWordAtCursor } from "../../../src/hlvm/cli/repl/string-utils.ts";
 
 // ============================================================
 // shouldTabAcceptSuggestion() - Testing REAL production code

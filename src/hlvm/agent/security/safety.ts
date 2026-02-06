@@ -17,7 +17,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { getTool } from "../registry.ts";
 import { DEFAULT_TIMEOUTS } from "../constants.ts";
 import { resolvePolicyDecision, type AgentPolicy } from "../policy.ts";
-import { isObjectValue } from "../../../common/utils.ts";
+import { isObjectValue, truncate } from "../../../common/utils.ts";
 import { isToolArgsObject } from "../validation.ts";
 import { classifyShellCommand } from "./shell-classifier.ts";
 
@@ -299,9 +299,7 @@ async function promptUserConfirmation(
 
   // Format args for display (truncate if too long)
   const argsStr = JSON.stringify(args, null, 2);
-  const displayArgs = argsStr.length > 200
-    ? argsStr.substring(0, 200) + "..."
-    : argsStr;
+  const displayArgs = truncate(argsStr, 200);
 
   // Display tool information
   await write("\n");

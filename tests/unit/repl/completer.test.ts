@@ -7,7 +7,7 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
-import { getWordAtCursor } from "../../../src/hlvm/cli/repl/completer.ts";
+import { getWordAtCursor } from "../../../src/hlvm/cli/repl/string-utils.ts";
 
 // ============================================================
 // getWordAtCursor()

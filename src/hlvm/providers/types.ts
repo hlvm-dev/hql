@@ -27,15 +27,22 @@ export type ProviderCapability =
 // ============================================================================
 
 /** Role for chat messages */
-export type MessageRole = "system" | "user" | "assistant";
+export type MessageRole = "system" | "user" | "assistant" | "tool";
 
-/** A chat message */
-export interface Message {
+/** A provider-level chat message (snake_case fields for wire format) */
+export interface ProviderMessage {
   role: MessageRole;
   content: string;
   /** Optional images for vision models (base64 or URLs) */
   images?: string[];
+  /** Tool calls made by the assistant (for native tool calling conversation flow) */
+  tool_calls?: ProviderToolCall[];
+  /** Name of the tool that produced this result (for role: "tool") */
+  tool_name?: string;
 }
+
+/** @deprecated Use `ProviderMessage` instead */
+export type Message = ProviderMessage;
 
 // ============================================================================
 // Tool Calling Types
@@ -96,6 +103,8 @@ export interface GenerateOptions {
 export interface ChatOptions extends GenerateOptions {
   /** Optional tool definitions for native function calling */
   tools?: ToolDefinition[];
+  /** Optional callback for streaming tokens to the terminal */
+  onToken?: (text: string) => void;
 }
 
 // ============================================================================

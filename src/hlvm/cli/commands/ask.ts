@@ -8,12 +8,13 @@
 import { log } from "../../api/log.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { ValidationError } from "../../../common/error.ts";
+import { truncate } from "../../../common/utils.ts";
 import {
   runReActLoop,
-  shouldSuppressFinalResponse,
   type TraceEvent,
   type ToolDisplay,
 } from "../../agent/orchestrator.ts";
+import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
 import { createAgentSession } from "../../agent/session.ts";
 import { createDelegateHandler } from "../../agent/delegation.ts";
 import {
@@ -24,11 +25,11 @@ import {
 } from "../../agent/session-store.ts";
 import type { AgentPolicy } from "../../agent/policy.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-import { ENGINE_PROFILES } from "../../agent/constants.ts";
+import { ENGINE_PROFILES, DEFAULT_TOOL_DENYLIST, MAX_SESSION_HISTORY } from "../../agent/constants.ts";
 import {
   ensureDefaultModelInstalled,
+  getConfiguredModel,
 } from "../../../common/ai-default-model.ts";
-import { DEFAULT_MODEL_ID } from "../../../common/config/types.ts";
 
 function hashString(input: string): string {
   let hash = 2166136261;
@@ -120,7 +121,7 @@ export async function askCommand(args: string[]): Promise<void> {
   // Initialize runtime with AI
   await initializeRuntime({ stdlib: false, cache: false });
 
-  const model = DEFAULT_MODEL_ID;
+  const model = getConfiguredModel();
   try {
     await ensureDefaultModelInstalled({
       log: (message) => log.raw.log(message),
@@ -139,9 +140,15 @@ export async function askCommand(args: string[]): Promise<void> {
   // Get workspace
   const workspace = getPlatform().process.cwd();
 
-  // No tool filtering - give LLM all tools and let schemas guide selection
   const toolAllowlist = undefined;
   const requireToolCalls = false;
+
+  // Streaming: track whether tokens were streamed to avoid duplicate output
+  let streamedTokens = false;
+  const onToken = (text: string) => {
+    streamedTokens = true;
+    log.raw.write(text);
+  };
 
   const session = await createAgentSession({
     workspace,
@@ -149,27 +156,25 @@ export async function askCommand(args: string[]): Promise<void> {
     engineProfile: "normal",
     failOnContextOverflow: false,
     toolAllowlist,
-    toolDenylist: [
-      "delegate_agent",
-      "memory_add",
-      "memory_search",
-      "memory_list",
-      "memory_clear",
-    ],
+    toolDenylist: [...DEFAULT_TOOL_DENYLIST],
+    onToken,
   });
 
   let sessionEntry: AgentSessionEntry | null = null;
   const sessionKey = deriveDefaultSessionKey(workspace);
   sessionEntry = await getOrCreateSession(sessionKey);
   const historyMessages = await loadSessionMessages(sessionEntry);
-  for (const message of historyMessages) {
+  const recentHistory = historyMessages.slice(-MAX_SESSION_HISTORY);
+  for (const message of recentHistory) {
     session.context.addMessage({ ...message, fromSession: true });
   }
 
+  const homePath = getPlatform().env.get("HOME");
+  const homeNote = homePath ? ` (HOME=${homePath})` : "";
   session.context.addMessage({
     role: "system",
     content:
-      `Allowed file roots: ${DEFAULT_AGENT_PATH_ROOTS.join(", ")}. Use list_files for user folders.`,
+      `Allowed file roots: ${DEFAULT_AGENT_PATH_ROOTS.join(", ")}${homeNote}. Use list_files for user folders. Avoid placeholders like "/home/user" or "/Downloads" - use "~/Downloads" instead.`,
   });
 
   let policy = session.policy;
@@ -203,9 +208,7 @@ export async function askCommand(args: string[]): Promise<void> {
             const raw = typeof event.result === "string"
               ? event.result
               : JSON.stringify(event.result);
-            const truncated = raw.length > 200
-              ? raw.substring(0, 200) + "..."
-              : raw;
+            const truncated = truncate(raw, 200);
             log.raw.log(`[TRACE] Result: SUCCESS`);
             log.raw.log(`[TRACE] ${truncated}`);
           } else {
@@ -265,6 +268,11 @@ export async function askCommand(args: string[]): Promise<void> {
 
   const onToolDisplay = (event: ToolDisplay) => {
     if (event.toolName === "ask_user") return;
+    // If tokens were streaming, end the line before tool output
+    if (streamedTokens) {
+      log.raw.write("\n");
+      streamedTokens = false;
+    }
     if (verbose) {
       const label = event.success ? "Tool Result" : "Tool Error";
       log.raw.log(`\n[${label}] ${event.toolName}\n${event.content}\n`);
@@ -296,8 +304,8 @@ export async function askCommand(args: string[]): Promise<void> {
         toolAllowlist,
         requireToolCalls,
         planning: {
-          mode: "auto",
-          requireStepMarkers: true,
+          mode: "off",
+          requireStepMarkers: false,
         },
       },
       session.llm,
@@ -310,12 +318,18 @@ export async function askCommand(args: string[]): Promise<void> {
       );
     }
 
+    // End streaming line if tokens were streamed
+    if (streamedTokens) {
+      log.raw.write("\n");
+    }
+
     const stats = session.context.getStats();
     if (verbose) {
       if (!shouldSuppressFinalResponse(result)) {
         log.raw.log(`\nResult:\n${result}\n`);
       }
-    } else if (stats.toolMessages === 0 && result.trim()) {
+    } else if (!streamedTokens && stats.toolMessages === 0 && result.trim()) {
+      // Only print final result if we didn't stream tokens
       log.raw.log(`${result}\n`);
     }
     if (verbose) {

@@ -106,3 +106,48 @@ Deno.test({
     assertEquals(result.warnings.length, 0);
   },
 });
+
+Deno.test({
+  name: "Grounding: response incorporates numeric data from tool result -> grounded",
+  fn() {
+    const toolUses: ToolUse[] = [
+      { toolName: "compute", result: "4" },
+    ];
+    const result = checkGrounding(
+      "The result of the expression '2+2' is 4.",
+      toolUses,
+    );
+    assertEquals(result.grounded, true);
+    assertEquals(result.warnings.length, 0);
+  },
+});
+
+Deno.test({
+  name: "Grounding: response incorporates large number from tool result -> grounded",
+  fn() {
+    const toolUses: ToolUse[] = [
+      { toolName: "list_files", result: '{"count": 270, "files": [...]}' },
+    ];
+    const result = checkGrounding(
+      "There are 270 TypeScript files in the src directory.",
+      toolUses,
+    );
+    assertEquals(result.grounded, true);
+    assertEquals(result.warnings.length, 0);
+  },
+});
+
+Deno.test({
+  name: "Grounding: response with no data overlap and no citation -> warning",
+  fn() {
+    const toolUses: ToolUse[] = [
+      { toolName: "list_files", result: '{"count": 270, "files": [...]}' },
+    ];
+    const result = checkGrounding(
+      "I found some files in the directory.",
+      toolUses,
+    );
+    assertEquals(result.grounded, false);
+    assert(result.warnings.length >= 1);
+  },
+});

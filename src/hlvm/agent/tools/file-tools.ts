@@ -26,9 +26,8 @@ import {
   ResourceLimitError,
 } from "../../../common/limits.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
-import { formatToolError } from "../tool-errors.ts";
-import { okTool, failTool } from "../tool-results.ts";
-import { isObjectValue } from "../../../common/utils.ts";
+import { formatToolError, okTool, failTool } from "../tool-results.ts";
+import { isObjectValue, truncate } from "../../../common/utils.ts";
 import { getMimeTypeForExtension } from "../../../common/file-kinds.ts";
 
 // ============================================================
@@ -83,9 +82,11 @@ export interface ListFilesArgs {
   path: string;
   recursive?: boolean;
   pattern?: string;
+  filePattern?: string;
   mimePrefix?: string;
   maxDepth?: number;
   maxEntries?: number;
+  maxResults?: number | string;
 }
 
 /** File entry from list_files */
@@ -99,6 +100,62 @@ interface FileEntry {
 interface ListFilesResult extends FileOperationResult {
   entries?: FileEntry[];
   count?: number;
+}
+
+function normalizeListFilesArgs(args: ListFilesArgs): ListFilesArgs {
+  const record: Record<string, unknown> = { ...args };
+  const normalized: ListFilesArgs = { ...args };
+
+  if (!normalized.pattern && typeof record.filePattern === "string") {
+    normalized.pattern = record.filePattern;
+  }
+
+  if (typeof record.maxEntries === "string" && !normalized.maxEntries) {
+    const parsed = Number.parseInt(record.maxEntries, 10);
+    if (Number.isFinite(parsed)) {
+      normalized.maxEntries = parsed;
+    }
+  }
+
+  if (normalized.maxEntries === undefined && record.maxResults !== undefined) {
+    const raw = record.maxResults;
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      normalized.maxEntries = raw;
+    } else if (typeof raw === "string") {
+      const parsed = Number.parseInt(raw, 10);
+      if (Number.isFinite(parsed)) {
+        normalized.maxEntries = parsed;
+      }
+    }
+  }
+
+  if (typeof normalized.pattern === "string") {
+    normalized.pattern = normalizeExtensionPattern(normalized.pattern);
+  }
+
+  return normalized;
+}
+
+function normalizeExtensionPattern(pattern: string): string {
+  const trimmed = pattern.trim();
+  if (!/[;,\s]/.test(trimmed)) return trimmed;
+  if (trimmed.includes("{") || trimmed.includes("}")) return trimmed;
+
+  const parts = trimmed
+    .split(/[;,\s]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) return trimmed;
+  const extensions: string[] = [];
+  for (const part of parts) {
+    const match = part.match(/^\*\.([a-z0-9]+)$/i) ?? part.match(/^\.(\w+)$/i);
+    if (!match) {
+      return trimmed;
+    }
+    extensions.push(match[1]);
+  }
+  const unique = Array.from(new Set(extensions));
+  return `*.{${unique.join(",")}}`;
 }
 
 // ============================================================
@@ -140,15 +197,23 @@ export async function readFile(
       return failTool(`Path is a directory, not a file: ${args.path}`);
     }
 
-    // Enforce size limit
-    const maxBytes = Math.min(
-      args.maxBytes ?? RESOURCE_LIMITS.maxReadBytes,
-      RESOURCE_LIMITS.maxReadBytes,
-    );
-    assertMaxBytes("read_file size", stat.size ?? 0, maxBytes);
+    // Hard safety limit: reject files larger than system max (2MB)
+    assertMaxBytes("read_file size", stat.size ?? 0, RESOURCE_LIMITS.maxReadBytes);
 
     // Read file contents
     const content = await platform.fs.readTextFile(validPath);
+
+    // User-specified maxBytes: truncate content (not reject)
+    const userMax = args.maxBytes;
+    if (userMax !== undefined && userMax > 0 && content.length > userMax) {
+      const truncated = content.slice(0, userMax);
+      return okTool({
+        content: truncated,
+        size: stat.size,
+        truncated: true,
+        message: `Read ${userMax} of ${stat.size} bytes from ${args.path} (truncated)`,
+      });
+    }
 
     return okTool({
       content,
@@ -322,9 +387,7 @@ export async function editFile(
     await platform.fs.writeTextFile(validPath, newContent);
 
     // Generate preview (first 200 chars of changes)
-    const preview = newContent.length > 200
-      ? newContent.substring(0, 200) + "..."
-      : newContent;
+    const preview = truncate(newContent, 200);
 
     return okTool({
       message: `Made ${replacements} replacement(s) in ${args.path}`,
@@ -369,10 +432,11 @@ export async function listFiles(
   try {
     throwIfAborted(options?.signal);
     const platform = getPlatform();
+    const normalizedArgs = normalizeListFilesArgs(args);
 
     // Validate path security
     const validPath = await resolveToolPath(
-      args.path,
+      normalizedArgs.path,
       workspace,
       options?.policy ?? null,
     );
@@ -380,7 +444,7 @@ export async function listFiles(
     // Check if path exists and is a directory
     const stat = await platform.fs.stat(validPath);
     if (!stat.isDirectory) {
-      return failTool(`Path is not a directory: ${args.path}`);
+      return failTool(`Path is not a directory: ${normalizedArgs.path}`);
     }
 
     const entries: FileEntry[] = [];
@@ -392,13 +456,17 @@ export async function listFiles(
     // Compile glob pattern once (path-aware by default)
     let patternRegex: RegExp | null = null;
     let basenameRegex: RegExp | null = null;
-    if (args.pattern) {
+    if (normalizedArgs.pattern) {
       try {
-        patternRegex = globToRegex(args.pattern, { matchPath: true });
+        patternRegex = globToRegex(normalizedArgs.pattern, { matchPath: true });
 
         // Back-compat: if pattern has no path separators, also match basenames
-        if (args.recursive && !args.pattern.includes("/") && !args.pattern.includes("\\")) {
-          basenameRegex = globToRegex(args.pattern, { matchPath: false });
+        if (
+          normalizedArgs.recursive &&
+          !normalizedArgs.pattern.includes("/") &&
+          !normalizedArgs.pattern.includes("\\")
+        ) {
+          basenameRegex = globToRegex(normalizedArgs.pattern, { matchPath: false });
         }
       } catch (error) {
         if (error instanceof GlobPatternError) {
@@ -414,8 +482,8 @@ export async function listFiles(
       return basenameRegex ? basenameRegex.test(name) : false;
     };
 
-    const mimePrefix = typeof args.mimePrefix === "string"
-      ? args.mimePrefix.toLowerCase()
+    const mimePrefix = typeof normalizedArgs.mimePrefix === "string"
+      ? normalizedArgs.mimePrefix.toLowerCase()
       : undefined;
     const matchesMime = (name: string): boolean => {
       if (!mimePrefix) return true;
@@ -426,13 +494,13 @@ export async function listFiles(
     };
 
     const maxEntries = Math.min(
-      args.maxEntries ?? RESOURCE_LIMITS.maxListEntries,
+      normalizedArgs.maxEntries ?? RESOURCE_LIMITS.maxListEntries,
       RESOURCE_LIMITS.maxListEntries,
     );
 
     // Helper to walk directory
     const walk = async (dir: string, relativePath: string, depth: number) => {
-      if (args.maxDepth !== undefined && depth > args.maxDepth) {
+      if (normalizedArgs.maxDepth !== undefined && depth > normalizedArgs.maxDepth) {
         return;
       }
 
@@ -486,7 +554,7 @@ export async function listFiles(
 
         // Recurse into directories if recursive mode enabled
         // ALWAYS recurse regardless of pattern match to find nested files
-        if (args.recursive && entry.isDirectory) {
+        if (normalizedArgs.recursive && entry.isDirectory) {
           throwIfAborted(options?.signal);
           // CRITICAL: Validate subdirectory isn't a symlink escape
           try {
@@ -522,7 +590,7 @@ export async function listFiles(
       count: entries.length,
       message: truncated
         ? `Found ${entries.length} entries (limit reached)`
-        : `Found ${entries.length} entries in ${args.path}`,
+        : `Found ${entries.length} entries in ${validPath}`,
     });
   } catch (error) {
     const { message } = formatToolError("Failed to list files", error);
@@ -592,7 +660,7 @@ export const FILE_TOOLS = {
     args: {
       path: "string - Path to file (relative to workspace or absolute if allowed by policy)",
       encoding: "string (optional) - 'utf8' or 'binary' (default: utf8)",
-      maxBytes: "number (optional) - Max bytes to read (capped by limits)",
+      maxBytes: "number (optional) - Max bytes to return; content is truncated if file exceeds this (capped at 2MB)",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",
@@ -648,8 +716,8 @@ Examples:
    → list_files({path: "src", recursive: true, pattern: "*.ts"})
 2. "show images in Downloads"
    → list_files({path: "~/Downloads", recursive: true, mimePrefix: "image/"})
-3. "list all images in Downloads"
-   → list_files({path: "~/Downloads", recursive: true, mimePrefix: "image/"})
+3. "list videos on Desktop"
+   → list_files({path: "~/Desktop", recursive: true, mimePrefix: "video/"})
 4. "list PDF files in Documents"
    → list_files({path: "~/Documents", pattern: "*.pdf"})`,
     safetyLevel: "L0",
@@ -658,9 +726,11 @@ Examples:
       path: "string - Path to directory. Use '.' for current, '~/Downloads' for user folders, or relative paths like 'src/components'",
       recursive: "boolean (optional) - Search subdirectories? Use true for 'all/every/entire' requests. Default: false",
       pattern: "string (optional) - Glob pattern to filter files. Examples: '*.ts', '*.{jpg,png}', '*.pdf'. Omit to list all files",
+      filePattern: "string (optional) - Alias for pattern",
       mimePrefix: "string (optional) - MIME type prefix filter (e.g., 'image/', 'video/', 'application/pdf'). Use pattern instead for most cases",
       maxDepth: "number (optional) - Maximum recursion depth. Rarely needed",
       maxEntries: "number (optional) - Max entries to return. Rarely needed",
+      maxResults: "any (optional) - Alias for maxEntries",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",

@@ -27,8 +27,7 @@
         }
       ],
       "vision": false,
-      "tools": true,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "DeepSeek-R1 is a family of open reasoning models with performance approaching that of leading models, such as O3 and Gemini 2.5 Pro.",
@@ -77,7 +76,7 @@
         }
       ],
       "vision": false,
-      "tools": false,
+      "tools": true,
       "thinking": true
     },
     {
@@ -102,8 +101,7 @@
         }
       ],
       "vision": false,
-      "tools": true,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "A high-performing open embedding model with a large token context window.",
@@ -127,8 +125,6 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false,
       "model_type": "embedding"
     },
     {
@@ -183,8 +179,7 @@
         }
       ],
       "vision": true,
-      "tools": false,
-      "thinking": false
+      "cloud": true
     },
     {
       "description": "The 7B model released by Mistral AI, updated to version 0.3.",
@@ -203,8 +198,7 @@
         }
       ],
       "vision": false,
-      "tools": true,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "Qwen2.5 models are pretrained on Alibaba's latest large-scale dataset, encompassing up to 18 trillion tokens. The model supports up to 128K tokens and has multilingual support. ",
@@ -253,8 +247,7 @@
         }
       ],
       "vision": false,
-      "tools": true,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "Qwen3 is the latest generation of large language models in Qwen series, offering a comprehensive suite of dense and mixture-of-experts (MoE) models.",
@@ -309,7 +302,7 @@
       ],
       "vision": false,
       "tools": true,
-      "thinking": false
+      "thinking": true
     },
     {
       "description": "Phi-3 is a family of lightweight 3B (Mini) and 14B (Medium) state-of-the-art open models by Microsoft.",
@@ -332,34 +325,7 @@
           "size": "2.2GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Meta Llama 3: The most capable openly available LLM to date",
-      "id": "llama3",
-      "name": "Llama3",
-      "variants": [
-        {
-          "id": "llama3:latest",
-          "parameters": "Unknown",
-          "size": "4.7GB"
-        },
-        {
-          "id": "llama3:70b",
-          "parameters": "70B",
-          "size": "40GB"
-        },
-        {
-          "id": "llama3:8b",
-          "parameters": "8B",
-          "size": "4.7GB"
-        }
-      ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Google Gemma 2 is a high-performing and efficient model available in three sizes: 2B, 9B, and 27B.",
@@ -387,9 +353,30 @@
           "size": "1.6GB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "Meta Llama 3: The most capable openly available LLM to date",
+      "id": "llama3",
+      "name": "Llama3",
+      "variants": [
+        {
+          "id": "llama3:latest",
+          "parameters": "Unknown",
+          "size": "4.7GB"
+        },
+        {
+          "id": "llama3:70b",
+          "parameters": "70B",
+          "size": "40GB"
+        },
+        {
+          "id": "llama3:8b",
+          "parameters": "8B",
+          "size": "4.7GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "🌋 LLaVA is a novel end-to-end trained large multimodal model that combines a vision encoder and Vicuna for general-purpose visual and language understanding. Updated to version 1.6.",
@@ -417,9 +404,7 @@
           "size": "4.7GB"
         }
       ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
+      "vision": true
     },
     {
       "description": "The latest series of Code-Specific Qwen models, with significant improvements in code generation, code reasoning, and code fixing.",
@@ -463,28 +448,7 @@
         }
       ],
       "vision": false,
-      "tools": true,
-      "thinking": false
-    },
-    {
-      "description": "Phi-4 is a 14B parameter, state-of-the-art open model from Microsoft.",
-      "id": "phi4",
-      "name": "Phi4",
-      "variants": [
-        {
-          "id": "phi4:latest",
-          "parameters": "Unknown",
-          "size": "9.1GB"
-        },
-        {
-          "id": "phi4:14b",
-          "parameters": "14B",
-          "size": "9.1GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "State-of-the-art large embedding model from mixedbread.ai",
@@ -503,9 +467,25 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false,
       "model_type": "embedding"
+    },
+    {
+      "description": "Phi-4 is a 14B parameter, state-of-the-art open model from Microsoft.",
+      "id": "phi4",
+      "name": "Phi4",
+      "variants": [
+        {
+          "id": "phi4:latest",
+          "parameters": "Unknown",
+          "size": "9.1GB"
+        },
+        {
+          "id": "phi4:14b",
+          "parameters": "14B",
+          "size": "9.1GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "OpenAI’s open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.",
@@ -539,8 +519,9 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "thinking": true,
+      "cloud": true
     },
     {
       "description": "Gemma is a family of lightweight, state-of-the-art open models built by Google DeepMind. Updated to version 1.1",
@@ -563,9 +544,7 @@
           "size": "1.7GB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Qwen 1.5 is a series of large language models by Alibaba Cloud spanning from 0.5B to 110B parameters",
@@ -618,9 +597,7 @@
           "size": "395MB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Llama 2 is a collection of foundation language models ranging from 7B to 70B parameters.",
@@ -648,9 +625,7 @@
           "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Qwen2 is a new series of large language models from Alibaba group",
@@ -684,8 +659,7 @@
         }
       ],
       "vision": false,
-      "tools": true,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "A series of multimodal LLMs (MLLMs) designed for vision-language understanding.",
@@ -703,9 +677,7 @@
           "size": "5.5GB"
         }
       ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
+      "vision": true
     },
     {
       "description": "A large language model that can use text prompts to generate and discuss code.",
@@ -738,29 +710,7 @@
           "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Dolphin 3.0 Llama 3.1 8B 🐬 is the next generation of the Dolphin series of instruct-tuned models designed to be the ultimate general purpose local model, enabling coding, math, agentic, function calling, and general use cases.",
-      "id": "dolphin3",
-      "name": "Dolphin3",
-      "variants": [
-        {
-          "id": "dolphin3:latest",
-          "parameters": "Unknown",
-          "size": "4.9GB"
-        },
-        {
-          "id": "dolphin3:8b",
-          "parameters": "8B",
-          "size": "4.9GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Llama 3.2 Vision is a collection of instruction-tuned image reasoning generative models in 11B and 90B sizes.",
@@ -783,9 +733,43 @@
           "size": "7.8GB"
         }
       ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
+      "vision": true
+    },
+    {
+      "description": "Dolphin 3.0 Llama 3.1 8B 🐬 is the next generation of the Dolphin series of instruct-tuned models designed to be the ultimate general purpose local model, enabling coding, math, agentic, function calling, and general use cases.",
+      "id": "dolphin3",
+      "name": "Dolphin3",
+      "variants": [
+        {
+          "id": "dolphin3:latest",
+          "parameters": "Unknown",
+          "size": "4.9GB"
+        },
+        {
+          "id": "dolphin3:8b",
+          "parameters": "8B",
+          "size": "4.9GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "The TinyLlama project is an open endeavor to train a compact 1.1B Llama model on 3 trillion tokens.",
+      "id": "tinyllama",
+      "name": "Tinyllama",
+      "variants": [
+        {
+          "id": "tinyllama:latest",
+          "parameters": "Unknown",
+          "size": "638MB"
+        },
+        {
+          "id": "tinyllama:1.1b",
+          "parameters": "1.1B",
+          "size": "638MB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "OLMo 2 is a new family of 7B and 13B models trained on up to 5T tokens. These models are on par with or better than equivalently sized fully open models, and competitive with open-weight models such as Llama 3.1 on English academic benchmarks.",
@@ -808,29 +792,7 @@
           "size": "4.5GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "The TinyLlama project is an open endeavor to train a compact 1.1B Llama model on 3 trillion tokens.",
-      "id": "tinyllama",
-      "name": "Tinyllama",
-      "variants": [
-        {
-          "id": "tinyllama:latest",
-          "parameters": "Unknown",
-          "size": "638MB"
-        },
-        {
-          "id": "tinyllama:1.1b",
-          "parameters": "1.1B",
-          "size": "638MB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "A strong Mixture-of-Experts (MoE) language model with 671B total parameters with 37B activated for each token.",
@@ -848,9 +810,7 @@
           "size": "404GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "A state-of-the-art 12B model with 128k context length, built by Mistral AI in collaboration with NVIDIA.",
@@ -869,8 +829,7 @@
         }
       ],
       "vision": false,
-      "tools": true,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "BGE-M3 is a new model from BAAI distinguished for its versatility in Multi-Functionality, Multi-Linguality, and Multi-Granularity.",
@@ -889,8 +848,6 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false,
       "model_type": "embedding"
     },
     {
@@ -910,8 +867,7 @@
         }
       ],
       "vision": false,
-      "tools": true,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "DeepSeek Coder is a capable coding model trained on two trillion code and natural language tokens.",
@@ -939,110 +895,7 @@
           "size": "776MB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Mistral Small 3 sets a new benchmark in the “small” Large Language Models category below 70B.",
-      "id": "mistral-small",
-      "name": "Mistral Small",
-      "variants": [
-        {
-          "id": "mistral-small:latest",
-          "parameters": "Unknown",
-          "size": "14GB"
-        },
-        {
-          "id": "mistral-small:24b",
-          "parameters": "24B",
-          "size": "14GB"
-        },
-        {
-          "id": "mistral-small:22b",
-          "parameters": "22B",
-          "size": "13GB"
-        }
-      ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
-    },
-    {
-      "description": "SmolLM2 is a family of compact language models available in three size: 135M, 360M, and 1.7B parameters.",
-      "id": "smollm2",
-      "name": "Smollm2",
-      "variants": [
-        {
-          "id": "smollm2:latest",
-          "parameters": "Unknown",
-          "size": "1.8GB"
-        },
-        {
-          "id": "smollm2:360m",
-          "parameters": "360M",
-          "size": "726MB"
-        },
-        {
-          "id": "smollm2:135m",
-          "parameters": "135M",
-          "size": "271MB"
-        },
-        {
-          "id": "smollm2:1.7b",
-          "parameters": "1.7B",
-          "size": "1.8GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Embedding models on very large sentence level datasets.",
-      "id": "all-minilm",
-      "name": "All Minilm",
-      "variants": [
-        {
-          "id": "all-minilm:latest",
-          "parameters": "Unknown",
-          "size": "46MB"
-        },
-        {
-          "id": "all-minilm:33m",
-          "parameters": "33M",
-          "size": "67MB"
-        },
-        {
-          "id": "all-minilm:22m",
-          "parameters": "22M",
-          "size": "46MB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false,
-      "model_type": "embedding"
-    },
-    {
-      "description": "A LLaVA model fine-tuned from Llama 3 Instruct with better scores in several benchmarks.",
-      "id": "llava-llama3",
-      "name": "Llava Llama3",
-      "variants": [
-        {
-          "id": "llava-llama3:latest",
-          "parameters": "Unknown",
-          "size": "5.5GB"
-        },
-        {
-          "id": "llava-llama3:8b",
-          "parameters": "8B",
-          "size": "5.5GB"
-        }
-      ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Alibaba's performant long context models for agentic and coding tasks.",
@@ -1072,27 +925,108 @@
       ],
       "vision": false,
       "tools": true,
-      "thinking": false
+      "cloud": true
     },
     {
-      "description": "QwQ is the reasoning model of the Qwen series.",
-      "id": "qwq",
-      "name": "Qwq",
+      "description": "SmolLM2 is a family of compact language models available in three size: 135M, 360M, and 1.7B parameters.",
+      "id": "smollm2",
+      "name": "Smollm2",
       "variants": [
         {
-          "id": "qwq:latest",
+          "id": "smollm2:latest",
           "parameters": "Unknown",
-          "size": "20GB"
+          "size": "1.8GB"
         },
         {
-          "id": "qwq:32b",
-          "parameters": "32B",
-          "size": "20GB"
+          "id": "smollm2:360m",
+          "parameters": "360M",
+          "size": "726MB"
+        },
+        {
+          "id": "smollm2:135m",
+          "parameters": "135M",
+          "size": "271MB"
+        },
+        {
+          "id": "smollm2:1.7b",
+          "parameters": "1.7B",
+          "size": "1.8GB"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": true
+      "tools": true
+    },
+    {
+      "description": "Embedding models on very large sentence level datasets.",
+      "id": "all-minilm",
+      "name": "All Minilm",
+      "variants": [
+        {
+          "id": "all-minilm:latest",
+          "parameters": "Unknown",
+          "size": "46MB"
+        },
+        {
+          "id": "all-minilm:33m",
+          "parameters": "33M",
+          "size": "67MB"
+        },
+        {
+          "id": "all-minilm:22m",
+          "parameters": "22M",
+          "size": "46MB"
+        }
+      ],
+      "vision": false,
+      "model_type": "embedding"
+    },
+    {
+      "description": "Mistral Small 3 sets a new benchmark in the “small” Large Language Models category below 70B.",
+      "id": "mistral-small",
+      "name": "Mistral Small",
+      "variants": [
+        {
+          "id": "mistral-small:latest",
+          "parameters": "Unknown",
+          "size": "14GB"
+        },
+        {
+          "id": "mistral-small:24b",
+          "parameters": "24B",
+          "size": "14GB"
+        },
+        {
+          "id": "mistral-small:22b",
+          "parameters": "22B",
+          "size": "13GB"
+        }
+      ],
+      "vision": false,
+      "tools": true
+    },
+    {
+      "description": "The IBM Granite 1B and 3B models are long-context mixture of experts (MoE) Granite models from IBM designed for low latency usage.",
+      "id": "granite3.1-moe",
+      "name": "Granite3.1 Moe",
+      "variants": [
+        {
+          "id": "granite3.1-moe:latest",
+          "parameters": "Unknown",
+          "size": "2.0GB"
+        },
+        {
+          "id": "granite3.1-moe:3b",
+          "parameters": "3B",
+          "size": "2.0GB"
+        },
+        {
+          "id": "granite3.1-moe:1b",
+          "parameters": "1B",
+          "size": "1.4GB"
+        }
+      ],
+      "vision": false,
+      "tools": true
     },
     {
       "description": "CodeGemma is a collection of powerful, lightweight models that can perform a variety of coding tasks like fill-in-the-middle code completion, code generation, natural language understanding, mathematical reasoning, and instruction following.",
@@ -1115,9 +1049,7 @@
           "size": "1.6GB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "A family of efficient AI models under 10B parameters performant in science, math, and coding through innovative training techniques.",
@@ -1150,34 +1082,44 @@
           "size": "1.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "The IBM Granite 1B and 3B models are long-context mixture of experts (MoE) Granite models from IBM designed for low latency usage.",
-      "id": "granite3.1-moe",
-      "name": "Granite3.1 Moe",
+      "description": "A LLaVA model fine-tuned from Llama 3 Instruct with better scores in several benchmarks.",
+      "id": "llava-llama3",
+      "name": "Llava Llama3",
       "variants": [
         {
-          "id": "granite3.1-moe:latest",
+          "id": "llava-llama3:latest",
           "parameters": "Unknown",
-          "size": "2.0GB"
+          "size": "5.5GB"
         },
         {
-          "id": "granite3.1-moe:3b",
-          "parameters": "3B",
-          "size": "2.0GB"
+          "id": "llava-llama3:8b",
+          "parameters": "8B",
+          "size": "5.5GB"
+        }
+      ],
+      "vision": true
+    },
+    {
+      "description": "QwQ is the reasoning model of the Qwen series.",
+      "id": "qwq",
+      "name": "Qwq",
+      "variants": [
+        {
+          "id": "qwq:latest",
+          "parameters": "Unknown",
+          "size": "20GB"
         },
         {
-          "id": "granite3.1-moe:1b",
-          "parameters": "1B",
-          "size": "1.4GB"
+          "id": "qwq:32b",
+          "parameters": "32B",
+          "size": "20GB"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "StarCoder2 is the next generation of transparently trained open code LLMs that comes in three sizes: 3B, 7B and 15B parameters. ",
@@ -1205,59 +1147,7 @@
           "size": "1.7GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Uncensored Llama 2 model by George Sung and Jarrad Hope.",
-      "id": "llama2-uncensored",
-      "name": "Llama2 Uncensored",
-      "variants": [
-        {
-          "id": "llama2-uncensored:latest",
-          "parameters": "Unknown",
-          "size": "3.8GB"
-        },
-        {
-          "id": "llama2-uncensored:70b",
-          "parameters": "70B",
-          "size": "39GB"
-        },
-        {
-          "id": "llama2-uncensored:7b",
-          "parameters": "7B",
-          "size": "3.8GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A set of Mixture of Experts (MoE) model with open weights by Mistral AI in 8x7b and 8x22b parameter sizes.",
-      "id": "mixtral",
-      "name": "Mixtral",
-      "variants": [
-        {
-          "id": "mixtral:latest",
-          "parameters": "Unknown",
-          "size": "26GB"
-        },
-        {
-          "id": "mixtral:8x22b",
-          "parameters": "22B",
-          "size": "80GB"
-        },
-        {
-          "id": "mixtral:8x7b",
-          "parameters": "7B",
-          "size": "26GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "A general-purpose model ranging from 3 billion parameters to 70 billion, suitable for entry-level hardware.",
@@ -1290,9 +1180,31 @@
           "size": "2.0GB"
         }
       ],
+      "vision": false
+    },
+    {
+      "description": "A set of Mixture of Experts (MoE) model with open weights by Mistral AI in 8x7b and 8x22b parameter sizes.",
+      "id": "mixtral",
+      "name": "Mixtral",
+      "variants": [
+        {
+          "id": "mixtral:latest",
+          "parameters": "Unknown",
+          "size": "26GB"
+        },
+        {
+          "id": "mixtral:8x22b",
+          "parameters": "22B",
+          "size": "80GB"
+        },
+        {
+          "id": "mixtral:8x7b",
+          "parameters": "7B",
+          "size": "26GB"
+        }
+      ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "A suite of text embedding models by Snowflake, optimized for performance.",
@@ -1331,9 +1243,30 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false,
       "model_type": "embedding"
+    },
+    {
+      "description": "Uncensored Llama 2 model by George Sung and Jarrad Hope.",
+      "id": "llama2-uncensored",
+      "name": "Llama2 Uncensored",
+      "variants": [
+        {
+          "id": "llama2-uncensored:latest",
+          "parameters": "Unknown",
+          "size": "3.8GB"
+        },
+        {
+          "id": "llama2-uncensored:70b",
+          "parameters": "70B",
+          "size": "39GB"
+        },
+        {
+          "id": "llama2-uncensored:7b",
+          "parameters": "7B",
+          "size": "3.8GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "An open-source Mixture-of-Experts code language model that achieves performance comparable to GPT4-Turbo in code-specific tasks.",
@@ -1356,9 +1289,7 @@
           "size": "8.9GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Cogito v1 Preview is a family of hybrid reasoning models by Deep Cogito that outperform the best available open models of the same size, including counterparts from LLaMA, DeepSeek, and Qwen across most standard benchmarks.",
@@ -1397,153 +1328,7 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Flagship vision-language model of Qwen and also a significant leap from the previous Qwen2-VL.",
-      "id": "qwen2.5vl",
-      "name": "Qwen2.5vl",
-      "variants": [
-        {
-          "id": "qwen2.5vl:latest",
-          "parameters": "Unknown",
-          "size": "6.0GB"
-        },
-        {
-          "id": "qwen2.5vl:72b",
-          "parameters": "72B",
-          "size": "49GB"
-        },
-        {
-          "id": "qwen2.5vl:32b",
-          "parameters": "32B",
-          "size": "21GB"
-        },
-        {
-          "id": "qwen2.5vl:7b",
-          "parameters": "7B",
-          "size": "6.0GB"
-        },
-        {
-          "id": "qwen2.5vl:3b",
-          "parameters": "3B",
-          "size": "3.2GB"
-        }
-      ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A fine-tuned version of Deepseek-R1-Distilled-Qwen-1.5B that surpasses the performance of OpenAI’s o1-preview with just 1.5B parameters on popular math evaluations.",
-      "id": "deepscaler",
-      "name": "Deepscaler",
-      "variants": [
-        {
-          "id": "deepscaler:latest",
-          "parameters": "Unknown",
-          "size": "3.6GB"
-        },
-        {
-          "id": "deepscaler:1.5b",
-          "parameters": "1.5B",
-          "size": "3.6GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "2.7B uncensored Dolphin model by Eric Hartford, based on the Phi language model by Microsoft Research.",
-      "id": "dolphin-phi",
-      "name": "Dolphin Phi",
-      "variants": [
-        {
-          "id": "dolphin-phi:latest",
-          "parameters": "Unknown",
-          "size": "1.6GB"
-        },
-        {
-          "id": "dolphin-phi:2.7b",
-          "parameters": "2.7B",
-          "size": "1.6GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Gemma 3n models are designed for efficient execution on everyday devices such as laptops, tablets or phones. ",
-      "id": "gemma3n",
-      "name": "Gemma3n",
-      "variants": [
-        {
-          "id": "gemma3n:latest",
-          "parameters": "Unknown",
-          "size": "7.5GB"
-        },
-        {
-          "id": "gemma3n:e4b",
-          "parameters": "4B",
-          "size": "7.5GB"
-        },
-        {
-          "id": "gemma3n:e2b",
-          "parameters": "2B",
-          "size": "5.6GB"
-        }
-      ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
-    },
-    {
-      "description": "Meta's latest collection of multimodal models.",
-      "id": "llama4",
-      "name": "Llama4",
-      "variants": [
-        {
-          "id": "llama4:latest",
-          "parameters": "Unknown",
-          "size": "67GB"
-        },
-        {
-          "id": "llama4:16x17b",
-          "parameters": "17B",
-          "size": "67GB"
-        },
-        {
-          "id": "llama4:128x17b",
-          "parameters": "17B",
-          "size": "245GB"
-        }
-      ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "An update to Mistral Small that improves on function calling, instruction following, and less repetition errors.",
-      "id": "mistral-small3.2",
-      "name": "Mistral Small3.2",
-      "variants": [
-        {
-          "id": "mistral-small3.2:latest",
-          "parameters": "Unknown",
-          "size": "15GB"
-        },
-        {
-          "id": "mistral-small3.2:24b",
-          "parameters": "24B",
-          "size": "15GB"
-        }
-      ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "The most powerful vision-language model in the Qwen model family to date. ",
@@ -1597,8 +1382,144 @@
         }
       ],
       "vision": true,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "thinking": true,
+      "cloud": true
+    },
+    {
+      "description": "2.7B uncensored Dolphin model by Eric Hartford, based on the Phi language model by Microsoft Research.",
+      "id": "dolphin-phi",
+      "name": "Dolphin Phi",
+      "variants": [
+        {
+          "id": "dolphin-phi:latest",
+          "parameters": "Unknown",
+          "size": "1.6GB"
+        },
+        {
+          "id": "dolphin-phi:2.7b",
+          "parameters": "2.7B",
+          "size": "1.6GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Gemma 3n models are designed for efficient execution on everyday devices such as laptops, tablets or phones. ",
+      "id": "gemma3n",
+      "name": "Gemma3n",
+      "variants": [
+        {
+          "id": "gemma3n:latest",
+          "parameters": "Unknown",
+          "size": "7.5GB"
+        },
+        {
+          "id": "gemma3n:e4b",
+          "parameters": "4B",
+          "size": "7.5GB"
+        },
+        {
+          "id": "gemma3n:e2b",
+          "parameters": "2B",
+          "size": "5.6GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "An update to Mistral Small that improves on function calling, instruction following, and less repetition errors.",
+      "id": "mistral-small3.2",
+      "name": "Mistral Small3.2",
+      "variants": [
+        {
+          "id": "mistral-small3.2:latest",
+          "parameters": "Unknown",
+          "size": "15GB"
+        },
+        {
+          "id": "mistral-small3.2:24b",
+          "parameters": "24B",
+          "size": "15GB"
+        }
+      ],
+      "vision": true,
+      "tools": true
+    },
+    {
+      "description": "Flagship vision-language model of Qwen and also a significant leap from the previous Qwen2-VL.",
+      "id": "qwen2.5vl",
+      "name": "Qwen2.5vl",
+      "variants": [
+        {
+          "id": "qwen2.5vl:latest",
+          "parameters": "Unknown",
+          "size": "6.0GB"
+        },
+        {
+          "id": "qwen2.5vl:72b",
+          "parameters": "72B",
+          "size": "49GB"
+        },
+        {
+          "id": "qwen2.5vl:32b",
+          "parameters": "32B",
+          "size": "21GB"
+        },
+        {
+          "id": "qwen2.5vl:7b",
+          "parameters": "7B",
+          "size": "6.0GB"
+        },
+        {
+          "id": "qwen2.5vl:3b",
+          "parameters": "3B",
+          "size": "3.2GB"
+        }
+      ],
+      "vision": true
+    },
+    {
+      "description": "A fine-tuned version of Deepseek-R1-Distilled-Qwen-1.5B that surpasses the performance of OpenAI’s o1-preview with just 1.5B parameters on popular math evaluations.",
+      "id": "deepscaler",
+      "name": "Deepscaler",
+      "variants": [
+        {
+          "id": "deepscaler:latest",
+          "parameters": "Unknown",
+          "size": "3.6GB"
+        },
+        {
+          "id": "deepscaler:1.5b",
+          "parameters": "1.5B",
+          "size": "3.6GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Meta's latest collection of multimodal models.",
+      "id": "llama4",
+      "name": "Llama4",
+      "variants": [
+        {
+          "id": "llama4:latest",
+          "parameters": "Unknown",
+          "size": "67GB"
+        },
+        {
+          "id": "llama4:16x17b",
+          "parameters": "17B",
+          "size": "67GB"
+        },
+        {
+          "id": "llama4:128x17b",
+          "parameters": "17B",
+          "size": "245GB"
+        }
+      ],
+      "vision": true,
+      "tools": true
     },
     {
       "description": "Phi 4 reasoning and reasoning plus are 14-billion parameter open-weight reasoning models that rival much larger models on complex reasoning tasks. ",
@@ -1616,9 +1537,7 @@
           "size": "11GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Magistral is a small, efficient reasoning model with 24B parameters.",
@@ -1637,8 +1556,8 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "thinking": true
     },
     {
       "description": "Phi-2: a 2.7B language model by Microsoft Research that demonstrates outstanding reasoning and language understanding capabilities.",
@@ -1656,9 +1575,7 @@
           "size": "1.6GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Uncensored, 8x7b and 8x22b fine-tuned models based on the Mixtral mixture of experts models that excels at coding tasks. Created by Eric Hartford.",
@@ -1681,9 +1598,30 @@
           "size": "26GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "Dolphin 2.9 is a new model with 8B and 70B sizes by Eric Hartford based on Llama 3 that has a variety of instruction, conversational, and coding skills.",
+      "id": "dolphin-llama3",
+      "name": "Dolphin Llama3",
+      "variants": [
+        {
+          "id": "dolphin-llama3:latest",
+          "parameters": "Unknown",
+          "size": "4.7GB"
+        },
+        {
+          "id": "dolphin-llama3:70b",
+          "parameters": "70B",
+          "size": "40GB"
+        },
+        {
+          "id": "dolphin-llama3:8b",
+          "parameters": "8B",
+          "size": "4.7GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "IBM Granite 2B and 8B models are 128K context length language models that have been fine-tuned for improved reasoning and instruction-following capabilities.",
@@ -1707,78 +1645,8 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Dolphin 2.9 is a new model with 8B and 70B sizes by Eric Hartford based on Llama 3 that has a variety of instruction, conversational, and coding skills.",
-      "id": "dolphin-llama3",
-      "name": "Dolphin Llama3",
-      "variants": [
-        {
-          "id": "dolphin-llama3:latest",
-          "parameters": "Unknown",
-          "size": "4.7GB"
-        },
-        {
-          "id": "dolphin-llama3:70b",
-          "parameters": "70B",
-          "size": "40GB"
-        },
-        {
-          "id": "dolphin-llama3:8b",
-          "parameters": "8B",
-          "size": "4.7GB"
-        }
-      ],
-      "vision": false,
       "tools": true,
-      "thinking": false
-    },
-    {
-      "description": "Phi-4-mini brings significant enhancements in multilingual support, reasoning, and mathematics, and now, the long-awaited function calling feature is finally supported.",
-      "id": "phi4-mini",
-      "name": "Phi4 Mini",
-      "variants": [
-        {
-          "id": "phi4-mini:latest",
-          "parameters": "Unknown",
-          "size": "2.5GB"
-        },
-        {
-          "id": "phi4-mini:3.8b",
-          "parameters": "3.8B",
-          "size": "2.5GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A fully open-source family of reasoning models built using a dataset derived by distilling DeepSeek-R1.",
-      "id": "openthinker",
-      "name": "Openthinker",
-      "variants": [
-        {
-          "id": "openthinker:latest",
-          "parameters": "Unknown",
-          "size": "4.7GB"
-        },
-        {
-          "id": "openthinker:32b",
-          "parameters": "32B",
-          "size": "20GB"
-        },
-        {
-          "id": "openthinker:7b",
-          "parameters": "7B",
-          "size": "4.7GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "thinking": true
     },
     {
       "description": "🪐 A family of small models with 135M, 360M, and 1.7B parameters, trained on a new high-quality dataset.",
@@ -1806,9 +1674,26 @@
           "size": "991MB"
         }
       ],
+      "vision": false
+    },
+    {
+      "description": "Phi-4-mini brings significant enhancements in multilingual support, reasoning, and mathematics, and now, the long-awaited function calling feature is finally supported.",
+      "id": "phi4-mini",
+      "name": "Phi4 Mini",
+      "variants": [
+        {
+          "id": "phi4-mini:latest",
+          "parameters": "Unknown",
+          "size": "2.5GB"
+        },
+        {
+          "id": "phi4-mini:3.8b",
+          "parameters": "3.8B",
+          "size": "2.5GB"
+        }
+      ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "Codestral is Mistral AI’s first-ever code model designed for code generation tasks.",
@@ -1826,9 +1711,30 @@
           "size": "13GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "A fully open-source family of reasoning models built using a dataset derived by distilling DeepSeek-R1.",
+      "id": "openthinker",
+      "name": "Openthinker",
+      "variants": [
+        {
+          "id": "openthinker:latest",
+          "parameters": "Unknown",
+          "size": "4.7GB"
+        },
+        {
+          "id": "openthinker:32b",
+          "parameters": "32B",
+          "size": "20GB"
+        },
+        {
+          "id": "openthinker:7b",
+          "parameters": "7B",
+          "size": "4.7GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "A compact and efficient vision-language model, specifically designed for visual document understanding, enabling automated content extraction from tables, charts, infographics, plots, diagrams, and more.",
@@ -1847,8 +1753,7 @@
         }
       ],
       "vision": true,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "Devstral: the best open source model for coding agents",
@@ -1867,8 +1772,7 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "The uncensored Dolphin model based on Mistral that excels at coding tasks. Updated to version 2.8.",
@@ -1886,79 +1790,36 @@
           "size": "4.1GB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "State of the art large language model from Microsoft AI with improved performance on complex chat, multilingual, reasoning and agent use cases.",
-      "id": "wizardlm2",
-      "name": "Wizardlm2",
+      "description": "Granite 4 features improved instruction following (IF) and tool-calling capabilities, making them more effective in enterprise applications.",
+      "id": "granite4",
+      "name": "Granite4",
       "variants": [
         {
-          "id": "wizardlm2:latest",
+          "id": "granite4:latest",
           "parameters": "Unknown",
-          "size": "4.1GB"
+          "size": "2.1GB"
         },
         {
-          "id": "wizardlm2:8x22b",
-          "parameters": "22B",
-          "size": "80GB"
+          "id": "granite4:350m",
+          "parameters": "350M",
+          "size": "708MB"
         },
         {
-          "id": "wizardlm2:7b",
-          "parameters": "7B",
-          "size": "4.1GB"
+          "id": "granite4:3b",
+          "parameters": "3B",
+          "size": "2.1GB"
+        },
+        {
+          "id": "granite4:1b",
+          "parameters": "1B",
+          "size": "3.3GB"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "DeepCoder is a fully open-Source 14B coder model at O3-mini level, with a 1.5B version also available.",
-      "id": "deepcoder",
-      "name": "Deepcoder",
-      "variants": [
-        {
-          "id": "deepcoder:latest",
-          "parameters": "Unknown",
-          "size": "9.0GB"
-        },
-        {
-          "id": "deepcoder:14b",
-          "parameters": "14B",
-          "size": "9.0GB"
-        },
-        {
-          "id": "deepcoder:1.5b",
-          "parameters": "1.5B",
-          "size": "1.1GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "moondream2 is a small vision language model designed to run efficiently on edge devices.",
-      "id": "moondream",
-      "name": "Moondream",
-      "variants": [
-        {
-          "id": "moondream:latest",
-          "parameters": "Unknown",
-          "size": "1.7GB"
-        },
-        {
-          "id": "moondream:1.8b",
-          "parameters": "1.8B",
-          "size": "1.7GB"
-        }
-      ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "Command R is a Large Language Model optimized for conversational interaction and long context tasks.",
@@ -1977,28 +1838,7 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Building upon Mistral Small 3, Mistral Small 3.1 (2503) adds state-of-the-art vision understanding and enhances long context capabilities up to 128k tokens without compromising text performance.",
-      "id": "mistral-small3.1",
-      "name": "Mistral Small3.1",
-      "variants": [
-        {
-          "id": "mistral-small3.1:latest",
-          "parameters": "Unknown",
-          "size": "15GB"
-        },
-        {
-          "id": "mistral-small3.1:24b",
-          "parameters": "24B",
-          "size": "15GB"
-        }
-      ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "A family of open foundation models by IBM for Code Intelligence",
@@ -2031,39 +1871,90 @@
           "size": "2.0GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "Granite 4 features improved instruction following (IF) and tool-calling capabilities, making them more effective in enterprise applications.",
-      "id": "granite4",
-      "name": "Granite4",
+      "description": "State of the art large language model from Microsoft AI with improved performance on complex chat, multilingual, reasoning and agent use cases.",
+      "id": "wizardlm2",
+      "name": "Wizardlm2",
       "variants": [
         {
-          "id": "granite4:latest",
+          "id": "wizardlm2:latest",
           "parameters": "Unknown",
-          "size": "2.1GB"
+          "size": "4.1GB"
         },
         {
-          "id": "granite4:350m",
-          "parameters": "350M",
-          "size": "708MB"
+          "id": "wizardlm2:8x22b",
+          "parameters": "22B",
+          "size": "80GB"
         },
         {
-          "id": "granite4:3b",
-          "parameters": "3B",
-          "size": "2.1GB"
-        },
-        {
-          "id": "granite4:1b",
-          "parameters": "1B",
-          "size": "3.3GB"
+          "id": "wizardlm2:7b",
+          "parameters": "7B",
+          "size": "4.1GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "DeepCoder is a fully open-Source 14B coder model at O3-mini level, with a 1.5B version also available.",
+      "id": "deepcoder",
+      "name": "Deepcoder",
+      "variants": [
+        {
+          "id": "deepcoder:latest",
+          "parameters": "Unknown",
+          "size": "9.0GB"
+        },
+        {
+          "id": "deepcoder:14b",
+          "parameters": "14B",
+          "size": "9.0GB"
+        },
+        {
+          "id": "deepcoder:1.5b",
+          "parameters": "1.5B",
+          "size": "1.1GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "moondream2 is a small vision language model designed to run efficiently on edge devices.",
+      "id": "moondream",
+      "name": "Moondream",
+      "variants": [
+        {
+          "id": "moondream:latest",
+          "parameters": "Unknown",
+          "size": "1.7GB"
+        },
+        {
+          "id": "moondream:1.8b",
+          "parameters": "1.8B",
+          "size": "1.7GB"
+        }
+      ],
+      "vision": true
+    },
+    {
+      "description": "Building upon Mistral Small 3, Mistral Small 3.1 (2503) adds state-of-the-art vision understanding and enhances long context capabilities up to 128k tokens without compromising text performance.",
+      "id": "mistral-small3.1",
+      "name": "Mistral Small3.1",
+      "variants": [
+        {
+          "id": "mistral-small3.1:latest",
+          "parameters": "Unknown",
+          "size": "15GB"
+        },
+        {
+          "id": "mistral-small3.1:24b",
+          "parameters": "24B",
+          "size": "15GB"
+        }
+      ],
+      "vision": true,
+      "tools": true
     },
     {
       "description": "Hermes 3 is the latest version of the flagship Hermes series of LLMs by Nous Research",
@@ -2097,48 +1988,36 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
-      "description": "A lightweight AI model with 3.8 billion parameters with performance overtaking similarly and larger sized models.",
-      "id": "phi3.5",
-      "name": "Phi3.5",
+      "description": "Building upon the foundational models of the Qwen3 series, Qwen3 Embedding provides a comprehensive range of text embeddings models in various sizes",
+      "id": "qwen3-embedding",
+      "name": "Qwen3 Embedding",
       "variants": [
         {
-          "id": "phi3.5:latest",
+          "id": "qwen3-embedding:latest",
           "parameters": "Unknown",
-          "size": "2.2GB"
+          "size": "4.7GB"
         },
         {
-          "id": "phi3.5:3.8b",
-          "parameters": "3.8B",
-          "size": "2.2GB"
+          "id": "qwen3-embedding:8b",
+          "parameters": "8B",
+          "size": "4.7GB"
+        },
+        {
+          "id": "qwen3-embedding:4b",
+          "parameters": "4B",
+          "size": "2.5GB"
+        },
+        {
+          "id": "qwen3-embedding:0.6b",
+          "parameters": "0.6B",
+          "size": "639MB"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "BakLLaVA is a multimodal model consisting of the Mistral 7B base model augmented with the LLaVA  architecture.",
-      "id": "bakllava",
-      "name": "Bakllava",
-      "variants": [
-        {
-          "id": "bakllava:latest",
-          "parameters": "Unknown",
-          "size": "4.7GB"
-        },
-        {
-          "id": "bakllava:7b",
-          "parameters": "7B",
-          "size": "4.7GB"
-        }
-      ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
+      "model_type": "embedding"
     },
     {
       "description": "Yi 1.5 is a high-performing, bilingual language model.",
@@ -2166,9 +2045,25 @@
           "size": "3.5GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "A lightweight AI model with 3.8 billion parameters with performance overtaking similarly and larger sized models.",
+      "id": "phi3.5",
+      "name": "Phi3.5",
+      "variants": [
+        {
+          "id": "phi3.5:latest",
+          "parameters": "Unknown",
+          "size": "2.2GB"
+        },
+        {
+          "id": "phi3.5:3.8b",
+          "parameters": "3.8B",
+          "size": "2.2GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "Zephyr is a series of fine-tuned versions of the Mistral and Mixtral models that are trained to act as helpful assistants.",
@@ -2191,39 +2086,7 @@
           "size": "4.1GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "EXAONE Deep exhibits superior capabilities in various reasoning tasks including math and coding benchmarks, ranging from 2.4B to 32B parameters developed and released by LG AI Research.",
-      "id": "exaone-deep",
-      "name": "Exaone Deep",
-      "variants": [
-        {
-          "id": "exaone-deep:latest",
-          "parameters": "Unknown",
-          "size": "4.8GB"
-        },
-        {
-          "id": "exaone-deep:32b",
-          "parameters": "32B",
-          "size": "19GB"
-        },
-        {
-          "id": "exaone-deep:7.8b",
-          "parameters": "7.8B",
-          "size": "4.8GB"
-        },
-        {
-          "id": "exaone-deep:2.4b",
-          "parameters": "2.4B",
-          "size": "1.6GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Mistral Large 2 is Mistral's new flagship model that is significantly more capable in code generation, mathematics, and reasoning with 128k context window and support for dozens of languages.",
@@ -2242,8 +2105,25 @@
         }
       ],
       "vision": false,
-      "tools": true,
-      "thinking": false
+      "tools": true
+    },
+    {
+      "description": "BakLLaVA is a multimodal model consisting of the Mistral 7B base model augmented with the LLaVA  architecture.",
+      "id": "bakllava",
+      "name": "Bakllava",
+      "variants": [
+        {
+          "id": "bakllava:latest",
+          "parameters": "Unknown",
+          "size": "4.7GB"
+        },
+        {
+          "id": "bakllava:7b",
+          "parameters": "7B",
+          "size": "4.7GB"
+        }
+      ],
+      "vision": true
     },
     {
       "description": "EmbeddingGemma is a 300M parameter embedding model from Google.",
@@ -2262,8 +2142,6 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false,
       "model_type": "embedding"
     },
     {
@@ -2292,9 +2170,35 @@
           "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "EXAONE Deep exhibits superior capabilities in various reasoning tasks including math and coding benchmarks, ranging from 2.4B to 32B parameters developed and released by LG AI Research.",
+      "id": "exaone-deep",
+      "name": "Exaone Deep",
+      "variants": [
+        {
+          "id": "exaone-deep:latest",
+          "parameters": "Unknown",
+          "size": "4.8GB"
+        },
+        {
+          "id": "exaone-deep:32b",
+          "parameters": "32B",
+          "size": "19GB"
+        },
+        {
+          "id": "exaone-deep:7.8b",
+          "parameters": "7.8B",
+          "size": "4.8GB"
+        },
+        {
+          "id": "exaone-deep:2.4b",
+          "parameters": "2.4B",
+          "size": "1.6GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "StarCoder is a code generation model trained on 80&#43; programming languages.",
@@ -2327,34 +2231,7 @@
           "size": "726MB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "OpenCoder is an open and reproducible code LLM family which includes 1.5B and 8B models, supporting chat in English and Chinese languages.",
-      "id": "opencoder",
-      "name": "Opencoder",
-      "variants": [
-        {
-          "id": "opencoder:latest",
-          "parameters": "Unknown",
-          "size": "4.7GB"
-        },
-        {
-          "id": "opencoder:8b",
-          "parameters": "8B",
-          "size": "4.7GB"
-        },
-        {
-          "id": "opencoder:1.5b",
-          "parameters": "1.5B",
-          "size": "1.4GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "General use models based on Llama and Llama 2 from Nous Research.",
@@ -2377,9 +2254,25 @@
           "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "Sentence-transformers model that can be used for tasks like clustering or semantic search.",
+      "id": "paraphrase-multilingual",
+      "name": "Paraphrase Multilingual",
+      "variants": [
+        {
+          "id": "paraphrase-multilingual:latest",
+          "parameters": "Unknown",
+          "size": "563MB"
+        },
+        {
+          "id": "paraphrase-multilingual:278m",
+          "parameters": "278M",
+          "size": "563MB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "An advanced language model crafted with 2 trillion bilingual tokens.",
@@ -2402,9 +2295,7 @@
           "size": "4.0GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "A large language model built by the Technology Innovation Institute (TII) for use in summarization, text generation, and chat bots.",
@@ -2432,9 +2323,7 @@
           "size": "4.2GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "A family of open-source models trained on a wide variety of data, surpassing ChatGPT on various benchmarks. Updated to version 3.5-0106.",
@@ -2452,9 +2341,30 @@
           "size": "4.1GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "A strong, economical, and efficient Mixture-of-Experts language model.",
+      "id": "deepseek-v2",
+      "name": "Deepseek V2",
+      "variants": [
+        {
+          "id": "deepseek-v2:latest",
+          "parameters": "Unknown",
+          "size": "8.9GB"
+        },
+        {
+          "id": "deepseek-v2:236b",
+          "parameters": "236B",
+          "size": "133GB"
+        },
+        {
+          "id": "deepseek-v2:16b",
+          "parameters": "16B",
+          "size": "8.9GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "General use chat model based on Llama and Llama 2 with 2K to 16K context sizes.",
@@ -2482,54 +2392,7 @@
           "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A strong, economical, and efficient Mixture-of-Experts language model.",
-      "id": "deepseek-v2",
-      "name": "Deepseek V2",
-      "variants": [
-        {
-          "id": "deepseek-v2:latest",
-          "parameters": "Unknown",
-          "size": "8.9GB"
-        },
-        {
-          "id": "deepseek-v2:236b",
-          "parameters": "236B",
-          "size": "133GB"
-        },
-        {
-          "id": "deepseek-v2:16b",
-          "parameters": "16B",
-          "size": "8.9GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Sentence-transformers model that can be used for tasks like clustering or semantic search.",
-      "id": "paraphrase-multilingual",
-      "name": "Paraphrase Multilingual",
-      "variants": [
-        {
-          "id": "paraphrase-multilingual:latest",
-          "parameters": "Unknown",
-          "size": "563MB"
-        },
-        {
-          "id": "paraphrase-multilingual:278m",
-          "parameters": "278M",
-          "size": "563MB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "OpenHermes 2.5 is a 7B model fine-tuned by Teknium on Mistral with fully open datasets.",
@@ -2712,9 +2575,7 @@
           "size": "4.1GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "CodeQwen1.5 is a large language model pretrained on a large amount of code data.",
@@ -2732,9 +2593,48 @@
           "size": "4.2GB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "OpenCoder is an open and reproducible code LLM family which includes 1.5B and 8B models, supporting chat in English and Chinese languages.",
+      "id": "opencoder",
+      "name": "Opencoder",
+      "variants": [
+        {
+          "id": "opencoder:latest",
+          "parameters": "Unknown",
+          "size": "4.7GB"
+        },
+        {
+          "id": "opencoder:8b",
+          "parameters": "8B",
+          "size": "4.7GB"
+        },
+        {
+          "id": "opencoder:1.5b",
+          "parameters": "1.5B",
+          "size": "1.4GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "A strong multi-lingual general language model with competitive performance to Llama 3.",
+      "id": "glm4",
+      "name": "Glm4",
+      "variants": [
+        {
+          "id": "glm4:latest",
+          "parameters": "Unknown",
+          "size": "5.5GB"
+        },
+        {
+          "id": "glm4:9b",
+          "parameters": "9B",
+          "size": "5.5GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "Qwen2 Math is a series of specialized math language models built upon the Qwen2 LLMs, which significantly outperforms the mathematical capabilities of open-source models and even closed-source models (e.g., GPT4o).",
@@ -2762,60 +2662,7 @@
           "size": "935MB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
-    },
-    {
-      "description": "Building upon the foundational models of the Qwen3 series, Qwen3 Embedding provides a comprehensive range of text embeddings models in various sizes",
-      "id": "qwen3-embedding",
-      "name": "Qwen3 Embedding",
-      "variants": [
-        {
-          "id": "qwen3-embedding:latest",
-          "parameters": "Unknown",
-          "size": "4.7GB"
-        },
-        {
-          "id": "qwen3-embedding:8b",
-          "parameters": "8B",
-          "size": "4.7GB"
-        },
-        {
-          "id": "qwen3-embedding:4b",
-          "parameters": "4B",
-          "size": "2.5GB"
-        },
-        {
-          "id": "qwen3-embedding:0.6b",
-          "parameters": "0.6B",
-          "size": "639MB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false,
-      "model_type": "embedding"
-    },
-    {
-      "description": "A strong multi-lingual general language model with competitive performance to Llama 3.",
-      "id": "glm4",
-      "name": "Glm4",
-      "variants": [
-        {
-          "id": "glm4:latest",
-          "parameters": "Unknown",
-          "size": "5.5GB"
-        },
-        {
-          "id": "glm4:9b",
-          "parameters": "9B",
-          "size": "5.5GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Aya 23, released by Cohere, is a new family of state-of-the-art, multilingual models that support 23 languages. ",
@@ -2838,420 +2685,7 @@
           "size": "4.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Llama 2 based model fine tuned to improve Chinese dialogue ability.",
-      "id": "llama2-chinese",
-      "name": "Llama2 Chinese",
-      "variants": [
-        {
-          "id": "llama2-chinese:latest",
-          "parameters": "Unknown",
-          "size": "3.8GB"
-        },
-        {
-          "id": "llama2-chinese:13b",
-          "parameters": "13B",
-          "size": "7.4GB"
-        },
-        {
-          "id": "llama2-chinese:7b",
-          "parameters": "7B",
-          "size": "3.8GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Command R&#43; is a powerful, scalable large language model purpose-built to excel at real-world enterprise use cases.",
-      "id": "command-r-plus",
-      "name": "Command R Plus",
-      "variants": [
-        {
-          "id": "command-r-plus:latest",
-          "parameters": "Unknown",
-          "size": "59GB"
-        },
-        {
-          "id": "command-r-plus:104b",
-          "parameters": "104B",
-          "size": "59GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "DeepSeek-V3.1-Terminus is a hybrid model that supports both thinking mode and non-thinking mode.",
-      "id": "deepseek-v3.1",
-      "name": "Deepseek V3.1",
-      "variants": [
-        {
-          "id": "deepseek-v3.1:latest",
-          "parameters": "Unknown",
-          "size": "404GB"
-        },
-        {
-          "id": "deepseek-v3.1:671b",
-          "parameters": "671B",
-          "size": "404GB"
-        },
-        {
-          "id": "deepseek-v3.1:671b-cloud",
-          "parameters": "671B",
-          "size": "Cloud (API only)"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A versatile model for AI software development scenarios, including code completion.",
-      "id": "codegeex4",
-      "name": "Codegeex4",
-      "variants": [
-        {
-          "id": "codegeex4:latest",
-          "parameters": "Unknown",
-          "size": "5.5GB"
-        },
-        {
-          "id": "codegeex4:9b",
-          "parameters": "9B",
-          "size": "5.5GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Mistral OpenOrca is a 7 billion parameter model, fine-tuned on top of the Mistral 7B model using the OpenOrca dataset.",
-      "id": "mistral-openorca",
-      "name": "Mistral Openorca",
-      "variants": [
-        {
-          "id": "mistral-openorca:latest",
-          "parameters": "Unknown",
-          "size": "4.1GB"
-        },
-        {
-          "id": "mistral-openorca:7b",
-          "parameters": "7B",
-          "size": "4.1GB"
-        }
-      ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
-    },
-    {
-      "description": "Stable Code 3B is a coding model with instruct and code completion variants on par with models such as Code Llama 7B that are 2.5x larger.",
-      "id": "stable-code",
-      "name": "Stable Code",
-      "variants": [
-        {
-          "id": "stable-code:latest",
-          "parameters": "Unknown",
-          "size": "1.6GB"
-        },
-        {
-          "id": "stable-code:3b",
-          "parameters": "3B",
-          "size": "1.6GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A fine-tuned model based on Mistral with good coverage of domain and language.",
-      "id": "neural-chat",
-      "name": "Neural Chat",
-      "variants": [
-        {
-          "id": "neural-chat:latest",
-          "parameters": "Unknown",
-          "size": "4.1GB"
-        },
-        {
-          "id": "neural-chat:7b",
-          "parameters": "7B",
-          "size": "4.1GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "The first installment in the Qwen3-Next series with strong performance in terms of both parameter efficiency and inference speed.",
-      "id": "qwen3-next",
-      "name": "Qwen3 Next",
-      "variants": [
-        {
-          "id": "qwen3-next:latest",
-          "parameters": "Unknown",
-          "size": "50GB"
-        },
-        {
-          "id": "qwen3-next:80b",
-          "parameters": "80B",
-          "size": "50GB"
-        },
-        {
-          "id": "qwen3-next:80b-cloud",
-          "parameters": "80B",
-          "size": "Cloud (API only)"
-        }
-      ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
-    },
-    {
-      "description": "The powerful family of models by Nous Research that excels at scientific discussion and coding tasks.",
-      "id": "nous-hermes2",
-      "name": "Nous Hermes2",
-      "variants": [
-        {
-          "id": "nous-hermes2:latest",
-          "parameters": "Unknown",
-          "size": "6.1GB"
-        },
-        {
-          "id": "nous-hermes2:34b",
-          "parameters": "34B",
-          "size": "19GB"
-        },
-        {
-          "id": "nous-hermes2:10.7b",
-          "parameters": "10.7B",
-          "size": "6.1GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "An experimental 1.1B parameter model trained on the new Dolphin 2.8 dataset by Eric Hartford and based on TinyLlama.",
-      "id": "tinydolphin",
-      "name": "Tinydolphin",
-      "variants": [
-        {
-          "id": "tinydolphin:latest",
-          "parameters": "Unknown",
-          "size": "637MB"
-        },
-        {
-          "id": "tinydolphin:1.1b",
-          "parameters": "1.1B",
-          "size": "637MB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "State-of-the-art code generation model",
-      "id": "wizardcoder",
-      "name": "Wizardcoder",
-      "variants": [
-        {
-          "id": "wizardcoder:latest",
-          "parameters": "Unknown",
-          "size": "3.8GB"
-        },
-        {
-          "id": "wizardcoder:33b",
-          "parameters": "33B",
-          "size": "19GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "SQLCoder is a code completion model fined-tuned on StarCoder for SQL generation tasks",
-      "id": "sqlcoder",
-      "name": "Sqlcoder",
-      "variants": [
-        {
-          "id": "sqlcoder:latest",
-          "parameters": "Unknown",
-          "size": "4.1GB"
-        },
-        {
-          "id": "sqlcoder:15b",
-          "parameters": "15B",
-          "size": "9.0GB"
-        },
-        {
-          "id": "sqlcoder:7b",
-          "parameters": "7B",
-          "size": "4.1GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Stable LM 2 is a state-of-the-art 1.6B and 12B parameter language model trained on multilingual data in English, Spanish, German, Italian, French, Portuguese, and Dutch.",
-      "id": "stablelm2",
-      "name": "Stablelm2",
-      "variants": [
-        {
-          "id": "stablelm2:latest",
-          "parameters": "Unknown",
-          "size": "983MB"
-        },
-        {
-          "id": "stablelm2:12b",
-          "parameters": "12B",
-          "size": "7.0GB"
-        },
-        {
-          "id": "stablelm2:1.6b",
-          "parameters": "1.6B",
-          "size": "983MB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Yi-Coder is a series of open-source code language models that delivers state-of-the-art coding performance with fewer than 10 billion parameters.",
-      "id": "yi-coder",
-      "name": "Yi Coder",
-      "variants": [
-        {
-          "id": "yi-coder:latest",
-          "parameters": "Unknown",
-          "size": "5.0GB"
-        },
-        {
-          "id": "yi-coder:9b",
-          "parameters": "9B",
-          "size": "5.0GB"
-        },
-        {
-          "id": "yi-coder:1.5b",
-          "parameters": "1.5B",
-          "size": "866MB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A model from NVIDIA based on Llama 3 that excels at conversational question answering (QA) and retrieval-augmented generation (RAG).",
-      "id": "llama3-chatqa",
-      "name": "Llama3 Chatqa",
-      "variants": [
-        {
-          "id": "llama3-chatqa:latest",
-          "parameters": "Unknown",
-          "size": "4.7GB"
-        },
-        {
-          "id": "llama3-chatqa:70b",
-          "parameters": "70B",
-          "size": "40GB"
-        },
-        {
-          "id": "llama3-chatqa:8b",
-          "parameters": "8B",
-          "size": "4.7GB"
-        }
-      ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
-    },
-    {
-      "description": "Snowflake's frontier embedding model. Arctic Embed 2.0 adds multilingual support without sacrificing English performance or scalability.",
-      "id": "snowflake-arctic-embed2",
-      "name": "Snowflake Arctic Embed2",
-      "variants": [
-        {
-          "id": "snowflake-arctic-embed2:latest",
-          "parameters": "Unknown",
-          "size": "1.2GB"
-        },
-        {
-          "id": "snowflake-arctic-embed2:568m",
-          "parameters": "568M",
-          "size": "1.2GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false,
-      "model_type": "embedding"
-    },
-    {
-      "description": "The IBM Granite 2B and 8B models are designed to support tool-based use cases and support for retrieval augmented generation (RAG), streamlining code generation, translation and bug fixing.",
-      "id": "granite3-dense",
-      "name": "Granite3 Dense",
-      "variants": [
-        {
-          "id": "granite3-dense:latest",
-          "parameters": "Unknown",
-          "size": "1.6GB"
-        },
-        {
-          "id": "granite3-dense:8b",
-          "parameters": "8B",
-          "size": "4.9GB"
-        },
-        {
-          "id": "granite3-dense:2b",
-          "parameters": "2B",
-          "size": "1.6GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "The IBM Granite 2B and 8B models are text-only dense LLMs trained on over 12 trillion tokens of data, demonstrated significant improvements over their predecessors in performance and speed in IBM’s initial testing.",
-      "id": "granite3.1-dense",
-      "name": "Granite3.1 Dense",
-      "variants": [
-        {
-          "id": "granite3.1-dense:latest",
-          "parameters": "Unknown",
-          "size": "5.0GB"
-        },
-        {
-          "id": "granite3.1-dense:8b",
-          "parameters": "8B",
-          "size": "5.0GB"
-        },
-        {
-          "id": "granite3.1-dense:2b",
-          "parameters": "2B",
-          "size": "1.6GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "The Ministral 3 family is designed for edge deployment, capable of running on a wide range of hardware.",
@@ -3295,33 +2729,293 @@
         }
       ],
       "vision": true,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "cloud": true
     },
     {
-      "description": "Granite-3.2 is a family of long-context AI models from IBM Granite fine-tuned for thinking capabilities.",
-      "id": "granite3.2",
-      "name": "Granite3.2",
+      "description": "Llama 2 based model fine tuned to improve Chinese dialogue ability.",
+      "id": "llama2-chinese",
+      "name": "Llama2 Chinese",
       "variants": [
         {
-          "id": "granite3.2:latest",
+          "id": "llama2-chinese:latest",
           "parameters": "Unknown",
-          "size": "4.9GB"
+          "size": "3.8GB"
         },
         {
-          "id": "granite3.2:8b",
+          "id": "llama2-chinese:13b",
+          "parameters": "13B",
+          "size": "7.4GB"
+        },
+        {
+          "id": "llama2-chinese:7b",
+          "parameters": "7B",
+          "size": "3.8GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Stable Code 3B is a coding model with instruct and code completion variants on par with models such as Code Llama 7B that are 2.5x larger.",
+      "id": "stable-code",
+      "name": "Stable Code",
+      "variants": [
+        {
+          "id": "stable-code:latest",
+          "parameters": "Unknown",
+          "size": "1.6GB"
+        },
+        {
+          "id": "stable-code:3b",
+          "parameters": "3B",
+          "size": "1.6GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "A fine-tuned model based on Mistral with good coverage of domain and language.",
+      "id": "neural-chat",
+      "name": "Neural Chat",
+      "variants": [
+        {
+          "id": "neural-chat:latest",
+          "parameters": "Unknown",
+          "size": "4.1GB"
+        },
+        {
+          "id": "neural-chat:7b",
+          "parameters": "7B",
+          "size": "4.1GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "The powerful family of models by Nous Research that excels at scientific discussion and coding tasks.",
+      "id": "nous-hermes2",
+      "name": "Nous Hermes2",
+      "variants": [
+        {
+          "id": "nous-hermes2:latest",
+          "parameters": "Unknown",
+          "size": "6.1GB"
+        },
+        {
+          "id": "nous-hermes2:34b",
+          "parameters": "34B",
+          "size": "19GB"
+        },
+        {
+          "id": "nous-hermes2:10.7b",
+          "parameters": "10.7B",
+          "size": "6.1GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "State-of-the-art code generation model",
+      "id": "wizardcoder",
+      "name": "Wizardcoder",
+      "variants": [
+        {
+          "id": "wizardcoder:latest",
+          "parameters": "Unknown",
+          "size": "3.8GB"
+        },
+        {
+          "id": "wizardcoder:33b",
+          "parameters": "33B",
+          "size": "19GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "SQLCoder is a code completion model fined-tuned on StarCoder for SQL generation tasks",
+      "id": "sqlcoder",
+      "name": "Sqlcoder",
+      "variants": [
+        {
+          "id": "sqlcoder:latest",
+          "parameters": "Unknown",
+          "size": "4.1GB"
+        },
+        {
+          "id": "sqlcoder:15b",
+          "parameters": "15B",
+          "size": "9.0GB"
+        },
+        {
+          "id": "sqlcoder:7b",
+          "parameters": "7B",
+          "size": "4.1GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Stable LM 2 is a state-of-the-art 1.6B and 12B parameter language model trained on multilingual data in English, Spanish, German, Italian, French, Portuguese, and Dutch.",
+      "id": "stablelm2",
+      "name": "Stablelm2",
+      "variants": [
+        {
+          "id": "stablelm2:latest",
+          "parameters": "Unknown",
+          "size": "983MB"
+        },
+        {
+          "id": "stablelm2:12b",
+          "parameters": "12B",
+          "size": "7.0GB"
+        },
+        {
+          "id": "stablelm2:1.6b",
+          "parameters": "1.6B",
+          "size": "983MB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Yi-Coder is a series of open-source code language models that delivers state-of-the-art coding performance with fewer than 10 billion parameters.",
+      "id": "yi-coder",
+      "name": "Yi Coder",
+      "variants": [
+        {
+          "id": "yi-coder:latest",
+          "parameters": "Unknown",
+          "size": "5.0GB"
+        },
+        {
+          "id": "yi-coder:9b",
+          "parameters": "9B",
+          "size": "5.0GB"
+        },
+        {
+          "id": "yi-coder:1.5b",
+          "parameters": "1.5B",
+          "size": "866MB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "DeepSeek-V3.1-Terminus is a hybrid model that supports both thinking mode and non-thinking mode.",
+      "id": "deepseek-v3.1",
+      "name": "Deepseek V3.1",
+      "variants": [
+        {
+          "id": "deepseek-v3.1:latest",
+          "parameters": "Unknown",
+          "size": "404GB"
+        },
+        {
+          "id": "deepseek-v3.1:671b",
+          "parameters": "671B",
+          "size": "404GB"
+        },
+        {
+          "id": "deepseek-v3.1:671b-cloud",
+          "parameters": "671B",
+          "size": "Cloud (API only)"
+        }
+      ],
+      "vision": false,
+      "tools": true,
+      "thinking": true,
+      "cloud": true
+    },
+    {
+      "description": "A model from NVIDIA based on Llama 3 that excels at conversational question answering (QA) and retrieval-augmented generation (RAG).",
+      "id": "llama3-chatqa",
+      "name": "Llama3 Chatqa",
+      "variants": [
+        {
+          "id": "llama3-chatqa:latest",
+          "parameters": "Unknown",
+          "size": "4.7GB"
+        },
+        {
+          "id": "llama3-chatqa:70b",
+          "parameters": "70B",
+          "size": "40GB"
+        },
+        {
+          "id": "llama3-chatqa:8b",
+          "parameters": "8B",
+          "size": "4.7GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Command R&#43; is a powerful, scalable large language model purpose-built to excel at real-world enterprise use cases.",
+      "id": "command-r-plus",
+      "name": "Command R Plus",
+      "variants": [
+        {
+          "id": "command-r-plus:latest",
+          "parameters": "Unknown",
+          "size": "59GB"
+        },
+        {
+          "id": "command-r-plus:104b",
+          "parameters": "104B",
+          "size": "59GB"
+        }
+      ],
+      "vision": false,
+      "tools": true
+    },
+    {
+      "description": "The IBM Granite 2B and 8B models are designed to support tool-based use cases and support for retrieval augmented generation (RAG), streamlining code generation, translation and bug fixing.",
+      "id": "granite3-dense",
+      "name": "Granite3 Dense",
+      "variants": [
+        {
+          "id": "granite3-dense:latest",
+          "parameters": "Unknown",
+          "size": "1.6GB"
+        },
+        {
+          "id": "granite3-dense:8b",
           "parameters": "8B",
           "size": "4.9GB"
         },
         {
-          "id": "granite3.2:2b",
+          "id": "granite3-dense:2b",
           "parameters": "2B",
-          "size": "1.5GB"
+          "size": "1.6GB"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
+    },
+    {
+      "description": "The IBM Granite 2B and 8B models are text-only dense LLMs trained on over 12 trillion tokens of data, demonstrated significant improvements over their predecessors in performance and speed in IBM’s initial testing.",
+      "id": "granite3.1-dense",
+      "name": "Granite3.1 Dense",
+      "variants": [
+        {
+          "id": "granite3.1-dense:latest",
+          "parameters": "Unknown",
+          "size": "5.0GB"
+        },
+        {
+          "id": "granite3.1-dense:8b",
+          "parameters": "8B",
+          "size": "5.0GB"
+        },
+        {
+          "id": "granite3.1-dense:2b",
+          "parameters": "2B",
+          "size": "1.6GB"
+        }
+      ],
+      "vision": false,
+      "tools": true
     },
     {
       "description": "Model focused on math and logic problems",
@@ -3349,9 +3043,7 @@
           "size": "4.1GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "A 7B and 15B uncensored variant of the Dolphin model family that excels at coding, based on StarCoder2.",
@@ -3374,9 +3066,7 @@
           "size": "4.2GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "This model extends LLama-3 8B's context length from 8k to over 1m tokens.",
@@ -3399,9 +3089,7 @@
           "size": "4.7GB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "A companion assistant trained in philosophy, psychology, and personal relationships. Based on Mistral.",
@@ -3419,9 +3107,43 @@
           "size": "4.1GB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "A versatile model for AI software development scenarios, including code completion.",
+      "id": "codegeex4",
+      "name": "Codegeex4",
+      "variants": [
+        {
+          "id": "codegeex4:latest",
+          "parameters": "Unknown",
+          "size": "5.5GB"
+        },
+        {
+          "id": "codegeex4:9b",
+          "parameters": "9B",
+          "size": "5.5GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Mistral OpenOrca is a 7 billion parameter model, fine-tuned on top of the Mistral 7B model using the OpenOrca dataset.",
+      "id": "mistral-openorca",
+      "name": "Mistral Openorca",
+      "variants": [
+        {
+          "id": "mistral-openorca:latest",
+          "parameters": "Unknown",
+          "size": "4.1GB"
+        },
+        {
+          "id": "mistral-openorca:7b",
+          "parameters": "7B",
+          "size": "4.1GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "InternLM2.5 is a 7B parameter model tailored for practical scenarios with outstanding reasoning capability.",
@@ -3454,9 +3176,50 @@
           "size": "4.5GB"
         }
       ],
+      "vision": false
+    },
+    {
+      "description": "An experimental 1.1B parameter model trained on the new Dolphin 2.8 dataset by Eric Hartford and based on TinyLlama.",
+      "id": "tinydolphin",
+      "name": "Tinydolphin",
+      "variants": [
+        {
+          "id": "tinydolphin:latest",
+          "parameters": "Unknown",
+          "size": "637MB"
+        },
+        {
+          "id": "tinydolphin:1.1b",
+          "parameters": "1.1B",
+          "size": "637MB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Rnj-1 is a family of 8B parameter open-weight, dense models trained from scratch by Essential AI, optimized for code and STEM with capabilities on par with SOTA open-weight models.",
+      "id": "rnj-1",
+      "name": "Rnj 1",
+      "variants": [
+        {
+          "id": "rnj-1:latest",
+          "parameters": "Unknown",
+          "size": "5.1GB"
+        },
+        {
+          "id": "rnj-1:8b",
+          "parameters": "8B",
+          "size": "5.1GB"
+        },
+        {
+          "id": "rnj-1:8b-cloud",
+          "parameters": "8B",
+          "size": "Cloud (API only)"
+        }
+      ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "cloud": true
     },
     {
       "description": "A series of models from Groq that represent a significant advancement in open-source AI capabilities for tool use/function calling.",
@@ -3480,8 +3243,33 @@
         }
       ],
       "vision": false,
+      "tools": true
+    },
+    {
+      "description": "The first installment in the Qwen3-Next series with strong performance in terms of both parameter efficiency and inference speed.",
+      "id": "qwen3-next",
+      "name": "Qwen3 Next",
+      "variants": [
+        {
+          "id": "qwen3-next:latest",
+          "parameters": "Unknown",
+          "size": "50GB"
+        },
+        {
+          "id": "qwen3-next:80b",
+          "parameters": "80B",
+          "size": "50GB"
+        },
+        {
+          "id": "qwen3-next:80b-cloud",
+          "parameters": "80B",
+          "size": "Cloud (API only)"
+        }
+      ],
+      "vision": false,
       "tools": true,
-      "thinking": false
+      "thinking": true,
+      "cloud": true
     },
     {
       "description": "Starling is a large language model trained by reinforcement learning from AI feedback focused on improving chatbot helpfulness.",
@@ -3499,9 +3287,7 @@
           "size": "4.1GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Code generation model based on Code Llama.",
@@ -3519,29 +3305,7 @@
           "size": "19GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A compact, yet powerful 10.7B large language model designed for single-turn conversation.",
-      "id": "solar",
-      "name": "Solar",
-      "variants": [
-        {
-          "id": "solar:latest",
-          "parameters": "Unknown",
-          "size": "6.1GB"
-        },
-        {
-          "id": "solar:10.7b",
-          "parameters": "10.7B",
-          "size": "6.1GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Llama Guard 3 is a series of models fine-tuned for content safety classification of LLM inputs and responses.",
@@ -3564,9 +3328,25 @@
           "size": "1.6GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "A compact, yet powerful 10.7B large language model designed for single-turn conversation.",
+      "id": "solar",
+      "name": "Solar",
+      "variants": [
+        {
+          "id": "solar:latest",
+          "parameters": "Unknown",
+          "size": "6.1GB"
+        },
+        {
+          "id": "solar:10.7b",
+          "parameters": "10.7B",
+          "size": "6.1GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "Conversational model based on Llama 2 that performs competitively on various benchmarks.",
@@ -3589,34 +3369,7 @@
           "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A version of the DeepSeek-R1 model that has been post trained to provide unbiased, accurate, and factual information by Perplexity. ",
-      "id": "r1-1776",
-      "name": "R1.1776",
-      "variants": [
-        {
-          "id": "r1-1776:latest",
-          "parameters": "Unknown",
-          "size": "43GB"
-        },
-        {
-          "id": "r1-1776:671b",
-          "parameters": "671B",
-          "size": "404GB"
-        },
-        {
-          "id": "r1-1776:70b",
-          "parameters": "70B",
-          "size": "43GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": true
+      "vision": false
     },
     {
       "description": "Cohere For AI's language models trained to perform well across 23 different languages.",
@@ -3640,28 +3393,7 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A high-performing model trained with a new technique called Reflection-tuning that teaches a LLM to detect mistakes in its reasoning and correct course.",
-      "id": "reflection",
-      "name": "Reflection",
-      "variants": [
-        {
-          "id": "reflection:latest",
-          "parameters": "Unknown",
-          "size": "40GB"
-        },
-        {
-          "id": "reflection:70b",
-          "parameters": "70B",
-          "size": "40GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "An extension of Llama 2 that supports a context of up to 128k tokens.",
@@ -3684,9 +3416,7 @@
           "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "The IBM Granite 1B and 3B models are the first mixture of experts (MoE) Granite models from IBM designed for low latency usage.",
@@ -3710,79 +3440,7 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "EXAONE 3.5 is a collection of instruction-tuned bilingual (English and Korean) generative models ranging from 2.4B to 32B parameters, developed and released by LG AI Research. ",
-      "id": "exaone3.5",
-      "name": "Exaone3.5",
-      "variants": [
-        {
-          "id": "exaone3.5:latest",
-          "parameters": "Unknown",
-          "size": "4.8GB"
-        },
-        {
-          "id": "exaone3.5:32b",
-          "parameters": "32B",
-          "size": "19GB"
-        },
-        {
-          "id": "exaone3.5:7.8b",
-          "parameters": "7.8B",
-          "size": "4.8GB"
-        },
-        {
-          "id": "exaone3.5:2.4b",
-          "parameters": "2.4B",
-          "size": "1.6GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Embedding model from BAAI mapping texts to vectors.",
-      "id": "bge-large",
-      "name": "Bge Large",
-      "variants": [
-        {
-          "id": "bge-large:latest",
-          "parameters": "Unknown",
-          "size": "671MB"
-        },
-        {
-          "id": "bge-large:335m",
-          "parameters": "335M",
-          "size": "671MB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false,
-      "model_type": "embedding"
-    },
-    {
-      "description": "A commercial-friendly small language model by NVIDIA optimized for roleplay, RAG QA, and function calling.",
-      "id": "nemotron-mini",
-      "name": "Nemotron Mini",
-      "variants": [
-        {
-          "id": "nemotron-mini:latest",
-          "parameters": "Unknown",
-          "size": "2.7GB"
-        },
-        {
-          "id": "nemotron-mini:4b",
-          "parameters": "4B",
-          "size": "2.7GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "Orca 2 is built by Microsoft research, and are a fine-tuned version of Meta's Llama 2 models.  The model is designed to excel particularly in reasoning.",
@@ -3805,100 +3463,7 @@
           "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A new small LLaVA model fine-tuned from Phi 3 Mini.",
-      "id": "llava-phi3",
-      "name": "Llava Phi3",
-      "variants": [
-        {
-          "id": "llava-phi3:latest",
-          "parameters": "Unknown",
-          "size": "2.9GB"
-        },
-        {
-          "id": "llava-phi3:3.8b",
-          "parameters": "3.8B",
-          "size": "2.9GB"
-        }
-      ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Open-source medical large language model adapted from Llama 2 to the medical domain.",
-      "id": "meditron",
-      "name": "Meditron",
-      "variants": [
-        {
-          "id": "meditron:latest",
-          "parameters": "Unknown",
-          "size": "3.8GB"
-        },
-        {
-          "id": "meditron:70b",
-          "parameters": "70B",
-          "size": "39GB"
-        },
-        {
-          "id": "meditron:7b",
-          "parameters": "7B",
-          "size": "3.8GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Athene-V2 is a 72B parameter model which excels at code completion, mathematics, and log extraction tasks.",
-      "id": "athene-v2",
-      "name": "Athene V2",
-      "variants": [
-        {
-          "id": "athene-v2:latest",
-          "parameters": "Unknown",
-          "size": "47GB"
-        },
-        {
-          "id": "athene-v2:72b",
-          "parameters": "72B",
-          "size": "47GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "The IBM Granite Embedding 30M and 278M models models are text-only dense biencoder embedding models, with 30M available in English only and 278M serving multilingual use cases.",
-      "id": "granite-embedding",
-      "name": "Granite Embedding",
-      "variants": [
-        {
-          "id": "granite-embedding:latest",
-          "parameters": "Unknown",
-          "size": "63MB"
-        },
-        {
-          "id": "granite-embedding:278m",
-          "parameters": "278M",
-          "size": "563MB"
-        },
-        {
-          "id": "granite-embedding:30m",
-          "parameters": "30M",
-          "size": "63MB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false,
-      "model_type": "embedding"
+      "vision": false
     },
     {
       "description": "Llama 2 based model fine tuned on an Orca-style dataset. Originally called Free Willy.",
@@ -3926,49 +3491,7 @@
           "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Llama-3.1-Nemotron-70B-Instruct is a large language model customized by NVIDIA to improve the helpfulness of LLM generated responses to user queries.",
-      "id": "nemotron",
-      "name": "Nemotron",
-      "variants": [
-        {
-          "id": "nemotron:latest",
-          "parameters": "Unknown",
-          "size": "43GB"
-        },
-        {
-          "id": "nemotron:70b",
-          "parameters": "70B",
-          "size": "43GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Uncensored version of Wizard LM model ",
-      "id": "wizardlm-uncensored",
-      "name": "Wizardlm Uncensored",
-      "variants": [
-        {
-          "id": "wizardlm-uncensored:latest",
-          "parameters": "Unknown",
-          "size": "7.4GB"
-        },
-        {
-          "id": "wizardlm-uncensored:13b",
-          "parameters": "13B",
-          "size": "7.4GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "A series of models that convert HTML content to Markdown content, which is useful for content conversion tasks.",
@@ -3991,34 +3514,7 @@
           "size": "352MB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Tülu 3 is a leading instruction following model family, offering fully open-source data, code, and recipes by the The Allen Institute for AI.",
-      "id": "tulu3",
-      "name": "Tulu3",
-      "variants": [
-        {
-          "id": "tulu3:latest",
-          "parameters": "Unknown",
-          "size": "4.9GB"
-        },
-        {
-          "id": "tulu3:70b",
-          "parameters": "70B",
-          "size": "43GB"
-        },
-        {
-          "id": "tulu3:8b",
-          "parameters": "8B",
-          "size": "4.9GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "ShieldGemma is set of instruction tuned models for evaluating the safety of text prompt input and text output responses against a set of defined safety policies.",
@@ -4046,29 +3542,7 @@
           "size": "1.7GB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
-    },
-    {
-      "description": "DBRX is an open, general-purpose LLM created by Databricks.",
-      "id": "dbrx",
-      "name": "Dbrx",
-      "variants": [
-        {
-          "id": "dbrx:latest",
-          "parameters": "Unknown",
-          "size": "74GB"
-        },
-        {
-          "id": "dbrx:132b",
-          "parameters": "132B",
-          "size": "74GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "An expansion of Llama 2 that specializes in integrating both general language understanding and domain-specific knowledge, particularly in programming and mathematics.",
@@ -4241,9 +3715,7 @@
           "size": "4.7GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "An extension of Mistral to support context windows of 64K or 128K.",
@@ -4261,9 +3733,48 @@
           "size": "4.1GB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "Nexus Raven is a 13B instruction tuned model for function calling tasks. ",
+      "id": "nexusraven",
+      "name": "Nexusraven",
+      "variants": [
+        {
+          "id": "nexusraven:latest",
+          "parameters": "Unknown",
+          "size": "7.4GB"
+        },
+        {
+          "id": "nexusraven:13b",
+          "parameters": "13B",
+          "size": "7.4GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Open-source medical large language model adapted from Llama 2 to the medical domain.",
+      "id": "meditron",
+      "name": "Meditron",
+      "variants": [
+        {
+          "id": "meditron:latest",
+          "parameters": "Unknown",
+          "size": "3.8GB"
+        },
+        {
+          "id": "meditron:70b",
+          "parameters": "70B",
+          "size": "39GB"
+        },
+        {
+          "id": "meditron:7b",
+          "parameters": "7B",
+          "size": "3.8GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "General use model based on Llama 2.",
@@ -4636,49 +4147,195 @@
           "size": "13GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "Nexus Raven is a 13B instruction tuned model for function calling tasks. ",
-      "id": "nexusraven",
-      "name": "Nexusraven",
+      "description": "Granite-3.2 is a family of long-context AI models from IBM Granite fine-tuned for thinking capabilities.",
+      "id": "granite3.2",
+      "name": "Granite3.2",
       "variants": [
         {
-          "id": "nexusraven:latest",
+          "id": "granite3.2:latest",
+          "parameters": "Unknown",
+          "size": "4.9GB"
+        },
+        {
+          "id": "granite3.2:8b",
+          "parameters": "8B",
+          "size": "4.9GB"
+        },
+        {
+          "id": "granite3.2:2b",
+          "parameters": "2B",
+          "size": "1.5GB"
+        }
+      ],
+      "vision": false,
+      "tools": true,
+      "thinking": true
+    },
+    {
+      "description": "A high-performing model trained with a new technique called Reflection-tuning that teaches a LLM to detect mistakes in its reasoning and correct course.",
+      "id": "reflection",
+      "name": "Reflection",
+      "variants": [
+        {
+          "id": "reflection:latest",
+          "parameters": "Unknown",
+          "size": "40GB"
+        },
+        {
+          "id": "reflection:70b",
+          "parameters": "70B",
+          "size": "40GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Snowflake's frontier embedding model. Arctic Embed 2.0 adds multilingual support without sacrificing English performance or scalability.",
+      "id": "snowflake-arctic-embed2",
+      "name": "Snowflake Arctic Embed2",
+      "variants": [
+        {
+          "id": "snowflake-arctic-embed2:latest",
+          "parameters": "Unknown",
+          "size": "1.2GB"
+        },
+        {
+          "id": "snowflake-arctic-embed2:568m",
+          "parameters": "568M",
+          "size": "1.2GB"
+        }
+      ],
+      "vision": false,
+      "model_type": "embedding"
+    },
+    {
+      "description": "A commercial-friendly small language model by NVIDIA optimized for roleplay, RAG QA, and function calling.",
+      "id": "nemotron-mini",
+      "name": "Nemotron Mini",
+      "variants": [
+        {
+          "id": "nemotron-mini:latest",
+          "parameters": "Unknown",
+          "size": "2.7GB"
+        },
+        {
+          "id": "nemotron-mini:4b",
+          "parameters": "4B",
+          "size": "2.7GB"
+        }
+      ],
+      "vision": false,
+      "tools": true
+    },
+    {
+      "description": "EXAONE 3.5 is a collection of instruction-tuned bilingual (English and Korean) generative models ranging from 2.4B to 32B parameters, developed and released by LG AI Research. ",
+      "id": "exaone3.5",
+      "name": "Exaone3.5",
+      "variants": [
+        {
+          "id": "exaone3.5:latest",
+          "parameters": "Unknown",
+          "size": "4.8GB"
+        },
+        {
+          "id": "exaone3.5:32b",
+          "parameters": "32B",
+          "size": "19GB"
+        },
+        {
+          "id": "exaone3.5:7.8b",
+          "parameters": "7.8B",
+          "size": "4.8GB"
+        },
+        {
+          "id": "exaone3.5:2.4b",
+          "parameters": "2.4B",
+          "size": "1.6GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Athene-V2 is a 72B parameter model which excels at code completion, mathematics, and log extraction tasks.",
+      "id": "athene-v2",
+      "name": "Athene V2",
+      "variants": [
+        {
+          "id": "athene-v2:latest",
+          "parameters": "Unknown",
+          "size": "47GB"
+        },
+        {
+          "id": "athene-v2:72b",
+          "parameters": "72B",
+          "size": "47GB"
+        }
+      ],
+      "vision": false,
+      "tools": true
+    },
+    {
+      "description": "Uncensored version of Wizard LM model ",
+      "id": "wizardlm-uncensored",
+      "name": "Wizardlm Uncensored",
+      "variants": [
+        {
+          "id": "wizardlm-uncensored:latest",
           "parameters": "Unknown",
           "size": "7.4GB"
         },
         {
-          "id": "nexusraven:13b",
+          "id": "wizardlm-uncensored:13b",
           "parameters": "13B",
           "size": "7.4GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "Fine-tuned Llama 2 model to answer medical questions based on an open source medical dataset. ",
-      "id": "medllama2",
-      "name": "Medllama2",
+      "description": "Llama-3.1-Nemotron-70B-Instruct is a large language model customized by NVIDIA to improve the helpfulness of LLM generated responses to user queries.",
+      "id": "nemotron",
+      "name": "Nemotron",
       "variants": [
         {
-          "id": "medllama2:latest",
+          "id": "nemotron:latest",
           "parameters": "Unknown",
-          "size": "3.8GB"
+          "size": "43GB"
         },
         {
-          "id": "medllama2:7b",
-          "parameters": "7B",
-          "size": "3.8GB"
+          "id": "nemotron:70b",
+          "parameters": "70B",
+          "size": "43GB"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
+    },
+    {
+      "description": "A version of the DeepSeek-R1 model that has been post trained to provide unbiased, accurate, and factual information by Perplexity. ",
+      "id": "r1-1776",
+      "name": "R1.1776",
+      "variants": [
+        {
+          "id": "r1-1776:latest",
+          "parameters": "Unknown",
+          "size": "43GB"
+        },
+        {
+          "id": "r1-1776:671b",
+          "parameters": "671B",
+          "size": "404GB"
+        },
+        {
+          "id": "r1-1776:70b",
+          "parameters": "70B",
+          "size": "43GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "The Nous Hermes 2 model from Nous Research, now trained over Mixtral.",
@@ -4696,29 +4353,68 @@
           "size": "26GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "A new small reasoning model fine-tuned from the Qwen 2.5 3B Instruct model.",
-      "id": "smallthinker",
-      "name": "Smallthinker",
+      "description": "Fine-tuned Llama 2 model to answer medical questions based on an open source medical dataset. ",
+      "id": "medllama2",
+      "name": "Medllama2",
       "variants": [
         {
-          "id": "smallthinker:latest",
+          "id": "medllama2:latest",
           "parameters": "Unknown",
-          "size": "3.6GB"
+          "size": "3.8GB"
         },
         {
-          "id": "smallthinker:3b",
-          "parameters": "3B",
-          "size": "3.6GB"
+          "id": "medllama2:7b",
+          "parameters": "7B",
+          "size": "3.8GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "The IBM Granite Embedding 30M and 278M models models are text-only dense biencoder embedding models, with 30M available in English only and 278M serving multilingual use cases.",
+      "id": "granite-embedding",
+      "name": "Granite Embedding",
+      "variants": [
+        {
+          "id": "granite-embedding:latest",
+          "parameters": "Unknown",
+          "size": "63MB"
+        },
+        {
+          "id": "granite-embedding:278m",
+          "parameters": "278M",
+          "size": "563MB"
+        },
+        {
+          "id": "granite-embedding:30m",
+          "parameters": "30M",
+          "size": "63MB"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "model_type": "embedding"
+    },
+    {
+      "description": "Embedding model from BAAI mapping texts to vectors.",
+      "id": "bge-large",
+      "name": "Bge Large",
+      "variants": [
+        {
+          "id": "bge-large:latest",
+          "parameters": "Unknown",
+          "size": "671MB"
+        },
+        {
+          "id": "bge-large:335m",
+          "parameters": "335M",
+          "size": "671MB"
+        }
+      ],
+      "vision": false,
+      "model_type": "embedding"
     },
     {
       "description": "Great code generation model based on Llama2.",
@@ -4736,29 +4432,76 @@
           "size": "7.4GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "MathΣtral: a 7B model designed for math reasoning and scientific discovery by Mistral AI.",
-      "id": "mathstral",
-      "name": "Mathstral",
+      "description": "A new small LLaVA model fine-tuned from Phi 3 Mini.",
+      "id": "llava-phi3",
+      "name": "Llava Phi3",
       "variants": [
         {
-          "id": "mathstral:latest",
+          "id": "llava-phi3:latest",
           "parameters": "Unknown",
-          "size": "4.1GB"
+          "size": "2.9GB"
         },
         {
-          "id": "mathstral:7b",
-          "parameters": "7B",
-          "size": "4.1GB"
+          "id": "llava-phi3:3.8b",
+          "parameters": "3.8B",
+          "size": "2.9GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": true
+    },
+    {
+      "description": "A new collection of open translation models built on Gemma 3, helping people communicate across 55 languages.",
+      "id": "translategemma",
+      "name": "Translategemma",
+      "variants": [
+        {
+          "id": "translategemma:latest",
+          "parameters": "Unknown",
+          "size": "3.3GB"
+        },
+        {
+          "id": "translategemma:27b",
+          "parameters": "27B",
+          "size": "17GB"
+        },
+        {
+          "id": "translategemma:12b",
+          "parameters": "12B",
+          "size": "8.1GB"
+        },
+        {
+          "id": "translategemma:4b",
+          "parameters": "4B",
+          "size": "3.3GB"
+        }
+      ],
+      "vision": true
+    },
+    {
+      "description": "Tülu 3 is a leading instruction following model family, offering fully open-source data, code, and recipes by the The Allen Institute for AI.",
+      "id": "tulu3",
+      "name": "Tulu3",
+      "variants": [
+        {
+          "id": "tulu3:latest",
+          "parameters": "Unknown",
+          "size": "4.9GB"
+        },
+        {
+          "id": "tulu3:70b",
+          "parameters": "70B",
+          "size": "43GB"
+        },
+        {
+          "id": "tulu3:8b",
+          "parameters": "8B",
+          "size": "4.9GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "Uncensored Llama2 based model with support for a 16K context window.",
@@ -4776,69 +4519,25 @@
           "size": "7.4GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "Phi 4 mini reasoning is a lightweight open model that balances efficiency with advanced reasoning ability.",
-      "id": "phi4-mini-reasoning",
-      "name": "Phi4 Mini Reasoning",
+      "description": "MathΣtral: a 7B model designed for math reasoning and scientific discovery by Mistral AI.",
+      "id": "mathstral",
+      "name": "Mathstral",
       "variants": [
         {
-          "id": "phi4-mini-reasoning:latest",
+          "id": "mathstral:latest",
           "parameters": "Unknown",
-          "size": "3.2GB"
+          "size": "4.1GB"
         },
         {
-          "id": "phi4-mini-reasoning:3.8b",
-          "parameters": "3.8B",
-          "size": "3.2GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "The smallest model in Cohere's R series delivers top-tier speed, efficiency, and quality to build powerful AI applications on commodity GPUs and edge devices.",
-      "id": "command-r7b",
-      "name": "Command R7b",
-      "variants": [
-        {
-          "id": "command-r7b:latest",
-          "parameters": "Unknown",
-          "size": "5.1GB"
-        },
-        {
-          "id": "command-r7b:7b",
+          "id": "mathstral:7b",
           "parameters": "7B",
-          "size": "5.1GB"
+          "size": "4.1GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A lightweight chat model allowing accurate, and responsive output without requiring high-end hardware.",
-      "id": "stablelm-zephyr",
-      "name": "Stablelm Zephyr",
-      "variants": [
-        {
-          "id": "stablelm-zephyr:latest",
-          "parameters": "Unknown",
-          "size": "1.6GB"
-        },
-        {
-          "id": "stablelm-zephyr:3b",
-          "parameters": "3B",
-          "size": "1.6GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Solar Pro Preview: an advanced large language model (LLM) with 22 billion parameters designed to fit into a single GPU",
@@ -4856,9 +4555,43 @@
           "size": "13GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "DBRX is an open, general-purpose LLM created by Databricks.",
+      "id": "dbrx",
+      "name": "Dbrx",
+      "variants": [
+        {
+          "id": "dbrx:latest",
+          "parameters": "Unknown",
+          "size": "74GB"
+        },
+        {
+          "id": "dbrx:132b",
+          "parameters": "132B",
+          "size": "74GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "A lightweight chat model allowing accurate, and responsive output without requiring high-end hardware.",
+      "id": "stablelm-zephyr",
+      "name": "Stablelm Zephyr",
+      "variants": [
+        {
+          "id": "stablelm-zephyr:latest",
+          "parameters": "Unknown",
+          "size": "1.6GB"
+        },
+        {
+          "id": "stablelm-zephyr:3b",
+          "parameters": "3B",
+          "size": "1.6GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "Falcon2 is an 11B parameters causal decoder-only model built by TII and trained over 5T tokens.",
@@ -4876,49 +4609,7 @@
           "size": "6.4GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "An upgraded version of DeekSeek-V2  that integrates the general and coding abilities of both DeepSeek-V2-Chat and DeepSeek-Coder-V2-Instruct.",
-      "id": "deepseek-v2.5",
-      "name": "Deepseek V2.5",
-      "variants": [
-        {
-          "id": "deepseek-v2.5:latest",
-          "parameters": "Unknown",
-          "size": "133GB"
-        },
-        {
-          "id": "deepseek-v2.5:236b",
-          "parameters": "236B",
-          "size": "133GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "7B parameter text-to-SQL model made by MotherDuck and Numbers Station.",
-      "id": "duckdb-nsql",
-      "name": "Duckdb Nsql",
-      "variants": [
-        {
-          "id": "duckdb-nsql:latest",
-          "parameters": "Unknown",
-          "size": "3.8GB"
-        },
-        {
-          "id": "duckdb-nsql:7b",
-          "parameters": "7B",
-          "size": "3.8GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "🎩 Magicoder is a family of 7B parameter models trained on 75K synthetic instruction data using OSS-Instruct, a novel approach to enlightening LLMs with open-source code snippets.",
@@ -4936,109 +4627,25 @@
           "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "MistralLite is a fine-tuned model based on Mistral with enhanced capabilities of processing long contexts.",
-      "id": "mistrallite",
-      "name": "Mistrallite",
+      "description": "7B parameter text-to-SQL model made by MotherDuck and Numbers Station.",
+      "id": "duckdb-nsql",
+      "name": "Duckdb Nsql",
       "variants": [
         {
-          "id": "mistrallite:latest",
+          "id": "duckdb-nsql:latest",
           "parameters": "Unknown",
-          "size": "4.1GB"
+          "size": "3.8GB"
         },
         {
-          "id": "mistrallite:7b",
+          "id": "duckdb-nsql:7b",
           "parameters": "7B",
-          "size": "4.1GB"
+          "size": "3.8GB"
         }
       ],
-      "vision": false,
-      "tools": true,
-      "thinking": false
-    },
-    {
-      "description": "A state-of-the-art fact-checking model developed by Bespoke Labs.",
-      "id": "bespoke-minicheck",
-      "name": "Bespoke Minicheck",
-      "variants": [
-        {
-          "id": "bespoke-minicheck:latest",
-          "parameters": "Unknown",
-          "size": "4.7GB"
-        },
-        {
-          "id": "bespoke-minicheck:7b",
-          "parameters": "7B",
-          "size": "4.7GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A 3.8B model fine-tuned on a private high-quality synthetic dataset for information extraction, based on Phi-3.",
-      "id": "nuextract",
-      "name": "Nuextract",
-      "variants": [
-        {
-          "id": "nuextract:latest",
-          "parameters": "Unknown",
-          "size": "2.2GB"
-        },
-        {
-          "id": "nuextract:3.8b",
-          "parameters": "3.8B",
-          "size": "2.2GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A high-performing code instruct model created by merging two existing code models.",
-      "id": "codebooga",
-      "name": "Codebooga",
-      "variants": [
-        {
-          "id": "codebooga:latest",
-          "parameters": "Unknown",
-          "size": "19GB"
-        },
-        {
-          "id": "codebooga:34b",
-          "parameters": "34B",
-          "size": "19GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Wizard Vicuna is a 13B parameter model based on Llama 2 trained by MelodysDreamj.",
-      "id": "wizard-vicuna",
-      "name": "Wizard Vicuna",
-      "variants": [
-        {
-          "id": "wizard-vicuna:latest",
-          "parameters": "Unknown",
-          "size": "7.4GB"
-        },
-        {
-          "id": "wizard-vicuna:13b",
-          "parameters": "13B",
-          "size": "7.4GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "MegaDolphin-2.2-120b is a transformation of Dolphin-2.2-70b created by interleaving the model with itself.",
@@ -5056,9 +4663,79 @@
           "size": "68GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "A 3.8B model fine-tuned on a private high-quality synthetic dataset for information extraction, based on Phi-3.",
+      "id": "nuextract",
+      "name": "Nuextract",
+      "variants": [
+        {
+          "id": "nuextract:latest",
+          "parameters": "Unknown",
+          "size": "2.2GB"
+        },
+        {
+          "id": "nuextract:3.8b",
+          "parameters": "3.8B",
+          "size": "2.2GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "MistralLite is a fine-tuned model based on Mistral with enhanced capabilities of processing long contexts.",
+      "id": "mistrallite",
+      "name": "Mistrallite",
+      "variants": [
+        {
+          "id": "mistrallite:latest",
+          "parameters": "Unknown",
+          "size": "4.1GB"
+        },
+        {
+          "id": "mistrallite:7b",
+          "parameters": "7B",
+          "size": "4.1GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "A state-of-the-art fact-checking model developed by Bespoke Labs.",
+      "id": "bespoke-minicheck",
+      "name": "Bespoke Minicheck",
+      "variants": [
+        {
+          "id": "bespoke-minicheck:latest",
+          "parameters": "Unknown",
+          "size": "4.7GB"
+        },
+        {
+          "id": "bespoke-minicheck:7b",
+          "parameters": "7B",
+          "size": "4.7GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Wizard Vicuna is a 13B parameter model based on Llama 2 trained by MelodysDreamj.",
+      "id": "wizard-vicuna",
+      "name": "Wizard Vicuna",
+      "variants": [
+        {
+          "id": "wizard-vicuna:latest",
+          "parameters": "Unknown",
+          "size": "7.4GB"
+        },
+        {
+          "id": "wizard-vicuna:13b",
+          "parameters": "13B",
+          "size": "7.4GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "A top-performing mixture of experts model, fine-tuned with high-quality data.",
@@ -5076,9 +4753,43 @@
           "size": "26GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
+    },
+    {
+      "description": "A high-performing code instruct model created by merging two existing code models.",
+      "id": "codebooga",
+      "name": "Codebooga",
+      "variants": [
+        {
+          "id": "codebooga:latest",
+          "parameters": "Unknown",
+          "size": "19GB"
+        },
+        {
+          "id": "codebooga:34b",
+          "parameters": "34B",
+          "size": "19GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "A 7B chat model fine-tuned with high-quality data and based on Zephyr.",
+      "id": "notus",
+      "name": "Notus",
+      "variants": [
+        {
+          "id": "notus:latest",
+          "parameters": "Unknown",
+          "size": "4.1GB"
+        },
+        {
+          "id": "notus:7b",
+          "parameters": "7B",
+          "size": "4.1GB"
+        }
+      ],
+      "vision": false
     },
     {
       "description": "An open weights function calling model based on Llama 3, competitive with GPT-4o function calling capabilities.",
@@ -5097,68 +4808,7 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "111 billion parameter model optimized for demanding enterprises that require fast, secure, and high-quality AI",
-      "id": "command-a",
-      "name": "Command A",
-      "variants": [
-        {
-          "id": "command-a:latest",
-          "parameters": "Unknown",
-          "size": "67GB"
-        },
-        {
-          "id": "command-a:111b",
-          "parameters": "111B",
-          "size": "67GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A 7B chat model fine-tuned with high-quality data and based on Zephyr.",
-      "id": "notus",
-      "name": "Notus",
-      "variants": [
-        {
-          "id": "notus:latest",
-          "parameters": "Unknown",
-          "size": "4.1GB"
-        },
-        {
-          "id": "notus:7b",
-          "parameters": "7B",
-          "size": "4.1GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "DeepSeek-OCR is a vision-language model that can perform token-efficient OCR.",
-      "id": "deepseek-ocr",
-      "name": "Deepseek Ocr",
-      "variants": [
-        {
-          "id": "deepseek-ocr:latest",
-          "parameters": "Unknown",
-          "size": "6.7GB"
-        },
-        {
-          "id": "deepseek-ocr:3b",
-          "parameters": "3B",
-          "size": "6.7GB"
-        }
-      ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "Merge of the Open Orca OpenChat model and the Garage-bAInd Platypus 2 model. Designed for chat and code generation.",
@@ -5176,34 +4826,25 @@
           "size": "7.4GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "Nemotron 3 Nano - A new Standard for Efficient, Open, and Intelligent Agentic Models",
-      "id": "nemotron-3-nano",
-      "name": "Nemotron 3 Nano",
+      "description": "DeepSeek-OCR is a vision-language model that can perform token-efficient OCR.",
+      "id": "deepseek-ocr",
+      "name": "Deepseek Ocr",
       "variants": [
         {
-          "id": "nemotron-3-nano:latest",
+          "id": "deepseek-ocr:latest",
           "parameters": "Unknown",
-          "size": "24GB"
+          "size": "6.7GB"
         },
         {
-          "id": "nemotron-3-nano:30b",
-          "parameters": "30B",
-          "size": "24GB"
-        },
-        {
-          "id": "nemotron-3-nano:30b-cloud",
-          "parameters": "30B",
-          "size": "Cloud (API only)"
+          "id": "deepseek-ocr:3b",
+          "parameters": "3B",
+          "size": "6.7GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": true
     },
     {
       "description": "A language model created by combining two fine-tuned Llama 2 70B models into one.",
@@ -5291,29 +4932,136 @@
           "size": "236GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "An open large reasoning model for real-world solutions by the Alibaba International Digital Commerce Group (AIDC-AI).",
-      "id": "marco-o1",
-      "name": "Marco O1",
+      "description": "Nemotron 3 Nano - A new Standard for Efficient, Open, and Intelligent Agentic Models",
+      "id": "nemotron-3-nano",
+      "name": "Nemotron 3 Nano",
       "variants": [
         {
-          "id": "marco-o1:latest",
+          "id": "nemotron-3-nano:latest",
           "parameters": "Unknown",
-          "size": "4.7GB"
+          "size": "24GB"
         },
         {
-          "id": "marco-o1:7b",
-          "parameters": "7B",
-          "size": "4.7GB"
+          "id": "nemotron-3-nano:30b",
+          "parameters": "30B",
+          "size": "24GB"
+        },
+        {
+          "id": "nemotron-3-nano:30b-cloud",
+          "parameters": "30B",
+          "size": "Cloud (API only)"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "thinking": true,
+      "cloud": true
+    },
+    {
+      "description": "A new small reasoning model fine-tuned from the Qwen 2.5 3B Instruct model.",
+      "id": "smallthinker",
+      "name": "Smallthinker",
+      "variants": [
+        {
+          "id": "smallthinker:latest",
+          "parameters": "Unknown",
+          "size": "3.6GB"
+        },
+        {
+          "id": "smallthinker:3b",
+          "parameters": "3B",
+          "size": "3.6GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "The smallest model in Cohere's R series delivers top-tier speed, efficiency, and quality to build powerful AI applications on commodity GPUs and edge devices.",
+      "id": "command-r7b",
+      "name": "Command R7b",
+      "variants": [
+        {
+          "id": "command-r7b:latest",
+          "parameters": "Unknown",
+          "size": "5.1GB"
+        },
+        {
+          "id": "command-r7b:7b",
+          "parameters": "7B",
+          "size": "5.1GB"
+        }
+      ],
+      "vision": false,
+      "tools": true
+    },
+    {
+      "description": "Phi 4 mini reasoning is a lightweight open model that balances efficiency with advanced reasoning ability.",
+      "id": "phi4-mini-reasoning",
+      "name": "Phi4 Mini Reasoning",
+      "variants": [
+        {
+          "id": "phi4-mini-reasoning:latest",
+          "parameters": "Unknown",
+          "size": "3.2GB"
+        },
+        {
+          "id": "phi4-mini-reasoning:3.8b",
+          "parameters": "3.8B",
+          "size": "3.2GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "An upgraded version of DeekSeek-V2  that integrates the general and coding abilities of both DeepSeek-V2-Chat and DeepSeek-Coder-V2-Instruct.",
+      "id": "deepseek-v2.5",
+      "name": "Deepseek V2.5",
+      "variants": [
+        {
+          "id": "deepseek-v2.5:latest",
+          "parameters": "Unknown",
+          "size": "133GB"
+        },
+        {
+          "id": "deepseek-v2.5:236b",
+          "parameters": "236B",
+          "size": "133GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "As the strongest model in the 30B class, GLM-4.7-Flash offers a new option for lightweight deployment that balances performance and efficiency.",
+      "id": "glm-4.7-flash",
+      "name": "Glm 4.7 Flash",
+      "variants": [
+        {
+          "id": "glm-4.7-flash:latest",
+          "parameters": "Unknown",
+          "size": "19GB"
+        },
+        {
+          "id": "glm-4.7-flash:q4_k_m",
+          "parameters": "Unknown",
+          "size": "19GB"
+        },
+        {
+          "id": "glm-4.7-flash:q8_0",
+          "parameters": "Unknown",
+          "size": "32GB"
+        },
+        {
+          "id": "glm-4.7-flash:bf16",
+          "parameters": "Unknown",
+          "size": "60GB"
+        }
+      ],
+      "vision": false,
+      "tools": true,
+      "thinking": true
     },
     {
       "description": "Sailor2 are multilingual language models made for South-East Asia. Available in 1B, 8B, and 20B parameter sizes.",
@@ -5341,34 +5089,7 @@
           "size": "1.1GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "The IBM Granite Guardian 3.0 2B and 8B models are designed to detect risks in prompts and/or responses.",
-      "id": "granite3-guardian",
-      "name": "Granite3 Guardian",
-      "variants": [
-        {
-          "id": "granite3-guardian:latest",
-          "parameters": "Unknown",
-          "size": "2.7GB"
-        },
-        {
-          "id": "granite3-guardian:8b",
-          "parameters": "8B",
-          "size": "5.8GB"
-        },
-        {
-          "id": "granite3-guardian:2b",
-          "parameters": "2B",
-          "size": "2.7GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "24B model that excels at using tools to explore codebases, editing multiple files and power software engineering agents.",
@@ -5392,63 +5113,31 @@
         }
       ],
       "vision": true,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "cloud": true
     },
     {
-      "description": "Google's most intelligent model with SOTA reasoning and multimodal understanding, and powerful agentic and vibe coding capabilities.",
-      "id": "gemini-3-pro-preview",
-      "name": "Gemini 3 Pro Preview",
+      "description": "The IBM Granite Guardian 3.0 2B and 8B models are designed to detect risks in prompts and/or responses.",
+      "id": "granite3-guardian",
+      "name": "Granite3 Guardian",
       "variants": [
         {
-          "id": "gemini-3-pro-preview:latest",
+          "id": "granite3-guardian:latest",
           "parameters": "Unknown",
-          "size": "Cloud (API only)"
-        }
-      ],
-      "vision": true,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A robust conversational model designed to be used for both chat and instruct use cases.",
-      "id": "alfred",
-      "name": "Alfred",
-      "variants": [
-        {
-          "id": "alfred:latest",
-          "parameters": "Unknown",
-          "size": "24GB"
+          "size": "2.7GB"
         },
         {
-          "id": "alfred:40b",
-          "parameters": "40B",
-          "size": "24GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "A new state-of-the-art version of the lightweight Command R7B model that excels in advanced Arabic language capabilities for enterprises in the Middle East and Northern Africa.",
-      "id": "command-r7b-arabic",
-      "name": "Command R7b Arabic",
-      "variants": [
-        {
-          "id": "command-r7b-arabic:latest",
-          "parameters": "Unknown",
-          "size": "5.1GB"
+          "id": "granite3-guardian:8b",
+          "parameters": "8B",
+          "size": "5.8GB"
         },
         {
-          "id": "command-r7b-arabic:7b",
-          "parameters": "7B",
-          "size": "5.1GB"
+          "id": "granite3-guardian:2b",
+          "parameters": "2B",
+          "size": "2.7GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Olmo is a series of Open language models designed to enable the science of language models. These models are pre-trained on the Dolma 3 dataset and post-trained on the Dolci datasets.",
@@ -5471,64 +5160,116 @@
           "size": "4.5GB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
-      "description": "Advanced agentic, reasoning and coding capabilities.",
-      "id": "glm-4.6",
-      "name": "Glm 4.6",
+      "description": "111 billion parameter model optimized for demanding enterprises that require fast, secure, and high-quality AI",
+      "id": "command-a",
+      "name": "Command A",
       "variants": [
         {
-          "id": "glm-4.6:cloud",
+          "id": "command-a:latest",
+          "parameters": "Unknown",
+          "size": "67GB"
+        },
+        {
+          "id": "command-a:111b",
+          "parameters": "111B",
+          "size": "67GB"
+        }
+      ],
+      "vision": false,
+      "tools": true
+    },
+    {
+      "description": "An open large reasoning model for real-world solutions by the Alibaba International Digital Commerce Group (AIDC-AI).",
+      "id": "marco-o1",
+      "name": "Marco O1",
+      "variants": [
+        {
+          "id": "marco-o1:latest",
+          "parameters": "Unknown",
+          "size": "4.7GB"
+        },
+        {
+          "id": "marco-o1:7b",
+          "parameters": "7B",
+          "size": "4.7GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "Google's most intelligent model with SOTA reasoning and multimodal understanding, and powerful agentic and vibe coding capabilities.",
+      "id": "gemini-3-pro-preview",
+      "name": "Gemini 3 Pro Preview",
+      "variants": [
+        {
+          "id": "gemini-3-pro-preview:latest",
           "parameters": "Unknown",
           "size": "Cloud (API only)"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": true,
+      "tools": true,
+      "thinking": true,
+      "cloud": true
     },
     {
-      "description": "gpt-oss-safeguard-20b and gpt-oss-safeguard-120b are safety reasoning models built-upon gpt-oss",
-      "id": "gpt-oss-safeguard",
-      "name": "Gpt Oss Safeguard",
+      "description": "A robust conversational model designed to be used for both chat and instruct use cases.",
+      "id": "alfred",
+      "name": "Alfred",
       "variants": [
         {
-          "id": "gpt-oss-safeguard:latest",
+          "id": "alfred:latest",
           "parameters": "Unknown",
-          "size": "14GB"
+          "size": "24GB"
         },
         {
-          "id": "gpt-oss-safeguard:120b",
-          "parameters": "120B",
-          "size": "65GB"
+          "id": "alfred:40b",
+          "parameters": "40B",
+          "size": "24GB"
+        }
+      ],
+      "vision": false
+    },
+    {
+      "description": "A new state-of-the-art version of the lightweight Command R7B model that excels in advanced Arabic language capabilities for enterprises in the Middle East and Northern Africa.",
+      "id": "command-r7b-arabic",
+      "name": "Command R7b Arabic",
+      "variants": [
+        {
+          "id": "command-r7b-arabic:latest",
+          "parameters": "Unknown",
+          "size": "5.1GB"
         },
         {
-          "id": "gpt-oss-safeguard:20b",
-          "parameters": "20B",
-          "size": "14GB"
+          "id": "command-r7b-arabic:7b",
+          "parameters": "7B",
+          "size": "5.1GB"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
-      "description": "MiniMax M2 is a high-efficiency large language model built for coding and agentic workflows.",
-      "id": "minimax-m2",
-      "name": "Minimax M2",
+      "description": "Olmo is a series of Open language models designed to enable the science of language models. These models are pre-trained on the Dolma 3 dataset and post-trained on the Dolci datasets.",
+      "id": "olmo-3.1",
+      "name": "Olmo 3.1",
       "variants": [
         {
-          "id": "minimax-m2:cloud",
+          "id": "olmo-3.1:latest",
           "parameters": "Unknown",
-          "size": "Cloud (API only)"
+          "size": "19GB"
+        },
+        {
+          "id": "olmo-3.1:32b",
+          "parameters": "32B",
+          "size": "19GB"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "123B model that excels at using tools to explore codebases, editing multiple files and power software engineering agents.",
@@ -5552,8 +5293,33 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "cloud": true
+    },
+    {
+      "description": "gpt-oss-safeguard-20b and gpt-oss-safeguard-120b are safety reasoning models built-upon gpt-oss",
+      "id": "gpt-oss-safeguard",
+      "name": "Gpt Oss Safeguard",
+      "variants": [
+        {
+          "id": "gpt-oss-safeguard:latest",
+          "parameters": "Unknown",
+          "size": "14GB"
+        },
+        {
+          "id": "gpt-oss-safeguard:120b",
+          "parameters": "120B",
+          "size": "65GB"
+        },
+        {
+          "id": "gpt-oss-safeguard:20b",
+          "parameters": "20B",
+          "size": "14GB"
+        }
+      ],
+      "vision": false,
+      "tools": true,
+      "thinking": true
     },
     {
       "description": "The Cogito v2.1 LLMs are instruction tuned generative models. All models are released under MIT license for commercial use.",
@@ -5577,53 +5343,23 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "cloud": true
     },
     {
-      "description": "Olmo is a series of Open language models designed to enable the science of language models. These models are pre-trained on the Dolma 3 dataset and post-trained on the Dolci datasets.",
-      "id": "olmo-3.1",
-      "name": "Olmo 3.1",
+      "description": "Advanced agentic, reasoning and coding capabilities.",
+      "id": "glm-4.6",
+      "name": "Glm 4.6",
       "variants": [
         {
-          "id": "olmo-3.1:latest",
+          "id": "glm-4.6:cloud",
           "parameters": "Unknown",
-          "size": "19GB"
-        },
-        {
-          "id": "olmo-3.1:32b",
-          "parameters": "32B",
-          "size": "19GB"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "Rnj-1 is a family of 8B parameter open-weight, dense models trained from scratch by Essential AI, optimized for code and STEM with capabilities on par with SOTA open-weight models.",
-      "id": "rnj-1",
-      "name": "Rnj 1",
-      "variants": [
-        {
-          "id": "rnj-1:latest",
-          "parameters": "Unknown",
-          "size": "5.1GB"
-        },
-        {
-          "id": "rnj-1:8b",
-          "parameters": "8B",
-          "size": "5.1GB"
-        },
-        {
-          "id": "rnj-1:8b-cloud",
-          "parameters": "8B",
           "size": "Cloud (API only)"
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "thinking": true,
+      "cloud": true
     },
     {
       "description": "FunctionGemma is a specialized version of Google's Gemma 3 270M model fine-tuned explicitly for function calling. ",
@@ -5642,8 +5378,7 @@
         }
       ],
       "vision": false,
-      "tools": true,
-      "thinking": false
+      "tools": true
     },
     {
       "description": "Gemini 3 Flash offers frontier intelligence built for speed at a fraction of the cost.",
@@ -5662,8 +5397,25 @@
         }
       ],
       "vision": true,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "thinking": true,
+      "cloud": true
+    },
+    {
+      "description": "MiniMax M2 is a high-efficiency large language model built for coding and agentic workflows.",
+      "id": "minimax-m2",
+      "name": "Minimax M2",
+      "variants": [
+        {
+          "id": "minimax-m2:cloud",
+          "parameters": "Unknown",
+          "size": "Cloud (API only)"
+        }
+      ],
+      "vision": false,
+      "tools": true,
+      "thinking": true,
+      "cloud": true
     },
     {
       "description": "A state-of-the-art mixture-of-experts (MoE) language model. Kimi K2-Instruct-0905 demonstrates significant improvements in performance on public benchmarks and real-world coding agent tasks.",
@@ -5677,54 +5429,26 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "cloud": true
     },
     {
-      "description": "Kimi K2 Thinking, Moonshot AI's best open-source thinking model.",
-      "id": "kimi-k2-thinking",
-      "name": "Kimi K2 Thinking",
+      "description": "LFM2.5 is a new family of hybrid models designed for on-device deployment.",
+      "id": "lfm2.5-thinking",
+      "name": "Lfm2.5 Thinking",
       "variants": [
         {
-          "id": "kimi-k2-thinking:cloud",
+          "id": "lfm2.5-thinking:latest",
           "parameters": "Unknown",
-          "size": "Cloud (API only)"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
-    },
-    {
-      "description": "nomic-embed-text-v2-moe is a multilingual MoE text embedding model that excels at multilingual retrieval.",
-      "id": "nomic-embed-text-v2-moe",
-      "name": "Nomic Embed Text V2 Moe",
-      "variants": [
+          "size": "731MB"
+        },
         {
-          "id": "nomic-embed-text-v2-moe:latest",
-          "parameters": "Unknown",
-          "size": "958MB"
+          "id": "lfm2.5-thinking:1.2b",
+          "parameters": "1.2B",
+          "size": "731MB"
         }
       ],
-      "vision": false,
-      "tools": false,
-      "thinking": false,
-      "model_type": "embedding"
-    },
-    {
-      "description": "DeepSeek-V3.2, a model that harmonizes high computational efficiency with superior reasoning and agent performance. ",
-      "id": "deepseek-v3.2",
-      "name": "Deepseek V3.2",
-      "variants": [
-        {
-          "id": "deepseek-v3.2:cloud",
-          "parameters": "Unknown",
-          "size": "Cloud (API only)"
-        }
-      ],
-      "vision": false,
-      "tools": false,
-      "thinking": false
+      "vision": false
     },
     {
       "description": "Advancing the Coding Capability",
@@ -5738,8 +5462,71 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "thinking": true,
+      "cloud": true
+    },
+    {
+      "description": "Kimi K2.5 is an open-source, native multimodal agentic model that seamlessly integrates vision and language understanding with advanced agentic capabilities, instant and thinking modes, as well as conversational and agentic paradigms.",
+      "id": "kimi-k2.5",
+      "name": "Kimi K2.5",
+      "variants": [
+        {
+          "id": "kimi-k2.5:cloud",
+          "parameters": "Unknown",
+          "size": "Cloud (API only)"
+        }
+      ],
+      "vision": true,
+      "tools": true,
+      "thinking": true,
+      "cloud": true
+    },
+    {
+      "description": "nomic-embed-text-v2-moe is a multilingual MoE text embedding model that excels at multilingual retrieval.",
+      "id": "nomic-embed-text-v2-moe",
+      "name": "Nomic Embed Text V2 Moe",
+      "variants": [
+        {
+          "id": "nomic-embed-text-v2-moe:latest",
+          "parameters": "Unknown",
+          "size": "958MB"
+        }
+      ],
+      "vision": false,
+      "model_type": "embedding"
+    },
+    {
+      "description": "Kimi K2 Thinking, Moonshot AI's best open-source thinking model.",
+      "id": "kimi-k2-thinking",
+      "name": "Kimi K2 Thinking",
+      "variants": [
+        {
+          "id": "kimi-k2-thinking:cloud",
+          "parameters": "Unknown",
+          "size": "Cloud (API only)"
+        }
+      ],
+      "vision": false,
+      "tools": true,
+      "thinking": true,
+      "cloud": true
+    },
+    {
+      "description": "DeepSeek-V3.2, a model that harmonizes high computational efficiency with superior reasoning and agent performance. ",
+      "id": "deepseek-v3.2",
+      "name": "Deepseek V3.2",
+      "variants": [
+        {
+          "id": "deepseek-v3.2:cloud",
+          "parameters": "Unknown",
+          "size": "Cloud (API only)"
+        }
+      ],
+      "vision": false,
+      "tools": true,
+      "thinking": true,
+      "cloud": true
     },
     {
       "description": "A general-purpose multimodal mixture-of-experts model for production-grade tasks and enterprise workloads.",
@@ -5753,8 +5540,8 @@
         }
       ],
       "vision": true,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "cloud": true
     },
     {
       "description": "Exceptional multilingual capabilities to elevate code engineering",
@@ -5768,8 +5555,55 @@
         }
       ],
       "vision": false,
-      "tools": false,
-      "thinking": false
+      "tools": true,
+      "cloud": true
+    },
+    {
+      "description": "GLM-OCR is a multimodal OCR model for complex document understanding, built on the GLM-V encoder–decoder architecture.",
+      "id": "glm-ocr",
+      "name": "Glm Ocr",
+      "variants": [
+        {
+          "id": "glm-ocr:latest",
+          "parameters": "Unknown",
+          "size": "2.2GB"
+        },
+        {
+          "id": "glm-ocr:q8_0",
+          "parameters": "Unknown",
+          "size": "1.6GB"
+        },
+        {
+          "id": "glm-ocr:bf16",
+          "parameters": "Unknown",
+          "size": "2.2GB"
+        }
+      ],
+      "vision": true
+    },
+    {
+      "description": "Qwen3-Coder-Next is a coding-focused language model from Alibaba's Qwen team, optimized for agentic coding workflows and local development.",
+      "id": "qwen3-coder-next",
+      "name": "Qwen3 Coder Next",
+      "variants": [
+        {
+          "id": "qwen3-coder-next:latest",
+          "parameters": "Unknown",
+          "size": "52GB"
+        },
+        {
+          "id": "qwen3-coder-next:q4_k_m",
+          "parameters": "Unknown",
+          "size": "52GB"
+        },
+        {
+          "id": "qwen3-coder-next:q8_0",
+          "parameters": "Unknown",
+          "size": "85GB"
+        }
+      ],
+      "vision": false,
+      "tools": true
     }
   ]
 }

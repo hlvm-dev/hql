@@ -26,6 +26,7 @@ import { getPlatform } from "../../../../platform/platform.ts";
 import { log } from "../../../api/log.ts";
 import { ValidationError, RuntimeError } from "../../../../common/error.ts";
 import { ensureError } from "../../../../common/utils.ts";
+import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 
 // ============================================================
 // Resource Registry
@@ -132,7 +133,7 @@ export class TaskManager {
   // Configuration
   private endpoint: string;
 
-  constructor(endpoint: string = "http://127.0.0.1:11434") {
+  constructor(endpoint: string = DEFAULT_OLLAMA_ENDPOINT) {
     this.endpoint = endpoint;
   }
 
@@ -237,7 +238,7 @@ export class TaskManager {
     if (!task || task.type !== "model-pull") return;
 
     // Calculate percent safely (prevent NaN/division by zero)
-    let percent = task.progress?.percent ?? 0;
+    let percent = progress.percent ?? task.progress?.percent ?? 0;
     if (progress.total && progress.total > 0 && progress.completed != null) {
       percent = Math.round((progress.completed / progress.total) * 100);
       if (isNaN(percent)) percent = 0;

@@ -14,15 +14,16 @@
  * - SSOT-compliant implementation
  */
 
-import { DEFAULT_CONTEXT_CONFIG } from "./constants.ts";
+import { DEFAULT_CONTEXT_CONFIG, COMPACTION_THRESHOLD } from "./constants.ts";
 import { estimateTokensFromMessages } from "../../common/token-utils.ts";
+import { truncate } from "../../common/utils.ts";
+import type { MessageRole } from "../providers/types.ts";
 
 // ============================================================
 // Types
 // ============================================================
 
-/** Message roles in conversation */
-export type MessageRole = "system" | "user" | "assistant" | "tool";
+export type { MessageRole };
 
 /** Single message in conversation */
 export interface Message {
@@ -34,6 +35,10 @@ export interface Message {
    * Messages loaded from a session transcript should set this to true.
    */
   fromSession?: boolean;
+  /** Tool calls made by assistant (for native tool calling conversation flow) */
+  toolCalls?: Array<{ function: { name: string; arguments: unknown } }>;
+  /** Name of the tool that produced this result (for role: "tool") */
+  toolName?: string;
 }
 
 export function isSummaryMessage(message: Message): boolean {
@@ -42,7 +47,7 @@ export function isSummaryMessage(message: Message): boolean {
 }
 
 /** Context manager configuration */
-interface ContextConfig {
+export interface ContextConfig {
   /** Maximum tokens allowed in context (default: 12000) */
   maxTokens: number;
   /** Maximum length for tool results before truncation (default: 5000 chars) */
@@ -57,6 +62,10 @@ interface ContextConfig {
   summaryMaxChars: number;
   /** Messages to preserve at end when summarizing (default: 4) */
   summaryKeepRecent: number;
+  /** Optional LLM-powered summarization callback. Falls back to crude snippet summary when not set. */
+  llmSummarize?: (messages: Message[]) => Promise<string>;
+  /** Fraction of maxTokens at which to trigger proactive compaction (default: 0.8) */
+  compactionThreshold: number;
 }
 
 /** Error thrown when context exceeds maxTokens in fail mode */
@@ -106,6 +115,7 @@ interface ContextStats {
 export class ContextManager {
   private messages: Message[] = [];
   private config: ContextConfig;
+  private pendingCompaction = false;
 
   constructor(config?: Partial<ContextConfig>) {
     this.config = {
@@ -143,8 +153,54 @@ export class ContextManager {
 
     this.messages.push(messageWithTimestamp);
 
+    // Proactive compaction at threshold (before overflow)
+    if (this.config.overflowStrategy === "summarize" && this.config.llmSummarize) {
+      const threshold = this.config.maxTokens * this.config.compactionThreshold;
+      if (this.estimateTokens() > threshold) {
+        this.pendingCompaction = true;
+      }
+    }
+
     // Handle overflow if needed
     this.trimIfNeeded();
+  }
+
+  /**
+   * Run pending LLM-powered compaction if needed.
+   * Must be called from async context (e.g., before LLM call).
+   */
+  async compactIfNeeded(): Promise<void> {
+    if (!this.pendingCompaction || !this.config.llmSummarize) return;
+    this.pendingCompaction = false;
+
+    const systemMessages = this.messages.filter((m) => m.role === "system");
+    const nonSystemMessages = this.messages.filter((m) => m.role !== "system");
+
+    const keepRecent = Math.max(
+      this.config.minMessages,
+      this.config.summaryKeepRecent,
+    );
+
+    if (nonSystemMessages.length <= keepRecent) return;
+
+    const splitIndex = Math.max(0, nonSystemMessages.length - keepRecent);
+    const toSummarize = nonSystemMessages.slice(0, splitIndex);
+    const recentMessages = nonSystemMessages.slice(splitIndex);
+
+    try {
+      const summary = await this.config.llmSummarize(toSummarize);
+      const summaryMessage: Message = {
+        role: "assistant",
+        content: `Summary of earlier context:\n${summary}`,
+        timestamp: Date.now(),
+      };
+
+      this.messages = this.config.preserveSystem
+        ? [...systemMessages, summaryMessage, ...recentMessages]
+        : [summaryMessage, ...recentMessages];
+    } catch {
+      // LLM summarization failed — fall back to crude summary on next overflow
+    }
   }
 
   /**
@@ -200,14 +256,22 @@ export class ContextManager {
    * @returns Statistics about current context
    */
   getStats(): ContextStats {
+    let system = 0, user = 0, assistant = 0, tool = 0;
+    for (const m of this.messages) {
+      switch (m.role) {
+        case "system": system++; break;
+        case "user": user++; break;
+        case "assistant": assistant++; break;
+        case "tool": tool++; break;
+      }
+    }
     return {
       messageCount: this.messages.length,
       estimatedTokens: this.estimateTokens(),
-      systemMessages: this.messages.filter((m) => m.role === "system").length,
-      userMessages: this.messages.filter((m) => m.role === "user").length,
-      assistantMessages: this.messages.filter((m) => m.role === "assistant")
-        .length,
-      toolMessages: this.messages.filter((m) => m.role === "tool").length,
+      systemMessages: system,
+      userMessages: user,
+      assistantMessages: assistant,
+      toolMessages: tool,
     };
   }
 
@@ -289,20 +353,23 @@ export class ContextManager {
       return;
     }
 
-    // Remove oldest non-system messages until under budget
-    let trimmedMessages = [...nonSystemMessages];
+    // Remove oldest non-system messages until under budget (O(n) with index pointer)
+    let startIdx = 0;
+    const maxTrim = nonSystemMessages.length - this.config.minMessages;
 
-    while (
-      this.estimateTokensForMessages(
-          this.config.preserveSystem
-            ? [...systemMessages, ...trimmedMessages]
-            : trimmedMessages,
-        ) > this.config.maxTokens &&
-      trimmedMessages.length > this.config.minMessages
-    ) {
-      // Remove oldest message
-      trimmedMessages = trimmedMessages.slice(1);
+    while (startIdx < maxTrim) {
+      const candidate = this.config.preserveSystem
+        ? [...systemMessages, ...nonSystemMessages.slice(startIdx)]
+        : nonSystemMessages.slice(startIdx);
+      if (this.estimateTokensForMessages(candidate) <= this.config.maxTokens) {
+        break;
+      }
+      startIdx++;
     }
+
+    const trimmedMessages = startIdx > 0
+      ? nonSystemMessages.slice(startIdx)
+      : nonSystemMessages;
 
     // Reconstruct message array
     this.messages = this.config.preserveSystem
@@ -351,9 +418,7 @@ export class ContextManager {
     const lines: string[] = [];
     for (const msg of messages) {
       const normalized = msg.content.replace(/\s+/g, " ").trim();
-      const snippet = normalized.length > 200
-        ? `${normalized.slice(0, 200)}...`
-        : normalized;
+      const snippet = truncate(normalized, 200);
       lines.push(`- ${msg.role}: ${snippet}`);
     }
 

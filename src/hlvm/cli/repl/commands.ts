@@ -109,7 +109,6 @@ export const commands: Record<string, Command> = {
     handler: async (state: ReplState) => {
       log.raw.log("\nGoodbye!");
       await state.flushHistory();
-      state.flushHistorySync();
       getPlatform().process.exit(0);
     },
   },

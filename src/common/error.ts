@@ -21,7 +21,7 @@ import {
   getErrorFixes,
   HQLErrorCode,
 } from "./error-codes.ts";
-import { isObjectValue, LINE_SPLIT_REGEX } from "./utils.ts";
+import { getErrorMessage, isObjectValue, LINE_SPLIT_REGEX } from "./utils.ts";
 import { extractContextLinesFromSource } from "./context-helpers.ts";
 
 // -----------------------------------------------------------------------------
@@ -121,11 +121,8 @@ export function withRecovery<T>(
 // Simple helpers
 // -----------------------------------------------------------------------------
 
-export function formatErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (isObjectValue(error)) return JSON.stringify(error);
-  return String(error);
-}
+/** @deprecated Use `getErrorMessage` from `common/utils.ts` instead. */
+export const formatErrorMessage = getErrorMessage;
 
 /**
  * Extract an existing HQL error code from a message string.

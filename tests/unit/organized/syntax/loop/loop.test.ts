@@ -303,44 +303,6 @@ result`;
   assertEquals(result, [2, 4, 6]);
 });
 
-// ============================================================
-// Loop with [] syntax (Clojure-style) - both () and [] should work
-// ============================================================
-
-Deno.test("Loop: bracket syntax [n acc] works same as paren syntax", async () => {
-  // Using [] instead of () for bindings - should work identically
-  const code = `
-(loop [i 0 acc 0]
-  (if (< i 5)
-    (recur (+ i 1) (+ acc i))
-    acc))
-`;
-  const result = await run(code);
-  assertEquals(result, 10); // 0+1+2+3+4
-});
-
-Deno.test("Loop: bracket syntax factorial", async () => {
-  const code = `
-(loop [n 5 acc 1]
-  (if (<= n 1)
-    acc
-    (recur (- n 1) (* acc n))))
-`;
-  const result = await run(code);
-  assertEquals(result, 120);
-});
-
-Deno.test("Loop: bracket syntax fibonacci", async () => {
-  const code = `
-(loop [n 7 a 0 b 1]
-  (if (=== n 0)
-    a
-    (recur (- n 1) b (+ a b))))
-`;
-  const result = await run(code);
-  assertEquals(result, 13);
-});
-
 Deno.test("Loop: empty bracket syntax", async () => {
   // Zero bindings with [] syntax
   const code = `

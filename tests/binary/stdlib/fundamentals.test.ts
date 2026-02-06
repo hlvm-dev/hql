@@ -6,8 +6,6 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
 import { runExpression, USE_BINARY } from "../_shared/binary-helpers.ts";
 
-console.log(`Testing stdlib fundamentals in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // FIRST
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

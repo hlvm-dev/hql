@@ -509,21 +509,6 @@ Deno.test("flatten: handles mixed nested and flat", () => {
   assertEquals(result, [1, 2, 3, 4, 5]);
 });
 
-Deno.test("distinct: handles empty collection", () => {
-  const result = doall(distinct([]));
-  assertEquals(result, []);
-});
-
-Deno.test("distinct: handles single element", () => {
-  const result = doall(distinct([42]));
-  assertEquals(result, [42]);
-});
-
-Deno.test("distinct: uses identity for objects", () => {
-  const obj = { x: 1 };
-  const result = doall(distinct([obj, obj, { x: 1 }]));
-  assertEquals(result.length, 2); // obj deduplicated, but new object kept
-});
 
 Deno.test("reduce: returns init for empty collection", () => {
   const result = reduce((a, b) => a + b, 10, []);

@@ -1,5 +1,5 @@
 /**
- * Web Cache - file-backed cache for web_search/web_fetch
+ * Web Cache - file-backed cache for search_web/web_fetch
  */
 
 import { getPlatform } from "../../platform/platform.ts";

@@ -8,8 +8,6 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
 import { binaryTest, USE_BINARY, BINARY_PATH, CLI_PATH, ensureBinaryCompiled } from "../_shared/binary-helpers.ts";
 
-console.log(`Testing REPL memory functions in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
-
 // Helper to run REPL with input and capture output
 async function runReplWithInput(input: string): Promise<{ stdout: string; stderr: string }> {
   const args = ["repl"];

@@ -39,6 +39,9 @@ interface OllamaModel {
   variants: OllamaVariant[];
   vision: boolean;
   model_type?: string;  // e.g., "embedding" (optional)
+  tools?: boolean;
+  thinking?: boolean;
+  cloud?: boolean;
 }
 
 interface OllamaModelsJSON {
@@ -103,6 +106,11 @@ function parseSize(sizeStr: string): string {
 function parseParameters(paramStr: string): string {
   // Normalize: "7b" -> "7B", "1.1b" -> "1.1B", "137m" -> "137M"
   return paramStr.toUpperCase();
+}
+
+function hasBadge(html: string, label: string): boolean {
+  const pattern = new RegExp(`>\\s*${label}\\s*<`, "i");
+  return pattern.test(html);
 }
 
 // ============================================================
@@ -204,6 +212,11 @@ async function fetchModelDetails(modelId: string): Promise<OllamaModelInternal |
       });
     }
 
+    const hasToolsBadge = hasBadge(html, "tools");
+    const hasThinkingBadge = hasBadge(html, "thinking");
+    const hasCloudBadge = hasBadge(html, "cloud");
+    const isCloudModel = hasCloudBadge || variants.some((variant) => variant.size === "Cloud (API only)");
+
     const model: OllamaModelInternal = {
       description: description || formatModelName(modelId),
       id: modelId,
@@ -211,6 +224,9 @@ async function fetchModelDetails(modelId: string): Promise<OllamaModelInternal |
       variants,
       vision: isVisionModel,
       downloads,
+      ...(hasToolsBadge ? { tools: true } : {}),
+      ...(hasThinkingBadge ? { thinking: true } : {}),
+      ...(isCloudModel ? { cloud: true } : {}),
       ...(isEmbeddingModel ? { model_type: "embedding" } : {}),
     };
 
@@ -454,6 +470,9 @@ async function main() {
     console.log(`   Total models: ${result.models.length}`);
     console.log(`   Vision models: ${result.models.filter(m => m.vision).length}`);
     console.log(`   Embedding models: ${result.models.filter(m => m.model_type === "embedding").length}`);
+    console.log(`   Tool models: ${result.models.filter(m => m.tools).length}`);
+    console.log(`   Thinking models: ${result.models.filter(m => m.thinking).length}`);
+    console.log(`   Cloud models: ${result.models.filter(m => m.cloud).length}`);
     console.log(`   Most popular: ${result.models[0]?.id}`);
 
   } catch (error) {

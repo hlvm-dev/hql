@@ -41,7 +41,32 @@ export function createPolicyPathChecker(
 }
 
 function expandUserHome(path: string, home: string): string {
-  if (!path.startsWith("~")) return path;
+  if (!path) return path;
+  if (path.startsWith("~")) {
+    if (!home) return path;
+    return path.replace(/^~(?=$|\/)/, home);
+  }
+
   if (!home) return path;
-  return path.replace(/^~(?=$|\/)/, home);
+  const normalizedHome = home.replace(/\/+$/, "");
+
+  if (!normalizedHome.startsWith("/home/") && path.startsWith("/home/")) {
+    const suffix = path.replace(/^\/home\/[^/]+/, "");
+    if (suffix === "") return normalizedHome;
+    return `${normalizedHome}${suffix}`;
+  }
+
+  const folderMatch = path.match(/^\/(downloads|desktop|documents)(\/.*)?$/i);
+  if (folderMatch) {
+    const map: Record<string, string> = {
+      downloads: "Downloads",
+      desktop: "Desktop",
+      documents: "Documents",
+    };
+    const folder = map[folderMatch[1].toLowerCase()];
+    const suffix = folderMatch[2] ?? "";
+    return `${normalizedHome}/${folder}${suffix}`;
+  }
+
+  return path;
 }

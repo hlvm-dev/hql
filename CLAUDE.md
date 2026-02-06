@@ -28,6 +28,12 @@ For `hlvm ask`:
 
 Do not add new CLI flags unless explicitly requested.
 
+## Declarative Over Imperative - MANDATORY
+
+**Prefer declarative approaches and APIs over imperative ones wherever possible.**
+
+Imperative code is only acceptable when it is extremely performant and has proper, strong, competitive reasons to justify the complexity. Default to declarative — it is simpler, more readable, and easier to maintain.
+
 ## DRY & KISS - MANDATORY
 
 **No scattered logic. No redundancy. No duplication.**

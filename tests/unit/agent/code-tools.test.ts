@@ -456,13 +456,18 @@ Deno.test({
 
     assertEquals(result.success, true);
 
-    // Should have limited depth
     // First level should have src/
     const srcNode = result.tree?.children?.find((c) => c.name === "src");
     assertEquals(srcNode !== undefined, true);
 
-    // Second level (inside src) should exist but third level (inside components) should be limited
+    // Depth 1: src/ should have children (main.ts, utils.ts, components/)
     assertEquals(srcNode?.children !== undefined, true);
+    const componentsNode = srcNode?.children?.find((c) => c.name === "components");
+    assertEquals(componentsNode !== undefined, true);
+
+    // Depth enforcement: components/ children should be absent or empty at maxDepth=1
+    const hasDeepChildren = componentsNode?.children?.length ?? 0;
+    assertEquals(hasDeepChildren, 0);
 
     await cleanupWorkspace();
   },

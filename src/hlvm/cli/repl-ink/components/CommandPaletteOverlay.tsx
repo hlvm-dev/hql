@@ -24,6 +24,7 @@ import {
 import { useTheme } from "../../theme/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { CURSOR_BLINK_MS } from "../ui-constants.ts";
 
 // ============================================================
 // Types
@@ -76,9 +77,6 @@ const HEADER_ROWS = 4;  // header + empty + search + empty
 const CONTENT_START = PADDING.top + HEADER_ROWS;
 const VISIBLE_ROWS = PALETTE_HEIGHT - CONTENT_START - PADDING.bottom;
 const BG_COLOR: RGB = [35, 35, 40];
-
-// Cursor blink timing (macOS standard)
-const CURSOR_BLINK_MS = 530;
 
 // Shared encoder for terminal output
 const encoder = new TextEncoder();

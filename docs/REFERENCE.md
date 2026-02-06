@@ -46,6 +46,7 @@
   (getter prop [] ...)           //   get prop() {...}
   (setter prop [v] ...))         //   set prop(v) {...} }
 
+(class Dog extends Animal ...)    // class Dog extends Animal {...}
 (abstract-class A extends B ...) // abstract class extends
 ```
 
@@ -57,6 +58,7 @@
 (unless cond body)               // if (!cond) { body }
 (switch x (case 1 a) (default b))// switch(x) { case 1: a; default: b }
 (match v (case p r) (default d)) // pattern matching
+(match v (case (| 1 2 3) r))     // or-pattern (match any of 1, 2, 3)
 ```
 
 ### Loops
@@ -163,7 +165,7 @@ obj.property                     // obj.property
 | Functions | `fn`, `async fn`, rest params | ✅ |
 | Generators | `fn*`, `yield`, `yield*`, `async fn*` | ✅ |
 | Classes | constructor, methods, static, private (#) | ✅ |
-| Classes | getters, setters, abstract-class extends | ✅ |
+| Classes | getters, setters, extends, abstract-class extends | ✅ |
 | Control | `if`, `cond`, `when`, `unless`, `switch`, `match` | ✅ |
 | Loops | `loop/recur`, `for`, `for-of`, `while`, `dotimes` | ✅ |
 | Loops | `for-await-of`, `label`, `break`, `continue` | ✅ |

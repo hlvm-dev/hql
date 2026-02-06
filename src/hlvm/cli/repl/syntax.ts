@@ -126,12 +126,16 @@ export function tokenize(input: string): Token[] {
     if (ch === "/" && i + 1 < input.length && input[i + 1] === "*") {
       const start = i;
       i += 2; // Skip /*
-      while (i < input.length - 1) {
+      while (i + 1 < input.length) {
         if (input[i] === "*" && input[i + 1] === "/") {
           i += 2; // Include */
           break;
         }
         i++;
+      }
+      // Unclosed comment: consume entire remainder as comment token
+      if (i < input.length && input.slice(start).indexOf("*/") === -1) {
+        i = input.length;
       }
       tokens.push({ type: "comment", value: input.slice(start, i), start, end: i });
       continue;

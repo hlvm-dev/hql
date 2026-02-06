@@ -20,6 +20,7 @@ import {
   type EvalTask,
   type TaskStatus,
 } from "../../src/hlvm/cli/repl/task-manager/index.ts";
+import { DEFAULT_OLLAMA_ENDPOINT } from "../../src/common/config/types.ts";
 
 // Mock AI provider for pullModel tests (avoids external dependency).
 const globalAny = globalThis as Record<string, unknown>;
@@ -87,7 +88,7 @@ Deno.test("canTransition: terminal states have no transitions", () => {
 Deno.test("TaskManager: constructor sets default endpoint", () => {
   resetTaskManager();
   const manager = new TaskManager();
-  assertEquals(manager.getEndpoint(), "http://127.0.0.1:11434");
+  assertEquals(manager.getEndpoint(), DEFAULT_OLLAMA_ENDPOINT);
 });
 
 Deno.test("TaskManager: constructor accepts custom endpoint", () => {

@@ -796,8 +796,9 @@ Deno.test({
     const maxDenialsMsg = toolMessages.find((m) =>
       m.content.includes("Maximum denials")
     );
-    assertEquals(maxDenialsMsg !== undefined, true);
-    assertEquals(maxDenialsMsg!.content.includes("ask_user"), true);
+    // Verify max denials message exists and suggests ask_user as recovery
+    assertStringIncludes(maxDenialsMsg!.content, "Maximum denials");
+    assertStringIncludes(maxDenialsMsg!.content, "ask_user");
   },
 });
 

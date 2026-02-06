@@ -15,8 +15,6 @@ import {
   USE_BINARY
 } from "../_shared/binary-helpers.ts";
 
-console.log(`Testing Node/Deno compatibility in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
-
 // Check for Node.js availability ONCE at module load time
 // This ensures tests are properly marked as ignored, not silently passed
 let NODE_AVAILABLE = false;
@@ -26,10 +24,6 @@ try {
   NODE_AVAILABLE = code === 0;
 } catch {
   NODE_AVAILABLE = false;
-}
-
-if (!NODE_AVAILABLE) {
-  console.log("⚠️  Node.js not available - Node/Deno compatibility tests will be skipped");
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -8,7 +8,8 @@ export interface AgentProfile {
   tools: string[];
 }
 
-const AGENT_PROFILES: AgentProfile[] = [
+/** Frozen profiles: immutable at runtime, safe to return by reference */
+const AGENT_PROFILES: readonly AgentProfile[] = [
   {
     name: "general",
     description: "Generalist agent for mixed tasks",
@@ -23,12 +24,8 @@ const AGENT_PROFILES: AgentProfile[] = [
       "shell_exec",
       "shell_script",
       "search_web",
-      "web_search",
-      "research_web",
       "fetch_url",
       "web_fetch",
-      "extract_url",
-      "extract_html",
       "render_url",
       "mcp/playwright/render_url",
       "memory_add",
@@ -71,12 +68,8 @@ const AGENT_PROFILES: AgentProfile[] = [
     description: "Web research specialist",
     tools: [
       "search_web",
-      "web_search",
-      "research_web",
       "fetch_url",
       "web_fetch",
-      "extract_url",
-      "extract_html",
       "render_url",
       "mcp/playwright/render_url",
     ],
@@ -93,18 +86,11 @@ const AGENT_PROFILES: AgentProfile[] = [
   },
 ];
 
-export function listAgentProfiles(): AgentProfile[] {
-  return AGENT_PROFILES.map((profile) => ({
-    name: profile.name,
-    description: profile.description,
-    tools: [...profile.tools],
-  }));
+export function listAgentProfiles(): readonly AgentProfile[] {
+  return AGENT_PROFILES;
 }
 
 export function getAgentProfile(name: string): AgentProfile | null {
   const normalized = name.trim().toLowerCase();
-  const found = AGENT_PROFILES.find((profile) => profile.name === normalized);
-  return found
-    ? { name: found.name, description: found.description, tools: [...found.tools] }
-    : null;
+  return AGENT_PROFILES.find((profile) => profile.name === normalized) ?? null;
 }

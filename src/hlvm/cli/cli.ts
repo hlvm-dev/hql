@@ -26,7 +26,7 @@ import { registerApis } from "../api/index.ts";
 import { run as runCommand } from "./run.ts";
 // Import repl command from Ink REPL
 import { startInkRepl, type InkReplOptions } from "./repl-ink/index.tsx";
-import type { SessionInitOptions } from "./repl/session/types.ts";
+import { parseSessionFlags, type SessionInitOptions } from "./repl/session/types.ts";
 import { VERSION } from "../../version.ts";
 
 /**
@@ -77,37 +77,7 @@ EXAMPLES:
     return 0;
   }
 
-  // Parse session flags
-  let continueSession = false;
-  let resumeId: string | undefined;
-  let forceNew = false;
-  let openPicker = false;
-
-  if (args.includes("--continue") || args.includes("-c")) {
-    continueSession = true;
-  }
-
-  const resumeIndex = args.findIndex((a) => a === "--resume" || a === "-r");
-  if (resumeIndex !== -1) {
-    const nextArg = args[resumeIndex + 1];
-    if (nextArg && !nextArg.startsWith("-")) {
-      resumeId = nextArg;
-    } else {
-      // --resume without id: open picker
-      openPicker = true;
-    }
-  }
-
-  if (args.includes("--new")) {
-    forceNew = true;
-  }
-
-  const sessionOptions: SessionInitOptions = {
-    continue: continueSession,
-    resumeId,
-    forceNew,
-    openPicker,
-  };
+  const sessionOptions = parseSessionFlags(args);
 
   const showBanner = !args.includes("--no-banner");
 

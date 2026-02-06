@@ -105,13 +105,13 @@ export class SlidingWindowRateLimiter {
     const cutoff = now - this.windowMs;
     if (this.timestamps.length === 0) return;
 
-    // Drop timestamps outside the window
+    // Drop timestamps outside the window (in-place to avoid allocation)
     let idx = 0;
     while (idx < this.timestamps.length && this.timestamps[idx] <= cutoff) {
       idx++;
     }
     if (idx > 0) {
-      this.timestamps = this.timestamps.slice(idx);
+      this.timestamps.splice(0, idx);
     }
   }
 }

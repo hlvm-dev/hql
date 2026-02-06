@@ -8,37 +8,9 @@ import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { META_TOOLS } from "../../../src/hlvm/agent/tools/meta-tools.ts";
 
 Deno.test({
-  name: "META_TOOLS: ask_user - should be registered",
-  fn() {
-    assertEquals(META_TOOLS.ask_user !== undefined, true);
-    assertEquals(typeof META_TOOLS.ask_user.fn, "function");
-    assertEquals(
-      META_TOOLS.ask_user.description.includes("Ask user"),
-      true,
-    );
-  },
-});
-
-Deno.test({
   name: "META_TOOLS: ask_user - should have correct safety level",
   fn() {
     assertEquals(META_TOOLS.ask_user.safetyLevel, "L0");
-  },
-});
-
-Deno.test({
-  name: "META_TOOLS: ask_user - should have correct argument schema",
-  fn() {
-    assertEquals("question" in META_TOOLS.ask_user.args, true);
-    assertEquals("options" in META_TOOLS.ask_user.args, true);
-    assertEquals(
-      META_TOOLS.ask_user.args.question.includes("string"),
-      true,
-    );
-    assertEquals(
-      META_TOOLS.ask_user.args.options.includes("optional"),
-      true,
-    );
   },
 });
 

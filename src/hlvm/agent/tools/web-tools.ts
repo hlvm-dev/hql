@@ -13,7 +13,6 @@ import { ValidationError } from "../../../common/error.ts";
 import { isNetworkAllowed, getNetworkPolicyDeniedUrl } from "../policy.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
-import { getErrorMessage } from "../../../common/utils.ts";
 import { loadWebConfig } from "../web-config.ts";
 import { getWebCacheValue, setWebCacheValue } from "../web-cache.ts";
 
@@ -27,29 +26,10 @@ interface FetchUrlArgs {
   timeoutMs?: number;
 }
 
-interface ExtractUrlArgs {
-  url: string;
-  maxBytes?: number;
-  timeoutMs?: number;
-  maxTextLength?: number;
-  maxLinks?: number;
-}
-
-interface ExtractHtmlArgs {
-  html: string;
-  maxTextLength?: number;
-  maxLinks?: number;
-}
-
 interface SearchWebArgs {
   query: string;
   maxResults?: number;
   timeoutMs?: number;
-}
-
-interface WebSearchArgs {
-  query: string;
-  maxResults?: number;
   timeoutSeconds?: number;
 }
 
@@ -57,16 +37,6 @@ interface WebFetchArgs {
   url: string;
   maxChars?: number;
   timeoutSeconds?: number;
-}
-
-interface ResearchWebArgs {
-  query: string;
-  maxResults?: number;
-  maxSources?: number;
-  timeoutMs?: number;
-  maxBytes?: number;
-  maxTextLength?: number;
-  maxLinks?: number;
 }
 
 interface SearchResult {
@@ -82,7 +52,6 @@ interface SearchResult {
 
 const DEFAULT_WEB_MAX_BYTES = RESOURCE_LIMITS.maxTotalToolResultBytes;
 const DEFAULT_WEB_RESULTS = 5;
-const DEFAULT_WEB_SOURCES = 3;
 const DEFAULT_HTML_TEXT_LIMIT = 4000;
 const DEFAULT_HTML_LINKS = 20;
 const MAIN_CONTENT_MIN_CHARS = 200;
@@ -384,25 +353,33 @@ function pickMainHtml(html: string): string {
   return html;
 }
 
+/** Cache compiled tag-block regexes (single alternation per tag set) */
+const _tagBlockRegexCache = new Map<string, RegExp>();
+
 function stripTagBlocks(html: string, tags: string[]): string {
-  let output = html;
-  for (const tag of tags) {
-    const regex = new RegExp(
-      `<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`,
+  const key = tags.join(",");
+  let regex = _tagBlockRegexCache.get(key);
+  if (!regex) {
+    const alternation = tags.join("|");
+    regex = new RegExp(
+      `<(?:${alternation})\\b[^>]*>[\\s\\S]*?<\\/(?:${alternation})>`,
       "gi",
     );
-    output = output.replace(regex, " ");
+    _tagBlockRegexCache.set(key, regex);
   }
-  return output;
+  regex.lastIndex = 0;
+  return html.replace(regex, " ");
 }
 
+/** Pre-compiled boilerplate regex (keywords never change at runtime) */
+const BOILERPLATE_ATTR_REGEX = new RegExp(
+  `<([a-zA-Z0-9]+)\\b[^>]*(?:class|id)\\s*=\\s*["'][^"']*(?:${BOILERPLATE_KEYWORDS.join("|")})[^"']*["'][^>]*>[\\s\\S]*?<\\/\\1>`,
+  "gi",
+);
+
 function stripBoilerplateByAttributes(html: string): string {
-  const keywordGroup = BOILERPLATE_KEYWORDS.join("|");
-  const regex = new RegExp(
-    `<([a-zA-Z0-9]+)\\b[^>]*(?:class|id)\\s*=\\s*["'][^"']*(?:${keywordGroup})[^"']*["'][^>]*>[\\s\\S]*?<\\/\\1>`,
-    "gi",
-  );
-  return html.replace(regex, " ");
+  BOILERPLATE_ATTR_REGEX.lastIndex = 0;
+  return html.replace(BOILERPLATE_ATTR_REGEX, " ");
 }
 
 function stripBoilerplateByRole(html: string): string {
@@ -643,75 +620,6 @@ async function fetchUrl(
   return await fetchUrlInternal(url, maxBytes, timeoutMs, options);
 }
 
-async function extractUrl(
-  args: unknown,
-  _workspace: string,
-  options?: ToolExecutionOptions,
-): Promise<Record<string, unknown>> {
-  if (!args || typeof args !== "object") {
-    throw new ValidationError("args must be an object", "extract_url");
-  }
-
-  const { url, maxBytes, timeoutMs, maxTextLength, maxLinks } =
-    args as ExtractUrlArgs;
-  if (!url || typeof url !== "string") {
-    throw new ValidationError("url is required", "extract_url");
-  }
-
-  const fetched = await fetchUrlInternal(url, maxBytes, timeoutMs, options);
-
-  const textLimit = typeof maxTextLength === "number" && maxTextLength > 0
-    ? maxTextLength
-    : DEFAULT_HTML_TEXT_LIMIT;
-  const linkLimit = typeof maxLinks === "number" && maxLinks > 0
-    ? maxLinks
-    : DEFAULT_HTML_LINKS;
-
-  const parsed = parseHtml(fetched.text, textLimit, linkLimit);
-
-  return {
-    ...fetched,
-    title: parsed.title,
-    description: parsed.description,
-    text: parsed.text,
-    textTruncated: parsed.textTruncated,
-    links: parsed.links,
-    linkCount: parsed.linkCount,
-  };
-}
-
-async function extractHtml(
-  args: unknown,
-  _workspace: string,
-): Promise<Record<string, unknown>> {
-  if (!args || typeof args !== "object") {
-    throw new ValidationError("args must be an object", "extract_html");
-  }
-
-  const { html, maxTextLength, maxLinks } = args as ExtractHtmlArgs;
-  if (!html || typeof html !== "string") {
-    throw new ValidationError("html is required", "extract_html");
-  }
-
-  const textLimit = typeof maxTextLength === "number" && maxTextLength > 0
-    ? maxTextLength
-    : DEFAULT_HTML_TEXT_LIMIT;
-  const linkLimit = typeof maxLinks === "number" && maxLinks > 0
-    ? maxLinks
-    : DEFAULT_HTML_LINKS;
-
-  const parsed = parseHtml(html, textLimit, linkLimit);
-
-  return {
-    title: parsed.title,
-    description: parsed.description,
-    text: parsed.text,
-    textTruncated: parsed.textTruncated,
-    links: parsed.links,
-    linkCount: parsed.linkCount,
-  };
-}
-
 async function webFetch(
   args: unknown,
   _workspace: string,
@@ -919,11 +827,12 @@ async function serpApiSearch(
   };
 }
 
-async function perplexitySearch(
+async function chatCompletionsSearch(
   query: string,
   limit: number,
   timeoutMs: number | undefined,
   config: { apiKey: string; baseUrl: string; model: string },
+  provider: string,
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   const endpoint = `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
@@ -960,55 +869,7 @@ async function perplexitySearch(
 
   return {
     query,
-    provider: "perplexity",
-    answer,
-    citations,
-    count: Math.min(limit, citations.length),
-  };
-}
-
-async function openRouterSearch(
-  query: string,
-  limit: number,
-  timeoutMs: number | undefined,
-  config: { apiKey: string; baseUrl: string; model: string },
-  options?: ToolExecutionOptions,
-): Promise<Record<string, unknown>> {
-  const endpoint = `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-  assertUrlAllowed(endpoint, options);
-
-  const data = await http.post<Record<string, unknown>>(
-    endpoint,
-    {
-      model: config.model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "Search the web and answer with citations. Return citations as URLs when possible.",
-        },
-        { role: "user", content: query },
-      ],
-      temperature: 0.2,
-    },
-    {
-      timeout: timeoutMs,
-      headers: {
-        "Authorization": `Bearer ${config.apiKey}`,
-      },
-    },
-  );
-
-  const choices = (data as { choices?: Array<{ message?: { content?: string; citations?: string[] } }> }).choices ??
-    [];
-  const answer = choices[0]?.message?.content ?? "";
-  const citations = (data as { citations?: string[] }).citations ??
-    choices[0]?.message?.citations ??
-    [];
-
-  return {
-    query,
-    provider: "openrouter",
+    provider,
     answer,
     citations,
     count: Math.min(limit, citations.length),
@@ -1024,8 +885,7 @@ async function searchWeb(
     throw new ValidationError("args must be an object", "search_web");
   }
 
-  const { query, maxResults, timeoutMs, timeoutSeconds } = args as
-    SearchWebArgs & WebSearchArgs;
+  const { query, maxResults, timeoutMs, timeoutSeconds } = args as SearchWebArgs;
   if (!query || typeof query !== "string") {
     throw new ValidationError("query is required", "search_web");
   }
@@ -1042,7 +902,7 @@ async function searchWeb(
     ? timeoutMs
     : toMillis(timeoutSeconds ?? webConfig.search.timeoutSeconds);
 
-  const cacheKey = makeCacheKey(`web_search:${webConfig.search.provider}`, [
+  const cacheKey = makeCacheKey(`search_web:${webConfig.search.provider}`, [
     query,
     limit,
   ]);
@@ -1063,7 +923,7 @@ async function searchWeb(
           "search_web",
         );
       }
-      result = await perplexitySearch(
+      result = await chatCompletionsSearch(
         query,
         limit,
         timeout,
@@ -1072,6 +932,7 @@ async function searchWeb(
           baseUrl: webConfig.search.perplexity.baseUrl,
           model: webConfig.search.perplexity.model,
         },
+        "perplexity",
         options,
       );
       break;
@@ -1084,7 +945,7 @@ async function searchWeb(
           "search_web",
         );
       }
-      result = await openRouterSearch(
+      result = await chatCompletionsSearch(
         query,
         limit,
         timeout,
@@ -1093,6 +954,7 @@ async function searchWeb(
           baseUrl: webConfig.search.openrouter.baseUrl,
           model: webConfig.search.openrouter.model,
         },
+        "openrouter",
         options,
       );
       break;
@@ -1138,101 +1000,6 @@ async function searchWeb(
   return result;
 }
 
-async function researchWeb(
-  args: unknown,
-  _workspace: string,
-  options?: ToolExecutionOptions,
-): Promise<Record<string, unknown>> {
-  if (!args || typeof args !== "object") {
-    throw new ValidationError("args must be an object", "research_web");
-  }
-
-  const {
-    query,
-    maxResults,
-    maxSources,
-    timeoutMs,
-    maxTextLength,
-  } = args as ResearchWebArgs;
-  if (!query || typeof query !== "string") {
-    throw new ValidationError("query is required", "research_web");
-  }
-
-  const searchResult = await searchWeb(
-    { query, maxResults, timeoutMs },
-    _workspace,
-    options,
-  ) as {
-    results?: SearchResult[];
-    count?: number;
-    source?: string;
-    provider?: string;
-    answer?: string;
-    citations?: string[];
-  };
-
-  let sources = Array.isArray(searchResult.results)
-    ? searchResult.results
-    : [];
-  if (sources.length === 0 && Array.isArray(searchResult.citations)) {
-    sources = searchResult.citations.map((url) => ({
-      title: "Source",
-      url,
-      snippet: "",
-    }));
-  }
-  const limit = typeof maxSources === "number" && maxSources > 0
-    ? maxSources
-    : DEFAULT_WEB_SOURCES;
-
-  const enriched: Array<Record<string, unknown>> = [];
-  for (const result of sources) {
-    if (enriched.length >= limit) break;
-    const entry: Record<string, unknown> = {
-      title: result.title,
-      url: result.url,
-      snippet: result.snippet,
-    };
-    if (result.url) {
-      try {
-        const extracted = await webFetch(
-          {
-            url: result.url,
-            maxChars: maxTextLength,
-            timeoutSeconds: timeoutMs ? timeoutMs / 1000 : undefined,
-          },
-          _workspace,
-          options,
-        );
-        entry.extracted = extracted;
-      } catch (error) {
-        entry.extractError = getErrorMessage(error);
-      }
-    }
-    enriched.push(entry);
-  }
-
-  if (sources.length === 0 && searchResult.answer) {
-    return {
-      query,
-      provider: searchResult.provider ?? searchResult.source ?? "web",
-      answer: searchResult.answer,
-      citations: searchResult.citations ?? [],
-      results: [],
-      count: 0,
-      extractedCount: 0,
-    };
-  }
-
-  return {
-    query,
-    source: searchResult.provider ?? searchResult.source ?? "web",
-    results: enriched,
-    count: sources.length,
-    extractedCount: enriched.filter((entry) => entry.extracted).length,
-  };
-}
-
 // ============================================================
 // Tool Registry
 // ============================================================
@@ -1254,45 +1021,6 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       citations: "string[] (optional)",
       count: "number",
       provider: "string",
-    },
-    safetyLevel: "L1",
-    safety: "External network access (policy-gated).",
-  },
-  web_search: {
-    fn: searchWeb,
-    description:
-      "OpenClaw-style web search (Brave/Perplexity). Returns snippets and URLs or an answer with citations.",
-    args: {
-      query: "string - Search query",
-      maxResults: "number (optional) - Max results (default: 5)",
-      timeoutSeconds: "number (optional) - Request timeout in seconds",
-    },
-    returns: {
-      results: "Array<{title, url?, snippet?}>",
-      answer: "string (optional)",
-      citations: "string[] (optional)",
-      count: "number",
-      provider: "string",
-    },
-    safetyLevel: "L1",
-    safety: "External network access (policy-gated).",
-  },
-  research_web: {
-    fn: researchWeb,
-    description:
-      "Search the web and extract top sources (search + fetch pipeline).",
-    args: {
-      query: "string - Search query",
-      maxResults: "number (optional) - Max search results (default: 5)",
-      maxSources: `number (optional) - Max sources to extract (default: ${DEFAULT_WEB_SOURCES})`,
-      timeoutMs: "number (optional) - Request timeout in ms",
-      maxTextLength: "number (optional) - Max extracted text length",
-    },
-    returns: {
-      results: "Array<{title,url?,snippet?,extracted?,extractError?}>",
-      count: "number",
-      extractedCount: "number",
-      source: "string",
     },
     safetyLevel: "L1",
     safety: "External network access (policy-gated).",
@@ -1346,52 +1074,5 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L1",
     safety: "External network access (policy-gated).",
-  },
-  extract_url: {
-    fn: extractUrl,
-    description:
-      "Fetch a URL and extract title/description/text/links from HTML.",
-    args: {
-      url: "string - URL to fetch",
-      maxBytes: `number (optional) - Max bytes to read (default: ${DEFAULT_WEB_MAX_BYTES})`,
-      timeoutMs: "number (optional) - Request timeout in ms",
-      maxTextLength: `number (optional) - Max extracted text length (default: ${DEFAULT_HTML_TEXT_LIMIT})`,
-      maxLinks: `number (optional) - Max links to return (default: ${DEFAULT_HTML_LINKS})`,
-    },
-    returns: {
-      status: "number",
-      ok: "boolean",
-      contentType: "string",
-      bytes: "number",
-      truncated: "boolean",
-      title: "string",
-      description: "string",
-      text: "string",
-      textTruncated: "boolean",
-      links: "string[]",
-      linkCount: "number",
-    },
-    safetyLevel: "L1",
-    safety: "External network access (policy-gated).",
-  },
-  extract_html: {
-    fn: extractHtml,
-    description:
-      "Extract title/description/text/links from raw HTML.",
-    args: {
-      html: "string - HTML to parse",
-      maxTextLength: `number (optional) - Max extracted text length (default: ${DEFAULT_HTML_TEXT_LIMIT})`,
-      maxLinks: `number (optional) - Max links to return (default: ${DEFAULT_HTML_LINKS})`,
-    },
-    returns: {
-      title: "string",
-      description: "string",
-      text: "string",
-      textTruncated: "boolean",
-      links: "string[]",
-      linkCount: "number",
-    },
-    safetyLevel: "L0",
-    safety: "Pure parsing, no external access.",
   },
 };

@@ -117,12 +117,18 @@ export async function searchMemory(
     ? query.limit
     : 5;
   const entries = await readAllEntries();
-  const matches = entries.filter((entry) => {
-    if (entry.content.toLowerCase().includes(needle)) return true;
-    if (entry.tags?.some((tag) => tag.toLowerCase().includes(needle))) return true;
-    return false;
-  });
-  return matches.slice(0, limit);
+  // Early termination: stop scanning once we have enough matches
+  const matches: MemoryEntry[] = [];
+  for (const entry of entries) {
+    if (
+      entry.content.toLowerCase().includes(needle) ||
+      entry.tags?.some((tag) => tag.toLowerCase().includes(needle))
+    ) {
+      matches.push(entry);
+      if (matches.length >= limit) break;
+    }
+  }
+  return matches;
 }
 
 export async function listMemoryEntries(limit = 50): Promise<MemoryEntry[]> {

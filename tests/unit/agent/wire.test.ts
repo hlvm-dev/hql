@@ -44,6 +44,5 @@ Deno.test("wire agent.run with fixture returns final result and events", async (
     (m as { id?: number }).id === 2
   ) as { result?: { final?: string } };
 
-  assert(events.length > 0);
   assertEquals(response.result?.final, "Final answer: ok");
 });

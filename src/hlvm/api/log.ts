@@ -12,6 +12,7 @@
  */
 
 import { globalLogger, Logger } from "../../logger.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
 /**
  * Namespaced log interface for scoped logging
@@ -51,6 +52,8 @@ export interface LogApi {
     warn(...args: unknown[]): void;
     table(data: unknown): void;
     clear(): void;
+    /** Write text without trailing newline (for streaming output) */
+    write(text: string): void;
   };
 }
 
@@ -160,6 +163,10 @@ export const log: LogApi = {
     },
     clear(): void {
       console.clear();
+    },
+    write(text: string): void {
+      const encoder = new TextEncoder();
+      getPlatform().terminal.stdout.writeSync(encoder.encode(text));
     },
   },
 };

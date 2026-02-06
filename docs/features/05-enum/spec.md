@@ -1,117 +1,141 @@
-````markdown
-# HQL Enumerations (Core Design with Lisp Syntax)
-
-This document outlines the design for basic, type-safe enumerations in HQL,
-using a Lisp-style syntax implemented as a core compiler feature for optimal
-tooling support (autocompletion).
+# HQL Enumerations Specification
 
 ## 1. Goal
 
-To define a clear, Lisp-native syntax for simple enumerations (groups of named
-constants like `macOS` under a type like `OsType`). This improves code clarity
-and provides runtime type safety. The design enables intuitive dot-notation
-access (`OsType.macOS`) and potential shorthand access (`.macOS`), supported by
-IDE autocompletion.
+Define type-safe enumerations (groups of named constants) with Lisp-native syntax. Supports dot-notation access (`OsType.macOS`) and shorthand access (`.macOS`) via syntax transformer resolution.
 
-## 2. Implementation Approach (Core Compiler Feature)
+## 2. Implementation
 
-This design adopts the approach of implementing `(enum ...)` as a **core
-language feature**.
+Implemented as a core compiler feature. The `(enum ...)` S-expression is recognized by the parser, transformed to `IREnumDeclaration` nodes in the IR, and code-generated to JavaScript.
 
-- **Mechanism:** The HQL compiler (parser, AST/IR stages, code generator) is
-  modified to directly recognize and understand the `(enum ...)` S-expression
-  syntax. Specific internal representations (e.g., `EnumDefinitionNode`,
-  `EnumCaseNode` in the AST/IR) are created.
-- **Rationale:** This provides the most explicit and analyzable structure for
-  other tools, leading to reliable autocompletion, type hinting, and potential
-  future static analysis. It treats enums as a fundamental part of the language.
-- **Alternatives Not Chosen:** Implementing via the Syntax Transformer stage or
-  solely via Macros would obscure the enum's semantic meaning earlier in the
-  pipeline, making robust tooling integration significantly more challenging.
+- **Parsing:** `src/hql/transpiler/syntax/enum.ts` — `transformEnumDeclaration` and `parseEnumCase`
+- **IR types:** `IREnumDeclaration`, `IREnumCase`, `IREnumAssociatedValue` in `hql_ir.ts`
+- **Codegen:** `ir-to-typescript.ts` — `generateEnumDeclaration`, `generateSimpleEnum`, `generateEnumWithAssociatedValues`
+- **Dot shorthand:** `syntax-transformer.ts` — `transformDotNotationSymbol`
 
 ## 3. Declaration Syntax
 
-The definition uses an `(enum ...)` S-expression form, recognized by the
-compiler.
-
 ```hql
-// Define a simple enumeration(enum OsType
+;; Simple enum
+(enum OsType
   (case macOS)
   (case windowOS)
-  (case linux)
-)
+  (case linux))
 
-// Define an enum with Raw Values(enum StatusCodes
+;; Enum with raw values
+(enum StatusCodes
   (case ok 200)
-  (case notFound 404)
-)
+  (case notFound 404))
 
-// Define an enum with Associated Values(enum Barcode
+;; Enum with associated values
+(enum Barcode
   (case upc system manufacturer product check)
-  (case qrCode value)
-)
+  (case qrCode value))
+
+;; Optional raw type annotation (colon or separate token)
+(enum HttpStatus:Int
+  (case ok 200)
+  (case notFound 404))
 ```
-````
 
-- **S-expression Validity:** This syntax is a pure S-expression (lists, symbols,
-  literals). The basic parser can read it.
-- **Compiler Understanding:** The compiler's later stages (beyond basic parsing)
-  are modified to recognize `(enum ...)` and understand its meaning – defining a
-  distinct enum type with cases.
-
-## 4. Usage Examples
-
-Access involves dot notation; shorthand may be possible with type inference.
+## 4. Usage
 
 ```hql
-// Assign simple case
+;; Access simple case
 (let currentOS OsType.macOS)
 
-// Compare simple case
+;; Compare
 (if (=== currentOS OsType.linux) (print "Linux!"))
 
-// Use raw value enum
-(let status StatusCodes.notFound)
-// (status.rawValue) Hypothetical access to raw value => 404
+;; Access raw value directly
+(let status StatusCodes.notFound)  ;; => 404
 
-// Create associated value case
+;; Create associated value instance
 (let code (Barcode.qrCode "hql-data"))
 
-// Use with enum values
-(fn processStatus [code] (print code))
-(processStatus StatusCodes.ok) // Explicit enum value
+;; Check type
+(code.is "qrCode")  ;; => true
+
+;; Access associated values
+(get code.values "value")  ;; => "hql-data"
 ```
 
-## 5. Dot Notation & Autocompletion Roles
+## 5. Dot Notation Shorthand
+
+The syntax transformer resolves `.caseName` to `EnumName.caseName` by scanning known enum definitions:
 
 ```hql
-// Define a simple OS enum.
 (enum OS
   (case macOS)
   (case iOS)
-  (case linux)
-)
+  (case linux))
 
-// A function that “installs” based on the OS.
 (fn install [os]
   (cond
-    ((=== os OS.macOS) (print "Installing on macOS"))
-    ((=== os OS.iOS)   (print "Installing on iOS"))
-    ((=== os OS.linux) (print "Installing on Linux"))
-    (else            (print "Unsupported OS"))
-  )
-)
-
-// Positional calls
-(install OS.macOS)
-(install OS.iOS)
-(install OS.linux)
+    ((=== os .macOS) (print "Installing on macOS"))
+    ((=== os .iOS)   (print "Installing on iOS"))
+    ((=== os .linux) (print "Installing on Linux"))
+    (else            (print "Unsupported OS"))))
 ```
 
-## 6. Summary
+Resolution occurs at the syntax transformer stage before IR generation. If no matching enum case is found, the symbol is left unchanged.
 
-Using `(enum TypeName (case caseName) ...)` syntax implemented as a **core
-compiler feature** provides a flexible, Lisp-native way to define enums. This
-approach creates an explicit internal structure (AST/IR) that LSPs can reliably
-analyze, enabling robust dot-notation autocompletion (`TypeName.` and
-`.caseName`) crucial for developer productivity. No newline at end of file
+## 6. Compiled Output
+
+### Simple / Raw Value Enums
+
+```js
+const Direction = Object.freeze({
+  north: "north",
+  south: "south",
+  east: "east",
+  west: "west"
+});
+```
+
+### Enums with Associated Values
+
+```js
+class Payment {
+  type;
+  values;
+  constructor(type, values) {
+    this.type = type;
+    this.values = values;
+    Object.freeze(this);
+  }
+  is(type) {
+    return this.type === type;
+  }
+  static cash(amount) {
+    return new Payment("cash", { amount });
+  }
+  static creditCard(number, expiry) {
+    return new Payment("creditCard", { number, expiry });
+  }
+}
+```
+
+## 7. IR Representation
+
+```typescript
+interface IREnumDeclaration {
+  type: IRNodeType.EnumDeclaration;
+  id: IRIdentifier;
+  rawType?: string;          // optional type annotation
+  cases: IREnumCase[];
+  hasAssociatedValues?: boolean;
+}
+
+interface IREnumCase {
+  type: IRNodeType.EnumCase;
+  id: IRIdentifier;
+  rawValue?: IRNode | null;
+  associatedValues?: IREnumAssociatedValue[];
+  hasAssociatedValues?: boolean;
+}
+
+interface IREnumAssociatedValue {
+  name: string;
+}
+```

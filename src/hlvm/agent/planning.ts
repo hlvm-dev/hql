@@ -41,8 +41,8 @@ export interface Plan {
 export interface PlanState {
   plan: Plan;
   currentIndex: number;
-  completedIds: string[];
-  delegatedIds: string[];
+  completedIds: Set<string>;
+  delegatedIds: Set<string>;
 }
 
 interface PlanParseResult {
@@ -191,7 +191,7 @@ export function stripStepMarkers(response: string): string {
 }
 
 export function createPlanState(plan: Plan): PlanState {
-  return { plan, currentIndex: 0, completedIds: [], delegatedIds: [] };
+  return { plan, currentIndex: 0, completedIds: new Set(), delegatedIds: new Set() };
 }
 
 export function advancePlanState(
@@ -204,9 +204,7 @@ export function advancePlanState(
   }
 
   const id = completedId ?? current.id;
-  if (!state.completedIds.includes(id)) {
-    state.completedIds.push(id);
-  }
+  state.completedIds.add(id);
 
   state.currentIndex += 1;
   const next = state.plan.steps[state.currentIndex];

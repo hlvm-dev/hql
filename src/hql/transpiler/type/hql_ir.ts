@@ -596,6 +596,8 @@ export interface IRForOfStatement extends IRNode {
 export interface IRClassDeclaration extends IRNode {
   type: IRNodeType.ClassDeclaration;
   id: IRIdentifier;
+  /** Optional superclass for inheritance (extends) */
+  superClass?: IRNode;
   fields: IRClassField[];
   constructor: IRClassConstructor | null;
   methods: IRClassMethod[];

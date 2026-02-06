@@ -1,317 +1,164 @@
-# Template Literals Feature Documentation
+# Template Literals
 
-**Implementation:** Built-in syntax (transpiler core) **Coverage:** ✅ 100% **Version:** v2.0
-
-## Overview
-
-Template literals provide ES6-style string interpolation using backticks and `${}` syntax. This feature enables cleaner, more readable string composition with embedded expressions.
-
-**Key Features:**
-- ES6 backtick syntax: `` `string` ``
-- Expression interpolation: `` `${expression}` ``
-- Multiple interpolations in a single string
-- Nested expressions support
-- Maintains JavaScript string semantics
+Template literals provide ES6-style string interpolation using backticks and `${}` syntax.
 
 ## Syntax
 
 ### Basic Template Literals
 
 ```lisp
-// Plain string with backticks
-`hello world`                    // => "hello world"
+;; Plain string with backticks
+`hello world`                    ;; => "hello world"
 
-// Empty template
-``                               // => ""
+;; Empty template
+``                               ;; => ""
 
-// String with spaces
-`  spaces around  `              // => "  spaces around  "
+;; String with spaces
+`  spaces around  `              ;; => "  spaces around  "
 ```
 
 ### Single Interpolation
 
 ```lisp
-// At beginning
-`${10} apples`                   // => "10 apples"
+;; At beginning
+`${10} apples`                   ;; => "10 apples"
 
-// In middle
-`I have ${5} apples`             // => "I have 5 apples"
+;; In middle
+`I have ${5} apples`             ;; => "I have 5 apples"
 
-// At end
-`Total: ${42}`                   // => "Total: 42"
+;; At end
+`Total: ${42}`                   ;; => "Total: 42"
 
-// Only interpolation
-`${100}`                         // => "100"
+;; Only interpolation
+`${100}`                         ;; => "100"
 ```
 
 ### Multiple Interpolations
 
 ```lisp
-// Two interpolations
-`${1} + ${2} = 3`                // => "1 + 2 = 3"
+;; Two interpolations
+`${1} + ${2} = 3`                ;; => "1 + 2 = 3"
 
-// Three interpolations
-`${1}, ${2}, ${3}`               // => "1, 2, 3"
+;; Three interpolations
+`${1}, ${2}, ${3}`               ;; => "1, 2, 3"
 
-// Consecutive interpolations
-`${10}${20}`                     // => "1020"
-
-// Complex pattern
-`Result: ${x} and ${y} = ${(+ x y)}`
+;; Consecutive interpolations
+`${10}${20}`                     ;; => "1020"
 ```
 
 ### Expressions in Interpolations
 
 ```lisp
-// Arithmetic
-`Sum: ${(+ 2 3)}`                // => "Sum: 5"
+;; Arithmetic
+`Sum: ${(+ 2 3)}`                ;; => "Sum: 5"
 
-// Variables
+;; Variables
 (let name "Alice")
-`Hello, ${name}!`                // => "Hello, Alice!"
+`Hello, ${name}!`                ;; => "Hello, Alice!"
 
-// Function calls
+;; Function calls
 (fn double [x] (* x 2))
-`Doubled: ${(double 5)}`         // => "Doubled: 10"
+`Doubled: ${(double 5)}`         ;; => "Doubled: 10"
 
-// Nested expressions
-`Result: ${(* (+ 2 3) 4)}`       // => "Result: 20"
+;; Nested expressions
+`Result: ${(* (+ 2 3) 4)}`       ;; => "Result: 20"
+
+;; Boolean expressions
+`Is true: ${(> 5 3)}`            ;; => "Is true: true"
+
+;; String expressions
+`Message: ${(+ "Hello" " " "World")}` ;; => "Message: Hello World"
 ```
 
-## Implementation Details
-
-### Compilation Target
+### Escape Sequences
 
 ```lisp
-// HQL template literal
-`Hello ${name}, you are ${age} years old`
+;; Escaped backtick
+`This is a \` backtick`          ;; => "This is a ` backtick"
 
-// Compiles to JavaScript
-`Hello ${name}, you are ${age} years old`
+;; Escaped dollar sign
+`Price: \$100`                   ;; => "Price: $100"
+
+;; Newline
+`Line 1\nLine 2`                 ;; => "Line 1\nLine 2"
+
+;; Tab
+`Col1\tCol2`                     ;; => "Col1\tCol2"
+
+;; Backslash
+`Path: C:\\Users`                ;; => "Path: C:\Users"
 ```
 
-Template literals compile directly to JavaScript template literals, maintaining identical semantics.
-
-### Expression Parsing
-
-Interpolated expressions are fully parsed HQL expressions:
+### Complex Expressions
 
 ```lisp
-// Nested function calls work
-`Value: ${(get (filter data predicate) 0)}`
+;; Ternary in interpolation
+`Status: ${(? true "active" "inactive")}` ;; => "Status: active"
 
-// Complex arithmetic works
-`Calculated: ${(/ (+ (* a b) c) d)}`
+;; Array access
+(let arr [10 20 30])
+`Second element: ${(get arr 1)}`  ;; => "Second element: 20"
+
+;; Object property access
+(let obj {"name": "Bob" "age": 25})
+`Name: ${(get obj "name")}`       ;; => "Name: Bob"
 ```
 
-### Type Coercion
+## Integration with Other Features
+
+```lisp
+;; In function return
+(fn greet [name] `Hello, ${name}!`)
+(greet "World")                   ;; => "Hello, World!"
+
+;; In variable assignment
+(let x 10)
+(let message `Value is ${x}`)
+
+;; In arrays
+(let arr [`first` `second ${2}` `third`])
+
+;; Multiline templates
+`Line 1
+Line 2
+Line 3`                           ;; preserves newlines
+```
+
+## Type Coercion
 
 Template literals follow JavaScript's `toString()` coercion rules:
 
 ```lisp
-`Number: ${42}`                  // => "Number: 42"
-`Boolean: ${true}`               // => "Boolean: true"
-`Array: ${[1 2 3]}`              // => "Array: 1,2,3"
-`Object: ${{x: 10}}`             // => "Object: [object Object]"
-`Null: ${null}`                  // => "Null: null"
-`Undefined: ${undefined}`        // => "Undefined: undefined"
+`Number: ${42}`                  ;; => "Number: 42"
+`Boolean: ${true}`               ;; => "Boolean: true"
+`Null: ${null}`                  ;; => "Null: null"
 ```
 
-## Features Covered
+## Implementation Details
 
-✅ Plain template literals (no interpolation)
-✅ Single interpolation (beginning, middle, end)
-✅ Multiple interpolations
-✅ Consecutive interpolations
-✅ Arithmetic expressions in interpolations
-✅ Variable access in interpolations
-✅ Function calls in interpolations
-✅ Nested expressions
-✅ Type coercion (numbers, booleans, arrays, objects)
-✅ Special values (null, undefined)
-
-## Test Coverage
-
-
-
-### Section 1: Basic Template Literals
-- Plain string
-- Empty string
-- String with spaces
-
-### Section 2: Single Interpolation
-- Interpolation at beginning
-- Interpolation in middle
-- Interpolation at end
-- Only interpolation (no surrounding text)
-
-### Section 3: Multiple Interpolations
-- Two interpolations
-- Three interpolations
-- Consecutive interpolations (no text between)
-
-### Section 4: Expressions in Interpolations
-- Arithmetic expressions
-- Variable references
-- Function calls
-- Nested expressions
-- Complex calculations
-- Method calls
-
-### Section 5: Type Coercion
-- Numbers to strings
-- Booleans to strings
-- Arrays to strings
-- Objects to strings
-- Null to string
-- Undefined to string
-- Mixed types
-
-### Section 6: Edge Cases
-- Empty interpolations
-- Whitespace handling
-- Escape sequences
-- Unicode characters
-- Nested function calls
-- Array/object access
-- Real-world patterns
-
-## Comparison with Regular Strings
-
-### Before (String Concatenation)
+Template literals compile directly to JavaScript template literals:
 
 ```lisp
-// Verbose and error-prone
-(+ "Hello, " name "! You are " (toString age) " years old.")
+;; HQL
+`Hello ${name}, you are ${age} years old`
 
-// Hard to read with many values
-(+ "Result: " (toString (+ x y)) " (sum of " (toString x) " and " (toString y) ")")
+;; Compiles to JavaScript
+`Hello ${name}, you are ${age} years old`
 ```
 
-### After (Template Literals)
+Interpolated expressions are fully parsed as HQL expressions, then transpiled to their JavaScript equivalents inside `${}`.
 
-```lisp
-// Clean and readable
-`Hello, ${name}! You are ${age} years old.`
-
-// Easy to understand
-`Result: ${(+ x y)} (sum of ${x} and ${y})`
-```
-
-## Real-World Examples
-
-### Logging and Debugging
-
-```lisp
-(fn logDebug [variable value]
-  (print `DEBUG: ${variable} = ${value}`))
-
-(logDebug "userId" 12345)
-// => "DEBUG: userId = 12345"
-```
-
-### HTML/Template Generation
-
-```lisp
-(fn renderUser [user]
-  `<div class="user">
-     <h2>${(get user "name")}</h2>
-     <p>Email: ${(get user "email")}</p>
-   </div>`)
-
-(renderUser {name: "Alice", email: "alice@example.com"})
-```
-
-### URL Construction
-
-```lisp
-(fn buildApiUrl [endpoint params]
-  `/api/${endpoint}?id=${(get params "id")}&type=${(get params "type")}`)
-
-(buildApiUrl "users" {id: 123, type: "admin"})
-// => "/api/users?id=123&type=admin"
-```
-
-### Error Messages
-
-```lisp
-(fn validateAge [age]
-  (if (< age 0)
-    (throw (new Error `Invalid age: ${age}. Age must be non-negative.`))
-    age))
-```
-
-## Best Practices
-
-### Use Template Literals for String Composition
-
-```lisp
-// ✅ Good: Clear and maintainable
-`User ${userId} completed ${taskCount} tasks`
-
-// ❌ Avoid: Harder to read and maintain
-(+ "User " (toString userId) " completed " (toString taskCount) " tasks")
-```
-
-### Keep Interpolations Simple
-
-```lisp
-// ✅ Good: Simple expression
-`Total: ${total}`
-
-// ✅ Acceptable: Short calculation
-`Price: ${(* quantity price)}`
-
-// ⚠️ Consider refactoring: Too complex
-`Result: ${(reduce (map (filter data predicate) transform) combiner initial)}`
-
-// ✅ Better: Extract to variable
-(let result (reduce (map (filter data predicate) transform) combiner initial))
-`Result: ${result}`
-```
-
-### Multiline Templates
-
-```lisp
-// Template literals support multiline strings
-`This is a long message
- that spans multiple lines
- and includes ${variable}
- for dynamic content.`
-```
-
-## Performance Notes
-
-- Template literals compile directly to JavaScript template literals
-- No runtime overhead compared to native JavaScript
-- Interpolation expressions are evaluated each time the template is evaluated
-- For frequently-used templates, consider caching the result
+If a template literal has no interpolations, the parser optimizes it to a plain string literal.
 
 ## Limitations
 
-- No raw template strings (JavaScript's `String.raw`)
-- No tagged template literals (custom template processors)
-- Escape sequences follow JavaScript rules
-
-## Future Enhancements
-
-Potential future additions:
-- Tagged template literals for custom processing
-- Raw string literals (preserve escape sequences)
-- Template literal utilities (dedent, trim, etc.)
-
-## Related Features
-
-- **String concatenation** - `(+ str1 str2)` for simple cases
-- **String formatting** - Future feature for printf-style formatting
-- **Interpolation macros** - Potential macro-based string builders
-
-## Examples
-
-See `examples.hql` for executable examples demonstrating all template literal features.
+- No tagged template literals
+- No raw template strings (`String.raw`)
+- Backtick immediately followed by `(` or `[` is not a template literal (reserved for quasiquote syntax)
 
 ## Implementation Location
 
-- Parser: `src/hql/transpiler/pipeline/parser.ts`
-- Template literal parsing: Line 537-600
-- Test suite: `test/syntax-template-literals.test.ts`
+- Parser: `src/hql/transpiler/pipeline/parser.ts` (tokenizer regex + `parseTemplateLiteral`)
+- AST-to-IR transform: `src/hql/transpiler/pipeline/transform/literals.ts` (`transformTemplateLiteral`)
+- Code generation: `src/hql/transpiler/pipeline/ir-to-typescript.ts` (`generateTemplateLiteral`)
+- Test suite: `tests/unit/syntax-template-literals.test.ts`

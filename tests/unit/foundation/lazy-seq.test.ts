@@ -378,11 +378,15 @@ Deno.test("seq: returns null for empty collections", () => {
 Deno.test("seq: returns sequence for non-empty collections", () => {
   const s = seq([1, 2, 3]);
   assertEquals(s !== null, true);
+  assertEquals(first(s!), 1);
+  assertEquals([...s!], [1, 2, 3]);
 });
 
 Deno.test("seq: with collection starting with undefined", () => {
   const s = seq([undefined, 1, 2]);
   assertEquals(s !== null, true);  // Should NOT be null!
+  // Verify undefined is preserved as first element, not skipped
+  assertEquals(first(s!), undefined);
 });
 
 Deno.test("seq: LazySeq starting with undefined", () => {
@@ -391,6 +395,8 @@ Deno.test("seq: LazySeq starting with undefined", () => {
 
   const s = seq(lazy);
   assertEquals(s !== null, true);  // Critical: should NOT be null
+  // Verify undefined is preserved as first element in lazy sequence
+  assertEquals(first(s!), undefined);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

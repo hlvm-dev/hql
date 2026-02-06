@@ -205,14 +205,31 @@ export function escapeRegExp(str: string): string {
 // ============================================================================
 
 /**
+ * Truncate a string to a maximum length, appending a suffix if truncated.
+ * Consolidates the ad-hoc `x.length > N ? x.slice(0, N) + "..." : x` pattern.
+ *
+ * @param text - String to truncate
+ * @param maxLen - Maximum length (including suffix)
+ * @param suffix - Suffix to append when truncated (default: "...")
+ * @returns Truncated string
+ */
+export function truncate(text: string, maxLen: number, suffix = "..."): string {
+  if (text.length <= maxLen) return text;
+  return text.slice(0, Math.max(0, maxLen - suffix.length)) + suffix;
+}
+
+/**
  * Safely extract error message from unknown error value.
  * Consolidates the `error instanceof Error ? error.message : String(error)` pattern.
+ * Also handles plain objects via JSON.stringify.
  *
  * @param error - Any error value (Error, string, unknown)
  * @returns The error message as a string
  */
 export function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null) return JSON.stringify(error);
+  return String(error);
 }
 
 /**

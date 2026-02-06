@@ -1,323 +1,240 @@
-# Conditional Feature Documentation
+# Conditional Feature Specification
 
-**Implementation:** Transpiler syntax transformers
-**Coverage:** ✅ 100%
+**Implementation:** `src/hql/transpiler/syntax/conditional.ts` (if, switch, case, ?, do, return, throw), `src/hql/lib/macro/core.hql` (cond, when, unless, if-let, when-let)
 
 ## Overview
 
 HQL provides conditional expressions for control flow:
 
-1. **`if`** - Binary conditional (true/false branches)
-2. **`cond`** - Multi-way conditional (pattern matching style)
+1. **`if`** - Binary conditional (true/false branches) [transpiler]
+2. **`cond`** - Multi-way conditional (nested if chains) [macro]
+3. **`switch`** - JavaScript-style switch statement with case/default/fallthrough [transpiler]
+4. **`case`** - Clojure-style expression switch (flat val/result pairs) [transpiler]
+5. **`?`** - Ternary operator (always expression, never statement) [transpiler]
+6. **`when`** - Execute body when condition is true, else nil [macro]
+7. **`unless`** - Execute body when condition is false, else nil [macro]
+8. **`if-let`** - Conditional binding with else branch [macro]
+9. **`when-let`** - Conditional binding, single branch [macro]
 
-All conditionals are **expressions** that return values (not statements).
+Supporting forms also in `conditional.ts`:
+- **`do`** - Sequence expression (comma operator or IIFE)
+- **`return`** - Return statement (non-local return via throw inside IIFE)
+- **`throw`** - Throw statement
+
+All conditionals are **expressions** that return values.
 
 ## Syntax
 
 ### If Expression
 
 ```lisp
-// Basic if
 (if condition then-expr else-expr)
-
-// Example
-(if true 1 2)  // => 1
-(if false 1 2) // => 2
-
-// If with comparison
-(if (> 5 3) "yes" "no")  // => "yes"
-
-// If with multiple statements (use do)
-(if condition
-  (do
-    (var x 10)
-    (+ x 5))
-  (do
-    (var y 20)
-    (- y 5)))
-
-// Nested if
-(if outer-condition
-  (if inner-condition result1 result2)
-  result3)
-
-// If as expression
-(let result (if (< 3 5) "less" "greater"))
-
-// If as return value
-(fn check [n]
-  (if (> n 0) "positive" "non-positive"))
+(if condition then-expr)           ;; else defaults to nil
 ```
+
+**Compilation:** `condition ? then : else` (ConditionalExpression) or IfStatement when branches contain control flow (return, throw, break, continue, loops).
+
+**Validation:** Requires 2 or 3 arguments (condition + then + optional else).
 
 ### Cond Expression
 
 ```lisp
-// Multi-way conditional
-(cond
-  (condition1 result1)
-  (condition2 result2)
-  (condition3 result3)
-  (else default-result))
-
-// Example with else
+;; Grouped syntax (each clause is a 2-element list)
 (cond
   ((< x 5) "small")
   ((< x 15) "medium")
   (else "large"))
 
-// Example with true as fallback
+;; Flat syntax (alternating test/result pairs)
+(cond
+  (< x 5) "small"
+  (< x 15) "medium"
+  else "large")
+
+;; true as fallback (equivalent to else)
 (cond
   ((< 5 3) "won't match")
   (true "default"))
-
-// Cond with expressions
-(let x 10)
-(cond
-  ((< x 5) "small")
-  ((< x 15) "medium")
-  (true "large"))  // => "medium"
 ```
+
+**Compilation:** Macro-expands to nested `if` expressions. The `else` keyword is recognized as an unconditional match.
+
+**Detection:** If the first clause is a list with exactly 2 elements, grouped syntax is used. Otherwise flat syntax.
+
+### Switch Statement
+
+```lisp
+(switch expr
+  (case val1 body...)
+  (case val2 :fallthrough body...)
+  (default body...))
+```
+
+**Compilation:** Optimized to chained ternaries when all cases are simple (no fallthrough, single return per case). Falls back to IIFE-wrapped JS switch for complex cases (fallthrough or multiple statements).
+
+If no `default` is provided, an implicit default returning `null` is added.
+
+### Case Expression (Clojure-style)
+
+```lisp
+(case expr
+  val1 result1
+  val2 result2
+  default-result)     ;; optional (odd number of args = last is default)
+```
+
+**Compilation:** Always optimized to chained ternaries: `expr === val1 ? result1 : expr === val2 ? result2 : default`. Uses `===` for comparison.
+
+If no default is provided (even number of args after expr), unmatched cases return `null`.
+
+### Ternary Operator
+
+```lisp
+(? condition then-expr else-expr)
+```
+
+**Compilation:** Always `condition ? then : else` (ConditionalExpression). Unlike `if`, never generates IfStatement. Requires exactly 3 arguments.
+
+### When Expression
+
+```lisp
+(when test body...)
+```
+
+**Compilation:** Macro-expands to `(if test (do body...) nil)`.
+
+### Unless Expression
+
+```lisp
+(unless test body...)
+```
+
+**Compilation:** Macro-expands to `(if test nil (do body...))`.
+
+### If-Let Expression
+
+```lisp
+(if-let [name expr] then-expr else-expr)
+(if-let (name expr) then-expr else-expr)
+```
+
+**Compilation:** Macro-expands to bind `name` to `expr`, then execute `then-expr` if truthy, otherwise `else-expr`. Both bracket `[]` and paren `()` binding syntax are supported.
+
+### When-Let Expression
+
+```lisp
+(when-let [name expr] body...)
+(when-let (name expr) body...)
+```
+
+**Compilation:** Macro-expands to bind `name` to `expr`, then execute body if truthy. Both bracket `[]` and paren `()` binding syntax are supported.
 
 ## Implementation Details
 
-### If Expression
+### If Statement vs Expression
 
-**Compilation:**
+`transformIf` decides between ConditionalExpression and IfStatement:
+
+1. If explicitly in expression context: always ConditionalExpression
+2. If in loop context with `recur` in branches: IfStatement with return wrapping
+3. If branches contain control flow (return, throw, break, continue, loops): IfStatement
+4. Otherwise: ConditionalExpression (ternary)
+
+### Do Block Optimization
+
+`transformDo` uses two strategies:
+
+1. **SequenceExpression** (comma operator) when all children are pure expressions and no early returns
+2. **IIFE** when statements or control flow are present. Handles async (await), generator (yield*), and early return (throw for non-local return).
+
+### Switch Optimization
+
+`transformSwitch` generates:
+- Chained ternaries when all cases are simple (no fallthrough, single return)
+- IIFE-wrapped JS switch when fallthrough or multiple statements exist
+
+### Return Inside IIFE
+
+`transformReturn` checks if inside an IIFE context. If so, it generates a throw with a special early-return object (caught by IIFE wrapper) instead of a normal return.
+
+## Macro Implementation Details
+
+### if-let
+
+`if-let` macro expands to an immediately-invoked function that binds the value and checks truthiness:
 
 ```lisp
-(if condition then else)
-
-// Compiles to:
-condition ? then : else
+(if-let [x (expr)] then else)
+;; expands to:
+((fn [x] (if x then else)) (expr))
 ```
 
-**Characteristics:**
+### when-let
 
-- ✅ Expression (returns value)
-- ✅ Evaluates condition once
-- ✅ Short-circuit evaluation (only evaluates taken branch)
-- ✅ Can be nested
-- ✅ Can be used in any expression position
-
-### Cond Expression
-
-**Compilation:**
+`when-let` macro similarly uses an immediately-invoked function:
 
 ```lisp
-(cond
-  (test1 result1)
-  (test2 result2)
-  (else default))
-
-// Compiles to nested ternaries:
-test1 ? result1 :
-test2 ? result2 :
-default
+(when-let [x (expr)] body...)
+;; expands to:
+((fn [x] (when x body...)) (expr))
 ```
 
-**Characteristics:**
+### Aliases
 
-- ✅ Expression (returns value)
-- ✅ Evaluates tests in order (top to bottom)
-- ✅ Short-circuit evaluation (stops at first match)
-- ✅ `else` is conventional (equivalent to `(true ...)`)
-- ✅ Can be used in any expression position
-
-## Features Covered
-
-✅ If expression with true/false branches ✅ If with expression conditions ✅ If
-with comparison operators (=, !=, <, >, <=, >=) ✅ If with multiple statements
-(using `do`) ✅ Nested if expressions ✅ If as expression in bindings ✅ If as
-return value in functions ✅ Cond with multiple clauses ✅ Cond with else clause
-✅ Cond with variable expressions
+- `ifLet` is an alias for `if-let`
+- `whenLet` is an alias for `when-let`
 
 ## Test Coverage
 
-
-
-### Section 1: If Expressions
-
-- If true branch
-- If false branch
+### conditional.test.ts
+- If true/false branch
 - If with expression condition
 - If with multiple statements
 - Nested if
 - If as expression in let
 - If as return value
-
-### Section 2: Cond Expressions
-
 - Cond with multiple clauses
 - Cond with else clause
 - Cond with expressions
+- If with comparison operators (===, !=, <=, >=)
 
-### Section 3: If with Operators
+### switch-statement.test.ts
+- Switch with basic cases
+- Switch with string cases
+- Switch with fallthrough
+- Switch with complex bodies
+- Switch with return in case
+- Nested switch
+- Switch runtime behavior (returns correct value)
+- Switch with no default (implicit null)
 
-- If with `=` operator
-- If with `!=` operator
-- If with `<=` operator
-- If with `>=` operator
+### expression-everywhere-iteration.test.ts
+- Case returns matched value
+- Case returns default when no match
+- Case returns null when no match and no default
+- Case can be assigned to variable
+- Case with numbers
+- Case in expression position
+- Case optimized to native ternary
+- Nested case expressions
+- Case inside if
+- Switch returns matched value
+- Switch returns default when no match
+- Switch returns null when no match and no default
+- Switch can be assigned to variable
+- Switch with numbers
+- Switch in expression position
+- Switch with multi-statement body
+- Switch generates native ternary (optimized)
 
-## Use Cases
+### syntax-ternary.test.ts
+- Ternary true/false branches
+- Ternary with expressions
+- Nested ternaries
+- Ternary in expression position
+- Ternary with various falsy values
 
-### Simple Conditional
-
-```lisp
-(if (> age 18) "adult" "minor")
-```
-
-### Guard Pattern
-
-```lisp
-(fn processInput [value]
-  (if (=== value null)
-    "no input"
-    (doSomething value)))
-```
-
-### Multi-Way Branching
-
-```lisp
-(fn getGrade [score]
-  (cond
-    ((>= score 90) "A")
-    ((>= score 80) "B")
-    ((>= score 70) "C")
-    ((>= score 60) "D")
-    (else "F")))
-```
-
-### Ternary-Style
-
-```lisp
-(let status (if isActive "active" "inactive"))
-```
-
-## Comparison with Other Languages
-
-### JavaScript
-
-```javascript
-// JavaScript if statement
-if (x > 5) {
-  return "yes"//
-} else {
-  return "no"//
-}
-
-// HQL if expression
-(if (> x 5) "yes" "no")
-```
-
-### JavaScript Ternary
-
-```javascript
-// JavaScript ternary
-const result = x > 5 ? "yes" : "no"//
-
-// HQL if (same concept)
-(let result (if (> x 5) "yes" "no"))
-```
-
-### JavaScript Switch
-
-```javascript
-// JavaScript switch
-switch(true) {
-  case x < 5: return "small"//
-  case x < 15: return "medium"//
-  default: return "large"//
-}
-
-// HQL cond
-(cond
-  ((< x 5) "small")
-  ((< x 15) "medium")
-  (else "large"))
-```
-
-## Related Specs
-
-- Complete conditional specification available in project specs
-- Transpiler implementation in syntax transformers
-
-## Examples
-
-See `examples.hql` for executable examples.
-
-## Transform Pipeline
-
-```
-HQL Source
-  ↓
-S-expression Parser
-  ↓
-Conditional Transformers (if, cond)
-  ↓
-IR Nodes
-  ↓
-ESTree AST (ternary operators)
-  ↓
-JavaScript
-```
-
-## Best Practices
-
-### Prefer Expressions Over Statements
-
-```lisp
-// ✅ Good: Expression style
-(let result (if condition "yes" "no"))
-
-// ❌ Avoid: Statement style (not idiomatic in HQL)
-(var result)
-(if condition
-  (= result "yes")
-  (= result "no"))
-```
-
-### Use Cond for Multiple Conditions
-
-```lisp
-// ✅ Good: Clear cond
-(cond
-  ((< x 5) "small")
-  ((< x 15) "medium")
-  (else "large"))
-
-// ❌ Avoid: Nested if
-(if (< x 5)
-  "small"
-  (if (< x 15)
-    "medium"
-    "large"))
-```
-
-### Always Handle Else Case
-
-```lisp
-// ✅ Good: Explicit else
-(if condition "yes" "no")
-
-(cond
-  (test1 result1)
-  (test2 result2)
-  (else "default"))
-
-// ⚠️ Be careful: No else (undefined if condition false)
-// This is allowed but may not be what you want
-```
-
-## Edge Cases Tested
-
-✅ True and false literal conditions ✅ Expression conditions (comparisons) ✅
-Multiple statements in branches (using `do`) ✅ Nested conditionals ✅
-Conditionals as expressions ✅ Conditionals as return values ✅ All comparison
-operators (=, !=, <, >, <=, >=) ✅ Multiple cond clauses ✅ Cond with else
-fallback
-
-## Future Enhancements
-
-- Exhaustiveness checking for enums in match
-- Guards in function definitions
-- Pattern matching in function parameters
+### Various test files
+- When/unless in multiple test files
+- When-let with bracket syntax
+- If-let macro expansion

@@ -131,8 +131,29 @@ export function transformClass(
       }
     }
 
+    // Check for extends clause: (class Name extends SuperClass ...)
+    let superClass: IR.IRNode | undefined;
+    let bodyStartIndex = 2;
+    if (
+      list.elements.length > 3 &&
+      list.elements[2].type === "symbol" &&
+      (list.elements[2] as SymbolNode).name === "extends"
+    ) {
+      if (list.elements.length < 4) {
+        throw new ValidationError(
+          "extends requires a superclass name",
+          "class extends",
+          "superclass name",
+          { actualType: "missing", ...extractMetaSourceLocation(list) },
+        );
+      }
+      const superClassNode = list.elements[3];
+      superClass = transformNode(superClassNode, currentDir) ?? undefined;
+      bodyStartIndex = 4;
+    }
+
     // Process class body elements
-    const bodyElements = list.elements.slice(2);
+    const bodyElements = list.elements.slice(bodyStartIndex);
 
     // Extract fields, constructor, and methods
     const fields: IR.IRClassField[] = [];
@@ -292,14 +313,18 @@ export function transformClass(
     };
     copyPosition(nameNode, classId);
 
-    return {
+    const classDecl: IR.IRClassDeclaration = {
       type: IR.IRNodeType.ClassDeclaration,
       id: classId,
       fields,
       constructor: classConstructor,
       methods,
       typeParameters, // TypeScript generic type parameters (e.g., ["T", "K"])
-    } as IR.IRClassDeclaration;
+    };
+    if (superClass) {
+      classDecl.superClass = superClass;
+    }
+    return classDecl;
   } catch (error) {
     // Preserve HQLError instances (ValidationError, ParseError, etc.)
     if (error instanceof HQLError) {
@@ -603,8 +628,9 @@ function buildMethodDefaults(
     candidates.add(paramName);
 
     for (const candidate of candidates) {
-      if (defaults.has(candidate)) {
-        entries.push({ name: paramName, value: defaults.get(candidate)! });
+      const defaultVal = defaults.get(candidate);
+      if (defaultVal !== undefined) {
+        entries.push({ name: paramName, value: defaultVal });
         return;
       }
     }

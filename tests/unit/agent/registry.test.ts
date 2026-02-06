@@ -26,29 +26,32 @@ import {
 // ============================================================
 
 Deno.test({
-  name: "Registry: getTool - get valid tool",
+  name: "Registry: getTool - get valid tool with complete metadata",
   fn() {
     const tool = getTool("read_file");
+    // Verify tool has all required fields with meaningful content
     assertEquals(typeof tool.fn, "function");
-    assertEquals(typeof tool.description, "string");
-    assertEquals(typeof tool.args, "object");
+    assertStringIncludes(tool.description.toLowerCase(), "file");
+    assertEquals("path" in tool.args, true);
+    // Arg schema describes the parameter type
+    assertEquals(typeof tool.args.path, "string");
   },
 });
 
 Deno.test({
-  name: "Registry: getTool - get all tool types",
+  name: "Registry: getTool - each category has working tools",
   fn() {
-    // File tools
+    // File tools - verify description relates to files
     const readFile = getTool("read_file");
-    assertEquals(typeof readFile.fn, "function");
+    assertStringIncludes(readFile.description.toLowerCase(), "read");
 
-    // Code tools
+    // Code tools - verify description relates to code
     const searchCode = getTool("search_code");
-    assertEquals(typeof searchCode.fn, "function");
+    assertStringIncludes(searchCode.description.toLowerCase(), "search");
 
-    // Shell tools
+    // Shell tools - verify description relates to execution
     const shellExec = getTool("shell_exec");
-    assertEquals(typeof shellExec.fn, "function");
+    assertStringIncludes(shellExec.description.toLowerCase(), "command");
   },
 });
 
@@ -105,15 +108,15 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Registry: getAllTools - returns copy not reference",
+  name: "Registry: getAllTools - returns cached reference with same content",
   fn() {
     const tools1 = getAllTools();
     const tools2 = getAllTools();
 
-    // Should be different objects (not same reference)
-    assertEquals(tools1 !== tools2, true);
+    // Should be same cached reference (no redundant copies)
+    assertEquals(tools1 === tools2, true);
 
-    // But should have same content
+    // Should have consistent content
     assertEquals(
       Object.keys(tools1).length,
       Object.keys(tools2).length,
@@ -252,9 +255,8 @@ Deno.test({
   name: "Registry: getToolCount - return correct count",
   fn() {
     const count = getToolCount();
-    assertEquals(count >= 9, true); // At least 9 tools (4 file + 3 code + 2 shell)
 
-    // Verify count matches getAllTools
+    // Verify count matches getAllTools (single source of truth)
     const tools = getAllTools();
     assertEquals(count, Object.keys(tools).length);
   },
@@ -265,11 +267,12 @@ Deno.test({
 // ============================================================
 
 Deno.test({
-  name: "Registry: getToolDescription - get valid description",
+  name: "Registry: getToolDescription - returns meaningful description",
   fn() {
     const desc = getToolDescription("read_file");
-    assertEquals(typeof desc, "string");
-    assertEquals(desc.length > 0, true);
+    // Description should be a real sentence, not empty or placeholder
+    assertStringIncludes(desc.toLowerCase(), "read");
+    assertEquals(desc.length >= 10, true); // Real descriptions are at least 10 chars
   },
 });
 

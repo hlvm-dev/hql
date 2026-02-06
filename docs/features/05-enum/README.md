@@ -1,16 +1,16 @@
 # Enum Feature Documentation
 
-**Implementation:** Transpiler syntax transformers
-**Coverage:** ✅ 100%
+**Implementation:** `src/hql/transpiler/syntax/enum.ts` (parsing), `src/hql/transpiler/pipeline/ir-to-typescript.ts` (codegen)
 
 ## Overview
 
-Enumerations in HQL provide type-safe groups of named constants. HQL supports
-three types of enums:
+Enumerations in HQL provide groups of named constants. HQL supports three types of enums:
 
-1. **Simple enums** - Named constants (object-based)
-2. **Enums with raw values** - Numeric or string values
-3. **Enums with associated values** - Class-based with data
+1. **Simple enums** - Named string constants (compiled to frozen objects)
+2. **Enums with raw values** - Explicit numeric or string values (compiled to frozen objects)
+3. **Enums with associated values** - Class-based with instance data
+
+There is also a TypeScript-specific `const-enum` form.
 
 ## Syntax
 
@@ -23,8 +23,18 @@ three types of enums:
   (case east)
   (case west))
 
-// Access
-Direction.north  // => "north"
+Direction.north  ;; => "north"
+```
+
+Compiles to:
+
+```js
+const Direction = Object.freeze({
+  north: "north",
+  south: "south",
+  east: "east",
+  west: "west"
+});
 ```
 
 ### Enum with Raw Values
@@ -35,9 +45,28 @@ Direction.north  // => "north"
   (case notFound 404)
   (case serverError 500))
 
-// Access
-HttpStatus.notFound  // => 404
+HttpStatus.notFound  ;; => 404
 ```
+
+Raw values can be any literal (number or string). Access is direct property access on the frozen object.
+
+### Raw Type Annotation
+
+An optional raw type can be specified either embedded with a colon or as a separate token:
+
+```lisp
+;; Colon syntax
+(enum HttpStatus:Int
+  (case ok 200)
+  (case notFound 404))
+
+;; Separate token syntax
+(enum HttpStatus Int
+  (case ok 200)
+  (case notFound 404))
+```
+
+The raw type is stored in the IR but does not affect JavaScript code generation.
 
 ### Enum with Associated Values
 
@@ -46,121 +75,79 @@ HttpStatus.notFound  // => 404
   (case cash amount)
   (case creditCard number expiry))
 
-// Create instance
+;; Create instance via static factory method
 (var payment (Payment.cash 100))
 
-// Check type
-(payment.is "cash")  // => true
+;; Check type
+(payment.is "cash")  ;; => true
 
-// Access values
-(get payment.values "amount")  // => 100
+;; Access associated values via the .values property
+(get payment.values "amount")  ;; => 100
 ```
 
-## Implementation Details
+Compiles to a class with:
+- `type` and `values` instance properties
+- Constructor that calls `Object.freeze(this)`
+- `is(type)` instance method (returns `this.type === type`)
+- Static factory methods for each case (e.g., `Payment.cash(amount)`)
 
-### Simple Enums
-
-- Compiled to frozen JavaScript objects
-- Each case becomes a string property
-- Immutable via `Object.freeze()`
-
-### Enums with Raw Values
-
-- Same as simple enums but with explicit values
-- Raw type declaration: `EnumName:Type`
-- Values can be numbers or strings
-
-### Enums with Associated Values
-
-- Compiled to JavaScript classes
-- Constructor is private
-- Static factory methods for each case
-- Instance methods: `.is(type)` and `.getValue(key)`
-
-## Type Inference
-
-HQL supports shorthand enum access with type inference:
+### Const Enum (TypeScript)
 
 ```lisp
-(fn install [os]
-  (if (=== os .macOS)  // .macOS inferred as OS.macOS
-    "Installing on macOS"))
+(const-enum Direction [North South East West])
 
-(install OS.macOS)  // Explicit enum value
+;; With explicit values
+(const-enum Status [(OK 200) (NotFound 404) (Error 500)])
+
+;; With string values
+(const-enum Color [(Red "red") (Green "green") (Blue "blue")])
 ```
 
-## Features Covered
+Compiles to TypeScript `const enum` declarations. This is a separate form from `(enum ...)`.
 
-✅ Simple enum definition ✅ Enum with raw values (Int, String) ✅ Enum with
-associated values ✅ Dot notation access ✅ Enum comparison (`===`) ✅ Conditional
-matching (`cond`) ✅ Type inference with `.caseName` ✅ Instance methods
-(`.is()`, `.getValue()`) ✅ Immutability (frozen objects)
+## Dot Notation Shorthand
+
+The syntax transformer resolves `.caseName` shorthand to `EnumName.caseName` by searching known enum definitions for a matching case:
+
+```lisp
+(enum OS
+  (case macOS)
+  (case linux))
+
+;; .macOS is resolved to OS.macOS if OS is the only enum with a macOS case
+(=== os .macOS)
+```
+
+This resolution happens at the syntax transformer stage before IR generation.
 
 ## Test Coverage
 
+### Simple Enums
 
+- Define simple enum (frozen object)
+- Access enum value (returns string)
+- Compare enum values with `===`
+- Use in `cond` expressions
 
-### Section 1: Simple Enums
+### Enums with Raw Values
 
-- Define simple enum
-- Access enum value
-- Compare enum values
-- Use in conditionals
+- Define enum with numeric raw values (frozen object)
+- Access raw value (returns number)
+- Compare raw values numerically (e.g., `>=`)
 
-### Section 2: Enums with Raw Values
+### Enums with Associated Values
 
-- Define enum with Int raw type
-- Access raw value
-- Compare raw values numerically
-
-### Section 3: Enums with Associated Values
-
-- Define enum with associated values
-- Create instance
+- Define enum (compiles to class)
+- Create instance via static factory method
 - Check type with `.is()` method
-- Access associated values
+- Access associated values via `(get payment.values "key")`
 
-### Section 4: Type Inference
+### Dot Notation / Type Inference
 
-- Dot notation in function parameters
-- Dot notation in equality checks
+- Explicit `EnumName.caseName` in function parameters and equality checks
 
-## Related Specs
+### Const Enums (TypeScript)
 
-- Complete enum specification available in project specs
-- Language feature documentation
-
-## Examples
-
-See `examples.hql` for executable examples.
-
-## Transform Pipeline
-
-```
-HQL Source
-  ↓
-S-expression Parser (reads enum syntax)
-  ↓
-transformEnumDeclaration (enum.ts:97)
-  ↓
-IR: EnumDeclaration node
-  ↓
-convertEnumDeclarationToJsObject (enum.ts:557)
-  ↓
-ESTree AST (Object.freeze or Class)
-  ↓
-JavaScript
-```
-
-## Edge Cases Tested
-
-✅ Multiple enum cases ✅ Enum comparison with `===` ✅ Enum in `cond` expressions
-✅ Raw value types (Int) ✅ Associated value creation ✅ Type checking with
-`.is()` ✅ Value extraction from instances ✅ Type inference shortcuts
-
-## Future Enhancements
-
-- Pattern matching on enum cases
-- Exhaustiveness checking
-- More raw types (String, Double)
-- Better LSP support for autocompletion
+- Simple declaration without values
+- Declaration with numeric values
+- Declaration with string values

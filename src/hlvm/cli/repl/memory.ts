@@ -307,8 +307,15 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
 
       codeLines.push(currentLine);
 
-      // Count parens (doesn't handle parens inside strings, but good enough)
-      for (const char of currentLine) {
+      // Count parens, skipping those inside string literals
+      let inStr = false;
+      for (let ci = 0; ci < currentLine.length; ci++) {
+        const char = currentLine[ci];
+        if (char === '"' && (ci === 0 || currentLine[ci - 1] !== '\\')) {
+          inStr = !inStr;
+          continue;
+        }
+        if (inStr) continue;
         if (char === "(") parenDepth++;
         if (char === ")") parenDepth--;
       }

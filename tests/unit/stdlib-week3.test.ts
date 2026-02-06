@@ -156,7 +156,7 @@ Deno.test("empty: LazySeq returns null (Clojure semantics)", () => {
   const result = empty(lazy);
   // Old LazySeq doesn't have SEQ protocol, so falls through to object check
   // For new seq-protocol LazySeq, returns null
-  assertEquals(result === null || typeof result === "object", true);
+  assertEquals(result, null);
 });
 
 Deno.test("empty: null returns null", () => {

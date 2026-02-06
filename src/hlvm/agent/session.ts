@@ -11,7 +11,7 @@
  */
 
 import { ContextManager } from "./context.ts";
-import { generateSystemPrompt, createAgentLLM } from "./llm-integration.ts";
+import { generateSystemPrompt, createAgentLLM, createSummarizationFn } from "./llm-integration.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { loadAgentPolicy, type AgentPolicy } from "./policy.ts";
 import { ENGINE_PROFILES } from "./constants.ts";
@@ -29,6 +29,8 @@ export interface AgentSessionOptions {
   mcpConfigPath?: string;
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  /** Optional callback for streaming tokens to the terminal */
+  onToken?: (text: string) => void;
 }
 
 export interface AgentSession {
@@ -52,9 +54,13 @@ export async function createAgentSession(
     [],
   );
 
-  const contextConfig = { ...profile.context };
+  const contextConfig: Record<string, unknown> = { ...profile.context };
   if (options.failOnContextOverflow) {
     contextConfig.overflowStrategy = "fail";
+  }
+  // Wire LLM-powered summarization for context compaction (only for live models)
+  if (!options.fixturePath && options.model) {
+    contextConfig.llmSummarize = createSummarizationFn(options.model);
   }
 
   const context = new ContextManager(contextConfig);
@@ -75,8 +81,10 @@ export async function createAgentSession(
           "agent_session",
         );
       })(),
+      options: { temperature: 0.0 },
       toolAllowlist: options.toolAllowlist,
       toolDenylist: options.toolDenylist,
+      onToken: options.onToken,
     });
 
   return {

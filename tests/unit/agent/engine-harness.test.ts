@@ -211,7 +211,6 @@ Deno.test({
         },
         {
           content: `Based on ${toolName}, there are 2 items: a, b.`,
-          expectLastIncludes: "Tool:",
         },
       ]);
 
@@ -234,9 +233,9 @@ Deno.test({
       const stats = context.getStats();
       assertEquals(stats.toolMessages >= 1, true);
 
-      // Deterministic transcript shape
+      // Deterministic transcript shape (assistant message with tool_calls precedes tool results)
       const roles = context.getMessages().map((m) => m.role);
-      assertEquals(roles, ["system", "user", "tool", "assistant"]);
+      assertEquals(roles, ["system", "user", "assistant", "tool", "assistant"]);
     } finally {
       removeTool(toolName);
     }
@@ -256,7 +255,6 @@ Deno.test({
         },
         {
           content: "There are 2 items.",
-          expectLastIncludes: "Tool:",
         },
         {
           content: `Based on ${toolName}, there are 2 items: a, b.`,
@@ -286,7 +284,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Engine harness: grounding strict fails after retry",
+  name: "Engine harness: grounding strict returns with warnings after retry",
   async fn() {
     const toolName = "fake_list_fail";
     addFakeTool(toolName, ["a", "b"]);
@@ -298,7 +296,6 @@ Deno.test({
         },
         {
           content: "There are 2 items.",
-          expectLastIncludes: "Tool:",
         },
         {
           content: "Still ungrounded response.",
@@ -307,22 +304,21 @@ Deno.test({
       ]);
 
       const context = createContext();
-      await assertRejects(
-        () =>
-          runReActLoop(
-            "List items",
-            {
-              workspace: "/tmp",
-              context,
-              autoApprove: true,
-              maxToolCalls: TEST_MAX_TOOL_CALLS,
-              groundingMode: "strict",
-            },
-            llm,
-          ),
-        Error,
-        "Ungrounded response after",
+      const result = await runReActLoop(
+        "List items",
+        {
+          workspace: "/tmp",
+          context,
+          autoApprove: true,
+          maxToolCalls: TEST_MAX_TOOL_CALLS,
+          groundingMode: "strict",
+        },
+        llm,
       );
+
+      // Strict mode now returns with warnings instead of throwing
+      assertStringIncludes(result, "Still ungrounded response.");
+      assertStringIncludes(result, "[Grounding warnings]");
     } finally {
       removeTool(toolName);
     }
@@ -369,7 +365,6 @@ Deno.test({
         {
           content:
             `Based on ${searchTool} and ${readTool}, generateSystemPrompt defines the system prompt and returns a large instruction string.`,
-          expectLastIncludes: "Tool: fake_read_file",
         },
       ]);
 
@@ -417,7 +412,6 @@ Deno.test({
         },
         {
           content: `Based on ${toolName}, result is ok.`,
-          expectLastIncludes: "Tool:",
         },
       ]);
 
@@ -437,12 +431,14 @@ Deno.test({
       assertStringIncludes(result, "Based on");
       assertStringIncludes(result, "ok");
 
-      // Transcript shape includes tool error message
+      // Transcript shape: assistant(tool_calls) precedes tool results
       const roles = context.getMessages().map((m) => m.role);
       assertEquals(roles, [
         "system",
         "user",
+        "assistant",
         "tool",
+        "assistant",
         "tool",
         "assistant",
       ]);
@@ -471,7 +467,6 @@ Deno.test({
         },
         {
           content: `Based on ${okTool}, got ok. ${failTool} failed.`,
-          expectLastIncludes: "Tool:",
         },
       ]);
 
@@ -492,9 +487,10 @@ Deno.test({
       assertStringIncludes(result, "failed");
 
       const toolMessages = context.getMessages().filter((m) => m.role === "tool");
-      const toolText = toolMessages.map((m) => m.content).join("\n");
-      assertStringIncludes(toolText, okTool);
-      assertStringIncludes(toolText, failTool);
+      // Tool names are now in the toolName field, not content
+      const toolNames = toolMessages.map((m) => m.toolName).filter(Boolean);
+      assertEquals(toolNames.includes(okTool), true);
+      assertEquals(toolNames.includes(failTool), true);
       // At least one tool message recorded for observations
       assertEquals(toolMessages.length >= 1, true);
     } finally {
@@ -560,14 +556,12 @@ END_PLAN`,
         },
         {
           content: `Step 1 done.\nSTEP_DONE step-1`,
-          expectLastIncludes: "Tool:",
         },
         {
           toolCalls: [{ toolName: toolB, args: {} }],
         },
         {
           content: `All done.\nSTEP_DONE step-2`,
-          expectLastIncludes: "Tool:",
         },
       ]);
 

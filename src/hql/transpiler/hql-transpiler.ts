@@ -259,13 +259,14 @@ async function setupEnvironment(
   }
 
   // Register runtime macros if provided
-  if (hasMacroRegistry(context)) {
+  if (hasMacroRegistry(context) && context?.macroRegistry) {
+    const registry = context.macroRegistry;
     logger.debug(
-      `Registering ${context!.macroRegistry!.macros.size} runtime macros`,
+      `Registering ${registry.macros.size} runtime macros`,
     );
     // If we have functions compiled, use them
-    if (context!.macroRegistry!.functions) {
-      for (const [name, fn] of context!.macroRegistry!.functions) {
+    if (registry.functions) {
+      for (const [name, fn] of registry.functions) {
         env.defineMacro(name, fn);
         logger.debug(`Registered runtime macro function: ${name}`);
       }

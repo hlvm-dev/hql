@@ -399,22 +399,36 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
     (= this.#balance (+ this.#balance amount))))
 ```
 
-### Inheritance (Abstract Classes Only)
+### Inheritance
 
 ```clojure
-// Regular class inheritance is not yet implemented
-// Use abstract-class for inheritance patterns:
+// Class inheritance with extends
+(class Animal
+  (constructor [name]
+    (= this.name name))
+  (fn describe []
+    (+ "Animal: " this.name)))
+
+(class Dog extends Animal
+  (constructor [name breed]
+    (super name)
+    (= this.breed breed))
+  (fn bark []
+    "Woof!"))
+
+(let d (new Dog "Rex" "Labrador"))
+d.name    // => "Rex" (inherited)
+d.breed   // => "Labrador"
+(d.bark)  // => "Woof!"
+```
+
+### Abstract Classes
+
+```clojure
+// Abstract class with abstract methods
 (abstract-class Animal [
   (abstract-method speak [] :string)
 ])
-
-// For regular classes, use composition instead:
-(class Dog
-  (var animal null)
-  (constructor [name]
-    (= this.name name))
-  (fn speak []
-    "Woof!"))
 ```
 
 ---
@@ -482,6 +496,13 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
   (case 1 "one")
   (case 2 "two")
   (default "other"))
+
+// Or-patterns: match multiple values in one case
+(match status-code
+  (case (| 200 201 204) "success")
+  (case (| 400 422) "client error")
+  (case (| 500 502 503) "server error")
+  (default "unknown"))
 
 // Array patterns
 (match point

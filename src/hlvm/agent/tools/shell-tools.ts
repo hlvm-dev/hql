@@ -18,8 +18,7 @@ import { parseShellCommand, isSafeCommand, getUnsafeReason } from "../../../comm
 import { classifyShellCommand as classifyShellCommandWithReason } from "../security/shell-classifier.ts";
 import { getNetworkPolicyDeniedUrl } from "../policy.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
-import { formatToolError } from "../tool-errors.ts";
-import { okTool, failTool } from "../tool-results.ts";
+import { formatToolError, okTool, failTool } from "../tool-results.ts";
 
 // ============================================================
 // Types

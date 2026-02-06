@@ -23,7 +23,7 @@ import { type LLMResponse, type ToolCall } from "./tool-call.ts";
 import { isToolArgsObject } from "./validation.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type {
-  Message as ProviderMessage,
+  ProviderMessage,
   ProviderToolCall,
   ToolDefinition,
 } from "../providers/types.ts";
@@ -66,12 +66,27 @@ export function convertAgentMessagesToProvider(
   agentMessages: AgentMessage[],
 ): ProviderMessage[] {
   return agentMessages.map((msg) => {
-    // Convert "tool" role to "user" (observation in ReAct pattern)
-    // Tool results are observations that should come from outside (user role)
+    // Preserve "tool" role for native tool calling conversation flow
     if (msg.role === "tool") {
       return {
-        role: "user" as const,
-        content: `[Tool Result]\n${msg.content}`,
+        role: "tool" as const,
+        content: msg.content,
+        ...(msg.toolName ? { tool_name: msg.toolName } : {}),
+      };
+    }
+
+    // Pass through assistant messages with tool_calls metadata
+    if (msg.role === "assistant" && msg.toolCalls?.length) {
+      return {
+        role: "assistant" as const,
+        content: msg.content,
+        tool_calls: msg.toolCalls.map((tc) => ({
+          type: "function" as const,
+          function: {
+            name: tc.function.name,
+            arguments: tc.function.arguments,
+          },
+        })),
       };
     }
 
@@ -95,7 +110,16 @@ export function convertProviderMessagesToAgent(
   providerMessages: ProviderMessage[],
 ): AgentMessage[] {
   return providerMessages.map((msg) => {
-    // Check if this is a converted tool result (now in user messages)
+    // Handle tool role messages
+    if (msg.role === "tool") {
+      return {
+        role: "tool" as const,
+        content: msg.content,
+        ...(msg.tool_name ? { toolName: msg.tool_name } : {}),
+      };
+    }
+
+    // Legacy: check if this is an old-format converted tool result
     if (
       msg.role === "user" &&
       msg.content.startsWith("[Tool Result]\n")
@@ -108,7 +132,7 @@ export function convertProviderMessagesToAgent(
 
     // Pass through other messages
     return {
-      role: msg.role,
+      role: msg.role as "system" | "user" | "assistant",
       content: msg.content,
     };
   });
@@ -141,17 +165,28 @@ export { collectStream };
 // Tool Schema + Native Tool Calling
 // ============================================================
 
+/** Cached tool definitions keyed by serialized options */
+let _toolDefCache: { key: string; defs: ToolDefinition[] } | null = null;
+
 function buildToolDefinitions(
   options?: { allowlist?: string[]; denylist?: string[] },
 ): ToolDefinition[] {
+  const cacheKey = JSON.stringify([
+    options?.allowlist ?? null,
+    options?.denylist ?? null,
+  ]);
+  if (_toolDefCache && _toolDefCache.key === cacheKey) {
+    return _toolDefCache.defs;
+  }
+
   const tools = resolveTools(options);
-  return Object.entries(tools).map(([name, meta]) => {
+  const defs: ToolDefinition[] = Object.entries(tools).map(([name, meta]) => {
     const parameters = meta.skipValidation
       ? { type: "object", properties: {}, additionalProperties: true }
       : buildToolJsonSchema(meta);
 
     return {
-      type: "function",
+      type: "function" as const,
       function: {
         name,
         description: meta.description,
@@ -159,6 +194,8 @@ function buildToolDefinitions(
       },
     };
   });
+  _toolDefCache = { key: cacheKey, defs };
+  return defs;
 }
 
 function parseProviderToolArgs(raw: unknown): Record<string, unknown> {
@@ -220,154 +257,35 @@ export function generateSystemPrompt(options: SystemPromptOptions = {}): string 
     denylist: options.toolDenylist,
   });
 
-  // Generate tool documentation
-  const toolDocs = Object.entries(tools)
-    .map(([name, meta]) => {
-      const argsList = Object.entries(meta.args)
-        .map(([argName, argDesc]) => `  - ${argName}: ${argDesc}`)
-        .join("\n");
-      const returnsList = meta.returns
-        ? Object.entries(meta.returns)
-          .map(([field, desc]) => `  - ${field}: ${desc}`)
-          .join("\n")
-        : "";
-      const returnsBlock = meta.returns
-        ? `\n**Returns:**\n${returnsList}\n`
-        : "\n";
+  // Tool names only — full schemas are sent via native tool calling API
+  const toolNames = Object.keys(tools);
 
-      return `
-### ${name}
-${meta.description}
+  // Only include delegation section if delegate_agent is visible
+  const hasDelegation = "delegate_agent" in tools;
+  let delegationSection = "";
+  if (hasDelegation) {
+    const agents = listAgentProfiles();
+    const agentList = agents.map((agent) => `${agent.name}: ${agent.description}`).join("\n");
+    delegationSection = `\n# Delegation\nUse delegate_agent for subtasks requiring specialized expertise.\nAvailable agents: ${agentList}\n`;
+  }
 
-**Arguments:**
-${argsList}
-${returnsBlock}**Safety Level:** ${meta.safetyLevel || meta.safety || "L2"}
-`.trim();
-    })
-    .join("\n\n");
+  return `You are an AI coding agent. You have tools for file operations, code analysis, web research, and shell execution.
 
-  const agents = listAgentProfiles();
-  const agentList = agents.map((agent) => `${agent.name}: ${agent.description}`).join("\n");
+# Instructions
+- Use tools when you need information from files, the web, or command execution
+- For greetings, simple math, or general questions, respond directly without tools
+- Trust tool results over your own knowledge
+- Never fabricate tool results
+- Be concise
+${delegationSection}
+# Tools
+Available: ${toolNames.join(", ")}
+Tool schemas are provided via function calling. Do NOT output tool call JSON in text.
 
-  return `You are an AI coding agent with access to tools for file operations, code analysis, web research, and shell execution.
-
-# Your Role
-- Help users with coding tasks by using available tools
-- Use tools when you need information from the workspace, the web, or command output
-- If a request is a greeting, simple question, or clarification that doesn't require tools, respond directly
-- Think step-by-step and explain your reasoning
-- Verify assumptions with tools only when the answer depends on project state
-
-# When to Use Tools vs Direct Response
-- Use tools for: files, code search, command execution, web research, or project state checks
-- Direct response is OK for: greetings, simple math, clarifying questions, or general conversation
-- Use ONLY the tools listed below. Do NOT invent tools.
-
-# File & Path Guidance
-- For listing files in user folders, use list_files (not get_structure).
-- Common user folders: "~/Downloads", "~/Desktop", "~/Documents".
-- Avoid OS-specific guesses like "/home/user" or "/Downloads" unless explicitly provided by the user.
-- For totals, counts, max/min, or other aggregations, use aggregate_entries on prior tool results.
-
-# Memory Tools (Important)
-- Use memory_* tools ONLY when the user explicitly asks to remember, store, recall, or clear memory.
-- Do NOT store transient errors or tool failures in memory.
-
-# Delegation (Multi-Agent)
-- You may delegate a subtask using the delegate_agent tool when specialized expertise is helpful.
-- Prefer delegation for focused tasks (web research, code analysis, shell work, memory lookup).
-- Available agents:
-${agentList}
-
-# CRITICAL RULES FOR FINAL ANSWERS
-
-SCOPE: These rules apply when your answer is based on tool results. If you did not use tools, respond naturally and do not cite tools.
-
-When providing your final answer to the user:
-
-1. **CITE TOOL RESULTS:** Your answer MUST cite which tool gave you the information
-   - Format: "Based on [tool_name], [answer]"
-   - Example: "Based on list_files, there are 8 test files in tests/unit/"
-
-2. **DO NOT MAKE UP INFORMATION:** Never provide information not in tool results
-   - If a tool didn't return data, say so explicitly
-   - Don't fill in gaps with your knowledge
-
-3. **TRUST THE TOOL:** If tool result contradicts your knowledge, TRUST THE TOOL
-   - Tool results reflect the actual state of the codebase
-   - Your knowledge may be outdated or incorrect for this specific project
-
-4. **NEVER FABRICATE TOOL RESULTS:** Do NOT make up tool results or write "Tool:" headers yourself
-   - You CANNOT see tool results until the system provides them
-   - Do NOT write "Tool: tool_name\\nResult: ..." in your own responses
-   - Wait for the system to execute your tool call and provide the actual result
-   - If you fabricate a tool result, it will be WRONG and mislead the user
-   - Example of FORBIDDEN behavior:
-     ❌ "Tool: list_files\\nResult: Found 8 files" (fabricated result!)
-   - Correct behavior:
-     ✅ Call the appropriate tool via function calling, then WAIT for the system to provide results
-
-6. **BAD EXAMPLE (VIOLATION):**
-   User: "How many test files?"
-   Tool result: "Found 8 test files"
-   ❌ WRONG: "There are 5 test files." (ignores tool data)
-   ❌ WRONG: "There are test files." (vague, doesn't cite tool)
-
-7. **GOOD EXAMPLE (CORRECT):**
-   User: "How many test files?"
-   Tool result: "Found 8 test files"
-   ✅ CORRECT: "Based on list_files, there are 8 test files in tests/unit/."
-
-# Available Tools
-
-${toolDocs}
-
-# Tool Use (Native Function Calling)
-
-Tools are invoked via native function calling. Do NOT output tool call JSON
-or any TOOL_CALL/END_TOOL_CALL markers in your response.
-When you need a tool, call it through the tool-calling mechanism.
-After tool execution, you'll receive results from the system.
-Never explain or demonstrate tool invocations in your final answer.
-
-# Examples
-
-**Example 0: Greeting (no tools needed)**
-User: "hello"
-Assistant: "Hello! How can I help you today?"
-
-**Example 0b: Simple question (no tools needed)**
-User: "what is 2+2"
-Assistant: "4."
-
-# ReAct Loop
-
-You operate in a Thought-Action-Observation loop:
-1. **Thought:** Analyze the user's request and plan your approach
-2. **Action:** Call tools to gather information or make changes
-3. **Observation:** You'll receive tool results marked as "Tool: <tool_name>" with a Result or Error
-4. **Response:** After receiving tool results, ALWAYS provide a response that:
-   - Analyzes what you learned from the tool results
-   - Answers the user's question based on the information
-   - Makes additional tool calls if more information is needed
-
-If no tool calls are needed, provide a direct response without tool citations.
-
-**IMPORTANT:** After you receive tool results, you MUST either:
-- Make more tool calls if you need additional information, OR
-- Provide a final answer to the user (without any tool calls)
-
-Never return an empty response after receiving tool results.
-
-# Guidelines
-
-- **Be thorough:** Verify assumptions with tools before proceeding
-- **Be safe:** Read files before modifying them
-- **Be clear:** Explain what you're doing and why
-- **Be efficient:** Use appropriate tools for each task
-- **Be accurate:** Double-check critical information
-
-Now, assist the user with their request.`;
+# Tips
+- For user folders use list_files with paths like ~/Downloads, ~/Desktop, ~/Documents
+- For counts/totals/max/min, use aggregate_entries on prior tool results
+- For media files, use mimePrefix (e.g., "video/", "image/")`;
 }
 
 // ============================================================
@@ -389,6 +307,8 @@ interface AgentLLMConfig {
   toolAllowlist?: string[];
   /** Optional tool denylist */
   toolDenylist?: string[];
+  /** Optional callback for streaming tokens to the terminal */
+  onToken?: (text: string) => void;
 }
 
 /**
@@ -448,7 +368,7 @@ export function createAgentLLM(
     const api = ai as {
       chatStructured: (
         messages: ProviderMessage[],
-        options?: { model?: string; signal?: AbortSignal; tools?: ToolDefinition[] },
+        options?: { model?: string; signal?: AbortSignal; tools?: ToolDefinition[]; temperature?: number; onToken?: (text: string) => void },
       ) => Promise<{ content: string; toolCalls?: ProviderToolCall[] }>;
     };
 
@@ -461,10 +381,52 @@ export function createAgentLLM(
       model: config?.model,
       signal,
       tools,
+      temperature: config?.options?.temperature ?? 0.0,
+      onToken: config?.onToken,
     });
     return {
       content: response.content ?? "",
       toolCalls: convertProviderToolCalls(response.toolCalls),
     };
+  };
+}
+
+// ============================================================
+// Summarization Function Factory
+// ============================================================
+
+/**
+ * Create a summarization function for context compaction.
+ * Uses the same ai.chat() with a compact summarization prompt.
+ *
+ * @param model Model to use for summarization
+ * @returns Async function that summarizes an array of messages into 2-3 sentences
+ */
+export function createSummarizationFn(
+  model?: string,
+): (messages: AgentMessage[]) => Promise<string> {
+  return async (messages: AgentMessage[]): Promise<string> => {
+    const { ai } = await import("../api/ai.ts");
+
+    if (!ai || typeof ai !== "object" || !("chat" in ai)) {
+      throw new RuntimeError(
+        "AI API not available for summarization.",
+      );
+    }
+
+    const formatted = messages
+      .map((m) => `${m.role}: ${m.content.slice(0, 500)}`)
+      .join("\n");
+
+    const prompt = `Summarize this conversation in 2-3 sentences. Focus on: what was asked, what tools were used, what results were found. Be concise.\n\nConversation:\n${formatted}`;
+
+    const chatFn = (ai as { chat: (messages: ProviderMessage[], options?: { model?: string; temperature?: number }) => AsyncGenerator<string, void, unknown> }).chat;
+    const stream = chatFn(
+      [{ role: "user", content: prompt }],
+      { model, temperature: 0.0 },
+    );
+
+    const { collectStream } = await import("../../common/async-stream.ts");
+    return (await collectStream(stream)).trim();
   };
 }

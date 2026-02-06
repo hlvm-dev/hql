@@ -20,13 +20,13 @@ import type {
 
 import * as api from "./api.ts";
 import { getOllamaCatalog } from "./catalog.ts";
-import { DEFAULT_MODEL_NAME } from "../../../common/config/types.ts";
+import { DEFAULT_MODEL_NAME, DEFAULT_OLLAMA_ENDPOINT } from "../../../common/config/types.ts";
 
 // ============================================================================
 // Default Configuration
 // ============================================================================
 
-const DEFAULT_ENDPOINT = "http://localhost:11434";
+const DEFAULT_ENDPOINT = DEFAULT_OLLAMA_ENDPOINT;
 const DEFAULT_MODEL = DEFAULT_MODEL_NAME;
 
 // ============================================================================

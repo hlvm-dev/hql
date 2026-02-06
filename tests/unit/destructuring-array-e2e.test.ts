@@ -298,10 +298,3 @@ Deno.test("Array Destructuring E2E: Mixed types", async () => {
   assertEquals(result, 42);
 });
 
-console.log("\nArray Destructuring E2E Tests Complete!");
-console.log("All tests verify the complete HQL destructuring pipeline");
-console.log("✅ Simple patterns");
-console.log("✅ Skip patterns");
-console.log("✅ Rest patterns");
-console.log("✅ Nested patterns");
-console.log("✅ var (mutable) destructuring");

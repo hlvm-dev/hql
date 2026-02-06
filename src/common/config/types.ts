@@ -10,7 +10,21 @@ import { THEME_NAMES } from "../../hlvm/cli/theme/palettes.ts";
 // ============================================================
 
 export const DEFAULT_MODEL_ID = "ollama/llama3.1:8b";
+export const DEFAULT_MODEL_PROVIDER = DEFAULT_MODEL_ID.split("/")[0];
 export const DEFAULT_MODEL_NAME = DEFAULT_MODEL_ID.split("/")[1];
+export const DEFAULT_OLLAMA_ENDPOINT = "http://localhost:11434";
+
+/**
+ * Normalize a model ID to provider/model format.
+ * Defaults to the provider from DEFAULT_MODEL_ID when missing.
+ */
+export function normalizeModelId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.includes("/")) return trimmed;
+  return `${DEFAULT_MODEL_PROVIDER}/${trimmed}`;
+}
 
 // ============================================================
 // Config Interface
@@ -131,7 +145,7 @@ export const DEFAULT_TOOLS_CONFIG: ToolsConfig = {
 export const DEFAULT_CONFIG: HlvmConfig = {
   version: 1,
   model: DEFAULT_MODEL_ID,
-  endpoint: "http://localhost:11434",
+  endpoint: DEFAULT_OLLAMA_ENDPOINT,
   temperature: 0.7,
   maxTokens: 4096,
   theme: "sicp",

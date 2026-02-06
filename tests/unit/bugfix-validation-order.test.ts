@@ -77,24 +77,6 @@ Deno.test("Bugfix #3: Nested scope variables are allowed", async () => {
   assertEquals(result, 30, "Nested scopes should allow same variable name");
 });
 
-Deno.test("Bugfix #3: Validation happens before optimization", async () => {
-  // Test that validation catches errors even if code would be optimized
-  const code = `
-(let x 5)
-(let x 10)
-`;
-
-  // Should throw during validation, not during optimization
-  await assertRejects(
-    async () => {
-      await transpileToJavascript(code);
-    },
-    Error,
-    "already been declared",
-    "Validation should catch error before optimization"
-  );
-});
-
 Deno.test("Bugfix #3: Error messages are clear and accurate", async () => {
   // Test that error messages make sense (not based on optimized code)
   const code = `

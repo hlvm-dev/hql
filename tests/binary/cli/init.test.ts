@@ -5,9 +5,6 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
 import { runCLI, withTempDir, USE_BINARY } from "../_shared/binary-helpers.ts";
 
-// Log which mode we're testing
-console.log(`Testing 'init' command in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
-
 Deno.test({
   name: "CLI init: creates hlvm.json with -y flag",
   sanitizeResources: false,

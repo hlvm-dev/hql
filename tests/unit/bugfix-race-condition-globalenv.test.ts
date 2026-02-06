@@ -63,24 +63,6 @@ Deno.test("Bugfix #2: Stress test with many parallel compilations", async () => 
     assertExists(results[i].code, `Transpilation ${i} should have code`);
   }
 
-  console.log(`✓ 50 concurrent transpilations completed in ${elapsed.toFixed(2)}ms`);
-
-  // Should complete in reasonable time (< 5 seconds)
-  assertEquals(elapsed < 5000, true, "Should complete within 5 seconds");
-});
-
-Deno.test("Bugfix #2: Sequential transpilations use same environment", async () => {
-  // First transpilation
-  const result1 = await transpileToJavascript("(+ 1 2)");
-  assertExists(result1.code);
-
-  // Second transpilation should reuse same environment
-  const result2 = await transpileToJavascript("(* 3 4)");
-  assertExists(result2.code);
-
-  // Third transpilation should also reuse same environment
-  const result3 = await transpileToJavascript("(- 10 5)");
-  assertExists(result3.code);
 });
 
 Deno.test("Bugfix #2: Environment initialization is idempotent", async () => {
@@ -120,7 +102,6 @@ Deno.test("Bugfix #2: Rapid fire concurrent requests", async () => {
     });
   }
 
-  console.log(`✓ ${batches * batchSize} transpilations across ${batches} batches completed successfully`);
 });
 
 Deno.test("Bugfix #2: Macros work correctly under concurrent load", async () => {

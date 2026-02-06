@@ -607,14 +607,14 @@ function tryOptimizeArithmetic(
   }
 
   // One operand must be the param
-  if (!isLeftParam && !isRightParam) {
+  if (!isLeftParam && !isRightParam || otherOperand === null) {
     return null;
   }
 
   // CRITICAL: Check if the other operand references any loop parameters.
   // If it does, we CANNOT optimize because we'd use NEW values instead of OLD values.
   // Example: (+ sum i) when both sum and i are loop params - NOT safe to optimize!
-  if (referencesAnyParam(otherOperand!, paramNames)) {
+  if (referencesAnyParam(otherOperand, paramNames)) {
     return null; // Fall back to temp variables
   }
 
@@ -622,7 +622,7 @@ function tryOptimizeArithmetic(
   // (+ var 1) or (+ 1 var) → var++
   // (- var 1) → var--
   if (
-    otherOperand!.type === "literal" &&
+    otherOperand.type === "literal" &&
     (otherOperand as LiteralNode).value === 1
   ) {
     if (operator === "+" && (isLeftParam || isRightParam)) {
@@ -663,7 +663,7 @@ function tryOptimizeArithmetic(
   }
 
   // Transform the other operand
-  const transformedOther = transformNode(otherOperand!, currentDir);
+  const transformedOther = transformNode(otherOperand, currentDir);
   if (!transformedOther) {
     return null;
   }

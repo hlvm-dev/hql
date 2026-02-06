@@ -15,6 +15,7 @@ import { isModelPullTask, isTaskActive } from "../../repl/task-manager/types.ts"
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { capabilitiesToDisplayTags } from "../../../providers/types.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 
@@ -71,25 +72,54 @@ type DisplayModel = {
 // ============================================================
 
 /** Filter modes for model browser view */
-type ViewFilter = "all" | "local" | "downloading" | "available";
+type FilterMode =
+  | "all"
+  | "installed"
+  | "downloading"
+  | "available"
+  | "tools"
+  | "vision"
+  | "thinking"
+  | "embedding"
+  | "cloud";
 
 /** Filter cycle order - discovery first */
-const FILTER_CYCLE: readonly ViewFilter[] = ["all", "available", "local", "downloading"];
+const FILTER_CYCLE: readonly FilterMode[] = [
+  "all",
+  "available",
+  "installed",
+  "downloading",
+  "tools",
+  "vision",
+  "thinking",
+  "embedding",
+  "cloud",
+];
 
 /** Filter display labels */
-const FILTER_LABELS: Record<ViewFilter, string> = {
+const FILTER_LABELS: Record<FilterMode, string> = {
   all: "All",
-  local: "Local",
+  installed: "Installed",
   downloading: "Downloading",
   available: "Available",
+  tools: "Tools",
+  vision: "Vision",
+  thinking: "Thinking",
+  embedding: "Embedding",
+  cloud: "Cloud",
 };
 
 /** Empty state messages for each filter */
-const FILTER_EMPTY: Record<ViewFilter, string> = {
+const FILTER_EMPTY: Record<FilterMode, string> = {
   all: "No models found",
-  local: "No local models installed",
+  installed: "No installed models",
   downloading: "No active downloads",
-  available: "All models installed",
+  available: "No available models",
+  tools: "No tool-capable models",
+  vision: "No vision models",
+  thinking: "No thinking models",
+  embedding: "No embedding models",
+  cloud: "No cloud-only models",
 };
 
 // ============================================================
@@ -194,11 +224,14 @@ function toRemoteModel(model: ModelInfo): RemoteModel {
   const baseDescription = model.displayName ?? model.name;
   const extraDescription = typeof meta.description === "string" ? meta.description : "";
   const description = extraDescription ? `${baseDescription} - ${extraDescription}` : baseDescription;
+  const tags = capabilitiesToDisplayTags(model.capabilities);
+  const cloud = meta.cloud === true || getCatalogSize(model) === "Cloud (API only)";
+  if (cloud) tags.push("cloud");
 
   return {
     name: model.name,
     description,
-    capabilities: capabilitiesToDisplayTags(model.capabilities),
+    capabilities: tags,
     size: getCatalogSize(model),
     provider: getProvider(modelId),
   };
@@ -227,19 +260,88 @@ async function fetchRemoteModels(): Promise<RemoteModel[]> {
   }
 }
 
-/** Filter models based on ViewFilter */
-function filterByView(models: DisplayModel[], filter: ViewFilter): DisplayModel[] {
+/** Filter models based on current mode */
+function filterByMode(models: DisplayModel[], filter: FilterMode): DisplayModel[] {
   switch (filter) {
-    case "all": return models;
-    case "local": return models.filter((m) => m.isLocal);
-    // Downloading: show active + cancelled/failed (to see partial progress)
-    case "downloading": return models.filter((m) =>
-      m.downloadStatus === "downloading" ||
-      m.downloadStatus === "cancelled" ||
-      m.downloadStatus === "failed"
-    );
-    // Available: includes downloading models (they stay visible until local)
-    case "available": return models.filter((m) => !m.isLocal);
+    case "all":
+      return models;
+    case "installed":
+      return models.filter((m) => m.isLocal);
+    case "downloading":
+      return models.filter((m) =>
+        m.downloadStatus === "downloading" ||
+        m.downloadStatus === "cancelled" ||
+        m.downloadStatus === "failed"
+      );
+    case "available":
+      return models.filter((m) => !m.isLocal);
+    case "tools":
+    case "vision":
+    case "thinking":
+    case "embedding":
+    case "cloud":
+      return models.filter((m) => m.capabilities?.includes(filter));
+  }
+}
+
+type ModelStatusKind =
+  | "pending-delete"
+  | "active"
+  | "installed"
+  | "downloading"
+  | "cancelled"
+  | "failed"
+  | "available";
+
+function getModelStatusKind(
+  model: DisplayModel,
+  isActive: boolean,
+  isPendingDelete: boolean
+): ModelStatusKind {
+  if (isPendingDelete) return "pending-delete";
+  if (isActive) return "active";
+  if (model.isLocal) return "installed";
+  if (model.downloadStatus === "downloading") return "downloading";
+  if (model.downloadStatus === "cancelled") return "cancelled";
+  if (model.downloadStatus === "failed") return "failed";
+  return "available";
+}
+
+function getModelStatusLabel(kind: ModelStatusKind): string {
+  switch (kind) {
+    case "pending-delete":
+      return "pending delete";
+    case "active":
+      return "default";
+    case "installed":
+      return "installed";
+    case "downloading":
+      return "downloading";
+    case "cancelled":
+      return "cancelled";
+    case "failed":
+      return "failed";
+    case "available":
+      return "available";
+  }
+}
+
+function getStatusIndicator(kind: ModelStatusKind): string {
+  switch (kind) {
+    case "pending-delete":
+      return "? ";
+    case "active":
+      return "* ";
+    case "installed":
+      return "✓ ";
+    case "downloading":
+      return "↓ ";
+    case "cancelled":
+      return "⊘ ";
+    case "failed":
+      return "✗ ";
+    case "available":
+      return "☁ ";
   }
 }
 
@@ -266,31 +368,27 @@ function ModelItem({
   // Format capabilities
   const caps = model.capabilities?.map((c) => `[${c}]`).join("") || "";
 
-  // Indicator based on downloadStatus (pending delete takes priority)
-  let indicator = "  ";
+  const statusKind = getModelStatusKind(model, isActive, isPendingDelete);
+  const indicator = getStatusIndicator(statusKind);
   let indicatorColor = color("muted");
-  if (isPendingDelete) {
-    indicator = "? "; // pending delete confirmation
-    indicatorColor = color("error");
-  } else if (isActive) {
-    indicator = "* ";
-    indicatorColor = color("success");
-  } else if (model.isLocal) {
-    indicator = "✓ ";
-    indicatorColor = color("success");
-  } else if (model.downloadStatus === "downloading") {
-    indicator = "↓ ";
-    indicatorColor = color("warning");
-  } else if (model.downloadStatus === "cancelled") {
-    indicator = "⊘ "; // cancelled indicator
-    indicatorColor = color("error");
-  } else if (model.downloadStatus === "failed") {
-    indicator = "✗ ";
-    indicatorColor = color("error");
-  } else {
-    indicator = "☁ ";
-    indicatorColor = color("muted");
+  switch (statusKind) {
+    case "pending-delete":
+    case "cancelled":
+    case "failed":
+      indicatorColor = color("error");
+      break;
+    case "active":
+    case "installed":
+      indicatorColor = color("success");
+      break;
+    case "downloading":
+      indicatorColor = color("warning");
+      break;
+    case "available":
+      indicatorColor = color("muted");
+      break;
   }
+  const statusTag = `[${getModelStatusLabel(statusKind)}]`;
 
   // Name (truncate if needed)
   const displayName = model.name.length > 24 ? model.name.slice(0, 21) + "..." : model.name.padEnd(24);
@@ -356,6 +454,8 @@ function ModelItem({
         <Text> </Text>
         {sizeText}
         <Text> </Text>
+        <Text dimColor>{statusTag}</Text>
+        <Text> </Text>
         <Text color={color("accent")}>{providerTag}</Text>
         <Text dimColor>{caps}</Text>
       </Text>
@@ -371,7 +471,7 @@ export function ModelBrowser({
   onClose,
   onSelectModel,
   currentModel,
-  endpoint = "http://127.0.0.1:11434",
+  endpoint = DEFAULT_OLLAMA_ENDPOINT,
 }: ModelBrowserProps): React.ReactElement {
   const { color } = useTheme();
   const { tasks, cancel } = useTaskManager();
@@ -380,13 +480,15 @@ export function ModelBrowser({
   // State
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
   const [remoteModels, setRemoteModels] = useState<RemoteModel[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selection, setSelection] = useState<{ index: number; name: string | null }>({ index: 0, name: null });
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCursor, setSearchCursor] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
 
   // Fetch local models - 100% SSOT via ai.models API (no fallback)
   const fetchModels = useCallback(async () => {
@@ -484,6 +586,9 @@ export function ModelBrowser({
       const isLocal = !!local;
       const task = findRelevantTask(model.name, isLocal);
       const downloadStatus = getDownloadStatus(task);
+      const capabilities = model.capabilities && model.capabilities.length > 0
+        ? model.capabilities.filter((cap) => !isLocal || cap !== "cloud")
+        : undefined;
       result.push({
         name: model.name,
         isLocal: !!local,
@@ -492,7 +597,7 @@ export function ModelBrowser({
         size: local?.size,
         sizeStr: model.size,
         description: model.description,
-        capabilities: model.capabilities,
+        capabilities,
         provider: model.provider || getProvider(model.name),
         progress: task?.progress,
       });
@@ -515,8 +620,8 @@ export function ModelBrowser({
       }
     }
 
-    // Apply view filter
-    let filtered = filterByView(result, viewFilter);
+    // Apply filter mode
+    let filtered = filterByMode(result, filterMode);
 
     // Filter by search within current view (name, provider, capabilities, description)
     if (searchQuery) {
@@ -531,27 +636,104 @@ export function ModelBrowser({
     }
 
     return filtered;
-  }, [localModels, remoteModels, tasks, searchQuery, viewFilter]);
+  }, [localModels, remoteModels, tasks, searchQuery, filterMode]);
 
-  // Clamp selection
+  // Keep selection stable by model name (avoid index jumps when list updates)
   useEffect(() => {
-    if (selectedIndex >= displayModels.length) {
-      setSelectedIndex(Math.max(0, displayModels.length - 1));
-    }
-  }, [displayModels.length, selectedIndex]);
+    setSelection((current) => {
+      if (displayModels.length === 0) {
+        if (current.index === 0 && current.name === null) return current;
+        return { index: 0, name: null };
+      }
+
+      if (current.name) {
+        const idx = displayModels.findIndex((m) => m.name === current.name);
+        if (idx >= 0) {
+          if (idx === current.index) return current;
+          return { index: idx, name: current.name };
+        }
+      }
+
+      const firstName = displayModels[0]?.name ?? null;
+      if (current.index === 0 && current.name === firstName) return current;
+      return { index: 0, name: firstName };
+    });
+  }, [displayModels]);
 
   // Keyboard handling
   useInput((input, key) => {
+    const clearStatus = () => {
+      if (statusMessage) setStatusMessage(null);
+    };
+
+    const resetSelection = () => {
+      setSelection({ index: 0, name: null });
+    };
+
+    const setSelectionByIndex = (index: number) => {
+      if (displayModels.length === 0) return;
+      const clamped = Math.max(0, Math.min(displayModels.length - 1, index));
+      const name = displayModels[clamped]?.name ?? null;
+      setSelection({ index: clamped, name });
+    };
+
+    const moveSelection = (delta: number) => {
+      if (displayModels.length === 0) return;
+      setSelection((current) => {
+        const nextIndex = Math.max(0, Math.min(displayModels.length - 1, current.index + delta));
+        const name = displayModels[nextIndex]?.name ?? null;
+        return { index: nextIndex, name };
+      });
+      setPendingDelete(null);
+      clearStatus();
+    };
+
+    const performSelectionAction = () => {
+      const model = displayModels[selection.index] ?? displayModels[0];
+      if (!model) return;
+      if (model.isLocal && onSelectModel) {
+        setIsSelecting(true);
+        setStatusMessage("Setting default model...");
+        void Promise.resolve(onSelectModel(model.name));
+        return;
+      }
+      if (model.isLocal && !onSelectModel) {
+        onClose();
+        return;
+      }
+      if (!model.isLocal && !model.isDownloading) {
+        try {
+          manager.pullModel(model.name);
+        } catch {
+          // Already downloading - ignore
+        }
+      }
+    };
+
+    if (isSelecting) return;
+
     // Search mode
     if (isSearching) {
       if (key.escape) {
         setIsSearching(false);
         setSearchQuery("");
         setSearchCursor(0);
+        clearStatus();
         return;
       }
       if (key.return) {
         setIsSearching(false);
+        clearStatus();
+        performSelectionAction();
+        return;
+      }
+
+      if (key.upArrow) {
+        moveSelection(-1);
+        return;
+      }
+      if (key.downArrow) {
+        moveSelection(1);
         return;
       }
 
@@ -566,55 +748,63 @@ export function ModelBrowser({
 
     // Navigation (clears pending delete)
     if (key.upArrow || input === "k") {
-      setSelectedIndex((i: number) => Math.max(0, i - 1));
-      setPendingDelete(null);
+      moveSelection(-1);
     }
     if (key.downArrow || input === "j") {
-      setSelectedIndex((i: number) => Math.min(displayModels.length - 1, i + 1));
-      setPendingDelete(null);
+      moveSelection(1);
     }
 
     // Tab cycles filter forward (clears pending delete)
     // Use functional update to avoid stale closure issues
     if (key.tab && !key.shift) {
-      setViewFilter((current: ViewFilter) => {
+      setFilterMode((current: FilterMode) => {
         const idx = FILTER_CYCLE.indexOf(current);
         return FILTER_CYCLE[(idx + 1) % FILTER_CYCLE.length];
       });
-      setSelectedIndex(0);
+      resetSelection();
       setPendingDelete(null);
+      clearStatus();
       return;
     }
 
     // Shift+Tab cycles filter backward (clears pending delete)
     // Use functional update to avoid stale closure issues
     if (key.tab && key.shift) {
-      setViewFilter((current: ViewFilter) => {
+      setFilterMode((current: FilterMode) => {
         const idx = FILTER_CYCLE.indexOf(current);
         return FILTER_CYCLE[(idx - 1 + FILTER_CYCLE.length) % FILTER_CYCLE.length];
       });
-      setSelectedIndex(0);
+      resetSelection();
       setPendingDelete(null);
+      clearStatus();
       return;
     }
 
     // 'i' opens model info page in browser
-    if (input === "i" && displayModels[selectedIndex]) {
-      const url = getOllamaUrl(displayModels[selectedIndex].name);
+    if (input === "i" && displayModels[selection.index]) {
+      const url = getOllamaUrl(displayModels[selection.index].name);
       openUrl(url);
       return;
     }
 
     // 'd' - Delete local model (with confirmation)
-    if (input === "d" && displayModels[selectedIndex]) {
-      const model = displayModels[selectedIndex];
+    if (input === "d" && displayModels[selection.index]) {
+      const model = displayModels[selection.index];
 
       // Only allow delete for local models (not downloading or remote)
       if (!model.isLocal || model.isDownloading) return;
 
+      const isActive = model.name === currentModel || `ollama/${model.name}` === currentModel;
+      if (isActive) {
+        setPendingDelete(null);
+        setStatusMessage("Can't delete active model. Select another model first.");
+        return;
+      }
+
       // First press: set pending confirmation
       if (pendingDelete !== model.name) {
         setPendingDelete(model.name);
+        clearStatus();
         return;
       }
 
@@ -642,37 +832,31 @@ export function ModelBrowser({
       setIsSearching(true);
       setSearchCursor(searchQuery.length); // Start at end of existing query
       setPendingDelete(null);
+      clearStatus();
     }
 
     // Select/Download/Resume
-    if (key.return && displayModels[selectedIndex]) {
-      const model = displayModels[selectedIndex];
-      if (model.isLocal && onSelectModel) {
-        // Local model: select as active
-        onSelectModel(model.name);
-        onClose();
-      } else if (!model.isLocal && !model.isDownloading) {
-        // Remote model (or cancelled/failed): start/restart download
-        try {
-          manager.pullModel(model.name);
-        } catch {
-          // Already downloading - ignore
-        }
-      }
+    if (key.return) {
+      performSelectionAction();
     }
 
     // Space to select as active
-    if (input === " " && displayModels[selectedIndex]) {
-      const model = displayModels[selectedIndex];
+    if (input === " " && displayModels[selection.index]) {
+      const model = displayModels[selection.index];
       if (model.isLocal && onSelectModel) {
-        onSelectModel(model.name);
+        setIsSelecting(true);
+        setStatusMessage("Setting default model...");
+        void Promise.resolve(onSelectModel(model.name));
+        return;
+      }
+      if (model.isLocal && !onSelectModel) {
         onClose();
       }
     }
 
     // Cancel download ('x' key)
-    if (input === "x" && displayModels[selectedIndex]) {
-      const model = displayModels[selectedIndex];
+    if (input === "x" && displayModels[selection.index]) {
+      const model = displayModels[selection.index];
       if (model.isDownloading) {
         // Filter to model-pull tasks first, then find matching name
         const pullTasks = tasks.filter(isModelPullTask);
@@ -695,7 +879,7 @@ export function ModelBrowser({
       }
 
       // 2. Cancel download if selected model is downloading
-      const selectedModel = displayModels[selectedIndex];
+      const selectedModel = displayModels[selection.index];
       if (selectedModel?.isDownloading) {
         const pullTasks = tasks.filter(isModelPullTask);
         const task = pullTasks.find(
@@ -714,18 +898,36 @@ export function ModelBrowser({
 
   // Calculate visible window (show max 8 items)
   const maxVisible = 8;
-  const startIdx = Math.max(0, Math.min(selectedIndex - 3, displayModels.length - maxVisible));
+  const startIdx = Math.max(0, Math.min(selection.index - 3, displayModels.length - maxVisible));
   const visibleModels = displayModels.slice(startIdx, startIdx + maxVisible);
   const hasMore = displayModels.length > startIdx + maxVisible;
 
   // Calculate next filter for footer hint
-  const nextFilterIdx = (FILTER_CYCLE.indexOf(viewFilter) + 1) % FILTER_CYCLE.length;
+  const nextFilterIdx = (FILTER_CYCLE.indexOf(filterMode) + 1) % FILTER_CYCLE.length;
   const nextFilter = FILTER_LABELS[FILTER_CYCLE[nextFilterIdx]];
 
   return (
     <Box flexDirection="column" borderStyle="single" paddingX={1}>
       <Box justifyContent="space-between">
-        <Text bold color={color("primary")}> Models: {FILTER_LABELS[viewFilter as ViewFilter]} ({displayModels.length}) </Text>
+        <Text bold color={color("primary")}>
+          Models: {FILTER_LABELS[filterMode]} ({displayModels.length})
+        </Text>
+        <Text dimColor>{currentModel ? `Default: ${currentModel}` : "Default: none"}</Text>
+      </Box>
+      <Box justifyContent="space-between">
+        <Box>
+          {FILTER_CYCLE.map((mode, idx) => (
+            <Text key={mode}>
+              <Text
+                color={mode === filterMode ? color("accent") : color("muted")}
+                inverse={mode === filterMode}
+              >
+                {FILTER_LABELS[mode]}
+              </Text>
+              {idx < FILTER_CYCLE.length - 1 ? <Text dimColor> · </Text> : null}
+            </Text>
+          ))}
+        </Box>
         <Text dimColor>Ctrl+B: Tasks</Text>
       </Box>
 
@@ -737,7 +939,7 @@ export function ModelBrowser({
             <Text>{searchQuery.slice(0, searchCursor)}</Text>
             <Text inverse>{searchQuery[searchCursor] || " "}</Text>
             <Text>{searchQuery.slice(searchCursor + 1)}</Text>
-            <Text dimColor>  (Esc cancel, Enter confirm)</Text>
+            <Text dimColor>  (Esc cancel, Enter select)</Text>
           </>
         ) : searchQuery ? (
           <Text>{searchQuery}</Text>
@@ -745,14 +947,32 @@ export function ModelBrowser({
           <Text dimColor>/ to search</Text>
         )}
       </Box>
-      <Text> </Text>
+      <Box>
+        <Text dimColor>Selected: </Text>
+        {displayModels[selection.index] ? (
+          (() => {
+            const selected = displayModels[selection.index];
+            const isActive = selected.name === currentModel || `ollama/${selected.name}` === currentModel;
+            const isPending = pendingDelete === selected.name;
+            const status = getModelStatusLabel(getModelStatusKind(selected, isActive, isPending));
+            return (
+              <>
+                <Text>{selected.name}</Text>
+                <Text dimColor> [{status}]</Text>
+              </>
+            );
+          })()
+        ) : (
+          <Text dimColor>None</Text>
+        )}
+      </Box>
 
       {/* Loading */}
       {loading && <Text dimColor>Loading...</Text>}
 
       {/* Model list */}
       {!loading && displayModels.length === 0 && (
-        <Text dimColor>  {FILTER_EMPTY[viewFilter as ViewFilter]}</Text>
+        <Text dimColor>  {FILTER_EMPTY[filterMode]}</Text>
       )}
 
       {!loading &&
@@ -760,12 +980,12 @@ export function ModelBrowser({
           const actualIndex = startIdx + i;
           return (
             <Box key={model.name}>
-              <ModelItem
-                model={model}
-                isSelected={actualIndex === selectedIndex}
-                isActive={model.name === currentModel || `ollama/${model.name}` === currentModel}
-                isPendingDelete={pendingDelete === model.name}
-              />
+                <ModelItem
+                  model={model}
+                  isSelected={actualIndex === selection.index}
+                  isActive={model.name === currentModel || `ollama/${model.name}` === currentModel}
+                  isPendingDelete={pendingDelete === model.name}
+                />
             </Box>
           );
         })}
@@ -777,8 +997,12 @@ export function ModelBrowser({
       <Text> </Text>
       {pendingDelete ? (
         <Text color={color("error")}>  Press d again to delete "{pendingDelete}", Esc to cancel</Text>
+      ) : statusMessage ? (
+        <Text color={color("warning")}>  {statusMessage}</Text>
       ) : (
-        <Text dimColor>  ↑↓ nav  Tab → {nextFilter}  d del  i info  / search  ↵ select  x cancel  Esc back</Text>
+        <Text dimColor>
+          {"  ↑↓ nav  Tab → "}{nextFilter}{"  d del  i info  / search  ↵ select  x cancel  Esc back"}
+        </Text>
       )}
     </Box>
   );

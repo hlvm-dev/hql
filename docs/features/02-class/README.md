@@ -1,24 +1,21 @@
 # Class Feature Documentation
 
-**Implementation:** Transpiler class syntax transformers
-**Coverage:** ✅ 100%
+**Implementation:** `src/hql/transpiler/syntax/class.ts`, `src/hql/transpiler/pipeline/ir-to-typescript.ts`
 
 ## Overview
 
-HQL v2.0 provides full object-oriented programming (OOP) support with classes:
+HQL classes compile to JavaScript ES6 class syntax. Supported features:
 
-1. **Class definitions** - Define reusable object templates
-2. **Constructors** - Initialize instance state
-3. **Methods** - Instance functions with `this` binding
-4. **Fields** - Mutable (`var`, `let`) and immutable (`const`) properties
-5. **Static members** - Class-level properties and methods (v2.0)
-6. **Private fields** - Encapsulated state with `#` prefix (v2.0)
-7. **Getters/Setters** - Computed property access (v2.0)
-8. **Multiple instances** - Independent object state
-9. **Default parameters** - Methods with optional arguments
-10. **Property access** - Dot notation for members
-
-All classes compile to JavaScript ES6 class syntax.
+1. **Class definitions** with `(class Name ...)`
+2. **Constructors** with `(constructor [params] body)`
+3. **Methods** with `(fn name [params] body)`
+4. **Fields** with `(var name val)`, `(let name val)`, `(const name val)`
+5. **Static members** with `(static var/let/const/fn ...)`
+6. **Private fields** with `(#fieldName value)`
+7. **Getters/Setters** with `(getter name [] body)` / `(setter name [param] body)`
+8. **Inheritance** with `extends` and `(super args...)`
+9. **Generic type parameters** with `(class Box<T> ...)`
+10. **Default parameters** on methods
 
 ## Syntax
 
@@ -41,6 +38,8 @@ All classes compile to JavaScript ES6 class syntax.
 
 ### Constructors
 
+Constructor parameters can use either bracket `[x y]` or parenthesis `(x y)` syntax. Both are supported by the parser.
+
 ```lisp
 // Single parameter
 (class Counter
@@ -56,7 +55,8 @@ All classes compile to JavaScript ES6 class syntax.
 
 // Empty constructor
 (class Empty
-  (constructor []))
+  (constructor []
+    (= this.val 42)))
 
 // Constructor with computation
 (class Circle
@@ -64,6 +64,12 @@ All classes compile to JavaScript ES6 class syntax.
     (do
       (= this.radius radius)
       (= this.diameter (* 2 radius)))))
+
+// Multiple body expressions without do-block
+(class Point
+  (constructor (x y)
+    (= this.x x)
+    (= this.y y)))
 ```
 
 ### Methods
@@ -79,11 +85,11 @@ All classes compile to JavaScript ES6 class syntax.
 
 // Method with parameters
 (class Calculator
-  (constructor []
-    (= this.value 0))
+  (constructor [base]
+    (= this.base base))
 
-  (fn add [x y]
-    (+ x y)))
+  (fn add [x]
+    (+ this.base x)))
 
 // Method accessing this properties
 (class Person
@@ -94,40 +100,51 @@ All classes compile to JavaScript ES6 class syntax.
     (+ "Hello, " this.name)))
 
 // Method calling another method
-(class Counter
-  (constructor []
-    (= this.count 0))
+(class Person
+  (constructor [name]
+    (= this.name name))
 
-  (fn increment []
-    (= this.count (+ this.count 1)))
+  (fn getName []
+    this.name)
 
-  (fn incrementTwice []
-    (do
-      (this.increment)
-      (this.increment))))
+  (fn greet []
+    (+ "Hello, " (this.getName))))
 ```
+
+Methods have implicit return: the last expression in the body is automatically returned.
 
 ### Field Declarations
 
+Fields are declared with `var`, `let`, or `const`. Both `var` and `let` produce mutable fields; `const` is tracked as immutable in the IR but does not emit `readonly` in the generated code (all three produce the same field initializer syntax at runtime).
+
 ```lisp
 // Mutable field (var)
-(class Counter
-  (var count 0)      // with default value
-  (var uninitialized) // defaults to undefined
-
-  (constructor []
-    (= this.count 0)))
-
-// Immutable field (const) - must have default value
 (class Config
-  (const maxSize 100)
+  (var setting)
 
-  (constructor []))
+  (constructor [val]
+    (= this.setting val)))
 
-// Mixed mutable and immutable fields
+// Field with default value
+(class Person
+  (var count 0)
+
+  (constructor [name]
+    (do
+      (= this.name name)
+      (= this.count (+ this.count 1)))))
+
+// Const field - must have default value
+// Note: const is tracked in the IR but does not emit `readonly` in the generated code.
+// At runtime, const fields can still be reassigned (enforcement is semantic only).
+(class Constants
+  (const PI 3.14159)
+  (const E 2.71828))
+
+// Mixed const and mutable fields
 (class Account
-  (const bankName "MyBank")  // immutable constant
-  (var balance 0)            // mutable state
+  (const bankName "MyBank")  // const (semantic-only immutability)
+  (var balance 0)            // mutable (var)
 
   (constructor [accNum initialBalance]
     (do
@@ -135,7 +152,7 @@ All classes compile to JavaScript ES6 class syntax.
       (= this.balance initialBalance))))
 ```
 
-### Static Members (v2.0)
+### Static Members
 
 ```lisp
 // Static variable
@@ -148,27 +165,33 @@ All classes compile to JavaScript ES6 class syntax.
   (static fn getCount []
     Counter.count))
 
-(new Counter)
-(new Counter)
-(Counter.getCount)  // => 2
-
 // Static constants
 (class MathUtils
   (static let PI 3.14159)
-  (static let E 2.71828)
 
   (static fn circleArea [r]
     (* MathUtils.PI r r)))
 
-(MathUtils.circleArea 5)  // => 78.53975
+// Mixed static and instance members
+(class Counter
+  (static var count 0)
+  (var value 1)
+  (static fn increment []
+    (= Counter.count (+ Counter.count 1)))
+  (fn getValue []
+    this.value))
 ```
 
-### Private Fields (v2.0)
+The codegen emits `static fieldName = value;` inline. After TypeScript compilation (downlevel), static fields with initial values become hoisted assignments (e.g., `Counter.count = 0;` after the class declaration).
+
+### Private Fields
+
+Private fields use the `#` prefix shorthand syntax.
 
 ```lisp
-// Private fields start with #
+// Private field with default value
 (class BankAccount
-  (#balance 0)  // private field
+  (#balance 0)
 
   (constructor [initial]
     (= this.#balance initial))
@@ -179,13 +202,17 @@ All classes compile to JavaScript ES6 class syntax.
   (fn getBalance []
     this.#balance))
 
-(let account (new BankAccount 100))
-(.deposit account 50)
-(.getBalance account)  // => 150
-// account.#balance     ERROR: Private field
+// Mixed private and public fields
+(class User
+  (#password "secret")
+  (var username "guest"))
 ```
 
-### Getters and Setters (v2.0)
+Private fields are always mutable. They compile to JavaScript `#`-prefixed private fields, which TypeScript then compiles to WeakMap patterns.
+
+### Getters and Setters
+
+The keywords are `getter` and `setter` (not `get`/`set`, to avoid conflicts with macros).
 
 ```lisp
 // Getter - computed property access
@@ -198,38 +225,116 @@ All classes compile to JavaScript ES6 class syntax.
   (getter radius []
     this._radius)
 
-  (getter diameter []
-    (* 2 this._radius))
-
   (getter area []
-    (* 3.14159 this._radius this._radius)))
+    (* Math.PI this._radius this._radius)))
 
 (let c (new Circle 5))
-c.radius    // => 5 (calls getter)
-c.diameter  // => 10
-c.area      // => 78.53975
+c.radius  // => 5 (calls getter)
+c.area    // => ~78.54
 
 // Setter - property assignment
-(class Temperature
-  (var _celsius 0)
+(class Circle
+  (var _radius 0)
 
-  (getter celsius []
-    this._celsius)
+  (setter radius [value]
+    (= this._radius value)))
 
-  (setter celsius [value]
-    (= this._celsius value))
+// Getter + Setter pair
+(class Rectangle
+  (var _width 0)
+  (var _height 0)
 
-  (getter fahrenheit []
-    (+ (* this._celsius 1.8) 32))
+  (getter width []
+    this._width)
+  (setter width [value]
+    (= this._width value))
+  (getter height []
+    this._height)
+  (setter height [value]
+    (= this._height value)))
+```
 
-  (setter fahrenheit [value]
-    (= this._celsius (/ (- value 32) 1.8))))
+Getters must have zero parameters. Setters must have exactly one parameter. Getters have implicit return on the last expression.
 
-(let t (new Temperature))
-(= t.celsius 100)
-t.fahrenheit  // => 212
-(= t.fahrenheit 32)
-t.celsius     // => 0
+### Inheritance
+
+```lisp
+// Class inheritance with extends
+(class Animal
+  (constructor [name]
+    (= this.name name))
+  (fn speak []
+    (+ this.name " makes a sound")))
+
+(class Dog extends Animal
+  (constructor [name]
+    (super name))
+  (fn speak []
+    (+ this.name " barks")))
+
+(var d (new Dog "Rex"))
+(d.speak)  // => "Rex barks"
+
+// Inherited methods
+(class Base
+  (constructor [x]
+    (= this.x x))
+  (fn getX []
+    this.x))
+
+(class Child extends Base
+  (constructor [x y]
+    (super x)
+    (= this.y y))
+  (fn getY []
+    this.y))
+
+(var c (new Child 10 20))
+(c.getX)  // => 10 (inherited from Base)
+(c.getY)  // => 20
+
+// instanceof works through the chain
+(instanceof c Child)  // => true
+(instanceof c Base)   // => true
+```
+
+`super` calls the parent constructor. Method overriding works by defining a method with the same name in the child class. `super.method()` calls are not yet supported (only `(super args...)` for constructor delegation).
+
+### Generic Type Parameters
+
+```lisp
+// Class with type parameters (TypeScript output only)
+(class Box<T>
+  (constructor [value:T]
+    (= this.value value)))
+```
+
+Type parameters are extracted from the class name and emitted in the TypeScript output.
+
+### Default Parameters
+
+Methods support default parameter values using `=` syntax:
+
+```lisp
+(class Calculator
+  (constructor [baseValue]
+    (= this.baseValue baseValue))
+
+  (fn multiply [x = 10 y = 2]
+    (* x y)))
+
+(var calc (new Calculator 5))
+(calc.multiply)       // => 20 (all defaults)
+(calc.multiply 5)     // => 10 (5 * 2)
+(calc.multiply 7 3)   // => 21 (7 * 3)
+```
+
+JSON map syntax for defaults is also supported:
+
+```lisp
+(class Calculator
+  (fn multiply {"x": 10, "y": 2}
+    (* x y)))
 ```
 
 ### Property Access and Modification
@@ -237,7 +342,7 @@ t.celsius     // => 0
 ```lisp
 // Dot notation access
 (var p (new Person "Alice" 25))
-p.name  // → "Alice"
+p.name  // => "Alice"
 
 // Modify property
 (= p.name "Bob")
@@ -246,32 +351,11 @@ p.name  // → "Alice"
 (= p.email "bob@example.com")
 ```
 
-### Default Parameters
+## Compilation
 
-```lisp
-// Methods with JSON map parameters (defaults)
-(class Calculator
-  (constructor [baseValue]
-    (= this.baseValue baseValue))
+### Class to JavaScript
 
-  (fn multiply {"x": 10, "y": 2}
-    (* x y)))
-
-// Use all defaults
-(calc.multiply)  // → 20
-
-// Override first default
-(calc.multiply {"x": 5})  // → 10 (5 * 2)
-
-// Override all defaults
-(calc.multiply {"x": 7, "y": 3})  // → 21
-```
-
-## Implementation Details
-
-### Class Compilation
-
-**HQL Source:**
+**HQL:**
 
 ```lisp
 (class Person
@@ -284,35 +368,19 @@ p.name  // → "Alice"
     (+ "Hello, " this.name)))
 ```
 
-**Compiled JavaScript:**
+**Generated JavaScript:**
 
 ```javascript
 class Person {
   constructor(name, age) {
-    this.name = name//
-    this.age = age//
+    this.name = name;
+    this.age = age;
   }
 
   greet() {
-    return "Hello, " + this.name//
+    return "Hello, " + this.name;
   }
 }
-```
-
-### Instance Creation
-
-**HQL:**
-
-```lisp
-(var p (new Person "Alice" 30))
-(p.greet)  // → "Hello, Alice"
-```
-
-**Compiled:**
-
-```javascript
-const p = new Person("Alice", 30)//
-p.greet()// // → "Hello, Alice"
 ```
 
 ### Field Initialization
@@ -325,614 +393,61 @@ p.greet()// // → "Hello, Alice"
   (let maxCount 100))
 ```
 
-**Compiled:**
+**Generated JavaScript:**
 
 ```javascript
 class Counter {
-  count = 0//
-  maxCount = 100//
+  count = 0;
+  maxCount = 100;
 }
 ```
-
-### Method This Binding
-
-**HQL:**
-
-```lisp
-(fn increment []
-  (= this.count (+ this.count 1)))
-```
-
-**Compiled:**
-
-```javascript
-increment() {
-  this.count = this.count + 1//
-}
-```
-
-### Characteristics
-
-**Class Features:**
-
-- ✅ ES6 class syntax output
-- ✅ Constructor with parameters
-- ✅ Instance methods with `this` binding
-- ✅ Field declarations (var/let)
-- ✅ Property access via dot notation
-- ✅ Dynamic property addition
-- ✅ Multiple independent instances
-- ✅ Method default parameters
-
-**Method Features:**
-
-- ✅ Access instance properties (`this.prop`)
-- ✅ Call other methods (`this.method()`)
-- ✅ Modify instance state (`(= this.prop value)`)
-- ✅ Return computed values
-- ✅ Return self for chaining
-- ✅ Default parameter values
-
-## Features Covered
-
-✅ Empty class definition ✅ Simple class with constructor ✅ Constructor with
-single parameter ✅ Constructor with multiple parameters ✅ Constructor with
-computations ✅ Empty constructor ✅ Method without parameters ✅ Method with
-single parameter ✅ Method with multiple parameters ✅ Method calling another
-method ✅ Method accessing instance properties ✅ Method with expression body ✅
-Method with return statement ✅ Mutable field declaration (var) ✅ Immutable
-field declaration (let) ✅ Var field with default value ✅ Let field with
-default value ✅ Mixed var and let fields ✅ Property access via dot notation ✅
-Modify property after creation ✅ Add new property after creation ✅ Multiple
-independent instances (first) ✅ Multiple independent instances (second) ✅
-Method with default parameter values ✅ Method with one default used ✅ Method
-with no defaults used ✅ Method modifies state and returns self ✅ Complex
-method using multiple properties ✅ Constructor with computation ✅ Method
-accessing computed property ✅ Top-level class with helper call ✅ Using this
-in nested expressions ✅ Method returns object literal
-
-## Test Coverage
-
-
-
-### Section 1: Basic Class Definition
-
-- Empty class
-- Simple class with constructor
-
-### Section 2: Constructor Behavior
-
-- Single parameter
-- Multiple parameters
-- Computations in constructor
-- Empty constructor
-
-### Section 3: Methods
-
-- Without parameters
-- With single parameter
-- With multiple parameters
-- Calling other methods
-- Accessing instance properties
-- Expression body
-- Return statement
-- Various signatures
-
-### Section 4: Field Declarations
-
-- Mutable field (var, let)
-- Immutable field (const)
-- Fields with default values
-- Mixed mutable and immutable fields
-
-### Section 5: Property Access & Modification
-
-- Dot notation access
-- Modify existing property
-- Add new property
-
-### Section 6: Multiple Instances
-
-- First instance independence
-- Second instance independence
-
-### Section 7: Method Default Parameters
-
-- All defaults used
-- One default used
-- No defaults used
-
-### Section 8: Complex Scenarios
-
-- Method returns self
-- Multi-property computation
-- Constructor computation
-- Computed property access
-
-## Use Cases
-
-### 1. Data Models
-
-```lisp
-// User data model
-(class User
-  (constructor [id name email]
-    (do
-      (= this.id id)
-      (= this.name name)
-      (= this.email email)))
-
-  (fn getDisplayName []
-    (+ this.name " (" this.email ")")))
-
-(var user (new User 1 "Alice" "alice@example.com"))
-(user.getDisplayName)  // → "Alice (alice@example.com)"
-```
-
-### 2. State Management
-
-```lisp
-// Counter with increment/decrement
-(class Counter
-  (constructor [initial]
-    (= this.count initial))
-
-  (fn increment []
-    (= this.count (+ this.count 1)))
-
-  (fn decrement []
-    (= this.count (- this.count 1)))
-
-  (fn reset []
-    (= this.count 0)))
-
-(var counter (new Counter 10))
-(counter.increment)
-(counter.increment)
-counter.count  // → 12
-```
-
-### 3. Calculations
-
-```lisp
-// Rectangle with area and perimeter
-(class Rectangle
-  (constructor [width height]
-    (do
-      (= this.width width)
-      (= this.height height)))
-
-  (fn area []
-    (* this.width this.height))
-
-  (fn perimeter []
-    (* 2 (+ this.width this.height))))
-
-(var rect (new Rectangle 5 10))
-(rect.area)       // → 50
-(rect.perimeter)  // → 30
-```
-
-### 4. Configuration Objects
-
-```lisp
-// Config with defaults
-(class AppConfig
-  (let defaultPort 3000)
-  (let defaultHost "localhost")
-  (var port 3000)
-  (var host "localhost")
-
-  (constructor [customPort customHost]
-    (do
-      (= this.port customPort)
-      (= this.host customHost)))
-
-  (fn getUrl []
-    (+ "http://" this.host ":" this.port)))
-
-(var config (new AppConfig 8080 "example.com"))
-(config.getUrl)  // → "http://example.com:8080"
-```
-
-### 5. Builder Pattern
-
-```lisp
-// Builder for complex objects
-(class UserBuilder
-  (constructor []
-    (do
-      (= this.data {})))
-
-  (fn setName [name]
-    (do
-      (= this.data.name name)
-      this))  // return self for chaining
-
-  (fn setAge [age]
-    (do
-      (= this.data.age age)
-      this))
-
-  (fn build []
-    this.data))
-
-(var builder (new UserBuilder))
-((builder.setName "Alice").setAge 30)
-(builder.build)  // → {name: "Alice", age: 30}
-```
-
-### 6. Banking/Financial
-
-```lisp
-// Bank account with transactions
-(class BankAccount
-  (let bankName "MyBank")
-  (var balance 0)
-
-  (constructor [accountNumber initialBalance]
-    (do
-      (= this.accountNumber accountNumber)
-      (= this.balance initialBalance)))
-
-  (fn deposit [amount]
-    (do
-      (= this.balance (+ this.balance amount))
-      this.balance))
-
-  (fn withdraw [amount]
-    (do
-      (= this.balance (- this.balance amount))
-      this.balance))
-
-  (fn getBalance []
-    this.balance))
-
-(var account (new BankAccount "ACC123" 1000))
-(account.deposit 500)   // → 1500
-(account.withdraw 200)  // → 1300
-```
-
-### 7. Geometry/Graphics
-
-```lisp
-// Circle with computed properties
-(class Circle
-  (constructor [radius]
-    (= this.radius radius))
-
-  (fn diameter []
-    (* 2 this.radius))
-
-  (fn circumference []
-    (* 2 3.14159 this.radius))
-
-  (fn area []
-    (* 3.14159 this.radius this.radius)))
-
-(var circle (new Circle 5))
-(circle.diameter)        // → 10
-(circle.circumference)   // → 31.4159
-(circle.area)            // → 78.53975
-```
-
-### 8. Task/Todo Management
-
-```lisp
-// Todo item with status
-(class TodoItem
-  (let STATUS_PENDING "pending")
-  (let STATUS_DONE "done")
-  (var status "pending")
-
-  (constructor [title description]
-    (do
-      (= this.title title)
-      (= this.description description)
-      (= this.status this.STATUS_PENDING)))
-
-  (fn markDone []
-    (do
-      (= this.status this.STATUS_DONE)
-      this))
-
-  (fn isDone []
-    (= this.status this.STATUS_DONE)))
-
-(var todo (new TodoItem "Write docs" "Complete README"))
-(todo.markDone)
-(todo.isDone)  // → true
-```
-
-## Comparison with Other Languages
-
-### JavaScript/TypeScript Classes
-
-```javascript
-// JavaScript ES6
-class Person {
-  constructor(name, age) {
-    this.name = name//
-    this.age = age//
-  }
-
-  greet() {
-    return "Hello, " + this.name//
-  }
-}
-
-// HQL (same concept)
-(class Person
-  (constructor [name age]
-    (do
-      (= this.name name)
-      (= this.age age)))
-
-  (fn greet []
-    (+ "Hello, " this.name)))
-```
-
-### Python Classes
-
-```python
-# Python
-class Person:
-    def __init__(self, name, age):
-        self.name = name
-        self.age = age
-
-    def greet(self):
-        return f"Hello, {self.name}"
-
-# HQL
-(class Person
-  (constructor [name age]
-    (do
-      (= this.name name)
-      (= this.age age)))
-
-  (fn greet []
-    (+ "Hello, " this.name)))
-```
-
-### Java Classes
-
-```java
-// Java
-public class Person {
-    private String name//
-    private int age//
-
-    public Person(String name, int age) {
-        this.name = name//
-        this.age = age//
-    }
-
-    public String greet() {
-        return "Hello, " + this.name//
-    }
-}
-
-// HQL (no access modifiers, but similar structure)
-(class Person
-  (constructor [name age]
-    (do
-      (= this.name name)
-      (= this.age age)))
-
-  (fn greet []
-    (+ "Hello, " this.name)))
-```
-
-## Related Specs
-
-- Complete class system specification available in project specs
-- Transpiler class transformers in syntax module
-- Method compilation in function transformer
-
-## Examples
-
-See `examples.hql` for executable real-world examples.
 
 ## Transform Pipeline
 
 ```
 HQL Class Syntax
-  ↓
+  |
 S-expression Parser
-  ↓
-Class Transformer
-  ↓
-Constructor/Method Transformers
-  ↓
-IR Nodes (ClassDeclaration, MethodDefinition)
-  ↓
-ESTree AST
-  ↓
+  |
+Class Transformer (class.ts)
+  |
+IRClassDeclaration { fields, constructor, methods, superClass?, typeParameters? }
+  |
+TypeScript Code Generator (ir-to-typescript.ts)
+  |
 JavaScript ES6 Classes
 ```
 
-## Best Practices
+## Test Coverage
 
-### Use Constructors to Initialize State
+Tests are in:
+- `tests/unit/organized/syntax/class/class.test.ts` — main class tests (constructors, methods, fields, inheritance, instanceof)
+- `tests/unit/syntax-class-constructor.test.ts` — constructor parameter edge cases
+- `tests/unit/static-class-members.test.ts` — static fields and methods
+- `tests/unit/private-fields.test.ts` — private field transpilation
+- `tests/unit/getters-setters.test.ts` — getter/setter transpilation
 
-```lisp
-// ✅ Good: Initialize in constructor
-(class Person
-  (constructor [name age]
-    (do
-      (= this.name name)
-      (= this.age age))))
+### What is tested
 
-// ❌ Avoid: Uninitialized state
-(class Person
-  (fn setName [n] (= this.name n)))
-```
+- Empty class definition
+- Constructor with 0, 1, or multiple parameters (both `()` and `[]` syntax)
+- Constructor with computation and do-blocks
+- Methods: no params, with params, accessing `this`, calling other methods, implicit return
+- Field declarations: `var`, `let`, `const`, with and without defaults, mixed
+- Property access via dot notation, modification, dynamic addition
+- Multiple independent instances
+- Method default parameters (all defaults, partial, none)
+- Static fields (`static var`, `static let`, `static const`)
+- Static methods (`static fn`)
+- Private fields (`#name value`)
+- Getters (`getter name [] body`)
+- Setters (`setter name [param] body`)
+- Inheritance: `extends`, `super`, inherited methods, `instanceof`
+- Method returns self (chaining pattern)
+- Object literal return from methods
 
-### Group Related Fields
+### What is NOT yet implemented
 
-```lisp
-// ✅ Good: Related fields together
-(class Rectangle
-  (var width 0)
-  (var height 0)
-  (let unit "px")
-
-  (constructor [w h]
-    (do
-      (= this.width w)
-      (= this.height h))))
-
-// ❌ Avoid: Scattered fields
-(class Rectangle
-  (var width 0)
-  (let unit "px")
-  (var height 0))
-```
-
-### Use let for Constants
-
-```lisp
-// ✅ Good: Constants with let
-(class Config
-  (let MAX_CONNECTIONS 100)
-  (let DEFAULT_TIMEOUT 5000))
-
-// ❌ Avoid: Mutable constants
-(class Config
-  (var MAX_CONNECTIONS 100))
-```
-
-### Return Self for Chaining
-
-```lisp
-// ✅ Good: Return this for fluent API
-(class Builder
-  (fn setName [n]
-    (do
-      (= this.name n)
-      this))
-
-  (fn setAge [a]
-    (do
-      (= this.age a)
-      this)))
-
-// Usage: chaining
-((builder.setName "Alice").setAge 30)
-```
-
-### Document Methods with Examples
-
-```lisp
-// ✅ Good: Clear method purpose
-(class Calculator
-  (fn add [x y]
-    // Returns sum of x and y
-    (+ x y)))
-```
-
-## Edge Cases Tested
-
-✅ Empty class definition ✅ Empty constructor ✅ Constructor with computation
-✅ Method with no parameters ✅ Method with multiple parameters ✅ Method with
-default parameters ✅ Method accessing instance properties ✅ Method calling
-other methods ✅ Method returning self ✅ Method returning object literal ✅
-Multiple independent instances ✅ Dynamic property addition ✅ Mutable and
-immutable fields ✅ Nested expressions with this ✅ Computed properties
-
-## Common Patterns
-
-### 1. Simple Data Container
-
-```lisp
-(class Point
-  (constructor [x y]
-    (do
-      (= this.x x)
-      (= this.y y))))
-```
-
-### 2. State Manager
-
-```lisp
-(class Store
-  (constructor []
-    (= this.state {}))
-
-  (fn setState [key value]
-    (= this.state[key] value))
-
-  (fn getState [key]
-    (get this.state key)))
-```
-
-### 3. Service Class
-
-```lisp
-(class UserService
-  (constructor [apiUrl]
-    (= this.apiUrl apiUrl))
-
-  (fn fetchUser [id]
-    (fetch (+ this.apiUrl "/users/" id))))
-```
-
-### 4. Stateful Component
-
-```lisp
-(class Counter
-  (var count 0)
-
-  (constructor []
-    (= this.count 0))
-
-  (fn increment []
-    (= this.count (+ this.count 1)))
-
-  (fn getValue []
-    this.count))
-```
-
-## Performance Considerations
-
-**Instance Creation:**
-
-- ✅ Lightweight ES6 class instances
-- ✅ Constructor runs once per instance
-- ✅ Methods shared via prototype
-
-**Memory:**
-
-- ✅ Methods not duplicated per instance
-- ✅ Fields stored per instance
-- ✅ Constants (let) can be optimized
-
-**Best Practices:**
-
-- Avoid complex computations in constructors
-- Use methods for computed properties
-- Share behavior via methods (prototype)
-- Use field declarations for simple defaults
-
-## Summary
-
-HQL's class system provides:
-
-- ✅ **Class definitions** (standard ES6 output)
-- ✅ **Constructors** (single or multi-param)
-- ✅ **Methods** (with this binding)
-- ✅ **Fields** (var/let for mutable, const for immutable)
-- ✅ **Property access** (dot notation)
-- ✅ **Multiple instances** (independent state)
-- ✅ **Default parameters** (optional method args)
-- ✅ **Method chaining** (return self pattern)
-- ✅ **Object literals** (complex return values)
-
-Choose the right pattern:
-
-- **Data models**: Constructor + getters
-- **State management**: Methods mutating instance
-- **Calculations**: Pure methods on immutable data
-- **Services**: Methods using injected dependencies
-- **Builders**: Fluent API with method chaining
+- `super.method()` calls (only `(super args...)` for constructor delegation)
+- Abstract classes are available via `(abstract-class ...)` (see type-system docs), but not via the `(class ...)` form
+- Decorators (IR type exists: `IRDecorator`, but no HQL syntax to produce it)

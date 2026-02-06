@@ -452,7 +452,7 @@ export const DATA_TOOLS: Record<string, ToolMetadata> = {
   aggregate_entries: {
     fn: aggregateEntries,
     description:
-      "Aggregate numeric values across items (sum, count, average, min, max).",
+      "Aggregate numeric values across items (sum, count, average, min, max).\n\nExample:\n- Total size: aggregate_entries({items: entries, operation: \"sum\", field: \"size\"})",
     args: {
       items: "any[] - Items to aggregate",
       operation: "string - Operation: sum, count, average, min, max",

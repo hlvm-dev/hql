@@ -40,7 +40,7 @@ function parseBaseType(typeToken: string): JsonSchemaProperty["type"] {
   return "string";
 }
 
-export function parseArgSpec(description: string): ParsedArgSpec {
+function parseArgSpec(description: string): ParsedArgSpec {
   const left = description.split(" - ")[0]?.trim() ?? "";
   const optional = left.includes(OPTIONAL_MARKER);
   const cleaned = left.replace(OPTIONAL_MARKER, "").trim();
@@ -104,6 +104,58 @@ function isTypeMatch(value: unknown, schema: JsonSchemaProperty): boolean {
     return value === null;
   }
   return typeof value === "string";
+}
+
+function coerceValue(value: unknown, schema: JsonSchemaProperty): unknown {
+  if (schema.type === "array") {
+    if (!Array.isArray(value)) return value;
+    if (!schema.items) return value;
+    return value.map((item) => coerceValue(item, schema.items!));
+  }
+
+  if ((schema.type === "number" || schema.type === "integer") && typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return value;
+    const numeric = Number(trimmed);
+    if (!Number.isFinite(numeric)) return value;
+    if (schema.type === "integer" && !Number.isInteger(numeric)) return value;
+    return numeric;
+  }
+
+  // Local models often serialize booleans as strings
+  if (schema.type === "boolean" && typeof value === "string") {
+    if (value === "true") return true;
+    if (value === "false") return false;
+  }
+
+  // Local models often serialize nested objects/arrays as JSON strings
+  if (schema.type === "object" && typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch { /* not valid JSON, return as-is */ }
+  }
+
+  return value;
+}
+
+export function coerceArgsToSchema(
+  args: unknown,
+  schema: JsonSchemaObject,
+): unknown {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) {
+    return args;
+  }
+
+  const record = args as Record<string, unknown>;
+  const coerced: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const prop = schema.properties[key];
+    coerced[key] = prop ? coerceValue(value, prop) : value;
+  }
+  return coerced;
 }
 
 export function validateArgsAgainstSchema(

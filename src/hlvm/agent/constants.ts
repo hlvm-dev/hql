@@ -82,8 +82,8 @@ export const SHELL_ALLOWLIST_L1: readonly RegExp[] = [
  * ```
  */
 export const DEFAULT_TIMEOUTS = {
-  /** LLM call timeout (default: 30000ms = 30 seconds) */
-  llm: 30000,
+  /** LLM call timeout (default: 60000ms = 60 seconds) */
+  llm: 60000,
 
   /** Tool execution timeout (default: 60000ms = 60 seconds) */
   tool: 60000,
@@ -196,6 +196,13 @@ export const RATE_LIMITS = {
 } as const;
 
 // ============================================================
+// Context Compaction
+// ============================================================
+
+/** Trigger LLM-powered context compaction at this fraction of maxTokens */
+export const COMPACTION_THRESHOLD = 0.8;
+
+// ============================================================
 // Context Defaults + Engine Profiles
 // ============================================================
 
@@ -206,13 +213,14 @@ export const RATE_LIMITS = {
  * - context.ts: ContextManager defaults
  */
 export const DEFAULT_CONTEXT_CONFIG = {
-  maxTokens: 12000,
-  maxResultLength: 5000,
+  maxTokens: 32000,
+  maxResultLength: 8000,
   preserveSystem: true,
   minMessages: 2,
-  overflowStrategy: "trim",
+  overflowStrategy: "summarize",
   summaryMaxChars: 1200,
   summaryKeepRecent: 4,
+  compactionThreshold: COMPACTION_THRESHOLD,
 } as const;
 
 /**
@@ -224,36 +232,36 @@ export const DEFAULT_CONTEXT_CONFIG = {
 export const ENGINE_PROFILES = {
   normal: {
     maxToolCalls: DEFAULT_MAX_TOOL_CALLS,
-    groundingMode: "strict",
+    groundingMode: "off",
     context: {
-      maxTokens: 8000,
-      overflowStrategy: "trim",
+      ...DEFAULT_CONTEXT_CONFIG,
     },
   },
   strict: {
     maxToolCalls: 5,
-    groundingMode: "strict",
+    groundingMode: "warn",
     context: {
-      maxTokens: 4000,
+      ...DEFAULT_CONTEXT_CONFIG,
+      maxTokens: 16000,
       overflowStrategy: "fail",
     },
   },
 } as const;
 
-type EngineProfileName = keyof typeof ENGINE_PROFILES;
-
 // ============================================================
-// Type Exports
+// Agent Defaults
 // ============================================================
 
-/**
- * Type-safe timeout keys
- */
-type TimeoutKey = keyof typeof DEFAULT_TIMEOUTS;
+/** Max session history messages to load (prevents context pollution) */
+export const MAX_SESSION_HISTORY = 10;
 
-/**
- * Type-safe timeout configuration
- */
-type TimeoutConfig = {
-  [K in TimeoutKey]?: number;
-};
+/** Default tool denylist for interactive ask mode */
+export const DEFAULT_TOOL_DENYLIST = [
+  "delegate_agent",
+  "memory_add",
+  "memory_search",
+  "memory_list",
+  "memory_clear",
+  "complete_task",
+] as const;
+

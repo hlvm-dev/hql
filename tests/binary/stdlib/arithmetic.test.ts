@@ -7,8 +7,6 @@ import {
   binaryTest, runExpression, assertSuccessWithOutput, USE_BINARY
 } from "../_shared/binary-helpers.ts";
 
-console.log(`Testing stdlib arithmetic in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // BASIC ARITHMETIC
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

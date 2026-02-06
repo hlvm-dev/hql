@@ -427,14 +427,11 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Error: Catch array access out of bounds",
+  name: "Error: Array access out of bounds returns undefined (no throw)",
   async fn() {
     const code = `
 (var arr [1 2 3])
-(try
-  (js-get arr 999)
-  (catch e
-    "out-of-bounds"))
+(js-get arr 999)
 `;
     const result = await run(code);
     assertEquals(result, undefined);
@@ -970,4 +967,3 @@ Deno.test({
   },
 });
 
-console.log("\n✅ All JS Interop tests created (59 tests)\n");

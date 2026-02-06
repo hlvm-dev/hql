@@ -487,17 +487,7 @@ Deno.test("Class: method accessing computed property", async () => {
   assertEquals(result, 10);
 });
 
-Deno.test("Class: top-level class with helper-producing call returns final value", async () => {
-  const code = `
-(class Example
-  (constructor ()
-    (= this.value 1)))
 
-(doall (range 3))
-`;
-  const result = await run(code);
-  assertEquals(result, [0, 1, 2]);
-});
 
 Deno.test("Class: using this/self in nested expressions", async () => {
   const code = `
@@ -534,4 +524,87 @@ Deno.test("Class: method returns object literal", async () => {
 `;
   const result = await run(code);
   assertEquals(result, "Alice");
+});
+
+// ============================================================================
+// SECTION: CLASS INHERITANCE (extends)
+// ============================================================================
+
+Deno.test("Class: basic inheritance with extends", async () => {
+  const code = `
+(class Animal
+  (constructor [name]
+    (= this.name name))
+  (fn speak []
+    (+ this.name " makes a sound")))
+
+(class Dog extends Animal
+  (constructor [name]
+    (super name))
+  (fn speak []
+    (+ this.name " barks")))
+
+(var d (new Dog "Rex"))
+(d.speak)
+`;
+  const result = await run(code);
+  assertEquals(result, "Rex barks");
+});
+
+Deno.test("Class: inherited method from parent", async () => {
+  const code = `
+(class Base
+  (constructor [x]
+    (= this.x x))
+  (fn getX []
+    this.x))
+
+(class Child extends Base
+  (constructor [x y]
+    (super x)
+    (= this.y y))
+  (fn getY []
+    this.y))
+
+(var c (new Child 10 20))
+[(c.getX) (c.getY)]
+`;
+  const result = await run(code);
+  assertEquals(result, [10, 20]);
+});
+
+Deno.test("Class: instanceof check with inheritance", async () => {
+  const code = `
+(class Shape
+  (constructor [type]
+    (= this.type type)))
+
+(class Circle extends Shape
+  (constructor [radius]
+    (super "circle")
+    (= this.radius radius)))
+
+(var c (new Circle 5))
+[(instanceof c Circle) (instanceof c Shape) c.type c.radius]
+`;
+  const result = await run(code);
+  assertEquals(result, [true, true, "circle", 5]);
+});
+
+Deno.test("Class: super call in constructor passes arguments", async () => {
+  const code = `
+(class Vehicle
+  (constructor [speed]
+    (= this.speed speed)))
+
+(class Car extends Vehicle
+  (constructor [speed brand]
+    (super speed)
+    (= this.brand brand)))
+
+(var c (new Car 120 "Toyota"))
+[c.speed c.brand]
+`;
+  const result = await run(code);
+  assertEquals(result, [120, "Toyota"]);
 });

@@ -348,6 +348,15 @@
 // Time complexity: O(n) where n = number of clauses (optimal for sequential matching)
 
 
+// Helper: build (|| (=== val p1) (=== val p2) ...) recursively for or-patterns
+(macro __match_or_cond__ [val-sym & pats]
+  (if (%empty? pats)
+      false
+      (if (=== (%length pats) 1)
+          `(=== ~val-sym ~(%first pats))
+          `(|| (=== ~val-sym ~(%first pats))
+               (__match_or_cond__ ~val-sym ~@(%rest pats))))))
+
 // Main match macro - binds value once, dispatches to implementation
 // Uses auto-gensym (val#) for hygiene - Clojure-style syntax
 (macro match [value & clauses]
@@ -357,7 +366,7 @@
 // Implementation macro - processes clauses recursively
 (macro __match_impl__ [val-sym & clauses]
   (if (%empty? clauses)
-      `((fn [] (throw (new Error "No matching pattern"))))
+      `((fn [] (throw (new Error (+ "No matching pattern for value: " ~val-sym)))))
       (let (clause (%first clauses)
             rest-clauses (%rest clauses)
             clause-kind (if (list? clause)
@@ -381,13 +390,19 @@
                                false)
                  guard-expr (if has-guard (%nth (%nth clause 2) 1) nil)
                  result-expr (if has-guard (%nth clause 3) (%nth clause 2))
+                 // Or-pattern detection: (| pat1 pat2 ...)
+                 is-or-pattern (if (list? pattern)
+                                   (if (symbol? (%first pattern))
+                                       (=== (name (%first pattern)) "|")
+                                       false)
+                                   false)
                  // Pattern classification - single symbol? check, reuse result
-                 pat-name (if (symbol? pattern) (name pattern) nil)
+                 pat-name (if is-or-pattern nil (if (symbol? pattern) (name pattern) nil))
                  is-wildcard (=== pat-name "_")
                  is-null-pat (=== pat-name "null")
                  is-binding (if pat-name (if is-wildcard false (if is-null-pat false true)) false)
                  // List pattern detection
-                 is-list (if pat-name false (list? pattern))
+                 is-list (if pat-name false (if is-or-pattern false (list? pattern)))
                  head-name (if is-list (if (symbol? (%first pattern)) (name (%first pattern)) nil) nil)
                  is-object (if head-name (if (=== head-name "hash-map") true (=== head-name "__hql_hash_map")) false)
                  is-array (if is-list (if is-object false true) false)
@@ -403,6 +418,9 @@
                  // For object patterns, pass the entire pattern - runtime extracts keys dynamically
                  // No hardcoding of key count - works for ANY number of keys
                  condition (cond
+                             (is-or-pattern
+                              // Or-pattern: generate (|| (=== val pat1) (=== val pat2) ...)
+                              `(__match_or_cond__ ~val-sym ~@(%rest pattern)))
                              (is-wildcard true)
                              (is-binding true)
                              (is-null-pat `(=== ~val-sym null))
@@ -420,6 +438,9 @@
                  // Generate body - uses IIFE with destructuring param for object/array
                  // This bypasses macro-time let evaluation which doesn't support destructuring
                  body (cond
+                        // Or-pattern: no binding, just literal matches
+                        (is-or-pattern
+                         (if has-guard `(if ~guard-expr ~result-expr ~fallback) result-expr))
                         // Simple symbol binding
                         (is-binding
                          (if has-guard

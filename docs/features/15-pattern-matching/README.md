@@ -1,18 +1,18 @@
-# Pattern Matching Feature Documentation
+# Pattern Matching
 
-**Implementation:** Core macro system (`src/hql/lib/macro/core.hql`)
+**Implementation:** Macro in `src/hql/lib/macro/core.hql` (`match`, `__match_impl__`, `__match_or_cond__`)
 
-**Coverage:** 100%
+**Runtime helper:** `__hql_match_obj` in `src/common/runtime-helper-impl.ts` (object pattern key-existence check)
 
 ## Overview
 
-HQL provides powerful pattern matching with a Swift/Scala-style syntax:
+HQL provides pattern matching via three constructs:
 
 1. **`match`** - Pattern matching expression with multiple cases
 2. **`case`** - Individual pattern clause with optional guard
 3. **`default`** - Fallback clause when no pattern matches
 
-Pattern matching is implemented as a **compile-time macro** with zero runtime overhead.
+Pattern matching is implemented as a compile-time macro that expands to nested `if` expressions and IIFEs with JS destructuring.
 
 ## Syntax
 
@@ -29,12 +29,13 @@ Pattern matching is implemented as a **compile-time macro** with zero runtime ov
 
 | Pattern Type | Syntax | Description |
 |-------------|--------|-------------|
-| Literal | `42`, `"hello"`, `true`, `null` | Exact value match |
+| Literal | `42`, `"hello"`, `true`, `null` | Exact value match (`===`) |
 | Wildcard | `_` | Matches anything, no binding |
 | Symbol | `x` | Matches anything, binds to name |
-| Array | `[a, b]`, `[]` | Destructuring array match |
-| Array Rest | `[h, & t]` | Head and tail destructuring |
-| Object | `{name: n, age: a}` | Destructuring object match |
+| Array | `[a, b]`, `[]` | Destructuring array match (checks `Array.isArray` and `.length`) |
+| Array Rest | `[h, & t]` | Head and tail destructuring (checks `Array.isArray` and `.length >=`) |
+| Object | `{name: n, age: a}` | Destructuring object match (checks type + key existence via `__hql_match_obj`) |
+| Or-pattern | `(| 1 2 3)` | Match any of several literal values |
 
 ### Guards
 
@@ -44,7 +45,7 @@ Pattern matching is implemented as a **compile-time macro** with zero runtime ov
   (default fallback))
 ```
 
-Guards are checked **after** pattern binding, allowing use of bound variables.
+Guards are checked after pattern binding, allowing use of bound variables.
 
 ## Examples
 
@@ -107,6 +108,8 @@ Guards are checked **after** pattern binding, allowing use of bound variables.
   (default 8080))
 ```
 
+Object patterns check that the value is a non-null, non-array object and that all specified keys exist in the object (via `__hql_match_obj`). Binding uses JS destructuring, so missing keys yield `undefined`.
+
 ### Guards
 
 ```lisp
@@ -121,6 +124,29 @@ Guards are checked **after** pattern binding, allowing use of bound variables.
   (case [a, b] (if (< a b)) "a < b")
   (default "a = b"))
 ```
+
+### Or-Patterns
+
+```lisp
+// Match any of several values
+(match status-code
+  (case (| 200 201 204) "success")
+  (case (| 400 422) "client error")
+  (case (| 500 502 503) "server error")
+  (default "unknown"))
+
+// Works with strings
+(match day
+  (case (| "Saturday" "Sunday") "weekend")
+  (case _ "weekday"))
+
+// Works with null
+(match value
+  (case (| null undefined) "missing")
+  (case x (+ "got: " x)))
+```
+
+Or-patterns do not bind variables. They expand to chained `===` checks via the `__match_or_cond__` helper macro.
 
 ### Nested Patterns
 
@@ -158,271 +184,140 @@ Guards are checked **after** pattern binding, allowing use of bound variables.
 
 ## Implementation Details
 
-### Compilation
+### Macro Structure
 
-Pattern matching compiles to nested ternary expressions:
+Three macros in `src/hql/lib/macro/core.hql`:
 
-```lisp
-(match x
-  (case 42 "answer")
-  (case n (+ n 1))
-  (default "other"))
+1. **`match`** - Entry point. Binds value to a gensym variable (`val#`), dispatches to `__match_impl__`.
+2. **`__match_impl__`** - Recursive clause processor. Classifies each pattern, generates condition + body + fallback chain.
+3. **`__match_or_cond__`** - Helper for or-patterns. Builds `(|| (=== val p1) (=== val p2) ...)` recursively.
 
-// Compiles to:
-(() => {
-  let match_0 = x//
-  return match_0 === 42 ? "answer" :
-         true ? (() => { let n = match_0// return n + 1; })() :
-         "other"//
-})()
-```
+### Pattern Classification
+
+The `__match_impl__` macro classifies each pattern at macro-expansion time:
+
+| Classification | Detection | Condition Generated |
+|---------------|-----------|-------------------|
+| `default` | clause starts with `default` | (none, unconditional) |
+| Wildcard | symbol named `_` | `true` (always matches) |
+| Symbol binding | any other symbol (not `_`, `null`) | `true` (always matches) |
+| Null literal | symbol named `null` | `(=== val null)` |
+| Or-pattern | list starting with `\|` | `(__match_or_cond__ val ...alternatives)` |
+| Object | list starting with `hash-map` or `__hql_hash_map` | `(__hql_match_obj val (quote pattern))` |
+| Array (no rest) | other list, no `&` | `(and (Array.isArray val) (=== (js-get val "length") n))` |
+| Array (with rest) | list with `&` at second-to-last | `(and (Array.isArray val) (>= (js-get val "length") k))` |
+| Other literal | anything else | `(=== val literal)` |
+
+### Body Generation
+
+| Pattern Type | Body |
+|-------------|------|
+| Symbol binding | `(let (sym val) result)` |
+| Array/Object | `((fn [pattern] result) val)` (IIFE with destructuring parameter) |
+| Or-pattern, wildcard, null, literal | `result` (no binding) |
+| With guard | wraps body in `(if guard-expr result fallback)` |
+
+### Optimization
+
+When the condition is `true` (wildcard, symbol binding), the `if` wrapper is omitted and the body is emitted directly.
 
 ### Characteristics
 
-- **Compile-time expansion** - Zero runtime overhead for pattern dispatch
-- **Value binding** - Pattern variables bound via `let` or destructuring
+- **Compile-time expansion** - Pattern dispatch logic resolved at macro expansion
+- **Value binding** - Pattern variables bound via `let` or IIFE destructuring parameter
 - **Short-circuit evaluation** - Only matching branch is evaluated
 - **Expression-based** - Returns a value, can be used anywhere
-- **Type-safe conditions** - Array/object patterns include type checks
+- **Runtime type checks** - Array/object patterns include `Array.isArray`, `typeof`, and key-existence checks
 
-### Time Complexity
+## Error Handling
 
-- **Macro expansion:** O(n) where n = number of clauses
-- **Generated code:** O(n) sequential checks (optimal for pattern matching)
-- **Pattern classification:** O(1) per pattern
+### No Matching Pattern
+
+If no clause matches and no default is provided, throws an error that includes the unmatched value:
+
+```lisp
+(match 999
+  (case 1 "one")
+  (case 2 "two"))
+// throws: Error("No matching pattern for value: 999")
+```
+
+### Invalid Clause
+
+If a clause is not `case` or `default`:
+
+```lisp
+(match x
+  (when true "yes"))  // not a valid clause type
+// throws: Error("Invalid match clause")
+```
 
 ## Test Coverage
 
+Tests are in `tests/unit/pattern-matching.test.ts`.
 
+### Literal Matching
+- Number, string, boolean, null literals
+- Falls through to next case on mismatch
 
-### Section 1: Literal Matching
-- Literal number match
-- Literal string match
-- Literal boolean match
-- Literal null match
-- Falls through to next case
+### Symbol Binding
+- Symbol binds matched value
+- Symbol binding with prior literal cases
 
-### Section 2: Symbol Binding
-- Symbol binding
-- Symbol binding with default
-
-### Section 3: Wildcard
+### Wildcard
 - Wildcard matches anything
 - Wildcard as fallback
 
-### Section 4: Array Patterns
-- Empty array pattern
-- Single element array
-- Two element array
-- Array rest pattern
-- Array rest pattern head
-- Non-array doesn't match array pattern
+### Array Patterns
+- Empty array `[]`
+- Single element `[x]`
+- Two element `[a, b]`
+- Rest pattern `[h, & t]` (extracts head and tail)
+- Non-array value does not match array pattern
 
-### Section 5: Object Patterns
-- Object binding
-- Object single key binding
-- Non-object doesn't match object pattern
+### Object Patterns
+- Multi-key binding `{name: n, age: a}`
+- Single key binding `{x: val}`
+- Non-object (array) does not match object pattern
 
-### Section 6: Guards
+### Guards
 - Guard passes
-- Guard fails, falls through
-- Multiple guards
+- Guard fails, falls through to next clause
+- Multiple guards in sequence
 - Guard with array binding
 
-### Section 7: Default Clause
-- Default is executed when no match
-- Default can have complex expression
+### Default Clause
+- Default executed when no case matches
+- Default with complex expression
 
-### Section 8: Nested Patterns
-- Nested array
-- Object with array value
+### Nested Patterns
+- Nested arrays `[[a, b], [c, d]]`
+- Object with array value `{coords: [x, y]}`
 
-### Section 9: Recursive Patterns
-- Recursive sum
-- Recursive length
+### Recursive Patterns
+- Recursive sum using `[h, & t]`
+- Recursive length using `[_, & t]`
 
-### Section 10: Complex Examples
-- HTTP response handler
-- Event handler
+### Or-Patterns
+- Matches first, second, third alternative
+- Falls through on no match
+- Works with strings
+- Multi-case match with multiple or-patterns
+- Or-pattern with null
 
-### Section 11: Code Quality
-- Generated code doesn't contain 'match' keyword
-- Generated code doesn't contain 'case' keyword
+### Error Messages
+- Error includes unmatched value
 
-## Use Cases
+### Code Quality
+- Generated code does not contain `match` keyword
+- Generated code does not contain `case` keyword
 
-### HTTP Response Handling
+## Limitations
 
-```lisp
-(fn handle-response [res]
-  (match res
-    (case {status: s}
-      (if (=== s 200) "ok"
-          (if (=== s 404) "not found" "error")))
-    (default "unknown")))
-```
-
-### Event Processing
-
-```lisp
-(fn handle-event [event]
-  (match event
-    (case {type: t, x: x, y: y}
-      (if (=== t "click")
-          (+ "click at " x "," y)
-          "other"))
-    (default "unknown event")))
-```
-
-### Data Transformation
-
-```lisp
-(fn transform [data]
-  (match data
-    (case [] [])
-    (case [h, & t] (cons (process h) (transform t)))))
-```
-
-### Option/Maybe Pattern
-
-```lisp
-(fn get-value [maybe]
-  (match maybe
-    (case null "no value")
-    (case v v)))
-```
-
-## Comparison with Other Languages
-
-### Scala
-
-```scala
-// Scala
-x match {
-  case 42 => "answer"
-  case n if n > 0 => "positive"
-  case _ => "other"
-}
-
-// HQL
-(match x
-  (case 42 "answer")
-  (case n (if (> n 0)) "positive")
-  (case _ "other"))
-```
-
-### Swift
-
-```swift
-// Swift
-switch x {
-case 42: return "answer"
-case let n where n > 0: return "positive"
-default: return "other"
-}
-
-// HQL
-(match x
-  (case 42 "answer")
-  (case n (if (> n 0)) "positive")
-  (default "other"))
-```
-
-### JavaScript
-
-```javascript
-// JavaScript (no native pattern matching)
-if (x === 42) return "answer"//
-if (x > 0) return "positive"//
-return "other"//
-
-// HQL compiles to similar ternary chain
-```
-
-## Best Practices
-
-### Use Specific Patterns First
-
-```lisp
-// Good: specific cases first
-(match x
-  (case 0 "zero")
-  (case 1 "one")
-  (case n (+ "number: " n)))
-
-// Bad: catch-all first (unreachable cases)
-(match x
-  (case n (+ "number: " n))
-  (case 0 "zero")       // never reached!
-  (case 1 "one"))       // never reached!
-```
-
-### Always Include Default/Wildcard
-
-```lisp
-// Good: explicit fallback
-(match status
-  (case 200 "ok")
-  (case 404 "not found")
-  (default "error"))
-
-// Risky: might throw "No matching pattern"
-(match status
-  (case 200 "ok")
-  (case 404 "not found"))
-```
-
-### Use Guards for Complex Conditions
-
-```lisp
-// Good: guards for conditions
-(match n
-  (case x (if (> x 100)) "large")
-  (case x (if (> x 10)) "medium")
-  (case _ "small"))
-
-// Alternative: nested match (more verbose)
-(match n
-  (case x (match (> x 100)
-            (case true "large")
-            (default (match (> x 10)
-                       (case true "medium")
-                       (default "small"))))))
-```
-
-### Prefer Destructuring Over Manual Access
-
-```lisp
-// Good: destructuring
-(match point
-  (case [x, y] (+ x y)))
-
-// Verbose: manual access
-(match point
-  (case p (+ (nth p 0) (nth p 1))))
-```
-
-## Transform Pipeline
-
-```
-HQL Source with match
-  |
-S-expression Parser
-  |
-Macro Expansion (match -> %match-impl)
-  |
-Pattern Classification (literal/symbol/array/object)
-  |
-Condition Generation (type checks, length checks)
-  |
-Body Generation (bindings, guards)
-  |
-IR Nodes (nested if expressions)
-  |
-ESTree AST (ternary operators)
-  |
-JavaScript
-```
+- No literal value matching in object patterns (e.g., `{status: 200}` is not supported; use guards instead)
+- No type patterns (use guards with `typeof`)
+- No exhaustiveness checking
+- Or-patterns only support literal comparisons (no variable binding in or-pattern alternatives)
 
 ## Related Features
 
@@ -430,30 +325,3 @@ JavaScript
 - **`if-let`** - Conditional binding
 - **`when-let`** - Conditional execution with binding
 - **Destructuring** - Used by match for array/object patterns
-
-## Edge Cases Handled
-
-- Empty arrays `[]`
-- Single-element arrays `[x]`
-- Rest patterns with minimum elements `[h, & t]`
-- Nested destructuring `[[a, b], [c, d]]`
-- Object with array values `{coords: [x, y]}`
-- Guards referencing bound variables
-- Multiple guards in sequence
-- Null literal pattern
-- Wildcard with guard (unusual but supported)
-
-## Limitations
-
-- No literal value matching in object patterns (use guards instead)
-- No `or` patterns like `(case (1 | 2 | 3) ...)`
-- No type patterns (use guards with `typeof`)
-- No exhaustiveness checking
-
-## Future Enhancements
-
-- Or-patterns: `(case (| 1 2 3) "small")`
-- Type patterns: `(case (: x String) ...)`
-- Exhaustiveness checking for enums
-- View patterns: `(case (view fn pattern) ...)`
-- Active patterns for custom matching logic

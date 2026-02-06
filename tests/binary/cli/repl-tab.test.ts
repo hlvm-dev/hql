@@ -15,12 +15,10 @@
 import { assertEquals, assert, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
 import { binaryTest, USE_BINARY, runExpression } from "../_shared/binary-helpers.ts";
 import { findSuggestion, acceptSuggestion } from "../../../src/hlvm/cli/repl/suggester.ts";
-import { getWordAtCursor } from "../../../src/hlvm/cli/repl/completer.ts";
+import { getWordAtCursor } from "../../../src/hlvm/cli/repl/string-utils.ts";
 import { buildContext } from "../../../src/hlvm/cli/repl-ink/completion/providers.ts";
 import { SymbolProvider } from "../../../src/hlvm/cli/repl-ink/completion/concrete-providers.ts";
 import type { CompletionItem } from "../../../src/hlvm/cli/repl-ink/completion/types.ts";
-
-console.log(`Testing REPL Tab behavior logic in ${USE_BINARY ? "BINARY" : "DENO RUN"} mode`);
 
 // ============================================================
 // Suggestion System Tests (underlying Tab accept logic)
@@ -114,25 +112,21 @@ binaryTest("Tab priority: uses real shouldTabAcceptSuggestion", async () => {
   assertEquals(shouldTabAcceptSuggestion(null, 4, 4, false), false);
 });
 
-binaryTest("Tab priority: mutual exclusivity of states", () => {
+binaryTest("Tab priority: mutual exclusivity of states", async () => {
   // When typing, showingCompletions should be cleared
   // This is handled in Input.tsx: clearCompletions() called on non-Tab keys
+  const { shouldTabAcceptSuggestion } = await import("../../../src/hlvm/cli/repl/tab-logic.ts");
 
-  // Scenario: User types "def", presses Tab (starts completions)
-  // showingCompletions = true
-  // User types "n" -> "defn"
-  // showingCompletions = false (cleared by typing)
-  // Suggestion may appear for "defn"
-
-  // The logic ensures these states don't conflict
+  // Scenario: User types "def" → Tab (completions) → types "n" → "defn"
+  // showingCompletions = false (cleared by typing), suggestion may appear
   const suggestion = findSuggestion("defn", ["(defn foo [x] x)"], new Set());
+  assert(suggestion !== null, "Should find suggestion for 'defn'");
 
-  // If suggestion found and not cycling completions, Tab should accept
-  if (suggestion) {
-    const showingCompletions = false; // Cleared by typing
-    const shouldAccept = suggestion && 4 === 4 && !showingCompletions;
-    assertEquals(shouldAccept, true);
-  }
+  // With suggestion present and not showing completions → Tab should accept
+  assertEquals(shouldTabAcceptSuggestion(suggestion, 4, 4, false), true);
+
+  // With completions showing → Tab should cycle completions, NOT accept suggestion
+  assertEquals(shouldTabAcceptSuggestion(suggestion, 4, 4, true), false);
 });
 
 // ============================================================

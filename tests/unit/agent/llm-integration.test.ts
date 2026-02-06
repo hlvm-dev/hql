@@ -4,7 +4,7 @@
  * Verifies message conversion, stream collection, and system prompt generation
  */
 
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert";
 import {
   convertAgentMessagesToProvider,
   convertProviderMessagesToAgent,
@@ -46,8 +46,8 @@ Deno.test({
     const result = convertAgentMessagesToProvider(agentMessages);
 
     assertEquals(result.length, 1);
-    assertEquals(result[0].role, "user"); // Tool results are observations (user role)
-    assertEquals(result[0].content, "[Tool Result]\nFound 5 files");
+    assertEquals(result[0].role, "tool"); // Tool results stay as "tool" role for native tool calling
+    assertEquals(result[0].content, "Found 5 files");
   },
 });
 
@@ -68,8 +68,8 @@ Deno.test({
     assertEquals(result[0].role, "system");
     assertEquals(result[1].role, "user");
     assertEquals(result[2].role, "assistant");
-    assertEquals(result[3].role, "user"); // tool → user (observation)
-    assertEquals(result[3].content.startsWith("[Tool Result]"), true);
+    assertEquals(result[3].role, "tool"); // tool stays as "tool" for native tool calling
+    assertEquals(result[3].content, "Result: 10 files");
     assertEquals(result[4].role, "assistant");
   },
 });
@@ -238,94 +238,47 @@ Deno.test({
     const prompt = generateSystemPrompt();
 
     assertStringIncludes(prompt, "AI coding agent");
-    assertStringIncludes(prompt, "available tools");
+    assertStringIncludes(prompt, "tools");
   },
 });
 
 Deno.test({
-  name: "LLM Integration: generateSystemPrompt - includes all tools",
+  name: "LLM Integration: generateSystemPrompt - lists tool names",
   fn() {
     const prompt = generateSystemPrompt();
 
-    // Should include file tools
+    // Tool names listed (schemas sent via API, not in prompt)
     assertStringIncludes(prompt, "read_file");
     assertStringIncludes(prompt, "write_file");
-    assertStringIncludes(prompt, "edit_file");
     assertStringIncludes(prompt, "list_files");
-
-    // Should include code tools
     assertStringIncludes(prompt, "search_code");
-    assertStringIncludes(prompt, "find_symbol");
-    assertStringIncludes(prompt, "get_structure");
-
-    // Should include shell tools
     assertStringIncludes(prompt, "shell_exec");
-    assertStringIncludes(prompt, "shell_script");
   },
 });
 
 Deno.test({
-  name: "LLM Integration: generateSystemPrompt - includes native tool calling instructions",
+  name: "LLM Integration: generateSystemPrompt - includes tool calling instructions",
   fn() {
     const prompt = generateSystemPrompt();
 
-    assertStringIncludes(prompt, "Native Function Calling");
+    assertStringIncludes(prompt, "function calling");
     assertStringIncludes(prompt, "Do NOT output tool call JSON");
   },
 });
 
 Deno.test({
-  name: "LLM Integration: generateSystemPrompt - includes examples",
+  name: "LLM Integration: generateSystemPrompt - no verbose tool docs (schemas via API)",
   fn() {
     const prompt = generateSystemPrompt();
 
-    assertStringIncludes(prompt, "Example");
-    assertStringIncludes(prompt, "Examples");
+    // Prompt should NOT contain verbose tool documentation
+    // (tool schemas are sent via native function calling API)
+    assertEquals(prompt.includes("**Arguments:**"), false);
+    assertEquals(prompt.includes("**Returns:**"), false);
+    assertEquals(prompt.includes("Safety Level"), false);
   },
 });
 
-Deno.test({
-  name: "LLM Integration: generateSystemPrompt - includes ReAct explanation",
-  fn() {
-    const prompt = generateSystemPrompt();
-
-    assertStringIncludes(prompt, "ReAct");
-    assertStringIncludes(prompt, "Thought");
-    assertStringIncludes(prompt, "Action");
-    assertStringIncludes(prompt, "Observation");
-  },
-});
-
-Deno.test({
-  name: "LLM Integration: generateSystemPrompt - includes tool arguments",
-  fn() {
-    const prompt = generateSystemPrompt();
-
-    // Should document arguments for tools
-    assertStringIncludes(prompt, "Arguments:");
-    assertStringIncludes(prompt, "path");
-  },
-});
-
-Deno.test({
-  name: "LLM Integration: generateSystemPrompt - includes safety levels",
-  fn() {
-    const prompt = generateSystemPrompt();
-
-    assertStringIncludes(prompt, "Safety Level");
-  },
-});
-
-Deno.test({
-  name: "LLM Integration: generateSystemPrompt - consistent format",
-  fn() {
-    const prompt1 = generateSystemPrompt();
-    const prompt2 = generateSystemPrompt();
-
-    // Should be deterministic (same output each time)
-    assertEquals(prompt1, prompt2);
-  },
-});
 
 // ============================================================
 // Edge Cases
@@ -357,11 +310,11 @@ Deno.test({
 
     const result = convertAgentMessagesToProvider(agentMessages);
 
-    // All tool results should have same prefix format and be user messages
-    assertEquals(result[0].role, "user");
-    assertEquals(result[0].content.startsWith("[Tool Result]\n"), true);
-    assertEquals(result[1].role, "user");
-    assertEquals(result[1].content.startsWith("[Tool Result]\n"), true);
+    // All tool results keep "tool" role for native tool calling
+    assertEquals(result[0].role, "tool");
+    assertEquals(result[0].content, "Result 1");
+    assertEquals(result[1].role, "tool");
+    assertEquals(result[1].content, "Result 2");
   },
 });
 
@@ -370,11 +323,13 @@ Deno.test({
   async fn() {
     async function* errorStream() {
       yield "chunk1";
-      yield "chunk2";
-      // Normal completion (no error thrown)
+      throw new Error("stream error");
     }
 
-    const result = await collectStream(errorStream());
-    assertEquals(result, "chunk1chunk2");
+    await assertRejects(
+      () => collectStream(errorStream()),
+      Error,
+      "stream error",
+    );
   },
 });

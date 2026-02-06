@@ -6,7 +6,7 @@ import React from "npm:react@18";
 import { render } from "npm:ink@5";
 import { App } from "./components/App.tsx";
 import { ThemeProvider } from "../theme/index.ts";
-import type { SessionInitOptions } from "../repl/session/types.ts";
+import { parseSessionFlags, type SessionInitOptions } from "../repl/session/types.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 
@@ -35,38 +35,8 @@ export async function startInkRepl(options: InkReplOptions = {}): Promise<number
 if (import.meta.main) {
   const args = getPlatform().process.args();
 
-  // Parse session flags
-  let continueSession = false;
-  let resumeId: string | undefined;
-  let forceNew = false;
-  let openPicker = false;
-
-  if (args.includes("--continue") || args.includes("-c")) {
-    continueSession = true;
-  }
-  const resumeIndex = args.findIndex((a) => a === "--resume" || a === "-r");
-  if (resumeIndex !== -1) {
-    const nextArg = args[resumeIndex + 1];
-    if (nextArg && !nextArg.startsWith("-")) {
-      resumeId = nextArg;
-    } else {
-      // --resume without id: open picker on startup
-      openPicker = true;
-    }
-  }
-  if (args.includes("--new")) {
-    forceNew = true;
-  }
-
-  const sessionOptions: SessionInitOptions = {
-    continue: continueSession,
-    resumeId,
-    forceNew,
-    openPicker,
-  };
-
   startInkRepl({
     showBanner: !args.includes("--no-banner"),
-    session: sessionOptions,
+    session: parseSessionFlags(args),
   }).then((code) => getPlatform().process.exit(code));
 }

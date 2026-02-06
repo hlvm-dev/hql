@@ -82,23 +82,6 @@ Deno.test("Type Annotations - Execution correctness", async () => {
   assertEquals(output, "12", `Expected 12, got: ${output}. Errors: ${errors}`);
 });
 
-Deno.test("Type Annotations - hasTypeAnnotations detection - positive", async () => {
-  const code = `(fn add [a:number b:number] (+ a b))`;
-  const result = await transpile(code, { currentFile: "test.hql" });
-
-  // Get IR and check
-  const _ast = parse(code, "test.hql");
-  // We'd need access to the IR to test hasTypeAnnotations directly
-  // For now, just verify transpilation works
-  assertStringIncludes(result.code, "function add");
-});
-
-Deno.test("Type Annotations - hasTypeAnnotations detection - negative", async () => {
-  const code = `(fn add [a b] (+ a b))`;
-  const result = await transpile(code, { currentFile: "test.hql" });
-  assertStringIncludes(result.code, "function add");
-});
-
 Deno.test("Type Annotations - Complex nested expression with types", async () => {
   const code = `
     (fn calculate [x:number y:number] :number

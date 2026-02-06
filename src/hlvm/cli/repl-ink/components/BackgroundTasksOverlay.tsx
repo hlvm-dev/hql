@@ -26,6 +26,7 @@ import {
   hexToRgb,
 } from "../overlay/index.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { truncate } from "../../../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -75,11 +76,6 @@ function fg(rgb: RGB): string {
 /** Create ANSI background color string from RGB */
 function bg(rgb: RGB): string {
   return ansi.bg(rgb[0], rgb[1], rgb[2]);
-}
-
-/** Truncate string to max length with ellipsis */
-function truncate(str: string, maxLen: number): string {
-  return str.length > maxLen ? str.slice(0, maxLen - 3) + "..." : str;
 }
 
 /** Pad string to exact length */

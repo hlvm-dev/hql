@@ -4,9 +4,9 @@
 
 HQL is building a **self-hosted standard library** where stdlib functions are written in HQL itself, not JavaScript. This is inspired by **Clojure's elegant sequence abstraction** and its self-hosted nature.
 
-**Current Status**: 2 of ~51 functions self-hosted (`take`, `drop`)
+**Current Status**: ~59 of ~96 functions self-hosted (61%) in `stdlib.hql`
 **Foundation**: Clojure-aligned seq-protocol with LazySeq, Cons, ArraySeq
-**Tests**: All 1846 tests passing
+**Tests**: All tests passing
 
 ---
 
@@ -725,40 +725,26 @@ Migrate ALL of core.js to use seq-protocol.js, then delete lazy-seq.js.
 - [x] Implement `drop` as self-hosted
 - [x] Prove architecture works (all tests pass)
 
-### Phase 2: Simple Sequence Functions
-Priority functions that only need `seq`, `first`, `rest`, `cons`, `lazy-seq`:
+### Phase 2: Simple Sequence Functions ✅ COMPLETE
+- [x] `take-while`, `drop-while`, `second`, `last`, `nth`, `next`, `count`
+- [x] `splitWith`, `splitAt`
 
-| Function | Clojure Reference | Complexity |
-|----------|------------------|------------|
-| `take-while` | core.clj:2900 | Low |
-| `drop-while` | core.clj:2913 | Low |
-| `second` | `(first (rest x))` | Trivial |
-| `ffirst` | `(first (first x))` | Trivial |
-| `nfirst` | `(rest (first x))` | Trivial |
-| `fnext` | `(first (rest x))` | Trivial |
-| `nnext` | `(rest (rest x))` | Trivial |
-| `nthnext` | core.clj:3082 | Low |
-| `nthrest` | core.clj:3088 | Low |
+### Phase 3: Higher-Order Functions ✅ COMPLETE
+- [x] `map`, `filter`, `reduce`, `concat`, `flatten`, `distinct`
+- [x] `mapIndexed`, `keepIndexed`, `mapcat`, `keep`
+- [x] `interpose`, `interleave`, `partition`, `partitionAll`, `partitionBy`
+- [x] `reductions`, `juxt`, `identity`, `constantly`, `reverse`
 
-### Phase 3: Higher-Order Functions
-Functions that take function arguments:
+### Phase 4: Predicates & Utilities ✅ COMPLETE
+- [x] `isEmpty`, `some`, `every`, `notAny`, `notEvery`
+- [x] `isNil`, `isSome`, `isEven`, `isOdd`, `isZero`, `isPositive`, `isNegative`
+- [x] `isNumber`, `isString`, `isBoolean`, `isFunction`, `isArray`
+- [x] `eq`, `neq`, `inc`, `dec`
+- [x] `keys`, `vals`, `zipmap`
+- [x] `repeat`, `repeatedly`, `cycle`, `iterate`
 
-| Function | Notes | Complexity |
-|----------|-------|------------|
-| `map` | Single & multi-arity | Medium |
-| `filter` | `(lazy-seq (when-let ...))` | Medium |
-| `remove` | `(filter (complement pred) coll)` | Low |
-| `keep` | Like filter but keeps non-nil results of f | Medium |
-| `mapcat` | `(apply concat (map f colls))` | Medium |
-| `keep-indexed` | Like keep with index | Medium |
-| `map-indexed` | Like map with index | Medium |
-
-### Phase 4: Unify LazySeq Systems
-- [ ] Migrate `range` to use seq-protocol.js
-- [ ] Migrate `map` to use seq-protocol.js
-- [ ] Migrate `filter` to use seq-protocol.js
-- [ ] Migrate remaining core.js functions
-- [ ] Delete lazy-seq.js
+**Current: ~59/96 functions self-hosted (61%)**
+Remaining ~37 functions require JavaScript bootstrap (core.js primitives like `first`, `rest`, `cons`, `seq`, `get`, `assoc`, transducers, chunked sequences).
 
 ### Phase 5: Auto-Transpilation
 - [ ] Parse stdlib.hql

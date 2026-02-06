@@ -22,14 +22,16 @@ interface ScrapedModel {
   model_type?: string;
   tools?: boolean;
   thinking?: boolean;
+  cloud?: boolean;
 }
 
 interface ScrapedCatalog {
   models: ScrapedModel[];
 }
 
-const MAX_VARIANTS = 3;
+const DEFAULT_MAX_VARIANTS = 3;
 let cachedCatalog: ModelInfo[] | null = null;
+let cachedFullCatalog: ModelInfo[] | null = null;
 
 function buildCapabilityTags(model: ScrapedModel): string[] {
   const tags: string[] = [];
@@ -76,6 +78,8 @@ function toModelInfo(model: ScrapedModel, variant?: ScrapedModelVariant): ModelI
   }
   const displayName = displayParts.join(" ");
 
+  const cloud = Boolean(model.cloud) || variant?.size === "Cloud (API only)";
+
   return {
     name,
     displayName,
@@ -84,18 +88,20 @@ function toModelInfo(model: ScrapedModel, variant?: ScrapedModelVariant): ModelI
     metadata: {
       description: model.description,
       sizes: variant?.size ? [variant.size] : undefined,
+      ...(cloud ? { cloud: true } : {}),
     },
   };
 }
 
-function buildCatalog(): ModelInfo[] {
+function buildCatalog(maxVariants: number): ModelInfo[] {
   const data = ollamaModelsData as ScrapedCatalog;
   const result: ModelInfo[] = [];
 
   for (const model of data.models || []) {
     const variants = model.variants || [];
+    const limit = Number.isFinite(maxVariants) ? Math.max(0, maxVariants) : variants.length;
     if (variants.length > 0) {
-      for (const variant of variants.slice(0, MAX_VARIANTS)) {
+      for (const variant of variants.slice(0, limit || variants.length)) {
         result.push(toModelInfo(model, variant));
       }
     } else {
@@ -106,9 +112,21 @@ function buildCatalog(): ModelInfo[] {
   return result;
 }
 
-export function getOllamaCatalog(): ModelInfo[] {
-  if (!cachedCatalog) {
-    cachedCatalog = buildCatalog();
+export function getOllamaCatalog(options: { maxVariants?: number } = {}): ModelInfo[] {
+  const maxVariants = options.maxVariants ?? DEFAULT_MAX_VARIANTS;
+  if (maxVariants === DEFAULT_MAX_VARIANTS) {
+    if (!cachedCatalog) {
+      cachedCatalog = buildCatalog(maxVariants);
+    }
+    return cachedCatalog;
   }
-  return cachedCatalog;
+
+  if (maxVariants === Number.POSITIVE_INFINITY) {
+    if (!cachedFullCatalog) {
+      cachedFullCatalog = buildCatalog(maxVariants);
+    }
+    return cachedFullCatalog;
+  }
+
+  return buildCatalog(maxVariants);
 }

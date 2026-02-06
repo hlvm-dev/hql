@@ -9,8 +9,9 @@ case-clause    ::= '(' 'case' pattern guard? expr ')'
 default-clause ::= '(' 'default' expr ')'
 guard          ::= '(' 'if' expr ')'
 
-pattern        ::= literal-pat | wildcard-pat | symbol-pat | array-pat | object-pat
+pattern        ::= literal-pat | wildcard-pat | symbol-pat | array-pat | object-pat | or-pat
 literal-pat    ::= number | string | boolean | 'null'
+or-pat         ::= '(' '|' literal-pat+ ')'
 wildcard-pat   ::= '_'
 symbol-pat     ::= identifier
 array-pat      ::= '[' (pattern (',' pattern)* (',' '&' symbol-pat)?)? ']'
@@ -23,17 +24,17 @@ key-binding    ::= identifier ':' pattern
 ### Match Expression
 
 ```
-[[match e c₁ c₂ ... cₙ]] =
+[[match e c1 c2 ... cn]] =
   let v = [[e]]
-  [[c₁]]ᵥ || [[c₂]]ᵥ || ... || [[cₙ]]ᵥ || throw "No matching pattern"
+  [[c1]]v || [[c2]]v || ... || [[cn]]v || throw "No matching pattern for value: <v>"
 ```
 
-Where `[[cᵢ]]ᵥ` means "evaluate clause cᵢ with value v".
+Where `[[ci]]v` means "evaluate clause ci with value v".
 
 ### Case Clause (without guard)
 
 ```
-[[(case p r)]]ᵥ =
+[[(case p r)]]v =
   if matches(v, p) then
     let bindings = extract(v, p)
     with bindings: [[r]]
@@ -44,7 +45,7 @@ Where `[[cᵢ]]ᵥ` means "evaluate clause cᵢ with value v".
 ### Case Clause (with guard)
 
 ```
-[[(case p (if g) r)]]ᵥ =
+[[(case p (if g) r)]]v =
   if matches(v, p) then
     let bindings = extract(v, p)
     with bindings:
@@ -56,7 +57,7 @@ Where `[[cᵢ]]ᵥ` means "evaluate clause cᵢ with value v".
 ### Default Clause
 
 ```
-[[(default r)]]ᵥ = [[r]]
+[[(default r)]]v = [[r]]
 ```
 
 ### Pattern Matching Rules
@@ -75,6 +76,15 @@ matches(v, null) = (v === null)
 extract(v, null) = {}
 ```
 
+#### Or Pattern
+
+```
+matches(v, (| p1 p2 ... pn)) = (v === p1) || (v === p2) || ... || (v === pn)
+extract(v, (| p1 p2 ... pn)) = {}
+```
+
+Or-patterns do not produce bindings. They compare the value against each alternative using `===`.
+
 #### Wildcard Pattern
 
 ```
@@ -92,115 +102,135 @@ extract(v, x) = {x: v}
 #### Array Pattern (fixed length)
 
 ```
-matches(v, [p₁, p₂, ..., pₙ]) =
-  Array.isArray(v) ∧
-  v.length === n ∧
-  matches(v[0], p₁) ∧ matches(v[1], p₂) ∧ ... ∧ matches(v[n-1], pₙ)
+matches(v, [p1, p2, ..., pn]) =
+  Array.isArray(v) &&
+  v.length === n
 
-extract(v, [p₁, p₂, ..., pₙ]) =
-  extract(v[0], p₁) ∪ extract(v[1], p₂) ∪ ... ∪ extract(v[n-1], pₙ)
+extract(v, [p1, p2, ..., pn]) =
+  JS destructuring: let [p1, p2, ..., pn] = v
 ```
+
+Note: The condition checks `Array.isArray` and exact length. Binding uses JS array destructuring via an IIFE parameter.
 
 #### Array Pattern (with rest)
 
 ```
-matches(v, [p₁, ..., pₖ, & r]) =
-  Array.isArray(v) ∧
-  v.length >= k ∧
-  matches(v[0], p₁) ∧ ... ∧ matches(v[k-1], pₖ)
+matches(v, [p1, ..., pk, & r]) =
+  Array.isArray(v) &&
+  v.length >= k
 
-extract(v, [p₁, ..., pₖ, & r]) =
-  extract(v[0], p₁) ∪ ... ∪ extract(v[k-1], pₖ) ∪ {r: v.slice(k)}
+extract(v, [p1, ..., pk, & r]) =
+  JS destructuring: let [p1, ..., pk, ...r] = v
 ```
 
 #### Object Pattern
 
 ```
-matches(v, {k₁: p₁, k₂: p₂, ..., kₙ: pₙ}) =
-  typeof v === "object" ∧
-  v !== null ∧
-  !Array.isArray(v)
-
-extract(v, {k₁: p₁, k₂: p₂, ..., kₙ: pₙ}) =
-  {p₁: v[k₁], p₂: v[k₂], ..., pₙ: v[kₙ]}
+matches(v, {k1: p1, k2: p2, ..., kn: pn}) =
+  typeof v === "object" &&
+  v !== null &&
+  !Array.isArray(v) &&
+  k1 in v &&
+  k2 in v &&
+  ... &&
+  kn in v
 ```
 
-Note: Object patterns use JavaScript destructuring, which extracts values even if keys don't exist (yielding `undefined`).
+Object pattern matching uses the `__hql_match_obj` runtime helper which checks that the value is a non-null, non-array object and that all specified keys exist (via the `in` operator).
+
+```
+extract(v, {k1: p1, k2: p2, ..., kn: pn}) =
+  JS destructuring: let {k1: p1, k2: p2, ..., kn: pn} = v
+```
+
+Binding uses JS object destructuring via an IIFE parameter. If a key exists but has value `undefined`, the binding receives `undefined`.
 
 ## Compilation Rules
 
 ### Match Expression
 
+The `match` macro binds the value to a gensym variable (using auto-gensym `val#`) and dispatches to `__match_impl__`:
+
 ```
-compile(match e c₁ ... cₙ) =
-  ((() => {
-    let $v = compile(e)//
-    return compile-clause(c₁, $v, [c₂...cₙ])//
-  })())
+compile(match e c1 ... cn) =
+  (let (val# e)
+    (__match_impl__ val# c1 ... cn))
 ```
 
 ### Case Clause
 
-```
-compile-clause((case p r), $v, rest) =
-  compile-condition(p, $v) ?
-    compile-body(p, $v, r) :
-    compile-clause(rest[0], $v, rest[1:])
+`__match_impl__` processes clauses recursively. For each case clause:
 
-compile-clause((case p (if g) r), $v, rest) =
-  compile-condition(p, $v) ?
-    compile-guarded-body(p, $v, g, r, rest) :
-    compile-clause(rest[0], $v, rest[1:])
+```
+compile-clause((case p r), val, rest) =
+  condition(p, val) ?
+    body(p, val, r) :
+    compile-clause(rest[0], val, rest[1:])
+
+compile-clause((case p (if g) r), val, rest) =
+  condition(p, val) ?
+    guarded-body(p, val, g, r, rest) :
+    compile-clause(rest[0], val, rest[1:])
 ```
 
 ### Default Clause
 
 ```
-compile-clause((default r), $v, _) = compile(r)
+compile-clause((default r), val, _) = r
 ```
 
 ### Condition Compilation
 
 ```
-compile-condition(literal, $v) = $v === literal
-compile-condition(null, $v)    = $v === null
-compile-condition(_, $v)       = true
-compile-condition(symbol, $v)  = true
-compile-condition([p₁...pₙ], $v) =
-  Array.isArray($v) && $v.length === n
-compile-condition([p₁...pₖ, & r], $v) =
-  Array.isArray($v) && $v.length >= k
-compile-condition({...}, $v) =
-  typeof $v === "object" && $v !== null && !Array.isArray($v)
+condition(literal, val) = (=== val literal)
+condition(null, val)    = (=== val null)
+condition(_, val)       = true
+condition(symbol, val)  = true
+condition((| p1 ... pn), val) = (__match_or_cond__ val p1 ... pn)
+condition({...}, val) = (__hql_match_obj val (quote pattern))
+condition([p1...pn], val) = (and (Array.isArray val) (=== (js-get val "length") n))
+condition([p1...pk & r], val) = (and (Array.isArray val) (>= (js-get val "length") k))
 ```
 
 ### Body Compilation
 
 ```
-compile-body(literal, $v, r) = compile(r)
-compile-body(null, $v, r)    = compile(r)
-compile-body(_, $v, r)       = compile(r)
-compile-body(symbol, $v, r)  = (() => { let symbol = $v// return compile(r); })()
-compile-body(array-pat, $v, r) = (() => { let array-pat = $v// return compile(r); })()
-compile-body(object-pat, $v, r) = (() => { let object-pat = $v// return compile(r); })()
+body(literal, val, r) = r
+body(null, val, r)    = r
+body(_, val, r)       = r
+body(symbol, val, r)  = (let (symbol val) r)
+body(array-pat, val, r) = ((fn [array-pat] r) val)
+body(object-pat, val, r) = ((fn [object-pat] r) val)
+body((| ...), val, r) = r
 ```
 
 ### Guarded Body Compilation
 
 ```
-compile-guarded-body(p, $v, g, r, rest) =
-  compile-body(p, $v, (if g then r else compile-clause(rest[0], $v, rest[1:])))
+guarded-body(p, val, g, r, rest) =
+  body(p, val, (if g then r else compile-clause(rest[0], val, rest[1:])))
+```
+
+### Optimization
+
+When condition is `true` (wildcard, symbol binding), the `if` wrapper is omitted:
+
+```
+// Instead of: (if true body fallback)
+// Emits:      body
 ```
 
 ## Type Checking
 
-Pattern matching generates the following type checks:
+Pattern matching generates the following runtime checks:
 
-| Pattern | Type Check |
-|---------|-----------|
+| Pattern | Condition Check |
+|---------|----------------|
 | `null` | `=== null` |
-| `[...]` | `Array.isArray(v)` |
-| `{...}` | `typeof v === "object" && v !== null && !Array.isArray(v)` |
+| `[...]` | `Array.isArray(v) && v.length === n` |
+| `[... & r]` | `Array.isArray(v) && v.length >= k` |
+| `{...}` | `__hql_match_obj(v, pattern)` (typeof object, not null, not array, all keys exist) |
+| `(| ...)` | `v === p1 || v === p2 || ...` |
 | literal | `=== literal` |
 | symbol | (none - always matches) |
 | `_` | (none - always matches) |
@@ -208,8 +238,10 @@ Pattern matching generates the following type checks:
 ## Binding Scope
 
 Variables bound by patterns are scoped to:
-1. The result expression of the case clause
-2. The guard expression (if present)
+1. The guard expression (if present)
+2. The result expression of the case clause
+
+For symbol bindings, scope is created via `let`. For array/object patterns, scope is created via IIFE destructuring parameter.
 
 ```lisp
 (match x
@@ -220,145 +252,59 @@ Variables bound by patterns are scoped to:
 
 ## Evaluation Order
 
-1. Value expression evaluated once
+1. Value expression evaluated once (bound to gensym variable)
 2. Clauses checked top-to-bottom
 3. Pattern condition checked first
 4. If condition passes:
-   - Bindings extracted
+   - Bindings extracted (via let or IIFE destructuring)
    - Guard evaluated (if present)
    - If guard passes: result evaluated
    - If guard fails: continue to next clause
 5. If condition fails: continue to next clause
-6. If no clause matches: throw error
-
-## Error Handling
-
-### No Matching Pattern
-
-If no clause matches and no default provided:
-
-```lisp
-(match 999
-  (case 1 "one")
-  (case 2 "two"))
-// throws: Error("No matching pattern")
-```
-
-### Invalid Clause
-
-If clause is not `case` or `default`:
-
-```lisp
-(match x
-  (when true "yes"))  // invalid clause type
-// throws: Error("Invalid match clause")
-```
-
-## Generated Code Examples
-
-### Simple Literal Match
-
-```lisp
-(match x
-  (case 42 "answer")
-  (default "other"))
-```
-
-Compiles to:
-
-```javascript
-(() => {
-  let match_0 = x//
-  return match_0 === 42 ? "answer" : "other"//
-})()
-```
-
-### Symbol Binding
-
-```lisp
-(match x
-  (case n (+ n 1)))
-```
-
-Compiles to:
-
-```javascript
-(() => {
-  let match_0 = x//
-  return true ? (() => {
-    let n = match_0//
-    return n + 1//
-  })() : (() => { throw new Error("No matching pattern")// })();
-})()
-```
-
-### Array Pattern
-
-```lisp
-(match arr
-  (case [a, b] (+ a b))
-  (default 0))
-```
-
-Compiles to:
-
-```javascript
-(() => {
-  let match_0 = arr//
-  return (v => v ? match_0.length === 2 : v)(Array.isArray(match_0)) ?
-    (() => { let [a, b] = match_0// return a + b; })() :
-    0//
-})()
-```
-
-### Guard
-
-```lisp
-(match n
-  (case x (if (> x 0)) "positive")
-  (default "non-positive"))
-```
-
-Compiles to:
-
-```javascript
-(() => {
-  let match_0 = n//
-  return true ? (() => {
-    let x = match_0//
-    return x > 0 ? "positive" : "non-positive"//
-  })() : "non-positive"//
-})()
-```
-
-## Invariants
-
-1. **Value evaluated once**: The match expression value is bound to a gensym variable
-2. **Left-to-right evaluation**: Clauses are checked in source order
-3. **Short-circuit**: Only the matching clause's result is evaluated
-4. **Binding before guard**: Pattern variables are bound before guard is checked
-5. **No fall-through**: Each clause is independent (unlike switch statements)
+6. If no clause matches: throw error with unmatched value
 
 ## Macro Implementation
 
-The pattern matching is implemented as two macros:
+The pattern matching is implemented as three macros in `src/hql/lib/macro/core.hql`:
 
 ### `match` Macro
 
 ```lisp
 (macro match [value & clauses]
-  (let (val-sym (gensym "match"))
-    `(let (~val-sym ~value)
-       (%match-impl ~val-sym ~@clauses))))
+  `(let (val# ~value)
+     (__match_impl__ val# ~@clauses)))
 ```
 
-### `%match-impl` Macro
+Uses auto-gensym (`val#`) for hygienic variable binding.
 
-Internal implementation macro that:
-1. Classifies pattern type (literal, symbol, wildcard, array, object)
-2. Generates appropriate condition
-3. Generates body with bindings
-4. Handles guards
-5. Chains to next clause on failure
+### `__match_impl__` Macro
 
-See `src/hql/lib/macro/core.hql` for full implementation.
+Internal recursive macro that:
+1. Classifies the clause kind (`case` or `default`)
+2. For `case`: classifies pattern type (literal, symbol, wildcard, array, object, or-pattern)
+3. Detects guards (checks if third element is `(if ...)`)
+4. Generates appropriate condition
+5. Generates body with bindings
+6. Chains to next clause on failure via recursive `__match_impl__` call
+
+### `__match_or_cond__` Macro
+
+Helper for or-patterns that builds chained `===` checks recursively:
+
+```lisp
+(macro __match_or_cond__ [val-sym & pats]
+  (if (%empty? pats)
+      false
+      (if (=== (%length pats) 1)
+          `(=== ~val-sym ~(%first pats))
+          `(|| (=== ~val-sym ~(%first pats))
+               (__match_or_cond__ ~val-sym ~@(%rest pats))))))
+```
+
+## Invariants
+
+1. **Value evaluated once**: The match expression value is bound to an auto-gensym variable
+2. **Left-to-right evaluation**: Clauses are checked in source order
+3. **Short-circuit**: Only the matching clause's result is evaluated
+4. **Binding before guard**: Pattern variables are bound before guard is checked
+5. **No fall-through**: Each clause is independent (unlike switch statements)

@@ -426,3 +426,101 @@ Deno.test("Pattern Matching - Generated code doesn't contain 'case'", async () =
   const js = await transpile(code);
   assertEquals(js.includes("case "), false, `Generated code should not contain 'case': ${js}`);
 });
+
+// ============================================
+// OR-PATTERNS
+// ============================================
+
+Deno.test("Pattern Matching - Or-pattern matches first alternative", async () => {
+  const code = `
+    (match 1
+      (case (| 1 2 3) "small")
+      (default "other"))
+  `;
+  const result = await evalHql(code);
+  assertEquals(result, "small");
+});
+
+Deno.test("Pattern Matching - Or-pattern matches second alternative", async () => {
+  const code = `
+    (match 2
+      (case (| 1 2 3) "small")
+      (default "other"))
+  `;
+  const result = await evalHql(code);
+  assertEquals(result, "small");
+});
+
+Deno.test("Pattern Matching - Or-pattern matches third alternative", async () => {
+  const code = `
+    (match 3
+      (case (| 1 2 3) "small")
+      (default "other"))
+  `;
+  const result = await evalHql(code);
+  assertEquals(result, "small");
+});
+
+Deno.test("Pattern Matching - Or-pattern falls through on no match", async () => {
+  const code = `
+    (match 99
+      (case (| 1 2 3) "small")
+      (default "other"))
+  `;
+  const result = await evalHql(code);
+  assertEquals(result, "other");
+});
+
+Deno.test("Pattern Matching - Or-pattern with strings", async () => {
+  const code = `
+    (match "yes"
+      (case (| "yes" "y" "Y") true)
+      (case (| "no" "n" "N") false)
+      (default null))
+  `;
+  const result = await evalHql(code);
+  assertEquals(result, true);
+});
+
+Deno.test("Pattern Matching - Or-pattern in multi-case match", async () => {
+  const code = `
+    (fn classify [n]
+      (match n
+        (case (| 1 2 3) "small")
+        (case (| 4 5 6) "medium")
+        (case (| 7 8 9) "large")
+        (default "other")))
+    [(classify 2) (classify 5) (classify 9) (classify 0)]
+  `;
+  const result = await evalHql(code);
+  assertEquals(result, ["small", "medium", "large", "other"]);
+});
+
+Deno.test("Pattern Matching - Or-pattern with null", async () => {
+  const code = `
+    (match null
+      (case (| null undefined) "nothing")
+      (default "something"))
+  `;
+  const result = await evalHql(code);
+  assertEquals(result, "nothing");
+});
+
+// ============================================
+// IMPROVED ERROR MESSAGES
+// ============================================
+
+Deno.test("Pattern Matching - Error includes unmatched value", async () => {
+  const code = `
+    (try
+      (match 42
+        (case 1 "one")
+        (case 2 "two"))
+      (catch e (js-get e "message")))
+  `;
+  const result = await evalHql(code);
+  assertEquals(typeof result, "string");
+  // The error message should contain the unmatched value
+  assertEquals((result as string).includes("42"), true,
+    `Error message should include unmatched value '42', got: ${result}`);
+});

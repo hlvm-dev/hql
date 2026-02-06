@@ -7,8 +7,7 @@ import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { runWireServer } from "../../agent/wire.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-import { ensureDefaultModelInstalled } from "../../../common/ai-default-model.ts";
-import { DEFAULT_MODEL_ID } from "../../../common/config/types.ts";
+import { ensureDefaultModelInstalled, getConfiguredModel } from "../../../common/ai-default-model.ts";
 
 export function showWireHelp(): void {
   log.raw.log(`
@@ -18,7 +17,7 @@ USAGE:
   hlvm wire [options]
 
 OPTIONS:
-  --model <model>              Specify model (default: ollama/llama3.1:8b)
+  --model <model>              Specify model (default: config model)
   --engine-strict              Use strict engine profile
   --policy <path>              Override policy file path
   --mcp <path>                 Override MCP config path
@@ -62,7 +61,7 @@ export async function wireCommand(args: string[]): Promise<void> {
   await initializeRuntime({ stdlib: false, cache: false });
 
   if (!model) {
-    model = DEFAULT_MODEL_ID;
+    model = getConfiguredModel();
     try {
       await ensureDefaultModelInstalled({
         log: (message) => log.raw.log(message),

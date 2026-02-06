@@ -84,6 +84,37 @@ export interface SessionInitOptions {
 }
 
 /**
+ * Parse session-related CLI flags into SessionInitOptions.
+ * Single source of truth for --continue/-c, --resume/-r, --new flag parsing.
+ */
+export function parseSessionFlags(args: string[]): SessionInitOptions {
+  let continueSession = false;
+  let resumeId: string | undefined;
+  let forceNew = false;
+  let openPicker = false;
+
+  if (args.includes("--continue") || args.includes("-c")) {
+    continueSession = true;
+  }
+
+  const resumeIndex = args.findIndex((a) => a === "--resume" || a === "-r");
+  if (resumeIndex !== -1) {
+    const nextArg = args[resumeIndex + 1];
+    if (nextArg && !nextArg.startsWith("-")) {
+      resumeId = nextArg;
+    } else {
+      openPicker = true;
+    }
+  }
+
+  if (args.includes("--new")) {
+    forceNew = true;
+  }
+
+  return { continue: continueSession, resumeId, forceNew, openPicker };
+}
+
+/**
  * Options for listing sessions (global - no project filtering)
  */
 export interface ListSessionsOptions {

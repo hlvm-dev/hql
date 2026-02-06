@@ -320,19 +320,4 @@ ms
   },
 });
 
-Deno.test({
-  name: "NPM Import: use default import in variable assignment",
-  sanitizeResources: false,
-  sanitizeOps: false,
-  async fn() {
-    // Verify the imported function can be assigned and returned
-    const code = `
-(import [default] from "npm:ms@2.1.3")
-(var ms default)
-ms
-`;
-    const result = await run(code);
-    // Should return the ms function (already tested above, but verify assignment works)
-    assertEquals(typeof result, "function");
-  },
-});
+

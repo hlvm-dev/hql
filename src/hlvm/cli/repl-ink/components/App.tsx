@@ -30,6 +30,7 @@ import type { Session, SessionInitOptions, SessionMeta, SessionMessage } from ".
 import { SessionManager } from "../../repl/session/manager.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { ensureError } from "../../../../common/utils.ts";
+import { normalizeModelId } from "../../../../common/config/types.ts";
 import { ReplProvider, useReplContext } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { log } from "../../../api/log.ts";
@@ -822,15 +823,15 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
             setModelBrowserParent("none");
           }}
           onSelectModel={async (modelName: string) => {
-            // Update config with selected model (prefixed with ollama/)
-            const fullModelName = modelName.startsWith("ollama/") ? modelName : `ollama/${modelName}`;
+            const normalizedModel = normalizeModelId(modelName);
+            if (!normalizedModel) return;
             // SSOT: Use config API only
             const configApi = (globalThis as Record<string, unknown>).config as {
               set: (key: string, value: unknown) => Promise<unknown>;
             } | undefined;
 
             if (configApi?.set) {
-              await configApi.set("model", fullModelName);
+              await configApi.set("model", normalizedModel);
             }
           }}
         />

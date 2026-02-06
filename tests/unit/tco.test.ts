@@ -364,3 +364,79 @@ Deno.test("TCO: cross-group mutual recursion calls are trampolined", async () =>
   `);
   assertEquals(result, "ponged");
 });
+
+// ==========================================
+// Mutual TCO: Comprehensive Tests
+// ==========================================
+
+Deno.test("Mutual TCO: basic is-even/is-odd", async () => {
+  const result = await evalHql(`
+    (fn is-even [n]
+      (if (=== n 0) true (is-odd (- n 1))))
+    (fn is-odd [n]
+      (if (=== n 0) false (is-even (- n 1))))
+    [(is-even 0) (is-even 1) (is-even 10) (is-odd 7)]
+  `);
+  assertEquals(result, [true, false, true, true]);
+});
+
+Deno.test("Mutual TCO: is-even/is-odd deep recursion (stack safety)", async () => {
+  // Without mutual TCO trampoline, this would overflow the stack
+  const result = await evalHql(`
+    (fn is-even [n]
+      (if (=== n 0) true (is-odd (- n 1))))
+    (fn is-odd [n]
+      (if (=== n 0) false (is-even (- n 1))))
+    [(is-even 10000) (is-odd 9999)]
+  `);
+  assertEquals(result, [true, true]);
+});
+
+Deno.test("Mutual TCO: three-function cycle (A -> B -> C -> A)", async () => {
+  const result = await evalHql(`
+    (fn step-a [n]
+      (if (=== n 0) "done-a" (step-b (- n 1))))
+    (fn step-b [n]
+      (if (=== n 0) "done-b" (step-c (- n 1))))
+    (fn step-c [n]
+      (if (=== n 0) "done-c" (step-a (- n 1))))
+    [(step-a 0) (step-a 1) (step-a 2) (step-a 3) (step-a 6)]
+  `);
+  assertEquals(result, ["done-a", "done-b", "done-c", "done-a", "done-a"]);
+});
+
+Deno.test("Mutual TCO: three-function cycle deep recursion", async () => {
+  const result = await evalHql(`
+    (fn step-a [n]
+      (if (=== n 0) "done-a" (step-b (- n 1))))
+    (fn step-b [n]
+      (if (=== n 0) "done-b" (step-c (- n 1))))
+    (fn step-c [n]
+      (if (=== n 0) "done-c" (step-a (- n 1))))
+    (step-a 9999)
+  `);
+  assertEquals(result, "done-a");
+});
+
+Deno.test("Mutual TCO: accumulator-passing style", async () => {
+  const result = await evalHql(`
+    (fn count-down-even [n acc]
+      (if (=== n 0) acc (count-down-odd (- n 1) (+ acc 1))))
+    (fn count-down-odd [n acc]
+      (if (=== n 0) acc (count-down-even (- n 1) (+ acc 1))))
+    (count-down-even 100 0)
+  `);
+  assertEquals(result, 100);
+});
+
+Deno.test("Mutual TCO: return values flow correctly", async () => {
+  // Verify that the trampoline correctly returns values, not thunks
+  const result = await evalHql(`
+    (fn fa [n]
+      (if (<= n 0) 42 (fb (- n 1))))
+    (fn fb [n]
+      (if (<= n 0) 99 (fa (- n 1))))
+    [(fa 0) (fa 1) (fb 0) (fb 1)]
+  `);
+  assertEquals(result, [42, 99, 99, 42]);
+});

@@ -44,6 +44,8 @@ interface OllamaChatRequest {
     role: string;
     content: string;
     images?: string[];
+    tool_calls?: ProviderToolCall[];
+    tool_name?: string;
   }>;
   tools?: ToolDefinition[];
   stream?: boolean;
@@ -69,7 +71,7 @@ interface OllamaGenerateChunk {
 /** Ollama chat streaming response chunk */
 interface OllamaChatChunk {
   model: string;
-  message?: { role: string; content: string };
+  message?: { role: string; content: string; tool_calls?: ProviderToolCall[] };
   done: boolean;
 }
 
@@ -315,25 +317,31 @@ export async function* chat(
 }
 
 /**
- * Chat completion (non-streaming) with native tool calls
+ * Chat completion with native tool calls.
+ * When `onToken` is provided, streams tokens to the callback in real-time
+ * and extracts tool_calls from the final chunk.
  */
 export async function chatStructured(
   endpoint: string,
   model: string,
   messages: Message[],
   options?: ChatOptions,
-  _signal?: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<ChatStructuredResponse> {
   const ollamaMessages = messages.map((msg) => ({
     role: msg.role,
     content: msg.content,
     ...(msg.images?.length ? { images: msg.images } : {}),
+    ...(msg.tool_calls?.length ? { tool_calls: msg.tool_calls } : {}),
+    ...(msg.tool_name ? { tool_name: msg.tool_name } : {}),
   }));
+
+  const useStreaming = typeof options?.onToken === "function";
 
   const body: OllamaChatRequest = {
     model,
     messages: ollamaMessages,
-    stream: false,
+    stream: useStreaming,
     options: {
       temperature: options?.temperature,
       num_predict: options?.maxTokens,
@@ -344,6 +352,34 @@ export async function chatStructured(
   if (options?.format) body.format = options.format;
   if (options?.tools?.length) body.tools = options.tools;
 
+  // Streaming path: yield tokens via onToken, collect tool_calls from final chunk
+  if (useStreaming) {
+    let content = "";
+    let toolCalls: ProviderToolCall[] = [];
+
+    for await (const chunk of streamRequest<OllamaChatChunk>(
+      endpoint,
+      "/api/chat",
+      body,
+      signal,
+    )) {
+      if (chunk.message?.content) {
+        content += chunk.message.content;
+        options!.onToken!(chunk.message.content);
+      }
+      // Ollama may emit tool_calls in any chunk (typically the first non-done chunk)
+      if (chunk.message?.tool_calls?.length) {
+        toolCalls = chunk.message.tool_calls;
+      }
+    }
+
+    return {
+      content: content.trim(),
+      toolCalls,
+    };
+  }
+
+  // Non-streaming path (default)
   const result = await jsonRequest<OllamaChatResponse>(
     endpoint,
     "/api/chat",

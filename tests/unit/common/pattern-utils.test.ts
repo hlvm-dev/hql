@@ -249,12 +249,6 @@ Deno.test("globToRegex - empty pattern throws", () => {
   );
 });
 
-Deno.test("globToRegex - invalid regex throws", () => {
-  // Test case where glob conversion produces invalid regex
-  // (Hard to trigger with current implementation, but test error handling)
-  // Note: Most glob patterns produce valid regex, so this is defensive
-  assertEquals(true, true); // Placeholder - implementation is robust
-});
 
 // ============================================================
 // Real-World Test Cases

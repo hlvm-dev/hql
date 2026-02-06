@@ -434,8 +434,3 @@ Deno.test("Generic parsePattern: Array", () => {
   assertEquals((pattern as ArrayPattern).elements.length, 2);
 });
 
-console.log("\nArray Pattern Parser Tests Complete!");
-console.log("All tests validate parseArrayPattern() functionality");
-console.log("✅ Simple patterns (identifiers, skip, rest)");
-console.log("✅ Nested patterns (arrays within arrays)");
-console.log("✅ Error cases (invalid rest, literals, etc.)");

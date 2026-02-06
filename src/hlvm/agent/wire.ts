@@ -12,7 +12,7 @@ import { getAllTools } from "./registry.ts";
 import { runReActLoop, type TraceEvent } from "./orchestrator.ts";
 import { createAgentSession } from "./session.ts";
 import { createDelegateHandler } from "./delegation.ts";
-import { DEFAULT_MODEL_ID } from "../../common/config/types.ts";
+import { getConfiguredModel } from "../../common/ai-default-model.ts";
 import { ValidationError } from "../../common/error.ts";
 
 // ============================================================
@@ -107,7 +107,7 @@ export async function handleWireRequest(
       const task = request.params.task as string;
       const model = (request.params.model as string | undefined)
         ?? options.model
-        ?? DEFAULT_MODEL_ID;
+        ?? getConfiguredModel();
 
       const maxCalls = typeof request.params.maxCalls === "number"
         ? request.params.maxCalls as number

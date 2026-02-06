@@ -68,7 +68,7 @@ Deno.test("withTimeout - operation receives AbortSignal", async () => {
     { timeoutMs: 1000, label: "test" },
   );
 
-  assertEquals(receivedSignal !== null, true);
+  // Signal should have been passed to the operation and not yet aborted
   assertEquals(receivedSignal!.aborted, false);
 });
 
@@ -96,7 +96,6 @@ Deno.test("withTimeout - signal is aborted after timeout", async () => {
   }
 
   // Signal should be aborted after timeout
-  assertEquals(capturedSignal !== null, true);
   assertEquals(capturedSignal!.aborted, true);
 });
 
@@ -148,7 +147,6 @@ Deno.test("withTimeout - combines with parent signal", async () => {
   );
 
   // Signal should be aborted
-  assertEquals(capturedSignal !== null, true);
   assertEquals(capturedSignal!.aborted, true);
 });
 
@@ -199,11 +197,14 @@ Deno.test("combineSignals - aborts when second input aborts", async () => {
   assertEquals(combined.aborted, true);
 });
 
-Deno.test("combineSignals - handles empty array", () => {
-  // TypeScript would prevent this, but test runtime behavior
-  const combined = combineSignals();
+Deno.test("combineSignals - single signal passthrough", () => {
+  const controller = new AbortController();
+  const combined = combineSignals(controller.signal);
 
   assertEquals(combined.aborted, false);
+  controller.abort();
+  // Combined signal should reflect the single input
+  assertEquals(combined.aborted, true);
 });
 
 Deno.test("combineSignals - propagates abort reason", () => {
@@ -273,43 +274,6 @@ Deno.test("TimeoutError - is instance of Error", () => {
 // Resource Cleanup Tests
 // ============================================================
 
-Deno.test("withTimeout - clears timeout on success", async () => {
-  // This test verifies cleanup happens by ensuring no leaks
-  // (hard to test directly, but important for documentation)
-
-  await withTimeout(
-    async (_signal) => {
-      return "success";
-    },
-    { timeoutMs: 1000, label: "test" },
-  );
-
-  // If cleanup didn't happen, timeout would still fire
-  // Wait to ensure no unexpected timeout
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  // Test passes if we get here without issues
-  assertEquals(true, true);
-});
-
-Deno.test("withTimeout - clears timeout on error", async () => {
-  try {
-    await withTimeout(
-      async (_signal) => {
-        throw new Error("test error");
-      },
-      { timeoutMs: 1000, label: "test" },
-    );
-  } catch (_error) {
-    // Expected
-  }
-
-  // Wait to ensure no unexpected timeout
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  // Test passes if we get here without issues
-  assertEquals(true, true);
-});
 
 // ============================================================
 // Integration Tests

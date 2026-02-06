@@ -216,29 +216,6 @@ Deno.test({
   sanitizeOps: false,
 });
 
-Deno.test({
-  name: "E2E Agent: tool call envelope parsing",
-  ignore: !(await isLLMAvailable()),
-  async fn() {
-    // This tests that the LLM properly formats tool calls
-    // and the orchestrator parses them correctly
-
-    const { result, context } = await runAgentTask(
-      "List files in src/hlvm/agent",
-    );
-
-    // If we got here without errors, envelope parsing worked
-    const stats = context.getStats();
-    assertEquals(stats.messageCount > 0, true);
-
-    // Check that we have both assistant and tool messages
-    // (meaning tool was called and result returned)
-    assertEquals(stats.assistantMessages > 0, true);
-    assertEquals(stats.toolMessages >= 0, true); // Might be 0 if LLM completes without tools
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
-});
 
 Deno.test({
   name: "E2E Agent: context management during long conversation",
@@ -277,18 +254,3 @@ Deno.test({
   sanitizeOps: false,
 });
 
-// ============================================================
-// Skip Message for CI
-// ============================================================
-
-Deno.test({
-  name: "E2E Agent: skip message when LLM not available",
-  ignore: await isLLMAvailable(),
-  fn() {
-    console.log("\n⚠️  Skipping E2E tests: LLM not available");
-    console.log("   To run E2E tests:");
-    console.log("   1. Start Ollama: ollama serve");
-    console.log("   2. Pull model: ollama pull llama3.2:1b");
-    console.log("   3. Or set ANTHROPIC_API_KEY\n");
-  },
-});

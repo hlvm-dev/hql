@@ -725,8 +725,8 @@ function transformMultiArityFn(
       usesJsonMapParams: false,
     };
 
-    // Register in function registry
-    registerFnFunction(funcName!, fnDecl);
+    // Register in function registry (funcName is guaranteed non-null when isNamed is true)
+    registerFnFunction(funcName as string, fnDecl);
     return fnDecl;
   } else {
     // Anonymous function expression
@@ -1087,9 +1087,9 @@ function processPositionalArgs(
   );
 
   // Check if we have a rest parameter (name starts with "...")
-  const hasRestParam = paramNames.length > 0 &&
-    paramNames[paramNames.length - 1] !== null &&
-    paramNames[paramNames.length - 1]!.startsWith("...");
+  const lastParam = paramNames.length > 0 ? paramNames[paramNames.length - 1] : null;
+  const hasRestParam = lastParam !== null && lastParam !== undefined &&
+    lastParam.startsWith("...");
 
   // Get the regular parameters (all except the last one if it's a rest parameter)
   const regularParamNames = hasRestParam
@@ -1130,8 +1130,9 @@ function processPositionalArgs(
 
       // If this argument is a placeholder (_), use default
       if (arg.type === "symbol" && (arg as SymbolNode).name === "_") {
-        if (defaultValues.has(paramName)) {
-          finalArgs.push(defaultValues.get(paramName)!);
+        const defaultVal = defaultValues.get(paramName);
+        if (defaultVal !== undefined) {
+          finalArgs.push(defaultVal);
         } else {
           // Enhanced error message with more context
           throw new ValidationError(
@@ -1153,7 +1154,7 @@ function processPositionalArgs(
       }
     } else if (defaultValues.has(paramName)) {
       // Use default value for missing arguments
-      finalArgs.push(defaultValues.get(paramName)!);
+      finalArgs.push(defaultValues.get(paramName) as IR.IRNode);
     } else {
       // Enhanced error message with the actual function name and parameter
       throw new ValidationError(

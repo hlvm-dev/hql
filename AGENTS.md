@@ -30,6 +30,29 @@ For `hlvm ask`:
 
 Do not add new CLI flags unless explicitly requested.
 
+## Declarative Over Imperative - MANDATORY
+
+**Prefer declarative approaches and APIs over imperative ones wherever possible.**
+
+- Declarative code is the default — it is simpler, more readable, and easier to maintain.
+- Imperative code is only acceptable when it is **extremely performant** and has **proper, strong, competitive reasons** to justify the added complexity.
+- When choosing between a declarative API and an imperative equivalent, always choose declarative unless you can demonstrate a clear, measurable advantage for imperative.
+
+**Examples:**
+
+```typescript
+// PREFERRED - Declarative
+const results = items.filter(isValid).map(transform);
+
+// AVOID - Imperative (unless performance-critical hot path with benchmarks)
+const results = [];
+for (let i = 0; i < items.length; i++) {
+  if (isValid(items[i])) {
+    results.push(transform(items[i]));
+  }
+}
+```
+
 ## SSOT (Single Source of Truth) - MANDATORY
 
 All code MUST use designated entry points. No scattered logic allowed.

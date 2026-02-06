@@ -202,8 +202,8 @@ Deno.test({
     );
 
     assertEquals(result.success, false);
-    assertEquals(result.exitCode !== 0, true);
-    assertEquals(result.stderr.length > 0, true);
+    assertEquals(result.exitCode, 1);
+    assertStringIncludes(result.stderr, "nonexistent-file");
 
     await cleanupWorkspace();
   },
@@ -222,8 +222,9 @@ Deno.test({
     );
 
     assertEquals(result.success, false);
-    // Error could be "Empty" or entity not found depending on platform behavior
-    assertEquals(result.message !== undefined && result.message.length > 0, true);
+    // Verify error message exists and is meaningful
+    assertEquals(typeof result.message, "string");
+    assertEquals(result.message!.length > 0, true);
 
     await cleanupWorkspace();
   },
@@ -384,47 +385,3 @@ Deno.test({
   },
 });
 
-Deno.test({
-  name: "Shell Tools: shell_script - temp file cleanup",
-  async fn() {
-    await setupWorkspace();
-
-    const platform = getPlatform();
-
-    // Get initial temp dir count
-    const tempBase = "/tmp";
-    let initialCount = 0;
-    try {
-      for await (const entry of platform.fs.readDir(tempBase)) {
-        if (entry.name.startsWith("hlvm-shell-")) {
-          initialCount++;
-        }
-      }
-    } catch {
-      // Can't read /tmp, skip test
-      await cleanupWorkspace();
-      return;
-    }
-
-    // Execute script
-    await shellScript(
-      {
-        script: "echo test",
-      } as ShellScriptArgs,
-      TEST_WORKSPACE
-    );
-
-    // Check temp dirs cleaned up
-    let finalCount = 0;
-    for await (const entry of platform.fs.readDir(tempBase)) {
-      if (entry.name.startsWith("hlvm-shell-")) {
-        finalCount++;
-      }
-    }
-
-    // Should be same or less (cleaned up)
-    assertEquals(finalCount <= initialCount, true);
-
-    await cleanupWorkspace();
-  },
-});

@@ -24,7 +24,7 @@ import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { ValidationError } from "../../common/error.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
-import { buildToolJsonSchema, validateArgsAgainstSchema } from "./tool-schema.ts";
+import { buildToolJsonSchema, coerceArgsToSchema, validateArgsAgainstSchema } from "./tool-schema.ts";
 
 // ============================================================
 // Types
@@ -97,6 +97,13 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
  */
 const DYNAMIC_TOOL_REGISTRY: Record<string, ToolMetadata> = {};
 
+/** Cached merged view of TOOL_REGISTRY + DYNAMIC_TOOL_REGISTRY */
+let _allToolsCache: Record<string, ToolMetadata> | null = null;
+
+function invalidateAllToolsCache(): void {
+  _allToolsCache = null;
+}
+
 // ============================================================
 // Registry API
 // ============================================================
@@ -142,7 +149,10 @@ export function getTool(name: string): ToolMetadata {
  * ```
  */
 export function getAllTools(): Record<string, ToolMetadata> {
-  return { ...TOOL_REGISTRY, ...DYNAMIC_TOOL_REGISTRY };
+  if (!_allToolsCache) {
+    _allToolsCache = { ...TOOL_REGISTRY, ...DYNAMIC_TOOL_REGISTRY };
+  }
+  return _allToolsCache;
 }
 
 /**
@@ -163,9 +173,10 @@ export function resolveTools(
 
   const denylist = options?.denylist?.filter((name) => name in tools) ?? [];
   if (denylist.length > 0) {
+    const denySet = new Set(denylist);
     const selected: Record<string, ToolMetadata> = {};
     for (const [name, tool] of Object.entries(tools)) {
-      if (!denylist.includes(name)) {
+      if (!denySet.has(name)) {
         selected[name] = tool;
       }
     }
@@ -222,6 +233,77 @@ export function hasTool(name: string): boolean {
 }
 
 /**
+ * Attempt to normalize a tool name to a known tool name.
+ *
+ * Tries these transformations in order:
+ * 1. Exact match (identity)
+ * 2. Lowercase: "List_Files" → "list_files"
+ * 3. camelCase to snake_case: "listFiles" → "list_files"
+ * 4. Strip separators and fuzzy match: "list-files" → "list_files"
+ *
+ * @param name Tool name to normalize
+ * @returns Normalized tool name if found, or null
+ */
+export function normalizeToolName(name: string): string | null {
+  if (hasTool(name)) return name;
+
+  const allTools = Object.keys(getAllTools());
+
+  // Try lowercase
+  const lower = name.toLowerCase();
+  if (hasTool(lower)) return lower;
+
+  // Try camelCase → snake_case
+  const snaked = lower.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+  if (hasTool(snaked)) return snaked;
+
+  // Strip all separators and match against stripped tool names
+  const stripped = lower.replace(/[-_ ]/g, "");
+  for (const toolName of allTools) {
+    if (toolName.replace(/[-_ ]/g, "") === stripped) return toolName;
+  }
+
+  return null;
+}
+
+/**
+ * Suggest similar tool names for an unknown tool.
+ *
+ * @param name Unknown tool name
+ * @returns Array of up to 3 similar tool names
+ */
+export function suggestToolNames(name: string): string[] {
+  const allTools = Object.keys(getAllTools());
+  const lower = name.toLowerCase();
+  const stripped = lower.replace(/[-_ ]/g, "");
+
+  // Score tools by similarity (simple prefix/substring matching)
+  const nameWordSet = new Set(lower.split(/[-_ ]/));
+  const scored = allTools
+    .map((toolName) => {
+      const toolStripped = toolName.replace(/[-_ ]/g, "");
+      let score = 0;
+      if (toolStripped.startsWith(stripped) || stripped.startsWith(toolStripped)) {
+        score += 3;
+      }
+      if (toolStripped.includes(stripped) || stripped.includes(toolStripped)) {
+        score += 2;
+      }
+      // Check if words overlap (O(b) with Set lookup)
+      const toolWords = toolName.split(/[-_ ]/);
+      for (const w of toolWords) {
+        if (nameWordSet.has(w)) score++;
+      }
+
+      return { name: toolName, score };
+    })
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return scored.slice(0, 3).map((s) => s.name);
+}
+
+/**
  * Validate tool arguments (basic type checking)
  *
  * Performs simple validation:
@@ -262,6 +344,21 @@ export function validateToolArgs(
     valid: errors.length === 0,
     errors: errors.length > 0 ? errors : undefined,
   };
+}
+
+/**
+ * Coerce tool arguments based on tool schema (e.g., numeric strings -> numbers).
+ */
+export function coerceToolArgs(name: string, args: unknown): unknown {
+  const tool = getTool(name);
+  if (tool.skipValidation) {
+    return args;
+  }
+  if (!isToolArgsObject(args)) {
+    return args;
+  }
+  const schema = buildToolJsonSchema(tool);
+  return coerceArgsToSchema(args, schema);
 }
 
 /**
@@ -320,6 +417,7 @@ export function registerTool(name: string, tool: ToolMetadata): void {
     );
   }
   DYNAMIC_TOOL_REGISTRY[name] = tool;
+  invalidateAllToolsCache();
 }
 
 /**
@@ -341,4 +439,5 @@ export function registerTools(tools: Record<string, ToolMetadata>): string[] {
  */
 export function unregisterTool(name: string): void {
   delete DYNAMIC_TOOL_REGISTRY[name];
+  invalidateAllToolsCache();
 }

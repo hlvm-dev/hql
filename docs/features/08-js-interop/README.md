@@ -1,815 +1,409 @@
-# JavaScript Interoperability Documentation
+# JavaScript Interoperability
 
-**Implementation:** Transpiler JS interop transformers
-**Coverage:** ✅ 100%
+**Source:** `src/hql/transpiler/syntax/js-interop.ts`, `src/hql/transpiler/syntax/data-structure.ts`, `src/hql/transpiler/pipeline/syntax-transformer.ts`, `src/hql/transpiler/pipeline/hql-ast-to-hql-ir.ts`
 
 ## Overview
 
-HQL provides seamless bidirectional interoperability with JavaScript:
+HQL compiles to JavaScript and provides forms for interacting with JavaScript APIs:
 
-1. **js-call** - Invoke JavaScript methods
+1. **js-call** - Invoke JavaScript methods or call functions
 2. **js-get** - Access JavaScript properties
 3. **js-set** - Mutate JavaScript properties
-4. **js-new** - Create JavaScript objects
-5. **Dot notation** - Syntactic sugar for property/method access
-6. **Optional chaining** - Safe property/method access with `?.` (v2.0)
-7. **Async/await** - Asynchronous JavaScript integration
-8. **Error handling** - Try/catch/finally across boundaries
-9. **Module system** - Import/export between HQL and JS
-10. **Type mapping** - Automatic data type conversion
-11. **Circular imports** - Support for circular HQL ↔ JS dependencies
-
-All HQL code compiles to valid JavaScript with full ES6+ support.
+4. **js-new** - Create objects with constructor (args wrapped in list)
+5. **new** - Create objects with constructor (flat args)
+6. **js-get-invoke** - Property access with runtime method/property check
+7. **Dot notation (spaced)** - `(obj .method arg)` syntactic sugar for method chaining
+8. **Dot notation (spaceless)** - `(obj.method arg)` compact form, identical behavior
+9. **Optional chaining** - Safe property/method access with `?.`
 
 ## Syntax
 
-### js-call - Method Invocation
+### js-call - Method Invocation / Function Call
 
+Two forms:
+
+**Method call** (second arg is a string literal = method name):
 ```lisp
-// Basic method call
-(js-call object "method")
-
-// With arguments
 (js-call object "method" arg1 arg2)
+```
+Compiles to: `object["method"](arg1, arg2)` (or `object.method(arg1, arg2)` for valid identifiers).
 
-// Static method
-(js-call Array "from" [1, 2, 3])
+**Direct function call** (second arg is not a string literal):
+```lisp
+(js-call func arg1 arg2)
+```
+Compiles to: `func(arg1, arg2)`.
 
-// Examples
-(var str "hello")
-(js-call str "toUpperCase")  // → "HELLO"
+Spread operators are supported in arguments.
+
+Examples:
+```lisp
+(var str "hello world")
+(js-call str "toUpperCase")          ;; => "HELLO WORLD"
 
 (var arr [1, 2, 3, 4, 5])
-(js-call arr "filter" (fn [x] (> x 2)))  // → [3, 4, 5]
+(js-call arr "filter" (fn [x] (> x 2)))  ;; => [3, 4, 5]
 
-(js-call str "split" ",")  // → ["hello"]
+(js-call str "split" ",")           ;; => ["hello world"]
+
+;; Static method call
+(js-call Array "from" [1, 2, 3])
+
+;; Static method call on JSON
+(js-call JSON "stringify" data)
 ```
 
 ### js-get - Property Access
 
 ```lisp
-// Basic property access
 (js-get object "property")
+```
+Compiles to: `object["property"]` (or `object.property` for valid identifiers).
 
-// Nested access
+The property can be a string literal or an expression (for computed access).
+
+Examples:
+```lisp
+(var obj {"name": "Alice", "age": 30})
+(js-get obj "name")                 ;; => "Alice"
+
+;; Nested access
 (var person {"address": {"city": "NYC"}})
 (var addr (js-get person "address"))
-(js-get addr "city")  // → "NYC"
+(js-get addr "city")                ;; => "NYC"
 
-// Array access
+;; Array indexing
 (var arr [10, 20, 30])
-(js-get arr 1)  // → 20
+(js-get arr 1)                      ;; => 20
 
-// Undefined properties
-(js-get obj "nonexistent")  // → undefined
+;; Undefined properties return undefined
+(js-get obj "nonexistent")          ;; => undefined
 ```
 
 ### js-set - Property Mutation
 
 ```lisp
-// Set property
 (js-set object "property" value)
+```
+Compiles to: `object["property"] = value` (or `object.property = value` for valid identifiers).
 
-// Example
+Examples:
+```lisp
 (var obj {"count": 0})
 (js-set obj "count" 42)
-(js-get obj "count")  // → 42
+(js-get obj "count")                ;; => 42
 
-// Create new property
 (var obj {})
 (js-set obj "newProp" "value")
 ```
 
-### js-new - Object Creation
+### js-new - Object Creation (Args in List)
 
 ```lisp
-// Create object with constructor
-(js-new Constructor (args...))
+(js-new Constructor (arg1 arg2))
+```
+Compiles to: `new Constructor(arg1, arg2)`.
 
-// Examples
+Arguments must be wrapped in a list (parentheses). An empty list `()` means no arguments.
+
+Examples:
+```lisp
 (var date (js-new Date (2023 11 25)))
-(js-call date "getFullYear")  // → 2023
+(js-call date "getFullYear")        ;; => 2023
 
 (var arr (js-new Array (5)))
-(js-get arr "length")  // → 5
+(js-get arr "length")               ;; => 5
 
 (var map (js-new Map ()))
 (js-call map "set" "key" "value")
 ```
 
-### Dot Notation - Syntactic Sugar
+### new - Object Creation (Flat Args)
 
 ```lisp
-// Property access
-(object .property)
+(new Constructor arg1 arg2)
+```
+Compiles to: `new Constructor(arg1, arg2)`.
 
-// Method call
-(object .method)
-(object .method arg1 arg2)
+Arguments are flat (not wrapped in a list). This is the simpler form.
 
-// Chaining
-(object .method1 .method2 .method3)
+Examples:
+```lisp
+(new Date 2023 11 25)
+(new Array 5)
+(new Map)
+```
 
-// Examples
+### js-get-invoke - Property Access with Runtime Check
+
+```lisp
+(js-get-invoke object "property")
+```
+
+Generates an IIFE that checks at runtime whether the property is a function (method) or a value, and acts accordingly. Used internally by dot-chain transformations when it is ambiguous whether a chained element is a method call or property access.
+
+### Dot Notation (Spaced) - Method Chaining
+
+```lisp
+(object .method1 arg1 .method2 arg2)
+```
+
+The syntax transformer groups `.method` symbols and their following arguments into nested method calls. This is the primary way to chain methods in HQL.
+
+Examples:
+```lisp
 (var arr [1, 2, 3])
-(arr .length)  // → 3
+(arr .length)                        ;; => 3
 
 (var text "  hello  ")
-(text .trim .toUpperCase)  // → "HELLO"
+(text .trim .toUpperCase)            ;; => "HELLO"
 
 (var str "hello,world")
-(str .split ",")  // → ["hello", "world"]
+(str .split ",")                     ;; => ["hello", "world"]
+
+;; Chaining with arguments
+(var text "  Hello World  ")
+(text .trim .toLowerCase .split " ") ;; => ["hello", "world"]
+
+;; Pipeline style (multiline)
+(arr
+  .filter (fn [x] (> x 3))
+  .map (fn [x] (* x 2))
+  .slice 0 3)
 ```
 
-#### Flexible Syntax - Spaced or Spaceless
-
-HQL supports both spaced and spaceless dot notation. **Both compile to identical JavaScript:**
-
-**Spaceless (compact):**
+Optional chaining in spaced dot notation uses `.?`:
 ```lisp
-(text.trim.toUpperCase)
-(arr.push.pop.reverse)
-(config.server.port.toString)
+(obj .?method arg1)                  ;; => obj?.method(arg1)
 ```
 
-**Spaced (explicit):**
+### Dot Notation (Spaceless) - Compact Form
+
 ```lisp
-(text .trim .toUpperCase)
-(arr .push .pop .reverse)
-(config .server .port .toString)
+(obj.method1.method2 arg)
 ```
 
-**With arguments, both work:**
-```lisp
-// Spaceless
-(users.filter active?.map format.take 10)
+Dots in the first symbol split it into object and method chain. Both spaced and spaceless generate identical JavaScript.
 
-// Spaced (often more readable with args)
-(users .filter active? .map format .take 10)
+Examples:
+```lisp
+(text.trim.toUpperCase)              ;; same as (text .trim .toUpperCase)
+(arr.filter (fn [x] (> x 3)).map (fn [x] (* x 2)))
+(str.split ",")
 ```
 
-**Choose based on readability:**
-- **Compact chains (no args):** `(text.trim.toUpperCase)` ← concise
-- **Chains with args:** `(arr .map fn .filter pred)` ← clearer boundaries
-- **Pipeline style (multiline):**
-  ```lisp
-  (users
-    .filter active?
-    .map format
-    .take 10)
-  ```
+**Equivalence:**
 
-**How it works:**
-- Dots in the first element mark method boundaries
-- Arguments flow to the preceding method
-- Both syntaxes use the same underlying machinery
+Spaceless normalization only applies to the **first symbol** in a list. Arguments are left unchanged. This means full spaceless chains require dot-prefixed method names for subsequent methods:
 
-**Example equivalence:**
 ```lisp
-// These three are equivalent:
-(data.filter isEven.map double.slice 0 5)    // spaceless
-(data .filter isEven .map double .slice 0 5) // spaced
-(data                                         // multiline
+;; These produce identical JavaScript:
+(data.filter isEven .map double .slice 0 5)  ;; first method spaceless, rest spaced
+(data .filter isEven .map double .slice 0 5) ;; fully spaced
+(data                                         ;; multiline
   .filter isEven
   .map double
   .slice 0 5)
+
+;; All generate: data.filter(isEven).map(double).slice(0, 5)
 ```
 
-All generate: `data.filter(isEven).map(double).slice(0, 5)`
-
-### Optional Chaining (v2.0)
-
-Optional chaining allows safe property access on potentially null/undefined values:
-
+Nested spaceless chains also work when wrapped in sub-expressions:
 ```lisp
-// Basic optional property access
-user?.name                       // => user's name or undefined
-
-// Chained optional access
-data?.user?.address?.city        // => city or undefined if any is nullish
-
-// Mixed with regular access
-company?.ceo.name                // => ceo's name, undefined if company is nullish
-
-// Optional method calls
-obj?.greet("World")              // => calls greet or returns undefined
-
-// With method chaining
-response?.data?.items?.map(fn)   // => maps items or undefined
+(arr.filter (fn [x] (> x 3)).map (fn [x] (* x 2)))
+;; Equivalent to: (arr .filter (fn [x] (> x 3)) .map (fn [x] (* x 2)))
 ```
 
-**Use cases:**
+**Edge cases:**
+- `js/` prefix is preserved (not treated as dot notation): `(js/console.log "hello")`
+- Spread operators `...` are not treated as dot notation
+- Numeric literals with decimals (`42.5`) are not treated as dot notation
+- Bare property access works: `arr.length` evaluates to the property
 
+### Optional Chaining
+
+Optional chaining allows safe property access on potentially null/undefined values. It compiles directly to JavaScript optional chaining (`?.`).
+
+**Property access (bare symbol form):**
 ```lisp
-// Safe nested access
-(const city data?.user?.address?.city)
-(print "City:" city)             // Works even if data is null
-
-// Optional method invocation
-(const result obj?.compute(10))  // Returns undefined if obj is null
-
-// Combining with nullish coalescing
-(?? user?.name "Anonymous")      // Fallback if user or name is nullish
-
-// API response handling
-(const items response?.data?.items)
-(if items
-  (items.map process)
-  [])
+user?.name                           ;; => user?.name
+data?.user?.address?.city            ;; => data?.user?.address?.city
 ```
 
-**Compilation:**
-
+**Method calls (spaceless form):**
 ```lisp
-user?.name                       // => user?.name
-data?.user?.address              // => data?.user?.address
-obj?.method(arg)                 // => obj?.method(arg)
+(obj?.greet "World")                 ;; => obj?.greet("World")
 ```
 
-Optional chaining compiles directly to JavaScript optional chaining, providing identical semantics.
-
-**Edge Cases:**
-
-*Arguments with dots (property access):*
+**Method calls (spaced dot notation):**
 ```lisp
-// user.name is property access on argument
-(users.map (fn [u] u.name))
-// Same as:
-(users .map (fn [u] u.name))
+(obj .?greet "World")                ;; => obj?.greet("World")
 ```
 
-*Module/namespace access:*
+**Mixed with regular access:**
 ```lisp
-Math.PI          // property access (bare)
-(Math.PI)        // property access (in parens)
-```
-
-*JavaScript imports:*
-```lisp
-(js/console.log "hello")  // js/ prefix preserved
-```
-
-*Numeric literals:*
-```lisp
-42.5             // decimal number (not normalized)
-(+ 42.5 10)      // works as expected
-```
-
-### Async/Await Interop
-
-```lisp
-// Async function
-(async fn function-name [params]
-  (await async-operation)
-  result)
-
-// Basic async
-(async fn get-value []
-  (await (js-call Promise "resolve" 42)))
-
-(get-value)  // → Promise → 42
-
-// Multiple awaits
-(async fn add-async [a b]
-  (let x (await (js-call Promise "resolve" a)))
-  (let y (await (js-call Promise "resolve" b)))
-  (+ x y))
-
-// Promise.all
-(async fn fetch-all []
-  (let promises [
-    (js-call Promise "resolve" 1)
-    (js-call Promise "resolve" 2)])
-  (await (js-call Promise "all" promises)))
-
-// Promise.race
-(async fn race []
-  (await (js-call Promise "race" [p1 p2])))
-```
-
-### Error Handling - Try/Catch/Finally
-
-```lisp
-// Basic try/catch
-(try
-  (throw "error-message")
-  (catch e
-    (+ "caught: " e)))
-
-// With finally
-(try
-  risky-operation
-  (catch e
-    error-handler)
-  (finally
-    cleanup-code))
-
-// Catching JS errors
-(try
-  (js-call JSON "parse" "invalid-json")
-  (catch e
-    "parse-error"))
-
-// Nested error handling
-(try
-  (try
-    (throw "inner")
-    (catch e
-      (throw e)))
-  (catch e
-    "outer-caught"))
-
-// Async error handling
-(async fn safe-operation []
-  (try
-    (await risky-call)
-    (catch e
-      "error-caught")))
-```
-
-### Module System - Import/Export
-
-```lisp
-// HQL importing JavaScript
-(import [jsFunction] from "./module.js")
-(import [default as MyClass] from "./class.js")
-
-// HQL exporting to JavaScript
-(fn myFunction [x] (* x 2))
-(export [myFunction])
-
-// JavaScript importing compiled HQL
-// Compile HQL to JS first
-const hql = await transpile(code)//
-// Using platform abstraction
-import { writeTextFile } from "@hlvm/hql/src/platform/platform.ts"//
-await writeTextFile("module.mjs", hql)//
-
-// Import in JavaScript
-import { myFunction } from "./module.mjs"//
+company?.ceo.name                    ;; => company?.ceo.name
 ```
 
 ## Implementation Details
 
 ### js-call Compilation
 
-**HQL:**
+| HQL | JavaScript |
+|-----|-----------|
+| `(js-call obj "method" arg1 arg2)` | `obj.method(arg1, arg2)` |
+| `(js-call func arg1)` | `func(arg1)` |
 
-```lisp
-(js-call obj "method" arg1 arg2)
-```
-
-**Compiled JavaScript:**
-
-```javascript
-obj["method"](arg1, arg2)//
-```
+When the method name string is a valid JS identifier, dot notation is used. Otherwise bracket notation is used.
 
 ### js-get Compilation
 
-**HQL:**
-
-```lisp
-(js-get obj "property")
-```
-
-**Compiled:**
-
-```javascript
-obj["property"]//
-```
+| HQL | JavaScript |
+|-----|-----------|
+| `(js-get obj "property")` | `obj.property` |
+| `(js-get obj expr)` | `obj[expr]` |
 
 ### js-set Compilation
 
-**HQL:**
-
-```lisp
-(js-set obj "key" value)
-```
-
-**Compiled:**
-
-```javascript
-obj["key"] = value//
-```
+| HQL | JavaScript |
+|-----|-----------|
+| `(js-set obj "key" value)` | `obj.key = value` |
 
 ### js-new Compilation
 
-**HQL:**
+| HQL | JavaScript |
+|-----|-----------|
+| `(js-new Constructor (arg1 arg2))` | `new Constructor(arg1, arg2)` |
+| `(js-new Constructor ())` | `new Constructor()` |
 
-```lisp
-(js-new Constructor (arg1 arg2))
-```
+### new Compilation
 
-**Compiled:**
-
-```javascript
-new Constructor(arg1, arg2)//
-```
+| HQL | JavaScript |
+|-----|-----------|
+| `(new Constructor arg1 arg2)` | `new Constructor(arg1, arg2)` |
 
 ### Dot Notation Compilation
 
-**HQL:**
+| HQL | JavaScript |
+|-----|-----------|
+| `(obj .method arg1 arg2)` | `obj.method(arg1, arg2)` |
+| `(obj .prop)` | Runtime check IIFE: calls `obj.prop()` if function, else returns `obj.prop` |
+| `(obj.method arg)` | `obj.method(arg)` |
 
-```lisp
-(obj .method arg1 arg2)
-```
+### Optional Chaining Compilation
 
-**Compiled:**
-
-```javascript
-obj.method(arg1, arg2)//
-```
-
-### Async/Await Compilation
-
-**HQL:**
-
-```lisp
-(async fn getData []
-  (await (js-call fetch url)))
-```
-
-**Compiled:**
-
-```javascript
-async function getData() {
-  return await fetch(url)//
-}
-```
-
-## Type Mapping
-
-### HQL → JavaScript
-
-| HQL Type  | JavaScript Type | Notes                 |
-| --------- | --------------- | --------------------- |
-| Number    | Number          | Direct mapping        |
-| String    | String          | Direct mapping        |
-| Boolean   | Boolean         | true/false            |
-| Array     | Array           | Native arrays         |
-| Object    | Object          | Native objects        |
-| Function  | Function        | First-class functions |
-| null      | null            | Direct mapping        |
-| undefined | undefined       | Direct mapping        |
-
-### JavaScript → HQL
-
-All JavaScript types are accessible in HQL:
-
-- **Primitives**: Numbers, strings, booleans
-- **Objects**: Plain objects, arrays, maps, sets
-- **Functions**: Functions, methods, constructors
-- **Classes**: ES6 classes, prototypes
-- **Promises**: Async/await support
-- **Errors**: Try/catch/finally handling
-
-## Features Covered
-
-✅ js-call - basic invocation ✅ js-call - with arguments ✅ js-call - with
-callbacks ✅ js-call - static methods ✅ js-call - array methods (map, filter,
-reduce) ✅ js-get - property access ✅ js-get - nested properties ✅ js-get -
-array indexing ✅ js-get - undefined properties ✅ js-set - property mutation ✅
-js-set - create new properties ✅ js-new - constructor invocation ✅ js-new -
-with arguments ✅ js-new - built-in constructors (Date, Array, Map) ✅ Dot
-notation - property access ✅ Dot notation - method calls ✅ Dot notation -
-chaining ✅ Optional chaining - property access (`?.`) ✅ Optional chaining -
-method calls ✅ Optional chaining - chained access ✅ Async functions - basic ✅
-Async functions - multiple awaits ✅ Async functions - Promise.all ✅ Async
-functions - Promise.race ✅ Async functions - chained operations ✅ Try/catch -
-basic ✅ Try/catch - with finally ✅ Try/catch - nested ✅ Try/catch - async ✅
-Error types - access properties ✅ Module imports - HQL → JS ✅ Module imports -
-JS → HQL ✅ Module exports - HQL classes ✅ Circular imports - HQL ↔ JS
+| HQL | JavaScript |
+|-----|-----------|
+| `user?.name` | `user?.name` |
+| `(obj?.greet "World")` | `obj?.greet("World")` |
+| `(obj .?method arg)` | `obj?.method(arg)` |
 
 ## Test Coverage
 
+### Tests: `tests/unit/organized/syntax/js-interop/js-interop.test.ts` (59 tests)
 
+**Section 1: Basic JS Interop (10 tests)**
+- js-call basic method invocation
+- js-call with arguments
+- js-call on array with filter
+- js-get basic property access
+- js-get nested property access
+- js-set property assignment
+- js-new create Date object
+- js-new create Array
+- dot notation property access
+- dot notation method chaining
 
-### Section 1: Basic JS Interop
-
-- js-call method invocation
-- js-get property access
-- js-set property mutation
-- js-new object creation
-- Dot notation syntactic sugar
-
-### Section 2: Async/Await
-
-- Basic async functions
+**Section 2: Async/Await (12 tests)**
+- Basic async function with await
 - Multiple awaits in sequence
-- Promise.all and Promise.race
+- Await with actual delay
+- Promise.all with multiple promises
+- Promise.race
 - Chained async operations
+- Async function returning computed values
+- Async with array operations
+- Promise rejection with catch
 - Nested async calls
-- Bug regression tests
-
-### Section 3: Error Handling
-
-- Try/catch/finally basics
-- Catching JS errors
-- HQL error handling
-- Nested try/catch
-- Async error handling
-- Error property access
-
-### Section 4: Deep Dive
-
-- HQL importing JS modules
-- Runtime API (transpile, run)
-- Data type mapping
-- Complex operations (JSON, arrays)
-- Dot notation comprehensive tests
-- Edge cases (null, undefined, this)
-
-### Section 5: Module System
-
-- Compile HQL to JS
-- Import compiled HQL in JavaScript
-- Export HQL classes to JS
-
-### Section 6: Circular Imports (1 test)
-
-- Circular HQL ↔ JS dependencies
-
-## Use Cases
-
-### 1. Using JavaScript Libraries
-
-```lisp
-// Use lodash
-(import [default as _] from "https://deno.land/x/lodash/mod.ts")
-(js-call _ "chunk" [1 2 3 4] 2)  // → [[1,2], [3,4]]
-
-// Use moment.js
-(import [default as moment] from "moment")
-(var now (js-call moment))
-(js-call now "format" "YYYY-MM-DD")
-```
-
-### 2. DOM Manipulation (Browser)
-
-```lisp
-(var elem (js-call document "getElementById" "myDiv"))
-(js-set elem "textContent" "Hello!")
-(js-call elem "classList" "add" "active")
-```
-
-### 3. Async API Calls
-
-```lisp
-(async fn fetch-user [id]
-  (let response (await (js-call fetch (+ "/api/users/" id))))
-  (await (js-call response "json")))
-
-(fetch-user 123)
-```
-
-### 4. Error Handling with Retry
-
-```lisp
-(async fn retry-fetch [url max-attempts]
-  (var attempts 0)
-  (loop []
-    (= attempts (+ attempts 1))
-    (try
-      (return (await (js-call fetch url)))
-      (catch e
-        (if (>= attempts max-attempts)
-          (throw e)
-          (recur))))))
-```
-
-### 5. Working with JSON
-
-```lisp
-(var data {"name": "Alice", "age": 30})
-(var json (js-call JSON "stringify" data))
-(var parsed (js-call JSON "parse" json))
-```
-
-### 6. Array Operations
-
-```lisp
-(var numbers [1, 2, 3, 4, 5])
-(var doubled (js-call numbers "map" (fn [x] (* x 2))))
-(var sum (js-call doubled "reduce" (fn [acc val] (+ acc val)) 0))
-```
-
-### 7. Promise Utilities
-
-```lisp
-(async fn parallel-fetch [urls]
-  (let promises (urls .map (fn [url] (js-call fetch url))))
-  (await (js-call Promise "all" promises)))
-```
-
-### 8. Class Instantiation
-
-```lisp
-(var date (js-new Date ()))
-(var map (js-new Map ()))
-(var set (js-new Set ([1 2 3])))
-
-(js-call map "set" "key" "value")
-(js-call set "add" 4)
-```
-
-## Comparison with Other Languages
-
-### JavaScript/TypeScript
-
-```javascript
-// JavaScript
-const text = "hello"//
-const upper = text.toUpperCase()//
-
-const arr = [1, 2, 3]//
-const doubled = arr.map(x => x * 2)//
-
-async function getData() {
-  const response = await fetch(url)//
-  return await response.json()//
-}
-
-// HQL
-(var text "hello")
-(var upper (text .toUpperCase))
-
-(var arr [1, 2, 3])
-(var doubled (arr .map (fn [x] (* x 2))))
-
-(async fn getData []
-  (let response (await (js-call fetch url)))
-  (await (js-call response "json")))
-```
-
-### HQL Equivalent
-
-```lisp
-(js-call "hello" "toUpperCase")
-(js-call [1 2 3] "map" (fn [x] (* x 2)))
-
-// Or with dot notation
-("hello" .toUpperCase)
-([1 2 3] .map (fn [x] (* x 2)))
-```
-
-## Best Practices
-
-### Use Dot Notation for Clarity
-
-```lisp
-// ✅ Good: Clear and concise
-(arr .map (fn [x] (* x 2)))
-(text .trim .toUpperCase)
-
-// ❌ Avoid: Verbose
-(js-call (js-call text "trim") "toUpperCase")
-```
-
-### Handle Errors Gracefully
-
-```lisp
-// ✅ Good: Error handling
-(async fn safe-fetch [url]
-  (try
-    (await (js-call fetch url))
-    (catch e
-      (console.log (+ "Error: " e))
-      null)))
-
-// ❌ Avoid: No error handling
-(async fn unsafe-fetch [url]
-  (await (js-call fetch url)))
-```
-
-### Use Type Guards
-
-```lisp
-// ✅ Good: Check before access
-(fn get-name [obj]
-  (if obj
-    (js-get obj "name")
-    "unknown"))
-
-// ❌ Avoid: Unchecked access
-(fn get-name [obj]
-  (js-get obj "name"))  // May throw on null
-```
-
-### Prefer Named Imports
-
-```lisp
-// ✅ Good: Named imports
-(import [fetch] from "node:fetch")
-(import [readFile writeFile] from "node:fs/promises")
-
-// ❌ Avoid: Default imports with unclear naming
-(import [default as f] from "node:fetch")
-```
-
-## Edge Cases Tested
-
-✅ Null and undefined handling ✅ this binding in methods ✅ Array out-of-bounds
-access ✅ Property access on non-objects ✅ Method chaining ✅ Nested error
-handling ✅ Async error propagation ✅ Promise rejection handling ✅ Circular
-module dependencies ✅ Constructor with multiple arguments ✅ Static method
-invocation ✅ Callback function arguments ✅ JSON parse errors ✅ Property
-mutation on frozen objects ✅ Async function return values
-
-## Common Patterns
-
-### 1. API Client
-
-```lisp
-(async fn api-get [endpoint]
-  (try
-    (let response (await (js-call fetch (+ API_URL endpoint))))
-    (if (js-get response "ok")
-      (await (js-call response "json"))
-      (throw (+ "HTTP error: " (js-get response "status"))))
-    (catch e
-      (console.error (+ "API error: " e))
-      null)))
-```
-
-### 2. Data Transformation Pipeline
-
-```lisp
-(var users [{name: "Alice", age: 25}, {name: "Bob", age: 30}])
-(var names 
-  (users 
-    .filter (fn [u] (> (js-get u "age") 20))
-    .map (fn [u] (js-get u "name"))
-    .join ", "))
-```
-
-### 3. Event Handler Registration
-
-```lisp
-(var button (js-call document "getElementById" "btn"))
-(js-call button "addEventListener" "click" (fn [e]
-  (console.log "Button clicked!")
-  (js-call e "preventDefault")))
-```
-
-### 4. Lazy Loading
-
-```lisp
-(async fn lazy-load [module-path]
-  (try
-    (await (js-call import module-path))
-    (catch e
-      (console.error (+ "Failed to load: " module-path))
-      null)))
-```
-
-## Performance Considerations
-
-**Method Calls:**
-
-- ✅ Compiled to direct JavaScript method calls
-- ✅ No overhead compared to native JS
-- ✅ JIT optimization applies normally
-
-**Property Access:**
-
-- ✅ Bracket notation for js-get/js-set
-- ✅ Dot notation for property access
-- ✅ Similar performance to JavaScript
-
-**Async Operations:**
-
-- ✅ Native Promise support
-- ✅ Zero overhead async/await
-- ✅ Same performance as JavaScript async functions
-
-**Best Practices:**
-
-- Cache property access in hot loops
-- Use dot notation for better readability
-- Prefer native array methods (map, filter) over manual loops
-- Batch async operations with Promise.all
-
-## Summary
-
-HQL's JavaScript interoperability provides:
-
-- ✅ **Seamless integration** with JavaScript APIs
-- ✅ **Full async/await support** for modern async patterns
-- ✅ **Error handling** with try/catch/finally
-- ✅ **Module system** for bidirectional imports
-- ✅ **Type mapping** between HQL and JavaScript
-- ✅ **Circular imports** for complex dependencies
-- ✅ **Syntactic sugar** (dot notation) for clarity
-- ✅ **Zero overhead** - compiles to idiomatic JavaScript
-
-Choose the right pattern:
-
-- **js-call**: JavaScript method invocation
-- **js-get**: Property access and indexing
-- **js-set**: Property mutation
-- **js-new**: Constructor invocation
-- **Dot notation**: Cleaner syntax for common operations
-- **Async/await**: Asynchronous operations
-- **Try/catch**: Error handling across boundaries
-- **Import/export**: Module integration
+- Regression: js-new Promise with setTimeout
+- Regression: js-new Promise with immediate resolve
+
+**Section 3: Error Handling (16 tests)**
+- Basic try/catch with throw
+- Try/catch with throw
+- Try/catch/finally all execute
+- Finally executes even without error
+- Catch gets error object
+- Catch synchronous JS errors
+- Catch JS method throwing error (JSON.parse)
+- Array access out of bounds returns undefined
+- HQL function throws, catches internally
+- HQL catches then returns value
+- Nested try/catch blocks
+- Catch in inner, rethrow to outer
+- Async function with try/catch
+- Async function with finally
+- Catch and access error properties
+- Access error message property
+
+**Section 4: Deep Dive (17 tests)**
+- HQL imports JS function
+- HQL imports JS variadic function
+- HQL imports JS constant
+- HQL imports and uses JS class
+- transpile() produces valid JavaScript
+- run() executes and returns result
+- HQL arrays are JS arrays
+- HQL objects are JS objects
+- HQL functions are JS functions
+- HQL closures work like JS closures
+- Using Promise.resolve
+- Array destructuring and spread
+- JSON manipulation
+- Dot notation with multiple chaining
+- Dot notation with property and method mix
+- Null and undefined handling
+- this binding in methods
+
+**Section 5: Module System (3 tests)**
+- Compile HQL and verify exports
+- Write, import, and use compiled HQL module
+- Complex HQL module with classes
+
+**Section 6: Circular Imports (1 test)**
+- Circular HQL-JS dependencies
+
+### Tests: `tests/unit/syntax-dot-notation-spaceless.test.ts` (23 tests)
+
+**Section 1: Equivalence (spaced vs spaceless)**
+- Method chain no args
+- Method chain with args
+- Single method call
+- Multiple args per method
+- Complex chain with multiple args
+
+**Section 2: Spaceless functionality**
+- Simple chain no args
+- Chain with arguments
+- Triple chain
+- Long chain
+
+**Section 3: Edge cases**
+- js/ prefix not normalized
+- Prefix dot syntax unchanged
+- Numeric literal with decimal
+- Arguments with dots stay as property access
+- Consecutive dots normalized away
+- Property access in arguments (via js-get)
+
+**Section 4: Regression**
+- Bare property access
+- Spaced chains
+- Complex spaced chains with args
+- Mixed property and method access
+- Multiline spaced notation
+
+**Section 5: Real-world patterns**
+- Data pipeline spaceless
+- String manipulation
+- Array operations

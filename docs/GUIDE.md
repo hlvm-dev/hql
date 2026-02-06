@@ -263,6 +263,12 @@ Pattern matching:
   (case 404 "Not Found")
   (default "Unknown"))
 
+// Or-patterns: match multiple values
+(match status-code
+  (case (| 200 201 204) "success")
+  (case (| 400 422) "client error")
+  (default "other"))
+
 // Destructure arrays
 (match point
   (case [x, y] (+ "x=" x ", y=" y))

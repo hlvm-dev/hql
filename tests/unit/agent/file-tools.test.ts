@@ -141,8 +141,9 @@ Deno.test({
       TEST_WORKSPACE,
     );
 
-    assertEquals(result.success, false);
-    assertStringIncludes(result.message || "", "Limit");
+    // maxBytes truncates content rather than rejecting
+    assertEquals(result.success, true);
+    assertEquals(result.content, "01234");
 
     await cleanupWorkspace();
   },

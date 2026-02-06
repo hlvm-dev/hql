@@ -24,6 +24,7 @@ export type {
   ProviderToolCall,
   ChatStructuredResponse,
   Message,
+  ProviderMessage,
   MessageRole,
   ModelInfo,
   ModelCapabilityFlags,

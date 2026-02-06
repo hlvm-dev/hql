@@ -127,12 +127,3 @@ Deno.test("Tooling: hql.transpile defaults to generating source maps for string 
   assertEquals(map.version, 3);
 });
 
-// ============================================================================
-// TEST 3: INTERNAL TOOLING EXPORTS (Source Map Helpers)
-// ============================================================================
-
-Deno.test("Tooling: Source map helpers are available for internal tooling", () => {
-  assertEquals(typeof mapPosition, "function");
-  assertEquals(typeof loadSourceMap, "function");
-  assertEquals(typeof invalidateSourceMapCache, "function");
-});
