@@ -215,22 +215,14 @@ export async function generateJavaScript(
   if (options.generateSourceMap !== false && compileResult.sourceMap) {
     logger.debug("Step 4: Chaining source maps");
 
-    // Offset the HQL→TS mappings by the prelude line count.
-    // The TS compiler prepends runtime helper declarations, shifting all line numbers.
-    // Without this offset, the TS→JS source map positions won't match the HQL→TS positions.
-    const offsetMappings = tsResult.mappings.map(m => ({
-      ...m,
-      generated: {
-        line: m.generated.line + PRELUDE_LINE_COUNT,
-        column: m.generated.column,
-      },
-    }));
-
+    // Pass the prelude line offset to chainSourceMaps so it can adjust
+    // generated positions inline, avoiding a new array allocation.
     const chainedMap = await chainSourceMaps(
-      offsetMappings,
+      tsResult.mappings,
       compileResult.sourceMap,
       sourceFileName,
       options.sourceContent,
+      PRELUDE_LINE_COUNT,
     );
 
     sourceMap = JSON.stringify(chainedMap.map);

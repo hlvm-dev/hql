@@ -7,6 +7,7 @@ import {
   createNilLiteral,
   getMeta,
   isDefMacro,
+  isForm,
   isList,
   isLiteral,
   isSymbol,
@@ -148,6 +149,26 @@ function resolveValueForInterpreter(
   return sexpToHqlValue(value);
 }
 
+// Bridge cache: avoids repeated scope-chain walks during macro body evaluation.
+// Within a single macro expansion, the same Environment object is typically used
+// for all function calls. We cache the bridged result and invalidate when the
+// binding count changes (new var/let definitions in macro body).
+let _bridgeCache: WeakMap<Environment, { env: InterpreterEnv; bindingCount: number }> = new WeakMap();
+
+/**
+ * Count total bindings across the entire scope chain.
+ * Cheap O(depth) operation used for cache invalidation.
+ */
+function countScopeBindings(env: Environment): number {
+  let count = 0;
+  let current: Environment | null = env;
+  while (current !== null) {
+    count += current.variables.size;
+    current = current.getParent();
+  }
+  return count;
+}
+
 /**
  * Bridge compiler Environment to InterpreterEnv
  * Copies ALL bindings from the ENTIRE scope chain (not just immediate scope)
@@ -157,8 +178,19 @@ function resolveValueForInterpreter(
  * - Let bindings create child scopes
  * - The interpreter needs access to ALL variables in the chain
  * - User-defined functions from earlier in the file are preserved in persistent env
+ *
+ * Uses a WeakMap cache keyed on Environment identity + binding count to avoid
+ * redundant scope-chain walks during macro body evaluation.
  */
 function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
+  const bindingCount = countScopeBindings(compilerEnv);
+  const cached = _bridgeCache.get(compilerEnv);
+
+  if (cached && cached.bindingCount === bindingCount) {
+    // Return a child scope of the cached bridge for isolation
+    return cached.env.extend();
+  }
+
   // Use persistent env as base to preserve user-defined functions across macro expansions
   const interpEnv = getPersistentMacroEnv().extend();
 
@@ -190,6 +222,9 @@ function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
       interpEnv.define(name, hqlValue);
     }
   }
+
+  // Cache for reuse within this macro expansion
+  _bridgeCache.set(compilerEnv, { env: interpEnv, bindingCount });
 
   return interpEnv;
 }
@@ -522,53 +557,30 @@ export function expandMacros(
   }
 
   let currentExprs = [...exprs];
-  let iteration = 0;
   const iterationLimit = options.iterationLimit ?? MAX_EXPANSION_ITERATIONS;
-  let continueExpanding = true;
-  while (continueExpanding && iteration < iterationLimit) {
+  let iteration = 0;
+
+  while (iteration < iterationLimit) {
     iteration++;
     logger.debug(`Macro expansion iteration ${iteration}`);
 
-    const newExprs = currentExprs.map((expr) => {
-      // Optimization: Avoid serializing every expression for cache key in hot loop
-      // Only check cache if it's a potential macro call (symbol or list starting with symbol)
-      // This is a heuristic to avoid O(N) serialization for literals
-      
-      // For now, we skip the cache lookup in the hot loop to avoid the O(TreeSize) stringification
-      // The macro expansion is fast enough without this specific cache level if we avoid the stringify cost
-      
-      // If we really need caching here later, we should use a structural hash or WeakMap
-      
-      const expandedExpr = expandMacroExpression(expr, env, options, 0);
-      return expandedExpr;
-    });
+    const newExprs = currentExprs.map((expr) =>
+      expandMacroExpression(expr, env, options, 0)
+    );
 
-    // KISS: Simplified change detection using Array.some() for reference equality
-    const changed = currentExprs.length !== newExprs.length ||
-                    currentExprs.some((expr, i) => expr !== newExprs[i]);
-    
+    // Reference equality check: if no expression changed, fixed point reached
+    const changed = currentExprs.some((expr, i) => expr !== newExprs[i]);
     currentExprs = newExprs;
 
     if (!changed) {
       logger.debug(`No changes in iteration ${iteration}, fixed point reached`);
       break;
     }
-
-    if (iteration >= iterationLimit) {
-      logger.debug(
-        `Reached iteration limit (${iterationLimit}), stopping expansion`,
-      );
-      continueExpanding = false;
-    }
   }
 
-  if (
-    iteration >= MAX_EXPANSION_ITERATIONS &&
-    (!options.iterationLimit ||
-      options.iterationLimit >= MAX_EXPANSION_ITERATIONS)
-  ) {
+  if (iteration >= iterationLimit) {
     logger.warn(
-      `Macro expansion reached maximum iterations (${MAX_EXPANSION_ITERATIONS}). Check for infinite recursion.`,
+      `Macro expansion reached maximum iterations (${iterationLimit}). Check for infinite recursion.`,
     );
   }
   logger.debug(`Completed macro expansion after ${iteration} iterations`);
@@ -935,13 +947,10 @@ function isKnownOperator(op: string, env: Environment): boolean {
     // Not found in compiler env
   }
 
-  // Try interpreter's persistent env (stdlib functions, arithmetic operators, etc.)
-  try {
-    const interpEnv = getPersistentMacroEnv();
-    if (interpEnv.isDefined(op)) return true;
-  } catch {
-    // Not found
-  }
+  // Check interpreter's persistent env (stdlib functions, arithmetic operators, etc.)
+  // isDefined() never throws — no try/catch needed
+  const interpEnv = getPersistentMacroEnv();
+  if (interpEnv.isDefined(op)) return true;
 
   return false;
 }
@@ -1274,13 +1283,7 @@ function processQuasiquotedExpr(
   // Process list elements, handling unquote-splicing at depth 0
   const processedElements: SExp[] = [];
   for (const element of list.elements) {
-    if (
-      depth === 0 &&
-      isList(element) &&
-      (element as SList).elements.length > 0 &&
-      isSymbol((element as SList).elements[0]) &&
-      ((element as SList).elements[0] as SSymbol).name === "unquote-splicing"
-    ) {
+    if (depth === 0 && isForm(element, "unquote-splicing")) {
       const spliceList = element as SList;
       if (spliceList.elements.length !== 2) {
         throw new MacroError(
@@ -1296,11 +1299,7 @@ function processQuasiquotedExpr(
         const elements = (spliced as SList).elements;
         // Skip "vector" prefix if present - vectors returned from interpreter
         // are represented as (vector a b c), but we want to splice [a b c]
-        if (
-          elements.length > 0 &&
-          isSymbol(elements[0]) &&
-          (elements[0] as SSymbol).name === "vector"
-        ) {
+        if (isVector(spliced)) {
           processedElements.push(...elements.slice(1));
         } else {
           processedElements.push(...elements);

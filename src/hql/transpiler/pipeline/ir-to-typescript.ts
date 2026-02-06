@@ -1095,67 +1095,9 @@ class TSGenerator {
     if (typeof node.typeExpression === "string") {
       this.emit(node.typeExpression);
     } else {
-      this.generateTypeExpression(node.typeExpression);
+      this.generateNode(node.typeExpression);
     }
     this.emit(";\n");
-  }
-
-  /**
-   * Generate TypeScript code for a type expression IR node
-   */
-  private generateTypeExpression(node: IR.IRTypeExpression): void {
-    switch (node.type) {
-      case IR.IRNodeType.TypeReference:
-        this.generateTypeReference(node as IR.IRTypeReference);
-        break;
-      case IR.IRNodeType.KeyofType:
-        this.generateKeyofType(node as IR.IRKeyofType);
-        break;
-      case IR.IRNodeType.IndexedAccessType:
-        this.generateIndexedAccessType(node as IR.IRIndexedAccessType);
-        break;
-      case IR.IRNodeType.ConditionalType:
-        this.generateConditionalType(node as IR.IRConditionalType);
-        break;
-      case IR.IRNodeType.MappedType:
-        this.generateMappedType(node as IR.IRMappedType);
-        break;
-      case IR.IRNodeType.UnionType:
-        this.generateUnionType(node as IR.IRUnionType);
-        break;
-      case IR.IRNodeType.IntersectionType:
-        this.generateIntersectionType(node as IR.IRIntersectionType);
-        break;
-      case IR.IRNodeType.TupleType:
-        this.generateTupleType(node as IR.IRTupleType);
-        break;
-      case IR.IRNodeType.ArrayType:
-        this.generateArrayType(node as IR.IRArrayType);
-        break;
-      case IR.IRNodeType.FunctionTypeExpr:
-        this.generateFunctionTypeExpr(node as IR.IRFunctionTypeExpr);
-        break;
-      case IR.IRNodeType.InferType:
-        this.generateInferType(node as IR.IRInferType);
-        break;
-      case IR.IRNodeType.ReadonlyType:
-        this.generateReadonlyType(node as IR.IRReadonlyType);
-        break;
-      case IR.IRNodeType.TypeofType:
-        this.generateTypeofType(node as IR.IRTypeofType);
-        break;
-      case IR.IRNodeType.LiteralType:
-        this.generateLiteralType(node as IR.IRLiteralType);
-        break;
-      case IR.IRNodeType.RestType:
-        this.generateRestType(node as IR.IRRestType);
-        break;
-      case IR.IRNodeType.OptionalType:
-        this.generateOptionalType(node as IR.IROptionalType);
-        break;
-      default:
-        assertNever(node, `Unhandled type expression: ${(node as IR.IRNode).type}`);
-    }
   }
 
   // Type reference: Person, Array<T>
@@ -1163,10 +1105,7 @@ class TSGenerator {
     this.emit(node.name, node.position);
     if (node.typeArguments && node.typeArguments.length > 0) {
       this.emit("<");
-      for (let i = 0; i < node.typeArguments.length; i++) {
-        if (i > 0) this.emit(", ");
-        this.generateTypeExpression(node.typeArguments[i]);
-      }
+      this.emitCommaSeparated(node.typeArguments, (t) => this.generateNode(t));
       this.emit(">");
     }
   }
@@ -1174,26 +1113,26 @@ class TSGenerator {
   // keyof T
   private generateKeyofType(node: IR.IRKeyofType): void {
     this.emit("keyof ", node.position);
-    this.generateTypeExpression(node.argument);
+    this.generateNode(node.argument);
   }
 
   // T[K]
   private generateIndexedAccessType(node: IR.IRIndexedAccessType): void {
-    this.generateTypeExpression(node.objectType);
+    this.generateNode(node.objectType);
     this.emit("[");
-    this.generateTypeExpression(node.indexType);
+    this.generateNode(node.indexType);
     this.emit("]");
   }
 
   // T extends U ? X : Y
   private generateConditionalType(node: IR.IRConditionalType): void {
-    this.generateTypeExpression(node.checkType);
+    this.generateNode(node.checkType);
     this.emit(" extends ");
-    this.generateTypeExpression(node.extendsType);
+    this.generateNode(node.extendsType);
     this.emit(" ? ");
-    this.generateTypeExpression(node.trueType);
+    this.generateNode(node.trueType);
     this.emit(" : ");
-    this.generateTypeExpression(node.falseType);
+    this.generateNode(node.falseType);
   }
 
   // { [K in T]: ValueType }
@@ -1207,7 +1146,7 @@ class TSGenerator {
     this.emit("[");
     this.emit(node.typeParameter);
     this.emit(" in ");
-    this.generateTypeExpression(node.constraint);
+    this.generateNode(node.constraint);
     this.emit("]");
     if (node.optional === true || node.optional === "+") {
       this.emit("?");
@@ -1215,7 +1154,7 @@ class TSGenerator {
       this.emit("-?");
     }
     this.emit(": ");
-    this.generateTypeExpression(node.valueType);
+    this.generateNode(node.valueType);
     this.emit(" }");
   }
 
@@ -1242,10 +1181,10 @@ class TSGenerator {
       const t = node.types[i];
       if (this.needsParens(t, "union")) {
         this.emit("(");
-        this.generateTypeExpression(t);
+        this.generateNode(t);
         this.emit(")");
       } else {
-        this.generateTypeExpression(t);
+        this.generateNode(t);
       }
     }
   }
@@ -1254,7 +1193,7 @@ class TSGenerator {
   private generateIntersectionType(node: IR.IRIntersectionType): void {
     for (let i = 0; i < node.types.length; i++) {
       if (i > 0) this.emit(" & ");
-      this.generateTypeExpression(node.types[i]);
+      this.generateNode(node.types[i]);
     }
   }
 
@@ -1267,7 +1206,7 @@ class TSGenerator {
         this.emit(node.labels[i]);
         this.emit(": ");
       }
-      this.generateTypeExpression(node.elements[i]);
+      this.generateNode(node.elements[i]);
     }
     this.emit("]");
   }
@@ -1277,10 +1216,10 @@ class TSGenerator {
     const elem = node.elementType;
     if (this.needsParens(elem, "array")) {
       this.emit("(");
-      this.generateTypeExpression(elem);
+      this.generateNode(elem);
       this.emit(")");
     } else {
-      this.generateTypeExpression(elem);
+      this.generateNode(elem);
     }
     this.emit("[]");
   }
@@ -1293,18 +1232,16 @@ class TSGenerator {
       this.emit(">");
     }
     this.emit("(");
-    for (let i = 0; i < node.parameters.length; i++) {
-      if (i > 0) this.emit(", ");
-      const param = node.parameters[i];
+    this.emitCommaSeparated(node.parameters, (param) => {
       if (param.name) {
         this.emit(param.name);
         if (param.optional) this.emit("?");
         this.emit(": ");
       }
-      this.generateTypeExpression(param.type);
-    }
+      this.generateNode(param.type);
+    });
     this.emit(") => ");
-    this.generateTypeExpression(node.returnType);
+    this.generateNode(node.returnType);
   }
 
   // infer T
@@ -1316,7 +1253,7 @@ class TSGenerator {
   // readonly T
   private generateReadonlyType(node: IR.IRReadonlyType): void {
     this.emit("readonly ", node.position);
-    this.generateTypeExpression(node.argument);
+    this.generateNode(node.argument);
   }
 
   // typeof x
@@ -1337,12 +1274,12 @@ class TSGenerator {
   // ...T
   private generateRestType(node: IR.IRRestType): void {
     this.emit("...", node.position);
-    this.generateTypeExpression(node.argument);
+    this.generateNode(node.argument);
   }
 
   // T?
   private generateOptionalType(node: IR.IROptionalType): void {
-    this.generateTypeExpression(node.argument);
+    this.generateNode(node.argument);
     this.emit("?");
   }
 
@@ -2038,14 +1975,6 @@ class TSGenerator {
       this.indent();
       for (const stmt of caseNode.consequent) {
         this.generateNode(stmt);
-        // Add newline after expression statements if needed
-        if (stmt.type !== IR.IRNodeType.BlockStatement &&
-            stmt.type !== IR.IRNodeType.IfStatement &&
-            stmt.type !== IR.IRNodeType.WhileStatement &&
-            stmt.type !== IR.IRNodeType.ForStatement &&
-            stmt.type !== IR.IRNodeType.ForOfStatement) {
-          // Already has newline from ExpressionStatement
-        }
       }
       // Add break unless fallthrough is specified
       if (!caseNode.fallthrough) {

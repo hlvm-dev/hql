@@ -18,7 +18,7 @@ import { globalLogger as logger, type Logger } from "../../../logger.ts";
 import { HQLError, perform, TransformError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
-import type { ListNode, SymbolNode } from "../type/hql_ast.ts";
+import type { SymbolNode } from "../type/hql_ast.ts";
 import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
 import type { SymbolKind } from "../symbol_table.ts";
 import { getSymbolTable, type CompilerContext } from "../compiler-context.ts";
@@ -29,6 +29,12 @@ import {
 
 // Pre-compiled regex for numeric string check (avoid creating regex in hot path)
 const NUMERIC_STRING_REGEX = /^\d+$/;
+
+/**
+ * Reverse lookup: caseName → enumName for O(1) enum case resolution.
+ * Built once during Phase 1, used by dot-notation and equality transforms.
+ */
+let caseToEnumMap: Map<string, string> = new Map();
 
 // Module-level symbol table for current compilation unit
 // Set by transformSyntax, used by helper functions
@@ -48,6 +54,7 @@ export function transformSyntax(ast: SExp[], context?: CompilerContext): SExp[] 
   currentSymbolTable.clear();
 
   const enumDefinitions = new Map<string, SList>();
+  caseToEnumMap = new Map();
 
   // === Phase 1: Unified Symbol Registration ===
   for (const node of ast) {
@@ -128,7 +135,10 @@ function registerEnum(list: SList, enumDefinitions: Map<string, SList>): void {
         (el.elements[0] as SSymbol).name === "case"
       ) {
         const caseName = (el.elements[1] as SSymbol)?.name;
-        if (caseName) cases.push(caseName);
+        if (caseName) {
+          cases.push(caseName);
+          caseToEnumMap.set(caseName, enumName);
+        }
         if (el.elements.length > 2 && isList(el.elements[2])) {
           for (const field of (el.elements[2] as SList).elements) {
             if (isSymbol(field)) {
@@ -472,6 +482,24 @@ function inferDataType(node: SExp): string {
 }
 
 /**
+ * Recursively transform all elements of a list node.
+ * This is the most common transformation pattern — used as the default for
+ * forms that don't require special handling (if, cond, when, unless, etc.).
+ */
+function transformChildren(
+  list: SList,
+  enumDefinitions: Map<string, SList>,
+  log: Logger,
+): SList {
+  return {
+    ...list,
+    elements: list.elements.map((elem) =>
+      transformSExpNode(elem, enumDefinitions, log)
+    ),
+  };
+}
+
+/**
  * Transform a single node, dispatching to specific handlers based on type
  */
 export function transformSExpNode(
@@ -539,12 +567,17 @@ export function transformSExpNode(
           } else if (collectionInfo.type === "HashMap") {
             // Check if any argument is a dot accessor (e.g., .a, .b)
             // If so, skip this optimization and let dot-chain form handling deal with it
-            const hasDotAccessor = list.elements.slice(1).some(
-              (elem) =>
-                isSymbol(elem) &&
-                (elem as SSymbol).name.startsWith(".") &&
-                !(elem as SSymbol).name.startsWith("..."),
-            );
+            let hasDotAccessor = false;
+            for (let j = 1; j < list.elements.length; j++) {
+              const elem = list.elements[j];
+              if (isSymbol(elem)) {
+                const n = (elem as SSymbol).name;
+                if (n.startsWith(".") && !n.startsWith("...")) {
+                  hasDotAccessor = true;
+                  break;
+                }
+              }
+            }
 
             if (!hasDotAccessor) {
               // For hash-maps (plain objects), use the HQL get primitive
@@ -620,12 +653,7 @@ export function transformSExpNode(
       const first = normalizedList.elements[0];
       if (!isSymbol(first)) {
         // If the first element isn't a symbol, recursively transform its children
-        return {
-          ...normalizedList,
-          elements: normalizedList.elements.map((elem) =>
-            transformSExpNode(elem, enumDefinitions, logger)
-          ),
-        };
+        return transformChildren(normalizedList, enumDefinitions, logger);
       }
 
       // Get the operation name
@@ -636,28 +664,16 @@ export function transformSExpNode(
         case "fn":
         case "defn":
           return transformFnSyntax(normalizedList, enumDefinitions, logger);
-        // Handle macro specially to fix parameter list parsing
         case "macro":
           return transformMacro(normalizedList, enumDefinitions, logger);
-        // Handle special forms that might contain enum comparisons
-        case "if":
-        case "cond":
-        case "when":
-        case "unless":
-          return transformSpecialForm(normalizedList, enumDefinitions, logger);
-        // Enhanced let/var/def handling with better error reporting
         case "let":
         case "var":
         case "def":
           return transformLetExpr(normalizedList, enumDefinitions, logger);
         default:
-          // Recursively transform elements for non-special forms
-          return {
-            ...normalizedList,
-            elements: normalizedList.elements.map((elem) =>
-              transformSExpNode(elem, enumDefinitions, logger)
-            ),
-          };
+          // All other forms (if, cond, when, unless, etc.) — recursively transform children.
+          // Enum dot-notation in equality expressions is already caught above (line ~597).
+          return transformChildren(normalizedList, enumDefinitions, logger);
       }
     },
     "transformSExpNode",
@@ -909,19 +925,18 @@ function transformBindingList(
  */
 function transformDotNotationSymbol(
   symbol: SSymbol,
-  enumDefinitions: Map<string, SList>,
+  _enumDefinitions: Map<string, SList>,
   logger: Logger,
 ): SExp {
   const caseName = symbol.name.substring(1); // Remove the dot
 
-  // Find an enum that has this case name
-  for (const [enumName, enumDef] of enumDefinitions.entries()) {
-    if (hasCaseNamed(enumDef, caseName)) {
-      logger.debug(
-        `Transformed dot notation .${caseName} to ${enumName}.${caseName}`,
-      );
-      return createSymbol(`${enumName}.${caseName}`);
-    }
+  // O(1) lookup via reverse map built during Phase 1
+  const enumName = caseToEnumMap.get(caseName);
+  if (enumName) {
+    logger.debug(
+      `Transformed dot notation .${caseName} to ${enumName}.${caseName}`,
+    );
+    return createSymbol(`${enumName}.${caseName}`);
   }
 
   // If we can't resolve the enum, keep it as is
@@ -936,20 +951,15 @@ function transformEqualityExpression(
 ): SExp {
   // Only process equality expressions with at least 3 elements (=, left, right)
   if (list.elements.length < 3) {
-    return {
-      ...list,
-      elements: list.elements.map((elem) =>
-        transformSExpNode(elem, enumDefinitions, logger)
-      ),
-    };
+    return transformChildren(list, enumDefinitions, logger);
   }
 
   const leftExpr = list.elements[1];
   const rightExpr = list.elements[2];
 
   // Looking for patterns like: (= os .macOS) or (= .macOS os)
-  let dotExpr = null;
-  let otherExpr = null;
+  let dotExpr: SSymbol | null = null;
+  let otherExpr: SExp | null = null;
 
   // Check if either side is a dot expression
   if (isSymbol(leftExpr) && (leftExpr as SSymbol).name.startsWith(".")) {
@@ -962,149 +972,35 @@ function transformEqualityExpression(
     otherExpr = leftExpr;
   }
 
-  // If we found a dot expression, transform it
-  if (dotExpr) {
+  // If we found a dot expression, resolve via O(1) reverse map
+  if (dotExpr && otherExpr) {
     const caseName = dotExpr.name.substring(1); // Remove the dot
+    const enumName = caseToEnumMap.get(caseName);
 
-    // Find an enum that has this case
-    for (const [enumName, enumDef] of enumDefinitions.entries()) {
-      if (hasCaseNamed(enumDef, caseName)) {
-        // Replace the dot expression with the full enum reference
-        const fullEnumRef = createSymbol(`${enumName}.${caseName}`);
-        logger.debug(
-          `Transformed ${dotExpr.name} to ${enumName}.${caseName} in equality expression`,
+    if (enumName) {
+      const fullEnumRef = createSymbol(`${enumName}.${caseName}`);
+      logger.debug(
+        `Transformed ${dotExpr.name} to ${enumName}.${caseName} in equality expression`,
+      );
+
+      if (dotExpr === leftExpr) {
+        return createList(
+          list.elements[0],
+          fullEnumRef,
+          transformSExpNode(otherExpr, enumDefinitions, logger),
         );
-
-        // Create the transformed list with the full enum reference
-        if (dotExpr === leftExpr) {
-          return createList(
-            list.elements[0], // Keep the operator (=)
-            fullEnumRef, // Replace with full enum reference
-            transformSExpNode(otherExpr, enumDefinitions, logger), // Transform the other expression
-          );
-        } else {
-          return createList(
-            list.elements[0], // Keep the operator (=)
-            transformSExpNode(otherExpr, enumDefinitions, logger), // Transform the other expression
-            fullEnumRef, // Replace with full enum reference
-          );
-        }
+      } else {
+        return createList(
+          list.elements[0],
+          transformSExpNode(otherExpr, enumDefinitions, logger),
+          fullEnumRef,
+        );
       }
     }
   }
 
-  // If no dot expression found or no matching enum, transform all elements normally
-  return {
-    ...list,
-    elements: list.elements.map((elem) =>
-      transformSExpNode(elem, enumDefinitions, logger)
-    ),
-  };
-}
-
-/**
- * Transform special forms that might contain enum comparisons
- */
-function transformSpecialForm(
-  list: SList,
-  enumDefinitions: Map<string, SList>,
-  logger: Logger,
-): SExp {
-  const op = (list.elements[0] as SSymbol).name;
-
-  // Create a new list with the same operation name
-  const transformed: SExp[] = [list.elements[0]];
-
-  // Handle each form differently based on its structure
-  switch (op) {
-    case "=":
-    case "==":
-      // Special handling for equality expressions
-      return transformEqualityExpression(list, enumDefinitions, logger);
-
-    case "!=":
-      // Handle inequality - just transform all arguments
-      list.elements.slice(1).forEach((elem) => {
-        transformed.push(transformSExpNode(elem, enumDefinitions, logger));
-      });
-      break;
-
-    case "if":
-      // Structure: (if test then else?)
-      if (list.elements.length >= 3) {
-        // Transform the test expression (which might be an equality check)
-        transformed.push(
-          transformSExpNode(list.elements[1], enumDefinitions, logger),
-        );
-        // Transform the 'then' expression
-        transformed.push(
-          transformSExpNode(list.elements[2], enumDefinitions, logger),
-        );
-        // Transform the 'else' expression if it exists
-        if (list.elements.length > 3) {
-          transformed.push(
-            transformSExpNode(list.elements[3], enumDefinitions, logger),
-          );
-        }
-      } else {
-        // Just transform all elements without special handling
-        list.elements.slice(1).forEach((elem) => {
-          transformed.push(transformSExpNode(elem, enumDefinitions, logger));
-        });
-      }
-      break;
-
-    case "cond":
-      // Structure: (cond (test1 result1) (test2 result2) ... (else resultN))
-      for (let i = 1; i < list.elements.length; i++) {
-        const clause = list.elements[i];
-        if (isList(clause)) {
-          // Transform each clause as a list
-          const clauseList = clause as SList;
-          const transformedClause = transformSExpNode(
-            clauseList,
-            enumDefinitions,
-            logger,
-          );
-          transformed.push(transformedClause);
-        } else {
-          // If not a list, just transform the element
-          transformed.push(transformSExpNode(clause, enumDefinitions, logger));
-        }
-      }
-      break;
-
-    case "when":
-    case "unless":
-      // Structure: (when/unless test body...)
-      if (list.elements.length >= 2) {
-        // Transform the test expression
-        transformed.push(
-          transformSExpNode(list.elements[1], enumDefinitions, logger),
-        );
-        // Transform each body expression
-        for (let i = 2; i < list.elements.length; i++) {
-          transformed.push(
-            transformSExpNode(list.elements[i], enumDefinitions, logger),
-          );
-        }
-      } else {
-        // Just transform all elements without special handling
-        list.elements.slice(1).forEach((elem) => {
-          transformed.push(transformSExpNode(elem, enumDefinitions, logger));
-        });
-      }
-      break;
-
-    default:
-      // For any other special form, just transform all elements
-      list.elements.slice(1).forEach((elem) => {
-        transformed.push(transformSExpNode(elem, enumDefinitions, logger));
-      });
-  }
-
-  // Use createListFrom to preserve source location through transformation
-  return createListFrom(list, transformed);
+  // No dot expression or no matching enum — transform all children
+  return transformChildren(list, enumDefinitions, logger);
 }
 
 /**
@@ -1198,13 +1094,17 @@ function isDotChainForm(list: SList): boolean {
     }
   }
 
-  // Check for at least one method in the rest of the list
+  // Check for at least one method in the rest of the list (no allocation)
   // Exclude spread operators (...identifier) from being treated as methods
-  const hasMethodInRest = list.elements.slice(1).some((elem) =>
-    isSymbol(elem) && (elem as SSymbol).name.startsWith(".") && !(elem as SSymbol).name.startsWith("...")
-  );
-
-  return firstIsNotMethod && hasMethodInRest;
+  if (!firstIsNotMethod) return false;
+  for (let i = 1; i < list.elements.length; i++) {
+    const elem = list.elements[i];
+    if (isSymbol(elem)) {
+      const n = (elem as SSymbol).name;
+      if (n.startsWith(".") && !n.startsWith("...")) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -1278,28 +1178,16 @@ function transformDotChainForm(
           ? methodName.substring(2)  // Skip ".?"
           : methodName.substring(1); // Skip "."
 
-        // Determine how to handle this dot-chain element
+        // Method call (with args) vs property/no-arg method access
         if (args.length > 0) {
-          // Has arguments - definitely a method call
-          // Use createListFrom with method as source to preserve _meta
           result = createListFrom(method as SExp, [
             createSymbol(isOptional ? "optional-method-call" : "method-call"),
             result,
             createLiteral(methodNameWithoutDot),
             ...args,
           ]);
-        } else if (i < methodGroups.length - 1) {
-          // No arguments but not the last in chain - treat as a JS method with runtime check
-          result = createListFrom(method as SExp, [
-            createSymbol(isOptional ? "optional-js-method" : "js-method"),
-            result,
-            createLiteral(methodNameWithoutDot),
-          ]);
         } else {
-          // No arguments and last in chain - could be property or no-arg method
-          // Use js-method for property access semantics
-          // Note: (p.greet) syntax (dotted symbol) is handled separately in
-          // transformDotNotation (js-interop.ts) which creates a method call
+          // No arguments — property access or zero-arg method (js-method handles both)
           result = createListFrom(method as SExp, [
             createSymbol(isOptional ? "optional-js-method" : "js-method"),
             result,
@@ -1468,24 +1356,3 @@ function transformAnonymousFnSyntax(
   );
 }
 
-/**
- * Check if an enum has a case with the given name
- */
-function hasCaseNamed(enumDef: ListNode, caseName: string): boolean {
-  for (let i = 2; i < enumDef.elements.length; i++) {
-    const element = enumDef.elements[i];
-    if (element.type === "list") {
-      const caseList = element as ListNode;
-      if (
-        caseList.elements.length >= 2 &&
-        caseList.elements[0].type === "symbol" &&
-        (caseList.elements[0] as SymbolNode).name === "case" &&
-        caseList.elements[1].type === "symbol" &&
-        (caseList.elements[1] as SymbolNode).name === caseName
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
-}

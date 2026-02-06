@@ -96,26 +96,12 @@ export class Environment {
   clone(): Environment {
     const cloned = new Environment(this.parent, this.logger);
 
-    // Copy macros (immutable definitions - safe to share references)
-    for (const [name, macro] of this.macros) {
-      cloned.macros.set(name, macro);
-    }
+    // Bulk-copy maps using Map constructor (faster than iterative .set() calls)
+    cloned.macros = new Map(this.macros);
+    cloned.variables = new Map(this.variables);
+    cloned.moduleExports = new Map(this.moduleExports);
 
-    // Copy variables (builtin functions are immutable - safe to share)
-    for (const [name, value] of this.variables) {
-      cloned.variables.set(name, value);
-    }
-
-    // Copy module exports (reference to existing exports)
-    for (const [path, exports] of this.moduleExports) {
-      cloned.moduleExports.set(path, exports);
-    }
-
-    // Copy processed files (so we don't re-process system macros)
-    // Note: We copy the cache state but the clone gets its own LRU limit
-    // This is intentional - clones start fresh for per-compilation isolation
-
-    // Copy macro source tracking
+    // Copy macro source tracking via LRU iteration
     for (const [name, source] of this.macroSourceFiles) {
       cloned.macroSourceFiles.set(name, source);
     }

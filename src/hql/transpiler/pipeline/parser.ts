@@ -66,10 +66,20 @@ const { MAX_PARSING_DEPTH, MAX_QUASIQUOTE_DEPTH } = PARSER_LIMITS;
  * Count Unicode code points in a string (handles emojis and surrogate pairs correctly).
  * JavaScript's string.length counts UTF-16 code units, not characters.
  * Example: "👍".length === 2, but countCodePoints("👍") === 1
+ *
+ * Optimized: Fast path for ASCII-only strings (avoids array allocation).
  */
 function countCodePoints(str: string): number {
-  // Spread operator iterates over code points, not code units
-  return [...str].length;
+  const len = str.length;
+  // Fast path: scan for non-ASCII. Most tokens are ASCII-only.
+  for (let i = 0; i < len; i++) {
+    if (str.charCodeAt(i) > 127) {
+      // Non-ASCII found: use full code point iteration (allocates array)
+      return Array.from(str).length;
+    }
+  }
+  // All ASCII: UTF-16 length === code point count
+  return len;
 }
 
 // Pre-compiled regex patterns for hot paths (avoid compilation per call)
@@ -626,20 +636,19 @@ function parseTemplateLiteral(
         currentStr = "";
       }
 
-      // Find the matching closing brace
+      // Find the matching closing brace using index tracking (avoids O(n^2) concat)
       i += 2; // Skip ${
       let braceDepth = 1;
-      let exprStr = "";
+      const exprStart = i;
 
       while (i < content.length && braceDepth > 0) {
         if (content[i] === "{") braceDepth++;
         else if (content[i] === "}") braceDepth--;
-
-        if (braceDepth > 0) {
-          exprStr += content[i];
-        }
         i++;
       }
+
+      // Slice once: excludes the final closing brace (i-1)
+      const exprStr = content.slice(exprStart, braceDepth === 0 ? i - 1 : i);
 
       // Parse the expression
       if (exprStr.trim().length > 0) {
@@ -673,8 +682,14 @@ function parseTemplateLiteral(
         i += 1 + result.consumed;
       }
     } else {
-      currentStr += content[i];
+      // Batch consecutive plain-text chars with a single slice (avoids per-char concat)
+      const plainStart = i;
       i++;
+      while (i < content.length && content[i] !== "\\" &&
+             !(content[i] === "$" && content[i + 1] === "{")) {
+        i++;
+      }
+      currentStr += content.slice(plainStart, i);
     }
   }
 
@@ -736,35 +751,14 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
 
   const elements: SExp[] = [];
 
-  // Check if this might be an enum declaration
-  let isEnum = false;
-  if (
-    state.currentPos < state.tokens.length &&
-    state.tokens[state.currentPos].type === TokenType.Symbol &&
-    state.tokens[state.currentPos].value === "enum"
-  ) {
-    isEnum = true;
-  }
-
-  // Check if this might be a function declaration
-  let fnKeywordFound = false;
-  if (
-    state.currentPos < state.tokens.length &&
-    state.tokens[state.currentPos].type === TokenType.Symbol &&
-    state.tokens[state.currentPos].value === "fn"
-  ) {
-    fnKeywordFound = true;
-  }
-
-  // Check if this might be an import declaration
-  let importKeywordFound = false;
-  if (
-    state.currentPos < state.tokens.length &&
-    state.tokens[state.currentPos].type === TokenType.Symbol &&
-    state.tokens[state.currentPos].value === "import"
-  ) {
-    importKeywordFound = true;
-  }
+  // Peek at first token to detect special forms (single bounds check)
+  const firstTokenValue = (state.currentPos < state.tokens.length &&
+    state.tokens[state.currentPos].type === TokenType.Symbol)
+    ? state.tokens[state.currentPos].value
+    : "";
+  const isEnum = firstTokenValue === "enum";
+  const fnKeywordFound = firstTokenValue === "fn";
+  const importKeywordFound = firstTokenValue === "import";
 
   // Process all tokens until we reach the closing parenthesis
   while (
@@ -945,199 +939,118 @@ function matchNextToken(
   };
 
   let match;
+  const ch = input[cursor];
 
-  // First check for template literals (must come before special tokens to catch backticks)
-  match = matchAtCursor(TOKEN_PATTERNS.TEMPLATE_LITERAL);
-  if (match) return { type: TokenType.TemplateLiteral, value: match[0], position };
+  // First-char dispatch: route to relevant patterns based on the starting character.
+  // This avoids trying ~10 regex patterns sequentially for every token.
 
-  // Check for spread operator (...) before rest parameters (for inline expressions)
-  match = matchAtCursor(TOKEN_PATTERNS.SPREAD_OPERATOR);
-  if (match) return { type: TokenType.Symbol, value: match[0], position };
-
-  // Check for rest parameters (...identifier) before special tokens (to prevent ... being split into dots)
-  match = matchAtCursor(TOKEN_PATTERNS.REST_PARAM);
-  if (match) return { type: TokenType.Symbol, value: match[0], position };
-
-  // Check for type annotations (:identifier) before special tokens (to prevent : from being split off)
-  // This enables syntax like (fn add [a: number]: number body) where :number is a type annotation
-  match = matchAtCursor(TOKEN_PATTERNS.TYPE_ANNOTATION);
-  if (match) {
-    // Try to get a more complex type if possible (e.g. :Array<string> or :A | B)
-    const typeResult = tokenizeType(input, cursor + 1); // +1 to skip ':'
-    if (typeResult.type.length > 0 && typeResult.isValid) {
-      const value = input.slice(cursor, typeResult.endIndex);
-      return { type: TokenType.Symbol, value, position };
-    }
-    return { type: TokenType.Symbol, value: match[0], position };
+  // Whitespace (very common — second only to symbols)
+  if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") {
+    match = matchAtCursor(TOKEN_PATTERNS.WHITESPACE);
+    if (match) return { type: TokenType.Whitespace, value: match[0], position };
   }
 
-  // Check for inline object type annotations (:{...})
-  // This handles syntax like (fn f [x:{name:string}] x) where :{name:string} is an object type
-  match = matchAtCursor(TOKEN_PATTERNS.TYPE_INLINE_OBJECT);
-  if (match) {
-    const typeResult = tokenizeType(input, cursor + 1); // +1 to skip ':'
-    if (typeResult.type.length > 0 && typeResult.isValid) {
-      const value = input.slice(cursor, typeResult.endIndex);
-      return { type: TokenType.Symbol, value, position };
-    }
+  // Backtick: template literal or quasiquote special token
+  if (ch === "`") {
+    match = matchAtCursor(TOKEN_PATTERNS.TEMPLATE_LITERAL);
+    if (match) return { type: TokenType.TemplateLiteral, value: match[0], position };
+    // Backtick that didn't match template literal → special token (quasiquote)
+    match = matchAtCursor(TOKEN_PATTERNS.SPECIAL_TOKENS);
+    if (match) return { type: getTokenTypeForSpecial(match[0]), value: match[0], position };
   }
 
-  // Check for optional chaining method call (.?identifier)
-  // Must be before SPECIAL_TOKENS to prevent . from being split off
-  match = matchAtCursor(TOKEN_PATTERNS.OPTIONAL_METHOD);
-  if (match) return { type: TokenType.Symbol, value: match[0], position };
-
-  // Then check for special tokens
-  match = matchAtCursor(TOKEN_PATTERNS.SPECIAL_TOKENS);
-  if (match) {
-    return {
-      type: getTokenTypeForSpecial(match[0]),
-      value: match[0],
-      position,
-    };
+  // Dot: spread (...), rest param (...id), optional method (.?id), or plain dot
+  if (ch === ".") {
+    match = matchAtCursor(TOKEN_PATTERNS.SPREAD_OPERATOR);
+    if (match) return { type: TokenType.Symbol, value: match[0], position };
+    match = matchAtCursor(TOKEN_PATTERNS.REST_PARAM);
+    if (match) return { type: TokenType.Symbol, value: match[0], position };
+    match = matchAtCursor(TOKEN_PATTERNS.OPTIONAL_METHOD);
+    if (match) return { type: TokenType.Symbol, value: match[0], position };
+    // Plain dot → special token
+    match = matchAtCursor(TOKEN_PATTERNS.SPECIAL_TOKENS);
+    if (match) return { type: getTokenTypeForSpecial(match[0]), value: match[0], position };
   }
 
-  // Then check for strings
-  match = matchAtCursor(TOKEN_PATTERNS.STRING);
-  if (match) return { type: TokenType.String, value: match[0], position };
-
-  // Then check for comments
-  match = matchAtCursor(TOKEN_PATTERNS.COMMENT);
-  if (match) return { type: TokenType.Comment, value: match[0], position };
-
-  // Then check for whitespace
-  match = matchAtCursor(TOKEN_PATTERNS.WHITESPACE);
-  if (match) return { type: TokenType.Whitespace, value: match[0], position };
-
-  // Finally check for symbols
-  match = matchAtCursor(TOKEN_PATTERNS.SYMBOL);
-  if (match) {
-    let value = match[0];
-    // Check for BigInt literal (number ending with 'n')
-    // Uses pre-compiled module-level regex for performance
-    if (BIGINT_LITERAL_REGEX.test(value)) {
-      // Keep full value including 'n' for proper cursor advancement
-      return { type: TokenType.BigInt, value, position };
-    }
-    // If it's a number, return as number token
-    if (!isNaN(Number(value))) {
-      return { type: TokenType.Number, value, position };
-    }
-
-    // Handle unbalanced generics: if symbol contains '<' but no matching '>'
-    // This happens when multi-generic parameters like <T,U> get split at the comma
-    // Example: "identity<T,U>" gets matched as "identity<T" because comma stops SYMBOL regex
-    // We need to continue scanning to find the balanced '>'
-    // IMPORTANT: Only handle if there's an identifier before '<' (not if it starts with '<' like less-than operator)
-    const anglePos = value.indexOf('<');
-    const initialDepth = anglePos > 0 ? countAngleBracketDepth(value) : 0;
-    if (initialDepth > 0) {
-      let pos = cursor + value.length;
-      let depth = initialDepth;
-
-      // Continue scanning until we balance the angle brackets
-      while (pos < input.length && depth > 0) {
-        const char = input[pos];
-        if (char === '<') {
-          depth++;
-        } else if (char === '>') {
-          depth--;
-        } else if (DELIMITER_CHARS_SET.has(char) && depth === 0) {
-          // Stop at delimiters only when depth is 0
-          break;
-        }
-        pos++;
-      }
-
-      // Include any type annotation that follows (e.g., identity<T,U>:ReturnType)
-      value = input.slice(cursor, pos);
-
-      // Now check if there's a type annotation after the generic
-      if (pos < input.length && input[pos] === ':' && !WHITESPACE_CHAR_REGEX.test(input[pos + 1] || '')) {
-        const typeResult = tokenizeType(input, pos + 1);
-        if (typeResult.type.length > 0 && typeResult.isValid) {
-          value = input.slice(cursor, typeResult.endIndex);
-          return { type: TokenType.Symbol, value, position };
-        }
-      }
-
-      return { type: TokenType.Symbol, value, position };
-    }
-
-    // Check for inline type annotations that use special characters: {}, (), [], spaces, |, &, etc.
-    // When SYMBOL regex matches "x:" or "x:?", we scan the following type using the dedicated tokenizer.
-    // This supports full TypeScript type syntax including spaces: "x: number | string"
-    let nextCharPos = cursor + value.length;
-    // Fix: Do not check value.endsWith('?') to avoid breaking predicates like 'empty? args'
-    // Optional parameters 'x?: type' work because 'x?:' is matched as a symbol ending with ':'
-    const canStartComplexType = value.endsWith(':');
-
-    // Fix: ambiguous map syntax vs type annotation.
-    // If there is a space after ':', treat it as a map key (x: y) -> tokens [x:, y]
-    // If there is no space, treat it as a type annotation (x:type) -> token [x:type]
-    // This disambiguates {x: 1} (map) from x:number (type).
-    if (canStartComplexType && nextCharPos < input.length && !WHITESPACE_CHAR_REGEX.test(input[nextCharPos])) {
-      const typeResult = tokenizeType(input, nextCharPos);
-      // Only attach if it found a non-empty, valid type
+  // Colon: type annotation (:identifier, :{...}), or plain colon
+  if (ch === ":") {
+    match = matchAtCursor(TOKEN_PATTERNS.TYPE_ANNOTATION);
+    if (match) {
+      const typeResult = tokenizeType(input, cursor + 1);
       if (typeResult.type.length > 0 && typeResult.isValid) {
-        // We include the full slice to maintain cursor alignment
-        value = input.slice(cursor, typeResult.endIndex);
-        return { type: TokenType.Symbol, value, position };
+        return { type: TokenType.Symbol, value: input.slice(cursor, typeResult.endIndex), position };
+      }
+      return { type: TokenType.Symbol, value: match[0], position };
+    }
+    match = matchAtCursor(TOKEN_PATTERNS.TYPE_INLINE_OBJECT);
+    if (match) {
+      const typeResult = tokenizeType(input, cursor + 1);
+      if (typeResult.type.length > 0 && typeResult.isValid) {
+        return { type: TokenType.Symbol, value: input.slice(cursor, typeResult.endIndex), position };
       }
     }
-
-    // Handle array type suffix: if symbol looks like a type annotation (contains ':')
-    // and next two chars are '[]', consume them as part of the type
-    // Example: "x:number[]" should be one token, not "x:number" + "[]"
-    if (value.includes(':') && !value.endsWith(':')) {
-      nextCharPos = cursor + value.length;
-      // Check for multiple array suffixes (e.g., number[][])
-      while (
-        nextCharPos + 1 < input.length &&
-        input[nextCharPos] === '[' &&
-        input[nextCharPos + 1] === ']'
-      ) {
-        value += '[]';
-        nextCharPos += 2;
-      }
-    }
-
-    return { type: TokenType.Symbol, value, position };
+    // Plain colon → special token
+    match = matchAtCursor(TOKEN_PATTERNS.SPECIAL_TOKENS);
+    if (match) return { type: getTokenTypeForSpecial(match[0]), value: match[0], position };
   }
 
-  // Check for unclosed string literal
-  if (input[cursor] === '"') {
-    // Analyze string to provide context-aware error message
-    // Pass sliced string for analysis (error case only, perf not critical)
+  // Parens, brackets, braces, quote, comma → special tokens
+  if (ch === "(" || ch === ")" || ch === "[" || ch === "]" ||
+      ch === "{" || ch === "}" || ch === "'" || ch === ",") {
+    match = matchAtCursor(TOKEN_PATTERNS.SPECIAL_TOKENS);
+    if (match) return { type: getTokenTypeForSpecial(match[0]), value: match[0], position };
+  }
+
+  // Tilde: unquote (~) or unquote-splicing (~@)
+  if (ch === "~") {
+    match = matchAtCursor(TOKEN_PATTERNS.SPECIAL_TOKENS);
+    if (match) return { type: getTokenTypeForSpecial(match[0]), value: match[0], position };
+  }
+
+  // Hash: #[ for sets
+  if (ch === "#") {
+    match = matchAtCursor(TOKEN_PATTERNS.SPECIAL_TOKENS);
+    if (match) return { type: getTokenTypeForSpecial(match[0]), value: match[0], position };
+  }
+
+  // Double quote: string literal (or unclosed string error)
+  if (ch === '"') {
+    match = matchAtCursor(TOKEN_PATTERNS.STRING);
+    if (match) return { type: TokenType.String, value: match[0], position };
+    // Unclosed string
     const analysis = analyzeUnclosedString(input.slice(cursor));
     const message = buildUnclosedStringMessage(analysis);
-
-    throw new ParseError(
-      message,
-      {
-        line: position.line,
-        column: position.column,
-        filePath: position.filePath,
-        source: input,
-        code: HQLErrorCode.UNCLOSED_STRING,
-      },
-    );
+    throw new ParseError(message, {
+      line: position.line,
+      column: position.column,
+      filePath: position.filePath,
+      source: input,
+      code: HQLErrorCode.UNCLOSED_STRING,
+    });
   }
 
-  // If we get here, there's an unexpected character
-  // Provide enhanced error context
+  // Slash: comment (// or /* */)
+  if (ch === "/") {
+    match = matchAtCursor(TOKEN_PATTERNS.COMMENT);
+    if (match) return { type: TokenType.Comment, value: match[0], position };
+    // Not a comment: fall through to symbol matching (e.g., division operator /)
+  }
+
+  // Everything else: symbol (identifiers, numbers, operators, etc.)
+  match = matchAtCursor(TOKEN_PATTERNS.SYMBOL);
+  if (match) {
+    return classifySymbolToken(match[0], input, cursor, position);
+  }
+
+  // Unexpected character — provide enhanced error context
   const unexpectedChar = input[cursor] || "end of file";
   let errorContext = "";
-
-  // Get some context for a better error message
   try {
     if (filePath) {
       const content = getPlatform().fs.readTextFileSync(filePath);
       const lines = content.split("\n");
-
       if (line > 0 && line <= lines.length) {
         const lineContent = lines[line - 1];
-        // Create a pointer to the unexpected character
         const pointer = " ".repeat(column - 1) + "^";
         errorContext = `\n${lineContent}\n${pointer}`;
       }
@@ -1148,13 +1061,81 @@ function matchNextToken(
 
   throw new ParseError(
     `Unexpected character: '${unexpectedChar}'${errorContext}`,
-    {
-      line: position.line,
-      column: position.column,
-      filePath: position.filePath,
-      source: input,
-    },
+    { line: position.line, column: position.column, filePath: position.filePath, source: input },
   );
+}
+
+/**
+ * Classify a matched SYMBOL token into its precise type (BigInt, Number, or Symbol).
+ * Handles generics balancing, type annotations, and array type suffixes.
+ */
+function classifySymbolToken(
+  rawValue: string,
+  input: string,
+  cursor: number,
+  position: SourcePosition,
+): Token {
+  let value = rawValue;
+
+  // BigInt literal (e.g., 123n, -456n)
+  if (BIGINT_LITERAL_REGEX.test(value)) {
+    return { type: TokenType.BigInt, value, position };
+  }
+  // Numeric literal
+  if (!isNaN(Number(value))) {
+    return { type: TokenType.Number, value, position };
+  }
+
+  // Unbalanced generics: "identity<T,U>" may get split at comma → balance angle brackets
+  const anglePos = value.indexOf('<');
+  const initialDepth = anglePos > 0 ? countAngleBracketDepth(value) : 0;
+  if (initialDepth > 0) {
+    let pos = cursor + value.length;
+    let depth = initialDepth;
+    while (pos < input.length && depth > 0) {
+      const char = input[pos];
+      if (char === '<') depth++;
+      else if (char === '>') depth--;
+      else if (DELIMITER_CHARS_SET.has(char) && depth === 0) break;
+      pos++;
+    }
+    value = input.slice(cursor, pos);
+
+    // Check for type annotation after the generic (e.g., identity<T,U>:ReturnType)
+    if (pos < input.length && input[pos] === ':' && !WHITESPACE_CHAR_REGEX.test(input[pos + 1] || '')) {
+      const typeResult = tokenizeType(input, pos + 1);
+      if (typeResult.type.length > 0 && typeResult.isValid) {
+        value = input.slice(cursor, typeResult.endIndex);
+      }
+    }
+    return { type: TokenType.Symbol, value, position };
+  }
+
+  // Complex type annotations (e.g., "x:number|string", "x:{name:string}")
+  let nextCharPos = cursor + value.length;
+  const canStartComplexType = value.endsWith(':');
+  if (canStartComplexType && nextCharPos < input.length && !WHITESPACE_CHAR_REGEX.test(input[nextCharPos])) {
+    const typeResult = tokenizeType(input, nextCharPos);
+    if (typeResult.type.length > 0 && typeResult.isValid) {
+      value = input.slice(cursor, typeResult.endIndex);
+      return { type: TokenType.Symbol, value, position };
+    }
+  }
+
+  // Array type suffix: "x:number[]" should be one token
+  if (value.includes(':') && !value.endsWith(':')) {
+    nextCharPos = cursor + value.length;
+    while (
+      nextCharPos + 1 < input.length &&
+      input[nextCharPos] === '[' &&
+      input[nextCharPos + 1] === ']'
+    ) {
+      value += '[]';
+      nextCharPos += 2;
+    }
+  }
+
+  return { type: TokenType.Symbol, value, position };
 }
 
 function parseVector(state: ParserState, startPos: SourcePosition): SList {
@@ -1168,14 +1149,6 @@ function parseVector(state: ParserState, startPos: SourcePosition): SList {
     state.tokens[state.currentPos].type !== TokenType.RightBracket
   ) {
     elements.push(parseExpression(state));
-
-    // Check if we need a comma (not at the end of the array)
-    if (
-      state.currentPos < state.tokens.length &&
-      state.tokens[state.currentPos].type === TokenType.Comma
-    ) {
-      state.currentPos++; // Skip optional comma
-    }
   }
   if (state.currentPos >= state.tokens.length) {
     throw new ParseError("Unclosed vector", errorOptions(startPos, state));
@@ -1295,14 +1268,6 @@ function parseMap(state: ParserState, startPos: SourcePosition): SList {
         }
       }
     }
-
-    // Check if we need a comma (not at the end of the object)
-    if (
-      state.currentPos < state.tokens.length &&
-      state.tokens[state.currentPos].type === TokenType.Comma
-    ) {
-      state.currentPos++; // Skip optional comma
-    }
   }
   if (state.currentPos >= state.tokens.length) {
     throw new ParseError("Unclosed map", errorOptions(startPos, state));
@@ -1341,14 +1306,6 @@ function parseSet(state: ParserState, startPos: SourcePosition): SList {
     state.tokens[state.currentPos].type !== TokenType.RightBracket
   ) {
     elements.push(parseExpression(state));
-
-    // Check if we need a comma (not at the end of the set)
-    if (
-      state.currentPos < state.tokens.length &&
-      state.tokens[state.currentPos].type === TokenType.Comma
-    ) {
-      state.currentPos++; // Skip optional comma
-    }
   }
   if (state.currentPos >= state.tokens.length) {
     throw new ParseError("Unclosed set", errorOptions(startPos, state));

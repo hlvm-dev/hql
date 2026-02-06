@@ -37,6 +37,7 @@ import {
 import {
   processFunctionBody,
   transformStandardFunctionCall,
+  GENERIC_NAME_REGEX,
 } from "../syntax/function.ts";
 import {
   isDeclarationExport,
@@ -88,6 +89,33 @@ type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 // Pre-compiled regex for extracting generic type parameters (required format)
 // Pattern: "Array<T>" matches, but "Array" does not (unlike GENERIC_NAME_REGEX)
 const GENERIC_TYPE_PARAMS_REGEX = /^([^<]+)<(.+)>$/;
+
+/**
+ * Check if a node is a vector (list with first element being the "vector" symbol).
+ * Used throughout the IR transform to validate vector-formatted bodies.
+ */
+function isVectorNode(node: HQLNode): node is ListNode {
+  return node.type === "list" &&
+    (node as ListNode).elements.length > 0 &&
+    (node as ListNode).elements[0].type === "symbol" &&
+    ((node as ListNode).elements[0] as SymbolNode).name === "vector";
+}
+
+/**
+ * Parse generic name and type parameters from a symbol name.
+ * E.g., "MyClass<T, U>" -> { name: "MyClass", typeParameters: ["T", "U"] }
+ * E.g., "MyClass" -> { name: "MyClass", typeParameters: undefined }
+ */
+function parseGenericName(fullName: string): { name: string; typeParameters: string[] | undefined } {
+  const match = fullName.match(GENERIC_NAME_REGEX);
+  if (match) {
+    return {
+      name: match[1],
+      typeParameters: match[2] ? match[2].split(",").map(s => s.trim()) : undefined,
+    };
+  }
+  return { name: fullName, typeParameters: undefined };
+}
 
 /**
  * Check if an IR node is an expression (not a statement/declaration)
@@ -343,6 +371,50 @@ export function transformToIR(
 }
 
 /**
+ * Create a thunk wrapper: helperName(() => { return body; })
+ * Used by lazy-seq and delay special forms.
+ */
+function createThunkWrapper(
+  helperName: string,
+  list: ListNode,
+  currentDir: string,
+): IR.IRCallExpression {
+  const bodyExprs = list.elements.slice(1);
+
+  // Determine the body node to return inside the thunk
+  let bodyNode: IR.IRNode;
+  if (bodyExprs.length === 0) {
+    bodyNode = { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
+  } else if (bodyExprs.length === 1) {
+    bodyNode = transformHQLNodeToIR(bodyExprs[0], currentDir) ||
+      { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
+  } else {
+    bodyNode = conditionalModule.transformDo(
+      { ...list, elements: [list.elements[0], ...bodyExprs] } as ListNode,
+      currentDir,
+      transformHQLNodeToIR,
+    );
+  }
+
+  return {
+    type: IR.IRNodeType.CallExpression,
+    callee: { type: IR.IRNodeType.Identifier, name: helperName } as IR.IRIdentifier,
+    arguments: [{
+      type: IR.IRNodeType.FunctionExpression,
+      id: null,
+      params: [],
+      body: {
+        type: IR.IRNodeType.BlockStatement,
+        body: [{
+          type: IR.IRNodeType.ReturnStatement,
+          argument: bodyNode,
+        } as IR.IRReturnStatement],
+      } as IR.IRBlockStatement,
+    } as IR.IRFunctionExpression],
+  } as IR.IRCallExpression;
+}
+
+/**
  * Initialize the transform factory with handlers for each operation
  */
 function initializeTransformFactory(): void {
@@ -509,128 +581,11 @@ function initializeTransformFactory(): void {
         (list, currentDir) =>
           conditionalModule.transformDo(list, currentDir, transformHQLNodeToIR),
       );
-      // lazy-seq special form for self-hosted stdlib (Clojure-style lazy sequences)
-      // (lazy-seq body) → __hql_lazy_seq(() => body)
-      transformFactory.set(
-        "lazy-seq",
-        (list, currentDir) => {
-          // Get body expressions (skip the 'lazy-seq' symbol)
-          const bodyExprs = list.elements.slice(1);
-
-          // If no body, return call to __hql_lazy_seq with null-returning thunk
-          if (bodyExprs.length === 0) {
-            return {
-              type: IR.IRNodeType.CallExpression,
-              callee: { type: IR.IRNodeType.Identifier, name: LAZY_SEQ_HELPER } as IR.IRIdentifier,
-              arguments: [{
-                type: IR.IRNodeType.FunctionExpression,
-                id: null,
-                params: [],
-                body: {
-                  type: IR.IRNodeType.BlockStatement,
-                  body: [{
-                    type: IR.IRNodeType.ReturnStatement,
-                    argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-                  } as IR.IRReturnStatement],
-                } as IR.IRBlockStatement,
-              } as IR.IRFunctionExpression],
-            } as IR.IRCallExpression;
-          }
-
-          // Transform body - if multiple expressions, use do
-          let bodyNode: IR.IRNode;
-          if (bodyExprs.length === 1) {
-            const transformed = transformHQLNodeToIR(bodyExprs[0], currentDir);
-            bodyNode = transformed || { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
-          } else {
-            // Multiple expressions - wrap in do
-            bodyNode = conditionalModule.transformDo(
-              { ...list, elements: [list.elements[0], ...bodyExprs] } as ListNode,
-              currentDir,
-              transformHQLNodeToIR,
-            );
-          }
-
-          // Create: __hql_lazy_seq(() => { return body; })
-          return {
-            type: IR.IRNodeType.CallExpression,
-            callee: { type: IR.IRNodeType.Identifier, name: LAZY_SEQ_HELPER } as IR.IRIdentifier,
-            arguments: [{
-              type: IR.IRNodeType.FunctionExpression,
-              id: null,
-              params: [],
-              body: {
-                type: IR.IRNodeType.BlockStatement,
-                body: [{
-                  type: IR.IRNodeType.ReturnStatement,
-                  argument: bodyNode,
-                } as IR.IRReturnStatement],
-              } as IR.IRBlockStatement,
-            } as IR.IRFunctionExpression],
-          } as IR.IRCallExpression;
-        },
-      );
-      // delay special form for explicit laziness (like Clojure)
-      // (delay body) → __hql_delay(() => body)
-      transformFactory.set(
-        "delay",
-        (list, currentDir) => {
-          // Get body expressions (skip the 'delay' symbol)
-          const bodyExprs = list.elements.slice(1);
-
-          // If no body, return call to __hql_delay with null-returning thunk
-          if (bodyExprs.length === 0) {
-            return {
-              type: IR.IRNodeType.CallExpression,
-              callee: { type: IR.IRNodeType.Identifier, name: DELAY_HELPER } as IR.IRIdentifier,
-              arguments: [{
-                type: IR.IRNodeType.FunctionExpression,
-                id: null,
-                params: [],
-                body: {
-                  type: IR.IRNodeType.BlockStatement,
-                  body: [{
-                    type: IR.IRNodeType.ReturnStatement,
-                    argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-                  } as IR.IRReturnStatement],
-                } as IR.IRBlockStatement,
-              } as IR.IRFunctionExpression],
-            } as IR.IRCallExpression;
-          }
-
-          // Transform body - if multiple expressions, use do
-          let bodyNode: IR.IRNode;
-          if (bodyExprs.length === 1) {
-            const transformed = transformHQLNodeToIR(bodyExprs[0], currentDir);
-            bodyNode = transformed || { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
-          } else {
-            // Multiple expressions - wrap in do
-            bodyNode = conditionalModule.transformDo(
-              { ...list, elements: [list.elements[0], ...bodyExprs] } as ListNode,
-              currentDir,
-              transformHQLNodeToIR,
-            );
-          }
-
-          // Create: __hql_delay(() => { return body; })
-          return {
-            type: IR.IRNodeType.CallExpression,
-            callee: { type: IR.IRNodeType.Identifier, name: DELAY_HELPER } as IR.IRIdentifier,
-            arguments: [{
-              type: IR.IRNodeType.FunctionExpression,
-              id: null,
-              params: [],
-              body: {
-                type: IR.IRNodeType.BlockStatement,
-                body: [{
-                  type: IR.IRNodeType.ReturnStatement,
-                  argument: bodyNode,
-                } as IR.IRReturnStatement],
-              } as IR.IRBlockStatement,
-            } as IR.IRFunctionExpression],
-          } as IR.IRCallExpression;
-        },
-      );
+      // lazy-seq and delay both wrap body in a thunk: helperName(() => { return body; })
+      transformFactory.set("lazy-seq", (list, currentDir) =>
+        createThunkWrapper(LAZY_SEQ_HELPER, list, currentDir));
+      transformFactory.set("delay", (list, currentDir) =>
+        createThunkWrapper(DELAY_HELPER, list, currentDir));
       transformFactory.set(
         "try",
         (list, currentDir) => tryCatchModule.transformTry(list, currentDir, transformHQLNodeToIR),
@@ -1347,27 +1302,13 @@ function initializeTransformFactory(): void {
 
           // Parse name (may include generics)
           const nameNode = elements[0];
-          let name: string;
-          let typeParameters: string[] | undefined;
-
-          if (nameNode.type === "symbol") {
-            const nameParts = (nameNode as SymbolNode).name.match(
-              /^([^<]+)(?:<(.+)>)?$/,
-            );
-            if (nameParts) {
-              name = nameParts[1];
-              if (nameParts[2]) {
-                typeParameters = nameParts[2].split(",").map((s) => s.trim());
-              }
-            } else {
-              name = (nameNode as SymbolNode).name;
-            }
-          } else {
+          if (nameNode.type !== "symbol") {
             throw new TransformError(
               "abstract-class name must be a symbol",
               extractMeta(nameNode),
             );
           }
+          const { name, typeParameters } = parseGenericName((nameNode as SymbolNode).name);
 
           let idx = 1;
           let superClass: IR.IRNode | undefined;
@@ -1385,13 +1326,7 @@ function initializeTransformFactory(): void {
 
           // Parse body - vectors are lists with first element being "vector" symbol
           const bodyNode = elements[idx];
-          if (
-            !bodyNode ||
-            bodyNode.type !== "list" ||
-            !(bodyNode as ListNode).elements[0] ||
-            (bodyNode as ListNode).elements[0].type !== "symbol" ||
-            ((bodyNode as ListNode).elements[0] as SymbolNode).name !== "vector"
-          ) {
+          if (!bodyNode || !isVectorNode(bodyNode)) {
             throw new TransformError(
               "abstract-class requires a body vector",
               extractMeta(list),
@@ -1436,38 +1371,18 @@ function initializeTransformFactory(): void {
           }
 
           const nameNode = elements[0];
-          let name: string;
-          let typeParameters: string[] | undefined;
-
-          if (nameNode.type === "symbol") {
-            const nameParts = (nameNode as SymbolNode).name.match(
-              /^([^<]+)(?:<(.+)>)?$/,
-            );
-            if (nameParts) {
-              name = nameParts[1];
-              if (nameParts[2]) {
-                typeParameters = nameParts[2].split(",").map((s) => s.trim());
-              }
-            } else {
-              name = (nameNode as SymbolNode).name;
-            }
-          } else {
+          if (nameNode.type !== "symbol") {
             throw new TransformError(
               "abstract-method name must be a symbol",
               extractMeta(nameNode),
             );
           }
+          const { name, typeParameters } = parseGenericName((nameNode as SymbolNode).name);
 
           // Parse params (as string for TypeScript signature)
           const paramsNode = elements[1];
           let params = "";
-          // Check if it's a vector (list with first element "vector")
-          if (
-            paramsNode.type === "list" &&
-            (paramsNode as ListNode).elements[0]?.type === "symbol" &&
-            ((paramsNode as ListNode).elements[0] as SymbolNode).name ===
-              "vector"
-          ) {
+          if (isVectorNode(paramsNode)) {
             // Skip the "vector" symbol and process elements
             params = (paramsNode as ListNode).elements
               .slice(1)
@@ -1530,17 +1445,7 @@ function initializeTransformFactory(): void {
           let typeParameters: string[] | undefined;
 
           if (nameNode.type === "symbol") {
-            const nameParts = (nameNode as SymbolNode).name.match(
-              /^([^<]+)(?:<(.+)>)?$/,
-            );
-            if (nameParts) {
-              name = nameParts[1];
-              if (nameParts[2]) {
-                typeParameters = nameParts[2].split(",").map((s) => s.trim());
-              }
-            } else {
-              name = (nameNode as SymbolNode).name;
-            }
+            ({ name, typeParameters } = parseGenericName((nameNode as SymbolNode).name));
           } else if (nameNode.type === "literal") {
             name = String((nameNode as LiteralNode).value);
           } else {
@@ -1555,12 +1460,7 @@ function initializeTransformFactory(): void {
           let params: string;
           if (paramsNode.type === "literal") {
             params = String((paramsNode as LiteralNode).value);
-          } else if (
-            paramsNode.type === "list" &&
-            (paramsNode as ListNode).elements[0]?.type === "symbol" &&
-            ((paramsNode as ListNode).elements[0] as SymbolNode).name ===
-              "vector"
-          ) {
+          } else if (isVectorNode(paramsNode)) {
             // Vector: skip first element and process rest
             params = (paramsNode as ListNode).elements
               .slice(1)
@@ -1683,13 +1583,7 @@ function initializeTransformFactory(): void {
           const name = (nameNode as SymbolNode).name;
 
           const bodyNode = elements[1];
-          // Check for vector (list with first element "vector")
-          if (
-            bodyNode.type !== "list" ||
-            !(bodyNode as ListNode).elements[0] ||
-            (bodyNode as ListNode).elements[0].type !== "symbol" ||
-            ((bodyNode as ListNode).elements[0] as SymbolNode).name !== "vector"
-          ) {
+          if (!isVectorNode(bodyNode)) {
             throw new TransformError(
               "namespace body must be a vector",
               extractMeta(bodyNode),
@@ -1739,14 +1633,7 @@ function initializeTransformFactory(): void {
           const name = (nameNode as SymbolNode).name;
 
           const membersNode = elements[1];
-          // Check for vector (list with first element "vector")
-          if (
-            membersNode.type !== "list" ||
-            !(membersNode as ListNode).elements[0] ||
-            (membersNode as ListNode).elements[0].type !== "symbol" ||
-            ((membersNode as ListNode).elements[0] as SymbolNode).name !==
-              "vector"
-          ) {
+          if (!isVectorNode(membersNode)) {
             throw new TransformError(
               "const-enum members must be a vector",
               extractMeta(membersNode),

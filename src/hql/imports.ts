@@ -37,6 +37,8 @@ import {
   processJavaScriptFile,
 } from "../common/hlvm-cache-tracker.ts";
 import { createEmbeddedPackageLookup } from "./embedded-package-utils.ts";
+import { isEmbeddedFile, getEmbeddedContent } from "./lib/embedded-macros.ts";
+import { EMBEDDED_PACKAGES } from "./embedded-packages.ts";
 import {
   isImport,
   isLiteral,
@@ -74,6 +76,9 @@ import { LRUCache } from "../common/lru-cache.ts";
 // Cache file contents to avoid re-reading the same file for every import
 // Limited to 2000 files to prevent unbounded memory growth in long-running processes
 const fileLineCache = new LRUCache<string, string[] | null>(2000);
+
+// Cache the embedded package lookup (was recreated on every loadHqlModule call)
+const embeddedPackageLookup = createEmbeddedPackageLookup(EMBEDDED_PACKAGES);
 
 /**
  * Validate that a resolved import path is safe (no path traversal attack).
@@ -1606,16 +1611,8 @@ async function loadHqlModule(
     let fileContent: string;
     let importedExprs: SExp[];
 
-    // Check if this is an embedded macro file
-    const { isEmbeddedFile, getEmbeddedContent } = await import(
-      "./lib/embedded-macros.ts"
-    );
-
-    // Also check embedded packages for @hlvm/* imports
-    const { EMBEDDED_PACKAGES } = await import("./embedded-packages.ts");
-    const embeddedPackageLookup = createEmbeddedPackageLookup(EMBEDDED_PACKAGES);
-
-    // First check embedded packages (for @hlvm/* imports in compiled binary)
+    // Check embedded packages (uses module-level cached lookup) and embedded macros
+    // (static imports replace previous per-call dynamic imports)
     const embeddedPkgContent = embeddedPackageLookup.getBySpecifierOrPath(modulePath) ||
       embeddedPackageLookup.getBySpecifierOrPath(resolvedPath);
     if (embeddedPkgContent) {

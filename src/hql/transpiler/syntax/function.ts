@@ -550,10 +550,11 @@ function transformMultiArityFn(
     const caseBody: IR.IRNode[] = [];
 
     // Destructure parameters from __args
-    for (const param of arityInfo.params) {
+    for (let pIdx = 0; pIdx < arityInfo.params.length; pIdx++) {
+      const param = arityInfo.params[pIdx];
       if (param.type === "symbol") {
         // Simple symbol parameter: const paramName = __args[i];
-        const paramIndex = arityInfo.params.indexOf(param);
+        const paramIndex = pIdx;
         caseBody.push({
           type: IR.IRNodeType.VariableDeclaration,
           kind: "const",

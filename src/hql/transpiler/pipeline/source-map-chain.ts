@@ -49,6 +49,7 @@ export async function chainSourceMaps(
   tsToJsMapJson: string,
   hqlSourcePath: string,
   hqlSource?: string,
+  lineOffset: number = 0,
 ): Promise<ChainedSourceMap> {
   // Parse the TS→JS source map
   let tsToJsMap: RawSourceMap;
@@ -60,10 +61,11 @@ export async function chainSourceMaps(
   }
 
   // Build a lookup map from TS positions to HQL positions
+  // Apply lineOffset inline to avoid allocating a new array of offset mappings
   const tsToHqlMap = new Map<string, { line: number; column: number }>();
   for (const mapping of hqlToTsMappings) {
     if (mapping.original) {
-      const key = `${mapping.generated.line}:${mapping.generated.column}`;
+      const key = `${mapping.generated.line + lineOffset}:${mapping.generated.column}`;
       tsToHqlMap.set(key, mapping.original);
     }
   }

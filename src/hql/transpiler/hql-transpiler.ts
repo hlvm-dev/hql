@@ -48,6 +48,139 @@ interface ProcessOptions {
 }
 
 /**
+ * Result type for transpileToJavascriptWithIR
+ */
+export interface TranspileWithIRResult extends TranspileResult {
+  ir: IRProgram;
+}
+
+// ── Helpers (DRY) ──────────────────────────────────────────────────────
+
+/**
+ * Merge caller options with compiler context options (DRY helper).
+ * Caller-supplied values take precedence via `??`.
+ */
+function mergeCompilerOptions(
+  options: ProcessOptions,
+  context?: CompilerContext,
+): ProcessOptions {
+  return {
+    ...options,
+    ...(context?.options || {}),
+    verbose: options.verbose ?? context?.options?.verbose,
+    showTiming: options.showTiming ?? context?.options?.showTiming,
+    baseDir: options.baseDir ?? context?.baseDir,
+    currentFile: options.currentFile ?? context?.currentFile,
+  };
+}
+
+/**
+ * Run the shared expansion pipeline: env setup → parse → transform → imports → expand.
+ * Used by all three public entry points.
+ */
+async function runExpansionPipeline(
+  hqlSource: string,
+  options: ProcessOptions,
+  macroOptions: MacroExpanderOptions,
+  context?: CompilerContext,
+): Promise<{ env: Environment; expanded: SExp[] }> {
+  const env = await setupEnvironment(options, context);
+  const sexps = parseSource(hqlSource, options);
+  const canonicalSexps = transformToCanonical(sexps, options, context);
+  await handleImports(canonicalSexps, env, options);
+  const expanded = expand(canonicalSexps, env, options, macroOptions);
+  return { env, expanded };
+}
+
+/**
+ * Generate JavaScript (+ IR) from HQL AST. Single implementation replaces
+ * the previous pair of near-identical transpileHqlAstToJs / transpileHqlAstToJsWithIR.
+ */
+async function generateJavascript(
+  hqlAst: HQLNode[],
+  options: ProcessOptions,
+  env?: Environment,
+  context?: CompilerContext,
+): Promise<TranspileWithIRResult> {
+  if (options.showTiming) {
+    logger.startTiming("hql-process", "JS transformation");
+  }
+
+  try {
+    const result = await transformAST(
+      hqlAst,
+      options.baseDir || getPlatform().process.cwd(),
+      {
+        verbose: options.verbose,
+        currentFile: options.currentFile,
+        generateSourceMap: options.generateSourceMap,
+        sourceContent: options.sourceContent,
+        suppressUnknownNameErrors: options.suppressUnknownNameErrors,
+      },
+      env,
+      context,
+    );
+
+    if (options.showTiming) {
+      logger.endTiming("hql-process", "JS transformation");
+    }
+    return {
+      code: result.code,
+      sourceMap: result.sourceMap,
+      ir: result.ir as IRProgram,
+    };
+  } catch (error) {
+    if (options.showTiming) {
+      logger.endTiming("hql-process", "JS transformation");
+    }
+
+    if (error instanceof TransformError) {
+      reportError(error);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Internal: full transpile pipeline with timing.
+ * Shared by transpileToJavascript and transpileToJavascriptWithIR.
+ */
+async function transpileCore(
+  hqlSource: string,
+  options: ProcessOptions,
+  context?: CompilerContext,
+): Promise<TranspileWithIRResult> {
+  const mergedOptions = mergeCompilerOptions(options, context);
+
+  if (mergedOptions.verbose) {
+    logger.setEnabled(true);
+  }
+
+  if (mergedOptions.showTiming) {
+    logger.setTimingOptions({ showTiming: true });
+    logger.startTiming("hql-process", "Total");
+  }
+
+  const { env, expanded } = await runExpansionPipeline(hqlSource, mergedOptions, {}, context);
+  const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
+  const result = await generateJavascript(hqlAst, mergedOptions, env, context);
+
+  if (mergedOptions.baseDir) env.setCurrentFile(null);
+
+  if (mergedOptions.showTiming) {
+    const sourceFilename = getPlatform().path.basename(
+      mergedOptions.currentFile || mergedOptions.baseDir || "unknown",
+    );
+    logger.endTiming("hql-process", "Total");
+    logger.logPerformance("hql-process", sourceFilename);
+  }
+
+  return result;
+}
+
+// ── Public API (signatures unchanged) ──────────────────────────────────
+
+/**
  * Process HQL source code and return transpiled JavaScript
  * @param hqlSource - The HQL source code to compile
  * @param options - Processing options
@@ -59,57 +192,8 @@ export async function transpileToJavascript(
   context?: CompilerContext,
 ): Promise<TranspileResult> {
   logger.debug("Processing HQL source with S-expression layer");
-
-  // Apply context options if provided
-  const mergedOptions = {
-    ...options,
-    ...(context?.options || {}),
-    verbose: options.verbose ?? context?.options?.verbose,
-    showTiming: options.showTiming ?? context?.options?.showTiming,
-    baseDir: options.baseDir ?? context?.baseDir,
-    currentFile: options.currentFile ?? context?.currentFile,
-  };
-
-  if (mergedOptions.verbose) {
-    logger.setEnabled(true);
-  }
-
-  if (mergedOptions.showTiming) {
-    logger.setTimingOptions({ showTiming: true });
-    logger.startTiming("hql-process", "Total");
-  }
-
-  const sourceFilename = getPlatform().path.basename(
-    mergedOptions.currentFile || mergedOptions.baseDir || "unknown",
-  );
-
-  // Pass context to environment setup
-  const env = await setupEnvironment(mergedOptions, context);
-  const sexps = parseSource(hqlSource, mergedOptions);
-  const canonicalSexps = transform(sexps, mergedOptions, context);
-
-  await handleImports(canonicalSexps, env, mergedOptions);
-
-  const macroOptions = {};
-  const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
-  const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
-  const javascript = await transpileHqlAstToJs(hqlAst, mergedOptions, env, context);
-
-  if (mergedOptions.baseDir) env.setCurrentFile(null);
-
-  if (mergedOptions.showTiming) {
-    logger.endTiming("hql-process", "Total");
-    logger.logPerformance("hql-process", sourceFilename);
-  }
-
-  return javascript;
-}
-
-/**
- * Result type for transpileToJavascriptWithIR
- */
-export interface TranspileWithIRResult extends TranspileResult {
-  ir: IRProgram;
+  const { code, sourceMap } = await transpileCore(hqlSource, options, context);
+  return { code, sourceMap };
 }
 
 /**
@@ -124,50 +208,7 @@ export async function transpileToJavascriptWithIR(
   context?: CompilerContext,
 ): Promise<TranspileWithIRResult> {
   logger.debug("Processing HQL source with S-expression layer (with IR)");
-
-  // Apply context options if provided
-  const mergedOptions = {
-    ...options,
-    ...(context?.options || {}),
-    verbose: options.verbose ?? context?.options?.verbose,
-    showTiming: options.showTiming ?? context?.options?.showTiming,
-    baseDir: options.baseDir ?? context?.baseDir,
-    currentFile: options.currentFile ?? context?.currentFile,
-  };
-
-  if (mergedOptions.verbose) {
-    logger.setEnabled(true);
-  }
-
-  if (mergedOptions.showTiming) {
-    logger.setTimingOptions({ showTiming: true });
-    logger.startTiming("hql-process", "Total");
-  }
-
-  const sourceFilename = getPlatform().path.basename(
-    mergedOptions.currentFile || mergedOptions.baseDir || "unknown",
-  );
-
-  // Pass context to environment setup
-  const env = await setupEnvironment(mergedOptions, context);
-  const sexps = parseSource(hqlSource, mergedOptions);
-  const canonicalSexps = transform(sexps, mergedOptions, context);
-
-  await handleImports(canonicalSexps, env, mergedOptions);
-
-  const macroOptions = {};
-  const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
-  const hqlAst = convertSexpsToHqlAst(expanded, mergedOptions);
-  const javascript = await transpileHqlAstToJsWithIR(hqlAst, mergedOptions, env, context);
-
-  if (mergedOptions.baseDir) env.setCurrentFile(null);
-
-  if (mergedOptions.showTiming) {
-    logger.endTiming("hql-process", "Total");
-    logger.logPerformance("hql-process", sourceFilename);
-  }
-
-  return javascript;
+  return transpileCore(hqlSource, options, context);
 }
 
 /**
@@ -215,31 +256,21 @@ export async function expandHql(
   macroOptions: MacroExpanderOptions = {},
   context?: CompilerContext,
 ): Promise<SExp[]> {
-  // Apply context options if provided
-  const mergedOptions = {
-    ...options,
-    ...(context?.options || {}),
-    baseDir: options.baseDir ?? context?.baseDir,
-    currentFile: options.currentFile ?? context?.currentFile,
-  };
-
-  const env = await setupEnvironment(mergedOptions, context);
-  const sexps = parseSource(hqlSource, mergedOptions);
-  const canonicalSexps = transform(sexps, mergedOptions, context);
-
-  await handleImports(canonicalSexps, env, mergedOptions);
-
-  const expanded = expand(canonicalSexps, env, mergedOptions, macroOptions);
-
+  const mergedOptions = mergeCompilerOptions(options, context);
+  const { env, expanded } = await runExpansionPipeline(
+    hqlSource,
+    mergedOptions,
+    macroOptions,
+    context,
+  );
   if (mergedOptions.baseDir) env.setCurrentFile(null);
-
   return expanded;
 }
 
+// ── Pipeline steps ─────────────────────────────────────────────────────
+
 /**
  * Set up the environment for HQL processing
- * @param options - Processing options
- * @param context - Optional compiler context with injected dependencies
  */
 async function setupEnvironment(
   options: ProcessOptions,
@@ -249,7 +280,6 @@ async function setupEnvironment(
     logger.startTiming("hql-process", "Environment setup");
   }
 
-  // Use provided environment or create new one
   let env: Environment;
   if (context?.environment) {
     env = context.environment;
@@ -258,13 +288,11 @@ async function setupEnvironment(
     env = await getGlobalEnv(options);
   }
 
-  // Register runtime macros if provided
   if (hasMacroRegistry(context) && context?.macroRegistry) {
     const registry = context.macroRegistry;
     logger.debug(
       `Registering ${registry.macros.size} runtime macros`,
     );
-    // If we have functions compiled, use them
     if (registry.functions) {
       for (const [name, fn] of registry.functions) {
         env.defineMacro(name, fn);
@@ -299,7 +327,7 @@ function parseSource(source: string, options: ProcessOptions): SExp[] {
 /**
  * Transform parsed S-expressions into canonical form
  */
-function transform(sexps: SExp[], options: ProcessOptions, context?: CompilerContext): SExp[] {
+function transformToCanonical(sexps: SExp[], options: ProcessOptions, context?: CompilerContext): SExp[] {
   if (options.showTiming) logger.startTiming("hql-process", "Syntax transform");
 
   const canonicalSexps = transformSyntax(sexps, context);
@@ -354,7 +382,6 @@ function expand(
   } catch (error) {
     if (options.showTiming) logger.endTiming("hql-process", "Macro expansion");
 
-    // Handle macro errors specifically
     if (error instanceof MacroError) {
       reportError(error);
     }
@@ -379,101 +406,6 @@ function convertSexpsToHqlAst(
   } catch (error) {
     if (options.showTiming) logger.endTiming("hql-process", "AST conversion");
 
-    // Handle transform errors
-    if (error instanceof TransformError) {
-      reportError(error);
-    }
-    throw error;
-  }
-}
-
-/**
- * Transform HQL AST to JavaScript
- */
-async function transpileHqlAstToJs(
-  hqlAst: HQLNode[],
-  options: ProcessOptions,
-  env?: Environment,
-  context?: CompilerContext,
-): Promise<TranspileResult> {
-  if (options.showTiming) {
-    logger.startTiming("hql-process", "JS transformation");
-  }
-
-  try {
-    const result = await transformAST(
-      hqlAst,
-      options.baseDir || getPlatform().process.cwd(),
-      {
-        verbose: options.verbose,
-        currentFile: options.currentFile,
-        generateSourceMap: options.generateSourceMap,
-        sourceContent: options.sourceContent,
-        suppressUnknownNameErrors: options.suppressUnknownNameErrors,
-      },
-      env,
-      context,
-    );
-
-    if (options.showTiming) {
-      logger.endTiming("hql-process", "JS transformation");
-    }
-    return result;
-  } catch (error) {
-    if (options.showTiming) {
-      logger.endTiming("hql-process", "JS transformation");
-    }
-
-    // Handle transform errors
-    if (error instanceof TransformError) {
-      reportError(error);
-    }
-    throw error;
-  }
-}
-
-/**
- * Transform HQL AST to JavaScript and return IR
- */
-async function transpileHqlAstToJsWithIR(
-  hqlAst: HQLNode[],
-  options: ProcessOptions,
-  env?: Environment,
-  context?: CompilerContext,
-): Promise<TranspileWithIRResult> {
-  if (options.showTiming) {
-    logger.startTiming("hql-process", "JS transformation");
-  }
-
-  try {
-    const result = await transformAST(
-      hqlAst,
-      options.baseDir || getPlatform().process.cwd(),
-      {
-        verbose: options.verbose,
-        currentFile: options.currentFile,
-        generateSourceMap: options.generateSourceMap,
-        sourceContent: options.sourceContent,
-        suppressUnknownNameErrors: options.suppressUnknownNameErrors,
-      },
-      env,
-      context,
-    );
-
-    if (options.showTiming) {
-      logger.endTiming("hql-process", "JS transformation");
-    }
-    return {
-      code: result.code,
-      sourceMap: result.sourceMap,
-      ir: result.ir as IRProgram,
-    };
-  } catch (error) {
-    if (options.showTiming) {
-      logger.endTiming("hql-process", "JS transformation");
-    }
-
-    // Handle transform errors
     if (error instanceof TransformError) {
       reportError(error);
     }
@@ -569,4 +501,3 @@ async function getGlobalEnv(options: ProcessOptions): Promise<Environment> {
   // Return a clone for this compilation
   return baseEnv.clone();
 }
-
