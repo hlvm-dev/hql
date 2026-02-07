@@ -30,6 +30,7 @@ import {
   raiseSexp,
   killSexp,
   transposeSexp,
+  type PareditResult,
 } from "../../repl/paredit.ts";
 import { findSuggestion, acceptSuggestion, type Suggestion } from "../../repl/suggester.ts";
 import { shouldTabAcceptSuggestion } from "../../repl/tab-logic.ts";
@@ -56,6 +57,7 @@ import {
 import { useReplContext } from "../context/index.ts";
 import { log } from "../../../api/log.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
+import { deleteWordPreservingDelimiters } from "../utils/text-editing.ts";
 
 // Handler Registry - for palette/keybinding execution
 import {
@@ -66,6 +68,10 @@ import {
   isDefaultDisabled,
   executeHandler,
 } from "../keybindings/index.ts";
+
+// Helper: apply a paredit operation and return new value/cursor
+// Shared by handler registry, useInput, and Option+key handler
+type PareditFn = (input: string, pos: number) => PareditResult | null;
 
 // ESC key clears input immediately (no timeout)
 
@@ -126,13 +132,16 @@ export function Input({
   // Autosuggestion (ghost text - separate from completion)
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
 
+  // Memoize memoryNames Set to avoid recreation on every render
+  const memoryNamesSet = useMemo(() => new Set(memoryNames), [memoryNames]);
+
   // Unified Completion System (replaces legacy completion + @mention state)
   // Includes memoryNames for context-aware completions (e.g., forget only shows memory items)
   const completion = useCompletion({
     userBindings,
     signatures,
     docstrings,
-    memoryNames: new Set(memoryNames),  // Convert array to Set for efficient lookup
+    memoryNames: memoryNamesSet,
     debounceMs: 50,
   });
 
@@ -691,80 +700,21 @@ export function Input({
   }, [value, cursorPos, onChange, insertAt]);
 
 
-  // Paired delimiters where Ctrl+W should preserve the outer pair
-  const PAIRED_DELIMS: Record<string, string> = {
-    '"': '"', "'": "'", '`': '`',
-    "\u201C": "\u201D", "\u2018": "\u2019", "«": "»",
-  };
-
-  // Find if cursor is inside paired delimiters and delete word within
-  // Returns { value, cursor } if inside delimiters, null otherwise
-  const findAndDeleteWordInDelimiters = (v: string, c: number): { value: string; cursor: number } | null => {
-    for (const [open, close] of Object.entries(PAIRED_DELIMS)) {
-      const isSelf = open === close;
-      let openPos = -1;
-      let closePos = -1;
-
-      if (isSelf) {
-        // Self-closing: count occurrences to find if inside
-        let count = 0, lastPos = -1;
-        for (let i = 0; i < c; i++) {
-          if (v[i] === open) { count++; lastPos = i; }
-        }
-        if (count % 2 === 1 && lastPos >= 0) {
-          const cp = v.indexOf(close, c);
-          if (cp >= 0) { openPos = lastPos; closePos = cp; }
-        }
-      } else {
-        // Different open/close: find matching pair
-        let depth = 0;
-        for (let i = c - 1; i >= 0; i--) {
-          if (v[i] === close) depth++;
-          else if (v[i] === open) { if (depth === 0) { openPos = i; break; } depth--; }
-        }
-        if (openPos >= 0) {
-          depth = 0;
-          for (let i = c; i < v.length; i++) {
-            if (v[i] === open) depth++;
-            else if (v[i] === close) { if (depth === 0) { closePos = i; break; } depth--; }
-          }
-        }
-      }
-
-      if (openPos >= 0 && closePos >= 0) {
-        const contentStart = openPos + 1;
-        if (c <= contentStart || c > closePos) continue;
-
-        // Delete word within delimiter content
-        const content = v.slice(contentStart, c);
-        let pos = c;
-        // Skip trailing whitespace
-        while (pos > contentStart && content[pos - contentStart - 1] === ' ') pos--;
-        // Delete word
-        while (pos > contentStart && content[pos - contentStart - 1] !== ' ') pos--;
-        if (pos === c) continue; // Nothing to delete
-
-        return { value: v.slice(0, pos) + v.slice(c), cursor: pos };
-      }
-    }
-    return null;
-  };
-
   // Helper: delete word backward (Ctrl+W)
   // Accepts optional parameters to work on any value (for placeholder cleanup)
   // LISP-aware: treats parens/brackets as word boundaries
   const deleteWord = useCallback((targetValue?: string, targetCursor?: number) => {
     const v = targetValue ?? value;
     const c = targetCursor ?? cursorPos;
-    
-    // Check if inside paired delimiters first - preserve them
-    const delimResult = findAndDeleteWordInDelimiters(v, c);
+
+    // Check if inside paired delimiters first — uses shared implementation from text-editing.ts
+    const delimResult = deleteWordPreservingDelimiters(v, c);
     if (delimResult) {
       onChange(delimResult.value);
       setCursorPos(delimResult.cursor);
       return;
     }
-    
+
     // LISP-aware word deletion
     const before = v.slice(0, c);
     let pos = before.length;
@@ -946,22 +896,13 @@ export function Input({
   // Register handlers for palette/keybinding execution
   // ============================================================
   useEffect(() => {
-    // Helper to apply paredit operation (same as inline in useInput)
-    const applyParedit = (fn: typeof slurpForward) => {
+    // Paredit helper using current value/cursorPos closure
+    const applyParedit = (fn: PareditFn) => {
       const result = fn(value, cursorPos);
       if (result) {
         onChange(result.newValue);
         setCursorPos(result.newCursor);
       }
-    };
-
-    // Helper: get value with placeholders cleaned up
-    const cleanedValue = (): { v: string; c: number } => {
-      if (placeholders.length > 0 && placeholderIndex >= 0) {
-        const cleaned = exitPlaceholderModeAndCleanup(true);
-        return { v: cleaned, c: Math.min(cursorPos, cleaned.length) };
-      }
-      return { v: value, c: cursorPos };
     };
 
     // Editing handlers
@@ -974,16 +915,16 @@ export function Input({
       }
     }, "Input");
     registerHandler(HandlerIds.EDIT_DELETE_TO_START, () => {
-      const { v, c } = cleanedValue();
+      const { v, c } = getCleanedValue();
       onChange(v.slice(c));
       setCursorPos(0);
     }, "Input");
     registerHandler(HandlerIds.EDIT_DELETE_TO_END, () => {
-      const { v, c } = cleanedValue();
+      const { v, c } = getCleanedValue();
       onChange(v.slice(0, c));
     }, "Input");
     registerHandler(HandlerIds.EDIT_DELETE_WORD_BACK, () => {
-      const { v, c } = cleanedValue();
+      const { v, c } = getCleanedValue();
       deleteWord(v, c);
     }, "Input");
 
@@ -1068,7 +1009,7 @@ export function Input({
   }, [
     value, cursorPos, suggestion, placeholders, placeholderIndex,
     onChange, moveWordBack, moveWordForward, deleteWord, handleTab,
-    completion, historySearch.actions, exitPlaceholderMode, exitPlaceholderModeAndCleanup,
+    completion, historySearch.actions, exitPlaceholderMode, getCleanedValue,
     insertAt, acceptAndApplySuggestion, clearPasteBuffer,
   ]);
 
@@ -1300,8 +1241,8 @@ export function Input({
     // This handles BOTH key.escape AND key.meta since macOS Terminal sends ESC sequences
     // IMPORTANT: Skip this block if Ctrl is pressed to let Ctrl handler run
     if ((key.escape || key.meta) && !key.ctrl) {
-      // Helper to apply paredit operation
-      const applyParedit = (fn: typeof slurpForward) => {
+      // Paredit helper using current value/cursorPos closure
+      const applyParedit = (fn: PareditFn) => {
         const result = fn(value, cursorPos);
         if (result) {
           onChange(result.newValue);
@@ -1639,8 +1580,8 @@ export function Input({
     const isCtrlCode = ctrlCode >= 1 && ctrlCode <= 26;
 
     if (key.ctrl || isCtrlCode) {
-      // Helper for paredit operations
-      const applyParedit = (fn: typeof slurpForward) => {
+      // Paredit helper using current value/cursorPos closure
+      const applyParedit = (fn: PareditFn) => {
         const result = fn(value, cursorPos);
         if (result) {
           onChange(result.newValue);
@@ -1838,7 +1779,7 @@ export function Input({
   // Render with syntax highlighting
   // Paren matching: highlight BOTH brackets of a pair when cursor is ON/NEAR any delimiter
   // Returns array of [cursorBracketPos, matchingBracketPos] for pair highlighting
-  const bracketPair = (() => {
+  const bracketPair = useMemo(() => {
     // Check if cursor is ON a bracket (opening or closing)
     if (cursorPos < value.length) {
       const ch = value[cursorPos];
@@ -1860,7 +1801,7 @@ export function Input({
       }
     }
     return null;
-  })();
+  }, [value, cursorPos]);
 
   const ghostText = suggestion ? suggestion.ghost : "";
 

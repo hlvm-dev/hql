@@ -17,13 +17,16 @@ import { registry, getDisplay, CATEGORY_ORDER } from "../keybindings/index.ts";
 import type { KeybindingAction, KeybindingMatch, KeybindingCategory } from "../keybindings/index.ts";
 import {
   clearOverlay,
-  getTerminalSize,
   ansi,
   hexToRgb,
+  type RGB,
+  fg,
+  bg,
+  calcOverlayPosition,
+  writeToTerminal,
 } from "../overlay/index.ts";
 import { useTheme } from "../../theme/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
-import { getPlatform } from "../../../../platform/platform.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
 
 // ============================================================
@@ -64,8 +67,6 @@ type FlatItem =
   | { type: "item"; match: KeybindingMatch }
   | { type: "spacer" };
 
-type RGB = [number, number, number];
-
 // ============================================================
 // Layout Constants
 // ============================================================
@@ -78,21 +79,9 @@ const CONTENT_START = PADDING.top + HEADER_ROWS;
 const VISIBLE_ROWS = PALETTE_HEIGHT - CONTENT_START - PADDING.bottom;
 const BG_COLOR: RGB = [35, 35, 40];
 
-// Shared encoder for terminal output
-const encoder = new TextEncoder();
-
 // ============================================================
 // Helpers
 // ============================================================
-
-/** Calculate centered position */
-function getOverlayPosition(): { x: number; y: number } {
-  const term = getTerminalSize();
-  return {
-    x: Math.max(2, Math.floor((term.columns - PALETTE_WIDTH) / 2)),
-    y: Math.max(2, Math.floor((term.rows - PALETTE_HEIGHT) / 2)),
-  };
-}
 
 /** Build flat list with category headers and spacers for rendering */
 function buildFlatList(results: KeybindingMatch[]): FlatItem[] {
@@ -140,16 +129,6 @@ function getSelectableItems(flatList: FlatItem[]): Array<FlatItem & { type: "ite
   return flatList.filter((item): item is FlatItem & { type: "item" } =>
     item.type === "item"
   );
-}
-
-/** Create ANSI foreground color string from RGB */
-function fg(rgb: RGB): string {
-  return ansi.fg(rgb[0], rgb[1], rgb[2]);
-}
-
-/** Create ANSI background color string from RGB */
-function bg(rgb: RGB): string {
-  return ansi.bg(rgb[0], rgb[1], rgb[2]);
 }
 
 // ============================================================
@@ -261,12 +240,12 @@ export function CommandPaletteOverlay({
       + colors.bgStyle + cursorStyle
       + ansi.cursorRestore + ansi.cursorShow;
 
-    getPlatform().terminal.stdout.writeSync(encoder.encode(output));
+    writeToTerminal(output);
   }, [query, cursorPos, cursorVisible, colors.bgStyle]);
 
   // Draw full palette
   const drawPalette = useCallback(() => {
-    const pos = getOverlayPosition();
+    const pos = calcOverlayPosition(PALETTE_WIDTH, PALETTE_HEIGHT);
     overlayPosRef.current = pos;
 
     const contentWidth = PALETTE_WIDTH - PADDING.left - PADDING.right;
@@ -436,7 +415,7 @@ export function CommandPaletteOverlay({
 
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
-    getPlatform().terminal.stdout.writeSync(encoder.encode(output));
+    writeToTerminal(output);
   }, [query, cursorPos, cursorVisible, flatList, selectableItems, selectedIndex, scrollOffset, colors, rebindMode, onRebind]);
 
   // Cursor blink effect

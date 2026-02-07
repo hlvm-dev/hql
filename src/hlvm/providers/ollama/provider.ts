@@ -23,13 +23,6 @@ import { getOllamaCatalog } from "./catalog.ts";
 import { DEFAULT_MODEL_NAME, DEFAULT_OLLAMA_ENDPOINT } from "../../../common/config/types.ts";
 
 // ============================================================================
-// Default Configuration
-// ============================================================================
-
-const DEFAULT_ENDPOINT = DEFAULT_OLLAMA_ENDPOINT;
-const DEFAULT_MODEL = DEFAULT_MODEL_NAME;
-
-// ============================================================================
 // Provider Implementation
 // ============================================================================
 
@@ -58,8 +51,8 @@ export class OllamaProvider implements AIProvider {
   private defaults: Partial<GenerateOptions>;
 
   constructor(config?: ProviderConfig) {
-    this.endpoint = config?.endpoint || DEFAULT_ENDPOINT;
-    this.defaultModel = config?.defaultModel || DEFAULT_MODEL;
+    this.endpoint = config?.endpoint || DEFAULT_OLLAMA_ENDPOINT;
+    this.defaultModel = config?.defaultModel || DEFAULT_MODEL_NAME;
     this.defaults = config?.defaults || {};
   }
 

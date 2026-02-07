@@ -71,9 +71,14 @@ function extractMatches(text: string, pattern: RegExp): string[] {
  * Returns code with these replaced by spaces (preserving positions).
  * This allows safe regex matching on the result.
  */
+// Set for O(1) regex-preceding-char lookup
+const REGEX_PRECEDING_CHARS = new Set("=([,!&|:;{}?");
+
 function stripStringsAndComments(code: string): string {
   const result: string[] = [];
   let i = 0;
+  // Track last non-whitespace char to avoid O(n) slice+trimEnd on every '/'
+  let lastNonWhitespace = "";
 
   while (i < code.length) {
     const c = code[i];
@@ -85,55 +90,54 @@ function stripStringsAndComments(code: string): string {
       const len = end === -1 ? code.length - i : end - i;
       result.push(" ".repeat(len));
       i += len;
+      continue;
     }
     // Multi-line comment: /* */
-    else if (c === "/" && next === "*") {
+    if (c === "/" && next === "*") {
       const end = code.indexOf("*/", i + 2);
       const len = end === -1 ? code.length - i : end + 2 - i;
       result.push(" ".repeat(len));
       i += len;
+      continue;
     }
     // Regex literal: /pattern/flags
     // Heuristic: / after these chars is likely regex, not division
-    else if (c === "/" && i > 0) {
-      const prev = code.slice(0, i).trimEnd().slice(-1);
-      if ("=([,!&|:;{}?".includes(prev)) {
+    if (c === "/" && i > 0 && REGEX_PRECEDING_CHARS.has(lastNonWhitespace)) {
+      result.push(" ");
+      i++;
+      while (i < code.length && code[i] !== "/") {
         result.push(" ");
-        i++;
-        while (i < code.length && code[i] !== "/") {
-          result.push(" ");
-          if (code[i] === "\\") { i++; if (i < code.length) result.push(" "); }
-          else if (code[i] === "[") {
-            // Character class [...] - scan until ]
+        if (code[i] === "\\") { i++; if (i < code.length) result.push(" "); }
+        else if (code[i] === "[") {
+          // Character class [...] - scan until ]
+          i++;
+          while (i < code.length && code[i] !== "]") {
+            result.push(" ");
+            if (code[i] === "\\") { i++; if (i < code.length) result.push(" "); }
             i++;
-            while (i < code.length && code[i] !== "]") {
-              result.push(" ");
-              if (code[i] === "\\") { i++; if (i < code.length) result.push(" "); }
-              i++;
-            }
           }
-          i++;
         }
-        if (i < code.length) { result.push(" "); i++; }
-        // Skip flags (g, i, m, s, u, y) - use pre-compiled regex
-        while (i < code.length && REGEX_FLAG_PATTERN.test(code[i])) {
-          result.push(" ");
-          i++;
-        }
-      } else {
-        result.push(c);
         i++;
       }
+      if (i < code.length) { result.push(" "); i++; }
+      // Skip flags (g, i, m, s, u, y) - use pre-compiled regex
+      while (i < code.length && REGEX_FLAG_PATTERN.test(code[i])) {
+        result.push(" ");
+        i++;
+      }
+      continue;
     }
     // Strings: ", ', `
-    else if (c === '"' || c === "'" || c === "`") {
+    if (c === '"' || c === "'" || c === "`") {
       i = skipQuotedString(code, i, c, result);
+      continue;
     }
     // Regular character
-    else {
-      result.push(c);
-      i++;
+    result.push(c);
+    if (c !== " " && c !== "\t" && c !== "\n" && c !== "\r") {
+      lastNonWhitespace = c;
     }
+    i++;
   }
 
   return result.join("");

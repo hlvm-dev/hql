@@ -15,13 +15,6 @@ export interface CliOptions {
 }
 
 /**
- * Extract positional args (non-options)
- */
-export function parseNonOptionArgs(args: string[]): string[] {
-  return args.filter((arg) => !arg.startsWith("-"));
-}
-
-/**
  * Parse standard CLI flags into a structured options object.
  */
 export function parseCliOptions(args: string[]): CliOptions {

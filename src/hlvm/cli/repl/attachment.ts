@@ -104,46 +104,17 @@ const EXT_TO_MIME: Record<string, string> = {
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
 
-/** MIME type to attachment type mapping */
-const MIME_TO_TYPE: Record<string, AttachmentType> = {
-  // Images
-  "image/jpeg": "image",
-  "image/png": "image",
-  "image/gif": "image",
-  "image/webp": "image",
-  "image/svg+xml": "image",
-  "image/bmp": "image",
-  "image/tiff": "image",
-  "image/x-icon": "image",
-  "image/heic": "image",
-  "image/heif": "image",
-
-  // Videos
-  "video/mp4": "video",
-  "video/webm": "video",
-  "video/quicktime": "video",
-  "video/x-msvideo": "video",
-  "video/x-matroska": "video",
-  "video/mpeg": "video",
-
-  // Audio
-  "audio/mpeg": "audio",
-  "audio/wav": "audio",
-  "audio/ogg": "audio",
-  "audio/flac": "audio",
-  "audio/aac": "audio",
-  "audio/mp4": "audio",
-  "audio/x-ms-wma": "audio",
-
-  // Documents
-  "application/pdf": "document",
-  "application/msword": "document",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "document",
-  "application/vnd.ms-excel": "document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "document",
-  "application/vnd.ms-powerpoint": "document",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "document",
-};
+/** MIME type to attachment type mapping (derived from EXT_TO_MIME — single source of truth) */
+const MIME_TO_TYPE: Record<string, AttachmentType> = Object.fromEntries(
+  Object.values(EXT_TO_MIME).map((mime) => {
+    const prefix = mime.split("/")[0];
+    const type: AttachmentType =
+      prefix === "image" ? "image" :
+      prefix === "video" ? "video" :
+      prefix === "audio" ? "audio" : "document";
+    return [mime, type];
+  })
+);
 
 /** Size limits per attachment type (in bytes) */
 const SIZE_LIMITS: Record<AttachmentType, number> = {

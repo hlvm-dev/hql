@@ -67,15 +67,30 @@ const { MAX_PARSING_DEPTH, MAX_QUASIQUOTE_DEPTH } = PARSER_LIMITS;
  * JavaScript's string.length counts UTF-16 code units, not characters.
  * Example: "👍".length === 2, but countCodePoints("👍") === 1
  *
- * Optimized: Fast path for ASCII-only strings (avoids array allocation).
+ * Optimized: Fast path for ASCII-only strings + zero-allocation fallback.
  */
 function countCodePoints(str: string): number {
   const len = str.length;
   // Fast path: scan for non-ASCII. Most tokens are ASCII-only.
   for (let i = 0; i < len; i++) {
     if (str.charCodeAt(i) > 127) {
-      // Non-ASCII found: use full code point iteration (allocates array)
-      return Array.from(str).length;
+      // Non-ASCII found: count code points without allocating an intermediate array.
+      let count = 0;
+      for (let j = 0; j < len; j++) {
+        const code = str.charCodeAt(j);
+        // Merge surrogate pairs into a single code point.
+        if (
+          code >= 0xd800 && code <= 0xdbff &&
+          j + 1 < len
+        ) {
+          const next = str.charCodeAt(j + 1);
+          if (next >= 0xdc00 && next <= 0xdfff) {
+            j++;
+          }
+        }
+        count++;
+      }
+      return count;
     }
   }
   // All ASCII: UTF-16 length === code point count
@@ -84,12 +99,6 @@ function countCodePoints(str: string): number {
 
 // Pre-compiled regex patterns for hot paths (avoid compilation per call)
 const WHITESPACE_CHAR_REGEX = /\s/;
-
-// O(1) Set lookup for delimiter characters (replaces regex test in hot loop)
-const DELIMITER_CHARS_SET = new Set([
-  " ", "\t", "\n", "\r",
-  "(", ")", "[", "]", "{", "}"
-]);
 
 const TOKEN_PATTERNS = {
   TEMPLATE_LITERAL: /`(?!\(|\[)(?:[^`\\$]|\\[\s\S]|\$(?!\{)|\$\{(?:[^}\\]|\\[\s\S])*\})*`/y,
@@ -347,6 +356,19 @@ function errorOptions(position: SourcePosition, state: ParserState) {
 }
 
 /**
+ * Extract error options from an S-expression's _meta for use in ParseError construction.
+ * Provides consistent error info when position comes from parsed nodes rather than tokens.
+ */
+function metaErrorOptions(node: SExp, state: ParserState) {
+  return {
+    line: node._meta?.line || 1,
+    column: node._meta?.column || 1,
+    filePath: node._meta?.filePath || "",
+    source: state.input,
+  };
+}
+
+/**
  * Check if parsing depth exceeds maximum allowed, throw if so.
  * Prevents stack overflow from deeply nested or malicious input.
  */
@@ -357,6 +379,17 @@ function checkDepth(state: ParserState, position: SourcePosition): void {
       errorOptions(position, state)
     );
   }
+}
+
+/**
+ * Execute a parse function with depth tracking. Increments depth before,
+ * checks the limit, runs the function, and decrements depth on exit (even on error).
+ */
+function withDepthTracking<T>(state: ParserState, pos: SourcePosition, fn: () => T): T {
+  state.parsingDepth++;
+  checkDepth(state, pos);
+  try { return fn(); }
+  finally { state.parsingDepth--; }
 }
 
 /**
@@ -507,7 +540,7 @@ function parseExpressionByTokenType(token: Token, state: ParserState): SExp {
  * Enhanced Import Statement Processing - Detects and validates import statements
  * Uses a more general approach to check structure without hardcoding specific typos
  */
-function parseImportStatement(elements: SExp[]): SList {
+function parseImportStatement(elements: SExp[], state: ParserState): SList {
   // Check if we're parsing an import statement
   if (
     elements.length > 0 &&
@@ -537,11 +570,7 @@ function parseImportStatement(elements: SExp[]): SList {
             // This is a typo - throw a more specific error
             throw new ParseError(
               `Invalid import statement: expected 'from' but got '${keyword}'`,
-              {
-                line: (thirdElement._meta?.line || 1),
-                column: (thirdElement._meta?.column || 1),
-                filePath: (thirdElement._meta?.filePath || ""),
-              },
+              metaErrorOptions(thirdElement, state),
             );
           }
         }
@@ -560,11 +589,7 @@ function parseImportStatement(elements: SExp[]): SList {
             // This is a typo in the 'from' keyword
             throw new ParseError(
               `Invalid import statement: expected 'from' but got '${keyword}'`,
-              {
-                line: (thirdElement._meta?.line || 1),
-                column: (thirdElement._meta?.column || 1),
-                filePath: (thirdElement._meta?.filePath || ""),
-              },
+              metaErrorOptions(thirdElement, state),
             );
           }
 
@@ -577,11 +602,7 @@ function parseImportStatement(elements: SExp[]): SList {
     // If we get here, the import statement is malformed
     throw new ParseError(
       'Invalid import statement format. Expected (import "module"), (import module from "./path"), or (import [symbols] from "./path")',
-      {
-        line: (elements[0]._meta?.line || 1),
-        column: (elements[0]._meta?.column || 1),
-        filePath: (elements[0]._meta?.filePath || ""),
-      },
+      metaErrorOptions(elements[0], state),
     );
   }
 
@@ -724,9 +745,9 @@ function parseSymbol(tokenValue: string): SExp {
 }
 
 function parseDotNotation(tokenValue: string): SExp {
-  const parts = tokenValue.split(".");
-  const objectName = parts[0];
-  const propertyPath = parts.slice(1).join(".");
+  const firstDotIndex = tokenValue.indexOf(".");
+  const objectName = tokenValue.slice(0, firstDotIndex);
+  const propertyPath = tokenValue.slice(firstDotIndex + 1);
 
   // For property access with dashes, use get function
   if (propertyPath.includes("-")) {
@@ -745,10 +766,7 @@ function parseDotNotation(tokenValue: string): SExp {
  * Enhanced parse list function with special handling for imports and syntax errors
  */
 function parseList(state: ParserState, listStartPos: SourcePosition): SList {
-  // Track nesting depth for stack overflow protection
-  state.parsingDepth++;
-  checkDepth(state, listStartPos);
-
+  return withDepthTracking(state, listStartPos, () => {
   const elements: SExp[] = [];
 
   // Peek at first token to detect special forms (single bounds check)
@@ -902,7 +920,7 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
   // Check if this is an import statement and handle it specially
   let result: SList;
   if (importKeywordFound) {
-    result = parseImportStatement(elements);
+    result = parseImportStatement(elements, state);
   } else {
     result = createList(...elements);
   }
@@ -915,8 +933,8 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
     listStartPos.column,
   );
 
-  state.parsingDepth--;  // Decrement depth before returning
   return result;
+  });
 }
 
 /**
@@ -1096,7 +1114,6 @@ function classifySymbolToken(
       const char = input[pos];
       if (char === '<') depth++;
       else if (char === '>') depth--;
-      else if (DELIMITER_CHARS_SET.has(char) && depth === 0) break;
       pos++;
     }
     value = input.slice(cursor, pos);
@@ -1139,10 +1156,7 @@ function classifySymbolToken(
 }
 
 function parseVector(state: ParserState, startPos: SourcePosition): SList {
-  // Track nesting depth for stack overflow protection
-  state.parsingDepth++;
-  checkDepth(state, startPos);
-
+  return withDepthTracking(state, startPos, () => {
   const elements: SExp[] = [];
   while (
     state.currentPos < state.tokens.length &&
@@ -1172,15 +1186,12 @@ function parseVector(state: ParserState, startPos: SourcePosition): SList {
     startPos.column,
   );
 
-  state.parsingDepth--;  // Decrement depth before returning
   return result;
+  });
 }
 
 function parseMap(state: ParserState, startPos: SourcePosition): SList {
-  // Track nesting depth for stack overflow protection
-  state.parsingDepth++;
-  checkDepth(state, startPos);
-
+  return withDepthTracking(state, startPos, () => {
   const entries: SExp[] = [];
   while (
     state.currentPos < state.tokens.length &&
@@ -1291,15 +1302,12 @@ function parseMap(state: ParserState, startPos: SourcePosition): SList {
     startPos.column,
   );
 
-  state.parsingDepth--;  // Decrement depth before returning
   return result;
+  });
 }
 
 function parseSet(state: ParserState, startPos: SourcePosition): SList {
-  // Track nesting depth for stack overflow protection
-  state.parsingDepth++;
-  checkDepth(state, startPos);
-
+  return withDepthTracking(state, startPos, () => {
   const elements: SExp[] = [];
   while (
     state.currentPos < state.tokens.length &&
@@ -1329,8 +1337,8 @@ function parseSet(state: ParserState, startPos: SourcePosition): SList {
     startPos.column,
   );
 
-  state.parsingDepth--;  // Decrement depth before returning
   return result;
+  });
 }
 
 /**

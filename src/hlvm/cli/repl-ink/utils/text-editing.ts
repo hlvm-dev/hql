@@ -156,7 +156,7 @@ function findEnclosingDelimiters(
  * 
  * Returns null if not inside delimiters (caller should use default behavior).
  */
-function deleteWordPreservingDelimiters(value: string, cursor: number): TextEditResult | null {
+export function deleteWordPreservingDelimiters(value: string, cursor: number): TextEditResult | null {
   const delimiters = findEnclosingDelimiters(value, cursor);
   if (!delimiters) return null;
   

@@ -74,36 +74,19 @@ export const errors: ErrorsApi = {
   },
 
   import(message, importPath?, location?) {
-    if (importPath && location) {
-      return new ImportError(message, importPath, location);
-    } else if (importPath) {
-      return new ImportError(message, importPath);
-    } else {
-      return new ImportError(message);
-    }
+    return new ImportError(message, importPath, location);
   },
 
   validation(message, context, location?) {
-    if (location) {
-      return new ValidationError(message, context, location);
-    }
-    return new ValidationError(message, context);
+    return new ValidationError(message, context, location);
   },
 
   macro(message, macroName, location?) {
-    if (location) {
-      return new MacroError(message, macroName, location);
-    }
-    return new MacroError(message, macroName);
+    return new MacroError(message, macroName, location);
   },
 
   transform(message, phase?, location?) {
-    if (phase && location) {
-      return new TransformError(message, phase, location);
-    } else if (phase) {
-      return new TransformError(message, phase);
-    }
-    return new TransformError(message);
+    return new TransformError(message, phase, location);
   },
 
   runtime(message, location?) {
@@ -111,12 +94,9 @@ export const errors: ErrorsApi = {
   },
 
   codeGen(message, nodeType?, location?) {
-    if (nodeType && location) {
-      return new CodeGenError(message, { nodeType, ...location });
-    } else if (nodeType) {
-      return new CodeGenError(message, nodeType);
-    }
-    return new CodeGenError(message);
+    return nodeType && location
+      ? new CodeGenError(message, { nodeType, ...location })
+      : new CodeGenError(message, nodeType);
   },
 
   generic(message, location?) {

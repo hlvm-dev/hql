@@ -12,14 +12,14 @@
  */
 
 import {
+  clearMemory,
+  compactMemory,
+  forgetFromMemory,
+  getDefinitionSource,
+  getMemoryFilePath,
   getMemoryNames,
   getMemoryStats,
-  getDefinitionSource,
-  forgetFromMemory,
-  clearMemory,
-  getMemoryFilePath,
   loadMemory,
-  compactMemory,
 } from "../cli/repl/memory.ts";
 import { assertString } from "./validation.ts";
 
@@ -31,7 +31,9 @@ export interface MemorySummary {
 }
 
 export interface MemoryApi {
-  load: (evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>) => Promise<{
+  load: (
+    evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>,
+  ) => Promise<{
     docstrings: Map<string, string>;
     errors: string[];
   }>;
@@ -63,7 +65,9 @@ function createMemoryApi(): MemoryCallable {
      * System-level API - normally called by REPL initialization
      * @example (memory.load evaluator)
      */
-    load: (evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>): Promise<{ docstrings: Map<string, string>; errors: string[] }> => {
+    load: (
+      evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>,
+    ): Promise<{ docstrings: Map<string, string>; errors: string[] }> => {
       return loadMemory(evaluator);
     },
 
@@ -72,8 +76,8 @@ function createMemoryApi(): MemoryCallable {
      * System-level API - normally called by REPL initialization
      * @example (memory.compact)
      */
-    compact: async (): Promise<void> => {
-      await compactMemory();
+    compact: (): Promise<void> => {
+      return compactMemory();
     },
 
     /**
@@ -98,7 +102,11 @@ function createMemoryApi(): MemoryCallable {
      * @example (memory.remove "myFn")
      */
     remove: (name: string): Promise<boolean> => {
-      assertString(name, "memory.remove", "memory.remove requires a name string");
+      assertString(
+        name,
+        "memory.remove",
+        "memory.remove requires a name string",
+      );
       return forgetFromMemory(name);
     },
 
@@ -106,15 +114,17 @@ function createMemoryApi(): MemoryCallable {
      * Clear all definitions from memory
      * @example (memory.clear)
      */
-    clear: async (): Promise<void> => {
-      await clearMemory();
+    clear: (): Promise<void> => {
+      return clearMemory();
     },
 
     /**
      * Get memory statistics
      * @example (memory.stats)
      */
-    stats: (): Promise<{ path: string; count: number; size: number } | null> => {
+    stats: (): Promise<
+      { path: string; count: number; size: number } | null
+    > => {
       return getMemoryStats();
     },
 
@@ -147,8 +157,7 @@ function createMemoryApi(): MemoryCallable {
   };
 
   const memoryFn = async (): Promise<MemorySummary> => {
-    const stats = await api.stats();
-    const names = await api.list();
+    const [stats, names] = await Promise.all([api.stats(), api.list()]);
     return {
       count: stats?.count ?? names.length,
       names,

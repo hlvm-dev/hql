@@ -70,9 +70,52 @@ let pastes: Paste[] = [];
 let attachments: MediaAttachment[] = [];
 let conversation: ConversationTurn[] = [];
 
+const LINE_BREAK_REGEX = /\r?\n|\r/g;
+
+function countLines(content: string): number {
+  return (content.match(LINE_BREAK_REGEX)?.length ?? 0) + 1;
+}
+
+function getBySequentialId<T extends { readonly id: number }>(
+  items: readonly T[],
+  id: number,
+): T | undefined {
+  const item = items[id];
+  return item?.id === id ? item : undefined;
+}
+
 // ============================================================================
 // Language Detection (Simple heuristic)
 // ============================================================================
+
+// Pre-compiled detection patterns (avoid recompilation per call)
+const LANG_PATTERNS: ReadonlyArray<readonly [RegExp, string, RegExp?]> = [
+  [/^\s*\((?:def|fn|defn|let|if|cond|do|ns|import|require)\s/m, "hql"],
+  [/^\s*;.*$/m, "lisp", /\(/],
+  [/:\s*(?:string|number|boolean|any|void|never)\b/, "typescript"],
+  [/interface\s+\w+\s*\{/, "typescript"],
+  [/type\s+\w+\s*=/, "typescript"],
+  [/(?:const|let|var)\s+\w+\s*=/, "javascript"],
+  [/function\s+\w+\s*\(/, "javascript"],
+  [/=>\s*\{/, "javascript"],
+  [/^(?:def|class|import|from)\s/m, "python"],
+  [/:\s*$/m, "python"],
+  [/(?:fn|let\s+mut|impl|struct|enum|pub\s+fn)/, "rust"],
+  [/^package\s+\w+$/m, "go"],
+  [/func\s+\w+\s*\(/, "go"],
+  [/^\s*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\s/im, "sql"],
+  [/<(!DOCTYPE|html|head|body|div|span|p)\b/i, "html"],
+  [/[.#][\w-]+\s*\{/, "css"],
+  [/@media|@import/, "css"],
+  [/^#{1,6}\s/, "markdown"],
+  [/^\s*[-*+]\s/, "markdown"],
+  [/^#!/, "shell"],
+  [/\$\(|&&|\|\|/, "shell"],
+];
+
+const JSON_START_REGEX = /^\s*[\{\[]/;
+const YAML_REGEX = /^[\w-]+:\s/m;
+const YAML_EXCLUDE_REGEX = /\{/;
 
 /**
  * Detect programming language from content
@@ -80,54 +123,14 @@ let conversation: ConversationTurn[] = [];
 export function detectLanguage(content: string): string {
   const sample = content.slice(0, 1000);
 
-  // HQL/Lisp
-  if (/^\s*\((?:def|fn|defn|let|if|cond|do|ns|import|require)\s/m.test(sample)) {
-    return "hql";
-  }
-  if (/^\s*;.*$/m.test(sample) && /\(/.test(sample)) {
-    return "lisp";
+  for (const [pattern, lang, extra] of LANG_PATTERNS) {
+    if (pattern.test(sample) && (!extra || extra.test(sample))) {
+      return lang;
+    }
   }
 
-  // TypeScript
-  if (
-    /:\s*(?:string|number|boolean|any|void|never)\b/.test(sample) ||
-    /interface\s+\w+\s*\{/.test(sample) ||
-    /type\s+\w+\s*=/.test(sample)
-  ) {
-    return "typescript";
-  }
-
-  // JavaScript
-  if (
-    /(?:const|let|var)\s+\w+\s*=/.test(sample) ||
-    /function\s+\w+\s*\(/.test(sample) ||
-    /=>\s*\{/.test(sample)
-  ) {
-    return "javascript";
-  }
-
-  // Python
-  if (/^(?:def|class|import|from)\s/m.test(sample) || /:\s*$/m.test(sample)) {
-    return "python";
-  }
-
-  // Rust
-  if (/(?:fn|let\s+mut|impl|struct|enum|pub\s+fn)/.test(sample)) {
-    return "rust";
-  }
-
-  // Go
-  if (/^package\s+\w+$/m.test(sample) || /func\s+\w+\s*\(/.test(sample)) {
-    return "go";
-  }
-
-  // SQL
-  if (/^\s*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\s/im.test(sample)) {
-    return "sql";
-  }
-
-  // JSON
-  if (/^\s*[\{\[]/.test(sample)) {
+  // JSON (requires parsing validation)
+  if (JSON_START_REGEX.test(sample)) {
     try {
       JSON.parse(content);
       return "json";
@@ -136,29 +139,9 @@ export function detectLanguage(content: string): string {
     }
   }
 
-  // YAML
-  if (/^[\w-]+:\s/m.test(sample) && !/{/.test(sample)) {
+  // YAML (requires exclusion check)
+  if (YAML_REGEX.test(sample) && !YAML_EXCLUDE_REGEX.test(sample)) {
     return "yaml";
-  }
-
-  // HTML
-  if (/<(!DOCTYPE|html|head|body|div|span|p)\b/i.test(sample)) {
-    return "html";
-  }
-
-  // CSS
-  if (/[.#][\w-]+\s*\{/.test(sample) || /@media|@import/.test(sample)) {
-    return "css";
-  }
-
-  // Markdown
-  if (/^#{1,6}\s/.test(sample) || /^\s*[-*+]\s/.test(sample)) {
-    return "markdown";
-  }
-
-  // Shell
-  if (/^#!/.test(sample) || /\$\(|&&|\|\|/.test(sample)) {
-    return "shell";
   }
 
   return "unknown";
@@ -176,7 +159,7 @@ export function addPaste(content: string, lang?: string): Paste {
     id: pastes.length,
     content,
     lang: lang ?? detectLanguage(content),
-    lines: content.split(/\r?\n|\r/).length,
+    lines: countLines(content),
     chars: content.length,
     time: Date.now(),
   };
@@ -196,7 +179,7 @@ export function getPastes(): readonly Paste[] {
  * Get paste by ID
  */
 export function getPaste(id: number): Paste | undefined {
-  return pastes.find((p) => p.id === id);
+  return getBySequentialId(pastes, id);
 }
 
 // ============================================================================
@@ -213,7 +196,7 @@ export function addAttachment(
   path: string,
   mime: string,
   size: number,
-  base64Data?: string
+  base64Data?: string,
 ): MediaAttachment {
   const attachment: MediaAttachment = {
     id: attachments.length,
@@ -241,7 +224,7 @@ export function getAttachments(): readonly MediaAttachment[] {
  * Get attachment by ID
  */
 export function getAttachment(id: number): MediaAttachment | undefined {
-  return attachments.find((a) => a.id === id);
+  return getBySequentialId(attachments, id);
 }
 
 /**
@@ -268,7 +251,7 @@ export function getMedia(): readonly HlvmMedia[] {
  */
 export function addConversationTurn(
   role: "user" | "assistant",
-  content: string
+  content: string,
 ): ConversationTurn {
   const turn: ConversationTurn = {
     role,

@@ -68,7 +68,7 @@ export function extractDocstrings(source: string): Map<string, string> {
 
     // Check for definition form
     if (pendingDocBlock && trimmed.startsWith('(')) {
-      const names = extractDefinedNames(trimmed, lines, i);
+      const names = extractDefinedNames(trimmed);
 
       if (names.length > 0) {
         for (const name of names) {
@@ -171,7 +171,7 @@ export function isLineComment(trimmedLine: string): boolean {
  * - (let [a 1 b 2] ...)   → ["a", "b"]
  * - (import [a b] from..) → ["a", "b"]
  */
-function extractDefinedNames(line: string, _lines: string[], _lineIndex: number): string[] {
+function extractDefinedNames(line: string): string[] {
   // Match: (keyword name or (keyword [
   const keywordMatch = line.match(/^\((\S+)/);
   if (!keywordMatch) return [];

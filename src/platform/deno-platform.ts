@@ -17,12 +17,12 @@ import type {
   PlatformCommandOptions,
   PlatformCommandOutput,
   PlatformCommandProcess,
-  PlatformHttp,
-  PlatformHttpServeOptions,
   PlatformDirEntry,
   PlatformEnv,
   PlatformFileInfo,
   PlatformFs,
+  PlatformHttp,
+  PlatformHttpServeOptions,
   PlatformMakeTempDirOptions,
   PlatformPath,
   PlatformProcess,
@@ -69,14 +69,64 @@ async function denoExists(filePath: string): Promise<boolean> {
   }
 }
 
+function toPlatformFileInfo(info: Deno.FileInfo): PlatformFileInfo {
+  return {
+    isFile: info.isFile,
+    isDirectory: info.isDirectory,
+    isSymlink: info.isSymlink,
+    size: info.size ?? 0,
+  };
+}
+
+function toPlatformDirEntry(entry: Deno.DirEntry): PlatformDirEntry {
+  return {
+    name: entry.name,
+    isFile: entry.isFile,
+    isDirectory: entry.isDirectory,
+    isSymlink: entry.isSymlink,
+  };
+}
+
+async function* denoReadDir(
+  directoryPath: string,
+): AsyncIterable<PlatformDirEntry> {
+  for await (const entry of Deno.readDir(directoryPath)) {
+    yield toPlatformDirEntry(entry);
+  }
+}
+
+function createDenoCommand(options: PlatformCommandOptions): Deno.Command {
+  return new Deno.Command(options.cmd[0], {
+    args: options.cmd.slice(1),
+    cwd: options.cwd,
+    env: options.env,
+    stdin: options.stdin,
+    stdout: options.stdout,
+    stderr: options.stderr,
+  });
+}
+
+function createOpenUrlCommand(url: string): Deno.Command {
+  switch (Deno.build.os) {
+    case "darwin":
+      return new Deno.Command("open", { args: [url] });
+    case "windows":
+      // 'start' is a cmd.exe builtin, not a standalone executable
+      // Must run via: cmd.exe /c start "" "url"
+      // The empty string "" prevents start from treating the URL as window title
+      return new Deno.Command("cmd.exe", { args: ["/c", "start", "", url] });
+    default:
+      // Linux and other Unix-like systems
+      return new Deno.Command("xdg-open", { args: [url] });
+  }
+}
+
 // =============================================================================
 // Terminal Implementation
 // =============================================================================
 
 const DenoStdin: PlatformStdin = {
-  read: async (buffer: Uint8Array): Promise<number | null> => {
-    return await Deno.stdin.read(buffer);
-  },
+  read: (buffer: Uint8Array): Promise<number | null> => Deno.stdin.read(buffer),
   isTerminal: (): boolean => {
     return Deno.stdin.isTerminal();
   },
@@ -89,9 +139,7 @@ const DenoStdout: PlatformStdout = {
   writeSync: (data: Uint8Array): number => {
     return Deno.stdout.writeSync(data);
   },
-  write: async (data: Uint8Array): Promise<number> => {
-    return await Deno.stdout.write(data);
-  },
+  write: (data: Uint8Array): Promise<number> => Deno.stdout.write(data),
 };
 
 const DenoTerminal: PlatformTerminal = {
@@ -113,114 +161,63 @@ const DenoTerminal: PlatformTerminal = {
 
 const DenoFs: PlatformFs = {
   // Text file operations
-  readTextFile: async (path: string): Promise<string> => {
-    return await Deno.readTextFile(path);
-  },
+  readTextFile: (path: string): Promise<string> => Deno.readTextFile(path),
   readTextFileSync: (path: string): string => {
     return Deno.readTextFileSync(path);
   },
-  writeTextFile: async (
+  writeTextFile: (
     path: string,
     data: string,
     options?: PlatformWriteOptions,
-  ): Promise<void> => {
-    await Deno.writeTextFile(path, data, options);
-  },
-  writeTextFileSync: (path: string, data: string, options?: PlatformWriteOptions): void => {
+  ): Promise<void> => Deno.writeTextFile(path, data, options),
+  writeTextFileSync: (
+    path: string,
+    data: string,
+    options?: PlatformWriteOptions,
+  ): void => {
     Deno.writeTextFileSync(path, data, options);
   },
 
   // Binary file operations
-  readFile: async (path: string): Promise<Uint8Array> => {
-    return await Deno.readFile(path);
-  },
-  writeFile: async (path: string, data: Uint8Array): Promise<void> => {
-    await Deno.writeFile(path, data);
-  },
+  readFile: (path: string): Promise<Uint8Array> => Deno.readFile(path),
+  writeFile: (path: string, data: Uint8Array): Promise<void> =>
+    Deno.writeFile(path, data),
 
   // File info operations
-  stat: async (path: string): Promise<PlatformFileInfo> => {
-    const info = await Deno.stat(path);
-    return {
-      isFile: info.isFile,
-      isDirectory: info.isDirectory,
-      isSymlink: info.isSymlink,
-      size: info.size ?? 0,
-    };
-  },
+  stat: (path: string): Promise<PlatformFileInfo> =>
+    Deno.stat(path).then(toPlatformFileInfo),
   statSync: (path: string): PlatformFileInfo => {
-    const info = Deno.statSync(path);
-    return {
-      isFile: info.isFile,
-      isDirectory: info.isDirectory,
-      isSymlink: info.isSymlink,
-      size: info.size ?? 0,
-    };
+    return toPlatformFileInfo(Deno.statSync(path));
   },
-  lstat: async (path: string): Promise<PlatformFileInfo> => {
-    const info = await Deno.lstat(path); // lstat doesn't follow symlinks
-    return {
-      isFile: info.isFile,
-      isDirectory: info.isDirectory,
-      isSymlink: info.isSymlink,
-      size: info.size ?? 0,
-    };
-  },
+  lstat: (path: string): Promise<PlatformFileInfo> =>
+    Deno.lstat(path).then(toPlatformFileInfo), // lstat doesn't follow symlinks
   lstatSync: (path: string): PlatformFileInfo => {
-    const info = Deno.lstatSync(path); // lstat doesn't follow symlinks
-    return {
-      isFile: info.isFile,
-      isDirectory: info.isDirectory,
-      isSymlink: info.isSymlink,
-      size: info.size ?? 0,
-    };
+    return toPlatformFileInfo(Deno.lstatSync(path)); // lstat doesn't follow symlinks
   },
-  exists: async (path: string): Promise<boolean> => {
-    return await denoExists(path);
-  },
+  exists: (path: string): Promise<boolean> => denoExists(path),
 
   // Directory operations
-  mkdir: async (path: string, opts?: { recursive?: boolean }): Promise<void> => {
-    await Deno.mkdir(path, opts);
-  },
+  mkdir: (path: string, opts?: { recursive?: boolean }): Promise<void> =>
+    Deno.mkdir(path, opts),
   mkdirSync: (path: string, opts?: { recursive?: boolean }): void => {
     Deno.mkdirSync(path, opts);
   },
-  ensureDir: async (path: string): Promise<void> => {
-    await denoEnsureDir(path);
-  },
-  readDir: (path: string): AsyncIterable<PlatformDirEntry> => {
-    return (async function* () {
-      for await (const entry of Deno.readDir(path)) {
-        yield {
-          name: entry.name,
-          isFile: entry.isFile,
-          isDirectory: entry.isDirectory,
-          isSymlink: entry.isSymlink,
-        };
-      }
-    })();
-  },
-  makeTempDir: async (options?: PlatformMakeTempDirOptions): Promise<string> => {
-    return await Deno.makeTempDir(options);
-  },
+  ensureDir: (path: string): Promise<void> => denoEnsureDir(path),
+  readDir: (path: string): AsyncIterable<PlatformDirEntry> => denoReadDir(path),
+  makeTempDir: (options?: PlatformMakeTempDirOptions): Promise<string> =>
+    Deno.makeTempDir(options),
 
   // File manipulation
-  remove: async (path: string, options?: PlatformRemoveOptions): Promise<void> => {
-    await Deno.remove(path, options);
-  },
+  remove: (path: string, options?: PlatformRemoveOptions): Promise<void> =>
+    Deno.remove(path, options),
   removeSync: (path: string, options?: PlatformRemoveOptions): void => {
     Deno.removeSync(path, options);
   },
-  copyFile: async (src: string, dest: string): Promise<void> => {
-    await Deno.copyFile(src, dest);
-  },
-  rename: async (oldPath: string, newPath: string): Promise<void> => {
-    await Deno.rename(oldPath, newPath);
-  },
-  chmod: async (path: string, mode: number): Promise<void> => {
-    await Deno.chmod(path, mode);
-  },
+  copyFile: (src: string, dest: string): Promise<void> =>
+    Deno.copyFile(src, dest),
+  rename: (oldPath: string, newPath: string): Promise<void> =>
+    Deno.rename(oldPath, newPath),
+  chmod: (path: string, mode: number): Promise<void> => Deno.chmod(path, mode),
 };
 
 // =============================================================================
@@ -231,7 +228,8 @@ const DenoPath: PlatformPath = {
   sep: nodePath.sep,
   join: (...segments: string[]): string => nodePath.join(...segments),
   dirname: (path: string): string => nodePath.dirname(path),
-  basename: (path: string, ext?: string): string => nodePath.basename(path, ext),
+  basename: (path: string, ext?: string): string =>
+    nodePath.basename(path, ext),
   extname: (path: string): string => nodePath.extname(path),
   isAbsolute: (path: string): boolean => nodePath.isAbsolute(path),
   resolve: (...segments: string[]): string => nodePath.resolve(...segments),
@@ -271,7 +269,8 @@ const DenoProcess: PlatformProcess = {
 const DenoBuild: PlatformBuild = {
   // Map Deno.build.os to our supported OS types
   // All other OS variants (freebsd, netbsd, aix, solaris, illumos, android) map to linux-like
-  os: (Deno.build.os === "darwin" || Deno.build.os === "linux" || Deno.build.os === "windows")
+  os: (Deno.build.os === "darwin" || Deno.build.os === "linux" ||
+      Deno.build.os === "windows")
     ? Deno.build.os
     : "linux",
 };
@@ -282,15 +281,7 @@ const DenoBuild: PlatformBuild = {
 
 const DenoCommand: PlatformCommand = {
   run: (options: PlatformCommandOptions): PlatformCommandProcess => {
-    const command = new Deno.Command(options.cmd[0], {
-      args: options.cmd.slice(1),
-      cwd: options.cwd,
-      env: options.env,
-      stdin: options.stdin,
-      stdout: options.stdout,
-      stderr: options.stderr,
-    });
-    const process = command.spawn();
+    const process = createDenoCommand(options).spawn();
     return {
       status: process.status.then((status) => ({
         success: status.success,
@@ -306,16 +297,10 @@ const DenoCommand: PlatformCommand = {
       unref: process.unref?.bind(process),
     };
   },
-  output: async (options: PlatformCommandOptions): Promise<PlatformCommandOutput> => {
-    const command = new Deno.Command(options.cmd[0], {
-      args: options.cmd.slice(1),
-      cwd: options.cwd,
-      env: options.env,
-      stdin: options.stdin,
-      stdout: options.stdout,
-      stderr: options.stderr,
-    });
-    const result = await command.output();
+  output: async (
+    options: PlatformCommandOptions,
+  ): Promise<PlatformCommandOutput> => {
+    const result = await createDenoCommand(options).output();
     return {
       code: result.code,
       success: result.success,
@@ -333,16 +318,15 @@ const DenoHttp: PlatformHttp = {
   serve: async (
     handler: (req: Request) => Response | Promise<Response>,
     options: PlatformHttpServeOptions,
-  ): Promise<void> => {
-    await Deno.serve(
+  ): Promise<void> =>
+    Deno.serve(
       {
         port: options.port,
         hostname: options.hostname,
         onListen: options.onListen,
       },
       handler,
-    ).finished;
-  },
+    ).finished,
 };
 
 // =============================================================================
@@ -363,22 +347,7 @@ export const DenoPlatform: Platform = {
   command: DenoCommand,
   http: DenoHttp,
   openUrl: async (url: string): Promise<void> => {
-    const os = Deno.build.os;
-    let command: Deno.Command;
-
-    if (os === "darwin") {
-      command = new Deno.Command("open", { args: [url] });
-    } else if (os === "windows") {
-      // 'start' is a cmd.exe builtin, not a standalone executable
-      // Must run via: cmd.exe /c start "" "url"
-      // The empty string "" prevents start from treating the URL as window title
-      command = new Deno.Command("cmd.exe", { args: ["/c", "start", "", url] });
-    } else {
-      // Linux and other Unix-like systems
-      command = new Deno.Command("xdg-open", { args: [url] });
-    }
-
-    const status = await command.spawn().status;
+    const status = await createOpenUrlCommand(url).spawn().status;
     if (!status.success) {
       throw new Error(`Failed to open URL: ${url} (exit code: ${status.code})`);
     }

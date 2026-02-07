@@ -6,6 +6,7 @@
  */
 
 import { log } from "../../api/log.ts";
+import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { truncate } from "../../../common/utils.ts";
@@ -92,7 +93,7 @@ const DEFAULT_AGENT_PATH_ROOTS = [
 
 export async function askCommand(args: string[]): Promise<void> {
   // Check for help flag
-  if (args.includes("--help") || args.includes("-h")) {
+  if (hasHelpFlag(args)) {
     showAskHelp();
     return;
   }

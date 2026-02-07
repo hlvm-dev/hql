@@ -11,6 +11,7 @@ import React, { useMemo } from "npm:react@18";
 import { Text, Box } from "npm:ink@5";
 import type { CompletionItem, ScrollWindow, ItemRenderSpec } from "./types.ts";
 import { MAX_VISIBLE_ITEMS } from "./types.ts";
+import { calculateScrollWindow } from "./navigation.ts";
 import { HighlightedText } from "../components/HighlightedText.tsx";
 import { useTheme } from "../../theme/index.ts";
 
@@ -146,9 +147,10 @@ const DOC_PANEL_MAX_LINES = 12;
  * Shows multi-line documentation in a bordered box.
  */
 function DocPanel({ doc }: DocPanelProps): React.ReactElement {
-  // Split into lines and limit to max
-  const lines = doc.split("\n").slice(0, DOC_PANEL_MAX_LINES);
-  const hasMore = doc.split("\n").length > DOC_PANEL_MAX_LINES;
+  // Split into lines once and limit to max
+  const allLines = doc.split("\n");
+  const lines = allLines.slice(0, DOC_PANEL_MAX_LINES);
+  const hasMore = allLines.length > DOC_PANEL_MAX_LINES;
 
   return (
     <Box flexDirection="column" marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
@@ -160,35 +162,6 @@ function DocPanel({ doc }: DocPanelProps): React.ReactElement {
       {hasMore && <Text dimColor>...</Text>}
     </Box>
   );
-}
-
-// ============================================================
-// Scroll Calculation (internal)
-// ============================================================
-
-/**
- * Calculate the visible window for virtualization.
- * Keeps the selected item visible by centering it when possible.
- */
-function calculateScrollWindow(
-  selectedIndex: number,
-  itemCount: number,
-  visibleCount: number = MAX_VISIBLE_ITEMS
-): ScrollWindow {
-  if (itemCount <= visibleCount) {
-    return { start: 0, end: itemCount };
-  }
-
-  const halfVisible = Math.floor(visibleCount / 2);
-  let start = Math.max(0, selectedIndex - halfVisible);
-  let end = start + visibleCount;
-
-  if (end > itemCount) {
-    end = itemCount;
-    start = Math.max(0, end - visibleCount);
-  }
-
-  return { start, end };
 }
 
 // ============================================================
@@ -248,8 +221,9 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
     [selectedIndex, items.length, maxVisible]
   );
 
-  const hasMoreAbove = useMemo(() => scrollWindow.start > 0, [scrollWindow.start]);
-  const hasMoreBelow = useMemo(() => scrollWindow.end < items.length, [scrollWindow.end, items.length]);
+  // Trivial comparisons — no need for useMemo
+  const hasMoreAbove = scrollWindow.start > 0;
+  const hasMoreBelow = scrollWindow.end < items.length;
 
   // Get visible items from scroll window
   const visibleItems = items.slice(scrollWindow.start, scrollWindow.end);

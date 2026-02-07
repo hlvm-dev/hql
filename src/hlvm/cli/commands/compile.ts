@@ -7,12 +7,7 @@ import { transpileCLI } from "../../../hql/bundler.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { RuntimeError } from "../../../common/error.ts";
-
-const p = () => getPlatform();
-const platformExit = (code: number) => p().process.exit(code);
-const resolve = (...paths: string[]) => p().path.resolve(...paths);
-const dirname = (path: string) => p().path.dirname(path);
-const basename = (path: string) => p().path.basename(path);
+import { basename, dirname, platformExit, resolve } from "../utils/platform-helpers.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { hasHelpFlag, getPositionalArgs } from "../utils/common-helpers.ts";
 import { parseCliOptions, applyCliOptions } from "../utils/cli-options.ts";

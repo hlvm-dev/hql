@@ -30,6 +30,14 @@ import {
   containsAwaitExpression,
   containsYieldExpression,
 } from "../utils/ir-tree-walker.ts";
+import {
+  createId,
+  createReturn,
+  createExprStmt,
+  createCall,
+  createFnExpr,
+  createVarDecl,
+} from "../utils/ir-helpers.ts";
 
 /**
  * Options for binding transformation
@@ -95,18 +103,10 @@ function transformBinding(
           `${keyword.charAt(0).toUpperCase() + keyword.slice(1)} value`,
         );
 
-        const declarator: IR.IRVariableDeclarator = {
-          type: IR.IRNodeType.VariableDeclarator,
-          id: patternIR,
-          init,
-        };
-        copyPosition(bindingTarget, declarator);
+        const decl = createVarDecl(patternIR, init, kind);
+        copyPosition(bindingTarget, decl.declarations[0]);
 
-        return {
-          type: IR.IRNodeType.VariableDeclaration,
-          kind,
-          declarations: [declarator],
-        } as IR.IRVariableDeclaration;
+        return decl;
       }
     }
 
@@ -127,10 +127,7 @@ function transformBinding(
         );
       }
 
-      const id = {
-        type: IR.IRNodeType.Identifier,
-        name: sanitizeIdentifier(name),
-      } as IR.IRIdentifier;
+      const id = createId(sanitizeIdentifier(name));
 
       const valueNode = list.elements[2];
       let init = validateTransformed(
@@ -144,19 +141,11 @@ function transformBinding(
         init = wrapWithFreeze(init);
       }
 
-      const declarator: IR.IRVariableDeclarator = {
-        type: IR.IRNodeType.VariableDeclarator,
-        id,
-        init,
-        typeAnnotation,
-      };
-      copyPosition(bindingTarget, declarator);
+      const decl = createVarDecl(id, init, kind);
+      decl.declarations[0].typeAnnotation = typeAnnotation;
+      copyPosition(bindingTarget, decl.declarations[0]);
 
-      return {
-        type: IR.IRNodeType.VariableDeclaration,
-        kind,
-        declarations: [declarator],
-      } as IR.IRVariableDeclaration;
+      return decl;
     }
   }
 
@@ -202,18 +191,8 @@ function transformBinding(
           `${keyword.charAt(0).toUpperCase() + keyword.slice(1)} value`,
         );
 
-        const declarator: IR.IRVariableDeclarator = {
-          type: IR.IRNodeType.VariableDeclarator,
-          id: patternIR,
-          init,
-        };
-        copyPosition(nameNode, declarator);
-
-        const variableDecl: IR.IRVariableDeclaration = {
-          type: IR.IRNodeType.VariableDeclaration,
-          kind,
-          declarations: [declarator],
-        };
+        const variableDecl = createVarDecl(patternIR, init, kind);
+        copyPosition(nameNode, variableDecl.declarations[0]);
 
         // If there are body expressions, wrap in IIFE
         if (list.elements.length > 2) {
@@ -223,16 +202,10 @@ function transformBinding(
           const bodyStmts = bodyNodes.map((node, i) => {
             const isLast = i === bodyNodes.length - 1;
             if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-              return {
-                type: IR.IRNodeType.ReturnStatement,
-                argument: node,
-              } as IR.IRReturnStatement;
+              return createReturn(node);
             }
             if (isExpressionResult(node)) {
-              return {
-                type: IR.IRNodeType.ExpressionStatement,
-                expression: node,
-              } as IR.IRExpressionStatement;
+              return createExprStmt(node);
             }
             return node;
           });
@@ -244,18 +217,10 @@ function transformBinding(
           const hasAwaits = containsAwaitExpression(bodyBlock);
           const hasYields = containsYieldExpression(bodyBlock);
 
-          const iife: IR.IRCallExpression = {
-            type: IR.IRNodeType.CallExpression,
-            callee: {
-              type: IR.IRNodeType.FunctionExpression,
-              id: null,
-              params: [],
-              body: bodyBlock,
-              async: hasAwaits,
-              generator: hasYields,
-            } as IR.IRFunctionExpression,
-            arguments: [],
-          };
+          const iife = createCall(
+            createFnExpr([], bodyBlock, { async: hasAwaits, generator: hasYields }),
+            [],
+          );
 
           if (hasYields) {
             return {
@@ -298,24 +263,11 @@ function transformBinding(
       valueExpr = wrapWithFreeze(valueExpr);
     }
 
-    const idNode: IR.IRIdentifier = {
-      type: IR.IRNodeType.Identifier,
-      name: sanitizeIdentifier(name),
-    };
+    const idNode = createId(sanitizeIdentifier(name));
     copyPosition(nameNode, idNode);
 
-    const declarator: IR.IRVariableDeclarator = {
-      type: IR.IRNodeType.VariableDeclarator,
-      id: idNode,
-      init: valueExpr,
-    };
-    copyPosition(nameNode, declarator);
-
-    const variableDecl: IR.IRVariableDeclaration = {
-      type: IR.IRNodeType.VariableDeclaration,
-      kind,
-      declarations: [declarator],
-    };
+    const variableDecl = createVarDecl(idNode, valueExpr, kind);
+    copyPosition(nameNode, variableDecl.declarations[0]);
 
     // If there are body expressions
     if (list.elements.length > 2) {
@@ -325,17 +277,11 @@ function transformBinding(
       const bodyStmts = bodyNodes.map((node, i) => {
         const isLast = i === bodyNodes.length - 1;
         if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-          return {
-            type: IR.IRNodeType.ReturnStatement,
-            argument: node,
-          } as IR.IRReturnStatement;
+          return createReturn(node);
         }
         // Wrap non-last expressions in ExpressionStatement
         if (isExpressionResult(node)) {
-          return {
-            type: IR.IRNodeType.ExpressionStatement,
-            expression: node,
-          } as IR.IRExpressionStatement;
+          return createExprStmt(node);
         }
         return node;
       });
@@ -348,18 +294,10 @@ function transformBinding(
       const hasAwaits = containsAwaitExpression(bodyBlock);
       const hasYields = containsYieldExpression(bodyBlock);
 
-      const iife: IR.IRCallExpression = {
-        type: IR.IRNodeType.CallExpression,
-        callee: {
-          type: IR.IRNodeType.FunctionExpression,
-          id: null,
-          params: [],
-          body: bodyBlock,
-          async: hasAwaits,
-          generator: hasYields,
-        } as IR.IRFunctionExpression,
-        arguments: [],
-      };
+      const iife = createCall(
+        createFnExpr([], bodyBlock, { async: hasAwaits, generator: hasYields }),
+        [],
+      );
 
       // For generator IIFEs, wrap in yield*; for async, wrap in await
       if (hasYields) {
@@ -570,17 +508,7 @@ function processBindings(
 
         const finalValue = kind === "const" ? wrapWithFreeze(valueExpr) : valueExpr;
 
-        const declarator: IR.IRVariableDeclarator = {
-          type: IR.IRNodeType.VariableDeclarator,
-          id: patternIR,
-          init: finalValue,
-        };
-
-        patternDeclarations.push({
-          type: IR.IRNodeType.VariableDeclaration,
-          kind,
-          declarations: [declarator],
-        } as IR.IRVariableDeclaration);
+        patternDeclarations.push(createVarDecl(patternIR, finalValue, kind));
 
         continue;
       }
@@ -628,25 +556,14 @@ function processBindings(
 
   // Create variable declarations for all bindings
   const variableDeclarations: IR.IRNode[] = bindings.map((b) => {
-    const idNode: IR.IRIdentifier = {
-      type: IR.IRNodeType.Identifier,
-      name: sanitizeIdentifier(b.name),
-    };
+    const idNode = createId(sanitizeIdentifier(b.name));
     copyPosition(b.nameNode, idNode);
 
-    const declarator: IR.IRVariableDeclarator = {
-      type: IR.IRNodeType.VariableDeclarator,
-      id: idNode,
-      init: b.value,
-      typeAnnotation: b.typeAnnotation,
-    };
-    copyPosition(b.nameNode, declarator);
+    const decl = createVarDecl(idNode, b.value, kind);
+    decl.declarations[0].typeAnnotation = b.typeAnnotation;
+    copyPosition(b.nameNode, decl.declarations[0]);
 
-    return {
-      type: IR.IRNodeType.VariableDeclaration,
-      kind, // Use appropriate binding type
-      declarations: [declarator],
-    } as IR.IRVariableDeclaration;
+    return decl;
   });
 
   // Process body expressions
@@ -661,17 +578,11 @@ function processBindings(
     const isLast = i === bodyStatements.length - 1;
     // If it's the last statement and not already a return, wrap it in return
     if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-      return {
-        type: IR.IRNodeType.ReturnStatement,
-        argument: node,
-      } as IR.IRReturnStatement;
+      return createReturn(node);
     }
     // Wrap non-last expressions in ExpressionStatement
     if (isExpressionResult(node)) {
-      return {
-        type: IR.IRNodeType.ExpressionStatement,
-        expression: node,
-      } as IR.IRExpressionStatement;
+      return createExprStmt(node);
     }
     return node;
   });
@@ -685,18 +596,10 @@ function processBindings(
   const hasAwaits = containsAwaitExpression(bodyBlock);
   const hasYields = containsYieldExpression(bodyBlock);
 
-  const iife: IR.IRCallExpression = {
-    type: IR.IRNodeType.CallExpression,
-    callee: {
-      type: IR.IRNodeType.FunctionExpression,
-      id: null,
-      params: [],
-      body: bodyBlock,
-      async: hasAwaits,
-      generator: hasYields,
-    } as IR.IRFunctionExpression,
-    arguments: [],
-  };
+  const iife = createCall(
+    createFnExpr([], bodyBlock, { async: hasAwaits, generator: hasYields }),
+    [],
+  );
 
   // For generator IIFEs, wrap in yield*; for async, wrap in await
   if (hasYields) {
@@ -722,12 +625,5 @@ function processBindings(
  * Uses recursive freezing to freeze nested objects/arrays
  */
 function wrapWithFreeze(node: IR.IRNode): IR.IRNode {
-  return {
-    type: IR.IRNodeType.CallExpression,
-    callee: {
-      type: IR.IRNodeType.Identifier,
-      name: DEEP_FREEZE_HELPER,
-    } as IR.IRIdentifier,
-    arguments: [node],
-  } as IR.IRCallExpression;
+  return createCall(createId(DEEP_FREEZE_HELPER), [node]);
 }

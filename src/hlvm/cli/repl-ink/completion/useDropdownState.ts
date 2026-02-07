@@ -24,8 +24,6 @@ import {
 import {
   handleNavigationKey,
   calculateScrollWindow,
-  hasItemsAbove,
-  hasItemsBelow,
   getRelativeIndex,
 } from "./navigation.ts";
 import type { NavigationResult, ScrollWindow } from "./types.ts";
@@ -125,15 +123,9 @@ export function useDropdownState(): UseDropdownStateReturn {
     [state.selectedIndex, state.items.length]
   );
 
-  const hasMoreAbove = useMemo(
-    () => hasItemsAbove(scrollWindow),
-    [scrollWindow]
-  );
-
-  const hasMoreBelow = useMemo(
-    () => hasItemsBelow(scrollWindow, state.items.length),
-    [scrollWindow, state.items.length]
-  );
+  // Trivial comparisons — useMemo overhead exceeds computation cost
+  const hasMoreAbove = scrollWindow.start > 0;
+  const hasMoreBelow = scrollWindow.end < state.items.length;
 
   // ============================================================
   // Actions (stable callbacks)

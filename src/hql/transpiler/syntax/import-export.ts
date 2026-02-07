@@ -2,6 +2,7 @@
 
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import { createId } from "../utils/ir-helpers.ts";
 
 type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 import {
@@ -133,14 +134,8 @@ export function transformSingleExport(
         type: IR.IRNodeType.ExportNamedDeclaration,
         specifiers: [{
           type: IR.IRNodeType.ExportSpecifier,
-          local: {
-            type: IR.IRNodeType.Identifier,
-            name: name,
-          } as IR.IRIdentifier,
-          exported: {
-            type: IR.IRNodeType.Identifier,
-            name: name,
-          } as IR.IRIdentifier,
+          local: createId(name),
+          exported: createId(name),
         } as IR.IRExportSpecifier],
       } as IR.IRExportNamedDeclaration;
     },
@@ -190,17 +185,9 @@ function createImportSpecifier(
     () => {
       return {
         type: IR.IRNodeType.ImportSpecifier,
-        imported: {
-          type: IR.IRNodeType.Identifier,
-          // Sanitize imported name, but preserve "default" for default imports
-          name: imported === "default"
-            ? imported
-            : sanitizeIdentifier(imported),
-        } as IR.IRIdentifier,
-        local: {
-          type: IR.IRNodeType.Identifier,
-          name: sanitizeIdentifier(local),
-        } as IR.IRIdentifier,
+        // Sanitize imported name, but preserve "default" for default imports
+        imported: createId(imported === "default" ? imported : sanitizeIdentifier(imported)),
+        local: createId(sanitizeIdentifier(local)),
       };
     },
     `createImportSpecifier '${imported} as ${local}'`,
@@ -247,10 +234,7 @@ export function transformNamespaceImport(
         source: pathVal,
         specifiers: [{
           type: IR.IRNodeType.ImportNamespaceSpecifier,
-          local: {
-            type: IR.IRNodeType.Identifier,
-            name: sanitizeIdentifier(name),
-          } as IR.IRIdentifier,
+          local: createId(sanitizeIdentifier(name)),
         } as IR.IRImportNamespaceSpecifier],
       } as IR.IRImportDeclaration;
     },
@@ -347,14 +331,8 @@ function createExportSpecifier(
     () => {
       return {
         type: IR.IRNodeType.ExportSpecifier,
-        local: {
-          type: IR.IRNodeType.Identifier,
-          name: sanitizeIdentifier(local),
-        } as IR.IRIdentifier,
-        exported: {
-          type: IR.IRNodeType.Identifier,
-          name: sanitizeIdentifier(exported), // Sanitize exported name too!
-        } as IR.IRIdentifier,
+        local: createId(sanitizeIdentifier(local)),
+        exported: createId(sanitizeIdentifier(exported)),
       };
     },
     `createExportSpecifier '${local} as ${exported}'`,

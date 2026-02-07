@@ -15,6 +15,7 @@
  * - Efficient regex conversion
  */
 
+import { LRUCache } from "./lru-cache.ts";
 import { getErrorMessage } from "./utils.ts";
 
 // ============================================================
@@ -50,8 +51,8 @@ export class GlobPatternError extends Error {
 // Cache (performance, no behavior change)
 // ============================================================
 
-const REGEX_CACHE = new Map<string, RegExp>();
-const MAX_CACHE_ENTRIES = 1000;
+// LRU cache ensures popular patterns stay cached (vs. bare Map that clear()s all at capacity)
+const REGEX_CACHE = new LRUCache<string, RegExp>(1000);
 
 function getCacheKey(pattern: string, options: GlobOptions): string {
   const caseSensitive = options.caseSensitive ?? true;
@@ -163,9 +164,6 @@ export function globToRegex(pattern: string, options: GlobOptions = {}): RegExp 
   const flags = caseSensitive ? "" : "i";
   try {
     const compiled = new RegExp(regex, flags);
-    if (REGEX_CACHE.size >= MAX_CACHE_ENTRIES) {
-      REGEX_CACHE.clear();
-    }
     REGEX_CACHE.set(cacheKey, compiled);
     return compiled;
   } catch (error) {
@@ -232,15 +230,11 @@ export function matchGlob(input: string, pattern: string, options?: GlobOptions)
  */
 export function matchAny(input: string, patterns: Pattern[], options?: GlobOptions): boolean {
   for (const pattern of patterns) {
-    if (typeof pattern === "string") {
-      if (matchGlob(input, pattern, options)) {
-        return true;
-      }
-    } else {
-      // Already a RegExp
-      if (pattern.test(input)) {
-        return true;
-      }
+    const regex = typeof pattern === "string"
+      ? globToRegex(pattern, options)
+      : pattern;
+    if (regex.test(input)) {
+      return true;
     }
   }
   return false;

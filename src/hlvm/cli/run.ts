@@ -11,8 +11,8 @@ import {
   type CliOptions,
   parseCliOptions,
   parseLogNamespaces,
-  parseNonOptionArgs,
 } from "./utils/cli-options.ts";
+import { getPositionalArgs } from "./utils/common-helpers.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
 // Local aliases for frequently used platform functions
@@ -258,7 +258,7 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
       log.raw.log(`Logging restricted to namespaces: ${namespaces.join(", ")}`);
     }
 
-    const positional = parseNonOptionArgs(args);
+    const positional = getPositionalArgs(args);
     if (!positional.length) {
       printHelp();
       return 1;
@@ -307,7 +307,7 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
   }, {
     debug: cliOptions.debug,
     exitOnError: true,
-    currentFile: parseNonOptionArgs(args)[0], // Pass the current file for context
+    currentFile: getPositionalArgs(args)[0], // Pass the current file for context
   });
 }
 

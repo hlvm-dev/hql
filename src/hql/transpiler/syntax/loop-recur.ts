@@ -6,7 +6,16 @@ import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast
 import { HQLError, TransformError, ValidationError } from "../../../common/error.ts";
 import { getErrorMessage, sanitizeIdentifier } from "../../../common/utils.ts";
 import { validateTransformed } from "../utils/validation-helpers.ts";
-import { ensureReturnStatement } from "../utils/ir-helpers.ts";
+import {
+  ensureReturnStatement,
+  createId,
+  createReturn,
+  createNull,
+  createExprStmt,
+  createCall,
+  createFnExpr,
+  createVarDecl,
+} from "../utils/ir-helpers.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
 import { ARITHMETIC_OPS_SET } from "../keyword/primitives.ts";
@@ -142,10 +151,7 @@ export function transformLoop(
         }
 
         const paramName = (nameNode as SymbolNode).name;
-        const param: IR.IRIdentifier = {
-          type: IR.IRNodeType.Identifier,
-          name: sanitizeIdentifier(paramName),
-        };
+        const param = createId(sanitizeIdentifier(paramName));
         copyPosition(nameNode, param);
         params.push(param);
 
@@ -233,10 +239,7 @@ export function transformLoop(
       // Create the loop function declaration
       const loopFunc: IR.IRFunctionDeclaration = {
         type: IR.IRNodeType.FunctionDeclaration,
-        id: {
-          type: IR.IRNodeType.Identifier,
-          name: loopId,
-        },
+        id: createId(loopId),
         params,
         body: bodyBlock,
       };
@@ -249,25 +252,15 @@ export function transformLoop(
 
       for (let i = 0; i < initialValues.length; i++) {
         const initParamName = `__init_${i}`;
-        iifeParams.push({
-          type: IR.IRNodeType.Identifier,
-          name: initParamName,
-        } as IR.IRIdentifier);
+        iifeParams.push(createId(initParamName));
         iifeCallArgs.push(initialValues[i]);
       }
 
       // Create initial function call using IIFE params (which capture outer scope values)
-      const initialCall: IR.IRCallExpression = {
-        type: IR.IRNodeType.CallExpression,
-        callee: {
-          type: IR.IRNodeType.Identifier,
-          name: loopId,
-        },
-        arguments: iifeParams.map(p => ({
-          type: IR.IRNodeType.Identifier,
-          name: p.name,
-        } as IR.IRIdentifier)),
-      };
+      const initialCall = createCall(
+        createId(loopId),
+        iifeParams.map(p => createId(p.name)),
+      );
 
       // Check if loop body contains await/yield for async/generator IIFE
       const hasAwaits = containsAwaitExpression(bodyBlock);
@@ -277,25 +270,14 @@ export function transformLoop(
         type: IR.IRNodeType.BlockStatement,
         body: [
           loopFunc,
-          {
-            type: IR.IRNodeType.ReturnStatement,
-            argument: initialCall,
-          } as IR.IRReturnStatement,
+          createReturn(initialCall),
         ],
       };
 
-      const iife: IR.IRCallExpression = {
-        type: IR.IRNodeType.CallExpression,
-        callee: {
-          type: IR.IRNodeType.FunctionExpression,
-          id: null,
-          params: iifeParams,
-          body: iifeBody,
-          async: hasAwaits,
-          generator: hasYields,
-        } as IR.IRFunctionExpression,
-        arguments: iifeCallArgs,
-      };
+      const iife = createCall(
+        createFnExpr(iifeParams, iifeBody, { async: hasAwaits, generator: hasYields }),
+        iifeCallArgs,
+      );
 
       // For generator IIFEs, wrap the call in yield*
       // For async IIFEs, wrap the call in await
@@ -627,26 +609,20 @@ function tryOptimizeArithmetic(
   ) {
     if (operator === "+" && (isLeftParam || isRightParam)) {
       // i++ (post-increment)
-      return {
-        type: IR.IRNodeType.ExpressionStatement,
-        expression: {
-          type: IR.IRNodeType.UnaryExpression,
-          operator: "++",
-          argument: param,
-          prefix: false, // post-increment
-        } as IR.IRUnaryExpression,
-      } as IR.IRExpressionStatement;
+      return createExprStmt({
+        type: IR.IRNodeType.UnaryExpression,
+        operator: "++",
+        argument: param,
+        prefix: false, // post-increment
+      } as IR.IRUnaryExpression);
     } else if (operator === "-" && isLeftParam) {
       // i-- (post-decrement)
-      return {
-        type: IR.IRNodeType.ExpressionStatement,
-        expression: {
-          type: IR.IRNodeType.UnaryExpression,
-          operator: "--",
-          argument: param,
-          prefix: false, // post-decrement
-        } as IR.IRUnaryExpression,
-      } as IR.IRExpressionStatement;
+      return createExprStmt({
+        type: IR.IRNodeType.UnaryExpression,
+        operator: "--",
+        argument: param,
+        prefix: false, // post-decrement
+      } as IR.IRUnaryExpression);
     }
   }
 
@@ -671,15 +647,12 @@ function tryOptimizeArithmetic(
   // Map operator to compound assignment
   const compoundOp = operator + "="; // +=, -=, *=, /=
 
-  return {
-    type: IR.IRNodeType.ExpressionStatement,
-    expression: {
-      type: IR.IRNodeType.AssignmentExpression,
-      operator: compoundOp,
-      left: param,
-      right: transformedOther,
-    } as IR.IRAssignmentExpression,
-  } as IR.IRExpressionStatement;
+  return createExprStmt({
+    type: IR.IRNodeType.AssignmentExpression,
+    operator: compoundOp,
+    left: param,
+    right: transformedOther,
+  } as IR.IRAssignmentExpression);
 }
 
 /**
@@ -730,7 +703,7 @@ function transformSimpleLoop(
   );
 
   // If recur is in alternate (else branch), negate the condition
-  // Pattern: (if done? result (recur ...)) → while(!done?) { recur... }; return result
+  // Pattern: (if done? result (recur ...)) -> while(!done?) { recur... }; return result
   if (recurInAlternate && !recurInConsequent) {
     test = {
       type: IR.IRNodeType.UnaryExpression,
@@ -816,10 +789,7 @@ function transformSimpleLoop(
           transformed.type !== IR.IRNodeType.IfStatement &&
           transformed.type !== IR.IRNodeType.WhileStatement
         ) {
-          whileBodyStatements.push({
-            type: IR.IRNodeType.ExpressionStatement,
-            expression: transformed,
-          } as IR.IRExpressionStatement);
+          whileBodyStatements.push(createExprStmt(transformed));
         } else {
           whileBodyStatements.push(transformed);
         }
@@ -829,7 +799,7 @@ function transformSimpleLoop(
 
   // Compute new values and assign
   // OPTIMIZATION: Detect simple arithmetic patterns and generate compound assignments
-  // Examples: (+ i 1) → i++, (+ i n) → i += n, (- i 1) → i--
+  // Examples: (+ i 1) -> i++, (+ i n) -> i += n, (- i 1) -> i--
   //
   // CRITICAL: To preserve semantics, all updates must use OLD values.
   // Strategy: Collect optimized updates separately, add them AFTER temp var assignments.
@@ -868,37 +838,23 @@ function transformSimpleLoop(
         );
 
         const tempName = `__hql_temp_${param.name}`;
-        const tempId: IR.IRIdentifier = {
-          type: IR.IRNodeType.Identifier,
-          name: tempName,
-        };
+        const tempId = createId(tempName);
         tempVars.push(tempId);
 
         // const temp_param = newValue (computed with OLD values)
-        whileBodyStatements.push({
-          type: IR.IRNodeType.VariableDeclaration,
-          declarations: [{
-            type: IR.IRNodeType.VariableDeclarator,
-            id: tempId,
-            init: newValue,
-          }],
-          kind: "const",
-        } as IR.IRVariableDeclaration);
+        whileBodyStatements.push(createVarDecl(tempId, newValue));
       }
     }
 
     // Second pass: assign temp vars back (if any)
     for (let i = 0; i < params.length; i++) {
       if (tempVars[i] !== null) {
-        whileBodyStatements.push({
-          type: IR.IRNodeType.ExpressionStatement,
-          expression: {
-            type: IR.IRNodeType.AssignmentExpression,
-            operator: "=",
-            left: params[i],
-            right: tempVars[i],
-          } as IR.IRAssignmentExpression,
-        } as IR.IRExpressionStatement);
+        whileBodyStatements.push(createExprStmt({
+          type: IR.IRNodeType.AssignmentExpression,
+          operator: "=",
+          left: params[i],
+          right: tempVars[i],
+        } as IR.IRAssignmentExpression));
       }
     }
 
@@ -933,7 +889,7 @@ function transformSimpleLoop(
       "loop return value",
       "Loop return value",
     )
-    : { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
+    : createNull();
 
   // Build IIFE:
   // ((__init_0, __init_1) => {
@@ -951,10 +907,7 @@ function transformSimpleLoop(
 
   for (let i = 0; i < initialValues.length; i++) {
     const initParamName = `__init_${i}`;
-    iifeParams.push({
-      type: IR.IRNodeType.Identifier,
-      name: initParamName,
-    } as IR.IRIdentifier);
+    iifeParams.push(createId(initParamName));
     iifeCallArgs.push(initialValues[i]);
   }
 
@@ -962,28 +915,14 @@ function transformSimpleLoop(
 
   // Add variable declarations using IIFE params (not original initial values)
   for (let i = 0; i < params.length; i++) {
-    iifeBody.push({
-      type: IR.IRNodeType.VariableDeclaration,
-      declarations: [{
-        type: IR.IRNodeType.VariableDeclarator,
-        id: params[i],
-        init: {
-          type: IR.IRNodeType.Identifier,
-          name: iifeParams[i].name,
-        } as IR.IRIdentifier,
-      }],
-      kind: "let",
-    } as IR.IRVariableDeclaration);
+    iifeBody.push(createVarDecl(params[i], createId(iifeParams[i].name), "let"));
   }
 
   // Add while statement
   iifeBody.push(whileStmt);
 
   // Add return statement
-  iifeBody.push({
-    type: IR.IRNodeType.ReturnStatement,
-    argument: returnValue,
-  } as IR.IRReturnStatement);
+  iifeBody.push(createReturn(returnValue));
 
   // Check if loop body contains await/yield for async/generator IIFE
   const iifeBlockBody: IR.IRBlockStatement = {
@@ -994,18 +933,10 @@ function transformSimpleLoop(
   const hasYields = containsYieldExpression(iifeBlockBody);
 
   // Create IIFE with parameters
-  const iife: IR.IRCallExpression = {
-    type: IR.IRNodeType.CallExpression,
-    callee: {
-      type: IR.IRNodeType.FunctionExpression,
-      id: null,
-      params: iifeParams,
-      body: iifeBlockBody,
-      async: hasAwaits,
-      generator: hasYields,
-    } as IR.IRFunctionExpression,
-    arguments: iifeCallArgs,
-  };
+  const iife = createCall(
+    createFnExpr(iifeParams, iifeBlockBody, { async: hasAwaits, generator: hasYields }),
+    iifeCallArgs,
+  );
 
   // For generator IIFEs, wrap the call in yield*
   // For async IIFEs, wrap the call in await
@@ -1068,21 +999,11 @@ export function transformRecur(
     }
 
     // Create a direct function call to the loop function
-    const loopCall: IR.IRCallExpression = {
-      type: IR.IRNodeType.CallExpression,
-      callee: {
-        type: IR.IRNodeType.Identifier,
-        name: loopId,
-      } as IR.IRIdentifier,
-      arguments: args,
-    };
+    const loopCall = createCall(createId(loopId), args);
 
     // Return a return statement with the loop call
     // This is essential for proper tail call optimization
-    return {
-      type: IR.IRNodeType.ReturnStatement,
-      argument: loopCall,
-    } as IR.IRReturnStatement;
+    return createReturn(loopCall);
   } catch (error) {
     // Preserve HQLError instances (ValidationError, ParseError, etc.)
     if (error instanceof HQLError) {
@@ -1189,10 +1110,7 @@ function transformLoopBody(
       // Otherwise wrap in return
       return {
         type: IR.IRNodeType.BlockStatement,
-        body: [{
-          type: IR.IRNodeType.ReturnStatement,
-          argument: transformedExpr,
-        } as IR.IRReturnStatement],
+        body: [createReturn(transformedExpr)],
       };
     }
   }
@@ -1230,10 +1148,7 @@ function transformLoopBody(
           bodyNodes.push(transformedExpr);
         } else {
           // Otherwise wrap in return
-          bodyNodes.push({
-            type: IR.IRNodeType.ReturnStatement,
-            argument: transformedExpr,
-          } as IR.IRReturnStatement);
+          bodyNodes.push(createReturn(transformedExpr));
         }
       }
     }
@@ -1424,10 +1339,7 @@ export function transformForOf(
           transformed.type !== IR.IRNodeType.ContinueStatement &&
           transformed.type !== IR.IRNodeType.BreakStatement
         ) {
-          bodyStatements.push({
-            type: IR.IRNodeType.ExpressionStatement,
-            expression: transformed,
-          } as IR.IRExpressionStatement);
+          bodyStatements.push(createExprStmt(transformed));
         } else {
           bodyStatements.push(transformed);
         }
@@ -1437,18 +1349,7 @@ export function transformForOf(
     // Create the for-of statement
     const forOfNode: IR.IRForOfStatement = {
       type: IR.IRNodeType.ForOfStatement,
-      left: {
-        type: IR.IRNodeType.VariableDeclaration,
-        kind: "const",
-        declarations: [{
-          type: IR.IRNodeType.VariableDeclarator,
-          id: {
-            type: IR.IRNodeType.Identifier,
-            name: varName,
-          } as IR.IRIdentifier,
-          init: null,
-        } as IR.IRVariableDeclarator],
-      } as IR.IRVariableDeclaration,
+      left: createVarDecl(varName, null),
       right: collection,
       body: {
         type: IR.IRNodeType.BlockStatement,
@@ -1501,10 +1402,7 @@ export function transformForOf(
       type: IR.IRNodeType.BlockStatement,
       body: [
         forOfNode,
-        {
-          type: IR.IRNodeType.ReturnStatement,
-          argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-        } as IR.IRReturnStatement,
+        createReturn(createNull()),
       ],
     };
 
@@ -1512,18 +1410,10 @@ export function transformForOf(
     const hasAwaits = isAwait || containsAwaitExpression(forOfNode.body);
     const hasYields = containsYieldExpression(forOfNode.body);
 
-    const iife: IR.IRCallExpression = {
-      type: IR.IRNodeType.CallExpression,
-      callee: {
-        type: IR.IRNodeType.FunctionExpression,
-        id: null,
-        params: [],
-        body: iifeBody,
-        async: hasAwaits,
-        generator: hasYields,
-      } as IR.IRFunctionExpression,
-      arguments: [],
-    };
+    const iife = createCall(
+      createFnExpr([], iifeBody, { async: hasAwaits, generator: hasYields }),
+      [],
+    );
     copyPosition(list, iife);
 
     // For generator IIFEs, wrap the call in yield*
@@ -1733,28 +1623,17 @@ export function transformLabel(
       // This is needed because when `break label` is used, control jumps
       // past the labeled block to here. If the body also ends with a return,
       // that handles normal completion, but we still need this one for breaks.
-      iifeBodyStatements.push({
-        type: IR.IRNodeType.ReturnStatement,
-        argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-      } as IR.IRReturnStatement);
+      iifeBodyStatements.push(createReturn(createNull()));
 
       const iifeBody: IR.IRBlockStatement = {
         type: IR.IRNodeType.BlockStatement,
         body: iifeBodyStatements,
       };
 
-      const iife: IR.IRCallExpression = {
-        type: IR.IRNodeType.CallExpression,
-        callee: {
-          type: IR.IRNodeType.FunctionExpression,
-          id: null,
-          params: [],
-          body: iifeBody,
-          async: isBodyAsync,
-          generator: isBodyGenerator,
-        } as IR.IRFunctionExpression,
-        arguments: [],
-      };
+      const iife = createCall(
+        createFnExpr([], iifeBody, { async: isBodyAsync, generator: isBodyGenerator }),
+        [],
+      );
       copyPosition(list, iife);
 
       // For generator IIFEs, wrap in yield*; for async, wrap in await

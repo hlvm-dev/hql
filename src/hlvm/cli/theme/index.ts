@@ -33,12 +33,17 @@ export {
  * Convert hex color to ANSI 24-bit escape code
  * @internal Used by getThemedAnsi
  */
+const hexCache = new Map<string, string>();
 function hexToAnsi(hex: string): string {
+  const cached = hexCache.get(hex);
+  if (cached) return cached;
   const cleanHex = hex.replace("#", "");
   const r = parseInt(cleanHex.slice(0, 2), 16);
   const g = parseInt(cleanHex.slice(2, 4), 16);
   const b = parseInt(cleanHex.slice(4, 6), 16);
-  return `\x1b[38;2;${r};${g};${b}m`;
+  const result = `\x1b[38;2;${r};${g};${b}m`;
+  hexCache.set(hex, result);
+  return result;
 }
 
 const ANSI_RESET = "\x1b[0m";

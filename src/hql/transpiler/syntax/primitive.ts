@@ -17,14 +17,13 @@ import {
   PRIMITIVE_OPS,
   JS_LITERAL_KEYWORDS_SET,
 } from "../keyword/primitives.ts";
+import { createId, createCall, createNum, createMember } from "../utils/ir-helpers.ts";
+import { NUMERIC_PATTERN } from "../constants/index.ts";
 
 /** Compound assignment operators - cached Set for O(1) lookup */
 const COMPOUND_ASSIGN_OPS_SET: ReadonlySet<string> = new Set([
   "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>=", ">>>="
 ]);
-
-/** Pre-compiled regex for numeric index detection (array.0, tuple.1, etc.) */
-const NUMERIC_INDEX_REGEX = /^\d+$/;
 
 /**
  * Transform primitive operations (+, -, *, /, etc.).
@@ -93,11 +92,7 @@ export function transformPrimitiveOp(
         return transformTypeOp(op, args);
       }
 
-      return {
-        type: IR.IRNodeType.CallExpression,
-        callee: { type: IR.IRNodeType.Identifier, name: op } as IR.IRIdentifier,
-        arguments: args,
-      } as IR.IRCallExpression;
+      return createCall(createId(op), args);
     },
     "transformPrimitiveOp",
     TransformError,
@@ -137,10 +132,7 @@ export function transformArithmeticOp(
           type: IR.IRNodeType.BinaryExpression,
           operator: op,
           left: args[0],
-          right: {
-            type: IR.IRNodeType.NumericLiteral,
-            value: defaultValue,
-          } as IR.IRNumericLiteral,
+          right: createNum(defaultValue),
         } as IR.IRBinaryExpression;
       }
 
@@ -291,13 +283,7 @@ export function transformTypeOp(
         // Convert InteropIIFE (safe property access) to MemberExpression for delete
         if (op === "delete" && argument.type === IR.IRNodeType.InteropIIFE) {
           const interopNode = argument as IR.IRInteropIIFE;
-          const memberExpr: IR.IRMemberExpression = {
-            type: IR.IRNodeType.MemberExpression,
-            object: interopNode.object,
-            property: interopNode.property,
-            computed: true, // obj["x"] format
-          };
-          argument = memberExpr;
+          argument = createMember(interopNode.object, interopNode.property, true);
         }
 
         return {
@@ -524,54 +510,29 @@ export function transformAssignment(
           const sanitizedBase = baseObjectName === "self" ? "this" : sanitizeIdentifier(baseObjectName);
 
           // Helper to create member expression based on property type
-          const createMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
+          const buildMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
              // Check for numeric index (e.g. array.0 or tuple.1)
              // Uses pre-compiled module-level regex for performance
-             if (NUMERIC_INDEX_REGEX.test(propStr)) {
-                 return {
-                    type: IR.IRNodeType.MemberExpression,
-                    object,
-                    property: {
-                        type: IR.IRNodeType.NumericLiteral,
-                        value: parseInt(propStr, 10)
-                    } as IR.IRNumericLiteral,
-                    computed: true
-                 };
+             if (NUMERIC_PATTERN.test(propStr)) {
+                 return createMember(object, createNum(parseInt(propStr, 10)), true);
              }
-             
+
              // Standard identifier property
              // We sanitize the property name to handle HQL identifiers (e.g. "my-prop" -> "my_prop")
-             return {
-                 type: IR.IRNodeType.MemberExpression,
-                 object,
-                 property: {
-                     type: IR.IRNodeType.Identifier,
-                     name: sanitizeIdentifier(propStr)
-                 } as IR.IRIdentifier,
-                 computed: false
-             };
+             return createMember(object, createId(sanitizeIdentifier(propStr)));
           };
 
-          let memberExpr = createMember(
-              { 
-                type: IR.IRNodeType.Identifier, 
-                name: sanitizedBase 
-              } as IR.IRIdentifier,
-              parts[1]
-          );
+          let memberExpr = buildMember(createId(sanitizedBase), parts[1]);
 
           // Handle nested properties like obj.a.b.c
           for (let i = 2; i < parts.length; i++) {
-            memberExpr = createMember(memberExpr, parts[i]);
+            memberExpr = buildMember(memberExpr, parts[i]);
           }
 
           target = memberExpr;
         } else {
           // Simple variable assignment: (= x 10)
-          target = {
-            type: IR.IRNodeType.Identifier,
-            name: sanitizeIdentifier(symbolName),
-          } as IR.IRIdentifier;
+          target = createId(sanitizeIdentifier(symbolName));
         }
       } else if (targetNode.type === "list") {
         // Could be a member expression like (. this x) or transformed member expression
@@ -656,48 +617,26 @@ export function transformLogicalAssignment(
           const sanitizedBase = sanitizeIdentifier(parts[0]);
 
           // Helper to create member expression based on property type
-          const createMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
+          const buildMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
             // Check for numeric index (e.g. array.0 or tuple.1)
             // Uses pre-compiled module-level regex for performance
-            if (NUMERIC_INDEX_REGEX.test(propStr)) {
-              return {
-                type: IR.IRNodeType.MemberExpression,
-                object,
-                property: {
-                  type: IR.IRNodeType.NumericLiteral,
-                  value: parseInt(propStr, 10)
-                } as IR.IRNumericLiteral,
-                computed: true
-              };
+            if (NUMERIC_PATTERN.test(propStr)) {
+              return createMember(object, createNum(parseInt(propStr, 10)), true);
             }
             // Standard identifier property
-            return {
-              type: IR.IRNodeType.MemberExpression,
-              object,
-              property: {
-                type: IR.IRNodeType.Identifier,
-                name: sanitizeIdentifier(propStr)
-              } as IR.IRIdentifier,
-              computed: false
-            };
+            return createMember(object, createId(sanitizeIdentifier(propStr)));
           };
 
-          let memberExpr = createMember(
-            { type: IR.IRNodeType.Identifier, name: sanitizedBase } as IR.IRIdentifier,
-            parts[1]
-          );
+          let memberExpr = buildMember(createId(sanitizedBase), parts[1]);
 
           // Handle nested properties like obj.a.b.c
           for (let i = 2; i < parts.length; i++) {
-            memberExpr = createMember(memberExpr, parts[i]);
+            memberExpr = buildMember(memberExpr, parts[i]);
           }
 
           target = memberExpr;
         } else {
-          target = {
-            type: IR.IRNodeType.Identifier,
-            name: sanitizeIdentifier(symbolName),
-          } as IR.IRIdentifier;
+          target = createId(sanitizeIdentifier(symbolName));
         }
       } else if (targetNode.type === "list") {
         // Handle (. obj prop) or other member access patterns
@@ -782,48 +721,26 @@ export function transformCompoundAssignment(
           const sanitizedBase = sanitizeIdentifier(parts[0]);
 
           // Helper to create member expression based on property type
-          const createMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
+          const buildMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
             // Check for numeric index (e.g. array.0 or tuple.1)
             // Uses pre-compiled module-level regex for performance
-            if (NUMERIC_INDEX_REGEX.test(propStr)) {
-              return {
-                type: IR.IRNodeType.MemberExpression,
-                object,
-                property: {
-                  type: IR.IRNodeType.NumericLiteral,
-                  value: parseInt(propStr, 10)
-                } as IR.IRNumericLiteral,
-                computed: true
-              };
+            if (NUMERIC_PATTERN.test(propStr)) {
+              return createMember(object, createNum(parseInt(propStr, 10)), true);
             }
             // Standard identifier property
-            return {
-              type: IR.IRNodeType.MemberExpression,
-              object,
-              property: {
-                type: IR.IRNodeType.Identifier,
-                name: sanitizeIdentifier(propStr)
-              } as IR.IRIdentifier,
-              computed: false
-            };
+            return createMember(object, createId(sanitizeIdentifier(propStr)));
           };
 
-          let memberExpr = createMember(
-            { type: IR.IRNodeType.Identifier, name: sanitizedBase } as IR.IRIdentifier,
-            parts[1]
-          );
+          let memberExpr = buildMember(createId(sanitizedBase), parts[1]);
 
           // Handle nested properties like obj.a.b.c
           for (let i = 2; i < parts.length; i++) {
-            memberExpr = createMember(memberExpr, parts[i]);
+            memberExpr = buildMember(memberExpr, parts[i]);
           }
 
           target = memberExpr;
         } else {
-          target = {
-            type: IR.IRNodeType.Identifier,
-            name: sanitizeIdentifier(symbolName),
-          } as IR.IRIdentifier;
+          target = createId(sanitizeIdentifier(symbolName));
         }
       } else if (targetNode.type === "list") {
         // Handle (. obj prop) or other member access patterns

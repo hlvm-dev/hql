@@ -9,6 +9,7 @@ import { VERSION } from "../../../version.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { http } from "../../../common/http-client.ts";
 import { log } from "../../api/log.ts";
+import { compareVersions } from "../publish/utils.ts";
 
 const GITHUB_API = "https://api.github.com/repos/hlvm-dev/hlvm/releases/latest";
 const CACHE_FILE = ".update-check";
@@ -95,20 +96,6 @@ export async function checkForUpdates(): Promise<void> {
  */
 export function isNewer(latest: string, current: string): boolean {
   return compareVersions(latest, current) > 0;
-}
-
-/**
- * Compare two semver strings.
- * Returns -1 if a < b, 0 if a == b, 1 if a > b.
- */
-function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
-  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
-    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
-  }
-  return 0;
 }
 
 /**

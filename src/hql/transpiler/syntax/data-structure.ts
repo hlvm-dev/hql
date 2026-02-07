@@ -22,6 +22,7 @@ import {
   type NormalizeVectorOptions,
 } from "../../../common/sexp-utils.ts";
 import { HASH_MAP_INTERNAL } from "../../../common/runtime-helper-impl.ts";
+import { createArr, createCall, createId } from "../utils/ir-helpers.ts";
 
 // Export the get function to make it available through the module
 export { createGetOperation, transformGet };
@@ -72,10 +73,9 @@ export function transformVector(
       }
 
       return {
-        type: IR.IRNodeType.ArrayExpression,
-        elements,
+        ...createArr(elements),
         position: extractPosition(list),
-      } as IR.IRArrayExpression;
+      };
     },
     "transformVector",
     TransformError,
@@ -112,15 +112,9 @@ export function transformHashMap(
         );
 
         return {
-          type: IR.IRNodeType.CallExpression,
-          callee: {
-            type: IR.IRNodeType.Identifier,
-            name: HASH_MAP_INTERNAL,
-            isJS: false,
-          } as IR.IRIdentifier,
-          arguments: transformedArgs,
+          ...createCall(createId(HASH_MAP_INTERNAL), transformedArgs),
           position: extractPosition(list),
-        } as IR.IRCallExpression;
+        };
       }
 
       // With spread operators, generate an ObjectExpression
@@ -193,10 +187,7 @@ export function transformHashMap(
 export function transformEmptyList(): IR.IRArrayExpression {
   return perform(
     () => {
-      return {
-        type: IR.IRNodeType.ArrayExpression,
-        elements: [],
-      } as IR.IRArrayExpression;
+      return createArr([]);
     },
     "transformEmptyList",
     TransformError,
@@ -223,15 +214,9 @@ export function transformHashSet(
 
       return {
         type: IR.IRNodeType.NewExpression,
-        callee: {
-          type: IR.IRNodeType.Identifier,
-          name: "Set",
-        } as IR.IRIdentifier,
+        callee: createId("Set"),
         arguments: [
-          {
-            type: IR.IRNodeType.ArrayExpression,
-            elements,
-          } as IR.IRArrayExpression,
+          createArr(elements),
         ],
       } as IR.IRNewExpression;
     },

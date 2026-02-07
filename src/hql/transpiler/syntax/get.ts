@@ -9,6 +9,7 @@ import {
   validateListLengthRange,
 } from "../utils/validation-helpers.ts";
 import { GET_HELPER } from "../../../common/runtime-helper-impl.ts";
+import { createCall, createId } from "../utils/ir-helpers.ts";
 
 /**
  * Transform collection 'get' operation to IR.
@@ -60,14 +61,7 @@ export function createGetOperation(
   const args = defaultValue
     ? [collection, key, defaultValue]
     : [collection, key];
-  return {
-    type: IR.IRNodeType.CallExpression,
-    callee: {
-      type: IR.IRNodeType.Identifier,
-      name: GET_HELPER,
-    } as IR.IRIdentifier,
-    arguments: args,
-  } as IR.IRCallExpression;
+  return createCall(createId(GET_HELPER), args);
 }
 
 /**

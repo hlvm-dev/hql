@@ -178,15 +178,24 @@ export async function getRuntimeCacheDir(): Promise<string> {
   return runtimeDir;
 }
 
+// Pre-computed hex lookup table — avoids per-byte toString(16).padStart(2, "0")
+const HEX_TABLE: string[] = Array.from({ length: 256 }, (_, i) =>
+  i.toString(16).padStart(2, "0")
+);
+const textEncoder = new TextEncoder();
+
 /**
  * Calculate hash for content
  */
 async function calculateHash(content: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(content);
+  const data = textEncoder.encode(content);
   const hashBuffer = await crypto.subtle.digest("SHA-1", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  const bytes = new Uint8Array(hashBuffer);
+  let hex = "";
+  for (let i = 0; i < bytes.length; i++) {
+    hex += HEX_TABLE[bytes[i]];
+  }
+  return hex;
 }
 
 /**
@@ -457,16 +466,6 @@ async function joinAndEnsureDirExists(...parts: string[]): Promise<string> {
   return result;
 }
 
-/**
- * Process source file content to fix imports
- * This rewrites relative imports to use absolute paths
- */
-async function processCacheFileContent(
-  content: string,
-  sourcePath: string,
-): Promise<string> {
-  return await processCachedImports(content, sourcePath);
-}
 
 /**
  * Recursively copy a directory and all its contents
@@ -609,7 +608,7 @@ export async function writeToCachedPath(
   const usePreserveRelative = forcePreserveRelative || options.preserveRelative;
 
   // Process content if needed
-  const processedContent = await processCacheFileContent(content, sourcePath);
+  const processedContent = await processCachedImports(content, sourcePath);
 
   // Get cached path with potentially forced preserveRelative option
   const outputPath = await getCachedPath(sourcePath, targetExt, {
@@ -662,7 +661,7 @@ export async function processJavaScriptFile(filePath: string): Promise<void> {
         const content = await fs().readTextFile(filePath);
         // For circular dependencies, we need to at least process the imports
         // to avoid import errors, even if we can't fully process nested dependencies
-        const processedContent = await processCacheFileContent(
+        const processedContent = await processCachedImports(
           content,
           filePath,
         );
@@ -1061,10 +1060,7 @@ async function processNestedImports(
     const importPath = match[1];
 
     // Skip absolute imports
-    if (
-      importPath.startsWith("file://") || importPath.startsWith("http") ||
-      importPath.startsWith("npm:") || importPath.startsWith("jsr:")
-    ) {
+    if (isAbsoluteImportPath(importPath)) {
       continue;
     }
 

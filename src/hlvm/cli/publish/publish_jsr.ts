@@ -1,12 +1,10 @@
-import { getPlatform } from "../../../platform/platform.ts";
 import { RuntimeError } from "../../../common/error.ts";
-
-const p = () => getPlatform();
-const platformCwd = () => p().process.cwd();
-const exists = (path: string) => p().fs.exists(path);
-const join = (...paths: string[]) => p().path.join(...paths);
-const platformMkdir = (path: string) => p().fs.mkdir(path);
-const platformWriteTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
+import {
+  exists,
+  join,
+  platformCwd,
+  writeTextFile as platformWriteTextFile,
+} from "../utils/platform-helpers.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
@@ -63,9 +61,6 @@ export async function publishJSR(
       throw new RuntimeError(`Entry file not found: ${entryFile}`);
     }
 
-    const buildDir = join(platformCwd(), "dist_jsr");
-    await platformMkdir(buildDir, { recursive: true });
-
     // 3. Run deno publish
     const publishCmd = ["deno", "publish"];
     
@@ -83,7 +78,7 @@ export async function publishJSR(
       cmd: publishCmd,
       cwd: platformCwd(),
       dryRun: options.dryRun,
-      verbose: true, // Always show output for publish
+      verbose: options.verbose !== false,
     });
 
     if (!result.success) {

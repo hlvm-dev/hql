@@ -18,6 +18,12 @@ import {
 import {
   resolveMemberProperty,
 } from "../utils/member-expression.ts";
+import {
+  createCall,
+  createId,
+  createMember,
+  createStr,
+} from "../utils/ir-helpers.ts";
 
 /**
  * Transform arguments, handling spread operators.
@@ -167,17 +173,8 @@ export function transformJsGet(
 
       const literalProperty = getLiteralString(list.elements[2]);
       if (literalProperty !== null) {
-        const literalNode = {
-          type: IR.IRNodeType.StringLiteral,
-          value: literalProperty,
-        } as IR.IRStringLiteral;
-        const { property, computed } = resolveMemberProperty(literalNode, true);
-        return {
-          type: IR.IRNodeType.MemberExpression,
-          object,
-          property,
-          computed,
-        } as IR.IRMemberExpression;
+        const { property, computed } = resolveMemberProperty(createStr(literalProperty), true);
+        return createMember(object, property, computed);
       }
 
       const propExpr = validateTransformed(
@@ -186,12 +183,7 @@ export function transformJsGet(
         "Property",
       );
       const { property, computed } = resolveMemberProperty(propExpr);
-      return {
-        type: IR.IRNodeType.MemberExpression,
-        object,
-        property,
-        computed,
-      } as IR.IRMemberExpression;
+      return createMember(object, property, computed);
     },
     "transformJsGet",
     TransformError,
@@ -239,21 +231,8 @@ export function transformJsCall(
           transformNode,
         );
 
-        const literalNode = {
-          type: IR.IRNodeType.StringLiteral,
-          value: literalMethod,
-        } as IR.IRStringLiteral;
-        const { property, computed } = resolveMemberProperty(literalNode, true);
-        return {
-          type: IR.IRNodeType.CallExpression,
-          callee: {
-            type: IR.IRNodeType.MemberExpression,
-            object: firstArg,
-            property,
-            computed,
-          },
-          arguments: args,
-        };
+        const { property, computed } = resolveMemberProperty(createStr(literalMethod), true);
+        return createCall(createMember(firstArg, property, computed), args);
       }
 
       // Direct function call: (js-call func args...)
@@ -308,12 +287,7 @@ export function transformJsSet(
       return {
         type: IR.IRNodeType.AssignmentExpression,
         operator: "=",
-        left: {
-          type: IR.IRNodeType.MemberExpression,
-          object,
-          property,
-          computed,
-        },
+        left: createMember(object, property, computed),
         right: value,
       };
     },
@@ -353,10 +327,7 @@ export function transformJsGetInvoke(
       return {
         type: IR.IRNodeType.InteropIIFE,
         object,
-        property: {
-          type: IR.IRNodeType.StringLiteral,
-          value: propertyName,
-        } as IR.IRStringLiteral,
+        property: createStr(propertyName),
       } as IR.IRInteropIIFE;
     },
     "transformJsGetInvoke",
@@ -394,12 +365,7 @@ export function transformJsGetInvokeSpecialCase(
         const { property: memberProperty, computed } = resolveMemberProperty(
           property,
         );
-        return {
-          type: IR.IRNodeType.MemberExpression,
-          object,
-          property: memberProperty,
-          computed,
-        } as IR.IRMemberExpression;
+        return createMember(object, memberProperty, computed);
       }
       return null;
     },
@@ -432,31 +398,15 @@ export function transformDotNotation(
       const objectName = parts[0];
       const property = parts.slice(1).join(".");
 
-      const objectExpr = {
-        type: IR.IRNodeType.Identifier,
-        name: objectName,
-      } as IR.IRIdentifier;
+      const objectExpr = createId(objectName);
 
       if (list.elements.length === 1) {
         // Zero-argument method call: (p.greet) -> p.greet()
-        const literalNode = {
-          type: IR.IRNodeType.StringLiteral,
-          value: property,
-        } as IR.IRStringLiteral;
         const { property: memberProperty, computed } = resolveMemberProperty(
-          literalNode,
+          createStr(property),
           true,
         );
-        return {
-          type: IR.IRNodeType.CallExpression,
-          callee: {
-            type: IR.IRNodeType.MemberExpression,
-            object: objectExpr,
-            property: memberProperty,
-            computed,
-          } as IR.IRMemberExpression,
-          arguments: [],
-        } as IR.IRCallExpression;
+        return createCall(createMember(objectExpr, memberProperty, computed), []);
       }
 
       const args = transformElements(
@@ -466,25 +416,12 @@ export function transformDotNotation(
         "method argument",
         "Method argument",
       );
-      const literalNode = {
-        type: IR.IRNodeType.StringLiteral,
-        value: property,
-      } as IR.IRStringLiteral;
       const { property: memberProperty, computed } = resolveMemberProperty(
-        literalNode,
+        createStr(property),
         true,
       );
 
-      return {
-        type: IR.IRNodeType.CallExpression,
-        callee: {
-          type: IR.IRNodeType.MemberExpression,
-          object: objectExpr,
-          property: memberProperty,
-          computed,
-        } as IR.IRMemberExpression,
-        arguments: args,
-      } as IR.IRCallExpression;
+      return createCall(createMember(objectExpr, memberProperty, computed), args);
     },
     `transformDotNotation '${op}'`,
     TransformError,

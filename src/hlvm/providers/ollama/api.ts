@@ -7,15 +7,15 @@
 
 import { RuntimeError } from "../../../common/error.ts";
 import type {
-  Message,
-  GenerateOptions,
   ChatOptions,
-  ToolDefinition,
-  ProviderToolCall,
   ChatStructuredResponse,
+  GenerateOptions,
+  Message,
   ModelInfo,
-  PullProgress,
   ProviderStatus,
+  ProviderToolCall,
+  PullProgress,
+  ToolDefinition,
 } from "../types.ts";
 
 // ============================================================================
@@ -109,6 +109,60 @@ interface OllamaPullChunk {
   completed?: number;
 }
 
+type OllamaMessage = {
+  role: string;
+  content: string;
+  images?: string[];
+  tool_calls?: ProviderToolCall[];
+  tool_name?: string;
+};
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+function buildOllamaOptions(
+  options?: GenerateOptions,
+): {
+  temperature?: number;
+  num_predict?: number;
+  stop?: string[];
+} {
+  return {
+    temperature: options?.temperature,
+    num_predict: options?.maxTokens,
+    stop: options?.stop,
+  };
+}
+
+function toOllamaMessages(
+  messages: Message[],
+  includeToolContext = false,
+): OllamaMessage[] {
+  return messages.map((msg) => ({
+    role: msg.role,
+    content: msg.content,
+    ...(msg.images?.length ? { images: msg.images } : {}),
+    ...(includeToolContext && msg.tool_calls?.length
+      ? { tool_calls: msg.tool_calls }
+      : {}),
+    ...(includeToolContext && msg.tool_name
+      ? { tool_name: msg.tool_name }
+      : {}),
+  }));
+}
+
+function parseJsonLine<T>(line: string): T | null {
+  if (!line.trim()) return null;
+  try {
+    return JSON.parse(line) as T;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeContent(content?: string): string {
+  return (content || "").trim();
+}
+
 // ============================================================================
 // API Helpers
 // ============================================================================
@@ -124,13 +178,13 @@ async function* streamRequest<T>(
   endpoint: string,
   path: string,
   body: unknown,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): AsyncGenerator<T, void, unknown> {
   const url = `${endpoint}${path}`;
 
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: JSON_HEADERS,
     body: JSON.stringify(body),
     signal,
   });
@@ -154,26 +208,22 @@ async function* streamRequest<T>(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          yield JSON.parse(line) as T;
-        } catch {
-          // Skip malformed JSON
+      let lineEndIndex = buffer.indexOf("\n");
+      while (lineEndIndex !== -1) {
+        const line = buffer.slice(0, lineEndIndex);
+        buffer = buffer.slice(lineEndIndex + 1);
+        const parsed = parseJsonLine<T>(line);
+        if (parsed !== null) {
+          yield parsed;
         }
+        lineEndIndex = buffer.indexOf("\n");
       }
     }
 
     // Process remaining buffer
-    if (buffer.trim()) {
-      try {
-        yield JSON.parse(buffer) as T;
-      } catch {
-        // Skip malformed JSON
-      }
+    const parsed = parseJsonLine<T>(buffer);
+    if (parsed !== null) {
+      yield parsed;
     }
   } finally {
     reader.cancel().catch(() => {});
@@ -187,13 +237,13 @@ async function jsonRequest<T>(
   endpoint: string,
   path: string,
   body?: unknown,
-  method: "GET" | "POST" | "DELETE" = "POST"
+  method: "GET" | "POST" | "DELETE" = "POST",
 ): Promise<T> {
   const url = `${endpoint}${path}`;
 
   const options: RequestInit = {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: JSON_HEADERS,
   };
 
   if (body) {
@@ -222,17 +272,13 @@ export async function* generate(
   model: string,
   prompt: string,
   options?: GenerateOptions,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): AsyncGenerator<string, void, unknown> {
   const body: OllamaGenerateRequest = {
     model,
     prompt,
     stream: options?.stream !== false,
-    options: {
-      temperature: options?.temperature,
-      num_predict: options?.maxTokens,
-      stop: options?.stop,
-    },
+    options: buildOllamaOptions(options),
   };
 
   if (options?.system) body.system = options.system;
@@ -244,19 +290,21 @@ export async function* generate(
     const result = await jsonRequest<{ response: string }>(
       endpoint,
       "/api/generate",
-      body
+      body,
     );
-    yield (result.response || "").trim();
+    yield normalizeContent(result.response);
     return;
   }
 
   // Streaming mode
-  for await (const chunk of streamRequest<OllamaGenerateChunk>(
-    endpoint,
-    "/api/generate",
-    body,
-    signal
-  )) {
+  for await (
+    const chunk of streamRequest<OllamaGenerateChunk>(
+      endpoint,
+      "/api/generate",
+      body,
+      signal,
+    )
+  ) {
     if (chunk.response) {
       yield chunk.response;
     }
@@ -271,23 +319,13 @@ export async function* chat(
   model: string,
   messages: Message[],
   options?: ChatOptions,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): AsyncGenerator<string, void, unknown> {
-  const ollamaMessages = messages.map((msg) => ({
-    role: msg.role,
-    content: msg.content,
-    ...(msg.images?.length ? { images: msg.images } : {}),
-  }));
-
   const body: OllamaChatRequest = {
     model,
-    messages: ollamaMessages,
+    messages: toOllamaMessages(messages),
     stream: options?.stream !== false,
-    options: {
-      temperature: options?.temperature,
-      num_predict: options?.maxTokens,
-      stop: options?.stop,
-    },
+    options: buildOllamaOptions(options),
   };
 
   if (options?.format) body.format = options.format;
@@ -297,19 +335,21 @@ export async function* chat(
     const result = await jsonRequest<{ message: { content: string } }>(
       endpoint,
       "/api/chat",
-      body
+      body,
     );
-    yield (result.message?.content || "").trim();
+    yield normalizeContent(result.message?.content);
     return;
   }
 
   // Streaming mode
-  for await (const chunk of streamRequest<OllamaChatChunk>(
-    endpoint,
-    "/api/chat",
-    body,
-    signal
-  )) {
+  for await (
+    const chunk of streamRequest<OllamaChatChunk>(
+      endpoint,
+      "/api/chat",
+      body,
+      signal,
+    )
+  ) {
     if (chunk.message?.content) {
       yield chunk.message.content;
     }
@@ -328,25 +368,14 @@ export async function chatStructured(
   options?: ChatOptions,
   signal?: AbortSignal,
 ): Promise<ChatStructuredResponse> {
-  const ollamaMessages = messages.map((msg) => ({
-    role: msg.role,
-    content: msg.content,
-    ...(msg.images?.length ? { images: msg.images } : {}),
-    ...(msg.tool_calls?.length ? { tool_calls: msg.tool_calls } : {}),
-    ...(msg.tool_name ? { tool_name: msg.tool_name } : {}),
-  }));
-
-  const useStreaming = typeof options?.onToken === "function";
+  const onToken = options?.onToken;
+  const useStreaming = typeof onToken === "function";
 
   const body: OllamaChatRequest = {
     model,
-    messages: ollamaMessages,
+    messages: toOllamaMessages(messages, true),
     stream: useStreaming,
-    options: {
-      temperature: options?.temperature,
-      num_predict: options?.maxTokens,
-      stop: options?.stop,
-    },
+    options: buildOllamaOptions(options),
   };
 
   if (options?.format) body.format = options.format;
@@ -357,15 +386,17 @@ export async function chatStructured(
     let content = "";
     let toolCalls: ProviderToolCall[] = [];
 
-    for await (const chunk of streamRequest<OllamaChatChunk>(
-      endpoint,
-      "/api/chat",
-      body,
-      signal,
-    )) {
+    for await (
+      const chunk of streamRequest<OllamaChatChunk>(
+        endpoint,
+        "/api/chat",
+        body,
+        signal,
+      )
+    ) {
       if (chunk.message?.content) {
         content += chunk.message.content;
-        options!.onToken!(chunk.message.content);
+        onToken?.(chunk.message.content);
       }
       // Ollama may emit tool_calls in any chunk (typically the first non-done chunk)
       if (chunk.message?.tool_calls?.length) {
@@ -374,7 +405,7 @@ export async function chatStructured(
     }
 
     return {
-      content: content.trim(),
+      content: normalizeContent(content),
       toolCalls,
     };
   }
@@ -387,7 +418,7 @@ export async function chatStructured(
   );
 
   return {
-    content: (result.message?.content || "").trim(),
+    content: normalizeContent(result.message?.content),
     toolCalls: result.message?.tool_calls ?? [],
   };
 }
@@ -400,7 +431,7 @@ export async function listModels(endpoint: string): Promise<ModelInfo[]> {
     endpoint,
     "/api/tags",
     undefined,
-    "GET"
+    "GET",
   );
 
   return (result.models || []).map((m) => ({
@@ -420,21 +451,23 @@ export async function listModels(endpoint: string): Promise<ModelInfo[]> {
  */
 export async function getModel(
   endpoint: string,
-  name: string
+  name: string,
 ): Promise<ModelInfo | null> {
   try {
     const result = await jsonRequest<OllamaModel & { details: unknown }>(
       endpoint,
       "/api/show",
-      { name }
+      { name },
     );
 
     return {
       name: result.name || name,
       displayName: (result.name || name).split(":")[0],
       family: (result.details as { family?: string })?.family,
-      parameterSize: (result.details as { parameter_size?: string })?.parameter_size,
-      quantization: (result.details as { quantization_level?: string })?.quantization_level,
+      parameterSize: (result.details as { parameter_size?: string })
+        ?.parameter_size,
+      quantization: (result.details as { quantization_level?: string })
+        ?.quantization_level,
       metadata: result.details,
     };
   } catch {
@@ -451,14 +484,16 @@ export async function getModel(
 export async function* pullModel(
   endpoint: string,
   name: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): AsyncGenerator<PullProgress, void, unknown> {
-  for await (const chunk of streamRequest<OllamaPullChunk>(
-    endpoint,
-    "/api/pull",
-    { name, stream: true },
-    signal
-  )) {
+  for await (
+    const chunk of streamRequest<OllamaPullChunk>(
+      endpoint,
+      "/api/pull",
+      { name, stream: true },
+      signal,
+    )
+  ) {
     const progress: PullProgress = {
       status: chunk.status,
       digest: chunk.digest,
@@ -479,7 +514,7 @@ export async function* pullModel(
  */
 export async function removeModel(
   endpoint: string,
-  name: string
+  name: string,
 ): Promise<boolean> {
   try {
     await jsonRequest(endpoint, "/api/delete", { name }, "DELETE");
@@ -503,7 +538,7 @@ export async function checkStatus(endpoint: string): Promise<ProviderStatus> {
           endpoint,
           "/api/version",
           undefined,
-          "GET"
+          "GET",
         );
         return {
           available: true,

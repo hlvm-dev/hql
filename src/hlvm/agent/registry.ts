@@ -24,7 +24,11 @@ import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { ValidationError } from "../../common/error.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
-import { buildToolJsonSchema, coerceArgsToSchema, validateArgsAgainstSchema } from "./tool-schema.ts";
+import {
+  buildToolJsonSchema,
+  coerceArgsToSchema,
+  validateArgsAgainstSchema,
+} from "./tool-schema.ts";
 
 // ============================================================
 // Types
@@ -66,6 +70,12 @@ export interface ValidationResult {
   errors?: string[];
 }
 
+/** Result of preparing tool args for execution (coercion + validation). */
+export interface ToolArgsPreparationResult {
+  coercedArgs: unknown;
+  validation: ValidationResult;
+}
+
 // ============================================================
 // Tool Registry
 // ============================================================
@@ -99,9 +109,52 @@ const DYNAMIC_TOOL_REGISTRY: Record<string, ToolMetadata> = {};
 
 /** Cached merged view of TOOL_REGISTRY + DYNAMIC_TOOL_REGISTRY */
 let _allToolsCache: Record<string, ToolMetadata> | null = null;
+/** Pre-computed normalized name map: lowercased stripped name → canonical name */
+let _normalizedNameMap: Map<string, string> | null = null;
+/** Cached tool count */
+let _toolCount: number | null = null;
+/** Pre-computed word sets per tool name for suggestToolNames() */
+let _toolWordSets: Map<string, { stripped: string; words: string[] }> | null = null;
 
 function invalidateAllToolsCache(): void {
   _allToolsCache = null;
+  _normalizedNameMap = null;
+  _toolCount = null;
+  _toolWordSets = null;
+}
+
+function getNormalizedNameMap(): Map<string, string> {
+  if (!_normalizedNameMap) {
+    _normalizedNameMap = new Map();
+    for (const name of Object.keys(getAllTools())) {
+      const lower = name.toLowerCase();
+      _normalizedNameMap.set(lower, name);
+      // Also map stripped (no separators) version
+      const stripped = lower.replace(/[-_ ]/g, "");
+      if (!_normalizedNameMap.has(stripped)) {
+        _normalizedNameMap.set(stripped, name);
+      }
+      // Also map camelCase equivalent
+      const camelStripped = lower.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+      if (!_normalizedNameMap.has(camelStripped)) {
+        _normalizedNameMap.set(camelStripped, name);
+      }
+    }
+  }
+  return _normalizedNameMap;
+}
+
+function getToolWordSets(): Map<string, { stripped: string; words: string[] }> {
+  if (!_toolWordSets) {
+    _toolWordSets = new Map();
+    for (const name of Object.keys(getAllTools())) {
+      _toolWordSets.set(name, {
+        stripped: name.replace(/[-_ ]/g, ""),
+        words: name.split(/[-_ ]/),
+      });
+    }
+  }
+  return _toolWordSets;
 }
 
 // ============================================================
@@ -247,21 +300,22 @@ export function hasTool(name: string): boolean {
 export function normalizeToolName(name: string): string | null {
   if (hasTool(name)) return name;
 
-  const allTools = Object.keys(getAllTools());
+  const map = getNormalizedNameMap();
+  const lower = name.toLowerCase();
 
   // Try lowercase
-  const lower = name.toLowerCase();
-  if (hasTool(lower)) return lower;
+  const byLower = map.get(lower);
+  if (byLower) return byLower;
 
   // Try camelCase → snake_case
   const snaked = lower.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
-  if (hasTool(snaked)) return snaked;
+  const bySnaked = map.get(snaked);
+  if (bySnaked) return bySnaked;
 
-  // Strip all separators and match against stripped tool names
+  // Strip all separators and look up
   const stripped = lower.replace(/[-_ ]/g, "");
-  for (const toolName of allTools) {
-    if (toolName.replace(/[-_ ]/g, "") === stripped) return toolName;
-  }
+  const byStripped = map.get(stripped);
+  if (byStripped) return byStripped;
 
   return null;
 }
@@ -273,33 +327,29 @@ export function normalizeToolName(name: string): string | null {
  * @returns Array of up to 3 similar tool names
  */
 export function suggestToolNames(name: string): string[] {
-  const allTools = Object.keys(getAllTools());
+  const wordSets = getToolWordSets();
   const lower = name.toLowerCase();
   const stripped = lower.replace(/[-_ ]/g, "");
-
-  // Score tools by similarity (simple prefix/substring matching)
   const nameWordSet = new Set(lower.split(/[-_ ]/));
-  const scored = allTools
-    .map((toolName) => {
-      const toolStripped = toolName.replace(/[-_ ]/g, "");
-      let score = 0;
-      if (toolStripped.startsWith(stripped) || stripped.startsWith(toolStripped)) {
-        score += 3;
-      }
-      if (toolStripped.includes(stripped) || stripped.includes(toolStripped)) {
-        score += 2;
-      }
-      // Check if words overlap (O(b) with Set lookup)
-      const toolWords = toolName.split(/[-_ ]/);
-      for (const w of toolWords) {
-        if (nameWordSet.has(w)) score++;
-      }
 
-      return { name: toolName, score };
-    })
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score);
+  const scored: { name: string; score: number }[] = [];
+  for (const [toolName, cached] of wordSets) {
+    let score = 0;
+    if (
+      cached.stripped.startsWith(stripped) || stripped.startsWith(cached.stripped)
+    ) {
+      score += 3;
+    }
+    if (cached.stripped.includes(stripped) || stripped.includes(cached.stripped)) {
+      score += 2;
+    }
+    for (const w of cached.words) {
+      if (nameWordSet.has(w)) score++;
+    }
+    if (score > 0) scored.push({ name: toolName, score });
+  }
 
+  scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, 3).map((s) => s.name);
 }
 
@@ -362,12 +412,55 @@ export function coerceToolArgs(name: string, args: unknown): unknown {
 }
 
 /**
+ * Prepare tool arguments for execution by coercing first, then validating.
+ *
+ * This mirrors execution-time behavior used by the orchestrator while reusing
+ * the same schema instance for both steps.
+ */
+export function prepareToolArgsForExecution(
+  name: string,
+  args: unknown,
+): ToolArgsPreparationResult {
+  const tool = getTool(name);
+  if (tool.skipValidation) {
+    return {
+      coercedArgs: args,
+      validation: { valid: true },
+    };
+  }
+
+  if (!isToolArgsObject(args)) {
+    return {
+      coercedArgs: args,
+      validation: {
+        valid: false,
+        errors: ["Arguments must be a plain object"],
+      },
+    };
+  }
+
+  const schema = buildToolJsonSchema(tool);
+  const coercedArgs = coerceArgsToSchema(args, schema);
+  const errors = validateArgsAgainstSchema(coercedArgs, schema);
+  return {
+    coercedArgs,
+    validation: {
+      valid: errors.length === 0,
+      errors: errors.length > 0 ? errors : undefined,
+    },
+  };
+}
+
+/**
  * Get tool count
  *
  * @returns Total number of registered tools
  */
 export function getToolCount(): number {
-  return Object.keys(getAllTools()).length;
+  if (_toolCount === null) {
+    _toolCount = Object.keys(getAllTools()).length;
+  }
+  return _toolCount;
 }
 
 /**

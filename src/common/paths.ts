@@ -37,22 +37,22 @@ function resolveHlvmDir(): string {
 }
 
 
-function ensureWritableDir(path: string): boolean {
+function ensureWritableDir(dirPath: string): boolean {
   const platform = getPlatform();
   const probeId = typeof crypto?.randomUUID === "function"
     ? crypto.randomUUID()
     : String(Date.now());
-  const probePath = join(path, `.hlvm-write-test-${probeId}`);
+  const probePath = join(dirPath, `.hlvm-write-test-${probeId}`);
   try {
     // Create directory synchronously
     try {
-      const stat = platform.fs.statSync(path);
+      const stat = platform.fs.statSync(dirPath);
       if (!stat.isDirectory) {
         return false;
       }
     } catch {
       // Directory doesn't exist, try to create it
-      platform.fs.mkdirSync(path, { recursive: true });
+      platform.fs.mkdirSync(dirPath, { recursive: true });
     }
     // Write probe file
     platform.fs.writeTextFileSync(probePath, "");
@@ -143,7 +143,6 @@ export function getRuntimeDir(): string {
 export function getHistoryPath(): string {
   return join(getHlvmDir(), "history.jsonl");
 }
-
 
 /**
  * Ensure the HLVM directory exists

@@ -251,10 +251,14 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
   }, [init.ready, init.needsModelSetup, activePanel, modelSetupHandled]);
 
   // Helper to add history entry and increment ID (DRY pattern used 8+ times)
+  // Uses ref to avoid stale closure — no dependency on nextId state
+  const nextIdRef = useRef(nextId);
+  useEffect(() => { nextIdRef.current = nextId; }, [nextId]);
   const addHistoryEntry = useCallback((input: string, result: EvalResult) => {
-    setHistory((prev: HistoryEntry[]) => [...prev, { id: nextId, input, result }]);
+    const id = nextIdRef.current;
+    setHistory((prev: HistoryEntry[]) => [...prev, { id, input, result }]);
     setNextId((n: number) => n + 1);
-  }, [nextId]);
+  }, []);
 
   // Session picker handlers
   const handlePickerSelect = useCallback(async (session: SessionMeta) => {
@@ -630,7 +634,6 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
     suppressHistoryOutput,
     streamEvalToTask,
     recordSessionTurn,
-    nextId,
   ]);
 
   // Command palette action handler

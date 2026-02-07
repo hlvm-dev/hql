@@ -210,38 +210,50 @@ export async function loadSessionMessages(
   const path = getTranscriptPath(entry);
   try {
     const raw = await platform.fs.readTextFile(path);
-    const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
     let messages: Message[] = [];
-    for (const line of lines) {
-      let parsed: unknown;
+    let start = 0;
+    const len = raw.length;
+
+    // Single-pass line parsing: scan for newlines, skip empty lines, parse inline
+    while (start < len) {
+      let end = raw.indexOf("\n", start);
+      if (end === -1) end = len;
+      // Skip empty/whitespace-only lines
+      const line = raw.substring(start, end);
+      start = end + 1;
+      if (line.length === 0 || line.trim().length === 0) continue;
+
+      let parsed: Record<string, unknown>;
       try {
-        parsed = JSON.parse(line);
+        parsed = JSON.parse(line) as Record<string, unknown>;
       } catch {
         continue;
       }
       if (!isObjectValue(parsed)) continue;
-      const type = (parsed as Record<string, unknown>).type;
+
+      const type = parsed.type;
       if (type !== "message" && type !== "compaction") continue;
-      const timestamp = typeof (parsed as Record<string, unknown>).timestamp === "number"
-        ? Number((parsed as Record<string, unknown>).timestamp)
+
+      const timestamp = typeof parsed.timestamp === "number"
+        ? parsed.timestamp as number
         : Date.now();
+
       if (type === "compaction") {
-        const summary = String((parsed as Record<string, unknown>).summary ?? "");
-        messages = fromTranscriptEntry({
-          type: "compaction",
-          summary,
+        // Compaction replaces all prior messages
+        messages = [{
+          role: "assistant" as MessageRole,
+          content: String(parsed.summary ?? ""),
           timestamp,
-        });
+        }];
       } else {
-        const role = String((parsed as Record<string, unknown>).role ?? "");
-        const content = String((parsed as Record<string, unknown>).content ?? "");
+        const role = String(parsed.role ?? "");
+        const content = String(parsed.content ?? "");
         if (role === "system" || content.trim() === "") continue;
-        messages = messages.concat(fromTranscriptEntry({
-          type: "message",
+        messages.push({
           role: role as MessageRole,
           content,
           timestamp,
-        }));
+        });
       }
     }
     return messages;
@@ -264,7 +276,6 @@ export async function appendSessionMessages(
   const path = getTranscriptPath(entry);
   await ensureSessionsDir();
 
-  const persistable = messages.map(toTranscriptEntry).filter((m) => m) as TranscriptEntry[];
   const delta = messages
     .filter((message) => !message.fromSession)
     .map(toTranscriptEntry)
@@ -277,7 +288,7 @@ export async function appendSessionMessages(
   const updated: AgentSessionEntry = {
     ...entry,
     updatedAt: new Date().toISOString(),
-    messageCount: persistable.length,
+    messageCount: entry.messageCount + delta.length,
   };
   await updateSession(updated);
   return updated;

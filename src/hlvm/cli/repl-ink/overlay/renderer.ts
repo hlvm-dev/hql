@@ -111,3 +111,40 @@ export function hexToRgb(hex: string): [number, number, number] {
   const b = parseInt(clean.slice(4, 6), 16) || 0;
   return [r, g, b];
 }
+
+// ============================================================
+// Shared Overlay Helpers (DRY — used by all overlay components)
+// ============================================================
+
+/** RGB color tuple */
+export type RGB = [number, number, number];
+
+/** Default overlay background color */
+export const OVERLAY_BG_COLOR: RGB = [35, 35, 40];
+
+/** Shared encoder for terminal output */
+export const overlayEncoder = new TextEncoder();
+
+/** Create ANSI foreground color string from RGB */
+export function fg(rgb: RGB): string {
+  return ansi.fg(rgb[0], rgb[1], rgb[2]);
+}
+
+/** Create ANSI background color string from RGB */
+export function bg(rgb: RGB): string {
+  return ansi.bg(rgb[0], rgb[1], rgb[2]);
+}
+
+/** Calculate centered overlay position */
+export function calcOverlayPosition(width: number, height: number): { x: number; y: number } {
+  const term = getTerminalSize();
+  return {
+    x: Math.max(2, Math.floor((term.columns - width) / 2)),
+    y: Math.max(2, Math.floor((term.rows - height) / 2)),
+  };
+}
+
+/** Write raw ANSI output to terminal */
+export function writeToTerminal(output: string): void {
+  getPlatform().terminal.stdout.writeSync(overlayEncoder.encode(output));
+}

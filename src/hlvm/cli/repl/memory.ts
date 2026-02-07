@@ -15,22 +15,6 @@ import { getPlatform } from "../../../platform/platform.ts";
 
 // SSOT: Use platform layer for all file/path operations
 const fs = () => getPlatform().fs;
-const path = () => getPlatform().path;
-
-// ============================================================
-// Debug Logging (writes to ~/.hlvm/memory-debug.log)
-// ============================================================
-
-async function debugLog(message: string): Promise<void> {
-  try {
-    const logPath = path().join(getHlvmDir(), "memory-debug.log");
-    const timestamp = new Date().toISOString();
-    const line = `[${timestamp}] ${message}\n`;
-    await getPlatform().fs.writeTextFile(logPath, line, { append: true });
-  } catch {
-    // Ignore logging errors
-  }
-}
 
 // ============================================================
 // Constants
@@ -206,10 +190,6 @@ function appendDefinitionToContent(content: string, def: ParsedDefinition): stri
     output += "\n";
   }
   return `${output}${formatDefinition(def)}\n`;
-}
-
-function contentHasDefinitions(content: string): boolean {
-  return /\(defn\s+|\(def\s+/.test(content);
 }
 
 /** Write definitions to memory file with header */
@@ -461,61 +441,32 @@ export async function appendToMemory(
   codeOrValue: string | unknown,
   docstring?: string
 ): Promise<void> {
-  await debugLog(`appendToMemory called: name=${name}, kind=${kind}, hasDocstring=${!!docstring}`);
-
   // Build the code first (fail fast if unserializable)
   let code: string;
   if (kind === "defn") {
-    // Strip any leading comments - docstring from state is the single source of truth
     code = stripLeadingComments(codeOrValue as string);
-    await debugLog(`defn code after strip: ${code.slice(0, 100)}...`);
   } else {
     const serialized = serializeValue(codeOrValue);
-    if (serialized === null) {
-      await debugLog(`EARLY RETURN: serializeValue returned null for ${name}`);
-      return; // Unserializable value
-    }
+    if (serialized === null) return; // Unserializable value
     code = `(def ${name} ${serialized})`;
-    await debugLog(`def code: ${code}`);
   }
 
-  const path = getMemoryFilePath();
-  await debugLog(`Memory file path: ${path}`);
-
-  const existingContent = await readFileIfExists(path);
-  const existing = await readAndParseMemory();
-  await debugLog(`Existing definitions: ${existing.length}`);
-
+  const memPath = getMemoryFilePath();
+  const existingContent = await readFileIfExists(memPath);
+  const existing = existingContent ? parseMemoryContent(existingContent) : [];
   const newDef: ParsedDefinition = { kind, name, code, docstring };
 
-  if (existing.length === 0 && existingContent && contentHasDefinitions(existingContent)) {
-    await debugLog("Parse returned 0 definitions but file has content; appending without rewrite");
-    const appended = appendDefinitionToContent(existingContent, newDef);
-    try {
-      await fs().ensureDir(getHlvmDir());
-      await debugLog("ensureDir succeeded");
-      await getPlatform().fs.writeTextFile(path, appended);
-      await debugLog("appendDefinitionToContent succeeded - DONE");
-    } catch (err) {
-      await debugLog(`ERROR in append fallback: ${err}`);
-      throw err;
-    }
+  // Fallback: if parse returned 0 but file has def/defn content, append without rewrite
+  if (existing.length === 0 && existingContent && /\(defn?\s+/.test(existingContent)) {
+    await fs().ensureDir(getHlvmDir());
+    await getPlatform().fs.writeTextFile(memPath, appendDefinitionToContent(existingContent, newDef));
     return;
   }
 
   const filtered = existing.filter(d => d.name !== name);
   filtered.push(newDef);
-  await debugLog(`Total definitions to write: ${filtered.length}`);
-
-  try {
-    await fs().ensureDir(getHlvmDir());
-    await debugLog(`ensureDir succeeded`);
-    await writeMemoryFile(filtered);
-    await debugLog(`writeMemoryFile succeeded - DONE`);
-  } catch (err) {
-    await debugLog(`ERROR in write: ${err}`);
-    throw err;
-  }
+  await fs().ensureDir(getHlvmDir());
+  await writeMemoryFile(filtered);
 }
 
 /**

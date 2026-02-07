@@ -12,18 +12,18 @@
  */
 
 import {
-  getProvider,
-  getDefaultProvider,
-  getProviderForModel,
-  parseModelString,
   type AIProvider,
-  type Message,
-  type GenerateOptions,
   type ChatOptions,
   type ChatStructuredResponse,
+  type GenerateOptions,
+  getDefaultProvider,
+  getProvider,
+  getProviderForModel,
+  type Message,
   type ModelInfo,
-  type PullProgress,
+  parseModelString,
   type ProviderStatus,
+  type PullProgress,
 } from "../providers/index.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 
@@ -35,6 +35,16 @@ import { RuntimeError, ValidationError } from "../../common/error.ts";
 interface AiOptions extends GenerateOptions {
   /** Signal for abort/cancellation */
   signal?: AbortSignal;
+}
+
+/** Chat options with optional cancellation signal */
+type AiChatOptions = ChatOptions & { signal?: AbortSignal };
+
+/** Shared shape for provider option normalization */
+interface ProviderRequestOptions {
+  model?: string;
+  signal?: AbortSignal;
+  raw?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -58,10 +68,47 @@ function createAiApi() {
       throw new RuntimeError(
         modelString
           ? `No provider found for model: ${modelString}`
-          : "No default AI provider configured"
+          : "No default AI provider configured",
       );
     }
     return provider;
+  }
+
+  /**
+   * Get provider by explicit name or use default provider.
+   */
+  function getProviderByNameOrDefault(
+    providerName?: string,
+  ): AIProvider | null {
+    return providerName ? getProvider(providerName) : getDefaultProvider();
+  }
+
+  /**
+   * Extract provider-local model name.
+   * Examples:
+   * - "ollama/llama3.2" => "llama3.2"
+   * - "llama3.2" => "llama3.2"
+   * - undefined => undefined
+   */
+  function resolveModelName(model?: string): string | undefined {
+    if (!model) {
+      return undefined;
+    }
+    const [, modelName] = parseModelString(model);
+    return modelName || undefined;
+  }
+
+  /**
+   * Normalize API options into provider-ready options.
+   * Keeps top-level `signal` passthrough for compatibility while
+   * also mapping it to provider `raw.signal`.
+   */
+  function toProviderOptions<T extends ProviderRequestOptions>(options?: T): T {
+    return {
+      ...options,
+      model: resolveModelName(options?.model),
+      raw: options?.signal ? { signal: options.signal } : undefined,
+    } as T;
   }
 
   return {
@@ -73,18 +120,10 @@ function createAiApi() {
      */
     generate: async function* (
       prompt: string,
-      options?: AiOptions
+      options?: AiOptions,
     ): AsyncGenerator<string, void, unknown> {
       const provider = getProviderOrThrow(options?.model);
-
-      // Extract model name from provider:model format
-      const [, modelName] = parseModelString(options?.model || "");
-      const opts: GenerateOptions = {
-        ...options,
-        model: modelName || undefined,
-        raw: options?.signal ? { signal: options.signal } : undefined,
-      };
-
+      const opts = toProviderOptions(options);
       yield* provider.generate(prompt, opts);
     },
 
@@ -94,17 +133,10 @@ function createAiApi() {
      */
     chat: async function* (
       messages: Message[],
-      options?: ChatOptions & { signal?: AbortSignal }
+      options?: AiChatOptions,
     ): AsyncGenerator<string, void, unknown> {
       const provider = getProviderOrThrow(options?.model);
-
-      const [, modelName] = parseModelString(options?.model || "");
-      const opts: ChatOptions = {
-        ...options,
-        model: modelName || undefined,
-        raw: options?.signal ? { signal: options.signal } : undefined,
-      };
-
+      const opts = toProviderOptions(options);
       yield* provider.chat(messages, opts);
     },
 
@@ -114,16 +146,10 @@ function createAiApi() {
      */
     chatStructured: async function (
       messages: Message[],
-      options?: ChatOptions & { signal?: AbortSignal }
+      options?: AiChatOptions,
     ): Promise<ChatStructuredResponse> {
       const provider = getProviderOrThrow(options?.model);
-
-      const [, modelName] = parseModelString(options?.model || "");
-      const opts: ChatOptions = {
-        ...options,
-        model: modelName || undefined,
-        raw: options?.signal ? { signal: options.signal } : undefined,
-      };
+      const opts = toProviderOptions(options);
 
       if (!provider.chatStructured) {
         throw new ValidationError(
@@ -144,9 +170,7 @@ function createAiApi() {
        * @example (ai.models.list)
        */
       list: (providerName?: string): Promise<ModelInfo[]> => {
-        const provider = providerName
-          ? getProvider(providerName)
-          : getDefaultProvider();
+        const provider = getProviderByNameOrDefault(providerName);
 
         return provider?.models?.list
           ? provider.models.list()
@@ -159,11 +183,9 @@ function createAiApi() {
        */
       get: (
         name: string,
-        providerName?: string
+        providerName?: string,
       ): Promise<ModelInfo | null> => {
-        const provider = providerName
-          ? getProvider(providerName)
-          : getDefaultProvider();
+        const provider = getProviderByNameOrDefault(providerName);
 
         return provider?.models?.get
           ? provider.models.get(name)
@@ -175,9 +197,7 @@ function createAiApi() {
        * @example (ai.models.catalog)
        */
       catalog: (providerName?: string): Promise<ModelInfo[]> => {
-        const provider = providerName
-          ? getProvider(providerName)
-          : getDefaultProvider();
+        const provider = getProviderByNameOrDefault(providerName);
 
         return provider?.models?.catalog
           ? provider.models.catalog()
@@ -194,14 +214,15 @@ function createAiApi() {
       pull: async function* (
         name: string,
         providerName?: string,
-        signal?: AbortSignal
+        signal?: AbortSignal,
       ): AsyncGenerator<PullProgress, void, unknown> {
-        const provider = providerName
-          ? getProvider(providerName)
-          : getDefaultProvider();
+        const provider = getProviderByNameOrDefault(providerName);
 
         if (!provider?.models?.pull) {
-          throw new ValidationError("Provider does not support model pulling", "ai.models.pull");
+          throw new ValidationError(
+            "Provider does not support model pulling",
+            "ai.models.pull",
+          );
         }
         yield* provider.models.pull(name, signal);
       },
@@ -211,9 +232,7 @@ function createAiApi() {
        * @example (ai.models.remove "llama3.2")
        */
       remove: (name: string, providerName?: string): Promise<boolean> => {
-        const provider = providerName
-          ? getProvider(providerName)
-          : getDefaultProvider();
+        const provider = getProviderByNameOrDefault(providerName);
 
         return provider?.models?.remove
           ? provider.models.remove(name)
@@ -226,9 +245,7 @@ function createAiApi() {
      * @example (ai.status)
      */
     status: (providerName?: string): Promise<ProviderStatus> => {
-      const provider = providerName
-        ? getProvider(providerName)
-        : getDefaultProvider();
+      const provider = getProviderByNameOrDefault(providerName);
 
       if (!provider) {
         return Promise.resolve({

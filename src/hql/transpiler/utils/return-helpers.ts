@@ -8,14 +8,7 @@ import {
   containsThrowStatement,
   containsMatch,
 } from "./ir-tree-walker.ts";
-
-/**
- * Check if an IR node contains ThrowStatements (from transformed early returns)
- * After transformation, early returns become ThrowStatement with special object
- *
- * Uses generic tree walker - automatically handles ALL IR node types.
- */
-const containsThrowStatements = containsThrowStatement;
+import { createId, createReturn, createMember } from "./ir-helpers.ts";
 
 /**
  * Check if an IR node contains IIFEs or callback functions with throws (early returns)
@@ -42,7 +35,7 @@ export function containsNestedReturns(
     // Check IIFE (callee is a function expression)
     if (call.callee.type === IR.IRNodeType.FunctionExpression) {
       const fn = call.callee as IR.IRFunctionExpression;
-      if (containsThrowStatements(fn.body)) {
+      if (containsThrowStatement(fn.body)) {
         return true;
       }
     }
@@ -52,7 +45,7 @@ export function containsNestedReturns(
       for (const arg of call.arguments) {
         if (arg.type === IR.IRNodeType.FunctionExpression) {
           const fn = arg as IR.IRFunctionExpression;
-          if (containsThrowStatements(fn.body)) {
+          if (containsThrowStatement(fn.body)) {
             return true;
           }
         }
@@ -75,10 +68,7 @@ export function createEarlyReturnObject(
     properties: [
       {
         type: IR.IRNodeType.ObjectProperty,
-        key: {
-          type: IR.IRNodeType.Identifier,
-          name: EARLY_RETURN_FLAG,
-        } as IR.IRIdentifier,
+        key: createId(EARLY_RETURN_FLAG),
         value: {
           type: IR.IRNodeType.BooleanLiteral,
           value: true,
@@ -88,10 +78,7 @@ export function createEarlyReturnObject(
       } as IR.IRObjectProperty,
       {
         type: IR.IRNodeType.ObjectProperty,
-        key: {
-          type: IR.IRNodeType.Identifier,
-          name: "value",
-        } as IR.IRIdentifier,
+        key: createId("value"),
         value: value,
         shorthand: false,
         computed: false,
@@ -107,57 +94,25 @@ export function createEarlyReturnObject(
 export function wrapWithEarlyReturnHandler(
   body: IR.IRBlockStatement,
 ): IR.IRBlockStatement {
-  const errorParam: IR.IRIdentifier = {
-    type: IR.IRNodeType.Identifier,
-    name: RETURN_VALUE_VAR,
-  };
+  const errorParam = createId(RETURN_VALUE_VAR);
 
   // Check: __hql_ret__ && __hql_ret__.__hql_early_return__
   const checkCondition: IR.IRBinaryExpression = {
     type: IR.IRNodeType.BinaryExpression,
     operator: "&&",
-    left: {
-      type: IR.IRNodeType.Identifier,
-      name: RETURN_VALUE_VAR,
-    } as IR.IRIdentifier,
-    right: {
-      type: IR.IRNodeType.MemberExpression,
-      object: {
-        type: IR.IRNodeType.Identifier,
-        name: RETURN_VALUE_VAR,
-      } as IR.IRIdentifier,
-      property: {
-        type: IR.IRNodeType.Identifier,
-        name: EARLY_RETURN_FLAG,
-      } as IR.IRIdentifier,
-      computed: false,
-    } as IR.IRMemberExpression,
+    left: createId(RETURN_VALUE_VAR),
+    right: createMember(createId(RETURN_VALUE_VAR), createId(EARLY_RETURN_FLAG)),
   };
 
   // Return: __hql_ret__.value
-  const returnValue: IR.IRReturnStatement = {
-    type: IR.IRNodeType.ReturnStatement,
-    argument: {
-      type: IR.IRNodeType.MemberExpression,
-      object: {
-        type: IR.IRNodeType.Identifier,
-        name: RETURN_VALUE_VAR,
-      } as IR.IRIdentifier,
-      property: {
-        type: IR.IRNodeType.Identifier,
-        name: "value",
-      } as IR.IRIdentifier,
-      computed: false,
-    } as IR.IRMemberExpression,
-  };
+  const returnValue = createReturn(
+    createMember(createId(RETURN_VALUE_VAR), createId("value")),
+  );
 
   // Rethrow: throw __hql_ret__
   const rethrow: IR.IRThrowStatement = {
     type: IR.IRNodeType.ThrowStatement,
-    argument: {
-      type: IR.IRNodeType.Identifier,
-      name: RETURN_VALUE_VAR,
-    } as IR.IRIdentifier,
+    argument: createId(RETURN_VALUE_VAR),
   };
 
   // if (__hql_ret__ && __hql_ret__.__hql_early_return__) return __hql_ret__.value; else throw __hql_ret__;

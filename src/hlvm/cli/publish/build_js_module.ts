@@ -1,19 +1,17 @@
 import { prebundleHqlImportsInJs, transpileCLI } from "../../../hql/bundler.ts";
-import { getPlatform } from "../../../platform/platform.ts";
 import { RuntimeError } from "../../../common/error.ts";
-
-// SSOT: Use platform layer for all file/path operations
-const p = () => getPlatform();
-const basename = (path: string) => p().path.basename(path);
-const dirname = (path: string) => p().path.dirname(path);
-const ensureDir = (path: string) => p().fs.ensureDir(path);
-const exists = (path: string) => p().fs.exists(path);
-const join = (...paths: string[]) => p().path.join(...paths);
-const readTextFile = (path: string) => p().fs.readTextFile(path);
-const remove = (path: string, opts?: { recursive?: boolean }) => p().fs.remove(path, opts);
-const resolve = (...paths: string[]) => p().path.resolve(...paths);
-const stat = (path: string) => p().fs.stat(path);
-const writeTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
+import {
+  basename,
+  dirname,
+  ensureDir,
+  exists,
+  join,
+  readTextFile,
+  remove,
+  resolve,
+  stat,
+  writeTextFile,
+} from "../utils/platform-helpers.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import { log } from "../../api/log.ts";
 import { checkForHqlImports, getErrorMessage } from "../../../common/utils.ts";
@@ -164,7 +162,14 @@ async function prepareDistributionFiles(
     await ensureDir(esmDir);
     await ensureDir(typesDir);
 
-    if (await exists(jsOutputPath)) {
+    const readmePath = join(distDir, "README.md");
+    const [hasJs, hasDts, hasReadme] = await Promise.all([
+      exists(jsOutputPath),
+      exists(dtsOutputPath),
+      exists(readmePath),
+    ]);
+
+    if (hasJs) {
       const jsContent = await readTextFile(jsOutputPath);
       const esmIndexPath = join(esmDir, "index.js");
       await writeTextFile(esmIndexPath, jsContent);
@@ -178,7 +183,7 @@ async function prepareDistributionFiles(
       );
     }
 
-    if (await exists(dtsOutputPath)) {
+    if (hasDts) {
       const dtsContent = await readTextFile(dtsOutputPath);
       await writeTextFile(join(typesDir, "index.d.ts"), dtsContent);
       if (verbose) {
@@ -196,8 +201,7 @@ async function prepareDistributionFiles(
       }
     }
 
-    const readmePath = join(distDir, "README.md");
-    if (!await exists(readmePath)) {
+    if (!hasReadme) {
       await writeTextFile(
         readmePath,
         `# ${packageName}\n\nGenerated HLVM module.\n`,
@@ -207,17 +211,6 @@ async function prepareDistributionFiles(
       }
     }
 
-    // Save externals to a file for later use by package.json generation
-    if (externals && externals.length > 0) {
-      const externalsFile = join(distDir, ".hlvm-build-externals.json");
-      await writeTextFile(
-        externalsFile,
-        JSON.stringify({ externals }, null, 2),
-      );
-      if (verbose) {
-        logger.debug(`Saved externals list to ${externalsFile}`);
-      }
-    }
   } catch (error) {
     log.raw.error(
       `\n❌ Error preparing distribution files: ${
@@ -281,10 +274,10 @@ export async function buildJsModule(
       : "index";
 
     const packageName = fileName !== "index" ? fileName : basename(baseDir);
-    const jsOutputPath = join(buildDir, `${fileName}.js`);
-    const dtsOutputPath = join(buildDir, `${fileName}.d.ts`);
 
     buildDir = join(baseDir, ".build");
+    const jsOutputPath = join(buildDir, `${fileName}.js`);
+    const dtsOutputPath = join(buildDir, `${fileName}.d.ts`);
     const distDir = join(baseDir, "dist");
 
     await createBuildDirectories(buildDir, distDir, options.verbose);

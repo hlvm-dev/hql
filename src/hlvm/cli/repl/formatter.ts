@@ -7,8 +7,6 @@ import { ANSI_COLORS } from "../ansi.ts";
 import { escapeString } from "./string-utils.ts";
 import { SEQ_SYMBOL } from "../../../common/protocol-symbols.ts";
 
-const { CYAN, YELLOW, RED, DIM_GRAY, RESET } = ANSI_COLORS;
-
 /**
  * Check if value implements SEQ protocol (LazySeq, Cons, ArraySeq, NumericRange, etc.)
  */
@@ -173,6 +171,7 @@ export function formatPlainValue(value: unknown): string {
 
 /** Format an error for display */
 export function formatError(error: Error): string {
+  const { RED, DIM_GRAY, RESET } = ANSI_COLORS;
   const name = error.name || "Error";
   const message = error.message || "Unknown error";
 

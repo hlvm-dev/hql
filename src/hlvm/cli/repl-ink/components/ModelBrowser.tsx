@@ -854,15 +854,15 @@ export function ModelBrowser({
       }
     }
 
+    // Helper: find active pull task for a model name
+    const findActivePullTask = (modelName: string) =>
+      tasks.find((t) => isModelPullTask(t) && t.modelName === modelName && isTaskActive(t));
+
     // Cancel download ('x' key)
     if (input === "x" && displayModels[selection.index]) {
       const model = displayModels[selection.index];
       if (model.isDownloading) {
-        // Filter to model-pull tasks first, then find matching name
-        const pullTasks = tasks.filter(isModelPullTask);
-        const task = pullTasks.find(
-          (t) => t.modelName === model.name && isTaskActive(t)
-        );
+        const task = findActivePullTask(model.name);
         if (task) {
           cancel(task.id);
           return;
@@ -881,10 +881,7 @@ export function ModelBrowser({
       // 2. Cancel download if selected model is downloading
       const selectedModel = displayModels[selection.index];
       if (selectedModel?.isDownloading) {
-        const pullTasks = tasks.filter(isModelPullTask);
-        const task = pullTasks.find(
-          (t) => t.modelName === selectedModel.name && isTaskActive(t)
-        );
+        const task = findActivePullTask(selectedModel.name);
         if (task) {
           cancel(task.id);
           return;

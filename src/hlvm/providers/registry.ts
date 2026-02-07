@@ -9,8 +9,8 @@
 
 import type {
   AIProvider,
-  ProviderFactory,
   ProviderConfig,
+  ProviderFactory,
   RegisteredProvider,
 } from "./types.ts";
 
@@ -27,6 +27,16 @@ const instances = new Map<string, AIProvider>();
 /** Name of the default provider */
 let defaultProviderName: string | null = null;
 
+function normalizeProviderName(name: string): string {
+  return name.toLowerCase();
+}
+
+function resolveProviderKey(name?: string | null): string | null {
+  const providerName = name ?? defaultProviderName;
+  if (!providerName) return null;
+  return normalizeProviderName(providerName);
+}
+
 // ============================================================================
 // Provider Registration
 // ============================================================================
@@ -40,22 +50,23 @@ let defaultProviderName: string | null = null;
 export function registerProvider(
   name: string,
   factory: ProviderFactory,
-  config?: ProviderConfig & { isDefault?: boolean }
+  config?: ProviderConfig & { isDefault?: boolean },
 ): void {
+  const key = normalizeProviderName(name);
   const entry: RegisteredProvider = {
     factory,
     defaultConfig: config,
   };
 
-  providers.set(name.toLowerCase(), entry);
+  providers.set(key, entry);
 
   // Set as default if specified or if it's the first provider
   if (config?.isDefault || defaultProviderName === null) {
-    defaultProviderName = name.toLowerCase();
+    defaultProviderName = key;
   }
 
   // Clear cached instance if re-registering
-  instances.delete(name.toLowerCase());
+  instances.delete(key);
 }
 
 // ============================================================================
@@ -67,8 +78,11 @@ export function registerProvider(
  * @param name Provider name (defaults to default provider)
  * @param config Optional config override
  */
-export function getProvider(name?: string, config?: ProviderConfig): AIProvider | null {
-  const key = (name || defaultProviderName)?.toLowerCase();
+export function getProvider(
+  name?: string,
+  config?: ProviderConfig,
+): AIProvider | null {
+  const key = resolveProviderKey(name);
   if (!key) return null;
 
   const entry = providers.get(key);
@@ -101,7 +115,7 @@ export function getDefaultProvider(): AIProvider | null {
  * @param name Provider name
  */
 export function setDefaultProvider(name: string): boolean {
-  const key = name.toLowerCase();
+  const key = normalizeProviderName(name);
   if (providers.has(key)) {
     defaultProviderName = key;
     return true;
@@ -113,7 +127,7 @@ export function setDefaultProvider(name: string): boolean {
  * Check if a provider is registered
  */
 export function hasProvider(name: string): boolean {
-  return providers.has(name.toLowerCase());
+  return providers.has(normalizeProviderName(name));
 }
 
 // ============================================================================
@@ -135,7 +149,7 @@ export function parseModelString(modelString: string): [string | null, string] {
   // This takes priority because model names can contain colons (e.g., "llama3.2:3b")
   const slashIndex = modelString.indexOf("/");
   if (slashIndex > 0) {
-    const provider = modelString.slice(0, slashIndex).toLowerCase();
+    const provider = normalizeProviderName(modelString.slice(0, slashIndex));
     const model = modelString.slice(slashIndex + 1);
     return [provider, model];
   }
@@ -149,7 +163,7 @@ export function parseModelString(modelString: string): [string | null, string] {
     const beforeColon = modelString.slice(0, colonIndex);
     // If it looks like a simple provider name (no dots), treat as provider:model
     if (!beforeColon.includes(".")) {
-      const provider = beforeColon.toLowerCase();
+      const provider = normalizeProviderName(beforeColon);
       const model = modelString.slice(colonIndex + 1);
       return [provider, model];
     }

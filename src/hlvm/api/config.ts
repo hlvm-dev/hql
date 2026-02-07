@@ -12,20 +12,21 @@
  */
 
 import {
-  loadConfig,
-  saveConfig,
-  resetConfig,
-  isConfigKey,
   getConfigPath,
+  isConfigKey,
+  loadConfig,
+  resetConfig,
+  saveConfig,
 } from "../../common/config/storage.ts";
 
 import {
+  CONFIG_KEYS,
+  type ConfigKey,
+  DEFAULT_CONFIG,
   type HlvmConfig,
   type KeybindingsConfig,
-  DEFAULT_CONFIG,
-  CONFIG_KEYS,
-  validateValue,
   parseValue,
+  validateValue,
 } from "../../common/config/types.ts";
 import { syncProvidersFromConfig } from "../../common/config/provider-sync.ts";
 import { log } from "./log.ts";
@@ -45,16 +46,55 @@ function createConfigApi() {
    * Updated on load/save operations
    */
   let _config: HlvmConfig | null = null;
+  const VALID_CONFIG_KEYS_TEXT = CONFIG_KEYS.join(", ");
+  const PARSEABLE_STRING_KEYS = new Set<ConfigKey>([
+    "temperature",
+    "maxTokens",
+  ]);
 
   /**
    * Get current config, loading from disk if needed
    */
   async function ensureConfig(): Promise<HlvmConfig> {
     if (!_config) {
-      _config = normalizeConfig(await loadConfig());
-      syncProvidersFromConfig(_config);
+      _config = await loadAndSyncConfig();
     }
     return _config;
+  }
+
+  function assertConfigKeyOrThrow(
+    key: string,
+    context: "config.get" | "config.set",
+  ): asserts key is ConfigKey {
+    if (!isConfigKey(key)) {
+      throw new ValidationError(
+        `Unknown config key: ${key}. Valid keys: ${VALID_CONFIG_KEYS_TEXT}`,
+        context,
+      );
+    }
+  }
+
+  function maybeParseConfigValue(key: ConfigKey, value: unknown): unknown {
+    if (typeof value === "string" && PARSEABLE_STRING_KEYS.has(key)) {
+      return parseValue(key, value);
+    }
+    return value;
+  }
+
+  function updateCachedConfig(
+    nextConfig: HlvmConfig,
+    syncProviders = false,
+  ): HlvmConfig {
+    _config = nextConfig;
+    if (syncProviders) {
+      syncProvidersFromConfig(nextConfig);
+    }
+    return nextConfig;
+  }
+
+  async function loadAndSyncConfig(): Promise<HlvmConfig> {
+    const nextConfig = normalizeConfig(await loadConfig());
+    return updateCachedConfig(nextConfig, true);
   }
 
   function normalizeConfig(config: HlvmConfig): HlvmConfig {
@@ -64,7 +104,8 @@ function createConfigApi() {
       const result = validateValue(key, value);
       if (!result.valid) {
         log.warn(`config.${key} invalid: ${result.error}. Using default.`);
-        (next as unknown as Record<string, unknown>)[key] = DEFAULT_CONFIG[key as keyof HlvmConfig];
+        (next as unknown as Record<string, unknown>)[key] =
+          DEFAULT_CONFIG[key as keyof HlvmConfig];
       }
     }
     return next;
@@ -76,9 +117,7 @@ function createConfigApi() {
      * @example (config.get "model")
      */
     get: async (key: string): Promise<unknown> => {
-      if (!isConfigKey(key)) {
-        throw new ValidationError(`Unknown config key: ${key}. Valid keys: ${CONFIG_KEYS.join(", ")}`, "config.get");
-      }
+      assertConfigKeyOrThrow(key, "config.get");
       const cfg = await ensureConfig();
       return cfg[key];
     },
@@ -88,26 +127,21 @@ function createConfigApi() {
      * @example (config.set "model" "ollama/llama3.2")
      */
     set: async (key: string, value: unknown): Promise<void> => {
-      if (!isConfigKey(key)) {
-        throw new ValidationError(`Unknown config key: ${key}. Valid keys: ${CONFIG_KEYS.join(", ")}`, "config.set");
-      }
-
-      // Parse string values for numeric keys
-      let parsedValue = value;
-      if (typeof value === "string" && (key === "temperature" || key === "maxTokens")) {
-        parsedValue = parseValue(key, value);
-      }
+      assertConfigKeyOrThrow(key, "config.set");
+      const parsedValue = maybeParseConfigValue(key, value);
 
       const validation = validateValue(key, parsedValue);
       if (!validation.valid) {
-        throw new ValidationError(validation.error ?? "Invalid value", "config.set");
+        throw new ValidationError(
+          validation.error ?? "Invalid value",
+          "config.set",
+        );
       }
 
       const cfg = await ensureConfig();
       const newConfig = { ...cfg, [key]: parsedValue };
       await saveConfig(newConfig);
-      _config = newConfig;
-      syncProvidersFromConfig(newConfig);
+      updateCachedConfig(newConfig, true);
     },
 
     /**
@@ -115,9 +149,7 @@ function createConfigApi() {
      * @example (config.reset)
      */
     reset: async (): Promise<HlvmConfig> => {
-      _config = await resetConfig();
-      syncProvidersFromConfig(_config);
-      return _config;
+      return updateCachedConfig(await resetConfig(), true);
     },
 
     /**
@@ -165,9 +197,7 @@ function createConfigApi() {
      * @example (config.reload)
      */
     reload: async (): Promise<HlvmConfig> => {
-      _config = normalizeConfig(await loadConfig());
-      syncProvidersFromConfig(_config);
-      return _config;
+      return await loadAndSyncConfig();
     },
 
     /**
@@ -182,7 +212,10 @@ function createConfigApi() {
      * Validate a value for a key
      * @example (config.validate "temperature" 0.5)
      */
-    validate: (key: string, value: unknown): { valid: boolean; error?: string } => {
+    validate: (
+      key: string,
+      value: unknown,
+    ): { valid: boolean; error?: string } => {
       if (!isConfigKey(key)) {
         return { valid: false, error: `Unknown config key: ${key}` };
       }
@@ -211,7 +244,7 @@ function createConfigApi() {
         const newBindings = { ...(cfg.keybindings ?? {}), [id]: combo };
         const newConfig = { ...cfg, keybindings: newBindings };
         await saveConfig(newConfig);
-        _config = newConfig;
+        updateCachedConfig(newConfig);
       },
 
       /**

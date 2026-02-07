@@ -426,7 +426,6 @@ export function createSummarizationFn(
       { model, temperature: 0.0 },
     );
 
-    const { collectStream } = await import("../../common/async-stream.ts");
     return (await collectStream(stream)).trim();
   };
 }

@@ -23,6 +23,21 @@ import {
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
 // ============================================================
+// Config API Accessor (DRY: single access point for globalThis.config)
+// ============================================================
+
+type ConfigApi = {
+  all: Promise<HlvmConfig>;
+  set: (key: string, value: unknown) => Promise<unknown>;
+  reset: () => Promise<unknown>;
+  reload: () => Promise<unknown>;
+};
+
+function getConfigApi(): ConfigApi | null {
+  return ((globalThis as Record<string, unknown>).config as ConfigApi) ?? null;
+}
+
+// ============================================================
 // Command Handler
 // ============================================================
 
@@ -55,30 +70,24 @@ export async function handleConfigCommand(args: string): Promise<void> {
 
   // /config reset - reset to defaults (hot reload)
   if (subcommand === "reset") {
-    // 100% SSOT: Use config API only - no fallback bypass
-    const configApi = (globalThis as Record<string, unknown>).config as {
-      reset: () => Promise<unknown>;
-    } | undefined;
-    if (!configApi?.reset) {
+    const api = getConfigApi();
+    if (!api?.reset) {
       log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
       return;
     }
-    await configApi.reset();
+    await api.reset();
     log.raw.log(`${GREEN}Config reset to defaults.${RESET}`);
     return;
   }
 
   // /config reload - reload from file (for external edits)
   if (subcommand === "reload") {
-    // 100% SSOT: Use config API only - no fallback bypass
-    const configApi = (globalThis as Record<string, unknown>).config as {
-      reload: () => Promise<unknown>;
-    } | undefined;
-    if (!configApi?.reload) {
+    const api = getConfigApi();
+    if (!api?.reload) {
       log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
       return;
     }
-    await configApi.reload();
+    await api.reload();
     log.raw.log(`${GREEN}Config reloaded from file.${RESET}`);
     return;
   }
@@ -123,17 +132,13 @@ export async function handleConfigCommand(args: string): Promise<void> {
 // ============================================================
 
 async function showAllConfig(): Promise<void> {
-  // 100% SSOT: Use config API only - no direct loadConfig() bypass
-  const configApi = (globalThis as Record<string, unknown>).config as {
-    all: Promise<HlvmConfig>;
-  } | undefined;
-
-  if (!configApi?.all) {
+  const api = getConfigApi();
+  if (!api?.all) {
     log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
     return;
   }
 
-  const config = await configApi.all;
+  const config = await api.all;
 
   log.raw.log(`${BOLD}Configuration:${RESET}`);
   for (const key of CONFIG_KEYS) {
@@ -147,17 +152,13 @@ async function showAllConfig(): Promise<void> {
 }
 
 async function showSingleConfig(key: ConfigKey): Promise<void> {
-  // 100% SSOT: Use config API only - no direct loadConfig() bypass
-  const configApi = (globalThis as Record<string, unknown>).config as {
-    all: Promise<HlvmConfig>;
-  } | undefined;
-
-  if (!configApi?.all) {
+  const api = getConfigApi();
+  if (!api?.all) {
     log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
     return;
   }
 
-  const config = await configApi.all;
+  const config = await api.all;
   const value = getConfigValue(config, key);
   log.raw.log(`${CYAN}${key}${RESET}: ${formatValue(value)}`);
 }
@@ -179,17 +180,13 @@ async function setConfigByKey(keyStr: string, valueStr: string): Promise<void> {
     return;
   }
 
-  // 100% SSOT: Use config API only - no fallback bypass
-  const configApi = (globalThis as Record<string, unknown>).config as {
-    set: (key: string, value: unknown) => Promise<unknown>;
-  } | undefined;
-
-  if (!configApi?.set) {
+  const api = getConfigApi();
+  if (!api?.set) {
     log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
     return;
   }
 
-  await configApi.set(key, parsedValue);
+  await api.set(key, parsedValue);
   log.raw.log(`${GREEN}Set ${key} = ${formatValue(parsedValue)}${RESET}`);
 }
 

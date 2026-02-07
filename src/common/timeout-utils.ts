@@ -85,59 +85,53 @@ export async function withTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   options: TimeoutOptions,
 ): Promise<T> {
+  const { timeoutMs, signal: parentSignal, label } = options;
+
   // Create timeout controller
   const timeoutController = new AbortController();
 
   // Combine with parent signal if provided
-  const combinedSignal = options.signal
-    ? combineSignals(timeoutController.signal, options.signal)
+  const combinedSignal = parentSignal
+    ? combineSignals(timeoutController.signal, parentSignal)
     : timeoutController.signal;
 
   // Create timeout promise that rejects
   let timeoutId: number | undefined;
-  const timeoutPromise = new Promise<T>((_, reject) => {
+  const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
       timeoutController.abort();
-      reject(new TimeoutError(options.label, options.timeoutMs));
-    }, options.timeoutMs);
+      reject(new TimeoutError(label, timeoutMs));
+    }, timeoutMs);
   });
 
   // Race between operation and timeout
   try {
-    const result = await Promise.race([
+    return await Promise.race([
       operation(combinedSignal),
       timeoutPromise,
     ]);
-
-    // Clear timeout on success
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
-
-    return result;
   } catch (error) {
-    // Clear timeout on error
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
-
     // If it's timeout error, throw it
     if (error instanceof TimeoutError) {
       throw error;
     }
 
     // Check if operation was aborted by parent signal
-    if (options.signal?.aborted) {
+    if (parentSignal?.aborted) {
       throw error; // Parent aborted - re-throw original error
     }
 
     // Check if timeout controller aborted
     if (timeoutController.signal.aborted) {
-      throw new TimeoutError(options.label, options.timeoutMs);
+      throw new TimeoutError(label, timeoutMs);
     }
 
     // Other errors - re-throw as-is
     throw error;
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -154,7 +148,7 @@ export async function withTimeout<T>(
  * Implementation:
  * - Returns immediately if any signal already aborted
  * - Listens to all signals and aborts on first trigger
- * - Memory-safe: listeners are passive (no cleanup needed)
+ * - Removes listeners after abort to avoid stale references
  *
  * @param signals AbortSignals to combine
  * @returns Combined signal that aborts when any input aborts
@@ -170,6 +164,11 @@ export async function withTimeout<T>(
  * ```
  */
 export function combineSignals(...signals: AbortSignal[]): AbortSignal {
+  // Fast path: single signal needs no wrapper/allocation
+  if (signals.length === 1) {
+    return signals[0];
+  }
+
   // Fast path: if any signal already aborted, return aborted signal
   for (const signal of signals) {
     if (signal.aborted) {
@@ -181,14 +180,23 @@ export function combineSignals(...signals: AbortSignal[]): AbortSignal {
 
   // Create combined controller
   const controller = new AbortController();
+  const listeners: Array<[AbortSignal, () => void]> = [];
+
+  const abortWithSignal = (signal: AbortSignal): void => {
+    if (controller.signal.aborted) {
+      return;
+    }
+    controller.abort(signal.reason);
+    for (const [registeredSignal, listener] of listeners) {
+      registeredSignal.removeEventListener("abort", listener);
+    }
+  };
 
   // Listen to all signals
   for (const signal of signals) {
-    signal.addEventListener("abort", () => {
-      if (!controller.signal.aborted) {
-        controller.abort(signal.reason);
-      }
-    });
+    const listener = () => abortWithSignal(signal);
+    listeners.push([signal, listener]);
+    signal.addEventListener("abort", listener, { once: true });
   }
 
   return controller.signal;

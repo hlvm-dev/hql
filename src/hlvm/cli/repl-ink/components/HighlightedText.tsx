@@ -115,17 +115,13 @@ export function HighlightedText({
     <Text inverse={inverse}>
       {segments.map((seg, i) =>
         seg.highlighted ? (
-          <React.Fragment key={i}>
-            <Text color={highlightColor} bold={bold} underline={underline}>
-              {seg.text}
-            </Text>
-          </React.Fragment>
+          <Text key={i} color={highlightColor} bold={bold} underline={underline}>
+            {seg.text}
+          </Text>
         ) : (
-          <React.Fragment key={i}>
-            <Text color={baseColor}>
-              {seg.text}
-            </Text>
-          </React.Fragment>
+          <Text key={i} color={baseColor}>
+            {seg.text}
+          </Text>
         )
       )}
     </Text>

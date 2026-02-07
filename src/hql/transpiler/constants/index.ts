@@ -8,6 +8,13 @@
 /**
  * Parser limits to prevent resource exhaustion
  */
+// ============================================================================
+// REGEX PATTERNS
+// ============================================================================
+
+/** Matches strings consisting entirely of digits (e.g. "0", "123"). Used for numeric index detection. */
+export const NUMERIC_PATTERN = /^\d+$/;
+
 export const PARSER_LIMITS = {
   /** Maximum nesting depth for parsing */
   MAX_PARSING_DEPTH: 128,

@@ -5,6 +5,7 @@ import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import { TransformError } from "../../../common/error.ts";
 import { perform } from "../../../common/error.ts";
+import { createArr, createCall, createId, createMember, createNull, createNum, createStr } from "../utils/ir-helpers.ts";
 import {
   validateTransformed,
   validateListLength,
@@ -32,22 +33,16 @@ export function transformQuote(
         // Create the appropriate literal based on the type
         const value = (quoted as LiteralNode).value;
         if (value === null) {
-          return { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
+          return createNull();
         } else if (typeof value === "boolean") {
           return {
             type: IR.IRNodeType.BooleanLiteral,
             value,
           } as IR.IRBooleanLiteral;
         } else if (typeof value === "number") {
-          return {
-            type: IR.IRNodeType.NumericLiteral,
-            value,
-          } as IR.IRNumericLiteral;
+          return createNum(value);
         }
-        return {
-          type: IR.IRNodeType.StringLiteral,
-          value: String(value),
-        } as IR.IRStringLiteral;
+        return createStr(String(value));
       } else if (quoted.type === "symbol") {
         return {
           type: IR.IRNodeType.StringLiteral,

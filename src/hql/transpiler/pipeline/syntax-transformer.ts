@@ -26,9 +26,7 @@ import {
   VECTOR_SYMBOL,
   EMPTY_ARRAY_SYMBOL,
 } from "../../../common/runtime-helper-impl.ts";
-
-// Pre-compiled regex for numeric string check (avoid creating regex in hot path)
-const NUMERIC_STRING_REGEX = /^\d+$/;
+import { NUMERIC_PATTERN } from "../constants/index.ts";
 
 /**
  * Reverse lookup: caseName → enumName for O(1) enum case resolution.
@@ -1040,7 +1038,7 @@ function normalizeSpacelessDotChain(list: SList): SList {
 
   // Check if first part is numeric - don't normalize
   // Prevents (42.map) from becoming (42 .map) which is semantically wrong
-  if (NUMERIC_STRING_REGEX.test(parts[0])) {
+  if (NUMERIC_PATTERN.test(parts[0])) {
     return list;
   }
 

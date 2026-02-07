@@ -1,11 +1,10 @@
-import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
-
-const p = () => getPlatform();
-const exists = (path: string) => p().fs.exists(path);
-const platformExit = (code: number) => p().process.exit(code);
-const platformReadTextFile = (path: string) => p().fs.readTextFile(path);
-const platformWriteTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
+import {
+  exists,
+  platformExit,
+  readTextFile as platformReadTextFile,
+  writeTextFile as platformWriteTextFile,
+} from "../utils/platform-helpers.ts";
 import { promptUser, writeJSONFile, type HlvmProjectConfig } from "../publish/utils.ts";
 import {
   generateDefaultPackageName,

@@ -151,7 +151,7 @@ const TYPE_KEYWORDS = new Set([
 function matchTypeKeyword(source: string, pos: number): string | null {
   for (const kw of TYPE_KEYWORDS) {
     if (
-      source.slice(pos, pos + kw.length) === kw &&
+      source.startsWith(kw, pos) &&
       (pos + kw.length >= source.length ||
         !IDENTIFIER_CHAR_REGEX.test(source[pos + kw.length]))
     ) {

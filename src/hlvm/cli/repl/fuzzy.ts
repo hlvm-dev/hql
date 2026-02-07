@@ -92,7 +92,7 @@ export function fuzzyMatch(query: string, target: string): FuzzyResult | null {
   let consecutiveCount = 0;
 
   for (let i = 0; i < targetLower.length && queryIdx < queryLower.length; i++) {
-    if (targetLower[i] === queryLower[queryIdx]) {
+    if (targetLower.charCodeAt(i) === queryLower.charCodeAt(queryIdx)) {
       indices.push(i);
 
       // Base score per match
@@ -117,7 +117,7 @@ export function fuzzyMatch(query: string, target: string): FuzzyResult | null {
       }
 
       // Exact case match bonus
-      if (query[queryIdx] === target[i]) {
+      if (target.charCodeAt(i) === query.charCodeAt(queryIdx)) {
         score += 5;
       }
 

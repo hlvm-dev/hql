@@ -30,20 +30,20 @@ export function escapeString(s: string): string {
     return s;
   }
 
-  // Slow path: build escaped string
-  const parts: string[] = [];
+  // Slow path: build escaped string using charCodeAt for switch dispatch
+  let result = "";
   for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    switch (ch) {
-      case "\\": parts.push("\\\\"); break;
-      case '"':  parts.push('\\"'); break;
-      case "\n": parts.push("\\n"); break;
-      case "\r": parts.push("\\r"); break;
-      case "\t": parts.push("\\t"); break;
-      default:   parts.push(ch);
+    const code = s.charCodeAt(i);
+    switch (code) {
+      case 92:  result += "\\\\"; break; // backslash
+      case 34:  result += '\\"'; break;  // double quote
+      case 10:  result += "\\n"; break;  // newline
+      case 13:  result += "\\r"; break;  // carriage return
+      case 9:   result += "\\t"; break;  // tab
+      default:  result += s[i];
     }
   }
-  return parts.join("");
+  return result;
 }
 
 /**

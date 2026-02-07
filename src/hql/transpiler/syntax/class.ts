@@ -24,6 +24,7 @@ import {
   parseParametersWithDefaults,
   GENERIC_NAME_REGEX,
 } from "./function.ts";
+import { createExprStmt, createId, createReturn, createStr } from "../utils/ir-helpers.ts";
 import {
   HASH_MAP_INTERNAL,
   HASH_MAP_USER,
@@ -62,10 +63,7 @@ function needsExpressionWrapper(node: IR.IRNode): boolean {
  */
 function wrapIfNeeded(node: IR.IRNode): IR.IRNode {
   if (needsExpressionWrapper(node)) {
-    return {
-      type: IR.IRNodeType.ExpressionStatement,
-      expression: node,
-    } as IR.IRExpressionStatement;
+    return createExprStmt(node);
   }
   return node;
 }
@@ -307,10 +305,7 @@ export function transformClass(
     }
 
     // Create the ClassDeclaration IR node
-    const classId: IR.IRIdentifier = {
-      type: IR.IRNodeType.Identifier,
-      name: sanitizeIdentifier(className),
-    };
+    const classId = createId(sanitizeIdentifier(className));
     copyPosition(nameNode, classId);
 
     const classDecl: IR.IRClassDeclaration = {
@@ -395,10 +390,7 @@ export function transformMethodCall(
       return {
         type: IR.IRNodeType.CallMemberExpression,
         object,
-        property: {
-          type: IR.IRNodeType.StringLiteral,
-          value: methodName,
-        } as IR.IRStringLiteral,
+        property: createStr(methodName),
         arguments: args,
       } as IR.IRCallMemberExpression;
     },
@@ -460,14 +452,8 @@ export function transformOptionalMethodCall(
             type: IR.IRNodeType.OptionalMemberExpression,
             object,
             property: needsComputed
-              ? {
-                  type: IR.IRNodeType.StringLiteral,
-                  value: methodName,
-                } as IR.IRStringLiteral
-              : {
-                  type: IR.IRNodeType.Identifier,
-                  name: methodName,
-                } as IR.IRIdentifier,
+              ? createStr(methodName)
+              : createId(methodName),
             computed: needsComputed,
             optional: true,
           } as IR.IROptionalMemberExpression,
@@ -526,14 +512,8 @@ export function transformOptionalMethodCall(
           type: IR.IRNodeType.OptionalMemberExpression,
           object,
           property: needsComputed
-            ? {
-                type: IR.IRNodeType.StringLiteral,
-                value: methodName,
-              } as IR.IRStringLiteral
-            : {
-                type: IR.IRNodeType.Identifier,
-                name: methodName,
-              } as IR.IRIdentifier,
+            ? createStr(methodName)
+            : createId(methodName),
           computed: needsComputed,
           optional: true,
         } as IR.IROptionalMemberExpression,
@@ -730,10 +710,7 @@ function processClassMethodFn(
       const isLast = i === bodyNodes.length - 1;
       // If it's the last statement and not already a return, wrap it
       if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-        return {
-          type: IR.IRNodeType.ReturnStatement,
-          argument: node,
-        } as IR.IRReturnStatement;
+        return createReturn(node);
       }
       return node;
     });
@@ -947,10 +924,7 @@ function processClassAccessor(
       const isLast = i === bodyNodes.length - 1;
       // Only getters need implicit return
       if (kind === "get" && isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-        return {
-          type: IR.IRNodeType.ReturnStatement,
-          argument: node,
-        } as IR.IRReturnStatement;
+        return createReturn(node);
       }
       return node;
     });
@@ -1032,11 +1006,7 @@ function processClassConstructor(
       // Extract type annotation if present (e.g., "v:T" -> name="v", typeAnnotation="T")
       const { name: paramName, type: typeAnnotation } = extractAndNormalizeType((param as SymbolNode).name);
 
-      const parameter: IR.IRIdentifier = {
-        type: IR.IRNodeType.Identifier,
-        name: sanitizeIdentifier(paramName),
-        typeAnnotation,
-      };
+      const parameter = createId(sanitizeIdentifier(paramName), typeAnnotation ? { typeAnnotation } : undefined);
       copyPosition(param, parameter);
       params.push(parameter);
     }

@@ -33,11 +33,15 @@ import {
 } from "../utils/model-info.ts";
 import {
   clearOverlay,
-  getTerminalSize,
   ansi,
   hexToRgb,
+  type RGB,
+  OVERLAY_BG_COLOR,
+  fg,
+  bg,
+  calcOverlayPosition,
+  writeToTerminal,
 } from "../overlay/index.ts";
-import { getPlatform } from "../../../../platform/platform.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
 
 // ============================================================
@@ -71,8 +75,6 @@ interface FieldMeta {
 
 type Mode = "navigate" | "edit";
 
-type RGB = [number, number, number];
-
 // ============================================================
 // Layout Constants
 // ============================================================
@@ -84,11 +86,8 @@ const CONTENT_START = PADDING.top + HEADER_ROWS;  // 3
 const VISIBLE_FIELDS = CONFIG_KEYS.length;  // 5 fields
 // Layout: top(1) + header(1) + empty(1) + fields(5) + empty(1) + footer(1) + bottom(1) = 11
 const OVERLAY_HEIGHT = PADDING.top + HEADER_ROWS + VISIBLE_FIELDS + 1 + 1 + PADDING.bottom;  // 11
-const BG_COLOR: RGB = [35, 35, 40];
+const BG_COLOR = OVERLAY_BG_COLOR;
 const SELECTED_BG_COLOR: RGB = [55, 55, 65];  // Brighter background for selected row
-
-// Shared encoder for terminal output
-const encoder = new TextEncoder();
 
 // Config field metadata
 const FIELD_META: Record<ConfigKey, FieldMeta> = {
@@ -125,23 +124,14 @@ const FIELD_META: Record<ConfigKey, FieldMeta> = {
 // Helpers
 // ============================================================
 
-/** Calculate centered position */
-function getOverlayPosition(): { x: number; y: number } {
-  const term = getTerminalSize();
-  return {
-    x: Math.max(2, Math.floor((term.columns - OVERLAY_WIDTH) / 2)),
-    y: Math.max(2, Math.floor((term.rows - OVERLAY_HEIGHT) / 2)),
-  };
+/** SSOT accessor for config API */
+interface ConfigApi {
+  set: (key: string, value: unknown) => Promise<unknown>;
+  reset?: () => Promise<HlvmConfig>;
+  all?: Promise<HlvmConfig>;
 }
-
-/** Create ANSI foreground color string from RGB */
-function fg(rgb: RGB): string {
-  return ansi.fg(rgb[0], rgb[1], rgb[2]);
-}
-
-/** Create ANSI background color string from RGB */
-function bg(rgb: RGB): string {
-  return ansi.bg(rgb[0], rgb[1], rgb[2]);
+function getConfigApi(): ConfigApi | undefined {
+  return (globalThis as Record<string, unknown>).config as ConfigApi | undefined;
 }
 
 // ============================================================
@@ -227,9 +217,7 @@ export function ConfigOverlay({
 
   // Load config on mount - use config API for single source of truth
   useEffect(() => {
-    const configApi = (globalThis as Record<string, unknown>).config as {
-      all: Promise<HlvmConfig>;
-    } | undefined;
+    const configApi = getConfigApi();
 
     const loadConfigFromApi = async () => {
       const cfg = configApi?.all
@@ -280,9 +268,7 @@ export function ConfigOverlay({
     }
 
     const newValue = options[nextIdx];
-    const configApi = (globalThis as Record<string, unknown>).config as {
-      set: (key: string, value: unknown) => Promise<unknown>;
-    } | undefined;
+    const configApi = getConfigApi();
 
     if (configApi?.set) {
       configApi.set(selectedKey, newValue).then(() => {
@@ -316,9 +302,7 @@ export function ConfigOverlay({
     }
 
     try {
-      const configApi = (globalThis as Record<string, unknown>).config as {
-        set: (key: string, value: unknown) => Promise<unknown>;
-      } | undefined;
+      const configApi = getConfigApi();
 
       if (configApi?.set) {
         await configApi.set(selectedKey, parsedValue);
@@ -337,7 +321,7 @@ export function ConfigOverlay({
 
   // Draw full overlay
   const drawOverlay = useCallback(() => {
-    const pos = getOverlayPosition();
+    const pos = calcOverlayPosition(OVERLAY_WIDTH, OVERLAY_HEIGHT);
     overlayPosRef.current = pos;
 
     const contentWidth = OVERLAY_WIDTH - PADDING.left - PADDING.right;
@@ -519,7 +503,7 @@ export function ConfigOverlay({
 
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
-    getPlatform().terminal.stdout.writeSync(encoder.encode(output));
+    writeToTerminal(output);
   }, [config, selectedIndex, mode, editValue, editCursor, cursorVisible, error, colors, formatValue, isDefault, modelInfo, fieldMeta.type]);
 
   // Draw cursor only (optimized for blink in edit mode)
@@ -549,7 +533,7 @@ export function ConfigOverlay({
       + colors.selectedBgStyle + cursorStyle
       + ansi.cursorRestore + ansi.cursorShow;
 
-    getPlatform().terminal.stdout.writeSync(encoder.encode(output));
+    writeToTerminal(output);
   }, [mode, selectedIndex, editValue, editCursor, cursorVisible, colors.selectedBgStyle]);
 
   // Cursor blink effect
@@ -664,9 +648,7 @@ export function ConfigOverlay({
       // 'd': Reset selected field to default - use config API for single source of truth
       if (input === "d") {
         const defaultValue = DEFAULT_CONFIG[selectedKey as keyof HlvmConfig];
-        const configApi = (globalThis as Record<string, unknown>).config as {
-          set: (key: string, value: unknown) => Promise<unknown>;
-        } | undefined;
+        const configApi = getConfigApi();
 
         if (configApi?.set) {
           configApi.set(selectedKey, defaultValue).then(() => {
@@ -687,9 +669,7 @@ export function ConfigOverlay({
 
       // 'r': Reset ALL to defaults - use config API for single source of truth
       if (input === "r") {
-        const configApi = (globalThis as Record<string, unknown>).config as {
-          reset: () => Promise<HlvmConfig>;
-        } | undefined;
+        const configApi = getConfigApi();
 
         if (configApi?.reset) {
           configApi.reset().then((newConfig) => {

@@ -21,11 +21,15 @@ import { isEvalTask, isTaskActive } from "../../repl/task-manager/types.ts";
 import { formatEvalTaskResultLines, sortEvalTasks } from "../utils/eval-task-results.ts";
 import {
   clearOverlay,
-  getTerminalSize,
   ansi,
   hexToRgb,
+  type RGB,
+  OVERLAY_BG_COLOR,
+  fg,
+  bg,
+  calcOverlayPosition,
+  writeToTerminal,
 } from "../overlay/index.ts";
-import { getPlatform } from "../../../../platform/platform.ts";
 import { truncate } from "../../../../common/utils.ts";
 
 // ============================================================
@@ -38,8 +42,6 @@ interface BackgroundTasksOverlayProps {
 
 type ViewMode = "list" | "result";
 
-type RGB = [number, number, number];
-
 // ============================================================
 // Layout Constants
 // ============================================================
@@ -50,33 +52,11 @@ const PADDING = { top: 1, bottom: 1, left: 2, right: 2 };
 const HEADER_ROWS = 3;  // header + hint + empty
 const CONTENT_START = PADDING.top + HEADER_ROWS;
 const VISIBLE_ROWS = OVERLAY_HEIGHT - CONTENT_START - PADDING.bottom - 2; // -2 for footer
-const BG_COLOR: RGB = [35, 35, 40];
-
-// Shared encoder for terminal output
-const encoder = new TextEncoder();
+const BG_COLOR = OVERLAY_BG_COLOR;
 
 // ============================================================
 // Helpers
 // ============================================================
-
-/** Calculate centered position */
-function getOverlayPosition(): { x: number; y: number } {
-  const term = getTerminalSize();
-  return {
-    x: Math.max(2, Math.floor((term.columns - OVERLAY_WIDTH) / 2)),
-    y: Math.max(2, Math.floor((term.rows - OVERLAY_HEIGHT) / 2)),
-  };
-}
-
-/** Create ANSI foreground color string from RGB */
-function fg(rgb: RGB): string {
-  return ansi.fg(rgb[0], rgb[1], rgb[2]);
-}
-
-/** Create ANSI background color string from RGB */
-function bg(rgb: RGB): string {
-  return ansi.bg(rgb[0], rgb[1], rgb[2]);
-}
 
 /** Pad string to exact length */
 function padTo(str: string, len: number): string {
@@ -137,7 +117,7 @@ export function BackgroundTasksOverlay({
 
   // Draw the overlay
   const drawOverlay = useCallback(() => {
-    const pos = getOverlayPosition();
+    const pos = calcOverlayPosition(OVERLAY_WIDTH, OVERLAY_HEIGHT);
     overlayPosRef.current = pos;
 
     const contentWidth = OVERLAY_WIDTH - PADDING.left - PADDING.right;
@@ -333,7 +313,7 @@ export function BackgroundTasksOverlay({
 
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
-    getPlatform().terminal.stdout.writeSync(encoder.encode(output));
+    writeToTerminal(output);
   }, [colors, evalTasks, selectedIndex, viewMode, viewingTask, resultLines, resultScrollOffset]);
 
   // Draw overlay on changes

@@ -40,10 +40,6 @@ function getSessionPath(sessionId: string): string {
   return path().join(getSessionsDir(), `${sessionId}.jsonl`);
 }
 
-async function pathExists(path: string): Promise<boolean> {
-  return await getPlatform().fs.exists(path);
-}
-
 async function sessionsDirHasData(): Promise<boolean> {
   const platform = getPlatform();
   try {
@@ -133,7 +129,7 @@ async function ensureLegacySessionsMigrated(): Promise<void> {
   for (const legacyFile of legacyFiles) {
     const filename = path().basename(legacyFile);
     const targetPath = path().join(getSessionsDir(), filename);
-    if (await pathExists(targetPath)) {
+    if (await getPlatform().fs.exists(targetPath)) {
       continue;
     }
     try {
@@ -146,7 +142,7 @@ async function ensureLegacySessionsMigrated(): Promise<void> {
 
   const indexPath = getIndexPath();
   const hasCurrentData = await sessionsDirHasData();
-  const needsIndex = (hasLegacyFiles || hasCurrentData) && !(await pathExists(indexPath));
+  const needsIndex = (hasLegacyFiles || hasCurrentData) && !(await getPlatform().fs.exists(indexPath));
 
   if (copiedAny || needsIndex) {
     await rebuildIndexFromSessions();
@@ -405,17 +401,16 @@ export async function appendMessage(
   const sessionPath = getSessionPath(sessionId);
   await appendJsonLine(sessionPath, message);
 
-  // Update index with new count and timestamp
+  // Update index in a single read-modify-write (no double read)
   const entries = await readIndex();
-  const entry = entries.find((e) => e.id === sessionId);
-
-  if (entry) {
-    const updated: SessionMeta = {
-      ...entry,
+  const index = entries.findIndex((e) => e.id === sessionId);
+  if (index >= 0) {
+    entries[index] = {
+      ...entries[index],
       updatedAt: message.ts,
-      messageCount: entry.messageCount + 1,
+      messageCount: entries[index].messageCount + 1,
     };
-    await updateIndexEntry(updated);
+    await writeIndex(entries);
   }
 
   return message;
@@ -598,17 +593,16 @@ export async function updateTitle(
   const sessionPath = getSessionPath(sessionId);
   await appendJsonLine(sessionPath, titleRecord);
 
-  // Update index
+  // Update index in a single read-modify-write (no double read)
   const entries = await readIndex();
-  const entry = entries.find((e) => e.id === sessionId);
-
-  if (entry) {
-    const updated: SessionMeta = {
-      ...entry,
+  const index = entries.findIndex((e) => e.id === sessionId);
+  if (index >= 0) {
+    entries[index] = {
+      ...entries[index],
       title,
       updatedAt: titleRecord.ts,
     };
-    await updateIndexEntry(updated);
+    await writeIndex(entries);
   }
 }
 

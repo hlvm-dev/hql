@@ -11,4 +11,11 @@ export {
   getTerminalSize,
   hexToRgb,
   type ClearRegion,
+  type RGB,
+  OVERLAY_BG_COLOR,
+  overlayEncoder,
+  fg,
+  bg,
+  calcOverlayPosition,
+  writeToTerminal,
 } from "./renderer.ts";

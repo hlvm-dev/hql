@@ -396,15 +396,9 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   // Computed Values
   // ============================================================
 
-  const isVisible = useMemo(
-    () => dropdown.isDropdownActive,
-    [dropdown.isDropdownActive]
-  );
-
-  const activeProviderId = useMemo(
-    () => dropdown.state.providerId,
-    [dropdown.state.providerId]
-  );
+  // Direct pass-throughs — dropdown already memoizes these
+  const isVisible = dropdown.isDropdownActive;
+  const activeProviderId = dropdown.state.providerId;
 
   // Get help text from active provider (GENERIC: provider defines its own help text)
   // Includes docs toggle status indicator
@@ -471,13 +465,8 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
     [dropdown.isDropdownActive, dropdown.state.items, dropdown.state.selectedIndex, dropdown.state.isLoading, dropdown.state.providerId, dropdown.state.showDocPanel, activeProviderHelpText]
   );
 
-  // ============================================================
-  // Toggle DocPanel (direct pass-through)
-  // ============================================================
-
-  const toggleDocPanel = useCallback(() => {
-    dropdown.toggleDocPanel();
-  }, [dropdown]);
+  // Direct pass-through — dropdown.toggleDocPanel is already stable
+  const toggleDocPanel = dropdown.toggleDocPanel;
 
   // ============================================================
   // Close Helper (direct pass-through)
@@ -506,9 +495,8 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   // Selected Item Helper (encapsulates state access)
   // ============================================================
 
-  const selectedItem = useMemo((): CompletionItem | null => {
-    return dropdown.selectedItem;
-  }, [dropdown.selectedItem]);
+  // Direct pass-through — dropdown already memoizes this
+  const selectedItem = dropdown.selectedItem;
 
   // ============================================================
   // Return

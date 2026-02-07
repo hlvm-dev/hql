@@ -6,6 +6,7 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 import { log } from "../api/log.ts";
+import { hasHelpFlag } from "./utils/common-helpers.ts";
 
 // Local alias for platform getArgs
 const platformGetArgs = () => getPlatform().process.args();
@@ -16,7 +17,6 @@ import { uninstall as uninstallCommand, showUninstallHelp } from "./commands/uni
 import { upgrade as upgradeCommand, showUpgradeHelp } from "./commands/upgrade.ts";
 import { aiCommand, showAiHelp } from "./commands/ai.ts";
 import { askCommand, showAskHelp } from "./commands/ask.ts";
-import { wireCommand, showWireHelp } from "./commands/wire.ts";
 import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
 import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
@@ -34,7 +34,7 @@ import { VERSION } from "../../version.ts";
  */
 async function replCommand(args: string[]): Promise<number> {
   // Handle help
-  if (args.includes("--help") || args.includes("-h")) {
+  if (hasHelpFlag(args)) {
     log.raw.log(`
 HLVM REPL - Interactive HQL/JS Read-Eval-Print Loop
 
@@ -106,7 +106,6 @@ Commands:
   init               Initialize a new HLVM project
   publish            Publish an HLVM package
   ask "<query>"      Ask AI agent to perform a task
-  wire               Start JSON-RPC agent protocol (stdio)
   ai                 Setup and manage AI models
   ollama serve       Start Ollama server (forwards to system Ollama)
   upgrade            Upgrade HLVM to the latest version
@@ -133,6 +132,21 @@ For command-specific help:
 function showVersion(): void {
   log.raw.log(`HLVM version ${VERSION}`);
 }
+
+type CommandEntry = { run: (args: string[]) => Promise<unknown>; help?: () => void };
+const COMMANDS: Record<string, CommandEntry> = {
+  run:       { run: runCommand },
+  repl:      { run: replCommand },
+  compile:   { run: compileCommand,   help: showCompileHelp },
+  init:      { run: initCommand,      help: showInitHelp },
+  publish:   { run: publishCommand,   help: showPublishHelp },
+  ai:        { run: aiCommand,        help: showAiHelp },
+  ask:       { run: askCommand,       help: showAskHelp },
+  upgrade:   { run: upgradeCommand,   help: showUpgradeHelp },
+  uninstall: { run: uninstallCommand, help: showUninstallHelp },
+  ollama:    { run: ollamaCommand,    help: showOllamaHelp },
+  serve:     { run: serveCommand,     help: showServeHelp },
+};
 
 /**
  * Main CLI entry point
@@ -164,103 +178,16 @@ async function main(): Promise<void> {
   const command = args[0];
   const commandArgs = args.slice(1);
 
-  switch (command) {
-    case "run":
-      // Run command with remaining args
-      await runCommand(commandArgs);
-      break;
-
-    case "repl":
-      // Start interactive REPL
-      await replCommand(commandArgs);
-      break;
-
-    case "compile":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showCompileHelp();
-      } else {
-        await compileCommand(commandArgs);
-      }
-      break;
-
-    case "init":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showInitHelp();
-      } else {
-        await initCommand(commandArgs);
-      }
-      break;
-
-
-    case "publish":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showPublishHelp();
-      } else {
-        await publishCommand(commandArgs);
-      }
-      break;
-
-    case "ai":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showAiHelp();
-      } else {
-        await aiCommand(commandArgs);
-      }
-      break;
-
-    case "ask":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showAskHelp();
-      } else {
-        await askCommand(commandArgs);
-      }
-      break;
-
-    case "wire":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showWireHelp();
-      } else {
-        await wireCommand(commandArgs);
-      }
-      break;
-
-    case "upgrade":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showUpgradeHelp();
-      } else {
-        await upgradeCommand(commandArgs);
-      }
-      break;
-
-    case "uninstall":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showUninstallHelp();
-      } else {
-        await uninstallCommand(commandArgs);
-      }
-      break;
-
-    case "ollama":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showOllamaHelp();
-      } else {
-        await ollamaCommand(commandArgs);
-      }
-      break;
-
-    case "serve":
-      if (commandArgs.includes("-h") || commandArgs.includes("--help")) {
-        showServeHelp();
-      } else {
-        await serveCommand(commandArgs);
-      }
-      break;
-
-    default:
-      // Assume it's a file or expression to run
-      // Pass the entire args (command included) as it might be a file path
-      await runCommand(args);
-      break;
+  const entry = COMMANDS[command];
+  if (!entry) {
+    // Default: assume it's a file or expression to run
+    await runCommand(args);
+    return;
+  }
+  if (entry.help && hasHelpFlag(commandArgs)) {
+    entry.help();
+  } else {
+    await entry.run(commandArgs);
   }
 }
 

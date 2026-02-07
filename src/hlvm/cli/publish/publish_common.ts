@@ -2,15 +2,13 @@
 import type { PublishSummary, RegistryType } from "./publish_summary.ts";
 import { confirmAllowDirtyPublish } from "./dirty_publish_prompt.ts";
 import { ErrorType } from "./error_handlers.ts";
-import { getPlatform } from "../../../platform/platform.ts";
-
-// SSOT: Use platform layer for all file/path operations
-const p = () => getPlatform();
-const basename = (path: string) => p().path.basename(path);
-const dirname = (path: string) => p().path.dirname(path);
-const exists = (path: string) => p().fs.exists(path);
-const getEnv = (key: string) => p().env.get(key);
-const join = (...paths: string[]) => p().path.join(...paths);
+import {
+  basename,
+  dirname,
+  exists,
+  join,
+  platformGetEnv as getEnv,
+} from "../utils/platform-helpers.ts";
 import {
   ensureReadme,
   getCachedBuild,

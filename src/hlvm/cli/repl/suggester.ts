@@ -23,6 +23,35 @@ function getSortedBindings(bindings: ReadonlySet<string>): string[] {
   return _cachedSortedBindings!;
 }
 
+function findFirstBindingPrefixMatch(
+  sortedBindings: readonly string[],
+  word: string,
+): string | undefined {
+  // Binary search: first index where binding >= word
+  let low = 0;
+  let high = sortedBindings.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (sortedBindings[mid] < word) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  // Return first prefix match (skipping exact match)
+  for (let i = low; i < sortedBindings.length; i++) {
+    const binding = sortedBindings[i];
+    if (!binding.startsWith(word)) {
+      break;
+    }
+    if (binding !== word) {
+      return binding;
+    }
+  }
+  return undefined;
+}
+
 // ============================================================
 // Types
 // ============================================================
@@ -45,7 +74,7 @@ export interface Suggestion {
 export function findSuggestion(
   currentLine: string,
   history: readonly string[],
-  bindings?: ReadonlySet<string>
+  bindings?: ReadonlySet<string>,
 ): Suggestion | null {
   if (currentLine.length === 0) return null;
 
@@ -55,11 +84,13 @@ export function findSuggestion(
 
     if (word.length >= 2) {
       // Find first matching binding (sorted for consistency, cached)
-      for (const binding of getSortedBindings(bindings)) {
-        if (binding.startsWith(word) && binding !== word) {
-          const prefix = currentLine.slice(0, start);
-          return { full: prefix + binding, ghost: binding.slice(word.length) };
-        }
+      const binding = findFirstBindingPrefixMatch(
+        getSortedBindings(bindings),
+        word,
+      );
+      if (binding) {
+        const prefix = currentLine.slice(0, start);
+        return { full: prefix + binding, ghost: binding.slice(word.length) };
       }
     }
   }
@@ -71,8 +102,8 @@ export function findSuggestion(
 
     if (entry.startsWith(currentLine)) {
       let ghost = entry.slice(currentLine.length);
-      const newlinePos = ghost.indexOf('\n');
-      if (newlinePos !== -1) ghost = ghost.slice(0, newlinePos) + ' ...';
+      const newlinePos = ghost.indexOf("\n");
+      if (newlinePos !== -1) ghost = ghost.slice(0, newlinePos) + " ...";
       return { full: entry, ghost };
     }
   }

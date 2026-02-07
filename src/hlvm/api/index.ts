@@ -17,42 +17,16 @@
 // Re-exports
 // ============================================================================
 
-// Config API
-export { config } from "./config.ts";
-
-// Memory API
-export { memory } from "./memory.ts";
-
-// Session API
-export { session, setSessionManager } from "./session.ts";
-
-// History API
-export { history, setReplState } from "./history.ts";
-
-// AI API
-export { ai } from "./ai.ts";
-
-// Runtime API
-export { runtime, setRuntimeState, setAbortSignal, getAbortSignal } from "./runtime.ts";
-
-// Log API (SSOT for all logging)
-export { log } from "./log.ts";
-
-// Errors API (SSOT for error creation)
-export { errors } from "./errors.ts";
-
-// ============================================================================
-// Initialization Helper
-// ============================================================================
-
 import { config } from "./config.ts";
 import { memory } from "./memory.ts";
 import { session, setSessionManager } from "./session.ts";
 import { history, setReplState } from "./history.ts";
 import { ai } from "./ai.ts";
-import { runtime, setRuntimeState, type RuntimeState } from "./runtime.ts";
+import { runtime, setRuntimeState, setAbortSignal, getAbortSignal, type RuntimeState } from "./runtime.ts";
 import { log } from "./log.ts";
 import { errors } from "./errors.ts";
+
+export { config, memory, session, setSessionManager, history, setReplState, ai, runtime, setRuntimeState, setAbortSignal, getAbortSignal, log, errors };
 
 /**
  * Options for registering APIs on globalThis

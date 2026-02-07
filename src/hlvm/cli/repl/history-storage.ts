@@ -46,10 +46,6 @@ const DEFAULT_CONFIG: HistoryStorageConfig = {
 
 let legacyMigrationChecked = false;
 
-async function pathExists(path: string): Promise<boolean> {
-  return await getPlatform().fs.exists(path);
-}
-
 function parseHistoryContent(content: string): HistoryEntry[] {
   const trimmed = content.trim();
   const lines = trimmed ? trimmed.split("\n").filter(Boolean) : [];
@@ -101,27 +97,18 @@ async function ensureLegacyHistoryMerged(maxEntries: number): Promise<void> {
     return;
   }
 
-  const currentExists = await pathExists(currentPath);
   const currentEntries = await readHistoryEntries(currentPath);
-
-  if (!currentExists || currentEntries.length === 0) {
+  if (currentEntries.length === 0) {
     await writeHistoryEntries(currentPath, legacyEntries);
     return;
   }
 
   const currentKeys = new Set(currentEntries.map((entry) => `${entry.ts}:${entry.cmd}`));
-  let hasNewLegacy = false;
-  for (const entry of legacyEntries) {
-    if (!currentKeys.has(`${entry.ts}:${entry.cmd}`)) {
-      hasNewLegacy = true;
-      break;
-    }
-  }
-
-  if (!hasNewLegacy) {
+  if (legacyEntries.every((entry) => currentKeys.has(`${entry.ts}:${entry.cmd}`))) {
     return;
   }
 
+  // Merge with deduplication using a single pass
   const mergedKeys = new Set<string>();
   const merged: HistoryEntry[] = [];
   for (const entry of [...currentEntries, ...legacyEntries]) {
@@ -178,8 +165,8 @@ export class HistoryStorage {
     try {
       const content = await platform.fs.readTextFile(path);
       const allEntries = parseHistoryContent(content);
-      const trimmed = content.trim();
-      this.lineCount = trimmed ? trimmed.split("\n").filter(Boolean).length : 0;
+      // Derive line count from parsed entries (avoids re-splitting content)
+      this.lineCount = allEntries.length;
 
       // Sort by timestamp (oldest first)
       allEntries.sort((a, b) => a.ts - b.ts);

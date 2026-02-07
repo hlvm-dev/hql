@@ -51,6 +51,7 @@ const TOOL_CLAIM_PATTERNS: RegExp[] = [
 function extractClaimedToolNames(response: string): string[] {
   const names = new Set<string>();
   for (const pattern of TOOL_CLAIM_PATTERNS) {
+    pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(response)) !== null) {
       if (match[1]) {
@@ -76,37 +77,50 @@ function responseIncorporatesToolData(
 ): boolean {
   const responseLower = response.toLowerCase();
 
-  for (const tool of toolUses) {
-    const result = tool.result;
-    if (!result || result.length === 0) continue;
+  // Pre-filter: skip tools with empty results
+  const nonEmptyTools = toolUses.filter((t) => t.result && t.result.length > 0);
+  if (nonEmptyTools.length === 0) return false;
 
-    // Extract numbers from tool result (integers and decimals)
+  // Single-pass: collect all specific numbers and significant tokens across all tool results
+  const allNumbers: string[] = [];
+  const allTokens: string[] = [];
+
+  for (const tool of nonEmptyTools) {
+    const result = tool.result;
+
+    // Extract numbers (integers and decimals)
     const numbers = result.match(/\b\d+(?:\.\d+)?\b/g);
     if (numbers) {
-      // Check for specific numbers (not just "0" or "1" which are too generic)
-      const specificNumbers = numbers.filter((n) => {
+      for (const n of numbers) {
         const num = parseFloat(n);
-        return num > 1 || n.includes(".");
-      });
-      if (specificNumbers.some((n) => responseLower.includes(n))) {
-        return true;
+        if (num > 1 || n.includes(".")) {
+          allNumbers.push(n);
+        }
       }
     }
 
     // Extract significant tokens (4+ char words, not common English)
     const tokens = result.match(/[a-zA-Z_][\w.-]{3,}/g);
     if (tokens) {
-      const significantTokens = tokens.filter((t) =>
-        !COMMON_WORDS.has(t.toLowerCase())
-      );
-      // Require at least 2 significant token matches to avoid false positives
-      let matches = 0;
-      for (const token of significantTokens) {
-        if (responseLower.includes(token.toLowerCase())) {
-          matches++;
-          if (matches >= 2) return true;
+      for (const t of tokens) {
+        if (!COMMON_WORDS.has(t.toLowerCase())) {
+          allTokens.push(t.toLowerCase());
         }
       }
+    }
+  }
+
+  // Check numbers first (cheaper — typically fewer)
+  if (allNumbers.some((n) => responseLower.includes(n))) {
+    return true;
+  }
+
+  // Check significant tokens — require at least 2 matches
+  let matches = 0;
+  for (const token of allTokens) {
+    if (responseLower.includes(token)) {
+      matches++;
+      if (matches >= 2) return true;
     }
   }
 

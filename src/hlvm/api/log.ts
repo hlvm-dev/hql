@@ -14,6 +14,9 @@
 import { globalLogger, Logger } from "../../logger.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
+/** Module-level singleton — avoids allocation on every write() call */
+const textEncoder = new TextEncoder();
+
 /**
  * Namespaced log interface for scoped logging
  */
@@ -76,14 +79,13 @@ function formatMessage(message: string, args: unknown[]): string {
         return String(arg);
       case "%d":
         return Number(arg).toString();
-      case "%j":
+      // "%j" — the only remaining case from /%[sdj]/g
+      default:
         try {
           return JSON.stringify(arg);
         } catch {
           return "[Circular]";
         }
-      default:
-        return match;
     }
   });
 
@@ -165,8 +167,7 @@ export const log: LogApi = {
       console.clear();
     },
     write(text: string): void {
-      const encoder = new TextEncoder();
-      getPlatform().terminal.stdout.writeSync(encoder.encode(text));
+      getPlatform().terminal.stdout.writeSync(textEncoder.encode(text));
     },
   },
 };

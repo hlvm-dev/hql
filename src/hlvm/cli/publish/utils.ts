@@ -1,15 +1,14 @@
-import { getPlatform } from "../../../platform/platform.ts";
 import { RuntimeError } from "../../../common/error.ts";
-
-const p = () => getPlatform();
-const exists = (path: string) => p().fs.exists(path);
-const readTextFile = (path: string) => p().fs.readTextFile(path);
-const resolve = (...paths: string[]) => p().path.resolve(...paths);
-const writeTextFile = (path: string, content: string) => p().fs.writeTextFile(path, content);
-const join = (...paths: string[]) => p().path.join(...paths);
-const readDir = (path: string) => p().fs.readDir(path);
-const runCmd = (cmd: string[]) => p().command.run(cmd);
-const dirname = (path: string) => p().path.dirname(path);
+import {
+  dirname,
+  exists,
+  join,
+  readDir,
+  readTextFile,
+  resolve,
+  runCmd,
+  writeTextFile,
+} from "../utils/platform-helpers.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
@@ -41,7 +40,7 @@ export interface MetadataStatus {
   jsr: MetadataFileType | null;
 }
 
-export interface RunCommandOptions {
+interface RunCommandOptions {
   cmd: string[];
   cwd: string;
   dryRun?: boolean;

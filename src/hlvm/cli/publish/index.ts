@@ -1,12 +1,12 @@
 import { parseArgs } from "jsr:@std/cli@1.0.13/parse-args";
-import { getPlatform } from "../../../platform/platform.ts";
-
-const p = () => getPlatform();
-const dirname = (path: string) => p().path.dirname(path);
-const exists = (path: string) => p().fs.exists(path);
-const exit = (code: number) => p().process.exit(code);
-const platformGetArgs = () => p().process.args();
-const platformGetEnv = (key: string) => p().env.get(key);
+import { hasHelpFlag } from "../utils/common-helpers.ts";
+import {
+  dirname,
+  exists,
+  platformExit as exit,
+  platformGetArgs,
+  platformGetEnv,
+} from "../utils/platform-helpers.ts";
 import { publishNpm } from "./publish_npm.ts";
 import { publishJSR } from "./publish_jsr.ts";
 import { printPublishSummary, type PublishSummary } from "./publish_summary.ts";
@@ -69,7 +69,7 @@ ENVIRONMENT VARIABLES:
 }
 
 function parsePublishArgs(args: string[]): PublishOptions {
-  if (args.includes("-h") || args.includes("--help")) {
+  if (hasHelpFlag(args)) {
     showHelp();
     exit(0);
   }
@@ -236,15 +236,12 @@ export async function publish(args: string[]): Promise<void> {
 
     printPublishInfo(options.entryFile, options, metadataStatus);
 
-    const summaries: PublishSummary[] = [];
-    for (const platform of options.platforms ?? []) {
-      const metadataType = platform === "jsr"
-        ? metadataStatus.jsr
-        : metadataStatus.npm;
-      // Pass config to publishToRegistry
-      const summary = await publishToRegistry(config, platform, options, metadataType);
-      summaries.push(summary);
-    }
+    const summaries = await Promise.all(
+      (options.platforms ?? []).map((platform) => {
+        const metadataType = platform === "jsr" ? metadataStatus.jsr : metadataStatus.npm;
+        return publishToRegistry(config, platform, options, metadataType);
+      })
+    );
 
     printPublishSummary(summaries);
 

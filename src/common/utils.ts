@@ -139,19 +139,12 @@ export async function readFile(
   }
 }
 
-async function tryReadFile(
-  filePath: string,
-  logger?: { debug: (msg: string) => void },
-): Promise<string | null> {
+async function fileExists(filePath: string): Promise<boolean> {
   try {
-    const content = await getPlatform().fs.readTextFile(filePath);
-    logger?.debug?.(
-      `Successfully read ${content.length} bytes from ${filePath}`,
-    );
-    return content;
-  } catch (error) {
-    logger?.debug?.(`Failed to read file ${filePath}: ${getErrorMessage(error)}`);
-    return null;
+    await getPlatform().fs.stat(filePath);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -160,7 +153,7 @@ export async function findActualFilePath(
   logger?: { debug: (msg: string) => void; error: (msg: string) => void },
   alternativePaths: string[] = [],
 ): Promise<string> {
-  if (await tryReadFile(filePath, logger) !== null) {
+  if (await fileExists(filePath)) {
     return filePath;
   }
 
@@ -169,7 +162,7 @@ export async function findActualFilePath(
   );
 
   for (const alternative of alternativePaths) {
-    if (await tryReadFile(alternative, logger) !== null) {
+    if (await fileExists(alternative)) {
       logger?.debug?.(`Found file at alternative location: ${alternative}`);
       return alternative;
     }
@@ -178,7 +171,7 @@ export async function findActualFilePath(
   const basename = filePath.split("/").pop() ?? filePath;
   const fallbackPath = `${getPlatform().process.cwd()}/${basename}`;
 
-  if (await tryReadFile(fallbackPath, logger) !== null) {
+  if (await fileExists(fallbackPath)) {
     logger?.debug?.(`Found file at fallback location: ${fallbackPath}`);
     return fallbackPath;
   }

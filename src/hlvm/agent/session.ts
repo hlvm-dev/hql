@@ -1,5 +1,5 @@
 /**
- * Agent Session - Shared setup for CLI and wire mode
+ * Agent Session - Shared setup for CLI agent commands
  *
  * Centralizes:
  * - Policy loading

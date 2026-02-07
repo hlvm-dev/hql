@@ -13,6 +13,7 @@
  */
 
 import { RuntimeError } from "./error.ts";
+import { combineSignals } from "./timeout-utils.ts";
 import { ensureError } from "./utils.ts";
 
 /**
@@ -71,30 +72,14 @@ class HttpClient {
    * Perform a POST request with JSON body
    */
   post<T>(url: string, body: unknown, options?: HttpOptions): Promise<T> {
-    return this.request<T>(url, {
-      method: "POST",
-      body: JSON.stringify(body),
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-      ...options,
-    });
+    return this.bodyRequest<T>("POST", url, body, options);
   }
 
   /**
    * Perform a PUT request with JSON body
    */
   put<T>(url: string, body: unknown, options?: HttpOptions): Promise<T> {
-    return this.request<T>(url, {
-      method: "PUT",
-      body: JSON.stringify(body),
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-      ...options,
-    });
+    return this.bodyRequest<T>("PUT", url, body, options);
   }
 
   /**
@@ -105,7 +90,7 @@ class HttpClient {
   }
 
   /**
-   * Fetch JSON from a URL (alias for get)
+   * Fetch JSON from a URL (alias for get, kept for backward compatibility)
    */
   fetchJson<T>(url: string, options?: HttpOptions): Promise<T> {
     return this.get<T>(url, options);
@@ -122,16 +107,36 @@ class HttpClient {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: options?.signal ?? controller.signal,
-      });
+    // Combine parent signal with timeout signal so both are effective
+    const signal = options?.signal
+      ? combineSignals(controller.signal, options.signal)
+      : controller.signal;
 
-      return response;
+    try {
+      return await fetch(url, { ...options, signal });
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  /**
+   * Shared implementation for POST/PUT with JSON body (DRY)
+   */
+  private bodyRequest<T>(
+    method: string,
+    url: string,
+    body: unknown,
+    options?: HttpOptions,
+  ): Promise<T> {
+    return this.request<T>(url, {
+      method,
+      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+      ...options,
+    });
   }
 
   /**
@@ -149,11 +154,13 @@ class HttpClient {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+      // Combine parent signal with timeout so both are effective
+      const signal = options.signal
+        ? combineSignals(controller.signal, options.signal)
+        : controller.signal;
+
       try {
-        const response = await fetch(url, {
-          ...options,
-          signal: options.signal ?? controller.signal,
-        });
+        const response = await fetch(url, { ...options, signal });
 
         if (!response.ok) {
           throw new HttpError(
@@ -164,9 +171,7 @@ class HttpClient {
           );
         }
 
-        // Parse JSON response
-        const data = await response.json() as T;
-        return data;
+        return await response.json() as T;
       } catch (error) {
         lastError = ensureError(error);
 

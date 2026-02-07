@@ -86,10 +86,24 @@ const BOOLEAN_SET: ReadonlySet<string> = new Set(["true", "false"]);
 // Nil/null literals
 const NIL_SET: ReadonlySet<string> = new Set(["nil", "null", "undefined"]);
 
-// Pre-compiled regex patterns for tokenizer hot path (avoid repeated compilation)
-const WHITESPACE_REGEX = /\s/;
-const DIGIT_REGEX = /[0-9]/;
-const HEX_DIGIT_REGEX = /[0-9a-fA-F]/;
+// Char-code predicates for tokenizer hot path (faster than regex for single-char tests)
+function isWhitespace(ch: string): boolean {
+  const c = ch.charCodeAt(0);
+  return c === 32 || c === 9 || c === 10 || c === 13 || c === 12; // space, tab, LF, CR, FF
+}
+
+function isDigit(ch: string): boolean {
+  const c = ch.charCodeAt(0);
+  return c >= 48 && c <= 57; // 0-9
+}
+
+function isHexDigit(ch: string): boolean {
+  const c = ch.charCodeAt(0);
+  return (c >= 48 && c <= 57) || (c >= 65 && c <= 70) || (c >= 97 && c <= 102);
+}
+
+// Regex for atom boundary detection (used in s-expression navigation)
+const ATOM_BOUNDARY_REGEX = /[\s()\[\]{}]/;
 
 // ============================================================
 // Tokenizer
@@ -107,9 +121,9 @@ export function tokenize(input: string): Token[] {
     const ch = input[i];
 
     // Whitespace
-    if (WHITESPACE_REGEX.test(ch)) {
+    if (isWhitespace(ch)) {
       const start = i;
-      while (i < input.length && WHITESPACE_REGEX.test(input[i])) i++;
+      while (i < input.length && isWhitespace(input[i])) i++;
       tokens.push({ type: "whitespace", value: input.slice(start, i), start, end: i });
       continue;
     }
@@ -193,21 +207,21 @@ export function tokenize(input: string): Token[] {
     }
 
     // Number (including negative numbers)
-    if (DIGIT_REGEX.test(ch) || (ch === "-" && i + 1 < input.length && DIGIT_REGEX.test(input[i + 1]))) {
+    if (isDigit(ch) || (ch === "-" && i + 1 < input.length && isDigit(input[i + 1]))) {
       const start = i;
       if (ch === "-") i++;
       // Integer or float
-      while (i < input.length && DIGIT_REGEX.test(input[i])) i++;
+      while (i < input.length && isDigit(input[i])) i++;
       if (i < input.length && input[i] === ".") {
         i++;
-        while (i < input.length && DIGIT_REGEX.test(input[i])) i++;
+        while (i < input.length && isDigit(input[i])) i++;
       }
       // BigInt suffix
       if (i < input.length && input[i] === "n") i++;
-      // Hex prefix
-      if (input.slice(start, i) === "0" && i < input.length && (input[i] === "x" || input[i] === "X")) {
+      // Hex prefix (check if only "0" was consumed, avoiding slice allocation)
+      if (i === start + 1 && input[start] === "0" && i < input.length && (input[i] === "x" || input[i] === "X")) {
         i++;
-        while (i < input.length && HEX_DIGIT_REGEX.test(input[i])) i++;
+        while (i < input.length && isHexDigit(input[i])) i++;
       }
       tokens.push({ type: "number", value: input.slice(start, i), start, end: i });
       continue;
@@ -216,7 +230,7 @@ export function tokenize(input: string): Token[] {
     // Symbol (identifier, keyword, or operator)
     if (!isDelimiter(ch)) {
       const start = i;
-      while (i < input.length && !isDelimiter(input[i]) && !WHITESPACE_REGEX.test(input[i])) i++;
+      while (i < input.length && !isDelimiter(input[i]) && !isWhitespace(input[i])) i++;
       const value = input.slice(start, i);
       const type = classifySymbol(value);
       tokens.push({ type, value, start, end: i });
@@ -231,8 +245,11 @@ export function tokenize(input: string): Token[] {
   return tokens;
 }
 
+// O(1) delimiter check via Set (avoids linear scan of string on every character)
+const DELIMITER_SET = new Set(["(", ")", "[", "]", "{", "}", '"', "'", ","]);
+
 function isDelimiter(ch: string): boolean {
-  return "()[]{}\"',".includes(ch);
+  return DELIMITER_SET.has(ch);
 }
 
 function classifySymbol(value: string): TokenType {
@@ -312,12 +329,10 @@ export function highlight(input: string, bracketPositions: number | number[] | n
   const tokens = tokenizeCached(input);
   let result = "";
 
-  // Normalize to Set for O(1) lookup
-  const highlightSet = new Set<number>(
-    bracketPositions === null ? [] :
-    typeof bracketPositions === "number" ? [bracketPositions] :
-    bracketPositions
-  );
+  // Normalize to Set for O(1) lookup (skip allocation when no highlights)
+  const highlightSet: ReadonlySet<number> | null = bracketPositions === null
+    ? null
+    : new Set<number>(typeof bracketPositions === "number" ? [bracketPositions] : bracketPositions);
 
   // Pre-compute which tokens are in function position (after open-paren, skipping whitespace)
   // OPTIMIZED: Single forward pass O(n) instead of O(n²) backward scans
@@ -354,11 +369,13 @@ export function highlight(input: string, bracketPositions: number | number[] | n
     }
 
     // Check if this token contains any highlighted bracket positions
-    // Collect all positions within this token's range
+    // Only scan when bracket highlighting is active
     const matchPositions: number[] = [];
-    for (let pos = token.start; pos < token.end; pos++) {
-      if (highlightSet.has(pos)) {
-        matchPositions.push(pos - token.start); // Convert to token-relative offset
+    if (highlightSet !== null) {
+      for (let pos = token.start; pos < token.end; pos++) {
+        if (highlightSet.has(pos)) {
+          matchPositions.push(pos - token.start); // Convert to token-relative offset
+        }
       }
     }
 
@@ -618,7 +635,7 @@ export function forwardSexp(input: string, cursorPos: number): number {
   const len = input.length;
 
   // Skip whitespace
-  while (pos < len && /\s/.test(input[pos])) pos++;
+  while (pos < len && isWhitespace(input[pos])) pos++;
   if (pos >= len) return len;
 
   const ch = input[pos];
@@ -635,7 +652,7 @@ export function forwardSexp(input: string, cursorPos: number): number {
   }
 
   // Otherwise, skip the atom (symbol, number, etc.)
-  while (pos < len && !/[\s()\[\]{}]/.test(input[pos])) pos++;
+  while (pos < len && !ATOM_BOUNDARY_REGEX.test(input[pos])) pos++;
 
   return pos;
 }
@@ -651,7 +668,7 @@ export function backwardSexp(input: string, cursorPos: number): number {
   let pos = cursorPos;
 
   // Skip whitespace backwards
-  while (pos > 0 && /\s/.test(input[pos - 1])) pos--;
+  while (pos > 0 && isWhitespace(input[pos - 1])) pos--;
   if (pos <= 0) return 0;
 
   const ch = input[pos - 1];
@@ -669,7 +686,7 @@ export function backwardSexp(input: string, cursorPos: number): number {
 
   // Otherwise, skip the atom backwards
   pos--;
-  while (pos > 0 && !/[\s()\[\]{}]/.test(input[pos - 1])) pos--;
+  while (pos > 0 && !ATOM_BOUNDARY_REGEX.test(input[pos - 1])) pos--;
 
   return pos;
 }
@@ -698,7 +715,7 @@ export function forwardDownSexp(input: string, cursorPos: number): number {
   const len = input.length;
 
   // Skip whitespace
-  while (pos < len && /\s/.test(input[pos])) pos++;
+  while (pos < len && isWhitespace(input[pos])) pos++;
   if (pos >= len) return cursorPos;
 
   const ch = input[pos];
@@ -711,13 +728,10 @@ export function forwardDownSexp(input: string, cursorPos: number): number {
   return cursorPos;
 }
 
-/**
- * Check if the input has balanced delimiters.
- * More accurate than the simple version in readline.ts because it uses the tokenizer.
- */
-export function isBalanced(input: string): boolean {
-  const tokens = tokenizeCached(input);
+/** Shared delimiter counting (DRY: single pass for both isBalanced and getUnclosedDepth) */
+function countDelimiters(tokens: readonly Token[]): { parens: number; brackets: number; braces: number; hasNegative: boolean } {
   let parens = 0, brackets = 0, braces = 0;
+  let hasNegative = false;
 
   for (const token of tokens) {
     switch (token.type) {
@@ -728,11 +742,19 @@ export function isBalanced(input: string): boolean {
       case "open-brace": braces++; break;
       case "close-brace": braces--; break;
     }
-    // Early exit if unbalanced (more closes than opens)
-    if (parens < 0 || brackets < 0 || braces < 0) return false;
+    if (parens < 0 || brackets < 0 || braces < 0) hasNegative = true;
   }
 
-  return parens === 0 && brackets === 0 && braces === 0;
+  return { parens, brackets, braces, hasNegative };
+}
+
+/**
+ * Check if the input has balanced delimiters.
+ * More accurate than the simple version in readline.ts because it uses the tokenizer.
+ */
+export function isBalanced(input: string): boolean {
+  const { parens, brackets, braces, hasNegative } = countDelimiters(tokenizeCached(input));
+  return !hasNegative && parens === 0 && brackets === 0 && braces === 0;
 }
 
 /**
@@ -740,20 +762,6 @@ export function isBalanced(input: string): boolean {
  * Returns total count of unclosed parens + brackets + braces.
  */
 export function getUnclosedDepth(input: string): number {
-  const tokens = tokenizeCached(input);
-  let parens = 0, brackets = 0, braces = 0;
-
-  for (const token of tokens) {
-    switch (token.type) {
-      case "open-paren": parens++; break;
-      case "close-paren": parens--; break;
-      case "open-bracket": brackets++; break;
-      case "close-bracket": brackets--; break;
-      case "open-brace": braces++; break;
-      case "close-brace": braces--; break;
-    }
-  }
-
-  // Return total unclosed (only positive values - more opens than closes)
+  const { parens, brackets, braces } = countDelimiters(tokenizeCached(input));
   return Math.max(0, parens) + Math.max(0, brackets) + Math.max(0, braces);
 }

@@ -120,6 +120,27 @@ export function validateTransformed(
 }
 
 /**
+ * Transform nodes in a single pass and optionally post-process non-null results.
+ * This is shared by transformElements and transformNonNullElements to avoid
+ * duplicate map/filter chains and intermediate array allocations.
+ */
+function collectTransformedNodes(
+  elements: HQLNode[],
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  mapNode?: (node: IR.IRNode) => IR.IRNode,
+): IR.IRNode[] {
+  const transformedNodes: IR.IRNode[] = [];
+  for (const element of elements) {
+    const node = transformNode(element, currentDir);
+    if (node !== null) {
+      transformedNodes.push(mapNode ? mapNode(node) : node);
+    }
+  }
+  return transformedNodes;
+}
+
+/**
  * Transform a collection of nodes using the provided transformer and validate the results.
  *
  * @param elements - Nodes to transform
@@ -136,16 +157,12 @@ export function transformElements(
   context: string,
   description: string = "value",
 ): IR.IRNode[] {
-  return elements
-    .map((element) => transformNode(element, currentDir))
-    .filter((node): node is IR.IRNode => node !== null)
-    .map((node) =>
-      validateTransformed(
-        node,
-        context,
-        description,
-      )
-    );
+  return collectTransformedNodes(
+    elements,
+    currentDir,
+    transformNode,
+    (node) => validateTransformed(node, context, description),
+  );
 }
 
 /**
@@ -156,9 +173,11 @@ export function transformNonNullElements(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode[] {
-  return elements
-    .map((element) => transformNode(element, currentDir))
-    .filter((node): node is IR.IRNode => node !== null);
+  return collectTransformedNodes(
+    elements,
+    currentDir,
+    transformNode,
+  );
 }
 
 /**

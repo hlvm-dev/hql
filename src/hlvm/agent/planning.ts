@@ -183,11 +183,7 @@ export function extractStepDoneId(response: string): string | null {
 }
 
 export function stripStepMarkers(response: string): string {
-  return response
-    .split(/\r?\n/)
-    .filter((line) => !STEP_DONE_PATTERN.test(line))
-    .join("\n")
-    .trim();
+  return response.replace(/^.*STEP_DONE\s*[:\-]?\s*[a-z0-9_-]+.*$/gim, "").trim();
 }
 
 export function createPlanState(plan: Plan): PlanState {
@@ -253,39 +249,38 @@ function normalizePlan(input: unknown): Plan | null {
   const rawSteps = Array.isArray(input.steps) ? input.steps : [];
   if (rawSteps.length === 0) return null;
 
-  const steps: PlanStep[] = [];
-  rawSteps.forEach((entry, index) => {
-    if (!isObjectValue(entry)) return;
-    const title = typeof entry.title === "string" ? entry.title.trim() : "";
-    if (!title) return;
+  const steps: PlanStep[] = rawSteps
+    .map((entry, index) => {
+      if (!isObjectValue(entry)) return null;
+      const title = typeof entry.title === "string" ? entry.title.trim() : "";
+      if (!title) return null;
 
-    const id = typeof entry.id === "string" && entry.id.trim()
-      ? entry.id.trim()
-      : `step-${index + 1}`;
-    const tools = Array.isArray(entry.tools)
-      ? entry.tools.filter((t) => typeof t === "string" && t.trim().length > 0)
-      : undefined;
-    const successCriteria = Array.isArray(entry.successCriteria)
-      ? entry.successCriteria.filter((t) =>
-        typeof t === "string" && t.trim().length > 0
-      )
-      : undefined;
-    const stepGoal = typeof entry.goal === "string" ? entry.goal.trim() : undefined;
-    const agent = typeof entry.agent === "string" && entry.agent.trim()
-      ? entry.agent.trim()
-      : undefined;
+      const id = typeof entry.id === "string" && entry.id.trim()
+        ? entry.id.trim()
+        : `step-${index + 1}`;
+      const tools = Array.isArray(entry.tools)
+        ? entry.tools.filter((t: unknown) => typeof t === "string" && (t as string).trim().length > 0)
+        : undefined;
+      const successCriteria = Array.isArray(entry.successCriteria)
+        ? entry.successCriteria.filter((t: unknown) => typeof t === "string" && (t as string).trim().length > 0)
+        : undefined;
+      const stepGoal = typeof entry.goal === "string" ? entry.goal.trim() : undefined;
+      const agent = typeof entry.agent === "string" && entry.agent.trim()
+        ? entry.agent.trim()
+        : undefined;
 
-    steps.push({
-      id,
-      title,
-      goal: stepGoal,
-      tools: tools && tools.length > 0 ? tools : undefined,
-      successCriteria: successCriteria && successCriteria.length > 0
-        ? successCriteria
-        : undefined,
-      agent,
-    });
-  });
+      return {
+        id,
+        title,
+        goal: stepGoal,
+        tools: tools && tools.length > 0 ? tools : undefined,
+        successCriteria: successCriteria && successCriteria.length > 0
+          ? successCriteria
+          : undefined,
+        agent,
+      } as PlanStep;
+    })
+    .filter((step): step is PlanStep => step !== null);
 
   return steps.length > 0 ? { goal, steps } : null;
 }

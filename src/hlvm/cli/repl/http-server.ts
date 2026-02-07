@@ -285,7 +285,7 @@ async function handleComplete(req: Request): Promise<Response> {
 /**
  * Handle GET /health - Health check endpoint
  */
-async function handleHealth(): Promise<Response> {
+function handleHealth(): Response {
   return Response.json({
     status: "ok",
     initialized: replState !== null,
@@ -318,6 +318,10 @@ async function handleMemoryFunctions(): Promise<Response> {
   }
 }
 
+function execError(message: string, code: string): Response {
+  return Response.json({ output: "", status: "error", error: { message, code } } satisfies MemoryExecuteResponse);
+}
+
 async function handleMemoryExecute(req: Request): Promise<Response> {
   try {
     const parsed = await parseJsonBody<MemoryExecuteRequest>(req);
@@ -334,36 +338,14 @@ async function handleMemoryExecute(req: Request): Promise<Response> {
     const definitions = await listMemoryFunctions();
     const definition = definitions.find((def) => def.name === functionName);
     if (!definition) {
-      const response: MemoryExecuteResponse = {
-        output: "",
-        status: "error",
-        error: { message: `Function '${functionName}' not found`, code: "FUNCTION_NOT_FOUND" },
-      };
-      return Response.json(response);
+      return execError(`Function '${functionName}' not found`, "FUNCTION_NOT_FOUND");
     }
 
-    const expectedArity = definition.arity;
-    if (definition.kind === "defn" && args.length !== expectedArity) {
-      const response: MemoryExecuteResponse = {
-        output: "",
-        status: "error",
-        error: {
-          message: `Arity mismatch: expected ${expectedArity} args, got ${args.length}`,
-          code: "ARITY_MISMATCH",
-        },
-      };
-      return Response.json(response);
+    if (definition.kind === "defn" && args.length !== definition.arity) {
+      return execError(`Arity mismatch: expected ${definition.arity} args, got ${args.length}`, "ARITY_MISMATCH");
     }
     if (definition.kind === "def" && args.length !== 0) {
-      const response: MemoryExecuteResponse = {
-        output: "",
-        status: "error",
-        error: {
-          message: "def values do not accept arguments",
-          code: "ARITY_MISMATCH",
-        },
-      };
-      return Response.json(response);
+      return execError("def values do not accept arguments", "ARITY_MISMATCH");
     }
 
     if (!replState) {
@@ -373,18 +355,12 @@ async function handleMemoryExecute(req: Request): Promise<Response> {
     const code = buildExecuteCode(definition, args);
     const result = await evaluate(code, replState, false);
     if (!result.success) {
-      const response: MemoryExecuteResponse = {
-        output: "",
-        status: "error",
-        error: { message: result.error?.message ?? "Execution failed", code: "EXECUTION_ERROR" },
-      };
-      return Response.json(response);
+      return execError(result.error?.message ?? "Execution failed", "EXECUTION_ERROR");
     }
 
     const hasValue = Object.prototype.hasOwnProperty.call(result, "value");
     const output = hasValue ? formatPlainValue(result.value) : "";
-    const response: MemoryExecuteResponse = { output, status: "success" };
-    return Response.json(response);
+    return Response.json({ output, status: "success" } satisfies MemoryExecuteResponse);
   } catch (error) {
     log.error("Memory execute failed", error);
     return jsonError(getErrorMessage(error), 500);
@@ -412,7 +388,7 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   if (req.method === "GET" && url.pathname === "/health") {
-    return addCorsHeaders(await handleHealth());
+    return addCorsHeaders(handleHealth());
   }
 
   if (req.method === "GET" && url.pathname === "/api/memory/functions") {

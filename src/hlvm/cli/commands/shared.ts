@@ -1,11 +1,10 @@
-import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
-
-const p = () => getPlatform();
-const basename = (path: string) => p().path.basename(path);
-const platformCwd = () => p().process.cwd();
-const platformExit = (code: number) => p().process.exit(code);
-const platformGetEnv = (key: string) => p().env.get(key);
+import {
+  basename,
+  platformCwd,
+  platformExit,
+  platformGetEnv,
+} from "../utils/platform-helpers.ts";
 
 // Pre-compiled patterns for sanitizePackageName
 const NON_ALPHANUMERIC_HYPHEN_REGEX = /[^a-z0-9-]/g;

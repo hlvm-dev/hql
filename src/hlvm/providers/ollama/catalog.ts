@@ -4,7 +4,9 @@
  * Offline catalog used for discovery (no network calls).
  */
 
-import ollamaModelsData from "../../../data/ollama_models.json" with { type: "json" };
+import ollamaModelsData from "../../../data/ollama_models.json" with {
+  type: "json",
+};
 import type { ModelInfo, ProviderCapability } from "../types.ts";
 
 interface ScrapedModelVariant {
@@ -33,44 +35,26 @@ const DEFAULT_MAX_VARIANTS = 3;
 let cachedCatalog: ModelInfo[] | null = null;
 let cachedFullCatalog: ModelInfo[] | null = null;
 
-function buildCapabilityTags(model: ScrapedModel): string[] {
-  const tags: string[] = [];
-
-  if (model.model_type === "embedding") {
-    tags.push("embedding");
-  } else {
-    tags.push("text");
-  }
-
-  if (model.vision) tags.push("vision");
-  if (model.tools) tags.push("tools");
-  if (model.thinking) tags.push("thinking");
-
-  return tags;
-}
-
-function toModelInfo(model: ScrapedModel, variant?: ScrapedModelVariant): ModelInfo {
-  const tags = buildCapabilityTags(model);
+function buildCapabilities(model: ScrapedModel): ProviderCapability[] {
   const capabilities: ProviderCapability[] = [];
-
-  if (tags.includes("embedding")) {
+  if (model.model_type === "embedding") {
     capabilities.push("embeddings");
   } else {
     capabilities.push("generate", "chat");
   }
 
-  if (tags.includes("vision")) {
-    capabilities.push("vision");
-  }
+  if (model.vision) capabilities.push("vision");
+  if (model.tools) capabilities.push("tools");
+  if (model.thinking) capabilities.push("thinking");
 
-  if (tags.includes("tools")) {
-    capabilities.push("tools");
-  }
+  return capabilities;
+}
 
-  if (tags.includes("thinking")) {
-    capabilities.push("thinking");
-  }
-
+function toModelInfo(
+  model: ScrapedModel,
+  variant?: ScrapedModelVariant,
+): ModelInfo {
+  const capabilities = buildCapabilities(model);
   const name = variant?.id ?? model.id;
   const displayParts = [model.name];
   if (variant?.parameters && variant.parameters !== "Unknown") {
@@ -83,7 +67,9 @@ function toModelInfo(model: ScrapedModel, variant?: ScrapedModelVariant): ModelI
   return {
     name,
     displayName,
-    parameterSize: variant?.parameters !== "Unknown" ? variant?.parameters : undefined,
+    parameterSize: variant?.parameters !== "Unknown"
+      ? variant?.parameters
+      : undefined,
     capabilities,
     metadata: {
       description: model.description,
@@ -99,7 +85,9 @@ function buildCatalog(maxVariants: number): ModelInfo[] {
 
   for (const model of data.models || []) {
     const variants = model.variants || [];
-    const limit = Number.isFinite(maxVariants) ? Math.max(0, maxVariants) : variants.length;
+    const limit = Number.isFinite(maxVariants)
+      ? Math.max(0, maxVariants)
+      : variants.length;
     if (variants.length > 0) {
       for (const variant of variants.slice(0, limit || variants.length)) {
         result.push(toModelInfo(model, variant));
@@ -112,7 +100,9 @@ function buildCatalog(maxVariants: number): ModelInfo[] {
   return result;
 }
 
-export function getOllamaCatalog(options: { maxVariants?: number } = {}): ModelInfo[] {
+export function getOllamaCatalog(
+  options: { maxVariants?: number } = {},
+): ModelInfo[] {
   const maxVariants = options.maxVariants ?? DEFAULT_MAX_VARIANTS;
   if (maxVariants === DEFAULT_MAX_VARIANTS) {
     if (!cachedCatalog) {

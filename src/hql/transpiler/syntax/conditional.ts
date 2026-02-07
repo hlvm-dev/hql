@@ -12,7 +12,15 @@ import {
 import { getErrorMessage } from "../../../common/utils.ts";
 import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import { extractPosition, validateTransformed, validateListLength } from "../utils/validation-helpers.ts";
-import { ensureReturnStatement } from "../utils/ir-helpers.ts";
+import {
+  ensureReturnStatement,
+  createReturn,
+  createNull,
+  createExprStmt,
+  createSwitchCase,
+  createCall,
+  createFnExpr,
+} from "../utils/ir-helpers.ts";
 import { isExpressionResult, extractMeta } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
   enterIIFE,
@@ -177,7 +185,7 @@ export function transformIf(
         "if alternate",
         "Else branch",
       )
-      : ({ type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral);
+      : createNull();
 
     // If explicitly in expression context, always use ConditionalExpression
     if (isExpressionContext) {
@@ -205,10 +213,7 @@ export function transformIf(
           alternate.type !== IR.IRNodeType.IfStatement &&
           alternate.type !== IR.IRNodeType.NullLiteral
         ) {
-          finalAlternate = {
-            type: IR.IRNodeType.ReturnStatement,
-            argument: alternate,
-          } as IR.IRReturnStatement;
+          finalAlternate = createReturn(alternate);
         }
 
         // Both branches have control flow (recur), use if statement
@@ -314,10 +319,7 @@ export function transformReturn(
       }
 
       // Normal return statement (direct function body)
-      return {
-        type: IR.IRNodeType.ReturnStatement,
-        argument: valueNode,
-      } as IR.IRReturnStatement;
+      return createReturn(valueNode);
     },
     "transformReturn",
     TransformError,
@@ -343,15 +345,14 @@ export function transformDo(
 
       // If no body, return null
       if (bodyExprs.length === 0) {
-        return { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
+        return createNull();
       }
 
       // If only one expression AND it doesn't contain a return, transform directly
       // If it contains a return, we still need the IIFE wrapper for proper early return handling
       if (bodyExprs.length === 1 && !containsReturn(bodyExprs[0])) {
         const expr = transformNode(bodyExprs[0], currentDir);
-        return expr ||
-          ({ type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral);
+        return expr || createNull();
       }
 
       // Extract position from the 'do' list
@@ -398,11 +399,7 @@ export function transformDo(
           const transformedExpr = transformedExprs[i];
           // Wrap expressions in ExpressionStatement for proper block statement body
           if (isExpressionResult(transformedExpr)) {
-            bodyStatements.push({
-              type: IR.IRNodeType.ExpressionStatement,
-              expression: transformedExpr,
-              position: transformedExpr.position,
-            } as IR.IRExpressionStatement);
+            bodyStatements.push({ ...createExprStmt(transformedExpr), position: transformedExpr.position });
           } else {
             bodyStatements.push(transformedExpr);
           }
@@ -435,18 +432,10 @@ export function transformDo(
             // These are statements that can't be returned directly
             // Push the statement first, then return null
             bodyStatements.push(lastExpr);
-            bodyStatements.push({
-              type: IR.IRNodeType.ReturnStatement,
-              argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-              position: lastExpr.position,
-            } as IR.IRReturnStatement);
+            bodyStatements.push({ ...createReturn(createNull()), position: lastExpr.position });
           } else {
             // Create a return statement for the last expression
-            bodyStatements.push({
-              type: IR.IRNodeType.ReturnStatement,
-              argument: lastExpr,
-              position: lastExpr.position,
-            } as IR.IRReturnStatement);
+            bodyStatements.push({ ...createReturn(lastExpr), position: lastExpr.position });
           }
         }
       } finally {
@@ -467,24 +456,16 @@ export function transformDo(
       const hasAwaits = bodyStatements.some(stmt =>
         containsNodeTypeInScope(stmt, IR.IRNodeType.AwaitExpression));
 
-      const iifeCall: IR.IRCallExpression = {
-        type: IR.IRNodeType.CallExpression,
-        callee: {
-          type: IR.IRNodeType.FunctionExpression,
-          id: null,
-          params: [],
-          body: {
-            type: IR.IRNodeType.BlockStatement,
-            body: bodyStatements,
-            position: blockPosition,
-          } as IR.IRBlockStatement,
-          generator: hasYields, // Make it a generator if yields are present
-          async: hasAwaits, // Make it async if awaits are present (can be async generator)
-          position: listPosition,
-        } as IR.IRFunctionExpression,
-        arguments: [],
-        position: listPosition,
-      };
+      const iifeFn = createFnExpr([], {
+        type: IR.IRNodeType.BlockStatement,
+        body: bodyStatements,
+        position: blockPosition,
+      } as IR.IRBlockStatement, {
+        generator: hasYields, // Make it a generator if yields are present
+        async: hasAwaits, // Make it async if awaits are present (can be async generator)
+      });
+      iifeFn.position = listPosition;
+      const iifeCall: IR.IRCallExpression = { ...createCall(iifeFn, []), position: listPosition };
 
       // If yields are present, wrap the IIFE call with yield*
       // This delegates to the generator IIFE, properly handling all yields
@@ -626,10 +607,7 @@ function processSwitchBodyStatement(
   // Not the last expression, or fallthrough case - wrap as statement if needed
   if (!isLast || fallthrough) {
     if (!STATEMENT_TYPES.has(stmt.type)) {
-      consequent.push({
-        type: IR.IRNodeType.ExpressionStatement,
-        expression: stmt,
-      } as IR.IRExpressionStatement);
+      consequent.push(createExprStmt(stmt));
     } else {
       consequent.push(stmt);
     }
@@ -642,23 +620,14 @@ function processSwitchBodyStatement(
     consequent.push(stmt);
   } else if (stmt.type === IR.IRNodeType.ExpressionStatement) {
     // Unwrap ExpressionStatement and return the expression
-    consequent.push({
-      type: IR.IRNodeType.ReturnStatement,
-      argument: (stmt as IR.IRExpressionStatement).expression,
-    } as IR.IRReturnStatement);
+    consequent.push(createReturn((stmt as IR.IRExpressionStatement).expression));
   } else if (NON_VALUE_STATEMENT_TYPES.has(stmt.type)) {
     // Statements that don't produce values - return null after
     consequent.push(stmt);
-    consequent.push({
-      type: IR.IRNodeType.ReturnStatement,
-      argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-    } as IR.IRReturnStatement);
+    consequent.push(createReturn(createNull()));
   } else {
     // Expression - wrap in return
-    consequent.push({
-      type: IR.IRNodeType.ReturnStatement,
-      argument: stmt,
-    } as IR.IRReturnStatement);
+    consequent.push(createReturn(stmt));
   }
 }
 
@@ -767,18 +736,10 @@ export function transformSwitch(
 
           // If no body, return null
           if (consequent.length === 0 && !fallthrough) {
-            consequent.push({
-              type: IR.IRNodeType.ReturnStatement,
-              argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-            } as IR.IRReturnStatement);
+            consequent.push(createReturn(createNull()));
           }
 
-          cases.push({
-            type: IR.IRNodeType.SwitchCase,
-            test,
-            consequent,
-            fallthrough,
-          } as IR.IRSwitchCase);
+          cases.push(createSwitchCase(test, consequent, fallthrough));
         } else if (caseKeyword === "default") {
           hasDefault = true;
 
@@ -796,18 +757,10 @@ export function transformSwitch(
 
           // If no body, return null
           if (consequent.length === 0) {
-            consequent.push({
-              type: IR.IRNodeType.ReturnStatement,
-              argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-            } as IR.IRReturnStatement);
+            consequent.push(createReturn(createNull()));
           }
 
-          cases.push({
-            type: IR.IRNodeType.SwitchCase,
-            test: null, // null test means default case
-            consequent,
-            fallthrough: false,
-          } as IR.IRSwitchCase);
+          cases.push(createSwitchCase(null, consequent));
         } else {
           throw new ValidationError(
             "switch case must be 'case' or 'default'",
@@ -820,15 +773,7 @@ export function transformSwitch(
 
       // If no default case, add one that returns null
       if (!hasDefault) {
-        cases.push({
-          type: IR.IRNodeType.SwitchCase,
-          test: null,
-          consequent: [{
-            type: IR.IRNodeType.ReturnStatement,
-            argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-          } as IR.IRReturnStatement],
-          fallthrough: false,
-        } as IR.IRSwitchCase);
+        cases.push(createSwitchCase(null, [createReturn(createNull())]));
       }
 
       // OPTIMIZATION: Check if we can use chained ternaries instead of IIFE
@@ -902,18 +847,10 @@ export function transformSwitch(
       const hasYields = containsNodeTypeInScope(switchBody, IR.IRNodeType.YieldExpression);
       const hasAwaits = containsNodeTypeInScope(switchBody, IR.IRNodeType.AwaitExpression);
 
-      const iife: IR.IRCallExpression = {
-        type: IR.IRNodeType.CallExpression,
-        callee: {
-          type: IR.IRNodeType.FunctionExpression,
-          id: null,
-          params: [],
-          body: switchBody,
-          async: hasAwaits,
-          generator: hasYields,
-        } as IR.IRFunctionExpression,
-        arguments: [],
-      };
+      const iife = createCall(
+        createFnExpr([], switchBody, { async: hasAwaits, generator: hasYields }),
+        [],
+      );
 
       // For generator IIFEs, wrap in yield*; for async, wrap in await
       if (hasYields) {
@@ -1019,15 +956,7 @@ export function transformCase(
           `Case result ${i + 1}`,
         );
 
-        cases.push({
-          type: IR.IRNodeType.SwitchCase,
-          test,
-          consequent: [{
-            type: IR.IRNodeType.ReturnStatement,
-            argument: result,
-          } as IR.IRReturnStatement],
-          fallthrough: false,
-        } as IR.IRSwitchCase);
+        cases.push(createSwitchCase(test, [createReturn(result)]));
       }
 
       // Add default case
@@ -1039,26 +968,10 @@ export function transformCase(
           "Default result",
         );
 
-        cases.push({
-          type: IR.IRNodeType.SwitchCase,
-          test: null, // null test means default case
-          consequent: [{
-            type: IR.IRNodeType.ReturnStatement,
-            argument: defaultResult,
-          } as IR.IRReturnStatement],
-          fallthrough: false,
-        } as IR.IRSwitchCase);
+        cases.push(createSwitchCase(null, [createReturn(defaultResult)]));
       } else {
         // No default provided - return null for unmatched cases
-        cases.push({
-          type: IR.IRNodeType.SwitchCase,
-          test: null,
-          consequent: [{
-            type: IR.IRNodeType.ReturnStatement,
-            argument: { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral,
-          } as IR.IRReturnStatement],
-          fallthrough: false,
-        } as IR.IRSwitchCase);
+        cases.push(createSwitchCase(null, [createReturn(createNull())]));
       }
 
       // OPTIMIZATION: Use chained ternaries instead of IIFE-wrapped switch

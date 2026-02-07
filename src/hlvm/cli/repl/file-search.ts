@@ -258,10 +258,10 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
     // Insert into results maintaining sorted order (top-k)
     if (results.length < maxResults) {
       const insertIdx = binarySearchInsertIdx(results, score, getScore);
-      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: [...match.indices] });
+      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: match.indices as number[] });
     } else if (score > results[results.length - 1].score) {
       const insertIdx = binarySearchInsertIdx(results, score, getScore);
-      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: [...match.indices] });
+      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: match.indices as number[] });
       results.pop();
     }
   };

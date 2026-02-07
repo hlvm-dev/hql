@@ -16,8 +16,19 @@ import { getPlatform } from "../../platform/platform.ts";
 
 const RUNTIME_DIR = getRuntimeDir();
 const AI_ENGINE_PATH = `${RUNTIME_DIR}/engine`;
+const SYSTEM_AI_ENGINE = "ollama";
+const AI_STARTUP_MAX_POLLS = 30;
+const AI_STARTUP_POLL_INTERVAL_MS = 300;
 
 let initialized = false;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isMissingEmbeddedEngineError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("No such file");
+}
 
 /**
  * Check if AI runtime (Ollama) is already running
@@ -36,13 +47,9 @@ async function isAIRunning(): Promise<boolean> {
 /**
  * Extract embedded AI engine if needed
  */
-async function extractAIEngine(): Promise<void> {
-  const platform = getPlatform();
-  try {
-    await platform.fs.stat(AI_ENGINE_PATH);
-    return; // Already extracted
-  } catch {
-    // Need to extract
+async function extractAIEngine(platform = getPlatform()): Promise<void> {
+  if (await platform.fs.exists(AI_ENGINE_PATH)) {
+    return;
   }
 
   try {
@@ -69,27 +76,31 @@ async function extractAIEngine(): Promise<void> {
   } catch (error) {
     // In development mode, AI engine might not be embedded
     // This is OK - user might have Ollama installed separately
-    if ((error as Error).message.includes("No such file")) {
+    if (isMissingEmbeddedEngineError(error)) {
       return; // Skip extraction in dev mode
     }
     throw error;
   }
 }
 
+async function waitForAIEngineReady(): Promise<boolean> {
+  for (let i = 0; i < AI_STARTUP_MAX_POLLS; i++) {
+    if (await isAIRunning()) {
+      return true;
+    }
+    await sleep(AI_STARTUP_POLL_INTERVAL_MS);
+  }
+  return false;
+}
+
 /**
  * Start the AI engine
  */
-async function startAIEngine(): Promise<void> {
-  const platform = getPlatform();
+async function startAIEngine(platform = getPlatform()): Promise<void> {
   // Try embedded engine first
-  let enginePath = AI_ENGINE_PATH;
-
-  try {
-    await platform.fs.stat(enginePath);
-  } catch {
-    // Try system ollama
-    enginePath = "ollama";
-  }
+  const enginePath = await platform.fs.exists(AI_ENGINE_PATH)
+    ? AI_ENGINE_PATH
+    : SYSTEM_AI_ENGINE;
 
   try {
     const aiProcess = platform.command.run({
@@ -103,11 +114,8 @@ async function startAIEngine(): Promise<void> {
     aiProcess.unref?.();
 
     // Wait for AI engine to be ready
-    for (let i = 0; i < 30; i++) {
-      if (await isAIRunning()) {
-        return;
-      }
-      await new Promise(r => setTimeout(r, 300));
+    if (await waitForAIEngineReady()) {
+      return;
     }
     throw new RuntimeError("AI engine failed to start");
   } catch (error) {
@@ -124,9 +132,10 @@ async function startAIEngine(): Promise<void> {
 export async function initAIRuntime(): Promise<void> {
   if (initialized) return;
   initialized = true;
+  const platform = getPlatform();
 
   // Check for disable flag (e.g. during tests)
-  if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) {
+  if (platform.env.get("HLVM_DISABLE_AI_AUTOSTART")) {
     return;
   }
 
@@ -136,8 +145,8 @@ export async function initAIRuntime(): Promise<void> {
   }
 
   // Extract if needed
-  await extractAIEngine();
+  await extractAIEngine(platform);
 
   // Start AI engine
-  await startAIEngine();
+  await startAIEngine(platform);
 }

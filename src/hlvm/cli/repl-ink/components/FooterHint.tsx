@@ -29,10 +29,7 @@ export function FooterHint(): React.ReactElement {
       }
     };
 
-    fetchModel(); // Initial fetch
-    const interval = setInterval(fetchModel, 2000); // Poll every 2s
-
-    return () => clearInterval(interval);
+    fetchModel();
   }, []);
 
   return (

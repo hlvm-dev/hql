@@ -116,6 +116,8 @@ export class ContextManager {
   private messages: Message[] = [];
   private config: ContextConfig;
   private pendingCompaction = false;
+  /** Running tallies for O(1) getStats() */
+  private roleCounts = { system: 0, user: 0, assistant: 0, tool: 0 };
 
   constructor(config?: Partial<ContextConfig>) {
     this.config = {
@@ -139,7 +141,7 @@ export class ContextManager {
     };
 
     if (this.config.overflowStrategy === "fail") {
-      const projectedTokens = this.estimateTokensForMessages([
+      const projectedTokens = estimateTokensFromMessages([
         ...this.messages,
         messageWithTimestamp,
       ]);
@@ -152,6 +154,7 @@ export class ContextManager {
     }
 
     this.messages.push(messageWithTimestamp);
+    this.incrementRoleCount(messageWithTimestamp.role);
 
     // Proactive compaction at threshold (before overflow)
     if (this.config.overflowStrategy === "summarize" && this.config.llmSummarize) {
@@ -173,19 +176,18 @@ export class ContextManager {
     if (!this.pendingCompaction || !this.config.llmSummarize) return;
     this.pendingCompaction = false;
 
-    const systemMessages = this.messages.filter((m) => m.role === "system");
-    const nonSystemMessages = this.messages.filter((m) => m.role !== "system");
+    const { system, nonSystem } = this.splitBySystem();
 
     const keepRecent = Math.max(
       this.config.minMessages,
       this.config.summaryKeepRecent,
     );
 
-    if (nonSystemMessages.length <= keepRecent) return;
+    if (nonSystem.length <= keepRecent) return;
 
-    const splitIndex = Math.max(0, nonSystemMessages.length - keepRecent);
-    const toSummarize = nonSystemMessages.slice(0, splitIndex);
-    const recentMessages = nonSystemMessages.slice(splitIndex);
+    const splitIndex = Math.max(0, nonSystem.length - keepRecent);
+    const toSummarize = nonSystem.slice(0, splitIndex);
+    const recentMessages = nonSystem.slice(splitIndex);
 
     try {
       const summary = await this.config.llmSummarize(toSummarize);
@@ -195,9 +197,11 @@ export class ContextManager {
         timestamp: Date.now(),
       };
 
-      this.messages = this.config.preserveSystem
-        ? [...systemMessages, summaryMessage, ...recentMessages]
-        : [summaryMessage, ...recentMessages];
+      this.setMessages(
+        this.config.preserveSystem
+          ? [...system, summaryMessage, ...recentMessages]
+          : [summaryMessage, ...recentMessages],
+      );
     } catch {
       // LLM summarization failed — fall back to crude summary on next overflow
     }
@@ -248,6 +252,7 @@ export class ContextManager {
    */
   clear(): void {
     this.messages = [];
+    this.roleCounts = { system: 0, user: 0, assistant: 0, tool: 0 };
   }
 
   /**
@@ -256,22 +261,13 @@ export class ContextManager {
    * @returns Statistics about current context
    */
   getStats(): ContextStats {
-    let system = 0, user = 0, assistant = 0, tool = 0;
-    for (const m of this.messages) {
-      switch (m.role) {
-        case "system": system++; break;
-        case "user": user++; break;
-        case "assistant": assistant++; break;
-        case "tool": tool++; break;
-      }
-    }
     return {
       messageCount: this.messages.length,
       estimatedTokens: this.estimateTokens(),
-      systemMessages: system,
-      userMessages: user,
-      assistantMessages: assistant,
-      toolMessages: tool,
+      systemMessages: this.roleCounts.system,
+      userMessages: this.roleCounts.user,
+      assistantMessages: this.roleCounts.assistant,
+      toolMessages: this.roleCounts.tool,
     };
   }
 
@@ -339,42 +335,44 @@ export class ContextManager {
     }
 
     // Separate system/summary messages from others
-    const systemMessages = this.messages.filter((m) =>
-      m.role === "system" ||
-      (this.config.overflowStrategy === "summarize" && isSummaryMessage(m))
-    );
-    const nonSystemMessages = this.messages.filter((m) =>
-      m.role !== "system" &&
-      !(this.config.overflowStrategy === "summarize" && isSummaryMessage(m))
-    );
+    const preserveSummary = this.config.overflowStrategy === "summarize";
+    const systemMessages: Message[] = [];
+    const nonSystemMessages: Message[] = [];
+    for (const m of this.messages) {
+      if (m.role === "system" || (preserveSummary && isSummaryMessage(m))) {
+        systemMessages.push(m);
+      } else {
+        nonSystemMessages.push(m);
+      }
+    }
 
     // Can't trim if too few messages
     if (nonSystemMessages.length <= this.config.minMessages) {
       return;
     }
 
-    // Remove oldest non-system messages until under budget (O(n) with index pointer)
-    let startIdx = 0;
+    // O(n) trim: compute total tokens, subtract from front until under budget
+    const systemTokens = this.config.preserveSystem
+      ? estimateTokensFromMessages(systemMessages)
+      : 0;
+    let nonSystemTokens = estimateTokensFromMessages(nonSystemMessages);
     const maxTrim = nonSystemMessages.length - this.config.minMessages;
+    let startIdx = 0;
 
-    while (startIdx < maxTrim) {
-      const candidate = this.config.preserveSystem
-        ? [...systemMessages, ...nonSystemMessages.slice(startIdx)]
-        : nonSystemMessages.slice(startIdx);
-      if (this.estimateTokensForMessages(candidate) <= this.config.maxTokens) {
-        break;
-      }
+    while (startIdx < maxTrim && (systemTokens + nonSystemTokens) > this.config.maxTokens) {
+      // Subtract tokens for the message being removed (chars/4 + overhead)
+      nonSystemTokens -= Math.ceil(nonSystemMessages[startIdx].content.length / 4) + 4;
       startIdx++;
     }
 
-    const trimmedMessages = startIdx > 0
-      ? nonSystemMessages.slice(startIdx)
-      : nonSystemMessages;
-
-    // Reconstruct message array
-    this.messages = this.config.preserveSystem
-      ? [...systemMessages, ...trimmedMessages]
-      : trimmedMessages;
+    if (startIdx > 0) {
+      const trimmedMessages = nonSystemMessages.slice(startIdx);
+      this.setMessages(
+        this.config.preserveSystem
+          ? [...systemMessages, ...trimmedMessages]
+          : trimmedMessages,
+      );
+    }
   }
 
   /**
@@ -386,21 +384,20 @@ export class ContextManager {
   private summarizeIfNeeded(): void {
     if (!this.needsTrimming()) return;
 
-    const systemMessages = this.messages.filter((m) => m.role === "system");
-    const nonSystemMessages = this.messages.filter((m) => m.role !== "system");
+    const { system, nonSystem } = this.splitBySystem();
 
     const keepRecent = Math.max(
       this.config.minMessages,
       this.config.summaryKeepRecent,
     );
 
-    if (nonSystemMessages.length <= keepRecent) {
+    if (nonSystem.length <= keepRecent) {
       return;
     }
 
-    const splitIndex = Math.max(0, nonSystemMessages.length - keepRecent);
-    const toSummarize = nonSystemMessages.slice(0, splitIndex);
-    const recentMessages = nonSystemMessages.slice(splitIndex);
+    const splitIndex = Math.max(0, nonSystem.length - keepRecent);
+    const toSummarize = nonSystem.slice(0, splitIndex);
+    const recentMessages = nonSystem.slice(splitIndex);
 
     const summary = this.buildSummary(toSummarize);
     const summaryMessage: Message = {
@@ -409,9 +406,11 @@ export class ContextManager {
       timestamp: Date.now(),
     };
 
-    this.messages = this.config.preserveSystem
-      ? [...systemMessages, summaryMessage, ...recentMessages]
-      : [summaryMessage, ...recentMessages];
+    this.setMessages(
+      this.config.preserveSystem
+        ? [...system, summaryMessage, ...recentMessages]
+        : [summaryMessage, ...recentMessages],
+    );
   }
 
   private buildSummary(messages: Message[]): string {
@@ -429,14 +428,34 @@ export class ContextManager {
     return summary;
   }
 
-  /**
-   * Estimate tokens for specific messages
-   *
-   * @param messages Messages to estimate
-   * @returns Estimated token count
-   */
-  private estimateTokensForMessages(messages: Message[]): number {
-    return estimateTokensFromMessages(messages);
+  /** Split messages into system and non-system (DRY helper) */
+  private splitBySystem(): { system: Message[]; nonSystem: Message[] } {
+    const system: Message[] = [];
+    const nonSystem: Message[] = [];
+    for (const m of this.messages) {
+      if (m.role === "system") {
+        system.push(m);
+      } else {
+        nonSystem.push(m);
+      }
+    }
+    return { system, nonSystem };
+  }
+
+  /** Replace messages and recompute role counts */
+  private setMessages(newMessages: Message[]): void {
+    this.messages = newMessages;
+    this.roleCounts = { system: 0, user: 0, assistant: 0, tool: 0 };
+    for (const m of newMessages) {
+      this.incrementRoleCount(m.role);
+    }
+  }
+
+  /** Increment the role tally */
+  private incrementRoleCount(role: MessageRole): void {
+    if (role in this.roleCounts) {
+      this.roleCounts[role as keyof typeof this.roleCounts]++;
+    }
   }
 
   /**
