@@ -121,8 +121,6 @@ export function withRecovery<T>(
 // Simple helpers
 // -----------------------------------------------------------------------------
 
-/** @deprecated Use `getErrorMessage` from `common/utils.ts` instead. */
-export const formatErrorMessage = getErrorMessage;
 
 /**
  * Extract an existing HQL error code from a message string.
@@ -1867,7 +1865,7 @@ class ErrorReporter {
       // Inline formatter logic
       const formattedError = error instanceof HQLError
         ? await formatHQLError(error, isDebug)
-        : formatErrorMessage(error);
+        : getErrorMessage(error);
       log.raw.error(formattedError);
     } catch (_formatError) {
       // Fallback in case formatting itself fails

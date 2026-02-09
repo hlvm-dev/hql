@@ -195,14 +195,6 @@ This checks for:
 - **Strict enforcement enabled** - violations block CI
 - Managed via CONSOLE_ALLOWLIST in `scripts/ssot-check.ts`
 
-**Local Pre-commit Hook:**
-```bash
-# Install the pre-commit hook
-./scripts/install-hooks.sh
-```
-
-The hook runs `ssot:check` before each commit and warns about violations.
-
 ### Adding New SSOT Domains
 
 When adding a new domain:

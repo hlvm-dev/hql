@@ -59,7 +59,6 @@ import {
   registerModulePath,
 } from "../common/import-utils.ts";
 import {
-  formatErrorMessage,
   SourceLocationInfo,
   ValidationError,
   wrapError,
@@ -1968,7 +1967,7 @@ function processFunctionDefinition(
         return `${fnName}(${args.join(", ")})`;
       } catch (error) {
         logger.error(
-          `Error executing function ${fnName}: ${formatErrorMessage(error)}`,
+          `Error executing function ${fnName}: ${getErrorMessage(error)}`,
         );
         return null;
       }
@@ -2043,7 +2042,7 @@ function processFileExportsAndDefinitions(
           } catch (evalError) {
             logger.debug(
               `Failed to evaluate expression for export "${name}": ${
-                formatErrorMessage(evalError)
+                getErrorMessage(evalError)
               }`,
             );
           }

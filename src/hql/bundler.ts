@@ -15,7 +15,6 @@ import type {
 } from "npm:esbuild-wasm@^0.17.0";
 import { transpileToJavascript } from "./transpiler/hql-transpiler.ts";
 import { transpileHqlFile, RUNTIME_GET_SNIPPET, propagateReportedFlag, wrapError } from "./bundler-internal.ts";
-import { formatErrorMessage } from "../common/error.ts";
 import {
   isHqlFile,
   isJsFile,
@@ -609,7 +608,7 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
         } catch (error) {
           logger.error(
             `Error processing ${loader === "ts" ? "TypeScript" : "JavaScript"} file ${filePath}: ${
-              formatErrorMessage(error)
+              getErrorMessage(error)
             }`,
           );
           return null;
@@ -701,7 +700,7 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
           } catch (error) {
             throw new TranspilerError(
               `Error loading HQL file ${args.path}: ${
-                formatErrorMessage(error)
+                getErrorMessage(error)
               }`,
             );
           }
@@ -900,7 +899,7 @@ async function postProcessBundleOutput(outputPath: string): Promise<void> {
       await fsUtil().writeTextFile(outputPath, content);
     }
   } catch (error) {
-    logger.error(`Error post-processing bundle: ${formatErrorMessage(error)}`);
+    logger.error(`Error post-processing bundle: ${getErrorMessage(error)}`);
   }
 }
 
@@ -1119,7 +1118,7 @@ async function loadTranspiledFile(
   } catch (error) {
     throw new TranspilerError(
       `Failed to load transpiled file: ${filePath}: ${
-        formatErrorMessage(error)
+        getErrorMessage(error)
       }`,
     );
   }
@@ -1214,7 +1213,7 @@ async function writeOutput(
     } catch (cacheError) {
       logger.debug(
         `Skipping cache write for ${outputPath}: ${
-          formatErrorMessage(cacheError)
+          getErrorMessage(cacheError)
         }`,
       );
     }
