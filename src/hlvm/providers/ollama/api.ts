@@ -360,7 +360,7 @@ export async function chatStructured(
 
   // Streaming path: yield tokens via onToken, collect tool_calls from final chunk
   if (useStreaming) {
-    let content = "";
+    const contentChunks: string[] = [];
     let toolCalls: ProviderToolCall[] = [];
 
     for await (
@@ -372,7 +372,7 @@ export async function chatStructured(
       )
     ) {
       if (chunk.message?.content) {
-        content += chunk.message.content;
+        contentChunks.push(chunk.message.content);
         onToken?.(chunk.message.content);
       }
       // Ollama may emit tool_calls in any chunk (typically the first non-done chunk)
@@ -382,7 +382,7 @@ export async function chatStructured(
     }
 
     return {
-      content: content.trim(),
+      content: contentChunks.join("").trim(),
       toolCalls,
     };
   }

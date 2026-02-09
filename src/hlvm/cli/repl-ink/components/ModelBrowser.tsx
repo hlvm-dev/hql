@@ -504,6 +504,29 @@ export function ModelBrowser({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
 
+  const modelPullTasks = useMemo(() => {
+    const byModel = new Map<string, ModelPullTask[]>();
+    const activeByModel = new Map<string, ModelPullTask>();
+
+    for (const task of tasks) {
+      if (!isModelPullTask(task)) continue;
+
+      const tasksForModel = byModel.get(task.modelName);
+      if (tasksForModel) {
+        tasksForModel.push(task);
+      } else {
+        byModel.set(task.modelName, [task]);
+      }
+
+      // Preserve first active task in task-list order (matches Array.find behavior).
+      if (isTaskActive(task) && !activeByModel.has(task.modelName)) {
+        activeByModel.set(task.modelName, task);
+      }
+    }
+
+    return { byModel, activeByModel };
+  }, [tasks]);
+
   // Fetch local models - 100% SSOT via ai.models API (no fallback)
   const fetchModels = useCallback(async () => {
     // 100% SSOT: Use ai.models API only - no direct fetch fallback
@@ -594,11 +617,9 @@ export function ModelBrowser({
 
     // Build lookup maps
     const localMap = new Map<string, LocalModel>(localModels.map((m: LocalModel) => [m.name, m]));
-
-    // Get all model-pull tasks (active or cancelled - to show partial progress)
-    const pullTasks = tasks.filter(
-      (t): t is ModelPullTask => isModelPullTask(t)
-    );
+    const remoteNameSet = new Set(remoteModels.map((m: RemoteModel) => m.name));
+    const pullTasksByModel = modelPullTasks.byModel;
+    const activePullTasksByModel = modelPullTasks.activeByModel;
 
     // Helper to determine download status from task
     const getDownloadStatus = (task: ModelPullTask | undefined): DownloadStatus => {
@@ -612,15 +633,19 @@ export function ModelBrowser({
     // Helper to find most relevant task (prefer active over cancelled/failed)
     // If model is local, don't show stale cancelled/failed tasks
     const findRelevantTask = (modelName: string, isLocal: boolean): ModelPullTask | undefined => {
-      const tasksForModel = pullTasks.filter((t) => t.modelName === modelName);
       // Always prefer active tasks (running/pending)
-      const activeTask = tasksForModel.find((t) => t.status === "running" || t.status === "pending");
+      const activeTask = activePullTasksByModel.get(modelName);
       if (activeTask) return activeTask;
       // For local models, don't show stale cancelled/failed status
       // (the model was successfully downloaded after the failed attempt)
       if (isLocal) return undefined;
       // For non-local models, show cancelled/failed for resume UX
-      return tasksForModel.find((t) => t.status === "cancelled" || t.status === "failed");
+      const tasksForModel = pullTasksByModel.get(modelName);
+      if (!tasksForModel) return undefined;
+      for (const task of tasksForModel) {
+        if (task.status === "cancelled" || task.status === "failed") return task;
+      }
+      return undefined;
     };
 
     // Build from remoteModels (stable order - sorted by size)
@@ -649,7 +674,7 @@ export function ModelBrowser({
 
     // Add local-only models (not in registry) at the end
     for (const model of localModels) {
-      if (!remoteModels.some((r: RemoteModel) => r.name === model.name)) {
+      if (!remoteNameSet.has(model.name)) {
         const task = findRelevantTask(model.name, true);  // Always local
         const downloadStatus = getDownloadStatus(task);
         result.push({
@@ -698,7 +723,7 @@ export function ModelBrowser({
     }
 
     return filtered;
-  }, [localModels, remoteModels, cloudModels, tasks, searchQuery, filterMode]);
+  }, [localModels, remoteModels, cloudModels, modelPullTasks, searchQuery, filterMode]);
 
   // Keep selection stable by model name (avoid index jumps when list updates)
   useEffect(() => {
@@ -964,7 +989,7 @@ export function ModelBrowser({
 
     // Helper: find active pull task for a model name
     const findActivePullTask = (modelName: string) =>
-      tasks.find((t) => isModelPullTask(t) && t.modelName === modelName && isTaskActive(t));
+      modelPullTasks.activeByModel.get(modelName);
 
     // Cancel download ('x' key)
     if (input === "x" && displayModels[selection.index]) {

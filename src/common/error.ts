@@ -200,26 +200,27 @@ function formatContextLines(
     return output;
   }
 
-  // Calculate line number padding (minimum 2 for visual consistency)
-  const maxLineNumber = Math.max(...contextLines.map((item) => item.line));
-  const lineNumPadding = Math.max(2, String(maxLineNumber).length);
-
   // Deduplicate lines (prefer error lines if duplicates exist)
+  // and gather formatting metadata in one pass.
+  let maxLineNumber = 0;
+  let errorLineNo = -1;
   const lineMap = new Map<
     number,
     { content: string; isError: boolean; column?: number }
   >();
-  contextLines.forEach(({ line, content, isError, column }) => {
+  for (const { line, content, isError, column } of contextLines) {
+    if (line > maxLineNumber) maxLineNumber = line;
+    if (isError && errorLineNo === -1) errorLineNo = line;
+
     if (!lineMap.has(line)) {
       lineMap.set(line, { content, isError, column });
     } else if (isError) {
       lineMap.set(line, { content, isError, column });
     }
-  });
+  }
 
-  // Find error line number for highlighting
-  const errorLineObj = contextLines.find(({ isError }) => isError);
-  const errorLineNo = errorLineObj ? errorLineObj.line : -1;
+  // Calculate line number padding (minimum 2 for visual consistency)
+  const lineNumPadding = Math.max(2, String(maxLineNumber).length);
 
   // Rust-style: empty gutter line at the start
   const gutterSpace = " ".repeat(lineNumPadding);

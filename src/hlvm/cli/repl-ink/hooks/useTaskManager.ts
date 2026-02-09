@@ -75,22 +75,20 @@ export function useTaskManager(): UseTaskManagerReturn {
     return Array.from(manager.getTasks().values());
   }, [manager, version]);
 
-  // Derive eval tasks
-  const evalTasks = useMemo(
-    () => tasks.filter(isEvalTask),
-    [tasks]
-  );
+  // Derive frequently used task views in a single pass.
+  const taskViews = useMemo(() => {
+    const evalTasks: EvalTask[] = [];
+    let activeCount = 0;
+    let completedCount = 0;
 
-  // Derive counts
-  const activeCount = useMemo(
-    () => tasks.filter(isTaskActive).length,
-    [tasks]
-  );
+    for (const task of tasks) {
+      if (isEvalTask(task)) evalTasks.push(task);
+      if (isTaskActive(task)) activeCount++;
+      if (task.status === "completed") completedCount++;
+    }
 
-  const completedCount = useMemo(
-    () => tasks.filter((t: Task) => t.status === "completed").length,
-    [tasks]
-  );
+    return { evalTasks, activeCount, completedCount };
+  }, [tasks]);
 
   // Callbacks (stable references)
   const createEvalTask = useCallback(
@@ -134,9 +132,9 @@ export function useTaskManager(): UseTaskManagerReturn {
 
   return {
     tasks,
-    evalTasks,
-    activeCount,
-    completedCount,
+    evalTasks: taskViews.evalTasks,
+    activeCount: taskViews.activeCount,
+    completedCount: taskViews.completedCount,
     createEvalTask,
     completeEvalTask,
     failEvalTask,

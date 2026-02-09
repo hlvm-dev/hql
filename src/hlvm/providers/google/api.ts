@@ -223,14 +223,14 @@ async function streamChat(
     await throwOnHttpError(response, "Google AI");
   }
 
-  let content = "";
+  const contentChunks: string[] = [];
   const toolCalls: ProviderToolCall[] = [];
 
   for await (const chunk of readSSEStream<GoogleResponse>(response)) {
     const parts = chunk.candidates?.[0]?.content?.parts ?? [];
     for (const part of parts) {
       if (part.text) {
-        content += part.text;
+        contentChunks.push(part.text);
         onToken(part.text);
       }
       if (part.functionCall) {
@@ -246,7 +246,7 @@ async function streamChat(
     }
   }
 
-  return { content, toolCalls };
+  return { content: contentChunks.join(""), toolCalls };
 }
 
 // =============================================================================

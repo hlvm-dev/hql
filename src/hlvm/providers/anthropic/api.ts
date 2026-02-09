@@ -288,7 +288,7 @@ async function streamChat(
     await throwOnHttpError(response, "Anthropic");
   }
 
-  let content = "";
+  const contentChunks: string[] = [];
   const toolUseBlocks: { id: string; name: string; inputJson: string }[] = [];
   let currentToolIndex = -1;
 
@@ -304,7 +304,7 @@ async function streamChat(
       }
     } else if (event.type === "content_block_delta") {
       if (event.delta?.type === "text_delta" && event.delta.text) {
-        content += event.delta.text;
+        contentChunks.push(event.delta.text);
         onToken(event.delta.text);
       } else if (
         event.delta?.type === "input_json_delta" &&
@@ -327,7 +327,7 @@ async function streamChat(
     },
   }));
 
-  return { content, toolCalls };
+  return { content: contentChunks.join(""), toolCalls };
 }
 
 // =============================================================================

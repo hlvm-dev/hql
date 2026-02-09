@@ -192,13 +192,13 @@ async function streamChat(
     await throwOnHttpError(response, "OpenAI");
   }
 
-  let content = "";
+  const contentChunks: string[] = [];
   const toolCallParts: Map<number, { id: string; name: string; args: string }> = new Map();
 
   for await (const chunk of readSSEStream<OpenAIStreamDelta>(response)) {
     const delta = chunk.choices?.[0]?.delta;
     if (delta?.content) {
-      content += delta.content;
+      contentChunks.push(delta.content);
       onToken(delta.content);
     }
     if (delta?.tool_calls) {
@@ -216,7 +216,7 @@ async function streamChat(
     .sort((a, b) => a[0] - b[0])
     .map(([, part]) => buildToolCall(part.id, part.name, part.args));
 
-  return { content, toolCalls };
+  return { content: contentChunks.join(""), toolCalls };
 }
 
 // =============================================================================

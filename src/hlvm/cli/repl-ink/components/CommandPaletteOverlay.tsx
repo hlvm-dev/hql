@@ -67,6 +67,14 @@ type FlatItem =
   | { type: "item"; match: KeybindingMatch }
   | { type: "spacer" };
 
+type SelectableFlatItem = FlatItem & { type: "item" };
+
+interface PaletteListData {
+  flatList: FlatItem[];
+  selectableItems: SelectableFlatItem[];
+  selectablePositions: number[];
+}
+
 // ============================================================
 // Layout Constants
 // ============================================================
@@ -83,8 +91,8 @@ const BG_COLOR: RGB = [35, 35, 40];
 // Helpers
 // ============================================================
 
-/** Build flat list with category headers and spacers for rendering */
-function buildFlatList(results: KeybindingMatch[]): FlatItem[] {
+/** Build flat list with category headers and selectable metadata in one pass. */
+function buildPaletteListData(results: KeybindingMatch[]): PaletteListData {
   // Group results by category
   const byCategory = new Map<KeybindingCategory, KeybindingMatch[]>();
   for (const match of results) {
@@ -96,7 +104,9 @@ function buildFlatList(results: KeybindingMatch[]): FlatItem[] {
 
   // Build flat list with proper spacing:
   // Category → Spacer → Items (for each non-empty category)
-  const list: FlatItem[] = [];
+  const flatList: FlatItem[] = [];
+  const selectableItems: SelectableFlatItem[] = [];
+  const selectablePositions: number[] = [];
   let isFirst = true;
 
   for (const category of CATEGORY_ORDER) {
@@ -105,30 +115,30 @@ function buildFlatList(results: KeybindingMatch[]): FlatItem[] {
 
     // Add separator before category (except first)
     if (!isFirst) {
-      list.push({ type: "spacer" });
+      flatList.push({ type: "spacer" });
     }
     isFirst = false;
 
     // Category header
-    list.push({ type: "category", category });
+    flatList.push({ type: "category", category });
 
     // Spacer after category header for visual breathing room
-    list.push({ type: "spacer" });
+    flatList.push({ type: "spacer" });
 
     // Items
     for (const match of items) {
-      list.push({ type: "item", match });
+      const item: SelectableFlatItem = { type: "item", match };
+      selectablePositions.push(flatList.length);
+      selectableItems.push(item);
+      flatList.push(item);
     }
   }
 
-  return list;
-}
-
-/** Get only selectable items from flat list */
-function getSelectableItems(flatList: FlatItem[]): Array<FlatItem & { type: "item" }> {
-  return flatList.filter((item): item is FlatItem & { type: "item" } =>
-    item.type === "item"
-  );
+  return {
+    flatList,
+    selectableItems,
+    selectablePositions,
+  };
 }
 
 // ============================================================
@@ -169,8 +179,10 @@ export function CommandPaletteOverlay({
 
   // Search results and derived data
   const results = useMemo(() => registry.search(query), [query]);
-  const flatList = useMemo(() => buildFlatList(results), [results]);
-  const selectableItems = useMemo(() => getSelectableItems(flatList), [flatList]);
+  const { flatList, selectableItems, selectablePositions } = useMemo(
+    () => buildPaletteListData(results),
+    [results],
+  );
 
   // Reset selection ONLY when query actually changes (not on mount with initialState)
   useEffect(() => {
@@ -194,11 +206,8 @@ export function CommandPaletteOverlay({
 
   // Auto-scroll to keep selection visible
   useEffect(() => {
-    const selectedItem = selectableItems[selectedIndex];
-    if (!selectedItem) return;
-
-    const posInList = flatList.indexOf(selectedItem);
-    if (posInList === -1) return;
+    const posInList = selectablePositions[selectedIndex];
+    if (posInList === undefined) return;
 
     const visibleEnd = scrollOffset + VISIBLE_ROWS;
 
@@ -217,7 +226,7 @@ export function CommandPaletteOverlay({
     } else if (posInList >= visibleEnd) {
       setScrollOffset(posInList - VISIBLE_ROWS + 1);
     }
-  }, [selectedIndex, selectableItems, flatList, scrollOffset]);
+  }, [selectedIndex, selectablePositions, flatList, scrollOffset]);
 
   // Draw cursor only (optimized for blink)
   const drawCursor = useCallback(() => {

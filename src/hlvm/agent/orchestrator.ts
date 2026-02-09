@@ -190,16 +190,20 @@ function buildToolErrorResult(
   return result;
 }
 
-/** Cached Sets for allow/deny lookups (O(1) vs O(n)) */
+/** Cached Sets for allow/deny lookups (O(1) membership, O(n) key build). */
 let _cachedAllowSet: { key: string; set: Set<string> } | null = null;
 let _cachedDenySet: { key: string; set: Set<string> } | null = null;
+
+function listCacheKey(list: string[]): string {
+  // JSON string avoids collisions from simple delimiter-join keys.
+  return JSON.stringify(list);
+}
 
 function getOrCreateSet(
   list: string[],
   cached: { key: string; set: Set<string> } | null,
 ): { key: string; set: Set<string> } {
-  // Use sorted join as cache key (value equality instead of reference equality)
-  const key = list.slice().sort().join("\0");
+  const key = listCacheKey(list);
   if (cached && cached.key === key) return cached;
   return { key, set: new Set(list) };
 }

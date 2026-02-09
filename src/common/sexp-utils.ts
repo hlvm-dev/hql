@@ -59,9 +59,13 @@ export function normalizeVectorElements<T extends BaseNode>(
     startIndex = 3;
   }
 
-  return elements.slice(startIndex).filter((elem) =>
-    !(isSymbolNodeLike(elem) && elem.name === ",")
-  );
+  const normalized: T[] = [];
+  for (let i = startIndex; i < elements.length; i++) {
+    const elem = elements[i];
+    if (isSymbolNodeLike(elem) && elem.name === ",") continue;
+    normalized.push(elem);
+  }
+  return normalized;
 }
 
 /**

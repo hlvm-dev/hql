@@ -48,8 +48,39 @@ await build({
   filterDiagnostic: (_diagnostic) => true,
 });
 
+// Post-build patches
+const { readFile, writeFile, copyFile } = await import("node:fs/promises");
+
+// Patch package.json: add types to exports (dnt doesn't do this for ESM-only)
+const pkgPath = `${outDir}/package.json`;
+const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
+pkg.exports = {
+  ".": {
+    "types": "./esm/mod.d.ts",
+    "import": "./esm/mod.js",
+  },
+  "./agent": {
+    "types": "./esm/src/hlvm/agent/sdk.d.ts",
+    "import": "./esm/src/hlvm/agent/sdk.js",
+  },
+};
+pkg.types = "./esm/mod.d.ts";
+await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+
+// Patch dnt polyfill to handle missing process.argv[1] (e.g. node -e)
+const polyfillPath = `${outDir}/esm/_dnt.polyfills.js`;
+try {
+  let polyfill = await readFile(polyfillPath, "utf-8");
+  polyfill = polyfill.replace(
+    `process.argv[1].replace(/\\\\/g, "/")`,
+    `(process.argv[1] || "").replace(/\\\\/g, "/")`,
+  );
+  await writeFile(polyfillPath, polyfill);
+} catch {
+  // polyfill file may not exist in future dnt versions
+}
+
 // Copy any additional files needed in the npm package
-const { copyFile } = await import("node:fs/promises");
 try {
   await copyFile("LICENSE", `${outDir}/LICENSE`);
 } catch {

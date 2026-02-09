@@ -275,10 +275,10 @@ const NodeFs: PlatformFs = {
   },
 
   remove: async (path: string, options?: PlatformRemoveOptions): Promise<void> => {
-    await fsp.rm(path, { recursive: options?.recursive });
+    await fsp.rm(path, { recursive: options?.recursive ?? false });
   },
   removeSync: (path: string, options?: PlatformRemoveOptions): void => {
-    fs.rmSync(path, { recursive: options?.recursive });
+    fs.rmSync(path, { recursive: options?.recursive ?? false });
   },
   copyFile: (src: string, dest: string): Promise<void> =>
     fsp.copyFile(src, dest),
