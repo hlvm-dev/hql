@@ -14,9 +14,8 @@ import type {
   PluginBuild,
 } from "npm:esbuild-wasm@^0.17.0";
 import { transpileToJavascript } from "./transpiler/hql-transpiler.ts";
-import { transpileHqlFile } from "./bundler-internal.ts";
+import { transpileHqlFile, RUNTIME_GET_SNIPPET, propagateReportedFlag, wrapError } from "./bundler-internal.ts";
 import { formatErrorMessage } from "../common/error.ts";
-import { ERROR_REPORTED_SYMBOL } from "../common/error-codes.ts";
 import {
   isHqlFile,
   isJsFile,
@@ -26,7 +25,7 @@ import {
   checkForHqlImports,
   findActualFilePath,
   getErrorMessage,
-  isObjectValue,
+
   readFile,
 } from "../common/utils.ts";
 import { initializeRuntime } from "../common/runtime-initializer.ts";
@@ -70,23 +69,6 @@ function getStdlibPath(): string {
   return pathUtil().join(thisDir, "lib", "stdlib", "js", "index.js");
 }
 
-function propagateReportedFlag(source: unknown, target: object): void {
-  if (isObjectValue(source)) {
-    if (Reflect.get(source, ERROR_REPORTED_SYMBOL)) {
-      Reflect.set(target, ERROR_REPORTED_SYMBOL, true);
-    }
-  }
-}
-
-/**
- * Wrap an error with a new message and propagate the reported flag
- */
-function wrapError(error: unknown, message: string): TranspilerError {
-  const newError = new TranspilerError(`${message}: ${getErrorMessage(error)}`);
-  propagateReportedFlag(error, newError);
-  return newError;
-}
-
 // Constants
 const DEFAULT_EXTERNAL_PATTERNS = [
   "npm:",
@@ -96,17 +78,6 @@ const DEFAULT_EXTERNAL_PATTERNS = [
   "http://",
 ];
 
-const RUNTIME_GET_SNIPPET = `// Runtime get function for HQL
-function get(obj, key) {
-  // If obj is a function, call it with the key as argument
-  if (typeof obj === 'function') {
-    return obj(key);
-  }
-  // Otherwise, treat it as property access
-  return obj[key];
-}
-
-`;
 
 // Error messages
 const ERROR_ALREADY_INITIALIZED = "already been initialized";

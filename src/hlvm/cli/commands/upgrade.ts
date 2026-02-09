@@ -8,15 +8,10 @@
 
 import { VERSION } from "../../../version.ts";
 import { log } from "../../api/log.ts";
-import { getPlatform } from "../../../platform/platform.ts";
 import { http } from "../../../common/http-client.ts";
-
-// Local alias for platform exit
-const platformExit = (code: number) => getPlatform().process.exit(code);
-import { isNewer } from "../utils/update-check.ts";
+import { platformExit } from "../utils/platform-helpers.ts";
+import { isNewer, GITHUB_RELEASES_API } from "../utils/update-check.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
-
-const GITHUB_API = "https://api.github.com/repos/hlvm-dev/hlvm/releases/latest";
 
 /**
  * Main upgrade command handler.
@@ -30,7 +25,7 @@ export async function upgrade(args: string[]): Promise<void> {
   // Fetch latest release info (SSOT: use http client)
   let latestVersion: string;
   try {
-    const release = await http.get<{ tag_name?: string }>(GITHUB_API, {
+    const release = await http.get<{ tag_name?: string }>(GITHUB_RELEASES_API, {
       headers: {
         Accept: "application/vnd.github.v3+json",
         "User-Agent": "hlvm-cli",
@@ -41,11 +36,11 @@ export async function upgrade(args: string[]): Promise<void> {
 
     if (!latestVersion) {
       log.raw.error("Failed to parse latest version");
-      platformExit(1);
+      return platformExit(1);
     }
   } catch (error) {
     log.raw.error(`Failed to check for updates: ${getErrorMessage(error)}`);
-    platformExit(1);
+    return platformExit(1);
   }
 
   // Compare versions

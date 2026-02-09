@@ -7,9 +7,7 @@
 import { getPlatform } from "../../platform/platform.ts";
 import { log } from "../api/log.ts";
 import { hasHelpFlag } from "./utils/common-helpers.ts";
-
-// Local alias for platform getArgs
-const platformGetArgs = () => getPlatform().process.args();
+import { platformGetArgs } from "./utils/platform-helpers.ts";
 import { compileCommand, showCompileHelp } from "./commands/compile.ts";
 import { init as initCommand, showInitHelp } from "./commands/init.ts";
 import { publishCommand, showPublishHelp } from "./commands/publish.ts";

@@ -51,6 +51,17 @@ interface RemoteModel {
   provider?: string; // Company/provider name (e.g., "Meta", "Google")
 }
 
+/** Cloud model from an API provider (OpenAI, Anthropic, Google) */
+interface CloudModel {
+  name: string;           // e.g., "gpt-4o"
+  displayName: string;    // e.g., "GPT-4o"
+  provider: string;       // e.g., "openai"
+  providerDisplay: string;// e.g., "OpenAI"
+  capabilities: string[];
+  needsKey?: boolean;     // true if API key not set
+}
+
+
 /** Download status for a model */
 type DownloadStatus = "idle" | "downloading" | "cancelled" | "failed";
 
@@ -65,6 +76,7 @@ type DisplayModel = {
   capabilities?: string[];
   provider?: string; // Company/provider name
   progress?: { percent?: number; completed?: number; total?: number; status: string };
+  needsKey?: boolean; // true if API key not configured
 };
 
 // ============================================================
@@ -225,8 +237,9 @@ function toRemoteModel(model: ModelInfo): RemoteModel {
   const extraDescription = typeof meta.description === "string" ? meta.description : "";
   const description = extraDescription ? `${baseDescription} - ${extraDescription}` : baseDescription;
   const tags = capabilitiesToDisplayTags(model.capabilities);
-  const cloud = meta.cloud === true || getCatalogSize(model) === "Cloud (API only)";
-  if (cloud) tags.push("cloud");
+  // Note: Ollama catalog's meta.cloud means "has cloud-hosted variant on Ollama",
+  // NOT "API provider model". The [cloud] display tag is reserved exclusively for
+  // API providers (OpenAI, Anthropic, Google) added in the cloudModels loop.
 
   return {
     name: model.name,
@@ -391,7 +404,7 @@ function ModelItem({
   const statusTag = `[${getModelStatusLabel(statusKind)}]`;
 
   // Name (truncate if needed)
-  const displayName = model.name.length > 24 ? model.name.slice(0, 21) + "..." : model.name.padEnd(24);
+  const displayName = model.name.length > 40 ? model.name.slice(0, 37) + "..." : model.name.padEnd(40);
 
   // Size or status
   let sizeText: React.ReactNode;
@@ -480,6 +493,7 @@ export function ModelBrowser({
   // State
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
   const [remoteModels, setRemoteModels] = useState<RemoteModel[]>([]);
+  const [cloudModels, setCloudModels] = useState<CloudModel[]>([]);
   const [selection, setSelection] = useState<{ index: number; name: string | null }>({ index: 0, name: null });
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCursor, setSearchCursor] = useState(0);
@@ -492,12 +506,19 @@ export function ModelBrowser({
 
   // Fetch local models - 100% SSOT via ai.models API (no fallback)
   const fetchModels = useCallback(async () => {
-    try {
-      // 100% SSOT: Use ai.models API only - no direct fetch fallback
-      const aiApi = (globalThis as Record<string, unknown>).ai as {
-        models: { list: () => Promise<{ name: string; size?: number; modifiedAt?: Date }[]> };
-      } | undefined;
+    // 100% SSOT: Use ai.models API only - no direct fetch fallback
+    const aiApi = (globalThis as Record<string, unknown>).ai as {
+      models: {
+        list: () => Promise<{ name: string; size?: number; modifiedAt?: Date }[]>;
+        listAll?: () => Promise<{
+          name: string; displayName?: string; capabilities?: string[];
+          metadata?: { provider?: string; providerDisplayName?: string; apiKeyConfigured?: boolean; [k: string]: unknown };
+        }[]>;
+      };
+    } | undefined;
 
+    // Fetch local (Ollama) models — independent of cloud
+    try {
       if (aiApi?.models?.list) {
         const modelList = await aiApi.models.list();
         const models = modelList.map((m) => ({
@@ -507,13 +528,36 @@ export function ModelBrowser({
         }));
         setLocalModels(models);
       } else {
-        // API not ready - show empty (no direct fetch bypass)
         setLocalModels([]);
       }
     } catch {
-      // Offline - show empty
       setLocalModels([]);
     }
+
+    // Fetch cloud models from all non-ollama providers (independent of Ollama)
+    // Providers return their known models even without API keys set
+    try {
+      if (aiApi?.models?.listAll) {
+        const allModels = await aiApi.models.listAll();
+        const cloud = allModels
+          .filter((m) => {
+            const provider = (m.metadata?.provider as string) ?? "";
+            return provider !== "ollama";
+          })
+          .map((m): CloudModel => ({
+            name: m.name,
+            displayName: m.displayName ?? m.name,
+            provider: (m.metadata?.provider as string) ?? "",
+            providerDisplay: (m.metadata?.providerDisplayName as string) ?? "",
+            capabilities: (m.capabilities as string[]) ?? [],
+            needsKey: m.metadata?.apiKeyConfigured === false,
+          }));
+        setCloudModels(cloud);
+      }
+    } catch {
+      setCloudModels([]);
+    }
+
     setLoading(false);
   }, []);
 
@@ -587,7 +631,7 @@ export function ModelBrowser({
       const task = findRelevantTask(model.name, isLocal);
       const downloadStatus = getDownloadStatus(task);
       const capabilities = model.capabilities && model.capabilities.length > 0
-        ? model.capabilities.filter((cap) => !isLocal || cap !== "cloud")
+        ? model.capabilities
         : undefined;
       result.push({
         name: model.name,
@@ -620,6 +664,24 @@ export function ModelBrowser({
       }
     }
 
+    // Append cloud models (API providers: OpenAI, Anthropic, Google)
+    for (const model of cloudModels) {
+      const fullName = `${model.provider}/${model.name}`;
+      const tags = capabilitiesToDisplayTags(model.capabilities);
+      tags.push("cloud");
+      result.push({
+        name: fullName,
+        isLocal: false,
+        isDownloading: false,
+        downloadStatus: "idle",
+        sizeStr: model.needsKey ? "No key" : "Cloud",
+        description: model.displayName,
+        capabilities: tags,
+        provider: model.needsKey ? `${model.providerDisplay} *` : model.providerDisplay,
+        needsKey: model.needsKey,
+      });
+    }
+
     // Apply filter mode
     let filtered = filterByMode(result, filterMode);
 
@@ -636,7 +698,7 @@ export function ModelBrowser({
     }
 
     return filtered;
-  }, [localModels, remoteModels, tasks, searchQuery, filterMode]);
+  }, [localModels, remoteModels, cloudModels, tasks, searchQuery, filterMode]);
 
   // Keep selection stable by model name (avoid index jumps when list updates)
   useEffect(() => {
@@ -688,9 +750,27 @@ export function ModelBrowser({
       clearStatus();
     };
 
+    const isCloudModel = (m: DisplayModel) => m.capabilities?.includes("cloud") && !m.isLocal;
+
     const performSelectionAction = () => {
       const model = displayModels[selection.index] ?? displayModels[0];
       if (!model) return;
+
+      // Cloud models without API key: show helpful message
+      if (model.needsKey) {
+        const provider = model.name.split("/")[0];
+        setStatusMessage(`Set ${provider.toUpperCase()}_API_KEY to use this model`);
+        return;
+      }
+
+      // Cloud models: select directly (always available, no download)
+      if (isCloudModel(model) && onSelectModel) {
+        setIsSelecting(true);
+        setStatusMessage("Setting default model...");
+        void Promise.resolve(onSelectModel(model.name));
+        return;
+      }
+
       if (model.isLocal && onSelectModel) {
         setIsSelecting(true);
         setStatusMessage("Setting default model...");
@@ -701,7 +781,7 @@ export function ModelBrowser({
         onClose();
         return;
       }
-      if (!model.isLocal && !model.isDownloading) {
+      if (!model.isLocal && !model.isDownloading && !isCloudModel(model)) {
         try {
           manager.pullModel(model.name);
         } catch {
@@ -782,14 +862,29 @@ export function ModelBrowser({
 
     // 'i' opens model info page in browser
     if (input === "i" && displayModels[selection.index]) {
-      const url = getOllamaUrl(displayModels[selection.index].name);
-      openUrl(url);
+      const model = displayModels[selection.index];
+      if (isCloudModel(model)) {
+        // Open provider's model page
+        const name = model.name;
+        if (name.startsWith("openai/")) openUrl("https://platform.openai.com/docs/models");
+        else if (name.startsWith("anthropic/")) openUrl("https://docs.anthropic.com/en/docs/about-claude/models");
+        else if (name.startsWith("google/")) openUrl("https://ai.google.dev/gemini-api/docs/models");
+        else setStatusMessage("No info page for this provider");
+      } else {
+        openUrl(getOllamaUrl(model.name));
+      }
       return;
     }
 
     // 'd' - Delete local model (with confirmation)
     if (input === "d" && displayModels[selection.index]) {
       const model = displayModels[selection.index];
+
+      // Cloud models can't be deleted
+      if (isCloudModel(model)) {
+        setStatusMessage("Cloud models can't be deleted");
+        return;
+      }
 
       // Only allow delete for local models (not downloading or remote)
       if (!model.isLocal || model.isDownloading) return;
@@ -843,6 +938,19 @@ export function ModelBrowser({
     // Space to select as active
     if (input === " " && displayModels[selection.index]) {
       const model = displayModels[selection.index];
+      // Needs key: same message as Enter
+      if (model.needsKey) {
+        const provider = model.name.split("/")[0];
+        setStatusMessage(`Set ${provider.toUpperCase()}_API_KEY to use this model`);
+        return;
+      }
+      // Cloud models: select directly (same as Enter)
+      if (isCloudModel(model) && onSelectModel) {
+        setIsSelecting(true);
+        setStatusMessage("Setting default model...");
+        void Promise.resolve(onSelectModel(model.name));
+        return;
+      }
       if (model.isLocal && onSelectModel) {
         setIsSelecting(true);
         setStatusMessage("Setting default model...");

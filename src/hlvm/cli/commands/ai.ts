@@ -15,6 +15,7 @@ import { formatBytes } from "../../../common/limits.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { truncate } from "../../../common/utils.ts";
 import { getTaskManager, isModelPullTask, type ModelPullTask } from "../repl/task-manager/index.ts";
+import { hasHelpFlag } from "../utils/common-helpers.ts";
 
 function resolveDefaultLocalName(
   localModels: { name: string }[],
@@ -110,7 +111,7 @@ OPTIONS:
 }
 
 export async function aiCommand(args: string[]): Promise<void> {
-  if (args.includes("--help") || args.includes("-h")) {
+  if (hasHelpFlag(args)) {
     showAiHelp();
     return;
   }

@@ -72,6 +72,7 @@ export function convertAgentMessagesToProvider(
         role: "tool" as const,
         content: msg.content,
         ...(msg.toolName ? { tool_name: msg.toolName } : {}),
+        ...(msg.toolCallId ? { tool_call_id: msg.toolCallId } : {}),
       };
     }
 
@@ -81,6 +82,7 @@ export function convertAgentMessagesToProvider(
         role: "assistant" as const,
         content: msg.content,
         tool_calls: msg.toolCalls.map((tc) => ({
+          id: tc.id,
           type: "function" as const,
           function: {
             name: tc.function.name,
@@ -213,13 +215,13 @@ function parseProviderToolArgs(raw: unknown): Record<string, unknown> {
 function convertProviderToolCalls(calls: ProviderToolCall[] | undefined): ToolCall[] {
   if (!calls || calls.length === 0) return [];
   return calls
-    .map((call) => {
+    .map((call): ToolCall | null => {
       const name = call.function?.name ?? "";
       if (!name) return null;
       const args = parseProviderToolArgs(call.function?.arguments ?? "");
-      return { toolName: name, args };
+      return { ...(call.id ? { id: call.id } : {}), toolName: name, args };
     })
-    .filter((call): call is ToolCall => Boolean(call));
+    .filter((call): call is ToolCall => call !== null);
 }
 
 // ============================================================

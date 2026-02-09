@@ -11,7 +11,7 @@ import { http } from "../../../common/http-client.ts";
 import { log } from "../../api/log.ts";
 import { compareVersions } from "../publish/utils.ts";
 
-const GITHUB_API = "https://api.github.com/repos/hlvm-dev/hlvm/releases/latest";
+export const GITHUB_RELEASES_API = "https://api.github.com/repos/hlvm-dev/hlvm/releases/latest";
 const CACHE_FILE = ".update-check";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -52,7 +52,7 @@ export async function checkForUpdates(): Promise<void> {
 
     // Fetch latest version from GitHub API (SSOT: use http client)
     try {
-      const release = await http.get<{ tag_name?: string }>(GITHUB_API, {
+      const release = await http.get<{ tag_name?: string }>(GITHUB_RELEASES_API, {
         timeout: 3000, // 3 second timeout
         headers: {
           "Accept": "application/vnd.github.v3+json",

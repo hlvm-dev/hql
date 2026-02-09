@@ -6,12 +6,13 @@
 import { log } from "../../api/log.ts";
 import { startHttpServer } from "../repl/http-server.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
+import { hasHelpFlag } from "../utils/common-helpers.ts";
 
 /**
  * Start HTTP REPL server
  */
 export async function serveCommand(args: string[]): Promise<number> {
-  if (args.includes("--help") || args.includes("-h")) {
+  if (hasHelpFlag(args)) {
     showServeHelp();
     return 0;
   }

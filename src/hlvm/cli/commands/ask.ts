@@ -61,10 +61,13 @@ EXAMPLES:
   hlvm ask "count test files in tests/unit"
   hlvm ask "what are recent downloaded files?"
   hlvm ask --verbose "count test files"  # Debug mode with detailed output
+  hlvm ask --model openai/gpt-4o "summarize this project"
+  hlvm ask --model anthropic/claude-sonnet-4-5-20250929 "list files"
 
 OPTIONS:
   --help, -h                   Show this help message
   --verbose                    Show agent header, tool labels, stats, and trace output
+  --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o, anthropic/claude-sonnet-4-5-20250929)
 `);
 }
 
@@ -101,12 +104,19 @@ export async function askCommand(args: string[]): Promise<void> {
   // Parse arguments
   let query = "";
   let verbose = false;
+  let modelOverride: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
     if (arg === "--verbose") {
       verbose = true;
+    } else if (arg === "--model") {
+      i++;
+      if (i >= args.length) {
+        throw new ValidationError("--model requires a value (e.g., openai/gpt-4o)");
+      }
+      modelOverride = args[i];
     } else if (!arg.startsWith("--")) {
       // Accumulate query parts (in case user forgets quotes)
       query += (query ? " " : "") + arg;
@@ -122,17 +132,23 @@ export async function askCommand(args: string[]): Promise<void> {
   // Initialize runtime with AI
   await initializeRuntime({ stdlib: false, cache: false });
 
-  const model = getConfiguredModel();
-  try {
-    await ensureDefaultModelInstalled({
-      log: (message) => log.raw.log(message),
-    });
-  } catch (error) {
-    if (error instanceof Error) {
-      log.error(`Failed to setup default model: ${error.message}`);
-      log.raw.log("\nTip: Make sure Ollama is running.");
+  const model = modelOverride ?? getConfiguredModel();
+  // Only try to pull/install models for Ollama (local) provider
+  const isLocalModel = !model.startsWith("openai/") &&
+    !model.startsWith("anthropic/") &&
+    !model.startsWith("google/");
+  if (isLocalModel) {
+    try {
+      await ensureDefaultModelInstalled({
+        log: (message) => log.raw.log(message),
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        log.error(`Failed to setup default model: ${error.message}`);
+        log.raw.log("\nTip: Make sure Ollama is running.");
+      }
+      throw error;
     }
-    throw error;
   }
 
   const profile = ENGINE_PROFILES.normal;
@@ -308,6 +324,7 @@ export async function askCommand(args: string[]): Promise<void> {
           mode: "off",
           requireStepMarkers: false,
         },
+        skipModelCompensation: session.isFrontierModel,
       },
       session.llm,
     );

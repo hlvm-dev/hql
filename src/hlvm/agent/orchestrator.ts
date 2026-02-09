@@ -49,7 +49,7 @@ import {
   isObjectValue,
   truncate,
 } from "../../common/utils.ts";
-import { RuntimeError, ValidationError } from "../../common/error.ts";
+import { RuntimeError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
 import { classifyError } from "./error-taxonomy.ts";
 import type { AgentPolicy } from "./policy.ts";
@@ -63,7 +63,6 @@ export type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
 import {
   looksLikeToolCallJsonAnywhere,
-  looksLikeToolInstruction,
   responseAsksQuestion,
   tryParseToolCallsFromText,
 } from "./model-compat.ts";
@@ -163,12 +162,11 @@ function buildToolErrorResult(
   startedAt: number,
   config: OrchestratorConfig,
 ): ToolExecutionResult {
-  const display = error;
   const result = {
     success: false,
     error,
-    llmContent: display,
-    returnDisplay: display,
+    llmContent: error,
+    returnDisplay: error,
   };
 
   config.onTrace?.({
@@ -176,12 +174,12 @@ function buildToolErrorResult(
     toolName,
     success: false,
     error,
-    display,
+    display: error,
   });
   config.onToolDisplay?.({
     toolName,
     success: false,
-    content: display,
+    content: error,
   });
   emitMetric(config, "tool_result", {
     toolName,
@@ -194,15 +192,17 @@ function buildToolErrorResult(
 }
 
 /** Cached Sets for allow/deny lookups (O(1) vs O(n)) */
-let _cachedAllowSet: { source: string[]; set: Set<string> } | null = null;
-let _cachedDenySet: { source: string[]; set: Set<string> } | null = null;
+let _cachedAllowSet: { key: string; set: Set<string> } | null = null;
+let _cachedDenySet: { key: string; set: Set<string> } | null = null;
 
 function getOrCreateSet(
   list: string[],
-  cached: { source: string[]; set: Set<string> } | null,
-): { source: string[]; set: Set<string> } {
-  if (cached && cached.source === list) return cached;
-  return { source: list, set: new Set(list) };
+  cached: { key: string; set: Set<string> } | null,
+): { key: string; set: Set<string> } {
+  // Use sorted join as cache key (value equality instead of reference equality)
+  const key = list.slice().sort().join("\0");
+  if (cached && cached.key === key) return cached;
+  return { key, set: new Set(list) };
 }
 
 function isToolAllowed(
@@ -356,6 +356,8 @@ export interface OrchestratorConfig {
   maxToolCallRetries?: number;
   /** No-input mode: do not ask the user questions */
   noInput?: boolean;
+  /** Skip weak-model compensation heuristics (for frontier models like Claude, GPT-4o, Gemini) */
+  skipModelCompensation?: boolean;
 }
 
 /** Reusable TextEncoder (stateless, no need to recreate) */
@@ -802,6 +804,7 @@ export async function processAgentResponse(
     role: "assistant",
     content: content || "",
     toolCalls: toolCalls.map((tc) => ({
+      id: tc.id,
       function: { name: tc.toolName, arguments: tc.args },
     })),
   });
@@ -822,7 +825,6 @@ export async function processAgentResponse(
   // Add tool results to context + gather tool uses
   const toolUses: ToolUse[] = [];
   let toolBytes = 0;
-  const encoder = TEXT_ENCODER;
   for (let i = 0; i < results.length; i++) {
     const call = limitedCalls[i];
     const result = results[i];
@@ -835,12 +837,13 @@ export async function processAgentResponse(
       role: "tool",
       content: observation,
       toolName,
+      toolCallId: call.id,
     });
     toolUses.push({
       toolName: call.toolName,
       result: resultText ?? "",
     });
-    toolBytes += encoder.encode(resultText ?? "").length;
+    toolBytes += TEXT_ENCODER.encode(resultText ?? "").length;
   }
 
   let finalResponse: string | undefined;
@@ -947,7 +950,8 @@ async function callLLMWithRetry(
         error: classified.message,
       });
       if (!classified.retryable) {
-        break;
+        // Non-retryable: throw immediately with the original error message
+        throw lastError;
       }
 
       // Don't retry on last attempt
@@ -1040,8 +1044,6 @@ export async function runReActLoop(
   const {
     context,
     onTrace,
-    autoApprove,
-    workspace,
   } = config;
 
   // Add user request to context
@@ -1075,7 +1077,6 @@ export async function runReActLoop(
   const maxToolResultBytes = config.maxTotalToolResultBytes ??
     RESOURCE_LIMITS.maxTotalToolResultBytes;
   let totalToolResultBytes = 0;
-  const encoder = TEXT_ENCODER;
 
   const updateToolResultBytes = (delta: number): void => {
     totalToolResultBytes += delta;
@@ -1103,6 +1104,7 @@ export async function runReActLoop(
     }
   };
 
+  const skipCompensation = config.skipModelCompensation ?? false;
   const toolUses: ToolUse[] = [];
   let groundingRetries = 0;
   const maxGroundingRetries = groundingMode === "strict" ? 1 : 0;
@@ -1183,6 +1185,14 @@ export async function runReActLoop(
             args: delegateArgs,
           };
           const delegateResult = await executeToolCall(delegateCall, config);
+          if (!delegateResult.success) {
+            // Delegation failed — add error to context so LLM can recover
+            context.addMessage({
+              role: "tool",
+              content: `Delegation failed: ${delegateResult.error ?? "unknown error"}`,
+              toolName: "delegate_agent",
+            });
+          }
           planState.delegatedIds.add(currentStep.id);
           // Give the main LLM a chance to synthesize and mark STEP_DONE.
           continue;
@@ -1266,7 +1276,9 @@ export async function runReActLoop(
       durationMs: llmDuration,
     });
 
+    // Weak-model compensation: detect tool call JSON in text and repair
     if (
+      !skipCompensation &&
       (response.toolCalls?.length ?? 0) === 0 &&
       looksLikeToolCallJsonAnywhere(responseText)
     ) {
@@ -1353,7 +1365,9 @@ export async function runReActLoop(
         }
       }
 
+      // Weak-model compensation: suppress questions in no-input mode
       if (
+        !skipCompensation &&
         noInputEnabled &&
         noInputRetries < maxNoInputRetries &&
         responseAsksQuestion(finalResponse)
@@ -1367,7 +1381,9 @@ export async function runReActLoop(
         continue;
       }
 
+      // Weak-model compensation: detect JSON in final answer
       if (
+        !skipCompensation &&
         toolUses.length > 0 &&
         looksLikeToolCallJsonAnywhere(finalResponse)
       ) {
@@ -1470,30 +1486,33 @@ export async function runReActLoop(
       return finalResponse.content ?? "";
     }
 
-    if (!anyDeniedThisTurn && result.toolCallsMade > 0) {
-      const signature = buildToolSignature(result.toolCalls);
-      if (signature && signature === lastToolSignature) {
-        repeatToolCount += 1;
-      } else {
-        repeatToolCount = 1;
-        lastToolSignature = signature;
-      }
+    // Weak-model compensation: detect tool call loops
+    if (!skipCompensation) {
+      if (!anyDeniedThisTurn && result.toolCallsMade > 0) {
+        const signature = buildToolSignature(result.toolCalls);
+        if (signature && signature === lastToolSignature) {
+          repeatToolCount += 1;
+        } else {
+          repeatToolCount = 1;
+          lastToolSignature = signature;
+        }
 
-      if (repeatToolCount >= maxRepeatToolCalls) {
-        onTrace?.({
-          type: "loop_detected",
-          signature,
-          count: repeatToolCount,
-        });
-        return [
-          "Tool call loop detected.",
-          "The same tool calls were repeated multiple times without progress.",
-          "Please clarify the request or provide additional guidance.",
-        ].join("\n");
+        if (repeatToolCount >= maxRepeatToolCalls) {
+          onTrace?.({
+            type: "loop_detected",
+            signature,
+            count: repeatToolCount,
+          });
+          return [
+            "Tool call loop detected.",
+            "The same tool calls were repeated multiple times without progress.",
+            "Please clarify the request or provide additional guidance.",
+          ].join("\n");
+        }
+      } else {
+        lastToolSignature = "";
+        repeatToolCount = 0;
       }
-    } else {
-      lastToolSignature = "";
-      repeatToolCount = 0;
     }
 
     // Track tool uses for grounding checks
@@ -1510,8 +1529,11 @@ export async function runReActLoop(
     // If any tool failed, agent might want to retry or give up
     const anyFailed = result.results.some((r) => !r.success);
     if (anyFailed && iterations >= maxIterations / 2) {
-      // Stop early if tools keep failing
-      return responseText;
+      // Stop early if tools keep failing — return tool errors, not raw LLM reasoning
+      const failedTools = result.results
+        .filter((r) => !r.success)
+        .map((r) => r.error ?? "unknown error");
+      return `Tool execution failed after ${iterations} iterations:\n${failedTools.join("\n")}`;
     }
   }
 

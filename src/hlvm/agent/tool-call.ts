@@ -6,6 +6,8 @@
 
 /** Tool call parsed from agent response */
 export interface ToolCall {
+  /** Provider-assigned call ID (used to correlate results with calls) */
+  id?: string;
   toolName: string;
   args: Record<string, unknown>;
 }

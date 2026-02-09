@@ -3,9 +3,13 @@
  *
  * Low-level API request/response handling for Ollama.
  * Handles streaming, error handling, and response parsing.
+ *
+ * Note: Ollama uses its own NDJSON streaming format (not SSE),
+ * so it does NOT use the shared readSSEStream from common.ts.
  */
 
 import { RuntimeError } from "../../../common/error.ts";
+import { JSON_HEADERS, throwOnHttpError } from "../common.ts";
 import type {
   ChatOptions,
   ChatStructuredResponse,
@@ -109,16 +113,6 @@ interface OllamaPullChunk {
   completed?: number;
 }
 
-type OllamaMessage = {
-  role: string;
-  content: string;
-  images?: string[];
-  tool_calls?: ProviderToolCall[];
-  tool_name?: string;
-};
-
-const JSON_HEADERS = { "Content-Type": "application/json" };
-
 function buildOllamaOptions(
   options?: GenerateOptions,
 ): {
@@ -136,7 +130,7 @@ function buildOllamaOptions(
 function toOllamaMessages(
   messages: Message[],
   includeToolContext = false,
-): OllamaMessage[] {
+): OllamaChatRequest["messages"] {
   return messages.map((msg) => ({
     role: msg.role,
     content: msg.content,
@@ -159,20 +153,13 @@ function parseJsonLine<T>(line: string): T | null {
   }
 }
 
-function normalizeContent(content?: string): string {
-  return (content || "").trim();
-}
-
 // ============================================================================
 // API Helpers
 // ============================================================================
 
 /**
- * Make a streaming request to Ollama
- * @param endpoint Base Ollama endpoint
- * @param path API path (e.g., "/api/generate")
- * @param body Request body
- * @param signal Optional abort signal
+ * Make a streaming NDJSON request to Ollama.
+ * Ollama uses newline-delimited JSON, NOT Server-Sent Events.
  */
 async function* streamRequest<T>(
   endpoint: string,
@@ -190,8 +177,7 @@ async function* streamRequest<T>(
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new RuntimeError(`Ollama request failed: ${response.status} ${text}`);
+    await throwOnHttpError(response, "Ollama");
   }
 
   const reader = response.body?.getReader();
@@ -253,8 +239,7 @@ async function jsonRequest<T>(
   const response = await fetch(url, options);
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new RuntimeError(`Ollama request failed: ${response.status} ${text}`);
+    await throwOnHttpError(response, "Ollama");
   }
 
   return response.json();
@@ -292,7 +277,7 @@ export async function* generate(
       "/api/generate",
       body,
     );
-    yield normalizeContent(result.response);
+    yield (result.response ?? "").trim();
     return;
   }
 
@@ -337,7 +322,7 @@ export async function* chat(
       "/api/chat",
       body,
     );
-    yield normalizeContent(result.message?.content);
+    yield (result.message?.content ?? "").trim();
     return;
   }
 
@@ -405,7 +390,7 @@ export async function chatStructured(
     }
 
     return {
-      content: normalizeContent(content),
+      content: content.trim(),
       toolCalls,
     };
   }
@@ -418,7 +403,7 @@ export async function chatStructured(
   );
 
   return {
-    content: normalizeContent(result.message?.content),
+    content: (result.message?.content ?? "").trim(),
     toolCalls: result.message?.tool_calls ?? [],
   };
 }

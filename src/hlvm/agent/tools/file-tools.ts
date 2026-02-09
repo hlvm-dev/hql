@@ -30,6 +30,9 @@ import { formatToolError, okTool, failTool } from "../tool-results.ts";
 import { isObjectValue, truncate } from "../../../common/utils.ts";
 import { getMimeTypeForExtension } from "../../../common/file-kinds.ts";
 
+/** Reusable encoder (stateless, no need to recreate) */
+const TEXT_ENCODER = new TextEncoder();
+
 // ============================================================
 // Types
 // ============================================================
@@ -272,7 +275,7 @@ export async function writeFile(
     }
 
     // Enforce size limit (bytes)
-    const byteLength = new TextEncoder().encode(args.content).length;
+    const byteLength = TEXT_ENCODER.encode(args.content).length;
     const maxBytes = Math.min(
       args.maxBytes ?? RESOURCE_LIMITS.maxWriteBytes,
       RESOURCE_LIMITS.maxWriteBytes,
@@ -376,7 +379,7 @@ export async function editFile(
     }
 
     // Enforce size limit before writing
-    const byteLength = new TextEncoder().encode(newContent).length;
+    const byteLength = TEXT_ENCODER.encode(newContent).length;
     const maxWriteBytes = Math.min(
       args.maxBytes ?? RESOURCE_LIMITS.maxWriteBytes,
       RESOURCE_LIMITS.maxWriteBytes,

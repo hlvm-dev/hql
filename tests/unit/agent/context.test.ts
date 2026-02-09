@@ -380,21 +380,23 @@ Deno.test({
     const result = "a".repeat(500);
     const truncated = context.truncateResult(result);
 
-    assertEquals(truncated.length < result.length, true);
-    assertEquals(truncated.includes("[Result truncated"), true);
+    assertEquals(truncated.length <= 100, true);
+    assertEquals(truncated.endsWith("..."), true);
   },
 });
 
 Deno.test({
-  name: "Context: truncateResult - show original and truncated length",
+  name: "Context: truncateResult - uses SSOT truncate utility",
   fn() {
     const context = new ContextManager({ maxResultLength: 100 });
 
     const result = "a".repeat(500);
     const truncated = context.truncateResult(result);
 
-    assertEquals(truncated.includes("500 chars"), true);
-    assertEquals(truncated.includes("100 chars"), true);
+    // Should be at most maxResultLength chars (including "..." suffix)
+    assertEquals(truncated.length <= 100, true);
+    // Short results should pass through unchanged
+    assertEquals(context.truncateResult("short"), "short");
   },
 });
 

@@ -3,7 +3,7 @@
  *
  * Manages conversation context for AI agent:
  * - Message array (system, user, assistant, tool)
- * - Token budget enforcement (12K default)
+ * - Token budget enforcement (32K default)
  * - Sliding window for context overflow
  * - Result truncation for large outputs
  *
@@ -36,9 +36,11 @@ export interface Message {
    */
   fromSession?: boolean;
   /** Tool calls made by assistant (for native tool calling conversation flow) */
-  toolCalls?: Array<{ function: { name: string; arguments: unknown } }>;
+  toolCalls?: Array<{ id?: string; function: { name: string; arguments: unknown } }>;
   /** Name of the tool that produced this result (for role: "tool") */
   toolName?: string;
+  /** ID of the tool call this result responds to (correlates with toolCalls[].id) */
+  toolCallId?: string;
 }
 
 export function isSummaryMessage(message: Message): boolean {
@@ -302,15 +304,7 @@ export class ContextManager {
    * @returns Truncated result if needed
    */
   truncateResult(result: string): string {
-    if (result.length <= this.config.maxResultLength) {
-      return result;
-    }
-
-    const truncated = result.substring(0, this.config.maxResultLength);
-    const notice =
-      `\n\n[Result truncated: ${result.length} chars → ${this.config.maxResultLength} chars]`;
-
-    return truncated + notice;
+    return truncate(result, this.config.maxResultLength);
   }
 
   /**

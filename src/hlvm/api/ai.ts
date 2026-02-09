@@ -19,6 +19,7 @@ import {
   getDefaultProvider,
   getProvider,
   getProviderForModel,
+  listRegisteredProviders,
   type Message,
   type ModelInfo,
   parseModelString,
@@ -175,6 +176,36 @@ function createAiApi() {
         return provider?.models?.list
           ? provider.models.list()
           : Promise.resolve([]);
+      },
+
+      /**
+       * List models from ALL registered providers
+       * Tags each model with metadata.provider and metadata.providerDisplayName
+       * @example (ai.models.listAll)
+       */
+      listAll: async (): Promise<ModelInfo[]> => {
+        const providerNames = listRegisteredProviders();
+        const results = await Promise.all(
+          providerNames.map(async (name) => {
+            try {
+              const provider = getProvider(name);
+              if (!provider?.models?.list) return [];
+              const models = await provider.models.list();
+              return models.map((m) => ({
+                ...m,
+                metadata: {
+                  ...m.metadata,
+                  provider: name,
+                  providerDisplayName: provider.displayName ?? name,
+                  apiKeyConfigured: provider.apiKeyConfigured,
+                },
+              }));
+            } catch {
+              return [];
+            }
+          }),
+        );
+        return results.flat();
       },
 
       /**

@@ -38,18 +38,20 @@ export async function transpile(
   source: string,
   options: TranspileOptions = {},
 ): Promise<TranspileResult> {
+  const processOptions = {
+    verbose: options.verbose,
+    showTiming: options.showTiming,
+    baseDir: options.baseDir,
+    sourceDir: options.sourceDir,
+    tempDir: options.tempDir,
+    currentFile: options.currentFile,
+    generateSourceMap: options.generateSourceMap,
+    sourceContent: options.sourceContent || source,
+  };
+
   // If .d.ts generation is requested, use the IR-returning variant
   if (options.generateDts) {
-    const { code, sourceMap, ir } = await transpileToJavascriptWithIR(source, {
-      verbose: options.verbose,
-      showTiming: options.showTiming,
-      baseDir: options.baseDir,
-      sourceDir: options.sourceDir,
-      tempDir: options.tempDir,
-      currentFile: options.currentFile,
-      generateSourceMap: options.generateSourceMap,
-      sourceContent: options.sourceContent || source,
-    });
+    const { code, sourceMap, ir } = await transpileToJavascriptWithIR(source, processOptions);
 
     let dts: string;
     try {
@@ -63,17 +65,7 @@ export async function transpile(
   }
 
   // Standard transpilation without .d.ts
-  const { code, sourceMap } = await transpileToJavascript(source, {
-    verbose: options.verbose,
-    showTiming: options.showTiming,
-    baseDir: options.baseDir,
-    sourceDir: options.sourceDir,
-    tempDir: options.tempDir,
-    currentFile: options.currentFile,
-    generateSourceMap: options.generateSourceMap,
-    sourceContent: options.sourceContent || source,
-  });
-
+  const { code, sourceMap } = await transpileToJavascript(source, processOptions);
   return { code, sourceMap };
 }
 

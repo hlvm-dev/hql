@@ -134,10 +134,10 @@ function getNormalizedNameMap(): Map<string, string> {
       if (!_normalizedNameMap.has(stripped)) {
         _normalizedNameMap.set(stripped, name);
       }
-      // Also map camelCase equivalent
-      const camelStripped = lower.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
-      if (!_normalizedNameMap.has(camelStripped)) {
-        _normalizedNameMap.set(camelStripped, name);
+      // Also map camelCase → snake_case equivalent (apply regex BEFORE lowercasing)
+      const camelToSnake = name.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+      if (camelToSnake !== lower && !_normalizedNameMap.has(camelToSnake)) {
+        _normalizedNameMap.set(camelToSnake, name);
       }
     }
   }
@@ -307,8 +307,8 @@ export function normalizeToolName(name: string): string | null {
   const byLower = map.get(lower);
   if (byLower) return byLower;
 
-  // Try camelCase → snake_case
-  const snaked = lower.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+  // Try camelCase → snake_case (apply regex BEFORE lowercasing)
+  const snaked = name.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
   const bySnaked = map.get(snaked);
   if (bySnaked) return bySnaked;
 

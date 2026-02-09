@@ -8,6 +8,7 @@ import React, { useCallback, useRef } from "npm:react@18";
 import { render, useApp } from "npm:ink@5";
 import { ThemeProvider } from "../theme/index.ts";
 import { ModelBrowser } from "./components/ModelBrowser.tsx";
+import { getErrorMessage } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { config } from "../../api/config.ts";
@@ -51,8 +52,7 @@ function ModelBrowserApp({ endpoint, currentModel, onSelect, onCancel }: ModelBr
     try {
       await config.set("model", normalized);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      log.raw.error(`Failed to set model: ${message}`);
+      log.raw.error(`Failed to set model: ${getErrorMessage(error)}`);
       finish();
       return;
     }

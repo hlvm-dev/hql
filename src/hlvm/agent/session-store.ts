@@ -11,7 +11,7 @@
 import { getPlatform } from "../../platform/platform.ts";
 import { getSessionsDir } from "../../common/paths.ts";
 import { ValidationError } from "../../common/error.ts";
-import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
+import { getErrorMessage, isFileNotFoundError, isObjectValue } from "../../common/utils.ts";
 import { isSummaryMessage, type Message, type MessageRole } from "./context.ts";
 
 // ============================================================
@@ -79,7 +79,7 @@ async function loadIndex(): Promise<SessionIndex> {
     }
     return parsed;
   } catch (error) {
-    if (String(error).includes("No such file") || String(error).includes("not found")) {
+    if (isFileNotFoundError(error)) {
       return { version: 1, sessions: {} };
     }
     if (error instanceof SyntaxError) {
@@ -258,7 +258,7 @@ export async function loadSessionMessages(
     }
     return messages;
   } catch (error) {
-    if (String(error).includes("No such file") || String(error).includes("not found")) {
+    if (isFileNotFoundError(error)) {
       return [];
     }
     throw new ValidationError(
@@ -279,7 +279,7 @@ export async function appendSessionMessages(
   const delta = messages
     .filter((message) => !message.fromSession)
     .map(toTranscriptEntry)
-    .filter((m) => m) as TranscriptEntry[];
+    .filter((m): m is TranscriptEntry => m !== null);
   if (delta.length === 0) return entry;
 
   const lines = delta.map((item) => JSON.stringify(item)).join("\n") + "\n";

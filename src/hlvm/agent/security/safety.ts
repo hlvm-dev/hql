@@ -21,6 +21,9 @@ import { isObjectValue, truncate } from "../../../common/utils.ts";
 import { isToolArgsObject } from "../validation.ts";
 import { classifyShellCommand } from "./shell-classifier.ts";
 
+/** Reusable encoder (stateless, no need to recreate) */
+const TEXT_ENCODER = new TextEncoder();
+
 // ============================================================
 // Types
 // ============================================================
@@ -290,11 +293,10 @@ async function promptUserConfirmation(
   timeoutMs: number = DEFAULT_TIMEOUTS.userInput,
 ): Promise<ConfirmationResult> {
   const platform = getPlatform();
-  const encoder = new TextEncoder();
 
   // Helper to write to stdout
   const write = async (text: string) => {
-    await platform.terminal.stdout.write(encoder.encode(text));
+    await platform.terminal.stdout.write(TEXT_ENCODER.encode(text));
   };
 
   // Format args for display (truncate if too long)

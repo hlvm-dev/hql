@@ -41,7 +41,7 @@ interface ReadConfigResult {
 
 async function readJsonConfig(path: string): Promise<ReadConfigResult> {
   try {
-    const content = await getPlatform().fs.readTextFile(path);
+    const content = await fs().readTextFile(path);
     const parsed = JSON.parse(content) as Record<string, unknown>;
     return { data: parsed, exists: true };
   } catch (error) {
@@ -354,10 +354,10 @@ export async function loadConfig(): Promise<HlvmConfig> {
   const canUseLegacy = !currentResult.exists || !!currentResult.error;
 
   if (currentResult.error) {
-    log.raw.warn("Warning: config.json is corrupted, using defaults or legacy config");
+    log.warn("Warning: config.json is corrupted, using defaults or legacy config");
   }
   if (legacyResult.error) {
-    log.raw.warn("Warning: legacy config.json is corrupted, ignoring");
+    log.warn("Warning: legacy config.json is corrupted, ignoring");
   }
 
   const currentConfig = normalizeConfigInput(currentResult.data);
@@ -370,7 +370,7 @@ export async function loadConfig(): Promise<HlvmConfig> {
     try {
       await saveConfig(config);
     } catch (error) {
-      log.raw.warn(`Warning: failed to persist migrated config: ${(error as Error).message}`);
+      log.warn(`Warning: failed to persist migrated config: ${(error as Error).message}`);
     }
   }
 
@@ -381,7 +381,6 @@ export async function loadConfig(): Promise<HlvmConfig> {
  * Save config to disk using atomic write (temp file + rename)
  */
 export async function saveConfig(config: HlvmConfig): Promise<void> {
-  const platform = getPlatform();
   const dir = getHlvmDir();
   const path = getConfigPath();
   const tempPath = `${path}.tmp`;
@@ -390,10 +389,10 @@ export async function saveConfig(config: HlvmConfig): Promise<void> {
 
   // Write to temp file first
   const content = JSON.stringify(config, null, 2) + "\n";
-  await platform.fs.writeTextFile(tempPath, content);
+  await fs().writeTextFile(tempPath, content);
 
   // Atomic rename
-  await platform.fs.rename(tempPath, path);
+  await fs().rename(tempPath, path);
 }
 
 // ============================================================

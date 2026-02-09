@@ -1,7 +1,10 @@
 {
   "name": "@hlvm/hql",
   "version": "0.1.0",
-  "exports": "./mod.ts",
+  "exports": {
+    ".": "./mod.ts",
+    "./agent": "./src/hlvm/agent/sdk.ts"
+  },
   "license": "MIT",
   "imports": {
     "source-map": "npm:source-map@0.6.1",
@@ -49,6 +52,7 @@
     "scrape-models:sync": "deno run --allow-net --allow-write --allow-read --allow-env scripts/scrape-ollama-models.ts --sync",
     "check:platform": "deno run --allow-read scripts/check-platform-abstraction.ts",
     "ssot:check": "deno run --allow-read scripts/ssot-check.ts",
-    "test:ci": "deno task ssot:check && deno task test:unit"
+    "test:ci": "deno task ssot:check && deno task test:unit",
+    "build:npm": "deno run -A scripts/build-npm.ts"
   }
 }

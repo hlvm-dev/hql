@@ -226,6 +226,15 @@ export function getErrorMessage(error: unknown): string {
 }
 
 /**
+ * Check if an error is a "file not found" error.
+ * Consolidates the scattered `String(error).includes("No such file")` patterns.
+ */
+export function isFileNotFoundError(error: unknown): boolean {
+  const msg = String(error).toLowerCase();
+  return msg.includes("no such file") || msg.includes("not found");
+}
+
+/**
  * Ensure a value is an Error object.
  * If already an Error, returns it unchanged. Otherwise wraps in new Error.
  * Consolidates the `error instanceof Error ? error : new Error(String(error))` pattern.

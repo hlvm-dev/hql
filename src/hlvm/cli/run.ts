@@ -14,10 +14,7 @@ import {
 } from "./utils/cli-options.ts";
 import { getPositionalArgs } from "./utils/common-helpers.ts";
 import { getPlatform } from "../../platform/platform.ts";
-
-// Local aliases for frequently used platform functions
-const platformGetArgs = () => getPlatform().process.args();
-const platformExists = (path: string) => getPlatform().fs.exists(path);
+import { exists as platformExists, platformGetArgs } from "./utils/platform-helpers.ts";
 
 // Import the enhanced error handling system
 import {

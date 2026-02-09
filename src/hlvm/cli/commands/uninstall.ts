@@ -6,9 +6,7 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
-
-// Local alias for platform exit
-const platformExit = (code: number) => getPlatform().process.exit(code);
+import { platformExit } from "../utils/platform-helpers.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 
 /**

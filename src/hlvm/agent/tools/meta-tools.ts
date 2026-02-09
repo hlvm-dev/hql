@@ -17,6 +17,9 @@ import { throwIfAborted } from "../../../common/timeout-utils.ts";
 import { isToolArgsObject } from "../validation.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 
+/** Reusable encoder (stateless, no need to recreate) */
+const TEXT_ENCODER = new TextEncoder();
+
 // ============================================================
 // Tool 1: ask_user
 // ============================================================
@@ -74,22 +77,21 @@ async function askUser(
   }
 
   const platform = getPlatform();
-  const encoder = new TextEncoder();
 
   // Display question (async write, NOT writeSync)
-  await platform.terminal.stdout.write(encoder.encode(`\n${question}\n`));
+  await platform.terminal.stdout.write(TEXT_ENCODER.encode(`\n${question}\n`));
 
   // Display options if provided
   if (choices && Array.isArray(choices)) {
     for (let i = 0; i < choices.length; i++) {
       await platform.terminal.stdout.write(
-        encoder.encode(`  ${i + 1}. ${choices[i]}\n`),
+        TEXT_ENCODER.encode(`  ${i + 1}. ${choices[i]}\n`),
       );
     }
   }
 
   // Read user input
-  await platform.terminal.stdout.write(encoder.encode("> "));
+  await platform.terminal.stdout.write(TEXT_ENCODER.encode("> "));
   const buffer = new Uint8Array(1024);
   const n = await readStdinWithAbort(
     platform.terminal.stdin,

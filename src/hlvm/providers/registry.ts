@@ -182,3 +182,10 @@ export function getProviderForModel(modelString: string): AIProvider | null {
   const [providerName] = parseModelString(modelString);
   return getProvider(providerName ?? undefined);
 }
+
+/**
+ * List all registered provider names
+ */
+export function listRegisteredProviders(): string[] {
+  return [...providers.keys()];
+}

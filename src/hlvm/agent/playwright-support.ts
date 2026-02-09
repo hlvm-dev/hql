@@ -11,7 +11,7 @@ import { getPlatform } from "../../platform/platform.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 
 /** Error markers indicating Playwright Chromium is not installed */
-export const PLAYWRIGHT_ERROR_MARKERS = [
+const PLAYWRIGHT_ERROR_MARKERS = [
   "executable doesn't exist",
   "install chromium",
   "please run the following command to download new browsers",
@@ -27,7 +27,7 @@ export function isPlaywrightMissingError(message: string): boolean {
  * Prompt user to install Playwright Chromium via ask_user tool.
  * Returns true if user confirms.
  */
-export async function promptPlaywrightInstall(
+async function promptPlaywrightInstall(
   config: { workspace: string },
 ): Promise<boolean> {
   try {
@@ -47,7 +47,7 @@ export async function promptPlaywrightInstall(
 }
 
 /** Run `npx playwright install chromium` */
-export async function runPlaywrightInstall(): Promise<boolean> {
+async function runPlaywrightInstall(): Promise<boolean> {
   const platform = getPlatform();
   try {
     const process = platform.command.run({

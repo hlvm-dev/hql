@@ -15,7 +15,7 @@ const p = () => getPlatform();
 const pathUtil = () => p().path;
 const fsUtil = () => p().fs;
 
-const RUNTIME_GET_SNIPPET = `// Runtime get function for HQL
+export const RUNTIME_GET_SNIPPET = `// Runtime get function for HQL
 function get(obj, key) {
   // If obj is a function, call it with the key as argument
   if (typeof obj === 'function') {
@@ -27,7 +27,7 @@ function get(obj, key) {
 
 `;
 
-function propagateReportedFlag(source: unknown, target: object): void {
+export function propagateReportedFlag(source: unknown, target: object): void {
   if (isObjectValue(source)) {
     if (Reflect.get(source, ERROR_REPORTED_SYMBOL)) {
       Reflect.set(target, ERROR_REPORTED_SYMBOL, true);
@@ -35,7 +35,7 @@ function propagateReportedFlag(source: unknown, target: object): void {
   }
 }
 
-function wrapError(error: unknown, message: string): TranspilerError {
+export function wrapError(error: unknown, message: string): TranspilerError {
   const newError = new TranspilerError(`${message}: ${getErrorMessage(error)}`);
   propagateReportedFlag(error, newError);
   return newError;

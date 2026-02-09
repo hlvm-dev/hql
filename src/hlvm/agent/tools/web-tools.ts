@@ -777,11 +777,12 @@ async function braveSearch(
   })).filter((entry) => entry.title || entry.url || entry.snippet);
   const scored = scoreSearchResults(query, results);
 
+  const topResults = scored.slice(0, limit);
   return {
     query,
     provider: "brave",
-    results: scored.slice(0, limit),
-    count: scored.slice(0, limit).length,
+    results: topResults,
+    count: topResults.length,
   };
 }
 
@@ -814,6 +815,7 @@ async function serpApiSearch(
   })).filter((entry) => entry.title || entry.url || entry.snippet);
 
   const scored = scoreSearchResults(query, results);
+  const topResults = scored.slice(0, limit);
   const answer = data.answer_box?.answer ?? data.answer_box?.snippet ?? "";
   const citations = data.answer_box?.link ? [data.answer_box.link] : [];
 
@@ -822,8 +824,8 @@ async function serpApiSearch(
     provider: "serpapi",
     answer,
     citations,
-    results: scored.slice(0, limit),
-    count: scored.slice(0, limit).length,
+    results: topResults,
+    count: topResults.length,
   };
 }
 

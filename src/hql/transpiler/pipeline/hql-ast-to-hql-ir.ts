@@ -216,7 +216,7 @@ export function extractMeta(
   return (meta && typeof meta === "object") ? meta : undefined;
 }
 
-export function setAsyncFlag(node: IR.IRNode | null): void {
+function setAsyncFlag(node: IR.IRNode | null): void {
   if (!node) {
     return;
   }
@@ -275,7 +275,7 @@ export function isInsideIIFE(): boolean {
 /**
  * Reset IIFE depth (used between transforms)
  */
-export function resetIIFEDepth(): void {
+function resetIIFEDepth(): void {
   iifeDepth = 0;
 }
 
@@ -1796,18 +1796,6 @@ function initializeTransformFactory(): void {
   );
 }
 
-// Re-export transformJsMethod from the async-generators module for backwards compatibility
-export const transformJsMethod = asyncGeneratorsModule.transformJsMethod;
-
-// Re-export containsAwait for any external usage
-export const containsAwait = asyncGeneratorsModule.containsAwait;
-
-// Re-export buildBlockFromExpressions for any external usage
-export const buildBlockFromExpressions = tryCatchModule.buildBlockFromExpressions;
-
-// Re-export literal transforms for any external usage
-export const transformLiteral = literalsModule.transformLiteral;
-export const transformTemplateLiteral = literalsModule.transformTemplateLiteral;
 
 export function isExpressionResult(node: IR.IRNode): boolean {
   switch (node.type) {
@@ -2049,9 +2037,6 @@ function transformBasedOnOperator(
       list, // Pass source list for position extraction
     );
   }
-
-  // Handle registered fx functions
-  // REMOVED: fx function call handling
 
   // Handle built-in operations via the transform factory
   const handler = transformFactory.get(op);

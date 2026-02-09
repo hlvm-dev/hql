@@ -4,7 +4,7 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 import { ensureHlvmDir, getWebCachePath } from "../../common/paths.ts";
-import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
+import { getErrorMessage, isFileNotFoundError, isObjectValue } from "../../common/utils.ts";
 import { ValidationError } from "../../common/error.ts";
 
 interface WebCacheEntry {
@@ -32,7 +32,7 @@ async function readCache(): Promise<WebCacheFile> {
       entries: entries as Record<string, WebCacheEntry>,
     };
   } catch (error) {
-    if (String(error).includes("No such file") || String(error).includes("not found")) {
+    if (isFileNotFoundError(error)) {
       return { ...DEFAULT_CACHE };
     }
     throw new ValidationError(

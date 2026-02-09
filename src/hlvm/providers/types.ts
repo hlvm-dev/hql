@@ -39,6 +39,8 @@ export interface ProviderMessage {
   tool_calls?: ProviderToolCall[];
   /** Name of the tool that produced this result (for role: "tool") */
   tool_name?: string;
+  /** ID of the tool call this result responds to (for role: "tool") */
+  tool_call_id?: string;
 }
 
 /** @deprecated Use `ProviderMessage` instead */
@@ -245,6 +247,9 @@ export interface AIProvider {
   /** Provider display name (e.g., "Ollama", "OpenAI") */
   readonly displayName: string;
 
+  /** Whether an API key is configured (undefined = not applicable, e.g. Ollama) */
+  readonly apiKeyConfigured?: boolean;
+
   /** Capabilities this provider supports */
   readonly capabilities: ProviderCapability[];
 
@@ -307,6 +312,8 @@ export interface ProviderConfig {
   defaultModel?: string;
   /** Default options */
   defaults?: Partial<GenerateOptions>;
+  /** API key for authenticated providers (OpenAI, Anthropic, Google) */
+  apiKey?: string;
 }
 
 /** Factory function type for creating provider instances */

@@ -17,7 +17,7 @@
 import { getPlatform } from "../../platform/platform.ts";
 import { log } from "../api/log.ts";
 import { globToRegex, GlobPatternError } from "../../common/pattern-utils.ts";
-import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
+import { getErrorMessage, isFileNotFoundError, isObjectValue } from "../../common/utils.ts";
 import type { SafetyLevel } from "./security/safety.ts";
 import { SecurityError, isPathWithinRoot } from "./security/path-sandbox.ts";
 
@@ -92,13 +92,10 @@ export async function loadAgentPolicy(
   try {
     content = await platform.fs.readTextFile(path);
   } catch (error) {
-    if (error instanceof Error) {
-      const message = error.message.toLowerCase();
-      if (message.includes("not found") || message.includes("no such file")) {
-        return null;
-      }
-      log.warn(`Agent policy load failed (${path}): ${getErrorMessage(error)}`);
+    if (isFileNotFoundError(error)) {
+      return null;
     }
+    log.warn(`Agent policy load failed (${path}): ${getErrorMessage(error)}`);
     return null;
   }
 

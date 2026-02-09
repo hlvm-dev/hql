@@ -112,6 +112,7 @@ function isMcpServerConfig(value: unknown): value is McpServerConfig {
 class McpClient {
   private readonly server: McpServerConfig;
   private readonly platform = getPlatform();
+  private readonly encoder = new TextEncoder();
   private process: PlatformCommandProcess | null = null;
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
@@ -283,7 +284,7 @@ class McpClient {
     if (!this.writer) {
       throw new ValidationError("MCP stdin not available", "mcp");
     }
-    const data = new TextEncoder().encode(JSON.stringify(message) + "\n");
+    const data = this.encoder.encode(JSON.stringify(message) + "\n");
     await this.writer.write(data);
   }
 

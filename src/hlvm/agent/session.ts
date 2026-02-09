@@ -39,6 +39,15 @@ export interface AgentSession {
   policy: AgentPolicy | null;
   dispose: () => Promise<void>;
   profile: typeof ENGINE_PROFILES[keyof typeof ENGINE_PROFILES];
+  /** True if the model is a frontier model (API provider, not local) */
+  isFrontierModel: boolean;
+}
+
+/** Detect whether a model string refers to a frontier API model */
+function detectFrontierModel(model?: string): boolean {
+  if (!model) return false;
+  const prefix = model.split("/")[0]?.toLowerCase() ?? "";
+  return ["anthropic", "openai", "google"].includes(prefix);
 }
 
 export async function createAgentSession(
@@ -93,5 +102,6 @@ export async function createAgentSession(
     policy,
     dispose: mcp.dispose,
     profile,
+    isFrontierModel: detectFrontierModel(options.model),
   };
 }

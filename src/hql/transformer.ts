@@ -18,6 +18,8 @@ import {
   importSourceRegistry,
 } from "../common/import-utils.ts";
 import type { CompilerContext } from "./transpiler/compiler-context.ts";
+import { validateSemantics } from "./transpiler/pipeline/semantic-validator.ts";
+import { generateJavaScript } from "./transpiler/pipeline/js-code-generator.ts";
 
 // Type checking infrastructure constants - cached at module scope for performance
 // Infrastructure errors that are NOT user code issues:
@@ -137,7 +139,6 @@ export async function transformAST(
     // Industry standard: TypeScript, Rust, Go all validate before optimizing
     // This ensures error messages show original code with accurate line numbers
     // Validation includes: duplicate declarations, TDZ violations, etc.
-    const { validateSemantics } = await import("./transpiler/pipeline/semantic-validator.ts");
     validateSemantics(ir);
 
     timer.phase("semantic validation");
@@ -148,8 +149,6 @@ export async function transformAST(
 
     // Use currentFile for source map references, not the directory
     const sourceFilePath = options.currentFile || "<anonymous>.hql";
-    const { generateJavaScript } = await import("./transpiler/pipeline/js-code-generator.ts");
-
     // Single TypeScript pipeline for ALL code
     // Type checking enabled by default, can be disabled with typeCheck: false
     const result = await generateJavaScript(ir, {

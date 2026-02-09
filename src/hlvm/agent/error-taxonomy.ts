@@ -6,7 +6,7 @@
  */
 
 import { TimeoutError } from "../../common/timeout-utils.ts";
-import { formatErrorMessage } from "../../common/error.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 
 type ErrorClass =
   | "abort"
@@ -43,6 +43,17 @@ function isTransientNetworkError(message: string): boolean {
     message.includes("etimedout");
 }
 
+function isAuthError(message: string): boolean {
+  return message.includes("api key not configured") ||
+    message.includes("api key not valid") ||
+    message.includes("incorrect api key") ||
+    message.includes("invalid api key") ||
+    message.includes("invalid x-api-key") ||
+    message.includes("authentication_error") ||
+    message.includes("exceeded your current quota") ||
+    message.includes("insufficient_quota");
+}
+
 function isPermanentError(message: string): boolean {
   return message.includes("invalid") ||
     message.includes("bad request") ||
@@ -52,7 +63,7 @@ function isPermanentError(message: string): boolean {
 }
 
 export function classifyError(err: unknown): ClassifiedError {
-  const message = formatErrorMessage(err).toLowerCase();
+  const message = getErrorMessage(err).toLowerCase();
 
   if (isAbortError(err)) {
     return { class: "abort", retryable: false, message };
@@ -60,6 +71,10 @@ export function classifyError(err: unknown): ClassifiedError {
 
   if (isTimeoutError(err, message)) {
     return { class: "timeout", retryable: true, message };
+  }
+
+  if (isAuthError(message)) {
+    return { class: "permanent", retryable: false, message };
   }
 
   if (isRateLimitError(message)) {

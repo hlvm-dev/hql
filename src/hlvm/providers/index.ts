@@ -2,7 +2,9 @@
  * AI Providers Module
  *
  * Central export for all provider-related functionality.
- * Automatically registers built-in providers (Ollama) on import.
+ * Automatically registers built-in providers on import.
+ * Ollama is always registered as default.
+ * API providers (OpenAI, Anthropic, Google) are always registered (return known models even without keys).
  */
 
 // ============================================================================
@@ -47,10 +49,14 @@ export {
   hasProvider,
   parseModelString,
   getProviderForModel,
+  listRegisteredProviders,
 } from "./registry.ts";
 
-// Ollama provider
+// Provider implementations
 export { OllamaProvider, createOllamaProvider } from "./ollama/provider.ts";
+export { OpenAIProvider, createOpenAIProvider } from "./openai/provider.ts";
+export { AnthropicProvider, createAnthropicProvider } from "./anthropic/provider.ts";
+export { GoogleProvider, createGoogleProvider } from "./google/provider.ts";
 
 // ============================================================================
 // Auto-registration
@@ -58,25 +64,62 @@ export { OllamaProvider, createOllamaProvider } from "./ollama/provider.ts";
 
 import { registerProvider } from "./registry.ts";
 import { createOllamaProvider } from "./ollama/provider.ts";
+import { createOpenAIProvider } from "./openai/provider.ts";
+import { createAnthropicProvider } from "./anthropic/provider.ts";
+import { createGoogleProvider } from "./google/provider.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
-// Register Ollama as the default provider
+// Ollama: always registered as default (local, no API key needed)
 registerProvider("ollama", createOllamaProvider, { isDefault: true });
 
+// API providers: always registered (providers return known models even without key)
+const _env = getPlatform().env;
+registerProvider("openai", createOpenAIProvider, {
+  apiKey: _env.get("OPENAI_API_KEY"),
+});
+registerProvider("anthropic", createAnthropicProvider, {
+  apiKey: _env.get("ANTHROPIC_API_KEY"),
+});
+registerProvider("google", createGoogleProvider, {
+  apiKey: _env.get("GOOGLE_API_KEY"),
+});
+
 /**
- * Initialize providers with custom configuration
- * Call this to override default provider settings
+ * Initialize providers with custom configuration.
+ * Call this to override default provider settings.
  */
 export function initializeProviders(config?: {
-  ollama?: {
-    endpoint?: string;
-    defaultModel?: string;
-  };
+  ollama?: { endpoint?: string; defaultModel?: string };
+  openai?: { endpoint?: string; defaultModel?: string; apiKey?: string };
+  anthropic?: { endpoint?: string; defaultModel?: string; apiKey?: string };
+  google?: { endpoint?: string; defaultModel?: string; apiKey?: string };
 }): void {
   if (config?.ollama) {
     registerProvider("ollama", createOllamaProvider, {
       endpoint: config.ollama.endpoint,
       defaultModel: config.ollama.defaultModel,
       isDefault: true,
+    });
+  }
+  if (config?.openai) {
+    registerProvider("openai", createOpenAIProvider, {
+      endpoint: config.openai.endpoint,
+      defaultModel: config.openai.defaultModel,
+      apiKey: config.openai.apiKey,
+    });
+  }
+  if (config?.anthropic) {
+    registerProvider("anthropic", createAnthropicProvider, {
+      endpoint: config.anthropic.endpoint,
+      defaultModel: config.anthropic.defaultModel,
+      apiKey: config.anthropic.apiKey,
+    });
+  }
+  if (config?.google) {
+    registerProvider("google", createGoogleProvider, {
+      endpoint: config.google.endpoint,
+      defaultModel: config.google.defaultModel,
+      apiKey: config.google.apiKey,
     });
   }
 }

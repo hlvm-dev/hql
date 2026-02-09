@@ -146,7 +146,7 @@ export async function validatePath(
           currentPath
         );
       }
-    } catch (_error) {
+    } catch {
       // Component doesn't exist - this is OK (user might be creating new file/dir)
       // Skip symlink check for non-existent components
     }

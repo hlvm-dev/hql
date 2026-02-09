@@ -9,7 +9,7 @@
 import { getPlatform } from "../../platform/platform.ts";
 import { getAgentMemoryPath } from "../../common/paths.ts";
 import { ValidationError } from "../../common/error.ts";
-import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
+import { getErrorMessage, isFileNotFoundError, isObjectValue } from "../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -69,7 +69,7 @@ async function readAllEntries(): Promise<MemoryEntry[]> {
     }
     return entries;
   } catch (error) {
-    if (String(error).includes("No such file") || String(error).includes("not found")) {
+    if (isFileNotFoundError(error)) {
       return [];
     }
     throw new ValidationError(
