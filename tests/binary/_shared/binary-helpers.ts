@@ -230,21 +230,3 @@ export async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T
     }
   }
 }
-
-/**
- * Create a temporary HLVM project with hlvm.json
- */
-export function withTempProject<T>(
-  fn: (dir: string) => Promise<T>,
-  options?: { name?: string; version?: string; entry?: string }
-): Promise<T> {
-  return withTempDir(async (dir) => {
-    const hqlJson = {
-      name: options?.name || "test-project",
-      version: options?.version || "0.0.1",
-      exports: options?.entry || "./mod.hql",
-    };
-    await Deno.writeTextFile(`${dir}/hlvm.json`, JSON.stringify(hqlJson, null, 2));
-    return fn(dir);
-  });
-}

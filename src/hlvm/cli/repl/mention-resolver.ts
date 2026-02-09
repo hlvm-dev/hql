@@ -12,6 +12,7 @@
 
 import { escapeString } from "./string-utils.ts";
 import { MAX_SEQ_LENGTH } from "../../../common/limits.ts";
+import { isFileNotFoundError } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 
 // Pre-compiled regex patterns (avoid repeated compilation)
@@ -43,7 +44,7 @@ export async function resolveAtMentions(input: string): Promise<string> {
   const entries = Array.from(replacements.entries());
   const pattern = new RegExp(
     entries.map(([k]) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
-    "g"
+    "g",
   );
   return input.replace(pattern, (match) => replacements.get(match) ?? match);
 }
@@ -113,7 +114,7 @@ async function resolveMention(mention: string): Promise<string> {
       return `"[${mention}: unknown type]"`;
     }
   } catch (error) {
-    if (error instanceof Error && error.name === "NotFound") {
+    if (isFileNotFoundError(error)) {
       return `"[${mention}: not found]"`;
     }
     return `"[${mention}: error reading]"`;
@@ -161,7 +162,9 @@ async function resolveFile(path: string): Promise<string> {
 
     // Truncate if too long (for REPL usability)
     if (escaped.length > MAX_SEQ_LENGTH) {
-      return `"${escaped.slice(0, MAX_SEQ_LENGTH)}\\n... [truncated, ${content.length} chars total]"`;
+      return `"${
+        escaped.slice(0, MAX_SEQ_LENGTH)
+      }\\n... [truncated, ${content.length} chars total]"`;
     }
 
     return `"${escaped}"`;
@@ -169,4 +172,3 @@ async function resolveFile(path: string): Promise<string> {
     return `"[${path}: cannot read file]"`;
   }
 }
-

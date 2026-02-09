@@ -5,12 +5,22 @@
  */
 
 import { parse } from "../../../hql/transpiler/pipeline/parser.ts";
-import { isList, isSymbol, type SList, type SSymbol } from "../../../hql/s-exp/types.ts";
+import {
+  isList,
+  isSymbol,
+  type SList,
+  type SSymbol,
+} from "../../../hql/s-exp/types.ts";
 import { escapeString } from "./string-utils.ts";
 import { extractFnParams } from "./definition-utils.ts";
-import { extractJsDocBlock, isLineComment, stripLeadingComments } from "./docstring.ts";
+import {
+  extractJsDocBlock,
+  isLineComment,
+  stripLeadingComments,
+} from "./docstring.ts";
 import { getHlvmDir, getMemoryPath } from "../../../common/paths.ts";
 import { getLegacyMemoryPath } from "../../../common/legacy-migration.ts";
+import { isFileNotFoundError } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 
 // SSOT: Use platform layer for all file/path operations
@@ -20,7 +30,8 @@ const fs = () => getPlatform().fs;
 // Constants
 // ============================================================
 
-const MEMORY_HEADER = "// HLVM Memory - auto-persisted definitions\n// Edit freely - compacted on REPL startup\n\n";
+const MEMORY_HEADER =
+  "// HLVM Memory - auto-persisted definitions\n// Edit freely - compacted on REPL startup\n\n";
 
 /** Get the memory file path: ~/.hlvm/memory.hql */
 export function getMemoryFilePath(): string {
@@ -55,7 +66,9 @@ async function ensureLegacyMemoryMigrated(): Promise<void> {
 
   const currentDefinitions = parseMemoryContent(currentContent);
   const currentNames = new Set(currentDefinitions.map((def) => def.name));
-  const missingDefinitions = legacyDefinitions.filter((def) => !currentNames.has(def.name));
+  const missingDefinitions = legacyDefinitions.filter((def) =>
+    !currentNames.has(def.name)
+  );
 
   if (missingDefinitions.length === 0) {
     return;
@@ -69,7 +82,7 @@ async function readFileIfExists(path: string): Promise<string | null> {
   try {
     return await platform.fs.readTextFile(path);
   } catch (error) {
-    if (error instanceof Error && error.name === "NotFound") {
+    if (isFileNotFoundError(error)) {
       return null;
     }
     throw error;
@@ -81,7 +94,10 @@ async function readFileIfExists(path: string): Promise<string | null> {
  * Used for def to store the evaluated VALUE, not the expression
  * Uses WeakSet for O(1) circular reference detection (no wasteful JSON.stringify)
  */
-export function serializeValue(value: unknown, seen: WeakSet<object> = new WeakSet()): string | null {
+export function serializeValue(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet(),
+): string | null {
   if (value === undefined) return null;
   if (value === null) return "null";
 
@@ -108,8 +124,8 @@ export function serializeValue(value: unknown, seen: WeakSet<object> = new WeakS
     seen.add(obj);
 
     if (Array.isArray(value)) {
-      const elements = value.map(v => serializeValue(v, seen));
-      if (elements.some(e => e === null)) return null;
+      const elements = value.map((v) => serializeValue(v, seen));
+      if (elements.some((e) => e === null)) return null;
       return `[${elements.join(" ")}]`;
     }
 
@@ -120,7 +136,7 @@ export function serializeValue(value: unknown, seen: WeakSet<object> = new WeakS
       return `"${k}": ${serializedValue}`;
     });
 
-    if (pairs.some(p => p === null)) return null;
+    if (pairs.some((p) => p === null)) return null;
     return `{${pairs.join(", ")}}`;
   }
 
@@ -157,7 +173,7 @@ async function readAndParseMemory(): Promise<ParsedDefinition[]> {
     const content = await platform.fs.readTextFile(getMemoryFilePath());
     return parseMemoryContent(content);
   } catch (error) {
-    if (error instanceof Error && error.name === "NotFound") {
+    if (isFileNotFoundError(error)) {
       return [];
     }
     throw error;
@@ -178,7 +194,10 @@ function buildMemoryContent(definitions: ParsedDefinition[]): string {
   return MEMORY_HEADER + formatted.join("\n\n") + "\n";
 }
 
-function appendDefinitionToContent(content: string, def: ParsedDefinition): string {
+function appendDefinitionToContent(
+  content: string,
+  def: ParsedDefinition,
+): string {
   if (content.trim().length === 0) {
     return buildMemoryContent([def]);
   }
@@ -291,7 +310,7 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
       let inStr = false;
       for (let ci = 0; ci < currentLine.length; ci++) {
         const char = currentLine[ci];
-        if (char === '"' && (ci === 0 || currentLine[ci - 1] !== '\\')) {
+        if (char === '"' && (ci === 0 || currentLine[ci - 1] !== "\\")) {
           inStr = !inStr;
           continue;
         }
@@ -324,12 +343,20 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
       const ast = parse(currentCode, "<memory>");
       if (ast.length > 0 && isList(ast[0])) {
         const list = ast[0] as SList;
-        if (list.elements.length >= 2 && isSymbol(list.elements[0]) && isSymbol(list.elements[1])) {
+        if (
+          list.elements.length >= 2 && isSymbol(list.elements[0]) &&
+          isSymbol(list.elements[1])
+        ) {
           const op = (list.elements[0] as SSymbol).name;
           const name = (list.elements[1] as SSymbol).name;
 
           if (op === "def" || op === "defn") {
-            definitions.push({ kind: op, name, code: currentCode.trim(), docstring });
+            definitions.push({
+              kind: op,
+              name,
+              code: currentCode.trim(),
+              docstring,
+            });
           }
         }
       }
@@ -345,7 +372,9 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
  * Compact memory.hql by removing duplicate definitions (keep latest)
  * Called on REPL startup before loading
  */
-export async function compactMemory(): Promise<{ before: number; after: number }> {
+export async function compactMemory(): Promise<
+  { before: number; after: number }
+> {
   const definitions = await readAndParseMemory();
 
   if (definitions.length === 0) {
@@ -372,7 +401,11 @@ export async function compactMemory(): Promise<{ before: number; after: number }
  * Load memory.hql on REPL startup
  * Returns the count of loaded definitions, any errors, and docstrings to register
  */
-export async function loadMemory(evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>): Promise<{ count: number; errors: string[]; docstrings: Map<string, string> }> {
+export async function loadMemory(
+  evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>,
+): Promise<
+  { count: number; errors: string[]; docstrings: Map<string, string> }
+> {
   const definitions = await readAndParseMemory();
   const errors: string[] = [];
   const docstrings = new Map<string, string>();
@@ -411,7 +444,9 @@ function extractParamsFromDefnCode(code: string): string[] {
 export async function listMemoryFunctions(): Promise<MemoryFunctionItem[]> {
   const definitions = await readAndParseMemory();
   return definitions.map((def) => {
-    const params = def.kind === "defn" ? extractParamsFromDefnCode(def.code) : [];
+    const params = def.kind === "defn"
+      ? extractParamsFromDefnCode(def.code)
+      : [];
     return {
       id: def.name,
       name: def.name,
@@ -439,7 +474,7 @@ export async function appendToMemory(
   name: string,
   kind: "def" | "defn",
   codeOrValue: string | unknown,
-  docstring?: string
+  docstring?: string,
 ): Promise<void> {
   // Build the code first (fail fast if unserializable)
   let code: string;
@@ -457,13 +492,19 @@ export async function appendToMemory(
   const newDef: ParsedDefinition = { kind, name, code, docstring };
 
   // Fallback: if parse returned 0 but file has def/defn content, append without rewrite
-  if (existing.length === 0 && existingContent && /\(defn?\s+/.test(existingContent)) {
+  if (
+    existing.length === 0 && existingContent &&
+    /\(defn?\s+/.test(existingContent)
+  ) {
     await fs().ensureDir(getHlvmDir());
-    await getPlatform().fs.writeTextFile(memPath, appendDefinitionToContent(existingContent, newDef));
+    await getPlatform().fs.writeTextFile(
+      memPath,
+      appendDefinitionToContent(existingContent, newDef),
+    );
     return;
   }
 
-  const filtered = existing.filter(d => d.name !== name);
+  const filtered = existing.filter((d) => d.name !== name);
   filtered.push(newDef);
   await fs().ensureDir(getHlvmDir());
   await writeMemoryFile(filtered);
@@ -474,7 +515,7 @@ export async function appendToMemory(
  */
 export async function forgetFromMemory(name: string): Promise<boolean> {
   const definitions = await readAndParseMemory();
-  const filtered = definitions.filter(d => d.name !== name);
+  const filtered = definitions.filter((d) => d.name !== name);
 
   if (filtered.length === definitions.length) {
     return false; // Name not found
@@ -487,7 +528,9 @@ export async function forgetFromMemory(name: string): Promise<boolean> {
 /**
  * Get memory file statistics
  */
-export async function getMemoryStats(): Promise<{ path: string; count: number; size: number } | null> {
+export async function getMemoryStats(): Promise<
+  { path: string; count: number; size: number } | null
+> {
   const platform = getPlatform();
   const path = getMemoryFilePath();
 
@@ -498,7 +541,7 @@ export async function getMemoryStats(): Promise<{ path: string; count: number; s
     ]);
     return { path, count: definitions.length, size: stat.size };
   } catch (error) {
-    if (error instanceof Error && error.name === "NotFound") {
+    if (isFileNotFoundError(error)) {
       return { path, count: 0, size: 0 };
     }
     return null;
@@ -510,15 +553,17 @@ export async function getMemoryStats(): Promise<{ path: string; count: number; s
  */
 export async function getMemoryNames(): Promise<string[]> {
   const definitions = await readAndParseMemory();
-  return definitions.map(d => d.name);
+  return definitions.map((d) => d.name);
 }
 
 /**
  * Get the source code for a specific definition by name
  */
-export async function getDefinitionSource(name: string): Promise<string | null> {
+export async function getDefinitionSource(
+  name: string,
+): Promise<string | null> {
   const definitions = await readAndParseMemory();
-  const def = definitions.find(d => d.name === name);
+  const def = definitions.find((d) => d.name === name);
   return def?.code ?? null;
 }
 

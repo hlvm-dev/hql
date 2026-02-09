@@ -78,22 +78,6 @@ export async function executeHandler(id: string): Promise<boolean> {
   }
 }
 
-/**
- * Check if a handler is registered.
- */
-export function hasHandler(id: string): boolean {
-  return handlers.has(id);
-}
-
-/**
- * Subscribe to registry changes.
- * Returns unsubscribe function.
- */
-export function onRegistryChange(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
 // ============================================================
 // Internal
 // ============================================================
@@ -166,5 +150,3 @@ export const HandlerIds = {
   PAREDIT_TRANSPOSE: "paredit.transpose",
   PAREDIT_KILL: "paredit.kill",
 } as const;
-
-export type HandlerId = typeof HandlerIds[keyof typeof HandlerIds];

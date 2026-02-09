@@ -2,16 +2,12 @@
  * Model Compatibility Heuristics
  *
  * Detection and repair functions for handling model misbehavior:
- * - Text-based tool call detection and parsing
+ * - Text-based tool call detection
  * - Tool instruction detection
  * - Response suppression logic
  *
  * Extracted from orchestrator.ts to keep the ReAct loop focused.
  */
-
-import { normalizeToolName, hasTool } from "./registry.ts";
-import { isToolArgsObject } from "./validation.ts";
-import { type ToolCall } from "./tool-call.ts";
 
 /**
  * Detect JSON-like tool call structures anywhere in text.
@@ -56,30 +52,4 @@ export function shouldSuppressFinalResponse(response: string): boolean {
   if (looksLikeToolCallJsonAnywhere(response)) return true;
   if (looksLikeToolInstruction(response)) return true;
   return false;
-}
-
-/**
- * Attempt to parse tool calls from text output (last-resort fallback).
- * Used when a model outputs tool call JSON as text instead of using native
- * function calling. Validates tool names against the registry.
- */
-export function tryParseToolCallsFromText(text: string): ToolCall[] {
-  const calls: ToolCall[] = [];
-  // Match JSON-like blocks (supports one level of nesting for args)
-  const jsonPattern = /\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g;
-  let match;
-  while ((match = jsonPattern.exec(text)) !== null) {
-    try {
-      const obj = JSON.parse(match[0]);
-      const rawName = obj.toolName ?? obj.tool_name ?? obj.function_name ?? obj.name;
-      if (typeof rawName !== "string" || !rawName) continue;
-      const name = normalizeToolName(rawName) ?? rawName;
-      if (!hasTool(name)) continue;
-      const args = obj.args ?? obj.parameters ?? obj.arguments ?? {};
-      calls.push({ toolName: name, args: isToolArgsObject(args) ? args : {} });
-    } catch {
-      // Skip unparseable blocks
-    }
-  }
-  return calls;
 }

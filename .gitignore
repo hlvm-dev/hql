@@ -1,8 +1,14 @@
 # Build outputs
 dist/
+/npm/
 
-# Dependencies
+# JavaScript dependencies / caches (npm + Bun)
 node_modules/
+.npm/
+
+# Bun local cache
+.bun/
+.bun-cache/
 
 # HLVM compiled binaries (only in root, not source files in subdirs)
 /hlvm

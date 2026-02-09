@@ -17,21 +17,58 @@ const WHITESPACE_SPLIT_REGEX = /\s+/;
 
 export interface Command {
   description: string;
-  handler: (state: ReplState, args: string) => void | Promise<void>;
+  handler: (
+    state: ReplState,
+    args: string,
+    context: CommandContext,
+  ) => void | Promise<void>;
 }
 
-export const COMMAND_CATALOG: readonly { name: string; description: string }[] = [
-  { name: "/help", description: "Show help message" },
-  { name: "/clear", description: "Clear the screen" },
-  { name: "/reset", description: "Reset REPL state and clear memory" },
-  { name: "/exit", description: "Exit the REPL" },
-  { name: "/memory", description: "Show memory file location and stats" },
-  { name: "/forget", description: "Remove a definition from memory" },
-  { name: "/config", description: "View/set configuration" },
-  { name: "/tasks", description: "View background tasks" },
-  { name: "/bg", description: "Push current eval to background" },
-  { name: "/resume", description: "Resume a previous session" },
-];
+interface CommandContext {
+  output: (...args: unknown[]) => void;
+}
+
+export interface RunCommandOptions {
+  onOutput?: (line: string) => void;
+}
+
+function stringifyOutputArg(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null) {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "[Circular]";
+    }
+  }
+  return String(value);
+}
+
+function createOutputWriter(
+  options?: RunCommandOptions,
+): (...args: unknown[]) => void {
+  return (...args: unknown[]) => {
+    if (options?.onOutput) {
+      options.onOutput(args.map((arg) => stringifyOutputArg(arg)).join(" "));
+      return;
+    }
+    log.raw.log(...args);
+  };
+}
+
+export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
+  [
+    { name: "/help", description: "Show help message" },
+    { name: "/clear", description: "Clear the screen" },
+    { name: "/reset", description: "Reset REPL state and clear memory" },
+    { name: "/exit", description: "Exit the REPL" },
+    { name: "/memory", description: "Show memory file location and stats" },
+    { name: "/forget", description: "Remove a definition from memory" },
+    { name: "/config", description: "View/set configuration" },
+    { name: "/tasks", description: "View background tasks" },
+    { name: "/bg", description: "Push current eval to background" },
+    { name: "/resume", description: "Resume a previous session" },
+  ];
 
 /** Generate help text dynamically using keybinding registry */
 function generateHelpText(): string {
@@ -79,8 +116,8 @@ ${BOLD}Examples:${RESET}
 export const commands: Record<string, Command> = {
   "/help": {
     description: "Show help message",
-    handler: () => {
-      log.raw.log(generateHelpText());
+    handler: (_state, _args, context) => {
+      context.output(generateHelpText());
     },
   },
 
@@ -93,21 +130,25 @@ export const commands: Record<string, Command> = {
 
   "/reset": {
     description: "Reset REPL state and clear memory",
-    handler: async (state: ReplState) => {
+    handler: async (state, _args, context) => {
       state.reset();
       // Use memory API for single source of truth
-      const memoryApi = (globalThis as Record<string, unknown>).memory as { clear: () => Promise<void> } | undefined;
+      const memoryApi = (globalThis as Record<string, unknown>).memory as {
+        clear: () => Promise<void>;
+      } | undefined;
       if (memoryApi?.clear) {
         await memoryApi.clear();
       }
-      log.raw.log(`${GREEN}REPL state reset. All bindings and memory cleared.${RESET}`);
+      context.output(
+        `${GREEN}REPL state reset. All bindings and memory cleared.${RESET}`,
+      );
     },
   },
 
   "/exit": {
     description: "Exit the REPL",
-    handler: async (state: ReplState) => {
-      log.raw.log("\nGoodbye!");
+    handler: async (state, _args, context) => {
+      context.output("\nGoodbye!");
       await state.flushHistory();
       getPlatform().process.exit(0);
     },
@@ -115,41 +156,43 @@ export const commands: Record<string, Command> = {
 
   "/memory": {
     description: "Show memory file location and stats",
-    handler: async () => {
+    handler: async (_state, _args, context) => {
       // Use memory API for single source of truth
       const memoryApi = (globalThis as Record<string, unknown>).memory as {
-        stats: () => Promise<{ path: string; count: number; size: number } | null>;
+        stats: () => Promise<
+          { path: string; count: number; size: number } | null
+        >;
         list: () => Promise<string[]>;
       } | undefined;
 
       if (!memoryApi) {
-        log.raw.log(`${YELLOW}Memory API not initialized.${RESET}`);
+        context.output(`${YELLOW}Memory API not initialized.${RESET}`);
         return;
       }
 
       const stats = await memoryApi.stats();
       if (stats) {
-        log.raw.log(`${BOLD}Memory:${RESET}`);
-        log.raw.log(`  ${CYAN}Location:${RESET} ${stats.path}`);
-        log.raw.log(`  ${CYAN}Definitions:${RESET} ${stats.count}`);
-        log.raw.log(`  ${CYAN}Size:${RESET} ${stats.size} bytes`);
+        context.output(`${BOLD}Memory:${RESET}`);
+        context.output(`  ${CYAN}Location:${RESET} ${stats.path}`);
+        context.output(`  ${CYAN}Definitions:${RESET} ${stats.count}`);
+        context.output(`  ${CYAN}Size:${RESET} ${stats.size} bytes`);
         if (stats.count > 0) {
           const names = await memoryApi.list();
-          log.raw.log(`  ${CYAN}Names:${RESET} ${names.join(", ")}`);
+          context.output(`  ${CYAN}Names:${RESET} ${names.join(", ")}`);
         }
       } else {
-        log.raw.log(`${YELLOW}Could not read memory file.${RESET}`);
+        context.output(`${YELLOW}Could not read memory file.${RESET}`);
       }
     },
   },
 
   "/forget": {
     description: "Remove a definition from memory",
-    handler: async (_state: ReplState, args: string) => {
+    handler: async (_state, args, context) => {
       const name = args.trim();
       if (!name) {
-        log.raw.log(`${YELLOW}Usage: /forget <name>${RESET}`);
-        log.raw.log(`${DIM_GRAY}Example: /forget myFunction${RESET}`);
+        context.output(`${YELLOW}Usage: /forget <name>${RESET}`);
+        context.output(`${DIM_GRAY}Example: /forget myFunction${RESET}`);
         return;
       }
 
@@ -159,27 +202,28 @@ export const commands: Record<string, Command> = {
       } | undefined;
 
       if (!memoryApi) {
-        log.raw.log(`${YELLOW}Memory API not initialized.${RESET}`);
+        context.output(`${YELLOW}Memory API not initialized.${RESET}`);
         return;
       }
 
       const removed = await memoryApi.remove(name);
       if (removed) {
-        log.raw.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
-        log.raw.log(`${DIM_GRAY}Note: The binding still exists in this session. Use /reset to clear all bindings.${RESET}`);
+        context.output(`${GREEN}Removed '${name}' from memory.${RESET}`);
+        context.output(
+          `${DIM_GRAY}Note: The binding still exists in this session. Use /reset to clear all bindings.${RESET}`,
+        );
       } else {
-        log.raw.log(`${YELLOW}'${name}' not found in memory.${RESET}`);
+        context.output(`${YELLOW}'${name}' not found in memory.${RESET}`);
       }
     },
   },
 
   "/config": {
     description: "View/set configuration",
-    handler: async (_state: ReplState, args: string) => {
+    handler: async (_state, args) => {
       await handleConfigCommand(args);
     },
   },
-
   // NOTE: /tasks is handled by App.tsx to open BackgroundTasksOverlay
   // Do not add /tasks handler here - it would conflict
 };
@@ -191,15 +235,20 @@ export function isCommand(input: string): boolean {
 }
 
 /** Run a command */
-export async function runCommand(input: string, state: ReplState): Promise<void> {
+export async function runCommand(
+  input: string,
+  state: ReplState,
+  options?: RunCommandOptions,
+): Promise<void> {
+  const output = createOutputWriter(options);
   const trimmed = input.trim();
   const [cmdName, ...args] = trimmed.split(WHITESPACE_SPLIT_REGEX);
 
   const command = commands[cmdName];
   if (command) {
-    await command.handler(state, args.join(" "));
+    await command.handler(state, args.join(" "), { output });
   } else {
-    log.raw.log(`${YELLOW}Unknown command: ${cmdName}${RESET}`);
-    log.raw.log(`${DIM_GRAY}Type /help for available commands.${RESET}`);
+    output(`${YELLOW}Unknown command: ${cmdName}${RESET}`);
+    output(`${DIM_GRAY}Type /help for available commands.${RESET}`);
   }
 }

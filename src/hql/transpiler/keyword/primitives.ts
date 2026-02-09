@@ -135,22 +135,6 @@ export const ARITHMETIC_OPS = ["+", "-", "*", "/", "%", "**"] as const;
 export const ARITHMETIC_OPS_SET: ReadonlySet<string> = new Set(ARITHMETIC_OPS);
 
 /**
- * Comparison operators - for syntax highlighting categorization.
- */
-export const COMPARISON_OPS = ["===", "==", "!==", "!=", "<", ">", "<=", ">="] as const;
-
-/**
- * Logical operators (symbol form) - for syntax highlighting categorization.
- * Note: word-form (and, or, not) are in known-identifiers.ts WORD_LOGICAL_OPERATORS.
- */
-export const LOGICAL_OPS = ["&&", "||", "!", "??"] as const;
-
-/**
- * Bitwise operators - for syntax highlighting categorization.
- */
-export const BITWISE_OPS = ["&", "|", "^", "~", "<<", ">>", ">>>"] as const;
-
-/**
  * First-class operators - can be used as values (passed to higher-order functions).
  * When used in value position, transpiler calls __hql_get_op("+") at runtime.
  * This is a SUBSET of PRIMITIVE_OPS.
@@ -206,8 +190,3 @@ export const JS_LITERAL_KEYWORDS_SET: ReadonlySet<string> = new Set(JS_LITERAL_K
  * HQL-specific constant keywords (in addition to JS literals).
  */
 const HQL_CONSTANT_KEYWORDS = ["nil"] as const;
-
-/**
- * All constant keywords combined.
- */
-export const ALL_CONSTANT_KEYWORDS = [...JS_LITERAL_KEYWORDS, ...HQL_CONSTANT_KEYWORDS] as const;

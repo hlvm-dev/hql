@@ -10,8 +10,13 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 import { getSessionsDir } from "../../common/paths.ts";
+import { appendJsonLines, readJsonLines } from "../../common/jsonl.ts";
 import { ValidationError } from "../../common/error.ts";
-import { getErrorMessage, isFileNotFoundError, isObjectValue } from "../../common/utils.ts";
+import {
+  getErrorMessage,
+  isFileNotFoundError,
+  isObjectValue,
+} from "../../common/utils.ts";
 import { isSummaryMessage, type Message, type MessageRole } from "./context.ts";
 
 // ============================================================
@@ -75,7 +80,7 @@ async function loadIndex(): Promise<SessionIndex> {
     const raw = await platform.fs.readTextFile(path);
     const parsed = JSON.parse(raw) as SessionIndex;
     if (!parsed || parsed.version !== 1 || !parsed.sessions) {
-      throw new Error("invalid index format");
+      throw new ValidationError("invalid index format", "session_store");
     }
     return parsed;
   } catch (error) {
@@ -206,36 +211,18 @@ function fromTranscriptEntry(entry: TranscriptEntry): Message[] {
 export async function loadSessionMessages(
   entry: AgentSessionEntry,
 ): Promise<Message[]> {
-  const platform = getPlatform();
   const path = getTranscriptPath(entry);
   try {
-    const raw = await platform.fs.readTextFile(path);
+    const records = await readJsonLines<Record<string, unknown>>(path);
     let messages: Message[] = [];
-    let start = 0;
-    const len = raw.length;
 
-    // Single-pass line parsing: scan for newlines, skip empty lines, parse inline
-    while (start < len) {
-      let end = raw.indexOf("\n", start);
-      if (end === -1) end = len;
-      // Skip empty/whitespace-only lines
-      const line = raw.substring(start, end);
-      start = end + 1;
-      if (line.length === 0 || line.trim().length === 0) continue;
-
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(line) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
+    for (const parsed of records) {
       if (!isObjectValue(parsed)) continue;
-
       const type = parsed.type;
       if (type !== "message" && type !== "compaction") continue;
 
       const timestamp = typeof parsed.timestamp === "number"
-        ? parsed.timestamp as number
+        ? parsed.timestamp
         : Date.now();
 
       if (type === "compaction") {
@@ -258,9 +245,6 @@ export async function loadSessionMessages(
     }
     return messages;
   } catch (error) {
-    if (isFileNotFoundError(error)) {
-      return [];
-    }
     throw new ValidationError(
       `Failed to read session transcript: ${getErrorMessage(error)}`,
       "session_store",
@@ -282,8 +266,7 @@ export async function appendSessionMessages(
     .filter((m): m is TranscriptEntry => m !== null);
   if (delta.length === 0) return entry;
 
-  const lines = delta.map((item) => JSON.stringify(item)).join("\n") + "\n";
-  await platform.fs.writeTextFile(path, lines, { append: true, create: true });
+  await appendJsonLines(path, delta);
 
   const updated: AgentSessionEntry = {
     ...entry,

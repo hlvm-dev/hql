@@ -64,7 +64,6 @@ import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
 import {
   looksLikeToolCallJsonAnywhere,
   responseAsksQuestion,
-  tryParseToolCallsFromText,
 } from "./model-compat.ts";
 import {
   ensurePlaywrightChromium,
@@ -393,7 +392,9 @@ function buildToolSignature(calls: ToolCall[]): string {
   return calls.map((call) => {
     // For loop detection we only need identity, not pretty-print
     const args = call.args && isObjectValue(call.args)
-      ? Object.entries(call.args as Record<string, unknown>).map(([k, v]) => `${k}=${v}`).join(",")
+      ? Object.entries(call.args as Record<string, unknown>).map(([k, v]) =>
+        `${k}=${v}`
+      ).join(",")
       : "";
     return `${call.toolName}:${args}`;
   }).join("|");
@@ -576,7 +577,13 @@ export async function executeToolCall(
         result,
         config,
       );
-      emitToolSuccess(config, toolCall.toolName, llmContent, returnDisplay, startedAt);
+      emitToolSuccess(
+        config,
+        toolCall.toolName,
+        llmContent,
+        returnDisplay,
+        startedAt,
+      );
       return {
         success: true,
         result,
@@ -635,7 +642,13 @@ export async function executeToolCall(
       config,
     );
 
-    emitToolSuccess(config, toolCall.toolName, llmContent, returnDisplay, startedAt);
+    emitToolSuccess(
+      config,
+      toolCall.toolName,
+      llmContent,
+      returnDisplay,
+      startedAt,
+    );
 
     return {
       success: true,
@@ -1189,7 +1202,9 @@ export async function runReActLoop(
             // Delegation failed — add error to context so LLM can recover
             context.addMessage({
               role: "tool",
-              content: `Delegation failed: ${delegateResult.error ?? "unknown error"}`,
+              content: `Delegation failed: ${
+                delegateResult.error ?? "unknown error"
+              }`,
               toolName: "delegate_agent",
             });
           }
@@ -1293,14 +1308,10 @@ export async function runReActLoop(
         });
         continue;
       }
-      // Fallback: try to parse tool calls from the text response
-      const parsed = tryParseToolCallsFromText(responseText);
-      if (parsed.length > 0) {
-        response = { content: responseText, toolCalls: parsed };
-        // Fall through to processAgentResponse with repaired tool calls
-      } else {
-        return responseText;
+      if (toolUses.length === 0) {
+        return "Native tool calling required. Tool call JSON in text is not accepted.";
       }
+      return responseText;
     }
 
     // Process response and execute tools
@@ -1533,7 +1544,9 @@ export async function runReActLoop(
       const failedTools = result.results
         .filter((r) => !r.success)
         .map((r) => r.error ?? "unknown error");
-      return `Tool execution failed after ${iterations} iterations:\n${failedTools.join("\n")}`;
+      return `Tool execution failed after ${iterations} iterations:\n${
+        failedTools.join("\n")
+      }`;
     }
   }
 

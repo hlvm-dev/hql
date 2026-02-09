@@ -5,7 +5,7 @@
  * Metrics are local-only (no remote dependencies).
  */
 
-import { getPlatform } from "../../platform/platform.ts";
+import { appendJsonLine } from "../../common/jsonl.ts";
 
 interface MetricEvent {
   ts: number;
@@ -39,9 +39,7 @@ export class InMemoryMetrics implements MetricsSink {
 export function createJsonlMetricsSink(path: string): MetricsSink {
   return {
     async emit(event: MetricEvent): Promise<void> {
-      const platform = getPlatform();
-      const line = JSON.stringify(event) + "\n";
-      await platform.fs.writeTextFile(path, line, { append: true, create: true });
+      await appendJsonLine(path, event);
     },
   };
 }

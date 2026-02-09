@@ -397,21 +397,6 @@ export function validateToolArgs(
 }
 
 /**
- * Coerce tool arguments based on tool schema (e.g., numeric strings -> numbers).
- */
-export function coerceToolArgs(name: string, args: unknown): unknown {
-  const tool = getTool(name);
-  if (tool.skipValidation) {
-    return args;
-  }
-  if (!isToolArgsObject(args)) {
-    return args;
-  }
-  const schema = buildToolJsonSchema(tool);
-  return coerceArgsToSchema(args, schema);
-}
-
-/**
  * Prepare tool arguments for execution by coercing first, then validating.
  *
  * This mirrors execution-time behavior used by the orchestrator while reusing

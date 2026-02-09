@@ -31,16 +31,6 @@ export interface HttpOptions {
 }
 
 /**
- * HTTP response with typed data
- */
-export interface HttpResponse<T> {
-  data: T;
-  status: number;
-  headers: Headers;
-  ok: boolean;
-}
-
-/**
  * HTTP error with response details
  */
 export class HttpError extends Error {

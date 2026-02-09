@@ -9,14 +9,24 @@
  */
 
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
-import { countLines, getErrorMessage } from "../../../common/utils.ts";
+import {
+  countLines,
+  getErrorMessage,
+  isFileNotFoundError,
+} from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type AttachmentType = "image" | "video" | "audio" | "document" | "file" | "text";
+export type AttachmentType =
+  | "image"
+  | "video"
+  | "audio"
+  | "document"
+  | "file"
+  | "text";
 
 export interface AttachmentMetadata {
   width?: number;
@@ -51,7 +61,12 @@ export interface TextAttachment {
 export type AnyAttachment = Attachment | TextAttachment;
 
 export interface AttachmentError {
-  type: "not_found" | "permission_denied" | "size_exceeded" | "unsupported_type" | "read_error";
+  type:
+    | "not_found"
+    | "permission_denied"
+    | "size_exceeded"
+    | "unsupported_type"
+    | "read_error";
   message: string;
   path: string;
 }
@@ -97,33 +112,38 @@ const EXT_TO_MIME: Record<string, string> = {
   // Documents
   ".pdf": "application/pdf",
   ".doc": "application/msword",
-  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".docx":
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".xls": "application/vnd.ms-excel",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".ppt": "application/vnd.ms-powerpoint",
-  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".pptx":
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
 
 /** MIME type to attachment type mapping (derived from EXT_TO_MIME — single source of truth) */
 const MIME_TO_TYPE: Record<string, AttachmentType> = Object.fromEntries(
   Object.values(EXT_TO_MIME).map((mime) => {
     const prefix = mime.split("/")[0];
-    const type: AttachmentType =
-      prefix === "image" ? "image" :
-      prefix === "video" ? "video" :
-      prefix === "audio" ? "audio" : "document";
+    const type: AttachmentType = prefix === "image"
+      ? "image"
+      : prefix === "video"
+      ? "video"
+      : prefix === "audio"
+      ? "audio"
+      : "document";
     return [mime, type];
-  })
+  }),
 );
 
 /** Size limits per attachment type (in bytes) */
 const SIZE_LIMITS: Record<AttachmentType, number> = {
-  image: 20 * 1024 * 1024,     // 20 MB
-  video: 100 * 1024 * 1024,    // 100 MB
-  audio: 50 * 1024 * 1024,     // 50 MB
-  document: 50 * 1024 * 1024,  // 50 MB
-  file: 10 * 1024 * 1024,      // 10 MB (generic)
-  text: 1 * 1024 * 1024,       // 1 MB (pasted text)
+  image: 20 * 1024 * 1024, // 20 MB
+  video: 100 * 1024 * 1024, // 100 MB
+  audio: 50 * 1024 * 1024, // 50 MB
+  document: 50 * 1024 * 1024, // 50 MB
+  file: 10 * 1024 * 1024, // 10 MB (generic)
+  text: 1 * 1024 * 1024, // 1 MB (pasted text)
 };
 
 /** Display name prefixes per type */
@@ -207,7 +227,9 @@ export function getDisplayName(type: AttachmentType, id: number): string {
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
@@ -229,7 +251,7 @@ function getSizeLimit(type: AttachmentType): number {
  */
 export async function createAttachment(
   path: string,
-  id: number
+  id: number,
 ): Promise<Attachment | AttachmentError> {
   const platform = getPlatform();
   try {
@@ -238,18 +260,26 @@ export async function createAttachment(
     try {
       fileInfo = await platform.fs.stat(path);
     } catch (err) {
-      if (err instanceof Error && err.name === "NotFound") {
+      if (isFileNotFoundError(err)) {
         return { type: "not_found", message: `File not found: ${path}`, path };
       }
       if (err instanceof Error && err.name === "PermissionDenied") {
-        return { type: "permission_denied", message: `Permission denied: ${path}`, path };
+        return {
+          type: "permission_denied",
+          message: `Permission denied: ${path}`,
+          path,
+        };
       }
       throw err;
     }
 
     // Check if it's a file (not directory)
     if (fileInfo.isDirectory) {
-      return { type: "unsupported_type", message: `Cannot attach directory: ${path}`, path };
+      return {
+        type: "unsupported_type",
+        message: `Cannot attach directory: ${path}`,
+        path,
+      };
     }
 
     // Detect MIME type
@@ -261,7 +291,9 @@ export async function createAttachment(
     if (fileInfo.size > sizeLimit) {
       return {
         type: "size_exceeded",
-        message: `File too large: ${formatFileSize(fileInfo.size)} exceeds ${formatFileSize(sizeLimit)} limit`,
+        message: `File too large: ${formatFileSize(fileInfo.size)} exceeds ${
+          formatFileSize(sizeLimit)
+        } limit`,
         path,
       };
     }
@@ -295,7 +327,9 @@ export async function createAttachment(
 /**
  * Check if a result is an attachment (not an error)
  */
-export function isAttachment(result: Attachment | AttachmentError): result is Attachment {
+export function isAttachment(
+  result: Attachment | AttachmentError,
+): result is Attachment {
   return "id" in result && "base64Data" in result;
 }
 
@@ -324,7 +358,8 @@ export function shouldCollapseText(text: string): boolean {
   }
 
   // Multi-line paste: collapse if enough lines OR enough total chars
-  return lineCount >= TEXT_COLLAPSE_MIN_LINES || text.length >= TEXT_COLLAPSE_MIN_CHARS;
+  return lineCount >= TEXT_COLLAPSE_MIN_LINES ||
+    text.length >= TEXT_COLLAPSE_MIN_CHARS;
 }
 
 /**
@@ -337,7 +372,10 @@ export function getTextDisplayName(id: number, lineCount: number): string {
 /**
  * Create a text attachment from pasted content
  */
-export function createTextAttachment(content: string, id: number): TextAttachment {
+export function createTextAttachment(
+  content: string,
+  id: number,
+): TextAttachment {
   const lineCount = countLines(content);
   const size = new TextEncoder().encode(content).length;
 

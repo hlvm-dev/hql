@@ -3,20 +3,27 @@
  * Full-featured REPL with rich banner, keyboard shortcuts, completions
  */
 
-import React, { useState, useCallback, useRef, useEffect } from "npm:react@18";
-import { Box, Text, useInput, useApp, Static } from "npm:ink@5";
+import React, { useCallback, useEffect, useRef, useState } from "npm:react@18";
+import { Box, Static, Text, useApp, useInput } from "npm:ink@5";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
 import { SessionPicker } from "./SessionPicker.tsx";
 import { ConfigOverlay, type ConfigOverlayState } from "./ConfigOverlay.tsx";
-import { CommandPaletteOverlay, type PaletteState, type KeyCombo } from "./CommandPaletteOverlay.tsx";
+import {
+  CommandPaletteOverlay,
+  type KeyCombo,
+  type PaletteState,
+} from "./CommandPaletteOverlay.tsx";
 import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
 import type { KeybindingAction } from "../keybindings/index.ts";
-import { executeHandler, refreshKeybindingLookup } from "../keybindings/index.ts";
+import {
+  executeHandler,
+  refreshKeybindingLookup,
+} from "../keybindings/index.ts";
 import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import type { EvalResult } from "../types.ts";
@@ -26,7 +33,12 @@ import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { resetContext } from "../../repl/context.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
-import type { Session, SessionInitOptions, SessionMeta, SessionMessage } from "../../repl/session/types.ts";
+import type {
+  Session,
+  SessionInitOptions,
+  SessionMessage,
+  SessionMeta,
+} from "../../repl/session/types.ts";
 import { SessionManager } from "../../repl/session/manager.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { ensureError } from "../../../../common/utils.ts";
@@ -59,7 +71,7 @@ interface AppProps {
 /** Convert session messages to history entries for display */
 function convertMessagesToHistory(
   messages: readonly SessionMessage[],
-  startId: number
+  startId: number,
 ): { entries: HistoryEntry[]; nextId: number } {
   const entries: HistoryEntry[] = [];
   let id = startId;
@@ -87,8 +99,11 @@ function convertMessagesToHistory(
   return { entries, nextId: id };
 }
 
-function isAsyncIterable(value: unknown): value is AsyncIterableIterator<string> {
-  return !!value && typeof value === "object" && Symbol.asyncIterator in (value as object);
+function isAsyncIterable(
+  value: unknown,
+): value is AsyncIterableIterator<string> {
+  return !!value && typeof value === "object" &&
+    Symbol.asyncIterator in (value as object);
 }
 
 function stringifyOutput(value: unknown): string {
@@ -108,7 +123,9 @@ function stringifyOutput(value: unknown): string {
 /**
  * App wrapper - provides ReplContext for FRP state management
  */
-export function App({ showBanner = true, sessionOptions }: AppProps): React.ReactElement {
+export function App(
+  { showBanner = true, sessionOptions }: AppProps,
+): React.ReactElement {
   const stateRef = useRef<ReplState>(new ReplState());
 
   return (
@@ -129,7 +146,9 @@ interface AppContentProps extends AppProps {
 /**
  * AppContent - main REPL UI (uses ReplContext for reactive state)
  */
-function AppContent({ showBanner = true, sessionOptions, replState }: AppContentProps): React.ReactElement {
+function AppContent(
+  { showBanner = true, sessionOptions, replState }: AppContentProps,
+): React.ReactElement {
   const { exit } = useApp();
 
   // Get reactive state from context (bindings, docstrings, memoryNames auto-update)
@@ -142,7 +161,9 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
 
   // Session management
   const sessionManagerRef = useRef<SessionManager | null>(null);
-  const [currentSession, setCurrentSession] = useState<SessionMeta | null>(null);
+  const [currentSession, setCurrentSession] = useState<SessionMeta | null>(
+    null,
+  );
 
   // Initialize session manager
   useEffect(() => {
@@ -188,7 +209,9 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
   const [isEvaluating, setIsEvaluating] = useState(false);
   // Ref to avoid stale closure in useInput callback
   const isEvaluatingRef = useRef(false);
-  useEffect(() => { isEvaluatingRef.current = isEvaluating; }, [isEvaluating]);
+  useEffect(() => {
+    isEvaluatingRef.current = isEvaluating;
+  }, [isEvaluating]);
   const [nextId, setNextId] = useState(1);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
@@ -196,7 +219,13 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
   const [bannerRendered, setBannerRendered] = useState(false);
 
   // Task manager for background evaluation
-  const { createEvalTask, completeEvalTask, failEvalTask, updateEvalOutput, cancel } = useTaskManager();
+  const {
+    createEvalTask,
+    completeEvalTask,
+    failEvalTask,
+    updateEvalOutput,
+    cancel,
+  } = useTaskManager();
 
   // Track current evaluation for Ctrl+B to push to background
   // AbortController enables true cancellation of async operations (AI calls, fetch, etc.)
@@ -204,11 +233,20 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
 
   // Unified panel state - only one panel can be open at a time
   // "palette", "config-overlay", and "tasks-overlay" are overlays (input visible but disabled), others hide input entirely
-  type ActivePanel = "none" | "picker" | "config-overlay" | "tasks-overlay" | "models" | "palette" | "model-setup";
+  type ActivePanel =
+    | "none"
+    | "picker"
+    | "config-overlay"
+    | "tasks-overlay"
+    | "models"
+    | "palette"
+    | "model-setup";
   const [activePanel, setActivePanel] = useState<ActivePanel>("none");
 
   // Track where ModelBrowser was opened from (for back navigation)
-  const [modelBrowserParent, setModelBrowserParent] = useState<ActivePanel>("none");
+  const [modelBrowserParent, setModelBrowserParent] = useState<ActivePanel>(
+    "none",
+  );
 
   // Track if model setup has been handled (completed or cancelled) to prevent infinite loop
   const [modelSetupHandled, setModelSetupHandled] = useState(false);
@@ -218,7 +256,9 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
 
   // Session picker data (separate from panel state)
   const [pickerSessions, setPickerSessions] = useState<SessionMeta[]>([]);
-  const [pendingResumeInput, setPendingResumeInput] = useState<string | null>(null);
+  const [pendingResumeInput, setPendingResumeInput] = useState<string | null>(
+    null,
+  );
 
   // Mark banner as rendered once when init completes (for Static component)
   useEffect(() => {
@@ -236,7 +276,9 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
   });
 
   // Config overlay persistent state (survives open/close)
-  const [configOverlayState, setConfigOverlayState] = useState<ConfigOverlayState>({
+  const [configOverlayState, setConfigOverlayState] = useState<
+    ConfigOverlayState
+  >({
     selectedIndex: 0,
   });
 
@@ -245,7 +287,10 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
 
   // Show model setup overlay if default model needs to be downloaded (only once)
   useEffect(() => {
-    if (init.ready && init.needsModelSetup && activePanel === "none" && !modelSetupHandled) {
+    if (
+      init.ready && init.needsModelSetup && activePanel === "none" &&
+      !modelSetupHandled
+    ) {
       setActivePanel("model-setup");
     }
   }, [init.ready, init.needsModelSetup, activePanel, modelSetupHandled]);
@@ -253,7 +298,9 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
   // Helper to add history entry and increment ID (DRY pattern used 8+ times)
   // Uses ref to avoid stale closure — no dependency on nextId state
   const nextIdRef = useRef(nextId);
-  useEffect(() => { nextIdRef.current = nextId; }, [nextId]);
+  useEffect(() => {
+    nextIdRef.current = nextId;
+  }, [nextId]);
   const addHistoryEntry = useCallback((input: string, result: EvalResult) => {
     const id = nextIdRef.current;
     setHistory((prev: HistoryEntry[]) => [...prev, { id, input, result }]);
@@ -274,7 +321,10 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
 
     if (loaded) {
       // Convert messages to history entries and restore conversation
-      const { entries, nextId: newNextId } = convertMessagesToHistory(loaded.messages, 1);
+      const { entries, nextId: newNextId } = convertMessagesToHistory(
+        loaded.messages,
+        1,
+      );
 
       // Restore the conversation history
       setHistory(entries);
@@ -284,12 +334,19 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
       setHistory((prev: HistoryEntry[]) => [...prev, {
         id: newNextId,
         input: pendingResumeInput || "/resume",
-        result: { success: true, value: `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)` },
+        result: {
+          success: true,
+          value:
+            `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)`,
+        },
       }]);
       setNextId(newNextId + 1);
     } else {
       // Session file not found or corrupted
-      addHistoryEntry(pendingResumeInput || "/resume", { success: false, error: new Error(`Session not found: ${session.title}`) });
+      addHistoryEntry(pendingResumeInput || "/resume", {
+        success: false,
+        error: new Error(`Session not found: ${session.title}`),
+      });
     }
     setPendingResumeInput(null);
     setActivePanel("none");
@@ -298,44 +355,56 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
   const handlePickerCancel = useCallback(() => {
     // Add history entry showing command was cancelled (only if user typed /resume)
     if (pendingResumeInput) {
-      addHistoryEntry(pendingResumeInput, { success: true, value: "Cancelled" });
+      addHistoryEntry(pendingResumeInput, {
+        success: true,
+        value: "Cancelled",
+      });
       setPendingResumeInput(null);
     }
     setActivePanel("none");
   }, [pendingResumeInput, addHistoryEntry]);
 
-  const recordSessionTurn = useCallback(async (inputCode: string, attachmentPaths: string[], outputStr: string) => {
-    const sessionApi = (globalThis as Record<string, unknown>).session as {
-      record: (role: "user" | "assistant", content: string, attachments?: string[]) => Promise<void>;
-      current: () => { id: string } | null;
-    } | undefined;
+  const recordSessionTurn = useCallback(
+    async (inputCode: string, attachmentPaths: string[], outputStr: string) => {
+      const sessionApi = (globalThis as Record<string, unknown>).session as {
+        record: (
+          role: "user" | "assistant",
+          content: string,
+          attachments?: string[],
+        ) => Promise<void>;
+        current: () => { id: string } | null;
+      } | undefined;
 
-    if (!sessionApi?.record) return;
+      if (!sessionApi?.record) return;
 
-    try {
-      await sessionApi.record(
-        "user",
-        inputCode,
-        attachmentPaths.length > 0 ? attachmentPaths : undefined
-      );
-      if (outputStr) {
-        await sessionApi.record("assistant", outputStr);
+      try {
+        await sessionApi.record(
+          "user",
+          inputCode,
+          attachmentPaths.length > 0 ? attachmentPaths : undefined,
+        );
+        if (outputStr) {
+          await sessionApi.record("assistant", outputStr);
+        }
+        const session = sessionApi.current();
+        if (session) setCurrentSession(session);
+      } catch {
+        // Session recording failed - continue without sessions
       }
-      const session = sessionApi.current();
-      if (session) setCurrentSession(session);
-    } catch {
-      // Session recording failed - continue without sessions
-    }
-  }, [setCurrentSession]);
+    },
+    [setCurrentSession],
+  );
 
   const suppressHistoryOutput = useCallback((historyId: number) => {
-    setHistory((prev: HistoryEntry[]) => prev.map((entry: HistoryEntry) => {
-      if (entry.id !== historyId) return entry;
-      return {
-        ...entry,
-        result: { ...entry.result, suppressOutput: true },
-      };
-    }));
+    setHistory((prev: HistoryEntry[]) =>
+      prev.map((entry: HistoryEntry) => {
+        if (entry.id !== historyId) return entry;
+        return {
+          ...entry,
+          result: { ...entry.result, suppressOutput: true },
+        };
+      })
+    );
   }, []);
 
   const streamEvalToTask = useCallback((
@@ -344,7 +413,7 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
     controller: AbortController,
     evalState: CurrentEval,
     inputCode: string,
-    attachmentPaths: string[]
+    attachmentPaths: string[],
   ) => {
     const renderInterval = 100;
     let buffer = "";
@@ -407,7 +476,8 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
         completeEvalTask(taskId, buffer);
         void recordSessionTurn(inputCode, attachmentPaths, buffer);
       } catch (err) {
-        const isAbort = controller.signal.aborted || (err instanceof Error && err.name === "AbortError");
+        const isAbort = controller.signal.aborted ||
+          (err instanceof Error && err.name === "AbortError");
         if (isAbort) {
           cancel(taskId);
           return;
@@ -418,223 +488,257 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
         finalizeForeground();
       }
     })();
-  }, [updateEvalOutput, completeEvalTask, failEvalTask, cancel, recordSessionTurn]);
+  }, [
+    updateEvalOutput,
+    completeEvalTask,
+    failEvalTask,
+    cancel,
+    recordSessionTurn,
+  ]);
 
-  const handleSubmit = useCallback(async (code: string, attachments?: AnyAttachment[]) => {
-    if (!code.trim()) return;
-    setInput("");
+  const handleSubmit = useCallback(
+    async (code: string, attachments?: AnyAttachment[]) => {
+      if (!code.trim()) return;
+      setInput("");
 
-    // Expand text attachments: replace [Pasted text #N ...] with actual content
-    // This allows pasted HQL code to be executed even when collapsed
-    let expandedCode = code;
-    if (attachments) {
-      for (const att of attachments) {
-        // TextAttachment has 'content', regular Attachment has 'base64Data'
-        if ("content" in att) {
-          expandedCode = expandedCode.replace(att.displayName, att.content);
+      // Expand text attachments: replace [Pasted text #N ...] with actual content
+      // This allows pasted HQL code to be executed even when collapsed
+      let expandedCode = code;
+      if (attachments) {
+        for (const att of attachments) {
+          // TextAttachment has 'content', regular Attachment has 'base64Data'
+          if ("content" in att) {
+            expandedCode = expandedCode.replace(att.displayName, att.content);
+          }
         }
       }
-    }
 
-    // Handle commands that need React state (pickers/panels)
-    const trimmedLower = code.trim().toLowerCase();
-    const normalized = trimmedLower.startsWith(".") ? "/" + trimmedLower.slice(1) : trimmedLower;
+      // Handle commands that need React state (pickers/panels)
+      const trimmedLower = code.trim().toLowerCase();
+      const normalized = trimmedLower.startsWith(".")
+        ? "/" + trimmedLower.slice(1)
+        : trimmedLower;
 
-    // Handle /config command - show floating overlay
-    if (normalized === "/config") {
-      setActivePanel("config-overlay");
-      return;
-    }
-
-    // Handle /tasks command - show background tasks overlay
-    if (normalized === "/tasks") {
-      setActivePanel("tasks-overlay");
-      return;
-    }
-
-    // Handle /bg command - push current evaluation to background
-    if (normalized === "/bg") {
-      const activeEval = currentEvalRef.current;
-      if (activeEval && !activeEval.backgrounded) {
-        activeEval.backgrounded = true;
-        const taskId = activeEval.taskId ?? createEvalTask(activeEval.code, activeEval.controller);
-        activeEval.taskId = taskId;
-
-        if (activeEval.historyId != null) {
-          suppressHistoryOutput(activeEval.historyId);
-        }
-
-        currentEvalRef.current = null;
-        setIsEvaluating(false);
-
-        const preview = activeEval.code.length > 40 ? activeEval.code.slice(0, 37) + "..." : activeEval.code;
-        addHistoryEntry("/bg", {
-          success: true,
-          value: `⏳ Pushed to background (Task ${taskId.slice(0, 8)})\n   ${preview}\n   Use /tasks to view`,
-        });
-      } else {
-        addHistoryEntry("/bg", { success: false, error: new Error("No running evaluation to background") });
-      }
-      return;
-    }
-
-    // Handle /resume command
-    if (normalized === "/resume") {
-      // SSOT: Try session.list() API (sessions are global now)
-      const sessionApi = (globalThis as Record<string, unknown>).session as {
-        list: (options?: { limit?: number }) => Promise<SessionMeta[]>;
-      } | undefined;
-
-      let sessions: SessionMeta[] = [];
-      if (sessionApi?.list) {
-        sessions = await sessionApi.list({ limit: 20 });
-      } else {
-        addHistoryEntry(code, { success: true, value: "Session management not available" });
+      // Handle /config command - show floating overlay
+      if (normalized === "/config") {
+        setActivePanel("config-overlay");
         return;
       }
 
-      if (sessions.length === 0) {
-        addHistoryEntry(code, { success: true, value: "No sessions found" });
-      } else {
-        setPendingResumeInput(code);  // Store command for history
-        setPickerSessions(sessions);
-        setActivePanel("picker");
+      // Handle /tasks command - show background tasks overlay
+      if (normalized === "/tasks") {
+        setActivePanel("tasks-overlay");
+        return;
       }
-      return;
-    }
 
-    // Handle /clear command - clear screen and history (fallback for Cmd+K)
-    if (normalized === "/clear") {
-      clearTerminal();
-      setHistory([]);
-      setNextId(1);
-      setHasBeenCleared(true);
-      setClearKey((k: number) => k + 1);
-      return;
-    }
+      // Handle /bg command - push current evaluation to background
+      if (normalized === "/bg") {
+        const activeEval = currentEvalRef.current;
+        if (activeEval && !activeEval.backgrounded) {
+          activeEval.backgrounded = true;
+          const taskId = activeEval.taskId ??
+            createEvalTask(activeEval.code, activeEval.controller);
+          activeEval.taskId = taskId;
 
-    // Commands (supports both /command and .command)
-    if (isCommand(code)) {
-      const output = await handleCommand(code, repl, exit, replState);
-      if (output !== null) {
-        addHistoryEntry(code, { success: true, value: output, isCommandOutput: true });
+          if (activeEval.historyId != null) {
+            suppressHistoryOutput(activeEval.historyId);
+          }
+
+          currentEvalRef.current = null;
+          setIsEvaluating(false);
+
+          const preview = activeEval.code.length > 40
+            ? activeEval.code.slice(0, 37) + "..."
+            : activeEval.code;
+          addHistoryEntry("/bg", {
+            success: true,
+            value: `⏳ Pushed to background (Task ${
+              taskId.slice(0, 8)
+            })\n   ${preview}\n   Use /tasks to view`,
+          });
+        } else {
+          addHistoryEntry("/bg", {
+            success: false,
+            error: new Error("No running evaluation to background"),
+          });
+        }
+        return;
       }
-      // FRP: memoryNames auto-update via ReplContext when bindings change
-      return;
-    }
 
-    if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
-      addHistoryEntry(code, { success: false, error: new Error("Evaluation already running. Use /bg or Esc.") });
-      return;
-    }
+      // Handle /resume command
+      if (normalized === "/resume") {
+        // SSOT: Try session.list() API (sessions are global now)
+        const sessionApi = (globalThis as Record<string, unknown>).session as {
+          list: (options?: { limit?: number }) => Promise<SessionMeta[]>;
+        } | undefined;
 
-    setIsEvaluating(true);
+        let sessions: SessionMeta[] = [];
+        if (sessionApi?.list) {
+          sessions = await sessionApi.list({ limit: 20 });
+        } else {
+          addHistoryEntry(code, {
+            success: true,
+            value: "Session management not available",
+          });
+          return;
+        }
 
-    // Extract attachment paths for session recording (only file attachments have paths)
-    const attachmentPaths = attachments
-      ?.filter((a): a is Exclude<AnyAttachment, { type: "text" }> => a.type !== "text")
-      .map((a) => a.path) ?? [];
-
-    // Evaluate (with optional attachments)
-    // Use expandedCode which has text attachment placeholders replaced with actual content
-    // Create AbortController for true cancellation support
-    const controller = new AbortController();
-    const evalPromise = repl.evaluate(expandedCode, { attachments, signal: controller.signal });
-    const evalState: CurrentEval = {
-      code,
-      controller,
-      attachmentPaths,
-      backgrounded: false,
-    };
-    currentEvalRef.current = evalState;
-
-    const finalizeForeground = () => {
-      if (currentEvalRef.current === evalState) {
-        currentEvalRef.current = null;
-        setIsEvaluating(false);
+        if (sessions.length === 0) {
+          addHistoryEntry(code, { success: true, value: "No sessions found" });
+        } else {
+          setPendingResumeInput(code); // Store command for history
+          setPickerSessions(sessions);
+          setActivePanel("picker");
+        }
+        return;
       }
-    };
 
-    let result: EvalResult;
-    try {
-      result = await evalPromise;
-    } catch (error) {
-      if (evalState.cancelled) return;
-      const err = ensureError(error);
-      if (evalState.backgrounded || evalState.taskId) {
-        const taskId = evalState.taskId ?? createEvalTask(code, controller);
-        evalState.taskId = taskId;
-        failEvalTask(taskId, err);
-      } else {
-        addHistoryEntry(code, { success: false, error: err });
+      // Handle /clear command - clear screen and history (fallback for Cmd+K)
+      if (normalized === "/clear") {
+        clearTerminal();
+        setHistory([]);
+        setNextId(1);
+        setHasBeenCleared(true);
+        setClearKey((k: number) => k + 1);
+        return;
       }
-      finalizeForeground();
-      return;
-    }
 
-    if (evalState.cancelled) {
-      return;
-    }
-
-    if (!result.success) {
-      const err = result.error ?? new Error("Unknown error");
-      if (evalState.backgrounded || evalState.taskId) {
-        const taskId = evalState.taskId ?? createEvalTask(code, controller);
-        evalState.taskId = taskId;
-        failEvalTask(taskId, err);
-      } else {
-        addHistoryEntry(code, { success: false, error: err });
+      // Commands (supports both /command and .command)
+      if (isCommand(code)) {
+        const output = await handleCommand(code, repl, exit, replState);
+        if (output !== null) {
+          addHistoryEntry(code, {
+            success: true,
+            value: output,
+            isCommandOutput: true,
+          });
+        }
+        // FRP: memoryNames auto-update via ReplContext when bindings change
+        return;
       }
-      finalizeForeground();
-      return;
-    }
 
-    if (isAsyncIterable(result.value)) {
-      const taskId = evalState.taskId ?? createEvalTask(code, controller);
-      evalState.taskId = taskId;
+      if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
+        addHistoryEntry(code, {
+          success: false,
+          error: new Error("Evaluation already running. Use /bg or Esc."),
+        });
+        return;
+      }
 
-      streamEvalToTask(
-        taskId,
-        result.value as AsyncIterableIterator<string>,
-        controller,
-        evalState,
+      setIsEvaluating(true);
+
+      // Extract attachment paths for session recording (only file attachments have paths)
+      const attachmentPaths = attachments
+        ?.filter((a): a is Exclude<AnyAttachment, { type: "text" }> =>
+          a.type !== "text"
+        )
+        .map((a) => a.path) ?? [];
+
+      // Evaluate (with optional attachments)
+      // Use expandedCode which has text attachment placeholders replaced with actual content
+      // Create AbortController for true cancellation support
+      const controller = new AbortController();
+      const evalPromise = repl.evaluate(expandedCode, {
+        attachments,
+        signal: controller.signal,
+      });
+      const evalState: CurrentEval = {
         code,
-        attachmentPaths
-      );
+        controller,
+        attachmentPaths,
+        backgrounded: false,
+      };
+      currentEvalRef.current = evalState;
 
-      if (!evalState.backgrounded) {
-        const historyId = nextId;
-        addHistoryEntry(code, { success: true, streamTaskId: taskId });
-        evalState.historyId = historyId;
+      const finalizeForeground = () => {
+        if (currentEvalRef.current === evalState) {
+          currentEvalRef.current = null;
+          setIsEvaluating(false);
+        }
+      };
+
+      let result: EvalResult;
+      try {
+        result = await evalPromise;
+      } catch (error) {
+        if (evalState.cancelled) return;
+        const err = ensureError(error);
+        if (evalState.backgrounded || evalState.taskId) {
+          const taskId = evalState.taskId ?? createEvalTask(code, controller);
+          evalState.taskId = taskId;
+          failEvalTask(taskId, err);
+        } else {
+          addHistoryEntry(code, { success: false, error: err });
+        }
+        finalizeForeground();
+        return;
       }
 
-      return;
-    }
+      if (evalState.cancelled) {
+        return;
+      }
 
-    const outputStr = stringifyOutput(result.value);
+      if (!result.success) {
+        const err = result.error ?? new Error("Unknown error");
+        if (evalState.backgrounded || evalState.taskId) {
+          const taskId = evalState.taskId ?? createEvalTask(code, controller);
+          evalState.taskId = taskId;
+          failEvalTask(taskId, err);
+        } else {
+          addHistoryEntry(code, { success: false, error: err });
+        }
+        finalizeForeground();
+        return;
+      }
 
-    if (evalState.backgrounded || evalState.taskId) {
-      const taskId = evalState.taskId ?? createEvalTask(code, controller);
-      evalState.taskId = taskId;
-      completeEvalTask(taskId, result.value);
-      void recordSessionTurn(code, attachmentPaths, outputStr);
-    } else {
-      addHistoryEntry(code, result);
-      void recordSessionTurn(code, attachmentPaths, outputStr);
-    }
+      if (isAsyncIterable(result.value)) {
+        const taskId = evalState.taskId ?? createEvalTask(code, controller);
+        evalState.taskId = taskId;
 
-    finalizeForeground();
-  }, [
-    repl,
-    exit,
-    addHistoryEntry,
-    createEvalTask,
-    completeEvalTask,
-    failEvalTask,
-    suppressHistoryOutput,
-    streamEvalToTask,
-    recordSessionTurn,
-  ]);
+        streamEvalToTask(
+          taskId,
+          result.value as AsyncIterableIterator<string>,
+          controller,
+          evalState,
+          code,
+          attachmentPaths,
+        );
+
+        if (!evalState.backgrounded) {
+          const historyId = nextId;
+          addHistoryEntry(code, { success: true, streamTaskId: taskId });
+          evalState.historyId = historyId;
+        }
+
+        return;
+      }
+
+      const outputStr = stringifyOutput(result.value);
+
+      if (evalState.backgrounded || evalState.taskId) {
+        const taskId = evalState.taskId ?? createEvalTask(code, controller);
+        evalState.taskId = taskId;
+        completeEvalTask(taskId, result.value);
+        void recordSessionTurn(code, attachmentPaths, outputStr);
+      } else {
+        addHistoryEntry(code, result);
+        void recordSessionTurn(code, attachmentPaths, outputStr);
+      }
+
+      finalizeForeground();
+    },
+    [
+      repl,
+      exit,
+      addHistoryEntry,
+      createEvalTask,
+      completeEvalTask,
+      failEvalTask,
+      suppressHistoryOutput,
+      streamEvalToTask,
+      recordSessionTurn,
+    ],
+  );
 
   // Command palette action handler
   const handlePaletteAction = useCallback((action: KeybindingAction) => {
@@ -687,7 +791,9 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
       }
       lastPanelToggleRef.current = now;
       // Toggle palette
-      setActivePanel((prev: ActivePanel) => prev === "palette" ? "none" : "palette");
+      setActivePanel((prev: ActivePanel) =>
+        prev === "palette" ? "none" : "palette"
+      );
       return;
     }
     // Ctrl+B: Toggle Background Tasks Overlay
@@ -697,7 +803,9 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
         return;
       }
       lastPanelToggleRef.current = now;
-      setActivePanel((prev: ActivePanel) => prev === "tasks-overlay" ? "none" : "tasks-overlay");
+      setActivePanel((prev: ActivePanel) =>
+        prev === "tasks-overlay" ? "none" : "tasks-overlay"
+      );
       return;
     }
     // Ctrl+L or Cmd+K: Clear screen and history
@@ -727,7 +835,10 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
       }
 
       if (evalState.historyId == null) {
-        addHistoryEntry(evalState.code, { success: true, value: "[Cancelled]" });
+        addHistoryEntry(evalState.code, {
+          success: true,
+          value: "[Cancelled]",
+        });
       }
 
       currentEvalRef.current = null;
@@ -738,13 +849,13 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
   // Prepare banner items for Static component (renders once, never re-renders)
   const bannerItems = showBanner && !hasBeenCleared && bannerRendered
     ? [{
-        id: "banner",
-        memoryNames,
-        aiExports: init.aiExports,
-        readyTime: init.readyTime,
-        errors: init.errors,
-        session: currentSession,
-      }]
+      id: "banner",
+      memoryNames,
+      aiExports: init.aiExports,
+      readyTime: init.readyTime,
+      errors: init.errors,
+      session: currentSession,
+    }]
     : [];
 
   return (
@@ -772,7 +883,7 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
       {history.map((entry: HistoryEntry) => (
         <Box key={entry.id} flexDirection="column" marginBottom={1}>
           <Box>
-            <Text color={color("primary")} bold>{"hlvm>"} </Text>
+            <Text color={color("primary")} bold>{"hlvm>"}</Text>
             <Text>{entry.input}</Text>
           </Box>
           <Output result={entry.result} />
@@ -829,9 +940,11 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
             const normalizedModel = normalizeModelId(modelName);
             if (!normalizedModel) return;
             // SSOT: Use config API only
-            const configApi = (globalThis as Record<string, unknown>).config as {
-              set: (key: string, value: unknown) => Promise<unknown>;
-            } | undefined;
+            const configApi = (globalThis as Record<string, unknown>).config as
+              | {
+                set: (key: string, value: unknown) => Promise<unknown>;
+              }
+              | undefined;
 
             if (configApi?.set) {
               await configApi.set("model", normalizedModel);
@@ -860,7 +973,8 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
             // Add cancelled message to history
             addHistoryEntry("", {
               success: true,
-              value: `AI model setup cancelled. Run (ai.models.pull "${init.modelToSetup}") to download later.`,
+              value:
+                `AI model setup cancelled. Run (ai.models.pull "${init.modelToSetup}") to download later.`,
               isCommandOutput: true,
             });
           }}
@@ -870,19 +984,23 @@ function AppContent({ showBanner = true, sessionOptions, replState }: AppContent
       {/* Input line (hidden when modal panels are open, but visible under overlay) */}
       {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}
       {/* Note: CommandPalette, ConfigOverlay, and BackgroundTasksOverlay are true overlays, so Input stays visible underneath */}
-      {(activePanel === "none" || activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay") && (
-        <Input
-          value={input}
-          onChange={setInput}
-          onSubmit={handleSubmit}
-          disabled={init.loading || activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay"}
-        />
-      )}
+      {(activePanel === "none" || activePanel === "palette" ||
+        activePanel === "config-overlay" || activePanel === "tasks-overlay") &&
+        (
+          <Input
+            value={input}
+            onChange={setInput}
+            onSubmit={handleSubmit}
+            disabled={init.loading || activePanel === "palette" ||
+              activePanel === "config-overlay" ||
+              activePanel === "tasks-overlay"}
+          />
+        )}
 
       {/* Footer hint (show when input is visible, overlay draws on top) */}
-      {(activePanel === "none" || activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay") && !isEvaluating && (
-        <FooterHint />
-      )}
+      {(activePanel === "none" || activePanel === "palette" ||
+        activePanel === "config-overlay" || activePanel === "tasks-overlay") &&
+        !isEvaluating && <FooterHint />}
 
       {isEvaluating && <Text dimColor>...</Text>}
     </Box>
@@ -893,7 +1011,7 @@ async function handleCommand(
   cmd: string,
   repl: ReturnType<typeof useRepl>,
   exit: () => void,
-  state: ReplState
+  state: ReplState,
 ): Promise<string | null> {
   const trimmed = cmd.trim().toLowerCase();
 
@@ -928,18 +1046,12 @@ async function handleCommand(
     }
   }
 
-  // Delegate to centralized command handler (captures console output)
-  const originalLog = console.log;
+  // Delegate to centralized command handler and capture user-facing command output
   const outputs: string[] = [];
-  console.log = (...args: unknown[]) => {
-    outputs.push(args.map(a => String(a)).join(" "));
-  };
 
-  try {
-    await runCommand(cmd, state);
-    // deno-lint-ignore no-control-regex
-    return outputs.join("\n").replace(/\x1b\[[0-9;]*m/g, "") || null; // Strip ANSI
-  } finally {
-    console.log = originalLog;
-  }
+  await runCommand(cmd, state, {
+    onOutput: (line) => outputs.push(line),
+  });
+  // deno-lint-ignore no-control-regex
+  return outputs.join("\n").replace(/\x1b\[[0-9;]*m/g, "") || null; // Strip ANSI
 }

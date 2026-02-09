@@ -8,8 +8,13 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 import { getAgentMemoryPath } from "../../common/paths.ts";
+import { appendJsonLine, readJsonLines } from "../../common/jsonl.ts";
 import { ValidationError } from "../../common/error.ts";
-import { getErrorMessage, isFileNotFoundError, isObjectValue } from "../../common/utils.ts";
+import {
+  getErrorMessage,
+  isFileNotFoundError,
+  isObjectValue,
+} from "../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -37,37 +42,32 @@ function makeId(): string {
     : String(Date.now());
 }
 
+function toMemoryEntry(value: unknown): MemoryEntry | undefined {
+  if (!isObjectValue(value)) return undefined;
+  const content = typeof value.content === "string" ? value.content : "";
+  if (!content) return undefined;
+
+  const tags = Array.isArray(value.tags)
+    ? value.tags.filter((tag) =>
+      typeof tag === "string" && tag.trim().length > 0
+    )
+    : undefined;
+
+  const id = typeof value.id === "string" && value.id.length > 0
+    ? value.id
+    : makeId();
+  const createdAt =
+    typeof value.createdAt === "string" && value.createdAt.length > 0
+      ? value.createdAt
+      : new Date().toISOString();
+
+  return { id, content, tags, createdAt };
+}
+
 async function readAllEntries(): Promise<MemoryEntry[]> {
-  const platform = getPlatform();
   const path = getAgentMemoryPath();
   try {
-    const raw = await platform.fs.readTextFile(path);
-    const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
-    const entries: MemoryEntry[] = [];
-    for (const line of lines) {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (!isObjectValue(parsed)) continue;
-      const content = typeof parsed.content === "string"
-        ? parsed.content
-        : "";
-      if (!content) continue;
-      const tags = Array.isArray(parsed.tags)
-        ? parsed.tags.filter((tag) => typeof tag === "string" && tag.trim().length > 0)
-        : undefined;
-      const id = typeof parsed.id === "string" && parsed.id.length > 0
-        ? parsed.id
-        : makeId();
-      const createdAt = typeof parsed.createdAt === "string" && parsed.createdAt.length > 0
-        ? parsed.createdAt
-        : new Date().toISOString();
-      entries.push({ id, content, tags, createdAt });
-    }
-    return entries;
+    return await readJsonLines(path, toMemoryEntry);
   } catch (error) {
     if (isFileNotFoundError(error)) {
       return [];
@@ -80,10 +80,8 @@ async function readAllEntries(): Promise<MemoryEntry[]> {
 }
 
 async function appendEntry(entry: MemoryEntry): Promise<void> {
-  const platform = getPlatform();
   const path = getAgentMemoryPath();
-  const line = JSON.stringify(entry) + "\n";
-  await platform.fs.writeTextFile(path, line, { append: true, create: true });
+  await appendJsonLine(path, entry);
 }
 
 // ============================================================
@@ -96,7 +94,10 @@ export async function addMemoryEntry(
 ): Promise<MemoryEntry> {
   const trimmed = content.trim();
   if (!trimmed) {
-    throw new ValidationError("memory content must be non-empty", "agent_memory");
+    throw new ValidationError(
+      "memory content must be non-empty",
+      "agent_memory",
+    );
   }
   const entry: MemoryEntry = {
     id: makeId(),

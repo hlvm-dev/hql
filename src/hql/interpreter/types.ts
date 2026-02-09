@@ -86,16 +86,6 @@ export function isHQLFunction(value: unknown): value is HQLFunction {
 }
 
 /**
- * Type guard: Check if value is a built-in function
- */
-export function isBuiltinFn(value: unknown): value is BuiltinFn {
-  return (
-    typeof value === "function" &&
-    !isHQLFunction(value)
-  );
-}
-
-/**
  * Type guard: Check if value is truthy in HQL semantics
  * Only false and nil are falsy
  */

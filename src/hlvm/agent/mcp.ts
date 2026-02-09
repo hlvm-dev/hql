@@ -10,9 +10,14 @@
 import { getPlatform } from "../../platform/platform.ts";
 import type { PlatformCommandProcess } from "../../platform/types.ts";
 import { ValidationError } from "../../common/error.ts";
+import { parseJsonLine } from "../../common/jsonl.ts";
 import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
 import { log } from "../api/log.ts";
-import { registerTools, unregisterTool, type ToolMetadata } from "./registry.ts";
+import {
+  registerTools,
+  type ToolMetadata,
+  unregisterTool,
+} from "./registry.ts";
 
 // ============================================================
 // Types
@@ -146,12 +151,17 @@ class McpClient {
     if (process.stdout) {
       this.reader = (process.stdout as ReadableStream<Uint8Array>).getReader();
       this.readLoopPromise = this.readLoop().catch((error) => {
-        log.warn(`MCP read loop failed (${this.server.name}): ${getErrorMessage(error)}`);
+        log.warn(
+          `MCP read loop failed (${this.server.name}): ${
+            getErrorMessage(error)
+          }`,
+        );
       });
     }
 
     if (process.stderr) {
-      this.stderrReader = (process.stderr as ReadableStream<Uint8Array>).getReader();
+      this.stderrReader = (process.stderr as ReadableStream<Uint8Array>)
+        .getReader();
       this.stderrDrainPromise = this.drainReader(this.stderrReader);
     }
 
@@ -168,11 +178,17 @@ class McpClient {
       });
       await this.notify("initialized", {});
     } catch (error) {
-      log.warn(`MCP initialize failed (${this.server.name}): ${getErrorMessage(error)}`);
+      log.warn(
+        `MCP initialize failed (${this.server.name}): ${
+          getErrorMessage(error)
+        }`,
+      );
     }
   }
 
-  private async drainReader(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  private async drainReader(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+  ): Promise<void> {
     try {
       while (true) {
         const { done } = await reader.read();
@@ -253,18 +269,27 @@ class McpClient {
     return tools.filter(isMcpToolInfo);
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
     return await this.request("tools/call", {
       name,
       arguments: args,
     });
   }
 
-  private async notify(method: string, params: Record<string, unknown>): Promise<void> {
+  private async notify(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<void> {
     await this.send({ jsonrpc: "2.0", method, params });
   }
 
-  private async request(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private async request(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
     if (this.closed) {
       throw new ValidationError("MCP client closed", "mcp");
     }
@@ -317,12 +342,8 @@ class McpClient {
   }
 
   private handleLine(line: string): void {
-    let parsed: JsonRpcResponse | null = null;
-    try {
-      parsed = JSON.parse(line) as JsonRpcResponse;
-    } catch {
-      return;
-    }
+    const parsed = parseJsonLine<JsonRpcResponse>(line);
+    if (parsed === undefined) return;
     if (!parsed || typeof parsed.id !== "number") return;
     const pending = this.pending.get(parsed.id);
     if (!pending) return;
@@ -348,7 +369,9 @@ function isMcpToolInfo(value: unknown): value is McpToolInfo {
   return true;
 }
 
-function buildArgsSchema(schema?: Record<string, unknown>): Record<string, string> {
+function buildArgsSchema(
+  schema?: Record<string, unknown>,
+): Record<string, string> {
   if (!schema || !isObjectValue(schema)) return {};
   const properties = isObjectValue(schema.properties)
     ? schema.properties as Record<string, unknown>
@@ -413,7 +436,10 @@ export async function loadMcpTools(
           if (!isObjectValue(args)) {
             throw new ValidationError("args must be an object", "mcp");
           }
-          return await client.callTool(tool.name, args as Record<string, unknown>);
+          return await client.callTool(
+            tool.name,
+            args as Record<string, unknown>,
+          );
         },
         description: tool.description ?? `MCP tool ${tool.name}`,
         args: argsSchema,

@@ -5,21 +5,31 @@
  */
 
 import { getPlatform } from "../../../../platform/platform.ts";
+import { isFileNotFoundError } from "../../../../common/utils.ts";
+import {
+  appendJsonLine,
+  atomicWriteTextFile,
+  readJsonLines,
+  serializeJsonLines,
+} from "../../../../common/jsonl.ts";
 
 // SSOT: Use platform layer for all file/path operations
 const fs = () => getPlatform().fs;
 const path = () => getPlatform().path;
 import type {
-  SessionMeta,
+  ListSessionsOptions,
+  Session,
   SessionHeader,
   SessionMessage,
-  SessionTitleRecord,
+  SessionMeta,
   SessionRecord,
-  Session,
-  ListSessionsOptions,
+  SessionTitleRecord,
 } from "./types.ts";
 import { getSessionsDir } from "../../../../common/paths.ts";
-import { getLegacySessionsDir, listLegacySessionFiles } from "../../../../common/legacy-migration.ts";
+import {
+  getLegacySessionsDir,
+  listLegacySessionFiles,
+} from "../../../../common/legacy-migration.ts";
 
 // ============================================================================
 // Constants
@@ -50,7 +60,7 @@ async function sessionsDirHasData(): Promise<boolean> {
     }
     return false;
   } catch (error) {
-    if (error instanceof Error && error.name === "NotFound") {
+    if (isFileNotFoundError(error)) {
       return false;
     }
     throw error;
@@ -67,7 +77,9 @@ async function rebuildIndexFromSessions(): Promise<void> {
       if (!entry.name.endsWith(".jsonl") || entry.name === INDEX_FILE) continue;
 
       const sessionId = entry.name.replace(/\.jsonl$/, "");
-      const records = await readJsonLines<SessionRecord>(getSessionPath(sessionId));
+      const records = await readJsonLines<SessionRecord>(
+        getSessionPath(sessionId),
+      );
 
       let header: SessionHeader | null = null;
       let lastTitle: string | null = null;
@@ -102,7 +114,7 @@ async function rebuildIndexFromSessions(): Promise<void> {
       });
     }
   } catch (error) {
-    if (!(error instanceof Error && error.name === "NotFound")) {
+    if (!isFileNotFoundError(error)) {
       throw error;
     }
   }
@@ -142,7 +154,8 @@ async function ensureLegacySessionsMigrated(): Promise<void> {
 
   const indexPath = getIndexPath();
   const hasCurrentData = await sessionsDirHasData();
-  const needsIndex = (hasLegacyFiles || hasCurrentData) && !(await getPlatform().fs.exists(indexPath));
+  const needsIndex = (hasLegacyFiles || hasCurrentData) &&
+    !(await getPlatform().fs.exists(indexPath));
 
   if (copiedAny || needsIndex) {
     await rebuildIndexFromSessions();
@@ -177,80 +190,6 @@ export function generateSessionId(): string {
 }
 
 // ============================================================================
-// JSONL Helpers
-// ============================================================================
-
-/**
- * Append a JSON line to a file.
- * Creates directory if needed.
- */
-async function appendJsonLine(filePath: string, record: unknown): Promise<void> {
-  const platform = getPlatform();
-  const line = JSON.stringify(record) + "\n";
-
-  try {
-    await platform.fs.writeTextFile(filePath, line, { append: true });
-  } catch (error) {
-    if (error instanceof Error && error.name === "NotFound") {
-      await fs().ensureDir(path().dirname(filePath));
-      await platform.fs.writeTextFile(filePath, line);
-    } else {
-      throw error;
-    }
-  }
-}
-
-/**
- * Read and parse all JSON lines from a file.
- * Skips empty lines and logs parse errors without failing.
- */
-async function readJsonLines<T>(path: string): Promise<T[]> {
-  const platform = getPlatform();
-  try {
-    const content = await platform.fs.readTextFile(path);
-    const lines = content.split("\n").filter((line) => line.trim());
-    const results: T[] = [];
-
-    for (const line of lines) {
-      try {
-        results.push(JSON.parse(line) as T);
-      } catch {
-        // Skip malformed lines silently - recovery from corruption
-      }
-    }
-
-    return results;
-  } catch (error) {
-    if (error instanceof Error && error.name === "NotFound") {
-      return [];
-    }
-    throw error;
-  }
-}
-
-/**
- * Atomic write: write to temp file, then rename.
- * Prevents corruption if process crashes mid-write.
- */
-async function atomicWriteFile(filePath: string, content: string): Promise<void> {
-  const platform = getPlatform();
-  const tempPath = `${filePath}.tmp.${Date.now()}`;
-
-  try {
-    await fs().ensureDir(path().dirname(filePath));
-    await platform.fs.writeTextFile(tempPath, content);
-    await platform.fs.rename(tempPath, filePath);
-  } catch (error) {
-    try {
-      await platform.fs.remove(tempPath);
-    } catch {
-      // Ignore cleanup errors
-    }
-    throw error;
-  }
-}
-
-// ============================================================================
 // Index Operations
 // ============================================================================
 
@@ -266,8 +205,8 @@ async function readIndex(): Promise<SessionMeta[]> {
  * Write all session metadata to index (atomic).
  */
 async function writeIndex(entries: SessionMeta[]): Promise<void> {
-  const content = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
-  await atomicWriteFile(getIndexPath(), content);
+  const content = serializeJsonLines(entries);
+  await atomicWriteTextFile(getIndexPath(), content);
 }
 
 /**
@@ -311,7 +250,7 @@ async function removeIndexEntry(sessionId: string): Promise<boolean> {
  */
 export async function createSession(
   projectPath: string,
-  title?: string
+  title?: string,
 ): Promise<SessionMeta> {
   const projectHash = hashProjectPath(projectPath);
   const sessionId = generateSessionId();
@@ -375,7 +314,7 @@ function generateDefaultTitle(): string {
 function createMessage(
   role: "user" | "assistant",
   content: string,
-  attachments?: readonly string[]
+  attachments?: readonly string[],
 ): SessionMessage {
   return {
     type: "message",
@@ -395,7 +334,7 @@ export async function appendMessage(
   sessionId: string,
   role: "user" | "assistant",
   content: string,
-  attachments?: readonly string[]
+  attachments?: readonly string[],
 ): Promise<SessionMessage> {
   const message = createMessage(role, content, attachments);
   const sessionPath = getSessionPath(sessionId);
@@ -425,7 +364,7 @@ export async function appendMessageOnly(
   sessionId: string,
   role: "user" | "assistant",
   content: string,
-  attachments?: readonly string[]
+  attachments?: readonly string[],
 ): Promise<SessionMessage> {
   const message = createMessage(role, content, attachments);
   const sessionPath = getSessionPath(sessionId);
@@ -440,7 +379,7 @@ export async function appendMessageOnly(
 export async function updateSessionIndex(
   sessionId: string,
   messageCount: number,
-  updatedAt: number
+  updatedAt: number,
 ): Promise<void> {
   const entries = await readIndex();
   const index = entries.findIndex((e) => e.id === sessionId);
@@ -459,7 +398,7 @@ export async function updateSessionIndex(
  * Load a session with all its messages.
  */
 export async function loadSession(
-  sessionId: string
+  sessionId: string,
 ): Promise<Session | null> {
   const sessionPath = getSessionPath(sessionId);
 
@@ -506,7 +445,7 @@ export async function loadSession(
 
     return { meta, messages };
   } catch (error) {
-    if (error instanceof Error && error.name === "NotFound") {
+    if (isFileNotFoundError(error)) {
       return null;
     }
     throw error;
@@ -517,7 +456,7 @@ export async function loadSession(
  * List sessions (global - shows all sessions).
  */
 export async function listSessions(
-  options: ListSessionsOptions = {}
+  options: ListSessionsOptions = {},
 ): Promise<SessionMeta[]> {
   const {
     limit = 50,
@@ -558,7 +497,7 @@ export async function getLastSession(): Promise<SessionMeta | null> {
  * Delete a session.
  */
 export async function deleteSession(
-  sessionId: string
+  sessionId: string,
 ): Promise<boolean> {
   const platform = getPlatform();
   const sessionPath = getSessionPath(sessionId);
@@ -567,7 +506,7 @@ export async function deleteSession(
   try {
     await platform.fs.remove(sessionPath);
   } catch (error) {
-    if (!(error instanceof Error && error.name === "NotFound")) {
+    if (!isFileNotFoundError(error)) {
       throw error;
     }
   }
@@ -581,7 +520,7 @@ export async function deleteSession(
  */
 export async function updateTitle(
   sessionId: string,
-  title: string
+  title: string,
 ): Promise<void> {
   const titleRecord: SessionTitleRecord = {
     type: "title",
@@ -610,7 +549,7 @@ export async function updateTitle(
  * Export a session as markdown.
  */
 export async function exportSession(
-  sessionId: string
+  sessionId: string,
 ): Promise<string | null> {
   const session = await loadSession(sessionId);
 

@@ -9,6 +9,7 @@
  */
 
 import { RuntimeError } from "../../../common/error.ts";
+import { parseJsonLine } from "../../../common/jsonl.ts";
 import { JSON_HEADERS, throwOnHttpError } from "../common.ts";
 import type {
   ChatOptions,
@@ -144,15 +145,6 @@ function toOllamaMessages(
   }));
 }
 
-function parseJsonLine<T>(line: string): T | null {
-  if (!line.trim()) return null;
-  try {
-    return JSON.parse(line) as T;
-  } catch {
-    return null;
-  }
-}
-
 // ============================================================================
 // API Helpers
 // ============================================================================
@@ -199,7 +191,7 @@ async function* streamRequest<T>(
         const line = buffer.slice(0, lineEndIndex);
         buffer = buffer.slice(lineEndIndex + 1);
         const parsed = parseJsonLine<T>(line);
-        if (parsed !== null) {
+        if (parsed !== undefined) {
           yield parsed;
         }
         lineEndIndex = buffer.indexOf("\n");
@@ -208,7 +200,7 @@ async function* streamRequest<T>(
 
     // Process remaining buffer
     const parsed = parseJsonLine<T>(buffer);
-    if (parsed !== null) {
+    if (parsed !== undefined) {
       yield parsed;
     }
   } finally {

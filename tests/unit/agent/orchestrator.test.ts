@@ -4,13 +4,17 @@
  * Verifies structured tool call execution and orchestration
  */
 
-import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert";
+import {
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+} from "jsr:@std/assert";
 import {
   executeToolCall,
   executeToolCalls,
+  type LLMResponse,
   processAgentResponse,
   runReActLoop,
-  type LLMResponse,
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
@@ -20,7 +24,10 @@ import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 // Test workspace
 const TEST_WORKSPACE = "/tmp/hlvm-test-orchestrator";
 
-function makeResponse(content: string, toolCalls: ToolCall[] = []): LLMResponse {
+function makeResponse(
+  content: string,
+  toolCalls: ToolCall[] = [],
+): LLMResponse {
   return { content, toolCalls };
 }
 
@@ -100,7 +107,7 @@ Deno.test({
     assertEquals(result.success, true);
     assertEquals(captured?.["agent"], "web");
     assertEquals(captured?.["task"], "test delegation");
-    assertStringIncludes(String(result.returnDisplay), "\"ok\": true");
+    assertStringIncludes(String(result.returnDisplay), '"ok": true');
   },
 });
 
@@ -154,7 +161,11 @@ Deno.test({
     let sawSignal = false;
 
     TOOL_REGISTRY[toolName] = {
-      fn: async (_args: unknown, _workspace: string, options?: { signal?: AbortSignal }) => {
+      fn: async (
+        _args: unknown,
+        _workspace: string,
+        options?: { signal?: AbortSignal },
+      ) => {
         sawSignal = options?.signal instanceof AbortSignal;
         return "ok";
       },
@@ -245,7 +256,9 @@ Deno.test({
     assertEquals(result.success, true);
 
     // If result is large, should be truncated
-    if (typeof result.llmContent === "string" && result.llmContent.length > 100) {
+    if (
+      typeof result.llmContent === "string" && result.llmContent.length > 100
+    ) {
       assertEquals(result.llmContent.includes("[Result truncated"), true);
     }
   },
@@ -318,7 +331,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: executeToolCalls - stop on error (continueOnError: false)",
+  name:
+    "Orchestrator: executeToolCalls - stop on error (continueOnError: false)",
   async fn() {
     clearAllL1Confirmations();
 
@@ -485,6 +499,40 @@ Deno.test({
 });
 
 Deno.test({
+  name:
+    "Orchestrator: runReActLoop - rejects text tool-call JSON without native calls",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    let callCount = 0;
+    const mockLLM = async () => {
+      callCount++;
+      return makeResponse(
+        '{"toolName":"search_code","args":{"pattern":"test"}}',
+      );
+    };
+
+    const result = await runReActLoop(
+      "Find test code",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        autoApprove: true,
+        maxToolCallRetries: 1,
+      },
+      mockLLM,
+    );
+
+    assertEquals(
+      result,
+      "Native tool calling required. Tool call JSON in text is not accepted.",
+    );
+    assertEquals(callCount, 2);
+  },
+});
+
+Deno.test({
   name: "Orchestrator: runReActLoop - llm rate limit enforced",
   async fn() {
     const toolName = "fake_rate_tool";
@@ -495,8 +543,7 @@ Deno.test({
     };
 
     try {
-      const llm = async () =>
-        makeResponse("", [{ toolName, args: {} }]);
+      const llm = async () => makeResponse("", [{ toolName, args: {} }]);
 
       const context = new ContextManager();
       context.addMessage({
@@ -572,7 +619,12 @@ Deno.test({
     try {
       await runReActLoop(
         "Abort task",
-        { workspace: TEST_WORKSPACE, context, autoApprove: true, maxRetries: 3 },
+        {
+          workspace: TEST_WORKSPACE,
+          context,
+          autoApprove: true,
+          maxRetries: 3,
+        },
         mockLLM,
       );
     } catch {
@@ -698,7 +750,9 @@ Deno.test({
           args: {},
         }]);
       } else {
-        return makeResponse("Sorry, the tool failed. I cannot complete this task.");
+        return makeResponse(
+          "Sorry, the tool failed. I cannot complete this task.",
+        );
       }
     };
 
@@ -752,7 +806,8 @@ Deno.test({
 // ============================================================
 
 Deno.test({
-  name: "Orchestrator: runReActLoop - denial stop policy tracks consecutive denials",
+  name:
+    "Orchestrator: runReActLoop - denial stop policy tracks consecutive denials",
   async fn() {
     clearAllL1Confirmations();
 

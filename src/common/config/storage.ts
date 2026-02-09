@@ -4,30 +4,31 @@
  */
 
 import {
-  type HlvmConfig,
-  type KeybindingsConfig,
-  DEFAULT_CONFIG,
-  DEFAULT_TOOLS_CONFIG,
-  DEFAULT_WEB_FETCH_CONFIG,
-  DEFAULT_WEB_SEARCH_CONFIG,
   CONFIG_KEYS,
   type ConfigKey,
-  validateValue,
+  createDefaultToolsConfig,
+  createDefaultWebFetchConfig,
+  createDefaultWebSearchConfig,
+  DEFAULT_CONFIG,
+  type HlvmConfig,
+  type KeybindingsConfig,
   normalizeModelId,
   type ToolsConfig,
+  validateValue,
   type WebFetchConfig,
   type WebSearchConfig,
 } from "./types.ts";
-import { getHlvmDir, getConfigPath } from "../paths.ts";
+import { getConfigPath, getHlvmDir } from "../paths.ts";
 import { getLegacyConfigPath } from "../legacy-migration.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { isFileNotFoundError } from "../utils.ts";
 
 // SSOT: Use platform layer for all file/path operations
 const fs = () => getPlatform().fs;
 import { log } from "../../hlvm/api/log.ts";
 
 // Re-export for backward compatibility
-export { getHlvmDir, getConfigPath };
+export { getConfigPath, getHlvmDir };
 
 // ============================================================
 // File I/O
@@ -46,7 +47,7 @@ async function readJsonConfig(path: string): Promise<ReadConfigResult> {
     return { data: parsed, exists: true };
   } catch (error) {
     // Check for NotFound error (file doesn't exist)
-    if (error instanceof Error && error.name === "NotFound") {
+    if (isFileNotFoundError(error)) {
       return { data: null, exists: false };
     }
     if (error instanceof SyntaxError) {
@@ -98,17 +99,15 @@ function normalizeWebSearchConfig(value: unknown): WebSearchConfig | undefined {
     return undefined;
   }
   const raw = value as Record<string, unknown>;
-  const config: WebSearchConfig = {
-    ...DEFAULT_WEB_SEARCH_CONFIG,
-    brave: { ...DEFAULT_WEB_SEARCH_CONFIG.brave },
-    perplexity: { ...DEFAULT_WEB_SEARCH_CONFIG.perplexity },
-    openrouter: { ...DEFAULT_WEB_SEARCH_CONFIG.openrouter },
-  };
+  const config: WebSearchConfig = createDefaultWebSearchConfig();
 
   if (typeof raw.enabled === "boolean") config.enabled = raw.enabled;
   if (typeof raw.provider === "string") {
     const provider = raw.provider.toLowerCase();
-    if (provider === "brave" || provider === "perplexity" || provider === "openrouter") {
+    if (
+      provider === "brave" || provider === "perplexity" ||
+      provider === "openrouter" || provider === "serpapi"
+    ) {
       config.provider = provider as WebSearchConfig["provider"];
     }
   }
@@ -124,22 +123,56 @@ function normalizeWebSearchConfig(value: unknown): WebSearchConfig | undefined {
 
   if (raw.brave && typeof raw.brave === "object" && !Array.isArray(raw.brave)) {
     const brave = raw.brave as Record<string, unknown>;
-    if (typeof brave.apiKey === "string") config.brave = { apiKey: brave.apiKey };
+    if (typeof brave.apiKey === "string") {
+      config.brave = { apiKey: brave.apiKey };
+    }
   }
-  if (raw.perplexity && typeof raw.perplexity === "object" && !Array.isArray(raw.perplexity)) {
+  if (
+    raw.perplexity && typeof raw.perplexity === "object" &&
+    !Array.isArray(raw.perplexity)
+  ) {
     const perplexity = raw.perplexity as Record<string, unknown>;
     config.perplexity = {
-      apiKey: typeof perplexity.apiKey === "string" ? perplexity.apiKey : config.perplexity?.apiKey,
-      baseUrl: typeof perplexity.baseUrl === "string" ? perplexity.baseUrl : config.perplexity?.baseUrl,
-      model: typeof perplexity.model === "string" ? perplexity.model : config.perplexity?.model,
+      apiKey: typeof perplexity.apiKey === "string"
+        ? perplexity.apiKey
+        : config.perplexity?.apiKey,
+      baseUrl: typeof perplexity.baseUrl === "string"
+        ? perplexity.baseUrl
+        : config.perplexity?.baseUrl,
+      model: typeof perplexity.model === "string"
+        ? perplexity.model
+        : config.perplexity?.model,
     };
   }
-  if (raw.openrouter && typeof raw.openrouter === "object" && !Array.isArray(raw.openrouter)) {
+  if (
+    raw.openrouter && typeof raw.openrouter === "object" &&
+    !Array.isArray(raw.openrouter)
+  ) {
     const openrouter = raw.openrouter as Record<string, unknown>;
     config.openrouter = {
-      apiKey: typeof openrouter.apiKey === "string" ? openrouter.apiKey : config.openrouter?.apiKey,
-      baseUrl: typeof openrouter.baseUrl === "string" ? openrouter.baseUrl : config.openrouter?.baseUrl,
-      model: typeof openrouter.model === "string" ? openrouter.model : config.openrouter?.model,
+      apiKey: typeof openrouter.apiKey === "string"
+        ? openrouter.apiKey
+        : config.openrouter?.apiKey,
+      baseUrl: typeof openrouter.baseUrl === "string"
+        ? openrouter.baseUrl
+        : config.openrouter?.baseUrl,
+      model: typeof openrouter.model === "string"
+        ? openrouter.model
+        : config.openrouter?.model,
+    };
+  }
+  if (
+    raw.serpapi && typeof raw.serpapi === "object" &&
+    !Array.isArray(raw.serpapi)
+  ) {
+    const serpapi = raw.serpapi as Record<string, unknown>;
+    config.serpapi = {
+      apiKey: typeof serpapi.apiKey === "string"
+        ? serpapi.apiKey
+        : config.serpapi?.apiKey,
+      baseUrl: typeof serpapi.baseUrl === "string"
+        ? serpapi.baseUrl
+        : config.serpapi?.baseUrl,
     };
   }
 
@@ -151,13 +184,12 @@ function normalizeWebFetchConfig(value: unknown): WebFetchConfig | undefined {
     return undefined;
   }
   const raw = value as Record<string, unknown>;
-  const config: WebFetchConfig = {
-    ...DEFAULT_WEB_FETCH_CONFIG,
-    firecrawl: { ...DEFAULT_WEB_FETCH_CONFIG.firecrawl },
-  };
+  const config: WebFetchConfig = createDefaultWebFetchConfig();
 
   if (typeof raw.enabled === "boolean") config.enabled = raw.enabled;
-  if (typeof raw.maxChars === "number" && raw.maxChars > 0) config.maxChars = raw.maxChars;
+  if (typeof raw.maxChars === "number" && raw.maxChars > 0) {
+    config.maxChars = raw.maxChars;
+  }
   if (typeof raw.timeoutSeconds === "number" && raw.timeoutSeconds > 0) {
     config.timeoutSeconds = raw.timeoutSeconds;
   }
@@ -170,16 +202,25 @@ function normalizeWebFetchConfig(value: unknown): WebFetchConfig | undefined {
   if (typeof raw.userAgent === "string" && raw.userAgent.trim()) {
     config.userAgent = raw.userAgent;
   }
-  if (typeof raw.readability === "boolean") config.readability = raw.readability;
+  if (typeof raw.readability === "boolean") {
+    config.readability = raw.readability;
+  }
 
-  if (raw.firecrawl && typeof raw.firecrawl === "object" && !Array.isArray(raw.firecrawl)) {
+  if (
+    raw.firecrawl && typeof raw.firecrawl === "object" &&
+    !Array.isArray(raw.firecrawl)
+  ) {
     const firecrawl = raw.firecrawl as Record<string, unknown>;
     config.firecrawl = {
       enabled: typeof firecrawl.enabled === "boolean"
         ? firecrawl.enabled
         : config.firecrawl?.enabled,
-      apiKey: typeof firecrawl.apiKey === "string" ? firecrawl.apiKey : config.firecrawl?.apiKey,
-      baseUrl: typeof firecrawl.baseUrl === "string" ? firecrawl.baseUrl : config.firecrawl?.baseUrl,
+      apiKey: typeof firecrawl.apiKey === "string"
+        ? firecrawl.apiKey
+        : config.firecrawl?.apiKey,
+      baseUrl: typeof firecrawl.baseUrl === "string"
+        ? firecrawl.baseUrl
+        : config.firecrawl?.baseUrl,
       onlyMainContent: typeof firecrawl.onlyMainContent === "boolean"
         ? firecrawl.onlyMainContent
         : config.firecrawl?.onlyMainContent,
@@ -200,27 +241,29 @@ function normalizeToolsConfig(value: unknown): ToolsConfig | undefined {
     return undefined;
   }
   const raw = value as Record<string, unknown>;
-  const tools: ToolsConfig = { web: { ...DEFAULT_TOOLS_CONFIG.web } };
+  const tools: ToolsConfig = createDefaultToolsConfig();
 
   if (raw.web && typeof raw.web === "object" && !Array.isArray(raw.web)) {
     const web = raw.web as Record<string, unknown>;
     const search = normalizeWebSearchConfig(web.search);
     const fetch = normalizeWebFetchConfig(web.fetch);
     tools.web = {
-      search: search ?? { ...DEFAULT_WEB_SEARCH_CONFIG },
-      fetch: fetch ?? { ...DEFAULT_WEB_FETCH_CONFIG },
+      search: search ?? createDefaultWebSearchConfig(),
+      fetch: fetch ?? createDefaultWebFetchConfig(),
     };
   } else {
     tools.web = {
-      search: { ...DEFAULT_WEB_SEARCH_CONFIG },
-      fetch: { ...DEFAULT_WEB_FETCH_CONFIG },
+      search: createDefaultWebSearchConfig(),
+      fetch: createDefaultWebFetchConfig(),
     };
   }
 
   return tools;
 }
 
-function normalizeConfigInput(raw: Record<string, unknown> | null): Partial<HlvmConfig> | null {
+function normalizeConfigInput(
+  raw: Record<string, unknown> | null,
+): Partial<HlvmConfig> | null {
   if (!raw || typeof raw !== "object") {
     return null;
   }
@@ -242,7 +285,9 @@ function normalizeConfigInput(raw: Record<string, unknown> | null): Partial<Hlvm
   }
 
   const temperature = normalizeNumber(raw.temperature);
-  if (temperature !== undefined && validateValue("temperature", temperature).valid) {
+  if (
+    temperature !== undefined && validateValue("temperature", temperature).valid
+  ) {
     normalized.temperature = temperature;
   }
 
@@ -251,7 +296,9 @@ function normalizeConfigInput(raw: Record<string, unknown> | null): Partial<Hlvm
     normalized.maxTokens = maxTokens;
   }
 
-  if (typeof raw.theme === "string" && validateValue("theme", raw.theme).valid) {
+  if (
+    typeof raw.theme === "string" && validateValue("theme", raw.theme).valid
+  ) {
     normalized.theme = raw.theme;
   }
 
@@ -294,7 +341,7 @@ function isDefaultLikeConfig(config: Partial<HlvmConfig> | null): boolean {
 
 function mergeConfigs(
   current: Partial<HlvmConfig> | null,
-  legacy: Partial<HlvmConfig> | null
+  legacy: Partial<HlvmConfig> | null,
 ): { config: HlvmConfig; usedLegacy: boolean } {
   const merged: HlvmConfig = { ...DEFAULT_CONFIG };
   const mergedByKey = merged as Record<ConfigKey, HlvmConfig[ConfigKey]>;
@@ -304,7 +351,8 @@ function mergeConfigs(
     const currentValue = current?.[key] as HlvmConfig[ConfigKey] | undefined;
     const legacyValue = legacy?.[key] as HlvmConfig[ConfigKey] | undefined;
     const defaultValue = DEFAULT_CONFIG[key] as HlvmConfig[ConfigKey];
-    const currentIsDefault = currentValue === undefined || currentValue === defaultValue;
+    const currentIsDefault = currentValue === undefined ||
+      currentValue === defaultValue;
 
     if (currentValue !== undefined && !currentIsDefault) {
       mergedByKey[key] = currentValue;
@@ -354,23 +402,32 @@ export async function loadConfig(): Promise<HlvmConfig> {
   const canUseLegacy = !currentResult.exists || !!currentResult.error;
 
   if (currentResult.error) {
-    log.warn("Warning: config.json is corrupted, using defaults or legacy config");
+    log.warn(
+      "Warning: config.json is corrupted, using defaults or legacy config",
+    );
   }
   if (legacyResult.error) {
     log.warn("Warning: legacy config.json is corrupted, ignoring");
   }
 
   const currentConfig = normalizeConfigInput(currentResult.data);
-  const legacyConfig = canUseLegacy ? normalizeConfigInput(legacyResult.data) : null;
+  const legacyConfig = canUseLegacy
+    ? normalizeConfigInput(legacyResult.data)
+    : null;
 
   const { config, usedLegacy } = mergeConfigs(currentConfig, legacyConfig);
 
-  const shouldPersistLegacy = usedLegacy && canUseLegacy && isDefaultLikeConfig(currentConfig);
+  const shouldPersistLegacy = usedLegacy && canUseLegacy &&
+    isDefaultLikeConfig(currentConfig);
   if (shouldPersistLegacy) {
     try {
       await saveConfig(config);
     } catch (error) {
-      log.warn(`Warning: failed to persist migrated config: ${(error as Error).message}`);
+      log.warn(
+        `Warning: failed to persist migrated config: ${
+          (error as Error).message
+        }`,
+      );
     }
   }
 

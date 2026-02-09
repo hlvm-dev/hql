@@ -14,8 +14,20 @@
  * - Atomic compaction (temp file + rename)
  */
 
-import { getHistoryPath, ensureHlvmDir, ensureHlvmDirSync } from "../../../common/paths.ts";
+import {
+  ensureHlvmDir,
+  ensureHlvmDirSync,
+  getHistoryPath,
+} from "../../../common/paths.ts";
 import { getLegacyHistoryPath } from "../../../common/legacy-migration.ts";
+import {
+  appendJsonLines,
+  atomicWriteTextFile,
+  parseJsonLines,
+  readJsonLines,
+  serializeJsonLines,
+} from "../../../common/jsonl.ts";
+import { isFileNotFoundError } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 
@@ -25,14 +37,14 @@ import { log } from "../../api/log.ts";
 
 /** Single history entry stored in JSONL file */
 export interface HistoryEntry {
-  ts: number;   // Unix timestamp in milliseconds
-  cmd: string;  // The command
+  ts: number; // Unix timestamp in milliseconds
+  cmd: string; // The command
 }
 
 /** Configuration for history storage */
 export interface HistoryStorageConfig {
-  maxEntries: number;      // Max entries to keep (default: 1000)
-  saveDebounceMs: number;  // Debounce time before save (default: 500)
+  maxEntries: number; // Max entries to keep (default: 1000)
+  saveDebounceMs: number; // Debounce time before save (default: 500)
 }
 
 // ============================================================================
@@ -46,42 +58,31 @@ const DEFAULT_CONFIG: HistoryStorageConfig = {
 
 let legacyMigrationChecked = false;
 
-function parseHistoryContent(content: string): HistoryEntry[] {
-  const trimmed = content.trim();
-  const lines = trimmed ? trimmed.split("\n").filter(Boolean) : [];
-  const entries: HistoryEntry[] = [];
-
-  for (const line of lines) {
-    try {
-      const entry = JSON.parse(line) as HistoryEntry;
-      if (entry.cmd && typeof entry.ts === "number") {
-        entries.push(entry);
-      }
-    } catch {
-      // Skip malformed lines
-    }
+function toHistoryEntry(value: unknown): HistoryEntry | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
   }
+  const entry = value as { cmd?: unknown; ts?: unknown };
+  if (typeof entry.cmd !== "string" || typeof entry.ts !== "number") {
+    return undefined;
+  }
+  return { cmd: entry.cmd, ts: entry.ts };
+}
 
-  return entries;
+function parseHistoryContent(content: string): HistoryEntry[] {
+  return parseJsonLines(content, toHistoryEntry);
 }
 
 async function readHistoryEntries(path: string): Promise<HistoryEntry[]> {
-  const platform = getPlatform();
-  try {
-    const content = await platform.fs.readTextFile(path);
-    return parseHistoryContent(content);
-  } catch (error) {
-    if (error instanceof Error && error.name === "NotFound") {
-      return [];
-    }
-    throw error;
-  }
+  return readJsonLines(path, toHistoryEntry);
 }
 
-async function writeHistoryEntries(path: string, entries: HistoryEntry[]): Promise<void> {
+async function writeHistoryEntries(
+  path: string,
+  entries: HistoryEntry[],
+): Promise<void> {
   await ensureHlvmDir();
-  const lines = entries.map((entry) => JSON.stringify(entry)).join("\n");
-  const content = lines ? `${lines}\n` : "";
+  const content = serializeJsonLines(entries);
   await getPlatform().fs.writeTextFile(path, content);
 }
 
@@ -103,8 +104,12 @@ async function ensureLegacyHistoryMerged(maxEntries: number): Promise<void> {
     return;
   }
 
-  const currentKeys = new Set(currentEntries.map((entry) => `${entry.ts}:${entry.cmd}`));
-  if (legacyEntries.every((entry) => currentKeys.has(`${entry.ts}:${entry.cmd}`))) {
+  const currentKeys = new Set(
+    currentEntries.map((entry) => `${entry.ts}:${entry.cmd}`),
+  );
+  if (
+    legacyEntries.every((entry) => currentKeys.has(`${entry.ts}:${entry.cmd}`))
+  ) {
     return;
   }
 
@@ -183,7 +188,7 @@ export class HistoryStorage {
       // Keep only max entries (most recent)
       this.entries = deduplicated.slice(-this.config.maxEntries);
     } catch (err) {
-      if (!(err instanceof Error && err.name === "NotFound")) {
+      if (!isFileNotFoundError(err)) {
         // Log error but continue with empty history
         log.error(`Failed to load history: ${err}`);
       }
@@ -268,8 +273,7 @@ export class HistoryStorage {
 
     try {
       await ensureHlvmDir();
-      const lines = toWrite.map((e) => JSON.stringify(e) + "\n").join("");
-      await getPlatform().fs.writeTextFile(path, lines, { append: true });
+      await appendJsonLines(path, toWrite);
       this.lineCount += toWrite.length;
       this.maybeScheduleCompaction();
     } catch (err) {
@@ -289,9 +293,7 @@ export class HistoryStorage {
     try {
       const path = getHistoryPath();
       ensureHlvmDirSync();
-      const lines = this.pendingWrites
-        .map((e) => JSON.stringify(e) + "\n")
-        .join("");
+      const lines = serializeJsonLines(this.pendingWrites);
       getPlatform().fs.writeTextFileSync(path, lines, { append: true });
       this.lineCount += this.pendingWrites.length;
       this.pendingWrites = [];
@@ -318,7 +320,7 @@ export class HistoryStorage {
     try {
       await getPlatform().fs.remove(getHistoryPath());
     } catch (err) {
-      if (!(err instanceof Error && err.name === "NotFound")) {
+      if (!isFileNotFoundError(err)) {
         throw err;
       }
     }
@@ -342,11 +344,7 @@ export class HistoryStorage {
       const toKeep = this.entries.slice(-this.config.maxEntries);
 
       // Atomic write: temp file + rename
-      const tempPath = `${path}.tmp.${Date.now()}`;
-      const content = toKeep.map((e) => JSON.stringify(e) + "\n").join("");
-
-      await platform.fs.writeTextFile(tempPath, content);
-      await platform.fs.rename(tempPath, path);
+      await atomicWriteTextFile(path, serializeJsonLines(toKeep));
 
       this.entries = toKeep;
       this.lineCount = toKeep.length;
@@ -369,7 +367,7 @@ let _instance: HistoryStorage | null = null;
  * Creates it on first call.
  */
 export function getHistoryStorage(
-  config?: Partial<HistoryStorageConfig>
+  config?: Partial<HistoryStorageConfig>,
 ): HistoryStorage {
   if (!_instance) {
     _instance = new HistoryStorage(config);

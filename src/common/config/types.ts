@@ -80,13 +80,13 @@ export interface ToolsConfig {
 
 export interface HlvmConfig {
   version: number;
-  model: string;           // "provider/model" format (e.g., "ollama/llama3.2")
-  endpoint: string;        // API endpoint URL
-  temperature: number;     // 0.0-2.0
-  maxTokens: number;       // Max response tokens
-  theme: string;           // UI theme
-  keybindings?: KeybindingsConfig;  // Custom keybindings (optional)
-  tools?: ToolsConfig;              // Tool-specific configuration (optional)
+  model: string; // "provider/model" format (e.g., "ollama/llama3.2")
+  endpoint: string; // API endpoint URL
+  temperature: number; // 0.0-2.0
+  maxTokens: number; // Max response tokens
+  theme: string; // UI theme
+  keybindings?: KeybindingsConfig; // Custom keybindings (optional)
+  tools?: ToolsConfig; // Tool-specific configuration (optional)
 }
 
 // ============================================================
@@ -135,12 +135,31 @@ export const DEFAULT_WEB_FETCH_CONFIG: WebFetchConfig = {
   },
 };
 
-export const DEFAULT_TOOLS_CONFIG: ToolsConfig = {
-  web: {
-    search: { ...DEFAULT_WEB_SEARCH_CONFIG },
-    fetch: { ...DEFAULT_WEB_FETCH_CONFIG },
-  },
-};
+export function createDefaultWebSearchConfig(): WebSearchConfig {
+  return {
+    ...DEFAULT_WEB_SEARCH_CONFIG,
+    brave: { ...DEFAULT_WEB_SEARCH_CONFIG.brave },
+    perplexity: { ...DEFAULT_WEB_SEARCH_CONFIG.perplexity },
+    openrouter: { ...DEFAULT_WEB_SEARCH_CONFIG.openrouter },
+    serpapi: { ...DEFAULT_WEB_SEARCH_CONFIG.serpapi },
+  };
+}
+
+export function createDefaultWebFetchConfig(): WebFetchConfig {
+  return {
+    ...DEFAULT_WEB_FETCH_CONFIG,
+    firecrawl: { ...DEFAULT_WEB_FETCH_CONFIG.firecrawl },
+  };
+}
+
+export function createDefaultToolsConfig(): ToolsConfig {
+  return {
+    web: {
+      search: createDefaultWebSearchConfig(),
+      fetch: createDefaultWebFetchConfig(),
+    },
+  };
+}
 
 export const DEFAULT_CONFIG: HlvmConfig = {
   version: 1,
@@ -149,27 +168,21 @@ export const DEFAULT_CONFIG: HlvmConfig = {
   temperature: 0.7,
   maxTokens: 4096,
   theme: "sicp",
-  tools: {
-    web: {
-      search: {
-        ...DEFAULT_WEB_SEARCH_CONFIG,
-        brave: { ...DEFAULT_WEB_SEARCH_CONFIG.brave },
-        perplexity: { ...DEFAULT_WEB_SEARCH_CONFIG.perplexity },
-        openrouter: { ...DEFAULT_WEB_SEARCH_CONFIG.openrouter },
-      },
-      fetch: {
-        ...DEFAULT_WEB_FETCH_CONFIG,
-        firecrawl: { ...DEFAULT_WEB_FETCH_CONFIG.firecrawl },
-      },
-    },
-  },
+  tools: createDefaultToolsConfig(),
 };
 
 // ============================================================
 // Config Keys
 // ============================================================
 
-export const CONFIG_KEYS = ["model", "endpoint", "temperature", "maxTokens", "theme", "tools"] as const;
+export const CONFIG_KEYS = [
+  "model",
+  "endpoint",
+  "temperature",
+  "maxTokens",
+  "theme",
+  "tools",
+] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
 // ============================================================
@@ -189,14 +202,21 @@ export interface ValidationResult {
 /**
  * Validate a config value for a given key
  */
-export function validateValue(key: ConfigKey, value: unknown): ValidationResult {
+export function validateValue(
+  key: ConfigKey,
+  value: unknown,
+): ValidationResult {
   switch (key) {
     case "model":
       if (typeof value !== "string") {
         return { valid: false, error: "model must be a string" };
       }
       if (!MODEL_FORMAT_REGEX.test(value)) {
-        return { valid: false, error: "model must be in 'provider/model' format (e.g., ollama/llama3.2)" };
+        return {
+          valid: false,
+          error:
+            "model must be in 'provider/model' format (e.g., ollama/llama3.2)",
+        };
       }
       return { valid: true };
 
@@ -205,7 +225,10 @@ export function validateValue(key: ConfigKey, value: unknown): ValidationResult 
         return { valid: false, error: "endpoint must be a string" };
       }
       if (!URL_REGEX.test(value)) {
-        return { valid: false, error: "endpoint must be a valid URL (http:// or https://)" };
+        return {
+          valid: false,
+          error: "endpoint must be a valid URL (http:// or https://)",
+        };
       }
       return { valid: true };
 
@@ -214,7 +237,10 @@ export function validateValue(key: ConfigKey, value: unknown): ValidationResult 
         return { valid: false, error: "temperature must be a number" };
       }
       if (value < 0 || value > 2) {
-        return { valid: false, error: "temperature must be between 0.0 and 2.0" };
+        return {
+          valid: false,
+          error: "temperature must be between 0.0 and 2.0",
+        };
       }
       return { valid: true };
 
@@ -236,7 +262,10 @@ export function validateValue(key: ConfigKey, value: unknown): ValidationResult 
         return { valid: false, error: "theme must be a string" };
       }
       if (!THEME_NAMES.includes(value as typeof THEME_NAMES[number])) {
-        return { valid: false, error: `theme must be one of: ${THEME_NAMES.join(", ")}` };
+        return {
+          valid: false,
+          error: `theme must be one of: ${THEME_NAMES.join(", ")}`,
+        };
       }
       return { valid: true };
     case "tools":

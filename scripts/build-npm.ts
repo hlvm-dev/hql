@@ -34,6 +34,8 @@ await build({
     repository: { type: "git", url: "https://github.com/nicetool/hql" },
     keywords: ["hql", "lisp", "transpiler", "agent", "ai", "sdk"],
   },
+  // ESM-only — Node 18+ supports ESM natively, no CommonJS needed
+  scriptModule: false,
   compilerOptions: {
     target: "ES2022",
     lib: ["ES2022"],

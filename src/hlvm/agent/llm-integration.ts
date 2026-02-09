@@ -20,7 +20,7 @@ import { RuntimeError } from "../../common/error.ts";
 import { collectStream } from "../../common/async-stream.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
 import { type LLMResponse, type ToolCall } from "./tool-call.ts";
-import { isToolArgsObject } from "./validation.ts";
+import { normalizeToolArgs } from "./validation.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type {
   ProviderMessage,
@@ -200,25 +200,15 @@ function buildToolDefinitions(
   return defs;
 }
 
-function parseProviderToolArgs(raw: unknown): Record<string, unknown> {
-  if (!raw) return {};
-  if (isToolArgsObject(raw)) return raw;
-  if (typeof raw !== "string") return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return isToolArgsObject(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function convertProviderToolCalls(calls: ProviderToolCall[] | undefined): ToolCall[] {
+function convertProviderToolCalls(
+  calls: ProviderToolCall[] | undefined,
+): ToolCall[] {
   if (!calls || calls.length === 0) return [];
   return calls
     .map((call): ToolCall | null => {
       const name = call.function?.name ?? "";
       if (!name) return null;
-      const args = parseProviderToolArgs(call.function?.arguments ?? "");
+      const args = normalizeToolArgs(call.function?.arguments ?? "");
       return { ...(call.id ? { id: call.id } : {}), toolName: name, args };
     })
     .filter((call): call is ToolCall => call !== null);
@@ -253,7 +243,9 @@ export interface SystemPromptOptions {
   toolDenylist?: string[];
 }
 
-export function generateSystemPrompt(options: SystemPromptOptions = {}): string {
+export function generateSystemPrompt(
+  options: SystemPromptOptions = {},
+): string {
   const tools = resolveTools({
     allowlist: options.toolAllowlist,
     denylist: options.toolDenylist,
@@ -267,8 +259,11 @@ export function generateSystemPrompt(options: SystemPromptOptions = {}): string 
   let delegationSection = "";
   if (hasDelegation) {
     const agents = listAgentProfiles();
-    const agentList = agents.map((agent) => `${agent.name}: ${agent.description}`).join("\n");
-    delegationSection = `\n# Delegation\nUse delegate_agent for subtasks requiring specialized expertise.\nAvailable agents: ${agentList}\n`;
+    const agentList = agents.map((agent) =>
+      `${agent.name}: ${agent.description}`
+    ).join("\n");
+    delegationSection =
+      `\n# Delegation\nUse delegate_agent for subtasks requiring specialized expertise.\nAvailable agents: ${agentList}\n`;
   }
 
   return `You are an AI coding agent. You have tools for file operations, code analysis, web research, and shell execution.
@@ -370,7 +365,13 @@ export function createAgentLLM(
     const api = ai as {
       chatStructured: (
         messages: ProviderMessage[],
-        options?: { model?: string; signal?: AbortSignal; tools?: ToolDefinition[]; temperature?: number; onToken?: (text: string) => void },
+        options?: {
+          model?: string;
+          signal?: AbortSignal;
+          tools?: ToolDefinition[];
+          temperature?: number;
+          onToken?: (text: string) => void;
+        },
       ) => Promise<{ content: string; toolCalls?: ProviderToolCall[] }>;
     };
 
@@ -420,9 +421,15 @@ export function createSummarizationFn(
       .map((m) => `${m.role}: ${m.content.slice(0, 500)}`)
       .join("\n");
 
-    const prompt = `Summarize this conversation in 2-3 sentences. Focus on: what was asked, what tools were used, what results were found. Be concise.\n\nConversation:\n${formatted}`;
+    const prompt =
+      `Summarize this conversation in 2-3 sentences. Focus on: what was asked, what tools were used, what results were found. Be concise.\n\nConversation:\n${formatted}`;
 
-    const chatFn = (ai as { chat: (messages: ProviderMessage[], options?: { model?: string; temperature?: number }) => AsyncGenerator<string, void, unknown> }).chat;
+    const chatFn = (ai as {
+      chat: (
+        messages: ProviderMessage[],
+        options?: { model?: string; temperature?: number },
+      ) => AsyncGenerator<string, void, unknown>;
+    }).chat;
     const stream = chatFn(
       [{ role: "user", content: prompt }],
       { model, temperature: 0.0 },

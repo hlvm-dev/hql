@@ -115,6 +115,7 @@ const RULES: Rule[] = [
       "src/common/utils.ts",
       // Platform layer - cannot import error.ts due to circular dependency
       "src/platform/deno-platform.ts",
+      "src/platform/node-platform.ts",
     ],
     excludePatterns: [
       /\/\/.*throw\s+new\s+Error/, // Comments
