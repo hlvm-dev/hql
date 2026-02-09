@@ -880,13 +880,10 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
     let errorMessage = "Unclosed list";
 
     if (state.input) {
-      // Get a more accurate column position
-      // First, determine the line where the unclosed list starts
-      const lines = state.input.split("\n");
       const lineNumber = listStartPos.line;
 
-      // Get the line of text where the error occurred
-      const errorLine = lines[lineNumber - 1] || "";
+      // Extract just the target line without splitting entire input
+      const errorLine = getLineContext(state.input, lineNumber);
 
       // For better error reporting, identify the full expression that is unclosed
       // Point to the end of the line where the closing parenthesis should be
@@ -1345,10 +1342,17 @@ function parseSet(state: ParserState, startPos: SourcePosition): SList {
  * Get line context for better error messages
  */
 function getLineContext(input: string, lineNumber: number): string {
-  if (!input) return "";
+  if (!input || lineNumber <= 0) return "";
 
-  const lines = input.split("\n");
-  if (lineNumber <= 0 || lineNumber > lines.length) return "";
+  // O(1) line extraction: scan for the Nth newline instead of splitting all lines
+  let lineStart = 0;
+  for (let i = 1; i < lineNumber; i++) {
+    const idx = input.indexOf("\n", lineStart);
+    if (idx === -1) return "";
+    lineStart = idx + 1;
+  }
+  let lineEnd = input.indexOf("\n", lineStart);
+  if (lineEnd === -1) lineEnd = input.length;
 
-  return lines[lineNumber - 1].trim();
+  return input.slice(lineStart, lineEnd).trim();
 }

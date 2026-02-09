@@ -294,11 +294,17 @@ export function enforcePathPolicy(
   }
 }
 
+/** Cache resolved roots — policy and workspace are stable within a session */
+let _rootsCache: { policy: AgentPolicy; workspace: string; roots: string[] } | null = null;
+
 export function resolvePolicyPathRoots(
   policy: AgentPolicy | null | undefined,
   workspace: string,
 ): string[] {
   if (!policy?.pathRules?.roots) return [];
+  if (_rootsCache && _rootsCache.policy === policy && _rootsCache.workspace === workspace) {
+    return _rootsCache.roots;
+  }
   const platform = getPlatform();
   const home = platform.env.get("HOME") || "";
   const expandHome = (path: string): string => {
@@ -306,9 +312,11 @@ export function resolvePolicyPathRoots(
     if (!home) return path;
     return path.replace(/^~(?=$|\/)/, home);
   };
-  return policy.pathRules.roots.map((root) =>
+  const roots = policy.pathRules.roots.map((root) =>
     platform.path.resolve(workspace, expandHome(root))
   );
+  _rootsCache = { policy, workspace, roots };
+  return roots;
 }
 
 /**
@@ -349,22 +357,33 @@ export function getNetworkPolicyDeniedUrl(
   return null;
 }
 
+/** Cache compiled glob regexes — patterns come from a static policy file and never change */
+const _globRegexCache = new Map<string, RegExp | null>();
+
+function getCompiledGlob(pattern: string, options: { matchPath: boolean }): RegExp | null {
+  const key = `${pattern}\0${options.matchPath ? "p" : "s"}`;
+  if (_globRegexCache.has(key)) return _globRegexCache.get(key)!;
+  try {
+    const regex = globToRegex(pattern, options);
+    _globRegexCache.set(key, regex);
+    return regex;
+  } catch (error) {
+    if (error instanceof GlobPatternError) {
+      _globRegexCache.set(key, null);
+      return null;
+    }
+    throw error;
+  }
+}
+
 function matchesAny(
   patterns: string[],
   input: string,
   options: { matchPath: boolean }
 ): boolean {
   for (const pattern of patterns) {
-    try {
-      const regex = globToRegex(pattern, options);
-      if (regex.test(input)) return true;
-    } catch (error) {
-      if (error instanceof GlobPatternError) {
-        // Ignore invalid patterns to avoid breaking policy evaluation
-        continue;
-      }
-      throw error;
-    }
+    const regex = getCompiledGlob(pattern, options);
+    if (regex && regex.test(input)) return true;
   }
   return false;
 }

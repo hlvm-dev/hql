@@ -63,11 +63,9 @@ export class LRUCache<K, V> {
       if (!oldest.done) {
         const oldestKey = oldest.value;
         // Call onEvict callback before deletion for resource cleanup
-        if (this.onEvict) {
-          const oldestValue = this.cache.get(oldestKey);
-          if (oldestValue !== undefined) {
-            this.onEvict(oldestKey, oldestValue);
-          }
+        // Use has() instead of get() !== undefined to handle entries with undefined values
+        if (this.onEvict && this.cache.has(oldestKey)) {
+          this.onEvict(oldestKey, this.cache.get(oldestKey) as V);
         }
         this.cache.delete(oldestKey);
       }
@@ -90,12 +88,8 @@ export class LRUCache<K, V> {
    * @param skipOnEvict If true, don't call onEvict callback (used internally when value is being replaced)
    */
   delete(key: K, skipOnEvict = false): boolean {
-    if (this.onEvict && !skipOnEvict) {
-      // Single lookup: get the value directly
-      const value = this.cache.get(key);
-      if (value !== undefined) {
-        this.onEvict(key, value);
-      }
+    if (this.onEvict && !skipOnEvict && this.cache.has(key)) {
+      this.onEvict(key, this.cache.get(key) as V);
     }
     return this.cache.delete(key);
   }

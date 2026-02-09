@@ -103,7 +103,8 @@ export function parseShellCommand(command: string): ParsedCommand {
   let hasPipes = false;
   let hasChaining = false;
   let position = 0;
-  let prevChar = "";
+  let pendingPipe = false;
+  let pendingAmp = false;
 
   // Trim leading/trailing whitespace
   const trimmed = command.trim();
@@ -175,27 +176,41 @@ export function parseShellCommand(command: string): ParsedCommand {
       continue;
     }
 
-    // Outside quotes - detect special operators
-    if (char === "|") {
-      if (prevChar === "|") {
-        // This is the second | in ||, mark as chaining
+    // Outside quotes - detect special operators using pending-state pattern.
+    // A single | or & could be the start of || or && respectively, so we defer
+    // the decision until we see the next character.
+
+    // Resolve any pending operator that the current char may continue
+    let consumed = false;
+    if (pendingPipe) {
+      if (char === "|") {
+        // || is a chaining operator, not a pipe
         hasChaining = true;
-        // Unmark hasPipes since it was actually ||
-        hasPipes = false;
+        consumed = true;
       } else {
-        // First | - might be single pipe or start of ||
-        // Mark as pipe for now, will be corrected if next char is also |
+        // Previous | was a standalone pipe
         hasPipes = true;
       }
+      pendingPipe = false;
+    }
+    if (pendingAmp) {
+      if (char === "&") {
+        hasChaining = true;
+        consumed = true;
+      }
+      // Single & at end: not a recognized multi-char operator
+      pendingAmp = false;
     }
 
-    if (char === ";") {
-      hasChaining = true;
-    }
-
-    // Check for &&
-    if (char === "&" && prevChar === "&") {
-      hasChaining = true;
+    // Start new pending operators (only if char wasn't consumed as part of a multi-char op)
+    if (!consumed) {
+      if (char === "|") {
+        pendingPipe = true;
+      } else if (char === "&") {
+        pendingAmp = true;
+      } else if (char === ";") {
+        hasChaining = true;
+      }
     }
 
     // Whitespace delimiter outside quotes
@@ -209,10 +224,13 @@ export function parseShellCommand(command: string): ParsedCommand {
 
     // Regular character
     current += char;
-
-    // Track previous character for operator detection
-    prevChar = char;
   }
+
+  // Resolve any pending operators at end of input
+  if (pendingPipe) {
+    hasPipes = true;
+  }
+  // pendingAmp at end: single trailing & is not &&, so we don't set hasChaining
 
   // Check for unclosed quotes
   if (inQuote) {

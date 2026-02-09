@@ -104,6 +104,7 @@ export async function* readSSEStream<T>(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let searchFrom = 0;
 
   try {
     while (true) {
@@ -111,22 +112,25 @@ export async function* readSSEStream<T>(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      let lineEnd = buffer.indexOf("\n");
+      let lineEnd = buffer.indexOf("\n", searchFrom);
       while (lineEnd !== -1) {
-        const line = buffer.slice(0, lineEnd).trim();
-        buffer = buffer.slice(lineEnd + 1);
+        const line = buffer.slice(searchFrom, lineEnd).trim();
+        searchFrom = lineEnd + 1;
 
         if (line.startsWith("data: ")) {
           const data = line.slice(6);
-          if (data === "[DONE]") {
-            lineEnd = buffer.indexOf("\n");
-            continue;
+          if (data !== "[DONE]") {
+            try {
+              yield JSON.parse(data) as T;
+            } catch { /* skip malformed chunks */ }
           }
-          try {
-            yield JSON.parse(data) as T;
-          } catch { /* skip malformed chunks */ }
         }
-        lineEnd = buffer.indexOf("\n");
+        lineEnd = buffer.indexOf("\n", searchFrom);
+      }
+      // Discard processed portion to bound memory
+      if (searchFrom > 0) {
+        buffer = buffer.slice(searchFrom);
+        searchFrom = 0;
       }
     }
   } finally {

@@ -195,8 +195,8 @@ let _cachedAllowSet: { key: string; set: Set<string> } | null = null;
 let _cachedDenySet: { key: string; set: Set<string> } | null = null;
 
 function listCacheKey(list: string[]): string {
-  // JSON string avoids collisions from simple delimiter-join keys.
-  return JSON.stringify(list);
+  // Null-byte separator is collision-free since tool names never contain \0
+  return list.join("\0");
 }
 
 function getOrCreateSet(

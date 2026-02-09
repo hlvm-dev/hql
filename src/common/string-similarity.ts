@@ -23,13 +23,22 @@ function damerauLevenshteinDistance(a: string, b: string): number {
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
 
+  // Ensure a is the shorter string to minimize inner loop iterations
+  if (a.length > b.length) {
+    const tmp = a;
+    a = b;
+    b = tmp;
+  }
+
   const m = a.length;
   const n = b.length;
 
   // Create matrix with extra row and column for boundary conditions
-  const d: number[][] = Array(m + 2)
-    .fill(null)
-    .map(() => Array(n + 2).fill(0));
+  // Use Array.from to avoid wasteful .fill(null).map() pattern
+  const d: number[][] = Array.from(
+    { length: m + 2 },
+    () => new Array<number>(n + 2).fill(0),
+  );
 
   const maxDist = m + n;
   d[0][0] = maxDist;

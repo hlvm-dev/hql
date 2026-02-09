@@ -14,8 +14,7 @@
  * - SSOT-compliant implementation
  */
 
-import { DEFAULT_CONTEXT_CONFIG, COMPACTION_THRESHOLD } from "./constants.ts";
-import { estimateTokensFromMessages } from "../../common/token-utils.ts";
+import { DEFAULT_CONTEXT_CONFIG } from "./constants.ts";
 import { truncate } from "../../common/utils.ts";
 import type { MessageRole } from "../providers/types.ts";
 
@@ -120,6 +119,8 @@ export class ContextManager {
   private pendingCompaction = false;
   /** Running tallies for O(1) getStats() */
   private roleCounts = { system: 0, user: 0, assistant: 0, tool: 0 };
+  /** Cached total character count for O(1) estimateTokens() */
+  private totalChars = 0;
 
   constructor(config?: Partial<ContextConfig>) {
     this.config = {
@@ -143,10 +144,9 @@ export class ContextManager {
     };
 
     if (this.config.overflowStrategy === "fail") {
-      const projectedTokens = estimateTokensFromMessages([
-        ...this.messages,
-        messageWithTimestamp,
-      ]);
+      const projectedTokens = Math.ceil(
+        (this.totalChars + messageWithTimestamp.content.length) / 4,
+      );
       if (projectedTokens > this.config.maxTokens) {
         throw new ContextOverflowError(
           this.config.maxTokens,
@@ -156,6 +156,7 @@ export class ContextManager {
     }
 
     this.messages.push(messageWithTimestamp);
+    this.totalChars += messageWithTimestamp.content.length;
     this.incrementRoleCount(messageWithTimestamp.role);
 
     // Proactive compaction at threshold (before overflow)
@@ -255,6 +256,7 @@ export class ContextManager {
   clear(): void {
     this.messages = [];
     this.roleCounts = { system: 0, user: 0, assistant: 0, tool: 0 };
+    this.totalChars = 0;
   }
 
   /**
@@ -283,15 +285,12 @@ export class ContextManager {
   }
 
   /**
-   * Estimate token count
-   *
-   * Simple estimation: characters / 4
-   * (GPT tokens are roughly 4 chars on average)
+   * Estimate token count — O(1) using cached character total
    *
    * @returns Estimated token count
    */
   estimateTokens(): number {
-    return estimateTokensFromMessages(this.messages);
+    return Math.ceil(this.totalChars / 4);
   }
 
   /**
@@ -346,16 +345,23 @@ export class ContextManager {
     }
 
     // O(n) trim: compute total tokens, subtract from front until under budget
-    const systemTokens = this.config.preserveSystem
-      ? estimateTokensFromMessages(systemMessages)
-      : 0;
-    let nonSystemTokens = estimateTokensFromMessages(nonSystemMessages);
+    let systemChars = 0;
+    if (this.config.preserveSystem) {
+      for (const m of systemMessages) {
+        systemChars += m.content.length;
+      }
+    }
+    const systemTokens = Math.ceil(systemChars / 4);
+    let nonSystemChars = 0;
+    for (const m of nonSystemMessages) {
+      nonSystemChars += m.content.length;
+    }
+    let nonSystemTokens = Math.ceil(nonSystemChars / 4);
     const maxTrim = nonSystemMessages.length - this.config.minMessages;
     let startIdx = 0;
 
     while (startIdx < maxTrim && (systemTokens + nonSystemTokens) > this.config.maxTokens) {
-      // Subtract tokens for the message being removed (chars/4 + overhead)
-      nonSystemTokens -= Math.ceil(nonSystemMessages[startIdx].content.length / 4) + 4;
+      nonSystemTokens -= Math.ceil(nonSystemMessages[startIdx].content.length / 4);
       startIdx++;
     }
 
@@ -436,12 +442,14 @@ export class ContextManager {
     return { system, nonSystem };
   }
 
-  /** Replace messages and recompute role counts */
+  /** Replace messages and recompute role counts + cached char total */
   private setMessages(newMessages: Message[]): void {
     this.messages = newMessages;
     this.roleCounts = { system: 0, user: 0, assistant: 0, tool: 0 };
+    this.totalChars = 0;
     for (const m of newMessages) {
       this.incrementRoleCount(m.role);
+      this.totalChars += m.content.length;
     }
   }
 

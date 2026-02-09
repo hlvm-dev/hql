@@ -327,7 +327,7 @@ export function highlight(input: string, bracketPositions: number | number[] | n
   if (input.length === 0) return "";
 
   const tokens = tokenizeCached(input);
-  let result = "";
+  const parts: string[] = [];
 
   // Normalize to Set for O(1) lookup (skip allocation when no highlights)
   const highlightSet: ReadonlySet<number> | null = bracketPositions === null
@@ -381,7 +381,7 @@ export function highlight(input: string, bracketPositions: number | number[] | n
 
     if (matchPositions.length > 0) {
       // Render token with highlighted brackets
-      let tokenResult = "";
+      const tokenParts: string[] = [];
       let lastEnd = 0;
 
       for (const relPos of matchPositions) {
@@ -390,32 +390,32 @@ export function highlight(input: string, bracketPositions: number | number[] | n
         const matchChar = token.value[relPos];
 
         if (color) {
-          tokenResult += color + beforeMatch + RESET;
+          tokenParts.push(color, beforeMatch, RESET);
         } else {
-          tokenResult += beforeMatch;
+          tokenParts.push(beforeMatch);
         }
         // Highlight the bracket with bold cyan + underline for visibility
-        tokenResult += BOLD + CYAN + matchChar + RESET;
+        tokenParts.push(BOLD, CYAN, matchChar, RESET);
         lastEnd = relPos + 1;
       }
 
       // Remaining text after last match
       const afterMatch = token.value.slice(lastEnd);
       if (color) {
-        tokenResult += color + afterMatch + RESET;
+        tokenParts.push(color, afterMatch, RESET);
       } else {
-        tokenResult += afterMatch;
+        tokenParts.push(afterMatch);
       }
 
-      result += tokenResult;
+      parts.push(tokenParts.join(""));
     } else if (color) {
-      result += color + token.value + RESET;
+      parts.push(color, token.value, RESET);
     } else {
-      result += token.value;
+      parts.push(token.value);
     }
   }
 
-  return result;
+  return parts.join("");
 }
 
 // ============================================================
@@ -439,6 +439,10 @@ export const OPEN_DELIMITERS = "([{";
 
 /** All closing delimiters as string for quick checks */
 export const CLOSE_DELIMITERS = ")]}";
+
+/** O(1) lookup sets for delimiter classification in hot paths */
+const OPEN_DELIMITER_SET: ReadonlySet<string> = new Set(["(", "[", "{"]);
+const CLOSE_DELIMITER_SET: ReadonlySet<string> = new Set([")", "]", "}"]);
 
 // ============================================================
 // Delimiter Pair Operations (Encapsulated Helpers)
@@ -616,8 +620,8 @@ function findSexpStart(input: string, cursorPos: number): number {
     input,
     cursorPos - 1,
     "backward",
-    c => CLOSE_DELIMITERS.includes(c),
-    c => OPEN_DELIMITERS.includes(c),
+    c => CLOSE_DELIMITER_SET.has(c),
+    c => OPEN_DELIMITER_SET.has(c),
   );
   return result ?? 0;
 }

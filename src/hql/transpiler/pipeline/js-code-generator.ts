@@ -188,10 +188,13 @@ export async function generateJavaScript(
 
     // Log type errors if any (only when failOnTypeErrors is set or verbose logging)
     if (hqlTypeErrors.length > 0) {
-      const errorCount = hqlTypeErrors.filter((e) => e.severity === "error")
-        .length;
-      const warnCount = hqlTypeErrors.filter((e) => e.severity === "warning")
-        .length;
+      // Single-pass count instead of two .filter() passes
+      let errorCount = 0;
+      let warnCount = 0;
+      for (const e of hqlTypeErrors) {
+        if (e.severity === "error") errorCount++;
+        else if (e.severity === "warning") warnCount++;
+      }
 
       // Only log to debug level by default - avoid noisy console output
       logger.debug(
@@ -247,13 +250,15 @@ export async function generateJavaScript(
   if (!code.startsWith("'use strict'") && !code.startsWith('"use strict"')) {
     code = `'use strict';\n${code}`;
 
-    // Adjust source map for prepended line
+    // Adjust source map for prepended line — use string manipulation
+    // instead of full JSON parse/stringify cycle
     if (sourceMap) {
-      const mapObj = JSON.parse(sourceMap);
-      if (mapObj.mappings) {
-        mapObj.mappings = `;${mapObj.mappings}`;
+      const mappingsKey = '"mappings":"';
+      const idx = sourceMap.indexOf(mappingsKey);
+      if (idx !== -1) {
+        const insertAt = idx + mappingsKey.length;
+        sourceMap = sourceMap.slice(0, insertAt) + ";" + sourceMap.slice(insertAt);
       }
-      sourceMap = JSON.stringify(mapObj);
     }
   }
 

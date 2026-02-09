@@ -79,28 +79,25 @@ export function refreshKeybindingLookup(): void {
   disabledDefaults.clear();
   defaultMap.clear();
 
-  // Build default map from definitions (for tracking what to disable)
-  for (const kb of registry.getAll()) {
-    if (kb.action.type === "HANDLER") {
-      const defaultCombo = displayToCombo(kb.display);
-      if (defaultCombo) {
-        defaultMap.set(defaultCombo, kb.action.id);
-      }
-    }
-  }
-
   // Build custom map and disabled defaults from config (via global cache)
   const customBindings = config.keybindings.snapshot ?? {};
-  
+
+  // Single pass over all keybindings (builds both defaultMap and customMap)
   for (const kb of registry.getAll()) {
+    if (kb.action.type !== "HANDLER") continue;
+
+    const defaultCombo = displayToCombo(kb.display);
+    if (defaultCombo) {
+      defaultMap.set(defaultCombo, kb.action.id);
+    }
+
     const customCombo = customBindings[kb.id];
-    if (customCombo && kb.action.type === "HANDLER") {
+    if (customCombo) {
       // Add to custom map
       const normalized = normalizeStoredCombo(customCombo);
       customMap.set(normalized, kb.action.id);
 
       // Mark old default as disabled (user rebound it)
-      const defaultCombo = displayToCombo(kb.display);
       if (defaultCombo && defaultCombo !== normalized) {
         disabledDefaults.set(defaultCombo, true);
       }

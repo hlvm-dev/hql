@@ -1129,13 +1129,12 @@ export class Environment {
   getAllImportedModules(): Map<string, string> {
     const result = new Map<string, string>();
 
-    // Collect module names and their sources
-    Array.from(this.moduleExports.entries()).forEach(([path]) => {
-      // Extract module name from path
+    // Direct iteration avoids intermediate Array.from() allocation
+    for (const path of this.moduleExports.keys()) {
       const moduleName = path.split("/").pop()?.replace(/\.[^/.]+$/, "") ||
         path;
       result.set(moduleName, path);
-    });
+    }
 
     return result;
   }

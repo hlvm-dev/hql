@@ -81,9 +81,9 @@ function responseIncorporatesToolData(
   const nonEmptyTools = toolUses.filter((t) => t.result && t.result.length > 0);
   if (nonEmptyTools.length === 0) return false;
 
-  // Single-pass: collect all specific numbers and significant tokens across all tool results
-  const allNumbers: string[] = [];
-  const allTokens: string[] = [];
+  // Single-pass: collect unique numbers and significant tokens across all tool results
+  const numberSet = new Set<string>();
+  const tokenSet = new Set<string>();
 
   for (const tool of nonEmptyTools) {
     const result = tool.result;
@@ -94,7 +94,7 @@ function responseIncorporatesToolData(
       for (const n of numbers) {
         const num = parseFloat(n);
         if (num > 1 || n.includes(".")) {
-          allNumbers.push(n);
+          numberSet.add(n);
         }
       }
     }
@@ -103,21 +103,22 @@ function responseIncorporatesToolData(
     const tokens = result.match(/[a-zA-Z_][\w.-]{3,}/g);
     if (tokens) {
       for (const t of tokens) {
-        if (!COMMON_WORDS.has(t.toLowerCase())) {
-          allTokens.push(t.toLowerCase());
+        const lower = t.toLowerCase();
+        if (!COMMON_WORDS.has(lower)) {
+          tokenSet.add(lower);
         }
       }
     }
   }
 
   // Check numbers first (cheaper — typically fewer)
-  if (allNumbers.some((n) => responseLower.includes(n))) {
-    return true;
+  for (const n of numberSet) {
+    if (responseLower.includes(n)) return true;
   }
 
   // Check significant tokens — require at least 2 matches
   let matches = 0;
-  for (const token of allTokens) {
+  for (const token of tokenSet) {
     if (responseLower.includes(token)) {
       matches++;
       if (matches >= 2) return true;

@@ -179,6 +179,7 @@ async function* streamRequest<T>(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let searchFrom = 0;
 
   try {
     while (true) {
@@ -186,15 +187,20 @@ async function* streamRequest<T>(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      let lineEndIndex = buffer.indexOf("\n");
+      let lineEndIndex = buffer.indexOf("\n", searchFrom);
       while (lineEndIndex !== -1) {
-        const line = buffer.slice(0, lineEndIndex);
-        buffer = buffer.slice(lineEndIndex + 1);
+        const line = buffer.slice(searchFrom, lineEndIndex);
+        searchFrom = lineEndIndex + 1;
         const parsed = parseJsonLine<T>(line);
         if (parsed !== undefined) {
           yield parsed;
         }
-        lineEndIndex = buffer.indexOf("\n");
+        lineEndIndex = buffer.indexOf("\n", searchFrom);
+      }
+      // Discard processed portion to bound memory
+      if (searchFrom > 0) {
+        buffer = buffer.slice(searchFrom);
+        searchFrom = 0;
       }
     }
 

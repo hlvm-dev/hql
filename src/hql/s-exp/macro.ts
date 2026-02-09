@@ -1489,43 +1489,46 @@ function visualizeMacroExpansion(
 /* Format an S-expression string for readability */
 function formatExpression(expr: string): string {
   let indentLevel = 0;
-  let result = "";
+  const chunks: string[] = [];
   let inString = false;
 
   for (let i = 0; i < expr.length; i++) {
     const char = expr[i];
     if (char === '"' && (i === 0 || expr[i - 1] !== "\\")) {
       inString = !inString;
-      result += char;
+      chunks.push(char);
       continue;
     }
     if (inString) {
-      result += char;
+      chunks.push(char);
       continue;
     }
     switch (char) {
       case "(":
-        result += char;
+        chunks.push(char);
         indentLevel++;
         if (i + 1 < expr.length && expr[i + 1] !== ")") {
-          result += "\n" + " ".repeat(indentLevel * 2);
+          chunks.push("\n" + " ".repeat(indentLevel * 2));
         }
         break;
       case ")":
         indentLevel--;
-        result = result.endsWith(" ") ? result.trimEnd() : result;
-        result += char;
+        // Trim trailing spaces from last chunk
+        if (chunks.length > 0 && chunks[chunks.length - 1].endsWith(" ")) {
+          chunks[chunks.length - 1] = chunks[chunks.length - 1].trimEnd();
+        }
+        chunks.push(char);
         break;
       case " ":
         if (i > 0 && expr[i - 1] !== "(" && expr[i - 1] !== " ") {
-          result += "\n" + " ".repeat(indentLevel * 2);
+          chunks.push("\n" + " ".repeat(indentLevel * 2));
         }
         break;
       default:
-        result += char;
+        chunks.push(char);
     }
   }
-  return result;
+  return chunks.join("");
 }
 /* Create a macro function */
 function createMacroFunction(
