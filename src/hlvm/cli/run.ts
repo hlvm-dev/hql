@@ -5,7 +5,7 @@ import { transpileCLI } from "../../hql/bundler.ts"; // Import bundler for hybri
 import { globalLogger as logger, Logger } from "../../logger.ts";
 import { log } from "../api/log.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
-import { createTempDir, getCachedPath } from "../../common/hlvm-cache-tracker.ts";
+import { getCachedPath } from "../../common/hlvm-cache-tracker.ts";
 import {
   applyCliOptions,
   type CliOptions,
@@ -14,7 +14,10 @@ import {
 } from "./utils/cli-options.ts";
 import { getPositionalArgs } from "./utils/common-helpers.ts";
 import { getPlatform } from "../../platform/platform.ts";
-import { exists as platformExists, platformGetArgs } from "./utils/platform-helpers.ts";
+import {
+  exists as platformExists,
+  platformGetArgs,
+} from "./utils/platform-helpers.ts";
 
 // Import the enhanced error handling system
 import {
@@ -30,11 +33,13 @@ import { hasHelpFlag } from "./utils/common-helpers.ts";
 
 // Constants
 const FILE_EXTENSIONS = [".hql", ".js", ".ts"] as const;
-const PRINT_COMMAND_PREFIXES = new Set([
-  "(print ",
-  "(print(",
-  "(console.log",
-] as const);
+const PRINT_COMMAND_PREFIXES = new Set(
+  [
+    "(print ",
+    "(print(",
+    "(console.log",
+  ] as const,
+);
 
 /**
  * Print CLI usage information
@@ -75,7 +80,7 @@ function isExpression(input: string): boolean {
   }
 
   // Known file extensions are files
-  if (FILE_EXTENSIONS.some(ext => input.endsWith(ext))) {
+  if (FILE_EXTENSIONS.some((ext) => input.endsWith(ext))) {
     return false;
   }
 
@@ -128,7 +133,8 @@ function isSingleExpression(expression: string): boolean {
   const afterFirst = expression.slice(firstExprEnd + 1).trim();
 
   // Nothing meaningful after first expression
-  return afterFirst === "" || afterFirst.startsWith("//") || afterFirst.startsWith("/*");
+  return afterFirst === "" || afterFirst.startsWith("//") ||
+    afterFirst.startsWith("/*");
 }
 
 /**
@@ -195,17 +201,20 @@ async function executeHql(
         ext.endsWith(".mjs") || ext.endsWith(".cjs");
 
       if (isJsOrTs) {
-        logger.debug(`Detected JS/TS entry point: ${input} -> switching to bundler`);
+        logger.debug(
+          `Detected JS/TS entry point: ${input} -> switching to bundler`,
+        );
         // Bundle the entry file (handling any HQL imports recursively)
         const cacheOutPath = await getCachedPath(input, ".bundle.js", {
           createDir: true,
           preserveRelative: true,
         });
+        const forceRebundle = options.forceCache === true;
 
         const outPath = await transpileCLI(input, cacheOutPath, {
           verbose: options.verbose,
           showTiming: options.showTiming,
-          force: true, // Force re-bundle to ensure latest changes
+          force: forceRebundle,
         });
 
         // Execute the bundled result
@@ -241,8 +250,6 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
 
   // Run the main function with enhanced error handling
   return await runWithErrorHandling(async () => {
-    await initializeRuntime();
-
     if (hasHelpFlag(args)) {
       printHelp();
       return 0;
@@ -270,14 +277,9 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
       log.raw.log("Debug mode enabled - showing extended error information");
     }
 
+    await initializeRuntime();
+
     logger.startTiming("run", "Total Processing");
-
-    const runDir = await createTempDir("run");
-
-    logger.log({
-      text: `Created temporary directory: ${runDir}`,
-      namespace: "cli",
-    });
 
     const input = positional[0];
 

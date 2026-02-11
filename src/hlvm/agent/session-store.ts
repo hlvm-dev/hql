@@ -10,7 +10,11 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 import { getSessionsDir } from "../../common/paths.ts";
-import { appendJsonLines, atomicWriteTextFile, readJsonLines } from "../../common/jsonl.ts";
+import {
+  appendJsonLines,
+  atomicWriteTextFile,
+  readJsonLinesTail,
+} from "../../common/jsonl.ts";
 import { ValidationError } from "../../common/error.ts";
 import {
   getErrorMessage,
@@ -207,7 +211,10 @@ export async function loadSessionMessages(
 ): Promise<Message[]> {
   const path = getTranscriptPath(entry);
   try {
-    const records = await readJsonLines<Record<string, unknown>>(path);
+    const records = await readJsonLinesTail<Record<string, unknown>>(
+      path,
+      MAX_TRANSCRIPT_ENTRIES,
+    );
     let messages: Message[] = [];
 
     for (const parsed of records) {
@@ -241,13 +248,11 @@ export async function loadSessionMessages(
           msg.toolCalls = parsed.toolCalls as Message["toolCalls"];
         }
         if (typeof parsed.toolName === "string") msg.toolName = parsed.toolName;
-        if (typeof parsed.toolCallId === "string") msg.toolCallId = parsed.toolCallId;
+        if (typeof parsed.toolCallId === "string") {
+          msg.toolCallId = parsed.toolCallId;
+        }
         messages.push(msg);
       }
-    }
-    // Cap transcript to last N entries to prevent unbounded growth
-    if (messages.length > MAX_TRANSCRIPT_ENTRIES) {
-      messages = messages.slice(-MAX_TRANSCRIPT_ENTRIES);
     }
     return messages;
   } catch (error) {

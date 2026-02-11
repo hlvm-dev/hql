@@ -4,7 +4,11 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 import { ensureHlvmDir, getWebCachePath } from "../../common/paths.ts";
-import { getErrorMessage, isFileNotFoundError, isObjectValue } from "../../common/utils.ts";
+import {
+  getErrorMessage,
+  isFileNotFoundError,
+  isObjectValue,
+} from "../../common/utils.ts";
 import { ValidationError } from "../../common/error.ts";
 
 interface WebCacheEntry {
@@ -17,15 +21,20 @@ interface WebCacheFile {
   entries: Record<string, WebCacheEntry>;
 }
 
-const DEFAULT_CACHE: WebCacheFile = { version: 1, entries: {} };
+function createDefaultCache(): WebCacheFile {
+  return { version: 1, entries: {} };
+}
 
-async function readCache(): Promise<WebCacheFile> {
+let memoryCache: WebCacheFile | null = null;
+let inFlightLoad: Promise<WebCacheFile> | null = null;
+
+async function readCacheFromDisk(): Promise<WebCacheFile> {
   const platform = getPlatform();
   const path = getWebCachePath();
   try {
     const raw = await platform.fs.readTextFile(path);
     const parsed = JSON.parse(raw) as unknown;
-    if (!isObjectValue(parsed)) return { ...DEFAULT_CACHE };
+    if (!isObjectValue(parsed)) return createDefaultCache();
     const entries = isObjectValue(parsed.entries) ? parsed.entries : {};
     return {
       version: typeof parsed.version === "number" ? parsed.version : 1,
@@ -33,7 +42,7 @@ async function readCache(): Promise<WebCacheFile> {
     };
   } catch (error) {
     if (isFileNotFoundError(error)) {
-      return { ...DEFAULT_CACHE };
+      return createDefaultCache();
     }
     throw new ValidationError(
       `Failed to read web cache: ${getErrorMessage(error)}`,
@@ -42,18 +51,34 @@ async function readCache(): Promise<WebCacheFile> {
   }
 }
 
+async function loadCache(): Promise<WebCacheFile> {
+  if (memoryCache) return memoryCache;
+  if (inFlightLoad) return await inFlightLoad;
+
+  inFlightLoad = readCacheFromDisk();
+  try {
+    memoryCache = await inFlightLoad;
+    return memoryCache;
+  } finally {
+    inFlightLoad = null;
+  }
+}
+
 async function writeCache(cache: WebCacheFile): Promise<void> {
   await ensureHlvmDir();
   const platform = getPlatform();
   const path = getWebCachePath();
-  await platform.fs.writeTextFile(path, JSON.stringify(cache, null, 2));
+  await platform.fs.writeTextFile(path, JSON.stringify(cache));
+  memoryCache = cache;
 }
 
 function pruneExpired(cache: WebCacheFile): boolean {
   const now = Date.now();
   let changed = false;
   for (const [key, entry] of Object.entries(cache.entries)) {
-    if (!entry || typeof entry.expiresAt !== "number" || entry.expiresAt <= now) {
+    if (
+      !entry || typeof entry.expiresAt !== "number" || entry.expiresAt <= now
+    ) {
       delete cache.entries[key];
       changed = true;
     }
@@ -64,7 +89,7 @@ function pruneExpired(cache: WebCacheFile): boolean {
 export async function getWebCacheValue<T>(
   key: string,
 ): Promise<T | null> {
-  const cache = await readCache();
+  const cache = await loadCache();
   let changed = pruneExpired(cache);
   const entry = cache.entries[key];
   if (!entry || typeof entry.expiresAt !== "number") {
@@ -86,7 +111,7 @@ export async function setWebCacheValue(
   ttlMinutes: number,
 ): Promise<void> {
   if (!ttlMinutes || ttlMinutes <= 0) return;
-  const cache = await readCache();
+  const cache = await loadCache();
   cache.entries[key] = {
     value,
     expiresAt: Date.now() + ttlMinutes * 60 * 1000,

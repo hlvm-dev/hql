@@ -10,9 +10,9 @@
 export async function collectStream(
   stream: AsyncGenerator<string, void, unknown>,
 ): Promise<string> {
-  let result = "";
+  const chunks: string[] = [];
   for await (const chunk of stream) {
-    result += chunk;
+    chunks.push(chunk);
   }
-  return result;
+  return chunks.join("");
 }

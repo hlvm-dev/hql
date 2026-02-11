@@ -10,7 +10,7 @@
 
 import { http } from "../../../common/http-client.ts";
 import { ValidationError } from "../../../common/error.ts";
-import { isNetworkAllowed, getNetworkPolicyDeniedUrl } from "../policy.ts";
+import { getNetworkPolicyDeniedUrl, isNetworkAllowed } from "../policy.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import { loadWebConfig } from "../web-config.ts";
@@ -118,7 +118,10 @@ function assertUrlAllowed(
   const policy = options?.policy ?? null;
   if (!isNetworkAllowed(policy, url)) {
     const denied = getNetworkPolicyDeniedUrl(policy, [url]) ?? url;
-    throw new ValidationError(`URL denied by policy: ${denied}`, "network_policy");
+    throw new ValidationError(
+      `URL denied by policy: ${denied}`,
+      "network_policy",
+    );
   }
 }
 
@@ -128,7 +131,10 @@ function toMillis(seconds: number | undefined): number | undefined {
   return Math.round(seconds * 1000);
 }
 
-function makeCacheKey(prefix: string, parts: Array<string | number | undefined>): string {
+function makeCacheKey(
+  prefix: string,
+  parts: Array<string | number | undefined>,
+): string {
   const safe = parts.map((part) => String(part ?? "").trim()).join("|");
   return `${prefix}:${safe}`;
 }
@@ -213,7 +219,8 @@ async function fetchWithRedirects(
       redirect: "manual",
     });
     const status = response.status;
-    const isRedirect = status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+    const isRedirect = status === 301 || status === 302 || status === 303 ||
+      status === 307 || status === 308;
     if (!isRedirect) {
       return { finalUrl: current, response, redirects };
     }
@@ -223,7 +230,10 @@ async function fetchWithRedirects(
     }
     const nextUrl = new URL(location, current).toString();
     if (visited.has(nextUrl)) {
-      throw new ValidationError(`Redirect loop detected for ${url}`, "web_fetch");
+      throw new ValidationError(
+        `Redirect loop detected for ${url}`,
+        "web_fetch",
+      );
     }
     visited.add(nextUrl);
     redirects.push(nextUrl);
@@ -273,7 +283,15 @@ async function fetchWithFirecrawl(
     timeoutSeconds: number;
   },
   options?: ToolExecutionOptions,
-): Promise<{ content?: string; markdown?: string; title?: string; description?: string } | null> {
+): Promise<
+  | {
+    content?: string;
+    markdown?: string;
+    title?: string;
+    description?: string;
+  }
+  | null
+> {
   if (!config.apiKey) return null;
   const base = config.baseUrl.replace(/\/+$/, "");
   const endpoint = base.endsWith("/v1/scrape") ? base : `${base}/v1/scrape`;
@@ -300,11 +318,20 @@ async function fetchWithFirecrawl(
     const data = response as Record<string, unknown>;
     const payload = (data.data as Record<string, unknown> | undefined) ?? data;
     if (!payload || typeof payload !== "object") return null;
-    const markdown = typeof payload.markdown === "string" ? payload.markdown : undefined;
-    const content = typeof payload.content === "string" ? payload.content : undefined;
-    const metadata = (payload.metadata as Record<string, unknown> | undefined) ?? undefined;
-    const title = metadata && typeof metadata.title === "string" ? metadata.title : undefined;
-    const description = metadata && typeof metadata.description === "string" ? metadata.description : undefined;
+    const markdown = typeof payload.markdown === "string"
+      ? payload.markdown
+      : undefined;
+    const content = typeof payload.content === "string"
+      ? payload.content
+      : undefined;
+    const metadata =
+      (payload.metadata as Record<string, unknown> | undefined) ?? undefined;
+    const title = metadata && typeof metadata.title === "string"
+      ? metadata.title
+      : undefined;
+    const description = metadata && typeof metadata.description === "string"
+      ? metadata.description
+      : undefined;
     return { content, markdown, title, description };
   } catch {
     return null;
@@ -316,7 +343,7 @@ function decodeHtmlEntities(input: string): string {
     "&amp;": "&",
     "&lt;": "<",
     "&gt;": ">",
-    "&quot;": "\"",
+    "&quot;": '"',
     "&#39;": "'",
     "&apos;": "'",
     "&nbsp;": " ",
@@ -373,7 +400,9 @@ function stripTagBlocks(html: string, tags: string[]): string {
 
 /** Pre-compiled boilerplate regex (keywords never change at runtime) */
 const BOILERPLATE_ATTR_REGEX = new RegExp(
-  `<([a-zA-Z0-9]+)\\b[^>]*(?:class|id)\\s*=\\s*["'][^"']*(?:${BOILERPLATE_KEYWORDS.join("|")})[^"']*["'][^>]*>[\\s\\S]*?<\\/\\1>`,
+  `<([a-zA-Z0-9]+)\\b[^>]*(?:class|id)\\s*=\\s*["'][^"']*(?:${
+    BOILERPLATE_KEYWORDS.join("|")
+  })[^"']*["'][^>]*>[\\s\\S]*?<\\/\\1>`,
   "gi",
 );
 
@@ -563,6 +592,32 @@ function parseHtml(
   };
 }
 
+function isHtmlLikeResponse(contentType: string, body: string): boolean {
+  const normalizedType = contentType.toLowerCase();
+  if (
+    normalizedType.includes("text/html") ||
+    normalizedType.includes("application/xhtml+xml")
+  ) {
+    return true;
+  }
+
+  if (
+    normalizedType && (
+      normalizedType.includes("application/json") ||
+      normalizedType.includes("text/plain") ||
+      normalizedType.includes("application/pdf") ||
+      normalizedType.startsWith("image/")
+    )
+  ) {
+    return false;
+  }
+
+  const head = body.slice(0, 1024).toLowerCase();
+  return head.includes("<html") ||
+    head.includes("<body") ||
+    head.includes("<!doctype html");
+}
+
 async function fetchUrlInternal(
   url: string,
   maxBytes: number | undefined,
@@ -654,8 +709,7 @@ async function webFetch(
 
   const headers: Record<string, string> = {
     "User-Agent": webConfig.fetch.userAgent,
-    "Accept":
-      "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   };
 
   const { finalUrl, response, redirects } = await fetchWithRedirects(
@@ -673,8 +727,19 @@ async function webFetch(
   const body = await readResponseBody(response, maxBytes);
   const contentType = response.headers.get("content-type") ?? "";
   const html = body.text ?? "";
+  const isHtmlLike = isHtmlLikeResponse(contentType, html);
 
-  const parsed = parseHtml(html, resolvedMaxChars, DEFAULT_HTML_LINKS);
+  const fallback = truncateText(html, resolvedMaxChars);
+  const parsed = isHtmlLike
+    ? parseHtml(html, resolvedMaxChars, DEFAULT_HTML_LINKS)
+    : {
+      title: "",
+      description: "",
+      text: fallback.text,
+      textTruncated: fallback.truncated,
+      links: [] as string[],
+      linkCount: 0,
+    };
 
   let text = parsed.text;
   let textTruncated = parsed.textTruncated;
@@ -682,7 +747,7 @@ async function webFetch(
   let usedReadability = false;
   let usedFirecrawl = false;
 
-  if (webConfig.fetch.readability && html) {
+  if (isHtmlLike && webConfig.fetch.readability && html) {
     const readable = await extractReadableContent(html, finalUrl);
     if (readable?.text) {
       usedReadability = true;
@@ -698,6 +763,7 @@ async function webFetch(
   }
 
   if (
+    isHtmlLike &&
     (text?.trim().length ?? 0) < MAIN_CONTENT_MIN_CHARS &&
     webConfig.fetch.firecrawl.enabled
   ) {
@@ -752,13 +818,16 @@ async function braveSearch(
   apiKey: string,
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
-  const endpoint =
-    `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${limit}`;
+  const endpoint = `https://api.search.brave.com/res/v1/web/search?q=${
+    encodeURIComponent(query)
+  }&count=${limit}`;
   assertUrlAllowed(endpoint, options);
 
   interface BraveResponse {
     web?: {
-      results?: Array<{ title?: string; url?: string; description?: string; snippet?: string }>;
+      results?: Array<
+        { title?: string; url?: string; description?: string; snippet?: string }
+      >;
     };
   }
 
@@ -794,13 +863,21 @@ async function serpApiSearch(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   const baseUrl = config.baseUrl.replace(/\/+$/, "");
-  const endpoint =
-    `${baseUrl}/search.json?q=${encodeURIComponent(query)}&engine=google&num=${limit}&api_key=${config.apiKey}`;
+  const endpoint = `${baseUrl}/search.json?q=${
+    encodeURIComponent(query)
+  }&engine=google&num=${limit}&api_key=${config.apiKey}`;
   assertUrlAllowed(endpoint, options);
 
   interface SerpApiResponse {
-    organic_results?: Array<{ title?: string; link?: string; snippet?: string }>;
-    answer_box?: { answer?: string; snippet?: string; title?: string; link?: string };
+    organic_results?: Array<
+      { title?: string; link?: string; snippet?: string }
+    >;
+    answer_box?: {
+      answer?: string;
+      snippet?: string;
+      title?: string;
+      link?: string;
+    };
   }
 
   const data = await http.fetchJson<SerpApiResponse>(endpoint, {
@@ -862,7 +939,9 @@ async function chatCompletionsSearch(
     },
   );
 
-  const choices = (data as { choices?: Array<{ message?: { content?: string; citations?: string[] } }> }).choices ??
+  const choices = (data as {
+    choices?: Array<{ message?: { content?: string; citations?: string[] } }>;
+  }).choices ??
     [];
   const answer = choices[0]?.message?.content ?? "";
   const citations = (data as { citations?: string[] }).citations ??
@@ -887,7 +966,8 @@ async function searchWeb(
     throw new ValidationError("args must be an object", "search_web");
   }
 
-  const { query, maxResults, timeoutMs, timeoutSeconds } = args as SearchWebArgs;
+  const { query, maxResults, timeoutMs, timeoutSeconds } =
+    args as SearchWebArgs;
   if (!query || typeof query !== "string") {
     throw new ValidationError("query is required", "search_web");
   }
@@ -1029,11 +1109,11 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
   },
   fetch_url: {
     fn: fetchUrl,
-    description:
-      "Fetch a URL and return text content with size limits.",
+    description: "Fetch a URL and return text content with size limits.",
     args: {
       url: "string - URL to fetch",
-      maxBytes: `number (optional) - Max bytes to read (default: ${DEFAULT_WEB_MAX_BYTES})`,
+      maxBytes:
+        `number (optional) - Max bytes to read (default: ${DEFAULT_WEB_MAX_BYTES})`,
       timeoutMs: "number (optional) - Request timeout in ms",
     },
     returns: {
@@ -1053,7 +1133,8 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       "OpenClaw-style fetch with readability + Firecrawl fallback. Returns main content.",
     args: {
       url: "string - URL to fetch",
-      maxChars: "number (optional) - Max extracted text length (default: 50000)",
+      maxChars:
+        "number (optional) - Max extracted text length (default: 50000)",
       timeoutSeconds: "number (optional) - Request timeout in seconds",
     },
     returns: {

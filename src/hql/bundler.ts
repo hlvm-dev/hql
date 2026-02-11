@@ -14,7 +14,12 @@ import type {
   PluginBuild,
 } from "npm:esbuild-wasm@^0.17.0";
 import { transpileToJavascript } from "./transpiler/hql-transpiler.ts";
-import { transpileHqlFile, RUNTIME_GET_SNIPPET, propagateReportedFlag, wrapError } from "./bundler-internal.ts";
+import {
+  propagateReportedFlag,
+  RUNTIME_GET_SNIPPET,
+  transpileHqlFile,
+  wrapError,
+} from "./bundler-internal.ts";
 import {
   isHqlFile,
   isJsFile,
@@ -24,7 +29,6 @@ import {
   checkForHqlImports,
   findActualFilePath,
   getErrorMessage,
-
   readFile,
 } from "../common/utils.ts";
 import { initializeRuntime } from "../common/runtime-initializer.ts";
@@ -37,7 +41,11 @@ const pathUtil = () => p().path;
 const fsUtil = () => p().fs;
 const cwd = () => p().process.cwd();
 
-import { TranspilerError, ValidationError, RuntimeError } from "../common/error.ts";
+import {
+  RuntimeError,
+  TranspilerError,
+  ValidationError,
+} from "../common/error.ts";
 import {
   createTempDir,
   createTempDirIfNeeded,
@@ -77,7 +85,6 @@ const DEFAULT_EXTERNAL_PATTERNS = [
   "http://",
 ];
 
-
 // Error messages
 const ERROR_ALREADY_INITIALIZED = "already been initialized";
 const ERROR_INITIALIZE = "initialize";
@@ -106,6 +113,8 @@ interface BundleOptions {
 interface ImportInfo {
   full: string;
   path: string;
+  start: number;
+  end: number;
 }
 
 interface UnifiedPluginOptions {
@@ -151,7 +160,10 @@ export async function transpileCLI(
 
   // Skip bundling if requested (e.g., in compiled binary where esbuild doesn't work)
   if (options.skipBundle) {
-    logger.log({ text: `[Bundler] Skipping bundle, output: ${tsOutputPath}`, namespace: "bundler" });
+    logger.log({
+      text: `[Bundler] Skipping bundle, output: ${tsOutputPath}`,
+      namespace: "bundler",
+    });
     // Copy transpiled TS to output path if different
     if (tsOutputPath !== outPath) {
       const content = await fsUtil().readTextFile(tsOutputPath);
@@ -202,8 +214,8 @@ async function prebundleHqlImports(
   ctx: ProcessingCtx = { stack: new Set<string>() },
 ): Promise<string> {
   const baseDir = pathUtil().dirname(filePath);
-  let modifiedSource = source;
   const imports = extractHqlImports(source);
+  const replacements: Array<{ start: number; end: number; value: string }> = [];
 
   logger.debug(
     `Processing ${imports.length} HQL imports in ${isJs ? "JS" : "TS"} file`,
@@ -218,7 +230,7 @@ async function prebundleHqlImports(
     );
     if (!resolvedHqlPath) {
       throw new RuntimeError(
-        `Could not resolve import: ${importInfo.path} from ${filePath}`
+        `Could not resolve import: ${importInfo.path} from ${filePath}`,
       );
     }
 
@@ -301,17 +313,31 @@ async function prebundleHqlImports(
     }
 
     // Update import in source with the appropriate cached path
-    modifiedSource = modifiedSource.replace(
-      importInfo.full,
-      importInfo.full.replace(importInfo.path, targetPath),
-    );
+    replacements.push({
+      start: importInfo.start,
+      end: importInfo.end,
+      value: importInfo.full.replace(importInfo.path, targetPath),
+    });
     logger.debug(`Updated import: ${importInfo.path} → ${targetPath}`);
 
     // Done with this dependency in the current chain
     ctx.stack.delete(resolvedHqlPath);
   }
 
-  return modifiedSource;
+  if (replacements.length === 0) {
+    return source;
+  }
+
+  let rebuilt = "";
+  let cursor = 0;
+  for (const replacement of replacements) {
+    rebuilt += source.slice(cursor, replacement.start);
+    rebuilt += replacement.value;
+    cursor = replacement.end;
+  }
+  rebuilt += source.slice(cursor);
+
+  return rebuilt;
 }
 
 // Simplified process functions with shared logic
@@ -377,7 +403,8 @@ async function processHqlEntryFile(
   });
 
   // Inject stdlib import for bundling - esbuild will resolve and inline it
-  const stdlibImport = `import { first, rest, next, cons, nth, count, second, last, isEmpty, some, every, notAny, notEvery, isSome, take, drop, map, filter, reduce, concat, flatten, distinct, mapIndexed, keepIndexed, mapcat, keep, seq, empty, conj, into, repeat, repeatedly, cycle, iterate, lazySeq, get, getIn, assoc, assocIn, dissoc, update, updateIn, merge, vec, set, range, comp, partial, apply, groupBy, keys, doall, realized, add, sub, mul, div, mod, inc, dec, isNil, eq, neq, lt, gt, lte, gte, LazySeq, identity, constantly, vals, juxt, zipmap, __hql_get, __hql_getNumeric, __hql_range, __hql_toSequence, __hql_for_each, __hql_hash_map, __hql_throw, __hql_deepFreeze, __hql_lazy_seq, __hql_get_op, __hql_trampoline } from "./hql-stdlib.js";\n`;
+  const stdlibImport =
+    `import { first, rest, next, cons, nth, count, second, last, isEmpty, some, every, notAny, notEvery, isSome, take, drop, map, filter, reduce, concat, flatten, distinct, mapIndexed, keepIndexed, mapcat, keep, seq, empty, conj, into, repeat, repeatedly, cycle, iterate, lazySeq, get, getIn, assoc, assocIn, dissoc, update, updateIn, merge, vec, set, range, comp, partial, apply, groupBy, keys, doall, realized, add, sub, mul, div, mod, inc, dec, isNil, eq, neq, lt, gt, lte, gte, LazySeq, identity, constantly, vals, juxt, zipmap, __hql_get, __hql_getNumeric, __hql_range, __hql_toSequence, __hql_for_each, __hql_hash_map, __hql_throw, __hql_deepFreeze, __hql_lazy_seq, __hql_get_op, __hql_trampoline } from "./hql-stdlib.js";\n`;
   jsCode = stdlibImport + jsCode;
   logger.debug("Injected stdlib import for bundling");
 
@@ -392,7 +419,9 @@ async function processHqlEntryFile(
       // Prepend semicolons to shift all line numbers
       mapJson.mappings = ";".repeat(prependedLines) + mapJson.mappings;
       sourceMap = JSON.stringify(mapJson);
-      logger.debug(`Adjusted source map for ${prependedLines} prepended line(s)`);
+      logger.debug(
+        `Adjusted source map for ${prependedLines} prepended line(s)`,
+      );
     } catch (e) {
       logger.debug(`Failed to adjust source map: ${getErrorMessage(e)}`);
     }
@@ -421,7 +450,7 @@ async function processHqlEntryFile(
 
     // Add sourceMappingURL to the cached file so esbuild knows about it
     // Extract just the filename from the full path
-    const filename = tsOutputPath.split('/').pop() || 'output.ts';
+    const filename = tsOutputPath.split("/").pop() || "output.ts";
     const jsCodeWithMap = `${jsCode}\n//# sourceMappingURL=${filename}.map`;
     await fsUtil().writeTextFile(tsOutputPath, jsCodeWithMap);
 
@@ -452,11 +481,15 @@ async function processJsOrTsEntryFile(
       : source;
 
     // Write output with appropriate extension
-    const finalOutputPath = isTs ? outputPath.replace(/\.js$/, ".ts") : outputPath;
+    const finalOutputPath = isTs
+      ? outputPath.replace(/\.js$/, ".ts")
+      : outputPath;
     await writeOutput(processedSource, finalOutputPath);
     return finalOutputPath;
   } catch (error) {
-    const fileType = isTypeScriptFile(resolvedInputPath) ? "TypeScript" : "JavaScript";
+    const fileType = isTypeScriptFile(resolvedInputPath)
+      ? "TypeScript"
+      : "JavaScript";
     throw wrapError(error, `Processing ${fileType} entry file`);
   }
 }
@@ -551,7 +584,9 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
         // If an HQL file has a pre-determined cached path, resolve directly to it to break cycles
         if (isHqlFile(args.path)) {
           try {
-            const importerDir = args.importer ? pathUtil().dirname(args.importer) : cwd();
+            const importerDir = args.importer
+              ? pathUtil().dirname(args.importer)
+              : cwd();
             const absCandidate = pathUtil().resolve(importerDir, args.path);
             const direct = filePathMap.get(args.path) ||
               filePathMap.get(absCandidate);
@@ -562,7 +597,11 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
             }
           } catch (error) {
             // Log and fall through to normal resolution
-            logger.debug(`Cache lookup failed for ${args.path}, falling back to normal resolution: ${getErrorMessage(error)}`);
+            logger.debug(
+              `Cache lookup failed for ${args.path}, falling back to normal resolution: ${
+                getErrorMessage(error)
+              }`,
+            );
           }
         }
 
@@ -590,10 +629,10 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
           // Process HQL imports if present
           const processedContent = checkForHqlImports(contents)
             ? await prebundleHqlImportsInJs(contents, filePath, {
-                verbose: options.verbose,
-                tempDir: options.tempDir,
-                sourceDir: options.sourceDir,
-              })
+              verbose: options.verbose,
+              tempDir: options.tempDir,
+              sourceDir: options.sourceDir,
+            })
             : contents;
 
           if (trackProcessed) {
@@ -607,9 +646,9 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
           };
         } catch (error) {
           logger.error(
-            `Error processing ${loader === "ts" ? "TypeScript" : "JavaScript"} file ${filePath}: ${
-              getErrorMessage(error)
-            }`,
+            `Error processing ${
+              loader === "ts" ? "TypeScript" : "JavaScript"
+            } file ${filePath}: ${getErrorMessage(error)}`,
           );
           return null;
         }
@@ -618,13 +657,15 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
       // Special handling for TypeScript files
       build.onLoad(
         { filter: /\.ts$/, namespace: "file" },
-        async (args: OnLoadArgs) => await processFileWithHqlImports(args.path, "ts", true),
+        async (args: OnLoadArgs) =>
+          await processFileWithHqlImports(args.path, "ts", true),
       );
 
       // Special handling for JavaScript files that import HQL
       build.onLoad(
         { filter: /\.js$/, namespace: "file" },
-        async (args: OnLoadArgs) => await processFileWithHqlImports(args.path, "js"),
+        async (args: OnLoadArgs) =>
+          await processFileWithHqlImports(args.path, "js"),
       );
 
       // Load HQL files with custom loader
@@ -699,9 +740,7 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
             };
           } catch (error) {
             throw new TranspilerError(
-              `Error loading HQL file ${args.path}: ${
-                getErrorMessage(error)
-              }`,
+              `Error loading HQL file ${args.path}: ${getErrorMessage(error)}`,
             );
           }
         },
@@ -740,7 +779,10 @@ async function initializeEsbuildWasm(): Promise<void> {
   } catch (error) {
     // If already initialized, that's fine
     const errorMsg = getErrorMessage(error);
-    if (errorMsg.includes(ERROR_ALREADY_INITIALIZED) || errorMsg.includes(ERROR_INITIALIZE)) {
+    if (
+      errorMsg.includes(ERROR_ALREADY_INITIALIZED) ||
+      errorMsg.includes(ERROR_INITIALIZE)
+    ) {
       esbuildInitialized = true;
     } else {
       throw error;
@@ -793,10 +835,10 @@ async function bundleWithEsbuild(
     const sourcemapOption = options.sourcemap === undefined
       ? "inline" as const
       : options.sourcemap === true
-        ? "inline" as const
-        : options.sourcemap === false
-          ? false
-          : options.sourcemap;
+      ? "inline" as const
+      : options.sourcemap === false
+      ? false
+      : options.sourcemap;
 
     const buildOptions: BuildOptions = {
       entryPoints: [entryPath],
@@ -804,7 +846,7 @@ async function bundleWithEsbuild(
       outfile: outputPath,
       format: "esm",
       logLevel,
-      minify: options.minify ?? false,  // Default: false (dev mode)
+      minify: options.minify ?? false, // Default: false (dev mode)
       treeShaking: true,
       platform: "neutral",
       target,
@@ -954,12 +996,18 @@ function registerResolvedHqlMapping(
  * Extract HQL imports from source code
  */
 function extractHqlImports(source: string): ImportInfo[] {
-  const hqlImportRegex = /import\s+.*\s+from\s+['"]([^'"]+\.hql)['"]/g;
+  const hqlImportRegex = /import\s+[^;\n]*?\s+from\s+['"]([^'"\n]+\.hql)['"]/g;
   const imports: ImportInfo[] = [];
 
-  let match;
+  let match: RegExpExecArray | null;
   while ((match = hqlImportRegex.exec(source)) !== null) {
-    imports.push({ full: match[0], path: match[1] });
+    const start = match.index;
+    imports.push({
+      full: match[0],
+      path: match[1],
+      start,
+      end: start + match[0].length,
+    });
   }
 
   return imports;
@@ -977,7 +1025,9 @@ async function resolveImportPath(
   const projectRoot = cwd();
   const lookupLocations = [
     pathUtil().resolve(baseDir, importPath),
-    ...(options.sourceDir ? [pathUtil().resolve(options.sourceDir, importPath)] : []),
+    ...(options.sourceDir
+      ? [pathUtil().resolve(options.sourceDir, importPath)]
+      : []),
     pathUtil().resolve(projectRoot, importPath),
     pathUtil().resolve(projectRoot, "lib", importPath.replace(/^\.\//, "")),
   ];
@@ -1117,9 +1167,7 @@ async function loadTranspiledFile(
     };
   } catch (error) {
     throw new TranspilerError(
-      `Failed to load transpiled file: ${filePath}: ${
-        getErrorMessage(error)
-      }`,
+      `Failed to load transpiled file: ${filePath}: ${getErrorMessage(error)}`,
     );
   }
 }
@@ -1131,7 +1179,9 @@ async function loadTranspiledFile(
  * New approach: O(n×m) - each path checked once, results cached
  */
 // LRU cache to prevent unbounded memory growth in long-running bundler processes
-const circularCheckCache = new LRUCache<string, boolean>(DEFAULT_LRU_CACHE_SIZE);
+const circularCheckCache = new LRUCache<string, boolean>(
+  DEFAULT_LRU_CACHE_SIZE,
+);
 
 function checkForCircularDependency(
   source: string,

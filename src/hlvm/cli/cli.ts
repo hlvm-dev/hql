@@ -11,8 +11,14 @@ import { platformGetArgs } from "./utils/platform-helpers.ts";
 import { compileCommand, showCompileHelp } from "./commands/compile.ts";
 import { init as initCommand, showInitHelp } from "./commands/init.ts";
 import { publishCommand, showPublishHelp } from "./commands/publish.ts";
-import { uninstall as uninstallCommand, showUninstallHelp } from "./commands/uninstall.ts";
-import { upgrade as upgradeCommand, showUpgradeHelp } from "./commands/upgrade.ts";
+import {
+  showUninstallHelp,
+  uninstall as uninstallCommand,
+} from "./commands/uninstall.ts";
+import {
+  showUpgradeHelp,
+  upgrade as upgradeCommand,
+} from "./commands/upgrade.ts";
 import { aiCommand, showAiHelp } from "./commands/ai.ts";
 import { askCommand, showAskHelp } from "./commands/ask.ts";
 import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
@@ -23,8 +29,11 @@ import { registerApis } from "../api/index.ts";
 // Import run command from run.ts
 import { run as runCommand } from "./run.ts";
 // Import repl command from Ink REPL
-import { startInkRepl, type InkReplOptions } from "./repl-ink/index.tsx";
-import { parseSessionFlags, type SessionInitOptions } from "./repl/session/types.ts";
+import { type InkReplOptions, startInkRepl } from "./repl-ink/index.tsx";
+import {
+  parseSessionFlags,
+  type SessionInitOptions,
+} from "./repl/session/types.ts";
 import { VERSION } from "../../version.ts";
 
 /**
@@ -131,30 +140,28 @@ function showVersion(): void {
   log.raw.log(`HLVM version ${VERSION}`);
 }
 
-type CommandEntry = { run: (args: string[]) => Promise<unknown>; help?: () => void };
+type CommandEntry = {
+  run: (args: string[]) => Promise<unknown>;
+  help?: () => void;
+};
 const COMMANDS: Record<string, CommandEntry> = {
-  run:       { run: runCommand },
-  repl:      { run: replCommand },
-  compile:   { run: compileCommand,   help: showCompileHelp },
-  init:      { run: initCommand,      help: showInitHelp },
-  publish:   { run: publishCommand,   help: showPublishHelp },
-  ai:        { run: aiCommand,        help: showAiHelp },
-  ask:       { run: askCommand,       help: showAskHelp },
-  upgrade:   { run: upgradeCommand,   help: showUpgradeHelp },
+  run: { run: runCommand },
+  repl: { run: replCommand },
+  compile: { run: compileCommand, help: showCompileHelp },
+  init: { run: initCommand, help: showInitHelp },
+  publish: { run: publishCommand, help: showPublishHelp },
+  ai: { run: aiCommand, help: showAiHelp },
+  ask: { run: askCommand, help: showAskHelp },
+  upgrade: { run: upgradeCommand, help: showUpgradeHelp },
   uninstall: { run: uninstallCommand, help: showUninstallHelp },
-  ollama:    { run: ollamaCommand,    help: showOllamaHelp },
-  serve:     { run: serveCommand,     help: showServeHelp },
+  ollama: { run: ollamaCommand, help: showOllamaHelp },
+  serve: { run: serveCommand, help: showServeHelp },
 };
 
 /**
  * Main CLI entry point
  */
 async function main(): Promise<void> {
-  // Initialize runtime with config only (no AI autostart for CLI dispatcher)
-  // Individual commands (repl, ai, run) handle their own AI initialization
-  await initializeRuntime({ ai: false, stdlib: false, cache: false });
-  registerApis();
-
   const args = platformGetArgs();
 
   if (args[0] === "-h" || args[0] === "--help") {
@@ -166,6 +173,11 @@ async function main(): Promise<void> {
     showVersion();
     return;
   }
+
+  // Initialize runtime with config only (no AI autostart for CLI dispatcher)
+  // Individual commands (repl, ai, run) handle their own AI initialization
+  await initializeRuntime({ ai: false, stdlib: false, cache: false });
+  registerApis();
 
   // Default: start REPL when no arguments (for GUI compatibility)
   if (args.length === 0) {

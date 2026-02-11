@@ -23,17 +23,25 @@ import type { Environment } from "../environment.ts";
 import type { Logger } from "../../logger.ts";
 import type { MacroFn } from "../environment.ts";
 import { HQLError, MacroError } from "../../common/error.ts";
-import { isGensymSymbol, gensym } from "../gensym.ts";
+import { gensym, isGensymSymbol } from "../gensym.ts";
 import { globalLogger as logger } from "../../logger.ts";
-import { getErrorMessage, isObjectValue, isNullish, mapTail } from "../../common/utils.ts";
 import {
-  Interpreter,
+  getErrorMessage,
+  isNullish,
+  isObjectValue,
+  mapTail,
+} from "../../common/utils.ts";
+import {
   createStandardEnv,
-  hqlValueToSExp,
   getSpecialForms,
+  hqlValueToSExp,
+  Interpreter,
   type InterpreterEnv,
 } from "../interpreter/index.ts";
-import { MAX_SEQ_LENGTH, MAX_EXPANSION_ITERATIONS } from "../../common/limits.ts";
+import {
+  MAX_EXPANSION_ITERATIONS,
+  MAX_SEQ_LENGTH,
+} from "../../common/limits.ts";
 
 // Lazy singleton interpreter for macro-time evaluation
 let macroInterpreter: Interpreter | null = null;
@@ -45,7 +53,10 @@ let persistentMacroEnv: InterpreterEnv | null = null;
  */
 function getMacroInterpreter(): Interpreter {
   if (!macroInterpreter) {
-    macroInterpreter = new Interpreter({ maxCallDepth: 100, maxSeqLength: MAX_SEQ_LENGTH });
+    macroInterpreter = new Interpreter({
+      maxCallDepth: 100,
+      maxSeqLength: MAX_SEQ_LENGTH,
+    });
   }
   return macroInterpreter;
 }
@@ -71,10 +82,15 @@ function getPersistentMacroEnv(): InterpreterEnv {
  * - `list?` and `symbol?` introspection functions need S-expression objects
  * - Macro expansion works on S-expression AST nodes, not HQL runtime values
  */
-function sexpToHqlValue(value: unknown): import("../interpreter/types.ts").HQLValue {
+function sexpToHqlValue(
+  value: unknown,
+): import("../interpreter/types.ts").HQLValue {
   // If it's already a primitive, return as-is (nil-punning: null or undefined → null)
   if (value == null) return null;
-  if (typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
+  if (
+    typeof value === "boolean" || typeof value === "number" ||
+    typeof value === "string"
+  ) {
     return value;
   }
 
@@ -86,10 +102,12 @@ function sexpToHqlValue(value: unknown): import("../interpreter/types.ts").HQLVa
 
   // S-expression symbols and lists are kept as-is for introspection (list?, symbol?)
   // They will be handled by the interpreter's S-expression aware builtins
-  if (isObjectValue(value) && (
-    (value as { type?: string }).type === "symbol" ||
-    (value as { type?: string }).type === "list"
-  )) {
+  if (
+    isObjectValue(value) && (
+      (value as { type?: string }).type === "symbol" ||
+      (value as { type?: string }).type === "list"
+    )
+  ) {
     return value as unknown as import("../interpreter/types.ts").HQLValue;
   }
 
@@ -114,7 +132,7 @@ function sexpToHqlValue(value: unknown): import("../interpreter/types.ts").HQLVa
  */
 function resolveValueForInterpreter(
   value: unknown,
-  interpEnv: InterpreterEnv
+  interpEnv: InterpreterEnv,
 ): import("../interpreter/types.ts").HQLValue {
   // If S-exp symbol, try to resolve to actual value in interpreter env
   // This is critical for function references passed as macro arguments
@@ -134,7 +152,10 @@ function resolveValueForInterpreter(
     if (list.elements.length > 0 && isSymbol(list.elements[0])) {
       const op = (list.elements[0] as SSymbol).name;
       // Evaluate constructor calls that produce runtime values
-      if (op === "empty-map" || op === "hash-map" || op === "hash-set" || op === "vector") {
+      if (
+        op === "empty-map" || op === "hash-map" || op === "hash-set" ||
+        op === "vector"
+      ) {
         try {
           const interpreter = getMacroInterpreter();
           return interpreter.eval(list, interpEnv);
@@ -153,7 +174,10 @@ function resolveValueForInterpreter(
 // Within a single macro expansion, the same Environment object is typically used
 // for all function calls. We cache the bridged result and invalidate when the
 // binding count changes (new var/let definitions in macro body).
-let _bridgeCache: WeakMap<Environment, { env: InterpreterEnv; bindingCount: number }> = new WeakMap();
+let _bridgeCache: WeakMap<
+  Environment,
+  { env: InterpreterEnv; bindingCount: number }
+> = new WeakMap();
 
 /**
  * Count total bindings across the entire scope chain.
@@ -306,9 +330,9 @@ function updateMetaRecursively(expr: SExp, callSiteMeta: SExpMeta): void {
     // This fixes the bug where same-file macros would keep positions
     // from the macro definition instead of the call site.
     const shouldUpdate = !exprMeta ||
-        exprMeta.filePath !== callSiteMeta.filePath ||
-        (exprMeta.line !== undefined && callSiteMeta.line !== undefined &&
-         exprMeta.line < callSiteMeta.line);
+      exprMeta.filePath !== callSiteMeta.filePath ||
+      (exprMeta.line !== undefined && callSiteMeta.line !== undefined &&
+        exprMeta.line < callSiteMeta.line);
 
     if (shouldUpdate) {
       (current as { _meta?: SExpMeta })._meta = { ...callSiteMeta };
@@ -384,7 +408,7 @@ function convertJsValueToSExp(value: unknown): SExp {
   if (typeof value === "function") {
     throw new MacroError(
       "Cannot convert function to S-expression. Functions must be called, not referenced as values in macro context.",
-      "convertJsValueToSExp"
+      "convertJsValueToSExp",
     );
   }
 
@@ -439,7 +463,6 @@ function processMacroDefinition(
 /* Helper: Process a parameter list (including rest parameters) */
 const isRestMarker = (symbol: SSymbol): boolean => symbol.name === "&";
 
-
 function processParamList(
   paramsExp: SList,
 ): { params: string[]; restParam: string | null } {
@@ -459,7 +482,7 @@ function processParamList(
         `Macro parameter at position ${index + 1} must be a symbol, got: ${
           sexpToString(param)
         }`,
-        "parameter parsing"
+        "parameter parsing",
       );
     }
 
@@ -472,7 +495,7 @@ function processParamList(
       if (restParam !== null) {
         throw new MacroError(
           `Multiple rest parameters not allowed: found '${restParam}' and '${param.name}'`,
-          "parameter parsing"
+          "parameter parsing",
         );
       }
       restParam = param.name;
@@ -508,7 +531,7 @@ export function defineMacro(
     } else {
       logger.debug(`Registered global macro ${macroName}`);
     }
-    
+
     env.defineMacro(macroName, macroFn);
   } catch (error) {
     // Preserve HQLError instances (MacroError, ValidationError, etc.)
@@ -519,9 +542,7 @@ export function defineMacro(
       ? (macroForm.elements[1] as SSymbol).name
       : "unknown";
     throw new MacroError(
-      `Failed to define macro: ${
-        getErrorMessage(error)
-      }`,
+      `Failed to define macro: ${getErrorMessage(error)}`,
       macroName,
       {
         filePath: env.getCurrentFile() || undefined,
@@ -637,7 +658,9 @@ function evaluateSymbol(expr: SSymbol, env: Environment, logger: Logger): SExp {
     return convertJsValueToSExp(value);
   } catch (e) {
     logger.debug(
-      `Symbol lookup failed for '${expr.name}' during macro evaluation: ${getErrorMessage(e)}`,
+      `Symbol lookup failed for '${expr.name}' during macro evaluation: ${
+        getErrorMessage(e)
+      }`,
     );
     return expr;
   }
@@ -671,9 +694,7 @@ function evaluateList(expr: SList, env: Environment, logger: Logger): SExp {
       return evaluateFunctionCall(expr, env, logger);
     } catch (error) {
       throw new MacroError(
-        `Error evaluating function call '${op}': ${
-          getErrorMessage(error)
-        }`,
+        `Error evaluating function call '${op}': ${getErrorMessage(error)}`,
         op,
       );
     }
@@ -724,7 +745,7 @@ function evaluateCond(list: SList, env: Environment, logger: Logger): SExp {
       );
     }
     const test = evaluateForMacro(clauseList.elements[0], env, logger);
-    
+
     if (isTruthy(test)) {
       return evaluateForMacro(clauseList.elements[1], env, logger);
     }
@@ -858,7 +879,7 @@ function isNamedFnDefinition(list: SList): boolean {
  */
 function registerNamedFnInMacroEnv(
   expr: SList,
-  logger: Logger
+  logger: Logger,
 ): void {
   const fnName = (expr.elements[1] as SSymbol).name;
 
@@ -872,7 +893,11 @@ function registerNamedFnInMacroEnv(
     logger.debug(`Registered user function '${fnName}' in macro environment`);
   } catch (error) {
     // If evaluation fails, silently continue - function will still be transpiled
-    logger.debug(`Could not evaluate fn '${fnName}' at macro-time: ${getErrorMessage(error)}`);
+    logger.debug(
+      `Could not evaluate fn '${fnName}' at macro-time: ${
+        getErrorMessage(error)
+      }`,
+    );
   }
 }
 
@@ -1034,7 +1059,10 @@ function evaluateMacroCall(
   // Evaluate arguments with hybrid semantics:
   // - Known operators (functions, macros, special forms): evaluate
   // - Unknown operators (syntax markers like 'case'): preserve as-is
-  const args = mapTail(list.elements, (arg) => evaluateArgumentForMacro(arg, env, logger));
+  const args = mapTail(
+    list.elements,
+    (arg) => evaluateArgumentForMacro(arg, env, logger),
+  );
   const expanded = macroFn(args, env);
   return evaluateForMacro(expanded, env, logger);
 }
@@ -1090,7 +1118,11 @@ function evaluateFunctionCall(
       try {
         const fn = env.lookup(op);
         if (typeof fn === "function") {
-          const evalArgs = evaluateArguments(list.elements.slice(1), env, logger);
+          const evalArgs = evaluateArguments(
+            list.elements.slice(1),
+            env,
+            logger,
+          );
           const callable = fn as (...args: unknown[]) => unknown;
           return convertJsValueToSExp(callable(...evalArgs));
         }
@@ -1122,7 +1154,9 @@ function evaluateFunctionCall(
       }
     } catch (interpError) {
       logger.debug(
-        `Interpreter evaluation failed for '${op}': ${getErrorMessage(interpError)}`
+        `Interpreter evaluation failed for '${op}': ${
+          getErrorMessage(interpError)
+        }`,
       );
       // Fall through to compiler env
     }
@@ -1163,7 +1197,13 @@ function evaluateQuasiquote(
   // Create auto-gensym map for this quasiquote template
   // All foo# symbols within this template will map to the same generated symbol
   const autoGensymMap: AutoGensymMap = new Map();
-  return processQuasiquotedExpr(expr.elements[1], 0, env, logger, autoGensymMap);
+  return processQuasiquotedExpr(
+    expr.elements[1],
+    0,
+    env,
+    logger,
+    autoGensymMap,
+  );
 }
 
 /* Process a quasiquoted expression with depth tracking for nested quasiquotes
@@ -1223,7 +1263,10 @@ function processQuasiquotedExpr(
     if (depth === 0) {
       return innerProcessed;
     } else {
-      return createListFrom(list, [{ type: "symbol", name: "quasiquote" }, innerProcessed]);
+      return createListFrom(list, [
+        { type: "symbol", name: "quasiquote" },
+        innerProcessed,
+      ]);
     }
   }
 
@@ -1249,7 +1292,10 @@ function processQuasiquotedExpr(
         logger,
         autoGensymMap,
       );
-      return createListFrom(list, [{ type: "symbol", name: "unquote" }, innerProcessed]);
+      return createListFrom(list, [
+        { type: "symbol", name: "unquote" },
+        innerProcessed,
+      ]);
     }
   }
 
@@ -1424,7 +1470,7 @@ function expandMacroExpression(
   const cleanedElements = expandedElements.filter((elem) =>
     !isMacroPlaceholder(elem)
   );
-  
+
   if (cleanedElements.length !== expandedElements.length) {
     hasChanged = true;
   }

@@ -8,13 +8,13 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 import { getAgentMemoryPath } from "../../common/paths.ts";
-import { appendJsonLine, readJsonLines } from "../../common/jsonl.ts";
-import { ValidationError } from "../../common/error.ts";
 import {
-  getErrorMessage,
-  isFileNotFoundError,
-  isObjectValue,
-} from "../../common/utils.ts";
+  appendJsonLine,
+  readJsonLinesTail,
+  scanJsonLines,
+} from "../../common/jsonl.ts";
+import { ValidationError } from "../../common/error.ts";
+import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -64,21 +64,6 @@ function toMemoryEntry(value: unknown): MemoryEntry | undefined {
   return { id, content, tags, createdAt };
 }
 
-async function readAllEntries(): Promise<MemoryEntry[]> {
-  const path = getAgentMemoryPath();
-  try {
-    return await readJsonLines(path, toMemoryEntry);
-  } catch (error) {
-    if (isFileNotFoundError(error)) {
-      return [];
-    }
-    throw new ValidationError(
-      `Failed to read agent memory: ${getErrorMessage(error)}`,
-      "agent_memory",
-    );
-  }
-}
-
 async function appendEntry(entry: MemoryEntry): Promise<void> {
   const path = getAgentMemoryPath();
   await appendJsonLine(path, entry);
@@ -117,24 +102,44 @@ export async function searchMemory(
   const limit = typeof query.limit === "number" && query.limit > 0
     ? query.limit
     : 5;
-  const entries = await readAllEntries();
-  // Early termination: stop scanning once we have enough matches
   const matches: MemoryEntry[] = [];
-  for (const entry of entries) {
-    if (
-      entry.content.toLowerCase().includes(needle) ||
-      entry.tags?.some((tag) => tag.toLowerCase().includes(needle))
-    ) {
-      matches.push(entry);
-      if (matches.length >= limit) break;
-    }
+  const path = getAgentMemoryPath();
+  try {
+    await scanJsonLines<MemoryEntry>(
+      path,
+      (entry) => {
+        if (
+          entry.content.toLowerCase().includes(needle) ||
+          entry.tags?.some((tag) => tag.toLowerCase().includes(needle))
+        ) {
+          matches.push(entry);
+          if (matches.length >= limit) {
+            return false;
+          }
+        }
+      },
+      toMemoryEntry,
+    );
+  } catch (error) {
+    throw new ValidationError(
+      `Failed to search agent memory: ${getErrorMessage(error)}`,
+      "agent_memory",
+    );
   }
   return matches;
 }
 
 export async function listMemoryEntries(limit = 50): Promise<MemoryEntry[]> {
-  const entries = await readAllEntries();
-  return entries.slice(-limit);
+  if (!Number.isFinite(limit) || limit <= 0) return [];
+  const path = getAgentMemoryPath();
+  try {
+    return await readJsonLinesTail(path, limit, toMemoryEntry);
+  } catch (error) {
+    throw new ValidationError(
+      `Failed to list agent memory: ${getErrorMessage(error)}`,
+      "agent_memory",
+    );
+  }
 }
 
 export async function clearMemory(): Promise<void> {
