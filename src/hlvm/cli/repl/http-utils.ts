@@ -7,6 +7,7 @@
 
 const MAX_BODY_BYTES = 1_000_000;
 const textDecoder = new TextDecoder();
+export const textEncoder = new TextEncoder();
 
 export type JsonParseResult<T> =
   | { ok: true; value: T }

@@ -5,7 +5,7 @@
  */
 
 import { getPlatform } from "../../../../platform/platform.ts";
-import { isFileNotFoundError } from "../../../../common/utils.ts";
+import { isFileNotFoundError, hashString } from "../../../../common/utils.ts";
 import {
   appendJsonLine,
   atomicWriteTextFile,
@@ -178,16 +178,12 @@ async function ensureLegacySessionsMigrated(sessionsDir: string): Promise<void> 
 // ============================================================================
 
 /**
- * Generate a stable hash for a project path using djb2 algorithm.
- * Fast and collision-resistant enough for this use case.
+ * Generate a stable hash for a project path.
+ * Delegates to SSOT hashString() in common/utils.ts.
  * @returns 8-character hex string
  */
 export function hashProjectPath(projectPath: string): string {
-  let hash = 5381;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = ((hash << 5) + hash) ^ projectPath.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
+  return hashString(projectPath);
 }
 
 /**

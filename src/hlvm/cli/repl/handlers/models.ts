@@ -6,7 +6,7 @@
 
 import { ai } from "../../../api/ai.ts";
 import type { RouteParams } from "../http-router.ts";
-import { parseJsonBody, jsonError, ndjsonLine } from "../http-utils.ts";
+import { parseJsonBody, jsonError, ndjsonLine, textEncoder } from "../http-utils.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { listRegisteredProviders } from "../../../providers/index.ts";
 
@@ -25,8 +25,6 @@ export async function handleGetModel(
 }
 
 export function handlePullModel(req: Request): Response {
-  const encoder = new TextEncoder();
-
   const stream = new ReadableStream({
     async start(controller) {
       const parsed = await parseJsonBody<{
@@ -35,7 +33,7 @@ export function handlePullModel(req: Request): Response {
       }>(req);
 
       if (!parsed.ok) {
-        controller.enqueue(encoder.encode(
+        controller.enqueue(textEncoder.encode(
           ndjsonLine({ event: "error", message: "Invalid request" })
         ));
         controller.close();
@@ -44,7 +42,7 @@ export function handlePullModel(req: Request): Response {
 
       const { name, provider } = parsed.value;
       if (!name) {
-        controller.enqueue(encoder.encode(
+        controller.enqueue(textEncoder.encode(
           ndjsonLine({ event: "error", message: "Missing model name" })
         ));
         controller.close();
@@ -53,15 +51,15 @@ export function handlePullModel(req: Request): Response {
 
       try {
         for await (const progress of ai.models.pull(name, provider, req.signal)) {
-          controller.enqueue(encoder.encode(
+          controller.enqueue(textEncoder.encode(
             ndjsonLine({ event: "progress", ...progress })
           ));
         }
-        controller.enqueue(encoder.encode(
+        controller.enqueue(textEncoder.encode(
           ndjsonLine({ event: "complete", name })
         ));
       } catch (error) {
-        controller.enqueue(encoder.encode(
+        controller.enqueue(textEncoder.encode(
           ndjsonLine({ event: "error", message: getErrorMessage(error) })
         ));
       }

@@ -22,11 +22,12 @@ import { ensureAgentReady, runAgentQuery } from "../../../agent/agent-runner.ts"
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { log } from "../../../api/log.ts";
-import { parseJsonBody, jsonError, ndjsonLine } from "../http-utils.ts";
+import { parseJsonBody, jsonError, ndjsonLine, textEncoder } from "../http-utils.ts";
 import type { Message } from "../../../providers/index.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { Message as AgentMessage } from "../../../agent/context.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import type { ModelInfo } from "../../../providers/types.ts";
 
 // MARK: - Image Helpers
 
@@ -56,6 +57,27 @@ async function resolveImages(imagePathsJson: string | null): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+// MARK: - Model Validation
+
+async function modelSupportsTools(modelName: string, modelInfo: ModelInfo | null): Promise<boolean> {
+  if (modelInfo?.capabilities) {
+    return modelInfo.capabilities.includes("tools");
+  }
+  try {
+    const catalog = await ai.models.catalog();
+    const baseName = modelName.split(":")[0];
+    const match = catalog.find((m) =>
+      m.name === modelName || m.name.split(":")[0] === baseName
+    );
+    if (match?.capabilities) {
+      return match.capabilities.includes("tools");
+    }
+  } catch {
+    // Catalog unavailable
+  }
+  return true;
 }
 
 // MARK: - Types
@@ -105,6 +127,24 @@ export function handleSessionCancel(sessionId: string): Response {
   return Response.json({ cancelled: true, session_id: sessionId });
 }
 
+// MARK: - Private Helpers
+
+function emitCancellation(
+  assistantMessageId: number,
+  partialText: string,
+  sessionId: string,
+  requestId: string,
+  emit: (obj: unknown) => void,
+): void {
+  updateMessage(assistantMessageId, { cancelled: true, content: partialText });
+  pushSSEEvent(sessionId, "message_updated", {
+    id: assistantMessageId,
+    content: partialText,
+    cancelled: true,
+  });
+  emit({ event: "cancelled", request_id: requestId, partial_text: partialText });
+}
+
 // MARK: - Public Methods
 
 export async function handleChat(req: Request): Promise<Response> {
@@ -141,25 +181,24 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
-  if (body.model) {
-    const modelInfo = await ai.models.get(body.model);
-    if (modelInfo === null) {
+  const resolvedModel = body.model ??
+    (body.mode === "agent" ? (await import("../../../../common/ai-default-model.ts")).getConfiguredModel() : undefined);
+
+  if (resolvedModel) {
+    const modelInfo = await ai.models.get(resolvedModel);
+    if (body.model && modelInfo === null) {
       return jsonError(`Model not found: ${body.model}`, 400);
     }
-    if (body.mode === "agent" && modelInfo.capabilities && !modelInfo.capabilities.includes("tools")) {
-      return jsonError("Selected model does not support tool calling", 400);
-    }
-  } else if (body.mode === "agent") {
-    const defaultModel = (await import("../../../../common/ai-default-model.ts")).getConfiguredModel();
-    if (defaultModel) {
-      const modelInfo = await ai.models.get(defaultModel);
-      if (modelInfo && modelInfo.capabilities && !modelInfo.capabilities.includes("tools")) {
-        return jsonError("Default model does not support tool calling", 400);
-      }
+    if (body.mode === "agent" && !(await modelSupportsTools(resolvedModel, modelInfo))) {
+      return jsonError(
+        body.model
+          ? "Selected model does not support tool calling"
+          : "Default model does not support tool calling",
+        400,
+      );
     }
   }
 
-  const encoder = new TextEncoder();
   const controller = new AbortController();
   activeRequests.set(requestId, { controller, sessionId: body.session_id });
 
@@ -197,7 +236,7 @@ export async function handleChat(req: Request): Promise<Response> {
     async start(streamController) {
       function emit(obj: unknown): void {
         try {
-          streamController.enqueue(encoder.encode(ndjsonLine(obj)));
+          streamController.enqueue(textEncoder.encode(ndjsonLine(obj)));
         } catch {
           // Stream closed
         }
@@ -215,13 +254,7 @@ export async function handleChat(req: Request): Promise<Response> {
         }
 
         if (controller.signal.aborted) {
-          updateMessage(assistantMessageId, { cancelled: true, content: partialText });
-          pushSSEEvent(sessionId, "message_updated", {
-            id: assistantMessageId,
-            content: partialText,
-            cancelled: true,
-          });
-          emit({ event: "cancelled", request_id: requestId, partial_text: partialText });
+          emitCancellation(assistantMessageId, partialText, sessionId, requestId, emit);
         } else {
           const currentSession = getSession(sessionId);
           if (currentSession && !currentSession.title) {
@@ -242,21 +275,8 @@ export async function handleChat(req: Request): Promise<Response> {
           });
         }
       } catch (error) {
-        if (controller.signal.aborted) {
-          updateMessage(assistantMessageId, { cancelled: true, content: partialText });
-          pushSSEEvent(sessionId, "message_updated", {
-            id: assistantMessageId,
-            content: partialText,
-            cancelled: true,
-          });
-          emit({ event: "cancelled", request_id: requestId, partial_text: partialText });
-        } else {
-          updateMessage(assistantMessageId, { cancelled: true, content: partialText });
-          pushSSEEvent(sessionId, "message_updated", {
-            id: assistantMessageId,
-            content: partialText,
-            cancelled: true,
-          });
+        emitCancellation(assistantMessageId, partialText, sessionId, requestId, emit);
+        if (!controller.signal.aborted) {
           emit({ event: "error", message: getErrorMessage(error) });
         }
       }
@@ -273,9 +293,6 @@ export async function handleChat(req: Request): Promise<Response> {
       "Cache-Control": "no-cache",
       "Connection": "keep-alive",
       "X-Request-ID": requestId,
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, X-Request-ID, Last-Event-ID",
     },
   });
 }
@@ -291,6 +308,7 @@ export async function handleChatCancel(req: Request): Promise<Response> {
   if (!entry) return jsonError("Request not found or already completed", 404);
 
   entry.controller.abort();
+  activeRequests.delete(request_id);
   return Response.json({ cancelled: true, request_id });
 }
 

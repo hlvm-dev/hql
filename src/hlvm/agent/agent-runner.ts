@@ -31,6 +31,7 @@ import {
 } from "./session-store.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { ENGINE_PROFILES, DEFAULT_TOOL_DENYLIST, MAX_SESSION_HISTORY } from "./constants.ts";
+import { hashString } from "../../common/utils.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -39,20 +40,10 @@ const DEFAULT_AGENT_PATH_ROOTS = [
   "~/Documents",
 ];
 
-function hashString(input: string): string {
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16);
-}
-
 function deriveDefaultSessionKey(workspace: string): string {
   const platform = getPlatform();
   const base = platform.path.basename(workspace) || "workspace";
-  const hash = hashString(workspace).slice(0, 8);
-  return `${base}-${hash}`;
+  return `${base}-${hashString(workspace)}`;
 }
 
 function mergePolicyPathRoots(
