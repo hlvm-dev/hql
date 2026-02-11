@@ -6,10 +6,10 @@
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
-  shellExec,
-  shellScript,
   classifyShellCommand,
+  shellExec,
   type ShellExecArgs,
+  shellScript,
   type ShellScriptArgs,
 } from "../../../src/hlvm/agent/tools/shell-tools.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
@@ -26,7 +26,7 @@ async function setupWorkspace() {
     // Create a test file
     await platform.fs.writeTextFile(
       `${TEST_WORKSPACE}/test.txt`,
-      "Hello, world!"
+      "Hello, world!",
     );
   } catch {
     // Workspace might already exist
@@ -133,7 +133,7 @@ Deno.test({
       {
         command: "echo hello",
       } as ShellExecArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -154,7 +154,7 @@ Deno.test({
         command: "pwd",
         cwd: ".",
       } as ShellExecArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -176,7 +176,7 @@ Deno.test({
       {
         command: "git status",
       } as ShellExecArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -195,7 +195,7 @@ Deno.test({
       {
         command: "echo test",
       } as ShellExecArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -214,7 +214,7 @@ Deno.test({
       {
         command: "ls nonexistent-file",
       } as ShellExecArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -234,7 +234,7 @@ Deno.test({
       {
         command: "",
       } as ShellExecArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -256,10 +256,37 @@ Deno.test({
         command: "pwd",
         cwd: "../../etc",
       } as ShellExecArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
+
+    await cleanupWorkspace();
+  },
+});
+
+Deno.test({
+  name: "Shell Tools: shell_exec - abort long-running command",
+  async fn() {
+    if (getPlatform().build.os === "windows") return;
+    await setupWorkspace();
+
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    const pending = shellExec(
+      {
+        command: "sleep 5",
+      } as ShellExecArgs,
+      TEST_WORKSPACE,
+      { signal: controller.signal },
+    );
+
+    setTimeout(() => controller.abort(), 100);
+    const result = await pending;
+
+    assertEquals(result.success, false);
+    assertStringIncludes((result.message ?? "").toLowerCase(), "aborted");
+    assertEquals(Date.now() - startedAt < 4500, true);
 
     await cleanupWorkspace();
   },
@@ -280,7 +307,7 @@ Deno.test({
 echo "Line 2"
 echo "Line 3"`,
       } as ShellScriptArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -306,7 +333,7 @@ for i in 1 2 3; do
 done`,
         interpreter: "bash",
       } as ShellScriptArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -328,7 +355,7 @@ Deno.test({
         script: "pwd",
         cwd: ".",
       } as ShellScriptArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -349,12 +376,12 @@ Deno.test({
 ls nonexistent-file
 echo "After error"`,
       } as ShellScriptArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     // Script continues even after error (unless set -e), so exit code is 0
     // The error goes to stderr but the script completes
-    assertEquals(result.success, true);  // Last command (echo) succeeds
+    assertEquals(result.success, true); // Last command (echo) succeeds
     assertStringIncludes(result.stdout, "Before error");
     assertStringIncludes(result.stdout, "After error");
 
@@ -372,7 +399,7 @@ Deno.test({
         script: `NAME="World"
 echo "Hello, $NAME!"`,
       } as ShellScriptArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -392,7 +419,7 @@ Deno.test({
         script: "pwd",
         cwd: "../../etc",
       } as ShellScriptArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -401,3 +428,29 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "Shell Tools: shell_script - abort long-running script",
+  async fn() {
+    if (getPlatform().build.os === "windows") return;
+    await setupWorkspace();
+
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    const pending = shellScript(
+      {
+        script: "sleep 5",
+      } as ShellScriptArgs,
+      TEST_WORKSPACE,
+      { signal: controller.signal },
+    );
+
+    setTimeout(() => controller.abort(), 100);
+    const result = await pending;
+
+    assertEquals(result.success, false);
+    assertStringIncludes((result.message ?? "").toLowerCase(), "aborted");
+    assertEquals(Date.now() - startedAt < 4500, true);
+
+    await cleanupWorkspace();
+  },
+});

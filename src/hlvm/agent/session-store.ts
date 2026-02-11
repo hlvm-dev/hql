@@ -68,6 +68,10 @@ type TranscriptEntry = MessageEntry | CompactionEntry;
 
 const INDEX_FILE = "sessions.json";
 const MAX_TRANSCRIPT_ENTRIES = 500;
+const EMPTY_INDEX: SessionIndex = { version: 1, sessions: {} };
+
+let inFlightIndexLoad: Promise<SessionIndex> | null = null;
+let inFlightIndexPath: string | null = null;
 
 async function ensureSessionsDir(): Promise<string> {
   const platform = getPlatform();
@@ -81,10 +85,12 @@ function getIndexPath(): string {
   return platform.path.join(getSessionsDir(), INDEX_FILE);
 }
 
-async function loadIndex(): Promise<SessionIndex> {
+function createEmptyIndex(): SessionIndex {
+  return { ...EMPTY_INDEX, sessions: {} };
+}
+
+async function loadIndexFromDisk(path: string): Promise<SessionIndex> {
   const platform = getPlatform();
-  await ensureSessionsDir();
-  const path = getIndexPath();
   try {
     const raw = await platform.fs.readTextFile(path);
     const parsed = JSON.parse(raw) as SessionIndex;
@@ -94,7 +100,7 @@ async function loadIndex(): Promise<SessionIndex> {
     return parsed;
   } catch (error) {
     if (isFileNotFoundError(error)) {
-      return { version: 1, sessions: {} };
+      return createEmptyIndex();
     }
     if (error instanceof SyntaxError) {
       throw new ValidationError(
@@ -107,11 +113,30 @@ async function loadIndex(): Promise<SessionIndex> {
   }
 }
 
+async function loadIndex(): Promise<SessionIndex> {
+  await ensureSessionsDir();
+  const path = getIndexPath();
+
+  if (inFlightIndexLoad && inFlightIndexPath === path) {
+    return await inFlightIndexLoad;
+  }
+
+  inFlightIndexPath = path;
+  inFlightIndexLoad = loadIndexFromDisk(path);
+
+  try {
+    return await inFlightIndexLoad;
+  } finally {
+    inFlightIndexLoad = null;
+    inFlightIndexPath = null;
+  }
+}
+
 /** Fix 14: Use atomic write to prevent corruption on crash/concurrent access */
 async function saveIndex(index: SessionIndex): Promise<void> {
   await ensureSessionsDir();
   const path = getIndexPath();
-  await atomicWriteTextFile(path, JSON.stringify(index, null, 2));
+  await atomicWriteTextFile(path, JSON.stringify(index));
 }
 
 function createEntry(key?: string): AgentSessionEntry {
@@ -176,6 +201,16 @@ export async function updateSession(
   entry: AgentSessionEntry,
 ): Promise<void> {
   const index = await loadIndex();
+  const existing = index.sessions[entry.id];
+  if (
+    existing &&
+    existing.key === entry.key &&
+    existing.createdAt === entry.createdAt &&
+    existing.updatedAt === entry.updatedAt &&
+    existing.messageCount === entry.messageCount
+  ) {
+    return;
+  }
   index.sessions[entry.id] = entry;
   await saveIndex(index);
 }

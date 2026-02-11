@@ -14,11 +14,15 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { resolveToolPath } from "../path-utils.ts";
-import { parseShellCommand, isSafeCommand, getUnsafeReason } from "../../../common/shell-parser.ts";
+import {
+  getUnsafeReason,
+  isSafeCommand,
+  parseShellCommand,
+} from "../../../common/shell-parser.ts";
 import { classifyShellCommand as classifyShellCommandWithReason } from "../security/shell-classifier.ts";
 import { getNetworkPolicyDeniedUrl } from "../policy.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
-import { formatToolError, okTool, failTool } from "../tool-results.ts";
+import { failTool, formatToolError, okTool } from "../tool-results.ts";
 
 // ============================================================
 // Types
@@ -56,6 +60,8 @@ interface ShellScriptResult extends ShellResult {
   success: boolean;
   message?: string;
 }
+
+const FORCE_KILL_DELAY_MS = 2000;
 
 /**
  * Backward-compatible classifier returning only safety level.
@@ -166,14 +172,15 @@ export async function shellExec(
       stdin: "null",
     });
 
+    const abortHandler = createProcessAbortHandler(process, platform.build.os);
     let aborted = false;
     const onAbort = (): void => {
       aborted = true;
-      process.kill?.("SIGTERM");
+      abortHandler.abort();
     };
 
     if (options?.signal) {
-      options.signal.addEventListener("abort", onAbort);
+      options.signal.addEventListener("abort", onAbort, { once: true });
     }
 
     try {
@@ -215,6 +222,7 @@ export async function shellExec(
       if (options?.signal) {
         options.signal.removeEventListener("abort", onAbort);
       }
+      abortHandler.clear();
     }
   } catch (error) {
     const toolError = formatToolError("Failed to execute command", error);
@@ -318,14 +326,15 @@ export async function shellScript(
       stdin: "null",
     });
 
+    const abortHandler = createProcessAbortHandler(process, platform.build.os);
     let aborted = false;
     const onAbort = (): void => {
       aborted = true;
-      process.kill?.("SIGTERM");
+      abortHandler.abort();
     };
 
     if (options?.signal) {
-      options.signal.addEventListener("abort", onAbort);
+      options.signal.addEventListener("abort", onAbort, { once: true });
     }
 
     try {
@@ -365,6 +374,7 @@ export async function shellScript(
       if (options?.signal) {
         options.signal.removeEventListener("abort", onAbort);
       }
+      abortHandler.clear();
     }
   } catch (error) {
     const toolError = formatToolError("Failed to execute script", error);
@@ -389,6 +399,45 @@ export async function shellScript(
 // Helpers
 // ============================================================
 
+function createProcessAbortHandler(
+  process: { kill?(signal?: string | number): void },
+  os: ReturnType<typeof getPlatform>["build"]["os"],
+): { abort: () => void; clear: () => void } {
+  let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const tryKill = (signal?: string | number): void => {
+    try {
+      process.kill?.(signal);
+    } catch {
+      // Process may have already exited; no-op.
+    }
+  };
+
+  return {
+    abort: () => {
+      if (!process.kill) return;
+
+      if (os === "windows") {
+        tryKill();
+        return;
+      }
+
+      tryKill("SIGTERM");
+      if (forceKillTimer === null) {
+        forceKillTimer = setTimeout(() => {
+          tryKill("SIGKILL");
+        }, FORCE_KILL_DELAY_MS);
+      }
+    },
+    clear: () => {
+      if (forceKillTimer !== null) {
+        clearTimeout(forceKillTimer);
+        forceKillTimer = null;
+      }
+    },
+  };
+}
+
 function extractUrlsFromArgs(args: string[]): string[] {
   const urls: string[] = [];
   for (const arg of args) {
@@ -411,7 +460,10 @@ async function readProcessStream(
   stream: unknown,
   signal?: AbortSignal,
 ): Promise<Uint8Array> {
-  if (!stream || typeof (stream as ReadableStream<Uint8Array>).getReader !== "function") {
+  if (
+    !stream ||
+    typeof (stream as ReadableStream<Uint8Array>).getReader !== "function"
+  ) {
     return new Uint8Array();
   }
 
@@ -486,7 +538,8 @@ export const SHELL_TOOLS = {
       safetyLevel: "string - Applied safety level (L1/L2)",
       message: "string - Human-readable result message",
     },
-    safety: "L2 by default, L1 if in allow-list (git status/log/diff, deno test --dry-run)",
+    safety:
+      "L2 by default, L1 if in allow-list (git status/log/diff, deno test --dry-run)",
   },
   shell_script: {
     fn: shellScript,
@@ -494,7 +547,8 @@ export const SHELL_TOOLS = {
     safetyLevel: "L2",
     args: {
       script: "string - Shell script content",
-      interpreter: "string (optional) - 'bash', 'sh', 'cmd', or 'powershell' (default: sh or cmd on Windows)",
+      interpreter:
+        "string (optional) - 'bash', 'sh', 'cmd', or 'powershell' (default: sh or cmd on Windows)",
       cwd: "string (optional) - Working directory (default: workspace root)",
     },
     returns: {
