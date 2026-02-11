@@ -108,7 +108,7 @@ function createAiApi() {
     return {
       ...options,
       model: resolveModelName(options?.model),
-      raw: options?.signal ? { signal: options.signal } : undefined,
+      raw: { ...(options?.raw ?? {}), ...(options?.signal ? { signal: options.signal } : {}) },
     } as T;
   }
 

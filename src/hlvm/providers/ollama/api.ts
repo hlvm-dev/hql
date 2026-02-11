@@ -216,18 +216,21 @@ async function* streamRequest<T>(
 
 /**
  * Make a non-streaming request to Ollama
+ * Fix 9: Accept optional AbortSignal for cancellation
  */
 async function jsonRequest<T>(
   endpoint: string,
   path: string,
   body?: unknown,
   method: "GET" | "POST" | "DELETE" = "POST",
+  signal?: AbortSignal,
 ): Promise<T> {
   const url = `${endpoint}${path}`;
 
   const options: RequestInit = {
     method,
     headers: JSON_HEADERS,
+    signal,
   };
 
   if (body) {
@@ -381,9 +384,9 @@ export async function chatStructured(
         contentChunks.push(chunk.message.content);
         onToken?.(chunk.message.content);
       }
-      // Ollama may emit tool_calls in any chunk (typically the first non-done chunk)
+      // Ollama may emit tool_calls in any chunk — accumulate across chunks
       if (chunk.message?.tool_calls?.length) {
-        toolCalls = chunk.message.tool_calls;
+        toolCalls.push(...chunk.message.tool_calls);
       }
     }
 
@@ -393,11 +396,13 @@ export async function chatStructured(
     };
   }
 
-  // Non-streaming path (default)
+  // Non-streaming path (default) — Fix 9: forward signal
   const result = await jsonRequest<OllamaChatResponse>(
     endpoint,
     "/api/chat",
     body,
+    "POST",
+    signal,
   );
 
   return {

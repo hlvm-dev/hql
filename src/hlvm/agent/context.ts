@@ -15,7 +15,7 @@
  */
 
 import { DEFAULT_CONTEXT_CONFIG } from "./constants.ts";
-import { truncate } from "../../common/utils.ts";
+import { truncate, truncateMiddle } from "../../common/utils.ts";
 import type { MessageRole } from "../providers/types.ts";
 
 // ============================================================
@@ -143,9 +143,23 @@ export class ContextManager {
       timestamp: message.timestamp ?? Date.now(),
     };
 
+    // Estimate chars for toolCalls metadata (if present)
+    let toolCallChars = 0;
+    if (messageWithTimestamp.toolCalls?.length) {
+      for (const tc of messageWithTimestamp.toolCalls) {
+        const nameLen = tc.function?.name?.length ?? 0;
+        const argsLen = tc.function?.arguments
+          ? (typeof tc.function.arguments === "string"
+              ? tc.function.arguments.length
+              : JSON.stringify(tc.function.arguments).length)
+          : 0;
+        toolCallChars += nameLen + argsLen + 20; // overhead for id, structure
+      }
+    }
+
     if (this.config.overflowStrategy === "fail") {
       const projectedTokens = Math.ceil(
-        (this.totalChars + messageWithTimestamp.content.length) / 4,
+        (this.totalChars + messageWithTimestamp.content.length + toolCallChars) / 4,
       );
       if (projectedTokens > this.config.maxTokens) {
         throw new ContextOverflowError(
@@ -156,7 +170,7 @@ export class ContextManager {
     }
 
     this.messages.push(messageWithTimestamp);
-    this.totalChars += messageWithTimestamp.content.length;
+    this.totalChars += messageWithTimestamp.content.length + toolCallChars;
     this.incrementRoleCount(messageWithTimestamp.role);
 
     // Proactive compaction at threshold (before overflow)
@@ -169,6 +183,10 @@ export class ContextManager {
 
     // Handle overflow if needed
     this.trimIfNeeded();
+    // If trimming resolved the overflow, clear pending compaction flag
+    if (this.pendingCompaction && !this.needsTrimming()) {
+      this.pendingCompaction = false;
+    }
   }
 
   /**
@@ -222,11 +240,22 @@ export class ContextManager {
   }
 
   /**
-   * Get all messages
+   * Get all messages — callers should not mutate the returned array.
+   * Fix 21: Returns internal array directly to avoid GC pressure.
+   * Use getMessagesCopy() if you need to mutate.
    *
-   * @returns Copy of message array
+   * @returns Message array (do not mutate)
    */
   getMessages(): Message[] {
+    return this.messages;
+  }
+
+  /**
+   * Get a mutable copy of all messages
+   *
+   * @returns Shallow copy of message array
+   */
+  getMessagesCopy(): Message[] {
     return [...this.messages];
   }
 
@@ -303,7 +332,7 @@ export class ContextManager {
    * @returns Truncated result if needed
    */
   truncateResult(result: string): string {
-    return truncate(result, this.config.maxResultLength);
+    return truncateMiddle(result, this.config.maxResultLength);
   }
 
   /**

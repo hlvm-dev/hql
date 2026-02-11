@@ -108,6 +108,16 @@ function isTypeMatch(value: unknown, schema: JsonSchemaProperty): boolean {
 
 function coerceValue(value: unknown, schema: JsonSchemaProperty): unknown {
   if (schema.type === "array") {
+    // Fix 25: Coerce string-encoded arrays (e.g., "[1,2,3]" → [1,2,3])
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          if (!schema.items) return parsed;
+          return parsed.map((item: unknown) => coerceValue(item, schema.items!));
+        }
+      } catch { /* not valid JSON array, return as-is */ }
+    }
     if (!Array.isArray(value)) return value;
     if (!schema.items) return value;
     return value.map((item) => coerceValue(item, schema.items!));

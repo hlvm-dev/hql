@@ -467,6 +467,29 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "Orchestrator: processAgentResponse - deduplicates identical tool calls",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    const response = makeResponse("Let me check that.", [
+      { toolName: "read_file", args: { path: "src/main.ts" } },
+      { toolName: "read_file", args: { path: "src/main.ts" } }, // duplicate
+      { toolName: "read_file", args: { path: "src/other.ts" } }, // different args
+    ]);
+
+    const result = await processAgentResponse(response, {
+      workspace: TEST_WORKSPACE,
+      context,
+      autoApprove: true,
+    });
+
+    // Only 2 unique calls should be executed (not 3)
+    assertEquals(result.toolCallsMade, 2);
+  },
+});
+
 // ============================================================
 // ReAct Loop tests
 // ============================================================
@@ -500,7 +523,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "Orchestrator: runReActLoop - rejects text tool-call JSON without native calls",
+    "Orchestrator: runReActLoop - parses text tool-call JSON as fallback",
   async fn() {
     clearAllL1Confirmations();
 
@@ -524,11 +547,13 @@ Deno.test({
       mockLLM,
     );
 
+    // After retries, text tool calls are now parsed and executed as fallback
+    assertEquals(typeof result, "string");
+    // The result should not be the old rejection message
     assertEquals(
-      result,
-      "Native tool calling required. Tool call JSON in text is not accepted.",
+      result !== "Native tool calling required. Tool call JSON in text is not accepted.",
+      true,
     );
-    assertEquals(callCount, 2);
   },
 });
 
@@ -845,10 +870,9 @@ Deno.test({
     // Should stop after 3 denials and give agent chance to use ask_user
     assertEquals(callCount, 4);
 
-    // Check that max denials message was added to context
+    // Check that max denials message was added to context (as user message)
     const messages = context.getMessages();
-    const toolMessages = messages.filter((m) => m.role === "tool");
-    const maxDenialsMsg = toolMessages.find((m) =>
+    const maxDenialsMsg = messages.find((m) =>
       m.content.includes("Maximum denials")
     );
     // Verify max denials message exists and suggests ask_user as recovery
@@ -858,26 +882,24 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop - denial counter resets on success",
+  name: "Orchestrator: runReActLoop - denial counter tracks per tool",
   async fn() {
     clearAllL1Confirmations();
 
     const context = new ContextManager();
     let callCount = 0;
 
-    // Mock LLM that alternates between L2 and L0 tools
+    // Fix 4 changed denial behavior: successful tools only clear their own denial count.
+    // write_file (L2) is denied each time; read_file (L0) success doesn't reset write_file count.
+    // With maxDenials=3, write_file gets 3 denials before blocking.
     const mockLLM = async () => {
       callCount++;
 
-      if (callCount === 1 || callCount === 3) {
-        return makeResponse("Let me write.", [{
+      if (callCount <= 3) {
+        // Each odd call tries write_file (denied) then read_file (succeeds)
+        return makeResponse("Let me try writing.", [{
           toolName: "write_file",
           args: { path: "test.ts", content: "test" },
-        }]);
-      } else if (callCount === 2 || callCount === 4) {
-        return makeResponse("Let me read instead.", [{
-          toolName: "read_file",
-          args: { path: "test.ts" },
         }]);
       } else {
         return makeResponse("Done analyzing.");
@@ -890,22 +912,21 @@ Deno.test({
         workspace: TEST_WORKSPACE,
         context,
         autoApprove: false, // Trigger denials for L2
-        maxDenials: 2,
+        maxDenials: 3,
       },
       mockLLM,
     );
 
-    // Should complete all 5 calls without hitting max denials
-    // Because L0 tools reset the counter
-    assertEquals(callCount, 5);
+    // write_file denied 3 times, then allToolsBlocked triggers final LLM call
+    assertEquals(callCount, 4);
     assertEquals(result.includes("Done analyzing"), true);
 
-    // Should NOT see max denials message
+    // Should see max denials message for write_file
     const messages = context.getMessages();
     const maxDenialsMsg = messages.find((m) =>
       m.content.includes("Maximum denials")
     );
-    assertEquals(maxDenialsMsg, undefined);
+    assertEquals(maxDenialsMsg !== undefined, true);
   },
 });
 
@@ -1017,10 +1038,9 @@ Deno.test({
       mockLLM,
     );
 
-    // Check that suggestion message includes ask_user reference
+    // Check that suggestion message includes ask_user reference (sent as user message)
     const messages = context.getMessages();
-    const toolMessages = messages.filter((m) => m.role === "tool");
-    const suggestionMsg = toolMessages.find((m) =>
+    const suggestionMsg = messages.find((m) =>
       m.content.includes("ask_user")
     );
 

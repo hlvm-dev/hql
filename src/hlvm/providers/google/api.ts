@@ -6,6 +6,7 @@
  */
 
 import {
+  generateToolCallId,
   JSON_HEADERS,
   parseJsonArgs,
   readSSEStream,
@@ -131,8 +132,8 @@ function extractToolCalls(response: GoogleResponse): ProviderToolCall[] {
   const parts = response.candidates?.[0]?.content?.parts ?? [];
   return parts
     .filter((p) => p.functionCall !== undefined)
-    .map((p, i) => ({
-      id: `call_${i}`,
+    .map((p) => ({
+      id: generateToolCallId(),
       type: "function",
       function: {
         name: p.functionCall!.name,
@@ -224,27 +225,39 @@ async function streamChat(
   }
 
   const contentChunks: string[] = [];
-  const toolCalls: ProviderToolCall[] = [];
+  // Fix 6: Track tool calls by index to avoid duplicates across chunks
+  const toolCallMap = new Map<number, { name: string; args: Record<string, unknown> }>();
 
   for await (const chunk of readSSEStream<GoogleResponse>(response)) {
     const parts = chunk.candidates?.[0]?.content?.parts ?? [];
-    for (const part of parts) {
+    for (let j = 0; j < parts.length; j++) {
+      const part = parts[j];
       if (part.text) {
         contentChunks.push(part.text);
         onToken(part.text);
       }
       if (part.functionCall) {
-        toolCalls.push({
-          id: `call_${toolCalls.length}`,
-          type: "function",
-          function: {
+        const existing = toolCallMap.get(j);
+        if (existing) {
+          // Merge args from subsequent chunks
+          if (part.functionCall.args) {
+            Object.assign(existing.args, part.functionCall.args);
+          }
+        } else {
+          toolCallMap.set(j, {
             name: part.functionCall.name,
-            arguments: part.functionCall.args,
-          },
-        });
+            args: part.functionCall.args ?? {},
+          });
+        }
       }
     }
   }
+
+  const toolCalls: ProviderToolCall[] = [...toolCallMap.values()].map((tc) => ({
+    id: generateToolCallId(),
+    type: "function",
+    function: { name: tc.name, arguments: tc.args },
+  }));
 
   return { content: contentChunks.join(""), toolCalls };
 }

@@ -1,52 +1,18 @@
 /**
- * Ask Command - Interactive AI Agent
+ * Ask Command - Interactive AI Agent (CLI entry point)
  *
- * Allows users to ask questions and execute tasks using the agent system.
- * Entry point to the agent orchestrator pipeline.
+ * Thin CLI wrapper over the shared agent runner.
+ * All agent logic lives in agent-runner.ts (SSOT).
  */
 
 import { log } from "../../api/log.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
-import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { truncate } from "../../../common/utils.ts";
-import {
-  runReActLoop,
-  type TraceEvent,
-  type ToolDisplay,
-} from "../../agent/orchestrator.ts";
 import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
-import { createAgentSession } from "../../agent/session.ts";
-import { createDelegateHandler } from "../../agent/delegation.ts";
-import {
-  appendSessionMessages,
-  getOrCreateSession,
-  loadSessionMessages,
-  type AgentSessionEntry,
-} from "../../agent/session-store.ts";
-import type { AgentPolicy } from "../../agent/policy.ts";
-import { getPlatform } from "../../../platform/platform.ts";
-import { ENGINE_PROFILES, DEFAULT_TOOL_DENYLIST, MAX_SESSION_HISTORY } from "../../agent/constants.ts";
-import {
-  ensureDefaultModelInstalled,
-  getConfiguredModel,
-} from "../../../common/ai-default-model.ts";
-
-function hashString(input: string): string {
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16);
-}
-
-function deriveDefaultSessionKey(workspace: string): string {
-  const platform = getPlatform();
-  const base = platform.path.basename(workspace) || "workspace";
-  const hash = hashString(workspace).slice(0, 8);
-  return `${base}-${hash}`;
-}
+import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
+import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
+import type { TraceEvent, ToolDisplay } from "../../agent/orchestrator.ts";
 
 export function showAskHelp(): void {
   log.raw.log(`
@@ -71,221 +37,121 @@ OPTIONS:
 `);
 }
 
-function mergePolicyPathRoots(
-  policy: AgentPolicy | null,
-  roots: string[],
-): AgentPolicy | null {
-  if (roots.length === 0) return policy;
-  const base: AgentPolicy = policy ?? { version: 1 };
-  const existing = base.pathRules?.roots ?? [];
-  const merged = Array.from(new Set([...existing, ...roots]));
-  return {
-    ...base,
-    pathRules: {
-      ...(base.pathRules ?? {}),
-      roots: merged,
-    },
+function createTraceCallback(verbose: boolean): ((event: TraceEvent) => void) | undefined {
+  if (!verbose) return undefined;
+  return (event: TraceEvent) => {
+    switch (event.type) {
+      case "iteration":
+        log.raw.log(`\n[TRACE] Iteration ${event.current}/${event.max}`);
+        break;
+      case "llm_call":
+        log.raw.log(`[TRACE] Calling LLM with ${event.messageCount} messages`);
+        break;
+      case "llm_response":
+        log.raw.log(`[TRACE] LLM responded (${event.length} chars): "${event.truncated}..."`);
+        break;
+      case "tool_call":
+        log.raw.log(`[TRACE] Tool call: ${event.toolName}`);
+        log.raw.log(`[TRACE] Args: ${JSON.stringify(event.args, null, 2)}`);
+        break;
+      case "tool_result":
+        if (event.success) {
+          const raw = typeof event.result === "string" ? event.result : JSON.stringify(event.result);
+          log.raw.log(`[TRACE] Result: SUCCESS`);
+          log.raw.log(`[TRACE] ${truncate(raw, 200)}`);
+        } else {
+          log.raw.log(`[TRACE] Result: FAILED - ${event.error}`);
+        }
+        break;
+      case "llm_retry":
+        log.raw.log(
+          `[TRACE] LLM retry ${event.attempt}/${event.max} (${event.class})${event.retryable ? "" : " [non-retryable]"}: ${event.error}`,
+        );
+        break;
+      case "grounding_check":
+        log.raw.log(`[TRACE] Grounding ${event.grounded ? "ok" : "warn"} mode=${event.mode} retry=${event.retry}/${event.maxRetry}`);
+        if (event.warnings.length > 0) {
+          for (const warning of event.warnings) {
+            log.raw.log(`[TRACE] Grounding warning: ${warning}`);
+          }
+        }
+        break;
+      case "rate_limit":
+        log.raw.log(`[TRACE] Rate limit (${event.target}): ${event.used}/${event.maxCalls} per ${event.windowMs}ms (reset ${event.resetMs}ms)`);
+        break;
+      case "resource_limit":
+        log.raw.log(`[TRACE] Resource limit (${event.kind}): ${event.used} > ${event.limit}`);
+        break;
+      case "llm_usage":
+        log.raw.log(`[TRACE] LLM usage: ${event.usage.totalTokens} tokens (${event.usage.source})`);
+        break;
+      case "plan_created":
+        log.raw.log(`[TRACE] Plan created with ${event.plan.steps.length} steps`);
+        break;
+      case "plan_step":
+        log.raw.log(`[TRACE] Plan step complete: ${event.stepId} (index ${event.index})`);
+        break;
+      case "context_overflow":
+        log.raw.log(`[TRACE] Context overflow: ${event.estimatedTokens} > ${event.maxTokens}`);
+        break;
+    }
   };
 }
 
-const DEFAULT_AGENT_PATH_ROOTS = [
-  "~/Downloads",
-  "~/Desktop",
-  "~/Documents",
-];
-
 export async function askCommand(args: string[]): Promise<void> {
-  // Check for help flag
   if (hasHelpFlag(args)) {
     showAskHelp();
     return;
   }
 
-  // Parse arguments
   let query = "";
   let verbose = false;
   let modelOverride: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-
     if (arg === "--verbose") {
       verbose = true;
     } else if (arg === "--model") {
       i++;
       if (i >= args.length) {
-        throw new ValidationError("--model requires a value (e.g., openai/gpt-4o)");
+        throw new ValidationError("--model requires a value (e.g., openai/gpt-4o)", "ask");
       }
       modelOverride = args[i];
     } else if (!arg.startsWith("--")) {
-      // Accumulate query parts (in case user forgets quotes)
       query += (query ? " " : "") + arg;
     } else {
-      throw new ValidationError(`Unknown option: ${arg}`);
+      throw new ValidationError(`Unknown option: ${arg}`, "ask");
     }
   }
 
   if (!query) {
-    throw new ValidationError("Missing query. Usage: hlvm ask \"<query>\"");
+    throw new ValidationError("Missing query. Usage: hlvm ask \"<query>\"", "ask");
   }
 
-  // Initialize runtime with AI
-  await initializeRuntime({ stdlib: false, cache: false });
-
-  const model = modelOverride ?? getConfiguredModel();
-  // Only try to pull/install models for Ollama (local) provider
-  const isLocalModel = !model.startsWith("openai/") &&
-    !model.startsWith("anthropic/") &&
-    !model.startsWith("google/");
-  if (isLocalModel) {
-    try {
-      await ensureDefaultModelInstalled({
-        log: (message) => log.raw.log(message),
-      });
-    } catch (error) {
-      if (error instanceof Error) {
-        log.error(`Failed to setup default model: ${error.message}`);
-        log.raw.log("\nTip: Make sure Ollama is running.");
-      }
-      throw error;
+  const model = modelOverride ?? undefined;
+  try {
+    await ensureAgentReady(
+      model ?? (await import("../../../common/ai-default-model.ts")).getConfiguredModel(),
+      (message) => log.raw.log(message),
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      log.error(`Failed to setup default model: ${error.message}`);
+      log.raw.log("\nTip: Make sure Ollama is running.");
     }
+    throw error;
   }
 
-  const profile = ENGINE_PROFILES.normal;
-  const maxCalls = profile.maxToolCalls;
-
-  // Get workspace
-  const workspace = getPlatform().process.cwd();
-
-  const toolAllowlist = undefined;
-  const requireToolCalls = false;
-
-  // Streaming: track whether tokens were streamed to avoid duplicate output
   let streamedTokens = false;
+
   const onToken = (text: string) => {
     streamedTokens = true;
     log.raw.write(text);
   };
 
-  const session = await createAgentSession({
-    workspace,
-    model,
-    engineProfile: "normal",
-    failOnContextOverflow: false,
-    toolAllowlist,
-    toolDenylist: [...DEFAULT_TOOL_DENYLIST],
-    onToken,
-  });
-
-  let sessionEntry: AgentSessionEntry | null = null;
-  const sessionKey = deriveDefaultSessionKey(workspace);
-  sessionEntry = await getOrCreateSession(sessionKey);
-  const historyMessages = await loadSessionMessages(sessionEntry);
-  const recentHistory = historyMessages.slice(-MAX_SESSION_HISTORY);
-  for (const message of recentHistory) {
-    session.context.addMessage({ ...message, fromSession: true });
-  }
-
-  const homePath = getPlatform().env.get("HOME");
-  const homeNote = homePath ? ` (HOME=${homePath})` : "";
-  session.context.addMessage({
-    role: "system",
-    content:
-      `Allowed file roots: ${DEFAULT_AGENT_PATH_ROOTS.join(", ")}${homeNote}. Use list_files for user folders. Avoid placeholders like "/home/user" or "/Downloads" - use "~/Downloads" instead.`,
-  });
-
-  let policy = session.policy;
-  policy = mergePolicyPathRoots(policy, DEFAULT_AGENT_PATH_ROOTS);
-  const delegate = createDelegateHandler(session.llm, {
-    policy,
-    autoApprove: false,
-  });
-
-  // Create trace callback if verbose mode enabled
-  const onTrace = verbose
-    ? (event: TraceEvent) => {
-      switch (event.type) {
-        case "iteration":
-          log.raw.log(`\n[TRACE] Iteration ${event.current}/${event.max}`);
-          break;
-        case "llm_call":
-          log.raw.log(`[TRACE] Calling LLM with ${event.messageCount} messages`);
-          break;
-        case "llm_response":
-          log.raw.log(
-            `[TRACE] LLM responded (${event.length} chars): "${event.truncated}..."`
-          );
-          break;
-        case "tool_call":
-          log.raw.log(`[TRACE] Tool call: ${event.toolName}`);
-          log.raw.log(`[TRACE] Args: ${JSON.stringify(event.args, null, 2)}`);
-          break;
-        case "tool_result":
-          if (event.success) {
-            const raw = typeof event.result === "string"
-              ? event.result
-              : JSON.stringify(event.result);
-            const truncated = truncate(raw, 200);
-            log.raw.log(`[TRACE] Result: SUCCESS`);
-            log.raw.log(`[TRACE] ${truncated}`);
-          } else {
-            log.raw.log(`[TRACE] Result: FAILED - ${event.error}`);
-          }
-          break;
-        case "llm_retry":
-          log.raw.log(
-            `[TRACE] LLM retry ${event.attempt}/${event.max} (${event.class})${
-              event.retryable ? "" : " [non-retryable]"
-            }: ${event.error}`,
-          );
-          break;
-        case "grounding_check":
-          log.raw.log(
-            `[TRACE] Grounding ${event.grounded ? "ok" : "warn"} mode=${event.mode} retry=${event.retry}/${event.maxRetry}`,
-          );
-          if (event.warnings.length > 0) {
-            for (const warning of event.warnings) {
-              log.raw.log(`[TRACE] Grounding warning: ${warning}`);
-            }
-          }
-          break;
-        case "rate_limit":
-          log.raw.log(
-            `[TRACE] Rate limit (${event.target}): ${event.used}/${event.maxCalls} per ${event.windowMs}ms (reset ${event.resetMs}ms)`,
-          );
-          break;
-        case "resource_limit":
-          log.raw.log(
-            `[TRACE] Resource limit (${event.kind}): ${event.used} > ${event.limit}`,
-          );
-          break;
-        case "llm_usage":
-          log.raw.log(
-            `[TRACE] LLM usage: ${event.usage.totalTokens} tokens (${event.usage.source})`,
-          );
-          break;
-        case "plan_created":
-          log.raw.log(
-            `[TRACE] Plan created with ${event.plan.steps.length} steps`,
-          );
-          break;
-        case "plan_step":
-          log.raw.log(
-            `[TRACE] Plan step complete: ${event.stepId} (index ${event.index})`,
-          );
-          break;
-        case "context_overflow":
-          log.raw.log(
-            `[TRACE] Context overflow: ${event.estimatedTokens} > ${event.maxTokens}`,
-          );
-          break;
-      }
-    }
-    : undefined;
-
   const onToolDisplay = (event: ToolDisplay) => {
     if (event.toolName === "ask_user") return;
-    // If tokens were streaming, end the line before tool output
     if (streamedTokens) {
       log.raw.write("\n");
       streamedTokens = false;
@@ -299,60 +165,36 @@ export async function askCommand(args: string[]): Promise<void> {
   };
 
   if (verbose) {
-    // Show what we're doing
     log.raw.log(`\nAgent: ${query}\n`);
   }
 
   try {
-    // Run agent loop
-    const result = await runReActLoop(
+    const result = await runAgentQuery({
       query,
-      {
-        workspace,
-        context: session.context,
-        autoApprove: false, // Safety layer auto-approves L0; prompts for L1/L2
-        maxToolCalls: maxCalls,
-        groundingMode: profile.groundingMode,
-        policy,
-        onTrace, // Pass trace callback
+      model,
+      callbacks: {
+        onToken,
         onToolDisplay,
-        noInput: false,
-        delegate,
-        toolAllowlist,
-        requireToolCalls,
-        planning: {
-          mode: "off",
-          requireStepMarkers: false,
-        },
-        skipModelCompensation: session.isFrontierModel,
+        onTrace: createTraceCallback(verbose),
       },
-      session.llm,
-    );
+      toolDenylist: [...DEFAULT_TOOL_DENYLIST],
+    });
 
-    if (sessionEntry) {
-      sessionEntry = await appendSessionMessages(
-        sessionEntry,
-        session.context.getMessages(),
-      );
-    }
-
-    // End streaming line if tokens were streamed
     if (streamedTokens) {
       log.raw.write("\n");
     }
 
-    const stats = session.context.getStats();
     if (verbose) {
-      if (!shouldSuppressFinalResponse(result)) {
-        log.raw.log(`\nResult:\n${result}\n`);
+      if (!shouldSuppressFinalResponse(result.text)) {
+        log.raw.log(`\nResult:\n${result.text}\n`);
       }
-    } else if (!streamedTokens && stats.toolMessages === 0 && result.trim()) {
-      // Only print final result if we didn't stream tokens
-      log.raw.log(`${result}\n`);
+    } else if (!streamedTokens && result.stats.toolMessages === 0 && result.text.trim()) {
+      log.raw.log(`${result.text}\n`);
     }
+
     if (verbose) {
       log.raw.log(
-        `[Stats: ${stats.messageCount} messages, ${stats.estimatedTokens} tokens, ${stats.toolMessages} tool messages]`,
+        `[Stats: ${result.stats.messageCount} messages, ${result.stats.estimatedTokens} tokens, ${result.stats.toolMessages} tool messages]`,
       );
     }
   } catch (error) {
@@ -361,7 +203,5 @@ export async function askCommand(args: string[]): Promise<void> {
       throw error;
     }
     throw error;
-  } finally {
-    await session.dispose();
   }
 }

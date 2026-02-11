@@ -84,7 +84,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Context: getMessages - returns copy not reference",
+  name: "Context: getMessages - returns internal array (no copy)",
   fn() {
     const context = new ContextManager();
 
@@ -92,6 +92,24 @@ Deno.test({
 
     const messages1 = context.getMessages();
     const messages2 = context.getMessages();
+
+    // Fix 21: Same object (no copy for performance)
+    assertEquals(messages1 === messages2, true);
+
+    // Same content
+    assertEquals(messages1.length, messages2.length);
+  },
+});
+
+Deno.test({
+  name: "Context: getMessagesCopy - returns a separate copy",
+  fn() {
+    const context = new ContextManager();
+
+    context.addMessage({ role: "user", content: "Hello" });
+
+    const messages1 = context.getMessagesCopy();
+    const messages2 = context.getMessagesCopy();
 
     // Different objects
     assertEquals(messages1 !== messages2, true);
@@ -373,28 +391,33 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Context: truncateResult - truncate long results",
+  name: "Context: truncateResult - truncate long results with head+tail",
   fn() {
-    const context = new ContextManager({ maxResultLength: 100 });
+    const context = new ContextManager({ maxResultLength: 200 });
 
-    const result = "a".repeat(500);
+    const head = "HEAD_CONTENT_";
+    const tail = "_TAIL_CONTENT";
+    const result = head + "x".repeat(500) + tail;
     const truncated = context.truncateResult(result);
 
-    assertEquals(truncated.length <= 100, true);
-    assertEquals(truncated.endsWith("..."), true);
+    assertEquals(truncated.length <= 200, true);
+    // Head+tail strategy: preserves beginning and end
+    assertEquals(truncated.startsWith("HEAD_CONTENT_"), true);
+    assertEquals(truncated.endsWith("_TAIL_CONTENT"), true);
+    assertEquals(truncated.includes("[truncated middle]"), true);
   },
 });
 
 Deno.test({
-  name: "Context: truncateResult - uses SSOT truncate utility",
+  name: "Context: truncateResult - uses truncateMiddle for tool results",
   fn() {
-    const context = new ContextManager({ maxResultLength: 100 });
+    const context = new ContextManager({ maxResultLength: 200 });
 
     const result = "a".repeat(500);
     const truncated = context.truncateResult(result);
 
-    // Should be at most maxResultLength chars (including "..." suffix)
-    assertEquals(truncated.length <= 100, true);
+    // Should be at most maxResultLength chars
+    assertEquals(truncated.length <= 200, true);
     // Short results should pass through unchanged
     assertEquals(context.truncateResult("short"), "short");
   },

@@ -10,13 +10,14 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 import { getSessionsDir } from "../../common/paths.ts";
-import { appendJsonLines, readJsonLines } from "../../common/jsonl.ts";
+import { appendJsonLines, atomicWriteTextFile, readJsonLines } from "../../common/jsonl.ts";
 import { ValidationError } from "../../common/error.ts";
 import {
   getErrorMessage,
   isFileNotFoundError,
   isObjectValue,
 } from "../../common/utils.ts";
+import { log } from "../api/log.ts";
 import { isSummaryMessage, type Message, type MessageRole } from "./context.ts";
 
 // ============================================================
@@ -45,6 +46,9 @@ interface MessageEntry extends TranscriptEntryBase {
   type: "message";
   role: MessageRole;
   content: string;
+  toolCalls?: unknown[];
+  toolName?: string;
+  toolCallId?: string;
 }
 
 interface CompactionEntry extends TranscriptEntryBase {
@@ -59,6 +63,7 @@ type TranscriptEntry = MessageEntry | CompactionEntry;
 // ============================================================
 
 const INDEX_FILE = "sessions.json";
+const MAX_TRANSCRIPT_ENTRIES = 500;
 
 async function ensureSessionsDir(): Promise<string> {
   const platform = getPlatform();
@@ -93,15 +98,16 @@ async function loadIndex(): Promise<SessionIndex> {
         "session_store",
       );
     }
-    return { version: 1, sessions: {} };
+    log.warn(`Failed to load session index: ${getErrorMessage(error)}`);
+    throw error;
   }
 }
 
+/** Fix 14: Use atomic write to prevent corruption on crash/concurrent access */
 async function saveIndex(index: SessionIndex): Promise<void> {
-  const platform = getPlatform();
   await ensureSessionsDir();
   const path = getIndexPath();
-  await platform.fs.writeTextFile(path, JSON.stringify(index, null, 2));
+  await atomicWriteTextFile(path, JSON.stringify(index, null, 2));
 }
 
 function createEntry(key?: string): AgentSessionEntry {
@@ -190,22 +196,10 @@ function toTranscriptEntry(message: Message): TranscriptEntry | null {
     role: message.role,
     content: message.content,
     timestamp,
+    ...(message.toolCalls?.length ? { toolCalls: message.toolCalls } : {}),
+    ...(message.toolName ? { toolName: message.toolName } : {}),
+    ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
   };
-}
-
-function fromTranscriptEntry(entry: TranscriptEntry): Message[] {
-  if (entry.type === "compaction") {
-    return [{
-      role: "assistant",
-      content: entry.summary,
-      timestamp: entry.timestamp,
-    }];
-  }
-  return [{
-    role: entry.role,
-    content: entry.content,
-    timestamp: entry.timestamp,
-  }];
 }
 
 export async function loadSessionMessages(
@@ -235,13 +229,25 @@ export async function loadSessionMessages(
       } else {
         const role = String(parsed.role ?? "");
         const content = String(parsed.content ?? "");
-        if (role === "system" || content.trim() === "") continue;
-        messages.push({
+        // Fix 13: Only skip empty content for non-tool roles (tool results can be legitimately empty)
+        if (role === "system") continue;
+        if (content.trim() === "" && role !== "tool") continue;
+        const msg: Message = {
           role: role as MessageRole,
           content,
           timestamp,
-        });
+        };
+        if (Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0) {
+          msg.toolCalls = parsed.toolCalls as Message["toolCalls"];
+        }
+        if (typeof parsed.toolName === "string") msg.toolName = parsed.toolName;
+        if (typeof parsed.toolCallId === "string") msg.toolCallId = parsed.toolCallId;
+        messages.push(msg);
       }
+    }
+    // Cap transcript to last N entries to prevent unbounded growth
+    if (messages.length > MAX_TRANSCRIPT_ENTRIES) {
+      messages = messages.slice(-MAX_TRANSCRIPT_ENTRIES);
     }
     return messages;
   } catch (error) {

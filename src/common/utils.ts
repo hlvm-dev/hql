@@ -212,6 +212,33 @@ export function truncate(text: string, maxLen: number, suffix = "..."): string {
 }
 
 /**
+ * Truncate a string keeping both head and tail, eliding the middle.
+ * Useful for tool results where error messages and summaries appear at the end.
+ *
+ * Strategy: keep first ~40% and last ~40% of maxLen, separated by a notice.
+ * Falls back to simple prefix truncation for very short maxLen values.
+ *
+ * @param text - String to truncate
+ * @param maxLen - Maximum total length of result
+ * @param headRatio - Fraction of maxLen for head (default: 0.4)
+ * @returns Head + separator + tail if truncated, original string otherwise
+ */
+export function truncateMiddle(text: string, maxLen: number, headRatio = 0.4): string {
+  if (text.length <= maxLen) return text;
+
+  const separator = "\n\n... [truncated middle] ...\n\n";
+  const available = maxLen - separator.length;
+
+  // Fall back to simple prefix truncation if maxLen is too small for head+tail
+  if (available < 40) return truncate(text, maxLen);
+
+  const headLen = Math.floor(available * headRatio);
+  const tailLen = available - headLen;
+
+  return text.slice(0, headLen) + separator + text.slice(text.length - tailLen);
+}
+
+/**
  * Safely extract error message from unknown error value.
  * Consolidates the `error instanceof Error ? error.message : String(error)` pattern.
  * Also handles plain objects via JSON.stringify.

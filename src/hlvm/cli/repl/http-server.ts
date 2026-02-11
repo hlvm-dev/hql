@@ -1,5 +1,5 @@
 /**
- * HTTP REPL Server - Stateless HTTP API for REPL evaluation
+ * HTTP REPL Server - Stateless HTTP API for REPL evaluation and agent queries
  * Replaces stdin/stdout transport with HTTP endpoints
  * SSOT: Thin wrapper around existing evaluation infrastructure
  */
@@ -16,6 +16,8 @@ import { RuntimeError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { buildContext } from "../repl-ink/completion/providers.ts";
 import { getActiveProvider } from "../repl-ink/completion/concrete-providers.ts";
+import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
+import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
 
 /**
  * REPL HTTP Server Port
@@ -37,7 +39,13 @@ const INSTANCE_ID = platform.env.get("HLVM_REPL_INSTANCE_ID") ?? null;
 
 function resolvePort(): number {
   const portOverride = platform.env.get("HLVM_REPL_PORT");
-  return portOverride ? parseInt(portOverride, 10) : DEFAULT_PORT;
+  if (!portOverride) return DEFAULT_PORT;
+  const parsed = parseInt(portOverride, 10);
+  if (Number.isNaN(parsed) || parsed < 1 || parsed > 65535) {
+    log.warn(`Invalid HLVM_REPL_PORT "${portOverride}", using default ${DEFAULT_PORT}`);
+    return DEFAULT_PORT;
+  }
+  return parsed;
 }
 
 let replState: ReplState | null = null;
@@ -57,6 +65,12 @@ interface CompletionRequest {
 
 interface MemoryFunctionsResponse {
   functions: MemoryFunctionItem[];
+}
+
+interface AskRequest {
+  query: string;
+  model?: string;
+  workspace?: string;
 }
 
 interface MemoryExecuteRequest {
@@ -367,6 +381,103 @@ async function handleMemoryExecute(req: Request): Promise<Response> {
   }
 }
 
+let agentReady = false;
+
+/**
+ * Handle POST /api/ask - Run agent query with NDJSON streaming
+ *
+ * Uses the shared agent runner (SSOT) with NDJSON callbacks.
+ * Each line is a JSON object: {"event":"token","text":"..."}\n
+ * The ask_user tool is disabled (noInput: true) since there is no stdin.
+ */
+function handleAsk(req: Request): Response {
+  const encoder = new TextEncoder();
+
+  function ndjsonLine(obj: unknown): Uint8Array {
+    return encoder.encode(JSON.stringify(obj) + "\n");
+  }
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      let parsed: JsonParseResult<AskRequest>;
+      try {
+        parsed = await parseJsonBody<AskRequest>(req);
+      } catch {
+        controller.enqueue(ndjsonLine({ event: "error", message: "Invalid request" }));
+        controller.close();
+        return;
+      }
+      if (!parsed.ok) {
+        controller.enqueue(ndjsonLine({ event: "error", message: "Invalid JSON body" }));
+        controller.close();
+        return;
+      }
+
+      const { query, model, workspace } = parsed.value;
+      if (typeof query !== "string" || query.length === 0) {
+        controller.enqueue(ndjsonLine({ event: "error", message: "Missing query" }));
+        controller.close();
+        return;
+      }
+
+      try {
+        if (!agentReady) {
+          const resolvedModel = model ?? (await import("../../../common/ai-default-model.ts")).getConfiguredModel();
+          await ensureAgentReady(resolvedModel, (msg) => log.info(msg));
+          agentReady = true;
+        }
+
+        const result = await runAgentQuery({
+          query,
+          model,
+          workspace,
+          autoApprove: true,
+          noInput: true,
+          toolDenylist: [...DEFAULT_TOOL_DENYLIST, "ask_user"],
+          callbacks: {
+            onToken: (text) => {
+              controller.enqueue(ndjsonLine({ event: "token", text }));
+            },
+            onToolDisplay: (event) => {
+              controller.enqueue(ndjsonLine({
+                event: "tool",
+                name: event.toolName,
+                success: event.success,
+                content: event.content,
+              }));
+            },
+          },
+        });
+
+        controller.enqueue(ndjsonLine({
+          event: "complete",
+          text: result.text,
+          stats: result.stats,
+        }));
+      } catch (error) {
+        controller.enqueue(ndjsonLine({
+          event: "error",
+          message: getErrorMessage(error),
+        }));
+      }
+
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
+  });
+}
+
 /**
  * Main request router
  */
@@ -397,6 +508,10 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (req.method === "POST" && url.pathname === "/api/memory/functions/execute") {
     return addCorsHeaders(await handleMemoryExecute(req));
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/ask") {
+    return handleAsk(req);
   }
 
   return addCorsHeaders(jsonError("Not found", 404));

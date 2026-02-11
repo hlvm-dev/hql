@@ -7,6 +7,7 @@
  */
 
 import {
+  generateToolCallId,
   JSON_HEADERS,
   parseJsonArgs,
   readSSEStream,
@@ -14,6 +15,7 @@ import {
   throwOnHttpError,
 } from "../common.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
+import { RuntimeError } from "../../../common/error.ts";
 import type {
   ChatOptions,
   ChatStructuredResponse,
@@ -94,7 +96,7 @@ function convertMessages(
       for (const tc of msg.tool_calls) {
         blocks.push({
           type: "tool_use",
-          id: tc.id ?? `toolu_${Math.random().toString(36).slice(2, 10)}`,
+          id: tc.id ?? generateToolCallId(),
           name: tc.function.name,
           input: typeof tc.function.arguments === "string"
             ? parseJsonArgs(tc.function.arguments)
@@ -151,13 +153,15 @@ function findToolUseId(
   toolName: string | undefined,
   consumed: Set<string>,
 ): string {
+  // Fix 7: Don't guess when toolName is unknown — generate new ID to avoid wrong matches
+  if (!toolName) return generateToolCallId();
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role === "assistant" && Array.isArray(msg.content)) {
       for (const block of msg.content) {
         if (
           block.type === "tool_use" &&
-          (!toolName || block.name === toolName) &&
+          block.name === toolName &&
           !consumed.has(block.id)
         ) {
           consumed.add(block.id);
@@ -166,7 +170,7 @@ function findToolUseId(
       }
     }
   }
-  return `toolu_${Math.random().toString(36).slice(2, 10)}`;
+  return generateToolCallId();
 }
 
 // =============================================================================
@@ -315,6 +319,8 @@ async function streamChat(
       }
     } else if (event.type === "content_block_stop") {
       if (currentToolIndex >= 0) currentToolIndex = -1;
+    } else if (event.type === "error") {
+      throw new RuntimeError(`Anthropic stream error: ${JSON.stringify((event as unknown as Record<string, unknown>).error ?? event)}`);
     }
   }
 

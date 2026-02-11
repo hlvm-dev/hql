@@ -43,7 +43,7 @@ export interface ProviderMessage {
   tool_call_id?: string;
 }
 
-/** @deprecated Use `ProviderMessage` instead */
+/** Short alias for ProviderMessage (used throughout providers/) */
 export type Message = ProviderMessage;
 
 // ============================================================================

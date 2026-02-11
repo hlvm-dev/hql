@@ -5,6 +5,7 @@
  */
 
 import { isObjectValue } from "../../common/utils.ts";
+import { log } from "../api/log.ts";
 
 /**
  * Check if a value is a valid tool args object.
@@ -65,6 +66,10 @@ export function normalizeToolArgs(
     if (isToolArgsObject(parsed)) {
       return unwrapArgsObject(parsed);
     }
+  }
+  // Fix 19: Warn for unexpected arg types (number, boolean, array, etc.)
+  if (value !== null && value !== undefined) {
+    log.debug(`normalizeToolArgs: unexpected type ${typeof value}, coercing to {}`);
   }
   return {};
 }

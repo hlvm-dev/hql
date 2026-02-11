@@ -38,12 +38,15 @@ export function requireApiKey(apiKey: string, providerName: string): void {
 
 /**
  * Safely parse a JSON string argument to an object.
- * Returns empty object on parse failure (malformed LLM output).
+ * Returns empty object on parse failure — downstream validation will
+ * catch missing required fields with actionable error messages.
  */
 export function parseJsonArgs(args: string | unknown): unknown {
   if (typeof args !== "string") return args ?? {};
+  const trimmed = args.trim();
+  if (trimmed.length === 0) return {};
   try {
-    return JSON.parse(args);
+    return JSON.parse(trimmed);
   } catch {
     return {};
   }
@@ -73,15 +76,22 @@ function extractErrorMessage(text: string): string | null {
 /**
  * Throw a RuntimeError for a failed HTTP response.
  * Parses the response body to extract the provider's human-readable error message.
+ * Fix 10: Always includes HTTP status code for error taxonomy classification.
+ * Fix 12: Includes Retry-After header when present (for rate limit handling).
  * Shared across all provider API modules.
  */
 export async function throwOnHttpError(
   response: Response,
   providerName: string,
 ): Promise<never> {
-  const text = await response.text().catch(() => "");
-  const message = extractErrorMessage(text) ?? `HTTP ${response.status}`;
-  throw new RuntimeError(`${providerName}: ${message}`);
+  const text = await response.text().catch(() => "(unreadable body)");
+  const extracted = extractErrorMessage(text);
+  const retryAfter = response.headers.get("retry-after");
+  const retryHint = retryAfter ? ` (retry-after: ${retryAfter}s)` : "";
+  const body = extracted ?? text.slice(0, 500);
+  throw new RuntimeError(
+    `${providerName} HTTP ${response.status}${retryHint}: ${body}`,
+  );
 }
 
 // =============================================================================
@@ -105,6 +115,9 @@ export async function* readSSEStream<T>(
   const decoder = new TextDecoder();
   let buffer = "";
   let searchFrom = 0;
+  // Fix 8: Track valid vs malformed chunks
+  let anyValidChunk = false;
+  let malformedCount = 0;
 
   try {
     while (true) {
@@ -122,7 +135,10 @@ export async function* readSSEStream<T>(
           if (data !== "[DONE]") {
             try {
               yield JSON.parse(data) as T;
-            } catch { /* skip malformed chunks */ }
+              anyValidChunk = true;
+            } catch {
+              malformedCount++;
+            }
           }
         }
         lineEnd = buffer.indexOf("\n", searchFrom);
@@ -136,6 +152,24 @@ export async function* readSSEStream<T>(
   } finally {
     reader.cancel().catch(() => {});
   }
+
+  // If we got data lines but ALL were malformed, the stream was corrupted
+  if (!anyValidChunk && malformedCount > 0) {
+    throw new RuntimeError(`SSE stream corrupted: ${malformedCount} malformed chunks, 0 valid`);
+  }
+}
+
+// =============================================================================
+// Tool Call ID Generation
+// =============================================================================
+
+/**
+ * Generate a unique tool call ID.
+ * Uses random base-36 string for collision resistance across turns.
+ * SSOT: All providers must use this instead of index-based IDs.
+ */
+export function generateToolCallId(): string {
+  return `call_${Math.random().toString(36).slice(2, 11)}`;
 }
 
 // =============================================================================

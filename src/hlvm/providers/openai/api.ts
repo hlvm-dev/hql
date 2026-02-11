@@ -7,6 +7,7 @@
 
 import {
   buildToolCall,
+  generateToolCallId,
   JSON_HEADERS,
   readSSEStream,
   requireApiKey,
@@ -54,7 +55,7 @@ function toOpenAIMessages(messages: Message[]): OpenAIMessage[] {
         role: "assistant" as const,
         content: msg.content || null,
         tool_calls: msg.tool_calls.map((tc, i) => ({
-          id: tc.id ?? `call_${i}`,
+          id: tc.id ?? generateToolCallId(),
           type: "function" as const,
           function: {
             name: tc.function.name,
@@ -154,7 +155,7 @@ export async function chatStructured(
 
   const result = await response.json() as { choices: OpenAIChoice[] };
   const choice = result.choices?.[0];
-  if (!choice) return { content: "" };
+  if (!choice) return { content: "", toolCalls: [] };
 
   return {
     content: choice.message.content ?? "",
@@ -205,7 +206,7 @@ async function streamChat(
       for (const tc of delta.tool_calls) {
         const existing = toolCallParts.get(tc.index) ?? { id: "", name: "", args: "" };
         if (tc.id) existing.id = tc.id;
-        if (tc.function?.name) existing.name += tc.function.name;
+        if (tc.function?.name) existing.name = tc.function.name;
         if (tc.function?.arguments) existing.args += tc.function.arguments;
         toolCallParts.set(tc.index, existing);
       }

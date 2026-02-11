@@ -146,7 +146,8 @@ export async function validatePath(
           currentPath
         );
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof SecurityError) throw error;
       // Component doesn't exist - this is OK (user might be creating new file/dir)
       // Skip symlink check for non-existent components
     }

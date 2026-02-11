@@ -51,7 +51,7 @@ import {
 } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
-import { classifyError } from "./error-taxonomy.ts";
+import { classifyError, getRecoveryHint } from "./error-taxonomy.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { estimateUsage, type TokenUsage, UsageTracker } from "./usage.ts";
 import type { MetricsSink } from "./metrics.ts";
@@ -64,11 +64,13 @@ import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
 import {
   looksLikeToolCallJsonAnywhere,
   responseAsksQuestion,
+  tryParseToolCallsFromText,
 } from "./model-compat.ts";
 import {
   ensurePlaywrightChromium,
   isPlaywrightMissingError,
 } from "./playwright-support.ts";
+import { clearToolDefCache } from "./llm-integration.ts";
 
 import {
   advancePlanState,
@@ -102,7 +104,12 @@ function stringifyToolResult(result: unknown): string {
   }
   try {
     return JSON.stringify(result, null, 2);
-  } catch {
+  } catch (error) {
+    // Fix 20: Detect circular references and report clearly
+    const msg = getErrorMessage(error);
+    if (msg.includes("circular") || msg.includes("Converting circular")) {
+      return "[Error: Tool returned circular reference data]";
+    }
     return String(result ?? "");
   }
 }
@@ -132,20 +139,58 @@ function buildToolResultOutputs(
   return { llmContent, returnDisplay };
 }
 
+/** Check if tool result content indicates failure despite no exception.
+ *  Only matches small, explicit {success: false, error: "..."} payloads. */
+function isToolResultFailure(content: string): boolean {
+  if (!content.startsWith("{") || content.length > 500) return false;
+  try {
+    const parsed = JSON.parse(content);
+    if (
+      parsed && typeof parsed === "object" &&
+      parsed.success === false &&
+      typeof parsed.error === "string" &&
+      parsed.error.length > 0
+    ) return true;
+  } catch { /* not JSON */ }
+  return false;
+}
+
 function buildToolObservation(
   toolCall: ToolCall,
   toolResult: ToolExecutionResult,
 ): { observation: string; resultText: string; toolName: string } {
-  const resultText = toolResult.success
-    ? toolResult.llmContent ?? stringifyToolResult(toolResult.result)
-    : `ERROR: ${toolResult.error}`;
+  if (toolResult.success) {
+    const resultText = toolResult.llmContent ?? stringifyToolResult(toolResult.result);
+    // Detect tools that return error-as-data (success but content says failure)
+    if (isToolResultFailure(resultText)) {
+      const hint = getRecoveryHint(resultText);
+      const observation = hint
+        ? `${resultText}\nHint: ${hint}`
+        : resultText;
+      return { observation, resultText, toolName: toolCall.toolName };
+    }
+    return { observation: resultText, resultText, toolName: toolCall.toolName };
+  }
 
-  // Keep content simple — tool identity is carried by toolName field
-  const observation = toolResult.success
-    ? resultText
-    : `Error: ${toolResult.error}`;
+  const errorText = toolResult.error ?? "Unknown error";
+  const hint = getRecoveryHint(errorText);
+  const observation = hint
+    ? `Error: ${errorText}\nHint: ${hint}`
+    : `Error: ${errorText}`;
 
-  return { observation, resultText, toolName: toolCall.toolName };
+  return { observation, resultText: `ERROR: ${errorText}`, toolName: toolCall.toolName };
+}
+
+/** Deduplicate identical tool calls (same name + same args) within a single turn */
+function deduplicateToolCalls(calls: ToolCall[]): ToolCall[] {
+  if (calls.length <= 1) return calls;
+  const seen = new Set<string>();
+  return calls.filter((call) => {
+    const key = `${call.toolName}:${JSON.stringify(call.args, Object.keys(call.args ?? {}).sort())}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
@@ -392,16 +437,16 @@ function isRenderToolName(toolName: string): boolean {
   return toolName === "render_url" || toolName.endsWith("/render_url");
 }
 
+/** Fix 22: Case-insensitive loop detection for string values */
 function buildToolSignature(calls: ToolCall[]): string {
-  return calls.map((call) => {
-    // For loop detection we only need identity, not pretty-print
-    const args = call.args && isObjectValue(call.args)
-      ? Object.entries(call.args as Record<string, unknown>).map(([k, v]) =>
-        `${k}=${v}`
-      ).join(",")
-      : "";
-    return `${call.toolName}:${args}`;
-  }).join("|");
+  if (calls.length === 0) return "";
+  return calls
+    .map((call) => {
+      const args = JSON.stringify(call.args, Object.keys(call.args ?? {}).sort());
+      return `${call.toolName}:${args.toLowerCase()}`;
+    })
+    .sort()
+    .join("|");
 }
 
 function buildToolRequiredMessage(allowlist?: string[]): string {
@@ -793,9 +838,13 @@ export async function processAgentResponse(
 }> {
   const content = (agentResponse.content ?? "").trim();
   const maxCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
-  const toolCalls = Array.isArray(agentResponse.toolCalls)
+  const rawToolCalls = Array.isArray(agentResponse.toolCalls)
     ? agentResponse.toolCalls
     : [];
+
+  // Deduplicate identical tool calls (same name + same args) within a turn.
+  // Weak models sometimes emit the same call multiple times.
+  const toolCalls = deduplicateToolCalls(rawToolCalls);
 
   if (toolCalls.length === 0) {
     // No tool calls — just add the assistant text
@@ -828,13 +877,19 @@ export async function processAgentResponse(
 
   if (toolCalls.length > maxCalls) {
     addContextMessage(config, {
-      role: "tool",
+      role: "user",
       content:
         `Too many tool calls (${toolCalls.length}). Only the first ${maxCalls} will be executed.`,
     });
   }
 
-  const limitedCalls = toolCalls.slice(0, maxCalls);
+  let limitedCalls = toolCalls.slice(0, maxCalls);
+
+  // Fix 3: complete_task preempts other tool calls — only execute it
+  const completeTaskPreemptIndex = limitedCalls.findIndex((c) => c.toolName === "complete_task");
+  if (completeTaskPreemptIndex >= 0) {
+    limitedCalls = [limitedCalls[completeTaskPreemptIndex]];
+  }
 
   // Execute tool calls
   const results = await executeToolCalls(limitedCalls, config);
@@ -974,8 +1029,13 @@ async function callLLMWithRetry(
       // Don't retry on last attempt
       if (attempt === config.maxRetries - 1) break;
 
-      // Exponential backoff: 1s, 2s, 4s, 8s
-      const delay = Math.pow(2, attempt) * 1000;
+      // Fix 12: Honor Retry-After header from provider error messages
+      const retryAfterMatch = classified.message.match(/retry-after: (\d+)s/);
+      const retryAfterMs = retryAfterMatch
+        ? parseInt(retryAfterMatch[1]) * 1000
+        : null;
+      // Exponential backoff: 1s, 2s, 4s, 8s — or provider's Retry-After
+      const delay = retryAfterMs ?? Math.min(Math.pow(2, attempt) * 1000, 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -1033,19 +1093,14 @@ async function executeToolWithTimeout(
 /**
  * Run full ReAct loop
  *
- * Orchestrates complete conversation:
- * 1. Initialize context with system prompt
- * 2. Add user request
- * 3. Loop:
- *    a. Call LLM to get agent response
- *    b. Process response (execute tool calls)
- *    c. Continue until agent finishes
- *
- * Note: This is a simplified version. Real implementation would:
- * - Integrate with actual LLM API
- * - Handle streaming responses
- * - Implement timeout/retry logic
- * - Add more sophisticated error handling
+ * Orchestrates the complete Think → Act → Observe cycle:
+ * 1. Add user request to context
+ * 2. Loop (up to MAX_ITERATIONS):
+ *    a. Call LLM with timeout/retry
+ *    b. Parse tool calls (native or text-repair fallback)
+ *    c. Execute tools with safety checks and rate limiting
+ *    d. Add results to context, continue until agent finishes
+ * 3. Apply grounding checks, loop detection, and no-input guards
  *
  * @param userRequest User's request/question
  * @param config Orchestrator configuration
@@ -1062,6 +1117,15 @@ export async function runReActLoop(
     context,
     onTrace,
   } = config;
+
+  // Clear module-level caches to avoid stale data across runs
+  _cachedAllowSet = null;
+  _cachedDenySet = null;
+  clearToolDefCache();
+
+  // Total wall-clock timeout for the entire ReAct loop
+  const totalTimeout = DEFAULT_TIMEOUTS.total;
+  const loopDeadline = Date.now() + totalTimeout;
 
   // Add user request to context
   addContextMessage(config, {
@@ -1084,12 +1148,9 @@ export async function runReActLoop(
   const maxRetries = config.maxRetries ?? MAX_RETRIES;
   const groundingMode = config.groundingMode ?? "off";
   const llmRateConfig = config.llmRateLimit ?? RATE_LIMITS.llmCalls;
-  const toolRateConfig = config.toolRateLimit ?? RATE_LIMITS.toolCalls;
   const llmLimiter = config.llmRateLimiter ?? createRateLimiter(llmRateConfig);
-  const toolLimiter = config.toolRateLimiter ??
-    createRateLimiter(toolRateConfig);
   config.llmRateLimiter = llmLimiter;
-  config.toolRateLimiter = toolLimiter;
+  // Tool rate limiter is created lazily in executeToolCalls()
 
   const maxToolResultBytes = config.maxTotalToolResultBytes ??
     RESOURCE_LIMITS.maxTotalToolResultBytes;
@@ -1130,11 +1191,14 @@ export async function runReActLoop(
   const maxNoInputRetries = 1;
   const requireToolCalls = config.requireToolCalls ?? false;
   let toolCallRetries = 0;
-  const maxToolCallRetries = config.maxToolCallRetries ?? 1;
-  let toolFormatRetries = 0;
+  const maxToolCallRetries = config.maxToolCallRetries ?? 2;
+  let midLoopFormatRetries = 0;
+  let finalResponseFormatRetries = 0;
   const maxRepeatToolCalls = config.maxToolCallRepeat ?? 3;
   let lastToolSignature = "";
   let repeatToolCount = 0;
+  let consecutiveToolFailures = 0;
+  let emptyResponseRetried = false;
 
   // Planning (optional)
   const planningConfig: PlanningConfig = config.planning ?? { mode: "off" };
@@ -1168,7 +1232,12 @@ export async function runReActLoop(
     }
   }
 
+  let lastResponse = "";
+
   while (iterations < maxIterations) {
+    if (Date.now() > loopDeadline) {
+      return lastResponse || `Total timeout (${totalTimeout / 1000}s) exceeded. Task incomplete.`;
+    }
     iterations++;
 
     // Emit trace event: iteration
@@ -1178,6 +1247,7 @@ export async function runReActLoop(
       max: maxIterations,
     });
 
+    try {
     if (planState) {
       const currentStep = planState.plan.steps[planState.currentIndex];
       if (
@@ -1205,11 +1275,10 @@ export async function runReActLoop(
           if (!delegateResult.success) {
             // Delegation failed — add error to context so LLM can recover
             context.addMessage({
-              role: "tool",
+              role: "user",
               content: `Delegation failed: ${
                 delegateResult.error ?? "unknown error"
               }`,
-              toolName: "delegate_agent",
             });
           }
           planState.delegatedIds.add(currentStep.id);
@@ -1273,6 +1342,7 @@ export async function runReActLoop(
 
     // Record token usage (estimated by default)
     let responseText = agentResponse.content ?? "";
+    if (responseText) lastResponse = responseText;
     let response = agentResponse;
     const usage = estimateUsage(messages, responseText);
     usageTracker.record(usage);
@@ -1295,27 +1365,57 @@ export async function runReActLoop(
       durationMs: llmDuration,
     });
 
+    // Detect and retry empty LLM responses (no content + no tool calls)
+    if ((response.toolCalls?.length ?? 0) === 0 && !responseText.trim()) {
+      if (!emptyResponseRetried) {
+        emptyResponseRetried = true;
+        continue; // retry the LLM call
+      }
+      return "The model returned an empty response. Please try again.";
+    }
+
     // Weak-model compensation: detect tool call JSON in text and repair
     if (
       !skipCompensation &&
       (response.toolCalls?.length ?? 0) === 0 &&
       looksLikeToolCallJsonAnywhere(responseText)
     ) {
-      if (toolFormatRetries < maxToolCallRetries) {
-        toolFormatRetries++;
+      if (midLoopFormatRetries < maxToolCallRetries) {
+        midLoopFormatRetries++;
         const hasPriorTools = toolUses.length > 0;
         addContextMessage(config, {
-          role: "tool",
+          role: "user",
           content: hasPriorTools
             ? "Do not output tool call JSON. Provide a final answer based on the tool results."
             : "Native tool calling required. Do not output tool call JSON in text. Retry using structured tool calls.",
         });
         continue;
       }
-      if (toolUses.length === 0) {
+      // Last resort: parse tool calls from text and execute them
+      const parsed = tryParseToolCallsFromText(responseText);
+      if (parsed.length > 0) {
+        // Generate IDs so assistant message and tool results correlate
+        let idCounter = 0;
+        const repairedCalls = parsed.map((p) => ({
+          ...p,
+          id: `repair_${Date.now()}_${idCounter++}`,
+        }));
+        const repaired: LLMResponse = {
+          content: "",
+          toolCalls: repairedCalls,
+        };
+        onTrace?.({
+          type: "tool_call",
+          toolName: `[text-repair] ${repairedCalls[0].toolName}`,
+          args: repairedCalls[0].args,
+        });
+        response = repaired;
+        // Fall through to processAgentResponse below
+      } else if (toolUses.length === 0) {
         return "Native tool calling required. Tool call JSON in text is not accepted.";
+      } else {
+        return responseText;
       }
-      return responseText;
     }
 
     // Process response and execute tools
@@ -1333,7 +1433,7 @@ export async function runReActLoop(
           return "Tool call required but none provided. Task incomplete.";
         }
         addContextMessage(config, {
-          role: "tool",
+          role: "user",
           content: buildToolRequiredMessage(config.toolAllowlist),
         });
         continue;
@@ -1348,7 +1448,7 @@ export async function runReActLoop(
           const currentStep = planState.plan.steps[planState.currentIndex];
           const id = currentStep?.id ?? "unknown";
           addContextMessage(config, {
-            role: "tool",
+            role: "user",
             content:
               `Plan tracking required. End your response with STEP_DONE ${id} when the step is complete.`,
           });
@@ -1372,7 +1472,7 @@ export async function runReActLoop(
 
         if (!advance.finished && advance.nextStep) {
           addContextMessage(config, {
-            role: "tool",
+            role: "user",
             content:
               `Plan step completed. Next step: [${advance.nextStep.id}] ${advance.nextStep.title}. Continue.`,
           });
@@ -1389,7 +1489,7 @@ export async function runReActLoop(
       ) {
         noInputRetries++;
         addContextMessage(config, {
-          role: "tool",
+          role: "user",
           content:
             "No-input mode: Do not ask questions. Provide a best-effort answer based on available tool results and reasonable assumptions.",
         });
@@ -1402,10 +1502,10 @@ export async function runReActLoop(
         toolUses.length > 0 &&
         looksLikeToolCallJsonAnywhere(finalResponse)
       ) {
-        if (toolFormatRetries < maxToolCallRetries) {
-          toolFormatRetries++;
+        if (finalResponseFormatRetries < maxToolCallRetries) {
+          finalResponseFormatRetries++;
           addContextMessage(config, {
-            role: "tool",
+            role: "user",
             content:
               "Provide a final answer based on the tool results. Do not output tool call JSON.",
           });
@@ -1441,7 +1541,7 @@ export async function runReActLoop(
                 `Grounding required. Revise your answer to cite tool results using tool names or "Based on ...".\n- ${
                   grounding.warnings.join("\n- ")
                 }`;
-              addContextMessage(config, { role: "tool", content: warningText });
+              addContextMessage(config, { role: "user", content: warningText });
               continue;
             }
             // Return with warnings rather than crashing — response may still be usable
@@ -1474,7 +1574,7 @@ export async function runReActLoop(
         // Check if this specific tool reached the limit
         if (denialCountByTool.get(toolName)! >= maxDenials) {
           addContextMessage(config, {
-            role: "tool",
+            role: "user",
             content:
               `Maximum denials (${maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
           });
@@ -1483,21 +1583,28 @@ export async function runReActLoop(
     }
 
     if (!anyDeniedThisTurn) {
-      // Reset ALL denial counts if no denials this turn (matches old behavior)
-      // This allows agent to recover after using non-denied tools
-      denialCountByTool.clear();
+      // Fix 4: Only clear denial counts for tools that were called this turn
+      for (const call of result.toolCalls) {
+        denialCountByTool.delete(call.toolName);
+      }
     }
 
-    // Check if ALL tools in this turn were denied AND at max denials
-    const allToolsBlocked = result.toolCalls.every((call) => {
+    // Fix 2: Only check executed tool calls (not unexecuted ones in sequential mode)
+    const executedCalls = result.toolCalls.slice(0, result.results.length);
+    const allToolsBlocked = executedCalls.length > 0 && executedCalls.every((call) => {
       const count = denialCountByTool.get(call.toolName) || 0;
       return count >= maxDenials;
     });
 
     if (anyDeniedThisTurn && allToolsBlocked && result.toolCalls.length > 0) {
       // Agent is stuck - all attempted tools are blocked
-      // Give one final chance to use ask_user or different tool
-      const finalResponse = await llmFunction(context.getMessages());
+      // Fix 1: Use callLLMWithRetry instead of raw llmFunction
+      const finalResponse = await callLLMWithRetry(
+        llmFunction,
+        context.getMessages(),
+        { timeout: llmTimeout, maxRetries },
+        onTrace,
+      );
       return finalResponse.content ?? "";
     }
 
@@ -1530,9 +1637,13 @@ export async function runReActLoop(
       }
     }
 
-    // Track tool uses for grounding checks
+    // Fix 5: Cap toolUses with sliding window for grounding checks
+    const MAX_TOOL_USES_FOR_GROUNDING = 50;
     if (result.toolUses.length > 0) {
       toolUses.push(...result.toolUses);
+      if (toolUses.length > MAX_TOOL_USES_FOR_GROUNDING) {
+        toolUses.splice(0, toolUses.length - MAX_TOOL_USES_FOR_GROUNDING);
+      }
       if (result.toolBytes > 0) {
         updateToolResultBytes(result.toolBytes);
       }
@@ -1541,16 +1652,27 @@ export async function runReActLoop(
       groundingRetries = 0;
     }
 
-    // If any tool failed, agent might want to retry or give up
-    const anyFailed = result.results.some((r) => !r.success);
-    if (anyFailed && iterations >= maxIterations / 2) {
-      // Stop early if tools keep failing — return tool errors, not raw LLM reasoning
+    // Track consecutive tool failures for early abort (only when ALL tools fail)
+    const allFailed = result.results.length > 0 && result.results.every((r) => !r.success);
+    if (allFailed) {
+      consecutiveToolFailures++;
+    } else {
+      consecutiveToolFailures = 0;
+    }
+    if (consecutiveToolFailures >= 3) {
+      // Stop early if tools keep failing consecutively
       const failedTools = result.results
         .filter((r) => !r.success)
         .map((r) => r.error ?? "unknown error");
-      return `Tool execution failed after ${iterations} iterations:\n${
+      return `Tool execution failed after ${consecutiveToolFailures} consecutive failures:\n${
         failedTools.join("\n")
       }`;
+    }
+    } catch (error) {
+      if (error instanceof ContextOverflowError) {
+        return lastResponse || "Context limit reached. Please start a new conversation.";
+      }
+      throw error;
     }
   }
 

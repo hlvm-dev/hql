@@ -476,12 +476,22 @@ export function getToolArgSchema(name: string): Record<string, string> {
 // Dynamic Tool Registration (e.g., MCP)
 // ============================================================
 
+/** Fix 18: Valid tool name pattern — alphanumeric + separators, max 64 chars */
+const VALID_TOOL_NAME = /^[a-zA-Z][a-zA-Z0-9_/.-]{0,63}$/;
+
 /**
  * Register a dynamic tool by name.
  *
- * Throws if the tool name collides with a built-in tool.
+ * Throws if the tool name is invalid or collides with a built-in tool.
  */
 export function registerTool(name: string, tool: ToolMetadata): void {
+  // Fix 18: Validate tool name format
+  if (!VALID_TOOL_NAME.test(name)) {
+    throw new ValidationError(
+      `Invalid tool name '${name}': must match ${VALID_TOOL_NAME}`,
+      "tool_registry",
+    );
+  }
   if (name in TOOL_REGISTRY) {
     throw new ValidationError(
       `Tool '${name}' already exists in built-in registry`,

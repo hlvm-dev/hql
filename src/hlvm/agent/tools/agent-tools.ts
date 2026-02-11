@@ -5,16 +5,14 @@
 import { ValidationError } from "../../../common/error.ts";
 import type { ToolMetadata } from "../registry.ts";
 
-async function delegateAgentStub(): Promise<Record<string, unknown>> {
-  throw new ValidationError(
-    "delegate_agent is not configured. Ensure the session provides a delegate handler.",
-    "delegate_agent",
-  );
-}
-
 export const AGENT_TOOLS: Record<string, ToolMetadata> = {
   delegate_agent: {
-    fn: async () => await delegateAgentStub(),
+    fn: async () => {
+      throw new ValidationError(
+        "delegate_agent is not configured. Ensure the session provides a delegate handler.",
+        "delegate_agent",
+      );
+    },
     description:
       "Delegate a task to a specialist agent and return its result.",
     args: {

@@ -10,7 +10,7 @@ import {
   type OrchestratorConfig,
 } from "./orchestrator.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
-import { ENGINE_PROFILES } from "./constants.ts";
+import { DEFAULT_MAX_TOOL_CALLS, ENGINE_PROFILES } from "./constants.ts";
 import { ValidationError } from "../../common/error.ts";
 import { hasTool } from "./registry.ts";
 
@@ -82,11 +82,14 @@ export function createDelegateHandler(
         workspace: config.workspace,
         context,
         autoApprove: baseConfig.autoApprove,
+        // Fix 16: Clamp maxToolCalls to prevent resource exhaustion
         maxToolCalls: typeof record.maxToolCalls === "number"
-          ? record.maxToolCalls
+          ? Math.min(record.maxToolCalls, config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS)
           : config.maxToolCalls,
-        groundingMode: (record.groundingMode as "off" | "warn" | "strict") ??
-          config.groundingMode,
+        // Fix 17: Validate groundingMode at runtime
+        groundingMode: (["off", "warn", "strict"].includes(String(record.groundingMode))
+          ? record.groundingMode as "off" | "warn" | "strict"
+          : config.groundingMode),
         policy: baseConfig.policy ?? null,
         toolAllowlist: allowedTools,
         toolDenylist: ["delegate_agent"],

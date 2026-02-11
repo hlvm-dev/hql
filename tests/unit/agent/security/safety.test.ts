@@ -339,7 +339,7 @@ Deno.test({
     );
     assertEquals(
       classifyTool("shell_exec", { command: "echo hello" }).level,
-      "L2",
+      "L1",
     );
   },
 });

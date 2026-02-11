@@ -73,7 +73,7 @@ export function shouldPlanRequest(
   return hasMultiStepCue || isLong;
 }
 
-export function buildPlanningPrompt(
+function buildPlanningPrompt(
   request: string,
   maxSteps?: number,
   availableAgents?: string[],
@@ -190,6 +190,7 @@ export function createPlanState(plan: Plan): PlanState {
   return { plan, currentIndex: 0, completedIds: new Set(), delegatedIds: new Set() };
 }
 
+/** Fix 23: Only advance if completedId matches the current step */
 export function advancePlanState(
   state: PlanState,
   completedId?: string | null,
@@ -200,8 +201,14 @@ export function advancePlanState(
   }
 
   const id = completedId ?? current.id;
-  state.completedIds.add(id);
 
+  // If model completed a different step than current, record it but don't advance
+  if (id !== current.id) {
+    state.completedIds.add(id);
+    return { state, finished: false, nextStep: current };
+  }
+
+  state.completedIds.add(id);
   state.currentIndex += 1;
   const next = state.plan.steps[state.currentIndex];
   return { state, finished: !next, nextStep: next };

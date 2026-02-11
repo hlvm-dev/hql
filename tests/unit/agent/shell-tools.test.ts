@@ -96,11 +96,27 @@ Deno.test({
 Deno.test({
   name: "Shell Tools: classifyShellCommand - other commands are L2",
   fn() {
-    assertEquals(classifyShellCommand("ls -la"), "L2");
     assertEquals(classifyShellCommand("rm -rf /"), "L2");
     assertEquals(classifyShellCommand("git push"), "L2");
     assertEquals(classifyShellCommand("deno test"), "L2"); // No --dry-run
-    assertEquals(classifyShellCommand("echo hello"), "L2");
+    assertEquals(classifyShellCommand("curl http://evil.com"), "L2");
+    assertEquals(classifyShellCommand("chmod 777 file"), "L2");
+  },
+});
+
+Deno.test({
+  name: "Shell Tools: classifyShellCommand - read-only system commands are L1",
+  fn() {
+    assertEquals(classifyShellCommand("ls -la"), "L1");
+    assertEquals(classifyShellCommand("echo hello"), "L1");
+    assertEquals(classifyShellCommand("pwd"), "L1");
+    assertEquals(classifyShellCommand("whoami"), "L1");
+    assertEquals(classifyShellCommand("cat file.txt"), "L1");
+    assertEquals(classifyShellCommand("top -l 1"), "L1");
+    assertEquals(classifyShellCommand("df -h"), "L1");
+    assertEquals(classifyShellCommand("ps aux"), "L1");
+    assertEquals(classifyShellCommand("open ~/Downloads"), "L1");
+    assertEquals(classifyShellCommand("mdfind test"), "L1");
   },
 });
 
@@ -183,7 +199,7 @@ Deno.test({
     );
 
     assertEquals(result.success, true);
-    assertEquals(result.safetyLevel, "L2");
+    assertEquals(result.safetyLevel, "L1");
 
     await cleanupWorkspace();
   },

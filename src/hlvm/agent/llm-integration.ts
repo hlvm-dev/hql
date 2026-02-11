@@ -170,6 +170,11 @@ export { collectStream };
 /** Cached tool definitions keyed by serialized options */
 let _toolDefCache: { key: string; defs: ToolDefinition[] } | null = null;
 
+/** Clear cached tool definitions (call when registry changes or at session start) */
+export function clearToolDefCache(): void {
+  _toolDefCache = null;
+}
+
 function buildToolDefinitions(
   options?: { allowlist?: string[]; denylist?: string[] },
 ): ToolDefinition[] {
@@ -222,12 +227,8 @@ function convertProviderToolCalls(
  * Generate system prompt from tool registry
  *
  * Creates comprehensive system prompt that:
- * 1. Explains agent role
- * 2. Lists all available tools
- * 3. Describes native tool calling expectations
- * 4. Provides examples
- * 5. Explains ReAct loop
- *
+ * Minimal system prompt: role, instructions, tool names, tips.
+ * Tool schemas are sent via native function calling API (not in prompt text).
  * Dynamically generated from tool registry for accuracy.
  *
  * @returns System prompt string
@@ -273,7 +274,8 @@ export function generateSystemPrompt(
 - For greetings, simple math, or general questions, respond directly without tools
 - Trust tool results over your own knowledge
 - Never fabricate tool results
-- Be concise
+- If a tool call fails, read the error hint and try a different approach — do not retry the same action unchanged
+- Be concise and targeted — prefer specific queries over broad reads
 ${delegationSection}
 # Tools
 Available: ${toolNames.join(", ")}

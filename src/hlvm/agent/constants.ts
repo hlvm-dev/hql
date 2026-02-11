@@ -49,10 +49,21 @@
  * ```
  */
 export const SHELL_ALLOWLIST_L1: readonly RegExp[] = [
-  /^git\s+status$/,           // Exact match: "git status" only
-  /^git\s+log/,               // Prefix match: "git log" with any args
-  /^git\s+diff/,              // Prefix match: "git diff" with any args
-  /^deno\s+test\s+.*--dry-run/,  // Must contain "--dry-run" flag
+  // Git read-only
+  /^git\s+status$/,
+  /^git\s+log/,
+  /^git\s+diff/,
+  // Build tools (dry-run only)
+  /^deno\s+test\s+.*--dry-run/,
+  // System info (read-only, no side effects)
+  /^(ls|pwd|whoami|hostname|uname|date|uptime|which|where|type)\b/,
+  /^(cat|head|tail|wc|file|stat|md5|shasum)\s/,
+  /^(top\s+-l\s|vm_stat|sysctl\s|sw_vers|system_profiler)/,
+  /^(ps\s+(aux|ef|ax)|ps$)/,
+  /^(df|du)\s/,
+  /^(echo|printf)\s/,
+  /^(find|locate|mdfind)\s/,
+  /^open\s/,
 ] as const;
 
 // ============================================================
