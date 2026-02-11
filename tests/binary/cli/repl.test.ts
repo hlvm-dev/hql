@@ -4,7 +4,7 @@
  */
 
 import { assertEquals } from "https://deno.land/std@0.218.0/assert/mod.ts";
-import { binaryTest, runRawCLI, USE_BINARY } from "../_shared/binary-helpers.ts";
+import { binaryTest, runRawCLI } from "../_shared/binary-helpers.ts";
 
 binaryTest("CLI repl: --version flag", async () => {
   const result = await runRawCLI(["--version"]);

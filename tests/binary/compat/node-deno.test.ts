@@ -12,7 +12,6 @@ import {
   transpileAndRunWithNode,
   transpileAndRunWithDeno,
   transpileCode,
-  USE_BINARY
 } from "../_shared/binary-helpers.ts";
 
 // Check for Node.js availability ONCE at module load time

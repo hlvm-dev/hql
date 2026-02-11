@@ -372,7 +372,7 @@ export async function findSymbol(
             }
           }
         }
-      } catch (error) {
+      } catch {
         // Skip files we can't read
       }
     };
@@ -470,10 +470,10 @@ export async function getStructure(
     }
 
     // Build directory tree recursively
-    async function buildTree(
+    const buildTree = async (
       dir: string,
       depth: number
-    ): Promise<TreeNode> {
+    ): Promise<TreeNode> => {
       const entries: TreeNode[] = [];
 
       if (depth > maxDepth) {
@@ -525,7 +525,7 @@ export async function getStructure(
             }
           }
         }
-      } catch (error) {
+      } catch {
         // Skip directories we can't read
       }
 
@@ -542,7 +542,7 @@ export async function getStructure(
         type: "directory",
         children: entries,
       };
-    }
+    };
 
     const tree = await buildTree(targetPath, 0);
 

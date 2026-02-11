@@ -27,31 +27,22 @@ Deno.test("web resolver: respects serpapi provider config", () => {
 });
 
 Deno.test("web resolver: env vars override configured keys", () => {
-  const previousBrave = Deno.env.get("BRAVE_API_KEY");
-  const previousSerpApi = Deno.env.get("SERPAPI_API_KEY");
-  Deno.env.set("BRAVE_API_KEY", "env-brave-key");
-  Deno.env.set("SERPAPI_API_KEY", "env-serp-key");
-
-  try {
-    const resolved = resolveWebConfig({
+  const resolved = resolveWebConfig(
+    {
       search: {
         brave: { apiKey: "config-brave-key" },
         serpapi: { apiKey: "config-serp-key" },
       },
-    });
+    },
+    {
+      get: (key: string) => {
+        if (key === "BRAVE_API_KEY") return "env-brave-key";
+        if (key === "SERPAPI_API_KEY") return "env-serp-key";
+        return undefined;
+      },
+    },
+  );
 
-    assertEquals(resolved.search.brave.apiKey, "env-brave-key");
-    assertEquals(resolved.search.serpapi.apiKey, "env-serp-key");
-  } finally {
-    if (previousBrave === undefined) {
-      Deno.env.delete("BRAVE_API_KEY");
-    } else {
-      Deno.env.set("BRAVE_API_KEY", previousBrave);
-    }
-    if (previousSerpApi === undefined) {
-      Deno.env.delete("SERPAPI_API_KEY");
-    } else {
-      Deno.env.set("SERPAPI_API_KEY", previousSerpApi);
-    }
-  }
+  assertEquals(resolved.search.brave.apiKey, "env-brave-key");
+  assertEquals(resolved.search.serpapi.apiKey, "env-serp-key");
 });

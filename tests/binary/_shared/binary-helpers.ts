@@ -17,6 +17,8 @@ const IS_WINDOWS = Deno.build.os === "windows";
 const TEMP_DIR = (Deno.env.get(IS_WINDOWS ? "TEMP" : "TMPDIR") || (IS_WINDOWS ? "C:\\Temp" : "/tmp")).replace(/[\/\\]$/, "");
 const BINARY_NAME = IS_WINDOWS ? "hlvm-test-binary.exe" : "hlvm-test-binary";
 export const BINARY_PATH = IS_WINDOWS ? `${TEMP_DIR}\\${BINARY_NAME}` : `${TEMP_DIR}/${BINARY_NAME}`;
+const COMPILE_LOCK_PATH = `${BINARY_PATH}.lock`;
+export const BINARY_TEST_HLVM_DIR = Deno.makeTempDirSync({ prefix: "hlvm-binary-tests-" });
 
 // Track compilation state with mutex to prevent race conditions
 let binaryCompiled = false;
@@ -30,6 +32,20 @@ export interface CommandResult {
   code: number;
   stdout: string;
   stderr: string;
+}
+
+export interface CommandOptions {
+  cwd?: string;
+  env?: Record<string, string>;
+}
+
+export function getBinaryTestEnv(overrides: Record<string, string> = {}): Record<string, string> {
+  return {
+    ...Deno.env.toObject(),
+    HLVM_DIR: BINARY_TEST_HLVM_DIR,
+    HLVM_DISABLE_AI_AUTOSTART: "1",
+    ...overrides,
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -48,21 +64,38 @@ export async function ensureBinaryCompiled(): Promise<void> {
   }
 
   compilationPromise = (async () => {
-    console.log("Compiling HLVM binary for genuine binary testing...");
-    const cmd = new Deno.Command("deno", {
-      args: ["compile", "-A", "--no-check", "--output", BINARY_PATH, CLI_PATH],
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const { success, stderr } = await cmd.output();
-    if (!success) {
-      compilationPromise = null;
-      throw new Error(`Failed to compile binary: ${new TextDecoder().decode(stderr)}`);
+    if (await fileExists(BINARY_PATH)) {
+      binaryCompiled = true;
+      return;
     }
 
+    const lockFile = await tryAcquireCompileLock();
+    if (lockFile) {
+      try {
+        if (!(await fileExists(BINARY_PATH))) {
+          console.log("Compiling HLVM binary for genuine binary testing...");
+          const cmd = new Deno.Command("deno", {
+            args: ["compile", "-A", "--no-check", "--output", BINARY_PATH, CLI_PATH],
+            stdout: "piped",
+            stderr: "piped",
+          });
+
+          const { success, stderr } = await cmd.output();
+          if (!success) {
+            throw new Error(`Failed to compile binary: ${new TextDecoder().decode(stderr)}`);
+          }
+          console.log("Binary compiled: " + BINARY_PATH);
+        }
+      } finally {
+        lockFile.close();
+        await removeIfExists(COMPILE_LOCK_PATH);
+      }
+      binaryCompiled = true;
+      return;
+    }
+
+    await waitForCompiledBinary();
     binaryCompiled = true;
-    console.log("Binary compiled: " + BINARY_PATH);
   })();
 
   await compilationPromise;
@@ -105,12 +138,24 @@ export function binaryTest(name: string, fn: () => void | Promise<void>): void {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** Internal: Execute CLI with given args */
-async function executeCLI(args: string[]): Promise<CommandResult> {
+async function executeCLI(args: string[], options?: CommandOptions): Promise<CommandResult> {
   await ensureBinaryCompiled();
 
   const cmd = USE_BINARY
-    ? new Deno.Command(BINARY_PATH, { args, stdout: "piped", stderr: "piped" })
-    : new Deno.Command("deno", { args: ["run", "-A", CLI_PATH, ...args], stdout: "piped", stderr: "piped" });
+    ? new Deno.Command(BINARY_PATH, {
+        args,
+        cwd: options?.cwd,
+        env: getBinaryTestEnv(options?.env),
+        stdout: "piped",
+        stderr: "piped",
+      })
+    : new Deno.Command("deno", {
+        args: ["run", "-A", CLI_PATH, ...args],
+        cwd: options?.cwd,
+        env: getBinaryTestEnv(options?.env),
+        stdout: "piped",
+        stderr: "piped",
+      });
 
   const output = await cmd.output();
   return {
@@ -133,16 +178,23 @@ export function runRawCLI(args: string[]): Promise<CommandResult> {
  * @param command - The CLI command (compile, run, init, repl, publish)
  * @param args - Arguments to pass to the command
  */
-export function runCLI(command: string, args: string[] = []): Promise<CommandResult> {
-  return executeCLI([command, ...args]);
+export function runCLI(
+  command: string,
+  args: string[] = [],
+  options?: CommandOptions,
+): Promise<CommandResult> {
+  return executeCLI([command, ...args], options);
 }
 
 /**
  * Run an HQL expression and return the result
  * Shorthand for: runCLI("run", [expression])
  */
-export function runExpression(expression: string): Promise<CommandResult> {
-  return runCLI("run", [expression]);
+export function runExpression(
+  expression: string,
+  options?: CommandOptions,
+): Promise<CommandResult> {
+  return runCLI("run", [expression], options);
 }
 
 /**
@@ -229,4 +281,42 @@ export async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T
       // Ignore cleanup errors
     }
   }
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await Deno.stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function removeIfExists(path: string): Promise<void> {
+  try {
+    await Deno.remove(path);
+  } catch {
+    // Ignore if missing.
+  }
+}
+
+async function tryAcquireCompileLock(): Promise<Deno.FsFile | null> {
+  try {
+    return await Deno.open(COMPILE_LOCK_PATH, { createNew: true, write: true });
+  } catch {
+    return null;
+  }
+}
+
+async function waitForCompiledBinary(): Promise<void> {
+  const timeoutMs = 180_000;
+  const pollMs = 100;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (await fileExists(BINARY_PATH)) return;
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+
+  throw new Error(`Timed out waiting for compiled binary at ${BINARY_PATH}`);
 }

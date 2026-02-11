@@ -4,7 +4,7 @@
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
-import { runExpression, USE_BINARY } from "../_shared/binary-helpers.ts";
+import { runExpression } from "../_shared/binary-helpers.ts";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // FIRST

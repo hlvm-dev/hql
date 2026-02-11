@@ -18,6 +18,7 @@ import {
   getLastSession,
   deleteSession as deleteSessionStorage,
   updateTitle,
+  type SessionStorageScope,
 } from "./storage.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { RuntimeError } from "../../../../common/error.ts";
@@ -49,13 +50,19 @@ export class SessionManager {
   private pendingMessageCount: number = 0;
   private lastUpdateTs: number = 0;
   private static readonly FLUSH_THRESHOLD = 10;
+  private readonly storageScope?: SessionStorageScope;
 
   /**
    * Create a SessionManager for a project.
    * @param projectPath - The project directory path (defaults to cwd)
+   * @param options - Optional storage overrides (used by tests)
    */
-  constructor(projectPath: string = getPlatform().process.cwd()) {
+  constructor(
+    projectPath: string = getPlatform().process.cwd(),
+    options?: SessionStorageScope,
+  ) {
     this.projectPath = projectPath;
+    this.storageScope = options?.sessionsDir ? { sessionsDir: options.sessionsDir } : undefined;
   }
 
   // ==========================================================================
@@ -86,7 +93,7 @@ export class SessionManager {
       // Fall through to defer if session not found
     } else if (options.continue && !options.forceNew) {
       // Resume last session (global)
-      const lastSession = await getLastSession();
+      const lastSession = await getLastSession(this.storageScope);
       if (lastSession) {
         this.currentSession = lastSession;
         this.initialized = true;
@@ -96,7 +103,7 @@ export class SessionManager {
       // Fall through to defer if no previous session
     } else if (options.forceNew) {
       // Force new session immediately
-      this.currentSession = await createSession(this.projectPath);
+      this.currentSession = await createSession(this.projectPath, undefined, this.storageScope);
       this.initialized = true;
       this.sessionDeferred = false;
       return this.currentSession;
@@ -123,7 +130,7 @@ export class SessionManager {
     }
 
     // Create session now (lazy creation on first message)
-    this.currentSession = await createSession(this.projectPath);
+    this.currentSession = await createSession(this.projectPath, undefined, this.storageScope);
     this.sessionDeferred = false;
     return this.currentSession;
   }
@@ -147,7 +154,8 @@ export class SessionManager {
       await updateSessionIndex(
         this.currentSession.id,
         this.currentSession.messageCount,
-        this.lastUpdateTs
+        this.lastUpdateTs,
+        this.storageScope,
       );
       this.pendingMessageCount = 0;
     }
@@ -180,7 +188,8 @@ export class SessionManager {
       session.id,
       role,
       content,
-      attachments
+      attachments,
+      this.storageScope,
     );
 
     // Update local metadata
@@ -211,7 +220,7 @@ export class SessionManager {
   async newSession(title?: string): Promise<SessionMeta> {
     // Flush pending updates from previous session
     await this.flushIndexUpdate();
-    this.currentSession = await createSession(this.projectPath, title);
+    this.currentSession = await createSession(this.projectPath, title, this.storageScope);
     this.sessionDeferred = false;
     return this.currentSession;
   }
@@ -224,7 +233,7 @@ export class SessionManager {
   async resumeSession(sessionId: string): Promise<Session | null> {
     // Flush pending updates from previous session
     await this.flushIndexUpdate();
-    const session = await loadSession(sessionId);
+    const session = await loadSession(sessionId, this.storageScope);
     if (session) {
       this.currentSession = session.meta;
     }
@@ -239,7 +248,7 @@ export class SessionManager {
     return listSessions({
       limit,
       sortOrder: "recent",
-    });
+    }, this.storageScope);
   }
 
   /**
@@ -248,7 +257,7 @@ export class SessionManager {
    * @returns true if deleted, false if not found
    */
   async deleteSession(sessionId: string): Promise<boolean> {
-    const result = await deleteSessionStorage(sessionId);
+    const result = await deleteSessionStorage(sessionId, this.storageScope);
 
     // If we deleted the current session, clear it
     if (result && this.currentSession?.id === sessionId) {
@@ -267,7 +276,7 @@ export class SessionManager {
       throw new RuntimeError("No active session to rename.");
     }
 
-    await updateTitle(this.currentSession.id, title);
+    await updateTitle(this.currentSession.id, title, this.storageScope);
 
     // Update local metadata
     this.currentSession = {
@@ -289,7 +298,7 @@ export class SessionManager {
       return [];
     }
 
-    const session = await loadSession(this.currentSession.id);
+    const session = await loadSession(this.currentSession.id, this.storageScope);
     return session?.messages ?? [];
   }
 

@@ -3,7 +3,7 @@
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
-import { runCLI, withTempDir, USE_BINARY } from "../_shared/binary-helpers.ts";
+import { runCLI, withTempDir } from "../_shared/binary-helpers.ts";
 
 Deno.test({
   name: "CLI init: creates hlvm.json with -y flag",
@@ -11,20 +11,14 @@ Deno.test({
   sanitizeOps: false,
   async fn() {
     await withTempDir(async (dir) => {
-      const originalCwd = Deno.cwd();
-      try {
-        Deno.chdir(dir);
-        const result = await runCLI("init", ["-y"]);
-        assertEquals(result.success, true, `Init failed: ${result.stderr}`);
+      const result = await runCLI("init", ["-y"], { cwd: dir });
+      assertEquals(result.success, true, `Init failed: ${result.stderr}`);
 
-        // Check hlvm.json was created
-        const hqlJson = await Deno.readTextFile(`${dir}/hlvm.json`);
-        const config = JSON.parse(hqlJson);
-        assertEquals(typeof config.name, "string");
-        assertEquals(typeof config.version, "string");
-      } finally {
-        Deno.chdir(originalCwd);
-      }
+      // Check hlvm.json was created
+      const hqlJson = await Deno.readTextFile(`${dir}/hlvm.json`);
+      const config = JSON.parse(hqlJson);
+      assertEquals(typeof config.name, "string");
+      assertEquals(typeof config.version, "string");
     });
   },
 });
@@ -35,18 +29,12 @@ Deno.test({
   sanitizeOps: false,
   async fn() {
     await withTempDir(async (dir) => {
-      const originalCwd = Deno.cwd();
-      try {
-        Deno.chdir(dir);
-        const result = await runCLI("init", ["-y"]);
-        assertEquals(result.success, true, `Init failed: ${result.stderr}`);
+      const result = await runCLI("init", ["-y"], { cwd: dir });
+      assertEquals(result.success, true, `Init failed: ${result.stderr}`);
 
-        // Check mod.hql was created
-        const modHql = await Deno.readTextFile(`${dir}/mod.hql`);
-        assertStringIncludes(modHql, "fn");  // Should have sample function code
-      } finally {
-        Deno.chdir(originalCwd);
-      }
+      // Check mod.hql was created
+      const modHql = await Deno.readTextFile(`${dir}/mod.hql`);
+      assertStringIncludes(modHql, "fn"); // Should have sample function code
     });
   },
 });
@@ -57,18 +45,12 @@ Deno.test({
   sanitizeOps: false,
   async fn() {
     await withTempDir(async (dir) => {
-      const originalCwd = Deno.cwd();
-      try {
-        Deno.chdir(dir);
-        const result = await runCLI("init", ["-y"]);
-        assertEquals(result.success, true, `Init failed: ${result.stderr}`);
+      const result = await runCLI("init", ["-y"], { cwd: dir });
+      assertEquals(result.success, true, `Init failed: ${result.stderr}`);
 
-        // Check .gitignore was created
-        const gitignore = await Deno.readTextFile(`${dir}/.gitignore`);
-        assertStringIncludes(gitignore, ".hlvm-cache");
-      } finally {
-        Deno.chdir(originalCwd);
-      }
+      // Check .gitignore was created
+      const gitignore = await Deno.readTextFile(`${dir}/.gitignore`);
+      assertStringIncludes(gitignore, ".hlvm-cache");
     });
   },
 });
@@ -79,18 +61,12 @@ Deno.test({
   sanitizeOps: false,
   async fn() {
     await withTempDir(async (dir) => {
-      const originalCwd = Deno.cwd();
-      try {
-        Deno.chdir(dir);
-        const result = await runCLI("init", ["-y"]);
-        assertEquals(result.success, true, `Init failed: ${result.stderr}`);
+      const result = await runCLI("init", ["-y"], { cwd: dir });
+      assertEquals(result.success, true, `Init failed: ${result.stderr}`);
 
-        // Check README.md was created
-        const readme = await Deno.readTextFile(`${dir}/README.md`);
-        assertStringIncludes(readme, "#");  // Should have markdown header
-      } finally {
-        Deno.chdir(originalCwd);
-      }
+      // Check README.md was created
+      const readme = await Deno.readTextFile(`${dir}/README.md`);
+      assertStringIncludes(readme, "#"); // Should have markdown header
     });
   },
 });

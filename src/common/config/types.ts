@@ -87,6 +87,7 @@ export interface HlvmConfig {
   theme: string; // UI theme
   keybindings?: KeybindingsConfig; // Custom keybindings (optional)
   tools?: ToolsConfig; // Tool-specific configuration (optional)
+  modelConfigured?: boolean; // true after first explicit model selection
 }
 
 // ============================================================
@@ -182,6 +183,7 @@ export const CONFIG_KEYS = [
   "maxTokens",
   "theme",
   "tools",
+  "modelConfigured",
 ] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
@@ -271,6 +273,12 @@ export function validateValue(
     case "tools":
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return { valid: false, error: "tools must be an object" };
+      }
+      return { valid: true };
+    case "modelConfigured":
+      if (value === undefined) return { valid: true }; // optional field
+      if (typeof value !== "boolean") {
+        return { valid: false, error: "modelConfigured must be a boolean" };
       }
       return { valid: true };
 

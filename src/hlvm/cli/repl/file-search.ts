@@ -10,10 +10,8 @@
 import { fuzzyMatchPath, binarySearchInsertIdx } from "./fuzzy.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
-  parseGitignore,
   isIgnored,
   loadGitignore,
-  type GitignorePattern,
 } from "../../../common/file-utils.ts";
 
 // ============================================================
@@ -278,4 +276,3 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
 
   return results;
 }
-

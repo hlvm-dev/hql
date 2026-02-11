@@ -40,20 +40,28 @@ const STORAGE_VERSION = 1;
 
 let legacyMigrationChecked = false;
 
+export interface SessionStorageScope {
+  sessionsDir?: string;
+}
+
+function resolveSessionsDir(scope?: SessionStorageScope): string {
+  return scope?.sessionsDir ?? getSessionsDir();
+}
+
 /** Get index file path: ~/.hlvm/sessions/index.jsonl */
-function getIndexPath(): string {
-  return path().join(getSessionsDir(), INDEX_FILE);
+function getIndexPath(sessionsDir: string): string {
+  return path().join(sessionsDir, INDEX_FILE);
 }
 
 /** Get session file path (global - no project subdirectory) */
-function getSessionPath(sessionId: string): string {
-  return path().join(getSessionsDir(), `${sessionId}.jsonl`);
+function getSessionPath(sessionId: string, sessionsDir: string): string {
+  return path().join(sessionsDir, `${sessionId}.jsonl`);
 }
 
-async function sessionsDirHasData(): Promise<boolean> {
+async function sessionsDirHasData(sessionsDir: string): Promise<boolean> {
   const platform = getPlatform();
   try {
-    for await (const entry of platform.fs.readDir(getSessionsDir())) {
+    for await (const entry of platform.fs.readDir(sessionsDir)) {
       if (entry.isFile && entry.name.endsWith(".jsonl")) {
         return true;
       }
@@ -67,18 +75,18 @@ async function sessionsDirHasData(): Promise<boolean> {
   }
 }
 
-async function rebuildIndexFromSessions(): Promise<void> {
+async function rebuildIndexFromSessions(sessionsDir: string): Promise<void> {
   const platform = getPlatform();
   const entries: SessionMeta[] = [];
 
   try {
-    for await (const entry of platform.fs.readDir(getSessionsDir())) {
+    for await (const entry of platform.fs.readDir(sessionsDir)) {
       if (!entry.isFile) continue;
       if (!entry.name.endsWith(".jsonl") || entry.name === INDEX_FILE) continue;
 
       const sessionId = entry.name.replace(/\.jsonl$/, "");
       const records = await readJsonLines<SessionRecord>(
-        getSessionPath(sessionId),
+        getSessionPath(sessionId, sessionsDir),
       );
 
       let header: SessionHeader | null = null;
@@ -120,11 +128,14 @@ async function rebuildIndexFromSessions(): Promise<void> {
   }
 
   if (entries.length > 0) {
-    await writeIndex(entries);
+    await writeIndex(entries, { sessionsDir });
   }
 }
 
-async function ensureLegacySessionsMigrated(): Promise<void> {
+async function ensureLegacySessionsMigrated(sessionsDir: string): Promise<void> {
+  if (sessionsDir !== getSessionsDir()) {
+    return;
+  }
   if (legacyMigrationChecked) return;
   legacyMigrationChecked = true;
 
@@ -133,14 +144,14 @@ async function ensureLegacySessionsMigrated(): Promise<void> {
   const hasLegacyFiles = legacyFiles.length > 0;
 
   if (hasLegacyFiles) {
-    await fs().ensureDir(getSessionsDir());
+    await fs().ensureDir(sessionsDir);
   }
 
   const platform = getPlatform();
   let copiedAny = false;
   for (const legacyFile of legacyFiles) {
     const filename = path().basename(legacyFile);
-    const targetPath = path().join(getSessionsDir(), filename);
+    const targetPath = path().join(sessionsDir, filename);
     if (await getPlatform().fs.exists(targetPath)) {
       continue;
     }
@@ -152,13 +163,13 @@ async function ensureLegacySessionsMigrated(): Promise<void> {
     }
   }
 
-  const indexPath = getIndexPath();
-  const hasCurrentData = await sessionsDirHasData();
+  const indexPath = getIndexPath(sessionsDir);
+  const hasCurrentData = await sessionsDirHasData(sessionsDir);
   const needsIndex = (hasLegacyFiles || hasCurrentData) &&
     !(await getPlatform().fs.exists(indexPath));
 
   if (copiedAny || needsIndex) {
-    await rebuildIndexFromSessions();
+    await rebuildIndexFromSessions(sessionsDir);
   }
 }
 
@@ -196,24 +207,28 @@ export function generateSessionId(): string {
 /**
  * Read all session metadata from index.
  */
-async function readIndex(): Promise<SessionMeta[]> {
-  await ensureLegacySessionsMigrated();
-  return readJsonLines<SessionMeta>(getIndexPath());
+async function readIndex(
+  scope?: SessionStorageScope,
+): Promise<SessionMeta[]> {
+  const sessionsDir = resolveSessionsDir(scope);
+  await ensureLegacySessionsMigrated(sessionsDir);
+  return readJsonLines<SessionMeta>(getIndexPath(sessionsDir));
 }
 
-/**
- * Write all session metadata to index (atomic).
- */
-async function writeIndex(entries: SessionMeta[]): Promise<void> {
+async function writeIndex(
+  entries: SessionMeta[],
+  scope?: SessionStorageScope,
+): Promise<void> {
+  const sessionsDir = resolveSessionsDir(scope);
   const content = serializeJsonLines(entries);
-  await atomicWriteTextFile(getIndexPath(), content);
+  await atomicWriteTextFile(getIndexPath(sessionsDir), content);
 }
 
-/**
- * Update or add a session entry in the index.
- */
-async function updateIndexEntry(entry: SessionMeta): Promise<void> {
-  const entries = await readIndex();
+async function updateIndexEntry(
+  entry: SessionMeta,
+  scope?: SessionStorageScope,
+): Promise<void> {
+  const entries = await readIndex(scope);
   const index = entries.findIndex((e) => e.id === entry.id);
 
   if (index >= 0) {
@@ -222,21 +237,24 @@ async function updateIndexEntry(entry: SessionMeta): Promise<void> {
     entries.push(entry);
   }
 
-  await writeIndex(entries);
+  await writeIndex(entries, scope);
 }
 
 /**
  * Remove a session entry from the index.
  */
-async function removeIndexEntry(sessionId: string): Promise<boolean> {
-  const entries = await readIndex();
+async function removeIndexEntry(
+  sessionId: string,
+  scope?: SessionStorageScope,
+): Promise<boolean> {
+  const entries = await readIndex(scope);
   const filtered = entries.filter((e) => e.id !== sessionId);
 
   if (filtered.length === entries.length) {
     return false; // Not found
   }
 
-  await writeIndex(filtered);
+  await writeIndex(filtered, scope);
   return true;
 }
 
@@ -251,6 +269,7 @@ async function removeIndexEntry(sessionId: string): Promise<boolean> {
 export async function createSession(
   projectPath: string,
   title?: string,
+  scope?: SessionStorageScope,
 ): Promise<SessionMeta> {
   const projectHash = hashProjectPath(projectPath);
   const sessionId = generateSessionId();
@@ -278,7 +297,8 @@ export async function createSession(
   };
 
   // Write header to session file (global path, no project subdirectory)
-  const sessionPath = getSessionPath(sessionId);
+  const sessionsDir = resolveSessionsDir(scope);
+  const sessionPath = getSessionPath(sessionId, sessionsDir);
   await appendJsonLine(sessionPath, header);
 
   // Write initial title record to session file
@@ -290,7 +310,7 @@ export async function createSession(
   await appendJsonLine(sessionPath, titleRecord);
 
   // Update index
-  await updateIndexEntry(meta);
+  await updateIndexEntry(meta, scope);
 
   return meta;
 }
@@ -335,13 +355,15 @@ export async function appendMessage(
   role: "user" | "assistant",
   content: string,
   attachments?: readonly string[],
+  scope?: SessionStorageScope,
 ): Promise<SessionMessage> {
   const message = createMessage(role, content, attachments);
-  const sessionPath = getSessionPath(sessionId);
+  const sessionsDir = resolveSessionsDir(scope);
+  const sessionPath = getSessionPath(sessionId, sessionsDir);
   await appendJsonLine(sessionPath, message);
 
   // Update index in a single read-modify-write (no double read)
-  const entries = await readIndex();
+  const entries = await readIndex(scope);
   const index = entries.findIndex((e) => e.id === sessionId);
   if (index >= 0) {
     entries[index] = {
@@ -349,7 +371,7 @@ export async function appendMessage(
       updatedAt: message.ts,
       messageCount: entries[index].messageCount + 1,
     };
-    await writeIndex(entries);
+    await writeIndex(entries, scope);
   }
 
   return message;
@@ -365,9 +387,11 @@ export async function appendMessageOnly(
   role: "user" | "assistant",
   content: string,
   attachments?: readonly string[],
+  scope?: SessionStorageScope,
 ): Promise<SessionMessage> {
   const message = createMessage(role, content, attachments);
-  const sessionPath = getSessionPath(sessionId);
+  const sessionsDir = resolveSessionsDir(scope);
+  const sessionPath = getSessionPath(sessionId, sessionsDir);
   await appendJsonLine(sessionPath, message);
   return message;
 }
@@ -380,8 +404,9 @@ export async function updateSessionIndex(
   sessionId: string,
   messageCount: number,
   updatedAt: number,
+  scope?: SessionStorageScope,
 ): Promise<void> {
-  const entries = await readIndex();
+  const entries = await readIndex(scope);
   const index = entries.findIndex((e) => e.id === sessionId);
 
   if (index >= 0) {
@@ -390,7 +415,7 @@ export async function updateSessionIndex(
       messageCount,
       updatedAt,
     };
-    await writeIndex(entries);
+    await writeIndex(entries, scope);
   }
 }
 
@@ -399,8 +424,10 @@ export async function updateSessionIndex(
  */
 export async function loadSession(
   sessionId: string,
+  scope?: SessionStorageScope,
 ): Promise<Session | null> {
-  const sessionPath = getSessionPath(sessionId);
+  const sessionsDir = resolveSessionsDir(scope);
+  const sessionPath = getSessionPath(sessionId, sessionsDir);
 
   try {
     const records = await readJsonLines<SessionRecord>(sessionPath);
@@ -457,13 +484,14 @@ export async function loadSession(
  */
 export async function listSessions(
   options: ListSessionsOptions = {},
+  scope?: SessionStorageScope,
 ): Promise<SessionMeta[]> {
   const {
     limit = 50,
     sortOrder = "recent",
   } = options;
 
-  const entries = await readIndex();
+  const entries = await readIndex(scope);
 
   // Sort
   switch (sortOrder) {
@@ -485,11 +513,13 @@ export async function listSessions(
 /**
  * Get the most recent session (global).
  */
-export async function getLastSession(): Promise<SessionMeta | null> {
+export async function getLastSession(
+  scope?: SessionStorageScope,
+): Promise<SessionMeta | null> {
   const sessions = await listSessions({
     limit: 1,
     sortOrder: "recent",
-  });
+  }, scope);
   return sessions[0] || null;
 }
 
@@ -498,9 +528,11 @@ export async function getLastSession(): Promise<SessionMeta | null> {
  */
 export async function deleteSession(
   sessionId: string,
+  scope?: SessionStorageScope,
 ): Promise<boolean> {
   const platform = getPlatform();
-  const sessionPath = getSessionPath(sessionId);
+  const sessionsDir = resolveSessionsDir(scope);
+  const sessionPath = getSessionPath(sessionId, sessionsDir);
 
   // Remove session file
   try {
@@ -512,7 +544,7 @@ export async function deleteSession(
   }
 
   // Remove from index
-  return removeIndexEntry(sessionId);
+  return removeIndexEntry(sessionId, scope);
 }
 
 /**
@@ -521,6 +553,7 @@ export async function deleteSession(
 export async function updateTitle(
   sessionId: string,
   title: string,
+  scope?: SessionStorageScope,
 ): Promise<void> {
   const titleRecord: SessionTitleRecord = {
     type: "title",
@@ -529,11 +562,12 @@ export async function updateTitle(
   };
 
   // Append title record to session file
-  const sessionPath = getSessionPath(sessionId);
+  const sessionsDir = resolveSessionsDir(scope);
+  const sessionPath = getSessionPath(sessionId, sessionsDir);
   await appendJsonLine(sessionPath, titleRecord);
 
   // Update index in a single read-modify-write (no double read)
-  const entries = await readIndex();
+  const entries = await readIndex(scope);
   const index = entries.findIndex((e) => e.id === sessionId);
   if (index >= 0) {
     entries[index] = {
@@ -541,7 +575,7 @@ export async function updateTitle(
       title,
       updatedAt: titleRecord.ts,
     };
-    await writeIndex(entries);
+    await writeIndex(entries, scope);
   }
 }
 
@@ -550,8 +584,9 @@ export async function updateTitle(
  */
 export async function exportSession(
   sessionId: string,
+  scope?: SessionStorageScope,
 ): Promise<string | null> {
-  const session = await loadSession(sessionId);
+  const session = await loadSession(sessionId, scope);
 
   if (!session) {
     return null;
@@ -582,6 +617,8 @@ export async function exportSession(
 /**
  * Initialize sessions directory structure.
  */
-export async function initSessionsDir(): Promise<void> {
-  await fs().ensureDir(getSessionsDir());
+export async function initSessionsDir(
+  scope?: SessionStorageScope,
+): Promise<void> {
+  await fs().ensureDir(resolveSessionsDir(scope));
 }

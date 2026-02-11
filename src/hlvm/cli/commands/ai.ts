@@ -64,11 +64,6 @@ function findCatalogEntry(
   return null;
 }
 
-function formatTags(tags: string[]): string {
-  if (tags.length === 0) return "";
-  return tags.map((tag) => `[${tag}]`).join(" ");
-}
-
 function pad(text: string, width: number): string {
   if (text.length >= width) return truncate(text, width, "…");
   return text.padEnd(width);

@@ -37,7 +37,7 @@ export interface MemoryApi {
     docstrings: Map<string, string>;
     errors: string[];
   }>;
-  compact: () => Promise<void>;
+  compact: () => Promise<{ before: number; after: number }>;
   list: () => Promise<string[]>;
   get: (name: string) => Promise<string | null>;
   remove: (name: string) => Promise<boolean>;
@@ -76,7 +76,7 @@ function createMemoryApi(): MemoryCallable {
      * System-level API - normally called by REPL initialization
      * @example (memory.compact)
      */
-    compact: (): Promise<void> => {
+    compact: (): Promise<{ before: number; after: number }> => {
       return compactMemory();
     },
 

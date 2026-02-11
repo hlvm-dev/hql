@@ -46,7 +46,6 @@ import {
 import { assertMaxBytes } from "../../common/limits.ts";
 import {
   getErrorMessage,
-  isObjectValue,
   truncate,
 } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
@@ -406,6 +405,8 @@ export interface OrchestratorConfig {
   noInput?: boolean;
   /** Skip weak-model compensation heuristics (for frontier models like Claude, GPT-4o, Gemini) */
   skipModelCompensation?: boolean;
+  /** External abort signal (from HTTP request cancellation) */
+  signal?: AbortSignal;
 }
 
 /** Reusable TextEncoder (stateless, no need to recreate) */
@@ -734,7 +735,7 @@ export async function executeToolCalls(
     createRateLimiter(config.toolRateLimit ?? RATE_LIMITS.toolCalls);
   config.toolRateLimiter = toolLimiter;
 
-  const checkRateLimit = (call: ToolCall): ToolExecutionResult | null => {
+  const checkRateLimit = (): ToolExecutionResult | null => {
     if (!toolLimiter) return null;
     const status = toolLimiter.consume(1);
     if (status.allowed) return null;
@@ -766,7 +767,7 @@ export async function executeToolCalls(
   if (!continueOnError) {
     const results: ToolExecutionResult[] = [];
     for (const call of toolCalls) {
-      const rateLimited = checkRateLimit(call);
+      const rateLimited = checkRateLimit();
       if (rateLimited) {
         results.push(rateLimited);
         break;
@@ -779,9 +780,9 @@ export async function executeToolCalls(
   }
 
   // Parallel execution (default): run all calls concurrently
-  const promises = toolCalls.map(async (call): Promise<ToolExecutionResult> => {
-    const rateLimited = checkRateLimit(call);
-    if (rateLimited) return rateLimited;
+  const promises = toolCalls.map((call): Promise<ToolExecutionResult> => {
+    const rateLimited = checkRateLimit();
+    if (rateLimited) return Promise.resolve(rateLimited);
     return executeToolCall(call, config);
   });
   return Promise.all(promises);
@@ -1235,6 +1236,9 @@ export async function runReActLoop(
   let lastResponse = "";
 
   while (iterations < maxIterations) {
+    if (config.signal?.aborted) {
+      return lastResponse || "Request cancelled by client";
+    }
     if (Date.now() > loopDeadline) {
       return lastResponse || `Total timeout (${totalTimeout / 1000}s) exceeded. Task incomplete.`;
     }
@@ -1341,7 +1345,7 @@ export async function runReActLoop(
     const llmDuration = Date.now() - llmStart;
 
     // Record token usage (estimated by default)
-    let responseText = agentResponse.content ?? "";
+    const responseText = agentResponse.content ?? "";
     if (responseText) lastResponse = responseText;
     let response = agentResponse;
     const usage = estimateUsage(messages, responseText);

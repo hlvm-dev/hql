@@ -3,7 +3,7 @@
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
-import { runCLI, runExpression, withTempDir, USE_BINARY } from "../_shared/binary-helpers.ts";
+import { runCLI, runExpression, withTempDir } from "../_shared/binary-helpers.ts";
 
 Deno.test({
   name: "CLI run: execute inline expression",

@@ -32,7 +32,6 @@ import { run as runCommand } from "./run.ts";
 import { type InkReplOptions, startInkRepl } from "./repl-ink/index.tsx";
 import {
   parseSessionFlags,
-  type SessionInitOptions,
 } from "./repl/session/types.ts";
 import { VERSION } from "../../version.ts";
 

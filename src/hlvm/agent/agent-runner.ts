@@ -2,13 +2,14 @@
  * Agent Runner — Shared core for running agent queries.
  *
  * SSOT for agent execution logic used by both CLI (ask command) and
- * HTTP (/api/ask endpoint). Eliminates duplication between entry points.
+ * HTTP (/api/chat mode:"agent"). Eliminates duplication between entry points.
  *
  * Consumers provide transport-specific callbacks; this module handles
  * session setup, policy, history, and the ReAct loop.
  */
 
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
+import { isOllamaCloudModel } from "../providers/ollama/cloud.ts";
 import {
   ensureDefaultModelInstalled,
   getConfiguredModel,
@@ -18,6 +19,7 @@ import { createAgentSession, type AgentSession } from "./session.ts";
 import { createDelegateHandler } from "./delegation.ts";
 import {
   runReActLoop,
+  type LLMFunction,
   type TraceEvent,
   type ToolDisplay,
 } from "./orchestrator.ts";
@@ -85,6 +87,8 @@ export interface AgentRunnerOptions {
   noInput?: boolean;
   toolDenylist?: string[];
   skipSessionHistory?: boolean;
+  signal?: AbortSignal;
+  messageHistory?: import("./context.ts").Message[];
 }
 
 export interface AgentRunnerResult {
@@ -106,9 +110,12 @@ export async function ensureAgentReady(
 ): Promise<void> {
   await initializeRuntime({ stdlib: false, cache: false });
 
+  // Strip provider prefix to get raw model name for cloud detection
+  const modelName = model.includes("/") ? model.split("/").slice(1).join("/") : model;
   const isLocalModel = !model.startsWith("openai/") &&
     !model.startsWith("anthropic/") &&
-    !model.startsWith("google/");
+    !model.startsWith("google/") &&
+    !isOllamaCloudModel(modelName);
 
   if (isLocalModel) {
     await ensureDefaultModelInstalled({
@@ -146,11 +153,16 @@ export async function runAgentQuery(
     onToken: callbacks.onToken,
   });
 
-  const sessionKey = skipSessionHistory ? null : deriveDefaultSessionKey(workspace);
+  const useExternalHistory = !!options.messageHistory;
+  const sessionKey = (skipSessionHistory || useExternalHistory) ? null : deriveDefaultSessionKey(workspace);
   let sessionEntry: AgentSessionEntry | null = null;
 
   try {
-    if (sessionKey) {
+    if (useExternalHistory) {
+      for (const message of options.messageHistory!) {
+        session.context.addMessage({ ...message, fromSession: true });
+      }
+    } else if (sessionKey) {
       sessionEntry = await getOrCreateSession(sessionKey);
       const historyMessages = await loadSessionMessages(sessionEntry);
       const recentHistory = historyMessages.slice(-MAX_SESSION_HISTORY);
@@ -174,6 +186,16 @@ export async function runAgentQuery(
       autoApprove: false,
     });
 
+    let llm: LLMFunction = session.llm;
+    if (options.signal) {
+      const outerSignal = options.signal;
+      const innerLlm = session.llm;
+      llm = async (messages, signal) => {
+        if (outerSignal.aborted) throw new Error("Request cancelled");
+        return innerLlm(messages, signal);
+      };
+    }
+
     const text = await runReActLoop(
       query,
       {
@@ -189,8 +211,9 @@ export async function runAgentQuery(
         delegate,
         planning: { mode: "off", requireStepMarkers: false },
         skipModelCompensation: session.isFrontierModel,
+        signal: options.signal,
       },
-      session.llm,
+      llm,
     );
 
     if (sessionEntry) {

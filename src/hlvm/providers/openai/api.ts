@@ -54,7 +54,7 @@ function toOpenAIMessages(messages: Message[]): OpenAIMessage[] {
       return {
         role: "assistant" as const,
         content: msg.content || null,
-        tool_calls: msg.tool_calls.map((tc, i) => ({
+        tool_calls: msg.tool_calls.map((tc) => ({
           id: tc.id ?? generateToolCallId(),
           type: "function" as const,
           function: {

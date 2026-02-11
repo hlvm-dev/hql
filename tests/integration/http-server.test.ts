@@ -7,36 +7,50 @@ import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert
 import { startHttpServer } from "../../src/hlvm/cli/repl/http-server.ts";
 import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
 
-const TEST_PORT = 11436;
-const BASE_URL = `http://localhost:${TEST_PORT}`;
+interface ServerContext {
+  baseUrl: string;
+}
 
-let serverStarted = false;
+let serverContext: ServerContext | null = null;
+
+async function reservePort(): Promise<number> {
+  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+  try {
+    const addr = listener.addr as Deno.NetAddr;
+    return addr.port;
+  } finally {
+    listener.close();
+  }
+}
 
 /**
  * Start server once globally before any tests run
  * Server runs in background for the entire test suite
  */
-async function ensureServerRunning() {
-  if (serverStarted) return;
+async function ensureServerRunning(): Promise<ServerContext> {
+  if (serverContext) return serverContext;
 
-  Deno.env.set("HLVM_REPL_PORT", String(TEST_PORT));
+  const port = await reservePort();
+  const baseUrl = `http://localhost:${port}`;
+
   Deno.env.set("HLVM_DISABLE_AI_AUTOSTART", "1"); // Prevent resource leaks
 
   await initializeRuntime({ ai: true, stdlib: true, cache: true });
 
   // Start server in background (don't await - it runs forever)
-  startHttpServer();
+  startHttpServer({ port });
 
   // Wait for server to be ready
   await new Promise(resolve => setTimeout(resolve, 500));
 
   // Verify server is responsive
-  const health = await fetch(`${BASE_URL}/health`);
+  const health = await fetch(`${baseUrl}/health`);
   if (!health.ok) {
     throw new Error("Server failed to start");
   }
 
-  serverStarted = true;
+  serverContext = { baseUrl };
+  return serverContext;
 }
 
 async function evalCode(code: string): Promise<{
@@ -44,7 +58,8 @@ async function evalCode(code: string): Promise<{
   value?: string;
   error?: { name: string; message: string };
 }> {
-  const response = await fetch(`${BASE_URL}/eval`, {
+  const { baseUrl } = await ensureServerRunning();
+  const response = await fetch(`${baseUrl}/eval`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code }),
@@ -56,9 +71,9 @@ async function evalCode(code: string): Promise<{
 Deno.test({
   name: "GET /health returns status",
   async fn() {
-    await ensureServerRunning();
+    const { baseUrl } = await ensureServerRunning();
 
-    const response = await fetch(`${BASE_URL}/health`);
+    const response = await fetch(`${baseUrl}/health`);
     const data = await response.json();
 
     assertEquals(response.status, 200);

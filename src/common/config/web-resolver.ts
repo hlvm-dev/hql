@@ -49,8 +49,17 @@ export interface ResolvedWebConfig {
   fetch: ResolvedWebFetchConfig;
 }
 
+export interface WebConfigEnv {
+  get: (key: string) => string | undefined;
+}
+
+const DEFAULT_WEB_CONFIG_ENV: WebConfigEnv = {
+  get: (key: string) => getEnvVar(key),
+};
+
 function resolveWebSearchConfig(
   config?: WebSearchConfig,
+  env: WebConfigEnv = DEFAULT_WEB_CONFIG_ENV,
 ): ResolvedWebSearchConfig {
   const defaults = createDefaultWebSearchConfig();
   const resolved: ResolvedWebSearchConfig = {
@@ -83,16 +92,16 @@ function resolveWebSearchConfig(
     },
   };
 
-  const braveKey = getEnvVar("BRAVE_API_KEY");
+  const braveKey = env.get("BRAVE_API_KEY");
   if (braveKey) resolved.brave.apiKey = braveKey;
 
-  const perplexityKey = getEnvVar("PERPLEXITY_API_KEY");
+  const perplexityKey = env.get("PERPLEXITY_API_KEY");
   if (perplexityKey) resolved.perplexity.apiKey = perplexityKey;
 
-  const openrouterKey = getEnvVar("OPENROUTER_API_KEY");
+  const openrouterKey = env.get("OPENROUTER_API_KEY");
   if (openrouterKey) resolved.openrouter.apiKey = openrouterKey;
 
-  const serpApiKey = getEnvVar("SERPAPI_API_KEY");
+  const serpApiKey = env.get("SERPAPI_API_KEY");
   if (serpApiKey) resolved.serpapi.apiKey = serpApiKey;
 
   return resolved;
@@ -100,6 +109,7 @@ function resolveWebSearchConfig(
 
 function resolveWebFetchConfig(
   config?: WebFetchConfig,
+  env: WebConfigEnv = DEFAULT_WEB_CONFIG_ENV,
 ): ResolvedWebFetchConfig {
   const defaults = createDefaultWebFetchConfig();
   const resolved: ResolvedWebFetchConfig = {
@@ -126,7 +136,7 @@ function resolveWebFetchConfig(
     },
   };
 
-  const firecrawlKey = getEnvVar("FIRECRAWL_API_KEY");
+  const firecrawlKey = env.get("FIRECRAWL_API_KEY");
   if (firecrawlKey) resolved.firecrawl.apiKey = firecrawlKey;
 
   return resolved;
@@ -134,9 +144,10 @@ function resolveWebFetchConfig(
 
 export function resolveWebConfig(
   web?: { search?: WebSearchConfig; fetch?: WebFetchConfig },
+  env: WebConfigEnv = DEFAULT_WEB_CONFIG_ENV,
 ): ResolvedWebConfig {
   return {
-    search: resolveWebSearchConfig(web?.search),
-    fetch: resolveWebFetchConfig(web?.fetch),
+    search: resolveWebSearchConfig(web?.search, env),
+    fetch: resolveWebFetchConfig(web?.fetch, env),
   };
 }

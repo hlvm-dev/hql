@@ -15,7 +15,6 @@ import type {
 } from "npm:esbuild-wasm@^0.17.0";
 import { transpileToJavascript } from "./transpiler/hql-transpiler.ts";
 import {
-  propagateReportedFlag,
   RUNTIME_GET_SNIPPET,
   transpileHqlFile,
   wrapError,

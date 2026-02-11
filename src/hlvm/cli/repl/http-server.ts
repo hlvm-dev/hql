@@ -16,8 +16,30 @@ import { RuntimeError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { buildContext } from "../repl-ink/completion/providers.ts";
 import { getActiveProvider } from "../repl-ink/completion/concrete-providers.ts";
-import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
-import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
+import { parseJsonBody, jsonError, addCorsHeaders } from "./http-utils.ts";
+import { createRouter } from "./http-router.ts";
+import { handleChat, handleChatCancel, handleSessionCancel } from "./handlers/chat.ts";
+import {
+  handleListSessions,
+  handleCreateSession,
+  handleGetSession,
+  handleUpdateSession,
+  handleDeleteSession,
+} from "./handlers/sessions.ts";
+import {
+  handleGetMessages,
+  handleGetMessage,
+  handleUpdateMessage,
+  handleDeleteMessage,
+} from "./handlers/messages.ts";
+import {
+  handleListModels,
+  handleGetModel,
+  handlePullModel,
+  handleDeleteModel,
+  handleModelStatus,
+} from "./handlers/models.ts";
+import { handleSSEStream } from "./handlers/sse.ts";
 
 /**
  * REPL HTTP Server Port
@@ -32,9 +54,7 @@ import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
  * - Can be overridden via HLVM_REPL_PORT environment variable (for testing)
  */
 const DEFAULT_PORT = 11435;
-const MAX_BODY_BYTES = 1_000_000;
 const platform = getPlatform();
-const textDecoder = new TextDecoder();
 const INSTANCE_ID = platform.env.get("HLVM_REPL_INSTANCE_ID") ?? null;
 
 function resolvePort(): number {
@@ -50,10 +70,8 @@ function resolvePort(): number {
 
 let replState: ReplState | null = null;
 
-/**
- * Eval Request Schema
- * Matches the terminal REPL capabilities
- */
+// MARK: - Types
+
 interface EvalRequest {
   code: string;
 }
@@ -65,12 +83,6 @@ interface CompletionRequest {
 
 interface MemoryFunctionsResponse {
   functions: MemoryFunctionItem[];
-}
-
-interface AskRequest {
-  query: string;
-  model?: string;
-  workspace?: string;
 }
 
 interface MemoryExecuteRequest {
@@ -87,86 +99,8 @@ interface MemoryExecuteResponse {
   };
 }
 
+// MARK: - REPL State
 
-type JsonParseResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; response: Response };
-
-function jsonError(message: string, status: number): Response {
-  return Response.json({ error: message }, { status });
-}
-
-function addCorsHeaders(response: Response): Response {
-  response.headers.set("Access-Control-Allow-Origin", "*");
-  response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  response.headers.set("Access-Control-Allow-Headers", "Content-Type");
-  return response;
-}
-
-async function readBodyWithLimit(req: Request, limit: number): Promise<
-  { ok: true; bytes: Uint8Array } | { ok: false; response: Response }
-> {
-  if (!req.body) {
-    return { ok: false, response: jsonError("Missing body", 400) };
-  }
-
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    total += value.byteLength;
-    if (total > limit) {
-      await reader.cancel();
-      return { ok: false, response: jsonError("Request too large", 413) };
-    }
-    chunks.push(value);
-  }
-
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  return { ok: true, bytes };
-}
-
-async function parseJsonBody<T>(req: Request): Promise<JsonParseResult<T>> {
-  const contentType = req.headers.get("content-type");
-  if (contentType && !contentType.includes("application/json")) {
-    return { ok: false, response: jsonError("Content-Type must be application/json", 400) };
-  }
-
-  const contentLength = req.headers.get("content-length");
-  if (contentLength) {
-    const length = Number.parseInt(contentLength, 10);
-    if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
-      return { ok: false, response: jsonError("Request too large", 413) };
-    }
-  }
-
-  const bodyResult = await readBodyWithLimit(req, MAX_BODY_BYTES);
-  if (!bodyResult.ok) return bodyResult;
-  if (bodyResult.bytes.length === 0) {
-    return { ok: false, response: jsonError("Missing body", 400) };
-  }
-
-  try {
-    const text = textDecoder.decode(bodyResult.bytes);
-    return { ok: true, value: JSON.parse(text) as T };
-  } catch {
-    return { ok: false, response: jsonError("Invalid JSON", 400) };
-  }
-}
-
-/**
- * Initialize REPL state using shared SSOT initializer
- */
 async function initState(): Promise<ReplState> {
   const initResult = await initReplState({
     memoryJsMode: false,
@@ -189,9 +123,8 @@ async function initState(): Promise<ReplState> {
   return state;
 }
 
-/**
- * Handle POST /eval - Evaluate HQL code
- */
+// MARK: - Legacy Handlers
+
 async function handleEval(req: Request): Promise<Response> {
   try {
     const parsed = await parseJsonBody<EvalRequest>(req);
@@ -202,7 +135,6 @@ async function handleEval(req: Request): Promise<Response> {
       return jsonError("Missing code", 400);
     }
 
-    // Lazy initialize state on first request
     if (!replState) {
       replState = await initState();
     }
@@ -212,7 +144,7 @@ async function handleEval(req: Request): Promise<Response> {
 
     return Response.json({
       success: result.success,
-      value: hasValue ? formatPlainValue(result.value) : null,  // Plain text, no ANSI codes
+      value: hasValue ? formatPlainValue(result.value) : null,
       logs: result.logs?.map((log) => log.trimEnd()) ?? [],
       error: result.error
         ? { name: result.error.name, message: result.error.message }
@@ -224,9 +156,6 @@ async function handleEval(req: Request): Promise<Response> {
   }
 }
 
-/**
- * Handle POST /complete - Get completion suggestions
- */
 async function handleComplete(req: Request): Promise<Response> {
   try {
     const parsed = await parseJsonBody<CompletionRequest>(req);
@@ -240,7 +169,6 @@ async function handleComplete(req: Request): Promise<Response> {
       return jsonError("Missing cursor", 400);
     }
 
-    // Lazy initialize state on first request
     if (!replState) {
       replState = await initState();
     }
@@ -249,7 +177,7 @@ async function handleComplete(req: Request): Promise<Response> {
     const memoryApi = (globalThis as Record<string, unknown>).memory as {
       list: () => Promise<string[]>;
     } | undefined;
-    const memoryNames = memoryApi?.list ? new Set(await memoryApi.list()) : new Set();
+    const memoryNames: ReadonlySet<string> = memoryApi?.list ? new Set(await memoryApi.list()) : new Set<string>();
 
     const context = buildContext(
       text,
@@ -296,9 +224,6 @@ async function handleComplete(req: Request): Promise<Response> {
   }
 }
 
-/**
- * Handle GET /health - Health check endpoint
- */
 function handleHealth(): Response {
   return Response.json({
     status: "ok",
@@ -381,106 +306,36 @@ async function handleMemoryExecute(req: Request): Promise<Response> {
   }
 }
 
-let agentReady = false;
+// MARK: - Router Setup
 
-/**
- * Handle POST /api/ask - Run agent query with NDJSON streaming
- *
- * Uses the shared agent runner (SSOT) with NDJSON callbacks.
- * Each line is a JSON object: {"event":"token","text":"..."}\n
- * The ask_user tool is disabled (noInput: true) since there is no stdin.
- */
-function handleAsk(req: Request): Response {
-  const encoder = new TextEncoder();
+const router = createRouter();
 
-  function ndjsonLine(obj: unknown): Uint8Array {
-    return encoder.encode(JSON.stringify(obj) + "\n");
-  }
+router.add("POST", "/api/chat", (req) => handleChat(req));
+router.add("POST", "/api/chat/cancel", (req) => handleChatCancel(req));
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      let parsed: JsonParseResult<AskRequest>;
-      try {
-        parsed = await parseJsonBody<AskRequest>(req);
-      } catch {
-        controller.enqueue(ndjsonLine({ event: "error", message: "Invalid request" }));
-        controller.close();
-        return;
-      }
-      if (!parsed.ok) {
-        controller.enqueue(ndjsonLine({ event: "error", message: "Invalid JSON body" }));
-        controller.close();
-        return;
-      }
+router.add("GET", "/api/sessions", () => handleListSessions());
+router.add("POST", "/api/sessions", (req) => handleCreateSession(req));
+router.add("GET", "/api/sessions/:id", (req, p) => handleGetSession(req, p));
+router.add("PATCH", "/api/sessions/:id", (req, p) => handleUpdateSession(req, p));
+router.add("DELETE", "/api/sessions/:id", (req, p) => handleDeleteSession(req, p));
+router.add("POST", "/api/sessions/:id/cancel", (_req, p) => handleSessionCancel(p.id));
 
-      const { query, model, workspace } = parsed.value;
-      if (typeof query !== "string" || query.length === 0) {
-        controller.enqueue(ndjsonLine({ event: "error", message: "Missing query" }));
-        controller.close();
-        return;
-      }
+router.add("GET", "/api/sessions/:id/messages", (req, p) => handleGetMessages(req, p));
+router.add("GET", "/api/sessions/:id/messages/:messageId", (req, p) => handleGetMessage(req, p));
+router.add("PATCH", "/api/sessions/:id/messages/:messageId", (req, p) => handleUpdateMessage(req, p));
+router.add("DELETE", "/api/sessions/:id/messages/:messageId", (req, p) => handleDeleteMessage(req, p));
+router.add("GET", "/api/sessions/:id/stream", (req, p) => handleSSEStream(req, p));
 
-      try {
-        if (!agentReady) {
-          const resolvedModel = model ?? (await import("../../../common/ai-default-model.ts")).getConfiguredModel();
-          await ensureAgentReady(resolvedModel, (msg) => log.info(msg));
-          agentReady = true;
-        }
+router.add("GET", "/api/models", () => handleListModels());
+router.add("GET", "/api/models/status", () => handleModelStatus());
+router.add("GET", "/api/models/:provider/:name", (req, p) => handleGetModel(req, p));
+router.add("POST", "/api/models/pull", (req) => handlePullModel(req));
+router.add("DELETE", "/api/models/:provider/:name", (req, p) => handleDeleteModel(req, p));
 
-        const result = await runAgentQuery({
-          query,
-          model,
-          workspace,
-          autoApprove: true,
-          noInput: true,
-          toolDenylist: [...DEFAULT_TOOL_DENYLIST, "ask_user"],
-          callbacks: {
-            onToken: (text) => {
-              controller.enqueue(ndjsonLine({ event: "token", text }));
-            },
-            onToolDisplay: (event) => {
-              controller.enqueue(ndjsonLine({
-                event: "tool",
-                name: event.toolName,
-                success: event.success,
-                content: event.content,
-              }));
-            },
-          },
-        });
+router.add("POST", "/api/completions", (req) => handleComplete(req));
 
-        controller.enqueue(ndjsonLine({
-          event: "complete",
-          text: result.text,
-          stats: result.stats,
-        }));
-      } catch (error) {
-        controller.enqueue(ndjsonLine({
-          event: "error",
-          message: getErrorMessage(error),
-        }));
-      }
+// MARK: - Request Handler
 
-      controller.close();
-    },
-  });
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/x-ndjson",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    },
-  });
-}
-
-/**
- * Main request router
- */
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
@@ -510,18 +365,23 @@ async function handleRequest(req: Request): Promise<Response> {
     return addCorsHeaders(await handleMemoryExecute(req));
   }
 
-  if (req.method === "POST" && url.pathname === "/api/ask") {
-    return handleAsk(req);
+  const match = router.match(req.method, url.pathname);
+  if (match) {
+    const response = await match.handler(req, match.params);
+    return addCorsHeaders(response);
   }
 
   return addCorsHeaders(jsonError("Not found", 404));
 }
 
-/**
- * Start HTTP REPL server
- */
-export async function startHttpServer(): Promise<void> {
-  const port = resolvePort();
+// MARK: - Server
+
+export interface StartHttpServerOptions {
+  port?: number;
+}
+
+export async function startHttpServer(options: StartHttpServerOptions = {}): Promise<void> {
+  const port = options.port ?? resolvePort();
   try {
     log.info(`Starting REPL HTTP server on port ${port}...`);
     await platform.http.serve(handleRequest, {
@@ -531,7 +391,6 @@ export async function startHttpServer(): Promise<void> {
       },
     });
   } catch (error) {
-    // Handle port in use error
     if (error instanceof Error && error.name === "AddrInUse") {
       log.error(
         `Port ${port} is already in use. Another HLVM instance may be running.`,

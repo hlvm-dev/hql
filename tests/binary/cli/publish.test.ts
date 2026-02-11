@@ -4,7 +4,7 @@
  */
 
 import { assertEquals } from "https://deno.land/std@0.218.0/assert/mod.ts";
-import { runCLI, withTempDir, USE_BINARY } from "../_shared/binary-helpers.ts";
+import { runCLI, withTempDir } from "../_shared/binary-helpers.ts";
 
 Deno.test({
   name: "CLI publish: --help flag",
@@ -24,18 +24,13 @@ Deno.test({
   sanitizeOps: false,
   async fn() {
     await withTempDir(async (dir) => {
-      const originalCwd = Deno.cwd();
-      try {
-        Deno.chdir(dir);
-        // No hlvm.json in this directory
-        const result = await runCLI("publish", ["--dry-run", "-y"]);
-        // Should either fail or prompt for config
-        const output = result.stdout + result.stderr;
-        const isExpected = !result.success || output.includes("hlvm.json") || output.includes("config") || output.includes("init");
-        assertEquals(isExpected, true, `Expected error or config prompt, got: ${output}`);
-      } finally {
-        Deno.chdir(originalCwd);
-      }
+      // No hlvm.json in this directory
+      const result = await runCLI("publish", ["--dry-run", "-y"], { cwd: dir });
+      // Should either fail or prompt for config
+      const output = result.stdout + result.stderr;
+      const isExpected =
+        !result.success || output.includes("hlvm.json") || output.includes("config") || output.includes("init");
+      assertEquals(isExpected, true, `Expected error or config prompt, got: ${output}`);
     });
   },
 });

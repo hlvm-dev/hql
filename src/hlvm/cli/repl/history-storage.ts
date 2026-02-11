@@ -73,7 +73,7 @@ function parseHistoryContent(content: string): HistoryEntry[] {
   return parseJsonLines(content, toHistoryEntry);
 }
 
-async function readHistoryEntries(path: string): Promise<HistoryEntry[]> {
+function readHistoryEntries(path: string): Promise<HistoryEntry[]> {
   return readJsonLines(path, toHistoryEntry);
 }
 
@@ -335,7 +335,6 @@ export class HistoryStorage {
     this.compacting = true;
 
     try {
-      const platform = getPlatform();
       // Flush pending writes first
       await this.flush();
 

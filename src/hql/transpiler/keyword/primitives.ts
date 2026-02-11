@@ -185,8 +185,3 @@ export const JS_LITERAL_KEYWORDS = ["null", "undefined", "true", "false"] as con
 
 /** Set version for O(1) lookup */
 export const JS_LITERAL_KEYWORDS_SET: ReadonlySet<string> = new Set(JS_LITERAL_KEYWORDS);
-
-/**
- * HQL-specific constant keywords (in addition to JS literals).
- */
-const HQL_CONSTANT_KEYWORDS = ["nil"] as const;

@@ -6,7 +6,26 @@
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
-import { binaryTest, USE_BINARY, BINARY_PATH, CLI_PATH, ensureBinaryCompiled } from "../_shared/binary-helpers.ts";
+import {
+  BINARY_PATH,
+  BINARY_TEST_HLVM_DIR,
+  CLI_PATH,
+  ensureBinaryCompiled,
+  getBinaryTestEnv,
+  USE_BINARY,
+} from "../_shared/binary-helpers.ts";
+
+const INTERACTIVE_REPL_AVAILABLE = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
+
+function replMemoryTest(name: string, fn: () => void | Promise<void>): void {
+  Deno.test({
+    name,
+    sanitizeResources: false,
+    sanitizeOps: false,
+    ignore: !INTERACTIVE_REPL_AVAILABLE,
+    fn,
+  });
+}
 
 // Helper to run REPL with input and capture output
 async function runReplWithInput(input: string): Promise<{ stdout: string; stderr: string }> {
@@ -22,6 +41,7 @@ async function runReplWithInput(input: string): Promise<{ stdout: string; stderr
         stdout: "piped",
         stderr: "piped",
         cwd: Deno.cwd(),
+        env: getBinaryTestEnv(),
       })
     : new Deno.Command(Deno.execPath(), {
         args: ["run", "-A", CLI_PATH, ...args],
@@ -29,6 +49,7 @@ async function runReplWithInput(input: string): Promise<{ stdout: string; stderr
         stdout: "piped",
         stderr: "piped",
         cwd: Deno.cwd(),
+        env: getBinaryTestEnv(),
       });
 
   const child = proc.spawn();
@@ -43,7 +64,7 @@ async function runReplWithInput(input: string): Promise<{ stdout: string; stderr
   };
 }
 
-binaryTest("REPL startup shows memory names", async () => {
+replMemoryTest("REPL startup shows memory names", async () => {
   const result = await runReplWithInput("(+ 1 1)");
   // Should show Memory: line with definition names or "empty"
   const hasMemoryLine = result.stdout.includes("Memory:") &&
@@ -51,14 +72,14 @@ binaryTest("REPL startup shows memory names", async () => {
   assertEquals(hasMemoryLine, true, `Expected Memory: line in startup, got: ${result.stdout}`);
 });
 
-binaryTest("REPL startup shows AI status", async () => {
+replMemoryTest("REPL startup shows AI status", async () => {
   const result = await runReplWithInput("(+ 1 1)");
   // Should show AI: line (either with functions or "not available")
   const hasAILine = result.stdout.includes("AI:");
   assertEquals(hasAILine, true, `Expected AI: line in startup, got: ${result.stdout}`);
 });
 
-binaryTest("REPL startup shows function commands", async () => {
+replMemoryTest("REPL startup shows function commands", async () => {
   const result = await runReplWithInput("(+ 1 1)");
   // Should show the function commands line
   assertStringIncludes(result.stdout, "(memory)");
@@ -68,7 +89,7 @@ binaryTest("REPL startup shows function commands", async () => {
   assertStringIncludes(result.stdout, "(help)");
 });
 
-binaryTest("REPL (memory) function returns definition info", async () => {
+replMemoryTest("REPL (memory) function returns definition info", async () => {
   const result = await runReplWithInput("(memory)");
   // Should return an object with count, names, path (auto-awaited by REPL)
   assertStringIncludes(result.stdout, "count");
@@ -76,7 +97,7 @@ binaryTest("REPL (memory) function returns definition info", async () => {
   assertStringIncludes(result.stdout, "path");
 });
 
-binaryTest("REPL (inspect) function shows source code", async () => {
+replMemoryTest("REPL (inspect) function shows source code", async () => {
   // First define the function (persists to memory.hql)
   await runReplWithInput("(defn test_inspect_fn [x] (+ x 1))");
 
@@ -91,7 +112,7 @@ binaryTest("REPL (inspect) function shows source code", async () => {
   await runReplWithInput('(forget "test_inspect_fn")');
 });
 
-binaryTest("REPL (help) function shows help text", async () => {
+replMemoryTest("REPL (help) function shows help text", async () => {
   const result = await runReplWithInput("(help)");
   // Should show HLVM REPL Functions header and function list
   assertStringIncludes(result.stdout, "HLVM REPL Functions");
@@ -101,7 +122,7 @@ binaryTest("REPL (help) function shows help text", async () => {
   assertStringIncludes(result.stdout, "(describe");
 });
 
-binaryTest("REPL (forget) removes definition from memory", async () => {
+replMemoryTest("REPL (forget) removes definition from memory", async () => {
   // Define something
   await runReplWithInput("(def test_forget_val 123)");
 
@@ -114,16 +135,16 @@ binaryTest("REPL (forget) removes definition from memory", async () => {
   assertStringIncludes(result2.stdout, "not found");
 });
 
-binaryTest("REPL (clear) function works without error", async () => {
+replMemoryTest("REPL (clear) function works without error", async () => {
   const result = await runReplWithInput("(clear)");
   // Should not error - just return nil
   const hasError = result.stderr.includes("Error") || result.stdout.includes("Error");
   assertEquals(hasError, false, `clear should not error, got: ${result.stderr}`);
 });
 
-binaryTest("REPL empty memory shows teaching message", async () => {
+replMemoryTest("REPL empty memory shows teaching message", async () => {
   // Backup memory file
-  const memoryPath = `${Deno.env.get("HOME")}/.hlvm/memory.hql`;
+  const memoryPath = `${BINARY_TEST_HLVM_DIR}/memory.hql`;
   const backupPath = `${memoryPath}.test-backup`;
 
   try {

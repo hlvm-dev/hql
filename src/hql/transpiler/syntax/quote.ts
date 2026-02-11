@@ -5,7 +5,7 @@ import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import { TransformError } from "../../../common/error.ts";
 import { perform } from "../../../common/error.ts";
-import { createArr, createCall, createId, createMember, createNull, createNum, createStr } from "../utils/ir-helpers.ts";
+import { createNull, createNum, createStr } from "../utils/ir-helpers.ts";
 import {
   validateTransformed,
   validateListLength,

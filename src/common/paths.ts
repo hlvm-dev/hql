@@ -129,6 +129,13 @@ export function getSessionsDir(): string {
 }
 
 /**
+ * Get the conversations database path (~/.hlvm/conversations.db)
+ */
+export function getConversationsDbPath(): string {
+  return join(getHlvmDir(), "conversations.db");
+}
+
+/**
  * Get the runtime directory (~/.hlvm/.runtime)
  * Used for embedded binaries and runtime state.
  */

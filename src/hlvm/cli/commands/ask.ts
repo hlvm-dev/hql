@@ -6,12 +6,14 @@
  */
 
 import { log } from "../../api/log.ts";
+import { config } from "../../api/config.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { truncate } from "../../../common/utils.ts";
 import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
 import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 import type { TraceEvent, ToolDisplay } from "../../agent/orchestrator.ts";
 
 export function showAskHelp(): void {
@@ -127,6 +129,21 @@ export async function askCommand(args: string[]): Promise<void> {
 
   if (!query) {
     throw new ValidationError("Missing query. Usage: hlvm ask \"<query>\"", "ask");
+  }
+
+  // First-run gate: no model explicitly chosen + not yet configured + interactive terminal
+  // HLVM_FORCE_SETUP=1 bypasses the terminal check (for E2E testing)
+  const forceSetup = getPlatform().env.get("HLVM_FORCE_SETUP") === "1";
+  if (
+    !modelOverride &&
+    !config.snapshot.modelConfigured &&
+    (getPlatform().terminal.stdin.isTerminal() || forceSetup)
+  ) {
+    const { runFirstTimeSetup } = await import("./first-run-setup.ts");
+    const result = await runFirstTimeSetup();
+    if (result) {
+      modelOverride = result;
+    }
   }
 
   const model = modelOverride ?? undefined;

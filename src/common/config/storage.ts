@@ -312,6 +312,10 @@ function normalizeConfigInput(
     normalized.tools = tools;
   }
 
+  if (typeof raw.modelConfigured === "boolean") {
+    normalized.modelConfigured = raw.modelConfigured;
+  }
+
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 

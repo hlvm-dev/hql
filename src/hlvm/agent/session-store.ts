@@ -33,6 +33,10 @@ interface SessionIndex {
   sessions: Record<string, AgentSessionEntry>;
 }
 
+export interface AgentSessionStoreScope {
+  sessionsDir?: string;
+}
+
 export interface AgentSessionEntry {
   id: string;
   key: string;
@@ -70,19 +74,22 @@ const INDEX_FILE = "sessions.json";
 const MAX_TRANSCRIPT_ENTRIES = 500;
 const EMPTY_INDEX: SessionIndex = { version: 1, sessions: {} };
 
-let inFlightIndexLoad: Promise<SessionIndex> | null = null;
-let inFlightIndexPath: string | null = null;
+const inFlightIndexLoads = new Map<string, Promise<SessionIndex>>();
 
-async function ensureSessionsDir(): Promise<string> {
+function resolveSessionsDir(scope?: AgentSessionStoreScope): string {
+  return scope?.sessionsDir ?? getSessionsDir();
+}
+
+async function ensureSessionsDir(scope?: AgentSessionStoreScope): Promise<string> {
   const platform = getPlatform();
-  const dir = getSessionsDir();
+  const dir = resolveSessionsDir(scope);
   await platform.fs.mkdir(dir, { recursive: true });
   return dir;
 }
 
-function getIndexPath(): string {
+function getIndexPath(scope?: AgentSessionStoreScope): string {
   const platform = getPlatform();
-  return platform.path.join(getSessionsDir(), INDEX_FILE);
+  return platform.path.join(resolveSessionsDir(scope), INDEX_FILE);
 }
 
 function createEmptyIndex(): SessionIndex {
@@ -113,29 +120,33 @@ async function loadIndexFromDisk(path: string): Promise<SessionIndex> {
   }
 }
 
-async function loadIndex(): Promise<SessionIndex> {
-  await ensureSessionsDir();
-  const path = getIndexPath();
-
-  if (inFlightIndexLoad && inFlightIndexPath === path) {
-    return await inFlightIndexLoad;
+async function loadIndex(scope?: AgentSessionStoreScope): Promise<SessionIndex> {
+  await ensureSessionsDir(scope);
+  const path = getIndexPath(scope);
+  const existingLoad = inFlightIndexLoads.get(path);
+  if (existingLoad) {
+    return await existingLoad;
   }
 
-  inFlightIndexPath = path;
-  inFlightIndexLoad = loadIndexFromDisk(path);
+  const inFlightLoad = loadIndexFromDisk(path);
+  inFlightIndexLoads.set(path, inFlightLoad);
 
   try {
-    return await inFlightIndexLoad;
+    return await inFlightLoad;
   } finally {
-    inFlightIndexLoad = null;
-    inFlightIndexPath = null;
+    if (inFlightIndexLoads.get(path) === inFlightLoad) {
+      inFlightIndexLoads.delete(path);
+    }
   }
 }
 
 /** Fix 14: Use atomic write to prevent corruption on crash/concurrent access */
-async function saveIndex(index: SessionIndex): Promise<void> {
-  await ensureSessionsDir();
-  const path = getIndexPath();
+async function saveIndex(
+  index: SessionIndex,
+  scope?: AgentSessionStoreScope,
+): Promise<void> {
+  await ensureSessionsDir(scope);
+  const path = getIndexPath(scope);
   await atomicWriteTextFile(path, JSON.stringify(index));
 }
 
@@ -164,43 +175,48 @@ function findSession(
   return entries.find((entry) => entry.key === keyOrId) ?? null;
 }
 
-export async function listSessions(): Promise<AgentSessionEntry[]> {
-  const index = await loadIndex();
+export async function listSessions(
+  scope?: AgentSessionStoreScope,
+): Promise<AgentSessionEntry[]> {
+  const index = await loadIndex(scope);
   return Object.values(index.sessions);
 }
 
 export async function getOrCreateSession(
   keyOrId?: string,
+  scope?: AgentSessionStoreScope,
 ): Promise<AgentSessionEntry> {
-  const index = await loadIndex();
+  const index = await loadIndex(scope);
   if (keyOrId) {
     const existing = findSession(index, keyOrId);
     if (existing) return existing;
     const created = createEntry(keyOrId);
     index.sessions[created.id] = created;
-    await saveIndex(index);
+    await saveIndex(index, scope);
     return created;
   }
   const created = createEntry();
   index.sessions[created.id] = created;
-  await saveIndex(index);
+  await saveIndex(index, scope);
   return created;
 }
 
 export async function createSession(
   key?: string,
+  scope?: AgentSessionStoreScope,
 ): Promise<AgentSessionEntry> {
-  const index = await loadIndex();
+  const index = await loadIndex(scope);
   const created = createEntry(key);
   index.sessions[created.id] = created;
-  await saveIndex(index);
+  await saveIndex(index, scope);
   return created;
 }
 
 export async function updateSession(
   entry: AgentSessionEntry,
+  scope?: AgentSessionStoreScope,
 ): Promise<void> {
-  const index = await loadIndex();
+  const index = await loadIndex(scope);
   const existing = index.sessions[entry.id];
   if (
     existing &&
@@ -212,12 +228,15 @@ export async function updateSession(
     return;
   }
   index.sessions[entry.id] = entry;
-  await saveIndex(index);
+  await saveIndex(index, scope);
 }
 
-export function getTranscriptPath(entry: AgentSessionEntry): string {
+export function getTranscriptPath(
+  entry: AgentSessionEntry,
+  scope?: AgentSessionStoreScope,
+): string {
   const platform = getPlatform();
-  return platform.path.join(getSessionsDir(), `${entry.id}.jsonl`);
+  return platform.path.join(resolveSessionsDir(scope), `${entry.id}.jsonl`);
 }
 
 // ============================================================
@@ -243,8 +262,9 @@ function toTranscriptEntry(message: Message): TranscriptEntry | null {
 
 export async function loadSessionMessages(
   entry: AgentSessionEntry,
+  scope?: AgentSessionStoreScope,
 ): Promise<Message[]> {
-  const path = getTranscriptPath(entry);
+  const path = getTranscriptPath(entry, scope);
   try {
     const records = await readJsonLinesTail<Record<string, unknown>>(
       path,
@@ -301,10 +321,10 @@ export async function loadSessionMessages(
 export async function appendSessionMessages(
   entry: AgentSessionEntry,
   messages: Message[],
+  scope?: AgentSessionStoreScope,
 ): Promise<AgentSessionEntry> {
-  const platform = getPlatform();
-  const path = getTranscriptPath(entry);
-  await ensureSessionsDir();
+  const transcriptPath = getTranscriptPath(entry, scope);
+  await ensureSessionsDir(scope);
 
   const delta = messages
     .filter((message) => !message.fromSession)
@@ -312,13 +332,13 @@ export async function appendSessionMessages(
     .filter((m): m is TranscriptEntry => m !== null);
   if (delta.length === 0) return entry;
 
-  await appendJsonLines(path, delta);
+  await appendJsonLines(transcriptPath, delta);
 
   const updated: AgentSessionEntry = {
     ...entry,
     updatedAt: new Date().toISOString(),
     messageCount: entry.messageCount + delta.length,
   };
-  await updateSession(updated);
+  await updateSession(updated, scope);
   return updated;
 }

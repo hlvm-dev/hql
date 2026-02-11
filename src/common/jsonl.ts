@@ -218,7 +218,10 @@ export async function atomicWriteTextFile(
   content: string,
 ): Promise<void> {
   const platform = getPlatform();
-  const tempPath = `${filePath}.tmp.${Date.now()}`;
+  const randomSuffix = typeof crypto?.randomUUID === "function"
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+  const tempPath = `${filePath}.tmp.${Date.now()}.${randomSuffix}`;
 
   try {
     await platform.fs.mkdir(platform.path.dirname(filePath), {

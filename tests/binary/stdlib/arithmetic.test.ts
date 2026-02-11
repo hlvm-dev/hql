@@ -4,7 +4,7 @@
  */
 
 import {
-  binaryTest, runExpression, assertSuccessWithOutput, USE_BINARY
+  binaryTest, runExpression, assertSuccessWithOutput
 } from "../_shared/binary-helpers.ts";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
