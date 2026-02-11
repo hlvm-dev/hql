@@ -13,7 +13,7 @@ interface ServerContext {
 
 let serverContext: ServerContext | null = null;
 
-async function reservePort(): Promise<number> {
+function reservePort(): number {
   const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
   try {
     const addr = listener.addr as Deno.NetAddr;
@@ -30,7 +30,7 @@ async function reservePort(): Promise<number> {
 async function ensureServerRunning(): Promise<ServerContext> {
   if (serverContext) return serverContext;
 
-  const port = await reservePort();
+  const port = reservePort();
   const baseUrl = `http://localhost:${port}`;
 
   Deno.env.set("HLVM_DISABLE_AI_AUTOSTART", "1"); // Prevent resource leaks

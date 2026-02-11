@@ -1,5 +1,9 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
-import { WEB_TOOLS, scoreSearchResults } from "../../../src/hlvm/agent/tools/web-tools.ts";
+import {
+  parseDuckDuckGoSearchResults,
+  WEB_TOOLS,
+  scoreSearchResults,
+} from "../../../src/hlvm/agent/tools/web-tools.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import type { AgentPolicy } from "../../../src/hlvm/agent/policy.ts";
 
@@ -79,4 +83,39 @@ Deno.test("scoreSearchResults ranks higher relevance first", () => {
   const scored = scoreSearchResults(query, results);
   assertEquals(scored[0].title, "HLVM tool calling guide");
   assert(scored[0].score !== undefined);
+});
+
+Deno.test("parseDuckDuckGoSearchResults parses standard DDG result markup", () => {
+  const html = `
+  <html><body>
+    <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fhlvm-docs">HLVM Docs</a>
+    <a class="result__snippet">Official reference docs</a>
+    <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fblog">HLVM Blog</a>
+    <a class="result__snippet">Latest HLVM updates</a>
+  </body></html>`;
+
+  const results = parseDuckDuckGoSearchResults(html, 5);
+
+  assertEquals(results.length, 2);
+  assertEquals(results[0].title, "HLVM Docs");
+  assertEquals(results[0].url, "https://example.com/hlvm-docs");
+  assertEquals(results[0].snippet, "Official reference docs");
+});
+
+Deno.test("parseDuckDuckGoSearchResults supports lite result-link markup and dedupes URLs", () => {
+  const html = `
+  <html><body>
+    <a class="result-link" rel="nofollow" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fsame">Same Result</a>
+    <td class="result-snippet">First snippet</td>
+    <a class="result-link" rel="nofollow" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fsame">Same Result Duplicate</a>
+    <td class="result-snippet">Second snippet</td>
+    <a class="result-link" rel="nofollow" href="/l/?uddg=https%3A%2F%2Fexample.com%2Ftwo">Second Result</a>
+    <td class="result-snippet">Second result snippet</td>
+  </body></html>`;
+
+  const results = parseDuckDuckGoSearchResults(html, 5);
+
+  assertEquals(results.length, 2);
+  assertEquals(results[0].url, "https://example.com/same");
+  assertEquals(results[1].url, "https://example.com/two");
 });

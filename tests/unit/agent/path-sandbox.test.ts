@@ -197,7 +197,7 @@ Deno.test({
           "Symlinks not allowed"
         );
       }
-    } catch (error) {
+    } catch {
       // Skip test if ln command not available (e.g., on some CI systems)
       console.log("Skipping symlink test - ln command not available");
     } finally {
@@ -250,7 +250,7 @@ Deno.test({
           "symlink component"
         );
       }
-    } catch (error) {
+    } catch {
       console.log("Skipping parent symlink test - ln command not available");
     } finally {
       // Cleanup symlink

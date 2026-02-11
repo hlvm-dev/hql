@@ -11,12 +11,16 @@
  */
 
 import { ContextManager } from "./context.ts";
-import { generateSystemPrompt, createAgentLLM, createSummarizationFn } from "./llm-integration.ts";
+import {
+  createAgentLLM,
+  createSummarizationFn,
+  generateSystemPrompt,
+} from "./llm-integration.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
-import { loadAgentPolicy, type AgentPolicy } from "./policy.ts";
+import { type AgentPolicy, loadAgentPolicy } from "./policy.ts";
 import { ENGINE_PROFILES } from "./constants.ts";
 import type { LLMFunction } from "./orchestrator.ts";
-import { loadMcpTools } from "./mcp.ts";
+import { loadMcpTools, resolveBuiltinMcpServers } from "./mcp.ts";
 import { ValidationError } from "../../common/error.ts";
 
 export interface AgentSessionOptions {
@@ -55,12 +59,13 @@ export async function createAgentSession(
 ): Promise<AgentSession> {
   const profile = ENGINE_PROFILES[options.engineProfile ?? "normal"];
   const policy = await loadAgentPolicy(options.workspace, options.policyPath);
+  const builtinMcpServers = await resolveBuiltinMcpServers(options.workspace);
 
   // Load MCP tools before generating system prompt
   const mcp = await loadMcpTools(
     options.workspace,
     options.mcpConfigPath,
-    [],
+    builtinMcpServers,
   );
 
   const contextConfig: Record<string, unknown> = { ...profile.context };

@@ -104,11 +104,11 @@ function normalizeWebSearchConfig(value: unknown): WebSearchConfig | undefined {
   if (typeof raw.enabled === "boolean") config.enabled = raw.enabled;
   if (typeof raw.provider === "string") {
     const provider = raw.provider.toLowerCase();
-    if (
-      provider === "brave" || provider === "perplexity" ||
-      provider === "openrouter" || provider === "serpapi"
-    ) {
+    if (provider === "duckduckgo") {
       config.provider = provider as WebSearchConfig["provider"];
+    } else {
+      // Legacy providers were removed; always collapse to keyless DuckDuckGo.
+      config.provider = "duckduckgo";
     }
   }
   if (typeof raw.maxResults === "number" && raw.maxResults > 0) {
@@ -119,61 +119,6 @@ function normalizeWebSearchConfig(value: unknown): WebSearchConfig | undefined {
   }
   if (typeof raw.cacheTtlMinutes === "number" && raw.cacheTtlMinutes >= 0) {
     config.cacheTtlMinutes = raw.cacheTtlMinutes;
-  }
-
-  if (raw.brave && typeof raw.brave === "object" && !Array.isArray(raw.brave)) {
-    const brave = raw.brave as Record<string, unknown>;
-    if (typeof brave.apiKey === "string") {
-      config.brave = { apiKey: brave.apiKey };
-    }
-  }
-  if (
-    raw.perplexity && typeof raw.perplexity === "object" &&
-    !Array.isArray(raw.perplexity)
-  ) {
-    const perplexity = raw.perplexity as Record<string, unknown>;
-    config.perplexity = {
-      apiKey: typeof perplexity.apiKey === "string"
-        ? perplexity.apiKey
-        : config.perplexity?.apiKey,
-      baseUrl: typeof perplexity.baseUrl === "string"
-        ? perplexity.baseUrl
-        : config.perplexity?.baseUrl,
-      model: typeof perplexity.model === "string"
-        ? perplexity.model
-        : config.perplexity?.model,
-    };
-  }
-  if (
-    raw.openrouter && typeof raw.openrouter === "object" &&
-    !Array.isArray(raw.openrouter)
-  ) {
-    const openrouter = raw.openrouter as Record<string, unknown>;
-    config.openrouter = {
-      apiKey: typeof openrouter.apiKey === "string"
-        ? openrouter.apiKey
-        : config.openrouter?.apiKey,
-      baseUrl: typeof openrouter.baseUrl === "string"
-        ? openrouter.baseUrl
-        : config.openrouter?.baseUrl,
-      model: typeof openrouter.model === "string"
-        ? openrouter.model
-        : config.openrouter?.model,
-    };
-  }
-  if (
-    raw.serpapi && typeof raw.serpapi === "object" &&
-    !Array.isArray(raw.serpapi)
-  ) {
-    const serpapi = raw.serpapi as Record<string, unknown>;
-    config.serpapi = {
-      apiKey: typeof serpapi.apiKey === "string"
-        ? serpapi.apiKey
-        : config.serpapi?.apiKey,
-      baseUrl: typeof serpapi.baseUrl === "string"
-        ? serpapi.baseUrl
-        : config.serpapi?.baseUrl,
-    };
   }
 
   return config;

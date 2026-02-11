@@ -158,14 +158,14 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
     safetyLevel: "L0" as const,
   },
   complete_task: {
-    fn: async (args: unknown): Promise<string> => {
+    fn: (args: unknown): Promise<string> => {
       if (!isToolArgsObject(args)) {
-        return "Task complete.";
+        return Promise.resolve("Task complete.");
       }
       const summary = (args as { summary?: unknown }).summary;
-      return typeof summary === "string" && summary.trim()
+      return Promise.resolve(typeof summary === "string" && summary.trim()
         ? summary.trim()
-        : "Task complete.";
+        : "Task complete.");
     },
     description:
       "Signal task completion with an optional summary. Prefer this when finished.",

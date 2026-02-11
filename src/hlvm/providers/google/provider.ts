@@ -89,7 +89,7 @@ export class GoogleProvider implements AIProvider {
     if (result.content) yield result.content;
   }
 
-  async chatStructured(
+  chatStructured(
     messages: Message[],
     options?: ChatOptions,
   ): Promise<ChatStructuredResponse> {

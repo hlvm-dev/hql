@@ -1,6 +1,10 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import { loadMcpConfig, loadMcpTools } from "../../../src/hlvm/agent/mcp.ts";
+import {
+  loadMcpConfig,
+  loadMcpTools,
+  resolveBuiltinMcpServers,
+} from "../../../src/hlvm/agent/mcp.ts";
 import { getTool, hasTool } from "../../../src/hlvm/agent/registry.ts";
 
 Deno.test("loadMcpConfig returns null when missing", async () => {
@@ -75,5 +79,72 @@ Deno.test("MCP tools reject non-object args", async () => {
   );
 
   await dispose();
+  await platform.fs.remove(temp, { recursive: true });
+});
+
+Deno.test("loadMcpTools continues when one server fails", async () => {
+  const platform = getPlatform();
+  const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
+  const fixturePath = platform.path.join("tests", "fixtures", "mcp-server.ts");
+
+  const { tools, dispose } = await loadMcpTools(
+    temp,
+    undefined,
+    [
+      { name: "broken", command: ["definitely-not-a-real-command"] },
+      { name: "test", command: ["deno", "run", fixturePath] },
+    ],
+  );
+
+  const toolName = "mcp/test/echo";
+  assertEquals(tools.includes(toolName), true);
+  assertEquals(hasTool(toolName), true);
+
+  await dispose();
+  assertEquals(hasTool(toolName), false);
+  await platform.fs.remove(temp, { recursive: true });
+});
+
+Deno.test("loadMcpTools deduplicates server names (config takes precedence)", async () => {
+  const platform = getPlatform();
+  const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
+  const configDir = platform.path.join(temp, ".hlvm");
+  await platform.fs.mkdir(configDir, { recursive: true });
+
+  const fixturePath = platform.path.join("tests", "fixtures", "mcp-server.ts");
+  const config = {
+    version: 1,
+    servers: [
+      {
+        name: "test",
+        command: ["deno", "run", fixturePath],
+      },
+    ],
+  };
+
+  const configPath = platform.path.join(configDir, "mcp.json");
+  await platform.fs.writeTextFile(configPath, JSON.stringify(config));
+
+  const { tools, dispose } = await loadMcpTools(
+    temp,
+    undefined,
+    [{ name: "test", command: ["definitely-not-a-real-command"] }],
+  );
+
+  assertEquals(tools.includes("mcp/test/echo"), true);
+  await dispose();
+  await platform.fs.remove(temp, { recursive: true });
+});
+
+Deno.test("resolveBuiltinMcpServers returns playwright server only when script exists", async () => {
+  const platform = getPlatform();
+
+  const repoServers = await resolveBuiltinMcpServers(platform.process.cwd());
+  assertEquals(repoServers[0]?.name, "playwright");
+  assertEquals(Array.isArray(repoServers[0]?.command), true);
+
+  const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
+  const tempServers = await resolveBuiltinMcpServers(temp);
+  assertEquals(tempServers.length, 0);
   await platform.fs.remove(temp, { recursive: true });
 });

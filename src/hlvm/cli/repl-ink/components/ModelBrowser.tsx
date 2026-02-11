@@ -817,13 +817,6 @@ export function ModelBrowser({
       setSelection({ index: 0, name: null });
     };
 
-    const setSelectionByIndex = (index: number) => {
-      if (displayModels.length === 0) return;
-      const clamped = Math.max(0, Math.min(displayModels.length - 1, index));
-      const name = displayModels[clamped]?.name ?? null;
-      setSelection({ index: clamped, name });
-    };
-
     const moveSelection = (delta: number) => {
       if (displayModels.length === 0) return;
       setSelection((current: SelectionState) => {
@@ -1181,7 +1174,7 @@ export function ModelBrowser({
         <Text color={color("warning")}>  {statusMessage}</Text>
       ) : (
         <Text dimColor>
-          {"  ↑↓ nav  Tab → "}{nextFilter}{"  d del  i info  / search  ↵ select  x cancel  Esc back"}
+          ↑↓ nav  Tab → {nextFilter}  d del  i info  / search  ↵ select  x cancel  Esc back
         </Text>
       )}
     </Box>

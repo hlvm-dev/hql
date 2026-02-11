@@ -5,10 +5,14 @@
  * without external LLM dependencies.
  */
 
-import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert";
 import {
-  runReActLoop,
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+} from "jsr:@std/assert";
+import {
   type LLMFunction,
+  runReActLoop,
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
@@ -30,7 +34,7 @@ interface ScriptedStep {
 
 function createScriptedLLM(steps: ScriptedStep[]): LLMFunction {
   let index = 0;
-  return async (messages, signal) => {
+  return (messages, signal) => {
     if (signal?.aborted) {
       const err = new Error("LLM aborted");
       err.name = "AbortError";
@@ -48,16 +52,16 @@ function createScriptedLLM(steps: ScriptedStep[]): LLMFunction {
       assertStringIncludes(last.content, step.expectLastIncludes);
     }
 
-    return {
+    return Promise.resolve({
       content: step.content ?? "",
       toolCalls: step.toolCalls ?? [],
-    };
+    });
   };
 }
 
 function addFakeTool(name: string, result: unknown): void {
   TOOL_REGISTRY[name] = {
-    fn: async () => result,
+    fn: () => Promise.resolve(result),
     description: "Fake tool for deterministic tests",
     args: {},
     skipValidation: true,
@@ -70,7 +74,7 @@ function addValidatingTool(
   args: Record<string, string>,
 ): void {
   TOOL_REGISTRY[name] = {
-    fn: async () => result,
+    fn: () => Promise.resolve(result),
     description: "Fake tool for deterministic tests",
     args,
   };
@@ -78,9 +82,7 @@ function addValidatingTool(
 
 function addFailingTool(name: string, message: string): void {
   TOOL_REGISTRY[name] = {
-    fn: async () => {
-      throw new Error(message);
-    },
+    fn: () => Promise.reject(new Error(message)),
     description: "Fake failing tool for deterministic tests",
     args: {},
     skipValidation: true,
@@ -154,12 +156,13 @@ Deno.test({
   name: "Engine harness: empty search prompts clarification",
   async fn() {
     const restore = overrideTool("search_web", {
-      fn: async () => ({
-        query: "hlvm",
-        provider: "brave",
-        results: [],
-        count: 0,
-      }),
+      fn: () =>
+        Promise.resolve({
+          query: "hlvm",
+          provider: "duckduckgo",
+          results: [],
+          count: 0,
+        }),
       description: "Fake search tool for tests",
       args: { query: "string - Query to search" },
       safetyLevel: "L1" as const,
@@ -358,7 +361,10 @@ Deno.test({
         },
         {
           toolCalls: [
-            { toolName: readTool, args: { path: "src/hlvm/agent/llm-integration.ts" } },
+            {
+              toolName: readTool,
+              args: { path: "src/hlvm/agent/llm-integration.ts" },
+            },
           ],
           expectLastIncludes: "generateSystemPrompt",
         },
@@ -486,7 +492,9 @@ Deno.test({
       assertStringIncludes(result, "ok");
       assertStringIncludes(result, "failed");
 
-      const toolMessages = context.getMessages().filter((m) => m.role === "tool");
+      const toolMessages = context.getMessages().filter((m) =>
+        m.role === "tool"
+      );
       // Tool names are now in the toolName field, not content
       const toolNames = toolMessages.map((m) => m.toolName).filter(Boolean);
       assertEquals(toolNames.includes(okTool), true);

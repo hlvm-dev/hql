@@ -33,22 +33,12 @@ export function normalizeModelId(value: unknown): string | undefined {
 /** User-customized keybindings (action ID -> key combo) */
 export type KeybindingsConfig = Record<string, string>;
 
-export interface WebSearchProviderConfig {
-  apiKey?: string;
-  baseUrl?: string;
-  model?: string;
-}
-
 export interface WebSearchConfig {
   enabled?: boolean;
-  provider?: "brave" | "perplexity" | "openrouter" | "serpapi";
+  provider?: "duckduckgo";
   maxResults?: number;
   timeoutSeconds?: number;
   cacheTtlMinutes?: number;
-  brave?: WebSearchProviderConfig;
-  perplexity?: WebSearchProviderConfig;
-  openrouter?: WebSearchProviderConfig;
-  serpapi?: WebSearchProviderConfig;
 }
 
 export interface WebFetchFirecrawlConfig {
@@ -96,25 +86,10 @@ export interface HlvmConfig {
 
 export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
   enabled: true,
-  provider: "brave",
+  provider: "duckduckgo",
   maxResults: 5,
   timeoutSeconds: 30,
   cacheTtlMinutes: 15,
-  brave: { apiKey: "" },
-  perplexity: {
-    apiKey: "",
-    baseUrl: "https://api.perplexity.ai",
-    model: "sonar",
-  },
-  openrouter: {
-    apiKey: "",
-    baseUrl: "https://openrouter.ai/api/v1",
-    model: "perplexity/sonar",
-  },
-  serpapi: {
-    apiKey: "",
-    baseUrl: "https://serpapi.com",
-  },
 };
 
 export const DEFAULT_WEB_FETCH_CONFIG: WebFetchConfig = {
@@ -139,10 +114,6 @@ export const DEFAULT_WEB_FETCH_CONFIG: WebFetchConfig = {
 export function createDefaultWebSearchConfig(): WebSearchConfig {
   return {
     ...DEFAULT_WEB_SEARCH_CONFIG,
-    brave: { ...DEFAULT_WEB_SEARCH_CONFIG.brave },
-    perplexity: { ...DEFAULT_WEB_SEARCH_CONFIG.perplexity },
-    openrouter: { ...DEFAULT_WEB_SEARCH_CONFIG.openrouter },
-    serpapi: { ...DEFAULT_WEB_SEARCH_CONFIG.serpapi },
   };
 }
 

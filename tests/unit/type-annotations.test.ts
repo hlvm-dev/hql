@@ -8,7 +8,6 @@
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
 import { transpile } from "../../src/hql/transpiler/index.ts";
 
 Deno.test("Type Annotations - Parameter type parsing", async () => {

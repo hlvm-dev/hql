@@ -61,6 +61,8 @@ interface McpToolInfo {
 
 const MCP_FILE_NAME = "mcp.json";
 const MCP_DIR_NAME = ".hlvm";
+const PLAYWRIGHT_SERVER_NAME = "playwright";
+const PLAYWRIGHT_SERVER_SCRIPT = ["scripts", "mcp", "playwright-server.mjs"];
 
 function getDefaultMcpPath(workspace: string): string {
   const platform = getPlatform();
@@ -100,6 +102,37 @@ export async function loadMcpConfig(
 
   if (servers.length === 0) return null;
   return { version: 1, servers };
+}
+
+export async function resolveBuiltinMcpServers(
+  workspace: string,
+): Promise<McpServerConfig[]> {
+  const platform = getPlatform();
+  const scriptPath = platform.path.join(workspace, ...PLAYWRIGHT_SERVER_SCRIPT);
+  try {
+    const stat = await platform.fs.stat(scriptPath);
+    if (stat.isFile) {
+      return [{
+        name: PLAYWRIGHT_SERVER_NAME,
+        command: ["node", scriptPath],
+      }];
+    }
+  } catch {
+    // Optional built-in server is unavailable in this workspace.
+  }
+  return [];
+}
+
+function dedupeServers(servers: McpServerConfig[]): McpServerConfig[] {
+  const seenNames = new Set<string>();
+  const deduped: McpServerConfig[] = [];
+  for (const server of servers) {
+    const key = server.name.trim().toLowerCase();
+    if (seenNames.has(key)) continue;
+    seenNames.add(key);
+    deduped.push(server);
+  }
+  return deduped;
 }
 
 function isMcpServerConfig(value: unknown): value is McpServerConfig {
@@ -408,10 +441,10 @@ export async function loadMcpTools(
   extraServers?: McpServerConfig[],
 ): Promise<McpLoadResult> {
   const config = await loadMcpConfig(workspace, configPath);
-  const servers = [
+  const servers = dedupeServers([
     ...(config?.servers ?? []),
     ...(extraServers ?? []),
-  ];
+  ]);
   if (servers.length === 0) {
     return { tools: [], dispose: async () => {} };
   }
@@ -421,36 +454,47 @@ export async function loadMcpTools(
 
   for (const server of servers) {
     const client = new McpClient(server);
-    clients.push(client);
-    await client.start();
+    try {
+      await client.start();
 
-    const tools = await client.listTools();
-    const entries: Record<string, ToolMetadata> = {};
-    for (const tool of tools) {
-      const name = `mcp/${server.name}/${tool.name}`;
-      const argsSchema = buildArgsSchema(tool.inputSchema);
-      const skipValidation = Object.keys(argsSchema).length === 0;
+      const tools = await client.listTools();
+      const entries: Record<string, ToolMetadata> = {};
+      for (const tool of tools) {
+        const name = `mcp/${server.name}/${tool.name}`;
+        const argsSchema = buildArgsSchema(tool.inputSchema);
+        const skipValidation = Object.keys(argsSchema).length === 0;
 
-      entries[name] = {
-        fn: async (args: unknown) => {
-          if (!isObjectValue(args)) {
-            throw new ValidationError("args must be an object", "mcp");
-          }
-          return await client.callTool(
-            tool.name,
-            args as Record<string, unknown>,
-          );
-        },
-        description: tool.description ?? `MCP tool ${tool.name}`,
-        args: argsSchema,
-        skipValidation,
-        safetyLevel: "L2",
-        safety: "External MCP tool (policy-gated by user confirmation).",
-      };
+        entries[name] = {
+          fn: async (args: unknown) => {
+            if (!isObjectValue(args)) {
+              throw new ValidationError("args must be an object", "mcp");
+            }
+            return await client.callTool(
+              tool.name,
+              args as Record<string, unknown>,
+            );
+          },
+          description: tool.description ?? `MCP tool ${tool.name}`,
+          args: argsSchema,
+          skipValidation,
+          safetyLevel: "L2",
+          safety: "External MCP tool (policy-gated by user confirmation).",
+        };
+      }
+
+      const names = registerTools(entries);
+      registered.push(...names);
+      clients.push(client);
+    } catch (error) {
+      log.warn(
+        `Skipping MCP server '${server.name}': ${getErrorMessage(error)}`,
+      );
+      try {
+        await client.close();
+      } catch {
+        // Best-effort cleanup for partially started clients.
+      }
     }
-
-    const names = registerTools(entries);
-    registered.push(...names);
   }
 
   return {

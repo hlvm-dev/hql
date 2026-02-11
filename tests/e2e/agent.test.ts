@@ -28,7 +28,6 @@ import { getPlatform } from "../../src/platform/platform.ts";
 // ============================================================
 
 const MODEL = "ollama/llama3.1:8b"; // Reliable model for E2E testing
-const TIMEOUT = 120000; // 2 minutes per test (LLM can be slow)
 
 // ============================================================
 // Helper: Check if LLM is available
@@ -52,6 +51,7 @@ async function runAgentTask(task: string): Promise<{
   result: string;
   context: ContextManager;
 }> {
+  const platform = getPlatform();
   const context = new ContextManager({
     maxTokens: 8000,
   });
@@ -69,7 +69,7 @@ async function runAgentTask(task: string): Promise<{
   const result = await runReActLoop(
     task,
     {
-      workspace: Deno.cwd(),
+      workspace: platform.process.cwd(),
       context,
       autoApprove: true,
       maxToolCalls: 10,
@@ -103,8 +103,8 @@ Deno.test({
     // Result should mention some known files
     // (This is heuristic - LLM might format differently)
     const resultLower = result.toLowerCase();
-    const mentionsFiles =
-      resultLower.includes(".ts") || resultLower.includes("file");
+    const mentionsFiles = resultLower.includes(".ts") ||
+      resultLower.includes("file");
     assertEquals(mentionsFiles, true);
   },
   sanitizeResources: false,
@@ -150,8 +150,7 @@ Deno.test({
 
     // Result should mention finding something
     const resultLower = result.toLowerCase();
-    const mentionsSearch =
-      resultLower.includes("found") ||
+    const mentionsSearch = resultLower.includes("found") ||
       resultLower.includes("search") ||
       resultLower.includes("result");
     assertEquals(mentionsSearch, true);
@@ -166,7 +165,10 @@ Deno.test({
   async fn() {
     // Create a test file IN workspace (not temp dir, to avoid sandbox blocking)
     const platform = getPlatform();
-    const testFile = platform.path.join(Deno.cwd(), ".test-e2e-file.txt");
+    const testFile = platform.path.join(
+      platform.process.cwd(),
+      ".test-e2e-file.txt",
+    );
 
     try {
       await platform.fs.writeTextFile(testFile, "Hello from E2E test!");
@@ -216,12 +218,12 @@ Deno.test({
   sanitizeOps: false,
 });
 
-
 Deno.test({
   name: "E2E Agent: context management during long conversation",
   ignore: !(await isLLMAvailable()),
   async fn() {
     // Test that context stays within budget even with multiple tool calls
+    const platform = getPlatform();
 
     const context = new ContextManager({
       maxTokens: 4000, // Small budget to force trimming
@@ -238,7 +240,7 @@ Deno.test({
     await runReActLoop(
       "Search for 'import' in src/hlvm/agent files and tell me how many you found",
       {
-        workspace: Deno.cwd(),
+        workspace: platform.process.cwd(),
         context,
         autoApprove: true,
         maxToolCalls: 10,
@@ -253,4 +255,3 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
 });
-

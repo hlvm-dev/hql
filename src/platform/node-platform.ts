@@ -386,7 +386,7 @@ const NodeCommand: PlatformCommand = {
     };
   },
 
-  output: async (
+  output: (
     options: PlatformCommandOptions,
   ): Promise<PlatformCommandOutput> => {
     return new Promise((resolve, reject) => {

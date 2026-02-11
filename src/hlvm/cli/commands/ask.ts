@@ -14,7 +14,8 @@ import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
 import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-import type { TraceEvent, ToolDisplay } from "../../agent/orchestrator.ts";
+import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
+import type { ToolDisplay, TraceEvent } from "../../agent/orchestrator.ts";
 
 export function showAskHelp(): void {
   log.raw.log(`
@@ -39,7 +40,9 @@ OPTIONS:
 `);
 }
 
-function createTraceCallback(verbose: boolean): ((event: TraceEvent) => void) | undefined {
+function createTraceCallback(
+  verbose: boolean,
+): ((event: TraceEvent) => void) | undefined {
   if (!verbose) return undefined;
   return (event: TraceEvent) => {
     switch (event.type) {
@@ -50,7 +53,9 @@ function createTraceCallback(verbose: boolean): ((event: TraceEvent) => void) | 
         log.raw.log(`[TRACE] Calling LLM with ${event.messageCount} messages`);
         break;
       case "llm_response":
-        log.raw.log(`[TRACE] LLM responded (${event.length} chars): "${event.truncated}..."`);
+        log.raw.log(
+          `[TRACE] LLM responded (${event.length} chars): "${event.truncated}..."`,
+        );
         break;
       case "tool_call":
         log.raw.log(`[TRACE] Tool call: ${event.toolName}`);
@@ -58,7 +63,9 @@ function createTraceCallback(verbose: boolean): ((event: TraceEvent) => void) | 
         break;
       case "tool_result":
         if (event.success) {
-          const raw = typeof event.result === "string" ? event.result : JSON.stringify(event.result);
+          const raw = typeof event.result === "string"
+            ? event.result
+            : JSON.stringify(event.result);
           log.raw.log(`[TRACE] Result: SUCCESS`);
           log.raw.log(`[TRACE] ${truncate(raw, 200)}`);
         } else {
@@ -67,11 +74,17 @@ function createTraceCallback(verbose: boolean): ((event: TraceEvent) => void) | 
         break;
       case "llm_retry":
         log.raw.log(
-          `[TRACE] LLM retry ${event.attempt}/${event.max} (${event.class})${event.retryable ? "" : " [non-retryable]"}: ${event.error}`,
+          `[TRACE] LLM retry ${event.attempt}/${event.max} (${event.class})${
+            event.retryable ? "" : " [non-retryable]"
+          }: ${event.error}`,
         );
         break;
       case "grounding_check":
-        log.raw.log(`[TRACE] Grounding ${event.grounded ? "ok" : "warn"} mode=${event.mode} retry=${event.retry}/${event.maxRetry}`);
+        log.raw.log(
+          `[TRACE] Grounding ${
+            event.grounded ? "ok" : "warn"
+          } mode=${event.mode} retry=${event.retry}/${event.maxRetry}`,
+        );
         if (event.warnings.length > 0) {
           for (const warning of event.warnings) {
             log.raw.log(`[TRACE] Grounding warning: ${warning}`);
@@ -79,25 +92,122 @@ function createTraceCallback(verbose: boolean): ((event: TraceEvent) => void) | 
         }
         break;
       case "rate_limit":
-        log.raw.log(`[TRACE] Rate limit (${event.target}): ${event.used}/${event.maxCalls} per ${event.windowMs}ms (reset ${event.resetMs}ms)`);
+        log.raw.log(
+          `[TRACE] Rate limit (${event.target}): ${event.used}/${event.maxCalls} per ${event.windowMs}ms (reset ${event.resetMs}ms)`,
+        );
         break;
       case "resource_limit":
-        log.raw.log(`[TRACE] Resource limit (${event.kind}): ${event.used} > ${event.limit}`);
+        log.raw.log(
+          `[TRACE] Resource limit (${event.kind}): ${event.used} > ${event.limit}`,
+        );
         break;
       case "llm_usage":
-        log.raw.log(`[TRACE] LLM usage: ${event.usage.totalTokens} tokens (${event.usage.source})`);
+        log.raw.log(
+          `[TRACE] LLM usage: ${event.usage.totalTokens} tokens (${event.usage.source})`,
+        );
         break;
       case "plan_created":
-        log.raw.log(`[TRACE] Plan created with ${event.plan.steps.length} steps`);
+        log.raw.log(
+          `[TRACE] Plan created with ${event.plan.steps.length} steps`,
+        );
         break;
       case "plan_step":
-        log.raw.log(`[TRACE] Plan step complete: ${event.stepId} (index ${event.index})`);
+        log.raw.log(
+          `[TRACE] Plan step complete: ${event.stepId} (index ${event.index})`,
+        );
         break;
       case "context_overflow":
-        log.raw.log(`[TRACE] Context overflow: ${event.estimatedTokens} > ${event.maxTokens}`);
+        log.raw.log(
+          `[TRACE] Context overflow: ${event.estimatedTokens} > ${event.maxTokens}`,
+        );
         break;
     }
   };
+}
+
+function isOllamaCloudModelId(modelId: string): boolean {
+  const slashIndex = modelId.indexOf("/");
+  if (slashIndex <= 0) return false;
+  const provider = modelId.slice(0, slashIndex).toLowerCase();
+  if (provider !== "ollama") return false;
+  const modelName = modelId.slice(slashIndex + 1);
+  return isOllamaCloudModel(modelName);
+}
+
+export interface CloudAuthRecoveryState {
+  executionError: unknown;
+  resolvedModel: string;
+  streamedTokens: boolean;
+}
+
+export interface CloudAuthRecoveryDeps {
+  isCloudModelId: (modelId: string) => boolean;
+  isInteractiveTerminal: () => boolean;
+  isAuthErrorMessage: (message: string) => boolean;
+  runSignin: () => Promise<boolean>;
+  verifyCloudAccess: (modelId: string) => Promise<boolean>;
+  executeQuery: () => Promise<void>;
+  logRaw: (message: string) => void;
+  writeRaw: (message: string) => void;
+}
+
+export interface CloudAuthRecoveryResult {
+  handled: boolean;
+  recovered: boolean;
+  executionError: unknown;
+  streamedTokens: boolean;
+}
+
+export async function attemptCloudAuthRecovery(
+  state: CloudAuthRecoveryState,
+  deps: CloudAuthRecoveryDeps,
+): Promise<CloudAuthRecoveryResult> {
+  let { executionError, streamedTokens } = state;
+  const { resolvedModel } = state;
+
+  if (!(executionError instanceof Error)) {
+    return { handled: false, recovered: false, executionError, streamedTokens };
+  }
+  if (!deps.isCloudModelId(resolvedModel)) {
+    return { handled: false, recovered: false, executionError, streamedTokens };
+  }
+  if (!deps.isInteractiveTerminal()) {
+    return { handled: false, recovered: false, executionError, streamedTokens };
+  }
+  if (!deps.isAuthErrorMessage(executionError.message)) {
+    return { handled: false, recovered: false, executionError, streamedTokens };
+  }
+
+  if (streamedTokens) {
+    deps.writeRaw("\n");
+    streamedTokens = false;
+  }
+
+  const signedIn = await deps.runSignin();
+  if (!signedIn) {
+    deps.logRaw("Sign-in failed. Run `ollama signin` and retry.");
+    return { handled: true, recovered: false, executionError, streamedTokens };
+  }
+
+  const verified = await deps.verifyCloudAccess(resolvedModel);
+  if (!verified) {
+    deps.logRaw("Cloud sign-in not completed. Open the URL above, then retry.");
+    return { handled: true, recovered: false, executionError, streamedTokens };
+  }
+
+  deps.logRaw("Retrying query...\n");
+  try {
+    await deps.executeQuery();
+    return {
+      handled: true,
+      recovered: true,
+      executionError: null,
+      streamedTokens,
+    };
+  } catch (retryError) {
+    executionError = retryError;
+    return { handled: true, recovered: false, executionError, streamedTokens };
+  }
 }
 
 export async function askCommand(args: string[]): Promise<void> {
@@ -117,7 +227,10 @@ export async function askCommand(args: string[]): Promise<void> {
     } else if (arg === "--model") {
       i++;
       if (i >= args.length) {
-        throw new ValidationError("--model requires a value (e.g., openai/gpt-4o)", "ask");
+        throw new ValidationError(
+          "--model requires a value (e.g., openai/gpt-4o)",
+          "ask",
+        );
       }
       modelOverride = args[i];
     } else if (!arg.startsWith("--")) {
@@ -128,7 +241,10 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   if (!query) {
-    throw new ValidationError("Missing query. Usage: hlvm ask \"<query>\"", "ask");
+    throw new ValidationError(
+      'Missing query. Usage: hlvm ask "<query>"',
+      "ask",
+    );
   }
 
   // First-run gate: no model explicitly chosen + not yet configured + interactive terminal
@@ -146,10 +262,14 @@ export async function askCommand(args: string[]): Promise<void> {
     }
   }
 
+  const { getConfiguredModel } = await import(
+    "../../../common/ai-default-model.ts"
+  );
+  const resolvedModel = modelOverride ?? getConfiguredModel();
   const model = modelOverride ?? undefined;
   try {
     await ensureAgentReady(
-      model ?? (await import("../../../common/ai-default-model.ts")).getConfiguredModel(),
+      resolvedModel,
       (message) => log.raw.log(message),
     );
   } catch (error) {
@@ -185,7 +305,7 @@ export async function askCommand(args: string[]): Promise<void> {
     log.raw.log(`\nAgent: ${query}\n`);
   }
 
-  try {
+  const executeQuery = async () => {
     const result = await runAgentQuery({
       query,
       model,
@@ -205,7 +325,9 @@ export async function askCommand(args: string[]): Promise<void> {
       if (!shouldSuppressFinalResponse(result.text)) {
         log.raw.log(`\nResult:\n${result.text}\n`);
       }
-    } else if (!streamedTokens && result.stats.toolMessages === 0 && result.text.trim()) {
+    } else if (
+      !streamedTokens && result.stats.toolMessages === 0 && result.text.trim()
+    ) {
       log.raw.log(`${result.text}\n`);
     }
 
@@ -214,11 +336,43 @@ export async function askCommand(args: string[]): Promise<void> {
         `[Stats: ${result.stats.messageCount} messages, ${result.stats.estimatedTokens} tokens, ${result.stats.toolMessages} tool messages]`,
       );
     }
+  };
+
+  let executionError: unknown = null;
+  try {
+    await executeQuery();
+    return;
   } catch (error) {
-    if (error instanceof Error) {
-      log.error(`Agent error: ${error.message}`);
-      throw error;
-    }
-    throw error;
+    executionError = error;
   }
+
+  const {
+    isOllamaAuthErrorMessage,
+    runOllamaSignin,
+    verifyOllamaCloudModelAccess,
+  } = await import(
+    "./first-run-setup.ts"
+  );
+  const recovery = await attemptCloudAuthRecovery(
+    { executionError, resolvedModel, streamedTokens },
+    {
+      isCloudModelId: isOllamaCloudModelId,
+      isInteractiveTerminal: () => getPlatform().terminal.stdin.isTerminal(),
+      isAuthErrorMessage: isOllamaAuthErrorMessage,
+      runSignin: runOllamaSignin,
+      verifyCloudAccess: verifyOllamaCloudModelAccess,
+      executeQuery,
+      logRaw: (message: string) => log.raw.log(message),
+      writeRaw: (message: string) => log.raw.write(message),
+    },
+  );
+  streamedTokens = recovery.streamedTokens;
+  executionError = recovery.executionError;
+  if (recovery.recovered) return;
+
+  if (executionError instanceof Error) {
+    log.error(`Agent error: ${executionError.message}`);
+    throw executionError;
+  }
+  throw executionError;
 }

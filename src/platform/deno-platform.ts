@@ -315,7 +315,7 @@ const DenoCommand: PlatformCommand = {
 // =============================================================================
 
 const DenoHttp: PlatformHttp = {
-  serve: async (
+  serve: (
     handler: (req: Request) => Response | Promise<Response>,
     options: PlatformHttpServeOptions,
   ): Promise<void> =>

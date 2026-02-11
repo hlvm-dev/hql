@@ -61,9 +61,9 @@ Deno.test("withTimeout - operation receives AbortSignal", async () => {
   let receivedSignal: AbortSignal | null = null;
 
   await withTimeout(
-    async (signal) => {
+    (signal) => {
       receivedSignal = signal;
-      return "done";
+      return Promise.resolve("done");
     },
     { timeoutMs: 1000, label: "test" },
   );
@@ -103,9 +103,7 @@ Deno.test("withTimeout - propagates operation errors", async () => {
   await assertRejects(
     async () => {
       await withTimeout(
-        async (_signal) => {
-          throw new Error("operation failed");
-        },
+        (_signal) => Promise.reject(new Error("operation failed")),
         { timeoutMs: 1000, label: "test" },
       );
     },

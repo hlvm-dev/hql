@@ -77,73 +77,69 @@ export function Banner({ loading, memoryNames, aiExports, readyTime, errors, ses
       <Text> </Text>
 
       {/* ═══ QUICK START ═══ */}
-      <>
-        <Box>
-          <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
-          <Text color={color("success")} bold>Polyglot Mode</Text>
-          <Text dimColor>  (expr) → HQL  |  expr → JS</Text>
-        </Box>
-        <Box>
-          <Text>  </Text>
-          <Text color={color("accent")}>let x = 10</Text>
-          <Text>              </Text>
-          <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> JS variable</Text>
-        </Box>
-        <Box>
-          <Text>  </Text>
-          <Text color={color("accent")}>(+ x 5)</Text>
-          <Text>                 </Text>
-          <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> HQL with JS</Text>
-        </Box>
-        <Box>
-          <Text>  </Text>
-          <Text color={color("accent")}>const f = (a,b) =&gt; a+b</Text>
-          <Text>  </Text>
-          <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> JS function</Text>
-        </Box>
-        <Box>
-          <Text>  </Text>
-          <Text color={color("accent")}>(f 3 4)</Text>
-          <Text>                 </Text>
-          <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Call from HQL</Text>
-        </Box>
-      </>
-      <>
-        <Box>
-          <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
-          <Text color={color("success")} bold>Quick Start</Text>
-        </Box>
-          <Box>
-            <Text>  </Text>
-            <Text color={color("accent")}>(+ 1 2)</Text>
-            <Text>                 </Text>
-            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Simple math</Text>
-          </Box>
-          <Box>
-            <Text>  </Text>
-            <Text color={color("accent")}>(fn add [x y] (+ x y))</Text>
-            <Text> </Text>
-            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Define function</Text>
-          </Box>
-          <Box>
-            <Text>  </Text>
-            <Text color={color("accent")}>(add 10 20)</Text>
-            <Text>             </Text>
-            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Call function</Text>
-          </Box>
-          <Text> </Text>
-          <Box>
-            <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
-            <Text color={color("success")} bold>AI</Text>
-            <Text dimColor>  (import [ask] from "@hlvm/ai")</Text>
-          </Box>
-          <Box>
-            <Text>  </Text>
-            <Text color={color("accent")}>(await (ask "Hello"))</Text>
-            <Text>   </Text>
-            <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> AI response</Text>
-          </Box>
-        </>
+      <Box>
+        <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
+        <Text color={color("success")} bold>Polyglot Mode</Text>
+        <Text dimColor>  (expr) → HQL  |  expr → JS</Text>
+      </Box>
+      <Box>
+        <Text>  </Text>
+        <Text color={color("accent")}>let x = 10</Text>
+        <Text>              </Text>
+        <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> JS variable</Text>
+      </Box>
+      <Box>
+        <Text>  </Text>
+        <Text color={color("accent")}>(+ x 5)</Text>
+        <Text>                 </Text>
+        <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> HQL with JS</Text>
+      </Box>
+      <Box>
+        <Text>  </Text>
+        <Text color={color("accent")}>const f = (a,b) =&gt; a+b</Text>
+        <Text>  </Text>
+        <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> JS function</Text>
+      </Box>
+      <Box>
+        <Text>  </Text>
+        <Text color={color("accent")}>(f 3 4)</Text>
+        <Text>                 </Text>
+        <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Call from HQL</Text>
+      </Box>
+      <Box>
+        <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
+        <Text color={color("success")} bold>Quick Start</Text>
+      </Box>
+      <Box>
+        <Text>  </Text>
+        <Text color={color("accent")}>(+ 1 2)</Text>
+        <Text>                 </Text>
+        <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Simple math</Text>
+      </Box>
+      <Box>
+        <Text>  </Text>
+        <Text color={color("accent")}>(fn add [x y] (+ x y))</Text>
+        <Text> </Text>
+        <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Define function</Text>
+      </Box>
+      <Box>
+        <Text>  </Text>
+        <Text color={color("accent")}>(add 10 20)</Text>
+        <Text>             </Text>
+        <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> Call function</Text>
+      </Box>
+      <Text> </Text>
+      <Box>
+        <Text color={color("secondary")} bold>{SYMBOLS.lambda} </Text>
+        <Text color={color("success")} bold>AI</Text>
+        <Text dimColor>  (import [ask] from "@hlvm/ai")</Text>
+      </Box>
+      <Box>
+        <Text>  </Text>
+        <Text color={color("accent")}>(await (ask "Hello"))</Text>
+        <Text>   </Text>
+        <Text color={color("secondary")}>{SYMBOLS.arrow}</Text><Text dimColor> AI response</Text>
+      </Box>
 
       <Text> </Text>
 

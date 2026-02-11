@@ -98,6 +98,7 @@ Deno.test({
         context,
         autoApprove: true,
         delegate: async (args) => {
+          await Promise.resolve();
           captured = args as Record<string, unknown>;
           return { ok: true };
         },
@@ -121,6 +122,7 @@ Deno.test({
     let delegated = false;
 
     const llm = async () => {
+      await Promise.resolve();
       calls += 1;
       if (calls === 1) {
         return makeResponse(`PLAN
@@ -139,6 +141,7 @@ END_PLAN`);
         groundingMode: "off",
         planning: { mode: "always", requireStepMarkers: true },
         delegate: async () => {
+          await Promise.resolve();
           delegated = true;
           return { note: "delegated" };
         },
@@ -166,6 +169,7 @@ Deno.test({
         _workspace: string,
         options?: { signal?: AbortSignal },
       ) => {
+        await Promise.resolve();
         sawSignal = options?.signal instanceof AbortSignal;
         return "ok";
       },
@@ -295,12 +299,12 @@ Deno.test({
     const fakeOne = "fake_rate_one";
     const fakeTwo = "fake_rate_two";
     TOOL_REGISTRY[fakeOne] = {
-      fn: async () => "ok",
+      fn: async () => await Promise.resolve("ok"),
       description: "fake",
       args: {},
     };
     TOOL_REGISTRY[fakeTwo] = {
-      fn: async () => "ok",
+      fn: async () => await Promise.resolve("ok"),
       description: "fake",
       args: {},
     };
@@ -503,6 +507,7 @@ Deno.test({
 
     // Mock LLM that returns final response immediately
     const mockLLM = async () => {
+      await Promise.resolve();
       return makeResponse("I can help with that. The answer is 42.");
     };
 
@@ -530,6 +535,7 @@ Deno.test({
     const context = new ContextManager();
     let callCount = 0;
     const mockLLM = async () => {
+      await Promise.resolve();
       callCount++;
       return makeResponse(
         '{"toolName":"search_code","args":{"pattern":"test"}}',
@@ -562,13 +568,14 @@ Deno.test({
   async fn() {
     const toolName = "fake_rate_tool";
     TOOL_REGISTRY[toolName] = {
-      fn: async () => "ok",
+      fn: async () => await Promise.resolve("ok"),
       description: "fake",
       args: {},
     };
 
     try {
-      const llm = async () => makeResponse("", [{ toolName, args: {} }]);
+      const llm = async () =>
+        await Promise.resolve(makeResponse("", [{ toolName, args: {} }]));
 
       const context = new ContextManager();
       context.addMessage({
@@ -606,6 +613,7 @@ Deno.test({
     let sawSignal = false;
 
     const mockLLM = async (_messages: any[], signal?: AbortSignal) => {
+      await Promise.resolve();
       sawSignal = signal instanceof AbortSignal;
       return makeResponse("Signal response");
     };
@@ -634,6 +642,7 @@ Deno.test({
     let calls = 0;
 
     const mockLLM = async () => {
+      await Promise.resolve();
       calls++;
       const err = new Error("aborted");
       err.name = "AbortError";
@@ -670,6 +679,7 @@ Deno.test({
     let calls = 0;
 
     const mockLLM = async () => {
+      await Promise.resolve();
       calls++;
       if (calls < 2) {
         throw new Error("Rate limit exceeded (429)");
@@ -699,6 +709,7 @@ Deno.test({
 
     // Mock LLM that makes tool call first, then responds
     const mockLLM = async () => {
+      await Promise.resolve();
       callCount++;
 
       if (callCount === 1) {
@@ -735,10 +746,12 @@ Deno.test({
 
     // Mock LLM that always makes tool calls (infinite loop)
     const mockLLM = async () =>
-      makeResponse("Let me search again.", [{
-        toolName: "search_code",
-        args: { pattern: "test" },
-      }]);
+      await Promise.resolve(
+        makeResponse("Let me search again.", [{
+          toolName: "search_code",
+          args: { pattern: "test" },
+        }]),
+      );
 
     const result = await runReActLoop(
       "Find something",
@@ -767,6 +780,7 @@ Deno.test({
 
     // Mock LLM that tries invalid tool then gives up
     const mockLLM = async () => {
+      await Promise.resolve();
       callCount++;
 
       if (callCount === 1) {
@@ -841,6 +855,7 @@ Deno.test({
 
     // Mock LLM that tries L2 tool 3 times then gives up
     const mockLLM = async () => {
+      await Promise.resolve();
       callCount++;
 
       if (callCount <= 3) {
@@ -856,7 +871,7 @@ Deno.test({
       }
     };
 
-    const result = await runReActLoop(
+    await runReActLoop(
       "Write a test file",
       {
         workspace: TEST_WORKSPACE,
@@ -893,6 +908,7 @@ Deno.test({
     // write_file (L2) is denied each time; read_file (L0) success doesn't reset write_file count.
     // With maxDenials=3, write_file gets 3 denials before blocking.
     const mockLLM = async () => {
+      await Promise.resolve();
       callCount++;
 
       if (callCount <= 3) {
@@ -940,6 +956,7 @@ Deno.test({
 
     // Mock LLM that keeps trying L2 tool
     const mockLLM = async () => {
+      await Promise.resolve();
       callCount++;
       return makeResponse("Let me write.", [{
         toolName: "write_file",
@@ -947,7 +964,7 @@ Deno.test({
       }]);
     };
 
-    const result = await runReActLoop(
+    await runReActLoop(
       "Write file",
       {
         workspace: TEST_WORKSPACE,
@@ -981,6 +998,7 @@ Deno.test({
 
     // Mock LLM that keeps trying L2 tool
     const mockLLM = async () => {
+      await Promise.resolve();
       callCount++;
       return makeResponse("Let me write.", [{
         toolName: "write_file",
@@ -988,7 +1006,7 @@ Deno.test({
       }]);
     };
 
-    const result = await runReActLoop(
+    await runReActLoop(
       "Write file",
       {
         workspace: TEST_WORKSPACE,
@@ -1021,6 +1039,7 @@ Deno.test({
 
     // Mock LLM that keeps trying L2 tool
     const mockLLM = async () => {
+      await Promise.resolve();
       return makeResponse("Let me write.", [{
         toolName: "write_file",
         args: { path: "test.ts", content: "test" },

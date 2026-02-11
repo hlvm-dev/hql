@@ -13,7 +13,6 @@ import {
   clearAllL1Confirmations,
   getAllL1Confirmations,
   checkToolSafety,
-  type SafetyLevel,
 } from "../../../../src/hlvm/agent/security/safety.ts";
 
 // ============================================================

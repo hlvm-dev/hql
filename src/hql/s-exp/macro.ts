@@ -174,7 +174,7 @@ function resolveValueForInterpreter(
 // Within a single macro expansion, the same Environment object is typically used
 // for all function calls. We cache the bridged result and invalidate when the
 // binding count changes (new var/let definitions in macro body).
-let _bridgeCache: WeakMap<
+const _bridgeCache: WeakMap<
   Environment,
   { env: InterpreterEnv; bindingCount: number }
 > = new WeakMap();

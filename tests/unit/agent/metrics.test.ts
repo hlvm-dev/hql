@@ -23,11 +23,11 @@ import { getPlatform } from "../../../src/platform/platform.ts";
 
 function createScriptedLLM(responses: LLMResponse[]): LLMFunction {
   let index = 0;
-  return async () => {
+  return () => {
     if (index >= responses.length) {
       throw new Error("LLM script exhausted");
     }
-    return responses[index++];
+    return Promise.resolve(responses[index++]);
   };
 }
 
@@ -37,7 +37,7 @@ function makeResponse(content: string, toolCalls: ToolCall[] = []): LLMResponse 
 
 function addFakeTool(name: string, result: unknown): void {
   TOOL_REGISTRY[name] = {
-    fn: async () => result,
+    fn: () => Promise.resolve(result),
     description: "Fake tool for metrics tests",
     args: {},
   };

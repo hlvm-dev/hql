@@ -532,20 +532,22 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Handlers: cancelSessionRequests - no-op for unknown session",
+  name: "Handlers: cancelSessionRequests - returns 0 for unknown session",
   fn() {
-    cancelSessionRequests("non-existent-session");
+    const count = cancelSessionRequests("non-existent-session");
+    assertEquals(count, 0);
   },
 });
 
 Deno.test({
-  name: "Handlers: handleSessionCancel - returns cancelled for any session",
+  name: "Handlers: handleSessionCancel - reports false when no active requests",
   async fn() {
     const resp = handleSessionCancel("some-session-id");
     assertEquals(resp.status, 200);
     const body = await resp.json();
-    assertEquals(body.cancelled, true);
+    assertEquals(body.cancelled, false);
     assertEquals(body.session_id, "some-session-id");
+    assertEquals(body.cancelled_count, 0);
   },
 });
 

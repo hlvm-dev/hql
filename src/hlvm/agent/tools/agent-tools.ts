@@ -7,12 +7,11 @@ import type { ToolMetadata } from "../registry.ts";
 
 export const AGENT_TOOLS: Record<string, ToolMetadata> = {
   delegate_agent: {
-    fn: async () => {
-      throw new ValidationError(
+    fn: () =>
+      Promise.reject(new ValidationError(
         "delegate_agent is not configured. Ensure the session provides a delegate handler.",
         "delegate_agent",
-      );
-    },
+      )),
     description:
       "Delegate a task to a specialist agent and return its result.",
     args: {

@@ -26,7 +26,7 @@ function requireSession(params: RouteParams): { sessionId: string } | Response {
 
 function requireMessage(params: RouteParams, sessionId: string): { messageId: number } | Response {
   const messageId = parseInt(params.messageId, 10);
-  if (isNaN(messageId)) return jsonError("Invalid message ID", 400);
+  if (isNaN(messageId) || messageId <= 0) return jsonError("Invalid message ID", 400);
 
   const message = getMessage(messageId);
   if (!message || message.session_id !== sessionId) {

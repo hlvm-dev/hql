@@ -78,8 +78,6 @@ Deno.test("Function call error reports correct location with source maps", async
     });
     throw new Error("Expected error to be thrown");
   } catch (error) {
-    const errorMessage = getErrorMessage(error);
-
     // Should report line 3 where (add 1) is called with missing argument
     // NOT line 1
     assert(error instanceof HQLError);

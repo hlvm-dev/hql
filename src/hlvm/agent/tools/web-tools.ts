@@ -2,7 +2,7 @@
  * Web Tools - Internet search and fetch utilities (policy-gated)
  *
  * Provides minimal web capabilities:
- * - search_web: query a public search endpoint (DuckDuckGo Instant Answer)
+ * - search_web: query public DuckDuckGo search endpoint
  * - fetch_url: fetch a URL with byte limits and policy checks
  *
  * SSOT: Uses common/http-client.ts for HTTP.
@@ -810,149 +810,149 @@ async function webFetch(
   return result;
 }
 
-async function braveSearch(
+function stripHtmlTags(input: string): string {
+  return decodeHtmlEntities(
+    input.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+  );
+}
+
+function normalizeDuckDuckGoResultUrl(rawHref: string): string {
+  let href = decodeHtmlEntities(rawHref).trim();
+  if (!href) return "";
+
+  if (href.startsWith("//")) {
+    href = `https:${href}`;
+  } else if (href.startsWith("/")) {
+    href = `https://duckduckgo.com${href}`;
+  }
+
+  try {
+    const parsed = new URL(href);
+    const isDuckDuckGoHost = parsed.hostname === "duckduckgo.com" ||
+      parsed.hostname.endsWith(".duckduckgo.com");
+    if (isDuckDuckGoHost && parsed.pathname.startsWith("/l/")) {
+      return parsed.searchParams.get("uddg") ?? href;
+    }
+    return parsed.toString();
+  } catch {
+    return href;
+  }
+}
+
+export function parseDuckDuckGoSearchResults(
+  html: string,
+  limit: number,
+): SearchResult[] {
+  const anchorRegex = /<a\b[^>]*>[\s\S]*?<\/a>/gi;
+  const snippetRegex =
+    /<(?:a|div|span|td|p)\b[^>]*class\s*=\s*["'][^"']*(?:result__snippet|result-snippet)[^"']*["'][^>]*>([\s\S]*?)<\/(?:a|div|span|td|p)>/i;
+
+  const rawMatches: Array<{
+    start: number;
+    end: number;
+    title: string;
+    url: string;
+  }> = [];
+  let match: RegExpExecArray | null;
+  const maxRawMatches = Math.max(1, limit * 4);
+
+  while ((match = anchorRegex.exec(html)) !== null) {
+    const fullAnchor = match[0] ?? "";
+    const openTag = fullAnchor.match(/^<a\b[^>]*>/i)?.[0] ?? "";
+    if (!openTag) continue;
+
+    const attrs = parseAttributes(openTag);
+    const className = (attrs.class ?? "").toLowerCase();
+    const rel = (attrs.rel ?? "").toLowerCase();
+    const href = attrs.href;
+    if (!href) continue;
+    const isResultAnchor = className.includes("result__a") ||
+      className.includes("result-link") ||
+      (rel.includes("nofollow") && href.includes("/l/?"));
+    if (!isResultAnchor) continue;
+
+    const url = normalizeDuckDuckGoResultUrl(href);
+    if (!url) continue;
+
+    const titleHtml = fullAnchor.slice(
+      openTag.length,
+      fullAnchor.length - "</a>".length,
+    );
+    const title = stripHtmlTags(titleHtml);
+    if (!title) continue;
+
+    rawMatches.push({
+      start: match.index,
+      end: anchorRegex.lastIndex,
+      title,
+      url,
+    });
+
+    if (rawMatches.length >= maxRawMatches) break;
+  }
+
+  const results: SearchResult[] = [];
+  const seenUrls = new Set<string>();
+  for (let i = 0; i < rawMatches.length; i++) {
+    const current = rawMatches[i];
+    if (seenUrls.has(current.url)) continue;
+    seenUrls.add(current.url);
+
+    const nextStart = rawMatches[i + 1]?.start ?? Math.min(
+      current.end + 2000,
+      html.length,
+    );
+    const segment = html.slice(current.end, nextStart);
+    const snippetMatch = segment.match(snippetRegex);
+    const snippet = snippetMatch?.[1] ? stripHtmlTags(snippetMatch[1]) : "";
+
+    results.push({
+      title: current.title,
+      url: current.url,
+      snippet,
+    });
+    if (results.length >= limit) break;
+  }
+
+  return results;
+}
+
+async function duckDuckGoSearch(
   query: string,
   limit: number,
   timeoutMs: number | undefined,
-  apiKey: string,
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
-  const endpoint = `https://api.search.brave.com/res/v1/web/search?q=${
+  const endpoint = `https://html.duckduckgo.com/html/?q=${
     encodeURIComponent(query)
-  }&count=${limit}`;
+  }`;
   assertUrlAllowed(endpoint, options);
 
-  interface BraveResponse {
-    web?: {
-      results?: Array<
-        { title?: string; url?: string; description?: string; snippet?: string }
-      >;
-    };
-  }
-
-  const data = await http.fetchJson<BraveResponse>(endpoint, {
+  const response = await http.fetchRaw(endpoint, {
     timeout: timeoutMs,
     headers: {
-      "Accept": "application/json",
-      "X-Subscription-Token": apiKey,
+      "Accept": "text/html",
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     },
   });
-
-  const results = (data.web?.results ?? []).map((entry) => ({
-    title: entry.title ?? "",
-    url: entry.url ?? "",
-    snippet: entry.description ?? entry.snippet ?? "",
-  })).filter((entry) => entry.title || entry.url || entry.snippet);
-  const scored = scoreSearchResults(query, results);
-
-  const topResults = scored.slice(0, limit);
-  return {
-    query,
-    provider: "brave",
-    results: topResults,
-    count: topResults.length,
-  };
-}
-
-async function serpApiSearch(
-  query: string,
-  limit: number,
-  timeoutMs: number | undefined,
-  config: { apiKey: string; baseUrl: string },
-  options?: ToolExecutionOptions,
-): Promise<Record<string, unknown>> {
-  const baseUrl = config.baseUrl.replace(/\/+$/, "");
-  const endpoint = `${baseUrl}/search.json?q=${
-    encodeURIComponent(query)
-  }&engine=google&num=${limit}&api_key=${config.apiKey}`;
-  assertUrlAllowed(endpoint, options);
-
-  interface SerpApiResponse {
-    organic_results?: Array<
-      { title?: string; link?: string; snippet?: string }
-    >;
-    answer_box?: {
-      answer?: string;
-      snippet?: string;
-      title?: string;
-      link?: string;
-    };
+  if (!response.ok) {
+    throw new ValidationError(
+      `DuckDuckGo search failed with HTTP ${response.status}`,
+      "search_web",
+    );
   }
 
-  const data = await http.fetchJson<SerpApiResponse>(endpoint, {
-    timeout: timeoutMs,
-    headers: { "Accept": "application/json" },
-  });
-
-  const results = (data.organic_results ?? []).map((entry) => ({
-    title: entry.title ?? "",
-    url: entry.link ?? "",
-    snippet: entry.snippet ?? "",
-  })).filter((entry) => entry.title || entry.url || entry.snippet);
-
-  const scored = scoreSearchResults(query, results);
+  const html = await response.text();
+  const parsedResults = parseDuckDuckGoSearchResults(html, limit);
+  const scored = scoreSearchResults(query, parsedResults);
   const topResults = scored.slice(0, limit);
-  const answer = data.answer_box?.answer ?? data.answer_box?.snippet ?? "";
-  const citations = data.answer_box?.link ? [data.answer_box.link] : [];
 
   return {
     query,
-    provider: "serpapi",
-    answer,
-    citations,
+    provider: "duckduckgo",
     results: topResults,
     count: topResults.length,
-  };
-}
-
-async function chatCompletionsSearch(
-  query: string,
-  limit: number,
-  timeoutMs: number | undefined,
-  config: { apiKey: string; baseUrl: string; model: string },
-  provider: string,
-  options?: ToolExecutionOptions,
-): Promise<Record<string, unknown>> {
-  const endpoint = `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-  assertUrlAllowed(endpoint, options);
-
-  const data = await http.post<Record<string, unknown>>(
-    endpoint,
-    {
-      model: config.model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "Search the web and answer with citations. Return citations as URLs when possible.",
-        },
-        { role: "user", content: query },
-      ],
-      temperature: 0.2,
-    },
-    {
-      timeout: timeoutMs,
-      headers: {
-        "Authorization": `Bearer ${config.apiKey}`,
-      },
-    },
-  );
-
-  const choices = (data as {
-    choices?: Array<{ message?: { content?: string; citations?: string[] } }>;
-  }).choices ??
-    [];
-  const answer = choices[0]?.message?.content ?? "";
-  const citations = (data as { citations?: string[] }).citations ??
-    choices[0]?.message?.citations ??
-    [];
-
-  return {
-    query,
-    provider,
-    answer,
-    citations,
-    count: Math.min(limit, citations.length),
   };
 }
 
@@ -994,85 +994,7 @@ async function searchWeb(
     }
   }
 
-  let result: Record<string, unknown>;
-  switch (webConfig.search.provider) {
-    case "perplexity": {
-      const apiKey = webConfig.search.perplexity.apiKey;
-      if (!apiKey) {
-        throw new ValidationError(
-          "Perplexity API key missing. Set tools.web.search.perplexity.apiKey or PERPLEXITY_API_KEY.",
-          "search_web",
-        );
-      }
-      result = await chatCompletionsSearch(
-        query,
-        limit,
-        timeout,
-        {
-          apiKey,
-          baseUrl: webConfig.search.perplexity.baseUrl,
-          model: webConfig.search.perplexity.model,
-        },
-        "perplexity",
-        options,
-      );
-      break;
-    }
-    case "openrouter": {
-      const apiKey = webConfig.search.openrouter.apiKey;
-      if (!apiKey) {
-        throw new ValidationError(
-          "OpenRouter API key missing. Set tools.web.search.openrouter.apiKey or OPENROUTER_API_KEY.",
-          "search_web",
-        );
-      }
-      result = await chatCompletionsSearch(
-        query,
-        limit,
-        timeout,
-        {
-          apiKey,
-          baseUrl: webConfig.search.openrouter.baseUrl,
-          model: webConfig.search.openrouter.model,
-        },
-        "openrouter",
-        options,
-      );
-      break;
-    }
-    case "serpapi": {
-      const apiKey = webConfig.search.serpapi.apiKey;
-      if (!apiKey) {
-        throw new ValidationError(
-          "SerpAPI key missing. Set tools.web.search.serpapi.apiKey or SERPAPI_API_KEY.",
-          "search_web",
-        );
-      }
-      result = await serpApiSearch(
-        query,
-        limit,
-        timeout,
-        {
-          apiKey,
-          baseUrl: webConfig.search.serpapi.baseUrl,
-        },
-        options,
-      );
-      break;
-    }
-    case "brave":
-    default: {
-      const apiKey = webConfig.search.brave.apiKey;
-      if (!apiKey) {
-        throw new ValidationError(
-          "Brave API key missing. Set tools.web.search.brave.apiKey or BRAVE_API_KEY.",
-          "search_web",
-        );
-      }
-      result = await braveSearch(query, limit, timeout, apiKey, options);
-      break;
-    }
-  }
+  const result = await duckDuckGoSearch(query, limit, timeout, options);
 
   if (webConfig.search.cacheTtlMinutes > 0) {
     await setWebCacheValue(cacheKey, result, webConfig.search.cacheTtlMinutes);
@@ -1089,7 +1011,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
   search_web: {
     fn: searchWeb,
     description:
-      "Search the web for a query (OpenClaw-style: Brave/Perplexity). Returns snippets and URLs or an answer with citations.",
+      "Search the web for a query (DuckDuckGo). Returns snippets and URLs.",
     args: {
       query: "string - Search query",
       maxResults: "number (optional) - Max results (default: 5)",
@@ -1098,8 +1020,6 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     },
     returns: {
       results: "Array<{title, url?, snippet?}>",
-      answer: "string (optional)",
-      citations: "string[] (optional)",
       count: "number",
       provider: "string",
     },

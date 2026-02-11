@@ -2,8 +2,6 @@ import { assertEquals, assertNotEquals } from "jsr:@std/assert@1";
 import { getPlatform } from "../../src/platform/platform.ts";
 import hql from "../../mod.ts";
 import {
-  mapPosition,
-  loadSourceMap,
   invalidateSourceMapCache,
 } from "../../src/hql/transpiler/pipeline/source-map-support.ts";
 
@@ -126,4 +124,3 @@ Deno.test("Tooling: hql.transpile defaults to generating source maps for string 
   const map = JSON.parse(explicitResult.sourceMap);
   assertEquals(map.version, 3);
 });
-

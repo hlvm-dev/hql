@@ -15,30 +15,6 @@ import type { ProviderMessage } from "../../../src/hlvm/providers/types.ts";
 // Test Helpers
 // ============================================================
 
-/** Create a basic conversation with tool calls for testing */
-function makeToolConversation(): ProviderMessage[] {
-  return [
-    { role: "system", content: "You are an assistant." },
-    { role: "user", content: "List my files" },
-    {
-      role: "assistant",
-      content: "",
-      tool_calls: [{
-        id: "call_abc123",
-        type: "function",
-        function: { name: "list_files", arguments: { path: "~/Downloads" } },
-      }],
-    },
-    {
-      role: "tool",
-      content: '{"count": 5, "entries": []}',
-      tool_name: "list_files",
-      tool_call_id: "call_abc123",
-    },
-    { role: "assistant", content: "You have 5 files." },
-  ];
-}
-
 /** Create a multi-tool conversation */
 function makeMultiToolConversation(): ProviderMessage[] {
   return [
@@ -88,7 +64,7 @@ function makeMultiToolConversation(): ProviderMessage[] {
 
 Deno.test({
   name: "OpenAI: tool_call_id flows from message to wire format",
-  async fn() {
+  fn() {
     // Test that our ProviderMessage format includes the tool_call_id field
     const msg: ProviderMessage = {
       role: "tool",

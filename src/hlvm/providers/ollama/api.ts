@@ -370,7 +370,7 @@ export async function chatStructured(
   // Streaming path: yield tokens via onToken, collect tool_calls from final chunk
   if (useStreaming) {
     const contentChunks: string[] = [];
-    let toolCalls: ProviderToolCall[] = [];
+    const toolCalls: ProviderToolCall[] = [];
 
     for await (
       const chunk of streamRequest<OllamaChatChunk>(

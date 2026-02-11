@@ -8,7 +8,7 @@ import { SlidingWindowRateLimiter } from "../../../src/common/rate-limiter.ts";
 Deno.test({
   name: "RateLimiter: allows up to maxCalls within window",
   fn() {
-    let now = 0;
+    const now = 0;
     const limiter = new SlidingWindowRateLimiter(
       { maxCalls: 2, windowMs: 1000 },
       () => now,

@@ -51,9 +51,7 @@ Deno.test("Bugfix #2: Stress test with many parallel compilations", async () => 
   }
 
   // Run all concurrently
-  const start = performance.now();
   const results = await Promise.all(tasks);
-  const elapsed = performance.now() - start;
 
   // All should complete successfully
   assertEquals(results.length, 50, "All 50 transpilations should complete");

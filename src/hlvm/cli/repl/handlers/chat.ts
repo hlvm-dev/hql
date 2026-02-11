@@ -67,12 +67,13 @@ async function modelSupportsTools(modelName: string, modelInfo: ModelInfo | null
   }
   try {
     const catalog = await ai.models.catalog();
-    const baseName = modelName.split(":")[0];
+    const bare = modelName.includes("/") ? modelName.slice(modelName.indexOf("/") + 1) : modelName;
+    const baseName = bare.split(":")[0];
     const match = catalog.find((m) =>
-      m.name === modelName || m.name.split(":")[0] === baseName
+      m.name === bare || m.name.split(":")[0] === baseName
     );
-    if (match?.capabilities) {
-      return match.capabilities.includes("tools");
+    if (match) {
+      return match.capabilities?.includes("tools") ?? false;
     }
   } catch {
     // Catalog unavailable
@@ -92,6 +93,7 @@ interface ChatRequest {
   }>;
   model?: string;
   temperature?: number;
+  max_tokens?: number;
   client_turn_id?: string;
   expected_version?: number;
 }
@@ -113,18 +115,20 @@ export function markAgentReady(): void {
   agentReady = true;
 }
 
-export function cancelSessionRequests(sessionId: string): void {
-  for (const [requestId, entry] of activeRequests) {
+export function cancelSessionRequests(sessionId: string): number {
+  let count = 0;
+  for (const [, entry] of activeRequests) {
     if (entry.sessionId === sessionId) {
       entry.controller.abort();
-      activeRequests.delete(requestId);
+      count++;
     }
   }
+  return count;
 }
 
 export function handleSessionCancel(sessionId: string): Response {
-  cancelSessionRequests(sessionId);
-  return Response.json({ cancelled: true, session_id: sessionId });
+  const count = cancelSessionRequests(sessionId);
+  return Response.json({ cancelled: count > 0, session_id: sessionId, cancelled_count: count });
 }
 
 // MARK: - Private Helpers
@@ -184,6 +188,10 @@ export async function handleChat(req: Request): Promise<Response> {
   const resolvedModel = body.model ??
     (body.mode === "agent" ? (await import("../../../../common/ai-default-model.ts")).getConfiguredModel() : undefined);
 
+  if (body.mode === "agent" && !resolvedModel) {
+    return jsonError("No model configured for agent mode", 400);
+  }
+
   if (resolvedModel) {
     const modelInfo = await ai.models.get(resolvedModel);
     if (body.model && modelInfo === null) {
@@ -225,7 +233,7 @@ export async function handleChat(req: Request): Promise<Response> {
     content: "",
     request_id: requestId,
     sender_type: senderType,
-    sender_detail: body.model ?? "default",
+    sender_detail: resolvedModel ?? "default",
   });
   const assistantMessageId = assistantMsg.id;
   pushSSEEvent(session.id, "message_added", { message: assistantMsg });
@@ -248,7 +256,7 @@ export async function handleChat(req: Request): Promise<Response> {
         const onPartial = (text: string) => { partialText += text; };
 
         if (body.mode === "agent") {
-          await handleAgentMode(body, assistantMessageId, controller.signal, emit, onPartial, requestId);
+          await handleAgentMode(body, resolvedModel!, assistantMessageId, controller.signal, emit, onPartial, requestId);
         } else {
           await handleChatMode(body, sessionId, assistantMessageId, controller.signal, emit, onPartial);
         }
@@ -308,7 +316,6 @@ export async function handleChatCancel(req: Request): Promise<Response> {
   if (!entry) return jsonError("Request not found or already completed", 404);
 
   entry.controller.abort();
-  activeRequests.delete(request_id);
   return Response.json({ cancelled: true, request_id });
 }
 
@@ -345,6 +352,7 @@ async function handleChatMode(
   for await (const token of ai.chat(providerMessages, {
     model: body.model,
     temperature: body.temperature,
+    maxTokens: body.max_tokens,
     signal,
   })) {
     if (signal.aborted) break;
@@ -361,6 +369,7 @@ async function handleChatMode(
 
 async function handleAgentMode(
   body: ChatRequest,
+  resolvedModel: string,
   assistantMessageId: number,
   signal: AbortSignal,
   emit: (obj: unknown) => void,
@@ -368,8 +377,7 @@ async function handleAgentMode(
   requestId: string,
 ): Promise<void> {
   if (!agentReady) {
-    const model = body.model ?? (await import("../../../../common/ai-default-model.ts")).getConfiguredModel();
-    await ensureAgentReady(model, (msg) => log.info(msg));
+    await ensureAgentReady(resolvedModel, (msg) => log.info(msg));
     agentReady = true;
   }
 
@@ -390,7 +398,7 @@ async function handleAgentMode(
 
   const result = await runAgentQuery({
     query,
-    model: body.model,
+    model: resolvedModel,
     autoApprove: true,
     noInput: true,
     signal,

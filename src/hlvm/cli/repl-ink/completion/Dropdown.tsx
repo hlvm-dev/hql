@@ -9,7 +9,7 @@
 
 import React, { useMemo } from "npm:react@18";
 import { Text, Box } from "npm:ink@5";
-import type { CompletionItem, ScrollWindow, ItemRenderSpec } from "./types.ts";
+import type { CompletionItem, ItemRenderSpec } from "./types.ts";
 import { MAX_VISIBLE_ITEMS } from "./types.ts";
 import { calculateScrollWindow } from "./navigation.ts";
 import { HighlightedText } from "../components/HighlightedText.tsx";

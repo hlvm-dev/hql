@@ -153,7 +153,7 @@ async function prepareDistributionFiles(
   distDir: string,
   packageName: string,
   verbose?: boolean,
-  externals?: string[],
+  _externals?: string[],
 ): Promise<void> {
   const esmDir = join(distDir, "esm");
   const typesDir = join(distDir, "types");

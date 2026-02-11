@@ -1,6 +1,7 @@
 # HLVM REPL Guide
 
-The HLVM REPL (Read-Eval-Print Loop) provides an interactive environment for exploring HQL and building AI-powered applications.
+The HLVM REPL (Read-Eval-Print Loop) provides an interactive environment for
+exploring HQL and building AI-powered applications.
 
 ## Quick Start
 
@@ -24,6 +25,7 @@ hlvm> (defn double [x] (* x 2))
 ```
 
 On next session:
+
 ```lisp
 hlvm> greeting
 "Hello, World!"
@@ -32,6 +34,7 @@ hlvm> (double 21)
 ```
 
 Memory commands:
+
 ```lisp
 // List all saved bindings
 (memory)
@@ -79,6 +82,7 @@ hlvm> [Pasted text #1 +245 lines]
 ```
 
 Access the content:
+
 ```lisp
 // Reference by display name (auto-transformed)
 (ask [Pasted text #1 +245 lines] "explain this")
@@ -92,6 +96,7 @@ paste-1  // Access raw content
 #### Conversation Variables
 
 Track conversation context:
+
 ```lisp
 last-input     // Last user command
 last-response  // Last AI response
@@ -99,6 +104,7 @@ conversation   // Full conversation history
 ```
 
 Use in follow-ups:
+
 ```lisp
 (ask last-response "elaborate on that")
 (ask conversation "summarize our discussion")
@@ -107,6 +113,7 @@ Use in follow-ups:
 #### Persistence
 
 Save context for later use:
+
 ```lisp
 (def auth-code paste-1)     // Save pasted code
 (def summary last-response) // Save AI response
@@ -129,22 +136,20 @@ hlvm> (describe @screenshot.png)  // Creates [Image #1] attachment
 
 ### Headless Web Browsing (Playwright)
 
-For JS-rendered sites (YouTube, Naver, etc.), configure a Playwright MCP server so the agent can use it when needed.
-On first use, Playwright may prompt to install Chromium.
-
-Install Playwright + Chromium:
-```bash
-npx playwright install chromium
-```
+For JS-rendered sites (YouTube, Naver, etc.), HLVM auto-loads a built-in
+Playwright MCP server. On first JS-heavy request, HLVM auto-installs Chromium
+one time if needed.
 
 Then just ask normally:
+
 ```bash
 deno run -A src/hlvm/cli/cli.ts ask "Summarize what's on https://youtube.com right now."
 ```
 
 Use `--verbose` to see tool calls and trace output.
 
-Manual MCP config (optional):
+Manual MCP config (advanced, optional):
+
 ```bash
 mkdir -p .hlvm
 cat > .hlvm/mcp.json <<'JSON'
@@ -164,12 +169,12 @@ JSON
 
 Control REPL behavior:
 
-| Command | Description |
-|---------|-------------|
-| `/help` | Show help |
-| `/clear` | Clear screen |
+| Command  | Description      |
+| -------- | ---------------- |
+| `/help`  | Show help        |
+| `/clear` | Clear screen     |
 | `/reset` | Reset REPL state |
-| `/exit` | Exit REPL |
+| `/exit`  | Exit REPL        |
 
 ### Mode Switching
 
@@ -184,38 +189,39 @@ hlvm repl --js
 
 ### Basic Navigation
 
-| Key | Action |
-|-----|--------|
-| Tab | Autocomplete |
-| Ctrl+C | Cancel / Exit |
-| Ctrl+L | Clear screen |
-| Up/Down | Navigate history |
-| Ctrl+A | Move to line start |
-| Ctrl+E | Move to line end |
+| Key     | Action             |
+| ------- | ------------------ |
+| Tab     | Autocomplete       |
+| Ctrl+C  | Cancel / Exit      |
+| Ctrl+L  | Clear screen       |
+| Up/Down | Navigate history   |
+| Ctrl+A  | Move to line start |
+| Ctrl+E  | Move to line end   |
 
 ### S-Expression Navigation
 
-| Key | Action |
-|-----|--------|
-| Alt+Up | Move to previous sexp |
-| Alt+Down | Move to next sexp |
-| Ctrl+Up | Move up to parent (enclosing paren) |
+| Key      | Action                              |
+| -------- | ----------------------------------- |
+| Alt+Up   | Move to previous sexp               |
+| Alt+Down | Move to next sexp                   |
+| Ctrl+Up  | Move up to parent (enclosing paren) |
 
 ### Paredit (Structural Editing)
 
-The REPL includes full paredit support for manipulating S-expressions structurally. See [PAREDIT.md](PAREDIT.md) for detailed documentation.
+The REPL includes full paredit support for manipulating S-expressions
+structurally. See [PAREDIT.md](PAREDIT.md) for detailed documentation.
 
-| Action | Shortcut | Example |
-|--------|----------|---------|
-| Slurp Forward | `Ctrl+]` | `(a│) b` → `(a│ b)` |
-| Slurp Backward | `Ctrl+O` | `a (│b)` → `(a │b)` |
-| Barf Forward | `Ctrl+\` | `(a│ b)` → `(a│) b` |
-| Barf Backward | `Ctrl+P` | `(a │b)` → `a (│b)` |
-| Wrap | `Ctrl+Y` | `│foo` → `(│foo)` |
-| Splice | `Ctrl+G` | `((│a))` → `(│a)` |
-| Raise | `Ctrl+^` | `(x (│y))` → `(│y)` |
-| Kill Sexp | `Ctrl+X` | `(a │b c)` → `(a │ c)` |
-| Transpose | `Ctrl+T` | `(a │b)` → `(b │a)` |
+| Action         | Shortcut | Example                |
+| -------------- | -------- | ---------------------- |
+| Slurp Forward  | `Ctrl+]` | `(a│) b` → `(a│ b)`    |
+| Slurp Backward | `Ctrl+O` | `a (│b)` → `(a │b)`    |
+| Barf Forward   | `Ctrl+\` | `(a│ b)` → `(a│) b`    |
+| Barf Backward  | `Ctrl+P` | `(a │b)` → `a (│b)`    |
+| Wrap           | `Ctrl+Y` | `│foo` → `(│foo)`      |
+| Splice         | `Ctrl+G` | `((│a))` → `(│a)`      |
+| Raise          | `Ctrl+^` | `(x (│y))` → `(│y)`    |
+| Kill Sexp      | `Ctrl+X` | `(a │b c)` → `(a │ c)` |
+| Transpose      | `Ctrl+T` | `(a │b)` → `(b │a)`    |
 
 ## Examples
 
@@ -276,6 +282,7 @@ hlvm> (ask project-context "summarize the project goals")
 ## Configuration
 
 The REPL stores data in:
+
 - `~/.hlvm/memory.hql` - Persisted variables
 - `~/.hlvm/history.jsonl` - Command history
 
@@ -293,15 +300,16 @@ The REPL stores data in:
 
 ### Context System Status
 
-| Feature | Status |
-|---------|--------|
-| `paste-1`, `paste-2`, ... | Done |
-| `last-input`, `last-response` | Done |
-| `conversation` | Done |
-| `[Pasted text #N]` syntax transform | Done |
-| Persistence via `def` | Done |
+| Feature                             | Status |
+| ----------------------------------- | ------ |
+| `paste-1`, `paste-2`, ...           | Done   |
+| `last-input`, `last-response`       | Done   |
+| `conversation`                      | Done   |
+| `[Pasted text #N]` syntax transform | Done   |
+| Persistence via `def`               | Done   |
 
 **Future considerations:**
+
 - AI-powered context compression
 - Automatic context relevance extraction
 - Smart naming suggestions

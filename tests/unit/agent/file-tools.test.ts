@@ -693,7 +693,7 @@ Deno.test({
           "Symlinked subdirectory contents should be skipped during recursion"
         );
       }
-    } catch (error) {
+    } catch {
       console.log(
         "Skipping symlink recursion test - ln command not available"
       );

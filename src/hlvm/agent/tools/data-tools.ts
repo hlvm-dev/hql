@@ -142,6 +142,7 @@ export async function aggregateEntries(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   throwIfAborted(options?.signal);
+  await Promise.resolve();
   const record = requireArgsObject(args, "aggregate_entries");
 
   const items = requireArray(record.items, "items", "aggregate_entries");
@@ -226,6 +227,7 @@ export async function filterEntries(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   throwIfAborted(options?.signal);
+  await Promise.resolve();
   const record = requireArgsObject(args, "filter_entries");
 
   const items = requireArray(record.items, "items", "filter_entries");
@@ -301,6 +303,7 @@ export async function transformEntries(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   throwIfAborted(options?.signal);
+  await Promise.resolve();
   const record = requireArgsObject(args, "transform_entries");
 
   const items = requireArray(record.items, "items", "transform_entries");
@@ -419,6 +422,7 @@ export async function compute(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   throwIfAborted(options?.signal);
+  await Promise.resolve();
   const record = requireArgsObject(args, "compute");
 
   const expression = requireString(record.expression, "expression", "compute");

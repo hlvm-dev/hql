@@ -133,8 +133,8 @@ export class OllamaProvider implements AIProvider {
     /**
      * List catalog models (offline discovery)
      */
-    catalog: async (): Promise<ModelInfo[]> => {
-      return getOllamaCatalog();
+    catalog: (): Promise<ModelInfo[]> => {
+      return Promise.resolve(getOllamaCatalog());
     },
 
     /**

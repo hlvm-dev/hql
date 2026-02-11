@@ -14,6 +14,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import { chromium } from "playwright";
 
 const DEFAULT_TIMEOUT_MS = 45_000;

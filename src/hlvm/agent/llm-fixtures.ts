@@ -184,7 +184,7 @@ export function createFixtureLLM(
   let currentCase: FixtureCase | null = null;
   let stepIndex = 0;
 
-  return async (
+  return (
     messages: AgentMessage[],
     signal?: AbortSignal,
   ): Promise<LLMResponse> => {
@@ -208,10 +208,10 @@ export function createFixtureLLM(
       assertStepExpect(step.expect, messages, currentCase.name, stepIndex);
     }
 
-    return {
+    return Promise.resolve({
       content: step.content ?? step.response ?? "",
       toolCalls: step.toolCalls ?? [],
-    };
+    });
   };
 }
 

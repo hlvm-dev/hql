@@ -18,7 +18,6 @@ import {
   getToolCount,
   getToolDescription,
   getToolArgSchema,
-  type ToolMetadata,
 } from "../../../src/hlvm/agent/registry.ts";
 
 // ============================================================

@@ -1,11 +1,10 @@
 /**
  * Playwright Browser Support
  *
- * Handles Playwright Chromium detection, installation prompts, and setup.
+ * Handles Playwright Chromium detection and one-time automatic setup.
  * Extracted from orchestrator.ts to keep the ReAct loop focused.
  */
 
-import { getTool } from "./registry.ts";
 import { log } from "../api/log.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { getErrorMessage } from "../../common/utils.ts";
@@ -21,29 +20,6 @@ const PLAYWRIGHT_ERROR_MARKERS = [
 export function isPlaywrightMissingError(message: string): boolean {
   const lower = message.toLowerCase();
   return PLAYWRIGHT_ERROR_MARKERS.some((marker) => lower.includes(marker));
-}
-
-/**
- * Prompt user to install Playwright Chromium via ask_user tool.
- * Returns true if user confirms.
- */
-async function promptPlaywrightInstall(
-  config: { workspace: string },
-): Promise<boolean> {
-  try {
-    const tool = getTool("ask_user");
-    const response = await tool.fn(
-      {
-        question:
-          "Playwright Chromium is required to render this page. Install now? (y/n)",
-      },
-      config.workspace,
-    );
-    return String(response).trim().toLowerCase().startsWith("y");
-  } catch (error) {
-    log.warn(`Playwright install prompt failed: ${getErrorMessage(error)}`);
-    return false;
-  }
 }
 
 /** Run `npx playwright install chromium` */
@@ -69,7 +45,7 @@ async function runPlaywrightInstall(): Promise<boolean> {
 
 /**
  * Ensure Playwright Chromium is installed.
- * Prompts user once per session, then installs if confirmed.
+ * Attempts automatic install once per session when missing.
  *
  * @param config Must have `workspace` and `playwrightInstallAttempted` fields
  */
@@ -78,9 +54,6 @@ export async function ensurePlaywrightChromium(
 ): Promise<boolean> {
   if (config.playwrightInstallAttempted) return false;
   config.playwrightInstallAttempted = true;
-  const confirmed = await promptPlaywrightInstall(config);
-  if (!confirmed) return false;
-
-  log.info("Installing Playwright Chromium...");
+  log.info("Playwright Chromium missing. Installing automatically...");
   return await runPlaywrightInstall();
 }

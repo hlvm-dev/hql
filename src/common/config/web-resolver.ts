@@ -20,10 +20,6 @@ export interface ResolvedWebSearchConfig {
   maxResults: number;
   timeoutSeconds: number;
   cacheTtlMinutes: number;
-  brave: { apiKey?: string };
-  perplexity: { apiKey?: string; baseUrl: string; model: string };
-  openrouter: { apiKey?: string; baseUrl: string; model: string };
-  serpapi: { apiKey?: string; baseUrl: string };
 }
 
 export interface ResolvedWebFetchConfig {
@@ -59,50 +55,16 @@ const DEFAULT_WEB_CONFIG_ENV: WebConfigEnv = {
 
 function resolveWebSearchConfig(
   config?: WebSearchConfig,
-  env: WebConfigEnv = DEFAULT_WEB_CONFIG_ENV,
+  _env: WebConfigEnv = DEFAULT_WEB_CONFIG_ENV,
 ): ResolvedWebSearchConfig {
   const defaults = createDefaultWebSearchConfig();
   const resolved: ResolvedWebSearchConfig = {
     enabled: config?.enabled ?? defaults.enabled ?? true,
-    provider:
-      (config?.provider ?? defaults.provider ?? "brave") as SearchProvider,
+    provider: "duckduckgo",
     maxResults: config?.maxResults ?? defaults.maxResults ?? 5,
     timeoutSeconds: config?.timeoutSeconds ?? defaults.timeoutSeconds ?? 30,
     cacheTtlMinutes: config?.cacheTtlMinutes ?? defaults.cacheTtlMinutes ?? 15,
-    brave: {
-      apiKey: config?.brave?.apiKey ?? defaults.brave?.apiKey,
-    },
-    perplexity: {
-      apiKey: config?.perplexity?.apiKey ?? defaults.perplexity?.apiKey,
-      baseUrl: config?.perplexity?.baseUrl ?? defaults.perplexity?.baseUrl ??
-        "https://api.perplexity.ai",
-      model: config?.perplexity?.model ?? defaults.perplexity?.model ?? "sonar",
-    },
-    openrouter: {
-      apiKey: config?.openrouter?.apiKey ?? defaults.openrouter?.apiKey,
-      baseUrl: config?.openrouter?.baseUrl ?? defaults.openrouter?.baseUrl ??
-        "https://openrouter.ai/api/v1",
-      model: config?.openrouter?.model ?? defaults.openrouter?.model ??
-        "perplexity/sonar",
-    },
-    serpapi: {
-      apiKey: config?.serpapi?.apiKey ?? defaults.serpapi?.apiKey,
-      baseUrl: config?.serpapi?.baseUrl ?? defaults.serpapi?.baseUrl ??
-        "https://serpapi.com",
-    },
   };
-
-  const braveKey = env.get("BRAVE_API_KEY");
-  if (braveKey) resolved.brave.apiKey = braveKey;
-
-  const perplexityKey = env.get("PERPLEXITY_API_KEY");
-  if (perplexityKey) resolved.perplexity.apiKey = perplexityKey;
-
-  const openrouterKey = env.get("OPENROUTER_API_KEY");
-  if (openrouterKey) resolved.openrouter.apiKey = openrouterKey;
-
-  const serpApiKey = env.get("SERPAPI_API_KEY");
-  if (serpApiKey) resolved.serpapi.apiKey = serpApiKey;
 
   return resolved;
 }

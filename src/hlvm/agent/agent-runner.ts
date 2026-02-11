@@ -15,23 +15,28 @@ import {
   getConfiguredModel,
 } from "../../common/ai-default-model.ts";
 import { getPlatform } from "../../platform/platform.ts";
-import { createAgentSession, type AgentSession } from "./session.ts";
+import { type AgentSession, createAgentSession } from "./session.ts";
 import { createDelegateHandler } from "./delegation.ts";
 import {
-  runReActLoop,
   type LLMFunction,
-  type TraceEvent,
+  runReActLoop,
   type ToolDisplay,
+  type TraceEvent,
 } from "./orchestrator.ts";
 import {
+  type AgentSessionEntry,
   appendSessionMessages,
   getOrCreateSession,
   loadSessionMessages,
-  type AgentSessionEntry,
 } from "./session-store.ts";
 import type { AgentPolicy } from "./policy.ts";
-import { ENGINE_PROFILES, DEFAULT_TOOL_DENYLIST, MAX_SESSION_HISTORY } from "./constants.ts";
+import {
+  DEFAULT_TOOL_DENYLIST,
+  ENGINE_PROFILES,
+  MAX_SESSION_HISTORY,
+} from "./constants.ts";
 import { hashString } from "../../common/utils.ts";
+import { RuntimeError } from "../../common/error.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -102,7 +107,9 @@ export async function ensureAgentReady(
   await initializeRuntime({ stdlib: false, cache: false });
 
   // Strip provider prefix to get raw model name for cloud detection
-  const modelName = model.includes("/") ? model.split("/").slice(1).join("/") : model;
+  const modelName = model.includes("/")
+    ? model.split("/").slice(1).join("/")
+    : model;
   const isLocalModel = !model.startsWith("openai/") &&
     !model.startsWith("anthropic/") &&
     !model.startsWith("google/") &&
@@ -145,7 +152,9 @@ export async function runAgentQuery(
   });
 
   const useExternalHistory = !!options.messageHistory;
-  const sessionKey = (skipSessionHistory || useExternalHistory) ? null : deriveDefaultSessionKey(workspace);
+  const sessionKey = (skipSessionHistory || useExternalHistory)
+    ? null
+    : deriveDefaultSessionKey(workspace);
   let sessionEntry: AgentSessionEntry | null = null;
 
   try {
@@ -166,8 +175,9 @@ export async function runAgentQuery(
     const homeNote = homePath ? ` (HOME=${homePath})` : "";
     session.context.addMessage({
       role: "system",
-      content:
-        `Allowed file roots: ${DEFAULT_AGENT_PATH_ROOTS.join(", ")}${homeNote}. Use list_files for user folders. Avoid placeholders like "/home/user" or "/Downloads" - use "~/Downloads" instead.`,
+      content: `Allowed file roots: ${
+        DEFAULT_AGENT_PATH_ROOTS.join(", ")
+      }${homeNote}. Use list_files for user folders. Avoid placeholders like "/home/user" or "/Downloads" - use "~/Downloads" instead.`,
     });
 
     let policy = session.policy;
@@ -181,8 +191,8 @@ export async function runAgentQuery(
     if (options.signal) {
       const outerSignal = options.signal;
       const innerLlm = session.llm;
-      llm = async (messages, signal) => {
-        if (outerSignal.aborted) throw new Error("Request cancelled");
+      llm = (messages, signal) => {
+        if (outerSignal.aborted) throw new RuntimeError("Request cancelled");
         return innerLlm(messages, signal);
       };
     }

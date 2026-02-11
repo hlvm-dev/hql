@@ -8,6 +8,7 @@
  */
 
 import { config } from "../../api/config.ts";
+import { ai } from "../../api/ai.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { getOllamaCatalog } from "../../providers/ollama/catalog.ts";
@@ -67,8 +68,7 @@ export function parseParamSize(size: string | undefined): number {
 export function pickBestCloudModel(): ModelInfo | null {
   const catalog = getOllamaCatalog({ maxVariants: Infinity });
   const cloudTools = catalog.filter(
-    (m) =>
-      isOllamaCloudModel(m.name) && m.capabilities?.includes("tools"),
+    (m) => isOllamaCloudModel(m.name) && m.capabilities?.includes("tools"),
   );
 
   for (const preferred of PREFERRED_CLOUD_MODELS) {
@@ -82,20 +82,52 @@ export function pickBestCloudModel(): ModelInfo | null {
   return cloudTools[0] ?? null;
 }
 
+/** Detect auth/sign-in errors from Ollama HTTP responses. */
+export function isOllamaAuthErrorMessage(message: string): boolean {
+  return /unauthorized|auth|401|sign.?in/i.test(message);
+}
+
 /** Run `engine signin` with inherited stdio for interactive auth. */
-async function runEngineSignin(engine: AIEngineLifecycle): Promise<boolean> {
+export async function runOllamaSignin(
+  engine: AIEngineLifecycle = aiEngine,
+): Promise<boolean> {
   const enginePath = await engine.getEnginePath();
   log.raw.log("Signing in to Ollama...");
   const platform = getPlatform();
   try {
-    const result = await platform.command.output({
+    const process = platform.command.run({
       cmd: [enginePath, "signin"],
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
     });
-    return result.success;
+    const status = await process.status;
+    return status.success;
   } catch {
+    return false;
+  }
+}
+
+/** Probe cloud model access with a tiny non-streaming chat request. */
+export async function verifyOllamaCloudModelAccess(
+  modelId: string,
+): Promise<boolean> {
+  try {
+    const stream = ai.chat(
+      [{ role: "user", content: "ok" }],
+      {
+        model: modelId,
+        stream: false,
+        maxTokens: 1,
+        temperature: 0,
+      },
+    );
+    await stream.next();
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isOllamaAuthErrorMessage(message)) return false;
+    log.error(`Cloud access check failed: ${message}`);
     return false;
   }
 }
@@ -107,20 +139,28 @@ async function pullWithSignin(
 ): Promise<boolean> {
   log.raw.log(`Pulling ${modelName}...`);
   try {
-    await pullModelWithProgress(modelName, "ollama", (msg) =>
-      log.raw.log(msg));
+    await pullModelWithProgress(modelName, "ollama", (msg) => log.raw.log(msg));
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const isAuthError = /unauthorized|auth|401|sign.?in/i.test(message);
+    const isAuthError = isOllamaAuthErrorMessage(message);
     if (!isAuthError) {
       log.error(`Pull failed: ${message}`);
       return false;
     }
-    if (!(await runEngineSignin(engine))) return false;
+    if (!(await runOllamaSignin(engine))) return false;
+    if (!(await verifyOllamaCloudModelAccess(`ollama/${modelName}`))) {
+      log.error(
+        "Cloud sign-in not completed. Open the URL above and try again.",
+      );
+      return false;
+    }
     try {
-      await pullModelWithProgress(modelName, "ollama", (msg) =>
-        log.raw.log(msg));
+      await pullModelWithProgress(
+        modelName,
+        "ollama",
+        (msg) => log.raw.log(msg),
+      );
       return true;
     } catch {
       return false;
@@ -141,6 +181,36 @@ async function fallbackToModelBrowser(): Promise<string | null> {
   return null;
 }
 
+export interface FirstRunSetupDeps {
+  confirmSetup: () => Promise<boolean>;
+  ensureEngineRunning: (engine: AIEngineLifecycle) => Promise<boolean>;
+  pickBestCloudModel: () => ModelInfo | null;
+  pullWithSignin: (
+    modelName: string,
+    engine: AIEngineLifecycle,
+  ) => Promise<boolean>;
+  fallbackToModelBrowser: () => Promise<string | null>;
+  saveConfiguredModel: (modelId: string) => Promise<void>;
+  logRaw: (message: string) => void;
+  logError: (message: string) => void;
+}
+
+function getDefaultFirstRunSetupDeps(): FirstRunSetupDeps {
+  return {
+    confirmSetup,
+    ensureEngineRunning: (engine: AIEngineLifecycle) => engine.ensureRunning(),
+    pickBestCloudModel,
+    pullWithSignin,
+    fallbackToModelBrowser,
+    saveConfiguredModel: async (modelId: string) => {
+      await config.set("model", modelId);
+      await config.set("modelConfigured", true);
+    },
+    logRaw: (message: string) => log.raw.log(message),
+    logError: (message: string) => log.error(message),
+  };
+}
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -152,42 +222,46 @@ async function fallbackToModelBrowser(): Promise<string | null> {
  */
 export async function runFirstTimeSetup(
   engine: AIEngineLifecycle = aiEngine,
+  depsOverride: Partial<FirstRunSetupDeps> = {},
 ): Promise<string | null> {
-  log.raw.log("Welcome to HLVM!");
-  log.raw.log(
+  const deps = { ...getDefaultFirstRunSetupDeps(), ...depsOverride };
+
+  deps.logRaw("Welcome to HLVM!");
+  deps.logRaw(
     "Setup will configure the best cloud model (free, no GPU needed).\n",
   );
 
   // 1. Confirm
-  if (!(await confirmSetup())) {
-    return await fallbackToModelBrowser();
+  if (!(await deps.confirmSetup())) {
+    return await deps.fallbackToModelBrowser();
   }
 
   // 2. Ensure AI engine running (embedded extraction + start, or system fallback)
-  log.raw.log("Starting AI engine...");
-  if (!(await engine.ensureRunning())) {
-    log.error("Could not start AI engine. Falling back to model browser.");
-    return await fallbackToModelBrowser();
+  deps.logRaw("Starting AI engine...");
+  if (!(await deps.ensureEngineRunning(engine))) {
+    deps.logError("Could not start AI engine. Falling back to model browser.");
+    return await deps.fallbackToModelBrowser();
   }
 
   // 3. Pick best cloud model
-  const model = pickBestCloudModel();
+  const model = deps.pickBestCloudModel();
   if (!model) {
-    log.error("No suitable cloud model found. Falling back to model browser.");
-    return await fallbackToModelBrowser();
+    deps.logError(
+      "No suitable cloud model found. Falling back to model browser.",
+    );
+    return await deps.fallbackToModelBrowser();
   }
 
   // 4. Pull model (with reactive signin)
-  if (!(await pullWithSignin(model.name, engine))) {
-    log.error("Model pull failed. Falling back to model browser.");
-    return await fallbackToModelBrowser();
+  if (!(await deps.pullWithSignin(model.name, engine))) {
+    deps.logError("Model pull failed. Falling back to model browser.");
+    return await deps.fallbackToModelBrowser();
   }
 
   // 5. Save config
   const modelId = `ollama/${model.name}`;
-  await config.set("model", modelId);
-  await config.set("modelConfigured", true);
+  await deps.saveConfiguredModel(modelId);
 
-  log.raw.log(`\nReady! Using ${model.displayName ?? model.name}\n`);
+  deps.logRaw(`\nReady! Using ${model.displayName ?? model.name}\n`);
   return modelId;
 }

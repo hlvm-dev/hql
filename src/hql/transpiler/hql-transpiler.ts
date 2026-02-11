@@ -202,7 +202,7 @@ export async function transpileToJavascript(
  * @param options - Processing options
  * @param context - Optional dependency injection context for runtime features
  */
-export async function transpileToJavascriptWithIR(
+export function transpileToJavascriptWithIR(
   hqlSource: string,
   options: ProcessOptions = {},
   context?: CompilerContext,

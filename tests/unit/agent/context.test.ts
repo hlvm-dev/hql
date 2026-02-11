@@ -8,8 +8,6 @@ import { assertEquals, assertThrows } from "jsr:@std/assert";
 import {
   ContextManager,
   ContextOverflowError,
-  type Message,
-  type MessageRole,
 } from "../../../src/hlvm/agent/context.ts";
 import { DEFAULT_CONTEXT_CONFIG } from "../../../src/hlvm/agent/constants.ts";
 

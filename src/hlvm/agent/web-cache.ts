@@ -90,7 +90,7 @@ export async function getWebCacheValue<T>(
   key: string,
 ): Promise<T | null> {
   const cache = await loadCache();
-  let changed = pruneExpired(cache);
+  const changed = pruneExpired(cache);
   const entry = cache.entries[key];
   if (!entry || typeof entry.expiresAt !== "number") {
     if (changed) await writeCache(cache);
