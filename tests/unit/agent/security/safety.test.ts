@@ -146,7 +146,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Safety: L1 confirmation - set and check (per-args)",
+  name: "Safety: L1 confirmation - shell_exec remains per-args",
   fn() {
     clearAllL1Confirmations();
 
@@ -159,6 +159,18 @@ Deno.test({
 
     // Same tool with different args NOT confirmed (per-args behavior)
     assertEquals(hasL1Confirmation("shell_exec", { command: "git log" }), false);
+  },
+});
+
+Deno.test({
+  name: "Safety: L1 confirmation - non-shell tools are per-tool",
+  fn() {
+    clearAllL1Confirmations();
+    setL1Confirmation("web_fetch", { url: "https://example.com/a" });
+    assertEquals(
+      hasL1Confirmation("web_fetch", { url: "https://example.com/b" }),
+      true,
+    );
   },
 });
 
@@ -214,9 +226,8 @@ Deno.test({
 
     const all = getAllL1Confirmations();
     assertEquals(all.size, 2);
-    // Keys now include tool name + args
-    assertEquals(all.get('tool1:{"id":1}'), true);
-    assertEquals(all.get('tool2:{"id":2}'), true);
+    assertEquals(all.get("tool1"), true);
+    assertEquals(all.get("tool2"), true);
   },
 });
 

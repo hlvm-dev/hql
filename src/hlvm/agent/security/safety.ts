@@ -44,12 +44,21 @@ interface ConfirmationResult {
 }
 
 // ============================================================
-// L1 Confirmation Tracking (Issue #11: Per-args confirmation)
+// L1 Confirmation Tracking
 // ============================================================
 
 /**
- * Track which tools+args have been confirmed at L1
- * Key: tool name + serialized args (e.g., "read_file:{\"path\":\"src/main.ts\"}")
+ * Track which tools have been confirmed at L1.
+ *
+ * Key strategy:
+ * - shell_exec: tool + canonical args (stricter, command-specific)
+ * - all other L1 tools: tool name only (session-level, reduces prompt churn)
+ *
+ * Examples:
+ * - shell_exec + {"command":"git status"} -> "shell_exec:{...}"
+ * - web_fetch + {url:"..."} -> "web_fetch"
+ * - mcp/playwright/render_url + {...} -> "mcp/playwright/render_url"
+ *
  * Value: true if confirmed
  */
 const l1Confirmations = new Map<string, boolean>();
@@ -85,24 +94,20 @@ function canonicalizeObject(obj: unknown): unknown {
 }
 
 /**
- * Generate unique key for tool + args combination
+ * Generate confirmation key for a tool invocation.
  *
- * Uses canonical JSON serialization to ensure consistent keys
- * regardless of property order.
+ * shell_exec remains strict (per-args). Other read-mostly L1 tools are
+ * per-tool to avoid repeatedly asking for every argument variation.
  *
  * @param toolName Tool name
  * @param args Tool arguments
- * @returns Unique key for this specific tool call
- *
- * @example
- * ```ts
- * // These produce the same key:
- * makeL1Key("shell_exec", {command: "ls", cwd: "/tmp"})
- * makeL1Key("shell_exec", {cwd: "/tmp", command: "ls"})
- * ```
+ * @returns Confirmation key for cache lookup
  */
 function makeL1Key(toolName: string, args: unknown): string {
-  // Canonicalize args to ensure consistent key ordering
+  if (toolName !== "shell_exec") {
+    return toolName;
+  }
+
   const canonical = canonicalizeObject(args);
   const argsJson = JSON.stringify(canonical);
   return `${toolName}:${argsJson}`;
@@ -163,12 +168,23 @@ export function getAllL1Confirmations(): Map<string, boolean> {
 // ============================================================
 
 /**
- * Get declared safety level from tool metadata (SSOT).
+ * Get declared safety classification from tool metadata (SSOT).
  */
-function getDeclaredSafetyLevel(toolName: string): SafetyLevel | null {
+function getDeclaredSafetyClassification(toolName: string): SafetyClassification | null {
   try {
     const tool = getTool(toolName);
-    return tool.safetyLevel ?? null;
+    const level = tool.safetyLevel ?? null;
+    if (!level) return null;
+
+    const reason = typeof tool.safety === "string" && tool.safety.trim().length > 0
+      ? tool.safety
+      : level === "L0"
+      ? "Read-only operation with no side effects"
+      : level === "L1"
+      ? "Low-risk operation requiring one-time confirmation"
+      : "Destructive or mutating operation requires confirmation";
+
+    return { level, reason };
   } catch {
     return null;
   }
@@ -205,12 +221,9 @@ export function classifyTool(
   }
 
   // Use declared safety level from tool metadata (SSOT)
-  const declared = getDeclaredSafetyLevel(toolName);
+  const declared = getDeclaredSafetyClassification(toolName);
   if (declared) {
-    const reason = declared === "L0"
-      ? "Read-only operation with no side effects"
-      : "Destructive or mutating operation requires confirmation";
-    return { level: declared, reason };
+    return declared;
   }
 
   // Default to L2 for unknown tools (safe default)
@@ -262,10 +275,10 @@ function classifyShellExec(args: unknown): SafetyClassification {
 // ============================================================
 
 /**
- * Prompt user for confirmation with timeout (Issue #12)
+ * Prompt user for confirmation with timeout
  *
  * Displays tool information and asks user to confirm execution.
- * For L1 tools, asks if user wants to remember the choice.
+ * L1 confirmations are auto-remembered by checkToolSafety.
  * Times out after 60 seconds if no response.
  *
  * @param toolName Tool name
@@ -330,24 +343,9 @@ async function promptUserConfirmation(
 
   const confirmed = input.toLowerCase().trim() === "y";
 
-  // For L1 tools, ask if user wants to remember
-  let rememberChoice = false;
-  if (confirmed && classification.level === "L1") {
-    await write("Remember this choice for future executions? (y/n): ");
-    const rememberInput = await readLine(platform, timeoutMs);
-
-    // Timeout on remember question = don't remember
-    if (rememberInput === null) {
-      await write("\n[Timeout - choice not remembered]\n");
-      rememberChoice = false;
-    } else {
-      rememberChoice = rememberInput.toLowerCase().trim() === "y";
-    }
-  }
-
   return {
     confirmed,
-    rememberChoice,
+    rememberChoice: confirmed && classification.level === "L1",
   };
 }
 
@@ -425,7 +423,7 @@ async function readLine(
  * Combines classification and confirmation logic:
  * 1. Classify tool → L0/L1/L2
  * 2. L0: Auto-approve
- * 3. L1: Check confirmation cache, prompt if needed
+ * 3. L1: Check confirmation cache, prompt once, auto-remember
  * 4. L2: Always prompt
  *
  * @param toolName Tool name
@@ -476,7 +474,7 @@ export async function checkToolSafety(
     return true;
   }
 
-  // L1: Check confirmation cache (per-args - Issue #11)
+  // L1: Check confirmation cache
   if (classification.level === "L1") {
     if (hasL1Confirmation(toolName, args)) {
       return true;

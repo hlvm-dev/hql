@@ -261,6 +261,13 @@ function normalizeConfigInput(
     normalized.modelConfigured = raw.modelConfigured;
   }
 
+  if (
+    Array.isArray(raw.approvedProviders) &&
+    raw.approvedProviders.every((v: unknown) => typeof v === "string")
+  ) {
+    normalized.approvedProviders = raw.approvedProviders as string[];
+  }
+
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 

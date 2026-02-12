@@ -137,13 +137,11 @@ export async function shellExec(
       );
     }
 
-    const isWindows = platform.build.os === "windows";
-    const cmdArgs = isWindows
-      ? ["cmd.exe", "/c", args.command]
-      : [parsedCommand.program, ...parsedCommand.args];
+    // isSafeCommand() above guarantees no pipes/chaining — safe for direct exec on all platforms
+    const cmdArgs = [parsedCommand.program, ...parsedCommand.args];
 
     // Enforce optional network policy on URL-like args
-    const urlSources = isWindows ? [args.command] : cmdArgs;
+    const urlSources = cmdArgs;
     const deniedUrl = getNetworkPolicyDeniedUrl(
       options?.policy,
       extractUrlsFromArgs(urlSources),

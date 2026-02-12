@@ -7,7 +7,9 @@
 import {
   getMessages,
   getMessage,
+  getMessageByClientTurnId,
   getSession,
+  insertMessage,
   updateMessage,
   deleteMessage,
 } from "../../../store/conversation-store.ts";
@@ -24,15 +26,26 @@ function requireSession(params: RouteParams): { sessionId: string } | Response {
   return { sessionId };
 }
 
-function requireMessage(params: RouteParams, sessionId: string): { messageId: number } | Response {
-  const messageId = parseInt(params.messageId, 10);
-  if (isNaN(messageId) || messageId <= 0) return jsonError("Invalid message ID", 400);
+function parsePositiveIntegerId(raw: string): number | null {
+  if (!/^[1-9]\d*$/.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
 
-  const message = getMessage(messageId);
-  if (!message || message.session_id !== sessionId) {
-    return jsonError("Message not found", 404);
+function requireMessage(params: RouteParams, sessionId: string): { messageId: number } | Response {
+  const raw = params.messageId;
+  const messageId = parsePositiveIntegerId(raw);
+
+  if (messageId !== null) {
+    const message = getMessage(messageId);
+    if (message && message.session_id === sessionId) return { messageId };
   }
-  return { messageId };
+
+  const byTurnId = getMessageByClientTurnId(sessionId, raw);
+  if (byTurnId) return { messageId: byTurnId.id };
+
+  if (messageId === null) return jsonError("Invalid messageId", 400);
+  return jsonError("Message not found", 404);
 }
 
 // MARK: - Public Methods
@@ -72,6 +85,40 @@ export function handleGetMessage(
   if (msg instanceof Response) return msg;
 
   return Response.json(getMessage(msg.messageId));
+}
+
+export async function handleAddMessage(
+  req: Request,
+  params: RouteParams,
+): Promise<Response> {
+  const session = requireSession(params);
+  if (session instanceof Response) return session;
+
+  const parsed = await parseJsonBody<{
+    role: "system" | "user" | "assistant" | "tool";
+    content: string;
+    client_turn_id?: string;
+    sender_type?: string;
+    image_paths?: string[];
+  }>(req);
+  if (!parsed.ok) return parsed.response;
+
+  const { role, content, client_turn_id, sender_type, image_paths } = parsed.value;
+  if (!role || content === undefined) {
+    return jsonError("role and content are required", 400);
+  }
+
+  const row = insertMessage({
+    session_id: session.sessionId,
+    role,
+    content,
+    client_turn_id,
+    sender_type,
+    image_paths,
+  });
+
+  pushSSEEvent(session.sessionId, "message_added", { id: row.id });
+  return Response.json(row, { status: 201 });
 }
 
 export async function handleUpdateMessage(

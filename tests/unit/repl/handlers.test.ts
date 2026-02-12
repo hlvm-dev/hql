@@ -329,6 +329,33 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Handlers: handleGetMessage - resolves client_turn_id",
+  async fn() {
+    const db = setupStoreTestDb();
+    try {
+      const session = createSession("Turn ID");
+      insertMessage({
+        session_id: session.id,
+        role: "user",
+        content: "By turn ID",
+        client_turn_id: "turn-123",
+      });
+
+      const resp = handleGetMessage(
+        getRequest(`/api/sessions/${session.id}/messages/turn-123`),
+        { id: session.id, messageId: "turn-123" },
+      );
+      assertEquals(resp.status, 200);
+      const body = await resp.json();
+      assertEquals(body.content, "By turn ID");
+      assertEquals(body.client_turn_id, "turn-123");
+    } finally {
+      db.close();
+    }
+  },
+});
+
+Deno.test({
   name: "Handlers: handleGetMessage - 404 for wrong session",
   fn() {
     const db = setupStoreTestDb();

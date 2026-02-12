@@ -15,7 +15,8 @@ All code MUST use designated SSOT entry points. Direct calls to `console.*`, `De
 Requirements:
 - Use provider native tool calling (`tool_calls` / structured function calls)
 - Orchestrator consumes structured tool calls directly
-- **No fallback** to text-based envelopes unless explicitly requested
+- **No fallback** to text-based `TOOL_CALL`/`END_TOOL_CALL` envelopes
+- Text-repair fallback (parsing structured JSON from weak-model output) is acceptable as last resort after native retries — see `model-compat.ts`
 - Providers without native tool calling should fail fast
 
 ## CLI Simplicity - MANDATORY

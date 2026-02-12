@@ -17,10 +17,24 @@ export function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
 }
 
-export function addCorsHeaders(response: Response): Response {
-  response.headers.set("Access-Control-Allow-Origin", "*");
+/** Check if origin is a localhost variant (http://localhost:* or http://127.0.0.1:*) */
+export function isLocalhostOrigin(origin: string): boolean {
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+export function addCorsHeaders(response: Response, origin?: string): Response {
+  if (origin && isLocalhostOrigin(origin)) {
+    response.headers.set("Access-Control-Allow-Origin", origin);
+  }
+  response.headers.set("Vary", "Origin");
   response.headers.set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
-  response.headers.set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, Last-Event-ID");
+  response.headers.set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, Last-Event-ID, Authorization");
   return response;
 }
 

@@ -29,6 +29,7 @@ import {
 import {
   handleGetMessages,
   handleGetMessage,
+  handleAddMessage,
   handleUpdateMessage,
   handleDeleteMessage,
 } from "./handlers/messages.ts";
@@ -38,6 +39,7 @@ import {
   handlePullModel,
   handleDeleteModel,
   handleModelStatus,
+  handleModelCatalog,
 } from "./handlers/models.ts";
 import { handleSSEStream } from "./handlers/sse.ts";
 
@@ -56,6 +58,14 @@ import { handleSSEStream } from "./handlers/sse.ts";
 const DEFAULT_PORT = 11435;
 const platform = getPlatform();
 const INSTANCE_ID = platform.env.get("HLVM_REPL_INSTANCE_ID") ?? null;
+
+/** Auth token generated on server start — clients must send `Authorization: Bearer <token>` */
+let serverAuthToken: string | null = null;
+
+/** Get the current server auth token (for tests or UI client bootstrap) */
+export function getServerAuthToken(): string | null {
+  return serverAuthToken;
+}
 
 function resolvePort(): number {
   const portOverride = platform.env.get("HLVM_REPL_PORT");
@@ -321,12 +331,14 @@ router.add("DELETE", "/api/sessions/:id", (req, p) => handleDeleteSession(req, p
 router.add("POST", "/api/sessions/:id/cancel", (_req, p) => handleSessionCancel(p.id));
 
 router.add("GET", "/api/sessions/:id/messages", (req, p) => handleGetMessages(req, p));
+router.add("POST", "/api/sessions/:id/messages", (req, p) => handleAddMessage(req, p));
 router.add("GET", "/api/sessions/:id/messages/:messageId", (req, p) => handleGetMessage(req, p));
 router.add("PATCH", "/api/sessions/:id/messages/:messageId", (req, p) => handleUpdateMessage(req, p));
 router.add("DELETE", "/api/sessions/:id/messages/:messageId", (req, p) => handleDeleteMessage(req, p));
 router.add("GET", "/api/sessions/:id/stream", (req, p) => handleSSEStream(req, p));
 
 router.add("GET", "/api/models", () => handleListModels());
+router.add("GET", "/api/models/catalog", () => handleModelCatalog());
 router.add("GET", "/api/models/status", () => handleModelStatus());
 router.add("GET", "/api/models/:provider/:name", (req, p) => handleGetModel(req, p));
 router.add("POST", "/api/models/pull", (req) => handlePullModel(req));
@@ -338,40 +350,50 @@ router.add("POST", "/api/completions", (req) => handleComplete(req));
 
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
+  const origin = req.headers.get("Origin") ?? "";
 
   log.debug(`${req.method} ${url.pathname}`);
 
+  // CORS preflight and health check bypass auth
   if (req.method === "OPTIONS") {
-    return addCorsHeaders(new Response(null, { status: 204 }));
-  }
-
-  if (req.method === "POST" && url.pathname === "/eval") {
-    return addCorsHeaders(await handleEval(req));
-  }
-
-  if (req.method === "POST" && url.pathname === "/complete") {
-    return addCorsHeaders(await handleComplete(req));
+    return addCorsHeaders(new Response(null, { status: 204 }), origin);
   }
 
   if (req.method === "GET" && url.pathname === "/health") {
-    return addCorsHeaders(handleHealth());
+    return addCorsHeaders(handleHealth(), origin);
+  }
+
+  // Auth check: require Bearer token for all other routes
+  if (serverAuthToken) {
+    const authHeader = req.headers.get("Authorization") ?? "";
+    if (authHeader !== `Bearer ${serverAuthToken}`) {
+      return addCorsHeaders(jsonError("Unauthorized", 401), origin);
+    }
+  }
+
+  if (req.method === "POST" && url.pathname === "/eval") {
+    return addCorsHeaders(await handleEval(req), origin);
+  }
+
+  if (req.method === "POST" && url.pathname === "/complete") {
+    return addCorsHeaders(await handleComplete(req), origin);
   }
 
   if (req.method === "GET" && url.pathname === "/api/memory/functions") {
-    return addCorsHeaders(await handleMemoryFunctions());
+    return addCorsHeaders(await handleMemoryFunctions(), origin);
   }
 
   if (req.method === "POST" && url.pathname === "/api/memory/functions/execute") {
-    return addCorsHeaders(await handleMemoryExecute(req));
+    return addCorsHeaders(await handleMemoryExecute(req), origin);
   }
 
   const match = router.match(req.method, url.pathname);
   if (match) {
     const response = await match.handler(req, match.params);
-    return addCorsHeaders(response);
+    return addCorsHeaders(response, origin);
   }
 
-  return addCorsHeaders(jsonError("Not found", 404));
+  return addCorsHeaders(jsonError("Not found", 404), origin);
 }
 
 // MARK: - Server
@@ -382,10 +404,16 @@ export interface StartHttpServerOptions {
 
 export async function startHttpServer(options: StartHttpServerOptions = {}): Promise<void> {
   const port = options.port ?? resolvePort();
+
+  // Use pre-shared token from env (GUI passes this) or generate a random one
+  serverAuthToken = getPlatform().env.get("HLVM_AUTH_TOKEN") || crypto.randomUUID();
+  log.info(`REPL auth token: ${serverAuthToken}`);
+
   try {
     log.info(`Starting REPL HTTP server on port ${port}...`);
     await platform.http.serve(handleRequest, {
       port,
+      hostname: "127.0.0.1",
       onListen: ({ hostname, port }) => {
         log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
       },

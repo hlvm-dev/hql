@@ -22,10 +22,10 @@ export function handleListSessions(): Response {
 }
 
 export async function handleCreateSession(req: Request): Promise<Response> {
-  const parsed = await parseJsonBody<{ title?: string }>(req);
+  const parsed = await parseJsonBody<{ id?: string; title?: string }>(req);
   if (!parsed.ok) return parsed.response;
 
-  const session = createSession(parsed.value.title);
+  const session = createSession(parsed.value.title, parsed.value.id);
   return Response.json(session, { status: 201 });
 }
 

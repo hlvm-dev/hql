@@ -410,18 +410,28 @@ function buildArgsSchema(
     ? schema.properties as Record<string, unknown>
     : null;
   if (!properties) return {};
+  const required = Array.isArray(schema.required)
+    ? schema.required.filter((value): value is string =>
+      typeof value === "string"
+    )
+    : [];
+  const requiredSet = new Set(required);
 
   const args: Record<string, string> = {};
   for (const [key, value] of Object.entries(properties)) {
     if (!isObjectValue(value)) {
-      args[key] = "any - MCP tool argument";
+      args[key] = requiredSet.has(key)
+        ? "any - MCP tool argument"
+        : "any (optional) - MCP tool argument";
       continue;
     }
     const type = typeof value.type === "string" ? value.type : "any";
     const description = typeof value.description === "string"
       ? value.description
       : "MCP tool argument";
-    args[key] = `${type} - ${description}`;
+    args[key] = requiredSet.has(key)
+      ? `${type} - ${description}`
+      : `${type} (optional) - ${description}`;
   }
   return args;
 }
@@ -433,6 +443,70 @@ function buildArgsSchema(
 export interface McpLoadResult {
   tools: string[];
   dispose: () => Promise<void>;
+}
+
+const MCP_READ_ONLY_HINTS = [
+  /\bread\b/,
+  /\blist\b/,
+  /\bget\b/,
+  /\bfetch\b/,
+  /\bsearch\b/,
+  /\bfind\b/,
+  /\bquery\b/,
+  /\binspect\b/,
+  /\bdescribe\b/,
+  /\bstatus\b/,
+  /\brender\b/,
+  /\bscreenshot\b/,
+  /\becho\b/,
+];
+
+const MCP_MUTATING_HINTS = [
+  /\bwrite\b/,
+  /\bcreate\b/,
+  /\bupdate\b/,
+  /\bdelete\b/,
+  /\bremove\b/,
+  /\bdestroy\b/,
+  /\bdrop\b/,
+  /\binsert\b/,
+  /\bmodify\b/,
+  /\bpost\b/,
+  /\bput\b/,
+  /\bpatch\b/,
+  /\bsend\b/,
+  /\bexecute\b/,
+  /\brun\b/,
+  /\bstart\b/,
+  /\bstop\b/,
+  /\bkill\b/,
+  /\brestart\b/,
+  /\bclick\b/,
+  /\btype\b/,
+  /\bpress\b/,
+  /\bsubmit\b/,
+];
+
+export function inferMcpSafetyLevel(
+  toolName: string,
+  description?: string,
+): "L0" | "L1" | "L2" {
+  const text = `${toolName} ${description ?? ""}`
+    .toLowerCase()
+    .replace(/[_/.-]+/g, " ");
+  if (MCP_MUTATING_HINTS.some((pattern) => pattern.test(text))) {
+    return "L2";
+  }
+  if (MCP_READ_ONLY_HINTS.some((pattern) => pattern.test(text))) {
+    return "L0";
+  }
+  return "L1";
+}
+
+function inferMcpSafetyReason(level: "L0" | "L1" | "L2"): string {
+  if (level === "L0") return "External MCP read-only tool (auto-approved).";
+  if (level === "L1") return "External MCP tool with low risk (confirm once per session).";
+  return "External MCP tool with possible side effects (always confirm).";
 }
 
 export async function loadMcpTools(
@@ -463,6 +537,7 @@ export async function loadMcpTools(
         const name = `mcp/${server.name}/${tool.name}`;
         const argsSchema = buildArgsSchema(tool.inputSchema);
         const skipValidation = Object.keys(argsSchema).length === 0;
+        const safetyLevel = inferMcpSafetyLevel(tool.name, tool.description);
 
         entries[name] = {
           fn: async (args: unknown) => {
@@ -477,8 +552,8 @@ export async function loadMcpTools(
           description: tool.description ?? `MCP tool ${tool.name}`,
           args: argsSchema,
           skipValidation,
-          safetyLevel: "L2",
-          safety: "External MCP tool (policy-gated by user confirmation).",
+          safetyLevel,
+          safety: inferMcpSafetyReason(safetyLevel),
         };
       }
 

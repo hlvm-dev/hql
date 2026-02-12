@@ -78,6 +78,7 @@ export interface HlvmConfig {
   keybindings?: KeybindingsConfig; // Custom keybindings (optional)
   tools?: ToolsConfig; // Tool-specific configuration (optional)
   modelConfigured?: boolean; // true after first explicit model selection
+  approvedProviders?: string[]; // Providers the user has consented to (e.g., ["openai", "anthropic"])
 }
 
 // ============================================================
@@ -155,6 +156,7 @@ export const CONFIG_KEYS = [
   "theme",
   "tools",
   "modelConfigured",
+  "approvedProviders",
 ] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
@@ -250,6 +252,13 @@ export function validateValue(
       if (value === undefined) return { valid: true }; // optional field
       if (typeof value !== "boolean") {
         return { valid: false, error: "modelConfigured must be a boolean" };
+      }
+      return { valid: true };
+
+    case "approvedProviders":
+      if (value === undefined) return { valid: true }; // optional field
+      if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) {
+        return { valid: false, error: "approvedProviders must be an array of strings" };
       }
       return { valid: true };
 

@@ -1,11 +1,16 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import {
+  inferMcpSafetyLevel,
   loadMcpConfig,
   loadMcpTools,
   resolveBuiltinMcpServers,
 } from "../../../src/hlvm/agent/mcp.ts";
-import { getTool, hasTool } from "../../../src/hlvm/agent/registry.ts";
+import {
+  getTool,
+  hasTool,
+  prepareToolArgsForExecution,
+} from "../../../src/hlvm/agent/registry.ts";
 
 Deno.test("loadMcpConfig returns null when missing", async () => {
   const platform = getPlatform();
@@ -82,6 +87,34 @@ Deno.test("MCP tools reject non-object args", async () => {
   await platform.fs.remove(temp, { recursive: true });
 });
 
+Deno.test("MCP tools honor optional args from inputSchema required list", async () => {
+  const platform = getPlatform();
+  const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
+  const configDir = platform.path.join(temp, ".hlvm");
+  await platform.fs.mkdir(configDir, { recursive: true });
+
+  const fixturePath = platform.path.join("tests", "fixtures", "mcp-server.ts");
+  const config = {
+    version: 1,
+    servers: [
+      {
+        name: "test",
+        command: ["deno", "run", fixturePath],
+      },
+    ],
+  };
+
+  const configPath = platform.path.join(configDir, "mcp.json");
+  await platform.fs.writeTextFile(configPath, JSON.stringify(config));
+
+  const { dispose } = await loadMcpTools(temp);
+  const validation = prepareToolArgsForExecution("mcp/test/echo", {});
+  assertEquals(validation.validation.valid, true);
+
+  await dispose();
+  await platform.fs.remove(temp, { recursive: true });
+});
+
 Deno.test("loadMcpTools continues when one server fails", async () => {
   const platform = getPlatform();
   const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
@@ -147,4 +180,14 @@ Deno.test("resolveBuiltinMcpServers returns playwright server only when script e
   const tempServers = await resolveBuiltinMcpServers(temp);
   assertEquals(tempServers.length, 0);
   await platform.fs.remove(temp, { recursive: true });
+});
+
+Deno.test("inferMcpSafetyLevel classifies read and mutating tool names", () => {
+  assertEquals(inferMcpSafetyLevel("render_url"), "L0");
+  assertEquals(inferMcpSafetyLevel("search_documents"), "L0");
+  assertEquals(inferMcpSafetyLevel("echo"), "L0");
+  assertEquals(inferMcpSafetyLevel("click_button"), "L2");
+  assertEquals(inferMcpSafetyLevel("delete_record"), "L2");
+  assertEquals(inferMcpSafetyLevel("run_script"), "L2");
+  assertEquals(inferMcpSafetyLevel("custom_tool_without_hint"), "L1");
 });

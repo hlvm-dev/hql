@@ -138,6 +138,34 @@ function makeCacheKey(
   return `${prefix}:${safe}`;
 }
 
+function extractCharsetFromContentType(contentType: string): string | null {
+  if (!contentType) return null;
+  const match = contentType.match(/charset\s*=\s*["']?([^;"'\s]+)/i);
+  if (!match?.[1]) return null;
+  return match[1].trim().toLowerCase();
+}
+
+function decodeBufferWithCharset(
+  buffer: Uint8Array,
+  contentType: string,
+): string {
+  const headerCharset = extractCharsetFromContentType(contentType);
+  const candidates = [
+    ...(headerCharset ? [headerCharset] : []),
+    "utf-8",
+  ];
+
+  for (const charset of candidates) {
+    try {
+      return new TextDecoder(charset).decode(buffer);
+    } catch {
+      // Try next codec candidate.
+    }
+  }
+
+  return new TextDecoder().decode(buffer);
+}
+
 async function readResponseBody(
   response: Response,
   maxBytes: number,
@@ -192,7 +220,10 @@ async function readResponseBody(
   }
 
   return {
-    text: new TextDecoder().decode(buffer),
+    text: decodeBufferWithCharset(
+      buffer,
+      response.headers.get("content-type") ?? "",
+    ),
     bytes: total,
     truncated,
   };

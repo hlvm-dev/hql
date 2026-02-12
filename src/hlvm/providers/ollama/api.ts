@@ -422,16 +422,24 @@ export async function listModels(endpoint: string): Promise<ModelInfo[]> {
     "GET",
   );
 
-  return (result.models || []).map((m) => ({
-    name: m.name,
-    displayName: m.name.split(":")[0],
-    size: m.size,
-    family: m.details?.family,
-    parameterSize: m.details?.parameter_size,
-    quantization: m.details?.quantization_level,
-    modifiedAt: new Date(m.modified_at),
-    metadata: { digest: m.digest, details: m.details },
-  }));
+  return (result.models || []).map((m) => {
+    const families = m.details?.families ?? [];
+    const hasVision = families.some((f) => f === "clip" || f === "mllama");
+    const capabilities: import("../types.ts").ProviderCapability[] = ["chat"];
+    if (hasVision) capabilities.push("vision");
+
+    return {
+      name: m.name,
+      displayName: m.name.split(":")[0],
+      size: m.size,
+      family: m.details?.family,
+      parameterSize: m.details?.parameter_size,
+      quantization: m.details?.quantization_level,
+      modifiedAt: new Date(m.modified_at),
+      capabilities,
+      metadata: { digest: m.digest, details: m.details },
+    };
+  });
 }
 
 /**

@@ -42,11 +42,21 @@ function resolveChromiumExecutable() {
   const candidates = new Set();
   if (defaultPath.includes("mac-x64")) {
     candidates.add(defaultPath.replace("mac-x64", "mac-arm64"));
-    candidates.add(defaultPath.replace("chrome-headless-shell-mac-x64", "chrome-headless-shell-mac-arm64"));
+    candidates.add(
+      defaultPath.replace(
+        "chrome-headless-shell-mac-x64",
+        "chrome-headless-shell-mac-arm64",
+      ),
+    );
   }
   if (defaultPath.includes("mac-arm64")) {
     candidates.add(defaultPath.replace("mac-arm64", "mac-x64"));
-    candidates.add(defaultPath.replace("chrome-headless-shell-mac-arm64", "chrome-headless-shell-mac-x64"));
+    candidates.add(
+      defaultPath.replace(
+        "chrome-headless-shell-mac-arm64",
+        "chrome-headless-shell-mac-x64",
+      ),
+    );
   }
 
   for (const candidate of candidates) {
@@ -90,10 +100,10 @@ function respondError(id, message, data) {
 
 async function renderUrl(args) {
   if (!args || typeof args !== "object") {
-    throw new Error("args must be an object");
+    throw new TypeError("args must be an object");
   }
   if (!args.url || typeof args.url !== "string") {
-    throw new Error("url is required");
+    throw new TypeError("url is required");
   }
 
   const timeoutMs = typeof args.timeoutMs === "number" && args.timeoutMs > 0
@@ -102,12 +112,14 @@ async function renderUrl(args) {
   const waitMs = typeof args.waitMs === "number" && args.waitMs >= 0
     ? args.waitMs
     : DEFAULT_WAIT_MS;
-  const maxHtmlLength = typeof args.maxHtmlLength === "number" && args.maxHtmlLength > 0
-    ? args.maxHtmlLength
-    : DEFAULT_MAX_HTML;
-  const maxTextLength = typeof args.maxTextLength === "number" && args.maxTextLength > 0
-    ? args.maxTextLength
-    : DEFAULT_MAX_TEXT;
+  const maxHtmlLength =
+    typeof args.maxHtmlLength === "number" && args.maxHtmlLength > 0
+      ? args.maxHtmlLength
+      : DEFAULT_MAX_HTML;
+  const maxTextLength =
+    typeof args.maxTextLength === "number" && args.maxTextLength > 0
+      ? args.maxTextLength
+      : DEFAULT_MAX_TEXT;
   const maxLinks = typeof args.maxLinks === "number" && args.maxLinks > 0
     ? args.maxLinks
     : DEFAULT_MAX_LINKS;
@@ -122,9 +134,18 @@ async function renderUrl(args) {
 
   try {
     const response = await page.goto(args.url, {
-      waitUntil: "networkidle",
+      // Some JS-heavy sites keep background connections open forever.
+      // Use DOM readiness for reliable navigation, then try networkidle best-effort.
+      waitUntil: "domcontentloaded",
       timeout: timeoutMs,
     });
+    try {
+      await page.waitForLoadState("networkidle", {
+        timeout: Math.min(5_000, timeoutMs),
+      });
+    } catch {
+      // Ignore: page is still usable even if it never reaches networkidle.
+    }
 
     let selectorFound = false;
     if (args.selector && typeof args.selector === "string") {
@@ -219,18 +240,40 @@ function handleToolsList(request) {
     tools: [
       {
         name: "render_url",
-        description: "Render a URL in headless Chromium and return HTML/text/links.",
+        description:
+          "Render a URL in headless Chromium and return HTML/text/links.",
         inputSchema: {
           type: "object",
           properties: {
             url: { type: "string", description: "URL to render" },
-            timeoutMs: { type: "number", description: "Navigation timeout in ms" },
-            waitMs: { type: "number", description: "Extra wait time after load in ms" },
-            selector: { type: "string", description: "Wait for selector before extraction" },
-            textSelector: { type: "string", description: "Extract text from matching nodes" },
-            textSelectorLimit: { type: "number", description: "Max text nodes to return" },
-            maxHtmlLength: { type: "number", description: "Max HTML length to return" },
-            maxTextLength: { type: "number", description: "Max text length to return" },
+            timeoutMs: {
+              type: "number",
+              description: "Navigation timeout in ms",
+            },
+            waitMs: {
+              type: "number",
+              description: "Extra wait time after load in ms",
+            },
+            selector: {
+              type: "string",
+              description: "Wait for selector before extraction",
+            },
+            textSelector: {
+              type: "string",
+              description: "Extract text from matching nodes",
+            },
+            textSelectorLimit: {
+              type: "number",
+              description: "Max text nodes to return",
+            },
+            maxHtmlLength: {
+              type: "number",
+              description: "Max HTML length to return",
+            },
+            maxTextLength: {
+              type: "number",
+              description: "Max text length to return",
+            },
             maxLinks: { type: "number", description: "Max links to return" },
           },
           required: ["url"],

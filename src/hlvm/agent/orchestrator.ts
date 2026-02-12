@@ -974,7 +974,7 @@ async function callLLMWithTimeout(
   messages: Message[],
   timeout: number,
 ): Promise<LLMResponse> {
-  // NOTE: If llmFn doesn't honor AbortSignal, underlying stream may continue.
+  // All built-in providers forward AbortSignal to fetch(); timeout abort is honored.
   return await withTimeout(
     async (signal) => {
       const response = await llmFn(messages, signal);

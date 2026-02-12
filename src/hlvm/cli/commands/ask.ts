@@ -17,6 +17,84 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
 import type { ToolDisplay, TraceEvent } from "../../agent/orchestrator.ts";
 
+// MARK: - Paid Provider Consent
+
+/** Providers that charge per API call — require explicit user consent */
+const PAID_PROVIDERS = new Set(["openai", "anthropic", "google"]);
+
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  google: "Google",
+};
+
+/** Extract provider prefix from a model ID like "openai/gpt-4o" */
+export function extractProvider(modelId: string): string | null {
+  const slashIndex = modelId.indexOf("/");
+  if (slashIndex <= 0) return null;
+  return modelId.slice(0, slashIndex).toLowerCase();
+}
+
+/** Check if a model ID uses a paid provider */
+export function isPaidProvider(modelId: string): boolean {
+  const provider = extractProvider(modelId);
+  return provider !== null && PAID_PROVIDERS.has(provider);
+}
+
+/** Check if the user has already approved a provider */
+export function isProviderApproved(modelId: string): boolean {
+  const provider = extractProvider(modelId);
+  if (!provider) return true;
+  const approved = config.snapshot.approvedProviders ?? [];
+  return approved.includes(provider);
+}
+
+/** Read a single keypress from raw-mode stdin. Returns lowercase character. */
+async function readSingleKey(): Promise<string> {
+  const stdin = getPlatform().terminal.stdin;
+  stdin.setRaw(true);
+  try {
+    const buf = new Uint8Array(1);
+    const n = await stdin.read(buf);
+    if (n === null || n === 0) return "";
+    return String.fromCharCode(buf[0]).toLowerCase();
+  } finally {
+    stdin.setRaw(false);
+  }
+}
+
+/** Prompt user for one-time consent to use a paid provider, save to config */
+export async function confirmPaidProviderConsent(modelId: string): Promise<boolean> {
+  const provider = extractProvider(modelId);
+  if (!provider) return true;
+
+  const label = PROVIDER_LABELS[provider] ?? provider;
+
+  if (!getPlatform().terminal.stdin.isTerminal()) {
+    return false; // Non-interactive: deny by default
+  }
+
+  log.raw.log(
+    `\nThis model uses your ${label} API key.` +
+    `\nAPI calls will be charged to your ${label} account.`
+  );
+  log.raw.log("Continue? [y/N] ");
+
+  const key = await readSingleKey();
+  log.raw.log("");
+
+  if (key !== "y") {
+    return false;
+  }
+
+  // Save consent — never ask again for this provider
+  const approved = config.snapshot.approvedProviders ?? [];
+  if (!approved.includes(provider)) {
+    await config.set("approvedProviders", [...approved, provider]);
+  }
+  return true;
+}
+
 export function showAskHelp(): void {
   log.raw.log(`
 HLVM Ask - Interactive AI Agent
@@ -134,6 +212,51 @@ function isOllamaCloudModelId(modelId: string): boolean {
   return isOllamaCloudModel(modelName);
 }
 
+const DEFAULT_TOOL_OUTPUT_MAX_LINES = 18;
+const DEFAULT_TOOL_OUTPUT_MAX_CHARS = 1000;
+const OLLAMA_SETTINGS_URL = "https://ollama.com/settings";
+
+interface FormattedToolOutput {
+  text: string;
+  truncated: boolean;
+}
+
+export function formatToolOutputForDefaultMode(
+  toolName: string,
+  content: string,
+): FormattedToolOutput {
+  const normalized = content.trim();
+  if (!normalized) return { text: "", truncated: false };
+
+  const looksLikeMarkup = /<(html|head|body|script|style|div|span|meta|link)\b/i
+    .test(normalized);
+  if (looksLikeMarkup && normalized.length > 600) {
+    return {
+      text: `[${toolName}] Completed.`,
+      truncated: true,
+    };
+  }
+
+  const looksLikeJson = normalized.startsWith("{") || normalized.startsWith("[");
+  if (looksLikeJson && normalized.length > 320) {
+    return { text: `[${toolName}] Completed.`, truncated: true };
+  }
+
+  const lines = normalized.split("\n");
+  if (lines.length > 6 || normalized.length > 320) {
+    return { text: `[${toolName}] Completed.`, truncated: true };
+  }
+
+  const trimmedLines = lines
+    .slice(0, DEFAULT_TOOL_OUTPUT_MAX_LINES)
+    .map((line) => truncate(line, 220));
+  const compact = trimmedLines.join("\n");
+  const text = truncate(compact, DEFAULT_TOOL_OUTPUT_MAX_CHARS);
+  const truncated = lines.length > DEFAULT_TOOL_OUTPUT_MAX_LINES ||
+    text.length < normalized.length;
+  return { text, truncated };
+}
+
 export interface CloudAuthRecoveryState {
   executionError: unknown;
   resolvedModel: string;
@@ -186,12 +309,14 @@ export async function attemptCloudAuthRecovery(
   const signedIn = await deps.runSignin();
   if (!signedIn) {
     deps.logRaw("Sign-in failed. Run `ollama signin` and retry.");
+    deps.logRaw(`Cloud account/usage: ${OLLAMA_SETTINGS_URL}`);
     return { handled: true, recovered: false, executionError, streamedTokens };
   }
 
   const verified = await deps.verifyCloudAccess(resolvedModel);
   if (!verified) {
     deps.logRaw("Cloud sign-in not completed. Open the URL above, then retry.");
+    deps.logRaw(`Cloud account/usage: ${OLLAMA_SETTINGS_URL}`);
     return { handled: true, recovered: false, executionError, streamedTokens };
   }
 
@@ -267,6 +392,16 @@ export async function askCommand(args: string[]): Promise<void> {
   );
   const resolvedModel = modelOverride ?? getConfiguredModel();
   const model = modelOverride ?? undefined;
+
+  // Paid provider consent gate
+  if (isPaidProvider(resolvedModel) && !isProviderApproved(resolvedModel)) {
+    const consented = await confirmPaidProviderConsent(resolvedModel);
+    if (!consented) {
+      log.raw.log("Aborted. Use a free model (e.g., Ollama) or re-run to approve.");
+      return;
+    }
+  }
+
   try {
     await ensureAgentReady(
       resolvedModel,
@@ -297,7 +432,16 @@ export async function askCommand(args: string[]): Promise<void> {
       const label = event.success ? "Tool Result" : "Tool Error";
       log.raw.log(`\n[${label}] ${event.toolName}\n${event.content}\n`);
     } else {
-      log.raw.log(`${event.content}\n`);
+      if (!event.success) {
+        log.raw.log(`[${event.toolName}] Error: ${truncate(event.content.trim(), 300)}\n`);
+        return;
+      }
+      const formatted = formatToolOutputForDefaultMode(
+        event.toolName,
+        event.content,
+      );
+      if (!formatted.text) return;
+      log.raw.log(`${formatted.text}\n`);
     }
   };
 

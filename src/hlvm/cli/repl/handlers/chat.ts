@@ -23,11 +23,12 @@ import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { log } from "../../../api/log.ts";
 import { parseJsonBody, jsonError, ndjsonLine, textEncoder } from "../http-utils.ts";
-import type { Message } from "../../../providers/index.ts";
+import { type Message, parseModelString } from "../../../providers/index.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { Message as AgentMessage } from "../../../agent/context.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
+import { isPaidProvider, isProviderApproved } from "../../commands/ask.ts";
 
 // MARK: - Image Helpers
 
@@ -90,6 +91,7 @@ interface ChatRequest {
     role: "system" | "user" | "assistant" | "tool";
     content: string;
     image_paths?: string[];
+    client_turn_id?: string;
   }>;
   model?: string;
   temperature?: number;
@@ -193,7 +195,8 @@ export async function handleChat(req: Request): Promise<Response> {
   }
 
   if (resolvedModel) {
-    const modelInfo = await ai.models.get(resolvedModel);
+    const [parsedProvider, parsedModelName] = parseModelString(resolvedModel);
+    const modelInfo = await ai.models.get(parsedModelName, parsedProvider ?? undefined);
     if (body.model && modelInfo === null) {
       return jsonError(`Model not found: ${body.model}`, 400);
     }
@@ -207,21 +210,30 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
+  if (resolvedModel && isPaidProvider(resolvedModel) && !isProviderApproved(resolvedModel)) {
+    return jsonError(
+      `Paid provider not approved. Run "hlvm ask --model ${resolvedModel}" in terminal first to grant consent.`,
+      403,
+    );
+  }
+
   const controller = new AbortController();
   activeRequests.set(requestId, { controller, sessionId: body.session_id });
 
   const sessionId = body.session_id;
   const session = getOrCreateSession(sessionId);
 
-  for (const msg of body.messages) {
+  const currentMsg = body.messages[body.messages.length - 1];
+  if (currentMsg && currentMsg.role !== "system") {
+    const turnId = currentMsg.client_turn_id ?? body.client_turn_id;
     const inserted = insertMessage({
       session_id: session.id,
-      role: msg.role,
-      content: msg.content,
-      client_turn_id: msg.role === "user" ? body.client_turn_id : undefined,
+      role: currentMsg.role,
+      content: currentMsg.content,
+      client_turn_id: turnId,
       request_id: requestId,
-      sender_type: msg.role === "user" ? "user" : "system",
-      image_paths: msg.image_paths,
+      sender_type: currentMsg.role === "user" ? "user" : "system",
+      image_paths: currentMsg.image_paths,
     });
     pushSSEEvent(session.id, "message_added", { message: inserted });
   }
@@ -399,7 +411,7 @@ async function handleAgentMode(
   const result = await runAgentQuery({
     query,
     model: resolvedModel,
-    autoApprove: true,
+    autoApprove: false,
     noInput: true,
     signal,
     toolDenylist: [...DEFAULT_TOOL_DENYLIST, "ask_user"],

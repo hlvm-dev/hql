@@ -319,6 +319,7 @@ Deno.test("runFirstTimeSetup: pull failure falls back", async () => {
     confirmSetup: () => Promise.resolve(true),
     pickBestCloudModel: () => cloudModel,
     pullWithSignin: () => Promise.resolve(false),
+    ensureCloudModelAccess: () => Promise.resolve(true),
     fallbackToModelBrowser: () => {
       calls.push("fallback");
       return Promise.resolve("ollama/fallback-model:cloud");
@@ -344,6 +345,7 @@ Deno.test("runFirstTimeSetup: success saves selected cloud model", async () => {
     confirmSetup: () => Promise.resolve(true),
     pickBestCloudModel: () => cloudModel,
     pullWithSignin: () => Promise.resolve(true),
+    ensureCloudModelAccess: () => Promise.resolve(true),
     saveConfiguredModel: (modelId: string) => {
       saved.push(modelId);
       return Promise.resolve();
@@ -356,6 +358,38 @@ Deno.test("runFirstTimeSetup: success saves selected cloud model", async () => {
 
   assertEquals(result, "ollama/deepseek-v3.1:671b-cloud");
   assertEquals(saved, ["ollama/deepseek-v3.1:671b-cloud"]);
+});
+
+Deno.test("runFirstTimeSetup: unverified cloud auth falls back and does not save", async () => {
+  const saved: string[] = [];
+  const calls: string[] = [];
+  const engine = createStubEngine();
+  const cloudModel: ModelInfo = {
+    name: "deepseek-v3.1:671b-cloud",
+    displayName: "DeepSeek V3.1 671B",
+    capabilities: ["tools"],
+  };
+
+  const result = await runFirstTimeSetup(engine, {
+    confirmSetup: () => Promise.resolve(true),
+    pickBestCloudModel: () => cloudModel,
+    pullWithSignin: () => Promise.resolve(true),
+    ensureCloudModelAccess: () => Promise.resolve(false),
+    saveConfiguredModel: (modelId: string) => {
+      saved.push(modelId);
+      return Promise.resolve();
+    },
+    fallbackToModelBrowser: () => {
+      calls.push("fallback");
+      return Promise.resolve("ollama/fallback-model:cloud");
+    },
+    logRaw: () => {},
+    logError: () => {},
+  });
+
+  assertEquals(result, "ollama/fallback-model:cloud");
+  assertEquals(saved.length, 0);
+  assertEquals(calls.includes("fallback"), true);
 });
 
 // ============================================================================

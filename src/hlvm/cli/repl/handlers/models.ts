@@ -87,6 +87,11 @@ export async function handleDeleteModel(
   return Response.json({ deleted: true });
 }
 
+export async function handleModelCatalog(): Promise<Response> {
+  const catalog = await ai.models.catalog("ollama");
+  return Response.json({ models: catalog });
+}
+
 export async function handleModelStatus(): Promise<Response> {
   const providerNames = listRegisteredProviders();
   const statuses: Record<string, unknown> = {};

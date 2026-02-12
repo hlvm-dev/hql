@@ -6,14 +6,28 @@ import { getPlatform } from "../src/platform/platform.ts";
 const p = () => getPlatform();
 const cwd = () => p().process.cwd();
 const readDir = (path: string) => p().fs.readDir(path);
-const runCmd = (cmd: string[]) => p().command.run(cmd);
+const runCmd = (options: { cmd: string[]; stdout?: "piped"; stderr?: "piped" }) =>
+  p().command.output(options);
 const exit = (code: number) => p().process.exit(code);
 const resolve = (...paths: string[]) => p().path.resolve(...paths);
 const relative = (from: string, to: string) => p().path.relative(from, to);
 const readTextFile = (path: string) => p().fs.readTextFile(path);
+const textDecoder = new TextDecoder();
 
 const root = cwd();
 const examplesDir = resolve(root, "docs/features");
+const DEFAULT_EXAMPLE_PARALLELISM = Math.max(
+  1,
+  Math.min(8, (globalThis.navigator?.hardwareConcurrency ?? 4) - 1),
+);
+
+function resolveParallelism(): number {
+  const raw = p().env.get("HLVM_EXAMPLES_PARALLEL");
+  if (!raw) return DEFAULT_EXAMPLE_PARALLELISM;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_EXAMPLE_PARALLELISM;
+  return parsed;
+}
 
 async function listHqlFiles(dir: string): Promise<string[]> {
   const out: string[] = [];
@@ -30,13 +44,6 @@ async function listHqlFiles(dir: string): Promise<string[]> {
   }
   await walk(dir);
   return out.sort();
-}
-
-async function readStream(
-  stream: ReadableStream<Uint8Array> | null | undefined,
-): Promise<string> {
-  if (!stream) return "";
-  return await new Response(stream).text();
 }
 
 function hasActiveAssertions(source: string): boolean {
@@ -56,41 +63,53 @@ let passed = 0, failed = 0, skipped = 0;
 console.log("=== LOCAL HLVM HQL Examples Suite ===\n");
 
 const files = await listHqlFiles(examplesDir);
-for (const file of files) {
+const parallelism = resolveParallelism();
+const queue = [...files];
+
+async function runExample(file: string): Promise<void> {
   const rel = relative(root, file);
   try {
     const source = await readTextFile(file);
     if (!hasActiveAssertions(source)) {
       console.log("SKIP", rel, "(no assertions)");
       skipped++;
-      continue;
+      return;
     }
 
-    const proc = runCmd({
+    const result = await runCmd({
       cmd: ["deno", "run", "-A", resolve(root, "src/hlvm/cli/run.ts"), file],
       stdout: "piped",
       stderr: "piped",
     });
-    const [result, outStr, errStr] = await Promise.all([
-      proc.status,
-      readStream(proc.stdout),
-      readStream(proc.stderr),
-    ]);
-    const code = result.code;
-    if (code === 0) {
+    if (result.code === 0) {
       console.log("OK ", rel);
       passed++;
     } else {
+      const outStr = textDecoder.decode(result.stdout);
+      const errStr = textDecoder.decode(result.stderr);
       console.error("FAIL", rel);
       if (outStr.trim().length) console.log(outStr.trim());
       if (errStr.trim().length) console.error(errStr.trim());
       failed++;
     }
-  } catch (e) {
-    console.error("FAIL", file, ":", e?.message || e);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("FAIL", file, ":", message);
     failed++;
   }
 }
+
+async function worker(): Promise<void> {
+  while (true) {
+    const next = queue.shift();
+    if (!next) return;
+    await runExample(next);
+  }
+}
+
+await Promise.all(
+  Array.from({ length: parallelism }, () => worker()),
+);
 
 console.log(`\nResults: ${passed}/${passed + failed} passed, ${skipped} skipped`);
 if (failed) exit(1);

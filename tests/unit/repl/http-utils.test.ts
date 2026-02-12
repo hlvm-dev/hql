@@ -1,14 +1,15 @@
 /**
  * HTTP Utils Tests
  *
- * Verifies JSON error responses, CORS headers, NDJSON formatting,
- * and request body parsing with size/type validation.
+ * Verifies JSON error responses, CORS headers (with origin-based restriction),
+ * NDJSON formatting, and request body parsing with size/type validation.
  */
 
 import { assertEquals } from "jsr:@std/assert";
 import {
   jsonError,
   addCorsHeaders,
+  isLocalhostOrigin,
   ndjsonLine,
   parseJsonBody,
 } from "../../../src/hlvm/cli/repl/http-utils.ts";
@@ -35,15 +36,93 @@ Deno.test({
   },
 });
 
+// MARK: - isLocalhostOrigin
+
+Deno.test({
+  name: "Utils: isLocalhostOrigin - accepts http://localhost:3000",
+  fn() {
+    assertEquals(isLocalhostOrigin("http://localhost:3000"), true);
+  },
+});
+
+Deno.test({
+  name: "Utils: isLocalhostOrigin - accepts http://127.0.0.1:8080",
+  fn() {
+    assertEquals(isLocalhostOrigin("http://127.0.0.1:8080"), true);
+  },
+});
+
+Deno.test({
+  name: "Utils: isLocalhostOrigin - accepts http://localhost (no port)",
+  fn() {
+    assertEquals(isLocalhostOrigin("http://localhost"), true);
+  },
+});
+
+Deno.test({
+  name: "Utils: isLocalhostOrigin - rejects http://evil.com",
+  fn() {
+    assertEquals(isLocalhostOrigin("http://evil.com"), false);
+  },
+});
+
+Deno.test({
+  name: "Utils: isLocalhostOrigin - rejects empty string",
+  fn() {
+    assertEquals(isLocalhostOrigin(""), false);
+  },
+});
+
+Deno.test({
+  name: "Utils: isLocalhostOrigin - rejects http://localhost.evil.com",
+  fn() {
+    assertEquals(isLocalhostOrigin("http://localhost.evil.com"), false);
+  },
+});
+
 // MARK: - addCorsHeaders
 
 Deno.test({
-  name: "Utils: addCorsHeaders - sets all CORS headers",
+  name: "Utils: addCorsHeaders - sets origin for localhost",
+  fn() {
+    const resp = addCorsHeaders(new Response("ok"), "http://localhost:3000");
+    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), "http://localhost:3000");
+    assertEquals(resp.headers.get("Vary"), "Origin");
+  },
+});
+
+Deno.test({
+  name: "Utils: addCorsHeaders - sets origin for 127.0.0.1",
+  fn() {
+    const resp = addCorsHeaders(new Response("ok"), "http://127.0.0.1:8080");
+    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), "http://127.0.0.1:8080");
+  },
+});
+
+Deno.test({
+  name: "Utils: addCorsHeaders - omits origin for non-localhost",
+  fn() {
+    const resp = addCorsHeaders(new Response("ok"), "http://evil.com");
+    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), null);
+    assertEquals(resp.headers.get("Vary"), "Origin");
+  },
+});
+
+Deno.test({
+  name: "Utils: addCorsHeaders - omits origin when no origin provided",
   fn() {
     const resp = addCorsHeaders(new Response("ok"));
-    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), "*");
-    assertEquals(resp.headers.get("Access-Control-Allow-Methods"), "GET, POST, PATCH, DELETE, OPTIONS");
-    assertEquals(resp.headers.get("Access-Control-Allow-Headers"), "Content-Type, X-Request-ID, Last-Event-ID");
+    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), null);
+    assertEquals(resp.headers.get("Vary"), "Origin");
+  },
+});
+
+Deno.test({
+  name: "Utils: addCorsHeaders - includes Authorization in allowed headers",
+  fn() {
+    const resp = addCorsHeaders(new Response("ok"), "http://localhost:3000");
+    const allowedHeaders = resp.headers.get("Access-Control-Allow-Headers") ?? "";
+    assertEquals(allowedHeaders.includes("Authorization"), true);
   },
 });
 
@@ -52,9 +131,17 @@ Deno.test({
   fn() {
     const resp = addCorsHeaders(new Response("ok", {
       headers: { "X-Custom": "value" },
-    }));
+    }), "http://localhost:3000");
     assertEquals(resp.headers.get("X-Custom"), "value");
-    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), "*");
+    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), "http://localhost:3000");
+  },
+});
+
+Deno.test({
+  name: "Utils: addCorsHeaders - sets methods header",
+  fn() {
+    const resp = addCorsHeaders(new Response("ok"), "http://localhost:3000");
+    assertEquals(resp.headers.get("Access-Control-Allow-Methods"), "GET, POST, PATCH, DELETE, OPTIONS");
   },
 });
 
