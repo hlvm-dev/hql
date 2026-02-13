@@ -9,6 +9,7 @@ import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
 
 interface ServerContext {
   baseUrl: string;
+  authToken: string;
 }
 
 let serverContext: ServerContext | null = null;
@@ -32,8 +33,10 @@ async function ensureServerRunning(): Promise<ServerContext> {
 
   const port = reservePort();
   const baseUrl = `http://localhost:${port}`;
+  const authToken = "hlvm-integration-test-token";
 
   Deno.env.set("HLVM_DISABLE_AI_AUTOSTART", "1"); // Prevent resource leaks
+  Deno.env.set("HLVM_AUTH_TOKEN", authToken);
 
   await initializeRuntime({ ai: true, stdlib: true, cache: true });
 
@@ -41,7 +44,7 @@ async function ensureServerRunning(): Promise<ServerContext> {
   startHttpServer({ port });
 
   // Wait for server to be ready
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 500));
 
   // Verify server is responsive
   const health = await fetch(`${baseUrl}/health`);
@@ -49,19 +52,22 @@ async function ensureServerRunning(): Promise<ServerContext> {
     throw new Error("Server failed to start");
   }
 
-  serverContext = { baseUrl };
+  serverContext = { baseUrl, authToken };
   return serverContext;
 }
 
 async function evalCode(code: string): Promise<{
   success: boolean;
   value?: string;
-  error?: { name: string; message: string };
+  error?: { name: string; message: string } | null;
 }> {
-  const { baseUrl } = await ensureServerRunning();
+  const { baseUrl, authToken } = await ensureServerRunning();
   const response = await fetch(`${baseUrl}/eval`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${authToken}`,
+    },
     body: JSON.stringify({ code }),
   });
 
@@ -79,6 +85,25 @@ Deno.test({
     assertEquals(response.status, 200);
     assertEquals(data.status, "ok");
     assertExists(data.initialized);
+  },
+  sanitizeResources: false,
+  sanitizeOps: false,
+});
+
+Deno.test({
+  name: "POST /eval rejects missing auth",
+  async fn() {
+    const { baseUrl } = await ensureServerRunning();
+
+    const response = await fetch(`${baseUrl}/eval`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: "(+ 1 2)" }),
+    });
+    const data = await response.json();
+
+    assertEquals(response.status, 401);
+    assertEquals(data.error, "Unauthorized");
   },
   sanitizeResources: false,
   sanitizeOps: false,
