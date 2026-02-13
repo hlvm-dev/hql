@@ -158,7 +158,7 @@ export const ALL_OPERATOR_NAMES = [...PRIMITIVE_OPS] as const;
 /**
  * Declaration keywords - forms that declare new named entities.
  */
-export const DECLARATION_KEYWORDS = ["fn", "function", "defn", "class", "enum"] as const;
+export const DECLARATION_KEYWORDS = ["fn", "function", "defn", "fx", "class", "enum"] as const;
 
 /**
  * Binding keywords - forms that bind values to names.

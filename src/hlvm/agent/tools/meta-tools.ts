@@ -14,11 +14,9 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
+import { TEXT_ENCODER } from "../../../common/utils.ts";
 import { isToolArgsObject } from "../validation.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
-
-/** Reusable encoder (stateless, no need to recreate) */
-const TEXT_ENCODER = new TextEncoder();
 
 // ============================================================
 // Tool 1: ask_user

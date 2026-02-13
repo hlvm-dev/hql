@@ -46,6 +46,7 @@ import {
 import { assertMaxBytes } from "../../common/limits.ts";
 import {
   getErrorMessage,
+  TEXT_ENCODER,
   truncate,
 } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
@@ -56,7 +57,7 @@ import { estimateUsage, type TokenUsage, UsageTracker } from "./usage.ts";
 import type { MetricsSink } from "./metrics.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import { type LLMResponse, type ToolCall } from "./tool-call.ts";
-import { log } from "../api/log.ts";
+import { getAgentLogger } from "./logger.ts";
 
 export type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
@@ -96,6 +97,53 @@ interface ToolExecutionResult {
   returnDisplay?: string;
   error?: string;
 }
+
+/** Mutable state for the ReAct loop, consolidated from 16 local variables */
+interface LoopState {
+  iterations: number;
+  usageTracker: UsageTracker;
+  denialCountByTool: Map<string, number>;
+  totalToolResultBytes: number;
+  toolUses: ToolUse[];
+  groundingRetries: number;
+  noInputRetries: number;
+  toolCallRetries: number;
+  midLoopFormatRetries: number;
+  finalResponseFormatRetries: number;
+  lastToolSignature: string;
+  repeatToolCount: number;
+  consecutiveToolFailures: number;
+  emptyResponseRetried: boolean;
+  planState: PlanState | null;
+  lastResponse: string;
+}
+
+/** Resolved constants from OrchestratorConfig, computed once at loop start */
+interface LoopConfig {
+  maxIterations: number;
+  maxDenials: number;
+  llmTimeout: number;
+  maxRetries: number;
+  groundingMode: "off" | "warn" | "strict";
+  llmLimiter: SlidingWindowRateLimiter | null;
+  maxToolResultBytes: number;
+  skipCompensation: boolean;
+  maxGroundingRetries: number;
+  noInputEnabled: boolean;
+  maxNoInputRetries: number;
+  requireToolCalls: boolean;
+  maxToolCallRetries: number;
+  maxRepeatToolCalls: number;
+  planningConfig: PlanningConfig;
+  loopDeadline: number;
+  totalTimeout: number;
+}
+
+/** Control flow directive from extracted loop functions */
+type LoopDirective =
+  | { action: "continue" }
+  | { action: "return"; value: string }
+  | { action: "proceed" }
 
 function stringifyToolResult(result: unknown): string {
   if (typeof result === "string") {
@@ -234,38 +282,43 @@ function buildToolErrorResult(
   return result;
 }
 
-/** Cached Sets for allow/deny lookups (O(1) membership, O(n) key build). */
-let _cachedAllowSet: { key: string; set: Set<string> } | null = null;
-let _cachedDenySet: { key: string; set: Set<string> } | null = null;
-
-function listCacheKey(list: string[]): string {
-  // Null-byte separator is collision-free since tool names never contain \0
-  return list.join("\0");
-}
-
-function getOrCreateSet(
-  list: string[],
-  cached: { key: string; set: Set<string> } | null,
-): { key: string; set: Set<string> } {
-  const key = listCacheKey(list);
-  if (cached && cached.key === key) return cached;
-  return { key, set: new Set(list) };
-}
-
-function isToolAllowed(
+/**
+ * Creates a tool-allowed checker with its own cached sets.
+ * Eliminates module-level mutable state that could leak between runs.
+ */
+function createToolAllowedChecker(): (
   toolName: string,
   config: OrchestratorConfig,
-): boolean {
-  if (config.toolAllowlist && config.toolAllowlist.length > 0) {
-    _cachedAllowSet = getOrCreateSet(config.toolAllowlist, _cachedAllowSet);
-    return _cachedAllowSet.set.has(toolName);
-  }
-  if (config.toolDenylist && config.toolDenylist.length > 0) {
-    _cachedDenySet = getOrCreateSet(config.toolDenylist, _cachedDenySet);
-    return !_cachedDenySet.set.has(toolName);
-  }
-  return true;
+) => boolean {
+  let cachedAllowSet: { key: string; set: Set<string> } | null = null;
+  let cachedDenySet: { key: string; set: Set<string> } | null = null;
+
+  const listCacheKey = (list: string[]): string => list.join("\0");
+
+  const getOrCreateSet = (
+    list: string[],
+    cached: { key: string; set: Set<string> } | null,
+  ): { key: string; set: Set<string> } => {
+    const key = listCacheKey(list);
+    if (cached && cached.key === key) return cached;
+    return { key, set: new Set(list) };
+  };
+
+  return (toolName: string, config: OrchestratorConfig): boolean => {
+    if (config.toolAllowlist && config.toolAllowlist.length > 0) {
+      cachedAllowSet = getOrCreateSet(config.toolAllowlist, cachedAllowSet);
+      return cachedAllowSet.set.has(toolName);
+    }
+    if (config.toolDenylist && config.toolDenylist.length > 0) {
+      cachedDenySet = getOrCreateSet(config.toolDenylist, cachedDenySet);
+      return !cachedDenySet.set.has(toolName);
+    }
+    return true;
+  };
 }
+
+/** Instance-level checker — created fresh per runReActLoop call */
+let isToolAllowed = createToolAllowedChecker();
 
 /** LLM function signature used by orchestrator */
 export type LLMFunction = (
@@ -409,8 +462,7 @@ export interface OrchestratorConfig {
   signal?: AbortSignal;
 }
 
-/** Reusable TextEncoder (stateless, no need to recreate) */
-const TEXT_ENCODER = new TextEncoder();
+// TEXT_ENCODER imported from common/utils.ts (SSOT)
 
 function addContextMessage(
   config: OrchestratorConfig,
@@ -547,7 +599,7 @@ export async function executeToolCall(
   const resolvedName = normalizeToolName(toolCall.toolName) ??
     toolCall.toolName;
   if (resolvedName !== toolCall.toolName) {
-    log.debug(`Tool name normalized: ${toolCall.toolName} → ${resolvedName}`);
+    getAgentLogger().debug(`Tool name normalized: ${toolCall.toolName} → ${resolvedName}`);
     toolCall = { ...toolCall, toolName: resolvedName };
   }
 
@@ -946,7 +998,7 @@ export async function processAgentResponse(
 }
 
 // ============================================================
-// Timeout/Retry Logic (Week 3)
+// Timeout/Retry Logic
 // ============================================================
 
 /**
@@ -1088,6 +1140,421 @@ async function executeToolWithTimeout(
 }
 
 // ============================================================
+// ReAct Loop — Extracted Helpers
+// ============================================================
+
+/** Create initial mutable loop state from config */
+function initializeLoopState(config: OrchestratorConfig): LoopState {
+  const usageTracker = config.usage ?? new UsageTracker();
+  config.usage = usageTracker;
+  return {
+    iterations: 0,
+    usageTracker,
+    denialCountByTool: new Map(),
+    totalToolResultBytes: 0,
+    toolUses: [],
+    groundingRetries: 0,
+    noInputRetries: 0,
+    toolCallRetries: 0,
+    midLoopFormatRetries: 0,
+    finalResponseFormatRetries: 0,
+    lastToolSignature: "",
+    repeatToolCount: 0,
+    consecutiveToolFailures: 0,
+    emptyResponseRetried: false,
+    planState: null,
+    lastResponse: "",
+  };
+}
+
+/** Resolve config constants once at loop start */
+function resolveLoopConfig(config: OrchestratorConfig): LoopConfig {
+  const groundingMode = config.groundingMode ?? "off";
+  const llmRateConfig = config.llmRateLimit ?? RATE_LIMITS.llmCalls;
+  const llmLimiter = config.llmRateLimiter ?? createRateLimiter(llmRateConfig);
+  config.llmRateLimiter = llmLimiter;
+  const totalTimeout = DEFAULT_TIMEOUTS.total;
+  return {
+    maxIterations: MAX_ITERATIONS,
+    maxDenials: config.maxDenials ?? 3,
+    llmTimeout: config.llmTimeout ?? DEFAULT_TIMEOUTS.llm,
+    maxRetries: config.maxRetries ?? MAX_RETRIES,
+    groundingMode,
+    llmLimiter,
+    maxToolResultBytes: config.maxTotalToolResultBytes ?? RESOURCE_LIMITS.maxTotalToolResultBytes,
+    skipCompensation: config.skipModelCompensation ?? false,
+    maxGroundingRetries: groundingMode === "strict" ? 1 : 0,
+    noInputEnabled: config.noInput ?? false,
+    maxNoInputRetries: 1,
+    requireToolCalls: config.requireToolCalls ?? false,
+    maxToolCallRetries: config.maxToolCallRetries ?? 2,
+    maxRepeatToolCalls: config.maxToolCallRepeat ?? 3,
+    planningConfig: config.planning ?? { mode: "off" },
+    loopDeadline: Date.now() + totalTimeout,
+    totalTimeout,
+  };
+}
+
+/** Accumulate tool result bytes and throw if limit exceeded */
+function checkToolResultBytesLimit(
+  state: LoopState,
+  lc: LoopConfig,
+  config: OrchestratorConfig,
+  delta: number,
+): void {
+  state.totalToolResultBytes += delta;
+  if (lc.maxToolResultBytes > 0) {
+    try {
+      assertMaxBytes("total tool result bytes", state.totalToolResultBytes, lc.maxToolResultBytes);
+    } catch (error) {
+      config.onTrace?.({
+        type: "resource_limit",
+        kind: "tool_result_bytes",
+        limit: lc.maxToolResultBytes,
+        used: state.totalToolResultBytes,
+      });
+      emitMetric(config, "resource_limit", {
+        kind: "tool_result_bytes",
+        limit: lc.maxToolResultBytes,
+        used: state.totalToolResultBytes,
+      });
+      throw error;
+    }
+  }
+}
+
+/**
+ * Handle empty responses and weak-model text repair.
+ * Returns a directive plus optionally a repaired LLMResponse.
+ */
+function handleTextOnlyResponse(
+  response: LLMResponse,
+  responseText: string,
+  state: LoopState,
+  lc: LoopConfig,
+  config: OrchestratorConfig,
+): LoopDirective & { response?: LLMResponse } {
+  // Detect and retry empty LLM responses (no content + no tool calls)
+  if ((response.toolCalls?.length ?? 0) === 0 && !responseText.trim()) {
+    if (!state.emptyResponseRetried) {
+      state.emptyResponseRetried = true;
+      return { action: "continue" };
+    }
+    return { action: "return", value: "The model returned an empty response. Please try again." };
+  }
+
+  // Weak-model compensation: detect tool call JSON in text and repair
+  if (
+    !lc.skipCompensation &&
+    (response.toolCalls?.length ?? 0) === 0 &&
+    looksLikeToolCallJsonAnywhere(responseText)
+  ) {
+    if (state.midLoopFormatRetries < lc.maxToolCallRetries) {
+      state.midLoopFormatRetries++;
+      const hasPriorTools = state.toolUses.length > 0;
+      addContextMessage(config, {
+        role: "user",
+        content: hasPriorTools
+          ? "Do not output tool call JSON. Provide a final answer based on the tool results."
+          : "Native tool calling required. Do not output tool call JSON in text. Retry using structured tool calls.",
+      });
+      return { action: "continue" };
+    }
+    // Last resort: parse tool calls from text and execute them
+    const parsed = tryParseToolCallsFromText(responseText);
+    if (parsed.length > 0) {
+      let idCounter = 0;
+      const repairedCalls = parsed.map((p) => ({
+        ...p,
+        id: `repair_${Date.now()}_${idCounter++}`,
+      }));
+      const repaired: LLMResponse = {
+        content: "",
+        toolCalls: repairedCalls,
+      };
+      config.onTrace?.({
+        type: "tool_call",
+        toolName: `[text-repair] ${repairedCalls[0].toolName}`,
+        args: repairedCalls[0].args,
+      });
+      return { action: "proceed", response: repaired };
+    } else if (state.toolUses.length === 0) {
+      return { action: "return", value: "Native tool calling required. Tool call JSON in text is not accepted." };
+    } else {
+      return { action: "return", value: responseText };
+    }
+  }
+
+  return { action: "proceed" };
+}
+
+/**
+ * Handle the "no tool calls" branch: plan advancement, no-input guard,
+ * grounding checks, and format cleanup.
+ */
+function handleFinalResponse(
+  responseText: string,
+  result: { toolCallsMade: number; finalResponse?: string },
+  state: LoopState,
+  lc: LoopConfig,
+  config: OrchestratorConfig,
+): LoopDirective {
+  // Require tool calls if configured
+  if (
+    lc.requireToolCalls &&
+    result.toolCallsMade === 0 &&
+    state.toolUses.length === 0
+  ) {
+    state.toolCallRetries += 1;
+    if (state.toolCallRetries > lc.maxToolCallRetries) {
+      return { action: "return", value: "Tool call required but none provided. Task incomplete." };
+    }
+    addContextMessage(config, {
+      role: "user",
+      content: buildToolRequiredMessage(config.toolAllowlist),
+    });
+    return { action: "continue" };
+  }
+
+  let finalResponse = result.finalResponse ?? responseText;
+
+  // Plan state advancement
+  if (state.planState) {
+    const stepDoneId = extractStepDoneId(responseText);
+    const requireMarkers = lc.planningConfig.requireStepMarkers ?? false;
+    if (requireMarkers && !stepDoneId) {
+      const currentStep = state.planState.plan.steps[state.planState.currentIndex];
+      const id = currentStep?.id ?? "unknown";
+      addContextMessage(config, {
+        role: "user",
+        content: `Plan tracking required. End your response with STEP_DONE ${id} when the step is complete.`,
+      });
+      return { action: "continue" };
+    }
+
+    finalResponse = stripStepMarkers(responseText);
+
+    const advance = advancePlanState(state.planState, stepDoneId);
+    state.planState = advance.state;
+    const completedIndex = state.planState.currentIndex - 1;
+    const completedStep = state.planState.plan.steps[completedIndex];
+    if (completedStep) {
+      config.onTrace?.({
+        type: "plan_step",
+        stepId: completedStep.id,
+        index: completedIndex,
+        completed: true,
+      });
+    }
+
+    if (!advance.finished && advance.nextStep) {
+      addContextMessage(config, {
+        role: "user",
+        content: `Plan step completed. Next step: [${advance.nextStep.id}] ${advance.nextStep.title}. Continue.`,
+      });
+      return { action: "continue" };
+    }
+  }
+
+  // Weak-model compensation: suppress questions in no-input mode
+  if (
+    !lc.skipCompensation &&
+    lc.noInputEnabled &&
+    state.noInputRetries < lc.maxNoInputRetries &&
+    responseAsksQuestion(finalResponse)
+  ) {
+    state.noInputRetries++;
+    addContextMessage(config, {
+      role: "user",
+      content: "No-input mode: Do not ask questions. Provide a best-effort answer based on available tool results and reasonable assumptions.",
+    });
+    return { action: "continue" };
+  }
+
+  // Weak-model compensation: detect JSON in final answer
+  if (
+    !lc.skipCompensation &&
+    state.toolUses.length > 0 &&
+    looksLikeToolCallJsonAnywhere(finalResponse)
+  ) {
+    if (state.finalResponseFormatRetries < lc.maxToolCallRetries) {
+      state.finalResponseFormatRetries++;
+      addContextMessage(config, {
+        role: "user",
+        content: "Provide a final answer based on the tool results. Do not output tool call JSON.",
+      });
+      return { action: "continue" };
+    }
+    return { action: "return", value: finalResponse };
+  }
+
+  // Grounding checks
+  if (lc.groundingMode !== "off" && state.toolUses.length > 0) {
+    const grounding = checkGrounding(finalResponse, state.toolUses);
+    config.onTrace?.({
+      type: "grounding_check",
+      mode: lc.groundingMode,
+      grounded: grounding.grounded,
+      warnings: grounding.warnings,
+      retry: state.groundingRetries,
+      maxRetry: lc.maxGroundingRetries,
+    });
+    emitMetric(config, "grounding_check", {
+      mode: lc.groundingMode,
+      grounded: grounding.grounded,
+      warnings: grounding.warnings,
+      retry: state.groundingRetries,
+      maxRetry: lc.maxGroundingRetries,
+    });
+
+    if (!grounding.grounded) {
+      if (lc.groundingMode === "strict") {
+        if (state.groundingRetries < lc.maxGroundingRetries) {
+          state.groundingRetries++;
+          const warningText = `Grounding required. Revise your answer to cite tool results using tool names or "Based on ...".\n- ${grounding.warnings.join("\n- ")}`;
+          addContextMessage(config, { role: "user", content: warningText });
+          return { action: "continue" };
+        }
+        const warningText = `\n\n[Grounding warnings]\n- ${grounding.warnings.join("\n- ")}`;
+        return { action: "return", value: `${finalResponse}${warningText}` };
+      }
+      const warningText = `\n\n[Grounding warnings]\n- ${grounding.warnings.join("\n- ")}`;
+      return { action: "return", value: `${finalResponse}${warningText}` };
+    }
+  }
+  return { action: "return", value: finalResponse };
+}
+
+/**
+ * Handle post-tool-execution: denial tracking, loop detection,
+ * tool accumulation, and consecutive failure tracking.
+ */
+async function handlePostToolExecution(
+  result: {
+    toolCallsMade: number;
+    results: ToolExecutionResult[];
+    toolCalls: ToolCall[];
+    toolUses: ToolUse[];
+    toolBytes: number;
+  },
+  state: LoopState,
+  lc: LoopConfig,
+  config: OrchestratorConfig,
+  llmFunction: LLMFunction,
+): Promise<LoopDirective> {
+  // --- Denial tracking (per-tool) ---
+  let anyDeniedThisTurn = false;
+
+  for (let i = 0; i < result.results.length; i++) {
+    const toolCall = result.toolCalls[i];
+    if (!toolCall) break; // Guard: results and toolCalls may differ in length
+    const toolName = toolCall.toolName;
+    const toolResult = result.results[i];
+
+    if (!toolResult.success && toolResult.error?.includes("denied")) {
+      anyDeniedThisTurn = true;
+      const currentCount = state.denialCountByTool.get(toolName) || 0;
+      state.denialCountByTool.set(toolName, currentCount + 1);
+
+      if (currentCount + 1 >= lc.maxDenials) {
+        addContextMessage(config, {
+          role: "user",
+          content: `Maximum denials (${lc.maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
+        });
+      }
+    }
+  }
+
+  if (!anyDeniedThisTurn) {
+    for (const call of result.toolCalls) {
+      state.denialCountByTool.delete(call.toolName);
+    }
+  }
+
+  const executedCalls = result.toolCalls.slice(0, result.results.length);
+  const allToolsBlocked = executedCalls.length > 0 && executedCalls.every((call) => {
+    const count = state.denialCountByTool.get(call.toolName) || 0;
+    return count >= lc.maxDenials;
+  });
+
+  if (anyDeniedThisTurn && allToolsBlocked && result.toolCalls.length > 0) {
+    const finalResponse = await callLLMWithRetry(
+      llmFunction,
+      config.context.getMessages(),
+      { timeout: lc.llmTimeout, maxRetries: lc.maxRetries },
+      config.onTrace,
+    );
+    return { action: "return", value: finalResponse.content ?? "" };
+  }
+
+  // --- Loop detection (weak-model compensation) ---
+  if (!lc.skipCompensation) {
+    if (!anyDeniedThisTurn && result.toolCallsMade > 0) {
+      const signature = buildToolSignature(result.toolCalls);
+      if (signature && signature === state.lastToolSignature) {
+        state.repeatToolCount += 1;
+      } else {
+        state.repeatToolCount = 1;
+        state.lastToolSignature = signature;
+      }
+
+      if (state.repeatToolCount >= lc.maxRepeatToolCalls) {
+        config.onTrace?.({
+          type: "loop_detected",
+          signature,
+          count: state.repeatToolCount,
+        });
+        return {
+          action: "return",
+          value: [
+            "Tool call loop detected.",
+            "The same tool calls were repeated multiple times without progress.",
+            "Please clarify the request or provide additional guidance.",
+          ].join("\n"),
+        };
+      }
+    } else {
+      state.lastToolSignature = "";
+      state.repeatToolCount = 0;
+    }
+  }
+
+  // --- Tool uses accumulation ---
+  const MAX_TOOL_USES_FOR_GROUNDING = 50;
+  if (result.toolUses.length > 0) {
+    state.toolUses.push(...result.toolUses);
+    if (state.toolUses.length > MAX_TOOL_USES_FOR_GROUNDING) {
+      state.toolUses.splice(0, state.toolUses.length - MAX_TOOL_USES_FOR_GROUNDING);
+    }
+    if (result.toolBytes > 0) {
+      checkToolResultBytesLimit(state, lc, config, result.toolBytes);
+    }
+  }
+  if (result.toolCallsMade > 0) {
+    state.groundingRetries = 0;
+  }
+
+  // --- Consecutive failure tracking ---
+  const allFailed = result.results.length > 0 && result.results.every((r) => !r.success);
+  if (allFailed) {
+    state.consecutiveToolFailures++;
+  } else {
+    state.consecutiveToolFailures = 0;
+  }
+  if (state.consecutiveToolFailures >= 3) {
+    const failedTools = result.results
+      .filter((r) => !r.success)
+      .map((r) => r.error ?? "unknown error");
+    return {
+      action: "return",
+      value: `Tool execution failed after ${state.consecutiveToolFailures} consecutive failures:\n${failedTools.join("\n")}`,
+    };
+  }
+
+  return { action: "proceed" };
+}
+
+// ============================================================
 // ReAct Loop
 // ============================================================
 
@@ -1113,100 +1580,23 @@ export async function runReActLoop(
   config: OrchestratorConfig,
   llmFunction: LLMFunction,
 ): Promise<string> {
-  // Destructure frequently accessed config once
-  const {
-    context,
-    onTrace,
-  } = config;
+  const { context, onTrace } = config;
 
-  // Clear module-level caches to avoid stale data across runs
-  _cachedAllowSet = null;
-  _cachedDenySet = null;
+  // Reset per-run caches to avoid stale data across runs
+  isToolAllowed = createToolAllowedChecker();
   clearToolDefCache();
 
-  // Total wall-clock timeout for the entire ReAct loop
-  const totalTimeout = DEFAULT_TIMEOUTS.total;
-  const loopDeadline = Date.now() + totalTimeout;
+  // Initialize state and resolved config constants
+  const state = initializeLoopState(config);
+  const lc = resolveLoopConfig(config);
 
   // Add user request to context
-  addContextMessage(config, {
-    role: "user",
-    content: userRequest,
-  });
-
-  // Initialize usage tracker if not provided
-  const usageTracker = config.usage ?? new UsageTracker();
-  config.usage = usageTracker;
-  let iterations = 0;
-  const maxIterations = MAX_ITERATIONS;
-
-  // Denial tracking - per tool (Issue #6)
-  const denialCountByTool = new Map<string, number>();
-  const maxDenials = config.maxDenials ?? 3;
-
-  // Timeout/retry configuration
-  const llmTimeout = config.llmTimeout ?? DEFAULT_TIMEOUTS.llm;
-  const maxRetries = config.maxRetries ?? MAX_RETRIES;
-  const groundingMode = config.groundingMode ?? "off";
-  const llmRateConfig = config.llmRateLimit ?? RATE_LIMITS.llmCalls;
-  const llmLimiter = config.llmRateLimiter ?? createRateLimiter(llmRateConfig);
-  config.llmRateLimiter = llmLimiter;
-  // Tool rate limiter is created lazily in executeToolCalls()
-
-  const maxToolResultBytes = config.maxTotalToolResultBytes ??
-    RESOURCE_LIMITS.maxTotalToolResultBytes;
-  let totalToolResultBytes = 0;
-
-  const updateToolResultBytes = (delta: number): void => {
-    totalToolResultBytes += delta;
-    if (maxToolResultBytes > 0) {
-      try {
-        assertMaxBytes(
-          "total tool result bytes",
-          totalToolResultBytes,
-          maxToolResultBytes,
-        );
-      } catch (error) {
-        onTrace?.({
-          type: "resource_limit",
-          kind: "tool_result_bytes",
-          limit: maxToolResultBytes,
-          used: totalToolResultBytes,
-        });
-        emitMetric(config, "resource_limit", {
-          kind: "tool_result_bytes",
-          limit: maxToolResultBytes,
-          used: totalToolResultBytes,
-        });
-        throw error;
-      }
-    }
-  };
-
-  const skipCompensation = config.skipModelCompensation ?? false;
-  const toolUses: ToolUse[] = [];
-  let groundingRetries = 0;
-  const maxGroundingRetries = groundingMode === "strict" ? 1 : 0;
-  const noInputEnabled = config.noInput ?? false;
-  let noInputRetries = 0;
-  const maxNoInputRetries = 1;
-  const requireToolCalls = config.requireToolCalls ?? false;
-  let toolCallRetries = 0;
-  const maxToolCallRetries = config.maxToolCallRetries ?? 2;
-  let midLoopFormatRetries = 0;
-  let finalResponseFormatRetries = 0;
-  const maxRepeatToolCalls = config.maxToolCallRepeat ?? 3;
-  let lastToolSignature = "";
-  let repeatToolCount = 0;
-  let consecutiveToolFailures = 0;
-  let emptyResponseRetried = false;
+  addContextMessage(config, { role: "user", content: userRequest });
 
   // Planning (optional)
-  const planningConfig: PlanningConfig = config.planning ?? { mode: "off" };
-  let planState: PlanState | null = null;
   if (
-    planningConfig.mode !== "off" &&
-    shouldPlanRequest(userRequest, planningConfig.mode ?? "off")
+    lc.planningConfig.mode !== "off" &&
+    shouldPlanRequest(userRequest, lc.planningConfig.mode ?? "off")
   ) {
     try {
       const agentNames = listAgentProfiles().map((agent) => agent.name);
@@ -1214,49 +1604,47 @@ export async function runReActLoop(
         llmFunction,
         context.getMessages(),
         userRequest,
-        planningConfig,
+        lc.planningConfig,
         agentNames,
       );
       if (plan) {
         addContextMessage(config, {
           role: "system",
-          content: formatPlanForContext(plan, planningConfig),
+          content: formatPlanForContext(plan, lc.planningConfig),
         });
-        const trackPlan = (planningConfig.mode ?? "off") === "always";
-        if (trackPlan) {
-          planState = createPlanState(plan);
+        if ((lc.planningConfig.mode ?? "off") === "always") {
+          state.planState = createPlanState(plan);
         }
         onTrace?.({ type: "plan_created", plan });
       }
     } catch (error) {
-      log.warn(`Planning skipped: ${getErrorMessage(error)}`);
+      getAgentLogger().warn(`Planning skipped: ${getErrorMessage(error)}`);
     }
   }
 
-  let lastResponse = "";
-
-  while (iterations < maxIterations) {
+  // Main ReAct loop
+  while (state.iterations < lc.maxIterations) {
     if (config.signal?.aborted) {
-      return lastResponse || "Request cancelled by client";
+      return state.lastResponse || "Request cancelled by client";
     }
-    if (Date.now() > loopDeadline) {
-      return lastResponse || `Total timeout (${totalTimeout / 1000}s) exceeded. Task incomplete.`;
+    if (Date.now() > lc.loopDeadline) {
+      return state.lastResponse || `Total timeout (${lc.totalTimeout / 1000}s) exceeded. Task incomplete.`;
     }
-    iterations++;
+    state.iterations++;
 
-    // Emit trace event: iteration
     onTrace?.({
       type: "iteration",
-      current: iterations,
-      max: maxIterations,
+      current: state.iterations,
+      max: lc.maxIterations,
     });
 
     try {
-    if (planState) {
-      const currentStep = planState.plan.steps[planState.currentIndex];
+    // Plan delegation (inline — complex control flow with continue)
+    if (state.planState) {
+      const currentStep = state.planState.plan.steps[state.planState.currentIndex];
       if (
         currentStep?.agent &&
-        !planState.delegatedIds.has(currentStep.id) &&
+        !state.planState.delegatedIds.has(currentStep.id) &&
         config.delegate
       ) {
         const profile = getAgentProfile(currentStep.agent);
@@ -1271,92 +1659,65 @@ export async function runReActLoop(
           if (config.groundingMode) {
             delegateArgs.groundingMode = config.groundingMode;
           }
-          const delegateCall: ToolCall = {
-            toolName: "delegate_agent",
-            args: delegateArgs,
-          };
-          const delegateResult = await executeToolCall(delegateCall, config);
+          const delegateResult = await executeToolCall(
+            { toolName: "delegate_agent", args: delegateArgs },
+            config,
+          );
           if (!delegateResult.success) {
-            // Delegation failed — add error to context so LLM can recover
-            context.addMessage({
+            addContextMessage(config, {
               role: "user",
-              content: `Delegation failed: ${
-                delegateResult.error ?? "unknown error"
-              }`,
+              content: `Delegation failed: ${delegateResult.error ?? "unknown error"}`,
             });
           }
-          planState.delegatedIds.add(currentStep.id);
-          // Give the main LLM a chance to synthesize and mark STEP_DONE.
+          state.planState.delegatedIds.add(currentStep.id);
           continue;
         }
       }
     }
 
-    // Call LLM to get agent response (with retry)
+    // LLM call: rate limit → compaction → call → usage/trace
     const messages = context.getMessages();
+    onTrace?.({ type: "llm_call", messageCount: messages.length });
+    emitMetric(config, "llm_call", { messageCount: messages.length });
 
-    // Emit trace event: LLM call
-    onTrace?.({
-      type: "llm_call",
-      messageCount: messages.length,
-    });
-    emitMetric(config, "llm_call", {
-      messageCount: messages.length,
-    });
-
-    if (llmLimiter) {
-      const status = llmLimiter.consume(1);
+    if (lc.llmLimiter) {
+      const status = lc.llmLimiter.consume(1);
       if (!status.allowed) {
         onTrace?.({
-          type: "rate_limit",
-          target: "llm",
-          maxCalls: status.maxCalls,
-          windowMs: status.windowMs,
-          used: status.used,
-          remaining: status.remaining,
-          resetMs: status.resetMs,
+          type: "rate_limit", target: "llm",
+          maxCalls: status.maxCalls, windowMs: status.windowMs,
+          used: status.used, remaining: status.remaining, resetMs: status.resetMs,
         });
         emitMetric(config, "rate_limit", {
           target: "llm",
-          maxCalls: status.maxCalls,
-          windowMs: status.windowMs,
-          used: status.used,
-          remaining: status.remaining,
-          resetMs: status.resetMs,
+          maxCalls: status.maxCalls, windowMs: status.windowMs,
+          used: status.used, remaining: status.remaining, resetMs: status.resetMs,
         });
         throw new RateLimitError(
           `LLM rate limit exceeded (${status.used}/${status.maxCalls} per ${status.windowMs}ms)`,
-          status.maxCalls,
-          status.windowMs,
+          status.maxCalls, status.windowMs,
         );
       }
     }
 
-    // Proactive context compaction before LLM call
     await context.compactIfNeeded();
 
     const llmStart = Date.now();
     const agentResponse = await callLLMWithRetry(
-      llmFunction,
-      messages,
-      { timeout: llmTimeout, maxRetries },
+      llmFunction, messages,
+      { timeout: lc.llmTimeout, maxRetries: lc.maxRetries },
       onTrace,
     );
     const llmDuration = Date.now() - llmStart;
 
-    // Record token usage (estimated by default)
     const responseText = agentResponse.content ?? "";
-    if (responseText) lastResponse = responseText;
+    if (responseText) state.lastResponse = responseText;
     let response = agentResponse;
-    const usage = estimateUsage(messages, responseText);
-    usageTracker.record(usage);
-    onTrace?.({
-      type: "llm_usage",
-      usage,
-    });
-    emitMetric(config, "llm_usage", { ...usage });
 
-    // Emit trace event: LLM response
+    const usage = estimateUsage(messages, responseText);
+    state.usageTracker.record(usage);
+    onTrace?.({ type: "llm_usage", usage });
+    emitMetric(config, "llm_usage", { ...usage });
     onTrace?.({
       type: "llm_response",
       length: responseText.length,
@@ -1364,322 +1725,36 @@ export async function runReActLoop(
       content: responseText,
       toolCalls: agentResponse.toolCalls?.length ?? 0,
     });
-    emitMetric(config, "llm_response", {
-      length: responseText.length,
-      durationMs: llmDuration,
-    });
+    emitMetric(config, "llm_response", { length: responseText.length, durationMs: llmDuration });
 
-    // Detect and retry empty LLM responses (no content + no tool calls)
-    if ((response.toolCalls?.length ?? 0) === 0 && !responseText.trim()) {
-      if (!emptyResponseRetried) {
-        emptyResponseRetried = true;
-        continue; // retry the LLM call
-      }
-      return "The model returned an empty response. Please try again.";
-    }
-
-    // Weak-model compensation: detect tool call JSON in text and repair
-    if (
-      !skipCompensation &&
-      (response.toolCalls?.length ?? 0) === 0 &&
-      looksLikeToolCallJsonAnywhere(responseText)
-    ) {
-      if (midLoopFormatRetries < maxToolCallRetries) {
-        midLoopFormatRetries++;
-        const hasPriorTools = toolUses.length > 0;
-        addContextMessage(config, {
-          role: "user",
-          content: hasPriorTools
-            ? "Do not output tool call JSON. Provide a final answer based on the tool results."
-            : "Native tool calling required. Do not output tool call JSON in text. Retry using structured tool calls.",
-        });
-        continue;
-      }
-      // Last resort: parse tool calls from text and execute them
-      const parsed = tryParseToolCallsFromText(responseText);
-      if (parsed.length > 0) {
-        // Generate IDs so assistant message and tool results correlate
-        let idCounter = 0;
-        const repairedCalls = parsed.map((p) => ({
-          ...p,
-          id: `repair_${Date.now()}_${idCounter++}`,
-        }));
-        const repaired: LLMResponse = {
-          content: "",
-          toolCalls: repairedCalls,
-        };
-        onTrace?.({
-          type: "tool_call",
-          toolName: `[text-repair] ${repairedCalls[0].toolName}`,
-          args: repairedCalls[0].args,
-        });
-        response = repaired;
-        // Fall through to processAgentResponse below
-      } else if (toolUses.length === 0) {
-        return "Native tool calling required. Tool call JSON in text is not accepted.";
-      } else {
-        return responseText;
-      }
-    }
+    // Handle empty responses and weak-model text repair
+    const textResult = handleTextOnlyResponse(response, responseText, state, lc, config);
+    if (textResult.action === "continue") continue;
+    if (textResult.action === "return") return textResult.value;
+    if (textResult.response) response = textResult.response;
 
     // Process response and execute tools
     const result = await processAgentResponse(response, config);
 
-    // If no tool calls, agent is done
+    // If no tool calls, handle final response
     if (!result.shouldContinue) {
-      if (
-        requireToolCalls &&
-        result.toolCallsMade === 0 &&
-        toolUses.length === 0
-      ) {
-        toolCallRetries += 1;
-        if (toolCallRetries > maxToolCallRetries) {
-          return "Tool call required but none provided. Task incomplete.";
-        }
-        addContextMessage(config, {
-          role: "user",
-          content: buildToolRequiredMessage(config.toolAllowlist),
-        });
-        continue;
-      }
-
-      let finalResponse = result.finalResponse ?? responseText;
-
-      if (planState) {
-        const stepDoneId = extractStepDoneId(responseText);
-        const requireMarkers = planningConfig.requireStepMarkers ?? false;
-        if (requireMarkers && !stepDoneId) {
-          const currentStep = planState.plan.steps[planState.currentIndex];
-          const id = currentStep?.id ?? "unknown";
-          addContextMessage(config, {
-            role: "user",
-            content:
-              `Plan tracking required. End your response with STEP_DONE ${id} when the step is complete.`,
-          });
-          continue;
-        }
-
-        finalResponse = stripStepMarkers(responseText);
-
-        const advance = advancePlanState(planState, stepDoneId);
-        planState = advance.state;
-        const completedIndex = planState.currentIndex - 1;
-        const completedStep = planState.plan.steps[completedIndex];
-        if (completedStep) {
-          onTrace?.({
-            type: "plan_step",
-            stepId: completedStep.id,
-            index: completedIndex,
-            completed: true,
-          });
-        }
-
-        if (!advance.finished && advance.nextStep) {
-          addContextMessage(config, {
-            role: "user",
-            content:
-              `Plan step completed. Next step: [${advance.nextStep.id}] ${advance.nextStep.title}. Continue.`,
-          });
-          continue;
-        }
-      }
-
-      // Weak-model compensation: suppress questions in no-input mode
-      if (
-        !skipCompensation &&
-        noInputEnabled &&
-        noInputRetries < maxNoInputRetries &&
-        responseAsksQuestion(finalResponse)
-      ) {
-        noInputRetries++;
-        addContextMessage(config, {
-          role: "user",
-          content:
-            "No-input mode: Do not ask questions. Provide a best-effort answer based on available tool results and reasonable assumptions.",
-        });
-        continue;
-      }
-
-      // Weak-model compensation: detect JSON in final answer
-      if (
-        !skipCompensation &&
-        toolUses.length > 0 &&
-        looksLikeToolCallJsonAnywhere(finalResponse)
-      ) {
-        if (finalResponseFormatRetries < maxToolCallRetries) {
-          finalResponseFormatRetries++;
-          addContextMessage(config, {
-            role: "user",
-            content:
-              "Provide a final answer based on the tool results. Do not output tool call JSON.",
-          });
-          continue;
-        }
-        // Return as-is rather than crashing
-        return finalResponse;
-      }
-
-      if (groundingMode !== "off" && toolUses.length > 0) {
-        const grounding = checkGrounding(finalResponse, toolUses);
-        onTrace?.({
-          type: "grounding_check",
-          mode: groundingMode,
-          grounded: grounding.grounded,
-          warnings: grounding.warnings,
-          retry: groundingRetries,
-          maxRetry: maxGroundingRetries,
-        });
-        emitMetric(config, "grounding_check", {
-          mode: groundingMode,
-          grounded: grounding.grounded,
-          warnings: grounding.warnings,
-          retry: groundingRetries,
-          maxRetry: maxGroundingRetries,
-        });
-
-        if (!grounding.grounded) {
-          if (groundingMode === "strict") {
-            if (groundingRetries < maxGroundingRetries) {
-              groundingRetries++;
-              const warningText =
-                `Grounding required. Revise your answer to cite tool results using tool names or "Based on ...".\n- ${
-                  grounding.warnings.join("\n- ")
-                }`;
-              addContextMessage(config, { role: "user", content: warningText });
-              continue;
-            }
-            // Return with warnings rather than crashing — response may still be usable
-            const warningText = `\n\n[Grounding warnings]\n- ${
-              grounding.warnings.join("\n- ")
-            }`;
-            return `${finalResponse}${warningText}`;
-          }
-          const warningText = `\n\n[Grounding warnings]\n- ${
-            grounding.warnings.join("\n- ")
-          }`;
-          return `${finalResponse}${warningText}`;
-        }
-      }
-      return finalResponse;
+      const final = handleFinalResponse(responseText, result, state, lc, config);
+      if (final.action === "continue") continue;
+      if (final.action === "return") return final.value;
     }
 
-    // Check for denied tool calls - per-tool tracking (Issue #6)
-    let anyDeniedThisTurn = false;
+    // Post-tool execution: denials, loop detection, accumulation, failures
+    const post = await handlePostToolExecution(result, state, lc, config, llmFunction);
+    if (post.action === "continue") continue;
+    if (post.action === "return") return post.value;
 
-    for (let i = 0; i < result.results.length; i++) {
-      const toolName = result.toolCalls[i].toolName;
-      const toolResult = result.results[i];
-
-      if (!toolResult.success && toolResult.error?.includes("denied")) {
-        anyDeniedThisTurn = true;
-        const currentCount = denialCountByTool.get(toolName) || 0;
-        denialCountByTool.set(toolName, currentCount + 1);
-
-        // Check if this specific tool reached the limit
-        if (denialCountByTool.get(toolName)! >= maxDenials) {
-          addContextMessage(config, {
-            role: "user",
-            content:
-              `Maximum denials (${maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
-          });
-        }
-      }
-    }
-
-    if (!anyDeniedThisTurn) {
-      // Fix 4: Only clear denial counts for tools that were called this turn
-      for (const call of result.toolCalls) {
-        denialCountByTool.delete(call.toolName);
-      }
-    }
-
-    // Fix 2: Only check executed tool calls (not unexecuted ones in sequential mode)
-    const executedCalls = result.toolCalls.slice(0, result.results.length);
-    const allToolsBlocked = executedCalls.length > 0 && executedCalls.every((call) => {
-      const count = denialCountByTool.get(call.toolName) || 0;
-      return count >= maxDenials;
-    });
-
-    if (anyDeniedThisTurn && allToolsBlocked && result.toolCalls.length > 0) {
-      // Agent is stuck - all attempted tools are blocked
-      // Fix 1: Use callLLMWithRetry instead of raw llmFunction
-      const finalResponse = await callLLMWithRetry(
-        llmFunction,
-        context.getMessages(),
-        { timeout: llmTimeout, maxRetries },
-        onTrace,
-      );
-      return finalResponse.content ?? "";
-    }
-
-    // Weak-model compensation: detect tool call loops
-    if (!skipCompensation) {
-      if (!anyDeniedThisTurn && result.toolCallsMade > 0) {
-        const signature = buildToolSignature(result.toolCalls);
-        if (signature && signature === lastToolSignature) {
-          repeatToolCount += 1;
-        } else {
-          repeatToolCount = 1;
-          lastToolSignature = signature;
-        }
-
-        if (repeatToolCount >= maxRepeatToolCalls) {
-          onTrace?.({
-            type: "loop_detected",
-            signature,
-            count: repeatToolCount,
-          });
-          return [
-            "Tool call loop detected.",
-            "The same tool calls were repeated multiple times without progress.",
-            "Please clarify the request or provide additional guidance.",
-          ].join("\n");
-        }
-      } else {
-        lastToolSignature = "";
-        repeatToolCount = 0;
-      }
-    }
-
-    // Fix 5: Cap toolUses with sliding window for grounding checks
-    const MAX_TOOL_USES_FOR_GROUNDING = 50;
-    if (result.toolUses.length > 0) {
-      toolUses.push(...result.toolUses);
-      if (toolUses.length > MAX_TOOL_USES_FOR_GROUNDING) {
-        toolUses.splice(0, toolUses.length - MAX_TOOL_USES_FOR_GROUNDING);
-      }
-      if (result.toolBytes > 0) {
-        updateToolResultBytes(result.toolBytes);
-      }
-    }
-    if (result.toolCallsMade > 0) {
-      groundingRetries = 0;
-    }
-
-    // Track consecutive tool failures for early abort (only when ALL tools fail)
-    const allFailed = result.results.length > 0 && result.results.every((r) => !r.success);
-    if (allFailed) {
-      consecutiveToolFailures++;
-    } else {
-      consecutiveToolFailures = 0;
-    }
-    if (consecutiveToolFailures >= 3) {
-      // Stop early if tools keep failing consecutively
-      const failedTools = result.results
-        .filter((r) => !r.success)
-        .map((r) => r.error ?? "unknown error");
-      return `Tool execution failed after ${consecutiveToolFailures} consecutive failures:\n${
-        failedTools.join("\n")
-      }`;
-    }
     } catch (error) {
       if (error instanceof ContextOverflowError) {
-        return lastResponse || "Context limit reached. Please start a new conversation.";
+        return state.lastResponse || "Context limit reached. Please start a new conversation.";
       }
       throw error;
     }
   }
 
-  // Hit max iterations
   return "Maximum iterations reached. Task incomplete.";
 }

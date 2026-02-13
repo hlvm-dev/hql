@@ -71,6 +71,7 @@ export function transformSyntax(ast: SExp[], context?: CompilerContext): SExp[] 
         break;
       case "fn":
       case "defn":
+      case "fx":
       case "macro":
         registerFunctionOrMacro(list, head);
         break;
@@ -211,7 +212,7 @@ function registerClass(list: SList): void {
             });
           }
         } else if (
-          subHead === "fn" && el.elements.length > 1 &&
+          (subHead === "fn" || subHead === "fx") && el.elements.length > 1 &&
           isSymbol(el.elements[1])
         ) {
           const mName = (el.elements[1] as SSymbol).name;
@@ -253,7 +254,7 @@ function registerClass(list: SList): void {
 function registerFunctionOrMacro(list: SList, head: string): void {
   if (list.elements.length > 1 && isSymbol(list.elements[1])) {
     const name = (list.elements[1] as SSymbol).name;
-    const kind = head === "fn" ? "function" : "macro";
+    const kind = head === "macro" ? "macro" : "function";
     let params: { name: string; type?: string }[] | undefined = undefined;
     const returnType: string | undefined = undefined;
     if (list.elements.length > 2 && isList(list.elements[2])) {
@@ -470,7 +471,7 @@ function inferDataType(node: SExp): string {
       }
 
       // Function literals
-      if (op === "fn") {
+      if (op === "fn" || op === "fx") {
         return "Function";
       }
     }
@@ -661,6 +662,7 @@ export function transformSExpNode(
       switch (op) {
         case "fn":
         case "defn":
+        case "fx":
           return transformFnSyntax(normalizedList, enumDefinitions, logger);
         case "macro":
           return transformMacro(normalizedList, enumDefinitions, logger);
@@ -1224,15 +1226,20 @@ function transformFnSyntax(
         );
       }
 
+      // Preserve the original head (fn/defn/fx) through transformation
+      const originalHead = (list.elements[0] as SSymbol).name;
+      // fx uses "fx" as head in output; fn/defn use "fn"
+      const outputHead = originalHead === "fx" ? "fx" : "fn";
+
       const secondElement = list.elements[1];
 
       // Dispatch based on whether this is named or anonymous
       if (isSymbol(secondElement)) {
         // Named function: (fn name [params] body...)
-        return transformNamedFnSyntax(list, enumDefinitions, logger);
+        return transformNamedFnSyntax(list, enumDefinitions, logger, outputHead);
       } else if (isList(secondElement)) {
         // Anonymous function: (fn [params] body...)
-        return transformAnonymousFnSyntax(list, enumDefinitions, logger);
+        return transformAnonymousFnSyntax(list, enumDefinitions, logger, outputHead);
       } else {
         throw new TransformError(
           "Invalid fn syntax: second element must be function name (symbol) or parameters (list)",
@@ -1254,6 +1261,7 @@ function transformNamedFnSyntax(
   list: SList,
   enumDefinitions: Map<string, SList>,
   logger: Logger,
+  outputHead = "fn",
 ): SExp {
   if (list.elements.length < 4) {
     throw new TransformError(
@@ -1297,9 +1305,9 @@ function transformNamedFnSyntax(
     transformSExpNode(elem, enumDefinitions, logger)
   );
 
-  // Return simple fn form (no return type)
+  // Return simple fn form (no return type), preserving fx/fn head
   return createList(
-    createSymbol("fn"),
+    createSymbol(outputHead),
     name,
     createList(...transformedParams),
     ...body,
@@ -1313,6 +1321,7 @@ function transformAnonymousFnSyntax(
   list: SList,
   enumDefinitions: Map<string, SList>,
   logger: Logger,
+  outputHead = "fn",
 ): SExp {
   if (list.elements.length < 3) {
     throw new TransformError(
@@ -1346,9 +1355,9 @@ function transformAnonymousFnSyntax(
     transformSExpNode(elem, enumDefinitions, logger)
   );
 
-  // Return anonymous function form (no name)
+  // Return anonymous function form (no name), preserving fx/fn head
   return createList(
-    createSymbol("fn"),
+    createSymbol(outputHead),
     createList(...transformedParams),
     ...body,
   );

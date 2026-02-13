@@ -13,6 +13,7 @@
 import * as IR from "../type/hql_ir.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
+import { validatePurity } from "./purity-checker.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import { forEachNode } from "../utils/ir-tree-walker.ts";
 
@@ -225,6 +226,14 @@ function validateNode(scope: Scope, node: IR.IRNode): void {
 
       // Validate function body
       validateNode(functionScope, funcDecl.body);
+
+      // Purity check for fx
+      if ((node as IR.IRFnFunctionDeclaration).pure) {
+        validatePurity(
+          node as IR.IRFnFunctionDeclaration,
+          funcDecl.id?.name ?? "<anonymous>",
+        );
+      }
       break;
     }
 
@@ -249,6 +258,14 @@ function validateNode(scope: Scope, node: IR.IRNode): void {
 
       // Validate body
       validateNode(functionScope, funcExpr.body);
+
+      // Purity check for fx
+      if ((node as IR.IRFunctionExpression).pure) {
+        validatePurity(
+          node as IR.IRFunctionExpression,
+          funcExpr.id?.name ?? "<anonymous fx>",
+        );
+      }
       break;
     }
 

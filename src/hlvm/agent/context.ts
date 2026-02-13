@@ -16,13 +16,12 @@
 
 import { DEFAULT_CONTEXT_CONFIG } from "./constants.ts";
 import { truncate, truncateMiddle } from "../../common/utils.ts";
-import type { MessageRole } from "../providers/types.ts";
-
 // ============================================================
 // Types
 // ============================================================
 
-export type { MessageRole };
+/** Role for chat messages (locally defined for SDK decoupling) */
+export type MessageRole = "system" | "user" | "assistant" | "tool";
 
 /** Single message in conversation */
 export interface Message {
@@ -45,6 +44,25 @@ export interface Message {
 export function isSummaryMessage(message: Message): boolean {
   return message.role === "assistant" &&
     message.content.startsWith("Summary of earlier context:");
+}
+
+/** Estimate character overhead from toolCalls metadata on a message (SSOT helper) */
+function estimateToolCallChars(message: Message): number {
+  if (!message.toolCalls?.length) return 0;
+  let chars = 0;
+  for (const tc of message.toolCalls) {
+    const nameLen = tc.function?.name?.length ?? 0;
+    let argsLen = 0;
+    if (tc.function?.arguments) {
+      if (typeof tc.function.arguments === "string") {
+        argsLen = tc.function.arguments.length;
+      } else {
+        try { argsLen = JSON.stringify(tc.function.arguments).length; } catch { /* circular ref — skip */ }
+      }
+    }
+    chars += nameLen + argsLen + 20; // overhead for id, structure
+  }
+  return chars;
 }
 
 /** Context manager configuration */
@@ -144,18 +162,7 @@ export class ContextManager {
     };
 
     // Estimate chars for toolCalls metadata (if present)
-    let toolCallChars = 0;
-    if (messageWithTimestamp.toolCalls?.length) {
-      for (const tc of messageWithTimestamp.toolCalls) {
-        const nameLen = tc.function?.name?.length ?? 0;
-        const argsLen = tc.function?.arguments
-          ? (typeof tc.function.arguments === "string"
-              ? tc.function.arguments.length
-              : JSON.stringify(tc.function.arguments).length)
-          : 0;
-        toolCallChars += nameLen + argsLen + 20; // overhead for id, structure
-      }
-    }
+    const toolCallChars = estimateToolCallChars(messageWithTimestamp);
 
     if (this.config.overflowStrategy === "fail") {
       const projectedTokens = Math.ceil(
@@ -377,20 +384,21 @@ export class ContextManager {
     let systemChars = 0;
     if (this.config.preserveSystem) {
       for (const m of systemMessages) {
-        systemChars += m.content.length;
+        systemChars += m.content.length + estimateToolCallChars(m);
       }
     }
     const systemTokens = Math.ceil(systemChars / 4);
     let nonSystemChars = 0;
     for (const m of nonSystemMessages) {
-      nonSystemChars += m.content.length;
+      nonSystemChars += m.content.length + estimateToolCallChars(m);
     }
     let nonSystemTokens = Math.ceil(nonSystemChars / 4);
     const maxTrim = nonSystemMessages.length - this.config.minMessages;
     let startIdx = 0;
 
     while (startIdx < maxTrim && (systemTokens + nonSystemTokens) > this.config.maxTokens) {
-      nonSystemTokens -= Math.ceil(nonSystemMessages[startIdx].content.length / 4);
+      const msg = nonSystemMessages[startIdx];
+      nonSystemTokens -= Math.ceil((msg.content.length + estimateToolCallChars(msg)) / 4);
       startIdx++;
     }
 
@@ -478,7 +486,7 @@ export class ContextManager {
     this.totalChars = 0;
     for (const m of newMessages) {
       this.incrementRoleCount(m.role);
-      this.totalChars += m.content.length;
+      this.totalChars += m.content.length + estimateToolCallChars(m);
     }
   }
 

@@ -62,6 +62,8 @@ interface ShellScriptResult extends ShellResult {
 }
 
 const FORCE_KILL_DELAY_MS = 2000;
+/** Max bytes to read from a process stream before capping (10 MB) */
+const MAX_STREAM_BYTES = 10 * 1024 * 1024;
 
 /**
  * Backward-compatible classifier returning only safety level.
@@ -467,6 +469,7 @@ async function readProcessStream(
 
   const reader = (stream as ReadableStream<Uint8Array>).getReader();
   const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
 
   const onAbort = (): void => {
     reader.cancel().catch(() => {});
@@ -484,7 +487,26 @@ async function readProcessStream(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (value) chunks.push(value);
+      if (value) {
+        totalBytes += value.length;
+        if (totalBytes > MAX_STREAM_BYTES) {
+          // Cap reached — keep what we have and discard the rest
+          const overshoot = totalBytes - MAX_STREAM_BYTES;
+          const trimmed = value.slice(0, value.length - overshoot);
+          if (trimmed.length > 0) chunks.push(trimmed);
+          // Drain remaining stream to avoid broken pipe
+          try {
+            while (true) {
+              const { done: d } = await reader.read();
+              if (d) break;
+            }
+          } catch {
+            // ignore drain errors
+          }
+          break;
+        }
+        chunks.push(value);
+      }
     }
   } finally {
     if (signal) {

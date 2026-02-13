@@ -21,6 +21,7 @@ import { WEB_TOOLS } from "./tools/web-tools.ts";
 import { MEMORY_TOOLS } from "./tools/memory-tools.ts";
 import { AGENT_TOOLS } from "./tools/agent-tools.ts";
 import { DATA_TOOLS } from "./tools/data-tools.ts";
+import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { ValidationError } from "../../common/error.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
@@ -98,6 +99,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...MEMORY_TOOLS,
   ...AGENT_TOOLS,
   ...DATA_TOOLS,
+  ...GIT_TOOLS,
 } as Record<string, ToolMetadata>;
 
 /**
@@ -253,6 +255,7 @@ export function getToolsByCategory(): {
   memory: string[];
   agent: string[];
   data: string[];
+  git: string[];
   dynamic: string[];
 } {
   return {
@@ -264,6 +267,7 @@ export function getToolsByCategory(): {
     memory: Object.keys(MEMORY_TOOLS),
     agent: Object.keys(AGENT_TOOLS),
     data: Object.keys(DATA_TOOLS),
+    git: Object.keys(GIT_TOOLS),
     dynamic: Object.keys(DYNAMIC_TOOL_REGISTRY),
   };
 }

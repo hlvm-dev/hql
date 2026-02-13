@@ -235,6 +235,74 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "Code Tools: search_code - contextLines returns surrounding lines",
+  async fn() {
+    await setupWorkspace();
+
+    const result = await searchCode(
+      {
+        pattern: "validateUser",
+        contextLines: 2,
+      } as SearchCodeArgs,
+      TEST_WORKSPACE
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(result.count! >= 1, true);
+
+    // First match should have context array
+    const match = result.matches![0];
+    assertEquals(Array.isArray(match.context), true);
+    assertEquals(match.context!.length >= 1, true);
+    // Context should include surrounding lines
+    assertEquals(match.context!.length <= 5, true); // 2 before + match + 2 after = 5 max
+  },
+});
+
+Deno.test({
+  name: "Code Tools: search_code - contextLines=0 omits context",
+  async fn() {
+    await setupWorkspace();
+
+    const result = await searchCode(
+      {
+        pattern: "validateUser",
+        contextLines: 0,
+      } as SearchCodeArgs,
+      TEST_WORKSPACE
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(result.count! >= 1, true);
+    assertEquals(result.matches![0].context, undefined);
+
+    await cleanupWorkspace();
+  },
+});
+
+Deno.test({
+  name: "Code Tools: search_code - contextLines capped at 10",
+  async fn() {
+    await setupWorkspace();
+
+    const result = await searchCode(
+      {
+        pattern: "CONFIG",
+        contextLines: 999,
+      } as SearchCodeArgs,
+      TEST_WORKSPACE
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(result.count! >= 1, true);
+    // Context should exist but not be unlimited
+    assertEquals(Array.isArray(result.matches![0].context), true);
+
+    await cleanupWorkspace();
+  },
+});
+
 // ============================================================
 // find_symbol tests
 // ============================================================

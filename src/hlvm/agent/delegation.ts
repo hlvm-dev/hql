@@ -14,13 +14,6 @@ import { DEFAULT_MAX_TOOL_CALLS, ENGINE_PROFILES } from "./constants.ts";
 import { ValidationError } from "../../common/error.ts";
 import { hasTool } from "./registry.ts";
 
-interface DelegateArgs {
-  agent: string;
-  task: string;
-  maxToolCalls?: number;
-  groundingMode?: "off" | "warn" | "strict";
-}
-
 function buildAgentSystemNote(profileName: string, tools: string[]): string {
   return [
     `Specialist agent: ${profileName}`,
@@ -41,6 +34,12 @@ export function createDelegateHandler(
   baseConfig: Pick<OrchestratorConfig, "policy" | "autoApprove">,
 ): (args: unknown, config: OrchestratorConfig) => Promise<unknown> {
   return async (args: unknown, config: OrchestratorConfig): Promise<unknown> => {
+    if (!args || typeof args !== "object") {
+      throw new ValidationError(
+        `delegate_agent requires { agent, task }. Got: ${typeof args}`,
+        "delegate_agent",
+      );
+    }
     const record = args as Record<string, unknown>;
     const agent = typeof record.agent === "string" ? record.agent : "";
     const task = typeof record.task === "string" ? record.task : "";

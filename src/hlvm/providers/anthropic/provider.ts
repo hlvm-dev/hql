@@ -17,6 +17,7 @@ import type {
   ProviderStatus,
 } from "../types.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { extractSignal } from "../common.ts";
 import * as api from "./api.ts";
 
 const DEFAULT_ENDPOINT = "https://api.anthropic.com";
@@ -69,7 +70,7 @@ export class AnthropicProvider implements AIProvider {
       messages,
       this.apiKey,
       options as ChatOptions,
-      options?.raw?.signal as AbortSignal | undefined,
+      extractSignal(options),
     );
     if (result.content) yield result.content;
   }
@@ -84,7 +85,7 @@ export class AnthropicProvider implements AIProvider {
       messages,
       this.apiKey,
       options,
-      options?.raw?.signal as AbortSignal | undefined,
+      extractSignal(options),
     );
     if (result.content) yield result.content;
   }
@@ -99,7 +100,7 @@ export class AnthropicProvider implements AIProvider {
       messages,
       this.apiKey,
       options,
-      options?.raw?.signal as AbortSignal | undefined,
+      extractSignal(options),
     );
   }
 

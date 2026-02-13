@@ -27,11 +27,8 @@ import {
 } from "../../../common/limits.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
 import { formatToolError, okTool, failTool } from "../tool-results.ts";
-import { isObjectValue, truncate } from "../../../common/utils.ts";
+import { isObjectValue, TEXT_ENCODER, truncate } from "../../../common/utils.ts";
 import { getMimeTypeForExtension } from "../../../common/file-kinds.ts";
-
-/** Reusable encoder (stateless, no need to recreate) */
-const TEXT_ENCODER = new TextEncoder();
 
 // ============================================================
 // Types
@@ -47,7 +44,6 @@ interface FileOperationResult {
 /** Arguments for read_file tool */
 export interface ReadFileArgs {
   path: string;
-  encoding?: "utf8" | "binary";
   maxBytes?: number;
 }
 
@@ -174,7 +170,6 @@ function normalizeExtensionPattern(pattern: string): string {
  * ```ts
  * const result = await readFile({
  *   path: "src/main.ts",
- *   encoding: "utf8"
  * }, "/workspace");
  * ```
  */
@@ -348,6 +343,11 @@ export async function editFile(
     // Read existing content
     const content = await platform.fs.readTextFile(validPath);
     throwIfAborted(options?.signal);
+
+    // Validate find string is non-empty (empty string splits every character)
+    if (!args.find) {
+      return failTool("'find' parameter must be a non-empty string");
+    }
 
     // Perform find/replace
     let newContent: string;
@@ -662,7 +662,6 @@ export const FILE_TOOLS = {
     safetyLevel: "L0",
     args: {
       path: "string - Path to file (relative to workspace or absolute if allowed by policy)",
-      encoding: "string (optional) - 'utf8' or 'binary' (default: utf8)",
       maxBytes: "number (optional) - Max bytes to return; content is truncated if file exceeds this (capped at 2MB)",
     },
     returns: {

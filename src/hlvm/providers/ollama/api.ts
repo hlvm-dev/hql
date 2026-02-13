@@ -181,10 +181,34 @@ async function* streamRequest<T>(
   let buffer = "";
   let searchFrom = 0;
 
+  const abortError = (): Error => {
+    const error = new Error("Aborted");
+    error.name = "AbortError";
+    return error;
+  };
+
+  const handleAbort = () => {
+    reader.cancel().catch(() => {});
+  };
+
+  if (signal?.aborted) {
+    throw abortError();
+  }
+
+  signal?.addEventListener("abort", handleAbort, { once: true });
+
   try {
     while (true) {
+      if (signal?.aborted) {
+        throw abortError();
+      }
+
       const { done, value } = await reader.read();
       if (done) break;
+
+      if (signal?.aborted) {
+        throw abortError();
+      }
 
       buffer += decoder.decode(value, { stream: true });
       let lineEndIndex = buffer.indexOf("\n", searchFrom);
@@ -204,12 +228,17 @@ async function* streamRequest<T>(
       }
     }
 
+    if (signal?.aborted) {
+      throw abortError();
+    }
+
     // Process remaining buffer
     const parsed = parseJsonLine<T>(buffer);
     if (parsed !== undefined) {
       yield parsed;
     }
   } finally {
+    signal?.removeEventListener("abort", handleAbort);
     reader.cancel().catch(() => {});
   }
 }

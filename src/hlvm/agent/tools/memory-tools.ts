@@ -70,7 +70,7 @@ async function memoryClear(): Promise<Record<string, unknown>> {
 
 export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
   memory_add: {
-    fn: async (args) => await memoryAdd(args),
+    fn: memoryAdd,
     description:
       "Store a memory entry for future retrieval. Use only when the user explicitly asks to remember something.",
     args: {
@@ -87,7 +87,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     safety: "Local-only write to ~/.hlvm/agent-memory.jsonl",
   },
   memory_search: {
-    fn: async (args) => await memorySearch(args),
+    fn: memorySearch,
     description:
       "Search stored memory entries by query. Use only when the user asks to recall memory.",
     args: {
@@ -102,7 +102,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     safety: "Local-only read from ~/.hlvm/agent-memory.jsonl",
   },
   memory_list: {
-    fn: async (args) => await memoryList(args),
+    fn: memoryList,
     description:
       "List recent memory entries. Use only when the user asks to view memory.",
     args: {
@@ -116,7 +116,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     safety: "Local-only read from ~/.hlvm/agent-memory.jsonl",
   },
   memory_clear: {
-    fn: async () => await memoryClear(),
+    fn: memoryClear,
     description:
       "Clear all stored memory entries. Use only when the user asks to clear memory.",
     args: {},

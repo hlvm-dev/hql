@@ -14,7 +14,7 @@ import {
   scanJsonLines,
 } from "../../common/jsonl.ts";
 import { ValidationError } from "../../common/error.ts";
-import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
+import { generateUUID, getErrorMessage, isObjectValue } from "../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -32,16 +32,6 @@ interface MemoryQuery {
   limit?: number;
 }
 
-// ============================================================
-// Core helpers
-// ============================================================
-
-function makeId(): string {
-  return typeof crypto?.randomUUID === "function"
-    ? crypto.randomUUID()
-    : String(Date.now());
-}
-
 function toMemoryEntry(value: unknown): MemoryEntry | undefined {
   if (!isObjectValue(value)) return undefined;
   const content = typeof value.content === "string" ? value.content : "";
@@ -55,7 +45,7 @@ function toMemoryEntry(value: unknown): MemoryEntry | undefined {
 
   const id = typeof value.id === "string" && value.id.length > 0
     ? value.id
-    : makeId();
+    : generateUUID();
   const createdAt =
     typeof value.createdAt === "string" && value.createdAt.length > 0
       ? value.createdAt
@@ -85,7 +75,7 @@ export async function addMemoryEntry(
     );
   }
   const entry: MemoryEntry = {
-    id: makeId(),
+    id: generateUUID(),
     content: trimmed,
     tags: tags && tags.length > 0 ? tags : undefined,
     createdAt: new Date().toISOString(),
@@ -124,6 +114,7 @@ export async function searchMemory(
     throw new ValidationError(
       `Failed to search agent memory: ${getErrorMessage(error)}`,
       "agent_memory",
+      { originalError: error instanceof Error ? error : undefined },
     );
   }
   return matches;
@@ -138,6 +129,7 @@ export async function listMemoryEntries(limit = 50): Promise<MemoryEntry[]> {
     throw new ValidationError(
       `Failed to list agent memory: ${getErrorMessage(error)}`,
       "agent_memory",
+      { originalError: error instanceof Error ? error : undefined },
     );
   }
 }

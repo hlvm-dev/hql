@@ -99,6 +99,8 @@ export interface GenerateOptions {
   images?: string[];
   /** Provider-specific options */
   raw?: Record<string, unknown>;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
 }
 
 /** Options for chat completion */

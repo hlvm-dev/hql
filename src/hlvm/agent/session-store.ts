@@ -17,11 +17,12 @@ import {
 } from "../../common/jsonl.ts";
 import { ValidationError } from "../../common/error.ts";
 import {
+  generateUUID,
   getErrorMessage,
   isFileNotFoundError,
   isObjectValue,
 } from "../../common/utils.ts";
-import { log } from "../api/log.ts";
+import { getAgentLogger } from "./logger.ts";
 import { isSummaryMessage, type Message, type MessageRole } from "./context.ts";
 
 // ============================================================
@@ -115,7 +116,7 @@ async function loadIndexFromDisk(path: string): Promise<SessionIndex> {
         "session_store",
       );
     }
-    log.warn(`Failed to load session index: ${getErrorMessage(error)}`);
+    getAgentLogger().warn(`Failed to load session index: ${getErrorMessage(error)}`);
     throw error;
   }
 }
@@ -151,9 +152,7 @@ async function saveIndex(
 }
 
 function createEntry(key?: string): AgentSessionEntry {
-  const id = typeof crypto?.randomUUID === "function"
-    ? crypto.randomUUID()
-    : String(Date.now());
+  const id = generateUUID();
   const sessionKey = key?.trim() ? key.trim() : id;
   const now = new Date().toISOString();
   return {
@@ -314,6 +313,7 @@ export async function loadSessionMessages(
     throw new ValidationError(
       `Failed to read session transcript: ${getErrorMessage(error)}`,
       "session_store",
+      { originalError: error instanceof Error ? error : undefined },
     );
   }
 }

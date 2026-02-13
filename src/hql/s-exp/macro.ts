@@ -861,7 +861,9 @@ function evaluateVar(list: SList, env: Environment, logger: Logger): SExp {
 function isNamedFnDefinition(list: SList): boolean {
   if (list.elements.length < 3) return false;
   const first = list.elements[0];
-  if (!isSymbol(first) || (first as SSymbol).name !== "fn") return false;
+  if (!isSymbol(first)) return false;
+  const headName = (first as SSymbol).name;
+  if (headName !== "fn" && headName !== "fx") return false;
   const second = list.elements[1];
   return isSymbol(second);
 }

@@ -15,7 +15,7 @@
  */
 
 import { getPlatform } from "../../platform/platform.ts";
-import { log } from "../api/log.ts";
+import { getAgentLogger } from "./logger.ts";
 import { globToRegex, GlobPatternError } from "../../common/pattern-utils.ts";
 import { getErrorMessage, isFileNotFoundError, isObjectValue } from "../../common/utils.ts";
 import type { SafetyLevel } from "./security/safety.ts";
@@ -95,7 +95,7 @@ export async function loadAgentPolicy(
     if (isFileNotFoundError(error)) {
       return null;
     }
-    log.warn(`Agent policy load failed (${path}): ${getErrorMessage(error)}`);
+    getAgentLogger().warn(`Agent policy load failed (${path}): ${getErrorMessage(error)}`);
     return null;
   }
 
@@ -103,7 +103,7 @@ export async function loadAgentPolicy(
   try {
     parsed = JSON.parse(content);
   } catch (error) {
-    log.warn(
+    getAgentLogger().warn(
       `Agent policy JSON invalid (${path}): ${getErrorMessage(error)}`,
     );
     return null;
@@ -112,9 +112,9 @@ export async function loadAgentPolicy(
   const normalized = normalizePolicy(parsed);
   if (!normalized) {
     const reason = describePolicyInvalid(parsed);
-    log.warn(`Agent policy invalid (${path}): ${reason}`);
-    log.warn("Policy was ignored. Update to version 1 schema. Example:");
-    log.warn(POLICY_V1_EXAMPLE);
+    getAgentLogger().warn(`Agent policy invalid (${path}): ${reason}`);
+    getAgentLogger().warn("Policy was ignored. Update to version 1 schema. Example:");
+    getAgentLogger().warn(POLICY_V1_EXAMPLE);
     return null;
   }
 
@@ -246,6 +246,27 @@ export function isPathAllowed(
 }
 
 /**
+ * Shared logic for absolute path policy checks.
+ * Returns true if path is allowed by roots or relative rules.
+ */
+function checkAbsolutePathAgainstPolicy(
+  policy: AgentPolicy,
+  workspace: string,
+  absolutePath: string,
+): { allowed: boolean; relativePath: string } {
+  const roots = resolvePolicyPathRoots(policy, workspace);
+  if (roots.length > 0 && roots.some((root) => isPathWithinRoot(absolutePath, root))) {
+    return { allowed: true, relativePath: "" };
+  }
+  const platform = getPlatform();
+  const relative = normalizePolicyPath(
+    platform.path.relative(workspace, absolutePath) || ".",
+    platform.path.sep,
+  );
+  return { allowed: isPathAllowed(policy, relative), relativePath: relative };
+}
+
+/**
  * Check if an absolute path is allowed by policy.
  * Converts to workspace-relative path before evaluation.
  */
@@ -255,16 +276,7 @@ export function isPathAllowedAbsolute(
   absolutePath: string,
 ): boolean {
   if (!policy?.pathRules) return true;
-  const roots = resolvePolicyPathRoots(policy, workspace);
-  if (roots.length > 0 && roots.some((root) => isPathWithinRoot(absolutePath, root))) {
-    return true;
-  }
-  const platform = getPlatform();
-  const relative = normalizePolicyPath(
-    platform.path.relative(workspace, absolutePath) || ".",
-    platform.path.sep,
-  );
-  return isPathAllowed(policy, relative);
+  return checkAbsolutePathAgainstPolicy(policy, workspace, absolutePath).allowed;
 }
 
 /**
@@ -277,18 +289,10 @@ export function enforcePathPolicy(
   displayPath?: string,
 ): void {
   if (!policy) return;
-  const roots = resolvePolicyPathRoots(policy, workspace);
-  if (roots.length > 0 && roots.some((root) => isPathWithinRoot(absolutePath, root))) {
-    return;
-  }
-  const platform = getPlatform();
-  const relative = normalizePolicyPath(
-    platform.path.relative(workspace, absolutePath) || ".",
-    platform.path.sep,
-  );
-  if (!isPathAllowed(policy, relative)) {
+  const { allowed, relativePath } = checkAbsolutePathAgainstPolicy(policy, workspace, absolutePath);
+  if (!allowed) {
     throw new SecurityError(
-      `Path denied by policy: ${displayPath ?? relative}`,
+      `Path denied by policy: ${displayPath ?? relativePath}`,
       absolutePath,
     );
   }

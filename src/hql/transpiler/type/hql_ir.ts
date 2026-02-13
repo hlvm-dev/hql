@@ -349,6 +349,8 @@ export interface IRFunctionExpression extends IRNode {
   typeParameters?: string[];
   /** If true, uses 'this' keyword - generate regular function instead of arrow */
   usesThis?: boolean;
+  /** Whether this is a pure function (fx) — compile-time enforced */
+  pure?: boolean;
 }
 
 // Object literal support (for maps)
@@ -538,6 +540,8 @@ export interface IRFnFunctionDeclaration extends IRNode {
   returnType?: string;
   /** TypeScript generic type parameters (e.g., ["T", "U extends string"]) */
   typeParameters?: string[];
+  /** Whether this is a pure function (fx) — compile-time enforced */
+  pure?: boolean;
 }
 
 export interface IRAwaitExpression extends IRNode {

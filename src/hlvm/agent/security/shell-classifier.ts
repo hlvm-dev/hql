@@ -12,7 +12,7 @@ interface ShellCommandClassification {
   reason: string;
 }
 
-const SHELL_METACHAR = /[;|&`]|\$\(/;
+const SHELL_METACHAR = /[;|&`<>]|\$\(/;
 
 export function classifyShellCommand(command: string): ShellCommandClassification {
   const trimmed = command.trim();

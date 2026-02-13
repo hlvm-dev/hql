@@ -9,15 +9,22 @@
  * Extracted from orchestrator.ts to keep the ReAct loop focused.
  */
 
+// Pre-compiled regexes — hoisted to module level to avoid recompilation per call
+const RE_TOOL_CALL_JSON =
+  /\{[\s\S]*?"(toolName|tool_name|function_name|name)"\s*:\s*"[^"]+"[\s\S]*?"(args|parameters|arguments)"\s*:\s*[\s\S]*?\}/m;
+const RE_JSON_OBJECT_TOOL = /\bjson object\b/;
+const RE_TOOL_WORD = /\btool\b/;
+const RE_FUNCTION_TOOL_CALL = /\b(function|tool)\s+call(ing)?\s*[:\(]/i;
+const RE_INVOKE_TOOL = /\b(invoke|execute)\s+the\s+\w+\s+tool\b/;
+const RE_MARKDOWN_FENCE = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/g;
+
 /**
  * Detect JSON-like tool call structures anywhere in text.
  * Used to identify when a model outputs tool calls as text instead of using
  * native function calling.
  */
 export function looksLikeToolCallJsonAnywhere(text: string): boolean {
-  const pattern =
-    /\{[\s\S]*?"(toolName|tool_name|function_name|name)"\s*:\s*"[^"]+"[\s\S]*?"(args|parameters|arguments)"\s*:\s*[\s\S]*?\}/m;
-  return pattern.test(text);
+  return RE_TOOL_CALL_JSON.test(text);
 }
 
 /**
@@ -27,9 +34,9 @@ export function looksLikeToolCallJsonAnywhere(text: string): boolean {
 function looksLikeToolInstruction(text: string): boolean {
   const lower = text.toLowerCase();
   // Only match explicit instructional patterns, not natural language
-  if (/\bjson object\b/.test(lower) && /\btool\b/.test(lower)) return true;
-  if (/\b(function|tool)\s+call(ing)?\s*[:\(]/i.test(lower)) return true;
-  if (/\b(invoke|execute)\s+the\s+\w+\s+tool\b/.test(lower)) return true;
+  if (RE_JSON_OBJECT_TOOL.test(lower) && RE_TOOL_WORD.test(lower)) return true;
+  if (RE_FUNCTION_TOOL_CALL.test(lower)) return true;
+  if (RE_INVOKE_TOOL.test(lower)) return true;
   return false;
 }
 
@@ -65,7 +72,7 @@ export function tryParseToolCallsFromText(
 
   // Strip markdown code fences
   const stripped = text
-    .replace(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/g, "$1")
+    .replace(RE_MARKDOWN_FENCE, "$1")
     .trim();
 
   const single = tryParseOneToolCall(stripped);

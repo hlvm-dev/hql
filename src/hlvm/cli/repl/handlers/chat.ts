@@ -97,6 +97,7 @@ interface ChatRequest {
   temperature?: number;
   max_tokens?: number;
   client_turn_id?: string;
+  assistant_client_turn_id?: string;
   expected_version?: number;
 }
 
@@ -106,7 +107,11 @@ interface CancelRequest {
 
 // MARK: - Stored Properties
 
-const activeRequests = new Map<string, { controller: AbortController; sessionId: string }>();
+const activeRequests = new Map<string, {
+  controller: AbortController;
+  sessionId: string;
+  cancel?: () => void;
+}>();
 let agentReady = false;
 
 export function isAgentReady(): boolean {
@@ -119,11 +124,17 @@ export function markAgentReady(): void {
 
 export function cancelSessionRequests(sessionId: string): number {
   let count = 0;
-  for (const [, entry] of activeRequests) {
-    if (entry.sessionId === sessionId) {
+  for (const [requestId, entry] of activeRequests) {
+    if (entry.sessionId !== sessionId) continue;
+
+    if (entry.cancel) {
+      entry.cancel();
+    } else {
       entry.controller.abort();
-      count++;
     }
+
+    activeRequests.delete(requestId);
+    count++;
   }
   return count;
 }
@@ -243,6 +254,7 @@ export async function handleChat(req: Request): Promise<Response> {
     session_id: session.id,
     role: "assistant",
     content: "",
+    client_turn_id: body.assistant_client_turn_id,
     request_id: requestId,
     sender_type: senderType,
     sender_detail: resolvedModel ?? "default",
@@ -251,6 +263,7 @@ export async function handleChat(req: Request): Promise<Response> {
   pushSSEEvent(session.id, "message_added", { message: assistantMsg });
 
   let partialText = "";
+  let cancellationEmitted = false;
 
   const stream = new ReadableStream({
     async start(streamController) {
@@ -260,6 +273,27 @@ export async function handleChat(req: Request): Promise<Response> {
         } catch {
           // Stream closed
         }
+      }
+
+      const emitCancellationOnce = () => {
+        if (cancellationEmitted) return;
+        cancellationEmitted = true;
+        emitCancellation(assistantMessageId, partialText, sessionId, requestId, emit);
+      };
+
+      const activeEntry = activeRequests.get(requestId);
+      if (activeEntry) {
+        activeEntry.cancel = () => {
+          if (!controller.signal.aborted) {
+            controller.abort();
+          }
+          emitCancellationOnce();
+          try {
+            streamController.close();
+          } catch {
+            // Stream already closed
+          }
+        };
       }
 
       try {
@@ -274,7 +308,7 @@ export async function handleChat(req: Request): Promise<Response> {
         }
 
         if (controller.signal.aborted) {
-          emitCancellation(assistantMessageId, partialText, sessionId, requestId, emit);
+          emitCancellationOnce();
         } else {
           const currentSession = getSession(sessionId);
           if (currentSession && !currentSession.title) {
@@ -295,13 +329,26 @@ export async function handleChat(req: Request): Promise<Response> {
           });
         }
       } catch (error) {
-        emitCancellation(assistantMessageId, partialText, sessionId, requestId, emit);
-        if (!controller.signal.aborted) {
+        if (controller.signal.aborted) {
+          emitCancellationOnce();
+        } else {
+          // Preserve partial output for UI/state recovery, but don't mark as cancelled on real errors.
+          if (partialText.length > 0) {
+            updateMessage(assistantMessageId, { content: partialText });
+            pushSSEEvent(sessionId, "message_updated", {
+              id: assistantMessageId,
+              content: partialText,
+            });
+          }
           emit({ event: "error", message: getErrorMessage(error) });
         }
       }
 
-      streamController.close();
+      try {
+        streamController.close();
+      } catch {
+        // Stream already closed
+      }
       activeRequests.delete(requestId);
     },
   });
@@ -327,7 +374,13 @@ export async function handleChatCancel(req: Request): Promise<Response> {
   const entry = activeRequests.get(request_id);
   if (!entry) return jsonError("Request not found or already completed", 404);
 
-  entry.controller.abort();
+  if (entry.cancel) {
+    entry.cancel();
+  } else {
+    entry.controller.abort();
+  }
+
+  activeRequests.delete(request_id);
   return Response.json({ cancelled: true, request_id });
 }
 
@@ -361,13 +414,50 @@ async function handleChatMode(
 
   let fullText = "";
 
-  for await (const token of ai.chat(providerMessages, {
+  const tokenIterator = ai.chat(providerMessages, {
     model: body.model,
     temperature: body.temperature,
     maxTokens: body.max_tokens,
     signal,
-  })) {
-    if (signal.aborted) break;
+  })[Symbol.asyncIterator]();
+
+  const waitForAbort: Promise<"aborted"> = signal.aborted
+    ? Promise.resolve("aborted")
+    : new Promise((resolve) => {
+      signal.addEventListener("abort", () => resolve("aborted"), { once: true });
+    });
+
+  while (true) {
+    if (signal.aborted) {
+      try {
+        await tokenIterator.return?.();
+      } catch {
+        // iterator already closed
+      }
+      break;
+    }
+
+    const nextPromise = tokenIterator.next();
+    const nextOrAbort = await Promise.race([
+      nextPromise.then((result) => ({ type: "next" as const, result })),
+      waitForAbort.then(() => ({ type: "abort" as const })),
+    ]);
+
+    if (nextOrAbort.type === "abort") {
+      nextPromise.catch(() => {});
+      try {
+        await tokenIterator.return?.();
+      } catch {
+        // iterator already closed
+      }
+      break;
+    }
+
+    if (nextOrAbort.result.done) {
+      break;
+    }
+
+    const token = nextOrAbort.result.value;
     fullText += token;
     onPartial(token);
     emit({ event: "token", text: token });

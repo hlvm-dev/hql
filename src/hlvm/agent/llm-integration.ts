@@ -21,15 +21,44 @@ import { collectStream } from "../../common/async-stream.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
 import { type LLMResponse, type ToolCall } from "./tool-call.ts";
 import { normalizeToolArgs } from "./validation.ts";
-import type { Message as AgentMessage } from "./context.ts";
-import type {
-  ProviderMessage,
-  ProviderToolCall,
-  ToolDefinition,
-} from "../providers/types.ts";
+import type { Message as AgentMessage, MessageRole } from "./context.ts";
+
+// ============================================================
+// LLM Bridge Types (locally defined for SDK decoupling)
+// ============================================================
+
+/** Provider-level chat message (matches wire format) */
+export interface ProviderMessage {
+  role: MessageRole;
+  content: string;
+  images?: string[];
+  tool_calls?: ProviderToolCall[];
+  tool_name?: string;
+  tool_call_id?: string;
+}
+
+/** Provider-level tool call (matches wire format) */
+export interface ProviderToolCall {
+  id?: string;
+  type?: string;
+  function: {
+    name: string;
+    arguments: unknown;
+  };
+}
+
+/** Tool definition for native function calling */
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters: Record<string, unknown>;
+  };
+}
 
 // Re-export for convenience
-export type { AgentMessage, ProviderMessage };
+export type { AgentMessage };
 
 // ============================================================
 // Message Type Conversion
@@ -167,42 +196,62 @@ export { collectStream };
 // Tool Schema + Native Tool Calling
 // ============================================================
 
-/** Cached tool definitions keyed by serialized options */
-let _toolDefCache: { key: string; defs: ToolDefinition[] } | null = null;
+/**
+ * Create a tool definition cache with encapsulated state.
+ * Avoids module-level mutable state that could leak between runs.
+ */
+function createToolDefCache(): {
+  build: (options?: { allowlist?: string[]; denylist?: string[] }) => ToolDefinition[];
+  clear: () => void;
+} {
+  let cached: { key: string; defs: ToolDefinition[] } | null = null;
+
+  return {
+    build(options?: { allowlist?: string[]; denylist?: string[] }): ToolDefinition[] {
+      const cacheKey = JSON.stringify([
+        options?.allowlist ?? null,
+        options?.denylist ?? null,
+      ]);
+      if (cached && cached.key === cacheKey) {
+        return cached.defs;
+      }
+
+      const tools = resolveTools(options);
+      const defs: ToolDefinition[] = Object.entries(tools).map(([name, meta]) => {
+        const parameters = meta.skipValidation
+          ? { type: "object", properties: {}, additionalProperties: true }
+          : buildToolJsonSchema(meta);
+
+        return {
+          type: "function" as const,
+          function: {
+            name,
+            description: meta.description,
+            parameters: parameters as Record<string, unknown>,
+          },
+        };
+      });
+      cached = { key: cacheKey, defs };
+      return defs;
+    },
+    clear() {
+      cached = null;
+    },
+  };
+}
+
+const toolDefCache = createToolDefCache();
 
 /** Clear cached tool definitions (call when registry changes or at session start) */
 export function clearToolDefCache(): void {
-  _toolDefCache = null;
+  toolDefCache.clear();
 }
 
+/** Build tool definitions with caching */
 function buildToolDefinitions(
   options?: { allowlist?: string[]; denylist?: string[] },
 ): ToolDefinition[] {
-  const cacheKey = JSON.stringify([
-    options?.allowlist ?? null,
-    options?.denylist ?? null,
-  ]);
-  if (_toolDefCache && _toolDefCache.key === cacheKey) {
-    return _toolDefCache.defs;
-  }
-
-  const tools = resolveTools(options);
-  const defs: ToolDefinition[] = Object.entries(tools).map(([name, meta]) => {
-    const parameters = meta.skipValidation
-      ? { type: "object", properties: {}, additionalProperties: true }
-      : buildToolJsonSchema(meta);
-
-    return {
-      type: "function" as const,
-      function: {
-        name,
-        description: meta.description,
-        parameters: parameters as Record<string, unknown>,
-      },
-    };
-  });
-  _toolDefCache = { key: cacheKey, defs };
-  return defs;
+  return toolDefCache.build(options);
 }
 
 function convertProviderToolCalls(

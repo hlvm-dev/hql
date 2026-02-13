@@ -108,6 +108,21 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Handlers: handleCreateSession - 400 for empty explicit id",
+  async fn() {
+    const db = setupStoreTestDb();
+    try {
+      const resp = await handleCreateSession(jsonRequest({ id: "   ", title: "X" }));
+      assertEquals(resp.status, 400);
+      const body = await resp.json();
+      assertEquals(body.error, "Session id cannot be empty");
+    } finally {
+      db.close();
+    }
+  },
+});
+
+Deno.test({
   name: "Handlers: handleGetSession - returns existing session",
   async fn() {
     const db = setupStoreTestDb();

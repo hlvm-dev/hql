@@ -11,8 +11,8 @@ import { getPlatform } from "../../platform/platform.ts";
 import type { PlatformCommandProcess } from "../../platform/types.ts";
 import { ValidationError } from "../../common/error.ts";
 import { parseJsonLine } from "../../common/jsonl.ts";
-import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
-import { log } from "../api/log.ts";
+import { getErrorMessage, isObjectValue, TEXT_ENCODER } from "../../common/utils.ts";
+import { getAgentLogger } from "./logger.ts";
 import {
   registerTools,
   type ToolMetadata,
@@ -63,6 +63,8 @@ const MCP_FILE_NAME = "mcp.json";
 const MCP_DIR_NAME = ".hlvm";
 const PLAYWRIGHT_SERVER_NAME = "playwright";
 const PLAYWRIGHT_SERVER_SCRIPT = ["scripts", "mcp", "playwright-server.mjs"];
+/** Timeout for individual MCP JSON-RPC requests (30 seconds) */
+const MCP_REQUEST_TIMEOUT_MS = 30_000;
 
 function getDefaultMcpPath(workspace: string): string {
   const platform = getPlatform();
@@ -87,12 +89,12 @@ export async function loadMcpConfig(
   try {
     parsed = JSON.parse(content);
   } catch (error) {
-    log.warn(`MCP config JSON invalid (${path}): ${getErrorMessage(error)}`);
+    getAgentLogger().warn(`MCP config JSON invalid (${path}): ${getErrorMessage(error)}`);
     return null;
   }
 
   if (!isObjectValue(parsed) || parsed.version !== 1) {
-    log.warn(`MCP config invalid (${path}): expected version 1`);
+    getAgentLogger().warn(`MCP config invalid (${path}): expected version 1`);
     return null;
   }
 
@@ -150,7 +152,7 @@ function isMcpServerConfig(value: unknown): value is McpServerConfig {
 class McpClient {
   private readonly server: McpServerConfig;
   private readonly platform = getPlatform();
-  private readonly encoder = new TextEncoder();
+  private readonly encoder = TEXT_ENCODER;
   private process: PlatformCommandProcess | null = null;
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
@@ -184,7 +186,7 @@ class McpClient {
     if (process.stdout) {
       this.reader = (process.stdout as ReadableStream<Uint8Array>).getReader();
       this.readLoopPromise = this.readLoop().catch((error) => {
-        log.warn(
+        getAgentLogger().warn(
           `MCP read loop failed (${this.server.name}): ${
             getErrorMessage(error)
           }`,
@@ -211,7 +213,7 @@ class McpClient {
       });
       await this.notify("initialized", {});
     } catch (error) {
-      log.warn(
+      getAgentLogger().warn(
         `MCP initialize failed (${this.server.name}): ${
           getErrorMessage(error)
         }`,
@@ -332,7 +334,36 @@ class McpClient {
       this.pending.set(id, { resolve, reject });
     });
     await this.send(request);
-    return await promise;
+
+    // Timeout to prevent hanging forever if server doesn't respond
+    const timeoutMs = MCP_REQUEST_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        const pending = this.pending.get(id);
+        if (pending) {
+          this.pending.delete(id);
+          pending.reject(
+            new ValidationError(
+              `MCP request '${method}' timed out after ${timeoutMs}ms`,
+              "mcp",
+            ),
+          );
+        }
+        reject(
+          new ValidationError(
+            `MCP request '${method}' timed out after ${timeoutMs}ms`,
+            "mcp",
+          ),
+        );
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async send(message: JsonRpcRequest): Promise<void> {
@@ -561,7 +592,7 @@ export async function loadMcpTools(
       registered.push(...names);
       clients.push(client);
     } catch (error) {
-      log.warn(
+      getAgentLogger().warn(
         `Skipping MCP server '${server.name}': ${getErrorMessage(error)}`,
       );
       try {

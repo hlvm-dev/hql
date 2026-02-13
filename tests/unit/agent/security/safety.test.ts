@@ -399,6 +399,42 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Safety: L1 confirmation - 'always' remembers via setL1Confirmation",
+  fn() {
+    clearAllL1Confirmations();
+
+    // Simulate "always" behavior: L1 tool gets remembered
+    const args = { command: "git status" };
+    setL1Confirmation("shell_exec", args);
+
+    // Future calls auto-approved
+    assertEquals(hasL1Confirmation("shell_exec", args), true);
+
+    // Verify the cache persists for the session
+    const all = getAllL1Confirmations();
+    assertEquals(all.size >= 1, true);
+  },
+});
+
+Deno.test({
+  name: "Safety: classifyTool - git tools classified correctly",
+  fn() {
+    // New git tools should have correct safety levels
+    const gitStatus = classifyTool("git_status", {});
+    assertEquals(gitStatus.level, "L0");
+
+    const gitDiff = classifyTool("git_diff", {});
+    assertEquals(gitDiff.level, "L0");
+
+    const gitLog = classifyTool("git_log", {});
+    assertEquals(gitLog.level, "L0");
+
+    const gitCommit = classifyTool("git_commit", { message: "test" });
+    assertEquals(gitCommit.level, "L2");
+  },
+});
+
+Deno.test({
   name: "Safety: classifyTool - provides meaningful reasons",
   fn() {
     const l0 = classifyTool("read_file", { path: "test.ts" });

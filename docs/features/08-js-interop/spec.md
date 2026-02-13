@@ -12,8 +12,8 @@ HQL compiles to JavaScript and provides forms for interacting with JavaScript AP
 4. **js-new** - Create objects with constructor (args wrapped in list)
 5. **new** - Create objects with constructor (flat args)
 6. **js-get-invoke** - Property access with runtime method/property check
-7. **Dot notation (spaced)** - `(obj .method arg)` syntactic sugar for method chaining
-8. **Dot notation (spaceless)** - `(obj.method arg)` compact form, identical behavior
+7. **Dot notation (spaced)** - `(obj .method arg)` legacy syntax for method chaining
+8. **Dot notation (spaceless)** - `(obj.method arg)` **preferred** compact form, identical behavior
 9. **Optional chaining** - Safe property/method access with `?.`
 
 ## Syntax
@@ -200,27 +200,39 @@ Examples:
 
 ### Optional Chaining
 
-Optional chaining allows safe property access on potentially null/undefined values. It compiles directly to JavaScript optional chaining (`?.`).
+Optional chaining allows safe property access on potentially null/undefined values. It compiles directly to JavaScript optional chaining (`?.`). This is general-purpose syntax that works anywhere — in bindings, function bodies, arrow lambdas, pipelines, and expressions.
 
-**Property access (bare symbol form):**
+**Property access:**
 ```lisp
 user?.name                           ;; => user?.name
 data?.user?.address?.city            ;; => data?.user?.address?.city
 ```
 
-**Method calls (spaceless form):**
+**Method calls:**
 ```lisp
 (obj?.greet "World")                 ;; => obj?.greet("World")
-```
-
-**Method calls (spaced dot notation):**
-```lisp
-(obj .?greet "World")                ;; => obj?.greet("World")
+(arr?.includes 2)                    ;; => arr?.includes(2)
 ```
 
 **Mixed with regular access:**
 ```lisp
 company?.ceo.name                    ;; => company?.ceo.name
+```
+
+**In arrow lambdas (with `$0`):**
+```lisp
+(items.map (=> $0?.name))            ;; safe access on each element
+```
+
+**Combined with nullish coalescing (`??`):**
+```lisp
+(?? user?.name "unknown")            ;; => user?.name ?? "unknown"
+(?? a (?? b c))                      ;; nested fallback chain
+```
+
+**In function bodies:**
+```lisp
+(fn safe-name [x] (?? x?.name "anonymous"))
 ```
 
 ## Implementation Details

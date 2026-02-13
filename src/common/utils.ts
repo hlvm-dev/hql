@@ -308,6 +308,18 @@ export function isObjectValue(val: unknown): val is Record<string, unknown> {
 }
 
 /**
+ * Safely parse a JSON string. Returns the parsed value on success,
+ * or the fallback on failure (defaults to the original string).
+ */
+export function tryParseJson(value: string, fallback?: unknown): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback !== undefined ? fallback : value;
+  }
+}
+
+/**
  * Check if a value is null or undefined.
  * Uses loose equality (==) for efficiency.
  *
@@ -365,6 +377,22 @@ export function mapTail<T, R>(arr: readonly T[], fn: (item: T) => R): R[] {
     result[i] = fn(arr[i + 1]);
   }
   return result;
+}
+
+/**
+ * Shared TextEncoder instance — stateless, safe to reuse across the codebase.
+ * SSOT: All TextEncoder usage in the agent module uses this.
+ */
+export const TEXT_ENCODER = new TextEncoder();
+
+/**
+ * Generate a UUID using crypto.randomUUID() with Date.now() fallback.
+ * SSOT: all non-tool-call UUID generation in the codebase goes through this function.
+ */
+export function generateUUID(): string {
+  return typeof crypto?.randomUUID === "function"
+    ? crypto.randomUUID()
+    : String(Date.now());
 }
 
 /**

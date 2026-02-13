@@ -20,7 +20,7 @@ import { escapeRegExp } from "../../../common/utils.ts";
 import { formatToolError, okTool, failTool } from "../tool-results.ts";
 import { walkDirectory, loadGitignore } from "../../../common/file-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
-import { assertMaxBytes, ResourceLimitError } from "../../../common/limits.ts";
+import { assertMaxBytes } from "../../../common/limits.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
 import { matchGlob } from "../../../common/pattern-utils.ts";
 
@@ -34,6 +34,7 @@ interface SearchMatch {
   line: number;
   content: string;
   match: string;
+  context?: string[];
 }
 
 /** Arguments for search_code tool */
@@ -43,6 +44,7 @@ export interface SearchCodeArgs {
   filePattern?: string;
   maxResults?: number;
   maxFileBytes?: number;
+  contextLines?: number;
 }
 
 /** Result of search_code operation */
@@ -153,6 +155,7 @@ export async function searchCode(
       args.maxFileBytes ?? RESOURCE_LIMITS.maxSearchFileBytes,
       RESOURCE_LIMITS.maxSearchFileBytes,
     );
+    const contextLines = Math.min(Math.max(args.contextLines ?? 0, 0), 10);
 
     // Helper to check if file matches file pattern
     const matchesFilePattern = (relativePath: string): boolean => {
@@ -210,12 +213,24 @@ export async function searchCode(
           const matchResult = pattern.exec(line);
 
           if (matchResult) {
-            matches.push({
+            const matchEntry: SearchMatch = {
               file: entry.path,
               line: i + 1, // 1-indexed
               content: line.trim(),
               match: matchResult[0],
-            });
+            };
+
+            if (contextLines > 0) {
+              const start = Math.max(0, i - contextLines);
+              const end = Math.min(lines.length - 1, i + contextLines);
+              const ctx: string[] = [];
+              for (let j = start; j <= end; j++) {
+                ctx.push(lines[j]);
+              }
+              matchEntry.context = ctx;
+            }
+
+            matches.push(matchEntry);
 
             // Stop if we hit max results
             if (matches.length >= maxResults) {
@@ -230,11 +245,8 @@ export async function searchCode(
           // Reset regex lastIndex for global flag
           pattern.lastIndex = 0;
         }
-      } catch (error) {
-        // Skip files we can't read or exceed limits
-        if (error instanceof ResourceLimitError) {
-          continue;
-        }
+      } catch {
+        // Skip files we can't read or that exceed limits
         continue;
       }
     }
@@ -576,10 +588,11 @@ export const CODE_TOOLS = {
       filePattern: "string (optional) - Glob pattern to filter files (e.g., '*.ts')",
       maxResults: "number (optional) - Maximum results to return (default: 100)",
       maxFileBytes: "number (optional) - Max file size to scan (capped by limits)",
+      contextLines: "number (optional) - Lines of context before/after each match (0-10, default: 0)",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",
-      matches: "SearchMatch[] - Pattern matches (on success)",
+      matches: "SearchMatch[] - Pattern matches with optional context (on success)",
       count: "number - Number of matches (on success)",
       message: "string - Human-readable result message",
     },

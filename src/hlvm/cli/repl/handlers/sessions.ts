@@ -25,7 +25,13 @@ export async function handleCreateSession(req: Request): Promise<Response> {
   const parsed = await parseJsonBody<{ id?: string; title?: string }>(req);
   if (!parsed.ok) return parsed.response;
 
-  const session = createSession(parsed.value.title, parsed.value.id);
+  const requestedId = parsed.value.id?.trim();
+  if (parsed.value.id !== undefined && !requestedId) {
+    return jsonError("Session id cannot be empty", 400);
+  }
+
+  const title = parsed.value.title?.trim();
+  const session = createSession(title, requestedId);
   return Response.json(session, { status: 201 });
 }
 

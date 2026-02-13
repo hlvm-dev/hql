@@ -17,12 +17,11 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { getTool } from "../registry.ts";
 import { DEFAULT_TIMEOUTS } from "../constants.ts";
 import { resolvePolicyDecision, type AgentPolicy } from "../policy.ts";
-import { isObjectValue, truncate } from "../../../common/utils.ts";
+import { isObjectValue, TEXT_ENCODER, truncate } from "../../../common/utils.ts";
 import { isToolArgsObject } from "../validation.ts";
 import { classifyShellCommand } from "./shell-classifier.ts";
 
-/** Reusable encoder (stateless, no need to recreate) */
-const TEXT_ENCODER = new TextEncoder();
+// TEXT_ENCODER imported from common/utils.ts (SSOT)
 
 // ============================================================
 // Types
@@ -62,6 +61,8 @@ interface ConfirmationResult {
  * Value: true if confirmed
  */
 const l1Confirmations = new Map<string, boolean>();
+/** Prevent unbounded growth — evict oldest entries when cap is reached */
+const MAX_L1_CONFIRMATIONS = 1000;
 
 /**
  * Canonicalize object by sorting keys recursively
@@ -133,6 +134,11 @@ export function hasL1Confirmation(toolName: string, args: unknown): boolean {
  */
 export function setL1Confirmation(toolName: string, args: unknown): void {
   const key = makeL1Key(toolName, args);
+  // Evict oldest entry if at capacity (Map preserves insertion order)
+  if (l1Confirmations.size >= MAX_L1_CONFIRMATIONS && !l1Confirmations.has(key)) {
+    const oldest = l1Confirmations.keys().next().value;
+    if (oldest !== undefined) l1Confirmations.delete(oldest);
+  }
   l1Confirmations.set(key, true);
 }
 
@@ -299,6 +305,59 @@ function classifyShellExec(args: unknown): SafetyClassification {
  * }
  * ```
  */
+/**
+ * Format tool-specific preview for richer confirmation display.
+ */
+function formatToolPreview(toolName: string, args: unknown): string {
+  if (!isToolArgsObject(args)) {
+    return truncate(JSON.stringify(args, null, 2), 200);
+  }
+
+  const a = args as Record<string, unknown>;
+
+  if (toolName === "edit_file") {
+    const lines: string[] = [];
+    if (a.path) lines.push(`  path: ${a.path}`);
+    if (a.find) lines.push(`  find: ${truncate(String(a.find), 80)}`);
+    if (a.replace !== undefined) lines.push(`  replace: ${truncate(String(a.replace), 80)}`);
+    if (a.mode !== undefined) lines.push(`  mode: ${a.mode}`);
+    return lines.join("\n");
+  }
+
+  if (toolName === "write_file") {
+    const lines: string[] = [];
+    if (a.path) lines.push(`  path: ${a.path}`);
+    if (typeof a.content === "string") {
+      const preview = a.content.split("\n").slice(0, 10).join("\n");
+      lines.push(`  content (first 10 lines):\n${truncate(preview, 300)}`);
+    }
+    return lines.join("\n");
+  }
+
+  if (toolName === "shell_exec") {
+    return `  command: ${truncate(String(a.command ?? ""), 200)}`;
+  }
+
+  if (toolName === "shell_script") {
+    const preview = String(a.script ?? "").split("\n").slice(0, 10).join("\n");
+    return `  script:\n${truncate(preview, 300)}`;
+  }
+
+  if (toolName === "git_commit") {
+    const lines: string[] = [];
+    if (a.message) lines.push(`  message: ${truncate(String(a.message), 120)}`);
+    if (Array.isArray(a.files)) lines.push(`  files: ${a.files.join(", ")}`);
+    if (a.all) lines.push(`  all: true`);
+    return lines.join("\n");
+  }
+
+  if (toolName === "delete_file") {
+    return `  path: ${a.path}`;
+  }
+
+  return truncate(JSON.stringify(args, null, 2), 200);
+}
+
 async function promptUserConfirmation(
   toolName: string,
   args: unknown,
@@ -312,40 +371,39 @@ async function promptUserConfirmation(
     await platform.terminal.stdout.write(TEXT_ENCODER.encode(text));
   };
 
-  // Format args for display (truncate if too long)
-  const argsStr = JSON.stringify(args, null, 2);
-  const displayArgs = truncate(argsStr, 200);
+  // Format tool-specific preview
+  const preview = formatToolPreview(toolName, args);
 
   // Display tool information
   await write("\n");
-  await write("=".repeat(60) + "\n");
-  await write(`Tool: ${toolName}\n`);
-  await write(`Safety: ${classification.level}\n`);
-  await write(`Reason: ${classification.reason}\n`);
-  await write("Arguments:\n");
-  await write(displayArgs + "\n");
-  await write("=".repeat(60) + "\n");
+  await write(`[Tool: ${toolName}] (${classification.level})\n`);
+  await write(preview + "\n");
 
-  // Prompt for confirmation with timeout
-  await write("\nConfirm execution? (y/n): ");
+  // Show appropriate prompt based on safety level
+  const promptText = classification.level === "L1"
+    ? "\nAllow? [y/n/a(lways)]: "
+    : "\nAllow? [y/n]: ";
+  await write(promptText);
 
   // Read user input with timeout
   const input = await readLine(platform, timeoutMs);
 
   // Timeout = automatic denial
   if (input === null) {
-    await write("\n[Timeout - confirmation denied]\n");
+    await write("\n[Timeout - denied]\n");
     return {
       confirmed: false,
       rememberChoice: false,
     };
   }
 
-  const confirmed = input.toLowerCase().trim() === "y";
+  const trimmed = input.toLowerCase().trim();
+  const confirmed = trimmed === "y" || trimmed === "a";
+  const alwaysAllow = trimmed === "a";
 
   return {
     confirmed,
-    rememberChoice: confirmed && classification.level === "L1",
+    rememberChoice: confirmed && (classification.level === "L1" || alwaysAllow),
   };
 }
 

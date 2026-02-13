@@ -9,7 +9,7 @@
  */
 
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
-import { isOllamaCloudModel } from "../providers/ollama/cloud.ts";
+import { setAgentLogger } from "./logger.ts";
 import {
   ensureDefaultModelInstalled,
   getConfiguredModel,
@@ -106,10 +106,16 @@ export async function ensureAgentReady(
 ): Promise<void> {
   await initializeRuntime({ stdlib: false, cache: false });
 
+  // Wire HLVM's logger into the agent module (idempotent)
+  const { log } = await import("../api/log.ts");
+  setAgentLogger(log);
+
   // Strip provider prefix to get raw model name for cloud detection
   const modelName = model.includes("/")
     ? model.split("/").slice(1).join("/")
     : model;
+  // Lazy import for SDK decoupling — avoids hard coupling to ../providers/ollama/
+  const { isOllamaCloudModel } = await import("../providers/ollama/cloud.ts");
   const isLocalModel = !model.startsWith("openai/") &&
     !model.startsWith("anthropic/") &&
     !model.startsWith("google/") &&

@@ -4,8 +4,8 @@
  * SSOT helpers for validating tool argument shapes.
  */
 
-import { isObjectValue } from "../../common/utils.ts";
-import { log } from "../api/log.ts";
+import { isObjectValue, tryParseJson } from "../../common/utils.ts";
+import { getAgentLogger } from "./logger.ts";
 
 /**
  * Check if a value is a valid tool args object.
@@ -17,13 +17,8 @@ export function isToolArgsObject(
   return isObjectValue(value) && !Array.isArray(value);
 }
 
-function parseJsonArgs(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
+/** Parse JSON args, returning original string on failure (SSOT: tryParseJson) */
+const parseJsonArgs = (value: string): unknown => tryParseJson(value);
 
 function unwrapArgsObject(
   input: Record<string, unknown>,
@@ -69,7 +64,7 @@ export function normalizeToolArgs(
   }
   // Fix 19: Warn for unexpected arg types (number, boolean, array, etc.)
   if (value !== null && value !== undefined) {
-    log.debug(`normalizeToolArgs: unexpected type ${typeof value}, coercing to {}`);
+    getAgentLogger().debug(`normalizeToolArgs: unexpected type ${typeof value}, coercing to {}`);
   }
   return {};
 }

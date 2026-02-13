@@ -1214,7 +1214,7 @@ export function parseJsonMapParameters(
 // Arrow Lambda (=>) Support
 ////////////////////////////////////////////////////////////////////////////////
 
-const DOLLAR_PARAM_REGEX = /^\$(\d+)(?:\.|$)/;
+const DOLLAR_PARAM_REGEX = /^\$(\d+)(?:[.?]|$)/;
 const NO_DOLLAR_PARAMS = -1;
 const MAX_ARROW_PARAMS = 255;
 

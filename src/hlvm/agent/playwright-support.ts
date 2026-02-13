@@ -5,7 +5,7 @@
  * Extracted from orchestrator.ts to keep the ReAct loop focused.
  */
 
-import { log } from "../api/log.ts";
+import { getAgentLogger } from "./logger.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 
@@ -33,12 +33,12 @@ async function runPlaywrightInstall(): Promise<boolean> {
     });
     const status = await process.status;
     if (!status.success) {
-      log.error("Playwright install failed");
+      getAgentLogger().error("Playwright install failed");
       return false;
     }
     return true;
   } catch (error) {
-    log.error(`Playwright install failed: ${getErrorMessage(error)}`);
+    getAgentLogger().error(`Playwright install failed: ${getErrorMessage(error)}`);
     return false;
   }
 }
@@ -54,6 +54,6 @@ export async function ensurePlaywrightChromium(
 ): Promise<boolean> {
   if (config.playwrightInstallAttempted) return false;
   config.playwrightInstallAttempted = true;
-  log.info("Playwright Chromium missing. Installing automatically...");
+  getAgentLogger().info("Playwright Chromium missing. Installing automatically...");
   return await runPlaywrightInstall();
 }

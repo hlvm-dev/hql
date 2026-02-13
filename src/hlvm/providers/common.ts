@@ -6,6 +6,7 @@
  */
 
 import { RuntimeError } from "../../common/error.ts";
+import { tryParseJson } from "../../common/utils.ts";
 import type { ProviderToolCall } from "./types.ts";
 
 // =============================================================================
@@ -40,16 +41,13 @@ export function requireApiKey(apiKey: string, providerName: string): void {
  * Safely parse a JSON string argument to an object.
  * Returns empty object on parse failure — downstream validation will
  * catch missing required fields with actionable error messages.
+ * SSOT: delegates to tryParseJson from common/utils.ts.
  */
 export function parseJsonArgs(args: string | unknown): unknown {
   if (typeof args !== "string") return args ?? {};
   const trimmed = args.trim();
   if (trimmed.length === 0) return {};
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return {};
-  }
+  return tryParseJson(trimmed, {});
 }
 
 // =============================================================================
@@ -157,6 +155,19 @@ export async function* readSSEStream<T>(
   if (!anyValidChunk && malformedCount > 0) {
     throw new RuntimeError(`SSE stream corrupted: ${malformedCount} malformed chunks, 0 valid`);
   }
+}
+
+// =============================================================================
+// Signal Extraction
+// =============================================================================
+
+/**
+ * Extract AbortSignal from provider options.
+ * Checks `options.signal` first (typed field), then `options.raw.signal` (legacy).
+ * SSOT: All providers use this instead of inline cast patterns.
+ */
+export function extractSignal(options?: { signal?: AbortSignal; raw?: Record<string, unknown> }): AbortSignal | undefined {
+  return options?.signal ?? (options?.raw?.signal as AbortSignal | undefined);
 }
 
 // =============================================================================

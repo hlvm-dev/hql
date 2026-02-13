@@ -236,6 +236,25 @@ function setAsyncFlag(node: IR.IRNode | null): void {
   }
 }
 
+function setPureFlag(node: IR.IRNode): void {
+  switch (node.type) {
+    case IR.IRNodeType.FnFunctionDeclaration:
+      (node as IR.IRFnFunctionDeclaration).pure = true;
+      break;
+    case IR.IRNodeType.FunctionExpression:
+      (node as IR.IRFunctionExpression).pure = true;
+      break;
+    case IR.IRNodeType.VariableDeclaration: {
+      // Anonymous fx assigned to variable: const f = (fx [x] ...)
+      const init = (node as IR.IRVariableDeclaration).declarations[0]?.init;
+      if (init?.type === IR.IRNodeType.FunctionExpression) {
+        (init as IR.IRFunctionExpression).pure = true;
+      }
+      break;
+    }
+  }
+}
+
 /**
  * IIFE Context Tracking for Early Returns
  *
@@ -498,6 +517,15 @@ function initializeTransformFactory(): void {
             transformHQLNodeToIR,
             processFunctionBody,
           ),
+      );
+      // Pure function: (fx name [params] body...) — compile-time purity enforcement
+      transformFactory.set(
+        "fx",
+        (list, currentDir) => {
+          const result = functionModule.transformFn(list, currentDir, transformHQLNodeToIR, processFunctionBody);
+          setPureFlag(result);
+          return result;
+        },
       );
       // Generator function: (fn* name [params] body...) or (fn* [params] body...)
       transformFactory.set(

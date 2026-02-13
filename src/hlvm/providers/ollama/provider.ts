@@ -21,6 +21,7 @@ import type {
 import * as api from "./api.ts";
 import { getOllamaCatalog } from "./catalog.ts";
 import { DEFAULT_MODEL_NAME, DEFAULT_OLLAMA_ENDPOINT } from "../../../common/config/types.ts";
+import { extractSignal } from "../common.ts";
 
 // ============================================================================
 // Provider Implementation
@@ -79,7 +80,7 @@ export class OllamaProvider implements AIProvider {
   ): AsyncGenerator<string, void, unknown> {
     const opts = this.mergeOptions(options);
     const model = this.getModel(opts);
-    const signal = opts.raw?.signal as AbortSignal | undefined;
+    const signal = extractSignal(opts);
 
     yield* api.generate(this.endpoint, model, prompt, opts, signal);
   }
@@ -93,7 +94,7 @@ export class OllamaProvider implements AIProvider {
   ): AsyncGenerator<string, void, unknown> {
     const opts = this.mergeOptions(options);
     const model = this.getModel(opts);
-    const signal = opts.raw?.signal as AbortSignal | undefined;
+    const signal = extractSignal(opts);
 
     yield* api.chat(this.endpoint, model, messages, opts, signal);
   }
@@ -107,7 +108,7 @@ export class OllamaProvider implements AIProvider {
   ): Promise<ChatStructuredResponse> {
     const opts = this.mergeOptions(options);
     const model = this.getModel(opts);
-    const signal = opts.raw?.signal as AbortSignal | undefined;
+    const signal = extractSignal(opts);
 
     return await api.chatStructured(this.endpoint, model, messages, opts, signal);
   }
