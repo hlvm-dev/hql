@@ -245,6 +245,8 @@ export interface IRIdentifier extends IRNode {
   isJS?: boolean;
   /** TypeScript type annotation (e.g., "number", "string[]", "T | null") */
   typeAnnotation?: string;
+  /** Effect annotation for higher-order purity constraints (e.g., "Pure" on callback params) */
+  effectAnnotation?: "Pure" | "Impure";
 }
 
 // Expressions

@@ -15,9 +15,11 @@ import {
   countBracketDepth,
   countParenDepth,
   extractAndNormalizeType,
+  extractEffect,
   extractTypeFromSymbol,
   findTypeAnnotationColon,
   normalizeType,
+  splitEffectTypeParams,
   tokenizeFunctionType,
   tokenizeObjectType,
   tokenizeTupleType,
@@ -608,4 +610,57 @@ Deno.test("tokenizeType - string literal union", () => {
 Deno.test("tokenizeType - single quote string literal", () => {
   assertEquals(tokenizeType("')' ", 0).type, "')'");
   assertEquals(tokenizeType("'hello' ", 0).type, "'hello'");
+});
+
+// ============================================================================
+// EFFECT ANNOTATION TESTS
+// ============================================================================
+
+Deno.test("extractEffect - Pure with two types", () => {
+  const result = extractEffect("(Pure number number)");
+  assertEquals(result.effect, "Pure");
+  assertEquals(result.innerType, "number number");
+});
+
+Deno.test("extractEffect - Impure with two types", () => {
+  const result = extractEffect("(Impure string number)");
+  assertEquals(result.effect, "Impure");
+  assertEquals(result.innerType, "string number");
+});
+
+Deno.test("extractEffect - Pure with nested fn type", () => {
+  const result = extractEffect("(Pure (fn [number] string) number)");
+  assertEquals(result.effect, "Pure");
+  assertEquals(result.innerType, "(fn [number] string) number");
+});
+
+Deno.test("extractEffect - no effect on plain type", () => {
+  const result = extractEffect("number");
+  assertEquals(result.effect, undefined);
+  assertEquals(result.innerType, "number");
+});
+
+Deno.test("splitEffectTypeParams - simple types", () => {
+  const result = splitEffectTypeParams("number number");
+  assertEquals(result, ["number", "number"]);
+});
+
+Deno.test("splitEffectTypeParams - nested type", () => {
+  const result = splitEffectTypeParams("(fn [number] string) number");
+  assertEquals(result, ["(fn [number] string)", "number"]);
+});
+
+Deno.test("normalizeType - Pure number number → TS fn type", () => {
+  const result = normalizeType("(Pure number number)");
+  assertEquals(result, "(arg0: number) => number");
+});
+
+Deno.test("normalizeType - Pure with nested fn type", () => {
+  const result = normalizeType("(Pure (fn [number] string) number)");
+  assertEquals(result, "(arg0: (arg0: number) => string) => number");
+});
+
+Deno.test("normalizeType - Impure with multiple params", () => {
+  const result = normalizeType("(Impure number string number)");
+  assertEquals(result, "(arg0: number, arg1: string) => number");
 });

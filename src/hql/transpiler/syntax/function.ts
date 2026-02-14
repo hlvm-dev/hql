@@ -1057,12 +1057,12 @@ function parseParameters(
       const isRestParam = supportRest && symbolName.startsWith("...");
       const actualParamName = isRestParam ? symbolName.slice(3) : symbolName;
 
-      const { name: paramNameWithoutType, type: typeAnnotation } = extractAndNormalizeType(actualParamName);
+      const { name: paramNameWithoutType, type: typeAnnotation, effect } = extractAndNormalizeType(actualParamName);
 
       const paramIdName = (restMode || isRestParam)
         ? `...${sanitizeIdentifier(paramNameWithoutType)}`
         : sanitizeIdentifier(paramNameWithoutType);
-      const param = createId(paramIdName, { originalName: paramNameWithoutType, typeAnnotation });
+      const param = createId(paramIdName, { originalName: paramNameWithoutType, typeAnnotation, effectAnnotation: effect });
       copyPosition(elem, param);
       params.push(param);
 

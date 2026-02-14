@@ -14,7 +14,7 @@
 import * as IR from "../type/hql_ir.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
-import { validatePurity } from "./purity-checker.ts";
+import { checkEffects } from "./effect-checker.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import { forEachNode } from "../utils/ir-tree-walker.ts";
 
@@ -170,29 +170,6 @@ function validateBlock(scope: Scope, nodes: IR.IRNode[]): void {
     scope.currentStatementIndex = i;
     validateNode(scope, nodes[i]);
   }
-}
-
-/**
- * Validate purity for all pure function nodes in the IR.
- * This ensures anonymous fx forms are checked even when nested in expressions.
- */
-function validatePureFunctions(ir: IR.IRProgram): void {
-  forEachNode(ir, (node) => {
-    if (node.type === IR.IRNodeType.FnFunctionDeclaration) {
-      const fnDecl = node as IR.IRFnFunctionDeclaration;
-      if (fnDecl.pure) {
-        validatePurity(fnDecl, fnDecl.id?.name ?? "<anonymous>");
-      }
-      return;
-    }
-
-    if (node.type === IR.IRNodeType.FunctionExpression) {
-      const fnExpr = node as IR.IRFunctionExpression;
-      if (fnExpr.pure) {
-        validatePurity(fnExpr, fnExpr.id?.name ?? "<anonymous fx>");
-      }
-    }
-  });
 }
 
 /**
@@ -383,7 +360,7 @@ export function validateSemantics(ir: IR.IRProgram): void {
 
   try {
     validateNode(globalScope, ir);
-    validatePureFunctions(ir);
+    checkEffects(ir);
     logger.debug("Semantic validation passed");
   } catch (error) {
     if (error instanceof ValidationError) {

@@ -24,6 +24,8 @@ export interface TypeExtractionResult {
   name: string;
   /** The type annotation if present, or undefined */
   type: string | undefined;
+  /** Effect annotation extracted from (Pure ...) or (Impure ...) wrapper */
+  effect?: "Pure" | "Impure";
 }
 
 // ============================================================================
@@ -629,6 +631,77 @@ export function tokenizeFunctionType(source: string, startIndex: number): TypeTo
  * normalizeType("string")      // → "string"
  * ```
  */
+
+/**
+ * Extract effect annotation from a type like (Pure number number) or (Impure string number).
+ * Uses depth-aware parsing, NOT regex, to handle nested types correctly.
+ */
+export function extractEffect(rawType: string): {
+  effect?: "Pure" | "Impure";
+  innerType: string;
+} {
+  const trimmed = rawType.trim();
+  if (!trimmed.startsWith("(")) return { innerType: rawType };
+
+  const purePrefix = "(Pure ";
+  const impurePrefix = "(Impure ";
+  let effect: "Pure" | "Impure" | undefined;
+  let prefixLen: number;
+
+  if (trimmed.startsWith(purePrefix)) {
+    effect = "Pure";
+    prefixLen = purePrefix.length;
+  } else if (trimmed.startsWith(impurePrefix)) {
+    effect = "Impure";
+    prefixLen = impurePrefix.length;
+  } else {
+    return { innerType: rawType };
+  }
+
+  // Find matching close paren using depth tracking
+  let depth = 1; // we're inside the opening paren
+  let i = prefixLen;
+  for (; i < trimmed.length && depth > 0; i++) {
+    const ch = trimmed[i];
+    if (ch === "(" || ch === "[" || ch === "<" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === ">" || ch === "}") depth--;
+  }
+
+  if (depth !== 0) return { innerType: rawType }; // malformed, pass through
+
+  const innerType = trimmed.slice(prefixLen, i - 1).trim();
+  return { effect, innerType };
+}
+
+/**
+ * Split effect type parameters on whitespace, respecting nested brackets.
+ * Like splitTypeParameters but splits on whitespace instead of comma.
+ * e.g. "number number" → ["number", "number"]
+ *      "(fn [number] string) number" → ["(fn [number] string)", "number"]
+ */
+export function splitEffectTypeParams(inner: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let depth = 0;
+
+  for (const char of inner) {
+    if (char === "(" || char === "[" || char === "<" || char === "{") {
+      depth++;
+      current += char;
+    } else if (char === ")" || char === "]" || char === ">" || char === "}") {
+      depth--;
+      current += char;
+    } else if (/\s/.test(char) && depth === 0) {
+      if (current.trim()) parts.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
 export function normalizeType(type: string): string {
   // 1. Check for conditional type FIRST (contains "extends...?...:")
   //    These should NOT be transformed
@@ -649,7 +722,19 @@ export function normalizeType(type: string): string {
     return `Array<${elementType}>`;
   }
 
-  // 4. Handle HQL function type syntax: (fn [params] ReturnType) → (params) => ReturnType
+  // 4. Handle (Pure ...) and (Impure ...) effect types → TS function type
+  const { effect, innerType } = extractEffect(type);
+  if (effect) {
+    const parts = splitEffectTypeParams(innerType);
+    if (parts.length === 0) return `() => void`;
+    const returnType = normalizeType(parts[parts.length - 1]);
+    const paramTypes = parts.slice(0, -1);
+    if (paramTypes.length === 0) return `() => ${returnType}`;
+    const tsParams = paramTypes.map((pt, i) => `arg${i}: ${normalizeType(pt)}`);
+    return `(${tsParams.join(", ")}) => ${returnType}`;
+  }
+
+  // 5. Handle HQL function type syntax: (fn [params] ReturnType) → (params) => ReturnType
   //    Also handles (-> [params] ReturnType) syntax
   const fnTypeMatch = type.match(/^\((fn|->)\s+\[([^\]]*)\]\s+(.+)\)$/);
   if (fnTypeMatch) {
@@ -771,9 +856,12 @@ export function extractTypeFromSymbol(symbol: string): TypeExtractionResult {
  */
 export function extractAndNormalizeType(symbol: string): TypeExtractionResult {
   const { name, type } = extractTypeFromSymbol(symbol);
+  if (!type) return { name, type: undefined };
 
+  const { effect } = extractEffect(type);
   return {
     name,
-    type: type ? normalizeType(type) : undefined,
+    type: normalizeType(type),  // normalizeType now handles (Pure ...) → TS fn type
+    effect,                      // separate structured field
   };
 }
