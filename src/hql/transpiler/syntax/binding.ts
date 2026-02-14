@@ -103,7 +103,8 @@ function transformBinding(
           `${keyword.charAt(0).toUpperCase() + keyword.slice(1)} value`,
         );
 
-        const decl = createVarDecl(patternIR, init, kind);
+        const finalInit = freeze ? wrapWithFreeze(init) : init;
+        const decl = createVarDecl(patternIR, finalInit, kind);
         copyPosition(bindingTarget, decl.declarations[0]);
 
         return decl;

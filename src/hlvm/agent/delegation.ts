@@ -5,9 +5,9 @@
 import { ContextManager } from "./context.ts";
 import { generateSystemPrompt } from "./llm-integration.ts";
 import {
-  runReActLoop,
   type LLMFunction,
   type OrchestratorConfig,
+  runReActLoop,
 } from "./orchestrator.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
 import { DEFAULT_MAX_TOOL_CALLS, ENGINE_PROFILES } from "./constants.ts";
@@ -23,17 +23,23 @@ function buildAgentSystemNote(profileName: string, tools: string[]): string {
   ].join("\n");
 }
 
-function resolveAllowedTools(profileName: string): string[] {
+function resolveAllowedTools(
+  profileName: string,
+  toolOwnerId?: string,
+): string[] {
   const profile = getAgentProfile(profileName);
   if (!profile) return [];
-  return profile.tools.filter((tool) => hasTool(tool));
+  return profile.tools.filter((tool) => hasTool(tool, toolOwnerId));
 }
 
 export function createDelegateHandler(
   llm: LLMFunction,
   baseConfig: Pick<OrchestratorConfig, "policy" | "autoApprove">,
 ): (args: unknown, config: OrchestratorConfig) => Promise<unknown> {
-  return async (args: unknown, config: OrchestratorConfig): Promise<unknown> => {
+  return async (
+    args: unknown,
+    config: OrchestratorConfig,
+  ): Promise<unknown> => {
     if (!args || typeof args !== "object") {
       throw new ValidationError(
         `delegate_agent requires { agent, task }. Got: ${typeof args}`,
@@ -62,13 +68,17 @@ export function createDelegateHandler(
       );
     }
 
-    const allowedTools = resolveAllowedTools(profile.name);
+    const allowedTools = resolveAllowedTools(profile.name, config.toolOwnerId);
+    // Use parent context's resolved budget instead of hardcoded default
     const context = new ContextManager({
-      maxTokens: ENGINE_PROFILES.normal.context.maxTokens,
+      maxTokens: config.context.getMaxTokens(),
     });
     context.addMessage({
       role: "system",
-      content: generateSystemPrompt({ toolAllowlist: allowedTools }),
+      content: generateSystemPrompt({
+        toolAllowlist: allowedTools,
+        toolOwnerId: config.toolOwnerId,
+      }),
     });
     context.addMessage({
       role: "system",
@@ -83,15 +93,21 @@ export function createDelegateHandler(
         autoApprove: baseConfig.autoApprove,
         // Fix 16: Clamp maxToolCalls to prevent resource exhaustion
         maxToolCalls: typeof record.maxToolCalls === "number"
-          ? Math.min(record.maxToolCalls, config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS)
+          ? Math.min(
+            record.maxToolCalls,
+            config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS,
+          )
           : config.maxToolCalls,
         // Fix 17: Validate groundingMode at runtime
-        groundingMode: (["off", "warn", "strict"].includes(String(record.groundingMode))
-          ? record.groundingMode as "off" | "warn" | "strict"
-          : config.groundingMode),
+        groundingMode:
+          (["off", "warn", "strict"].includes(String(record.groundingMode))
+            ? record.groundingMode as "off" | "warn" | "strict"
+            : config.groundingMode),
         policy: baseConfig.policy ?? null,
         toolAllowlist: allowedTools,
         toolDenylist: ["delegate_agent"],
+        l1Confirmations: new Map<string, boolean>(),
+        toolOwnerId: config.toolOwnerId,
         planning: { mode: "off" },
       },
       llm,

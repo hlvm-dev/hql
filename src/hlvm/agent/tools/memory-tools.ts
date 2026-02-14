@@ -123,7 +123,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     returns: {
       cleared: "boolean",
     },
-    safetyLevel: "L1",
-    safety: "Local-only delete of ~/.hlvm/agent-memory.jsonl",
+    safetyLevel: "L2",
+    safety: "Local-only delete of ~/.hlvm/agent-memory.jsonl (always confirm)",
   },
 };

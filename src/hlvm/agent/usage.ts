@@ -55,6 +55,21 @@ export class UsageTracker {
 }
 
 /**
+ * Convert provider-reported usage (inputTokens/outputTokens) to agent TokenUsage.
+ * SSOT for the provider→agent usage translation.
+ */
+export function toTokenUsage(
+  usage: { inputTokens: number; outputTokens: number },
+): TokenUsage {
+  return {
+    promptTokens: usage.inputTokens,
+    completionTokens: usage.outputTokens,
+    totalTokens: usage.inputTokens + usage.outputTokens,
+    source: "provider",
+  };
+}
+
+/**
  * Estimate token usage for an LLM call.
  */
 export function estimateUsage(

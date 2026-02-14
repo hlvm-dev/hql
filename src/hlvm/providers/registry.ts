@@ -26,6 +26,12 @@ const instances = new Map<string, AIProvider>();
 
 /** Name of the default provider */
 let defaultProviderName: string | null = null;
+const KNOWN_PROVIDER_PREFIXES = new Set([
+  "ollama",
+  "openai",
+  "anthropic",
+  "google",
+]);
 
 function normalizeProviderName(name: string): string {
   return name.toLowerCase();
@@ -35,6 +41,11 @@ function resolveProviderKey(name?: string | null): string | null {
   const providerName = name ?? defaultProviderName;
   if (!providerName) return null;
   return normalizeProviderName(providerName);
+}
+
+function isProviderPrefix(value: string): boolean {
+  const key = normalizeProviderName(value);
+  return providers.has(key) || KNOWN_PROVIDER_PREFIXES.has(key);
 }
 
 // ============================================================================
@@ -155,14 +166,11 @@ export function parseModelString(modelString: string): [string | null, string] {
   }
 
   // Check for provider:model format (legacy, e.g., "ollama:llama3.2")
-  // Only use this if the colon appears before any version tag pattern
+  // Only treat this form as provider-prefixed when the prefix is a known/registered provider.
   const colonIndex = modelString.indexOf(":");
   if (colonIndex > 0) {
-    // Check if this looks like a version tag (model:tag) rather than provider:model
-    // Version tags typically come after a model name without slashes
     const beforeColon = modelString.slice(0, colonIndex);
-    // If it looks like a simple provider name (no dots), treat as provider:model
-    if (!beforeColon.includes(".")) {
+    if (isProviderPrefix(beforeColon)) {
       const provider = normalizeProviderName(beforeColon);
       const model = modelString.slice(colonIndex + 1);
       return [provider, model];

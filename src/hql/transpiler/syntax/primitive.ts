@@ -439,6 +439,16 @@ export function transformEqualsOperator(
           );
         }
 
+        // Reject optional chaining in assignment target
+        if (symbolName.includes("?.")) {
+          throw new ValidationError(
+            `Cannot assign to optional chain expression '${symbolName}'. Optional chaining is read-only.`,
+            "= operator",
+            "assignable target (variable or member expression)",
+            "optional chain expression",
+          );
+        }
+
         // All other symbols (including dot notation like obj.prop) - ASSIGNMENT
         return transformAssignment(list, currentDir, transformNode);
       }

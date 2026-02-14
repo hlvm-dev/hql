@@ -9,6 +9,15 @@ Authoritative instructions for all AI agents working on this repository.
 3. **SSOT enforcement is mandatory** - See below
 4. **Native tool calling only** - No text envelopes or compatibility shims
 5. **CLI output must stay minimal** - Avoid extra narration; keep flags lean
+6. **Leverage existing solutions** - Stand on the shoulders of giants; don't reinvent the wheel
+
+## Leverage Existing Solutions - MANDATORY
+
+**Stand on the shoulders of giants. Don't reinvent the wheel.**
+
+- Prefer upstream APIs and dynamic data over hardcoded lookup tables
+- Prefer battle-tested libraries over in-house reimplementations
+- Only build custom when no adequate solution exists or dependency cost outweighs the benefit
 
 ## Native Function Calling - MANDATORY
 

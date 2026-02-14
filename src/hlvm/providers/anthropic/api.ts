@@ -19,6 +19,7 @@ import { RuntimeError } from "../../../common/error.ts";
 import type {
   ChatOptions,
   ChatStructuredResponse,
+  ContextOverflowInfo,
   Message,
   ProviderStatus,
   ProviderToolCall,
@@ -260,10 +261,14 @@ export async function chatStructured(
   }
 
   const result = await response.json() as AnthropicResponse;
-  return {
+  const resp: ChatStructuredResponse = {
     content: extractContent(result),
     toolCalls: extractToolCalls(result),
   };
+  if (result.usage) {
+    resp.usage = { inputTokens: result.usage.input_tokens, outputTokens: result.usage.output_tokens };
+  }
+  return resp;
 }
 
 interface AnthropicStreamEvent {
@@ -295,9 +300,19 @@ async function streamChat(
   const contentChunks: string[] = [];
   const toolUseBlocks: { id: string; name: string; inputJson: string }[] = [];
   let currentToolIndex = -1;
+  let inputTokens = 0;
+  let outputTokens = 0;
 
   for await (const event of readSSEStream<AnthropicStreamEvent>(response)) {
-    if (event.type === "content_block_start") {
+    const raw = event as unknown as Record<string, unknown>;
+    if (event.type === "message_start") {
+      const msg = raw.message as Record<string, unknown> | undefined;
+      const u = msg?.usage as { input_tokens?: number } | undefined;
+      if (u?.input_tokens) inputTokens = u.input_tokens;
+    } else if (event.type === "message_delta") {
+      const u = raw.usage as { output_tokens?: number } | undefined;
+      if (u?.output_tokens) outputTokens = u.output_tokens;
+    } else if (event.type === "content_block_start") {
       if (event.content_block?.type === "tool_use") {
         currentToolIndex = toolUseBlocks.length;
         toolUseBlocks.push({
@@ -320,7 +335,7 @@ async function streamChat(
     } else if (event.type === "content_block_stop") {
       if (currentToolIndex >= 0) currentToolIndex = -1;
     } else if (event.type === "error") {
-      throw new RuntimeError(`Anthropic stream error: ${JSON.stringify((event as unknown as Record<string, unknown>).error ?? event)}`);
+      throw new RuntimeError(`Anthropic stream error: ${JSON.stringify(raw.error ?? event)}`);
     }
   }
 
@@ -333,7 +348,11 @@ async function streamChat(
     },
   }));
 
-  return { content: contentChunks.join(""), toolCalls };
+  const resp: ChatStructuredResponse = { content: contentChunks.join(""), toolCalls };
+  if (inputTokens > 0 || outputTokens > 0) {
+    resp.usage = { inputTokens, outputTokens };
+  }
+  return resp;
 }
 
 // =============================================================================
@@ -363,4 +382,21 @@ export async function checkStatus(
       error: getErrorMessage(error),
     };
   }
+}
+
+/**
+ * Parse context overflow info from Anthropic error messages.
+ * Anthropic format: "prompt is too long: N tokens > M token limit"
+ */
+export function parseOverflowError(err: unknown): ContextOverflowInfo {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (msg.includes("prompt is too long") || msg.includes("token limit") || msg.includes("too many tokens")) {
+    // "prompt is too long: 123456 tokens > 200000 token limit"
+    const match = msg.match(/(\d+)\s*tokens?\s*>\s*(\d+)/);
+    if (match) {
+      return { isOverflow: true, limitTokens: parseInt(match[2]), confidence: "high" };
+    }
+    return { isOverflow: true, confidence: "low" };
+  }
+  return { isOverflow: false, confidence: "low" };
 }

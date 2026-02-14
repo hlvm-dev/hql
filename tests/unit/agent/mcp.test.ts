@@ -56,6 +56,98 @@ Deno.test("loadMcpTools registers MCP tools and executes", async () => {
   await platform.fs.remove(temp, { recursive: true });
 });
 
+Deno.test("loadMcpTools keeps tool registered until all owners dispose", async () => {
+  const platform = getPlatform();
+  const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
+  const configDir = platform.path.join(temp, ".hlvm");
+  await platform.fs.mkdir(configDir, { recursive: true });
+
+  const fixturePath = platform.path.join("tests", "fixtures", "mcp-server.ts");
+  const config = {
+    version: 1,
+    servers: [
+      {
+        name: "test",
+        command: ["deno", "run", fixturePath],
+      },
+    ],
+  };
+
+  const configPath = platform.path.join(configDir, "mcp.json");
+  await platform.fs.writeTextFile(configPath, JSON.stringify(config));
+
+  const first = await loadMcpTools(temp);
+  const second = await loadMcpTools(temp);
+
+  const toolName = "mcp/test/echo";
+  assertEquals(hasTool(toolName), true);
+
+  await first.dispose();
+  assertEquals(hasTool(toolName), true);
+
+  const tool = getTool(toolName);
+  const result = await tool.fn({ message: "still-alive" }, temp);
+  assertEquals((result as { content: string }).content, "still-alive");
+
+  await second.dispose();
+  assertEquals(hasTool(toolName), false);
+
+  await platform.fs.remove(temp, { recursive: true });
+});
+
+Deno.test("loadMcpTools routes tool execution by owner/session", async () => {
+  const platform = getPlatform();
+  const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
+  const fixturePath = platform.path.join("tests", "fixtures", "mcp-server.ts");
+
+  const ownerA = "owner-a";
+  const ownerB = "owner-b";
+  const first = await loadMcpTools(
+    temp,
+    undefined,
+    [{
+      name: "test",
+      command: ["deno", "run", "--allow-env=MCP_REPLY_PREFIX", fixturePath],
+      env: { MCP_REPLY_PREFIX: "A:" },
+    }],
+    ownerA,
+  );
+  const second = await loadMcpTools(
+    temp,
+    undefined,
+    [{
+      name: "test",
+      command: ["deno", "run", "--allow-env=MCP_REPLY_PREFIX", fixturePath],
+      env: { MCP_REPLY_PREFIX: "B:" },
+    }],
+    ownerB,
+  );
+
+  const toolName = "mcp/test/echo";
+  try {
+    const toolA = getTool(toolName, ownerA);
+    const toolB = getTool(toolName, ownerB);
+    const resultA = await toolA.fn({ message: "hello" }, temp);
+    const resultB = await toolB.fn({ message: "hello" }, temp);
+    assertEquals((resultA as { content: string }).content, "A:hello");
+    assertEquals((resultB as { content: string }).content, "B:hello");
+
+    await first.dispose();
+    assertEquals(hasTool(toolName, ownerA), false);
+    assertEquals(hasTool(toolName, ownerB), true);
+
+    const stillAlive = await getTool(toolName, ownerB).fn(
+      { message: "ok" },
+      temp,
+    );
+    assertEquals((stillAlive as { content: string }).content, "B:ok");
+  } finally {
+    await first.dispose();
+    await second.dispose();
+    await platform.fs.remove(temp, { recursive: true });
+  }
+});
+
 Deno.test("MCP tools reject non-object args", async () => {
   const platform = getPlatform();
   const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });

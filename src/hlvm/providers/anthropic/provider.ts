@@ -25,9 +25,9 @@ const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
 
 /** Known Anthropic models (no list-models API) */
 const KNOWN_MODELS: ModelInfo[] = [
-  { name: "claude-opus-4-6", displayName: "Claude Opus 4.6", family: "claude", capabilities: ["chat", "tools", "vision"] },
-  { name: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5", family: "claude", capabilities: ["chat", "tools", "vision"] },
-  { name: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5", family: "claude", capabilities: ["chat", "tools", "vision"] },
+  { name: "claude-opus-4-6", displayName: "Claude Opus 4.6", family: "claude", capabilities: ["chat", "tools", "vision"], contextWindow: 200_000 },
+  { name: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5", family: "claude", capabilities: ["chat", "tools", "vision"], contextWindow: 200_000 },
+  { name: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5", family: "claude", capabilities: ["chat", "tools", "vision"], contextWindow: 200_000 },
 ];
 
 export class AnthropicProvider implements AIProvider {

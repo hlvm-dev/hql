@@ -22,6 +22,9 @@ import { ENGINE_PROFILES } from "./constants.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import { loadMcpTools, resolveBuiltinMcpServers } from "./mcp.ts";
 import { ValidationError } from "../../common/error.ts";
+import { generateUUID } from "../../common/utils.ts";
+import { resolveContextWindow } from "./context-resolver.ts";
+import type { ModelInfo } from "../providers/types.ts";
 
 export interface AgentSessionOptions {
   workspace: string;
@@ -35,16 +38,22 @@ export interface AgentSessionOptions {
   toolDenylist?: string[];
   /** Optional callback for streaming tokens to the terminal */
   onToken?: (text: string) => void;
+  /** User-specified context window override (in tokens) */
+  contextWindow?: number;
 }
 
 export interface AgentSession {
   context: ContextManager;
   llm: LLMFunction;
   policy: AgentPolicy | null;
+  l1Confirmations: Map<string, boolean>;
+  toolOwnerId: string;
   dispose: () => Promise<void>;
   profile: typeof ENGINE_PROFILES[keyof typeof ENGINE_PROFILES];
   /** True if the model is a frontier model (API provider, not local) */
   isFrontierModel: boolean;
+  /** Resolved context budget in tokens (after applying 85% ratio) */
+  resolvedContextBudget: number;
 }
 
 /** Detect whether a model string refers to a frontier API model */
@@ -54,21 +63,68 @@ function detectFrontierModel(model?: string): boolean {
   return ["anthropic", "openai", "google"].includes(prefix);
 }
 
+/** Extract provider prefix from "provider/model" string */
+function extractProviderName(model?: string): string {
+  if (!model) return "unknown";
+  const slashIdx = model.indexOf("/");
+  return slashIdx > 0 ? model.slice(0, slashIdx).toLowerCase() : "ollama";
+}
+
+/** Extract model name from "provider/model" string */
+function extractModelSuffix(model?: string): string {
+  if (!model) return "unknown";
+  const slashIdx = model.indexOf("/");
+  return slashIdx > 0 ? model.slice(slashIdx + 1) : model;
+}
+
+/** Try to get ModelInfo from the provider (best-effort, non-blocking) */
+async function tryGetModelInfo(
+  providerName: string,
+  modelName: string,
+): Promise<ModelInfo | null> {
+  try {
+    const { ai } = await import("../api/ai.ts");
+    if (ai?.models?.get) {
+      return await ai.models.get(modelName, providerName) ?? null;
+    }
+  } catch {
+    // Provider not available — fall through to cache/defaults
+  }
+  return null;
+}
+
 export async function createAgentSession(
   options: AgentSessionOptions,
 ): Promise<AgentSession> {
   const profile = ENGINE_PROFILES[options.engineProfile ?? "normal"];
   const policy = await loadAgentPolicy(options.workspace, options.policyPath);
   const builtinMcpServers = await resolveBuiltinMcpServers(options.workspace);
+  const toolOwnerId = `session:${generateUUID()}`;
 
   // Load MCP tools before generating system prompt
   const mcp = await loadMcpTools(
     options.workspace,
     options.mcpConfigPath,
     builtinMcpServers,
+    toolOwnerId,
   );
 
+  // Resolve dynamic context window budget
+  const providerName = extractProviderName(options.model);
+  const modelName = extractModelSuffix(options.model);
+  const modelInfo = options.model && !options.fixturePath
+    ? await tryGetModelInfo(providerName, modelName)
+    : null;
+
+  const resolvedContextBudget = await resolveContextWindow({
+    provider: providerName,
+    model: modelName,
+    modelInfo: modelInfo ?? undefined,
+    userOverride: options.contextWindow,
+  });
+
   const contextConfig: Record<string, unknown> = { ...profile.context };
+  contextConfig.maxTokens = resolvedContextBudget;
   if (options.failOnContextOverflow) {
     contextConfig.overflowStrategy = "fail";
   }
@@ -83,6 +139,7 @@ export async function createAgentSession(
     content: generateSystemPrompt({
       toolAllowlist: options.toolAllowlist,
       toolDenylist: options.toolDenylist,
+      toolOwnerId: mcp.ownerId,
     }),
   });
 
@@ -98,6 +155,7 @@ export async function createAgentSession(
       options: { temperature: 0.0 },
       toolAllowlist: options.toolAllowlist,
       toolDenylist: options.toolDenylist,
+      toolOwnerId: mcp.ownerId,
       onToken: options.onToken,
     });
 
@@ -105,8 +163,11 @@ export async function createAgentSession(
     context,
     llm,
     policy,
+    l1Confirmations: new Map<string, boolean>(),
+    toolOwnerId: mcp.ownerId,
     dispose: mcp.dispose,
     profile,
     isFrontierModel: detectFrontierModel(options.model),
+    resolvedContextBudget,
   };
 }

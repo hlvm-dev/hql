@@ -467,12 +467,16 @@ Deno.test({
     });
 
     // Should only execute 5 calls
-    assertEquals(result.toolCallsMade <= 5, true);
+    assertEquals(result.toolCallsMade, 5);
+    const messages = context.getMessages();
+    const assistant = messages.findLast((m) => m.role === "assistant");
+    assertEquals(assistant?.toolCalls?.length, 5);
   },
 });
 
 Deno.test({
-  name: "Orchestrator: processAgentResponse - deduplicates identical tool calls",
+  name:
+    "Orchestrator: processAgentResponse - deduplicates identical tool calls",
   async fn() {
     clearAllL1Confirmations();
 
@@ -490,6 +494,38 @@ Deno.test({
     });
 
     // Only 2 unique calls should be executed (not 3)
+    assertEquals(result.toolCallsMade, 2);
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: processAgentResponse - deduplicates nested args correctly",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    const response = makeResponse("Let me inspect nested args.", [
+      {
+        toolName: "search_code",
+        args: { pattern: "test", options: { path: "src", mode: "exact" } },
+      },
+      {
+        toolName: "search_code",
+        args: { pattern: "test", options: { mode: "exact", path: "src" } },
+      }, // same call, different key order
+      {
+        toolName: "search_code",
+        args: { pattern: "test", options: { path: "tests", mode: "exact" } },
+      }, // different nested arg value
+    ]);
+
+    const result = await processAgentResponse(response, {
+      workspace: TEST_WORKSPACE,
+      context,
+      autoApprove: true,
+    });
+
     assertEquals(result.toolCallsMade, 2);
   },
 });
@@ -527,8 +563,7 @@ Deno.test({
 });
 
 Deno.test({
-  name:
-    "Orchestrator: runReActLoop - parses text tool-call JSON as fallback",
+  name: "Orchestrator: runReActLoop - rejects text tool-call JSON fallback",
   async fn() {
     clearAllL1Confirmations();
 
@@ -553,13 +588,11 @@ Deno.test({
       mockLLM,
     );
 
-    // After retries, text tool calls are now parsed and executed as fallback
-    assertEquals(typeof result, "string");
-    // The result should not be the old rejection message
     assertEquals(
-      result !== "Native tool calling required. Tool call JSON in text is not accepted.",
-      true,
+      result,
+      "Native tool calling required. Tool call JSON in text is not accepted.",
     );
+    assertEquals(callCount >= 1, true);
   },
 });
 
@@ -1059,9 +1092,7 @@ Deno.test({
 
     // Check that suggestion message includes ask_user reference (sent as user message)
     const messages = context.getMessages();
-    const suggestionMsg = messages.find((m) =>
-      m.content.includes("ask_user")
-    );
+    const suggestionMsg = messages.find((m) => m.content.includes("ask_user"));
 
     assertEquals(suggestionMsg !== undefined, true);
     assertEquals(

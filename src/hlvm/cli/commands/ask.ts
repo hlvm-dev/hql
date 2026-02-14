@@ -114,6 +114,7 @@ EXAMPLES:
 OPTIONS:
   --help, -h                   Show this help message
   --verbose                    Show agent header, tool labels, stats, and trace output
+  --usage                      Show token usage summary after execution
   --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o, anthropic/claude-sonnet-4-5-20250929)
 `);
 }
@@ -343,12 +344,15 @@ export async function askCommand(args: string[]): Promise<void> {
 
   let query = "";
   let verbose = false;
+  let showUsage = false;
   let modelOverride: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--verbose") {
       verbose = true;
+    } else if (arg === "--usage") {
+      showUsage = true;
     } else if (arg === "--model") {
       i++;
       if (i >= args.length) {
@@ -392,6 +396,12 @@ export async function askCommand(args: string[]): Promise<void> {
   );
   const resolvedModel = modelOverride ?? getConfiguredModel();
   const model = modelOverride ?? undefined;
+  const rawContextWindow = (config.snapshot as Record<string, unknown>)
+    .contextWindow;
+  const contextWindow = typeof rawContextWindow === "number" &&
+      Number.isInteger(rawContextWindow) && rawContextWindow > 0
+    ? rawContextWindow
+    : undefined;
 
   // Paid provider consent gate
   if (isPaidProvider(resolvedModel) && !isProviderApproved(resolvedModel)) {
@@ -453,6 +463,7 @@ export async function askCommand(args: string[]): Promise<void> {
     const result = await runAgentQuery({
       query,
       model,
+      contextWindow,
       callbacks: {
         onToken,
         onToolDisplay,
@@ -478,6 +489,13 @@ export async function askCommand(args: string[]): Promise<void> {
     if (verbose) {
       log.raw.log(
         `[Stats: ${result.stats.messageCount} messages, ${result.stats.estimatedTokens} tokens, ${result.stats.toolMessages} tool messages]`,
+      );
+    }
+
+    if (showUsage && result.stats.usage) {
+      const u = result.stats.usage;
+      log.raw.log(
+        `[Usage] ${u.inputTokens} input + ${u.outputTokens} output = ${u.totalTokens} tokens (${u.source})`,
       );
     }
   };

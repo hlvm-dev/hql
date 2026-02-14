@@ -10,6 +10,12 @@
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
+let replyPrefix = "";
+try {
+  replyPrefix = Deno.env.get("MCP_REPLY_PREFIX") ?? "";
+} catch {
+  replyPrefix = "";
+}
 
 let buffer = "";
 
@@ -65,7 +71,7 @@ function handleRequest(request: {
       jsonrpc: "2.0",
       id: request.id,
       result: {
-        content: args?.message ?? "",
+        content: `${replyPrefix}${args?.message ?? ""}`,
       },
     });
     return;

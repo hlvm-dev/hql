@@ -155,7 +155,7 @@ export const MAX_RETRIES = 3;
  * - orchestrator.ts: runReActLoop
  * - cli/ask.ts: default max-calls
  */
-export const DEFAULT_MAX_TOOL_CALLS = 10;
+export const DEFAULT_MAX_TOOL_CALLS = 50;
 
 // ============================================================
 // Resource Limits
@@ -275,4 +275,3 @@ export const DEFAULT_TOOL_DENYLIST = [
   "memory_clear",
   "complete_task",
 ] as const;
-

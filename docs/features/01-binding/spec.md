@@ -136,7 +136,24 @@ Binding names support colon-delimited type annotations, parsed by `extractAndNor
 - Local binding forms with body are compiled as IIFEs. If the body contains `await`, the IIFE is `async` and wrapped in `await`. If it contains `yield`, wrapped in `yield*`.
 - `var` cannot target property paths (e.g., `(var obj.prop 10)` is an error).
 - Deep freeze uses `__hql_deepFreeze()` helper (defined in `common/runtime-helper-impl.ts`), not `Object.freeze`.
-- `const` and `def` apply deep freeze in simple bindings and in multi-pair local binding with body. Note: deep freeze is NOT currently applied in the simple destructuring form `(const [pattern] value)` or the single-pair destructuring local binding form `(const ([pattern] value) body)` — this may be a code bug.
+- `const` and `def` apply deep freeze in all binding forms: simple bindings, destructuring, and multi-pair local binding with body.
 - `def` is compiled identically to `const` -- it is registered as an alias in `hql-ast-to-hql-ir.ts`.
 - Destructuring patterns are parsed by `pattern-parser.ts` and converted to IR by `pattern-to-ir.ts`.
 - Compound and logical assignment targets support both simple symbols and dot-notation member expressions (e.g., `obj.prop`, `arr.0`).
+
+## Design Rationale
+
+HQL's binding model differs from Clojure's:
+
+| HQL        | Clojure equivalent | Behavior              |
+|------------|-------------------|-----------------------|
+| `const`/`def` | `def`          | Immutable (deep frozen) |
+| `let`      | (no equivalent)    | Mutable, block-scoped  |
+| `var`      | (no equivalent)    | Mutable, function-scoped |
+
+Clojure's `let` creates immutable bindings. HQL's `let` creates mutable
+bindings (compiles to JavaScript `let`). Users wanting Clojure-style
+immutable local bindings should use `const`.
+
+This is an intentional design choice for JavaScript interop pragmatism,
+not a bug.

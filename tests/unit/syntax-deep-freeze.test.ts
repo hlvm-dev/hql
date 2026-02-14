@@ -143,3 +143,32 @@ Deno.test("Deep Freeze: const prevents array mutation", async () => {
   // Should throw error when trying to push to frozen array
   assertEquals(result, true);
 });
+
+Deno.test("Deep Freeze: const destructuring values are deep frozen", async () => {
+  const code = `
+(const [a] [{"x": 1}])
+(try
+  (do
+    (= a.x 2)
+    false)
+  (catch e
+    true))
+`;
+  const result = await run(code);
+  // Nested objects in destructured const should be frozen
+  assertEquals(result, true);
+});
+
+Deno.test("Deep Freeze: const object destructuring values are deep frozen", async () => {
+  const code = `
+(const {x} {"x": {"nested": 42}})
+(try
+  (do
+    (= x.nested 100)
+    false)
+  (catch e
+    true))
+`;
+  const result = await run(code);
+  assertEquals(result, true);
+});

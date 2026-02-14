@@ -16,8 +16,12 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { getTool } from "../registry.ts";
 import { DEFAULT_TIMEOUTS } from "../constants.ts";
-import { resolvePolicyDecision, type AgentPolicy } from "../policy.ts";
-import { isObjectValue, TEXT_ENCODER, truncate } from "../../../common/utils.ts";
+import { type AgentPolicy, resolvePolicyDecision } from "../policy.ts";
+import {
+  isObjectValue,
+  TEXT_ENCODER,
+  truncate,
+} from "../../../common/utils.ts";
 import { isToolArgsObject } from "../validation.ts";
 import { classifyShellCommand } from "./shell-classifier.ts";
 
@@ -63,6 +67,12 @@ interface ConfirmationResult {
 const l1Confirmations = new Map<string, boolean>();
 /** Prevent unbounded growth — evict oldest entries when cap is reached */
 const MAX_L1_CONFIRMATIONS = 1000;
+
+function getConfirmationStore(
+  store?: Map<string, boolean>,
+): Map<string, boolean> {
+  return store ?? l1Confirmations;
+}
 
 /**
  * Canonicalize object by sorting keys recursively
@@ -121,9 +131,13 @@ function makeL1Key(toolName: string, args: unknown): string {
  * @param args Tool arguments
  * @returns True if this specific tool+args has been confirmed
  */
-export function hasL1Confirmation(toolName: string, args: unknown): boolean {
+export function hasL1Confirmation(
+  toolName: string,
+  args: unknown,
+  store?: Map<string, boolean>,
+): boolean {
   const key = makeL1Key(toolName, args);
-  return l1Confirmations.get(key) === true;
+  return getConfirmationStore(store).get(key) === true;
 }
 
 /**
@@ -132,14 +146,19 @@ export function hasL1Confirmation(toolName: string, args: unknown): boolean {
  * @param toolName Tool name to confirm
  * @param args Tool arguments
  */
-export function setL1Confirmation(toolName: string, args: unknown): void {
+export function setL1Confirmation(
+  toolName: string,
+  args: unknown,
+  store?: Map<string, boolean>,
+): void {
+  const confirmations = getConfirmationStore(store);
   const key = makeL1Key(toolName, args);
   // Evict oldest entry if at capacity (Map preserves insertion order)
-  if (l1Confirmations.size >= MAX_L1_CONFIRMATIONS && !l1Confirmations.has(key)) {
-    const oldest = l1Confirmations.keys().next().value;
-    if (oldest !== undefined) l1Confirmations.delete(oldest);
+  if (confirmations.size >= MAX_L1_CONFIRMATIONS && !confirmations.has(key)) {
+    const oldest = confirmations.keys().next().value;
+    if (oldest !== undefined) confirmations.delete(oldest);
   }
-  l1Confirmations.set(key, true);
+  confirmations.set(key, true);
 }
 
 /**
@@ -148,16 +167,20 @@ export function setL1Confirmation(toolName: string, args: unknown): void {
  * @param toolName Tool name to clear
  * @param args Tool arguments
  */
-export function clearL1Confirmation(toolName: string, args: unknown): void {
+export function clearL1Confirmation(
+  toolName: string,
+  args: unknown,
+  store?: Map<string, boolean>,
+): void {
   const key = makeL1Key(toolName, args);
-  l1Confirmations.delete(key);
+  getConfirmationStore(store).delete(key);
 }
 
 /**
  * Clear all L1 confirmations
  */
-export function clearAllL1Confirmations(): void {
-  l1Confirmations.clear();
+export function clearAllL1Confirmations(store?: Map<string, boolean>): void {
+  getConfirmationStore(store).clear();
 }
 
 /**
@@ -165,8 +188,10 @@ export function clearAllL1Confirmations(): void {
  *
  * @returns Map of confirmed tools
  */
-export function getAllL1Confirmations(): Map<string, boolean> {
-  return new Map(l1Confirmations);
+export function getAllL1Confirmations(
+  store?: Map<string, boolean>,
+): Map<string, boolean> {
+  return new Map(getConfirmationStore(store));
 }
 
 // ============================================================
@@ -176,19 +201,23 @@ export function getAllL1Confirmations(): Map<string, boolean> {
 /**
  * Get declared safety classification from tool metadata (SSOT).
  */
-function getDeclaredSafetyClassification(toolName: string): SafetyClassification | null {
+function getDeclaredSafetyClassification(
+  toolName: string,
+  ownerId?: string,
+): SafetyClassification | null {
   try {
-    const tool = getTool(toolName);
+    const tool = getTool(toolName, ownerId);
     const level = tool.safetyLevel ?? null;
     if (!level) return null;
 
-    const reason = typeof tool.safety === "string" && tool.safety.trim().length > 0
-      ? tool.safety
-      : level === "L0"
-      ? "Read-only operation with no side effects"
-      : level === "L1"
-      ? "Low-risk operation requiring one-time confirmation"
-      : "Destructive or mutating operation requires confirmation";
+    const reason =
+      typeof tool.safety === "string" && tool.safety.trim().length > 0
+        ? tool.safety
+        : level === "L0"
+        ? "Read-only operation with no side effects"
+        : level === "L1"
+        ? "Low-risk operation requiring one-time confirmation"
+        : "Destructive or mutating operation requires confirmation";
 
     return { level, reason };
   } catch {
@@ -220,6 +249,7 @@ function getDeclaredSafetyClassification(toolName: string): SafetyClassification
 export function classifyTool(
   toolName: string,
   args?: unknown,
+  ownerId?: string,
 ): SafetyClassification {
   // L1/L2: shell_exec requires argument inspection
   if (toolName === "shell_exec") {
@@ -227,7 +257,7 @@ export function classifyTool(
   }
 
   // Use declared safety level from tool metadata (SSOT)
-  const declared = getDeclaredSafetyClassification(toolName);
+  const declared = getDeclaredSafetyClassification(toolName, ownerId);
   if (declared) {
     return declared;
   }
@@ -319,7 +349,9 @@ function formatToolPreview(toolName: string, args: unknown): string {
     const lines: string[] = [];
     if (a.path) lines.push(`  path: ${a.path}`);
     if (a.find) lines.push(`  find: ${truncate(String(a.find), 80)}`);
-    if (a.replace !== undefined) lines.push(`  replace: ${truncate(String(a.replace), 80)}`);
+    if (a.replace !== undefined) {
+      lines.push(`  replace: ${truncate(String(a.replace), 80)}`);
+    }
     if (a.mode !== undefined) lines.push(`  mode: ${a.mode}`);
     return lines.join("\n");
   }
@@ -505,9 +537,11 @@ export async function checkToolSafety(
   args: unknown,
   autoApprove = false,
   policy: AgentPolicy | null = null,
+  l1Store: Map<string, boolean>,
+  ownerId?: string,
 ): Promise<boolean> {
   // Classify tool
-  const classification = classifyTool(toolName, args);
+  const classification = classifyTool(toolName, args, ownerId);
 
   // Apply policy override if present
   const policyDecision = resolvePolicyDecision(
@@ -534,7 +568,7 @@ export async function checkToolSafety(
 
   // L1: Check confirmation cache
   if (classification.level === "L1") {
-    if (hasL1Confirmation(toolName, args)) {
+    if (hasL1Confirmation(toolName, args, l1Store)) {
       return true;
     }
 
@@ -546,7 +580,7 @@ export async function checkToolSafety(
     );
 
     if (result.confirmed && result.rememberChoice) {
-      setL1Confirmation(toolName, args);
+      setL1Confirmation(toolName, args, l1Store);
     }
 
     return result.confirmed;

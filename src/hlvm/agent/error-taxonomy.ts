@@ -12,6 +12,7 @@ type ErrorClass =
   | "abort"
   | "timeout"
   | "rate_limit"
+  | "context_overflow"
   | "transient"
   | "permanent"
   | "unknown";
@@ -54,6 +55,15 @@ function isAuthError(message: string): boolean {
     message.includes("insufficient_quota");
 }
 
+function isContextOverflowError(message: string): boolean {
+  return message.includes("context length") ||
+    message.includes("maximum context") ||
+    message.includes("token limit") ||
+    message.includes("too many tokens") ||
+    message.includes("exceeds the model") ||
+    message.includes("prompt is too long");
+}
+
 function isPermanentError(message: string): boolean {
   return message.includes("invalid request") ||
     message.includes("invalid model") ||
@@ -64,13 +74,7 @@ function isPermanentError(message: string): boolean {
     message.includes("http 422") ||
     message.includes("not allowed") ||
     message.includes("permission denied") ||
-    message.includes("denied by user") ||
-    // Fix 11: Context overflow patterns (don't retry with same oversized context)
-    message.includes("context length") ||
-    message.includes("maximum context") ||
-    message.includes("token limit") ||
-    message.includes("too many tokens") ||
-    message.includes("exceeds the model");
+    message.includes("denied by user");
 }
 
 export function classifyError(err: unknown): ClassifiedError {
@@ -90,6 +94,11 @@ export function classifyError(err: unknown): ClassifiedError {
 
   if (isRateLimitError(message)) {
     return { class: "rate_limit", retryable: true, message };
+  }
+
+  // Context overflow is retryable (handled by context-resolver with budget reduction)
+  if (isContextOverflowError(message)) {
+    return { class: "context_overflow", retryable: true, message };
   }
 
   if (isPermanentError(message)) {

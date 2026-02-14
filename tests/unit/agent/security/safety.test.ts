@@ -6,13 +6,13 @@
 
 import { assertEquals } from "jsr:@std/assert";
 import {
+  checkToolSafety,
   classifyTool,
+  clearAllL1Confirmations,
+  clearL1Confirmation,
+  getAllL1Confirmations,
   hasL1Confirmation,
   setL1Confirmation,
-  clearL1Confirmation,
-  clearAllL1Confirmations,
-  getAllL1Confirmations,
-  checkToolSafety,
 } from "../../../../src/hlvm/agent/security/safety.ts";
 
 // ============================================================
@@ -141,7 +141,10 @@ Deno.test({
   name: "Safety: L1 confirmation - initially empty",
   fn() {
     clearAllL1Confirmations();
-    assertEquals(hasL1Confirmation("shell_exec", { command: "git status" }), false);
+    assertEquals(
+      hasL1Confirmation("shell_exec", { command: "git status" }),
+      false,
+    );
   },
 });
 
@@ -158,7 +161,10 @@ Deno.test({
     assertEquals(hasL1Confirmation("other_tool", {}), false);
 
     // Same tool with different args NOT confirmed (per-args behavior)
-    assertEquals(hasL1Confirmation("shell_exec", { command: "git log" }), false);
+    assertEquals(
+      hasL1Confirmation("shell_exec", { command: "git log" }),
+      false,
+    );
   },
 });
 
@@ -171,6 +177,19 @@ Deno.test({
       hasL1Confirmation("web_fetch", { url: "https://example.com/b" }),
       true,
     );
+  },
+});
+
+Deno.test({
+  name: "Safety: L1 confirmation - isolated per session store",
+  fn() {
+    const storeA = new Map<string, boolean>();
+    const storeB = new Map<string, boolean>();
+    const args = { command: "git status" };
+
+    setL1Confirmation("shell_exec", args, storeA);
+    assertEquals(hasL1Confirmation("shell_exec", args, storeA), true);
+    assertEquals(hasL1Confirmation("shell_exec", args, storeB), false);
   },
 });
 
@@ -257,12 +276,15 @@ Deno.test({
   name: "Safety: checkToolSafety - auto-approve mode",
   async fn() {
     clearAllL1Confirmations();
+    const store = new Map<string, boolean>();
 
     // All tools should be approved in auto-approve mode
     const l0Result = await checkToolSafety(
       "read_file",
       { path: "test.ts" },
       true,
+      null,
+      store,
     );
     assertEquals(l0Result, true);
 
@@ -270,6 +292,8 @@ Deno.test({
       "shell_exec",
       { command: "git status" },
       true,
+      null,
+      store,
     );
     assertEquals(l1Result, true);
 
@@ -277,6 +301,8 @@ Deno.test({
       "write_file",
       { path: "test.ts", content: "test" },
       true,
+      null,
+      store,
     );
     assertEquals(l2Result, true);
   },
@@ -286,12 +312,15 @@ Deno.test({
   name: "Safety: checkToolSafety - L0 auto-approved without prompt",
   async fn() {
     clearAllL1Confirmations();
+    const store = new Map<string, boolean>();
 
     // L0 tools should be auto-approved even without auto-approve flag
     const result = await checkToolSafety(
       "read_file",
       { path: "test.ts" },
       false, // autoApprove = false, but should still approve L0
+      null,
+      store,
     );
     assertEquals(result, true);
   },
@@ -301,17 +330,20 @@ Deno.test({
   name: "Safety: checkToolSafety - L1 uses confirmation cache (per-args)",
   async fn() {
     clearAllL1Confirmations();
+    const store = new Map<string, boolean>();
 
     const args = { command: "git status" };
 
     // Set L1 confirmation for specific args
-    setL1Confirmation("shell_exec", args);
+    setL1Confirmation("shell_exec", args, store);
 
     // Should be approved without prompt (using cache)
     const result = await checkToolSafety(
       "shell_exec",
       args,
       false,
+      null,
+      store,
     );
     assertEquals(result, true);
   },
@@ -431,6 +463,9 @@ Deno.test({
 
     const gitCommit = classifyTool("git_commit", { message: "test" });
     assertEquals(gitCommit.level, "L2");
+
+    const memoryClear = classifyTool("memory_clear", {});
+    assertEquals(memoryClear.level, "L2");
   },
 });
 

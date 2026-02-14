@@ -44,16 +44,22 @@ import {
   SlidingWindowRateLimiter,
 } from "../../common/rate-limiter.ts";
 import { assertMaxBytes } from "../../common/limits.ts";
-import {
-  getErrorMessage,
-  TEXT_ENCODER,
-  truncate,
-} from "../../common/utils.ts";
+import { getErrorMessage, TEXT_ENCODER, truncate } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
 import { classifyError, getRecoveryHint } from "./error-taxonomy.ts";
+import {
+  handleContextOverflow,
+  type OverflowResult,
+} from "./context-resolver.ts";
+import type { ContextOverflowInfo } from "../providers/types.ts";
 import type { AgentPolicy } from "./policy.ts";
-import { estimateUsage, type TokenUsage, UsageTracker } from "./usage.ts";
+import {
+  estimateUsage,
+  type TokenUsage,
+  toTokenUsage,
+  UsageTracker,
+} from "./usage.ts";
 import type { MetricsSink } from "./metrics.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import { type LLMResponse, type ToolCall } from "./tool-call.ts";
@@ -64,7 +70,6 @@ import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
 import {
   looksLikeToolCallJsonAnywhere,
   responseAsksQuestion,
-  tryParseToolCallsFromText,
 } from "./model-compat.ts";
 import {
   ensurePlaywrightChromium,
@@ -143,7 +148,7 @@ interface LoopConfig {
 type LoopDirective =
   | { action: "continue" }
   | { action: "return"; value: string }
-  | { action: "proceed" }
+  | { action: "proceed" };
 
 function stringifyToolResult(result: unknown): string {
   if (typeof result === "string") {
@@ -168,7 +173,9 @@ function buildToolResultOutputs(
 ): { llmContent: string; returnDisplay: string } {
   let formatted: { returnDisplay: string; llmContent?: string } | null = null;
   try {
-    const tool = hasTool(toolName) ? getTool(toolName) : null;
+    const tool = hasTool(toolName, config.toolOwnerId)
+      ? getTool(toolName, config.toolOwnerId)
+      : null;
     formatted = tool?.formatResult ? tool.formatResult(result) : null;
   } catch {
     formatted = null;
@@ -207,13 +214,12 @@ function buildToolObservation(
   toolResult: ToolExecutionResult,
 ): { observation: string; resultText: string; toolName: string } {
   if (toolResult.success) {
-    const resultText = toolResult.llmContent ?? stringifyToolResult(toolResult.result);
+    const resultText = toolResult.llmContent ??
+      stringifyToolResult(toolResult.result);
     // Detect tools that return error-as-data (success but content says failure)
     if (isToolResultFailure(resultText)) {
       const hint = getRecoveryHint(resultText);
-      const observation = hint
-        ? `${resultText}\nHint: ${hint}`
-        : resultText;
+      const observation = hint ? `${resultText}\nHint: ${hint}` : resultText;
       return { observation, resultText, toolName: toolCall.toolName };
     }
     return { observation: resultText, resultText, toolName: toolCall.toolName };
@@ -225,7 +231,11 @@ function buildToolObservation(
     ? `Error: ${errorText}\nHint: ${hint}`
     : `Error: ${errorText}`;
 
-  return { observation, resultText: `ERROR: ${errorText}`, toolName: toolCall.toolName };
+  return {
+    observation,
+    resultText: `ERROR: ${errorText}`,
+    toolName: toolCall.toolName,
+  };
 }
 
 /** Deduplicate identical tool calls (same name + same args) within a single turn */
@@ -233,11 +243,47 @@ function deduplicateToolCalls(calls: ToolCall[]): ToolCall[] {
   if (calls.length <= 1) return calls;
   const seen = new Set<string>();
   return calls.filter((call) => {
-    const key = `${call.toolName}:${JSON.stringify(call.args, Object.keys(call.args ?? {}).sort())}`;
+    const key = `${call.toolName}:${stableStringifyArgs(call.args, false)}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * Canonicalize arbitrary values for stable JSON signatures.
+ * Sorts object keys recursively while preserving array order.
+ */
+function canonicalizeForSignature(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map(canonicalizeForSignature);
+  if (typeof value === "object") {
+    const input = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(input).sort()) {
+      out[key] = canonicalizeForSignature(input[key]);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Stable stringify for tool-call dedup/loop signatures.
+ * Optionally lowercases string values for case-insensitive matching.
+ */
+function stableStringifyArgs(
+  args: unknown,
+  lowercaseStringValues: boolean,
+): string {
+  const canonical = canonicalizeForSignature(args);
+  return JSON.stringify(
+    canonical,
+    (_key, value) =>
+      lowercaseStringValues && typeof value === "string"
+        ? value.toLowerCase()
+        : value,
+  ) ?? "null";
 }
 
 function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
@@ -318,7 +364,20 @@ function createToolAllowedChecker(): (
 }
 
 /** Instance-level checker — created fresh per runReActLoop call */
-let isToolAllowed = createToolAllowedChecker();
+const TOOL_ALLOWED_CHECKER_BY_CONFIG = new WeakMap<
+  OrchestratorConfig,
+  (toolName: string, config: OrchestratorConfig) => boolean
+>();
+
+function getToolAllowedChecker(
+  config: OrchestratorConfig,
+): (toolName: string, config: OrchestratorConfig) => boolean {
+  const cached = TOOL_ALLOWED_CHECKER_BY_CONFIG.get(config);
+  if (cached) return cached;
+  const created = createToolAllowedChecker();
+  TOOL_ALLOWED_CHECKER_BY_CONFIG.set(config, created);
+  return created;
+}
 
 /** LLM function signature used by orchestrator */
 export type LLMFunction = (
@@ -384,7 +443,12 @@ export type TraceEvent =
     type: "llm_usage";
     usage: TokenUsage;
   }
-  | { type: "loop_detected"; signature: string; count: number };
+  | { type: "loop_detected"; signature: string; count: number }
+  | {
+    type: "context_overflow_retry";
+    newBudget: number;
+    overflowRetryCount: number;
+  };
 
 /** Tool output event for UI display */
 export interface ToolDisplay {
@@ -450,6 +514,10 @@ export interface OrchestratorConfig {
   toolAllowlist?: string[];
   /** Optional tool denylist (block tools for this run) */
   toolDenylist?: string[];
+  /** Per-session L1 confirmation cache (isolation for concurrent sessions) */
+  l1Confirmations?: Map<string, boolean>;
+  /** Optional owner/session id for scoped dynamic tool resolution */
+  toolOwnerId?: string;
   /** Require at least one tool call before answering */
   requireToolCalls?: boolean;
   /** Max retries when tool calls are required */
@@ -460,6 +528,12 @@ export interface OrchestratorConfig {
   skipModelCompensation?: boolean;
   /** External abort signal (from HTTP request cancellation) */
   signal?: AbortSignal;
+  /** Provider-specific overflow error parser (for dynamic context budget adjustment) */
+  parseOverflowError?: (err: unknown) => ContextOverflowInfo;
+  /** Provider name for context cache key (e.g., "ollama", "openai") */
+  providerName?: string;
+  /** Model name for context cache key */
+  modelName?: string;
 }
 
 // TEXT_ENCODER imported from common/utils.ts (SSOT)
@@ -495,8 +569,8 @@ function buildToolSignature(calls: ToolCall[]): string {
   if (calls.length === 0) return "";
   return calls
     .map((call) => {
-      const args = JSON.stringify(call.args, Object.keys(call.args ?? {}).sort());
-      return `${call.toolName}:${args.toLowerCase()}`;
+      const args = stableStringifyArgs(call.args, true);
+      return `${call.toolName.toLowerCase()}:${args}`;
     })
     .sort()
     .join("|");
@@ -595,18 +669,29 @@ export async function executeToolCall(
   config: OrchestratorConfig,
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
+  const l1Store = config.l1Confirmations ?? new Map<string, boolean>();
+  if (!config.l1Confirmations) {
+    config.l1Confirmations = l1Store;
+  }
   // Normalize tool name (handle camelCase, casing, separators)
-  const resolvedName = normalizeToolName(toolCall.toolName) ??
-    toolCall.toolName;
+  const resolvedName =
+    normalizeToolName(toolCall.toolName, config.toolOwnerId) ??
+      toolCall.toolName;
   if (resolvedName !== toolCall.toolName) {
-    getAgentLogger().debug(`Tool name normalized: ${toolCall.toolName} → ${resolvedName}`);
+    getAgentLogger().debug(
+      `Tool name normalized: ${toolCall.toolName} → ${resolvedName}`,
+    );
     toolCall = { ...toolCall, toolName: resolvedName };
   }
 
   const normalizedArgs = sanitizeArgs(normalizeToolArgs(toolCall.args));
-  const toolExists = hasTool(toolCall.toolName);
+  const toolExists = hasTool(toolCall.toolName, config.toolOwnerId);
   const preparedArgs = toolExists
-    ? prepareToolArgsForExecution(toolCall.toolName, normalizedArgs)
+    ? prepareToolArgsForExecution(
+      toolCall.toolName,
+      normalizedArgs,
+      config.toolOwnerId,
+    )
     : undefined;
   const coercedArgs = preparedArgs?.coercedArgs ?? normalizedArgs;
   // Emit trace event: tool call
@@ -622,7 +707,10 @@ export async function executeToolCall(
   try {
     // Validate tool exists
     if (!toolExists) {
-      const suggestions = suggestToolNames(toolCall.toolName);
+      const suggestions = suggestToolNames(
+        toolCall.toolName,
+        config.toolOwnerId,
+      );
       const hint = suggestions.length > 0
         ? ` Did you mean: ${suggestions.join(", ")}?`
         : "";
@@ -634,7 +722,8 @@ export async function executeToolCall(
       );
     }
 
-    if (!isToolAllowed(toolCall.toolName, config)) {
+    const toolAllowedChecker = getToolAllowedChecker(config);
+    if (!toolAllowedChecker(toolCall.toolName, config)) {
       return buildToolErrorResult(
         toolCall.toolName,
         `Tool not allowed by orchestrator: ${toolCall.toolName}`,
@@ -661,6 +750,8 @@ export async function executeToolCall(
       coercedArgs,
       autoApprove,
       config.policy ?? null,
+      l1Store,
+      config.toolOwnerId,
     );
 
     if (!approved) {
@@ -695,7 +786,7 @@ export async function executeToolCall(
     }
 
     // Get tool and execute (with timeout)
-    const tool = getTool(toolCall.toolName);
+    const tool = getTool(toolCall.toolName, config.toolOwnerId);
     const toolTimeout = config.toolTimeout ?? DEFAULT_TIMEOUTS.tool;
     let result: unknown;
     try {
@@ -918,16 +1009,7 @@ export async function processAgentResponse(
     };
   }
 
-  // Always add assistant message with tool_calls metadata for proper conversation flow
-  addContextMessage(config, {
-    role: "assistant",
-    content: content || "",
-    toolCalls: toolCalls.map((tc) => ({
-      id: tc.id,
-      function: { name: tc.toolName, arguments: tc.args },
-    })),
-  });
-
+  let limitedCalls = toolCalls.slice(0, maxCalls);
   if (toolCalls.length > maxCalls) {
     addContextMessage(config, {
       role: "user",
@@ -936,13 +1018,23 @@ export async function processAgentResponse(
     });
   }
 
-  let limitedCalls = toolCalls.slice(0, maxCalls);
-
   // Fix 3: complete_task preempts other tool calls — only execute it
-  const completeTaskPreemptIndex = limitedCalls.findIndex((c) => c.toolName === "complete_task");
+  const completeTaskPreemptIndex = limitedCalls.findIndex((c) =>
+    c.toolName === "complete_task"
+  );
   if (completeTaskPreemptIndex >= 0) {
     limitedCalls = [limitedCalls[completeTaskPreemptIndex]];
   }
+
+  // Keep assistant tool_calls metadata exactly aligned with executed calls
+  addContextMessage(config, {
+    role: "assistant",
+    content: content || "",
+    toolCalls: limitedCalls.map((tc) => ({
+      id: tc.id,
+      function: { name: tc.toolName, arguments: tc.args },
+    })),
+  });
 
   // Execute tool calls
   const results = await executeToolCalls(limitedCalls, config);
@@ -1053,11 +1145,19 @@ async function callLLMWithTimeout(
  */
 async function callLLMWithRetry(
   llmFn: LLMFunction,
-  messages: Message[],
+  initialMessages: Message[],
   config: { timeout: number; maxRetries: number },
   onTrace?: (event: TraceEvent) => void,
+  overflowConfig?: {
+    context: ContextManager;
+    parseOverflow: (err: unknown) => ContextOverflowInfo;
+    provider: string;
+    model: string;
+  },
 ): Promise<LLMResponse> {
   let lastError: Error | null = null;
+  let overflowRetryCount = 0;
+  let messages = initialMessages;
 
   for (let attempt = 0; attempt < config.maxRetries; attempt++) {
     try {
@@ -1074,6 +1174,36 @@ async function callLLMWithRetry(
         retryable: classified.retryable,
         error: classified.message,
       });
+
+      // Handle context overflow with dynamic budget adjustment
+      if (classified.class === "context_overflow" && overflowConfig) {
+        const result: OverflowResult = await handleContextOverflow({
+          error,
+          provider: overflowConfig.provider,
+          model: overflowConfig.model,
+          parseOverflow: overflowConfig.parseOverflow,
+          currentBudget: overflowConfig.context.getMaxTokens(),
+          overflowRetryCount,
+        });
+        if (result.shouldRetry) {
+          overflowRetryCount++;
+          overflowConfig.context.setMaxTokens(result.newBudget);
+          // Trim context to fit reduced budget before retry
+          overflowConfig.context.trimToFit();
+          // Context may have replaced its internal message array during trim.
+          // Refresh the retry payload so the next attempt uses the reduced context.
+          messages = overflowConfig.context.getMessages();
+          onTrace?.({
+            type: "context_overflow_retry",
+            newBudget: result.newBudget,
+            overflowRetryCount,
+          } as TraceEvent);
+          continue;
+        }
+        // Can't retry — throw as permanent error
+        throw lastError;
+      }
+
       if (!classified.retryable) {
         // Non-retryable: throw immediately with the original error message
         throw lastError;
@@ -1088,7 +1218,8 @@ async function callLLMWithRetry(
         ? parseInt(retryAfterMatch[1]) * 1000
         : null;
       // Exponential backoff: 1s, 2s, 4s, 8s — or provider's Retry-After
-      const delay = retryAfterMs ?? Math.min(Math.pow(2, attempt) * 1000, 30000);
+      const delay = retryAfterMs ??
+        Math.min(Math.pow(2, attempt) * 1000, 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -1181,7 +1312,8 @@ function resolveLoopConfig(config: OrchestratorConfig): LoopConfig {
     maxRetries: config.maxRetries ?? MAX_RETRIES,
     groundingMode,
     llmLimiter,
-    maxToolResultBytes: config.maxTotalToolResultBytes ?? RESOURCE_LIMITS.maxTotalToolResultBytes,
+    maxToolResultBytes: config.maxTotalToolResultBytes ??
+      RESOURCE_LIMITS.maxTotalToolResultBytes,
     skipCompensation: config.skipModelCompensation ?? false,
     maxGroundingRetries: groundingMode === "strict" ? 1 : 0,
     noInputEnabled: config.noInput ?? false,
@@ -1205,7 +1337,11 @@ function checkToolResultBytesLimit(
   state.totalToolResultBytes += delta;
   if (lc.maxToolResultBytes > 0) {
     try {
-      assertMaxBytes("total tool result bytes", state.totalToolResultBytes, lc.maxToolResultBytes);
+      assertMaxBytes(
+        "total tool result bytes",
+        state.totalToolResultBytes,
+        lc.maxToolResultBytes,
+      );
     } catch (error) {
       config.onTrace?.({
         type: "resource_limit",
@@ -1240,7 +1376,10 @@ function handleTextOnlyResponse(
       state.emptyResponseRetried = true;
       return { action: "continue" };
     }
-    return { action: "return", value: "The model returned an empty response. Please try again." };
+    return {
+      action: "return",
+      value: "The model returned an empty response. Please try again.",
+    };
   }
 
   // Weak-model compensation: detect tool call JSON in text and repair
@@ -1260,29 +1399,17 @@ function handleTextOnlyResponse(
       });
       return { action: "continue" };
     }
-    // Last resort: parse tool calls from text and execute them
-    const parsed = tryParseToolCallsFromText(responseText);
-    if (parsed.length > 0) {
-      let idCounter = 0;
-      const repairedCalls = parsed.map((p) => ({
-        ...p,
-        id: `repair_${Date.now()}_${idCounter++}`,
-      }));
-      const repaired: LLMResponse = {
-        content: "",
-        toolCalls: repairedCalls,
+    return state.toolUses.length === 0
+      ? {
+        action: "return",
+        value:
+          "Native tool calling required. Tool call JSON in text is not accepted.",
+      }
+      : {
+        action: "return",
+        value:
+          "Tool-call JSON in text is not accepted. Provide a final answer based on available tool results.",
       };
-      config.onTrace?.({
-        type: "tool_call",
-        toolName: `[text-repair] ${repairedCalls[0].toolName}`,
-        args: repairedCalls[0].args,
-      });
-      return { action: "proceed", response: repaired };
-    } else if (state.toolUses.length === 0) {
-      return { action: "return", value: "Native tool calling required. Tool call JSON in text is not accepted." };
-    } else {
-      return { action: "return", value: responseText };
-    }
   }
 
   return { action: "proceed" };
@@ -1307,7 +1434,10 @@ function handleFinalResponse(
   ) {
     state.toolCallRetries += 1;
     if (state.toolCallRetries > lc.maxToolCallRetries) {
-      return { action: "return", value: "Tool call required but none provided. Task incomplete." };
+      return {
+        action: "return",
+        value: "Tool call required but none provided. Task incomplete.",
+      };
     }
     addContextMessage(config, {
       role: "user",
@@ -1323,11 +1453,13 @@ function handleFinalResponse(
     const stepDoneId = extractStepDoneId(responseText);
     const requireMarkers = lc.planningConfig.requireStepMarkers ?? false;
     if (requireMarkers && !stepDoneId) {
-      const currentStep = state.planState.plan.steps[state.planState.currentIndex];
+      const currentStep =
+        state.planState.plan.steps[state.planState.currentIndex];
       const id = currentStep?.id ?? "unknown";
       addContextMessage(config, {
         role: "user",
-        content: `Plan tracking required. End your response with STEP_DONE ${id} when the step is complete.`,
+        content:
+          `Plan tracking required. End your response with STEP_DONE ${id} when the step is complete.`,
       });
       return { action: "continue" };
     }
@@ -1350,7 +1482,8 @@ function handleFinalResponse(
     if (!advance.finished && advance.nextStep) {
       addContextMessage(config, {
         role: "user",
-        content: `Plan step completed. Next step: [${advance.nextStep.id}] ${advance.nextStep.title}. Continue.`,
+        content:
+          `Plan step completed. Next step: [${advance.nextStep.id}] ${advance.nextStep.title}. Continue.`,
       });
       return { action: "continue" };
     }
@@ -1366,7 +1499,8 @@ function handleFinalResponse(
     state.noInputRetries++;
     addContextMessage(config, {
       role: "user",
-      content: "No-input mode: Do not ask questions. Provide a best-effort answer based on available tool results and reasonable assumptions.",
+      content:
+        "No-input mode: Do not ask questions. Provide a best-effort answer based on available tool results and reasonable assumptions.",
     });
     return { action: "continue" };
   }
@@ -1381,7 +1515,8 @@ function handleFinalResponse(
       state.finalResponseFormatRetries++;
       addContextMessage(config, {
         role: "user",
-        content: "Provide a final answer based on the tool results. Do not output tool call JSON.",
+        content:
+          "Provide a final answer based on the tool results. Do not output tool call JSON.",
       });
       return { action: "continue" };
     }
@@ -1411,14 +1546,21 @@ function handleFinalResponse(
       if (lc.groundingMode === "strict") {
         if (state.groundingRetries < lc.maxGroundingRetries) {
           state.groundingRetries++;
-          const warningText = `Grounding required. Revise your answer to cite tool results using tool names or "Based on ...".\n- ${grounding.warnings.join("\n- ")}`;
+          const warningText =
+            `Grounding required. Revise your answer to cite tool results using tool names or "Based on ...".\n- ${
+              grounding.warnings.join("\n- ")
+            }`;
           addContextMessage(config, { role: "user", content: warningText });
           return { action: "continue" };
         }
-        const warningText = `\n\n[Grounding warnings]\n- ${grounding.warnings.join("\n- ")}`;
+        const warningText = `\n\n[Grounding warnings]\n- ${
+          grounding.warnings.join("\n- ")
+        }`;
         return { action: "return", value: `${finalResponse}${warningText}` };
       }
-      const warningText = `\n\n[Grounding warnings]\n- ${grounding.warnings.join("\n- ")}`;
+      const warningText = `\n\n[Grounding warnings]\n- ${
+        grounding.warnings.join("\n- ")
+      }`;
       return { action: "return", value: `${finalResponse}${warningText}` };
     }
   }
@@ -1441,6 +1583,12 @@ async function handlePostToolExecution(
   lc: LoopConfig,
   config: OrchestratorConfig,
   llmFunction: LLMFunction,
+  overflowCfg?: {
+    context: ContextManager;
+    parseOverflow: (err: unknown) => ContextOverflowInfo;
+    provider: string;
+    model: string;
+  },
 ): Promise<LoopDirective> {
   // --- Denial tracking (per-tool) ---
   let anyDeniedThisTurn = false;
@@ -1459,7 +1607,8 @@ async function handlePostToolExecution(
       if (currentCount + 1 >= lc.maxDenials) {
         addContextMessage(config, {
           role: "user",
-          content: `Maximum denials (${lc.maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
+          content:
+            `Maximum denials (${lc.maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
         });
       }
     }
@@ -1472,10 +1621,11 @@ async function handlePostToolExecution(
   }
 
   const executedCalls = result.toolCalls.slice(0, result.results.length);
-  const allToolsBlocked = executedCalls.length > 0 && executedCalls.every((call) => {
-    const count = state.denialCountByTool.get(call.toolName) || 0;
-    return count >= lc.maxDenials;
-  });
+  const allToolsBlocked = executedCalls.length > 0 &&
+    executedCalls.every((call) => {
+      const count = state.denialCountByTool.get(call.toolName) || 0;
+      return count >= lc.maxDenials;
+    });
 
   if (anyDeniedThisTurn && allToolsBlocked && result.toolCalls.length > 0) {
     const finalResponse = await callLLMWithRetry(
@@ -1483,6 +1633,7 @@ async function handlePostToolExecution(
       config.context.getMessages(),
       { timeout: lc.llmTimeout, maxRetries: lc.maxRetries },
       config.onTrace,
+      overflowCfg,
     );
     return { action: "return", value: finalResponse.content ?? "" };
   }
@@ -1524,7 +1675,10 @@ async function handlePostToolExecution(
   if (result.toolUses.length > 0) {
     state.toolUses.push(...result.toolUses);
     if (state.toolUses.length > MAX_TOOL_USES_FOR_GROUNDING) {
-      state.toolUses.splice(0, state.toolUses.length - MAX_TOOL_USES_FOR_GROUNDING);
+      state.toolUses.splice(
+        0,
+        state.toolUses.length - MAX_TOOL_USES_FOR_GROUNDING,
+      );
     }
     if (result.toolBytes > 0) {
       checkToolResultBytesLimit(state, lc, config, result.toolBytes);
@@ -1535,7 +1689,8 @@ async function handlePostToolExecution(
   }
 
   // --- Consecutive failure tracking ---
-  const allFailed = result.results.length > 0 && result.results.every((r) => !r.success);
+  const allFailed = result.results.length > 0 &&
+    result.results.every((r) => !r.success);
   if (allFailed) {
     state.consecutiveToolFailures++;
   } else {
@@ -1547,7 +1702,10 @@ async function handlePostToolExecution(
       .map((r) => r.error ?? "unknown error");
     return {
       action: "return",
-      value: `Tool execution failed after ${state.consecutiveToolFailures} consecutive failures:\n${failedTools.join("\n")}`,
+      value:
+        `Tool execution failed after ${state.consecutiveToolFailures} consecutive failures:\n${
+          failedTools.join("\n")
+        }`,
     };
   }
 
@@ -1565,7 +1723,7 @@ async function handlePostToolExecution(
  * 1. Add user request to context
  * 2. Loop (up to MAX_ITERATIONS):
  *    a. Call LLM with timeout/retry
- *    b. Parse tool calls (native or text-repair fallback)
+ *    b. Parse tool calls (native structured calls only)
  *    c. Execute tools with safety checks and rate limiting
  *    d. Add results to context, continue until agent finishes
  * 3. Apply grounding checks, loop detection, and no-input guards
@@ -1580,15 +1738,29 @@ export async function runReActLoop(
   config: OrchestratorConfig,
   llmFunction: LLMFunction,
 ): Promise<string> {
+  if (!config.l1Confirmations) {
+    config.l1Confirmations = new Map<string, boolean>();
+  }
   const { context, onTrace } = config;
 
-  // Reset per-run caches to avoid stale data across runs
-  isToolAllowed = createToolAllowedChecker();
+  // Reset per-run checker cache to avoid stale allow/deny list sets
+  TOOL_ALLOWED_CHECKER_BY_CONFIG.set(config, createToolAllowedChecker());
   clearToolDefCache();
 
   // Initialize state and resolved config constants
   const state = initializeLoopState(config);
   const lc = resolveLoopConfig(config);
+
+  // Build overflow config for dynamic context budget adjustment
+  const overflowCfg =
+    config.parseOverflowError && config.providerName && config.modelName
+      ? {
+        context,
+        parseOverflow: config.parseOverflowError,
+        provider: config.providerName,
+        model: config.modelName,
+      }
+      : undefined;
 
   // Add user request to context
   addContextMessage(config, { role: "user", content: userRequest });
@@ -1628,7 +1800,8 @@ export async function runReActLoop(
       return state.lastResponse || "Request cancelled by client";
     }
     if (Date.now() > lc.loopDeadline) {
-      return state.lastResponse || `Total timeout (${lc.totalTimeout / 1000}s) exceeded. Task incomplete.`;
+      return state.lastResponse ||
+        `Total timeout (${lc.totalTimeout / 1000}s) exceeded. Task incomplete.`;
     }
     state.iterations++;
 
@@ -1639,118 +1812,155 @@ export async function runReActLoop(
     });
 
     try {
-    // Plan delegation (inline — complex control flow with continue)
-    if (state.planState) {
-      const currentStep = state.planState.plan.steps[state.planState.currentIndex];
-      if (
-        currentStep?.agent &&
-        !state.planState.delegatedIds.has(currentStep.id) &&
-        config.delegate
-      ) {
-        const profile = getAgentProfile(currentStep.agent);
-        if (profile) {
-          const delegateArgs: Record<string, unknown> = {
-            agent: profile.name,
-            task: currentStep.goal ?? currentStep.title,
-          };
-          if (typeof config.maxToolCalls === "number") {
-            delegateArgs.maxToolCalls = config.maxToolCalls;
+      // Plan delegation (inline — complex control flow with continue)
+      if (state.planState) {
+        const currentStep =
+          state.planState.plan.steps[state.planState.currentIndex];
+        if (
+          currentStep?.agent &&
+          !state.planState.delegatedIds.has(currentStep.id) &&
+          config.delegate
+        ) {
+          const profile = getAgentProfile(currentStep.agent);
+          if (profile) {
+            const delegateArgs: Record<string, unknown> = {
+              agent: profile.name,
+              task: currentStep.goal ?? currentStep.title,
+            };
+            if (typeof config.maxToolCalls === "number") {
+              delegateArgs.maxToolCalls = config.maxToolCalls;
+            }
+            if (config.groundingMode) {
+              delegateArgs.groundingMode = config.groundingMode;
+            }
+            const delegateResult = await executeToolCall(
+              { toolName: "delegate_agent", args: delegateArgs },
+              config,
+            );
+            if (!delegateResult.success) {
+              addContextMessage(config, {
+                role: "user",
+                content: `Delegation failed: ${
+                  delegateResult.error ?? "unknown error"
+                }`,
+              });
+            }
+            state.planState.delegatedIds.add(currentStep.id);
+            continue;
           }
-          if (config.groundingMode) {
-            delegateArgs.groundingMode = config.groundingMode;
-          }
-          const delegateResult = await executeToolCall(
-            { toolName: "delegate_agent", args: delegateArgs },
-            config,
-          );
-          if (!delegateResult.success) {
-            addContextMessage(config, {
-              role: "user",
-              content: `Delegation failed: ${delegateResult.error ?? "unknown error"}`,
-            });
-          }
-          state.planState.delegatedIds.add(currentStep.id);
-          continue;
         }
       }
-    }
 
-    // LLM call: rate limit → compaction → call → usage/trace
-    const messages = context.getMessages();
-    onTrace?.({ type: "llm_call", messageCount: messages.length });
-    emitMetric(config, "llm_call", { messageCount: messages.length });
-
-    if (lc.llmLimiter) {
-      const status = lc.llmLimiter.consume(1);
-      if (!status.allowed) {
-        onTrace?.({
-          type: "rate_limit", target: "llm",
-          maxCalls: status.maxCalls, windowMs: status.windowMs,
-          used: status.used, remaining: status.remaining, resetMs: status.resetMs,
-        });
-        emitMetric(config, "rate_limit", {
-          target: "llm",
-          maxCalls: status.maxCalls, windowMs: status.windowMs,
-          used: status.used, remaining: status.remaining, resetMs: status.resetMs,
-        });
-        throw new RateLimitError(
-          `LLM rate limit exceeded (${status.used}/${status.maxCalls} per ${status.windowMs}ms)`,
-          status.maxCalls, status.windowMs,
-        );
+      // LLM call: rate limit → compaction → call → usage/trace
+      if (lc.llmLimiter) {
+        const status = lc.llmLimiter.consume(1);
+        if (!status.allowed) {
+          onTrace?.({
+            type: "rate_limit",
+            target: "llm",
+            maxCalls: status.maxCalls,
+            windowMs: status.windowMs,
+            used: status.used,
+            remaining: status.remaining,
+            resetMs: status.resetMs,
+          });
+          emitMetric(config, "rate_limit", {
+            target: "llm",
+            maxCalls: status.maxCalls,
+            windowMs: status.windowMs,
+            used: status.used,
+            remaining: status.remaining,
+            resetMs: status.resetMs,
+          });
+          throw new RateLimitError(
+            `LLM rate limit exceeded (${status.used}/${status.maxCalls} per ${status.windowMs}ms)`,
+            status.maxCalls,
+            status.windowMs,
+          );
+        }
       }
-    }
 
-    await context.compactIfNeeded();
+      await context.compactIfNeeded();
+      const messages = context.getMessages();
+      onTrace?.({ type: "llm_call", messageCount: messages.length });
+      emitMetric(config, "llm_call", { messageCount: messages.length });
 
-    const llmStart = Date.now();
-    const agentResponse = await callLLMWithRetry(
-      llmFunction, messages,
-      { timeout: lc.llmTimeout, maxRetries: lc.maxRetries },
-      onTrace,
-    );
-    const llmDuration = Date.now() - llmStart;
+      const llmStart = Date.now();
+      const agentResponse = await callLLMWithRetry(
+        llmFunction,
+        messages,
+        { timeout: lc.llmTimeout, maxRetries: lc.maxRetries },
+        onTrace,
+        overflowCfg,
+      );
+      const llmDuration = Date.now() - llmStart;
 
-    const responseText = agentResponse.content ?? "";
-    if (responseText) state.lastResponse = responseText;
-    let response = agentResponse;
+      const responseText = agentResponse.content ?? "";
+      if (responseText) state.lastResponse = responseText;
+      let response = agentResponse;
 
-    const usage = estimateUsage(messages, responseText);
-    state.usageTracker.record(usage);
-    onTrace?.({ type: "llm_usage", usage });
-    emitMetric(config, "llm_usage", { ...usage });
-    onTrace?.({
-      type: "llm_response",
-      length: responseText.length,
-      truncated: truncate(responseText, 200),
-      content: responseText,
-      toolCalls: agentResponse.toolCalls?.length ?? 0,
-    });
-    emitMetric(config, "llm_response", { length: responseText.length, durationMs: llmDuration });
+      const usageMessages = context.getMessages();
+      const usage = agentResponse.usage
+        ? toTokenUsage(agentResponse.usage)
+        : estimateUsage(usageMessages, responseText);
+      state.usageTracker.record(usage);
+      onTrace?.({ type: "llm_usage", usage });
+      emitMetric(config, "llm_usage", { ...usage });
+      onTrace?.({
+        type: "llm_response",
+        length: responseText.length,
+        truncated: truncate(responseText, 200),
+        content: responseText,
+        toolCalls: agentResponse.toolCalls?.length ?? 0,
+      });
+      emitMetric(config, "llm_response", {
+        length: responseText.length,
+        durationMs: llmDuration,
+      });
 
-    // Handle empty responses and weak-model text repair
-    const textResult = handleTextOnlyResponse(response, responseText, state, lc, config);
-    if (textResult.action === "continue") continue;
-    if (textResult.action === "return") return textResult.value;
-    if (textResult.response) response = textResult.response;
+      // Handle empty responses and weak-model text repair
+      const textResult = handleTextOnlyResponse(
+        response,
+        responseText,
+        state,
+        lc,
+        config,
+      );
+      if (textResult.action === "continue") continue;
+      if (textResult.action === "return") return textResult.value;
+      if (textResult.response) response = textResult.response;
 
-    // Process response and execute tools
-    const result = await processAgentResponse(response, config);
+      // Process response and execute tools
+      const result = await processAgentResponse(response, config);
 
-    // If no tool calls, handle final response
-    if (!result.shouldContinue) {
-      const final = handleFinalResponse(responseText, result, state, lc, config);
-      if (final.action === "continue") continue;
-      if (final.action === "return") return final.value;
-    }
+      // If no tool calls, handle final response
+      if (!result.shouldContinue) {
+        const final = handleFinalResponse(
+          responseText,
+          result,
+          state,
+          lc,
+          config,
+        );
+        if (final.action === "continue") continue;
+        if (final.action === "return") return final.value;
+      }
 
-    // Post-tool execution: denials, loop detection, accumulation, failures
-    const post = await handlePostToolExecution(result, state, lc, config, llmFunction);
-    if (post.action === "continue") continue;
-    if (post.action === "return") return post.value;
-
+      // Post-tool execution: denials, loop detection, accumulation, failures
+      const post = await handlePostToolExecution(
+        result,
+        state,
+        lc,
+        config,
+        llmFunction,
+        overflowCfg,
+      );
+      if (post.action === "continue") continue;
+      if (post.action === "return") return post.value;
     } catch (error) {
       if (error instanceof ContextOverflowError) {
-        return state.lastResponse || "Context limit reached. Please start a new conversation.";
+        return state.lastResponse ||
+          "Context limit reached. Please start a new conversation.";
       }
       throw error;
     }

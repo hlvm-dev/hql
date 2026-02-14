@@ -26,6 +26,8 @@ import type { TraceEvent } from "./orchestrator.ts";
 export interface AgentConfig {
   /** Model identifier (e.g. "ollama/llama3.1:8b", "openai/gpt-4o"). Defaults to configured model. */
   model?: string;
+  /** Optional context window override (in tokens). */
+  contextWindow?: number;
   /** Working directory for tool execution. Defaults to cwd. */
   workspace?: string;
   /** Tool denylist override. Defaults to DEFAULT_TOOL_DENYLIST. */
@@ -68,6 +70,7 @@ export class Agent {
     this.session = await createAgentSession({
       workspace,
       model,
+      contextWindow: this.config.contextWindow,
       toolDenylist: this.config.toolDenylist ??
         [...DEFAULT_TOOL_DENYLIST],
       toolAllowlist: this.config.toolAllowlist,
@@ -106,6 +109,8 @@ export class Agent {
         noInput: true,
         planning: { mode: "off", requireStepMarkers: false },
         skipModelCompensation: session.isFrontierModel,
+        l1Confirmations: session.l1Confirmations,
+        toolOwnerId: session.toolOwnerId,
       },
       session.llm,
     );

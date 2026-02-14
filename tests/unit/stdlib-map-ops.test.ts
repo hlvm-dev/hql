@@ -3,7 +3,7 @@
  * Now uses hql.run() to test actual language integration
  */
 
-import { assertEquals } from "jsr:@std/assert@1";
+import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { run } from "./helpers.ts";
 
 // =============================================================================
@@ -166,5 +166,22 @@ Deno.test("merge: later values win", async () => {
 
 Deno.test("merge: nil maps are ignored", async () => {
   const result = await run(`(merge {"a": 1} nil {"b": 2})`);
+  assertEquals(result, { a: 1, b: 2 });
+});
+
+// =============================================================================
+// hash-map arity validation
+// =============================================================================
+
+Deno.test("hash-map: odd arity throws", async () => {
+  await assertRejects(
+    () => run(`(hash-map "a" 1 "b")`),
+    Error,
+    "even number",
+  );
+});
+
+Deno.test("hash-map: even arity works", async () => {
+  const result = await run(`(hash-map "a" 1 "b" 2)`);
   assertEquals(result, { a: 1, b: 2 });
 });

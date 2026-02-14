@@ -4,10 +4,7 @@
  * Uses createFixtureLLM + manual session injection to avoid real LLM calls.
  */
 
-import {
-  assertEquals,
-  assertExists,
-} from "jsr:@std/assert";
+import { assertEquals, assertExists } from "jsr:@std/assert";
 import { Agent } from "../../../src/hlvm/agent/sdk.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
@@ -28,9 +25,12 @@ function createTestSession(fixture: LlmFixture): AgentSession {
     context,
     llm: createFixtureLLM(fixture),
     policy: null,
+    l1Confirmations: new Map<string, boolean>(),
+    toolOwnerId: "session:test",
     dispose: async () => {},
     profile: ENGINE_PROFILES.normal,
     isFrontierModel: false,
+    resolvedContextBudget: ENGINE_PROFILES.normal.context.maxTokens,
   };
 }
 

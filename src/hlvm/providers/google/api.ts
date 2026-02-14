@@ -17,6 +17,7 @@ import { getErrorMessage } from "../../../common/utils.ts";
 import type {
   ChatOptions,
   ChatStructuredResponse,
+  ContextOverflowInfo,
   Message,
   ModelInfo,
   ProviderStatus,
@@ -118,6 +119,10 @@ interface GoogleResponse {
     content: { role: string; parts: GooglePart[] };
     finishReason: string;
   }[];
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+  };
 }
 
 function extractContent(response: GoogleResponse): string {
@@ -198,10 +203,17 @@ export async function chatStructured(
   }
 
   const result = await response.json() as GoogleResponse;
-  return {
+  const resp: ChatStructuredResponse = {
     content: extractContent(result),
     toolCalls: extractToolCalls(result),
   };
+  if (result.usageMetadata) {
+    resp.usage = {
+      inputTokens: result.usageMetadata.promptTokenCount ?? 0,
+      outputTokens: result.usageMetadata.candidatesTokenCount ?? 0,
+    };
+  }
+  return resp;
 }
 
 async function streamChat(
@@ -227,8 +239,10 @@ async function streamChat(
   const contentChunks: string[] = [];
   // Fix 6: Track tool calls by index to avoid duplicates across chunks
   const toolCallMap = new Map<number, { name: string; args: Record<string, unknown> }>();
+  let lastUsageMetadata: GoogleResponse["usageMetadata"];
 
   for await (const chunk of readSSEStream<GoogleResponse>(response)) {
+    if (chunk.usageMetadata) lastUsageMetadata = chunk.usageMetadata;
     const parts = chunk.candidates?.[0]?.content?.parts ?? [];
     for (let j = 0; j < parts.length; j++) {
       const part = parts[j];
@@ -259,7 +273,14 @@ async function streamChat(
     function: { name: tc.name, arguments: tc.args },
   }));
 
-  return { content: contentChunks.join(""), toolCalls };
+  const resp: ChatStructuredResponse = { content: contentChunks.join(""), toolCalls };
+  if (lastUsageMetadata) {
+    resp.usage = {
+      inputTokens: lastUsageMetadata.promptTokenCount ?? 0,
+      outputTokens: lastUsageMetadata.candidatesTokenCount ?? 0,
+    };
+  }
+  return resp;
 }
 
 // =============================================================================
@@ -275,7 +296,7 @@ export async function listModels(
   if (!response.ok) return [];
 
   const result = await response.json() as {
-    models: { name: string; displayName: string; description: string }[];
+    models: { name: string; displayName: string; description: string; inputTokenLimit?: number }[];
   };
   return (result.models ?? [])
     .filter((m) => m.name.includes("gemini"))
@@ -283,6 +304,7 @@ export async function listModels(
       name: m.name.replace("models/", ""),
       displayName: m.displayName,
       family: "gemini",
+      contextWindow: m.inputTokenLimit,
     }));
 }
 
@@ -303,4 +325,25 @@ export async function checkStatus(
       error: getErrorMessage(error),
     };
   }
+}
+
+/**
+ * Parse context overflow info from Google/Gemini error messages.
+ * Google format: "Request payload size exceeds the limit" or token count errors
+ */
+export function parseOverflowError(err: unknown): ContextOverflowInfo {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (msg.includes("exceeds") || msg.includes("token limit") || msg.includes("too many tokens") || msg.includes("context length")) {
+    // "input token count N exceeds the limit M"
+    const match = msg.match(/exceeds?\s+(?:the\s+)?limit\D+(\d+)/);
+    if (match) {
+      return { isOverflow: true, limitTokens: parseInt(match[1]), confidence: "high" };
+    }
+    const altMatch = msg.match(/(\d+)\s*tokens?\s*>\s*(\d+)/);
+    if (altMatch) {
+      return { isOverflow: true, limitTokens: parseInt(altMatch[2]), confidence: "high" };
+    }
+    return { isOverflow: true, confidence: "low" };
+  }
+  return { isOverflow: false, confidence: "low" };
 }

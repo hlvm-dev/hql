@@ -14,6 +14,7 @@ import { JSON_HEADERS, throwOnHttpError } from "../common.ts";
 import type {
   ChatOptions,
   ChatStructuredResponse,
+  ContextOverflowInfo,
   GenerateOptions,
   Message,
   ModelInfo,
@@ -78,6 +79,8 @@ interface OllamaChatChunk {
   model: string;
   message?: { role: string; content: string; tool_calls?: ProviderToolCall[] };
   done: boolean;
+  prompt_eval_count?: number;
+  eval_count?: number;
 }
 
 /** Ollama chat response */
@@ -87,6 +90,8 @@ interface OllamaChatResponse {
     content?: string;
     tool_calls?: ProviderToolCall[];
   };
+  prompt_eval_count?: number;
+  eval_count?: number;
 }
 
 /** Ollama model info from /api/tags */
@@ -400,6 +405,8 @@ export async function chatStructured(
   if (useStreaming) {
     const contentChunks: string[] = [];
     const toolCalls: ProviderToolCall[] = [];
+    let promptEvalCount = 0;
+    let evalCount = 0;
 
     for await (
       const chunk of streamRequest<OllamaChatChunk>(
@@ -417,12 +424,19 @@ export async function chatStructured(
       if (chunk.message?.tool_calls?.length) {
         toolCalls.push(...chunk.message.tool_calls);
       }
+      // Usage counts appear in the final chunk (done: true)
+      if (chunk.prompt_eval_count) promptEvalCount = chunk.prompt_eval_count;
+      if (chunk.eval_count) evalCount = chunk.eval_count;
     }
 
-    return {
+    const resp: ChatStructuredResponse = {
       content: contentChunks.join("").trim(),
       toolCalls,
     };
+    if (promptEvalCount > 0 || evalCount > 0) {
+      resp.usage = { inputTokens: promptEvalCount, outputTokens: evalCount };
+    }
+    return resp;
   }
 
   // Non-streaming path (default) — Fix 9: forward signal
@@ -434,10 +448,17 @@ export async function chatStructured(
     signal,
   );
 
-  return {
+  const resp: ChatStructuredResponse = {
     content: (result.message?.content ?? "").trim(),
     toolCalls: result.message?.tool_calls ?? [],
   };
+  if (result.prompt_eval_count || result.eval_count) {
+    resp.usage = {
+      inputTokens: result.prompt_eval_count ?? 0,
+      outputTokens: result.eval_count ?? 0,
+    };
+  }
+  return resp;
 }
 
 /**
@@ -479,11 +500,20 @@ export async function getModel(
   name: string,
 ): Promise<ModelInfo | null> {
   try {
-    const result = await jsonRequest<OllamaModel & { details: unknown }>(
+    const result = await jsonRequest<OllamaModel & { details: unknown; model_info?: Record<string, unknown> }>(
       endpoint,
       "/api/show",
       { name },
     );
+
+    // Extract context_length from model_info (key varies by architecture, e.g. "llama.context_length")
+    let contextWindow: number | undefined;
+    if (result.model_info) {
+      const ctxKey = Object.keys(result.model_info).find((k) => k.endsWith(".context_length"));
+      if (ctxKey && typeof result.model_info[ctxKey] === "number") {
+        contextWindow = result.model_info[ctxKey] as number;
+      }
+    }
 
     return {
       name: result.name || name,
@@ -494,6 +524,7 @@ export async function getModel(
       quantization: (result.details as { quantization_level?: string })
         ?.quantization_level,
       metadata: result.details,
+      contextWindow,
     };
   } catch {
     return null;
@@ -580,4 +611,23 @@ export async function checkStatus(endpoint: string): Promise<ProviderStatus> {
       error: err instanceof Error ? err.message : "Connection failed",
     };
   }
+}
+
+/**
+ * Parse context overflow info from Ollama error messages.
+ * Ollama format: "model requires more system memory (N GiB) than is available (M GiB)"
+ * or truncation warnings with context length info.
+ */
+export function parseOverflowError(err: unknown): ContextOverflowInfo {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  // Ollama context overflow patterns (note: Ollama uses "context_length" with underscore)
+  if (msg.includes("context_length") || msg.includes("context length") || msg.includes("too many tokens") || msg.includes("exceeds")) {
+    // Try to extract limit: "context_length is N" or "maximum context length is N"
+    const match = msg.match(/context.?length\D+(\d+)/);
+    if (match) {
+      return { isOverflow: true, limitTokens: parseInt(match[1]), confidence: "high" };
+    }
+    return { isOverflow: true, confidence: "low" };
+  }
+  return { isOverflow: false, confidence: "low" };
 }

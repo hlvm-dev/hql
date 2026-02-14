@@ -37,6 +37,8 @@ import {
 } from "./constants.ts";
 import { hashString } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
+import { UsageTracker } from "./usage.ts";
+import { getOverflowParser } from "./context-resolver.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -77,6 +79,8 @@ export interface AgentRunnerCallbacks {
 export interface AgentRunnerOptions {
   query: string;
   model?: string;
+  /** Optional context window override (in tokens). */
+  contextWindow?: number;
   workspace?: string;
   callbacks: AgentRunnerCallbacks;
   autoApprove?: boolean;
@@ -93,6 +97,13 @@ export interface AgentRunnerResult {
     messageCount: number;
     estimatedTokens: number;
     toolMessages: number;
+    /** Provider-reported token usage (when available) */
+    usage?: {
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+      source: "provider" | "estimated";
+    };
   };
 }
 
@@ -151,6 +162,7 @@ export async function runAgentQuery(
   const session: AgentSession = await createAgentSession({
     workspace,
     model,
+    contextWindow: options.contextWindow,
     engineProfile: "normal",
     failOnContextOverflow: false,
     toolDenylist,
@@ -203,6 +215,17 @@ export async function runAgentQuery(
       };
     }
 
+    const usageTracker = new UsageTracker();
+
+    // Resolve provider-specific overflow parser for dynamic context budget
+    const providerName = model.indexOf("/") > 0
+      ? model.slice(0, model.indexOf("/")).toLowerCase()
+      : "ollama";
+    const modelName = model.indexOf("/") > 0
+      ? model.slice(model.indexOf("/") + 1)
+      : model;
+    const overflowParser = await getOverflowParser(providerName);
+
     const text = await runReActLoop(
       query,
       {
@@ -219,6 +242,12 @@ export async function runAgentQuery(
         planning: { mode: "off", requireStepMarkers: false },
         skipModelCompensation: session.isFrontierModel,
         signal: options.signal,
+        usage: usageTracker,
+        l1Confirmations: session.l1Confirmations,
+        toolOwnerId: session.toolOwnerId,
+        parseOverflowError: overflowParser ?? undefined,
+        providerName,
+        modelName,
       },
       llm,
     );
@@ -228,12 +257,21 @@ export async function runAgentQuery(
     }
 
     const stats = session.context.getStats();
+    const usageSnapshot = usageTracker.snapshot();
     return {
       text,
       stats: {
         messageCount: stats.messageCount,
         estimatedTokens: stats.estimatedTokens,
         toolMessages: stats.toolMessages,
+        usage: usageSnapshot.calls > 0
+          ? {
+            inputTokens: usageSnapshot.totalPromptTokens,
+            outputTokens: usageSnapshot.totalCompletionTokens,
+            totalTokens: usageSnapshot.totalTokens,
+            source: usageSnapshot.source,
+          }
+          : undefined,
       },
     };
   } finally {

@@ -17,6 +17,7 @@ import { getErrorMessage } from "../../../common/utils.ts";
 import type {
   ChatOptions,
   ChatStructuredResponse,
+  ContextOverflowInfo,
   Message,
   ModelInfo,
   ProviderStatus,
@@ -153,14 +154,21 @@ export async function chatStructured(
     await throwOnHttpError(response, "OpenAI");
   }
 
-  const result = await response.json() as { choices: OpenAIChoice[] };
+  const result = await response.json() as {
+    choices: OpenAIChoice[];
+    usage?: { prompt_tokens: number; completion_tokens: number };
+  };
   const choice = result.choices?.[0];
   if (!choice) return { content: "", toolCalls: [] };
 
-  return {
+  const resp: ChatStructuredResponse = {
     content: choice.message.content ?? "",
     toolCalls: extractToolCalls(choice),
   };
+  if (result.usage) {
+    resp.usage = { inputTokens: result.usage.prompt_tokens, outputTokens: result.usage.completion_tokens };
+  }
+  return resp;
 }
 
 interface OpenAIStreamDelta {
@@ -179,7 +187,7 @@ async function streamChat(
   onToken: (text: string) => void,
   signal?: AbortSignal,
 ): Promise<ChatStructuredResponse> {
-  body.stream_options = { include_usage: false };
+  body.stream_options = { include_usage: true };
 
   const url = `${endpoint}/v1/chat/completions`;
   const response = await fetch(url, {
@@ -195,8 +203,13 @@ async function streamChat(
 
   const contentChunks: string[] = [];
   const toolCallParts: Map<number, { id: string; name: string; args: string }> = new Map();
+  let streamUsage: { prompt_tokens: number; completion_tokens: number } | undefined;
 
   for await (const chunk of readSSEStream<OpenAIStreamDelta>(response)) {
+    // Final chunk with include_usage: true has usage but empty choices
+    if ((chunk as unknown as Record<string, unknown>).usage) {
+      streamUsage = (chunk as unknown as Record<string, unknown>).usage as typeof streamUsage;
+    }
     const delta = chunk.choices?.[0]?.delta;
     if (delta?.content) {
       contentChunks.push(delta.content);
@@ -217,7 +230,11 @@ async function streamChat(
     .sort((a, b) => a[0] - b[0])
     .map(([, part]) => buildToolCall(part.id, part.name, part.args));
 
-  return { content: contentChunks.join(""), toolCalls };
+  const resp: ChatStructuredResponse = { content: contentChunks.join(""), toolCalls };
+  if (streamUsage) {
+    resp.usage = { inputTokens: streamUsage.prompt_tokens, outputTokens: streamUsage.completion_tokens };
+  }
+  return resp;
 }
 
 // =============================================================================
@@ -274,4 +291,25 @@ export async function checkStatus(
       error: getErrorMessage(error),
     };
   }
+}
+
+/**
+ * Parse context overflow info from OpenAI error messages.
+ * OpenAI format: "maximum context length is N tokens"
+ */
+export function parseOverflowError(err: unknown): ContextOverflowInfo {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (msg.includes("maximum context length") || msg.includes("token limit") || msg.includes("too many tokens")) {
+    const match = msg.match(/maximum context length is (\d+)/);
+    if (match) {
+      return { isOverflow: true, limitTokens: parseInt(match[1]), confidence: "high" };
+    }
+    // Alternate pattern: "N tokens > M"
+    const altMatch = msg.match(/(\d+)\s*tokens?\s*>\s*(\d+)/);
+    if (altMatch) {
+      return { isOverflow: true, limitTokens: parseInt(altMatch[2]), confidence: "high" };
+    }
+    return { isOverflow: true, confidence: "low" };
+  }
+  return { isOverflow: false, confidence: "low" };
 }

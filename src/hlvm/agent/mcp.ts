@@ -11,7 +11,12 @@ import { getPlatform } from "../../platform/platform.ts";
 import type { PlatformCommandProcess } from "../../platform/types.ts";
 import { ValidationError } from "../../common/error.ts";
 import { parseJsonLine } from "../../common/jsonl.ts";
-import { getErrorMessage, isObjectValue, TEXT_ENCODER } from "../../common/utils.ts";
+import {
+  generateUUID,
+  getErrorMessage,
+  isObjectValue,
+  TEXT_ENCODER,
+} from "../../common/utils.ts";
 import { getAgentLogger } from "./logger.ts";
 import {
   registerTools,
@@ -89,7 +94,9 @@ export async function loadMcpConfig(
   try {
     parsed = JSON.parse(content);
   } catch (error) {
-    getAgentLogger().warn(`MCP config JSON invalid (${path}): ${getErrorMessage(error)}`);
+    getAgentLogger().warn(
+      `MCP config JSON invalid (${path}): ${getErrorMessage(error)}`,
+    );
     return null;
   }
 
@@ -473,6 +480,7 @@ function buildArgsSchema(
 
 export interface McpLoadResult {
   tools: string[];
+  ownerId: string;
   dispose: () => Promise<void>;
 }
 
@@ -536,7 +544,9 @@ export function inferMcpSafetyLevel(
 
 function inferMcpSafetyReason(level: "L0" | "L1" | "L2"): string {
   if (level === "L0") return "External MCP read-only tool (auto-approved).";
-  if (level === "L1") return "External MCP tool with low risk (confirm once per session).";
+  if (level === "L1") {
+    return "External MCP tool with low risk (confirm once per session).";
+  }
   return "External MCP tool with possible side effects (always confirm).";
 }
 
@@ -544,14 +554,16 @@ export async function loadMcpTools(
   workspace: string,
   configPath?: string,
   extraServers?: McpServerConfig[],
+  ownerId?: string,
 ): Promise<McpLoadResult> {
+  const registrationOwnerId = ownerId ?? `mcp:${generateUUID()}`;
   const config = await loadMcpConfig(workspace, configPath);
   const servers = dedupeServers([
     ...(config?.servers ?? []),
     ...(extraServers ?? []),
   ]);
   if (servers.length === 0) {
-    return { tools: [], dispose: async () => {} };
+    return { tools: [], ownerId: registrationOwnerId, dispose: async () => {} };
   }
 
   const clients: McpClient[] = [];
@@ -588,7 +600,7 @@ export async function loadMcpTools(
         };
       }
 
-      const names = registerTools(entries);
+      const names = registerTools(entries, registrationOwnerId);
       registered.push(...names);
       clients.push(client);
     } catch (error) {
@@ -605,8 +617,9 @@ export async function loadMcpTools(
 
   return {
     tools: registered,
+    ownerId: registrationOwnerId,
     dispose: async () => {
-      for (const name of registered) unregisterTool(name);
+      for (const name of registered) unregisterTool(name, registrationOwnerId);
       for (const client of clients) await client.close();
     },
   };

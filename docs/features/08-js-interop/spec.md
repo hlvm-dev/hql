@@ -198,6 +198,17 @@ Examples:
 - Numeric literals with decimals (`42.5`) are not treated as dot notation
 - Bare property access works: `arr.length` evaluates to the property
 
+**Spaceless chaining caveat:** When a method argument is a bare variable (not wrapped in parens), spaceless chaining is ambiguous:
+```lisp
+;; WRONG — my-fn.filter is parsed as property access on my-fn
+(arr.map my-fn.filter big?)
+
+;; CORRECT — use spaced form or threading
+(arr .map my-fn .filter big?)
+(->> arr (.map my-fn) (.filter big?))
+```
+Spaceless chaining works safely when arguments are parenthesized expressions like `(fn [x] ...)` or `(=> ...)`.
+
 ### Optional Chaining
 
 Optional chaining allows safe property access on potentially null/undefined values. It compiles directly to JavaScript optional chaining (`?.`). This is general-purpose syntax that works anywhere — in bindings, function bodies, arrow lambdas, pipelines, and expressions.

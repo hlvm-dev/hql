@@ -25,13 +25,13 @@ const DEFAULT_MODEL = "gpt-4o";
 
 /** Known OpenAI models — returned when no API key is set */
 const KNOWN_MODELS: ModelInfo[] = [
-  { name: "gpt-4o", displayName: "GPT-4o", family: "gpt-4o", capabilities: ["chat", "tools", "vision"] },
-  { name: "gpt-4o-mini", displayName: "GPT-4o Mini", family: "gpt-4o", capabilities: ["chat", "tools", "vision"] },
-  { name: "gpt-4.1", displayName: "GPT-4.1", family: "gpt-4.1", capabilities: ["chat", "tools", "vision"] },
-  { name: "gpt-4.1-mini", displayName: "GPT-4.1 Mini", family: "gpt-4.1", capabilities: ["chat", "tools", "vision"] },
-  { name: "gpt-4.1-nano", displayName: "GPT-4.1 Nano", family: "gpt-4.1", capabilities: ["chat", "tools"] },
-  { name: "o3-mini", displayName: "o3 Mini", family: "o3", capabilities: ["chat", "tools"] },
-  { name: "o4-mini", displayName: "o4 Mini", family: "o4", capabilities: ["chat", "tools"] },
+  { name: "gpt-4o", displayName: "GPT-4o", family: "gpt-4o", capabilities: ["chat", "tools", "vision"], contextWindow: 128_000 },
+  { name: "gpt-4o-mini", displayName: "GPT-4o Mini", family: "gpt-4o", capabilities: ["chat", "tools", "vision"], contextWindow: 128_000 },
+  { name: "gpt-4.1", displayName: "GPT-4.1", family: "gpt-4.1", capabilities: ["chat", "tools", "vision"], contextWindow: 1_047_576 },
+  { name: "gpt-4.1-mini", displayName: "GPT-4.1 Mini", family: "gpt-4.1", capabilities: ["chat", "tools", "vision"], contextWindow: 1_047_576 },
+  { name: "gpt-4.1-nano", displayName: "GPT-4.1 Nano", family: "gpt-4.1", capabilities: ["chat", "tools"], contextWindow: 1_047_576 },
+  { name: "o3-mini", displayName: "o3 Mini", family: "o3", capabilities: ["chat", "tools"], contextWindow: 200_000 },
+  { name: "o4-mini", displayName: "o4 Mini", family: "o4", capabilities: ["chat", "tools"], contextWindow: 200_000 },
 ];
 
 export class OpenAIProvider implements AIProvider {

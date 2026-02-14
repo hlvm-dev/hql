@@ -311,6 +311,21 @@ export class ContextManager {
     };
   }
 
+  /** Get the current maxTokens budget */
+  getMaxTokens(): number {
+    return this.config.maxTokens;
+  }
+
+  /** Update the maxTokens budget (e.g., after learning actual context limit) */
+  setMaxTokens(maxTokens: number): void {
+    this.config.maxTokens = maxTokens;
+  }
+
+  /** Force context to fit within current maxTokens budget (e.g., after budget reduction from overflow). */
+  trimToFit(): void {
+    this.trimIfNeeded();
+  }
+
   /**
    * Check if context needs trimming
    *

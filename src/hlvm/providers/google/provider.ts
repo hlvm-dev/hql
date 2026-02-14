@@ -25,9 +25,9 @@ const DEFAULT_MODEL = "gemini-2.0-flash";
 
 /** Known Google models — returned when no API key is set */
 const KNOWN_MODELS: ModelInfo[] = [
-  { name: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", family: "gemini", capabilities: ["chat", "tools", "vision"] },
-  { name: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", family: "gemini", capabilities: ["chat", "tools", "vision"] },
-  { name: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash", family: "gemini", capabilities: ["chat", "tools", "vision"] },
+  { name: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", family: "gemini", capabilities: ["chat", "tools", "vision"], contextWindow: 1_048_576 },
+  { name: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", family: "gemini", capabilities: ["chat", "tools", "vision"], contextWindow: 1_048_576 },
+  { name: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash", family: "gemini", capabilities: ["chat", "tools", "vision"], contextWindow: 1_048_576 },
 ];
 
 export class GoogleProvider implements AIProvider {

@@ -216,10 +216,14 @@ function createAiApi() {
         name: string,
         providerName?: string,
       ): Promise<ModelInfo | null> => {
-        const provider = getProviderByNameOrDefault(providerName);
+        // Accept both "model" and "provider/model" inputs.
+        const [parsedProvider, parsedModel] = parseModelString(name);
+        const resolvedProvider = providerName ?? parsedProvider ?? undefined;
+        const resolvedName = providerName ? name : parsedModel;
+        const provider = getProviderByNameOrDefault(resolvedProvider);
 
         return provider?.models?.get
-          ? provider.models.get(name)
+          ? provider.models.get(resolvedName)
           : Promise.resolve(null);
       },
 

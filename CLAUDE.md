@@ -35,6 +35,14 @@ Do not add new CLI flags unless explicitly requested.
 
 Imperative code is only acceptable when it is extremely performant and has proper, strong, competitive reasons to justify the complexity. Default to declarative — it is simpler, more readable, and easier to maintain.
 
+## Leverage Existing Solutions - MANDATORY
+
+**Stand on the shoulders of giants. Don't reinvent the wheel.**
+
+- Prefer upstream APIs and dynamic data over hardcoded lookup tables
+- Prefer battle-tested libraries over in-house reimplementations
+- Only build custom when no adequate solution exists or dependency cost outweighs the benefit
+
 ## DRY & KISS - MANDATORY
 
 **No scattered logic. No redundancy. No duplication.**

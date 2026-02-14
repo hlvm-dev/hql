@@ -201,36 +201,43 @@ export { collectStream };
  * Avoids module-level mutable state that could leak between runs.
  */
 function createToolDefCache(): {
-  build: (options?: { allowlist?: string[]; denylist?: string[] }) => ToolDefinition[];
+  build: (
+    options?: { allowlist?: string[]; denylist?: string[]; ownerId?: string },
+  ) => ToolDefinition[];
   clear: () => void;
 } {
   let cached: { key: string; defs: ToolDefinition[] } | null = null;
 
   return {
-    build(options?: { allowlist?: string[]; denylist?: string[] }): ToolDefinition[] {
+    build(
+      options?: { allowlist?: string[]; denylist?: string[]; ownerId?: string },
+    ): ToolDefinition[] {
       const cacheKey = JSON.stringify([
         options?.allowlist ?? null,
         options?.denylist ?? null,
+        options?.ownerId ?? null,
       ]);
       if (cached && cached.key === cacheKey) {
         return cached.defs;
       }
 
       const tools = resolveTools(options);
-      const defs: ToolDefinition[] = Object.entries(tools).map(([name, meta]) => {
-        const parameters = meta.skipValidation
-          ? { type: "object", properties: {}, additionalProperties: true }
-          : buildToolJsonSchema(meta);
+      const defs: ToolDefinition[] = Object.entries(tools).map(
+        ([name, meta]) => {
+          const parameters = meta.skipValidation
+            ? { type: "object", properties: {}, additionalProperties: true }
+            : buildToolJsonSchema(meta);
 
-        return {
-          type: "function" as const,
-          function: {
-            name,
-            description: meta.description,
-            parameters: parameters as Record<string, unknown>,
-          },
-        };
-      });
+          return {
+            type: "function" as const,
+            function: {
+              name,
+              description: meta.description,
+              parameters: parameters as Record<string, unknown>,
+            },
+          };
+        },
+      );
       cached = { key: cacheKey, defs };
       return defs;
     },
@@ -249,7 +256,7 @@ export function clearToolDefCache(): void {
 
 /** Build tool definitions with caching */
 function buildToolDefinitions(
-  options?: { allowlist?: string[]; denylist?: string[] },
+  options?: { allowlist?: string[]; denylist?: string[]; ownerId?: string },
 ): ToolDefinition[] {
   return toolDefCache.build(options);
 }
@@ -291,6 +298,7 @@ function convertProviderToolCalls(
 export interface SystemPromptOptions {
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  toolOwnerId?: string;
 }
 
 export function generateSystemPrompt(
@@ -299,6 +307,7 @@ export function generateSystemPrompt(
   const tools = resolveTools({
     allowlist: options.toolAllowlist,
     denylist: options.toolDenylist,
+    ownerId: options.toolOwnerId,
   });
 
   // Tool names only — full schemas are sent via native tool calling API
@@ -356,6 +365,8 @@ interface AgentLLMConfig {
   toolAllowlist?: string[];
   /** Optional tool denylist */
   toolDenylist?: string[];
+  /** Optional dynamic tool owner/session ID for scoped tool resolution */
+  toolOwnerId?: string;
   /** Optional callback for streaming tokens to the terminal */
   onToken?: (text: string) => void;
 }
@@ -424,12 +435,19 @@ export function createAgentLLM(
           temperature?: number;
           onToken?: (text: string) => void;
         },
-      ) => Promise<{ content: string; toolCalls?: ProviderToolCall[] }>;
+      ) => Promise<
+        {
+          content: string;
+          toolCalls?: ProviderToolCall[];
+          usage?: { inputTokens: number; outputTokens: number };
+        }
+      >;
     };
 
     const tools = buildToolDefinitions({
       allowlist: config?.toolAllowlist,
       denylist: config?.toolDenylist,
+      ownerId: config?.toolOwnerId,
     });
 
     const response = await api.chatStructured(providerMessages, {
@@ -442,6 +460,7 @@ export function createAgentLLM(
     return {
       content: response.content ?? "",
       toolCalls: convertProviderToolCalls(response.toolCalls),
+      usage: response.usage,
     };
   };
 }

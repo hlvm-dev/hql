@@ -107,7 +107,11 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
  *
  * Stored separately to avoid mutating static registry.
  */
-const DYNAMIC_TOOL_REGISTRY: Record<string, ToolMetadata> = {};
+interface DynamicToolEntry {
+  fallbackTool: ToolMetadata | null;
+  scopedTools: Map<string, ToolMetadata>;
+}
+const DYNAMIC_TOOL_REGISTRY = new Map<string, DynamicToolEntry>();
 
 /** Cached merged view of TOOL_REGISTRY + DYNAMIC_TOOL_REGISTRY */
 let _allToolsCache: Record<string, ToolMetadata> | null = null;
@@ -116,7 +120,8 @@ let _normalizedNameMap: Map<string, string> | null = null;
 /** Cached tool count */
 let _toolCount: number | null = null;
 /** Pre-computed word sets per tool name for suggestToolNames() */
-let _toolWordSets: Map<string, { stripped: string; words: string[] }> | null = null;
+let _toolWordSets: Map<string, { stripped: string; words: string[] }> | null =
+  null;
 
 function invalidateAllToolsCache(): void {
   _allToolsCache = null;
@@ -125,36 +130,91 @@ function invalidateAllToolsCache(): void {
   _toolWordSets = null;
 }
 
-function getNormalizedNameMap(): Map<string, string> {
-  if (!_normalizedNameMap) {
-    _normalizedNameMap = new Map();
-    for (const name of Object.keys(getAllTools())) {
-      const lower = name.toLowerCase();
-      _normalizedNameMap.set(lower, name);
-      // Also map stripped (no separators) version
-      const stripped = lower.replace(/[-_ ]/g, "");
-      if (!_normalizedNameMap.has(stripped)) {
-        _normalizedNameMap.set(stripped, name);
-      }
-      // Also map camelCase → snake_case equivalent (apply regex BEFORE lowercasing)
-      const camelToSnake = name.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
-      if (camelToSnake !== lower && !_normalizedNameMap.has(camelToSnake)) {
-        _normalizedNameMap.set(camelToSnake, name);
-      }
+function getActiveDynamicTool(
+  name: string,
+  ownerId?: string,
+): ToolMetadata | undefined {
+  const entry = DYNAMIC_TOOL_REGISTRY.get(name);
+  if (!entry) return undefined;
+  if (ownerId) {
+    return entry.scopedTools.get(ownerId) ?? entry.fallbackTool ?? undefined;
+  }
+  const firstScoped = entry.scopedTools.values().next().value as
+    | ToolMetadata
+    | undefined;
+  return firstScoped ?? entry.fallbackTool ?? undefined;
+}
+
+function getDynamicToolNames(ownerId?: string): string[] {
+  if (!ownerId) return [...DYNAMIC_TOOL_REGISTRY.keys()];
+  const names: string[] = [];
+  for (const [name, entry] of DYNAMIC_TOOL_REGISTRY.entries()) {
+    if (entry.scopedTools.has(ownerId) || entry.fallbackTool) {
+      names.push(name);
     }
+  }
+  return names;
+}
+
+function getDynamicToolsSnapshot(
+  ownerId?: string,
+): Record<string, ToolMetadata> {
+  const out: Record<string, ToolMetadata> = {};
+  for (const name of getDynamicToolNames(ownerId)) {
+    const tool = getActiveDynamicTool(name, ownerId);
+    if (tool) out[name] = tool;
+  }
+  return out;
+}
+
+function buildNameNormalizationMap(toolNames: string[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const name of toolNames) {
+    const lower = name.toLowerCase();
+    map.set(lower, name);
+    const stripped = lower.replace(/[-_ ]/g, "");
+    if (!map.has(stripped)) {
+      map.set(stripped, name);
+    }
+    const camelToSnake = name.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+    if (camelToSnake !== lower && !map.has(camelToSnake)) {
+      map.set(camelToSnake, name);
+    }
+  }
+  return map;
+}
+
+function getNormalizedNameMap(ownerId?: string): Map<string, string> {
+  if (ownerId) {
+    return buildNameNormalizationMap(Object.keys(getAllTools(ownerId)));
+  }
+  if (!_normalizedNameMap) {
+    _normalizedNameMap = buildNameNormalizationMap(Object.keys(getAllTools()));
   }
   return _normalizedNameMap;
 }
 
-function getToolWordSets(): Map<string, { stripped: string; words: string[] }> {
+function buildToolWordSetMap(
+  toolNames: string[],
+): Map<string, { stripped: string; words: string[] }> {
+  const map = new Map<string, { stripped: string; words: string[] }>();
+  for (const name of toolNames) {
+    map.set(name, {
+      stripped: name.replace(/[-_ ]/g, ""),
+      words: name.split(/[-_ ]/),
+    });
+  }
+  return map;
+}
+
+function getToolWordSets(
+  ownerId?: string,
+): Map<string, { stripped: string; words: string[] }> {
+  if (ownerId) {
+    return buildToolWordSetMap(Object.keys(getAllTools(ownerId)));
+  }
   if (!_toolWordSets) {
-    _toolWordSets = new Map();
-    for (const name of Object.keys(getAllTools())) {
-      _toolWordSets.set(name, {
-        stripped: name.replace(/[-_ ]/g, ""),
-        words: name.split(/[-_ ]/),
-      });
-    }
+    _toolWordSets = buildToolWordSetMap(Object.keys(getAllTools()));
   }
   return _toolWordSets;
 }
@@ -176,11 +236,11 @@ function getToolWordSets(): Map<string, { stripped: string; words: string[] }> {
  * const result = await tool.fn({ path: "src/main.ts" }, "/workspace");
  * ```
  */
-export function getTool(name: string): ToolMetadata {
-  const tool = DYNAMIC_TOOL_REGISTRY[name] ?? TOOL_REGISTRY[name];
+export function getTool(name: string, ownerId?: string): ToolMetadata {
+  const tool = getActiveDynamicTool(name, ownerId) ?? TOOL_REGISTRY[name];
 
   if (!tool) {
-    const available = Object.keys(getAllTools()).join(", ");
+    const available = Object.keys(getAllTools(ownerId)).join(", ");
     throw new ValidationError(
       `Tool '${name}' not found. Available tools: ${available}`,
       "tool_registry",
@@ -203,9 +263,12 @@ export function getTool(name: string): ToolMetadata {
  * }
  * ```
  */
-export function getAllTools(): Record<string, ToolMetadata> {
+export function getAllTools(ownerId?: string): Record<string, ToolMetadata> {
+  if (ownerId) {
+    return { ...TOOL_REGISTRY, ...getDynamicToolsSnapshot(ownerId) };
+  }
   if (!_allToolsCache) {
-    _allToolsCache = { ...TOOL_REGISTRY, ...DYNAMIC_TOOL_REGISTRY };
+    _allToolsCache = { ...TOOL_REGISTRY, ...getDynamicToolsSnapshot() };
   }
   return _allToolsCache;
 }
@@ -214,9 +277,9 @@ export function getAllTools(): Record<string, ToolMetadata> {
  * Resolve tools with optional allow/deny filtering.
  */
 export function resolveTools(
-  options?: { allowlist?: string[]; denylist?: string[] },
+  options?: { allowlist?: string[]; denylist?: string[]; ownerId?: string },
 ): Record<string, ToolMetadata> {
-  const tools = getAllTools();
+  const tools = getAllTools(options?.ownerId);
   const allowlist = options?.allowlist?.filter((name) => name in tools) ?? [];
   if (allowlist.length > 0) {
     const selected: Record<string, ToolMetadata> = {};
@@ -268,7 +331,7 @@ export function getToolsByCategory(): {
     agent: Object.keys(AGENT_TOOLS),
     data: Object.keys(DATA_TOOLS),
     git: Object.keys(GIT_TOOLS),
-    dynamic: Object.keys(DYNAMIC_TOOL_REGISTRY),
+    dynamic: getDynamicToolNames(),
   };
 }
 
@@ -285,8 +348,9 @@ export function getToolsByCategory(): {
  * }
  * ```
  */
-export function hasTool(name: string): boolean {
-  return name in TOOL_REGISTRY || name in DYNAMIC_TOOL_REGISTRY;
+export function hasTool(name: string, ownerId?: string): boolean {
+  return name in TOOL_REGISTRY ||
+    getActiveDynamicTool(name, ownerId) !== undefined;
 }
 
 /**
@@ -301,10 +365,13 @@ export function hasTool(name: string): boolean {
  * @param name Tool name to normalize
  * @returns Normalized tool name if found, or null
  */
-export function normalizeToolName(name: string): string | null {
-  if (hasTool(name)) return name;
+export function normalizeToolName(
+  name: string,
+  ownerId?: string,
+): string | null {
+  if (hasTool(name, ownerId)) return name;
 
-  const map = getNormalizedNameMap();
+  const map = getNormalizedNameMap(ownerId);
   const lower = name.toLowerCase();
 
   // Try lowercase
@@ -330,8 +397,8 @@ export function normalizeToolName(name: string): string | null {
  * @param name Unknown tool name
  * @returns Array of up to 3 similar tool names
  */
-export function suggestToolNames(name: string): string[] {
-  const wordSets = getToolWordSets();
+export function suggestToolNames(name: string, ownerId?: string): string[] {
+  const wordSets = getToolWordSets(ownerId);
   const lower = name.toLowerCase();
   const stripped = lower.replace(/[-_ ]/g, "");
   const nameWordSet = new Set(lower.split(/[-_ ]/));
@@ -340,11 +407,14 @@ export function suggestToolNames(name: string): string[] {
   for (const [toolName, cached] of wordSets) {
     let score = 0;
     if (
-      cached.stripped.startsWith(stripped) || stripped.startsWith(cached.stripped)
+      cached.stripped.startsWith(stripped) ||
+      stripped.startsWith(cached.stripped)
     ) {
       score += 3;
     }
-    if (cached.stripped.includes(stripped) || stripped.includes(cached.stripped)) {
+    if (
+      cached.stripped.includes(stripped) || stripped.includes(cached.stripped)
+    ) {
       score += 2;
     }
     for (const w of cached.words) {
@@ -382,8 +452,9 @@ export function suggestToolNames(name: string): string[] {
 export function validateToolArgs(
   name: string,
   args: unknown,
+  ownerId?: string,
 ): ValidationResult {
-  const tool = getTool(name);
+  const tool = getTool(name, ownerId);
   if (tool.skipValidation) {
     return { valid: true };
   }
@@ -409,8 +480,9 @@ export function validateToolArgs(
 export function prepareToolArgsForExecution(
   name: string,
   args: unknown,
+  ownerId?: string,
 ): ToolArgsPreparationResult {
-  const tool = getTool(name);
+  const tool = getTool(name, ownerId);
   if (tool.skipValidation) {
     return {
       coercedArgs: args,
@@ -445,7 +517,10 @@ export function prepareToolArgsForExecution(
  *
  * @returns Total number of registered tools
  */
-export function getToolCount(): number {
+export function getToolCount(ownerId?: string): number {
+  if (ownerId) {
+    return Object.keys(getAllTools(ownerId)).length;
+  }
   if (_toolCount === null) {
     _toolCount = Object.keys(getAllTools()).length;
   }
@@ -459,8 +534,8 @@ export function getToolCount(): number {
  * @returns Human-readable description
  * @throws Error if tool not found
  */
-export function getToolDescription(name: string): string {
-  const tool = getTool(name);
+export function getToolDescription(name: string, ownerId?: string): string {
+  const tool = getTool(name, ownerId);
   return tool.description;
 }
 
@@ -471,8 +546,11 @@ export function getToolDescription(name: string): string {
  * @returns Argument names and descriptions
  * @throws Error if tool not found
  */
-export function getToolArgSchema(name: string): Record<string, string> {
-  const tool = getTool(name);
+export function getToolArgSchema(
+  name: string,
+  ownerId?: string,
+): Record<string, string> {
+  const tool = getTool(name, ownerId);
   return { ...tool.args };
 }
 
@@ -502,13 +580,21 @@ export function registerTool(name: string, tool: ToolMetadata): void {
       "tool_registry",
     );
   }
-  if (name in DYNAMIC_TOOL_REGISTRY) {
+  const entry = DYNAMIC_TOOL_REGISTRY.get(name);
+  if (entry?.fallbackTool) {
     throw new ValidationError(
       `Tool '${name}' already exists in dynamic registry`,
       "tool_registry",
     );
   }
-  DYNAMIC_TOOL_REGISTRY[name] = tool;
+  if (entry) {
+    entry.fallbackTool = tool;
+  } else {
+    DYNAMIC_TOOL_REGISTRY.set(name, {
+      fallbackTool: tool,
+      scopedTools: new Map(),
+    });
+  }
   invalidateAllToolsCache();
 }
 
@@ -517,11 +603,42 @@ export function registerTool(name: string, tool: ToolMetadata): void {
  *
  * Returns the list of registered tool names.
  */
-export function registerTools(tools: Record<string, ToolMetadata>): string[] {
+export function registerTools(
+  tools: Record<string, ToolMetadata>,
+  ownerId?: string,
+): string[] {
   const registered: string[] = [];
   for (const [name, tool] of Object.entries(tools)) {
-    registerTool(name, tool);
+    if (!ownerId) {
+      registerTool(name, tool);
+      registered.push(name);
+      continue;
+    }
+    if (!VALID_TOOL_NAME.test(name)) {
+      throw new ValidationError(
+        `Invalid tool name '${name}': must match ${VALID_TOOL_NAME}`,
+        "tool_registry",
+      );
+    }
+    if (name in TOOL_REGISTRY) {
+      throw new ValidationError(
+        `Tool '${name}' already exists in built-in registry`,
+        "tool_registry",
+      );
+    }
+    const entry = DYNAMIC_TOOL_REGISTRY.get(name);
+    if (!entry) {
+      DYNAMIC_TOOL_REGISTRY.set(name, {
+        fallbackTool: null,
+        scopedTools: new Map([[ownerId, tool]]),
+      });
+    } else {
+      entry.scopedTools.set(ownerId, tool);
+    }
     registered.push(name);
+  }
+  if (registered.length > 0) {
+    invalidateAllToolsCache();
   }
   return registered;
 }
@@ -529,7 +646,17 @@ export function registerTools(tools: Record<string, ToolMetadata>): string[] {
 /**
  * Unregister a dynamic tool by name.
  */
-export function unregisterTool(name: string): void {
-  delete DYNAMIC_TOOL_REGISTRY[name];
+export function unregisterTool(name: string, ownerId?: string): void {
+  if (!ownerId) {
+    DYNAMIC_TOOL_REGISTRY.delete(name);
+    invalidateAllToolsCache();
+    return;
+  }
+  const entry = DYNAMIC_TOOL_REGISTRY.get(name);
+  if (!entry) return;
+  entry.scopedTools.delete(ownerId);
+  if (!entry.fallbackTool && entry.scopedTools.size === 0) {
+    DYNAMIC_TOOL_REGISTRY.delete(name);
+  }
   invalidateAllToolsCache();
 }

@@ -74,6 +74,16 @@ function getPersistentMacroEnv(): InterpreterEnv {
 }
 
 /**
+ * Reset macro state for hermetic compilation.
+ * Call between compilation units to prevent cross-file macro leakage.
+ * REPL mode should NOT call this (persistent env is intentional there).
+ */
+export function resetMacroState(): void {
+  macroInterpreter = null;
+  persistentMacroEnv = null;
+}
+
+/**
  * Convert S-expression value to HQL value for interpreter use
  * This is critical for bridging compiler env (S-expressions) to interpreter env (HQL values)
  *

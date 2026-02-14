@@ -70,9 +70,16 @@ export interface ProviderToolCall {
   };
 }
 
+/** Token usage reported by the provider */
+export interface ProviderUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface ChatStructuredResponse {
   content: string;
   toolCalls?: ProviderToolCall[];
+  usage?: ProviderUsage;
 }
 
 // ============================================================================
@@ -135,6 +142,15 @@ export interface ModelInfo {
   capabilities?: ProviderCapability[];
   /** Provider-specific metadata */
   metadata?: Record<string, unknown>;
+  /** Context window size in tokens (from provider API or seed data) */
+  contextWindow?: number;
+}
+
+/** Info extracted from a provider's context overflow error */
+export interface ContextOverflowInfo {
+  isOverflow: boolean;
+  limitTokens?: number;
+  confidence: "high" | "low";
 }
 
 // ============================================================================

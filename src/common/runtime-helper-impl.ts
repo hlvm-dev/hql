@@ -199,10 +199,8 @@ export function __hql_hash_map(...entries: unknown[]): Record<string, unknown> {
   const limit = entries.length - (entries.length % 2);
 
   if (entries.length !== limit) {
-    console.warn(
-      `Incomplete key-value pair in hash-map at index ${
-        entries.length - 1
-      }, skipping`,
+    throw new Error(
+      `hash-map requires even number of arguments (key-value pairs), got ${entries.length}`,
     );
   }
 
