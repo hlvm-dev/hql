@@ -2,7 +2,7 @@
 // Comprehensive tests for pure functions (fx): compilation, purity enforcement, edge cases
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { run } from "../../../helpers.ts";
+import { run, transpile } from "../../../helpers.ts";
 
 // ============================================================================
 // SECTION 1: fx WORKS (compiles + runs correctly)
@@ -335,14 +335,19 @@ Deno.test("Pure Function: fx error messages include function name", async () => 
   );
 });
 
-Deno.test("Pure Function: fx emits identical JS to fn", async () => {
-  // fx should compile to the same output as fn — just with purity validation
-  const code = `
+Deno.test("Pure Function: fx transpiles identically to fn", async () => {
+  const fnCode = `
+(fn square [x] (* x x))
+(square 9)
+`;
+  const fxCode = `
 (fx square [x] (* x x))
 (square 9)
 `;
-  const result = await run(code);
-  assertEquals(result, 81);
+
+  const fnJs = await transpile(fnCode);
+  const fxJs = await transpile(fxCode);
+  assertEquals(fxJs, fnJs);
 });
 
 Deno.test("Pure Function: fx with string concatenation", async () => {
@@ -530,4 +535,47 @@ Deno.test("Pure Function: rejects Object.assign (mutating static call)", async (
     Error,
     "Object.assign",
   );
+});
+
+Deno.test("Pure Function: rejects top-level anonymous fx with side effects", async () => {
+  const code = `
+(fx [x] (console.log x) x)
+`;
+  await assertRejects(
+    async () => await run(code),
+    Error,
+    "console.log",
+  );
+});
+
+Deno.test("Pure Function: rejects anonymous fx assigned to variable with side effects", async () => {
+  const code = `
+(const f (fx [x] (console.log x) x))
+42
+`;
+  await assertRejects(
+    async () => await run(code),
+    Error,
+    "console.log",
+  );
+});
+
+Deno.test("Pure Function: rejects immediately-invoked anonymous fx with side effects", async () => {
+  const code = `
+((fx [x] (console.log x) x) 7)
+`;
+  await assertRejects(
+    async () => await run(code),
+    Error,
+    "console.log",
+  );
+});
+
+Deno.test("Pure Function: allows anonymous pure fx assigned to variable", async () => {
+  const code = `
+(const f (fx [x] (+ x 1)))
+(f 5)
+`;
+  const result = await run(code);
+  assertEquals(result, 6);
 });

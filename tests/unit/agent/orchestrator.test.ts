@@ -732,6 +732,56 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: runReActLoop - overflow retry uses trimmed context payload",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager({
+      maxTokens: 2000,
+      overflowStrategy: "trim",
+      minMessages: 1,
+    });
+    context.addMessage({ role: "system", content: "sys" });
+    for (let i = 0; i < 8; i++) {
+      context.addMessage({ role: "user", content: "x".repeat(400) });
+    }
+
+    const seenMessageCounts: number[] = [];
+    const mockLLM = async (messages: import("../../../src/hlvm/agent/context.ts").Message[]) => {
+      await Promise.resolve();
+      seenMessageCounts.push(messages.length);
+      if (messages.length > 3) {
+        throw new Error("maximum context length is 100 tokens");
+      }
+      return makeResponse("ok");
+    };
+
+    const result = await runReActLoop(
+      "Overflow retry task",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        autoApprove: true,
+        maxRetries: 3,
+        parseOverflowError: () => ({
+          isOverflow: true,
+          limitTokens: 100,
+          confidence: "high",
+        }),
+        providerName: "openai",
+        modelName: "gpt-4o",
+      },
+      mockLLM,
+    );
+
+    assertEquals(result, "ok");
+    assertEquals(seenMessageCounts.length, 2);
+    assertEquals(seenMessageCounts[0] > seenMessageCounts[1], true);
+    assertEquals(seenMessageCounts[1] <= 3, true);
+  },
+});
+
+Deno.test({
   name: "Orchestrator: runReActLoop - with tool calls",
   async fn() {
     clearAllL1Confirmations();

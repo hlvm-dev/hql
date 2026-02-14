@@ -9,7 +9,7 @@ import { log } from "../../api/log.ts";
 import { config } from "../../api/config.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { ValidationError } from "../../../common/error.ts";
-import { truncate } from "../../../common/utils.ts";
+import { isObjectValue, truncate } from "../../../common/utils.ts";
 import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
 import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
@@ -396,8 +396,9 @@ export async function askCommand(args: string[]): Promise<void> {
   );
   const resolvedModel = modelOverride ?? getConfiguredModel();
   const model = modelOverride ?? undefined;
-  const rawContextWindow = (config.snapshot as Record<string, unknown>)
-    .contextWindow;
+  const rawContextWindow = isObjectValue(config.snapshot)
+    ? config.snapshot.contextWindow
+    : undefined;
   const contextWindow = typeof rawContextWindow === "number" &&
       Number.isInteger(rawContextWindow) && rawContextWindow > 0
     ? rawContextWindow

@@ -5,6 +5,7 @@
  * at runtime or during JavaScript module loading. This includes:
  * - Duplicate variable declarations in the same scope
  * - Temporal Dead Zone (TDZ) violations (using variable before declaration)
+ * - Purity violations in pure functions (fx)
  *
  * This is a standard compiler pass that all production compilers perform.
  * TypeScript, Rust, Go, Java all validate semantics before code generation.
@@ -172,6 +173,29 @@ function validateBlock(scope: Scope, nodes: IR.IRNode[]): void {
 }
 
 /**
+ * Validate purity for all pure function nodes in the IR.
+ * This ensures anonymous fx forms are checked even when nested in expressions.
+ */
+function validatePureFunctions(ir: IR.IRProgram): void {
+  forEachNode(ir, (node) => {
+    if (node.type === IR.IRNodeType.FnFunctionDeclaration) {
+      const fnDecl = node as IR.IRFnFunctionDeclaration;
+      if (fnDecl.pure) {
+        validatePurity(fnDecl, fnDecl.id?.name ?? "<anonymous>");
+      }
+      return;
+    }
+
+    if (node.type === IR.IRNodeType.FunctionExpression) {
+      const fnExpr = node as IR.IRFunctionExpression;
+      if (fnExpr.pure) {
+        validatePurity(fnExpr, fnExpr.id?.name ?? "<anonymous fx>");
+      }
+    }
+  });
+}
+
+/**
  * Validate a single IR node
  */
 function validateNode(scope: Scope, node: IR.IRNode): void {
@@ -226,14 +250,6 @@ function validateNode(scope: Scope, node: IR.IRNode): void {
 
       // Validate function body
       validateNode(functionScope, funcDecl.body);
-
-      // Purity check for fx
-      if ((node as IR.IRFnFunctionDeclaration).pure) {
-        validatePurity(
-          node as IR.IRFnFunctionDeclaration,
-          funcDecl.id?.name ?? "<anonymous>",
-        );
-      }
       break;
     }
 
@@ -258,14 +274,6 @@ function validateNode(scope: Scope, node: IR.IRNode): void {
 
       // Validate body
       validateNode(functionScope, funcExpr.body);
-
-      // Purity check for fx
-      if ((node as IR.IRFunctionExpression).pure) {
-        validatePurity(
-          node as IR.IRFunctionExpression,
-          funcExpr.id?.name ?? "<anonymous fx>",
-        );
-      }
       break;
     }
 
@@ -375,6 +383,7 @@ export function validateSemantics(ir: IR.IRProgram): void {
 
   try {
     validateNode(globalScope, ir);
+    validatePureFunctions(ir);
     logger.debug("Semantic validation passed");
   } catch (error) {
     if (error instanceof ValidationError) {

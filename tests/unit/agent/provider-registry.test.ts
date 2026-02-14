@@ -1,4 +1,5 @@
 import { assertEquals } from "jsr:@std/assert";
+import { ai } from "../../../src/hlvm/api/ai.ts";
 import {
   parseModelString,
   registerProvider,
@@ -35,4 +36,9 @@ Deno.test("parseModelString recognizes registered custom provider:model format",
   const [provider, model] = parseModelString("custom:alpha");
   assertEquals(provider, "custom");
   assertEquals(model, "alpha");
+});
+
+Deno.test("ai.models.get resolves provider/model input", async () => {
+  const model = await ai.models.get("openai/gpt-4o");
+  assertEquals(model?.name, "gpt-4o");
 });
