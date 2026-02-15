@@ -20,6 +20,7 @@ import { RUNTIME_HELPER_NAMES_SET } from "../../../common/runtime-helper-impl.ts
 import { assertNever } from "../codegen/exhaustive.ts";
 import { CodeBuffer, type SourceMapping } from "../codegen/code-buffer.ts";
 import { Precedence, getExprPrecedence, isRightAssociative } from "../codegen/precedence.ts";
+import { normalizeType } from "../tokenizer/type-tokenizer.ts";
 
 // ============================================================================
 // Types
@@ -1102,7 +1103,7 @@ class TSGenerator {
 
   // Type reference: Person, Array<T>
   private generateTypeReference(node: IR.IRTypeReference): void {
-    this.emit(node.name, node.position);
+    this.emit(normalizeType(node.name), node.position);
     if (node.typeArguments && node.typeArguments.length > 0) {
       this.emit("<");
       this.emitCommaSeparated(node.typeArguments, (t) => this.generateNode(t));

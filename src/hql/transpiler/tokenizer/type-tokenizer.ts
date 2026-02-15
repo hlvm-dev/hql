@@ -717,6 +717,7 @@ const SWIFT_TYPE_MAP: Record<string, string> = {
   "Character": "string",
   // Swift special types
   "Never": "never",
+  "Nothing": "never",
   "AnyObject": "object",
   // Swift Dictionary → TS Map (generic base name, used in step 7)
   "Dictionary": "Map",
@@ -724,6 +725,28 @@ const SWIFT_TYPE_MAP: Record<string, string> = {
 
 function wrapNullable(normalizedType: string): string {
   return `(${normalizedType}) | null | undefined`;
+}
+
+/**
+ * Find the index of the first depth-0 `|` or `&` in a type string.
+ * Respects nesting in `<>`, `()`, `[]`, `{}` so that delimiters inside
+ * generics, tuples, or function signatures are not matched.
+ *
+ * @returns The index of the first depth-0 delimiter, or -1 if none found
+ */
+function findDepthZeroDelimiter(type: string): number {
+  let depth = 0;
+  for (let i = 0; i < type.length; i++) {
+    const c = type[i];
+    if (c === "<" || c === "(" || c === "[" || c === "{") {
+      depth++;
+    } else if (c === ">" || c === ")" || c === "]" || c === "}") {
+      depth--;
+    } else if ((c === "|" || c === "&") && depth === 0) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 export function normalizeType(type: string): string {
@@ -771,6 +794,19 @@ export function normalizeType(type: string): string {
     const baseName = SWIFT_TYPE_MAP[genericMatch[1]] ?? genericMatch[1];
     const params = splitTypeParameters(genericMatch[2]);
     return `${baseName}<${params.map(p => normalizeType(p.trim())).join(", ")}>`;
+  }
+
+  // Union (|) and intersection (&) types — split at depth 0, normalize each part
+  const delimIndex = findDepthZeroDelimiter(type);
+  if (delimIndex !== -1) {
+    const delim = type[delimIndex];
+    const leftPart = type.substring(0, delimIndex);
+    const rightPart = type.substring(delimIndex + 1);
+    const leftTrimmed = leftPart.trimEnd();
+    const rightTrimmed = rightPart.trimStart();
+    const trailingWs = leftPart.substring(leftTrimmed.length);
+    const leadingWs = rightPart.substring(0, rightPart.length - rightTrimmed.length);
+    return normalizeType(leftTrimmed) + trailingWs + delim + leadingWs + normalizeType(rightTrimmed);
   }
 
   return type;

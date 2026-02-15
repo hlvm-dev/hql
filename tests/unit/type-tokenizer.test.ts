@@ -697,6 +697,10 @@ Deno.test("normalizeType - Swift Any → any", () => {
   assertEquals(normalizeType("Any"), "any");
 });
 
+Deno.test("normalizeType - Swift Nothing → never", () => {
+  assertEquals(normalizeType("Nothing"), "never");
+});
+
 // ============================================================================
 // POSTFIX OPTIONAL TESTS (Swift-style T?)
 // ============================================================================
@@ -856,4 +860,32 @@ Deno.test("normalizeType - Promise<void> unchanged", () => {
 
 Deno.test("normalizeType - Array<T> generic param unchanged", () => {
   assertEquals(normalizeType("Array<T>"), "Array<T>");
+});
+
+// ============================================================================
+// UNION AND INTERSECTION TYPE NORMALIZATION TESTS
+// ============================================================================
+
+Deno.test("normalizeType - union Int|String → number|string", () => {
+  assertEquals(normalizeType("Int|String"), "number|string");
+});
+
+Deno.test("normalizeType - union Int | String | Bool → number | string | boolean", () => {
+  assertEquals(normalizeType("Int | String | Bool"), "number | string | boolean");
+});
+
+Deno.test("normalizeType - union Array<Int>|String → Array<number>|string", () => {
+  assertEquals(normalizeType("Array<Int>|String"), "Array<number>|string");
+});
+
+Deno.test("normalizeType - union Int?|String → nullable number union string", () => {
+  assertEquals(normalizeType("Int?|String"), "(number) | null | undefined|string");
+});
+
+Deno.test("normalizeType - intersection User & Serializable passthrough", () => {
+  assertEquals(normalizeType("User & Serializable"), "User & Serializable");
+});
+
+Deno.test("normalizeType - intersection AnyObject & Serializable → object & Serializable", () => {
+  assertEquals(normalizeType("AnyObject & Serializable"), "object & Serializable");
 });

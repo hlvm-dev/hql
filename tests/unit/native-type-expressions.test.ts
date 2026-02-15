@@ -249,3 +249,37 @@ Deno.test("Literal type: number in conditional", () => {
   const result = hqlToTypeScript(`(type IsZero<T> (if-extends T 0 true false))`);
   assertStringIncludes(result, "type IsZero<T> = T extends 0 ? true : false;");
 });
+
+// ============================================================================
+// Swift-to-TS Type Normalization in TypeReference nodes
+// ============================================================================
+
+Deno.test("TypeReference normalization: Int → number in union", () => {
+  const result = hqlToTypeScript(`(type Alias (| Int String))`);
+  assertStringIncludes(result, "type Alias = number | string;");
+});
+
+Deno.test("TypeReference normalization: Bool → boolean", () => {
+  const result = hqlToTypeScript(`(type Flag Bool)`);
+  assertStringIncludes(result, "type Flag = boolean;");
+});
+
+Deno.test("TypeReference normalization: Double → number in tuple", () => {
+  const result = hqlToTypeScript(`(type Coord (tuple Double Double))`);
+  assertStringIncludes(result, "type Coord = [number, number];");
+});
+
+Deno.test("TypeReference normalization: Void → void in conditional", () => {
+  const result = hqlToTypeScript(`(type MaybeVoid<T> (if-extends T string Void never))`);
+  assertStringIncludes(result, "type MaybeVoid<T> = T extends string ? void : never;");
+});
+
+Deno.test("TypeReference normalization: Any → any in array", () => {
+  const result = hqlToTypeScript(`(type AnyArray (array Any))`);
+  assertStringIncludes(result, "type AnyArray = any[];");
+});
+
+Deno.test("TypeReference normalization: preserves non-Swift names", () => {
+  const result = hqlToTypeScript(`(type Wrapped (| MyCustomType null))`);
+  assertStringIncludes(result, "type Wrapped = MyCustomType | null;");
+});

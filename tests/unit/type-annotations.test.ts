@@ -1,16 +1,18 @@
 /**
- * Tests for TypeScript type annotations in HQL
+ * Tests for Swift-inspired type annotations in HQL
  *
- * Tests the new type annotation syntax:
- * - Parameter types: (fn add [a:number b:number] ...)
- * - Return types: (fn add [a b] :number ...)
- * - Generic types: (fn identity [x:T] :T ...)
+ * Tests the type annotation syntax:
+ * - Parameter types: (fn add [a:Int b:Int] ...)
+ * - Return types: (fn add [a b] -> Int ...)
+ * - Generic types: (fn identity [x:T] -> T ...)
+ * - Backward compat: old TS syntax (a:number, :number) still works
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { transpile } from "../../src/hql/transpiler/index.ts";
 
-Deno.test("Type Annotations - Parameter type parsing", async () => {
+Deno.test("Type Annotations - Parameter type parsing (backward compat: TS syntax)", async () => {
+  // Backward compat: old TS-style type names still work
   const code = `(fn add [a:number b:number] (+ a b))`;
   const result = await transpile(code, { currentFile: "test.hql" });
   assertStringIncludes(result.code, "function add");
@@ -18,20 +20,20 @@ Deno.test("Type Annotations - Parameter type parsing", async () => {
 });
 
 Deno.test("Type Annotations - Return type parsing", async () => {
-  const code = `(fn add [a b] :number (+ a b))`;
+  const code = `(fn add [a b] -> Int (+ a b))`;
   const result = await transpile(code, { currentFile: "test.hql" });
   assertStringIncludes(result.code, "function add");
 });
 
 Deno.test("Type Annotations - Combined parameter and return types", async () => {
-  const code = `(fn add [a:number b:number] :number (+ a b))`;
+  const code = `(fn add [a:Int b:Int] -> Int (+ a b))`;
   const result = await transpile(code, { currentFile: "test.hql" });
   assertStringIncludes(result.code, "function add");
 });
 
 Deno.test("Type Annotations - Anonymous function with types", async () => {
   // Note: HQL generates `let` for all bindings and uses __hql_deepFreeze for immutability
-  const code = `(const double (fn [x:number] :number (* x 2)))`;
+  const code = `(const double (fn [x:Int] -> Int (* x 2)))`;
   const result = await transpile(code, { currentFile: "test.hql" });
   // Check for the binding and the arrow function
   assertStringIncludes(result.code, "double");
@@ -39,33 +41,33 @@ Deno.test("Type Annotations - Anonymous function with types", async () => {
 });
 
 Deno.test("Type Annotations - Generic array type (Array<T>)", async () => {
-  const code = `(fn getFirst [arr:Array<number>] :number (get arr 0))`;
+  const code = `(fn getFirst [arr:Array<Int>] -> Int (get arr 0))`;
   const result = await transpile(code, { currentFile: "test.hql" });
   assertStringIncludes(result.code, "function getFirst");
 });
 
 Deno.test("Type Annotations - Mixed typed and untyped params", async () => {
-  const code = `(fn mixed [a:string b] (str a " " b))`;
+  const code = `(fn mixed [a:String b] (str a " " b))`;
   const result = await transpile(code, { currentFile: "test.hql" });
   assertStringIncludes(result.code, "function mixed");
 });
 
 Deno.test("Type Annotations - String type", async () => {
-  const code = `(fn greet [name:string] :string (str "Hello, " name))`;
+  const code = `(fn greet [name:String] -> String (str "Hello, " name))`;
   const result = await transpile(code, { currentFile: "test.hql" });
   assertStringIncludes(result.code, "function greet");
 });
 
 Deno.test("Type Annotations - Boolean type", async () => {
   // Use === for comparison in HQL
-  const code = `(fn isEven [n:number] :boolean (=== 0 (mod n 2)))`;
+  const code = `(fn isEven [n:Int] -> Bool (=== 0 (mod n 2)))`;
   const result = await transpile(code, { currentFile: "test.hql" });
   assertStringIncludes(result.code, "function isEven");
 });
 
 Deno.test("Type Annotations - Execution correctness", async () => {
   // Use Deno.Command to run actual HQL code
-  const code = `(fn add [a:number b:number] :number (+ a b)) (print (add 5 7))`;
+  const code = `(fn add [a:Int b:Int] -> Int (+ a b)) (print (add 5 7))`;
 
   const proc = new Deno.Command("deno", {
     args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", code],
@@ -83,7 +85,7 @@ Deno.test("Type Annotations - Execution correctness", async () => {
 
 Deno.test("Type Annotations - Complex nested expression with types", async () => {
   const code = `
-    (fn calculate [x:number y:number] :number
+    (fn calculate [x:Int y:Int] -> Int
       (+ (* x 2) (* y 3)))
     (print (calculate 4 5))
   `;
@@ -104,8 +106,8 @@ Deno.test("Type Annotations - Complex nested expression with types", async () =>
 
 Deno.test("Type Annotations - Multiple functions with types", async () => {
   const code = `
-    (fn square [x:number] :number (* x x))
-    (fn double [x:number] :number (* x 2))
+    (fn square [x:Int] -> Int (* x x))
+    (fn double [x:Int] -> Int (* x 2))
     (print (+ (square 3) (double 5)))
   `;
 
@@ -146,14 +148,14 @@ Deno.test("Type Annotations - Backward compatibility (no types)", async () => {
 
 Deno.test("Type Annotations - Union types (syntax check)", async () => {
   // Just verify parsing doesn't fail
-  const code = `(fn maybe [x:number|string] x)`;
+  const code = `(fn maybe [x:Int|String] x)`;
   const result = await transpile(code, { currentFile: "test.hql" });
   assertStringIncludes(result.code, "function maybe");
 });
 
 Deno.test("Type Annotations - Optional type syntax", async () => {
   // Just verify parsing doesn't fail
-  const code = `(fn optional [x:number?] x)`;
+  const code = `(fn optional [x:Int?] x)`;
   const result = await transpile(code, { currentFile: "test.hql" });
   assertStringIncludes(result.code, "function optional");
 });
