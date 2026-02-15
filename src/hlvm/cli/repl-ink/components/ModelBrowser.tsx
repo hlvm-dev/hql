@@ -120,7 +120,7 @@ const FILTER_LABELS: Record<FilterMode, string> = {
   all: "All",
   installed: "Installed",
   downloading: "Downloading",
-  available: "Available",
+  available: "Not Installed",
   tools: "Tools",
   vision: "Vision",
   thinking: "Thinking",
@@ -133,7 +133,7 @@ const FILTER_EMPTY: Record<FilterMode, string> = {
   all: "No models found",
   installed: "No installed models",
   downloading: "No active downloads",
-  available: "No available models",
+  available: "No models to install",
   tools: "No tool-capable models",
   vision: "No vision models",
   thinking: "No thinking models",
@@ -345,7 +345,7 @@ function getModelStatusLabel(kind: ModelStatusKind): string {
     case "failed":
       return "failed";
     case "available":
-      return "available";
+      return "not installed";
   }
 }
 

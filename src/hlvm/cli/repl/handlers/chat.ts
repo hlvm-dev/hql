@@ -240,7 +240,11 @@ export async function handleChat(req: Request): Promise<Response> {
   activeRequests.set(requestId, { controller, sessionId: body.session_id });
 
   const sessionId = body.session_id;
+  const existingSession = getSession(sessionId);
   const session = getOrCreateSession(sessionId);
+  if (!existingSession) {
+    pushSSEEvent(SESSIONS_CHANNEL, "session_created", { session_id: session.id });
+  }
 
   const currentMsg = body.messages[body.messages.length - 1];
   if (currentMsg && currentMsg.role !== "system") {
