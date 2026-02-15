@@ -96,7 +96,7 @@ export function buildParameterEffectTable(
       continue;
     }
 
-    table.set(plainName, { effect: "Impure", source: "unannotated-param" });
+    table.set(plainName, { effect: "Pure", source: "unannotated-param" });
   }
 
   return table;

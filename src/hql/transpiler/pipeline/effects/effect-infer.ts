@@ -43,6 +43,7 @@ interface InferenceContext {
   signatures: SignatureTable;
   paramEffects: ReturnType<typeof buildParameterEffectTable>;
   typeEnv: Map<string, ValueKind>;
+  purityRelevantParams?: Set<string>;
 }
 
 function identifierName(node: IR.IRNode): string | undefined {
@@ -124,6 +125,7 @@ function inferCalleeEffect(callee: IR.IRNode, ctx: InferenceContext): EffectResu
     const name = (callee as IR.IRIdentifier).name;
     const paramInfo = ctx.paramEffects.get(name);
     if (paramInfo) {
+      ctx.purityRelevantParams?.add(name);
       if (paramInfo.effect === "Pure") return pureResult();
       if (paramInfo.source === "unannotated-param") {
         return impureResult({
@@ -555,6 +557,7 @@ function inferCallbackEffect(
     // Check parameter effect annotations (e.g. f:(Pure ...))
     const paramInfo = ctx.paramEffects.get(name);
     if (paramInfo) {
+      ctx.purityRelevantParams?.add(name);
       if (paramInfo.effect === "Pure") return pureResult();
       return impureResult({
         node: arg,
@@ -614,7 +617,7 @@ function inferCallbackEffect(
 export function checkPureFunctionBody(
   fnNode: IR.IRFnFunctionDeclaration | IR.IRFunctionExpression,
   signatures: SignatureTable,
-): void {
+): Set<string> {
   const fnName = fnNode.id?.name ?? "<anonymous fx>";
 
   // Build type environment from parameter type annotations
@@ -628,17 +631,20 @@ export function checkPureFunctionBody(
     }
   }
 
+  const purityRelevantParams = new Set<string>();
   const ctx: InferenceContext = {
     fnName,
     signatures,
     paramEffects: buildParameterEffectTable(fnNode.params, fnName),
     typeEnv,
+    purityRelevantParams,
   };
 
   const result = inferNodeEffect(fnNode.body, ctx);
   if (result.effect === "Impure" && result.violation) {
     throw toEffectValidationError(result.violation.message, result.violation.node);
   }
+  return purityRelevantParams;
 }
 
 export function checkPureParameterCallSites(
@@ -656,9 +662,9 @@ export function checkPureParameterCallSites(
 
     for (let i = 0; i < Math.min(call.arguments.length, signature.params.length); i++) {
       const param = signature.params[i];
-      if (param.effectAnnotation !== "Pure") {
-        continue;
-      }
+      const isCallable = param.effectAnnotation === "Pure"
+        || signature.callableParams?.has(param.name);
+      if (!isCallable) continue;
 
       const argument = call.arguments[i];
       const argumentEffect = resolveArgumentCallableEffect(argument, signatures);

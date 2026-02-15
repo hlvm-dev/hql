@@ -24,12 +24,29 @@ import * as api from "./api.ts";
 const DEFAULT_ENDPOINT = "https://api.anthropic.com";
 const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
 
-/** Same models as Anthropic — it's the same API, just different auth */
-const KNOWN_MODELS: ModelInfo[] = [
-  { name: "claude-opus-4-6", displayName: "Claude Opus 4.6", family: "claude", capabilities: ["chat", "tools", "vision"], contextWindow: 200_000 },
-  { name: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5", family: "claude", capabilities: ["chat", "tools", "vision"], contextWindow: 200_000 },
-  { name: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5", family: "claude", capabilities: ["chat", "tools", "vision"], contextWindow: 200_000 },
+/** Suffix appended to model IDs to indicate Claude Code full agent passthrough mode */
+export const AGENT_MODEL_SUFFIX = ":agent";
+
+/** Shared attributes for all Claude models (DRY) */
+const CLAUDE_MODEL_BASE: Pick<ModelInfo, "family" | "capabilities" | "contextWindow"> = {
+  family: "claude",
+  capabilities: ["chat", "tools", "vision"],
+  contextWindow: 200_000,
+};
+
+/** Base model definitions — SSOT for model IDs and display names.
+ *  Must match Swift ClaudeModel enum rawValues exactly. */
+const BASE_MODELS: ReadonlyArray<{ name: string; displayName: string }> = [
+  { name: "claude-opus-4-6", displayName: "Claude Opus 4.6" },
+  { name: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5" },
+  { name: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5" },
 ];
+
+/** Each model appears twice: plain = LLM only (HLVM orchestrates), :agent = Claude Code end-to-end. */
+const KNOWN_MODELS: ModelInfo[] = BASE_MODELS.flatMap((m) => [
+  { ...CLAUDE_MODEL_BASE, name: m.name, displayName: m.displayName },
+  { ...CLAUDE_MODEL_BASE, name: `${m.name}${AGENT_MODEL_SUFFIX}`, displayName: `${m.displayName} (Agent)` },
+]);
 
 export class ClaudeCodeProvider implements AIProvider {
   readonly name = "claude-code";
@@ -51,7 +68,9 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   private getModel(options?: GenerateOptions): string {
-    return options?.model ?? this.defaultModel;
+    const model = options?.model ?? this.defaultModel;
+    // Strip :agent suffix — it's a UI/routing concept, not an API parameter
+    return model.endsWith(AGENT_MODEL_SUFFIX) ? model.slice(0, -AGENT_MODEL_SUFFIX.length) : model;
   }
 
   async *generate(

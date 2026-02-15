@@ -13,7 +13,6 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { config } from "../../api/config.ts";
 import { normalizeModelId } from "../../../common/config/types.ts";
-import type { AgentMode } from "../../../common/config/types.ts";
 
 export interface ModelBrowserOptions {
   endpoint?: string;
@@ -23,13 +22,12 @@ export interface ModelBrowserOptions {
 export interface ModelBrowserResult {
   code: number;
   selectedModel?: string;
-  agentMode?: AgentMode;
 }
 
 interface ModelBrowserAppProps {
   endpoint?: string;
   currentModel?: string;
-  onSelect: (model: string, agentMode?: AgentMode) => void;
+  onSelect: (model: string) => void;
   onCancel: () => void;
 }
 
@@ -37,35 +35,28 @@ function ModelBrowserApp({ endpoint, currentModel, onSelect, onCancel }: ModelBr
   const { exit } = useApp();
   const doneRef = useRef(false);
 
-  const finish = useCallback((model?: string, agentMode?: AgentMode) => {
+  const finish = useCallback((model?: string) => {
     if (doneRef.current) return;
     doneRef.current = true;
     if (model) {
-      onSelect(model, agentMode);
+      onSelect(model);
     } else {
       onCancel();
     }
     exit();
   }, [exit, onCancel, onSelect]);
 
-  const handleSelect = useCallback(async (modelName: string, agentMode?: AgentMode) => {
+  const handleSelect = useCallback(async (modelName: string) => {
     const normalized = normalizeModelId(modelName);
     if (!normalized) return;
     try {
       await config.set("model", normalized);
-      // Save agent mode for claude-code models (undefined clears any previous setting)
-      if (agentMode) {
-        await config.set("agentMode", agentMode);
-      } else {
-        // Non-claude-code models reset to default HLVM mode
-        await config.set("agentMode", "hlvm");
-      }
     } catch (error) {
       log.raw.error(`Failed to set model: ${getErrorMessage(error)}`);
       finish();
       return;
     }
-    finish(normalized, agentMode);
+    finish(normalized);
   }, [finish]);
 
   const handleClose = useCallback(() => {
@@ -91,16 +82,14 @@ export async function startModelBrowser(options: ModelBrowserOptions = {}): Prom
   const currentModel = options.currentModel ?? config.snapshot.model;
   const endpoint = options.endpoint ?? config.snapshot.endpoint;
   let selectedModel: string | undefined;
-  let selectedAgentMode: AgentMode | undefined;
 
   const { waitUntilExit } = render(
     <ThemeProvider>
       <ModelBrowserApp
         endpoint={endpoint}
         currentModel={currentModel}
-        onSelect={(model, agentMode) => {
+        onSelect={(model) => {
           selectedModel = model;
-          selectedAgentMode = agentMode;
         }}
         onCancel={() => {
           // No-op
@@ -110,5 +99,5 @@ export async function startModelBrowser(options: ModelBrowserOptions = {}): Prom
   );
 
   await waitUntilExit();
-  return { code: 0, selectedModel, agentMode: selectedAgentMode };
+  return { code: 0, selectedModel };
 }

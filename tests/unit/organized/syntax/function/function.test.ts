@@ -895,3 +895,43 @@ Deno.test("Swift Syntax: fn nested in let with -> return type", async () => {
   const result = await run(code);
   assertEquals(result, 10);
 });
+
+// ============================================================================
+// SWIFT COLLECTION & TUPLE SHORTHAND SYNTAX
+// ============================================================================
+
+Deno.test("Swift Syntax: param with [Int] array shorthand", async () => {
+  const code = `
+(fn first [nums:[Int]] (.at nums 0))
+(first [10 20 30])
+`;
+  const result = await run(code);
+  assertEquals(result, 10);
+});
+
+Deno.test("Swift Syntax: param with (Int, String) tuple shorthand", async () => {
+  const code = `
+(fn get-name [pair:(Int, String)] (.at pair 1))
+(get-name [1 "Alice"])
+`;
+  const result = await run(code);
+  assertEquals(result, "Alice");
+});
+
+Deno.test("Swift Syntax: -> [String] return type", async () => {
+  const code = `
+(fn get-names [] -> [String] ["Alice" "Bob"])
+(get-names)
+`;
+  const result = await run(code);
+  assertEquals(result, ["Alice", "Bob"]);
+});
+
+Deno.test("Swift Syntax: -> (Int, String) tuple return type", async () => {
+  const code = `
+(fn get-pair [] -> (Int, String) [1 "hello"])
+(get-pair)
+`;
+  const result = await run(code);
+  assertEquals(result, [1, "hello"]);
+});

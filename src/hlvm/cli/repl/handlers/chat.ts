@@ -30,6 +30,7 @@ import { getPlatform } from "../../../../platform/platform.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { config } from "../../../api/config.ts";
 import { isPaidProvider, isProviderApproved } from "../../commands/ask.ts";
+import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
 
 const SESSIONS_CHANNEL = "__sessions__";
 
@@ -89,10 +90,17 @@ async function modelSupportsTools(modelName: string, modelInfo: ModelInfo | null
   return true;
 }
 
+// MARK: - Constants
+
+/** Mode string for Claude Code full agent passthrough */
+const CLAUDE_CODE_AGENT_MODE = "claude-code-agent" as const;
+
 // MARK: - Types
 
+type ChatMode = "chat" | "agent" | typeof CLAUDE_CODE_AGENT_MODE;
+
 interface ChatRequest {
-  mode: "chat" | "agent" | "claude-code-agent";
+  mode: ChatMode;
   session_id: string;
   messages: Array<{
     role: "system" | "user" | "assistant" | "tool";
@@ -183,8 +191,8 @@ export async function handleChat(req: Request): Promise<Response> {
     return jsonError("Missing session_id or messages", 400);
   }
 
-  if (body.mode !== "chat" && body.mode !== "agent" && body.mode !== "claude-code-agent") {
-    return jsonError("Invalid or missing mode: must be 'chat', 'agent', or 'claude-code-agent'", 400);
+  if (body.mode !== "chat" && body.mode !== "agent" && body.mode !== CLAUDE_CODE_AGENT_MODE) {
+    return jsonError(`Invalid or missing mode: must be 'chat', 'agent', or '${CLAUDE_CODE_AGENT_MODE}'`, 400);
   }
 
   if (body.expected_version !== undefined) {
@@ -209,7 +217,7 @@ export async function handleChat(req: Request): Promise<Response> {
   const cfgSnapshot = config.snapshot;
   const resolvedModel = body.model ?? cfgSnapshot.model;
 
-  if ((body.mode === "agent" || body.mode === "claude-code-agent") && !resolvedModel) {
+  if ((body.mode === "agent" || body.mode === CLAUDE_CODE_AGENT_MODE) && !resolvedModel) {
     return jsonError("No model configured for agent mode", 400);
   }
 
@@ -262,7 +270,7 @@ export async function handleChat(req: Request): Promise<Response> {
     pushSessionUpdatedEvent(session.id);
   }
 
-  const senderType = body.mode === "agent" ? "agent" : body.mode === "claude-code-agent" ? "agent" : "llm";
+  const senderType = body.mode === "agent" ? "agent" : body.mode === CLAUDE_CODE_AGENT_MODE ? "agent" : "llm";
   const assistantMsg = insertMessage({
     session_id: session.id,
     role: "assistant",
@@ -315,14 +323,15 @@ export async function handleChat(req: Request): Promise<Response> {
 
         const onPartial = (text: string) => { partialText += text; };
 
-        // Resolve effective mode: explicit "claude-code-agent" mode, or "agent" with config agentMode override
-        const effectiveMode = body.mode === "claude-code-agent"
-          ? "claude-code-agent"
-          : body.mode === "agent" && config.snapshot.agentMode === "claude-code-agent"
-            ? "claude-code-agent"
+        // Resolve effective mode: model name ending in ":agent" suffix means Claude Code full agent passthrough
+        const isAgentModel = resolvedModel?.endsWith(AGENT_MODEL_SUFFIX) ?? false;
+        const effectiveMode = body.mode === CLAUDE_CODE_AGENT_MODE
+          ? CLAUDE_CODE_AGENT_MODE
+          : (body.mode === "agent" && isAgentModel)
+            ? CLAUDE_CODE_AGENT_MODE
             : body.mode;
 
-        if (effectiveMode === "claude-code-agent") {
+        if (effectiveMode === CLAUDE_CODE_AGENT_MODE) {
           await handleClaudeCodeAgentMode(body, assistantMessageId, controller.signal, emit, onPartial);
         } else if (effectiveMode === "agent") {
           await handleAgentMode(body, resolvedModel!, assistantMessageId, controller.signal, emit, onPartial, requestId);
@@ -592,7 +601,7 @@ async function handleClaudeCodeAgentMode(
 
   // Spawn Claude Code CLI in non-interactive print mode with streaming JSON output
   const proc = platform.command.run({
-    cmd: ["claude", "-p", query, "--output-format", "stream-json"],
+    cmd: ["claude", "-p", query, "--output-format", "stream-json", "--verbose"],
     stdout: "piped",
     stderr: "piped",
     stdin: "null",

@@ -925,3 +925,94 @@ Deno.test("normalizeType - intersection User & Serializable passthrough", () => 
 Deno.test("normalizeType - intersection AnyObject & Serializable → object & Serializable", () => {
   assertEquals(normalizeType("AnyObject & Serializable"), "object & Serializable");
 });
+
+// ============================================================================
+// SWIFT COLLECTION SHORTHAND TESTS — [T] array, [K: V] dict, (T, U) tuple
+// ============================================================================
+
+// Array shorthand
+Deno.test("normalizeType - [Int] → Array<number>", () => {
+  assertEquals(normalizeType("[Int]"), "Array<number>");
+});
+
+Deno.test("normalizeType - [String] → Array<string>", () => {
+  assertEquals(normalizeType("[String]"), "Array<string>");
+});
+
+Deno.test("normalizeType - [[Int]] → Array<Array<number>>", () => {
+  assertEquals(normalizeType("[[Int]]"), "Array<Array<number>>");
+});
+
+Deno.test("normalizeType - [Int]? → nullable array", () => {
+  assertEquals(normalizeType("[Int]?"), "(Array<number>) | null | undefined");
+});
+
+Deno.test("normalizeType - [Bool] → Array<boolean>", () => {
+  assertEquals(normalizeType("[Bool]"), "Array<boolean>");
+});
+
+// Dictionary shorthand
+Deno.test("normalizeType - [String: Int] → Map<string, number>", () => {
+  assertEquals(normalizeType("[String: Int]"), "Map<string, number>");
+});
+
+Deno.test("normalizeType - [String: Bool] → Map<string, boolean>", () => {
+  assertEquals(normalizeType("[String: Bool]"), "Map<string, boolean>");
+});
+
+Deno.test("normalizeType - [String: [Int]] → Map<string, Array<number>>", () => {
+  assertEquals(normalizeType("[String: [Int]]"), "Map<string, Array<number>>");
+});
+
+// Tuple shorthand
+Deno.test("normalizeType - (Int, String) → [number, string]", () => {
+  assertEquals(normalizeType("(Int, String)"), "[number, string]");
+});
+
+Deno.test("normalizeType - (Int, String, Bool) → [number, string, boolean]", () => {
+  assertEquals(normalizeType("(Int, String, Bool)"), "[number, string, boolean]");
+});
+
+Deno.test("normalizeType - (Int, String)? → nullable tuple", () => {
+  assertEquals(normalizeType("(Int, String)?"), "([number, string]) | null | undefined");
+});
+
+Deno.test("normalizeType - Tuple<Int, String> → [number, string]", () => {
+  assertEquals(normalizeType("Tuple<Int, String>"), "[number, string]");
+});
+
+Deno.test("normalizeType - Tuple<Int, String, Bool> → [number, string, boolean]", () => {
+  assertEquals(normalizeType("Tuple<Int, String, Bool>"), "[number, string, boolean]");
+});
+
+// Non-interference: existing types must not be affected
+Deno.test("normalizeType - (Pure Int Int) still works (no commas → not tuple)", () => {
+  assertEquals(normalizeType("(Pure Int Int)"), "(arg0: number) => number");
+});
+
+Deno.test("normalizeType - (fn [Int] String) still works (no commas → not tuple)", () => {
+  assertEquals(normalizeType("(fn [Int] String)"), "(arg0: number) => string");
+});
+
+Deno.test("normalizeType - Array<Int> still works (unchanged)", () => {
+  assertEquals(normalizeType("Array<Int>"), "Array<number>");
+});
+
+// extractAndNormalizeType with collection shorthands
+Deno.test("extractAndNormalizeType - nums:[Int] → Array<number>", () => {
+  const result = extractAndNormalizeType("nums:[Int]");
+  assertEquals(result.name, "nums");
+  assertEquals(result.type, "Array<number>");
+});
+
+Deno.test("extractAndNormalizeType - m:[String: Int] → Map<string, number>", () => {
+  const result = extractAndNormalizeType("m:[String: Int]");
+  assertEquals(result.name, "m");
+  assertEquals(result.type, "Map<string, number>");
+});
+
+Deno.test("extractAndNormalizeType - t:(Int, String) → [number, string]", () => {
+  const result = extractAndNormalizeType("t:(Int, String)");
+  assertEquals(result.name, "t");
+  assertEquals(result.type, "[number, string]");
+});

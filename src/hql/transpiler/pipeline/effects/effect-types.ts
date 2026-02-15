@@ -28,6 +28,7 @@ export interface FunctionSignature {
   name: string;
   effect: Effect;
   params: { name: string; effectAnnotation?: ParamEffectAnnotation }[];
+  callableParams?: Set<string>;
 }
 
 export type SignatureTable = Map<string, FunctionSignature>;

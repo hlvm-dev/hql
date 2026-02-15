@@ -764,6 +764,33 @@ export function normalizeType(type: string): string {
   const arrayMatch = type.match(/^(.+)\[\]$/);
   if (arrayMatch) return `Array<${normalizeType(arrayMatch[1])}>`;
 
+  // Swift [T] array shorthand → Array<T>
+  if (type.startsWith("[") && type.endsWith("]") && !type.includes(",") && !type.includes(":")) {
+    const inner = type.slice(1, -1).trim();
+    if (inner.length > 0) return `Array<${normalizeType(inner)}>`;
+  }
+
+  // Swift [K: V] dictionary shorthand → Map<K, V>
+  if (type.startsWith("[") && type.endsWith("]") && type.includes(":")) {
+    const inner = type.slice(1, -1);
+    const colonIdx = inner.indexOf(":");
+    if (colonIdx > 0) {
+      const keyType = normalizeType(inner.slice(0, colonIdx).trim());
+      const valType = normalizeType(inner.slice(colonIdx + 1).trim());
+      return `Map<${keyType}, ${valType}>`;
+    }
+  }
+
+  // Swift (T, U) tuple shorthand → [T, U] TS tuple (only when commas present)
+  if (type.startsWith("(") && type.endsWith(")") && type.includes(",")) {
+    const inner = type.slice(1, -1);
+    const parts = splitTypeParameters(inner);
+    if (parts.length >= 2) {
+      const normalized = parts.map(p => normalizeType(p.trim()));
+      return `[${normalized.join(", ")}]`;
+    }
+  }
+
   // (Pure ...) / (Impure ...) effect types → TS function type
   const { effect, innerType } = extractEffect(type);
   if (effect) {
@@ -795,6 +822,10 @@ export function normalizeType(type: string): string {
   const genericMatch = type.match(/^([A-Za-z_$][A-Za-z0-9_$]*)<(.+)>$/);
   if (genericMatch) {
     if (genericMatch[1] === "Optional") return wrapNullable(normalizeType(genericMatch[2].trim()));
+    if (genericMatch[1] === "Tuple") {
+      const params = splitTypeParameters(genericMatch[2]);
+      return `[${params.map(p => normalizeType(p.trim())).join(", ")}]`;
+    }
     const baseName = SWIFT_TYPE_MAP[genericMatch[1]] ?? genericMatch[1];
     const params = splitTypeParameters(genericMatch[2]);
     return `${baseName}<${params.map(p => normalizeType(p.trim())).join(", ")}>`;

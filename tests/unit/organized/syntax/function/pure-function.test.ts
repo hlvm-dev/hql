@@ -481,15 +481,13 @@ Deno.test("Pure Function: rejects setInterval inside fx", async () => {
 // SECTION 6: STRICTNESS / BYPASS PREVENTION
 // ============================================================================
 
-Deno.test("Pure Function: rejects unknown function parameter calls", async () => {
+Deno.test("Pure Function: allows unannotated callable param in fx body", async () => {
   const code = `
-(fx bad [f x] (f x))
+(fx apply [f x] (f x))
+(apply (fx [x] (+ x 1)) 5)
 `;
-  await assertRejects(
-    async () => await run(code),
-    Error,
-    "unknown function",
-  );
+  const result = await run(code);
+  assertEquals(result, 6);
 });
 
 Deno.test("Pure Function: rejects aliased impure function calls", async () => {
@@ -813,13 +811,13 @@ Deno.test("Pure Function: rejects impure inline callback in .map", async () => {
   );
 });
 
-Deno.test("Pure Function: rejects unannotated param as .map callback", async () => {
-  const code = `(fx bad [f xs:Array] (.map xs f))`;
-  await assertRejects(
-    () => transpile(code),
-    Error,
-    "Impure callback",
-  );
+Deno.test("Pure Function: allows unannotated param as .map callback", async () => {
+  const code = `
+(fx apply-all [f xs:Array] (.map xs f))
+(apply-all (fn [x] (* x 3)) [1 2 3])
+`;
+  const result = await run(code);
+  assertEquals(result, [3, 6, 9]);
 });
 
 Deno.test("Pure Function: allows pure inline callback in .map", async () => {
@@ -943,4 +941,71 @@ Deno.test("Pure Function: allows pure string .replace (no callback)", async () =
 `;
   const result = await run(code);
   assertEquals(result, "this is good");
+});
+
+// ============================================================================
+// SECTION 11: INFERRED CALLABLE PARAMS (zero annotation)
+// ============================================================================
+
+Deno.test("Pure Function: zero-annotation fx with callable param compiles and runs", async () => {
+  const code = `
+(fx apply [f x] (f x))
+(apply (fx [x] (+ x 1)) 5)
+`;
+  const result = await run(code);
+  assertEquals(result, 6);
+});
+
+Deno.test("Pure Function: zero-annotation rejects impure arg at call site", async () => {
+  const code = `
+(fn impure [x] (console.log x) x)
+(fx apply [f x] (f x))
+(apply impure 5)
+`;
+  await assertRejects(
+    async () => await run(code),
+    Error,
+    "impure",
+  );
+});
+
+Deno.test("Pure Function: zero-annotation .map callback param", async () => {
+  const code = `
+(fx apply-all [f xs:Array] (.map xs f))
+(apply-all (fn [x] (* x 3)) [1 2 3])
+`;
+  const result = await run(code);
+  assertEquals(result, [3, 6, 9]);
+});
+
+Deno.test("Pure Function: zero-annotation rejects impure .map callback at call site", async () => {
+  const code = `
+(fn impure [x] (console.log x) x)
+(fx apply-all [f xs:Array] (.map xs f))
+(apply-all impure [1 2 3])
+`;
+  await assertRejects(
+    async () => await run(code),
+    Error,
+    "impure",
+  );
+});
+
+Deno.test("Pure Function: mixed annotated + unannotated params coexist", async () => {
+  const code = `
+(fx apply [f:(fx Int Int) x] (f x))
+(apply (fx [x] (+ x 1)) 5)
+`;
+  const result = await run(code);
+  assertEquals(result, 6);
+});
+
+Deno.test("Pure Function: data param not checked at call site", async () => {
+  const code = `
+(fx add [a b] (+ a b))
+(var x 10)
+(add x 5)
+`;
+  const result = await run(code);
+  assertEquals(result, 15);
 });

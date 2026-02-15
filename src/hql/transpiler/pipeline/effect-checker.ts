@@ -1,6 +1,6 @@
 import * as IR from "../type/hql_ir.ts";
 import { forEachNode } from "../utils/ir-tree-walker.ts";
-import { buildSignatureTable } from "./effects/effect-env.ts";
+import { buildSignatureTable, lookupFunctionSignature } from "./effects/effect-env.ts";
 import {
   checkPureFunctionBody,
   checkPureParameterCallSites,
@@ -20,14 +20,20 @@ export function checkEffects(ir: IR.IRProgram): void {
     if (node.type === IR.IRNodeType.FnFunctionDeclaration) {
       const fn = node as IR.IRFnFunctionDeclaration;
       if (!fn.pure) return;
-      checkPureFunctionBody(fn, signatures);
+      const callableParams = checkPureFunctionBody(fn, signatures);
+      const sig = lookupFunctionSignature(fn.id.name, signatures);
+      if (sig) sig.callableParams = callableParams;
       return;
     }
 
     if (node.type === IR.IRNodeType.FunctionExpression) {
       const fnExpr = node as IR.IRFunctionExpression;
       if (!fnExpr.pure) return;
-      checkPureFunctionBody(fnExpr, signatures);
+      const callableParams = checkPureFunctionBody(fnExpr, signatures);
+      if (fnExpr.id) {
+        const sig = lookupFunctionSignature(fnExpr.id.name, signatures);
+        if (sig) sig.callableParams = callableParams;
+      }
     }
   });
 

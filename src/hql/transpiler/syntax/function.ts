@@ -745,6 +745,74 @@ function transformAnonymousFn(
 }
 
 /**
+ * Reconstruct a type string from a parsed list node for return type annotations.
+ * Handles [Type] (vector → array shorthand) and (Type, Type) (list → tuple shorthand).
+ */
+function reconstructReturnTypeString(listNode: ListNode): string | null {
+  const elems = listNode.elements;
+  if (elems.length === 0) return null;
+
+  const first = elems[0];
+
+  // Vector: [Type] → parsed as (vector Type) or (vector Type1 : Type2) for dicts
+  if (first.type === "symbol" &&
+      ((first as SymbolNode).name === VECTOR_SYMBOL ||
+       (first as SymbolNode).name === EMPTY_ARRAY_SYMBOL)) {
+    const typeElems = elems.slice(1);
+    if (typeElems.length === 0) return null;
+    const names = typeElems.map(e => reconstructNodeAsTypeString(e));
+    if (names.some(n => n === null)) return null;
+    // Check for dict pattern: [String : Int] → second elem is ":"
+    if (names.length === 3 && names[1] === ":") {
+      return `[${names[0]}: ${names[2]}]`;
+    }
+    // Check for dict pattern: first name ends with ":" like "String:"
+    if (names.length === 2 && (names[0] as string).endsWith(":")) {
+      return `[${names[0]} ${names[1]}]`;
+    }
+    return `[${(names as string[]).join(", ")}]`;
+  }
+
+  // Regular list: (Type, Type) → tuple
+  // Only treat as a tuple type if all elements look like type names (not operators/expressions).
+  // This prevents (+ a b) or (console.log x) from being misinterpreted as tuple types.
+  if (elems.length >= 2 && elems.every(e => e.type === "symbol" && looksLikeTypeName((e as SymbolNode).name))) {
+    const names = elems.map(e => (e as SymbolNode).name);
+    return `(${names.join(", ")})`;
+  }
+
+  return null;
+}
+
+/**
+ * Reconstruct a single AST node as a type string.
+ */
+function reconstructNodeAsTypeString(node: HQLNode): string | null {
+  if (node.type === "symbol") return (node as SymbolNode).name;
+  if (node.type === "list") return reconstructReturnTypeString(node as ListNode);
+  if (node.type === "literal") return String((node as LiteralNode).value);
+  return null;
+}
+
+/** Operator/special chars that indicate an expression, not a type name */
+const OPERATOR_START_CHARS = new Set(["+", "-", "*", "/", "=", "<", ">", "!", "&", "|", ".", "%", "^", "~"]);
+
+/**
+ * Check if a symbol name looks like a type name (not an operator or variable).
+ * Type names start with an uppercase letter or are known TS primitive types.
+ */
+function looksLikeTypeName(name: string): boolean {
+  if (name.length === 0) return false;
+  if (OPERATOR_START_CHARS.has(name[0])) return false;
+  // Must start with uppercase letter or be a known lowercase primitive type
+  const firstChar = name[0];
+  if (firstChar >= "A" && firstChar <= "Z") return true;
+  // Known TS primitive types
+  const LOWERCASE_TYPES = new Set(["number", "string", "boolean", "void", "any", "never", "null", "undefined", "object", "unknown", "bigint", "symbol"]);
+  return LOWERCASE_TYPES.has(name);
+}
+
+/**
  * Parse optional return type annotation from element list.
  * Handles both `:Type` (TS-style) and `-> Type` (Swift-style).
  * Returns the normalized return type and the index where the body starts.
@@ -775,16 +843,29 @@ function parseReturnTypeAnnotation(
   // Swift-style: -> Type
   if (sym === "->") {
     const typeIndex = typeElementIndex + 1;
-    if (elements.length > typeIndex && elements[typeIndex].type === "symbol") {
-      return {
-        returnType: normalizeType((elements[typeIndex] as SymbolNode).name),
-        bodyStartIndex: typeIndex + 1,
-      };
+    if (elements.length > typeIndex) {
+      const nextElem = elements[typeIndex];
+      if (nextElem.type === "symbol") {
+        return {
+          returnType: normalizeType((nextElem as SymbolNode).name),
+          bodyStartIndex: typeIndex + 1,
+        };
+      }
+      // -> [Type] (vector/array) or -> (Type, Type) (tuple/list)
+      if (nextElem.type === "list") {
+        const reconstructed = reconstructReturnTypeString(nextElem as ListNode);
+        if (reconstructed) {
+          return {
+            returnType: normalizeType(reconstructed),
+            bodyStartIndex: typeIndex + 1,
+          };
+        }
+      }
     }
     throw new ValidationError(
       "Expected return type after '->'",
       "fn return type",
-      "type name (e.g. -> Int)",
+      "type name (e.g. -> Int, -> [Int], -> (Int, String))",
       elements.length > typeIndex ? elements[typeIndex].type : "nothing",
     );
   }
