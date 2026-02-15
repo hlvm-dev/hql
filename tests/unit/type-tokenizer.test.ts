@@ -666,6 +666,42 @@ Deno.test("normalizeType - Impure with multiple params", () => {
 });
 
 // ============================================================================
+// (fx ...) / (fn ...) SURFACE SYNTAX EFFECT TESTS
+// ============================================================================
+
+Deno.test("extractEffect - (fx ...) as Pure effect", () => {
+  const result = extractEffect("(fx number number)");
+  assertEquals(result.effect, "Pure");
+  assertEquals(result.innerType, "number number");
+});
+
+Deno.test("extractEffect - (fn ...) as Impure effect (no brackets)", () => {
+  const result = extractEffect("(fn number number)");
+  assertEquals(result.effect, "Impure");
+  assertEquals(result.innerType, "number number");
+});
+
+Deno.test("extractEffect - (fn [...] ...) stays as fn-type, NOT effect", () => {
+  const result = extractEffect("(fn [number] string)");
+  assertEquals(result.effect, undefined);
+  assertEquals(result.innerType, "(fn [number] string)");
+});
+
+Deno.test("normalizeType - (fx Int Int) → TS fn type", () => {
+  assertEquals(normalizeType("(fx Int Int)"), "(arg0: number) => number");
+});
+
+Deno.test("normalizeType - (fn number number) → TS fn type (Impure)", () => {
+  assertEquals(normalizeType("(fn number number)"), "(arg0: number) => number");
+});
+
+Deno.test("extractEffect - (fx ...) with nested fn type", () => {
+  const result = extractEffect("(fx (fn [number] string) number)");
+  assertEquals(result.effect, "Pure");
+  assertEquals(result.innerType, "(fn [number] string) number");
+});
+
+// ============================================================================
 // SWIFT TYPE NAME MAPPING TESTS
 // ============================================================================
 

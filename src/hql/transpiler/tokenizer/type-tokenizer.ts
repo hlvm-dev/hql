@@ -630,17 +630,21 @@ export function extractEffect(rawType: string): {
   const trimmed = rawType.trim();
   if (!trimmed.startsWith("(")) return { innerType: rawType };
 
-  const purePrefix = "(Pure ";
-  const impurePrefix = "(Impure ";
   let effect: "Pure" | "Impure" | undefined;
   let prefixLen: number;
 
-  if (trimmed.startsWith(purePrefix)) {
+  if (trimmed.startsWith("(fx ")) {
     effect = "Pure";
-    prefixLen = purePrefix.length;
-  } else if (trimmed.startsWith(impurePrefix)) {
+    prefixLen = 4;
+  } else if (trimmed.startsWith("(fn ") && !trimmed.startsWith("(fn [")) {
     effect = "Impure";
-    prefixLen = impurePrefix.length;
+    prefixLen = 4;
+  } else if (trimmed.startsWith("(Pure ")) {
+    effect = "Pure";
+    prefixLen = 6;
+  } else if (trimmed.startsWith("(Impure ")) {
+    effect = "Impure";
+    prefixLen = 8;
   } else {
     return { innerType: rawType };
   }
