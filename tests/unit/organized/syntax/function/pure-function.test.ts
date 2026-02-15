@@ -767,3 +767,179 @@ Deno.test("Pure Function: var-bound new Map allows .has", async () => {
   const result = await run(code);
   assertEquals(result, false);
 });
+
+// ============================================================================
+// SECTION 9: SWIFT-STYLE TYPE SYNTAX WITH fx
+// ============================================================================
+
+Deno.test("Pure Function: fx with Swift Int types and -> return", async () => {
+  const code = `
+(fx add [a:Int b:Int] -> Int (+ a b))
+(add 3 5)
+`;
+  const result = await run(code);
+  assertEquals(result, 8);
+});
+
+Deno.test("Pure Function: fx with Swift String type and -> return", async () => {
+  const code = `
+(fx greet [name:String] -> String (str "Hello, " name))
+(greet "world")
+`;
+  const result = await run(code);
+  assertEquals(result, "Hello, world");
+});
+
+Deno.test("Pure Function: fx with Swift Bool type and -> return", async () => {
+  const code = `
+(fx isEven [n:Int] -> Bool (=== 0 (% n 2)))
+(isEven 4)
+`;
+  const result = await run(code);
+  assertEquals(result, true);
+});
+
+// ============================================================================
+// SECTION 10: Higher-Order Callback Soundness
+// ============================================================================
+
+Deno.test("Pure Function: rejects impure inline callback in .map", async () => {
+  const code = `(fx bad [xs:Array] (.map xs (fn [x] (console.log x) x)))`;
+  await assertRejects(
+    () => transpile(code),
+    Error,
+    "Impure callback",
+  );
+});
+
+Deno.test("Pure Function: rejects unannotated param as .map callback", async () => {
+  const code = `(fx bad [f xs:Array] (.map xs f))`;
+  await assertRejects(
+    () => transpile(code),
+    Error,
+    "Impure callback",
+  );
+});
+
+Deno.test("Pure Function: allows pure inline callback in .map", async () => {
+  const code = `
+(fx double-all [xs:Array] (.map xs (fn [x] (* x 2))))
+(double-all [1 2 3])
+`;
+  const result = await run(code);
+  assertEquals(result, [2, 4, 6]);
+});
+
+Deno.test("Pure Function: allows Pure-annotated param as .map callback", async () => {
+  const code = `
+(fx apply-all [f:(Pure number number) xs:Array] (.map xs f))
+(apply-all (fn [x] (* x 3)) [1 2 3])
+`;
+  const result = await run(code);
+  assertEquals(result, [3, 6, 9]);
+});
+
+Deno.test("Pure Function: rejects impure inline callback in .filter", async () => {
+  const code = `(fx bad [xs:Array] (.filter xs (fn [x] (console.log x) true)))`;
+  await assertRejects(
+    () => transpile(code),
+    Error,
+    "Impure callback",
+  );
+});
+
+Deno.test("Pure Function: rejects impure inline callback in .reduce", async () => {
+  const code = `(fx bad [xs:Array] (.reduce xs (fn [acc x] (console.log x) (+ acc x)) 0))`;
+  await assertRejects(
+    () => transpile(code),
+    Error,
+    "Impure callback",
+  );
+});
+
+Deno.test("Pure Function: allows pure .reduce with init value", async () => {
+  const code = `
+(fx sum [xs:Array] (.reduce xs (fn [acc x] (+ acc x)) 0))
+(sum [1 2 3 4])
+`;
+  const result = await run(code);
+  assertEquals(result, 10);
+});
+
+Deno.test("Pure Function: rejects impure callback in .find", async () => {
+  const code = `(fx bad [xs:Array] (.find xs (fn [x] (console.log x) (> x 2))))`;
+  await assertRejects(
+    () => transpile(code),
+    Error,
+    "Impure callback",
+  );
+});
+
+Deno.test("Pure Function: rejects nested HOF with impure inner callback", async () => {
+  const code = `(fx bad [xs:Array]
+    (.map xs (fn [inner]
+      (.map inner (fn [x] (console.log x) x)))))`;
+  await assertRejects(
+    () => transpile(code),
+    Error,
+    "Impure callback",
+  );
+});
+
+Deno.test("Pure Function: allows known fx function as .map callback", async () => {
+  const code = `
+(fx double [x] (* x 2))
+(fx apply-double [xs:Array] (.map xs double))
+(apply-double [1 2 3])
+`;
+  const result = await run(code);
+  assertEquals(result, [2, 4, 6]);
+});
+
+Deno.test("Pure Function: rejects known impure fn as .map callback", async () => {
+  const code = `
+(fn impure-fn [x] (console.log x) x)
+(fx bad [xs:Array] (.map xs impure-fn))
+`;
+  await assertRejects(
+    () => transpile(code),
+    Error,
+    "Impure callback",
+  );
+});
+
+Deno.test("Pure Function: rejects impure inline callback in .some", async () => {
+  const code = `(fx bad [xs:Array] (.some xs (fn [x] (console.log x) true)))`;
+  await assertRejects(
+    () => transpile(code),
+    Error,
+    "Impure callback",
+  );
+});
+
+Deno.test("Pure Function: allows pure .some callback", async () => {
+  const code = `
+(fx hasPositive [xs:Array] (.some xs (fn [x] (> x 0))))
+(hasPositive [-1 -2 3])
+`;
+  const result = await run(code);
+  assertEquals(result, true);
+});
+
+Deno.test("Pure Function: rejects impure replacer callback in .replace", async () => {
+  const code = `(fx bad [s:String] (.replace s "x" (fn [m] (console.log m) m)))`;
+  await assertRejects(
+    () => transpile(code),
+    Error,
+    "Impure callback",
+  );
+});
+
+Deno.test("Pure Function: allows pure string .replace (no callback)", async () => {
+  const code = `
+(fx clean [s:String] (.replace s "bad" "good"))
+(clean "this is bad")
+`;
+  const result = await run(code);
+  assertEquals(result, "this is good");
+});

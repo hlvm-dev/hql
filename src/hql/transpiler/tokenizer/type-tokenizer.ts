@@ -611,25 +611,12 @@ export function tokenizeFunctionType(source: string, startIndex: number): TypeTo
 // ============================================================================
 
 /**
- * Normalize HQL type syntax to valid TypeScript.
+ * Normalize HQL/Swift type syntax to valid TypeScript.
  *
- * Transformations:
- * - ?T → (T) | null | undefined  (nullable shorthand)
- * - T[] → Array<T>               (array shorthand)
- *
- * Preserves:
- * - T extends U ? A : B          (conditional types - NOT transformed)
- *
- * @param type - Type string with HQL type syntax
- * @returns Normalized type string with valid TypeScript syntax
- *
- * @example
- * ```typescript
- * normalizeType("?string")     // → "(string) | null | undefined"
- * normalizeType("number[]")    // → "Array<number>"
- * normalizeType("?string[]")   // → "(Array<string>) | null | undefined"
- * normalizeType("string")      // → "string"
- * ```
+ * Handles (in order): conditional passthrough, ?T / T? nullables, T[] arrays,
+ * (Pure/Impure ...) effect types, (fn/-> [...] R) function types,
+ * Swift name mapping (Int→number, String→string, etc.), and
+ * generic recursion (Array<Int>→Array<number>, Optional<T>→nullable).
  */
 
 /**
@@ -702,27 +689,55 @@ export function splitEffectTypeParams(inner: string): string[] {
   return parts;
 }
 
+/** Maps Swift-style type names to TypeScript equivalents */
+const SWIFT_TYPE_MAP: Record<string, string> = {
+  // Core Swift types
+  "Int": "number",
+  "String": "string",
+  "Bool": "boolean",
+  "Double": "number",
+  "Float": "number",
+  "Void": "void",
+  "Any": "any",
+  // Extended Swift numeric types
+  "UInt": "number",
+  "Int8": "number",
+  "Int16": "number",
+  "Int32": "number",
+  "Int64": "number",
+  "UInt8": "number",
+  "UInt16": "number",
+  "UInt32": "number",
+  "UInt64": "number",
+  "Float16": "number",
+  "Float32": "number",
+  "Float64": "number",
+  "Float80": "number",
+  // Swift Character → TS string (single char is still a string in JS/TS)
+  "Character": "string",
+  // Swift special types
+  "Never": "never",
+  "AnyObject": "object",
+  // Swift Dictionary → TS Map (generic base name, used in step 7)
+  "Dictionary": "Map",
+};
+
+function wrapNullable(normalizedType: string): string {
+  return `(${normalizedType}) | null | undefined`;
+}
+
 export function normalizeType(type: string): string {
-  // 1. Check for conditional type FIRST (contains "extends...?...:")
-  //    These should NOT be transformed
-  if (CONDITIONAL_TYPE_REGEX.test(type)) {
-    return type;
-  }
+  if (CONDITIONAL_TYPE_REGEX.test(type)) return type;
 
-  // 2. Handle ?T nullable prefix → (T) | null | undefined
-  if (type.startsWith("?")) {
-    const innerType = normalizeType(type.slice(1));
-    return `(${innerType}) | null | undefined`;
-  }
+  // Prefix ?T or postfix T? → nullable
+  if (type.startsWith("?")) return wrapNullable(normalizeType(type.slice(1)));
+  if (type.endsWith("?") && type.length > 1) return wrapNullable(normalizeType(type.slice(0, -1)));
 
-  // 3. Handle T[] → Array<T>
+  // T[] → Array<T>
   const arrayMatch = type.match(/^(.+)\[\]$/);
-  if (arrayMatch) {
-    const elementType = normalizeType(arrayMatch[1]);
-    return `Array<${elementType}>`;
-  }
+  if (arrayMatch) return `Array<${normalizeType(arrayMatch[1])}>`;
 
-  // 4. Handle (Pure ...) and (Impure ...) effect types → TS function type
+  // (Pure ...) / (Impure ...) effect types → TS function type
   const { effect, innerType } = extractEffect(type);
   if (effect) {
     const parts = splitEffectTypeParams(innerType);
@@ -734,26 +749,28 @@ export function normalizeType(type: string): string {
     return `(${tsParams.join(", ")}) => ${returnType}`;
   }
 
-  // 5. Handle HQL function type syntax: (fn [params] ReturnType) → (params) => ReturnType
-  //    Also handles (-> [params] ReturnType) syntax
+  // (fn [params] ReturnType) / (-> [params] ReturnType) → TS function type
   const fnTypeMatch = type.match(/^\((fn|->)\s+\[([^\]]*)\]\s+(.+)\)$/);
   if (fnTypeMatch) {
     const paramTypesStr = fnTypeMatch[2].trim();
     const returnType = normalizeType(fnTypeMatch[3].trim());
-
-    if (!paramTypesStr) {
-      // No parameters: () => ReturnType
-      return `() => ${returnType}`;
-    }
-
-    // Split parameter types on whitespace (HQL uses space-separated types in vectors)
+    if (!paramTypesStr) return `() => ${returnType}`;
     const paramTypes = paramTypesStr.split(/\s+/).filter(Boolean);
-    const tsParams = paramTypes.map((paramType, index) => {
-      const normalizedType = normalizeType(paramType);
-      return `arg${index}: ${normalizedType}`;
-    });
-
+    const tsParams = paramTypes.map((pt, i) => `arg${i}: ${normalizeType(pt)}`);
     return `(${tsParams.join(", ")}) => ${returnType}`;
+  }
+
+  // Swift type name → TS equivalent
+  const mapped = SWIFT_TYPE_MAP[type];
+  if (mapped) return mapped;
+
+  // Generic<Params> → recursively normalize inner types
+  const genericMatch = type.match(/^([A-Za-z_$][A-Za-z0-9_$]*)<(.+)>$/);
+  if (genericMatch) {
+    if (genericMatch[1] === "Optional") return wrapNullable(normalizeType(genericMatch[2].trim()));
+    const baseName = SWIFT_TYPE_MAP[genericMatch[1]] ?? genericMatch[1];
+    const params = splitTypeParameters(genericMatch[2]);
+    return `${baseName}<${params.map(p => normalizeType(p.trim())).join(", ")}>`;
   }
 
   return type;

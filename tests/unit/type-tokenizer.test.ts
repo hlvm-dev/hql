@@ -664,3 +664,196 @@ Deno.test("normalizeType - Impure with multiple params", () => {
   const result = normalizeType("(Impure number string number)");
   assertEquals(result, "(arg0: number, arg1: string) => number");
 });
+
+// ============================================================================
+// SWIFT TYPE NAME MAPPING TESTS
+// ============================================================================
+
+Deno.test("normalizeType - Swift Int → number", () => {
+  assertEquals(normalizeType("Int"), "number");
+});
+
+Deno.test("normalizeType - Swift String → string", () => {
+  assertEquals(normalizeType("String"), "string");
+});
+
+Deno.test("normalizeType - Swift Bool → boolean", () => {
+  assertEquals(normalizeType("Bool"), "boolean");
+});
+
+Deno.test("normalizeType - Swift Double → number", () => {
+  assertEquals(normalizeType("Double"), "number");
+});
+
+Deno.test("normalizeType - Swift Float → number", () => {
+  assertEquals(normalizeType("Float"), "number");
+});
+
+Deno.test("normalizeType - Swift Void → void", () => {
+  assertEquals(normalizeType("Void"), "void");
+});
+
+Deno.test("normalizeType - Swift Any → any", () => {
+  assertEquals(normalizeType("Any"), "any");
+});
+
+// ============================================================================
+// POSTFIX OPTIONAL TESTS (Swift-style T?)
+// ============================================================================
+
+Deno.test("normalizeType - postfix String? → nullable string", () => {
+  assertEquals(normalizeType("String?"), "(string) | null | undefined");
+});
+
+Deno.test("normalizeType - postfix Int? → nullable number", () => {
+  assertEquals(normalizeType("Int?"), "(number) | null | undefined");
+});
+
+Deno.test("normalizeType - postfix Array<Int>? → nullable generic", () => {
+  assertEquals(normalizeType("Array<Int>?"), "(Array<number>) | null | undefined");
+});
+
+// ============================================================================
+// GENERIC TYPE RECURSION TESTS
+// ============================================================================
+
+Deno.test("normalizeType - Array<Int> → Array<number>", () => {
+  assertEquals(normalizeType("Array<Int>"), "Array<number>");
+});
+
+Deno.test("normalizeType - Map<String, Int> → Map<string, number>", () => {
+  assertEquals(normalizeType("Map<String, Int>"), "Map<string, number>");
+});
+
+Deno.test("normalizeType - Array<Map<String, Bool>> → nested generics", () => {
+  assertEquals(normalizeType("Array<Map<String, Bool>>"), "Array<Map<string, boolean>>");
+});
+
+// ============================================================================
+// BACKWARD COMPATIBILITY TESTS
+// ============================================================================
+
+Deno.test("normalizeType - lowercase string unchanged", () => {
+  assertEquals(normalizeType("string"), "string");
+});
+
+Deno.test("normalizeType - prefix ?string still works", () => {
+  assertEquals(normalizeType("?string"), "(string) | null | undefined");
+});
+
+Deno.test("normalizeType - number[] still works", () => {
+  assertEquals(normalizeType("number[]"), "Array<number>");
+});
+
+// ============================================================================
+// extractAndNormalizeType WITH SWIFT TYPES
+// ============================================================================
+
+Deno.test("extractAndNormalizeType - name:String → string", () => {
+  const result = extractAndNormalizeType("name:String");
+  assertEquals(result.name, "name");
+  assertEquals(result.type, "string");
+});
+
+Deno.test("extractAndNormalizeType - n:Int → number", () => {
+  const result = extractAndNormalizeType("n:Int");
+  assertEquals(result.name, "n");
+  assertEquals(result.type, "number");
+});
+
+Deno.test("extractAndNormalizeType - x:String? → nullable string", () => {
+  const result = extractAndNormalizeType("x:String?");
+  assertEquals(result.name, "x");
+  assertEquals(result.type, "(string) | null | undefined");
+});
+
+Deno.test("extractAndNormalizeType - arr:Array<String> → Array<string>", () => {
+  const result = extractAndNormalizeType("arr:Array<String>");
+  assertEquals(result.name, "arr");
+  assertEquals(result.type, "Array<string>");
+});
+
+Deno.test("normalizeType - (Pure Int Int) → TS fn type", () => {
+  const result = normalizeType("(Pure Int Int)");
+  assertEquals(result, "(arg0: number) => number");
+});
+
+Deno.test("normalizeType - Set<String> → Set<string>", () => {
+  assertEquals(normalizeType("Set<String>"), "Set<string>");
+});
+
+Deno.test("normalizeType - Promise<Int> → Promise<number>", () => {
+  assertEquals(normalizeType("Promise<Int>"), "Promise<number>");
+});
+
+Deno.test("normalizeType - unknown CustomType passthrough", () => {
+  assertEquals(normalizeType("CustomType"), "CustomType");
+});
+
+Deno.test("normalizeType - Array<Array<Int>> → nested generics", () => {
+  assertEquals(normalizeType("Array<Array<Int>>"), "Array<Array<number>>");
+});
+
+// ============================================================================
+// EXTENDED SWIFT TYPE MAPPING TESTS
+// ============================================================================
+
+Deno.test("normalizeType - UInt → number", () => {
+  assertEquals(normalizeType("UInt"), "number");
+});
+
+Deno.test("normalizeType - Int32 → number", () => {
+  assertEquals(normalizeType("Int32"), "number");
+});
+
+Deno.test("normalizeType - Int64 → number", () => {
+  assertEquals(normalizeType("Int64"), "number");
+});
+
+Deno.test("normalizeType - Character → string", () => {
+  assertEquals(normalizeType("Character"), "string");
+});
+
+Deno.test("normalizeType - Never → never", () => {
+  assertEquals(normalizeType("Never"), "never");
+});
+
+Deno.test("normalizeType - AnyObject → object", () => {
+  assertEquals(normalizeType("AnyObject"), "object");
+});
+
+Deno.test("normalizeType - Optional<Int> → nullable number", () => {
+  assertEquals(normalizeType("Optional<Int>"), "(number) | null | undefined");
+});
+
+Deno.test("normalizeType - Optional<String> → nullable string", () => {
+  assertEquals(normalizeType("Optional<String>"), "(string) | null | undefined");
+});
+
+Deno.test("normalizeType - Optional<Array<Int>> → nullable array", () => {
+  assertEquals(normalizeType("Optional<Array<Int>>"), "(Array<number>) | null | undefined");
+});
+
+Deno.test("normalizeType - Dictionary<String, Int> → Map<string, number>", () => {
+  assertEquals(normalizeType("Dictionary<String, Int>"), "Map<string, number>");
+});
+
+Deno.test("normalizeType - Dictionary<String, Array<Int>> → Map with nested generic", () => {
+  assertEquals(normalizeType("Dictionary<String, Array<Int>>"), "Map<string, Array<number>>");
+});
+
+// ============================================================================
+// IDEMPOTENCY — TS types pass through unchanged
+// ============================================================================
+
+Deno.test("normalizeType - Record<string, number> unchanged", () => {
+  assertEquals(normalizeType("Record<string, number>"), "Record<string, number>");
+});
+
+Deno.test("normalizeType - Promise<void> unchanged", () => {
+  assertEquals(normalizeType("Promise<void>"), "Promise<void>");
+});
+
+Deno.test("normalizeType - Array<T> generic param unchanged", () => {
+  assertEquals(normalizeType("Array<T>"), "Array<T>");
+});

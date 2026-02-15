@@ -371,6 +371,8 @@ const HIGHER_ORDER_METHOD_CALLBACKS: ReadonlyMap<string, ReadonlySet<number>> = 
   ["every", new Set([0])],
   ["some", new Set([0])],
   ["flatMap", new Set([0])],
+  ["replace", new Set([1])],
+  ["replaceAll", new Set([1])],
 ]);
 
 export function getHigherOrderCallbackPositions(

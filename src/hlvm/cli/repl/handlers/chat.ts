@@ -31,6 +31,12 @@ import type { ModelInfo } from "../../../providers/types.ts";
 import { config } from "../../../api/config.ts";
 import { isPaidProvider, isProviderApproved } from "../../commands/ask.ts";
 
+const SESSIONS_CHANNEL = "__sessions__";
+
+function pushSessionUpdatedEvent(sessionId: string): void {
+  pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: sessionId });
+}
+
 // MARK: - Image Helpers
 
 async function readImageAsBase64(filePath: string): Promise<string | null> {
@@ -86,7 +92,7 @@ async function modelSupportsTools(modelName: string, modelInfo: ModelInfo | null
 // MARK: - Types
 
 interface ChatRequest {
-  mode: "chat" | "agent";
+  mode: "chat" | "agent" | "claude-code-agent";
   session_id: string;
   messages: Array<{
     role: "system" | "user" | "assistant" | "tool";
@@ -160,6 +166,7 @@ function emitCancellation(
     content: partialText,
     cancelled: true,
   });
+  pushSessionUpdatedEvent(sessionId);
   emit({ event: "cancelled", request_id: requestId, partial_text: partialText });
 }
 
@@ -176,8 +183,8 @@ export async function handleChat(req: Request): Promise<Response> {
     return jsonError("Missing session_id or messages", 400);
   }
 
-  if (body.mode !== "chat" && body.mode !== "agent") {
-    return jsonError("Invalid or missing mode: must be 'chat' or 'agent'", 400);
+  if (body.mode !== "chat" && body.mode !== "agent" && body.mode !== "claude-code-agent") {
+    return jsonError("Invalid or missing mode: must be 'chat', 'agent', or 'claude-code-agent'", 400);
   }
 
   if (body.expected_version !== undefined) {
@@ -202,7 +209,7 @@ export async function handleChat(req: Request): Promise<Response> {
   const cfgSnapshot = config.snapshot;
   const resolvedModel = body.model ?? cfgSnapshot.model;
 
-  if (body.mode === "agent" && !resolvedModel) {
+  if ((body.mode === "agent" || body.mode === "claude-code-agent") && !resolvedModel) {
     return jsonError("No model configured for agent mode", 400);
   }
 
@@ -248,9 +255,10 @@ export async function handleChat(req: Request): Promise<Response> {
       image_paths: currentMsg.image_paths,
     });
     pushSSEEvent(session.id, "message_added", { message: inserted });
+    pushSessionUpdatedEvent(session.id);
   }
 
-  const senderType = body.mode === "agent" ? "agent" : "llm";
+  const senderType = body.mode === "agent" ? "agent" : body.mode === "claude-code-agent" ? "agent" : "llm";
   const assistantMsg = insertMessage({
     session_id: session.id,
     role: "assistant",
@@ -262,6 +270,7 @@ export async function handleChat(req: Request): Promise<Response> {
   });
   const assistantMessageId = assistantMsg.id;
   pushSSEEvent(session.id, "message_added", { message: assistantMsg });
+  pushSessionUpdatedEvent(session.id);
 
   let partialText = "";
   let cancellationEmitted = false;
@@ -302,7 +311,16 @@ export async function handleChat(req: Request): Promise<Response> {
 
         const onPartial = (text: string) => { partialText += text; };
 
-        if (body.mode === "agent") {
+        // Resolve effective mode: explicit "claude-code-agent" mode, or "agent" with config agentMode override
+        const effectiveMode = body.mode === "claude-code-agent"
+          ? "claude-code-agent"
+          : body.mode === "agent" && config.snapshot.agentMode === "claude-code-agent"
+            ? "claude-code-agent"
+            : body.mode;
+
+        if (effectiveMode === "claude-code-agent") {
+          await handleClaudeCodeAgentMode(body, assistantMessageId, controller.signal, emit, onPartial, requestId);
+        } else if (effectiveMode === "agent") {
           await handleAgentMode(body, resolvedModel!, assistantMessageId, controller.signal, emit, onPartial, requestId);
         } else {
           await handleChatMode(body, resolvedModel, sessionId, assistantMessageId, controller.signal, emit, onPartial);
@@ -318,7 +336,8 @@ export async function handleChat(req: Request): Promise<Response> {
             if (firstUserMsg) {
               const autoTitle = firstUserMsg.content.slice(0, 60).replace(/\n/g, " ").trim();
               updateSession(sessionId, { title: autoTitle });
-              pushSSEEvent(sessionId, "session_updated", { title: autoTitle });
+              pushSSEEvent(sessionId, "session_updated", { session_id: sessionId, title: autoTitle });
+              pushSessionUpdatedEvent(sessionId);
             }
           }
 
@@ -340,6 +359,7 @@ export async function handleChat(req: Request): Promise<Response> {
               id: assistantMessageId,
               content: partialText,
             });
+            pushSessionUpdatedEvent(sessionId);
           }
           emit({ event: "error", message: getErrorMessage(error) });
         }
@@ -469,6 +489,7 @@ async function handleChatMode(
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: fullText });
     pushSSEEvent(sessionId, "message_updated", { id: assistantMessageId, content: fullText });
+    pushSessionUpdatedEvent(sessionId);
   }
 }
 
@@ -524,6 +545,7 @@ async function handleAgentMode(
           request_id: requestId,
         });
         pushSSEEvent(body.session_id, "message_added", { message: toolMsg });
+        pushSessionUpdatedEvent(body.session_id);
         emit({
           event: "tool",
           name: event.toolName,
@@ -537,5 +559,141 @@ async function handleAgentMode(
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: result.text });
     pushSSEEvent(body.session_id, "message_updated", { id: assistantMessageId, content: result.text });
+    pushSessionUpdatedEvent(body.session_id);
+  }
+}
+
+/**
+ * Claude Code Agent Mode — delegates the entire agentic loop to Claude Code CLI.
+ *
+ * Spawns `claude -p "<query>" --output-format stream-json` as a subprocess and streams
+ * stdout back as SSE events. Claude Code handles tool calling, file ops, etc. internally.
+ */
+async function handleClaudeCodeAgentMode(
+  body: ChatRequest,
+  assistantMessageId: number,
+  signal: AbortSignal,
+  emit: (obj: unknown) => void,
+  onPartial: (text: string) => void,
+  requestId: string,
+): Promise<void> {
+  const lastUserMessage = [...body.messages].reverse().find((m) => m.role === "user");
+  const query = lastUserMessage?.content ?? "";
+
+  if (!query.trim()) {
+    emit({ event: "error", message: "Empty query for Claude Code agent" });
+    return;
+  }
+
+  const platform = getPlatform();
+
+  // Spawn Claude Code CLI in non-interactive print mode with streaming JSON output
+  const proc = platform.command.run({
+    cmd: ["claude", "-p", query, "--output-format", "stream-json"],
+    stdout: "piped",
+    stderr: "piped",
+    stdin: "null",
+  });
+
+  // Kill subprocess on abort
+  const onAbort = () => { proc.kill?.("SIGTERM"); };
+  signal.addEventListener("abort", onAbort, { once: true });
+
+  let fullText = "";
+
+  try {
+    const stdout = proc.stdout as ReadableStream<Uint8Array> | undefined;
+    if (!stdout) {
+      emit({ event: "error", message: "Failed to capture Claude Code output" });
+      return;
+    }
+
+    const reader = stdout.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (signal.aborted) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete JSON lines (stream-json outputs one JSON object per line)
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? ""; // Keep incomplete last line in buffer
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        try {
+          const event = JSON.parse(trimmed);
+
+          // Claude Code stream-json events have a "type" field
+          if (event.type === "assistant" && event.message?.content) {
+            // Assistant text content
+            for (const block of event.message.content) {
+              if (block.type === "text" && block.text) {
+                fullText += block.text;
+                onPartial(block.text);
+                emit({ event: "token", text: block.text });
+              }
+            }
+          } else if (event.type === "content_block_delta" && event.delta?.text) {
+            // Streaming text delta
+            fullText += event.delta.text;
+            onPartial(event.delta.text);
+            emit({ event: "token", text: event.delta.text });
+          } else if (event.type === "result" && event.result) {
+            // Final result
+            if (typeof event.result === "string" && event.result.length > 0) {
+              fullText = event.result;
+            }
+          }
+        } catch {
+          // Not valid JSON or unknown format — treat as raw text
+          if (trimmed.length > 0) {
+            fullText += trimmed + "\n";
+            onPartial(trimmed + "\n");
+            emit({ event: "token", text: trimmed + "\n" });
+          }
+        }
+      }
+    }
+
+    // Wait for process to finish
+    const result = await proc.status;
+    if (!result.success && !signal.aborted) {
+      // Read stderr for error message
+      const stderr = proc.stderr as ReadableStream<Uint8Array> | undefined;
+      let errMsg = `Claude Code exited with code ${result.code}`;
+      if (stderr) {
+        try {
+          const errReader = stderr.getReader();
+          const errChunks: string[] = [];
+          while (true) {
+            const { done: errDone, value: errValue } = await errReader.read();
+            if (errDone) break;
+            errChunks.push(new TextDecoder().decode(errValue));
+          }
+          const errText = errChunks.join("").trim();
+          if (errText) errMsg = errText;
+        } catch {
+          // Ignore stderr read errors
+        }
+      }
+      if (!fullText) {
+        emit({ event: "error", message: errMsg });
+      }
+    }
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+
+  if (!signal.aborted) {
+    updateMessage(assistantMessageId, { content: fullText });
+    pushSSEEvent(body.session_id, "message_updated", { id: assistantMessageId, content: fullText });
+    pushSessionUpdatedEvent(body.session_id);
   }
 }

@@ -668,17 +668,9 @@ function transformNamedFn(
     paramList, currentDir, transformNode,
   );
 
-  let bodyStartIndex = 3;
-  if (list.elements.length > 3) {
-    const potentialReturnType = list.elements[3];
-    if (potentialReturnType.type === "symbol") {
-      const sym = (potentialReturnType as SymbolNode).name;
-      if (sym.startsWith(":") && sym.length > 1) {
-        returnType = normalizeType(sym.slice(1).trim());
-        bodyStartIndex = 4;
-      }
-    }
-  }
+  const returnTypeResult = parseReturnTypeAnnotation(list.elements, 3);
+  returnType = returnTypeResult.returnType ?? returnType;
+  const bodyStartIndex = returnTypeResult.bodyStartIndex;
 
   const bodyExpressions = list.elements.slice(bodyStartIndex);
   const bodyNodes = processFunctionBody(bodyExpressions, currentDir);
@@ -739,18 +731,7 @@ function transformAnonymousFn(
 
   const { params } = parseFunctionParameters(paramList, currentDir, transformNode);
 
-  let returnType: string | undefined;
-  let bodyStartIndex = 2;
-  if (list.elements.length > 2) {
-    const potentialReturnType = list.elements[2];
-    if (potentialReturnType.type === "symbol") {
-      const sym = (potentialReturnType as SymbolNode).name;
-      if (sym.startsWith(":") && sym.length > 1) {
-        returnType = normalizeType(sym.slice(1).trim());
-        bodyStartIndex = 3;
-      }
-    }
-  }
+  const { returnType, bodyStartIndex } = parseReturnTypeAnnotation(list.elements, 2);
 
   const bodyNodes = processFunctionBody(list.elements.slice(bodyStartIndex), currentDir);
   const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
@@ -761,6 +742,54 @@ function transformAnonymousFn(
     body: bodyNodes,
     position: blockPosition,
   }, { returnType, usesThis: usesThis || undefined });
+}
+
+/**
+ * Parse optional return type annotation from element list.
+ * Handles both `:Type` (TS-style) and `-> Type` (Swift-style).
+ * Returns the normalized return type and the index where the body starts.
+ */
+function parseReturnTypeAnnotation(
+  elements: HQLNode[],
+  typeElementIndex: number,
+): { returnType: string | undefined; bodyStartIndex: number } {
+  if (elements.length <= typeElementIndex) {
+    return { returnType: undefined, bodyStartIndex: typeElementIndex };
+  }
+
+  const potentialReturnType = elements[typeElementIndex];
+  if (potentialReturnType.type !== "symbol") {
+    return { returnType: undefined, bodyStartIndex: typeElementIndex };
+  }
+
+  const sym = (potentialReturnType as SymbolNode).name;
+
+  // TS-style: :Type
+  if (sym.startsWith(":") && sym.length > 1) {
+    return {
+      returnType: normalizeType(sym.slice(1).trim()),
+      bodyStartIndex: typeElementIndex + 1,
+    };
+  }
+
+  // Swift-style: -> Type
+  if (sym === "->") {
+    const typeIndex = typeElementIndex + 1;
+    if (elements.length > typeIndex && elements[typeIndex].type === "symbol") {
+      return {
+        returnType: normalizeType((elements[typeIndex] as SymbolNode).name),
+        bodyStartIndex: typeIndex + 1,
+      };
+    }
+    throw new ValidationError(
+      "Expected return type after '->'",
+      "fn return type",
+      "type name (e.g. -> Int)",
+      elements.length > typeIndex ? elements[typeIndex].type : "nothing",
+    );
+  }
+
+  return { returnType: undefined, bodyStartIndex: typeElementIndex };
 }
 
 /**

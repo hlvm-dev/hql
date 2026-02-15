@@ -50,6 +50,7 @@ export function handleConfigStream(req: Request): Response {
       let closed = false;
       let unsubscribe = () => {};
       let heartbeat: ReturnType<typeof setInterval> | null = null;
+      let poller: ReturnType<typeof setInterval> | null = null;
 
       const cleanup = (): void => {
         if (closed) return;
@@ -57,6 +58,9 @@ export function handleConfigStream(req: Request): Response {
         unsubscribe();
         if (heartbeat !== null) {
           clearInterval(heartbeat);
+        }
+        if (poller !== null) {
+          clearInterval(poller);
         }
         try {
           controller.close();
@@ -75,11 +79,12 @@ export function handleConfigStream(req: Request): Response {
       };
 
       controller.enqueue(textEncoder.encode("retry: 3000\n\n"));
-      emitConfig(config.snapshot);
 
       unsubscribe = config.subscribe((nextConfig) => {
         emitConfig(nextConfig);
       });
+
+      void config.reload();
 
       heartbeat = setInterval(() => {
         if (closed) return;
@@ -89,6 +94,11 @@ export function handleConfigStream(req: Request): Response {
           cleanup();
         }
       }, 30_000);
+
+      poller = setInterval(() => {
+        if (closed) return;
+        void config.reloadIfChanged();
+      }, 1_000);
 
       req.signal.addEventListener("abort", cleanup);
     },

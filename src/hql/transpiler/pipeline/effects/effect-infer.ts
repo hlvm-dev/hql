@@ -272,8 +272,22 @@ function inferNodeEffect(node: IR.IRNode, ctx: InferenceContext): EffectResult {
     case IR.IRNodeType.CallExpression: {
       const call = node as IR.IRCallExpression;
       let result = inferCalleeEffect(call.callee, ctx);
-      for (const arg of call.arguments) {
-        result = joinResults(result, inferNodeEffect(arg, ctx));
+
+      // For pure method calls (e.g. .map, .filter), check callback args for purity
+      const methodName = (call.callee.type === IR.IRNodeType.MemberExpression)
+        ? identifierName((call.callee as IR.IRMemberExpression).property)
+        : undefined;
+      const callbackPositions = (result.effect === "Pure" && methodName)
+        ? getHigherOrderCallbackPositions(methodName)
+        : undefined;
+
+      for (let i = 0; i < call.arguments.length; i++) {
+        const arg = call.arguments[i];
+        if (callbackPositions?.has(i)) {
+          result = joinResults(result, inferCallbackEffect(arg, methodName!, ctx));
+        } else {
+          result = joinResults(result, inferNodeEffect(arg, ctx));
+        }
       }
       return result;
     }
@@ -281,8 +295,21 @@ function inferNodeEffect(node: IR.IRNode, ctx: InferenceContext): EffectResult {
     case IR.IRNodeType.OptionalCallExpression: {
       const call = node as IR.IROptionalCallExpression;
       let result = inferCalleeEffect(call.callee, ctx);
-      for (const arg of call.arguments) {
-        result = joinResults(result, inferNodeEffect(arg, ctx));
+
+      const optMethodName = (call.callee.type === IR.IRNodeType.OptionalMemberExpression)
+        ? identifierName((call.callee as IR.IROptionalMemberExpression).property)
+        : undefined;
+      const optCallbackPositions = (result.effect === "Pure" && optMethodName)
+        ? getHigherOrderCallbackPositions(optMethodName)
+        : undefined;
+
+      for (let i = 0; i < call.arguments.length; i++) {
+        const arg = call.arguments[i];
+        if (optCallbackPositions?.has(i)) {
+          result = joinResults(result, inferCallbackEffect(arg, optMethodName!, ctx));
+        } else {
+          result = joinResults(result, inferNodeEffect(arg, ctx));
+        }
       }
       return result;
     }
@@ -319,8 +346,16 @@ function inferNodeEffect(node: IR.IRNode, ctx: InferenceContext): EffectResult {
       }
 
       let result = memberResult;
-      for (const arg of call.arguments) {
-        result = joinResults(result, inferNodeEffect(arg, ctx));
+      const callbackPositions = (effect === "Pure" && methodName)
+        ? getHigherOrderCallbackPositions(methodName)
+        : undefined;
+      for (let i = 0; i < call.arguments.length; i++) {
+        const arg = call.arguments[i];
+        if (callbackPositions?.has(i)) {
+          result = joinResults(result, inferCallbackEffect(arg, methodName!, ctx));
+        } else {
+          result = joinResults(result, inferNodeEffect(arg, ctx));
+        }
       }
       result = joinResults(result, inferNodeEffect(call.object, ctx));
       return result;
@@ -427,7 +462,18 @@ function resolveArgumentCallableEffect(
   signatures: SignatureTable,
 ): Effect {
   if (arg.type === IR.IRNodeType.FunctionExpression) {
-    return (arg as IR.IRFunctionExpression).pure ? "Pure" : "Impure";
+    const fnExpr = arg as IR.IRFunctionExpression;
+    if (fnExpr.pure) return "Pure";
+    if (isCompilerGeneratedFunctionExpression(fnExpr)) return "Pure";
+    // Check body for actual purity (inline fn with pure body is acceptable)
+    const ctx: InferenceContext = {
+      fnName: fnExpr.id?.name ?? "<anonymous fn>",
+      signatures,
+      paramEffects: buildParameterEffectTable(fnExpr.params, fnExpr.id?.name ?? "<anonymous fn>"),
+      typeEnv: new Map(),
+    };
+    const result = inferNodeEffect(fnExpr.body, ctx);
+    return result.effect === "Pure" ? "Pure" : "Impure";
   }
 
   if (arg.type === IR.IRNodeType.Identifier) {
@@ -483,13 +529,21 @@ function inferCallbackEffect(
     if (fnExpr.pure || isCompilerGeneratedFunctionExpression(fnExpr)) {
       return pureResult();
     }
-    // Check the function BODY for purity — this is the key fix
-    const bodyResult = inferNodeEffect(fnExpr.body, ctx);
+    // Check the function BODY for purity — this is the key fix.
+    // Build a fresh context for the callback's own scope so its params
+    // are properly tracked (e.g. unannotated callback params are fail-closed).
+    const cbName = fnExpr.id?.name ?? "<anonymous fn>";
+    const cbCtx: InferenceContext = {
+      fnName: ctx.fnName,
+      signatures: ctx.signatures,
+      paramEffects: buildParameterEffectTable(fnExpr.params, cbName),
+      typeEnv: new Map(ctx.typeEnv),
+    };
+    const bodyResult = inferNodeEffect(fnExpr.body, cbCtx);
     if (bodyResult.effect === "Impure") {
-      const desc = fnExpr.id?.name ?? "<anonymous fn>";
       return impureResult({
         node: arg,
-        message: impureCallbackMessage(ctx.fnName, desc, methodName),
+        message: impureCallbackMessage(ctx.fnName, cbName, methodName),
       });
     }
     return pureResult();
@@ -551,11 +605,10 @@ function inferCallbackEffect(
     });
   }
 
-  // Unknown expression — fail-closed
-  return impureResult({
-    node: arg,
-    message: impureCallbackMessage(ctx.fnName, describeArgument(arg), methodName),
-  });
+  // Non-callable expressions (literals, arrays, objects, binary expressions, etc.)
+  // are not callbacks — evaluate normally via inferNodeEffect.
+  // Methods like .replace can take either a string or callback at the same position.
+  return inferNodeEffect(arg, ctx);
 }
 
 export function checkPureFunctionBody(

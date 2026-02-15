@@ -775,7 +775,6 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
     ? state.tokens[state.currentPos].value
     : "";
   const isEnum = firstTokenValue === "enum";
-  const fnKeywordFound = firstTokenValue === "fn";
   const importKeywordFound = firstTokenValue === "import";
 
   // Process all tokens until we reach the closing parenthesis
@@ -856,20 +855,7 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
         );
       }
     }
-    // Error for deprecated return type annotation (->)
-    else if (
-      fnKeywordFound &&
-      elements.length > 0 &&
-      state.currentPos < state.tokens.length &&
-      state.tokens[state.currentPos].type === TokenType.Symbol &&
-      state.tokens[state.currentPos].value === "->"
-    ) {
-      throw new ParseError(
-        `Return type annotation '->' is no longer supported. ` +
-        `HQL uses dynamic typing - remove the return type annotation.`,
-        state.tokens[state.currentPos].position,
-      );
-    } else {
+    else {
       elements.push(parseExpression(state));
     }
   }

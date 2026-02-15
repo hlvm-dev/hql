@@ -17,6 +17,8 @@ import { pushSSEEvent } from "../../../store/sse-store.ts";
 import type { RouteParams } from "../http-router.ts";
 import { parseJsonBody, jsonError } from "../http-utils.ts";
 
+const SESSIONS_CHANNEL = "__sessions__";
+
 // MARK: - Private Helpers
 
 function requireSession(params: RouteParams): { sessionId: string } | Response {
@@ -118,6 +120,7 @@ export async function handleAddMessage(
   });
 
   pushSSEEvent(session.sessionId, "message_added", { id: row.id });
+  pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
   return Response.json(row, { status: 201 });
 }
 
@@ -146,6 +149,7 @@ export async function handleUpdateMessage(
     content: patch.content ?? existing.content,
     cancelled: patch.cancelled ?? Boolean(existing.cancelled),
   });
+  pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
 
   const updated = getMessage(msg.messageId);
   return Response.json(updated);
@@ -165,5 +169,6 @@ export function handleDeleteMessage(
   if (!deleted) return jsonError("Failed to delete message", 500);
 
   pushSSEEvent(session.sessionId, "message_deleted", { id: msg.messageId });
+  pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
   return Response.json({ deleted: true, id: msg.messageId });
 }

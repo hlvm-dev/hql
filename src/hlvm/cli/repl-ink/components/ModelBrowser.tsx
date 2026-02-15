@@ -30,8 +30,8 @@ const openUrl = (url: string) => getPlatform().openUrl(url);
 interface ModelBrowserProps {
   /** Callback when panel closes */
   onClose: () => void;
-  /** Callback when model is selected (set as active) */
-  onSelectModel?: (modelName: string) => void;
+  /** Callback when model is selected (set as active). Optional agentMode for claude-code models. */
+  onSelectModel?: (modelName: string, agentMode?: "hlvm" | "claude-code-agent") => void;
   /** Current active model */
   currentModel?: string;
   /** Ollama endpoint */
@@ -516,6 +516,9 @@ export function ModelBrowser({
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
+  // Claude Code mode selection: model name pending mode choice, and selected mode index (0=LLM, 1=Agent)
+  const [pendingModeSelect, setPendingModeSelect] = useState<string | null>(null);
+  const [modeSelectIndex, setModeSelectIndex] = useState(0);
   // Track model name pending auto-select after pull completes (Ollama cloud flow)
   const pendingSelectRef = useRef<string | null>(null);
   const activeFilterMode = filterMode as FilterMode;
@@ -828,15 +831,15 @@ export function ModelBrowser({
       clearStatus();
     };
 
-    // API provider cloud models (OpenAI, Anthropic, Google) — select directly
+    // API provider cloud models (OpenAI, Anthropic, Google, Claude Code) — select directly
     const isApiProviderCloud = (m: DisplayModel) =>
       m.capabilities?.includes("cloud") && !m.isLocal &&
-      (m.name.startsWith("openai/") || m.name.startsWith("anthropic/") || m.name.startsWith("google/"));
+      (m.name.startsWith("openai/") || m.name.startsWith("anthropic/") || m.name.startsWith("google/") || m.name.startsWith("claude-code/"));
 
     // Ollama cloud models — need pull (and possibly `ollama signin` on auth error)
     const isOllamaCloud = (m: DisplayModel) =>
       m.capabilities?.includes("cloud") && !m.isLocal &&
-      !m.name.startsWith("openai/") && !m.name.startsWith("anthropic/") && !m.name.startsWith("google/");
+      !m.name.startsWith("openai/") && !m.name.startsWith("anthropic/") && !m.name.startsWith("google/") && !m.name.startsWith("claude-code/");
 
     const performSelectionAction = () => {
       const model = displayModels[selection.index] ?? displayModels[0];
@@ -846,6 +849,13 @@ export function ModelBrowser({
       if (model.needsKey) {
         const provider = model.name.split("/")[0];
         setStatusMessage(`Set ${provider.toUpperCase()}_API_KEY to use this model`);
+        return;
+      }
+
+      // Claude Code models: prompt for mode selection (LLM Only vs Full Agent)
+      if (model.name.startsWith("claude-code/") && onSelectModel) {
+        setPendingModeSelect(model.name);
+        setModeSelectIndex(0);
         return;
       }
 
@@ -880,6 +890,35 @@ export function ModelBrowser({
     };
 
     if (isSelecting) return;
+
+    // Mode selection prompt (Claude Code: LLM Only vs Full Agent)
+    if (pendingModeSelect) {
+      if (key.escape) {
+        setPendingModeSelect(null);
+        clearStatus();
+        return;
+      }
+      if (key.upArrow || key.leftArrow) {
+        setModeSelectIndex(0);
+        return;
+      }
+      if (key.downArrow || key.rightArrow) {
+        setModeSelectIndex(1);
+        return;
+      }
+      if (input === "1") { setModeSelectIndex(0); return; }
+      if (input === "2") { setModeSelectIndex(1); return; }
+      if (key.return && onSelectModel) {
+        const mode = modeSelectIndex === 0 ? "hlvm" : "claude-code-agent";
+        setIsSelecting(true);
+        setStatusMessage(mode === "hlvm" ? "Setting LLM-only mode..." : "Setting Claude Code Agent mode...");
+        // Pass mode as metadata suffix: onSelectModel receives model name, we set agentMode separately
+        void Promise.resolve(onSelectModel(pendingModeSelect, mode as "hlvm" | "claude-code-agent"));
+        setPendingModeSelect(null);
+        return;
+      }
+      return;
+    }
 
     // Search mode
     if (isSearching) {
@@ -957,6 +996,7 @@ export function ModelBrowser({
         if (name.startsWith("openai/")) openUrl("https://platform.openai.com/docs/models");
         else if (name.startsWith("anthropic/")) openUrl("https://docs.anthropic.com/en/docs/about-claude/models");
         else if (name.startsWith("google/")) openUrl("https://ai.google.dev/gemini-api/docs/models");
+        else if (name.startsWith("claude-code/")) openUrl("https://docs.anthropic.com/en/docs/about-claude/models");
         else setStatusMessage("No info page for this provider");
       } else if (isOllamaCloud(model)) {
         openUrl("https://ollama.com/cloud");
@@ -1168,7 +1208,14 @@ export function ModelBrowser({
       )}
 
       <Text> </Text>
-      {pendingDelete ? (
+      {pendingModeSelect ? (
+        <Box flexDirection="column">
+          <Text color={color("accent")}>  Select mode for {pendingModeSelect.split("/")[1]}:</Text>
+          <Text>  {modeSelectIndex === 0 ? "▸" : " "} <Text bold={modeSelectIndex === 0} color={modeSelectIndex === 0 ? color("accent") : undefined}>1. LLM Only</Text> <Text dimColor>— HLVM orchestrates tools, Claude is the brain</Text></Text>
+          <Text>  {modeSelectIndex === 1 ? "▸" : " "} <Text bold={modeSelectIndex === 1} color={modeSelectIndex === 1 ? color("accent") : undefined}>2. Full Agent</Text> <Text dimColor>— Claude Code handles everything end-to-end</Text></Text>
+          <Text dimColor>  ↑↓ or 1/2 to choose  ↵ confirm  Esc cancel</Text>
+        </Box>
+      ) : pendingDelete ? (
         <Text color={color("error")}>  Press d again to delete "{pendingDelete}", Esc to cancel</Text>
       ) : statusMessage ? (
         <Text color={color("warning")}>  {statusMessage}</Text>

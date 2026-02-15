@@ -5,7 +5,7 @@
 // New: Section 9 tests both Lisp-style and JSON-style syntax variations
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { run } from "../../../helpers.ts";
+import { run, transpile } from "../../../helpers.ts";
 
 // ============================================================================
 // SECTION 1: BASIC FUNCTIONS (15 tests)
@@ -791,4 +791,107 @@ Deno.test("Syntax Flexibility: Function returning JSON-style map", async () => {
   assertEquals(result.name, "Bob");
   assertEquals(result.role, "viewer");
   assertEquals(result.active, true);
+});
+
+// ============================================================================
+// SECTION 10: SWIFT-STYLE TYPE SYNTAX WITH fn
+// ============================================================================
+
+Deno.test("Swift Syntax: fn with Int params and -> Int return", async () => {
+  const code = `
+(fn add [a:Int b:Int] -> Int (+ a b))
+(add 1 2)
+`;
+  const result = await run(code);
+  assertEquals(result, 3);
+});
+
+Deno.test("Swift Syntax: fn with Any type and -> Any return", async () => {
+  const code = `
+(fn identity [x:Any] -> Any x)
+(identity 42)
+`;
+  const result = await run(code);
+  assertEquals(result, 42);
+});
+
+Deno.test("Swift Syntax: fn with Double type and -> Double return", async () => {
+  const code = `
+(fn double-it [x:Double] -> Double (* x 2))
+(double-it 3.5)
+`;
+  const result = await run(code);
+  assertEquals(result, 7);
+});
+
+Deno.test("Swift Syntax: fn with old :type syntax still works", async () => {
+  const code = `
+(fn add [a:number b:number] :number (+ a b))
+(add 10 20)
+`;
+  const result = await run(code);
+  assertEquals(result, 30);
+});
+
+Deno.test("Swift Syntax: defn with -> return type", async () => {
+  const code = `
+(defn add [a:Int b:Int] -> Int (+ a b))
+(add 5 7)
+`;
+  const result = await run(code);
+  assertEquals(result, 12);
+});
+
+Deno.test("Swift Syntax: -> without type name throws error", async () => {
+  const code = `(fn add [a:Int b:Int] -> (+ a b))`;
+  await assertRejects(
+    () => transpile(code),
+    Error,
+    "Expected return type after '->'",
+  );
+});
+
+Deno.test("Swift Syntax: anonymous fn with -> return type", async () => {
+  const code = `
+(var double (fn [x:Int] -> Int (* x 2)))
+(double 5)
+`;
+  const result = await run(code);
+  assertEquals(result, 10);
+});
+
+Deno.test("Swift Syntax: mixed Swift params with TS -> return", async () => {
+  const code = `
+(fn add [a:Int b:Int] -> number (+ a b))
+(add 2 3)
+`;
+  const result = await run(code);
+  assertEquals(result, 5);
+});
+
+Deno.test("Swift Syntax: mixed TS params with Swift -> return", async () => {
+  const code = `
+(fn add [a:number b:number] -> Int (+ a b))
+(add 2 3)
+`;
+  const result = await run(code);
+  assertEquals(result, 5);
+});
+
+Deno.test("Swift Syntax: postfix optional return type :String?", async () => {
+  const code = `
+(fn maybe-greet [name:String?] :String? name)
+(maybe-greet "hi")
+`;
+  const result = await run(code);
+  assertEquals(result, "hi");
+});
+
+Deno.test("Swift Syntax: fn nested in let with -> return type", async () => {
+  const code = `
+(let [f (fn [x:Int] -> Int (* x 2))]
+  (f 5))
+`;
+  const result = await run(code);
+  assertEquals(result, 10);
 });

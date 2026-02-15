@@ -26,6 +26,7 @@ import {
   handleUpdateSession,
   handleDeleteSession,
   handleDeleteAllSessions,
+  handleSessionsStream,
 } from "./handlers/sessions.ts";
 import {
   handleGetMessages,
@@ -41,6 +42,7 @@ import {
   handleDeleteModel,
   handleModelStatus,
   handleModelCatalog,
+  handleModelsStream,
 } from "./handlers/models.ts";
 import { handleSSEStream } from "./handlers/sse.ts";
 import { handleGetConfig, handlePatchConfig, handleConfigStream } from "./handlers/config.ts";
@@ -328,6 +330,7 @@ router.add("POST", "/api/chat/cancel", (req) => handleChatCancel(req));
 router.add("GET", "/api/sessions", () => handleListSessions());
 router.add("POST", "/api/sessions", (req) => handleCreateSession(req));
 router.add("DELETE", "/api/sessions", () => handleDeleteAllSessions());
+router.add("GET", "/api/sessions/stream", (req) => handleSessionsStream(req));
 router.add("GET", "/api/sessions/:id", (req, p) => handleGetSession(req, p));
 router.add("PATCH", "/api/sessions/:id", (req, p) => handleUpdateSession(req, p));
 router.add("DELETE", "/api/sessions/:id", (req, p) => handleDeleteSession(req, p));
@@ -346,6 +349,7 @@ router.add("GET", "/api/models/status", () => handleModelStatus());
 router.add("GET", "/api/models/:provider/:name", (req, p) => handleGetModel(req, p));
 router.add("POST", "/api/models/pull", (req) => handlePullModel(req));
 router.add("DELETE", "/api/models/:provider/:name", (req, p) => handleDeleteModel(req, p));
+router.add("GET", "/api/models/stream", (req) => handleModelsStream(req));
 
 router.add("POST", "/api/completions", (req) => handleComplete(req));
 

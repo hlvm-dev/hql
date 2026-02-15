@@ -48,6 +48,7 @@ function createConfigApi() {
    * Updated on load/save operations
    */
   let _config: HlvmConfig | null = null;
+  let _configSignature: string | null = null;
   const listeners = new Set<ConfigListener>();
   const VALID_CONFIG_KEYS_TEXT = CONFIG_KEYS.join(", ");
   const PARSEABLE_STRING_KEYS = new Set<ConfigKey>([
@@ -89,6 +90,7 @@ function createConfigApi() {
     syncProviders = false,
   ): HlvmConfig {
     _config = nextConfig;
+    _configSignature = JSON.stringify(nextConfig);
     if (syncProviders) {
       syncProvidersFromConfig(nextConfig);
     }
@@ -231,6 +233,16 @@ function createConfigApi() {
      */
     reload: async (): Promise<HlvmConfig> => {
       return await loadAndSyncConfig();
+    },
+
+    reloadIfChanged: async (): Promise<boolean> => {
+      const nextConfig = normalizeConfig(await loadConfig());
+      const nextSignature = JSON.stringify(nextConfig);
+      if (_configSignature === nextSignature) {
+        return false;
+      }
+      updateCachedConfig(nextConfig, true);
+      return true;
     },
 
     /**
