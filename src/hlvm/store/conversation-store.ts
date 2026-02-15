@@ -85,6 +85,11 @@ export function deleteSession(id: string): boolean {
   return result > 0;
 }
 
+export function deleteAllSessions(): number {
+  const db = getDb();
+  return db.prepare("DELETE FROM sessions").run();
+}
+
 export function getOrCreateSession(id: string): SessionRow {
   const existing = getSession(id);
   if (existing) return existing;

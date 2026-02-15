@@ -31,6 +31,7 @@ const KNOWN_PROVIDER_PREFIXES = new Set([
   "openai",
   "anthropic",
   "google",
+  "claude-code",
 ]);
 
 function normalizeProviderName(name: string): string {

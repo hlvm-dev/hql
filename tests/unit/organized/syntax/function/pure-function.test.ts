@@ -680,3 +680,90 @@ Deno.test("Pure Function: effectAnnotation preserved on IR node", async () => {
   const result = await run(code);
   assertEquals(result, 21);
 });
+
+// ============================================================================
+// SECTION 8: RECEIVER-TYPE-AWARE EFFECT CHECKING
+// ============================================================================
+
+Deno.test("Pure Function: typed Array param allows .map", async () => {
+  const code = `
+(fx transform [xs:Array] (.map xs (fn [x] (* x 2))))
+(transform [1 2 3])
+`;
+  const result = await run(code);
+  assertEquals(result, [2, 4, 6]);
+});
+
+Deno.test("Pure Function: typed String param allows .toUpperCase", async () => {
+  const code = `
+(fx shout [s:string] (.toUpperCase s))
+(shout "hello")
+`;
+  const result = await run(code);
+  assertEquals(result, "HELLO");
+});
+
+Deno.test("Pure Function: unknown type param rejects .map (fail-closed)", async () => {
+  const code = `
+(fx query [db:DatabaseConnection] (.map db (fn [x] x)))
+`;
+  await assertRejects(
+    async () => await transpile(code),
+    Error,
+  );
+});
+
+Deno.test("Pure Function: typed Map param allows .get, rejects .set", async () => {
+  // .get is pure for Map
+  const code1 = `
+(fx lookup [m:Map k:string] (.get m k))
+`;
+  await transpile(code1); // should not throw
+
+  // .set is impure for Map
+  const code2 = `
+(fx mutate [m:Map k:string v:number] (.set m k v))
+`;
+  await assertRejects(
+    async () => await transpile(code2),
+    Error,
+  );
+});
+
+Deno.test("Pure Function: untyped param preserves backward compat (.map still works)", async () => {
+  const code = `
+(fx transform [xs] (.map xs (fn [x] (* x 2))))
+(transform [1 2 3])
+`;
+  const result = await run(code);
+  assertEquals(result, [2, 4, 6]);
+});
+
+Deno.test("Pure Function: let-bound array literal allows .map", async () => {
+  const code = `
+(fx compute [] (let [xs [1 2 3]] (.map xs (fn [x] (* x 10)))))
+(compute)
+`;
+  const result = await run(code);
+  assertEquals(result, [10, 20, 30]);
+});
+
+Deno.test("Pure Function: let-bound array allows .indexOf", async () => {
+  const code = `
+(fx find-pos [] (let [xs [10 20 30]] (.indexOf xs 20)))
+(find-pos)
+`;
+  const result = await run(code);
+  assertEquals(result, 1);
+});
+
+Deno.test("Pure Function: var-bound new Map allows .has", async () => {
+  // Uses var instead of let because HQL's let binding vector
+  // can't parse (new Map) inline — known parser limitation
+  const code = `
+(fx check [] (var m (new Map)) (.has m "key"))
+(check)
+`;
+  const result = await run(code);
+  assertEquals(result, false);
+});

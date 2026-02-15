@@ -41,11 +41,14 @@ import { ValidationError } from "../../common/error.ts";
  * This is designed to be registered on globalThis for REPL access
  */
 function createConfigApi() {
+  type ConfigListener = (config: HlvmConfig) => void;
+
   /**
    * Internal reference to current config
    * Updated on load/save operations
    */
   let _config: HlvmConfig | null = null;
+  const listeners = new Set<ConfigListener>();
   const VALID_CONFIG_KEYS_TEXT = CONFIG_KEYS.join(", ");
   const PARSEABLE_STRING_KEYS = new Set<ConfigKey>([
     "temperature",
@@ -88,6 +91,13 @@ function createConfigApi() {
     _config = nextConfig;
     if (syncProviders) {
       syncProvidersFromConfig(nextConfig);
+    }
+    for (const listener of listeners) {
+      try {
+        listener({ ...nextConfig });
+      } catch {
+        // Ignore listener errors
+      }
     }
     return nextConfig;
   }
@@ -142,6 +152,29 @@ function createConfigApi() {
       const newConfig = { ...cfg, [key]: parsedValue };
       await saveConfig(newConfig);
       updateCachedConfig(newConfig, true);
+    },
+
+    patch: async (
+      updates: Partial<Record<ConfigKey, unknown>>,
+    ): Promise<HlvmConfig> => {
+      const cfg = await ensureConfig();
+      const next = { ...cfg };
+
+      for (const [key, value] of Object.entries(updates)) {
+        assertConfigKeyOrThrow(key, "config.set");
+        const parsedValue = maybeParseConfigValue(key, value);
+        const validation = validateValue(key, parsedValue);
+        if (!validation.valid) {
+          throw new ValidationError(
+            validation.error ?? "Invalid value",
+            "config.set",
+          );
+        }
+        (next as unknown as Record<string, unknown>)[key] = parsedValue;
+      }
+
+      await saveConfig(next);
+      return updateCachedConfig(next, true);
     },
 
     /**
@@ -254,6 +287,13 @@ function createConfigApi() {
       get snapshot(): KeybindingsConfig {
         return { ...(_config?.keybindings ?? {}) };
       },
+    },
+
+    subscribe: (listener: ConfigListener): (() => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
   };
 }

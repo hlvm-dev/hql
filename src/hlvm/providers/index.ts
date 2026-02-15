@@ -57,6 +57,7 @@ export { OllamaProvider, createOllamaProvider } from "./ollama/provider.ts";
 export { OpenAIProvider, createOpenAIProvider } from "./openai/provider.ts";
 export { AnthropicProvider, createAnthropicProvider } from "./anthropic/provider.ts";
 export { GoogleProvider, createGoogleProvider } from "./google/provider.ts";
+export { ClaudeCodeProvider, createClaudeCodeProvider } from "./claude-code/provider.ts";
 
 // ============================================================================
 // Auto-registration
@@ -67,6 +68,7 @@ import { createOllamaProvider } from "./ollama/provider.ts";
 import { createOpenAIProvider } from "./openai/provider.ts";
 import { createAnthropicProvider } from "./anthropic/provider.ts";
 import { createGoogleProvider } from "./google/provider.ts";
+import { createClaudeCodeProvider } from "./claude-code/provider.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
 // Ollama: always registered as default (local, no API key needed)
@@ -84,6 +86,9 @@ registerProvider("google", createGoogleProvider, {
   apiKey: _env.get("GOOGLE_API_KEY"),
 });
 
+// Claude Code: uses Max subscription via OAuth token (no API key needed)
+registerProvider("claude-code", createClaudeCodeProvider);
+
 /**
  * Initialize providers with custom configuration.
  * Call this to override default provider settings.
@@ -93,6 +98,7 @@ export function initializeProviders(config?: {
   openai?: { endpoint?: string; defaultModel?: string; apiKey?: string };
   anthropic?: { endpoint?: string; defaultModel?: string; apiKey?: string };
   google?: { endpoint?: string; defaultModel?: string; apiKey?: string };
+  claudeCode?: { endpoint?: string; defaultModel?: string };
 }): void {
   if (config?.ollama) {
     registerProvider("ollama", createOllamaProvider, {
@@ -120,6 +126,12 @@ export function initializeProviders(config?: {
       endpoint: config.google.endpoint,
       defaultModel: config.google.defaultModel,
       apiKey: config.google.apiKey,
+    });
+  }
+  if (config?.claudeCode) {
+    registerProvider("claude-code", createClaudeCodeProvider, {
+      endpoint: config.claudeCode.endpoint,
+      defaultModel: config.claudeCode.defaultModel,
     });
   }
 }

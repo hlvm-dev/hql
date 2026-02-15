@@ -6,12 +6,13 @@
 
 import {
   createSession,
+  deleteAllSessions,
   deleteSession,
   getSession,
   listSessions,
   updateSession,
 } from "../../../store/conversation-store.ts";
-import { pushSSEEvent, clearSessionBuffer } from "../../../store/sse-store.ts";
+import { pushSSEEvent, clearAllBuffers, clearSessionBuffer } from "../../../store/sse-store.ts";
 import { cancelSessionRequests } from "./chat.ts";
 import type { RouteParams } from "../http-router.ts";
 import { parseJsonBody, jsonError } from "../http-utils.ts";
@@ -66,4 +67,17 @@ export function handleDeleteSession(
   pushSSEEvent(sessionId, "session_deleted", { session_id: sessionId });
   clearSessionBuffer(sessionId);
   return Response.json({ deleted: true });
+}
+
+export function handleDeleteAllSessions(): Response {
+  const sessions = listSessions();
+  for (const s of sessions) {
+    cancelSessionRequests(s.id);
+  }
+  const count = deleteAllSessions();
+  for (const s of sessions) {
+    pushSSEEvent(s.id, "session_deleted", { session_id: s.id });
+  }
+  clearAllBuffers();
+  return Response.json({ deleted: true, count });
 }

@@ -28,6 +28,7 @@ import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { Message as AgentMessage } from "../../../agent/context.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
+import { config } from "../../../api/config.ts";
 import { isPaidProvider, isProviderApproved } from "../../commands/ask.ts";
 
 // MARK: - Image Helpers
@@ -198,8 +199,8 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
-  const resolvedModel = body.model ??
-    (body.mode === "agent" ? (await import("../../../../common/ai-default-model.ts")).getConfiguredModel() : undefined);
+  const cfgSnapshot = config.snapshot;
+  const resolvedModel = body.model ?? cfgSnapshot.model;
 
   if (body.mode === "agent" && !resolvedModel) {
     return jsonError("No model configured for agent mode", 400);
@@ -304,7 +305,7 @@ export async function handleChat(req: Request): Promise<Response> {
         if (body.mode === "agent") {
           await handleAgentMode(body, resolvedModel!, assistantMessageId, controller.signal, emit, onPartial, requestId);
         } else {
-          await handleChatMode(body, sessionId, assistantMessageId, controller.signal, emit, onPartial);
+          await handleChatMode(body, resolvedModel, sessionId, assistantMessageId, controller.signal, emit, onPartial);
         }
 
         if (controller.signal.aborted) {
@@ -388,6 +389,7 @@ export async function handleChatCancel(req: Request): Promise<Response> {
 
 async function handleChatMode(
   body: ChatRequest,
+  resolvedModel: string | undefined,
   sessionId: string,
   assistantMessageId: number,
   signal: AbortSignal,
@@ -414,10 +416,11 @@ async function handleChatMode(
 
   let fullText = "";
 
+  const cfgSnapshot = config.snapshot;
   const tokenIterator = ai.chat(providerMessages, {
-    model: body.model,
-    temperature: body.temperature,
-    maxTokens: body.max_tokens,
+    model: resolvedModel,
+    temperature: body.temperature ?? cfgSnapshot.temperature,
+    maxTokens: body.max_tokens ?? cfgSnapshot.maxTokens,
     signal,
   })[Symbol.asyncIterator]();
 

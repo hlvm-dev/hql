@@ -9,6 +9,8 @@ import { handleConfigCommand } from "./config/index.ts";
 import { registry } from "../repl-ink/keybindings/index.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
+import { listSessions } from "../../store/conversation-store.ts";
+import { handleDeleteAllSessions } from "./handlers/sessions.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -68,6 +70,7 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
     { name: "/tasks", description: "View background tasks" },
     { name: "/bg", description: "Push current eval to background" },
     { name: "/resume", description: "Resume a previous session" },
+    { name: "/clear-history", description: "Delete all chat history" },
   ];
 
 /** Generate help text dynamically using keybinding registry */
@@ -222,6 +225,21 @@ export const commands: Record<string, Command> = {
     description: "View/set configuration",
     handler: async (_state, args) => {
       await handleConfigCommand(args);
+    },
+  },
+
+  "/clear-history": {
+    description: "Delete all chat history",
+    handler: async (_state, _args, context) => {
+      const sessions = listSessions();
+      if (sessions.length === 0) {
+        context.output(`${YELLOW}No conversations to delete.${RESET}`);
+        return;
+      }
+      const response = handleDeleteAllSessions();
+      const payload = await response.json() as { count?: number };
+      const count = typeof payload.count === "number" ? payload.count : sessions.length;
+      context.output(`${GREEN}Deleted ${count} conversation(s).${RESET}`);
     },
   },
   // NOTE: /tasks is handled by App.tsx to open BackgroundTasksOverlay

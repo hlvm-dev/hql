@@ -266,6 +266,8 @@ export async function getOverflowParser(
       return (await import("../providers/anthropic/api.ts")).parseOverflowError;
     case "google":
       return (await import("../providers/google/api.ts")).parseOverflowError;
+    case "claude-code":
+      return (await import("../providers/claude-code/api.ts")).parseOverflowError;
     default:
       return null;
   }

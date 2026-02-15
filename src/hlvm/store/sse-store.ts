@@ -114,3 +114,8 @@ export function clearSessionBuffer(sessionId: string): void {
   buffers.delete(sessionId);
   sequences.delete(sessionId);
 }
+
+export function clearAllBuffers(): void {
+  buffers.clear();
+  sequences.clear();
+}
