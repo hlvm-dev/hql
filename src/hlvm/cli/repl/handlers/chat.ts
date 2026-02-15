@@ -323,7 +323,7 @@ export async function handleChat(req: Request): Promise<Response> {
             : body.mode;
 
         if (effectiveMode === "claude-code-agent") {
-          await handleClaudeCodeAgentMode(body, assistantMessageId, controller.signal, emit, onPartial, requestId);
+          await handleClaudeCodeAgentMode(body, assistantMessageId, controller.signal, emit, onPartial);
         } else if (effectiveMode === "agent") {
           await handleAgentMode(body, resolvedModel!, assistantMessageId, controller.signal, emit, onPartial, requestId);
         } else {
@@ -579,7 +579,6 @@ async function handleClaudeCodeAgentMode(
   signal: AbortSignal,
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
-  requestId: string,
 ): Promise<void> {
   const lastUserMessage = [...body.messages].reverse().find((m) => m.role === "user");
   const query = lastUserMessage?.content ?? "";
