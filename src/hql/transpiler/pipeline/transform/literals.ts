@@ -9,7 +9,6 @@
 import * as IR from "../../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode } from "../../type/hql_ast.ts";
 import {
-  perform,
   TransformError,
 } from "../../../../common/error.ts";
 
@@ -20,37 +19,30 @@ export type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
  * Transform a literal node to its IR representation.
  */
 export function transformLiteral(lit: LiteralNode): IR.IRNode {
-  return perform(
-    () => {
-      const value = lit.value;
+  const value = lit.value;
 
-      if (value === null) {
-        return { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
-      }
+  if (value === null) {
+    return { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
+  }
 
-      if (typeof value === "boolean") {
-        return {
-          type: IR.IRNodeType.BooleanLiteral,
-          value,
-        } as IR.IRBooleanLiteral;
-      }
+  if (typeof value === "boolean") {
+    return {
+      type: IR.IRNodeType.BooleanLiteral,
+      value,
+    } as IR.IRBooleanLiteral;
+  }
 
-      if (typeof value === "number") {
-        return {
-          type: IR.IRNodeType.NumericLiteral,
-          value,
-        } as IR.IRNumericLiteral;
-      }
+  if (typeof value === "number") {
+    return {
+      type: IR.IRNodeType.NumericLiteral,
+      value,
+    } as IR.IRNumericLiteral;
+  }
 
-      return {
-        type: IR.IRNodeType.StringLiteral,
-        value: String(value),
-      } as IR.IRStringLiteral;
-    },
-    "transformLiteral",
-    TransformError,
-    [lit],
-  );
+  return {
+    type: IR.IRNodeType.StringLiteral,
+    value: String(value),
+  } as IR.IRStringLiteral;
 }
 
 /**
@@ -62,51 +54,44 @@ export function transformTemplateLiteral(
   currentDir: string,
   transformNode: TransformNodeFn,
 ): IR.IRNode {
-  return perform(
-    () => {
-      // list.elements[0] is the "template-literal" symbol
-      // Rest are alternating string literals and expressions
-      const parts = list.elements.slice(1);
+  // list.elements[0] is the "template-literal" symbol
+  // Rest are alternating string literals and expressions
+  const parts = list.elements.slice(1);
 
-      if (parts.length === 0) {
-        // Empty template literal
-        return { type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral;
-      }
+  if (parts.length === 0) {
+    // Empty template literal
+    return { type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral;
+  }
 
-      const quasis: IR.IRNode[] = [];
-      const expressions: IR.IRNode[] = [];
+  const quasis: IR.IRNode[] = [];
+  const expressions: IR.IRNode[] = [];
 
-      for (let i = 0; i < parts.length; i++) {
-        const part = parts[i];
-        const transformed = transformNode(part, currentDir);
-        if (!transformed) continue;
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const transformed = transformNode(part, currentDir);
+    if (!transformed) continue;
 
-        // Strings go to quasis, everything else is an expression
-        if (part.type === "literal" && typeof (part as LiteralNode).value === "string") {
-          quasis.push(transformed);
-        } else {
-          // Before adding an expression, ensure we have a quasi
-          if (quasis.length === expressions.length) {
-            // Add empty string quasi
-            quasis.push({ type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral);
-          }
-          expressions.push(transformed);
-        }
-      }
-
-      // Ensure we have one more quasi than expressions (JS template literal requirement)
+    // Strings go to quasis, everything else is an expression
+    if (part.type === "literal" && typeof (part as LiteralNode).value === "string") {
+      quasis.push(transformed);
+    } else {
+      // Before adding an expression, ensure we have a quasi
       if (quasis.length === expressions.length) {
+        // Add empty string quasi
         quasis.push({ type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral);
       }
+      expressions.push(transformed);
+    }
+  }
 
-      return {
-        type: IR.IRNodeType.TemplateLiteral,
-        quasis,
-        expressions,
-      } as IR.IRTemplateLiteral;
-    },
-    "transformTemplateLiteral",
-    TransformError,
-    [list],
-  );
+  // Ensure we have one more quasi than expressions (JS template literal requirement)
+  if (quasis.length === expressions.length) {
+    quasis.push({ type: IR.IRNodeType.StringLiteral, value: "" } as IR.IRStringLiteral);
+  }
+
+  return {
+    type: IR.IRNodeType.TemplateLiteral,
+    quasis,
+    expressions,
+  } as IR.IRTemplateLiteral;
 }

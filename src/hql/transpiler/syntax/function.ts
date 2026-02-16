@@ -11,7 +11,6 @@ import {
 } from "../type/hql_ast.ts";
 import {
   HQLError,
-  perform,
   TransformError,
   ValidationError,
 } from "../../../common/error.ts";
@@ -115,107 +114,100 @@ export function processFunctionBody(
   bodyExprs: HQLNode[],
   currentDir: string,
 ): IR.IRNode[] {
-  return perform(
-    () => {
-      // CRITICAL: Save and reset IIFE depth for each function body
-      // Function bodies start with clean context - returns inside the function
-      // are direct returns, NOT nested in IIFEs (unless inside do/try blocks within the function)
-      const savedDepth = getIIFEDepth();
-      setIIFEDepth(0);
+  // CRITICAL: Save and reset IIFE depth for each function body
+  // Function bodies start with clean context - returns inside the function
+  // are direct returns, NOT nested in IIFEs (unless inside do/try blocks within the function)
+  const savedDepth = getIIFEDepth();
+  setIIFEDepth(0);
 
-      try {
-        const bodyNodes: IR.IRNode[] = [];
+  try {
+    const bodyNodes: IR.IRNode[] = [];
 
-        // Check if there are any expressions
-        if (bodyExprs.length === 0) {
-          return bodyNodes;
+    // Check if there are any expressions
+    if (bodyExprs.length === 0) {
+      return bodyNodes;
+    }
+
+    // Process all expressions except the last one
+    for (let i = 0; i < bodyExprs.length - 1; i++) {
+      const expr = transformHQLNodeToIR(bodyExprs[i], currentDir);
+      if (expr) {
+        if (isExpressionResult(expr)) {
+          // Wrap in ExpressionStatement, inheriting position from the expression
+          const exprStmt = createExprStmt(expr);
+          exprStmt.position = expr.position; // Propagate position from wrapped expression
+          bodyNodes.push(exprStmt);
+        } else {
+          bodyNodes.push(expr);
         }
-
-        // Process all expressions except the last one
-        for (let i = 0; i < bodyExprs.length - 1; i++) {
-          const expr = transformHQLNodeToIR(bodyExprs[i], currentDir);
-          if (expr) {
-            if (isExpressionResult(expr)) {
-              // Wrap in ExpressionStatement, inheriting position from the expression
-              const exprStmt = createExprStmt(expr);
-              exprStmt.position = expr.position; // Propagate position from wrapped expression
-              bodyNodes.push(exprStmt);
-            } else {
-              bodyNodes.push(expr);
-            }
-          }
-        }
-
-        // Process the last expression specially - wrap it in a return statement
-        const lastExpr = transformHQLNodeToIR(
-          bodyExprs[bodyExprs.length - 1],
-          currentDir,
-        );
-
-        if (lastExpr) {
-          // If it's already a control flow statement, use it as is
-          // ThrowStatement can appear here if the last expression is a return inside do/try block
-          if (isControlFlowStatement(lastExpr)) {
-            if (lastExpr.type === IR.IRNodeType.IfStatement) {
-              // IfStatement appears when it contains control flow (return/throw)
-              // Need to ensure both branches return a value
-              const ifStmt = lastExpr as IR.IRIfStatement;
-
-              // Wrap consequent in return if it's not already a control flow statement
-              const finalConsequent = isControlFlowStatement(ifStmt.consequent)
-                ? ifStmt.consequent
-                : { ...createReturn(ifStmt.consequent), position: ifStmt.consequent.position };
-
-              // Wrap alternate in return if it's not already a control flow statement
-              let finalAlternate = ifStmt.alternate;
-              if (finalAlternate && !isControlFlowStatement(finalAlternate)) {
-                finalAlternate = { ...createReturn(finalAlternate), position: finalAlternate.position };
-              }
-
-              bodyNodes.push({
-                type: IR.IRNodeType.IfStatement,
-                test: ifStmt.test,
-                consequent: finalConsequent,
-                alternate: finalAlternate,
-                position: ifStmt.position, // Propagate position
-              } as IR.IRIfStatement);
-            } else {
-              // ReturnStatement or ThrowStatement
-              bodyNodes.push(lastExpr);
-            }
-          } else {
-            // Wrap in a return statement to ensure the value is returned
-            bodyNodes.push({ ...createReturn(lastExpr), position: lastExpr.position });
-          }
-        }
-
-        // Check if the function body contains nested returns (returns inside do/if/try blocks)
-        // If so, wrap with try/catch to handle early return throws
-        const hasNestedReturns = bodyNodes.some((node) =>
-          containsNestedReturns(node)
-        );
-        if (hasNestedReturns) {
-          // Get position for block statement from first body node
-          const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
-          const originalBody: IR.IRBlockStatement = {
-            type: IR.IRNodeType.BlockStatement,
-            body: bodyNodes,
-            position: blockPosition, // Propagate position for source mapping
-          };
-          const wrappedBody = wrapWithEarlyReturnHandler(originalBody);
-          return wrappedBody.body; // Return the statements from the wrapped body
-        }
-
-        return bodyNodes;
-      } finally {
-        // Restore the IIFE depth after processing function body
-        setIIFEDepth(savedDepth);
       }
-    },
-    "processFunctionBody",
-    TransformError,
-    [bodyExprs],
-  );
+    }
+
+    // Process the last expression specially - wrap it in a return statement
+    const lastExpr = transformHQLNodeToIR(
+      bodyExprs[bodyExprs.length - 1],
+      currentDir,
+    );
+
+    if (lastExpr) {
+      // If it's already a control flow statement, use it as is
+      // ThrowStatement can appear here if the last expression is a return inside do/try block
+      if (isControlFlowStatement(lastExpr)) {
+        if (lastExpr.type === IR.IRNodeType.IfStatement) {
+          // IfStatement appears when it contains control flow (return/throw)
+          // Need to ensure both branches return a value
+          const ifStmt = lastExpr as IR.IRIfStatement;
+
+          // Wrap consequent in return if it's not already a control flow statement
+          const finalConsequent = isControlFlowStatement(ifStmt.consequent)
+            ? ifStmt.consequent
+            : { ...createReturn(ifStmt.consequent), position: ifStmt.consequent.position };
+
+          // Wrap alternate in return if it's not already a control flow statement
+          let finalAlternate = ifStmt.alternate;
+          if (finalAlternate && !isControlFlowStatement(finalAlternate)) {
+            finalAlternate = { ...createReturn(finalAlternate), position: finalAlternate.position };
+          }
+
+          bodyNodes.push({
+            type: IR.IRNodeType.IfStatement,
+            test: ifStmt.test,
+            consequent: finalConsequent,
+            alternate: finalAlternate,
+            position: ifStmt.position, // Propagate position
+          } as IR.IRIfStatement);
+        } else {
+          // ReturnStatement or ThrowStatement
+          bodyNodes.push(lastExpr);
+        }
+      } else {
+        // Wrap in a return statement to ensure the value is returned
+        bodyNodes.push({ ...createReturn(lastExpr), position: lastExpr.position });
+      }
+    }
+
+    // Check if the function body contains nested returns (returns inside do/if/try blocks)
+    // If so, wrap with try/catch to handle early return throws
+    const hasNestedReturns = bodyNodes.some((node) =>
+      containsNestedReturns(node)
+    );
+    if (hasNestedReturns) {
+      // Get position for block statement from first body node
+      const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
+      const originalBody: IR.IRBlockStatement = {
+        type: IR.IRNodeType.BlockStatement,
+        body: bodyNodes,
+        position: blockPosition, // Propagate position for source mapping
+      };
+      const wrappedBody = wrapWithEarlyReturnHandler(originalBody);
+      return wrappedBody.body; // Return the statements from the wrapped body
+    }
+
+    return bodyNodes;
+  } finally {
+    // Restore the IIFE depth after processing function body
+    setIIFEDepth(savedDepth);
+  }
 }
 
 /**
@@ -241,49 +233,42 @@ export function transformStandardFunctionCall(
   list: ListNode,
   currentDir: string,
 ): IR.IRNode {
-  return perform(
-    () => {
-      const first = list.elements[0];
-      const argNodes = list.elements.slice(1);
+  const first = list.elements[0];
+  const argNodes = list.elements.slice(1);
 
-      // Validate that removed named argument syntax is not used
-      detectRemovedNamedArgumentSyntax(argNodes);
+  // Validate that removed named argument syntax is not used
+  detectRemovedNamedArgumentSyntax(argNodes);
 
-      if (first.type === "symbol") {
-        const op = (first as SymbolNode).name;
-        logger.debug(`Processing standard function call to ${op}`);
+  if (first.type === "symbol") {
+    const op = (first as SymbolNode).name;
+    logger.debug(`Processing standard function call to ${op}`);
 
-        // Extract position from the function name symbol
-        const meta = extractMeta(first);
-        const position = meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined;
+    // Extract position from the function name symbol
+    const meta = extractMeta(first);
+    const position = meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined;
 
-        const calleeId = createId(sanitizeIdentifier(op));
-        calleeId.position = position; // Copy position from source symbol
+    const calleeId = createId(sanitizeIdentifier(op));
+    calleeId.position = position; // Copy position from source symbol
 
-        const callExpr = createCall(calleeId, transformArgsWithSpread(argNodes, currentDir));
-        callExpr.position = position; // Copy position to call expression too
-        return callExpr;
-      }
+    const callExpr = createCall(calleeId, transformArgsWithSpread(argNodes, currentDir));
+    callExpr.position = position; // Copy position to call expression too
+    return callExpr;
+  }
 
-      // Handle function expression calls
-      const callee = validateTransformed(
-        transformHQLNodeToIR(first, currentDir),
-        "function call",
-        "Function callee",
-      );
-
-      // Get position from the list (the full call expression)
-      const listMeta = extractMeta(list);
-      const listPosition = listMeta ? { line: listMeta.line, column: listMeta.column, filePath: listMeta.filePath } : undefined;
-
-      const callExpr = createCall(callee as IR.IRIdentifier | IR.IRMemberExpression | IR.IRFunctionExpression, transformArgsWithSpread(argNodes, currentDir));
-      callExpr.position = listPosition; // Use position of the whole call expression
-      return callExpr;
-    },
-    "transformStandardFunctionCall",
-    TransformError,
-    [list],
+  // Handle function expression calls
+  const callee = validateTransformed(
+    transformHQLNodeToIR(first, currentDir),
+    "function call",
+    "Function callee",
   );
+
+  // Get position from the list (the full call expression)
+  const listMeta = extractMeta(list);
+  const listPosition = listMeta ? { line: listMeta.line, column: listMeta.column, filePath: listMeta.filePath } : undefined;
+
+  const callExpr = createCall(callee as IR.IRIdentifier | IR.IRMemberExpression | IR.IRFunctionExpression, transformArgsWithSpread(argNodes, currentDir));
+  callExpr.position = listPosition; // Use position of the whole call expression
+  return callExpr;
 }
 
 /**
@@ -796,6 +781,36 @@ function reconstructNodeAsTypeString(node: HQLNode): string | null {
 }
 
 /**
+ * Reconstruct a type string from a hash-map AST node.
+ * Converts (hash-map "key1" Type1 "key2" Type2) → "{key1: Type1, key2: Type2}"
+ */
+function reconstructHashMapTypeString(listNode: ListNode): string | null {
+  const elems = listNode.elements;
+  if (elems.length < 3) return null;
+
+  const head = elems[0];
+  if (head.type !== "symbol") return null;
+  const headName = (head as SymbolNode).name;
+  if (headName !== HASH_MAP_USER && headName !== HASH_MAP_INTERNAL) return null;
+
+  const entries = elems.slice(1);
+  if (entries.length === 0 || entries.length % 2 !== 0) return null;
+
+  const fields: string[] = [];
+  for (let i = 0; i < entries.length; i += 2) {
+    const key = entries[i];
+    const val = entries[i + 1];
+    const keyStr = key.type === "literal" ? String((key as LiteralNode).value) :
+                   key.type === "symbol" ? (key as SymbolNode).name : null;
+    const valStr = val.type === "symbol" ? (val as SymbolNode).name :
+                   val.type === "list" ? reconstructReturnTypeString(val as ListNode) : null;
+    if (!keyStr || !valStr) return null;
+    fields.push(`${keyStr}: ${valStr}`);
+  }
+  return `{${fields.join(", ")}}`;
+}
+
+/**
  * Check whether a node is type-like in tuple return type context.
  */
 function isTupleTypeElement(node: HQLNode): boolean {
@@ -1192,10 +1207,23 @@ function parseParameters(
 
       const { name: paramNameWithoutType, type: typeAnnotation, effect } = extractAndNormalizeType(actualParamName);
 
+      // Look-ahead: f: {a:Int} — param ending with ':' followed by hash-map type
+      let resolvedType = typeAnnotation;
+      if (resolvedType === undefined && actualParamName.endsWith(":") &&
+          i + 1 < paramList.elements.length &&
+          paramList.elements[i + 1].type === "list") {
+        const nextList = paramList.elements[i + 1] as ListNode;
+        const reconstructed = reconstructHashMapTypeString(nextList);
+        if (reconstructed !== null) {
+          resolvedType = normalizeType(reconstructed);
+          i += 1; // consume the hash-map list node
+        }
+      }
+
       const paramIdName = (restMode || isRestParam)
         ? `...${sanitizeIdentifier(paramNameWithoutType)}`
         : sanitizeIdentifier(paramNameWithoutType);
-      const param = createId(paramIdName, { originalName: paramNameWithoutType, typeAnnotation, effectAnnotation: effect });
+      const param = createId(paramIdName, { originalName: paramNameWithoutType, typeAnnotation: resolvedType, effectAnnotation: effect });
       copyPosition(elem, param);
       params.push(param);
 

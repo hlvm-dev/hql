@@ -4,7 +4,6 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import {
-  perform,
   TransformError,
   ValidationError,
 } from "../../../common/error.ts";
@@ -104,53 +103,46 @@ export function transformJsNew(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      if (list.elements.length < 2) {
-        throw new ValidationError(
-          "js-new requires a constructor and optional arguments",
-          "js-new",
-          "at least 1 argument",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+  if (list.elements.length < 2) {
+    throw new ValidationError(
+      "js-new requires a constructor and optional arguments",
+      "js-new",
+      "at least 1 argument",
+      `${list.elements.length - 1} arguments`,
+    );
+  }
 
-      const constructor = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "js-new",
-        "Constructor",
-      );
-
-      let args: IR.IRNode[] = [];
-      if (list.elements.length > 2) {
-        const argsNode = list.elements[2];
-        if (argsNode.type !== "list") {
-          throw new ValidationError(
-            "js-new arguments must be a list",
-            "js-new",
-            "list",
-            argsNode.type,
-          );
-        }
-        args = transformElements(
-          (argsNode as ListNode).elements,
-          currentDir,
-          transformNode,
-          "js-new argument",
-          "Argument",
-        );
-      }
-
-      return {
-        type: IR.IRNodeType.NewExpression,
-        callee: constructor,
-        arguments: args,
-      } as IR.IRNewExpression;
-    },
-    "transformJsNew",
-    TransformError,
-    [list],
+  const constructor = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "js-new",
+    "Constructor",
   );
+
+  let args: IR.IRNode[] = [];
+  if (list.elements.length > 2) {
+    const argsNode = list.elements[2];
+    if (argsNode.type !== "list") {
+      throw new ValidationError(
+        "js-new arguments must be a list",
+        "js-new",
+        "list",
+        argsNode.type,
+      );
+    }
+    args = transformElements(
+      (argsNode as ListNode).elements,
+      currentDir,
+      transformNode,
+      "js-new argument",
+      "Argument",
+    );
+  }
+
+  return {
+    type: IR.IRNodeType.NewExpression,
+    callee: constructor,
+    arguments: args,
+  } as IR.IRNewExpression;
 }
 
 /**
@@ -161,34 +153,27 @@ export function transformJsGet(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      validateListLength(list, 3, "js-get");
+  validateListLength(list, 3, "js-get");
 
-      const object = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "js-get",
-        "Object",
-      );
-
-      const literalProperty = getLiteralString(list.elements[2]);
-      if (literalProperty !== null) {
-        const { property, computed } = resolveMemberProperty(createStr(literalProperty), true);
-        return createMember(object, property, computed);
-      }
-
-      const propExpr = validateTransformed(
-        transformNode(list.elements[2], currentDir),
-        "js-get",
-        "Property",
-      );
-      const { property, computed } = resolveMemberProperty(propExpr);
-      return createMember(object, property, computed);
-    },
-    "transformJsGet",
-    TransformError,
-    [list],
+  const object = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "js-get",
+    "Object",
   );
+
+  const literalProperty = getLiteralString(list.elements[2]);
+  if (literalProperty !== null) {
+    const { property, computed } = resolveMemberProperty(createStr(literalProperty), true);
+    return createMember(object, property, computed);
+  }
+
+  const propExpr = validateTransformed(
+    transformNode(list.elements[2], currentDir),
+    "js-get",
+    "Property",
+  );
+  const { property, computed } = resolveMemberProperty(propExpr);
+  return createMember(object, property, computed);
 }
 
 /**
@@ -199,59 +184,52 @@ export function transformJsCall(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      if (list.elements.length < 2) {
-        throw new ValidationError(
-          `js-call requires at least 1 argument, got ${
-            list.elements.length - 1
-          }`,
-          "js-call",
-          "at least 1 argument",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+  if (list.elements.length < 2) {
+    throw new ValidationError(
+      `js-call requires at least 1 argument, got ${
+        list.elements.length - 1
+      }`,
+      "js-call",
+      "at least 1 argument",
+      `${list.elements.length - 1} arguments`,
+    );
+  }
 
-      const firstArg = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "js-call",
-        "Function or object",
-      );
-
-      // Check if element 2 is a literal string (method name)
-      // If so: (js-call obj "method" args...) -> obj.method(args...)
-      // If not: (js-call func args...) -> func(args...)
-      const literalMethod = list.elements[2] ? getLiteralString(list.elements[2]) : null;
-
-      if (literalMethod !== null) {
-        // Method call: (js-call obj "method" args...)
-        const args = transformArgumentsWithSpread(
-          list.elements.slice(3),
-          currentDir,
-          transformNode,
-        );
-
-        const { property, computed } = resolveMemberProperty(createStr(literalMethod), true);
-        return createCall(createMember(firstArg, property, computed), args);
-      }
-
-      // Direct function call: (js-call func args...)
-      const args = transformArgumentsWithSpread(
-        list.elements.slice(2),
-        currentDir,
-        transformNode,
-      );
-
-      return {
-        type: IR.IRNodeType.CallExpression,
-        callee: firstArg,
-        arguments: args,
-      };
-    },
-    "transformJsCall",
-    TransformError,
-    [list],
+  const firstArg = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "js-call",
+    "Function or object",
   );
+
+  // Check if element 2 is a literal string (method name)
+  // If so: (js-call obj "method" args...) -> obj.method(args...)
+  // If not: (js-call func args...) -> func(args...)
+  const literalMethod = list.elements[2] ? getLiteralString(list.elements[2]) : null;
+
+  if (literalMethod !== null) {
+    // Method call: (js-call obj "method" args...)
+    const args = transformArgumentsWithSpread(
+      list.elements.slice(3),
+      currentDir,
+      transformNode,
+    );
+
+    const { property, computed } = resolveMemberProperty(createStr(literalMethod), true);
+    return createCall(createMember(firstArg, property, computed), args);
+  }
+
+  // Direct function call: (js-call func args...)
+  const args = transformArgumentsWithSpread(
+    list.elements.slice(2),
+    currentDir,
+    transformNode,
+  );
+
+  return {
+    type: IR.IRNodeType.CallExpression,
+    callee: firstArg,
+    arguments: args,
+  } as IR.IRCallExpression;
 }
 
 /**
@@ -262,39 +240,32 @@ export function transformJsSet(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      validateListLength(list, 4, "js-set");
+  validateListLength(list, 4, "js-set");
 
-      const object = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "js-set",
-        "Object",
-      );
-      const key = validateTransformed(
-        transformNode(list.elements[2], currentDir),
-        "js-set",
-        "Key",
-      );
-      const value = validateTransformed(
-        transformNode(list.elements[3], currentDir),
-        "js-set",
-        "Value",
-      );
-      const { property, computed } = resolveMemberProperty(key);
-
-      // Create a property assignment directly, not a function call
-      return {
-        type: IR.IRNodeType.AssignmentExpression,
-        operator: "=",
-        left: createMember(object, property, computed),
-        right: value,
-      };
-    },
-    "transformJsSet",
-    TransformError,
-    [list],
+  const object = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "js-set",
+    "Object",
   );
+  const key = validateTransformed(
+    transformNode(list.elements[2], currentDir),
+    "js-set",
+    "Key",
+  );
+  const value = validateTransformed(
+    transformNode(list.elements[3], currentDir),
+    "js-set",
+    "Value",
+  );
+  const { property, computed } = resolveMemberProperty(key);
+
+  // Create a property assignment directly, not a function call
+  return {
+    type: IR.IRNodeType.AssignmentExpression,
+    operator: "=",
+    left: createMember(object, property, computed),
+    right: value,
+  } as IR.IRAssignmentExpression;
 }
 
 /**
@@ -305,35 +276,28 @@ export function transformJsGetInvoke(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      validateListLength(list, 3, "js-get-invoke");
+  validateListLength(list, 3, "js-get-invoke");
 
-      const object = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "js-get-invoke",
-        "Object",
-      );
-
-      // Get the property name
-      const propertyName = extractSymbolOrLiteralName(
-        list.elements[2],
-        "js-get-invoke",
-        "js-get-invoke property must be a string literal or symbol",
-      );
-
-      // Create the IR node for the js-get-invoke operation
-      // This transforms to an IIFE that checks if the property is a method at runtime
-      return {
-        type: IR.IRNodeType.InteropIIFE,
-        object,
-        property: createStr(propertyName),
-      } as IR.IRInteropIIFE;
-    },
-    "transformJsGetInvoke",
-    TransformError,
-    [list],
+  const object = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "js-get-invoke",
+    "Object",
   );
+
+  // Get the property name
+  const propertyName = extractSymbolOrLiteralName(
+    list.elements[2],
+    "js-get-invoke",
+    "js-get-invoke property must be a string literal or symbol",
+  );
+
+  // Create the IR node for the js-get-invoke operation
+  // This transforms to an IIFE that checks if the property is a method at runtime
+  return {
+    type: IR.IRNodeType.InteropIIFE,
+    object,
+    property: createStr(propertyName),
+  } as IR.IRInteropIIFE;
 }
 
 /**
@@ -344,35 +308,28 @@ export function transformJsGetInvokeSpecialCase(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode | null {
-  return perform(
-    () => {
-      if (
-        list.elements.length === 3 &&
-        list.elements[0].type === "symbol" &&
-        (list.elements[0] as SymbolNode).name === "js-get-invoke"
-      ) {
-        const object = validateTransformed(
-          transformNode(list.elements[1], currentDir),
-          "js-get-invoke",
-          "Object",
-        );
+  if (
+    list.elements.length === 3 &&
+    list.elements[0].type === "symbol" &&
+    (list.elements[0] as SymbolNode).name === "js-get-invoke"
+  ) {
+    const object = validateTransformed(
+      transformNode(list.elements[1], currentDir),
+      "js-get-invoke",
+      "Object",
+    );
 
-        const property = validateTransformed(
-          transformNode(list.elements[2], currentDir),
-          "js-get-invoke",
-          "Property",
-        );
-        const { property: memberProperty, computed } = resolveMemberProperty(
-          property,
-        );
-        return createMember(object, memberProperty, computed);
-      }
-      return null;
-    },
-    "transformJsGetInvokeSpecialCase",
-    TransformError,
-    [list],
-  );
+    const property = validateTransformed(
+      transformNode(list.elements[2], currentDir),
+      "js-get-invoke",
+      "Property",
+    );
+    const { property: memberProperty, computed } = resolveMemberProperty(
+      property,
+    );
+    return createMember(object, memberProperty, computed);
+  }
+  return null;
 }
 
 /**
@@ -392,39 +349,32 @@ export function transformDotNotation(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      const parts = op.split(".");
-      const objectName = parts[0];
-      const property = parts.slice(1).join(".");
+  const parts = op.split(".");
+  const objectName = parts[0];
+  const property = parts.slice(1).join(".");
 
-      const objectExpr = createId(objectName);
+  const objectExpr = createId(objectName);
 
-      if (list.elements.length === 1) {
-        // Zero-argument method call: (p.greet) -> p.greet()
-        const { property: memberProperty, computed } = resolveMemberProperty(
-          createStr(property),
-          true,
-        );
-        return createCall(createMember(objectExpr, memberProperty, computed), []);
-      }
+  if (list.elements.length === 1) {
+    // Zero-argument method call: (p.greet) -> p.greet()
+    const { property: memberProperty, computed } = resolveMemberProperty(
+      createStr(property),
+      true,
+    );
+    return createCall(createMember(objectExpr, memberProperty, computed), []);
+  }
 
-      const args = transformElements(
-        list.elements.slice(1),
-        currentDir,
-        transformNode,
-        "method argument",
-        "Method argument",
-      );
-      const { property: memberProperty, computed } = resolveMemberProperty(
-        createStr(property),
-        true,
-      );
-
-      return createCall(createMember(objectExpr, memberProperty, computed), args);
-    },
-    `transformDotNotation '${op}'`,
-    TransformError,
-    [list],
+  const args = transformElements(
+    list.elements.slice(1),
+    currentDir,
+    transformNode,
+    "method argument",
+    "Method argument",
   );
+  const { property: memberProperty, computed } = resolveMemberProperty(
+    createStr(property),
+    true,
+  );
+
+  return createCall(createMember(objectExpr, memberProperty, computed), args);
 }

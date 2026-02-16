@@ -3,7 +3,7 @@
 
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode } from "../type/hql_ast.ts";
-import { perform, TransformError } from "../../../common/error.ts";
+import { TransformError } from "../../../common/error.ts";
 import {
   validateTransformed,
   validateListLengthRange,
@@ -20,33 +20,26 @@ export function transformGet(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      // get requires 2-3 arguments: collection, key, and optional default
-      validateListLengthRange(list, 3, 4, "get", "operation");
+  // get requires 2-3 arguments: collection, key, and optional default
+  validateListLengthRange(list, 3, 4, "get", "operation");
 
-      const collection = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "get operation",
-        "Collection",
-      );
-
-      const index = validateTransformed(
-        transformNode(list.elements[2], currentDir),
-        "get operation",
-        "Index",
-      );
-
-      const defaultValue = list.elements.length === 4
-        ? transformNode(list.elements[3], currentDir)
-        : null;
-
-      return createGetOperation(collection, index, defaultValue);
-    },
-    "transformGet",
-    TransformError,
-    [list],
+  const collection = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "get operation",
+    "Collection",
   );
+
+  const index = validateTransformed(
+    transformNode(list.elements[2], currentDir),
+    "get operation",
+    "Index",
+  );
+
+  const defaultValue = list.elements.length === 4
+    ? transformNode(list.elements[3], currentDir)
+    : null;
+
+  return createGetOperation(collection, index, defaultValue);
 }
 
 /**

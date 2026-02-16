@@ -643,28 +643,6 @@ function getErrorNote(error: HQLError): string | null {
 }
 
 // -----------------------------------------------------------------------------
-// Simple wrappers (no-op stubs — kept for 78 callers across the transpiler)
-// -----------------------------------------------------------------------------
-
-export function wrapError(
-  _context: string,
-  error: unknown,
-  _resource: string,
-  _currentFile?: string,
-): never {
-  throw error;
-}
-
-export function perform<T>(
-  fn: () => T,
-  _context?: string,
-  _ErrorCtor?: unknown,
-  _info?: unknown,
-): T {
-  return fn();
-}
-
-// -----------------------------------------------------------------------------
 // Error base + enums
 // -----------------------------------------------------------------------------
 

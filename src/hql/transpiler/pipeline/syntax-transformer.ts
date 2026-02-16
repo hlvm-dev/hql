@@ -15,7 +15,7 @@ import {
   type SSymbol,
 } from "../../s-exp/types.ts";
 import { globalLogger as logger, type Logger } from "../../../logger.ts";
-import { HQLError, perform, TransformError } from "../../../common/error.ts";
+import { HQLError, TransformError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import type { SymbolNode } from "../type/hql_ast.ts";
@@ -510,176 +510,169 @@ export function transformSExpNode(
     return createLiteral(null);
   }
 
-  return perform(
-    () => {
-      // Handle dot notation for enums (.caseName) in symbol form
-      if (isSymbol(node) && (node as SSymbol).name.startsWith(".")) {
-        return transformDotNotationSymbol(
-          node as SSymbol,
-          enumDefinitions,
-          logger,
+  // Handle dot notation for enums (.caseName) in symbol form
+  if (isSymbol(node) && (node as SSymbol).name.startsWith(".")) {
+    return transformDotNotationSymbol(
+      node as SSymbol,
+      enumDefinitions,
+      logger,
+    );
+  }
+
+  if (!isList(node)) {
+    // Only lists can contain syntactic sugar that needs transformation (except for dot symbols handled above)
+    return node;
+  }
+
+  const list = node as SList;
+  if (list.elements.length === 0) {
+    // Empty lists don't need transformation
+    return list;
+  }
+
+  // Handle collection access: (collection index) with collection type from symbol table
+  if (list.elements.length >= 2 && isSymbol(list.elements[0])) {
+    const collectionName = (list.elements[0] as SSymbol).name;
+    const collectionInfo = currentSymbolTable.get(collectionName);
+
+    if (collectionInfo && collectionInfo.type) {
+      logger.debug(
+        `Found symbol ${collectionName} with type ${collectionInfo.type}`,
+      );
+
+      // Handle different collection types
+      if (collectionInfo.type === "Set") {
+        // For sets, convert to Array.from(set)[index]
+        return createList(
+          createSymbol("js-get"),
+          createList(
+            createSymbol("js-call"),
+            createSymbol("Array"),
+            createLiteral("from"),
+            list.elements[0],
+          ),
+          ...list.elements.slice(1),
         );
-      }
-
-      if (!isList(node)) {
-        // Only lists can contain syntactic sugar that needs transformation (except for dot symbols handled above)
-        return node;
-      }
-
-      const list = node as SList;
-      if (list.elements.length === 0) {
-        // Empty lists don't need transformation
-        return list;
-      }
-
-      // Handle collection access: (collection index) with collection type from symbol table
-      if (list.elements.length >= 2 && isSymbol(list.elements[0])) {
-        const collectionName = (list.elements[0] as SSymbol).name;
-        const collectionInfo = currentSymbolTable.get(collectionName);
-
-        if (collectionInfo && collectionInfo.type) {
-          logger.debug(
-            `Found symbol ${collectionName} with type ${collectionInfo.type}`,
-          );
-
-          // Handle different collection types
-          if (collectionInfo.type === "Set") {
-            // For sets, convert to Array.from(set)[index]
-            return createList(
-              createSymbol("js-get"),
-              createList(
-                createSymbol("js-call"),
-                createSymbol("Array"),
-                createLiteral("from"),
-                list.elements[0],
-              ),
-              ...list.elements.slice(1),
-            );
-          } else if (collectionInfo.type === "Map") {
-            // For maps, use the get method
-            return createList(
-              createSymbol("js-call"),
-              list.elements[0],
-              createLiteral("get"),
-              ...list.elements.slice(1),
-            );
-          } else if (collectionInfo.type === "HashMap") {
-            // Check if any argument is a dot accessor (e.g., .a, .b)
-            // If so, skip this optimization and let dot-chain form handling deal with it
-            let hasDotAccessor = false;
-            for (let j = 1; j < list.elements.length; j++) {
-              const elem = list.elements[j];
-              if (isSymbol(elem)) {
-                const n = (elem as SSymbol).name;
-                if (n.startsWith(".") && !n.startsWith("...")) {
-                  hasDotAccessor = true;
-                  break;
-                }
-              }
+      } else if (collectionInfo.type === "Map") {
+        // For maps, use the get method
+        return createList(
+          createSymbol("js-call"),
+          list.elements[0],
+          createLiteral("get"),
+          ...list.elements.slice(1),
+        );
+      } else if (collectionInfo.type === "HashMap") {
+        // Check if any argument is a dot accessor (e.g., .a, .b)
+        // If so, skip this optimization and let dot-chain form handling deal with it
+        let hasDotAccessor = false;
+        for (let j = 1; j < list.elements.length; j++) {
+          const elem = list.elements[j];
+          if (isSymbol(elem)) {
+            const n = (elem as SSymbol).name;
+            if (n.startsWith(".") && !n.startsWith("...")) {
+              hasDotAccessor = true;
+              break;
             }
-
-            if (!hasDotAccessor) {
-              // For hash-maps (plain objects), use the HQL get primitive
-              return createList(
-                createSymbol("get"),
-                list.elements[0],
-                ...list.elements.slice(1),
-              );
-            }
-            // Otherwise, fall through to dot-chain form handling
           }
-          // For arrays and other types, use standard indexing
-          // (which is handled by the default conversion)
         }
-      }
 
-      // Handle enum declarations with explicit colon syntax: (enum Name : Type ...)
-      if (
-        isSymbol(list.elements[0]) &&
-        (list.elements[0] as SSymbol).name === "enum" &&
-        list.elements.length >= 4
-      ) {
-        // Check for pattern: (enum Name : Type ...)
-        if (
-          isSymbol(list.elements[1]) &&
-          isSymbol(list.elements[2]) &&
-          (list.elements[2] as SSymbol).name === ":" &&
-          isSymbol(list.elements[3])
-        ) {
-          // Combine the name, colon and type into a single symbol
-          const enumName = (list.elements[1] as SSymbol).name;
-          const typeName = (list.elements[3] as SSymbol).name;
-          const combinedName = createSymbol(`${enumName}:${typeName}`);
-
-          // Create a new list with the combined name
-          return {
-            type: "list",
-            elements: [
-              list.elements[0], // enum keyword
-              combinedName, // Name:Type
-              ...list.elements.slice(4).map((elem) =>
-                transformSExpNode(elem, enumDefinitions, logger)
-              ),
-            ],
-          };
+        if (!hasDotAccessor) {
+          // For hash-maps (plain objects), use the HQL get primitive
+          return createList(
+            createSymbol("get"),
+            list.elements[0],
+            ...list.elements.slice(1),
+          );
         }
+        // Otherwise, fall through to dot-chain form handling
       }
+      // For arrays and other types, use standard indexing
+      // (which is handled by the default conversion)
+    }
+  }
 
-      // Handle equality/inequality comparisons with enums - this is high priority to catch all cases
-      if (list.elements.length >= 3 && isSymbol(list.elements[0])) {
-        const opName = (list.elements[0] as SSymbol).name;
-        if (
-          opName === "=" ||
-          opName === "==" ||
-          opName === "===" ||
-          opName === "!=" ||
-          opName === "!=="
-        ) {
-          return transformEqualityExpression(list, enumDefinitions, logger);
-        }
-      }
+  // Handle enum declarations with explicit colon syntax: (enum Name : Type ...)
+  if (
+    isSymbol(list.elements[0]) &&
+    (list.elements[0] as SSymbol).name === "enum" &&
+    list.elements.length >= 4
+  ) {
+    // Check for pattern: (enum Name : Type ...)
+    if (
+      isSymbol(list.elements[1]) &&
+      isSymbol(list.elements[2]) &&
+      (list.elements[2] as SSymbol).name === ":" &&
+      isSymbol(list.elements[3])
+    ) {
+      // Combine the name, colon and type into a single symbol
+      const enumName = (list.elements[1] as SSymbol).name;
+      const typeName = (list.elements[3] as SSymbol).name;
+      const combinedName = createSymbol(`${enumName}:${typeName}`);
 
-      // Normalize spaceless dot chains before checking for dot-chain form
-      // This allows (text.trim.toUpperCase) to work the same as (text .trim .toUpperCase)
-      const normalizedList = normalizeSpacelessDotChain(list);
+      // Create a new list with the combined name
+      return {
+        type: "list",
+        elements: [
+          list.elements[0], // enum keyword
+          combinedName, // Name:Type
+          ...list.elements.slice(4).map((elem) =>
+            transformSExpNode(elem, enumDefinitions, logger)
+          ),
+        ],
+      };
+    }
+  }
 
-      // Check if this is a dot-chain method invocation form
-      if (isDotChainForm(normalizedList)) {
-        return transformDotChainForm(normalizedList, enumDefinitions, logger);
-      }
+  // Handle equality/inequality comparisons with enums - this is high priority to catch all cases
+  if (list.elements.length >= 3 && isSymbol(list.elements[0])) {
+    const opName = (list.elements[0] as SSymbol).name;
+    if (
+      opName === "=" ||
+      opName === "==" ||
+      opName === "===" ||
+      opName === "!=" ||
+      opName === "!=="
+    ) {
+      return transformEqualityExpression(list, enumDefinitions, logger);
+    }
+  }
 
-      // Process standard list with recursion on elements
-      const first = normalizedList.elements[0];
-      if (!isSymbol(first)) {
-        // If the first element isn't a symbol, recursively transform its children
-        return transformChildren(normalizedList, enumDefinitions, logger);
-      }
+  // Normalize spaceless dot chains before checking for dot-chain form
+  // This allows (text.trim.toUpperCase) to work the same as (text .trim .toUpperCase)
+  const normalizedList = normalizeSpacelessDotChain(list);
 
-      // Get the operation name
-      const op = (first as SSymbol).name;
+  // Check if this is a dot-chain method invocation form
+  if (isDotChainForm(normalizedList)) {
+    return transformDotChainForm(normalizedList, enumDefinitions, logger);
+  }
 
-      // Handle specific syntactic transformations
-      switch (op) {
-        case "fn":
-        case "defn":
-        case "fx":
-          return transformFnSyntax(normalizedList, enumDefinitions, logger);
-        case "macro":
-          return transformMacro(normalizedList, enumDefinitions, logger);
-        case "let":
-        case "var":
-        case "def":
-          return transformLetExpr(normalizedList, enumDefinitions, logger);
-        default:
-          // All other forms (if, cond, when, unless, etc.) — recursively transform children.
-          // Enum dot-notation in equality expressions is already caught above (line ~597).
-          return transformChildren(normalizedList, enumDefinitions, logger);
-      }
-    },
-    "transformSExpNode",
-    TransformError,
-    withSourceLocationOpts({ phase: "syntax transformation" }, node),
-  );
+  // Process standard list with recursion on elements
+  const first = normalizedList.elements[0];
+  if (!isSymbol(first)) {
+    // If the first element isn't a symbol, recursively transform its children
+    return transformChildren(normalizedList, enumDefinitions, logger);
+  }
+
+  // Get the operation name
+  const op = (first as SSymbol).name;
+
+  // Handle specific syntactic transformations
+  switch (op) {
+    case "fn":
+    case "defn":
+    case "fx":
+      return transformFnSyntax(normalizedList, enumDefinitions, logger);
+    case "macro":
+      return transformMacro(normalizedList, enumDefinitions, logger);
+    case "let":
+    case "var":
+    case "def":
+      return transformLetExpr(normalizedList, enumDefinitions, logger);
+    default:
+      // All other forms (if, cond, when, unless, etc.) — recursively transform children.
+      // Enum dot-notation in equality expressions is already caught above (line ~597).
+      return transformChildren(normalizedList, enumDefinitions, logger);
+  }
 }
 
 /**
@@ -1116,92 +1109,85 @@ function transformDotChainForm(
   enumDefinitions: Map<string, SList>,
   logger: Logger,
 ): SExp {
-  return perform(
-    () => {
-      logger.debug("Transforming dot-chain form");
+  logger.debug("Transforming dot-chain form");
 
-      // Start with the base object
-      let result = transformSExpNode(list.elements[0], enumDefinitions, logger);
+  // Start with the base object
+  let result = transformSExpNode(list.elements[0], enumDefinitions, logger);
 
-      // Group methods and their arguments
-      const methodGroups = [];
-      let currentMethod = null;
-      let currentArgs = [];
+  // Group methods and their arguments
+  const methodGroups = [];
+  let currentMethod = null;
+  let currentArgs = [];
 
-      for (let i = 1; i < list.elements.length; i++) {
-        const element = list.elements[i];
+  for (let i = 1; i < list.elements.length; i++) {
+    const element = list.elements[i];
 
-        // Check if this is a method/property indicator (symbol starting with '.' but NOT '...')
-        // Exclude spread operators (...identifier)
-        if (isSymbol(element) && (element as SymbolNode).name.startsWith(".") && !(element as SymbolNode).name.startsWith("...")) {
-          // If we have a previous method, store it
-          if (currentMethod !== null) {
-            methodGroups.push({
-              method: currentMethod,
-              args: currentArgs,
-            });
-            // Reset for next method
-            currentArgs = [];
-          }
-
-          // Set current method
-          currentMethod = element as SymbolNode;
-        } // If not a method indicator, it's an argument to the current method
-        else if (currentMethod !== null) {
-          // Transform the argument recursively
-          const transformedArg = transformSExpNode(
-            element,
-            enumDefinitions,
-            logger,
-          );
-          currentArgs.push(transformedArg);
-        }
-      }
-
-      // Add the last method group if there is one
+    // Check if this is a method/property indicator (symbol starting with '.' but NOT '...')
+    // Exclude spread operators (...identifier)
+    if (isSymbol(element) && (element as SymbolNode).name.startsWith(".") && !(element as SymbolNode).name.startsWith("...")) {
+      // If we have a previous method, store it
       if (currentMethod !== null) {
         methodGroups.push({
           method: currentMethod,
           args: currentArgs,
         });
+        // Reset for next method
+        currentArgs = [];
       }
 
-      // Build the nested method calls from inside out
-      // Preserve _meta from method symbols for accurate error source mapping
-      for (let i = 0; i < methodGroups.length; i++) {
-        const { method, args } = methodGroups[i];
-        const methodName = (method as SymbolNode).name;
+      // Set current method
+      currentMethod = element as SymbolNode;
+    } // If not a method indicator, it's an argument to the current method
+    else if (currentMethod !== null) {
+      // Transform the argument recursively
+      const transformedArg = transformSExpNode(
+        element,
+        enumDefinitions,
+        logger,
+      );
+      currentArgs.push(transformedArg);
+    }
+  }
 
-        // Handle optional chaining: .?foo -> optional method call
-        const isOptional = methodName.startsWith(".?");
-        const methodNameWithoutDot = isOptional
-          ? methodName.substring(2)  // Skip ".?"
-          : methodName.substring(1); // Skip "."
+  // Add the last method group if there is one
+  if (currentMethod !== null) {
+    methodGroups.push({
+      method: currentMethod,
+      args: currentArgs,
+    });
+  }
 
-        // Method call (with args) vs property/no-arg method access
-        if (args.length > 0) {
-          result = createListFrom(method as SExp, [
-            createSymbol(isOptional ? "optional-method-call" : "method-call"),
-            result,
-            createLiteral(methodNameWithoutDot),
-            ...args,
-          ]);
-        } else {
-          // No arguments — property access or zero-arg method (js-method handles both)
-          result = createListFrom(method as SExp, [
-            createSymbol(isOptional ? "optional-js-method" : "js-method"),
-            result,
-            createLiteral(methodNameWithoutDot),
-          ]);
-        }
-      }
+  // Build the nested method calls from inside out
+  // Preserve _meta from method symbols for accurate error source mapping
+  for (let i = 0; i < methodGroups.length; i++) {
+    const { method, args } = methodGroups[i];
+    const methodName = (method as SymbolNode).name;
 
-      return result;
-    },
-    "transformDotChainForm",
-    TransformError,
-    withSourceLocationOpts({ phase: "dot-chain form transformation" }, list),
-  );
+    // Handle optional chaining: .?foo -> optional method call
+    const isOptional = methodName.startsWith(".?");
+    const methodNameWithoutDot = isOptional
+      ? methodName.substring(2)  // Skip ".?"
+      : methodName.substring(1); // Skip "."
+
+    // Method call (with args) vs property/no-arg method access
+    if (args.length > 0) {
+      result = createListFrom(method as SExp, [
+        createSymbol(isOptional ? "optional-method-call" : "method-call"),
+        result,
+        createLiteral(methodNameWithoutDot),
+        ...args,
+      ]);
+    } else {
+      // No arguments — property access or zero-arg method (js-method handles both)
+      result = createListFrom(method as SExp, [
+        createSymbol(isOptional ? "optional-js-method" : "js-method"),
+        result,
+        createLiteral(methodNameWithoutDot),
+      ]);
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -1213,45 +1199,38 @@ function transformFnSyntax(
   enumDefinitions: Map<string, SList>,
   logger: Logger,
 ): SExp {
-  return perform(
-    () => {
-      logger.debug("Transforming fn syntax");
+  logger.debug("Transforming fn syntax");
 
-      // Validate minimum syntax - fn needs at least params and body
-      if (list.elements.length < 2) {
-        throw new TransformError(
-          "Invalid fn syntax: requires at least parameters and body",
-          "fn syntax transformation",
-          withSourceLocationOpts({ phase: "valid fn form" }, list),
-        );
-      }
+  // Validate minimum syntax - fn needs at least params and body
+  if (list.elements.length < 2) {
+    throw new TransformError(
+      "Invalid fn syntax: requires at least parameters and body",
+      "fn syntax transformation",
+      withSourceLocationOpts({ phase: "valid fn form" }, list),
+    );
+  }
 
-      // Preserve the original head (fn/defn/fx) through transformation
-      const originalHead = (list.elements[0] as SSymbol).name;
-      // fx uses "fx" as head in output; fn/defn use "fn"
-      const outputHead = originalHead === "fx" ? "fx" : "fn";
+  // Preserve the original head (fn/defn/fx) through transformation
+  const originalHead = (list.elements[0] as SSymbol).name;
+  // fx uses "fx" as head in output; fn/defn use "fn"
+  const outputHead = originalHead === "fx" ? "fx" : "fn";
 
-      const secondElement = list.elements[1];
+  const secondElement = list.elements[1];
 
-      // Dispatch based on whether this is named or anonymous
-      if (isSymbol(secondElement)) {
-        // Named function: (fn name [params] body...)
-        return transformNamedFnSyntax(list, enumDefinitions, logger, outputHead);
-      } else if (isList(secondElement)) {
-        // Anonymous function: (fn [params] body...)
-        return transformAnonymousFnSyntax(list, enumDefinitions, logger, outputHead);
-      } else {
-        throw new TransformError(
-          "Invalid fn syntax: second element must be function name (symbol) or parameters (list)",
-          "fn syntax",
-          withSourceLocationOpts({ phase: "fn dispatch" }, list),
-        );
-      }
-    },
-    "transformFnSyntax",
-    TransformError,
-    withSourceLocationOpts({ phase: "fn syntax transformation" }, list),
-  );
+  // Dispatch based on whether this is named or anonymous
+  if (isSymbol(secondElement)) {
+    // Named function: (fn name [params] body...)
+    return transformNamedFnSyntax(list, enumDefinitions, logger, outputHead);
+  } else if (isList(secondElement)) {
+    // Anonymous function: (fn [params] body...)
+    return transformAnonymousFnSyntax(list, enumDefinitions, logger, outputHead);
+  } else {
+    throw new TransformError(
+      "Invalid fn syntax: second element must be function name (symbol) or parameters (list)",
+      "fn syntax",
+      withSourceLocationOpts({ phase: "fn dispatch" }, list),
+    );
+  }
 }
 
 /**

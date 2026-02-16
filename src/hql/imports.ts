@@ -61,7 +61,6 @@ import {
 import {
   SourceLocationInfo,
   ValidationError,
-  wrapError,
 } from "../common/error.ts";
 import { ImportError, MacroError, RuntimeError } from "../common/error.ts";
 import { globalSymbolTable } from "./transpiler/symbol_table.ts";
@@ -1462,11 +1461,7 @@ async function loadModule(
       );
     }
   } catch (error) {
-    wrapError(
-      `Loading module ${moduleName} from ${modulePath}`,
-      error,
-      modulePath,
-    );
+    throw error;
   }
 }
 
@@ -1708,12 +1703,7 @@ async function loadHqlModule(
     ) {
       throw error;
     }
-    wrapError(
-      `Importing HQL module ${moduleName}`,
-      error,
-      modulePath,
-      options.currentFile,
-    );
+    throw error;
   } finally {
     env.setCurrentFile(previousCurrentFile);
     inProgressFiles.delete(resolvedPath);
@@ -1885,7 +1875,7 @@ async function tryImportSources(
       throw createError(`${errorMsg}: ${errors}`);
     }
   } catch (error) {
-    wrapError(loggerMsg, error, modulePath);
+    throw error;
   }
 }
 
@@ -1920,7 +1910,7 @@ function processFileDefinitions(
       }
     }
   } catch (error) {
-    wrapError("Processing file definitions", error, env.getCurrentFile() || "");
+    throw error;
   }
 }
 
@@ -1943,11 +1933,7 @@ function processLetDefinition(
     const symbolName = isSymbol(expr.elements[1])
       ? expr.elements[1].name
       : "unknown";
-    wrapError(
-      `Processing let declaration for '${symbolName}'`,
-      error,
-      env.getCurrentFile() || "",
-    );
+    throw error;
   }
 }
 
@@ -1981,11 +1967,7 @@ function processFunctionDefinition(
     const symbolName = isSymbol(expr.elements[1])
       ? expr.elements[1].name
       : "unknown";
-    wrapError(
-      `Processing function declaration for '${symbolName}'`,
-      error,
-      env.getCurrentFile() || "",
-    );
+    throw error;
   }
 }
 
@@ -2070,12 +2052,7 @@ function processFileExportsAndDefinitions(
               moduleExports[name] = null;
             }
           } else {
-            wrapError(
-              `Lookup failed for export "${name}"`,
-              lookupError,
-              filePath,
-              filePath,
-            );
+            throw lookupError;
           }
         }
       } catch (error) {
@@ -2083,21 +2060,11 @@ function processFileExportsAndDefinitions(
           !(error instanceof ValidationError &&
             error.message.includes("Symbol not found"))
         ) {
-          wrapError(
-            `Failed to export symbol "${name}"`,
-            error,
-            filePath,
-            filePath,
-          );
+          throw error;
         }
       }
     }
   } catch (error) {
-    wrapError(
-      "Processing file exports and definitions",
-      error,
-      filePath,
-      filePath,
-    );
+    throw error;
   }
 }

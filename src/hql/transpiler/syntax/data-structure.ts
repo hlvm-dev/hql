@@ -4,7 +4,6 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode } from "../type/hql_ast.ts";
 import {
-  perform,
   TransformError,
   ValidationError,
 } from "../../../common/error.ts";
@@ -34,12 +33,7 @@ export function processVectorElements<T extends { type: string }>(
   elements: T[],
   options: NormalizeVectorOptions = {},
 ): T[] {
-  return perform(
-    () => normalizeVectorElements(elements, options),
-    "processVectorElements",
-    TransformError,
-    [elements],
-  );
+  return normalizeVectorElements(elements, options);
 }
 
 /**
@@ -50,37 +44,30 @@ export function transformVector(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      const elements: IR.IRNode[] = [];
+  const elements: IR.IRNode[] = [];
 
-      // Transform each element, detecting spread operators
-      for (const elem of list.elements.slice(1)) {
-        if (isSpreadOperator(elem)) {
-          // Spread element: [...arr]
-          elements.push(
-            transformSpreadOperator(elem, currentDir, transformNode, "spread in array")
-          );
-        } else {
-          // Regular element
-          const transformed = validateTransformed(
-            transformNode(elem, currentDir),
-            "vector element",
-            "Vector element",
-          );
-          elements.push(transformed);
-        }
-      }
+  // Transform each element, detecting spread operators
+  for (const elem of list.elements.slice(1)) {
+    if (isSpreadOperator(elem)) {
+      // Spread element: [...arr]
+      elements.push(
+        transformSpreadOperator(elem, currentDir, transformNode, "spread in array")
+      );
+    } else {
+      // Regular element
+      const transformed = validateTransformed(
+        transformNode(elem, currentDir),
+        "vector element",
+        "Vector element",
+      );
+      elements.push(transformed);
+    }
+  }
 
-      return {
-        ...createArr(elements),
-        position: extractPosition(list),
-      };
-    },
-    "transformVector",
-    TransformError,
-    [list],
-  );
+  return {
+    ...createArr(elements),
+    position: extractPosition(list),
+  };
 }
 
 /**
@@ -93,105 +80,92 @@ export function transformHashMap(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      const args = list.elements.slice(1); // Skip "hash-map" symbol
+  const args = list.elements.slice(1); // Skip "hash-map" symbol
 
-      // Check if any arguments are spread operators
-      const hasSpread = args.some(isSpreadOperator);
+  // Check if any arguments are spread operators
+  const hasSpread = args.some(isSpreadOperator);
 
-      // If no spread, use the standard runtime helper approach
-      if (!hasSpread) {
-        // Transform all arguments and create a call to __hql_hash_map
-        const transformedArgs = args.map((arg) =>
-          validateTransformed(
-            transformNode(arg, currentDir),
-            "hash-map argument",
-            "Hash-map argument",
-          )
+  // If no spread, use the standard runtime helper approach
+  if (!hasSpread) {
+    // Transform all arguments and create a call to __hql_hash_map
+    const transformedArgs = args.map((arg) =>
+      validateTransformed(
+        transformNode(arg, currentDir),
+        "hash-map argument",
+        "Hash-map argument",
+      )
+    );
+
+    return {
+      ...createCall(createId(HASH_MAP_INTERNAL), transformedArgs),
+      position: extractPosition(list),
+    };
+  }
+
+  // With spread operators, generate an ObjectExpression
+  const properties: (IR.IRObjectProperty | IR.IRSpreadAssignment)[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (isSpreadOperator(arg)) {
+      // Spread property: {...obj}
+      properties.push(
+        transformObjectSpreadOperator(arg, currentDir, transformNode, "spread in object")
+      );
+    } else {
+      // Regular key-value pair
+      // Keys and values come in pairs: key1, value1, key2, value2, ...
+      if (i + 1 >= args.length) {
+        throw new ValidationError(
+          "Hash-map requires key-value pairs",
+          "incomplete pair",
+          "key-value pair",
+          "lone key",
         );
-
-        return {
-          ...createCall(createId(HASH_MAP_INTERNAL), transformedArgs),
-          position: extractPosition(list),
-        };
       }
 
-      // With spread operators, generate an ObjectExpression
-      const properties: (IR.IRObjectProperty | IR.IRSpreadAssignment)[] = [];
+      const key = validateTransformed(
+        transformNode(arg, currentDir),
+        "hash-map key",
+        "Object key",
+      );
 
-      for (let i = 0; i < args.length; i++) {
-        const arg = args[i];
+      const value = validateTransformed(
+        transformNode(args[i + 1], currentDir),
+        "hash-map value",
+        "Object value",
+      );
 
-        if (isSpreadOperator(arg)) {
-          // Spread property: {...obj}
-          properties.push(
-            transformObjectSpreadOperator(arg, currentDir, transformNode, "spread in object")
-          );
-        } else {
-          // Regular key-value pair
-          // Keys and values come in pairs: key1, value1, key2, value2, ...
-          if (i + 1 >= args.length) {
-            throw new ValidationError(
-              "Hash-map requires key-value pairs",
-              "incomplete pair",
-              "key-value pair",
-              "lone key",
-            );
-          }
+      // HQL hash-map keys are evaluated expressions
+      // So they must be computed properties in JS ({ [key]: val })
+      // Unless they are string/numeric literals which can be static keys
+      const computed = key.type !== IR.IRNodeType.StringLiteral && 
+                       key.type !== IR.IRNodeType.NumericLiteral;
 
-          const key = validateTransformed(
-            transformNode(arg, currentDir),
-            "hash-map key",
-            "Object key",
-          );
+      properties.push({
+        type: IR.IRNodeType.ObjectProperty,
+        key,
+        value,
+        computed,
+      } as IR.IRObjectProperty);
 
-          const value = validateTransformed(
-            transformNode(args[i + 1], currentDir),
-            "hash-map value",
-            "Object value",
-          );
+      i++; // Skip the value since we've already processed it
+    }
+  }
 
-          // HQL hash-map keys are evaluated expressions
-          // So they must be computed properties in JS ({ [key]: val })
-          // Unless they are string/numeric literals which can be static keys
-          const computed = key.type !== IR.IRNodeType.StringLiteral && 
-                           key.type !== IR.IRNodeType.NumericLiteral;
-
-          properties.push({
-            type: IR.IRNodeType.ObjectProperty,
-            key,
-            value,
-            computed,
-          } as IR.IRObjectProperty);
-
-          i++; // Skip the value since we've already processed it
-        }
-      }
-
-      return {
-        type: IR.IRNodeType.ObjectExpression,
-        properties,
-        position: extractPosition(list),
-      } as IR.IRObjectExpression;
-    },
-    "transformHashMap",
-    TransformError,
-    [list],
-  );
+  return {
+    type: IR.IRNodeType.ObjectExpression,
+    properties,
+    position: extractPosition(list),
+  } as IR.IRObjectExpression;
 }
 
 /**
  * Transform an empty list into an empty array expression.
  */
 export function transformEmptyList(): IR.IRArrayExpression {
-  return perform(
-    () => {
-      return createArr([]);
-    },
-    "transformEmptyList",
-    TransformError,
-  );
+  return createArr([]);
 }
 
 /**
@@ -202,28 +176,21 @@ export function transformHashSet(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      const elements = transformElements(
-        list.elements.slice(1),
-        currentDir,
-        transformNode,
-        "hash-set element",
-        "Set element",
-      );
-
-      return {
-        type: IR.IRNodeType.NewExpression,
-        callee: createId("Set"),
-        arguments: [
-          createArr(elements),
-        ],
-      } as IR.IRNewExpression;
-    },
-    "transformHashSet",
-    TransformError,
-    [list],
+  const elements = transformElements(
+    list.elements.slice(1),
+    currentDir,
+    transformNode,
+    "hash-set element",
+    "Set element",
   );
+
+  return {
+    type: IR.IRNodeType.NewExpression,
+    callee: createId("Set"),
+    arguments: [
+      createArr(elements),
+    ],
+  } as IR.IRNewExpression;
 }
 
 /**
@@ -234,39 +201,32 @@ export function transformNew(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      if (list.elements.length < 2) {
-        throw new ValidationError(
-          "'new' requires a constructor",
-          "new constructor",
-          "at least 1 argument",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+  if (list.elements.length < 2) {
+    throw new ValidationError(
+      "'new' requires a constructor",
+      "new constructor",
+      "at least 1 argument",
+      `${list.elements.length - 1} arguments`,
+    );
+  }
 
-      const constructor = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "new constructor",
-        "Constructor",
-      );
-
-      const args = transformElements(
-        list.elements.slice(2),
-        currentDir,
-        transformNode,
-        "new constructor argument",
-        "Constructor argument",
-      );
-
-      return {
-        type: IR.IRNodeType.NewExpression,
-        callee: constructor,
-        arguments: args,
-      } as IR.IRNewExpression;
-    },
-    "transformNew",
-    TransformError,
-    [list],
+  const constructor = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "new constructor",
+    "Constructor",
   );
+
+  const args = transformElements(
+    list.elements.slice(2),
+    currentDir,
+    transformNode,
+    "new constructor argument",
+    "Constructor argument",
+  );
+
+  return {
+    type: IR.IRNodeType.NewExpression,
+    callee: constructor,
+    arguments: args,
+  } as IR.IRNewExpression;
 }

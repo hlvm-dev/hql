@@ -24,7 +24,6 @@ import {
 } from "../../../common/runtime-helper-impl.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import {
-  perform,
   TransformError,
   ValidationError,
 } from "../../../common/error.ts";
@@ -347,7 +346,7 @@ const transformFactory = new Map<
 
 /**
  * Transform an array of HQL AST nodes into an IR program.
- * Enhanced with better error handling and logging, now wrapped in `perform`.
+ * Enhanced with better error handling and logging.
  * @param nodes - AST nodes to transform
  * @param currentDir - Current directory for path resolution
  * @param context - Optional compiler context for isolated compilation
@@ -450,1378 +449,1373 @@ function initializeTransformFactory(): void {
     isExpressionResult,
   });
 
-  perform(
-    () => {
-      transformFactory.set(
-        "quote",
-        (list, currentDir) =>
-          quoteModule.transformQuote(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "quasiquote",
-        (list, currentDir) =>
-          quoteModule.transformQuasiquote(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "unquote",
-        (list, currentDir) =>
-          quoteModule.transformUnquote(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "unquote-splicing",
-        (list, currentDir) =>
-          quoteModule.transformUnquoteSplicing(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        VECTOR_SYMBOL,
-        (list, currentDir) =>
-          dataStructureModule.transformVector(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "hash-set",
-        (list, currentDir) =>
-          dataStructureModule.transformHashSet(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        HASH_MAP_USER,
-        (list, currentDir) =>
-          dataStructureModule.transformHashMap(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        HASH_MAP_INTERNAL,
-        (list, currentDir) =>
-          dataStructureModule.transformHashMap(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "new",
-        (list, currentDir) =>
-          dataStructureModule.transformNew(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "fn",
-        (list, currentDir) =>
-          functionModule.transformFn(
-            list,
-            currentDir,
-            transformHQLNodeToIR,
-            processFunctionBody,
-          ),
-      );
-      // defn is an alias for fn (used for REPL memory persistence)
-      transformFactory.set(
-        "defn",
-        (list, currentDir) =>
-          functionModule.transformFn(
-            list,
-            currentDir,
-            transformHQLNodeToIR,
-            processFunctionBody,
-          ),
-      );
-      // Pure function: (fx name [params] body...) — compile-time purity enforcement
-      transformFactory.set(
-        "fx",
-        (list, currentDir) => {
-          const result = functionModule.transformFn(list, currentDir, transformHQLNodeToIR, processFunctionBody);
-          setPureFlag(result);
-          return result;
-        },
-      );
-      // Generator function: (fn* name [params] body...) or (fn* [params] body...)
-      transformFactory.set(
-        "fn*",
-        (list, currentDir) =>
-          asyncGeneratorsModule.transformGeneratorFn(list, currentDir, transformHQLNodeToIR, processFunctionBody),
-      );
-      // Yield expression: (yield value) or (yield* iterator)
-      transformFactory.set(
-        "yield",
-        (list, currentDir) => asyncGeneratorsModule.transformYield(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "yield*",
-        (list, currentDir) => asyncGeneratorsModule.transformYieldDelegate(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "=>",
-        (list, currentDir) =>
-          functionModule.transformArrowLambda(
-            list,
-            currentDir,
-            transformHQLNodeToIR,
-            processFunctionBody,
-          ),
-      );
-      transformFactory.set(
-        "async",
-        (list, currentDir) => asyncGeneratorsModule.transformAsync(list, currentDir, transformHQLNodeToIR),
-      );
-      // Note: `range` is no longer a special form - it's a stdlib function
-      // available globally via STDLIB_PUBLIC_API injection in runtime-helpers.ts
-      transformFactory.set(
-        "await",
-        (list, currentDir) => asyncGeneratorsModule.transformAwait(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "const",
-        (list, currentDir) =>
-          bindingModule.transformConst(list, currentDir, transformHQLNodeToIR),
-      );
-      // def is an alias for const (used for REPL memory persistence)
-      transformFactory.set(
-        "def",
-        (list, currentDir) =>
-          bindingModule.transformConst(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "let",
-        (list, currentDir) =>
-          bindingModule.transformLet(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "var",
-        (list, currentDir) =>
-          bindingModule.transformVar(list, currentDir, transformHQLNodeToIR),
-      );
-      // "set!" removed - now handled by "=" operator in primitive.ts
-      transformFactory.set(
-        "if",
-        (list, currentDir) =>
-          conditionalModule.transformIf(
-            list,
-            currentDir,
-            transformHQLNodeToIR,
-            loopRecurModule.hasLoopContext,
-          ),
-      );
-      transformFactory.set(
-        "?",
-        (list, currentDir) =>
-          conditionalModule.transformTernary(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "template-literal",
-        (list, currentDir) =>
-          literalsModule.transformTemplateLiteral(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "do",
-        (list, currentDir) =>
-          conditionalModule.transformDo(list, currentDir, transformHQLNodeToIR),
-      );
-      // lazy-seq and delay both wrap body in a thunk: helperName(() => { return body; })
-      transformFactory.set("lazy-seq", (list, currentDir) =>
-        createThunkWrapper(LAZY_SEQ_HELPER, list, currentDir));
-      transformFactory.set("delay", (list, currentDir) =>
-        createThunkWrapper(DELAY_HELPER, list, currentDir));
-      transformFactory.set(
-        "try",
-        (list, currentDir) => tryCatchModule.transformTry(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "loop",
-        (list, currentDir) =>
-          loopRecurModule.transformLoop(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "recur",
-        (list, currentDir) =>
-          loopRecurModule.transformRecur(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "continue",
-        (list, currentDir) =>
-          loopRecurModule.transformContinue(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "break",
-        (list, currentDir) =>
-          loopRecurModule.transformBreak(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "for-of",
-        (list, currentDir) =>
-          loopRecurModule.transformForOf(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "for-await-of",
-        (list, currentDir) =>
-          loopRecurModule.transformForAwaitOf(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "label",
-        (list, currentDir) =>
-          loopRecurModule.transformLabel(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "return",
-        (list, currentDir) =>
-          conditionalModule.transformReturn(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "throw",
-        (list, currentDir) =>
-          conditionalModule.transformThrow(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "switch",
-        (list, currentDir) =>
-          conditionalModule.transformSwitch(list, currentDir, transformHQLNodeToIR),
-      );
-      // case: Expression-based switch (Clojure-style, returns values)
-      transformFactory.set(
-        "case",
-        (list, currentDir) =>
-          conditionalModule.transformCase(list, currentDir, transformHQLNodeToIR),
-      );
+  transformFactory.set(
+    "quote",
+    (list, currentDir) =>
+      quoteModule.transformQuote(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "quasiquote",
+    (list, currentDir) =>
+      quoteModule.transformQuasiquote(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "unquote",
+    (list, currentDir) =>
+      quoteModule.transformUnquote(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "unquote-splicing",
+    (list, currentDir) =>
+      quoteModule.transformUnquoteSplicing(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    VECTOR_SYMBOL,
+    (list, currentDir) =>
+      dataStructureModule.transformVector(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "hash-set",
+    (list, currentDir) =>
+      dataStructureModule.transformHashSet(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    HASH_MAP_USER,
+    (list, currentDir) =>
+      dataStructureModule.transformHashMap(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    HASH_MAP_INTERNAL,
+    (list, currentDir) =>
+      dataStructureModule.transformHashMap(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "new",
+    (list, currentDir) =>
+      dataStructureModule.transformNew(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "fn",
+    (list, currentDir) =>
+      functionModule.transformFn(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        processFunctionBody,
+      ),
+  );
+  // defn is an alias for fn (used for REPL memory persistence)
+  transformFactory.set(
+    "defn",
+    (list, currentDir) =>
+      functionModule.transformFn(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        processFunctionBody,
+      ),
+  );
+  // Pure function: (fx name [params] body...) — compile-time purity enforcement
+  transformFactory.set(
+    "fx",
+    (list, currentDir) => {
+      const result = functionModule.transformFn(list, currentDir, transformHQLNodeToIR, processFunctionBody);
+      setPureFlag(result);
+      return result;
+    },
+  );
+  // Generator function: (fn* name [params] body...) or (fn* [params] body...)
+  transformFactory.set(
+    "fn*",
+    (list, currentDir) =>
+      asyncGeneratorsModule.transformGeneratorFn(list, currentDir, transformHQLNodeToIR, processFunctionBody),
+  );
+  // Yield expression: (yield value) or (yield* iterator)
+  transformFactory.set(
+    "yield",
+    (list, currentDir) => asyncGeneratorsModule.transformYield(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "yield*",
+    (list, currentDir) => asyncGeneratorsModule.transformYieldDelegate(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "=>",
+    (list, currentDir) =>
+      functionModule.transformArrowLambda(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        processFunctionBody,
+      ),
+  );
+  transformFactory.set(
+    "async",
+    (list, currentDir) => asyncGeneratorsModule.transformAsync(list, currentDir, transformHQLNodeToIR),
+  );
+  // Note: `range` is no longer a special form - it's a stdlib function
+  // available globally via STDLIB_PUBLIC_API injection in runtime-helpers.ts
+  transformFactory.set(
+    "await",
+    (list, currentDir) => asyncGeneratorsModule.transformAwait(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "const",
+    (list, currentDir) =>
+      bindingModule.transformConst(list, currentDir, transformHQLNodeToIR),
+  );
+  // def is an alias for const (used for REPL memory persistence)
+  transformFactory.set(
+    "def",
+    (list, currentDir) =>
+      bindingModule.transformConst(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "let",
+    (list, currentDir) =>
+      bindingModule.transformLet(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "var",
+    (list, currentDir) =>
+      bindingModule.transformVar(list, currentDir, transformHQLNodeToIR),
+  );
+  // "set!" removed - now handled by "=" operator in primitive.ts
+  transformFactory.set(
+    "if",
+    (list, currentDir) =>
+      conditionalModule.transformIf(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        loopRecurModule.hasLoopContext,
+      ),
+  );
+  transformFactory.set(
+    "?",
+    (list, currentDir) =>
+      conditionalModule.transformTernary(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "template-literal",
+    (list, currentDir) =>
+      literalsModule.transformTemplateLiteral(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "do",
+    (list, currentDir) =>
+      conditionalModule.transformDo(list, currentDir, transformHQLNodeToIR),
+  );
+  // lazy-seq and delay both wrap body in a thunk: helperName(() => { return body; })
+  transformFactory.set("lazy-seq", (list, currentDir) =>
+    createThunkWrapper(LAZY_SEQ_HELPER, list, currentDir));
+  transformFactory.set("delay", (list, currentDir) =>
+    createThunkWrapper(DELAY_HELPER, list, currentDir));
+  transformFactory.set(
+    "try",
+    (list, currentDir) => tryCatchModule.transformTry(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "loop",
+    (list, currentDir) =>
+      loopRecurModule.transformLoop(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "recur",
+    (list, currentDir) =>
+      loopRecurModule.transformRecur(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "continue",
+    (list, currentDir) =>
+      loopRecurModule.transformContinue(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "break",
+    (list, currentDir) =>
+      loopRecurModule.transformBreak(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "for-of",
+    (list, currentDir) =>
+      loopRecurModule.transformForOf(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "for-await-of",
+    (list, currentDir) =>
+      loopRecurModule.transformForAwaitOf(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "label",
+    (list, currentDir) =>
+      loopRecurModule.transformLabel(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "return",
+    (list, currentDir) =>
+      conditionalModule.transformReturn(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "throw",
+    (list, currentDir) =>
+      conditionalModule.transformThrow(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "switch",
+    (list, currentDir) =>
+      conditionalModule.transformSwitch(list, currentDir, transformHQLNodeToIR),
+  );
+  // case: Expression-based switch (Clojure-style, returns values)
+  transformFactory.set(
+    "case",
+    (list, currentDir) =>
+      conditionalModule.transformCase(list, currentDir, transformHQLNodeToIR),
+  );
 
-      transformFactory.set(
-        "js-new",
-        (list, currentDir) =>
-          jsInteropModule.transformJsNew(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "js-get",
-        (list, currentDir) =>
-          jsInteropModule.transformJsGet(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "js-call",
-        (list, currentDir) =>
-          jsInteropModule.transformJsCall(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "js-get-invoke",
-        (list, currentDir) =>
-          jsInteropModule.transformJsGetInvoke(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "js-set",
-        (list, currentDir) =>
-          jsInteropModule.transformJsSet(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "class",
-        (list, currentDir) =>
-          classModule.transformClass(list, currentDir, transformHQLNodeToIR),
-      );
-      // method-call is now a macro that expands to js-call
-      transformFactory.set(
-        "enum",
-        (list, currentDir) =>
-          enumModule.transformEnumDeclaration(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "import",
-        (list, currentDir) => {
-          // Simple import without specifiers (import "module")
-          if (
-            list.elements.length === 2 && list.elements[1].type === "literal"
-          ) {
-            const source = (list.elements[1] as LiteralNode).value as string;
-            return {
-              type: IR.IRNodeType.ImportDeclaration,
-              source,
-              specifiers: [],
-            } as IR.IRImportDeclaration;
-          } // Check if it's a vector import or namespace import
-          else if (importExportModule.isVectorImport(list)) {
-            return importExportModule.transformVectorImport(list);
-          } else if (importExportModule.isNamespaceImport(list)) {
-            return importExportModule.transformNamespaceImport(
-              list,
-              currentDir,
-            );
-          } else {
-            throw new ValidationError(
-              "Invalid import statement format",
-              "import",
-              '(import "module") or (import name from "module") or (import [names] from "module")',
-              "invalid format",
-            );
-          }
-        },
-      );
-      transformFactory.set(
+  transformFactory.set(
+    "js-new",
+    (list, currentDir) =>
+      jsInteropModule.transformJsNew(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "js-get",
+    (list, currentDir) =>
+      jsInteropModule.transformJsGet(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "js-call",
+    (list, currentDir) =>
+      jsInteropModule.transformJsCall(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "js-get-invoke",
+    (list, currentDir) =>
+      jsInteropModule.transformJsGetInvoke(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "js-set",
+    (list, currentDir) =>
+      jsInteropModule.transformJsSet(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "class",
+    (list, currentDir) =>
+      classModule.transformClass(list, currentDir, transformHQLNodeToIR),
+  );
+  // method-call is now a macro that expands to js-call
+  transformFactory.set(
+    "enum",
+    (list, currentDir) =>
+      enumModule.transformEnumDeclaration(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "import",
+    (list, currentDir) => {
+      // Simple import without specifiers (import "module")
+      if (
+        list.elements.length === 2 && list.elements[1].type === "literal"
+      ) {
+        const source = (list.elements[1] as LiteralNode).value as string;
+        return {
+          type: IR.IRNodeType.ImportDeclaration,
+          source,
+          specifiers: [],
+        } as IR.IRImportDeclaration;
+      } // Check if it's a vector import or namespace import
+      else if (importExportModule.isVectorImport(list)) {
+        return importExportModule.transformVectorImport(list);
+      } else if (importExportModule.isNamespaceImport(list)) {
+        return importExportModule.transformNamespaceImport(
+          list,
+          currentDir,
+        );
+      } else {
+        throw new ValidationError(
+          "Invalid import statement format",
+          "import",
+          '(import "module") or (import name from "module") or (import [names] from "module")',
+          "invalid format",
+        );
+      }
+    },
+  );
+  transformFactory.set(
+    "export",
+    (list, currentDir) => {
+      if (importExportModule.isDeclarationExport(list)) {
+        return importExportModule.transformDeclarationExport(list, currentDir, transformHQLNodeToIR);
+      }
+      if (importExportModule.isSingleExport(list)) {
+        return importExportModule.transformSingleExport(list);
+      }
+      if (importExportModule.isVectorExport(list)) {
+        return importExportModule.transformVectorExport(list, currentDir);
+      }
+      if (isDefaultExport(list)) {
+        return importExportModule.transformDefaultExport(list, currentDir, transformHQLNodeToIR);
+      }
+      throw new ValidationError(
+        "Invalid export statement format",
         "export",
-        (list, currentDir) => {
-          if (importExportModule.isDeclarationExport(list)) {
-            return importExportModule.transformDeclarationExport(list, currentDir, transformHQLNodeToIR);
-          }
-          if (importExportModule.isSingleExport(list)) {
-            return importExportModule.transformSingleExport(list);
-          }
-          if (importExportModule.isVectorExport(list)) {
-            return importExportModule.transformVectorExport(list, currentDir);
-          }
-          if (isDefaultExport(list)) {
-            return importExportModule.transformDefaultExport(list, currentDir, transformHQLNodeToIR);
-          }
-          throw new ValidationError(
-            "Invalid export statement format",
-            "export",
-            "(export [names]) or (export default <expr>) or (export (decl ...))",
-            "invalid format",
-          );
-        },
+        "(export [names]) or (export default <expr>) or (export (decl ...))",
+        "invalid format",
       );
-      // Dynamic import: (import-dynamic "./module.js") -> import("./module.js")
-      transformFactory.set(
-        "import-dynamic",
-        (list, currentDir) => {
-          if (list.elements.length !== 2) {
-            throw new ValidationError(
-              "import-dynamic requires exactly one argument (the module path)",
-              "import-dynamic",
-              '(import-dynamic "./module.js")',
-              `${list.elements.length - 1} arguments`,
-            );
-          }
-          const sourceNode = transformHQLNodeToIR(list.elements[1], currentDir);
-          if (!sourceNode) {
-            throw new ValidationError(
-              "import-dynamic source cannot be null",
-              "import-dynamic",
-              "expression",
-              "null",
-            );
-          }
-          return {
-            type: IR.IRNodeType.DynamicImport,
-            source: sourceNode,
-          } as IR.IRDynamicImport;
-        },
-      );
-      // BigInt literal: (bigint-literal "123") -> 123n
-      transformFactory.set(
-        "bigint-literal",
-        (list, _currentDir) => {
-          if (list.elements.length !== 2) {
-            throw new ValidationError(
-              "bigint-literal requires exactly one argument",
-              "bigint-literal",
-              "(bigint-literal value)",
-              `${list.elements.length - 1} arguments`,
-            );
-          }
-          const valueNode = list.elements[1];
-          let value: string;
-          if (valueNode.type === "literal") {
-            value = String((valueNode as LiteralNode).value);
-          } else {
-            throw new ValidationError(
-              "bigint-literal value must be a literal",
-              "bigint-literal",
-              "literal value",
-              valueNode.type,
-            );
-          }
-          return {
-            type: IR.IRNodeType.BigIntLiteral,
-            value,
-          } as IR.IRBigIntLiteral;
-        },
-      );
+    },
+  );
+  // Dynamic import: (import-dynamic "./module.js") -> import("./module.js")
+  transformFactory.set(
+    "import-dynamic",
+    (list, currentDir) => {
+      if (list.elements.length !== 2) {
+        throw new ValidationError(
+          "import-dynamic requires exactly one argument (the module path)",
+          "import-dynamic",
+          '(import-dynamic "./module.js")',
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+      const sourceNode = transformHQLNodeToIR(list.elements[1], currentDir);
+      if (!sourceNode) {
+        throw new ValidationError(
+          "import-dynamic source cannot be null",
+          "import-dynamic",
+          "expression",
+          "null",
+        );
+      }
+      return {
+        type: IR.IRNodeType.DynamicImport,
+        source: sourceNode,
+      } as IR.IRDynamicImport;
+    },
+  );
+  // BigInt literal: (bigint-literal "123") -> 123n
+  transformFactory.set(
+    "bigint-literal",
+    (list, _currentDir) => {
+      if (list.elements.length !== 2) {
+        throw new ValidationError(
+          "bigint-literal requires exactly one argument",
+          "bigint-literal",
+          "(bigint-literal value)",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+      const valueNode = list.elements[1];
+      let value: string;
+      if (valueNode.type === "literal") {
+        value = String((valueNode as LiteralNode).value);
+      } else {
+        throw new ValidationError(
+          "bigint-literal value must be a literal",
+          "bigint-literal",
+          "literal value",
+          valueNode.type,
+        );
+      }
+      return {
+        type: IR.IRNodeType.BigIntLiteral,
+        value,
+      } as IR.IRBigIntLiteral;
+    },
+  );
 
-      // =========================================================================
-      // Native TypeScript Type Expression Parser
-      // =========================================================================
+  // =========================================================================
+  // Native TypeScript Type Expression Parser
+  // =========================================================================
 
-      /**
-       * Parse a type expression from HQL AST to IR type expression
-       * Supports native HQL syntax for TypeScript types:
-       * - Simple types: number, string, Person
-       * - Generic types: Array<T>, Map<K,V>
-       * - Union: (| A B C) → A | B | C
-       * - Intersection: (& A B C) → A & B & C
-       * - Keyof: (keyof T) → keyof T
-       * - Indexed access: ([] T K) → T[K]
-       * - Conditional: (if-extends T U Then Else) → T extends U ? Then : Else
-       * - Tuple: (tuple A B C) → [A, B, C]
-       * - Array: (array T) → T[]
-       * - Readonly: (readonly T) → readonly T
-       * - Infer: (infer T) → infer T
-       * - Typeof: (typeof expr) → typeof expr
-       * - Mapped: (mapped K T ValueType) → { [K in T]: ValueType }
-       * - Function: (-> [params] ReturnType) → (params) => ReturnType
-       */
-      function parseTypeExpression(node: HQLNode): IR.IRTypeExpression | string {
-        const nodeMeta = extractMeta(node);
-        // String literal - pass through
-        if (node.type === "literal") {
-          const value = (node as LiteralNode).value;
-          if (typeof value === "string") {
-            return value; // String passthrough for complex expressions
-          }
-          // Literal type (number, boolean)
-          return {
-            type: IR.IRNodeType.LiteralType,
-            value: value as string | number | boolean,
-          } as IR.IRLiteralType;
-        }
+  /**
+   * Parse a type expression from HQL AST to IR type expression
+   * Supports native HQL syntax for TypeScript types:
+   * - Simple types: number, string, Person
+   * - Generic types: Array<T>, Map<K,V>
+   * - Union: (| A B C) → A | B | C
+   * - Intersection: (& A B C) → A & B & C
+   * - Keyof: (keyof T) → keyof T
+   * - Indexed access: ([] T K) → T[K]
+   * - Conditional: (if-extends T U Then Else) → T extends U ? Then : Else
+   * - Tuple: (tuple A B C) → [A, B, C]
+   * - Array: (array T) → T[]
+   * - Readonly: (readonly T) → readonly T
+   * - Infer: (infer T) → infer T
+   * - Typeof: (typeof expr) → typeof expr
+   * - Mapped: (mapped K T ValueType) → { [K in T]: ValueType }
+   * - Function: (-> [params] ReturnType) → (params) => ReturnType
+   */
+  function parseTypeExpression(node: HQLNode): IR.IRTypeExpression | string {
+    const nodeMeta = extractMeta(node);
+    // String literal - pass through
+    if (node.type === "literal") {
+      const value = (node as LiteralNode).value;
+      if (typeof value === "string") {
+        return value; // String passthrough for complex expressions
+      }
+      // Literal type (number, boolean)
+      return {
+        type: IR.IRNodeType.LiteralType,
+        value: value as string | number | boolean,
+      } as IR.IRLiteralType;
+    }
 
-        // Symbol - type reference
-        if (node.type === "symbol") {
-          const name = (node as SymbolNode).name;
-          // Check for generic syntax in symbol: Array<T>
-          const genericMatch = name.match(GENERIC_TYPE_PARAMS_REGEX);
-          if (genericMatch) {
-            const baseName = genericMatch[1];
-            const args = genericMatch[2].split(",").map((s) => s.trim());
-            return {
-              type: IR.IRNodeType.TypeReference,
-              name: baseName,
-              typeArguments: args.map((arg) => ({
-                type: IR.IRNodeType.TypeReference,
-                name: arg,
-              })) as IR.IRTypeExpression[],
-            } as IR.IRTypeReference;
-          }
-          return {
+    // Symbol - type reference
+    if (node.type === "symbol") {
+      const name = (node as SymbolNode).name;
+      // Check for generic syntax in symbol: Array<T>
+      const genericMatch = name.match(GENERIC_TYPE_PARAMS_REGEX);
+      if (genericMatch) {
+        const baseName = genericMatch[1];
+        const args = genericMatch[2].split(",").map((s) => s.trim());
+        return {
+          type: IR.IRNodeType.TypeReference,
+          name: baseName,
+          typeArguments: args.map((arg) => ({
             type: IR.IRNodeType.TypeReference,
-            name,
-          } as IR.IRTypeReference;
+            name: arg,
+          })) as IR.IRTypeExpression[],
+        } as IR.IRTypeReference;
+      }
+      return {
+        type: IR.IRNodeType.TypeReference,
+        name,
+      } as IR.IRTypeReference;
+    }
+
+    // List - compound type expression
+    if (node.type === "list") {
+      const elements = (node as ListNode).elements;
+      if (elements.length === 0) {
+        throw new TransformError("Empty type expression", nodeMeta);
+      }
+
+      const op = elements[0];
+      if (op.type !== "symbol") {
+        throw new TransformError(
+          "Type expression must start with an operator",
+          nodeMeta,
+        );
+      }
+
+      const opName = (op as SymbolNode).name;
+
+      // Helper to convert element to type expression, checking if it's a string literal
+      const toTypeExpr = (el: HQLNode): IR.IRTypeExpression => {
+        // If the element is a string literal, check if it's a simple literal or complex expression
+        if (el.type === "literal" && typeof (el as LiteralNode).value === "string") {
+          const value = (el as LiteralNode).value as string;
+          // If it looks like a complex type expression, parse it as TypeReference
+          // Single regex test is faster than 6 separate includes() calls
+          if (/[\s|&<({]/.test(value)) {
+            return { type: IR.IRNodeType.TypeReference, name: value } as IR.IRTypeReference;
+          }
+          // Otherwise, it's a string literal type like "pending" or "active"
+          return { type: IR.IRNodeType.LiteralType, value } as IR.IRLiteralType;
+        }
+        const parsed = parseTypeExpression(el);
+        return typeof parsed === "string"
+          ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
+          : parsed;
+      };
+
+      switch (opName) {
+        case "|": {
+          // Union type: (| A B C) → A | B | C
+          const types = elements.slice(1).map(toTypeExpr);
+          return {
+            type: IR.IRNodeType.UnionType,
+            types,
+          } as IR.IRUnionType;
         }
 
-        // List - compound type expression
-        if (node.type === "list") {
-          const elements = (node as ListNode).elements;
-          if (elements.length === 0) {
-            throw new TransformError("Empty type expression", nodeMeta);
-          }
+        case "&": {
+          // Intersection type: (& A B C) → A & B & C
+          const types = elements.slice(1).map(toTypeExpr);
+          return {
+            type: IR.IRNodeType.IntersectionType,
+            types,
+          } as IR.IRIntersectionType;
+        }
 
-          const op = elements[0];
-          if (op.type !== "symbol") {
+        case "keyof": {
+          // Keyof: (keyof T) → keyof T
+          if (elements.length < 2) {
+            throw new TransformError("keyof requires a type argument", nodeMeta);
+          }
+          const arg = parseTypeExpression(elements[1]);
+          return {
+            type: IR.IRNodeType.KeyofType,
+            argument: typeof arg === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
+              : arg,
+          } as IR.IRKeyofType;
+        }
+
+        case "[]":
+        case "indexed": {
+          // Indexed access: ([] T K) → T[K]
+          if (elements.length < 3) {
+            throw new TransformError("Indexed access requires object and index types", nodeMeta);
+          }
+          const objType = parseTypeExpression(elements[1]);
+          const idxElement = elements[2];
+          // Special handling for index: if it's a string literal, treat as LiteralType
+          // This ensures (indexed Person "name") → Person["name"]
+          let idxTypeResult: IR.IRTypeExpression;
+          if (idxElement.type === "literal" && typeof (idxElement as LiteralNode).value === "string") {
+            idxTypeResult = {
+              type: IR.IRNodeType.LiteralType,
+              value: (idxElement as LiteralNode).value as string,
+            } as IR.IRLiteralType;
+          } else {
+            const idxType = parseTypeExpression(idxElement);
+            idxTypeResult = typeof idxType === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: idxType } as IR.IRTypeReference)
+              : idxType;
+          }
+          return {
+            type: IR.IRNodeType.IndexedAccessType,
+            objectType: typeof objType === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: objType } as IR.IRTypeReference)
+              : objType,
+            indexType: idxTypeResult,
+          } as IR.IRIndexedAccessType;
+        }
+
+        case "if-extends":
+        case "extends": {
+          // Conditional: (if-extends T U Then Else) → T extends U ? Then : Else
+          if (elements.length < 5) {
             throw new TransformError(
-              "Type expression must start with an operator",
+              "Conditional type requires check, extends, true, and false types",
               nodeMeta,
             );
           }
+          // For check/extends types, use regular parsing (not literal detection)
+          const checkType = parseTypeExpression(elements[1]);
+          const extendsType = parseTypeExpression(elements[2]);
+          const wrapType = (t: IR.IRTypeExpression | string): IR.IRTypeExpression =>
+            typeof t === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: t } as IR.IRTypeReference)
+              : t;
+          // For true/false types, use toTypeExpr for proper string literal handling
+          return {
+            type: IR.IRNodeType.ConditionalType,
+            checkType: wrapType(checkType),
+            extendsType: wrapType(extendsType),
+            trueType: toTypeExpr(elements[3]),
+            falseType: toTypeExpr(elements[4]),
+          } as IR.IRConditionalType;
+        }
 
-          const opName = (op as SymbolNode).name;
-
-          // Helper to convert element to type expression, checking if it's a string literal
-          const toTypeExpr = (el: HQLNode): IR.IRTypeExpression => {
-            // If the element is a string literal, check if it's a simple literal or complex expression
-            if (el.type === "literal" && typeof (el as LiteralNode).value === "string") {
-              const value = (el as LiteralNode).value as string;
-              // If it looks like a complex type expression, parse it as TypeReference
-              // Single regex test is faster than 6 separate includes() calls
-              if (/[\s|&<({]/.test(value)) {
-                return { type: IR.IRNodeType.TypeReference, name: value } as IR.IRTypeReference;
-              }
-              // Otherwise, it's a string literal type like "pending" or "active"
-              return { type: IR.IRNodeType.LiteralType, value } as IR.IRLiteralType;
-            }
+        case "tuple": {
+          // Tuple: (tuple A B C) → [A, B, C]
+          const tupleElements = elements.slice(1).map((el) => {
             const parsed = parseTypeExpression(el);
             return typeof parsed === "string"
               ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
               : parsed;
-          };
-
-          switch (opName) {
-            case "|": {
-              // Union type: (| A B C) → A | B | C
-              const types = elements.slice(1).map(toTypeExpr);
-              return {
-                type: IR.IRNodeType.UnionType,
-                types,
-              } as IR.IRUnionType;
-            }
-
-            case "&": {
-              // Intersection type: (& A B C) → A & B & C
-              const types = elements.slice(1).map(toTypeExpr);
-              return {
-                type: IR.IRNodeType.IntersectionType,
-                types,
-              } as IR.IRIntersectionType;
-            }
-
-            case "keyof": {
-              // Keyof: (keyof T) → keyof T
-              if (elements.length < 2) {
-                throw new TransformError("keyof requires a type argument", nodeMeta);
-              }
-              const arg = parseTypeExpression(elements[1]);
-              return {
-                type: IR.IRNodeType.KeyofType,
-                argument: typeof arg === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
-                  : arg,
-              } as IR.IRKeyofType;
-            }
-
-            case "[]":
-            case "indexed": {
-              // Indexed access: ([] T K) → T[K]
-              if (elements.length < 3) {
-                throw new TransformError("Indexed access requires object and index types", nodeMeta);
-              }
-              const objType = parseTypeExpression(elements[1]);
-              const idxElement = elements[2];
-              // Special handling for index: if it's a string literal, treat as LiteralType
-              // This ensures (indexed Person "name") → Person["name"]
-              let idxTypeResult: IR.IRTypeExpression;
-              if (idxElement.type === "literal" && typeof (idxElement as LiteralNode).value === "string") {
-                idxTypeResult = {
-                  type: IR.IRNodeType.LiteralType,
-                  value: (idxElement as LiteralNode).value as string,
-                } as IR.IRLiteralType;
-              } else {
-                const idxType = parseTypeExpression(idxElement);
-                idxTypeResult = typeof idxType === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: idxType } as IR.IRTypeReference)
-                  : idxType;
-              }
-              return {
-                type: IR.IRNodeType.IndexedAccessType,
-                objectType: typeof objType === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: objType } as IR.IRTypeReference)
-                  : objType,
-                indexType: idxTypeResult,
-              } as IR.IRIndexedAccessType;
-            }
-
-            case "if-extends":
-            case "extends": {
-              // Conditional: (if-extends T U Then Else) → T extends U ? Then : Else
-              if (elements.length < 5) {
-                throw new TransformError(
-                  "Conditional type requires check, extends, true, and false types",
-                  nodeMeta,
-                );
-              }
-              // For check/extends types, use regular parsing (not literal detection)
-              const checkType = parseTypeExpression(elements[1]);
-              const extendsType = parseTypeExpression(elements[2]);
-              const wrapType = (t: IR.IRTypeExpression | string): IR.IRTypeExpression =>
-                typeof t === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: t } as IR.IRTypeReference)
-                  : t;
-              // For true/false types, use toTypeExpr for proper string literal handling
-              return {
-                type: IR.IRNodeType.ConditionalType,
-                checkType: wrapType(checkType),
-                extendsType: wrapType(extendsType),
-                trueType: toTypeExpr(elements[3]),
-                falseType: toTypeExpr(elements[4]),
-              } as IR.IRConditionalType;
-            }
-
-            case "tuple": {
-              // Tuple: (tuple A B C) → [A, B, C]
-              const tupleElements = elements.slice(1).map((el) => {
-                const parsed = parseTypeExpression(el);
-                return typeof parsed === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
-                  : parsed;
-              });
-              return {
-                type: IR.IRNodeType.TupleType,
-                elements: tupleElements,
-              } as IR.IRTupleType;
-            }
-
-            case "array": {
-              // Array: (array T) → T[]
-              if (elements.length < 2) {
-                throw new TransformError("array requires an element type", nodeMeta);
-              }
-              const elemType = parseTypeExpression(elements[1]);
-              return {
-                type: IR.IRNodeType.ArrayType,
-                elementType: typeof elemType === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: elemType } as IR.IRTypeReference)
-                  : elemType,
-              } as IR.IRArrayType;
-            }
-
-            case "readonly": {
-              // Readonly: (readonly T) → readonly T
-              if (elements.length < 2) {
-                throw new TransformError("readonly requires a type argument", nodeMeta);
-              }
-              const arg = parseTypeExpression(elements[1]);
-              return {
-                type: IR.IRNodeType.ReadonlyType,
-                argument: typeof arg === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
-                  : arg,
-              } as IR.IRReadonlyType;
-            }
-
-            case "infer": {
-              // Infer: (infer T) → infer T
-              if (elements.length < 2) {
-                throw new TransformError("infer requires a type parameter", nodeMeta);
-              }
-              const paramNode = elements[1];
-              if (paramNode.type !== "symbol") {
-                throw new TransformError("infer type parameter must be a symbol", extractMeta(paramNode) ?? nodeMeta);
-              }
-              return {
-                type: IR.IRNodeType.InferType,
-                typeParameter: (paramNode as SymbolNode).name,
-              } as IR.IRInferType;
-            }
-
-            case "typeof": {
-              // Typeof: (typeof expr) → typeof expr
-              if (elements.length < 2) {
-                throw new TransformError("typeof requires an expression", nodeMeta);
-              }
-              const exprNode = elements[1];
-              let expression: string;
-              if (exprNode.type === "symbol") {
-                expression = (exprNode as SymbolNode).name;
-              } else if (exprNode.type === "literal") {
-                expression = String((exprNode as LiteralNode).value);
-              } else {
-                throw new TransformError("typeof expression must be a symbol or string", extractMeta(exprNode) ?? nodeMeta);
-              }
-              return {
-                type: IR.IRNodeType.TypeofType,
-                expression,
-              } as IR.IRTypeofType;
-            }
-
-            case "mapped": {
-              // Mapped: (mapped K T ValueType) → { [K in T]: ValueType }
-              if (elements.length < 4) {
-                throw new TransformError(
-                  "mapped type requires parameter, constraint, and value type",
-                  nodeMeta,
-                );
-              }
-              const paramNode = elements[1];
-              if (paramNode.type !== "symbol") {
-                throw new TransformError("mapped type parameter must be a symbol", extractMeta(paramNode) ?? nodeMeta);
-              }
-              const constraint = parseTypeExpression(elements[2]);
-              const valueType = parseTypeExpression(elements[3]);
-              return {
-                type: IR.IRNodeType.MappedType,
-                typeParameter: (paramNode as SymbolNode).name,
-                constraint: typeof constraint === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: constraint } as IR.IRTypeReference)
-                  : constraint,
-                valueType: typeof valueType === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: valueType } as IR.IRTypeReference)
-                  : valueType,
-              } as IR.IRMappedType;
-            }
-
-            case "->":
-            case "fn": {
-              // Function type: (-> [params] ReturnType) → (params) => ReturnType
-              if (elements.length < 3) {
-                throw new TransformError(
-                  "function type requires parameters and return type",
-                  nodeMeta,
-                );
-              }
-              // Parse parameters - simplified for now
-              const returnType = parseTypeExpression(elements[elements.length - 1]);
-              return {
-                type: IR.IRNodeType.FunctionTypeExpr,
-                parameters: [], // Simplified - full param parsing would be more complex
-                returnType: typeof returnType === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: returnType } as IR.IRTypeReference)
-                  : returnType,
-              } as IR.IRFunctionTypeExpr;
-            }
-
-            case "...":
-            case "rest": {
-              // Rest type: (... T) → ...T
-              if (elements.length < 2) {
-                throw new TransformError("rest type requires a type argument", nodeMeta);
-              }
-              const arg = parseTypeExpression(elements[1]);
-              return {
-                type: IR.IRNodeType.RestType,
-                argument: typeof arg === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
-                  : arg,
-              } as IR.IRRestType;
-            }
-
-            default: {
-              // Unknown operator - treat as generic type reference
-              // e.g., (Partial T) → Partial<T>
-              const typeArgs = elements.slice(1).map((el) => {
-                const parsed = parseTypeExpression(el);
-                return typeof parsed === "string"
-                  ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
-                  : parsed;
-              });
-              return {
-                type: IR.IRNodeType.TypeReference,
-                name: opName,
-                typeArguments: typeArgs.length > 0 ? typeArgs : undefined,
-              } as IR.IRTypeReference;
-            }
-          }
-        }
-
-        // Exhaustive check fallback - should never be reached
-        throw new TransformError(`Unknown type expression: ${(node as HQLNode).type}`, nodeMeta);
-      }
-
-      // =========================================================================
-      // Type alias declaration: (type Name TypeExpr) or (deftype Name "...")
-      // =========================================================================
-      // Supports both native syntax and string passthrough:
-      //   (type Keys (keyof Person))        → type Keys = keyof Person;
-      //   (type Union (| A B C))            → type Union = A | B | C;
-      //   (type Complex "T extends U ? X : Y") → type Complex = T extends U ? X : Y;
-
-      const typeAliasHandler = (list: ListNode, _currentDir: string) => {
-        if (list.elements.length < 3) {
-          throw new ValidationError(
-            "type requires at least 2 arguments: name and type expression",
-            "type",
-            "(type Name TypeExpr)",
-            `${list.elements.length - 1} arguments`,
-          );
-        }
-        const nameNode = list.elements[1];
-        let fullName: string;
-        if (nameNode.type === "symbol") {
-          fullName = (nameNode as SymbolNode).name;
-        } else if (nameNode.type === "literal") {
-          // Allow string literal for names with special characters like "Pair<A, B>"
-          fullName = String((nameNode as LiteralNode).value);
-        } else {
-          throw new ValidationError(
-            "type name must be a symbol or string literal",
-            "type",
-            "symbol or string name",
-            nameNode.type,
-          );
-        }
-        // Parse generic parameters from name like "Name<T, U>"
-        let name = fullName;
-        let typeParameters: string[] | undefined;
-        const genericMatch = fullName.match(GENERIC_TYPE_PARAMS_REGEX);
-        if (genericMatch) {
-          name = genericMatch[1];
-          typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
-        }
-
-        const typeNode = list.elements[2];
-
-        // Try to parse as native type expression
-        const parsedType = parseTypeExpression(typeNode);
-
-        // If it's a string, use string passthrough (for complex expressions)
-        if (typeof parsedType === "string") {
+          });
           return {
-            type: IR.IRNodeType.TypeAliasDeclaration,
-            name,
-            typeExpression: parsedType,
-            typeParameters,
-          } as IR.IRTypeAliasDeclaration;
+            type: IR.IRNodeType.TupleType,
+            elements: tupleElements,
+          } as IR.IRTupleType;
         }
 
-        // Otherwise, it's a native type expression - we'll generate TS from the IR
-        return {
-          type: IR.IRNodeType.TypeAliasDeclaration,
-          name,
-          typeExpression: parsedType, // Now stores IR node instead of string
-          typeParameters,
-        } as IR.IRTypeAliasDeclaration & { typeExpression: IR.IRTypeExpression };
-      };
-
-      // Register both "type" and "deftype" for backward compatibility
-      transformFactory.set("type", typeAliasHandler);
-      transformFactory.set("deftype", typeAliasHandler);
-
-      // Interface declaration: (interface Name "{ body }")
-      // With generics: (interface Name<T> "{ body }")
-      // With extends: (interface Name extends Base "{ body }")
-      transformFactory.set(
-        "interface",
-        (list, _currentDir) => {
-          if (list.elements.length < 3) {
-            throw new ValidationError(
-              "interface requires at least 2 arguments: name and body",
-              "interface",
-              "(interface Name \"{ ... }\")",
-              `${list.elements.length - 1} arguments`,
-            );
-          }
-          let idx = 1;
-          const nameNode = list.elements[idx];
-          let fullName: string;
-          if (nameNode.type === "symbol") {
-            fullName = (nameNode as SymbolNode).name;
-          } else if (nameNode.type === "literal") {
-            // Allow string literal for names with special characters like "Box<A, B>"
-            fullName = String((nameNode as LiteralNode).value);
-          } else {
-            throw new ValidationError(
-              "interface name must be a symbol or string literal",
-              "interface",
-              "symbol or string name",
-              nameNode.type,
-            );
-          }
-          // Parse generic parameters from name like "Name<T, U>"
-          let name = fullName;
-          let typeParameters: string[] | undefined;
-          const genericMatch = fullName.match(GENERIC_TYPE_PARAMS_REGEX);
-          if (genericMatch) {
-            name = genericMatch[1];
-            typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
-          }
-          idx++;
-          // Check for extends clause
-          let extendsClause: string[] | undefined;
-          if (list.elements[idx]?.type === "symbol" &&
-              (list.elements[idx] as SymbolNode).name === "extends") {
-            idx++;
-            extendsClause = [];
-            // Collect all extends types until we hit the body string
-            while (idx < list.elements.length - 1 &&
-                   list.elements[idx].type === "symbol") {
-              extendsClause.push((list.elements[idx] as SymbolNode).name);
-              idx++;
-            }
-          }
-          const bodyNode = list.elements[idx];
-          let body: string;
-          if (bodyNode.type === "literal") {
-            body = String((bodyNode as LiteralNode).value);
-          } else {
-            throw new ValidationError(
-              "interface body must be a string literal",
-              "interface",
-              "string literal body",
-              bodyNode.type,
-            );
-          }
-          return {
-            type: IR.IRNodeType.InterfaceDeclaration,
-            name,
-            body,
-            typeParameters,
-            extends: extendsClause,
-          } as IR.IRInterfaceDeclaration;
-        },
-      );
-
-      // =========================================================================
-      // TypeScript: Abstract class declaration (abstract-class)
-      // =========================================================================
-      transformFactory.set(
-        "abstract-class",
-        (list: ListNode, currentDir: string) => {
-          // (abstract-class Name extends? Parent [...body])
-          // (abstract-class Name<T> extends Parent [...body])
-          const elements = list.elements.slice(1);
+        case "array": {
+          // Array: (array T) → T[]
           if (elements.length < 2) {
-            throw new TransformError(
-              "abstract-class requires at least a name and body",
-              extractMeta(list),
-            );
+            throw new TransformError("array requires an element type", nodeMeta);
           }
-
-          // Parse name (may include generics)
-          const nameNode = elements[0];
-          if (nameNode.type !== "symbol") {
-            throw new TransformError(
-              "abstract-class name must be a symbol",
-              extractMeta(nameNode),
-            );
-          }
-          const { name, typeParameters } = parseGenericName((nameNode as SymbolNode).name);
-
-          let idx = 1;
-          let superClass: IR.IRNode | undefined;
-
-          // Check for extends keyword
-          if (
-            idx < elements.length - 1 &&
-            elements[idx].type === "symbol" &&
-            (elements[idx] as SymbolNode).name === "extends"
-          ) {
-            idx++;
-            superClass = transformHQLNodeToIR(elements[idx], currentDir) ?? undefined;
-            idx++;
-          }
-
-          // Parse body - vectors are lists with first element being "vector" symbol
-          const bodyNode = elements[idx];
-          if (!bodyNode || !isVectorNode(bodyNode)) {
-            throw new TransformError(
-              "abstract-class requires a body vector",
-              extractMeta(list),
-            );
-          }
-
-          const body: IR.IRNode[] = [];
-          // Skip the "vector" symbol at index 0
-          const vectorElements = (bodyNode as ListNode).elements.slice(1);
-          for (const member of vectorElements) {
-            const transformed = transformHQLNodeToIR(member, currentDir);
-            if (transformed !== null) {
-              body.push(transformed);
-            }
-          }
-
+          const elemType = parseTypeExpression(elements[1]);
           return {
-            type: IR.IRNodeType.AbstractClassDeclaration,
-            id: { type: IR.IRNodeType.Identifier, name },
-            body,
-            superClass,
-            typeParameters,
-          } as IR.IRAbstractClassDeclaration;
-        },
-      );
+            type: IR.IRNodeType.ArrayType,
+            elementType: typeof elemType === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: elemType } as IR.IRTypeReference)
+              : elemType,
+          } as IR.IRArrayType;
+        }
 
-      // =========================================================================
-      // TypeScript: Abstract method (abstract-method)
-      // =========================================================================
-      transformFactory.set(
-        "abstract-method",
-        (list: ListNode, _currentDir: string) => {
-          // (abstract-method name [params] :return-type)
-          // (abstract-method name<T> [params] :return-type)
-          // (abstract-method name "params-string" :return-type)
-          const elements = list.elements.slice(1);
+        case "readonly": {
+          // Readonly: (readonly T) → readonly T
           if (elements.length < 2) {
-            throw new TransformError(
-              "abstract-method requires name and params",
-              extractMeta(list),
-            );
+            throw new TransformError("readonly requires a type argument", nodeMeta);
           }
-
-          const nameNode = elements[0];
-          if (nameNode.type !== "symbol") {
-            throw new TransformError(
-              "abstract-method name must be a symbol",
-              extractMeta(nameNode),
-            );
-          }
-          const { name, typeParameters } = parseGenericName((nameNode as SymbolNode).name);
-
-          // Parse params (as string for TypeScript signature)
-          const paramsNode = elements[1];
-          let params = "";
-          if (isVectorNode(paramsNode)) {
-            // Skip the "vector" symbol and process elements
-            params = (paramsNode as ListNode).elements
-              .slice(1)
-              .map((el) => {
-                if (el.type === "symbol") {
-                  return (el as SymbolNode).name;
-                }
-                return "";
-              })
-              .filter((s) => s)
-              .join(", ");
-          } else if (paramsNode.type === "literal") {
-            params = String((paramsNode as LiteralNode).value);
-          }
-
-          // Parse return type
-          let returnType: string | undefined;
-          if (elements.length > 2) {
-            const returnNode = elements[2];
-            // Keywords start with : in HQL but are symbols internally
-            if (returnNode.type === "symbol") {
-              const symName = (returnNode as SymbolNode).name;
-              // Remove leading : if present
-              returnType = symName.startsWith(":")
-                ? symName.slice(1)
-                : symName;
-            } else if (returnNode.type === "literal") {
-              returnType = String((returnNode as LiteralNode).value);
-            }
-          }
-
+          const arg = parseTypeExpression(elements[1]);
           return {
-            type: IR.IRNodeType.AbstractMethod,
-            key: { type: IR.IRNodeType.Identifier, name },
-            params,
-            returnType,
-            typeParameters,
-          } as IR.IRAbstractMethod;
-        },
-      );
+            type: IR.IRNodeType.ReadonlyType,
+            argument: typeof arg === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
+              : arg,
+          } as IR.IRReadonlyType;
+        }
 
-      // =========================================================================
-      // TypeScript: Function overload declaration (fn-overload)
-      // =========================================================================
-      transformFactory.set(
-        "fn-overload",
-        (list: ListNode, _currentDir: string) => {
-          // (fn-overload name "params" :return-type)
-          // (fn-overload name<T> "params" :return-type)
-          const elements = list.elements.slice(1);
+        case "infer": {
+          // Infer: (infer T) → infer T
+          if (elements.length < 2) {
+            throw new TransformError("infer requires a type parameter", nodeMeta);
+          }
+          const paramNode = elements[1];
+          if (paramNode.type !== "symbol") {
+            throw new TransformError("infer type parameter must be a symbol", extractMeta(paramNode) ?? nodeMeta);
+          }
+          return {
+            type: IR.IRNodeType.InferType,
+            typeParameter: (paramNode as SymbolNode).name,
+          } as IR.IRInferType;
+        }
+
+        case "typeof": {
+          // Typeof: (typeof expr) → typeof expr
+          if (elements.length < 2) {
+            throw new TransformError("typeof requires an expression", nodeMeta);
+          }
+          const exprNode = elements[1];
+          let expression: string;
+          if (exprNode.type === "symbol") {
+            expression = (exprNode as SymbolNode).name;
+          } else if (exprNode.type === "literal") {
+            expression = String((exprNode as LiteralNode).value);
+          } else {
+            throw new TransformError("typeof expression must be a symbol or string", extractMeta(exprNode) ?? nodeMeta);
+          }
+          return {
+            type: IR.IRNodeType.TypeofType,
+            expression,
+          } as IR.IRTypeofType;
+        }
+
+        case "mapped": {
+          // Mapped: (mapped K T ValueType) → { [K in T]: ValueType }
+          if (elements.length < 4) {
+            throw new TransformError(
+              "mapped type requires parameter, constraint, and value type",
+              nodeMeta,
+            );
+          }
+          const paramNode = elements[1];
+          if (paramNode.type !== "symbol") {
+            throw new TransformError("mapped type parameter must be a symbol", extractMeta(paramNode) ?? nodeMeta);
+          }
+          const constraint = parseTypeExpression(elements[2]);
+          const valueType = parseTypeExpression(elements[3]);
+          return {
+            type: IR.IRNodeType.MappedType,
+            typeParameter: (paramNode as SymbolNode).name,
+            constraint: typeof constraint === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: constraint } as IR.IRTypeReference)
+              : constraint,
+            valueType: typeof valueType === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: valueType } as IR.IRTypeReference)
+              : valueType,
+          } as IR.IRMappedType;
+        }
+
+        case "->":
+        case "fn": {
+          // Function type: (-> [params] ReturnType) → (params) => ReturnType
           if (elements.length < 3) {
             throw new TransformError(
-              "fn-overload requires name, params, and return type",
-              extractMeta(list),
+              "function type requires parameters and return type",
+              nodeMeta,
             );
           }
-
-          const nameNode = elements[0];
-          let name: string;
-          let typeParameters: string[] | undefined;
-
-          if (nameNode.type === "symbol") {
-            ({ name, typeParameters } = parseGenericName((nameNode as SymbolNode).name));
-          } else if (nameNode.type === "literal") {
-            name = String((nameNode as LiteralNode).value);
-          } else {
-            throw new TransformError(
-              "fn-overload name must be a symbol or string",
-              extractMeta(nameNode),
-            );
-          }
-
-          // Parse params (as string)
-          const paramsNode = elements[1];
-          let params: string;
-          if (paramsNode.type === "literal") {
-            params = String((paramsNode as LiteralNode).value);
-          } else if (isVectorNode(paramsNode)) {
-            // Vector: skip first element and process rest
-            params = (paramsNode as ListNode).elements
-              .slice(1)
-              .map((el) => {
-                if (el.type === "symbol") {
-                  return (el as SymbolNode).name;
-                }
-                return "";
-              })
-              .filter((s) => s)
-              .join(", ");
-          } else {
-            throw new TransformError(
-              "fn-overload params must be a string or vector",
-              extractMeta(paramsNode),
-            );
-          }
-
-          // Parse return type
-          const returnNode = elements[2];
-          let returnType: string;
-          if (returnNode.type === "symbol") {
-            const symName = (returnNode as SymbolNode).name;
-            returnType = symName.startsWith(":") ? symName.slice(1) : symName;
-          } else if (returnNode.type === "literal") {
-            returnType = String((returnNode as LiteralNode).value);
-          } else {
-            throw new TransformError(
-              "fn-overload return type must be a keyword or string",
-              extractMeta(returnNode),
-            );
-          }
-
+          // Parse parameters - simplified for now
+          const returnType = parseTypeExpression(elements[elements.length - 1]);
           return {
-            type: IR.IRNodeType.FunctionOverload,
-            name,
-            params,
-            returnType,
-            typeParameters,
-          } as IR.IRFunctionOverload;
-        },
-      );
+            type: IR.IRNodeType.FunctionTypeExpr,
+            parameters: [], // Simplified - full param parsing would be more complex
+            returnType: typeof returnType === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: returnType } as IR.IRTypeReference)
+              : returnType,
+          } as IR.IRFunctionTypeExpr;
+        }
 
-      // =========================================================================
-      // TypeScript: Declare statement (declare)
-      // =========================================================================
-      transformFactory.set(
-        "declare",
-        (list: ListNode, _currentDir: string) => {
-          // (declare function "name(params): returnType")
-          // (declare var "name: Type")
-          // (declare module "name" "body")
-          const elements = list.elements.slice(1);
+        case "...":
+        case "rest": {
+          // Rest type: (... T) → ...T
           if (elements.length < 2) {
-            throw new TransformError(
-              "declare requires a kind and body",
-              extractMeta(list),
-            );
+            throw new TransformError("rest type requires a type argument", nodeMeta);
           }
-
-          const kindNode = elements[0];
-          if (kindNode.type !== "symbol") {
-            throw new TransformError(
-              "declare kind must be a symbol",
-              extractMeta(kindNode),
-            );
-          }
-          const kind = (kindNode as SymbolNode).name as
-            | "function"
-            | "class"
-            | "var"
-            | "const"
-            | "let"
-            | "module"
-            | "namespace";
-
-          const bodyNode = elements[1];
-          let body: string;
-          if (bodyNode.type === "literal") {
-            body = String((bodyNode as LiteralNode).value);
-          } else if (bodyNode.type === "symbol") {
-            body = (bodyNode as SymbolNode).name;
-          } else {
-            throw new TransformError(
-              "declare body must be a string or symbol",
-              extractMeta(bodyNode),
-            );
-          }
-
+          const arg = parseTypeExpression(elements[1]);
           return {
-            type: IR.IRNodeType.DeclareStatement,
-            kind,
-            body,
-          } as IR.IRDeclareStatement;
-        },
-      );
+            type: IR.IRNodeType.RestType,
+            argument: typeof arg === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
+              : arg,
+          } as IR.IRRestType;
+        }
 
-      // =========================================================================
-      // TypeScript: Namespace declaration (namespace)
-      // =========================================================================
-      transformFactory.set(
-        "namespace",
-        (list: ListNode, currentDir: string) => {
-          // (namespace Name [...body])
-          const elements = list.elements.slice(1);
-          if (elements.length < 2) {
-            throw new TransformError(
-              "namespace requires a name and body",
-              extractMeta(list),
-            );
-          }
-
-          const nameNode = elements[0];
-          if (nameNode.type !== "symbol") {
-            throw new TransformError(
-              "namespace name must be a symbol",
-              extractMeta(nameNode),
-            );
-          }
-          const name = (nameNode as SymbolNode).name;
-
-          const bodyNode = elements[1];
-          if (!isVectorNode(bodyNode)) {
-            throw new TransformError(
-              "namespace body must be a vector",
-              extractMeta(bodyNode),
-            );
-          }
-
-          const body: IR.IRNode[] = [];
-          // Skip "vector" symbol at index 0
-          const vectorElements = (bodyNode as ListNode).elements.slice(1);
-          for (const member of vectorElements) {
-            const transformed = transformHQLNodeToIR(member, currentDir);
-            if (transformed !== null) {
-              body.push(transformed);
-            }
-          }
-
+        default: {
+          // Unknown operator - treat as generic type reference
+          // e.g., (Partial T) → Partial<T>
+          const typeArgs = elements.slice(1).map((el) => {
+            const parsed = parseTypeExpression(el);
+            return typeof parsed === "string"
+              ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
+              : parsed;
+          });
           return {
-            type: IR.IRNodeType.NamespaceDeclaration,
-            name,
-            body,
-          } as IR.IRNamespaceDeclaration;
-        },
+            type: IR.IRNodeType.TypeReference,
+            name: opName,
+            typeArguments: typeArgs.length > 0 ? typeArgs : undefined,
+          } as IR.IRTypeReference;
+        }
+      }
+    }
+
+    // Exhaustive check fallback - should never be reached
+    throw new TransformError(`Unknown type expression: ${(node as HQLNode).type}`, nodeMeta);
+  }
+
+  // =========================================================================
+  // Type alias declaration: (type Name TypeExpr) or (deftype Name "...")
+  // =========================================================================
+  // Supports both native syntax and string passthrough:
+  //   (type Keys (keyof Person))        → type Keys = keyof Person;
+  //   (type Union (| A B C))            → type Union = A | B | C;
+  //   (type Complex "T extends U ? X : Y") → type Complex = T extends U ? X : Y;
+
+  const typeAliasHandler = (list: ListNode, _currentDir: string) => {
+    if (list.elements.length < 3) {
+      throw new ValidationError(
+        "type requires at least 2 arguments: name and type expression",
+        "type",
+        "(type Name TypeExpr)",
+        `${list.elements.length - 1} arguments`,
       );
+    }
+    const nameNode = list.elements[1];
+    let fullName: string;
+    if (nameNode.type === "symbol") {
+      fullName = (nameNode as SymbolNode).name;
+    } else if (nameNode.type === "literal") {
+      // Allow string literal for names with special characters like "Pair<A, B>"
+      fullName = String((nameNode as LiteralNode).value);
+    } else {
+      throw new ValidationError(
+        "type name must be a symbol or string literal",
+        "type",
+        "symbol or string name",
+        nameNode.type,
+      );
+    }
+    // Parse generic parameters from name like "Name<T, U>"
+    let name = fullName;
+    let typeParameters: string[] | undefined;
+    const genericMatch = fullName.match(GENERIC_TYPE_PARAMS_REGEX);
+    if (genericMatch) {
+      name = genericMatch[1];
+      typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
+    }
 
-      // =========================================================================
-      // TypeScript: Const enum declaration (const-enum)
-      // =========================================================================
-      transformFactory.set(
-        "const-enum",
-        (list: ListNode, _currentDir: string) => {
-          // (const-enum Name [A B C] or [(A 1) (B 2)])
-          const elements = list.elements.slice(1);
-          if (elements.length < 2) {
-            throw new TransformError(
-              "const-enum requires a name and members",
-              extractMeta(list),
-            );
-          }
+    const typeNode = list.elements[2];
 
-          const nameNode = elements[0];
-          if (nameNode.type !== "symbol") {
-            throw new TransformError(
-              "const-enum name must be a symbol",
-              extractMeta(nameNode),
-            );
-          }
-          const name = (nameNode as SymbolNode).name;
+    // Try to parse as native type expression
+    const parsedType = parseTypeExpression(typeNode);
 
-          const membersNode = elements[1];
-          if (!isVectorNode(membersNode)) {
-            throw new TransformError(
-              "const-enum members must be a vector",
-              extractMeta(membersNode),
-            );
-          }
+    // If it's a string, use string passthrough (for complex expressions)
+    if (typeof parsedType === "string") {
+      return {
+        type: IR.IRNodeType.TypeAliasDeclaration,
+        name,
+        typeExpression: parsedType,
+        typeParameters,
+      } as IR.IRTypeAliasDeclaration;
+    }
 
-          const members: Array<{ name: string; value?: number | string }> = [];
-          // Skip "vector" symbol at index 0
-          const vectorElements = (membersNode as ListNode).elements.slice(1);
-          for (const el of vectorElements) {
+    // Otherwise, it's a native type expression - we'll generate TS from the IR
+    return {
+      type: IR.IRNodeType.TypeAliasDeclaration,
+      name,
+      typeExpression: parsedType, // Now stores IR node instead of string
+      typeParameters,
+    } as IR.IRTypeAliasDeclaration & { typeExpression: IR.IRTypeExpression };
+  };
+
+  // Register both "type" and "deftype" for backward compatibility
+  transformFactory.set("type", typeAliasHandler);
+  transformFactory.set("deftype", typeAliasHandler);
+
+  // Interface declaration: (interface Name "{ body }")
+  // With generics: (interface Name<T> "{ body }")
+  // With extends: (interface Name extends Base "{ body }")
+  transformFactory.set(
+    "interface",
+    (list, _currentDir) => {
+      if (list.elements.length < 3) {
+        throw new ValidationError(
+          "interface requires at least 2 arguments: name and body",
+          "interface",
+          "(interface Name \"{ ... }\")",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+      let idx = 1;
+      const nameNode = list.elements[idx];
+      let fullName: string;
+      if (nameNode.type === "symbol") {
+        fullName = (nameNode as SymbolNode).name;
+      } else if (nameNode.type === "literal") {
+        // Allow string literal for names with special characters like "Box<A, B>"
+        fullName = String((nameNode as LiteralNode).value);
+      } else {
+        throw new ValidationError(
+          "interface name must be a symbol or string literal",
+          "interface",
+          "symbol or string name",
+          nameNode.type,
+        );
+      }
+      // Parse generic parameters from name like "Name<T, U>"
+      let name = fullName;
+      let typeParameters: string[] | undefined;
+      const genericMatch = fullName.match(GENERIC_TYPE_PARAMS_REGEX);
+      if (genericMatch) {
+        name = genericMatch[1];
+        typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
+      }
+      idx++;
+      // Check for extends clause
+      let extendsClause: string[] | undefined;
+      if (list.elements[idx]?.type === "symbol" &&
+          (list.elements[idx] as SymbolNode).name === "extends") {
+        idx++;
+        extendsClause = [];
+        // Collect all extends types until we hit the body string
+        while (idx < list.elements.length - 1 &&
+               list.elements[idx].type === "symbol") {
+          extendsClause.push((list.elements[idx] as SymbolNode).name);
+          idx++;
+        }
+      }
+      const bodyNode = list.elements[idx];
+      let body: string;
+      if (bodyNode.type === "literal") {
+        body = String((bodyNode as LiteralNode).value);
+      } else {
+        throw new ValidationError(
+          "interface body must be a string literal",
+          "interface",
+          "string literal body",
+          bodyNode.type,
+        );
+      }
+      return {
+        type: IR.IRNodeType.InterfaceDeclaration,
+        name,
+        body,
+        typeParameters,
+        extends: extendsClause,
+      } as IR.IRInterfaceDeclaration;
+    },
+  );
+
+  // =========================================================================
+  // TypeScript: Abstract class declaration (abstract-class)
+  // =========================================================================
+  transformFactory.set(
+    "abstract-class",
+    (list: ListNode, currentDir: string) => {
+      // (abstract-class Name extends? Parent [...body])
+      // (abstract-class Name<T> extends Parent [...body])
+      const elements = list.elements.slice(1);
+      if (elements.length < 2) {
+        throw new TransformError(
+          "abstract-class requires at least a name and body",
+          extractMeta(list),
+        );
+      }
+
+      // Parse name (may include generics)
+      const nameNode = elements[0];
+      if (nameNode.type !== "symbol") {
+        throw new TransformError(
+          "abstract-class name must be a symbol",
+          extractMeta(nameNode),
+        );
+      }
+      const { name, typeParameters } = parseGenericName((nameNode as SymbolNode).name);
+
+      let idx = 1;
+      let superClass: IR.IRNode | undefined;
+
+      // Check for extends keyword
+      if (
+        idx < elements.length - 1 &&
+        elements[idx].type === "symbol" &&
+        (elements[idx] as SymbolNode).name === "extends"
+      ) {
+        idx++;
+        superClass = transformHQLNodeToIR(elements[idx], currentDir) ?? undefined;
+        idx++;
+      }
+
+      // Parse body - vectors are lists with first element being "vector" symbol
+      const bodyNode = elements[idx];
+      if (!bodyNode || !isVectorNode(bodyNode)) {
+        throw new TransformError(
+          "abstract-class requires a body vector",
+          extractMeta(list),
+        );
+      }
+
+      const body: IR.IRNode[] = [];
+      // Skip the "vector" symbol at index 0
+      const vectorElements = (bodyNode as ListNode).elements.slice(1);
+      for (const member of vectorElements) {
+        const transformed = transformHQLNodeToIR(member, currentDir);
+        if (transformed !== null) {
+          body.push(transformed);
+        }
+      }
+
+      return {
+        type: IR.IRNodeType.AbstractClassDeclaration,
+        id: { type: IR.IRNodeType.Identifier, name },
+        body,
+        superClass,
+        typeParameters,
+      } as IR.IRAbstractClassDeclaration;
+    },
+  );
+
+  // =========================================================================
+  // TypeScript: Abstract method (abstract-method)
+  // =========================================================================
+  transformFactory.set(
+    "abstract-method",
+    (list: ListNode, _currentDir: string) => {
+      // (abstract-method name [params] :return-type)
+      // (abstract-method name<T> [params] :return-type)
+      // (abstract-method name "params-string" :return-type)
+      const elements = list.elements.slice(1);
+      if (elements.length < 2) {
+        throw new TransformError(
+          "abstract-method requires name and params",
+          extractMeta(list),
+        );
+      }
+
+      const nameNode = elements[0];
+      if (nameNode.type !== "symbol") {
+        throw new TransformError(
+          "abstract-method name must be a symbol",
+          extractMeta(nameNode),
+        );
+      }
+      const { name, typeParameters } = parseGenericName((nameNode as SymbolNode).name);
+
+      // Parse params (as string for TypeScript signature)
+      const paramsNode = elements[1];
+      let params = "";
+      if (isVectorNode(paramsNode)) {
+        // Skip the "vector" symbol and process elements
+        params = (paramsNode as ListNode).elements
+          .slice(1)
+          .map((el) => {
             if (el.type === "symbol") {
-              members.push({ name: (el as SymbolNode).name });
-            } else if (el.type === "list") {
-              const pair = el as ListNode;
-              if (pair.elements.length >= 2) {
-                const memberName = (pair.elements[0] as SymbolNode).name;
-                const valueNode = pair.elements[1];
-                let value: number | string | undefined;
-                if (valueNode.type === "literal") {
-                  const litValue = (valueNode as LiteralNode).value;
-                  if (typeof litValue === "number") {
-                    value = litValue;
-                  } else if (typeof litValue === "string") {
-                    value = litValue;
-                  }
-                }
-                members.push({ name: memberName, value });
+              return (el as SymbolNode).name;
+            }
+            return "";
+          })
+          .filter((s) => s)
+          .join(", ");
+      } else if (paramsNode.type === "literal") {
+        params = String((paramsNode as LiteralNode).value);
+      }
+
+      // Parse return type
+      let returnType: string | undefined;
+      if (elements.length > 2) {
+        const returnNode = elements[2];
+        // Keywords start with : in HQL but are symbols internally
+        if (returnNode.type === "symbol") {
+          const symName = (returnNode as SymbolNode).name;
+          // Remove leading : if present
+          returnType = symName.startsWith(":")
+            ? symName.slice(1)
+            : symName;
+        } else if (returnNode.type === "literal") {
+          returnType = String((returnNode as LiteralNode).value);
+        }
+      }
+
+      return {
+        type: IR.IRNodeType.AbstractMethod,
+        key: { type: IR.IRNodeType.Identifier, name },
+        params,
+        returnType,
+        typeParameters,
+      } as IR.IRAbstractMethod;
+    },
+  );
+
+  // =========================================================================
+  // TypeScript: Function overload declaration (fn-overload)
+  // =========================================================================
+  transformFactory.set(
+    "fn-overload",
+    (list: ListNode, _currentDir: string) => {
+      // (fn-overload name "params" :return-type)
+      // (fn-overload name<T> "params" :return-type)
+      const elements = list.elements.slice(1);
+      if (elements.length < 3) {
+        throw new TransformError(
+          "fn-overload requires name, params, and return type",
+          extractMeta(list),
+        );
+      }
+
+      const nameNode = elements[0];
+      let name: string;
+      let typeParameters: string[] | undefined;
+
+      if (nameNode.type === "symbol") {
+        ({ name, typeParameters } = parseGenericName((nameNode as SymbolNode).name));
+      } else if (nameNode.type === "literal") {
+        name = String((nameNode as LiteralNode).value);
+      } else {
+        throw new TransformError(
+          "fn-overload name must be a symbol or string",
+          extractMeta(nameNode),
+        );
+      }
+
+      // Parse params (as string)
+      const paramsNode = elements[1];
+      let params: string;
+      if (paramsNode.type === "literal") {
+        params = String((paramsNode as LiteralNode).value);
+      } else if (isVectorNode(paramsNode)) {
+        // Vector: skip first element and process rest
+        params = (paramsNode as ListNode).elements
+          .slice(1)
+          .map((el) => {
+            if (el.type === "symbol") {
+              return (el as SymbolNode).name;
+            }
+            return "";
+          })
+          .filter((s) => s)
+          .join(", ");
+      } else {
+        throw new TransformError(
+          "fn-overload params must be a string or vector",
+          extractMeta(paramsNode),
+        );
+      }
+
+      // Parse return type
+      const returnNode = elements[2];
+      let returnType: string;
+      if (returnNode.type === "symbol") {
+        const symName = (returnNode as SymbolNode).name;
+        returnType = symName.startsWith(":") ? symName.slice(1) : symName;
+      } else if (returnNode.type === "literal") {
+        returnType = String((returnNode as LiteralNode).value);
+      } else {
+        throw new TransformError(
+          "fn-overload return type must be a keyword or string",
+          extractMeta(returnNode),
+        );
+      }
+
+      return {
+        type: IR.IRNodeType.FunctionOverload,
+        name,
+        params,
+        returnType,
+        typeParameters,
+      } as IR.IRFunctionOverload;
+    },
+  );
+
+  // =========================================================================
+  // TypeScript: Declare statement (declare)
+  // =========================================================================
+  transformFactory.set(
+    "declare",
+    (list: ListNode, _currentDir: string) => {
+      // (declare function "name(params): returnType")
+      // (declare var "name: Type")
+      // (declare module "name" "body")
+      const elements = list.elements.slice(1);
+      if (elements.length < 2) {
+        throw new TransformError(
+          "declare requires a kind and body",
+          extractMeta(list),
+        );
+      }
+
+      const kindNode = elements[0];
+      if (kindNode.type !== "symbol") {
+        throw new TransformError(
+          "declare kind must be a symbol",
+          extractMeta(kindNode),
+        );
+      }
+      const kind = (kindNode as SymbolNode).name as
+        | "function"
+        | "class"
+        | "var"
+        | "const"
+        | "let"
+        | "module"
+        | "namespace";
+
+      const bodyNode = elements[1];
+      let body: string;
+      if (bodyNode.type === "literal") {
+        body = String((bodyNode as LiteralNode).value);
+      } else if (bodyNode.type === "symbol") {
+        body = (bodyNode as SymbolNode).name;
+      } else {
+        throw new TransformError(
+          "declare body must be a string or symbol",
+          extractMeta(bodyNode),
+        );
+      }
+
+      return {
+        type: IR.IRNodeType.DeclareStatement,
+        kind,
+        body,
+      } as IR.IRDeclareStatement;
+    },
+  );
+
+  // =========================================================================
+  // TypeScript: Namespace declaration (namespace)
+  // =========================================================================
+  transformFactory.set(
+    "namespace",
+    (list: ListNode, currentDir: string) => {
+      // (namespace Name [...body])
+      const elements = list.elements.slice(1);
+      if (elements.length < 2) {
+        throw new TransformError(
+          "namespace requires a name and body",
+          extractMeta(list),
+        );
+      }
+
+      const nameNode = elements[0];
+      if (nameNode.type !== "symbol") {
+        throw new TransformError(
+          "namespace name must be a symbol",
+          extractMeta(nameNode),
+        );
+      }
+      const name = (nameNode as SymbolNode).name;
+
+      const bodyNode = elements[1];
+      if (!isVectorNode(bodyNode)) {
+        throw new TransformError(
+          "namespace body must be a vector",
+          extractMeta(bodyNode),
+        );
+      }
+
+      const body: IR.IRNode[] = [];
+      // Skip "vector" symbol at index 0
+      const vectorElements = (bodyNode as ListNode).elements.slice(1);
+      for (const member of vectorElements) {
+        const transformed = transformHQLNodeToIR(member, currentDir);
+        if (transformed !== null) {
+          body.push(transformed);
+        }
+      }
+
+      return {
+        type: IR.IRNodeType.NamespaceDeclaration,
+        name,
+        body,
+      } as IR.IRNamespaceDeclaration;
+    },
+  );
+
+  // =========================================================================
+  // TypeScript: Const enum declaration (const-enum)
+  // =========================================================================
+  transformFactory.set(
+    "const-enum",
+    (list: ListNode, _currentDir: string) => {
+      // (const-enum Name [A B C] or [(A 1) (B 2)])
+      const elements = list.elements.slice(1);
+      if (elements.length < 2) {
+        throw new TransformError(
+          "const-enum requires a name and members",
+          extractMeta(list),
+        );
+      }
+
+      const nameNode = elements[0];
+      if (nameNode.type !== "symbol") {
+        throw new TransformError(
+          "const-enum name must be a symbol",
+          extractMeta(nameNode),
+        );
+      }
+      const name = (nameNode as SymbolNode).name;
+
+      const membersNode = elements[1];
+      if (!isVectorNode(membersNode)) {
+        throw new TransformError(
+          "const-enum members must be a vector",
+          extractMeta(membersNode),
+        );
+      }
+
+      const members: Array<{ name: string; value?: number | string }> = [];
+      // Skip "vector" symbol at index 0
+      const vectorElements = (membersNode as ListNode).elements.slice(1);
+      for (const el of vectorElements) {
+        if (el.type === "symbol") {
+          members.push({ name: (el as SymbolNode).name });
+        } else if (el.type === "list") {
+          const pair = el as ListNode;
+          if (pair.elements.length >= 2) {
+            const memberName = (pair.elements[0] as SymbolNode).name;
+            const valueNode = pair.elements[1];
+            let value: number | string | undefined;
+            if (valueNode.type === "literal") {
+              const litValue = (valueNode as LiteralNode).value;
+              if (typeof litValue === "number") {
+                value = litValue;
+              } else if (typeof litValue === "string") {
+                value = litValue;
               }
             }
+            members.push({ name: memberName, value });
           }
+        }
+      }
 
-          return {
-            type: IR.IRNodeType.ConstEnumDeclaration,
-            id: { type: IR.IRNodeType.Identifier, name },
-            members,
-          } as IR.IRConstEnumDeclaration;
-        },
-      );
-
-      // =========================================================================
-      // TypeScript: Decorator (decorator) - Used with class/method definitions
-      // =========================================================================
-      transformFactory.set(
-        "decorator",
-        (list: ListNode, currentDir: string) => {
-          // (decorator @Name) or (decorator (@Name arg1 arg2))
-          const elements = list.elements.slice(1);
-          if (elements.length < 1) {
-            throw new TransformError(
-              "decorator requires an expression",
-              extractMeta(list),
-            );
-          }
-
-          const expression = transformHQLNodeToIR(elements[0], currentDir);
-
-          return {
-            type: IR.IRNodeType.Decorator,
-            expression,
-          } as IR.IRDecorator;
-        },
-      );
-
-      transformFactory.set(
-        "get",
-        (list, currentDir) =>
-          dataStructureModule.transformGet(list, currentDir, transformHQLNodeToIR),
-      );
-      transformFactory.set(
-        "js-method",
-        (list: ListNode, currentDir: string) => {
-          return asyncGeneratorsModule.transformJsMethod(list, currentDir, transformHQLNodeToIR);
-        },
-      );
-      // method-call: (.foo obj args) transforms to obj.foo(args)
-      transformFactory.set(
-        "method-call",
-        (list: ListNode, currentDir: string) => {
-          return classModule.transformMethodCall(list, currentDir, transformHQLNodeToIR);
-        },
-      );
-      // optional-method-call: (.?foo obj args) transforms to obj?.foo(args)
-      transformFactory.set(
-        "optional-method-call",
-        (list: ListNode, currentDir: string) => {
-          return classModule.transformOptionalMethodCall(list, currentDir, transformHQLNodeToIR);
-        },
-      );
-      // optional-js-method: (.?foo obj) transforms to obj?.foo (property access)
-      transformFactory.set(
-        "optional-js-method",
-        (list: ListNode, currentDir: string) => {
-          if (list.elements.length < 3) {
-            throw new ValidationError(
-              "optional-js-method requires an object and method name",
-              "optional-js-method",
-              "at least 2 arguments",
-              `${list.elements.length - 1} arguments`,
-            );
-          }
-          const object = validateTransformed(
-            transformHQLNodeToIR(list.elements[1], currentDir),
-            "optional-js-method",
-            "Object",
-          );
-          const methodSpec = list.elements[2];
-          let methodName: string;
-          if (methodSpec.type === "literal") {
-            methodName = String((methodSpec as LiteralNode).value);
-          } else if (methodSpec.type === "symbol") {
-            methodName = (methodSpec as SymbolNode).name;
-          } else {
-            throw new ValidationError(
-              "Method name must be a string literal or symbol",
-              "optional-js-method",
-              "string literal or symbol",
-              methodSpec.type,
-            );
-          }
-          // If there are more elements, it's a method call with arguments
-          if (list.elements.length > 3) {
-            const args = transformElements(
-              list.elements.slice(3),
-              currentDir,
-              transformHQLNodeToIR,
-              "optional-js-method argument",
-              "Argument",
-            );
-            return {
-              type: IR.IRNodeType.OptionalCallExpression,
-              callee: {
-                type: IR.IRNodeType.OptionalMemberExpression,
-                object,
-                property: { type: IR.IRNodeType.Identifier, name: methodName } as IR.IRIdentifier,
-                computed: false,
-                optional: true,
-              } as IR.IROptionalMemberExpression,
-              arguments: args,
-              optional: false,
-            } as IR.IROptionalCallExpression;
-          }
-          // Otherwise, it's just property access (or zero-arg method call)
-          return {
-            type: IR.IRNodeType.OptionalCallExpression,
-            callee: {
-              type: IR.IRNodeType.OptionalMemberExpression,
-              object,
-              property: { type: IR.IRNodeType.Identifier, name: methodName } as IR.IRIdentifier,
-              computed: false,
-              optional: true,
-            } as IR.IROptionalMemberExpression,
-            arguments: [],
-            optional: false,
-          } as IR.IROptionalCallExpression;
-        },
-      );
+      return {
+        type: IR.IRNodeType.ConstEnumDeclaration,
+        id: { type: IR.IRNodeType.Identifier, name },
+        members,
+      } as IR.IRConstEnumDeclaration;
     },
-    "initializeTransformFactory",
-    TransformError,
   );
+
+  // =========================================================================
+  // TypeScript: Decorator (decorator) - Used with class/method definitions
+  // =========================================================================
+  transformFactory.set(
+    "decorator",
+    (list: ListNode, currentDir: string) => {
+      // (decorator @Name) or (decorator (@Name arg1 arg2))
+      const elements = list.elements.slice(1);
+      if (elements.length < 1) {
+        throw new TransformError(
+          "decorator requires an expression",
+          extractMeta(list),
+        );
+      }
+
+      const expression = transformHQLNodeToIR(elements[0], currentDir);
+
+      return {
+        type: IR.IRNodeType.Decorator,
+        expression,
+      } as IR.IRDecorator;
+    },
+  );
+
+  transformFactory.set(
+    "get",
+    (list, currentDir) =>
+      dataStructureModule.transformGet(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
+    "js-method",
+    (list: ListNode, currentDir: string) => {
+      return asyncGeneratorsModule.transformJsMethod(list, currentDir, transformHQLNodeToIR);
+    },
+  );
+  // method-call: (.foo obj args) transforms to obj.foo(args)
+  transformFactory.set(
+    "method-call",
+    (list: ListNode, currentDir: string) => {
+      return classModule.transformMethodCall(list, currentDir, transformHQLNodeToIR);
+    },
+  );
+  // optional-method-call: (.?foo obj args) transforms to obj?.foo(args)
+  transformFactory.set(
+    "optional-method-call",
+    (list: ListNode, currentDir: string) => {
+      return classModule.transformOptionalMethodCall(list, currentDir, transformHQLNodeToIR);
+    },
+  );
+  // optional-js-method: (.?foo obj) transforms to obj?.foo (property access)
+  transformFactory.set(
+    "optional-js-method",
+    (list: ListNode, currentDir: string) => {
+      if (list.elements.length < 3) {
+        throw new ValidationError(
+          "optional-js-method requires an object and method name",
+          "optional-js-method",
+          "at least 2 arguments",
+          `${list.elements.length - 1} arguments`,
+        );
+      }
+      const object = validateTransformed(
+        transformHQLNodeToIR(list.elements[1], currentDir),
+        "optional-js-method",
+        "Object",
+      );
+      const methodSpec = list.elements[2];
+      let methodName: string;
+      if (methodSpec.type === "literal") {
+        methodName = String((methodSpec as LiteralNode).value);
+      } else if (methodSpec.type === "symbol") {
+        methodName = (methodSpec as SymbolNode).name;
+      } else {
+        throw new ValidationError(
+          "Method name must be a string literal or symbol",
+          "optional-js-method",
+          "string literal or symbol",
+          methodSpec.type,
+        );
+      }
+      // If there are more elements, it's a method call with arguments
+      if (list.elements.length > 3) {
+        const args = transformElements(
+          list.elements.slice(3),
+          currentDir,
+          transformHQLNodeToIR,
+          "optional-js-method argument",
+          "Argument",
+        );
+        return {
+          type: IR.IRNodeType.OptionalCallExpression,
+          callee: {
+            type: IR.IRNodeType.OptionalMemberExpression,
+            object,
+            property: { type: IR.IRNodeType.Identifier, name: methodName } as IR.IRIdentifier,
+            computed: false,
+            optional: true,
+          } as IR.IROptionalMemberExpression,
+          arguments: args,
+          optional: false,
+        } as IR.IROptionalCallExpression;
+      }
+      // Otherwise, it's just property access (or zero-arg method call)
+      return {
+        type: IR.IRNodeType.OptionalCallExpression,
+        callee: {
+          type: IR.IRNodeType.OptionalMemberExpression,
+          object,
+          property: { type: IR.IRNodeType.Identifier, name: methodName } as IR.IRIdentifier,
+          computed: false,
+          optional: true,
+        } as IR.IROptionalMemberExpression,
+        arguments: [],
+        optional: false,
+      } as IR.IROptionalCallExpression;
+    },
+  );
+
 }
 
 
@@ -1861,43 +1855,36 @@ export function transformHQLNodeToIR(
   node: HQLNode,
   currentDir: string,
 ): IR.IRNode | null {
-  return perform(
-    () => {
-      if (!node) {
-        throw new ValidationError(
-          "Cannot transform null or undefined node",
-          "node transformation",
-          "valid HQL node",
-          "null or undefined",
-        );
-      }
+  if (!node) {
+    throw new ValidationError(
+      "Cannot transform null or undefined node",
+      "node transformation",
+      "valid HQL node",
+      "null or undefined",
+    );
+  }
 
-      logger.debug(`Transforming node of type: ${node.type}`);
+  logger.debug(`Transforming node of type: ${node.type}`);
 
-      // Dispatch based on node type
-      let result: IR.IRNode | null;
-      switch (node.type) {
-        case "literal":
-          result = literalsModule.transformLiteral(node as LiteralNode);
-          break;
-        case "symbol":
-          result = transformSymbol(node as SymbolNode);
-          break;
-        case "list":
-          result = transformList(node as ListNode, currentDir);
-          break;
-        default: {
-          const fallback = (node as { type?: string }).type ?? "unknown";
-          logger.warn(`Unknown node type: ${fallback}`);
-          result = null;
-        }
-      }
-      return copyPosition(node, result);
-    },
-    "transformHQLNodeToIR",
-    TransformError,
-    [node],
-  );
+  // Dispatch based on node type
+  let result: IR.IRNode | null;
+  switch (node.type) {
+    case "literal":
+      result = literalsModule.transformLiteral(node as LiteralNode);
+      break;
+    case "symbol":
+      result = transformSymbol(node as SymbolNode);
+      break;
+    case "list":
+      result = transformList(node as ListNode, currentDir);
+      break;
+    default: {
+      const fallback = (node as { type?: string }).type ?? "unknown";
+      logger.warn(`Unknown node type: ${fallback}`);
+      result = null;
+    }
+  }
+  return copyPosition(node, result);
 }
 
 /**
@@ -2069,12 +2056,7 @@ function transformBasedOnOperator(
   // Handle built-in operations via the transform factory
   const handler = transformFactory.get(op);
   if (handler) {
-    return perform(
-      () => handler(list, currentDir),
-      `handler for '${op}'`,
-      TransformError,
-      [list],
-    );
+    return handler(list, currentDir);
   }
 
   // Handle primitive operations
@@ -2398,195 +2380,174 @@ function transformOptionalChainMethodCall(
   currentDir: string,
   transformHQLNodeToIR: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      // Parse the chain to get the callee as an OptionalMemberExpression/MemberExpression
-      const callee = transformOptionalChainSymbol(op);
+  // Parse the chain to get the callee as an OptionalMemberExpression/MemberExpression
+  const callee = transformOptionalChainSymbol(op);
 
-      // Transform arguments
-      const args: IR.IRNode[] = [];
-      for (let i = 1; i < list.elements.length; i++) {
-        const argResult = transformHQLNodeToIR(list.elements[i], currentDir);
-        if (argResult) {
-          args.push(argResult);
-        }
-      }
+  // Transform arguments
+  const args: IR.IRNode[] = [];
+  for (let i = 1; i < list.elements.length; i++) {
+    const argResult = transformHQLNodeToIR(list.elements[i], currentDir);
+    if (argResult) {
+      args.push(argResult);
+    }
+  }
 
-      // Create a regular CallExpression with the optional chain callee
-      return {
-        type: IR.IRNodeType.CallExpression,
-        callee,
-        arguments: args,
-      } as IR.IRCallExpression;
-    },
-    `transformOptionalChainMethodCall '${op}'`,
-    TransformError,
-    [list],
-  );
+  // Create a regular CallExpression with the optional chain callee
+  return {
+    type: IR.IRNodeType.CallExpression,
+    callee,
+    arguments: args,
+  } as IR.IRCallExpression;
 }
 
 /**
  * Transform a symbol node to its IR representation.
  */
 function transformSymbol(sym: SymbolNode): IR.IRNode {
-  return perform(
-    () => {
-      let name = sym.name;
-      let isJS = false;
+  let name = sym.name;
+  let isJS = false;
 
-      // Special handling for placeholder symbol
-      if (name === "_") {
-        // Transform it to a string literal "_" instead of an identifier
-        return {
-          type: IR.IRNodeType.StringLiteral,
-          value: "_",
-        } as IR.IRStringLiteral;
-      }
+  // Special handling for placeholder symbol
+  if (name === "_") {
+    // Transform it to a string literal "_" instead of an identifier
+    return {
+      type: IR.IRNodeType.StringLiteral,
+      value: "_",
+    } as IR.IRStringLiteral;
+  }
 
-      // Handle operators as first-class values (e.g., for (reduce + 0 nums))
-      // When an operator symbol appears in value position, call runtime lookup
-      if (FIRST_CLASS_OPERATORS.has(name)) {
-        return {
-          type: IR.IRNodeType.CallExpression,
-          callee: { type: IR.IRNodeType.Identifier, name: GET_OP_HELPER } as IR.IRIdentifier,
-          arguments: [{ type: IR.IRNodeType.StringLiteral, value: name } as IR.IRStringLiteral],
-        } as IR.IRCallExpression;
-      }
+  // Handle operators as first-class values (e.g., for (reduce + 0 nums))
+  // When an operator symbol appears in value position, call runtime lookup
+  if (FIRST_CLASS_OPERATORS.has(name)) {
+    return {
+      type: IR.IRNodeType.CallExpression,
+      callee: { type: IR.IRNodeType.Identifier, name: GET_OP_HELPER } as IR.IRIdentifier,
+      arguments: [{ type: IR.IRNodeType.StringLiteral, value: name } as IR.IRStringLiteral],
+    } as IR.IRCallExpression;
+  }
 
-      // Handle optional chaining: user?.name, data?.user?.address
-      if (name.includes("?.") && !name.startsWith("js/") && !name.startsWith("...")) {
-        return transformOptionalChainSymbol(name);
-      }
+  // Handle optional chaining: user?.name, data?.user?.address
+  if (name.includes("?.") && !name.startsWith("js/") && !name.startsWith("...")) {
+    return transformOptionalChainSymbol(name);
+  }
 
-      // Exclude spread operators (...identifier) from dot notation handling
-      // Handle chained property access: myobj.a.b.c -> myobj.a.b.c (not myobj["a.b.c"])
-      if (name.includes(".") && !name.startsWith("js/") && !name.startsWith("...")) {
-        const parts = name.split(".");
-        const meta = extractMeta(sym);
-        const position = meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined;
+  // Exclude spread operators (...identifier) from dot notation handling
+  // Handle chained property access: myobj.a.b.c -> myobj.a.b.c (not myobj["a.b.c"])
+  if (name.includes(".") && !name.startsWith("js/") && !name.startsWith("...")) {
+    const parts = name.split(".");
+    const meta = extractMeta(sym);
+    const position = meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined;
 
-        // Build base identifier
-        const baseObjectName = sanitizeIdentifier(parts[0]);
-        const objectName = baseObjectName === "self" ? "this" : baseObjectName;
-        let result: IR.IRNode = {
+    // Build base identifier
+    const baseObjectName = sanitizeIdentifier(parts[0]);
+    const objectName = baseObjectName === "self" ? "this" : baseObjectName;
+    let result: IR.IRNode = {
+      type: IR.IRNodeType.Identifier,
+      name: objectName,
+    } as IR.IRIdentifier;
+
+    // Chain member expressions for each property in the path
+    for (let i = 1; i < parts.length; i++) {
+      result = {
+        type: IR.IRNodeType.MemberExpression,
+        object: result,
+        property: {
           type: IR.IRNodeType.Identifier,
-          name: objectName,
-        } as IR.IRIdentifier;
+          name: parts[i],
+        } as IR.IRIdentifier,
+        computed: false,
+        position,
+      } as IR.IRMemberExpression;
+    }
 
-        // Chain member expressions for each property in the path
-        for (let i = 1; i < parts.length; i++) {
-          result = {
-            type: IR.IRNodeType.MemberExpression,
-            object: result,
-            property: {
-              type: IR.IRNodeType.Identifier,
-              name: parts[i],
-            } as IR.IRIdentifier,
-            computed: false,
-            position,
-          } as IR.IRMemberExpression;
-        }
+    return result;
+  }
 
-        return result;
-      }
+  if (name.startsWith("js/")) {
+    name = name.slice(3);
+    isJS = true;
+  }
 
-      if (name.startsWith("js/")) {
-        name = name.slice(3);
-        isJS = true;
-      }
+  if (!isJS) {
+    name = sanitizeIdentifier(name);
+  } else {
+    name = hyphenToUnderscore(name);
+  }
 
-      if (!isJS) {
-        name = sanitizeIdentifier(name);
-      } else {
-        name = hyphenToUnderscore(name);
-      }
-
-      return { type: IR.IRNodeType.Identifier, name, isJS } as IR.IRIdentifier;
-    },
-    `transformSymbol '${sym.name}'`,
-    TransformError,
-    [sym],
-  );
+  return { type: IR.IRNodeType.Identifier, name, isJS } as IR.IRIdentifier;
 }
 
 /**
  * Transform a nested list (list where first element is also a list).
  */
 function transformNestedList(list: ListNode, currentDir: string): IR.IRNode {
-  return perform(
-    () => {
-      const innerExpr = validateTransformed(
-        transformHQLNodeToIR(list.elements[0], currentDir),
-        "nested list",
-        "Inner list",
+  const innerExpr = validateTransformed(
+    transformHQLNodeToIR(list.elements[0], currentDir),
+    "nested list",
+    "Inner list",
+  );
+
+  if (list.elements.length > 1) {
+    const second = list.elements[1];
+
+    // Handle method call notation (list).method(args)
+    if (
+      second.type === "symbol" &&
+      (second as SymbolNode).name.startsWith(".")
+    ) {
+      return transformNestedMethodCall(list, innerExpr, currentDir);
+    } // IIFE: If inner expr is a function, treat subsequent elements as arguments, not property access
+    // This fixes ((fn [x] x) arg) -> function call, not property access
+    else if (innerExpr.type === IR.IRNodeType.FunctionExpression) {
+      const args = transformElements(
+        list.elements.slice(1),
+        currentDir,
+        transformHQLNodeToIR,
+        "function argument",
+        "Argument",
       );
-
-      if (list.elements.length > 1) {
-        const second = list.elements[1];
-
-        // Handle method call notation (list).method(args)
-        if (
-          second.type === "symbol" &&
-          (second as SymbolNode).name.startsWith(".")
-        ) {
-          return transformNestedMethodCall(list, innerExpr, currentDir);
-        } // IIFE: If inner expr is a function, treat subsequent elements as arguments, not property access
-        // This fixes ((fn [x] x) arg) -> function call, not property access
-        else if (innerExpr.type === IR.IRNodeType.FunctionExpression) {
-          const args = transformElements(
-            list.elements.slice(1),
-            currentDir,
-            transformHQLNodeToIR,
-            "function argument",
-            "Argument",
-          );
-          return {
-            type: IR.IRNodeType.CallExpression,
-            callee: innerExpr,
-            arguments: args,
-          } as IR.IRCallExpression;
-        } // Handle property access (list).property - but only for non-function inner expressions
-        else if (second.type === "symbol") {
-          return {
-            type: IR.IRNodeType.MemberExpression,
-            object: innerExpr,
-            property: {
-              type: IR.IRNodeType.Identifier,
-              name: sanitizeIdentifier((second as SymbolNode).name),
-            } as IR.IRIdentifier,
-            computed: false,
-          } as IR.IRMemberExpression;
-        } // Function call with the nested list as the callee
-        else {
-          const args = transformElements(
-            list.elements.slice(1),
-            currentDir,
-            transformHQLNodeToIR,
-            "function argument",
-            "Argument",
-          );
-
-          return {
-            type: IR.IRNodeType.CallExpression,
-            callee: innerExpr,
-            arguments: args,
-          } as IR.IRCallExpression;
-        }
-      }
-
-      // A single-element nested list ((expr)) means: evaluate expr and call the result
-      // This handles both ((fn [] 42)) and ((outer)) where outer returns a function
-      // In Lisp/Clojure semantics, wrapping in extra parens = call the result
       return {
         type: IR.IRNodeType.CallExpression,
-        callee: innerExpr as unknown as IR.IRFunctionExpression,
-        arguments: [],
+        callee: innerExpr,
+        arguments: args,
       } as IR.IRCallExpression;
-    },
-    "transformNestedList",
-    TransformError,
-    [list],
-  );
+    } // Handle property access (list).property - but only for non-function inner expressions
+    else if (second.type === "symbol") {
+      return {
+        type: IR.IRNodeType.MemberExpression,
+        object: innerExpr,
+        property: {
+          type: IR.IRNodeType.Identifier,
+          name: sanitizeIdentifier((second as SymbolNode).name),
+        } as IR.IRIdentifier,
+        computed: false,
+      } as IR.IRMemberExpression;
+    } // Function call with the nested list as the callee
+    else {
+      const args = transformElements(
+        list.elements.slice(1),
+        currentDir,
+        transformHQLNodeToIR,
+        "function argument",
+        "Argument",
+      );
+
+      return {
+        type: IR.IRNodeType.CallExpression,
+        callee: innerExpr,
+        arguments: args,
+      } as IR.IRCallExpression;
+    }
+  }
+
+  // A single-element nested list ((expr)) means: evaluate expr and call the result
+  // This handles both ((fn [] 42)) and ((outer)) where outer returns a function
+  // In Lisp/Clojure semantics, wrapping in extra parens = call the result
+  return {
+    type: IR.IRNodeType.CallExpression,
+    callee: innerExpr as unknown as IR.IRFunctionExpression,
+    arguments: [],
+  } as IR.IRCallExpression;
 }
 
 /**

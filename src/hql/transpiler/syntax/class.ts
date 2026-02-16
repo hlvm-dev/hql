@@ -5,7 +5,6 @@ import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import {
   HQLError,
-  perform,
   TransformError,
   ValidationError,
 } from "../../../common/error.ts";
@@ -343,61 +342,54 @@ export function transformMethodCall(
   currentDir: string,
   transformNode: TransformNodeFn,
 ): IR.IRNode {
-  return perform(
-    () => {
-      if (list.elements.length < 3) {
-        throw new ValidationError(
-          "method-call requires at least an object and method name",
-          "method-call",
-          "at least 2 arguments",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
+  if (list.elements.length < 3) {
+    throw new ValidationError(
+      "method-call requires at least an object and method name",
+      "method-call",
+      "at least 2 arguments",
+      `${list.elements.length - 1} arguments`,
+    );
+  }
 
-      const object = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "method-call",
-        "Object",
-      );
-
-      let methodName: string;
-
-      // Store the method specification element for type checking (fixes TypeScript narrowing)
-      const methodSpec = list.elements[2];
-      const methodSpecType = methodSpec.type;
-
-      if (methodSpecType === "literal") {
-        methodName = String((methodSpec as LiteralNode).value);
-      } else if (methodSpecType === "symbol") {
-        methodName = (methodSpec as SymbolNode).name;
-      } else {
-        throw new ValidationError(
-          "Method name must be a string literal or symbol",
-          "method-call",
-          "string literal or symbol",
-          methodSpecType,
-        );
-      }
-
-      const args = transformElements(
-        list.elements.slice(3),
-        currentDir,
-        transformNode,
-        "method-call argument",
-        "Argument",
-      );
-
-      return {
-        type: IR.IRNodeType.CallMemberExpression,
-        object,
-        property: createStr(methodName),
-        arguments: args,
-      } as IR.IRCallMemberExpression;
-    },
-    "transformMethodCall",
-    TransformError,
-    [list],
+  const object = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "method-call",
+    "Object",
   );
+
+  let methodName: string;
+
+  // Store the method specification element for type checking (fixes TypeScript narrowing)
+  const methodSpec = list.elements[2];
+  const methodSpecType = methodSpec.type;
+
+  if (methodSpecType === "literal") {
+    methodName = String((methodSpec as LiteralNode).value);
+  } else if (methodSpecType === "symbol") {
+    methodName = (methodSpec as SymbolNode).name;
+  } else {
+    throw new ValidationError(
+      "Method name must be a string literal or symbol",
+      "method-call",
+      "string literal or symbol",
+      methodSpecType,
+    );
+  }
+
+  const args = transformElements(
+    list.elements.slice(3),
+    currentDir,
+    transformNode,
+    "method-call argument",
+    "Argument",
+  );
+
+  return {
+    type: IR.IRNodeType.CallMemberExpression,
+    object,
+    property: createStr(methodName),
+    arguments: args,
+  } as IR.IRCallMemberExpression;
 }
 
 /**
@@ -411,120 +403,113 @@ export function transformOptionalMethodCall(
   currentDir: string,
   transformNode: TransformNodeFn,
 ): IR.IRNode {
-  return perform(
-    () => {
-      const firstElement = list.elements[0];
-      const op = firstElement.type === "symbol" ? (firstElement as SymbolNode).name : "";
+  const firstElement = list.elements[0];
+  const op = firstElement.type === "symbol" ? (firstElement as SymbolNode).name : "";
 
-      // Check if this is the direct form: (.?foo obj args...)
-      if (op.startsWith(".?")) {
-        if (list.elements.length < 2) {
-          throw new ValidationError(
-            "optional method call requires at least an object",
-            "optional-method-call",
-            "at least 1 argument",
-            `${list.elements.length - 1} arguments`,
-          );
-        }
-
-        const methodName = op.substring(2); // Remove ".?"
-        const object = validateTransformed(
-          transformNode(list.elements[1], currentDir),
-          "optional-method-call",
-          "Object",
-        );
-
-        const args = transformElements(
-          list.elements.slice(2),
-          currentDir,
-          transformNode,
-          "optional-method-call argument",
-          "Argument",
-        );
-
-        // Use computed property access for method names with special characters (hyphens, etc.)
-        // This generates obj?.["method-name"]() instead of obj?.method-name()
-        const needsComputed = SPECIAL_CHAR_REGEX.test(methodName);
-
-        return {
-          type: IR.IRNodeType.OptionalCallExpression,
-          callee: {
-            type: IR.IRNodeType.OptionalMemberExpression,
-            object,
-            property: needsComputed
-              ? createStr(methodName)
-              : createId(methodName),
-            computed: needsComputed,
-            optional: true,
-          } as IR.IROptionalMemberExpression,
-          arguments: args,
-          optional: true, // Generate obj?.method?.() for full optional chaining
-        } as IR.IROptionalCallExpression;
-      }
-
-      // Normalized form: (optional-method-call obj "foo" args...)
-      if (list.elements.length < 3) {
-        throw new ValidationError(
-          "optional-method-call requires at least an object and method name",
-          "optional-method-call",
-          "at least 2 arguments",
-          `${list.elements.length - 1} arguments`,
-        );
-      }
-
-      const object = validateTransformed(
-        transformNode(list.elements[1], currentDir),
+  // Check if this is the direct form: (.?foo obj args...)
+  if (op.startsWith(".?")) {
+    if (list.elements.length < 2) {
+      throw new ValidationError(
+        "optional method call requires at least an object",
         "optional-method-call",
-        "Object",
+        "at least 1 argument",
+        `${list.elements.length - 1} arguments`,
       );
+    }
 
-      let methodName: string;
-      const methodSpec = list.elements[2];
-      const methodSpecType = methodSpec.type;
+    const methodName = op.substring(2); // Remove ".?"
+    const object = validateTransformed(
+      transformNode(list.elements[1], currentDir),
+      "optional-method-call",
+      "Object",
+    );
 
-      if (methodSpecType === "literal") {
-        methodName = String((methodSpec as LiteralNode).value);
-      } else if (methodSpecType === "symbol") {
-        methodName = (methodSpec as SymbolNode).name;
-      } else {
-        throw new ValidationError(
-          "Method name must be a string literal or symbol",
-          "optional-method-call",
-          "string literal or symbol",
-          methodSpecType,
-        );
-      }
+    const args = transformElements(
+      list.elements.slice(2),
+      currentDir,
+      transformNode,
+      "optional-method-call argument",
+      "Argument",
+    );
 
-      const args = transformElements(
-        list.elements.slice(3),
-        currentDir,
-        transformNode,
-        "optional-method-call argument",
-        "Argument",
-      );
+    // Use computed property access for method names with special characters (hyphens, etc.)
+    // This generates obj?.["method-name"]() instead of obj?.method-name()
+    const needsComputed = SPECIAL_CHAR_REGEX.test(methodName);
 
-      // Use computed property access for method names with special characters (hyphens, etc.)
-      const needsComputed = SPECIAL_CHAR_REGEX.test(methodName);
+    return {
+      type: IR.IRNodeType.OptionalCallExpression,
+      callee: {
+        type: IR.IRNodeType.OptionalMemberExpression,
+        object,
+        property: needsComputed
+          ? createStr(methodName)
+          : createId(methodName),
+        computed: needsComputed,
+        optional: true,
+      } as IR.IROptionalMemberExpression,
+      arguments: args,
+      optional: true, // Generate obj?.method?.() for full optional chaining
+    } as IR.IROptionalCallExpression;
+  }
 
-      return {
-        type: IR.IRNodeType.OptionalCallExpression,
-        callee: {
-          type: IR.IRNodeType.OptionalMemberExpression,
-          object,
-          property: needsComputed
-            ? createStr(methodName)
-            : createId(methodName),
-          computed: needsComputed,
-          optional: true,
-        } as IR.IROptionalMemberExpression,
-        arguments: args,
-        optional: true, // Generate obj?.method?.() for full optional chaining
-      } as IR.IROptionalCallExpression;
-    },
-    "transformOptionalMethodCall",
-    TransformError,
-    [list],
+  // Normalized form: (optional-method-call obj "foo" args...)
+  if (list.elements.length < 3) {
+    throw new ValidationError(
+      "optional-method-call requires at least an object and method name",
+      "optional-method-call",
+      "at least 2 arguments",
+      `${list.elements.length - 1} arguments`,
+    );
+  }
+
+  const object = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "optional-method-call",
+    "Object",
   );
+
+  let methodName: string;
+  const methodSpec = list.elements[2];
+  const methodSpecType = methodSpec.type;
+
+  if (methodSpecType === "literal") {
+    methodName = String((methodSpec as LiteralNode).value);
+  } else if (methodSpecType === "symbol") {
+    methodName = (methodSpec as SymbolNode).name;
+  } else {
+    throw new ValidationError(
+      "Method name must be a string literal or symbol",
+      "optional-method-call",
+      "string literal or symbol",
+      methodSpecType,
+    );
+  }
+
+  const args = transformElements(
+    list.elements.slice(3),
+    currentDir,
+    transformNode,
+    "optional-method-call argument",
+    "Argument",
+  );
+
+  // Use computed property access for method names with special characters (hyphens, etc.)
+  const needsComputed = SPECIAL_CHAR_REGEX.test(methodName);
+
+  return {
+    type: IR.IRNodeType.OptionalCallExpression,
+    callee: {
+      type: IR.IRNodeType.OptionalMemberExpression,
+      object,
+      property: needsComputed
+        ? createStr(methodName)
+        : createId(methodName),
+      computed: needsComputed,
+      optional: true,
+    } as IR.IROptionalMemberExpression,
+    arguments: args,
+    optional: true, // Generate obj?.method?.() for full optional chaining
+  } as IR.IROptionalCallExpression;
 }
 
 function parseClassMethodParameters(

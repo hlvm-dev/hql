@@ -4,7 +4,6 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import { TransformError } from "../../../common/error.ts";
-import { perform } from "../../../common/error.ts";
 import { createNull, createNum, createStr } from "../utils/ir-helpers.ts";
 import {
   validateTransformed,
@@ -24,66 +23,59 @@ export function transformQuote(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      validateListLength(list, 2, "quote");
+  validateListLength(list, 2, "quote");
 
-      const quoted = list.elements[1];
-      if (quoted.type === "literal") {
-        // Create the appropriate literal based on the type
-        const value = (quoted as LiteralNode).value;
-        if (value === null) {
-          return createNull();
-        } else if (typeof value === "boolean") {
-          return {
-            type: IR.IRNodeType.BooleanLiteral,
-            value,
-          } as IR.IRBooleanLiteral;
-        } else if (typeof value === "number") {
-          return createNum(value);
-        }
-        return createStr(String(value));
-      } else if (quoted.type === "symbol") {
-        return {
-          type: IR.IRNodeType.StringLiteral,
-          value: (quoted as SymbolNode).name,
-        } as IR.IRStringLiteral;
-      } else if (quoted.type === "list") {
-        if ((quoted as ListNode).elements.length === 0) {
-          return {
-            type: IR.IRNodeType.ArrayExpression,
-            elements: [],
-          } as IR.IRArrayExpression;
-        }
+  const quoted = list.elements[1];
+  if (quoted.type === "literal") {
+    // Create the appropriate literal based on the type
+    const value = (quoted as LiteralNode).value;
+    if (value === null) {
+      return createNull();
+    } else if (typeof value === "boolean") {
+      return {
+        type: IR.IRNodeType.BooleanLiteral,
+        value,
+      } as IR.IRBooleanLiteral;
+    } else if (typeof value === "number") {
+      return createNum(value);
+    }
+    return createStr(String(value));
+  } else if (quoted.type === "symbol") {
+    return {
+      type: IR.IRNodeType.StringLiteral,
+      value: (quoted as SymbolNode).name,
+    } as IR.IRStringLiteral;
+  } else if (quoted.type === "list") {
+    if ((quoted as ListNode).elements.length === 0) {
+      return {
+        type: IR.IRNodeType.ArrayExpression,
+        elements: [],
+      } as IR.IRArrayExpression;
+    }
 
-        const elements: IR.IRNode[] = (quoted as ListNode).elements.map((
-          elem,
-        ) =>
-          transformQuote(
-            {
-              type: "list",
-              elements: [{ type: "symbol", name: "quote" }, elem],
-            },
-            currentDir,
-            transformNode,
-          )
-        );
-        return {
-          type: IR.IRNodeType.ArrayExpression,
-          elements,
-        } as IR.IRArrayExpression;
-      }
+    const elements: IR.IRNode[] = (quoted as ListNode).elements.map((
+      elem,
+    ) =>
+      transformQuote(
+        {
+          type: "list",
+          elements: [{ type: "symbol", name: "quote" }, elem],
+        },
+        currentDir,
+        transformNode,
+      )
+    );
+    return {
+      type: IR.IRNodeType.ArrayExpression,
+      elements,
+    } as IR.IRArrayExpression;
+  }
 
-      throw typeError(
-        "quote",
-        "literal, symbol, or list",
-        (quoted as { type: string }).type,
-        extractPosition(list),
-      );
-    },
-    "transformQuote",
-    TransformError,
-    [list],
+  throw typeError(
+    "quote",
+    "literal, symbol, or list",
+    (quoted as { type: string }).type,
+    extractPosition(list),
   );
 }
 
@@ -95,26 +87,19 @@ export function transformQuasiquote(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      validateListLength(list, 2, "quasiquote");
+  validateListLength(list, 2, "quasiquote");
 
-      const transformed = validateTransformed(
-        buildQuasiquoteIR(
-          list.elements[1],
-          0, // BUG FIX: Start at depth 0 for nested quasiquote support
-          currentDir,
-          transformNode,
-        ),
-        "quasiquote",
-        "Quasiquoted expression",
-      );
-      return transformed;
-    },
-    "transformQuasiquote",
-    TransformError,
-    [list],
+  const transformed = validateTransformed(
+    buildQuasiquoteIR(
+      list.elements[1],
+      0, // BUG FIX: Start at depth 0 for nested quasiquote support
+      currentDir,
+      transformNode,
+    ),
+    "quasiquote",
+    "Quasiquoted expression",
   );
+  return transformed;
 }
 
 function buildQuasiquoteIR(
@@ -309,21 +294,14 @@ export function transformUnquote(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      validateListLength(list, 2, "unquote");
+  validateListLength(list, 2, "unquote");
 
-      const transformed = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "unquote",
-        "Unquoted expression",
-      );
-      return transformed;
-    },
-    "transformUnquote",
-    TransformError,
-    [list],
+  const transformed = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "unquote",
+    "Unquoted expression",
   );
+  return transformed;
 }
 
 /**
@@ -334,19 +312,12 @@ export function transformUnquoteSplicing(
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
-  return perform(
-    () => {
-      validateListLength(list, 2, "unquote-splicing");
+  validateListLength(list, 2, "unquote-splicing");
 
-      const transformed = validateTransformed(
-        transformNode(list.elements[1], currentDir),
-        "unquote-splicing",
-        "Unquote-spliced expression",
-      );
-      return transformed;
-    },
-    "transformUnquoteSplicing",
-    TransformError,
-    [list],
+  const transformed = validateTransformed(
+    transformNode(list.elements[1], currentDir),
+    "unquote-splicing",
+    "Unquote-spliced expression",
   );
+  return transformed;
 }
