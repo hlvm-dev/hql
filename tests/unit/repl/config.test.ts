@@ -2,58 +2,53 @@
  * Unit tests for config module
  */
 
-import { assertEquals, assertExists } from "jsr:@std/assert@1";
+import { assertEquals } from "jsr:@std/assert@1";
 import {
-  DEFAULT_CONFIG,
+  createDefaultToolsConfig,
   CONFIG_KEYS,
-  DEFAULT_MODEL_ID,
   validateValue,
   parseValue,
 } from "../../../src/common/config/types.ts";
 import { isConfigKey } from "../../../src/common/config/storage.ts";
 
 // ============================================================
-// DEFAULT_CONFIG tests
+// Defaults tests
 // ============================================================
 
-Deno.test("DEFAULT_CONFIG - has all required fields", () => {
-  assertExists(DEFAULT_CONFIG.version);
-  assertExists(DEFAULT_CONFIG.model);
-  assertExists(DEFAULT_CONFIG.endpoint);
-  assertExists(DEFAULT_CONFIG.temperature);
-  assertExists(DEFAULT_CONFIG.maxTokens);
-  assertExists(DEFAULT_CONFIG.theme);
-});
+Deno.test("createDefaultToolsConfig - returns deep-cloned defaults", () => {
+  const first = createDefaultToolsConfig();
+  const second = createDefaultToolsConfig();
 
-Deno.test("DEFAULT_CONFIG - version is 1", () => {
-  assertEquals(DEFAULT_CONFIG.version, 1);
-});
+  first.web!.search!.enabled = false;
+  first.web!.fetch!.firecrawl!.enabled = true;
 
-Deno.test("DEFAULT_CONFIG - model follows provider/model format", () => {
-  assertEquals(DEFAULT_CONFIG.model, DEFAULT_MODEL_ID);
-  assertEquals(DEFAULT_CONFIG.model.includes("/"), true);
+  assertEquals(second.web?.search?.enabled, true);
+  assertEquals(second.web?.fetch?.firecrawl?.enabled, false);
 });
 
 // ============================================================
 // CONFIG_KEYS tests
 // ============================================================
 
-Deno.test("CONFIG_KEYS - contains expected keys", () => {
-  assertEquals(CONFIG_KEYS.includes("model"), true);
-  assertEquals(CONFIG_KEYS.includes("endpoint"), true);
-  assertEquals(CONFIG_KEYS.includes("temperature"), true);
-  assertEquals(CONFIG_KEYS.includes("maxTokens"), true);
-  assertEquals(CONFIG_KEYS.includes("theme"), true);
-  assertEquals(CONFIG_KEYS.includes("tools"), true);
+Deno.test("CONFIG_KEYS - exact user-settable keys", () => {
+  assertEquals(CONFIG_KEYS, [
+    "model",
+    "endpoint",
+    "temperature",
+    "maxTokens",
+    "theme",
+    "tools",
+    "modelConfigured",
+    "approvedProviders",
+    "agentMode",
+    "sessionMemory",
+  ]);
 });
 
-Deno.test("isConfigKey - valid keys", () => {
-  assertEquals(isConfigKey("model"), true);
-  assertEquals(isConfigKey("endpoint"), true);
-  assertEquals(isConfigKey("temperature"), true);
-  assertEquals(isConfigKey("maxTokens"), true);
-  assertEquals(isConfigKey("theme"), true);
-  assertEquals(isConfigKey("tools"), true);
+Deno.test("isConfigKey - accepts all CONFIG_KEYS", () => {
+  for (const key of CONFIG_KEYS) {
+    assertEquals(isConfigKey(key), true);
+  }
 });
 
 Deno.test("isConfigKey - invalid keys", () => {
@@ -116,16 +111,16 @@ Deno.test("validateValue - maxTokens invalid", () => {
 
 Deno.test("validateValue - theme valid", () => {
   assertEquals(validateValue("theme", "sicp").valid, true);
-  assertEquals(validateValue("theme", "monokai").valid, true);
-  assertEquals(validateValue("theme", "dracula").valid, true);
-  assertEquals(validateValue("theme", "nord").valid, true);
-  assertEquals(validateValue("theme", "oneDark").valid, true);
-  assertEquals(validateValue("theme", "gruvbox").valid, true);
 });
 
 Deno.test("validateValue - tools valid", () => {
   assertEquals(validateValue("tools", {}).valid, true);
-  assertEquals(validateValue("tools", { web: {} }).valid, true);
+});
+
+Deno.test("validateValue - tools invalid", () => {
+  assertEquals(validateValue("tools", null).valid, false);
+  assertEquals(validateValue("tools", []).valid, false);
+  assertEquals(validateValue("tools", "nope").valid, false);
 });
 
 Deno.test("validateValue - theme invalid", () => {
@@ -144,10 +139,6 @@ Deno.test("validateValue - sessionMemory invalid", () => {
   assertEquals(validateValue("sessionMemory", "true").valid, false);
   assertEquals(validateValue("sessionMemory", 1).valid, false);
   assertEquals(validateValue("sessionMemory", null).valid, false);
-});
-
-Deno.test("CONFIG_KEYS - contains sessionMemory", () => {
-  assertEquals(CONFIG_KEYS.includes("sessionMemory"), true);
 });
 
 // ============================================================

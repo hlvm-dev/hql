@@ -31,6 +31,12 @@ import type { ModelInfo } from "../../../providers/types.ts";
 import { config } from "../../../api/config.ts";
 import { isPaidProvider, isProviderApproved } from "../../commands/ask.ts";
 import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
+import {
+  buildClaudeCodeCommand,
+  captureSessionIdFromInitEvent,
+  isSessionMemoryEnabled,
+  parseSessionMemoryMetadata,
+} from "./session-memory.ts";
 
 function pushSessionUpdatedEvent(sessionId: string): void {
   pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: sessionId });
@@ -617,26 +623,16 @@ async function handleClaudeCodeAgentMode(
   }
 
   const cfgSnapshot = config.snapshot;
-  const sessionMemoryEnabled = cfgSnapshot.sessionMemory !== false; // default ON
+  const sessionMemoryEnabled = isSessionMemoryEnabled(cfgSnapshot.sessionMemory);
 
   // Read stored Claude Code session ID from HLVM session metadata
   let claudeCodeSessionId: string | null = null;
   let existingMeta: Record<string, unknown> = {};
   if (sessionMemoryEnabled) {
     const session = getSession(body.session_id);
-    if (session?.metadata) {
-      try {
-        const meta = JSON.parse(session.metadata);
-        if (meta && typeof meta === "object") {
-          existingMeta = meta as Record<string, unknown>;
-          claudeCodeSessionId = typeof meta.claudeCodeSessionId === "string"
-            ? meta.claudeCodeSessionId
-            : null;
-        }
-      } catch {
-        // Malformed metadata — treat as empty
-      }
-    }
+    const parsedMeta = parseSessionMemoryMetadata(session?.metadata);
+    existingMeta = parsedMeta.existingMeta;
+    claudeCodeSessionId = parsedMeta.claudeCodeSessionId;
   }
 
   const result = await spawnClaudeCodeProcess(
@@ -670,10 +666,7 @@ async function spawnClaudeCodeProcess(
 ): Promise<{ success: boolean }> {
   const platform = getPlatform();
 
-  // Build command — use --resume when we have a stored Claude Code session ID
-  const cmd = claudeCodeSessionId
-    ? ["claude", "--resume", claudeCodeSessionId, "-p", query, "--output-format", "stream-json", "--verbose"]
-    : ["claude", "-p", query, "--output-format", "stream-json", "--verbose"];
+  const cmd = buildClaudeCodeCommand(query, claudeCodeSessionId);
 
   const proc = platform.command.run({
     cmd,
@@ -717,15 +710,7 @@ async function spawnClaudeCodeProcess(
         try {
           const event = JSON.parse(trimmed);
 
-          // Capture session_id from init event for session memory
-          if (
-            sessionMemoryEnabled &&
-            event.type === "system" &&
-            event.subtype === "init" &&
-            typeof event.session_id === "string" &&
-            event.session_id !== claudeCodeSessionId
-          ) {
-            existingMeta.claudeCodeSessionId = event.session_id;
+          if (captureSessionIdFromInitEvent(event, sessionMemoryEnabled, claudeCodeSessionId, existingMeta)) {
             updateSession(hlvmSessionId, { metadata: JSON.stringify(existingMeta) });
           }
 

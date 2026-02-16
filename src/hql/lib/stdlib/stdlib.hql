@@ -1,28 +1,7 @@
 // lib/stdlib/stdlib.hql - HQL stdlib with self-hosted functions
 //
-// SELF-HOSTED FUNCTIONS:
-// Phase 1 - Core Sequence Operations:
-// - take: Returns first n elements from a collection (lazy)
-// - drop: Drops first n elements from a collection (lazy)
-// - map: Maps function over collection (lazy)
-// - filter: Filters collection by predicate (lazy)
-// - reduce: Reduces collection with function and initial value (EAGER)
-// - concat: Concatenates multiple collections (lazy)
-// - flatten: Flattens nested collections (lazy)
-// - distinct: Removes duplicate elements (lazy)
-//
-// Phase 2 - Indexed Operations:
-// - next: Returns seq of rest, or nil if empty (same as (seq (rest coll)))
-// - second: Returns second element (same as (nth coll 1 nil))
-// - nth: Returns element at index with optional not-found
-// - count: Returns count of elements (EAGER)
-// - last: Returns last element (EAGER)
-//
-// Phase 3 - Map Operations:
-// - mapIndexed: Maps (index, item) over collection (lazy)
-// - keepIndexed: Like mapIndexed but filters nil results (lazy)
-// - mapcat: Maps then flattens one level (lazy)
-// - keep: Maps and filters nil results (lazy)
+// ~91% of stdlib is self-hosted in HQL. Only sequence primitives,
+// lazy-seq constructor, and a few hot-path utilities remain as JS imports.
 //
 // The self-hosted approach:
 // - Import primitive functions from JS (first, rest, cons, seq, lazy-seq)
@@ -30,45 +9,22 @@
 // - This is TRUE self-hosting: HQL code that gets transpiled
 
 // Import primitive functions from JavaScript (the foundation)
+// Only true primitives and hot-path functions that can't be expressed in HQL
 (import [
-  // Sequence primitives (Lisp Trinity) - these are the foundation
+  // Sequence primitives (Lisp Trinity) - the irreducible foundation
   first, rest, cons, seq,
 
-  // NOTE: nth, count, second, last, next are NOW SELF-HOSTED BELOW!
+  // Lazy sequence constructor
+  lazySeq,
 
-  // Sequence predicates
-  isEmpty, some,
+  // Sequence generators (uses NumericRange with O(1) count/nth - hot path)
+  rangeGenerator,
 
-  // Sequence operations (NOT take/drop/map/filter/reduce/concat/flatten/distinct - those are self-hosted below!)
-
-  // NOTE: mapIndexed, keepIndexed, mapcat, keep are NOW SELF-HOSTED BELOW!
-
-  // Collection protocols (Week 3)
-  seq, empty, conj, into,
-
-  // Lazy constructors (Week 4)
-  repeat, repeatedly, cycle,
-
-  // Sequence predicates (Week 5)
-  every, notAny, notEvery, isSome,
-
-  // Map/Object operations (Week 6)
-  get, getIn, assoc, assocIn, dissoc, update, updateIn, merge,
-
-  // Type conversions (Week 6)
-  vec, set,
-
-  // Sequence generators
-  rangeGenerator, iterate,
-
-  // Function operations
-  comp, partial, apply,
-
-  // Utilities
-  groupBy, keys, doall, realized, lazySeq,
-
-  // Delay/Force primitives (explicit laziness)
-  force, isDelay
+  // Utilities that remain as JS imports:
+  // - groupBy: uses Map protocol internally
+  // - realized: checks LazySeq/Delay internal fields
+  // - force/isDelay: Delay class protocol
+  groupBy, realized, force, isDelay
 ] from "./js/stdlib.js")
 
 // Create alias for range to match runtime behavior
@@ -445,6 +401,8 @@
 (fn isBoolean [x] (== "boolean" (typeof x)))
 (fn isFunction [x] (== "function" (typeof x)))
 (fn isArray [x] (js-call Array.isArray x))
+(fn isObject [x]
+  (and (not (nil? x)) (=== (typeof x) "object") (not (js-call Array.isArray x))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 6: ARITHMETIC
@@ -452,6 +410,24 @@
 
 (fn inc [x] (+ x 1))
 (fn dec [x] (- x 1))
+(fn abs [x] (js-call Math.abs x))
+
+// Variadic arithmetic with identity semantics
+(fn add [& nums] (reduce (fn [a b] (+ a b)) 0 nums))
+(fn sub [& nums]
+  (if (=== (count nums) 0)
+    0
+    (if (=== (count nums) 1)
+      (- 0 (first nums))
+      (reduce (fn [a b] (- a b)) (first nums) (rest nums)))))
+(fn mul [& nums] (reduce (fn [a b] (* a b)) 1 nums))
+(fn div [& nums]
+  (if (=== (count nums) 0)
+    1
+    (if (=== (count nums) 1)
+      (/ 1 (first nums))
+      (reduce (fn [a b] (/ a b)) (first nums) (rest nums)))))
+(fn mod [a b] (% a b))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 7: COMPARISON
@@ -469,6 +445,62 @@
           true)))))
 
 (fn neq [a b] (not (=== a b)))
+
+// Variadic chained comparison: (lt a b c) means a<b AND b<c
+(fn lt [& nums]
+  (loop [s (seq nums)]
+    (if (and s (seq (rest s)))
+      (if (< (first s) (first (rest s)))
+        (recur (rest s))
+        false)
+      true)))
+
+(fn gt [& nums]
+  (loop [s (seq nums)]
+    (if (and s (seq (rest s)))
+      (if (> (first s) (first (rest s)))
+        (recur (rest s))
+        false)
+      true)))
+
+(fn lte [& nums]
+  (loop [s (seq nums)]
+    (if (and s (seq (rest s)))
+      (if (<= (first s) (first (rest s)))
+        (recur (rest s))
+        false)
+      true)))
+
+(fn gte [& nums]
+  (loop [s (seq nums)]
+    (if (and s (seq (rest s)))
+      (if (>= (first s) (first (rest s)))
+        (recur (rest s))
+        false)
+      true)))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 7B: SYMBOL/KEYWORD/NAME
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// symbol - Create symbol from string
+(fn symbol [n] (js-call String n))
+
+// keyword - Create keyword (string with : prefix)
+(fn keyword [n]
+  (let [s (js-call String n)]
+    (if (js-call s "startsWith" ":")
+      s
+      (str ":" s))))
+
+// name - Get name part (removes : prefix from keywords)
+(fn name [x]
+  (if (nil? x)
+    nil
+    (let [s (js-call String x)]
+      (if (js-call s "startsWith" ":")
+        (js-call s "slice" 1)
+        s))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 8: LAZY CONSTRUCTORS
@@ -548,12 +580,229 @@
              (assoc result (first keys) (first values)))
       result)))
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 12: MAP ACCESS (self-hosted)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// get - Get value at key from map/object, with optional default
+(fn get [m key & args]
+  (let [not-found (first args)]
+    (if (nil? m)
+      not-found
+      (if (instanceof m Map)
+        (if (js-call m "has" key) (js-call m "get" key) not-found)
+        (if (in key m) (js-get m key) not-found)))))
+
+// getIn - Get value at nested path
+(fn getIn [m path & args]
+  (let [not-found (first args)]
+    (if (=== (js-get path "length") 0)
+      m
+      (loop [current m, s (seq path)]
+        (if s
+          (let [next-val (get current (first s) nil)]
+            (if (nil? next-val)
+              not-found
+              (recur next-val (seq (rest s)))))
+          current)))))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 13: MAP MUTATIONS (immutable, self-hosted)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// assoc - Associate key with value (returns new map/array)
+(fn assoc [m key value]
+  (if (nil? m)
+    (if (=== (typeof key) "number")
+      [value]
+      {key value})
+    (if (instanceof m Map)
+      (let [r (js-new Map (m))]
+        (js-call r "set" key value)
+        r)
+      (if (js-call Array.isArray m)
+        (let [r [...m]]
+          (js-set r key value)
+          r)
+        {...m, key value}))))
+
+// assocIn - Associate value at nested path
+(fn assocIn [m path value]
+  (if (=== (js-get path "length") 0)
+    value
+    (if (=== (js-get path "length") 1)
+      (assoc m (js-get path 0) value)
+      (let [key (js-get path 0)
+            rest-path (js-call path "slice" 1)
+            base (if (nil? m) {} m)
+            existing (get base key)]
+        (assoc base key
+          (assocIn
+            (if (and (not (nil? existing)) (=== (typeof existing) "object"))
+              existing
+              (if (=== (typeof (js-get rest-path 0)) "number") [] {}))
+            rest-path value))))))
+
+// dissoc - Remove keys from map (returns new map)
+(fn dissoc [m & ks]
+  (if (nil? m)
+    {}
+    (if (instanceof m Map)
+      (let [r (js-new Map (m))]
+        (reduce (fn [acc k] (js-call acc "delete" k) acc) r ks))
+      (let [r {...m}]
+        (reduce (fn [acc k] (delete (js-get acc k)) acc) r ks)))))
+
+// update - Transform value at key with function
+(fn update [m key f]
+  (assoc m key (f (get m key))))
+
+// updateIn - Transform value at nested path with function
+(fn updateIn [m path f]
+  (if (=== (js-get path "length") 0)
+    (f m)
+    (assocIn m path (f (getIn m path)))))
+
+// merge - Merge multiple maps (later wins, shallow)
+(fn merge [& maps]
+  (let [non-nil (filter (fn [m] (not (nil? m))) maps)]
+    (if (isEmpty non-nil)
+      {}
+      (js-call Object.assign {} ...non-nil))))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 14: COLLECTION PROTOCOLS (self-hosted)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// empty - Return empty collection of same type
+(fn empty [coll]
+  (if (nil? coll)
+    nil
+    (if (js-call Array.isArray coll) []
+      (if (=== (typeof coll) "string") ""
+        (if (instanceof coll Set) (js-new Set ())
+          (if (instanceof coll Map) (js-new Map ())
+            (if (=== (typeof coll) "object") {}
+              nil)))))))
+
+// conj - Add item(s) to collection (type-preserving)
+(fn conj [coll & items]
+  (if (=== (count items) 0)
+    (if (nil? coll) [] coll)
+    (if (nil? coll)
+      [...items]
+      (if (js-call Array.isArray coll)
+        [...coll ...items]
+        (if (instanceof coll Set)
+          (let [r (js-new Set (coll))]
+            (reduce (fn [acc item] (js-call acc "add" item) acc) r items))
+          (if (instanceof coll Map)
+            (let [r (js-new Map (coll))]
+              (reduce (fn [acc item] (js-call acc "set" (js-get item 0) (js-get item 1)) acc) r items))
+            (reduce (fn [acc item] (js-set acc (js-get item 0) (js-get item 1)) acc)
+                    {...coll} items)))))))
+
+// into - Pour collection into target
+(fn into [to from]
+  (if (nil? from)
+    (if (nil? to) [] to)
+    (if (nil? to)
+      (js-call Array.from from)
+      (if (js-call Array.isArray to)
+        (let [arr [...to]]
+          (reduce (fn [acc item] (js-call acc "push" item) acc) arr from))
+        (if (instanceof to Set)
+          (let [r (js-new Set (to))]
+            (reduce (fn [acc item] (js-call acc "add" item) acc) r from))
+          (if (instanceof to Map)
+            (let [r (js-new Map (to))]
+              (reduce (fn [acc item]
+                (if (and (js-call Array.isArray item) (=== (js-get item "length") 2))
+                  (js-call acc "set" (js-get item 0) (js-get item 1))
+                  acc)
+                acc) r from))
+            (reduce (fn [acc item] (conj acc item)) to from)))))))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 15: TYPE CONVERSIONS (self-hosted)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// vec - Convert collection to array
+(fn vec [coll]
+  (if (nil? coll) [] (js-call Array.from coll)))
+
+// set - Convert collection to Set
+(fn set [coll]
+  (if (nil? coll) (js-new Set ()) (js-new Set (coll))))
+
+// doall - Force realization of lazy sequence
+(fn doall [coll]
+  (if (nil? coll)
+    []
+    (if (js-call Array.isArray coll)
+      coll
+      (js-call Array.from coll))))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 16: FUNCTION OPERATIONS (self-hosted)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// comp - Compose functions right-to-left: (comp f g h)(x) = f(g(h(x)))
+(fn comp [& fns]
+  (if (=== (count fns) 0)
+    (fn [x] x)
+    (if (=== (count fns) 1)
+      (first fns)
+      (fn [& args]
+        (let [reversed (reverse fns)
+              init-result (apply (first reversed) args)]
+          (reduce (fn [result f] (f result)) init-result (rest reversed)))))))
+
+// partial - Partial function application
+(fn partial [f & args]
+  (fn [& more-args]
+    (apply f (concat args more-args))))
+
+// apply - Apply function to args collection
+(fn apply [f args]
+  (let [arr (if (js-call Array.isArray args) args (js-call Array.from args))]
+    (js-call f "apply" nil arr)))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 17: SORTING (self-hosted)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// sort - Sort collection with optional comparator
+(fn sort [& args]
+  (if (=== (count args) 1)
+    // Single arg: sort by natural order
+    (let [arr (if (nil? (first args)) [] (js-call Array.from (first args)))]
+      (js-call arr "sort" (fn [a b] (if (< a b) -1 (if (> a b) 1 0)))))
+    // Two args: first is comparator
+    (let [comp (first args)
+          arr (if (nil? (second args)) [] (js-call Array.from (second args)))]
+      (js-call arr "sort" comp))))
+
+// sortBy - Sort collection by key function with optional comparator
+(fn sortBy [keyfn & args]
+  (if (=== (count args) 1)
+    // Two args: sort by keyfn with natural order
+    (let [arr (if (nil? (first args)) [] (js-call Array.from (first args)))]
+      (js-call arr "sort"
+        (fn [a b]
+          (let [ka (keyfn a) kb (keyfn b)]
+            (if (< ka kb) -1 (if (> ka kb) 1 0))))))
+    // Three args: second is comparator
+    (let [comp (first args)
+          arr (if (nil? (second args)) [] (js-call Array.from (second args)))]
+      (js-call arr "sort" (fn [a b] (comp (keyfn a) (keyfn b)))))))
+
 // Export all functions
 (export [
   // Sequence primitives (Lisp Trinity)
   first, rest, cons,
 
-  // Indexed access & counting (Phase 2 self-hosted)
+  // Indexed access & counting
   next, nth, count, second, last,
 
   // Sequence predicates
@@ -562,49 +811,63 @@
   // Sequence operations
   take, map, filter, reduce, drop, concat, flatten, distinct,
 
-  // Map operations (Phase 3 self-hosted)
+  // Map operations
   mapIndexed, keepIndexed, mapcat, keep,
 
-  // Conditional lazy functions (Phase 3B)
+  // Conditional lazy functions
   takeWhile, dropWhile, splitWith, splitAt,
 
-  // Reduction variants (Phase 3C)
+  // Reduction variants
   reductions,
 
-  // Sequence combinators (Phase 3D)
+  // Sequence combinators
   interleave, interpose,
 
-  // Partition family (Phase 3E)
+  // Partition family
   partition, partitionAll, partitionBy,
 
-  // Collection protocols (Week 3)
+  // Collection protocols (self-hosted)
   seq, empty, conj, into,
 
-  // Lazy constructors (Week 4)
+  // Lazy constructors
   repeat, repeatedly, cycle,
 
-  // Sequence predicates (Week 5)
+  // Sequence predicates
   every, notAny, notEvery, isSome,
 
-  // Map/Object operations (Week 6)
+  // Map/Object operations (self-hosted)
   get, getIn, assoc, assocIn, dissoc, update, updateIn, merge,
 
-  // Type conversions (Week 6)
+  // Type conversions (self-hosted)
   vec, set,
 
   // Sequence generators
   range, rangeGenerator, iterate,
 
-  // Function operations
+  // Function operations (self-hosted)
   comp, partial, apply,
+
+  // Arithmetic (self-hosted)
+  abs, add, sub, mul, div, mod,
+
+  // Variadic comparison (self-hosted)
+  lt, gt, lte, gte,
+
+  // Symbol/Keyword/Name (self-hosted)
+  symbol, keyword, name,
+
+  // Type predicates (self-hosted)
+  isObject,
+
+  // Sorting (self-hosted)
+  sort, sortBy,
 
   // Utilities
   groupBy, keys, doall, realized, lazySeq,
 
-  // Function utilities (Phase 11)
+  // Function utilities
   identity, constantly, vals, juxt, zipmap,
 
   // Delay/Force (explicit laziness)
-  // Note: 'delay' is a special form, not a function
   force, isDelay
 ])
