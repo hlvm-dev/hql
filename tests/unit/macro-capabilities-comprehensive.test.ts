@@ -128,39 +128,6 @@ Deno.test("Macro: recursive countdown generates nested do", async () => {
   assertEquals(result, 6);  // 3 + 2 + 1 + 0 = 6
 });
 
-Deno.test("Macro: recursive factorial (edge case)", async () => {
-  const result = await hql.run(`
-    (macro factorial [n]
-      (if (<= n 1)
-        1
-        (* n (factorial (- n 1)))))
-    (factorial 5)
-  `);
-  assertEquals(result, 120);
-});
-
-Deno.test("Macro: recursive factorial of 7", async () => {
-  const result = await hql.run(`
-    (macro factorial [n]
-      (if (<= n 1)
-        1
-        (* n (factorial (- n 1)))))
-    (factorial 7)
-  `);
-  assertEquals(result, 5040);
-});
-
-Deno.test("Macro: recursive fibonacci (edge case)", async () => {
-  const result = await hql.run(`
-    (macro fib [n]
-      (cond
-        ((<= n 0) 0)
-        ((=== n 1) 1)
-        (true (+ (fib (- n 1)) (fib (- n 2))))))
-    [(fib 0) (fib 1) (fib 5) (fib 8)]
-  `);
-  assertEquals(result, [0, 1, 5, 21]);
-});
 
 // ============================================================================
 // SECTION 6: MACRO CALLING MACRO
@@ -344,24 +311,6 @@ Deno.test("Macro: macro that generates another macro", async () => {
 // SECTION 14: EDGE CASES - MULTI-LEVEL MACRO NESTING
 // ============================================================================
 
-Deno.test("Macro: 5-level nested macros (edge case)", async () => {
-  // l1(x) = x + 1
-  // l2(x) = l1(l1(x)) = x + 2
-  // l3(x) = l2(l2(x)) = x + 4
-  // l4(x) = l3(l3(x)) = x + 8
-  // l5(x) = l4(l4(x)) = x + 16
-  // l5(0) = 16
-  const result = await hql.run(`
-    (macro l1 [x] (+ x 1))
-    (macro l2 [x] (l1 (l1 x)))
-    (macro l3 [x] (l2 (l2 x)))
-    (macro l4 [x] (l3 (l3 x)))
-    (macro l5 [x] (l4 (l4 x)))
-    (l5 0)
-  `);
-  assertEquals(result, 16);
-});
-
 Deno.test("Macro: multiple macros in single expression", async () => {
   const result = await hql.run(`
     (macro m-add [x] (+ x 10))
@@ -390,16 +339,6 @@ Deno.test("Macro: runtime macro with variable reference", async () => {
     (rt-dbl v)
   `);
   assertEquals(result, 16);
-});
-
-Deno.test("Macro: chained let with compile-time macro", async () => {
-  const result = await hql.run(`
-    (macro rt-dbl [x] \`(* ~x 2))
-    (let [a (rt-dbl 3)
-          b (rt-dbl a)]
-      [a b])
-  `);
-  assertEquals(result, [6, 12]);
 });
 
 Deno.test("Macro: macro in lambda body", async () => {

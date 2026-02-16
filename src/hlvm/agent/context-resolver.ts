@@ -60,10 +60,11 @@ export function resolveContextBudget(
     return { budget, rawLimit: opts.userOverride, source: "user_override" };
   }
 
-  // 2. Provider API metadata
-  if (opts.modelInfo?.contextWindow && opts.modelInfo.contextWindow > 0) {
+  // 2. Provider API metadata (only if large enough to yield a positive budget;
+  //    Ollama reports its default loaded context e.g. 4096 which would give budget=0)
+  if (opts.modelInfo?.contextWindow && opts.modelInfo.contextWindow > OUTPUT_RESERVE_TOKENS) {
     const rawLimit = opts.modelInfo.contextWindow;
-    const budget = Math.max(0, rawLimit - OUTPUT_RESERVE_TOKENS);
+    const budget = rawLimit - OUTPUT_RESERVE_TOKENS;
     log.debug?.(`Context budget: model info ${rawLimit} → ${budget}`);
     return { budget, rawLimit, source: "model_info" };
   }

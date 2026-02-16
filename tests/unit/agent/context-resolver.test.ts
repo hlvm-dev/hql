@@ -69,12 +69,23 @@ Deno.test("resolveContextBudget: absolute reserve math for 128K model", () => {
   assertEquals(result.budget, 123_904);
 });
 
-Deno.test("resolveContextBudget: budget floor is 0 for tiny context", () => {
+Deno.test("resolveContextBudget: budget floor is 0 for tiny user override", () => {
   const result = resolveContextBudget({
     userOverride: 1000,
   });
   // 1000 - 4096 would be negative, so floor at 0
   assertEquals(result.budget, 0);
+  assertEquals(result.source, "user_override");
+});
+
+Deno.test("resolveContextBudget: small modelInfo contextWindow falls through to fallback", () => {
+  // Ollama reports default loaded context (e.g. 4096) which would give budget=0
+  // Resolver should fall through to 32K fallback instead
+  const result = resolveContextBudget({
+    modelInfo: { name: "llama3.1:8b", contextWindow: 4096 },
+  });
+  assertEquals(result.budget, DEFAULT_CONTEXT_WINDOW - OUTPUT_RESERVE_TOKENS);
+  assertEquals(result.source, "default");
 });
 
 // ============================================================================

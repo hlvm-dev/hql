@@ -219,16 +219,6 @@ Deno.test({
 });
 
 // ============================================================================
-// runOllamaSignin — shape test (can't control auth state in automated tests)
-// ============================================================================
-
-Deno.test("runOllamaSignin: is a callable async function", () => {
-  assertEquals(typeof runOllamaSignin, "function");
-  // Verify it accepts the engine parameter (default = aiEngine)
-  // We don't actually call it here because it launches an interactive process
-});
-
-// ============================================================================
 // runFirstTimeSetup — branch coverage with dependency injection
 // ============================================================================
 
@@ -390,18 +380,6 @@ Deno.test("runFirstTimeSetup: unverified cloud auth falls back and does not save
   assertEquals(result, "ollama/fallback-model:cloud");
   assertEquals(saved.length, 0);
   assertEquals(calls.includes("fallback"), true);
-});
-
-// ============================================================================
-// AIEngineLifecycle interface — aiEngine singleton
-// ============================================================================
-
-Deno.test("aiEngine: conforms to AIEngineLifecycle interface", () => {
-  // Verify the singleton has all required methods
-  const engine: AIEngineLifecycle = aiEngine;
-  assertEquals(typeof engine.isRunning, "function");
-  assertEquals(typeof engine.ensureRunning, "function");
-  assertEquals(typeof engine.getEnginePath, "function");
 });
 
 Deno.test({

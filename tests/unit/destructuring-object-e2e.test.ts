@@ -182,10 +182,3 @@ Deno.test("Object Destructuring: Object with expressions", async () => {
   assertEquals(result, 15);
 });
 
-console.log("\nObject Destructuring E2E Tests Complete!");
-console.log("All tests verify object destructuring pipeline");
-console.log("✅ Simple patterns");
-console.log("✅ Property renaming");
-console.log("✅ Nested patterns");
-console.log("✅ Mixed with arrays");
-console.log("✅ var (mutable) destructuring");

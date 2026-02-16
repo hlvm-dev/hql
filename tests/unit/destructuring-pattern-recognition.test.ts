@@ -273,6 +273,3 @@ Deno.test("Pattern Recognition: Rest with underscore as identifier", () => {
   );
 });
 
-console.log("\nPattern Recognition Tests Complete!");
-console.log("All tests validate the couldBePattern() function");
-console.log("This ensures we can distinguish patterns from array literals");

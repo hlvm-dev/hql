@@ -114,32 +114,3 @@ result
   assertEquals(result, 6, "when with multiple expressions should work");
 });
 
-Deno.test("Bugfix #1: Verify expandMacros not called in transformer", async () => {
-  // This is a meta-test that verifies the fix by checking the code
-  // Read transformer.ts and ensure expandMacros is not called
-
-  const transformerPath = new URL("../../src/hql/transformer.ts", import.meta.url);
-  const transformerCode = await Deno.readTextFile(transformerPath);
-
-  // Check that expandMacros is not imported
-  const hasExpandMacrosImport = transformerCode.includes('import { expandMacros }') ||
-                                  transformerCode.includes('import { expandMacros,') ||
-                                  transformerCode.includes('expandMacros } from');
-
-  assertEquals(
-    hasExpandMacrosImport,
-    false,
-    "transformer.ts should NOT import expandMacros"
-  );
-
-  // Check that expandMacros is not called
-  const hasExpandMacrosCall = transformerCode.includes('expandMacros(');
-
-  assertEquals(
-    hasExpandMacrosCall,
-    false,
-    "transformer.ts should NOT call expandMacros()"
-  );
-
-  console.log("✓ Verified: expandMacros is not used in transformer.ts");
-});

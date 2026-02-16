@@ -116,10 +116,3 @@ Deno.test("Array Destructuring: var with defaults", async () => {
   assertEquals(result, 30);
 });
 
-console.log("\nDestructuring Defaults E2E Tests Complete!");
-console.log("All tests verify default values in array destructuring");
-console.log("✅ Array defaults");
-console.log("✅ Nested pattern defaults");
-console.log("✅ Expression defaults");
-console.log("✅ var (mutable) with defaults");
-console.log("Note: Object property defaults syntax not yet implemented");

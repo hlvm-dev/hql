@@ -440,36 +440,6 @@ Deno.test({
 });
 
 // ============================================================
-// Safety classification tests (via registry)
-// ============================================================
-
-Deno.test({
-  name: "Git Tools: safety levels are correct",
-  fn() {
-    // Import here to avoid circular dependency issues
-    const { classifyTool } = (() => {
-      // We just test the tool metadata directly
-      return {
-        classifyTool: (name: string) => {
-          const tools: Record<string, string> = {
-            git_status: "L0",
-            git_diff: "L0",
-            git_log: "L0",
-            git_commit: "L2",
-          };
-          return { level: tools[name] };
-        },
-      };
-    })();
-
-    assertEquals(classifyTool("git_status").level, "L0");
-    assertEquals(classifyTool("git_diff").level, "L0");
-    assertEquals(classifyTool("git_log").level, "L0");
-    assertEquals(classifyTool("git_commit").level, "L2");
-  },
-});
-
-// ============================================================
 // Error handling tests
 // ============================================================
 
