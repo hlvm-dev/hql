@@ -593,6 +593,10 @@ async function handleAgentMode(
  *
  * Spawns `claude -p "<query>" --output-format stream-json` as a subprocess and streams
  * stdout back as SSE events. Claude Code handles tool calling, file ops, etc. internally.
+ *
+ * Session Memory: When enabled (default), captures the Claude Code session_id from the
+ * init event and stores it in HLVM session metadata. On subsequent messages in the same
+ * session, passes `--resume <session_id>` so Claude Code remembers prior context.
  */
 async function handleClaudeCodeAgentMode(
   body: ChatRequest,
@@ -612,11 +616,67 @@ async function handleClaudeCodeAgentMode(
     return;
   }
 
+  const cfgSnapshot = config.snapshot;
+  const sessionMemoryEnabled = cfgSnapshot.sessionMemory !== false; // default ON
+
+  // Read stored Claude Code session ID from HLVM session metadata
+  let claudeCodeSessionId: string | null = null;
+  let existingMeta: Record<string, unknown> = {};
+  if (sessionMemoryEnabled) {
+    const session = getSession(body.session_id);
+    if (session?.metadata) {
+      try {
+        const meta = JSON.parse(session.metadata);
+        if (meta && typeof meta === "object") {
+          existingMeta = meta as Record<string, unknown>;
+          claudeCodeSessionId = typeof meta.claudeCodeSessionId === "string"
+            ? meta.claudeCodeSessionId
+            : null;
+        }
+      } catch {
+        // Malformed metadata — treat as empty
+      }
+    }
+  }
+
+  const result = await spawnClaudeCodeProcess(
+    query, claudeCodeSessionId, body.session_id, assistantMessageId,
+    sessionMemoryEnabled, existingMeta, signal, emit, onPartial,
+  );
+
+  // If --resume failed, clear stored session and retry fresh
+  if (!result.success && claudeCodeSessionId && !signal.aborted) {
+    log.info(`Claude Code --resume failed (session ${claudeCodeSessionId}), retrying fresh`);
+    existingMeta.claudeCodeSessionId = undefined;
+    updateSession(body.session_id, { metadata: JSON.stringify(existingMeta) });
+    await spawnClaudeCodeProcess(
+      query, null, body.session_id, assistantMessageId,
+      sessionMemoryEnabled, existingMeta, signal, emit, onPartial,
+    );
+  }
+}
+
+/** Spawn Claude Code CLI subprocess and stream results. Returns success status. */
+async function spawnClaudeCodeProcess(
+  query: string,
+  claudeCodeSessionId: string | null,
+  hlvmSessionId: string,
+  assistantMessageId: number,
+  sessionMemoryEnabled: boolean,
+  existingMeta: Record<string, unknown>,
+  signal: AbortSignal,
+  emit: (obj: unknown) => void,
+  onPartial: (text: string) => void,
+): Promise<{ success: boolean }> {
   const platform = getPlatform();
 
-  // Spawn Claude Code CLI in non-interactive print mode with streaming JSON output
+  // Build command — use --resume when we have a stored Claude Code session ID
+  const cmd = claudeCodeSessionId
+    ? ["claude", "--resume", claudeCodeSessionId, "-p", query, "--output-format", "stream-json", "--verbose"]
+    : ["claude", "-p", query, "--output-format", "stream-json", "--verbose"];
+
   const proc = platform.command.run({
-    cmd: ["claude", "-p", query, "--output-format", "stream-json", "--verbose"],
+    cmd,
     stdout: "piped",
     stderr: "piped",
     stdin: "null",
@@ -632,7 +692,7 @@ async function handleClaudeCodeAgentMode(
     const stdout = proc.stdout as ReadableStream<Uint8Array> | undefined;
     if (!stdout) {
       emit({ event: "error", message: "Failed to capture Claude Code output" });
-      return;
+      return { success: false };
     }
 
     const reader = stdout.getReader();
@@ -656,6 +716,18 @@ async function handleClaudeCodeAgentMode(
 
         try {
           const event = JSON.parse(trimmed);
+
+          // Capture session_id from init event for session memory
+          if (
+            sessionMemoryEnabled &&
+            event.type === "system" &&
+            event.subtype === "init" &&
+            typeof event.session_id === "string" &&
+            event.session_id !== claudeCodeSessionId
+          ) {
+            existingMeta.claudeCodeSessionId = event.session_id;
+            updateSession(hlvmSessionId, { metadata: JSON.stringify(existingMeta) });
+          }
 
           // Claude Code stream-json events have a "type" field
           if (event.type === "assistant" && event.message?.content) {
@@ -713,6 +785,7 @@ async function handleClaudeCodeAgentMode(
       if (!fullText) {
         emit({ event: "error", message: errMsg });
       }
+      return { success: false };
     }
   } finally {
     signal.removeEventListener("abort", onAbort);
@@ -720,7 +793,9 @@ async function handleClaudeCodeAgentMode(
 
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: fullText });
-    pushSSEEvent(body.session_id, "message_updated", { id: assistantMessageId, content: fullText });
-    pushSessionUpdatedEvent(body.session_id);
+    pushSSEEvent(hlvmSessionId, "message_updated", { id: assistantMessageId, content: fullText });
+    pushSessionUpdatedEvent(hlvmSessionId);
   }
+
+  return { success: true };
 }

@@ -897,6 +897,13 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
     }
   }
 
+  // Capture end position from closing parenthesis before advancing
+  const closingToken = state.tokens[state.currentPos];
+  const endLine = closingToken?.position.line;
+  const endColumn = closingToken
+    ? closingToken.position.column + closingToken.value.length
+    : undefined;
+
   // Move past the closing parenthesis
   state.currentPos++;
 
@@ -914,6 +921,8 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
     state.filePath,
     listStartPos.line,
     listStartPos.column,
+    endLine,
+    endColumn,
   );
 
   return result;
@@ -1151,6 +1160,13 @@ function parseVector(state: ParserState, startPos: SourcePosition): SList {
     throw new ParseError("Unclosed vector", errorOptions(startPos, state));
   }
 
+  // Capture end position from closing bracket before advancing
+  const closingBracket = state.tokens[state.currentPos];
+  const vecEndLine = closingBracket?.position.line;
+  const vecEndColumn = closingBracket
+    ? closingBracket.position.column + closingBracket.value.length
+    : undefined;
+
   // Move past the closing bracket
   state.currentPos++;
 
@@ -1167,6 +1183,8 @@ function parseVector(state: ParserState, startPos: SourcePosition): SList {
     state.filePath,
     startPos.line,
     startPos.column,
+    vecEndLine,
+    vecEndColumn,
   );
 
   return result;

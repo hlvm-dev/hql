@@ -193,6 +193,8 @@ export enum IRNodeType {
 export interface SourcePosition {
   line?: number;
   column?: number;
+  endLine?: number;
+  endColumn?: number;
   filePath?: string;
 }
 

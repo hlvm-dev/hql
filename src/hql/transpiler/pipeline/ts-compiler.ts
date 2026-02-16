@@ -476,6 +476,10 @@ declare function clear(): null;
  */
 export const PRELUDE_LINE_COUNT = RUNTIME_HELPER_DECLARATIONS.split('\n').length;
 
+if (!RUNTIME_HELPER_DECLARATIONS.endsWith('\n')) {
+  throw new Error("RUNTIME_HELPER_DECLARATIONS must end with newline for accurate PRELUDE_LINE_COUNT");
+}
+
 // ============================================================================
 // Compiler Implementation
 // ============================================================================

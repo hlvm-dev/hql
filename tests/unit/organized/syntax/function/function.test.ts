@@ -944,3 +944,34 @@ Deno.test("Swift Syntax: -> (Int, [String]) nested tuple return type", async () 
   const result = await run(code);
   assertEquals(result, [1, ["hello", "world"]]);
 });
+
+// ============================================================================
+// SECTION 12: OBJECT TYPE PARAM WITH SPACE (Bug 9)
+// ============================================================================
+
+Deno.test("Bug 9: param with space before object type annotation", async () => {
+  const code = `
+(fn get-name [obj: {name:String}] obj.name)
+(get-name {name: "Alice"})
+`;
+  const result = await run(code);
+  assertEquals(result, "Alice");
+});
+
+Deno.test("Bug 9: no-space variant still works (regression)", async () => {
+  const code = `
+(fn get-name [obj:{name:String}] obj.name)
+(get-name {name: "Alice"})
+`;
+  const result = await run(code);
+  assertEquals(result, "Alice");
+});
+
+Deno.test("Bug 9: multi-field object type with space", async () => {
+  const code = `
+(fn get-info [p: {name:String, age:Int}] p.name)
+(get-info {name: "Alice", age: 30})
+`;
+  const result = await run(code);
+  assertEquals(result, "Alice");
+});

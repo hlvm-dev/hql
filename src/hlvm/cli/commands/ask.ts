@@ -110,12 +110,14 @@ EXAMPLES:
   hlvm ask --verbose "count test files"  # Debug mode with detailed output
   hlvm ask --model openai/gpt-4o "summarize this project"
   hlvm ask --model anthropic/claude-sonnet-4-5-20250929 "list files"
+  hlvm ask --fresh "hello"               # Start fresh (no prior session context)
 
 OPTIONS:
   --help, -h                   Show this help message
   --verbose                    Show agent header, tool labels, stats, and trace output
   --usage                      Show token usage summary after execution
   --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o, anthropic/claude-sonnet-4-5-20250929)
+  --fresh                      Start a fresh session (no prior context)
 `);
 }
 
@@ -345,6 +347,7 @@ export async function askCommand(args: string[]): Promise<void> {
   let query = "";
   let verbose = false;
   let showUsage = false;
+  let freshSession = false;
   let modelOverride: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
@@ -353,6 +356,8 @@ export async function askCommand(args: string[]): Promise<void> {
       verbose = true;
     } else if (arg === "--usage") {
       showUsage = true;
+    } else if (arg === "--fresh") {
+      freshSession = true;
     } else if (arg === "--model") {
       i++;
       if (i >= args.length) {
@@ -465,6 +470,7 @@ export async function askCommand(args: string[]): Promise<void> {
       query,
       model,
       contextWindow,
+      skipSessionHistory: freshSession,
       callbacks: {
         onToken,
         onToolDisplay,

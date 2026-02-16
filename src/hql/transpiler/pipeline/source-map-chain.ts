@@ -24,11 +24,14 @@ import { getErrorMessage } from "../../../common/utils.ts";
 // Types
 // ============================================================================
 
+/** Per-line sorted lookup from TS positions to HQL positions */
+export type TsToHqlLookup = Map<number, Array<{ col: number; hqlLine: number; hqlCol: number }>>;
+
 export interface ChainedSourceMap {
   /** The final source map (JS → HQL) */
   map: RawSourceMap;
-  /** Map from TS positions to HQL positions for type error mapping */
-  tsToHql: Map<string, { line: number; column: number }>;
+  /** Map from TS line to sorted column entries for type error mapping */
+  tsToHql: TsToHqlLookup;
 }
 
 // ============================================================================
@@ -60,14 +63,26 @@ export async function chainSourceMaps(
     return createEmptyChainedMap(hqlSourcePath, hqlSource);
   }
 
-  // Build a lookup map from TS positions to HQL positions
+  // Build per-line sorted lookup from TS positions to HQL positions
   // Apply lineOffset inline to avoid allocating a new array of offset mappings
-  const tsToHqlMap = new Map<string, { line: number; column: number }>();
+  const tsToHqlLookup: TsToHqlLookup = new Map();
   for (const mapping of hqlToTsMappings) {
     if (mapping.original) {
-      const key = `${mapping.generated.line + lineOffset}:${mapping.generated.column}`;
-      tsToHqlMap.set(key, mapping.original);
+      const tsLine = mapping.generated.line + lineOffset;
+      const tsCol = mapping.generated.column;
+      if (!tsToHqlLookup.has(tsLine)) {
+        tsToHqlLookup.set(tsLine, []);
+      }
+      tsToHqlLookup.get(tsLine)!.push({
+        col: tsCol,
+        hqlLine: mapping.original.line,
+        hqlCol: mapping.original.column,
+      });
     }
+  }
+  // Sort each line's entries by column for binary search
+  for (const entries of tsToHqlLookup.values()) {
+    entries.sort((a, b) => a.col - b.col);
   }
 
   // Create the consumer for TS→JS map
@@ -95,9 +110,8 @@ export async function chainSourceMaps(
         return;
       }
 
-      // Look up the HQL position for this TS position
-      const tsKey = `${mapping.originalLine}:${mapping.originalColumn}`;
-      const hqlPos = tsToHqlMap.get(tsKey);
+      // Look up the HQL position for this TS position using binary search
+      const hqlPos = mapTsToHql(tsToHqlLookup, mapping.originalLine, mapping.originalColumn);
 
       if (hqlPos) {
         // We found a mapping chain: JS → TS → HQL
@@ -124,7 +138,7 @@ export async function chainSourceMaps(
 
     return {
       map: finalMap,
-      tsToHql: tsToHqlMap,
+      tsToHql: tsToHqlLookup,
     };
   } finally {
     // Clean up the consumer (destroy method may not exist in all versions)
@@ -139,28 +153,33 @@ export async function chainSourceMaps(
  * Useful for mapping type errors back to HQL source.
  */
 export function mapTsToHql(
-  tsToHql: Map<string, { line: number; column: number }>,
+  tsToHql: TsToHqlLookup,
   tsLine: number,
   tsColumn: number,
 ): { line: number; column: number } | null {
-  // Try exact match first
-  const exactKey = `${tsLine}:${tsColumn}`;
-  const exact = tsToHql.get(exactKey);
-  if (exact) return exact;
+  const entries = tsToHql.get(tsLine);
+  if (!entries || entries.length === 0) return null;
 
-  // Try nearby positions (column might be off by a few)
-  for (let colOffset = 1; colOffset <= 10; colOffset++) {
-    const nearKey = `${tsLine}:${tsColumn - colOffset}`;
-    const near = tsToHql.get(nearKey);
-    if (near) return near;
+  // Binary search for largest col <= tsColumn
+  let lo = 0;
+  let hi = entries.length - 1;
+  let best = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (entries[mid].col <= tsColumn) {
+      best = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
   }
 
-  // Try the same line with column 0 (line-level mapping)
-  const lineKey = `${tsLine}:0`;
-  const lineMatch = tsToHql.get(lineKey);
-  if (lineMatch) return lineMatch;
+  if (best === -1) {
+    // All entries have col > tsColumn, use first entry as fallback
+    return { line: entries[0].hqlLine, column: entries[0].hqlCol };
+  }
 
-  return null;
+  return { line: entries[best].hqlLine, column: entries[best].hqlCol };
 }
 
 /**
@@ -212,7 +231,7 @@ function createEmptyChainedMap(
 
   return {
     map: generator.toJSON() as RawSourceMap,
-    tsToHql: new Map(),
+    tsToHql: new Map() as TsToHqlLookup,
   };
 }
 

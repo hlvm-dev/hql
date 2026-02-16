@@ -81,7 +81,7 @@ export class CodeBuffer {
     if (pos && pos.line !== undefined) {
       this.mappings.push({
         generated: { line: this.currentLine, column: this.currentColumn },
-        original: { line: pos.line, column: pos.column || 0 },
+        original: { line: pos.line, column: (pos.column ?? 1) - 1 },
         source: pos.filePath || this.sourceFilePath,
         name: name ?? null, // Superiority: track original names
       });

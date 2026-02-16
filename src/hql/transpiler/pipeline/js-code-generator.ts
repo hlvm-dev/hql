@@ -27,9 +27,12 @@ import {
   chainSourceMaps,
   createSourceMapFromMappings,
   mapTsToHql,
+  type TsToHqlLookup,
 } from "./source-map-chain.ts";
+import { translateTypeError } from "./error-translator.ts";
 import { isHqlFile, isTypeScriptFile } from "../../../common/import-utils.ts";
 import { CodeGenError } from "../../../common/error.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 // ============================================================================
 // Helpers
@@ -157,38 +160,72 @@ export async function generateJavaScript(
   );
 
   // ============================================================================
-  // STEP 3: Map type errors to HQL positions
+  // STEP 3: Chain source maps (HQL → TS → JS = HQL → JS)
+  // ============================================================================
+  let sourceMap: string | undefined;
+  let chainedTsToHql: TsToHqlLookup | undefined;
+
+  // Auto-embed sourcesContent: read from file if not explicitly provided
+  let hqlSource = options.sourceContent;
+  if (!hqlSource && options.sourceFilePath) {
+    try {
+      hqlSource = await getPlatform().fs.readTextFile(options.sourceFilePath);
+    } catch {
+      // Graceful fallback — proceed without sourcesContent
+    }
+  }
+
+  if (options.generateSourceMap !== false && compileResult.sourceMap) {
+    logger.debug("Step 3: Chaining source maps");
+
+    const chainedMap = await chainSourceMaps(
+      tsResult.mappings,
+      compileResult.sourceMap,
+      sourceFileName,
+      hqlSource,
+      PRELUDE_LINE_COUNT,
+    );
+
+    sourceMap = JSON.stringify(chainedMap.map);
+    chainedTsToHql = chainedMap.tsToHql;
+    logger.debug(`Chained source map: ${sourceMap.length} bytes`);
+  } else if (options.generateSourceMap !== false) {
+    // Fallback: use HQL→TS map only
+    const fallbackMap = createSourceMapFromMappings(
+      tsResult.mappings,
+      sourceFileName,
+      tsFileName.replace(/\.ts$/, ".js"),
+      hqlSource,
+    );
+    sourceMap = JSON.stringify(fallbackMap);
+  }
+
+  // ============================================================================
+  // STEP 4: Map type errors to HQL positions
   // ============================================================================
   const hqlTypeErrors: TypeDiagnostic[] = [];
 
   if (options.typeCheck !== false) {
-    // Build TS→HQL position map for error mapping
-    // Note: tsc diagnostics are ALREADY adjusted to remove the prelude offset
-    // (see convertDiagnostics in ts-compiler.ts), so we use direct line numbers here
-    const tsToHqlMap = new Map<string, { line: number; column: number }>();
-    for (const mapping of tsResult.mappings) {
-      if (mapping.original) {
-        // Use direct line numbers - diagnostics are already offset-adjusted
-        const key = `${mapping.generated.line}:${mapping.generated.column}`;
-        tsToHqlMap.set(key, mapping.original);
-      }
-    }
-
+    // Reuse chainedMap.tsToHql for error mapping when available.
+    // Diagnostics from tsc have PRELUDE_LINE_COUNT already subtracted,
+    // so we add it back to look up in the chained map (which uses absolute TS lines).
     for (const diag of compileResult.diagnostics) {
-      // Try to map TS position to HQL position
-      const hqlPos = mapTsToHql(tsToHqlMap, diag.line, diag.column);
+      let hqlPos: { line: number; column: number } | null = null;
+      if (chainedTsToHql) {
+        hqlPos = mapTsToHql(chainedTsToHql, diag.line + PRELUDE_LINE_COUNT, diag.column);
+      }
 
       hqlTypeErrors.push({
         ...diag,
+        message: translateTypeError(diag.code, diag.message),
         file: sourceFileName,
         line: hqlPos?.line ?? diag.line,
         column: hqlPos?.column ?? diag.column,
       });
     }
 
-    // Log type errors if any (only when failOnTypeErrors is set or verbose logging)
+    // Log type errors if any
     if (hqlTypeErrors.length > 0) {
-      // Single-pass count instead of two .filter() passes
       let errorCount = 0;
       let warnCount = 0;
       for (const e of hqlTypeErrors) {
@@ -196,7 +233,6 @@ export async function generateJavaScript(
         else if (e.severity === "warning") warnCount++;
       }
 
-      // Only log to debug level by default - avoid noisy console output
       logger.debug(
         `Type checking found ${errorCount} error(s), ${warnCount} warning(s)`,
       );
@@ -211,37 +247,6 @@ export async function generateJavaScript(
   }
 
   // ============================================================================
-  // STEP 4: Chain source maps (HQL → TS → JS = HQL → JS)
-  // ============================================================================
-  let sourceMap: string | undefined;
-
-  if (options.generateSourceMap !== false && compileResult.sourceMap) {
-    logger.debug("Step 4: Chaining source maps");
-
-    // Pass the prelude line offset to chainSourceMaps so it can adjust
-    // generated positions inline, avoiding a new array allocation.
-    const chainedMap = await chainSourceMaps(
-      tsResult.mappings,
-      compileResult.sourceMap,
-      sourceFileName,
-      options.sourceContent,
-      PRELUDE_LINE_COUNT,
-    );
-
-    sourceMap = JSON.stringify(chainedMap.map);
-    logger.debug(`Chained source map: ${sourceMap.length} bytes`);
-  } else if (options.generateSourceMap !== false) {
-    // Fallback: use HQL→TS map only
-    const fallbackMap = createSourceMapFromMappings(
-      tsResult.mappings,
-      sourceFileName,
-      tsFileName.replace(/\.ts$/, ".js"),
-      options.sourceContent,
-    );
-    sourceMap = JSON.stringify(fallbackMap);
-  }
-
-  // ============================================================================
   // STEP 5: Format output
   // ============================================================================
   let code = compileResult.javascript;
@@ -250,15 +255,11 @@ export async function generateJavaScript(
   if (!code.startsWith("'use strict'") && !code.startsWith('"use strict"')) {
     code = `'use strict';\n${code}`;
 
-    // Adjust source map for prepended line — use string manipulation
-    // instead of full JSON parse/stringify cycle
+    // Adjust source map for prepended line: prepend empty line group
     if (sourceMap) {
-      const mappingsKey = '"mappings":"';
-      const idx = sourceMap.indexOf(mappingsKey);
-      if (idx !== -1) {
-        const insertAt = idx + mappingsKey.length;
-        sourceMap = sourceMap.slice(0, insertAt) + ";" + sourceMap.slice(insertAt);
-      }
+      const mapObj = JSON.parse(sourceMap);
+      mapObj.mappings = ";" + mapObj.mappings;
+      sourceMap = JSON.stringify(mapObj);
     }
   }
 

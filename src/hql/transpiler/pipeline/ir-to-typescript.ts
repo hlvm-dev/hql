@@ -1702,8 +1702,10 @@ class TSGenerator {
     if (node.generator) {
       if (node.async) {
         this.emit("async ", node.position);
+        this.emit("function*(");
+      } else {
+        this.emit("function*(", node.position);
       }
-      this.emit("function*(");
       this.generateFnParams(node.params, undefined);
       this.emit(")");
       if (node.returnType) {
@@ -1719,8 +1721,10 @@ class TSGenerator {
     if (node.usesThis) {
       if (node.async) {
         this.emit("async ", node.position);
+        this.emit("function(");
+      } else {
+        this.emit("function(", node.position);
       }
-      this.emit("function(");
       this.generateFnParams(node.params, undefined);
       this.emit(")");
       if (node.returnType) {
@@ -1735,7 +1739,7 @@ class TSGenerator {
     if (node.async) {
       this.emit("async ", node.position);
     }
-    this.emit("(");
+    this.emit("(", node.async ? undefined : node.position);
     this.generateFnParams(node.params, undefined);
     this.emit(")");
 
@@ -2189,8 +2193,10 @@ class TSGenerator {
     this.emitIndent();
     if (node.async) {
       this.emit("async ", node.position);
+      this.emit("function ");
+    } else {
+      this.emit("function ", node.position);
     }
-    this.emit("function ");
     this.generateIdentifier(node.id);
 
     // Add generic type parameters if present

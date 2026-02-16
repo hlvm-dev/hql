@@ -83,6 +83,7 @@ export interface HlvmConfig {
   modelConfigured?: boolean; // true after first explicit model selection
   approvedProviders?: string[]; // Providers the user has consented to (e.g., ["openai", "anthropic"])
   agentMode?: AgentMode; // Agent mode for Claude models: "hlvm" (HLVM orchestrates) or "claude-code-agent" (full passthrough)
+  sessionMemory?: boolean; // Claude Code session memory: remembers context across messages in same chat session (default: true)
 }
 
 // ============================================================
@@ -162,6 +163,7 @@ export const CONFIG_KEYS = [
   "modelConfigured",
   "approvedProviders",
   "agentMode",
+  "sessionMemory",
 ] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
@@ -271,6 +273,13 @@ export function validateValue(
       if (value === undefined) return { valid: true }; // optional field
       if (value !== "hlvm" && value !== "claude-code-agent") {
         return { valid: false, error: "agentMode must be 'hlvm' or 'claude-code-agent'" };
+      }
+      return { valid: true };
+
+    case "sessionMemory":
+      if (value === undefined) return { valid: true }; // optional field
+      if (typeof value !== "boolean") {
+        return { valid: false, error: "sessionMemory must be a boolean" };
       }
       return { valid: true };
 

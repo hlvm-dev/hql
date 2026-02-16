@@ -64,7 +64,7 @@ Deno.test("Type Checking - Wrong argument type at call site (backward compat: TS
 
   // Should report type error about string not assignable to number
   assertStringIncludes(result.stderr, "Type error");
-  assertMatch(result.stderr, /string.*not assignable.*number|Argument.*string.*number/i);
+  assertMatch(result.stderr, /string.*not assignable.*number|Argument.*string.*number|Expected.*number.*got.*string/i);
 });
 
 Deno.test("Type Checking - Wrong return type", async () => {
@@ -77,7 +77,7 @@ Deno.test("Type Checking - Wrong return type", async () => {
 
   // Should report type error about string not assignable to number
   assertStringIncludes(result.stderr, "Type error");
-  assertMatch(result.stderr, /string.*not assignable.*number/i);
+  assertMatch(result.stderr, /string.*not assignable.*number|Cannot use.*string.*where.*number/i);
 });
 
 Deno.test("Type Checking - Array access returns T | undefined", async () => {
@@ -141,7 +141,7 @@ Deno.test("Type Checking - Method return type mismatch (FIXED)", async () => {
 
   // Should report type error - toUpperCase returns string, not number
   assertStringIncludes(result.stderr, "Type error");
-  assertMatch(result.stderr, /string.*not assignable.*number/i);
+  assertMatch(result.stderr, /string.*not assignable.*number|Cannot use.*string.*where.*number/i);
 });
 
 Deno.test("Type Checking - Correct method return type passes", async () => {

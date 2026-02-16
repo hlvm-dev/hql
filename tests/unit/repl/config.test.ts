@@ -134,6 +134,22 @@ Deno.test("validateValue - theme invalid", () => {
   assertEquals(validateValue("theme", 123).valid, false);
 });
 
+Deno.test("validateValue - sessionMemory valid", () => {
+  assertEquals(validateValue("sessionMemory", true).valid, true);
+  assertEquals(validateValue("sessionMemory", false).valid, true);
+  assertEquals(validateValue("sessionMemory", undefined).valid, true);
+});
+
+Deno.test("validateValue - sessionMemory invalid", () => {
+  assertEquals(validateValue("sessionMemory", "true").valid, false);
+  assertEquals(validateValue("sessionMemory", 1).valid, false);
+  assertEquals(validateValue("sessionMemory", null).valid, false);
+});
+
+Deno.test("CONFIG_KEYS - contains sessionMemory", () => {
+  assertEquals(CONFIG_KEYS.includes("sessionMemory"), true);
+});
+
 // ============================================================
 // parseValue tests
 // ============================================================
