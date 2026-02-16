@@ -15,7 +15,7 @@ import {
   transformNonNullElements,
   validateTransformed,
 } from "../utils/validation-helpers.ts";
-import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
+import { copyPosition, copyEndPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import {
@@ -306,6 +306,7 @@ export function transformClass(
     // Create the ClassDeclaration IR node
     const classId = createId(sanitizeIdentifier(className));
     copyPosition(nameNode, classId);
+    copyEndPosition(list, classId);
 
     const classDecl: IR.IRClassDeclaration = {
       type: IR.IRNodeType.ClassDeclaration,
@@ -993,6 +994,7 @@ function processClassConstructor(
 
       const parameter = createId(sanitizeIdentifier(paramName), typeAnnotation ? { typeAnnotation } : undefined);
       copyPosition(param, parameter);
+      copyEndPosition(paramsList, parameter);
       params.push(parameter);
     }
 

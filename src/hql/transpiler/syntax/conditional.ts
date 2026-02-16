@@ -20,7 +20,7 @@ import {
   createCall,
   createFnExpr,
 } from "../utils/ir-helpers.ts";
-import { isExpressionResult, extractMeta } from "../pipeline/hql-ast-to-hql-ir.ts";
+import { isExpressionResult, extractMeta, copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
   enterIIFE,
   exitIIFE,
@@ -188,12 +188,14 @@ export function transformIf(
 
     // If explicitly in expression context, always use ConditionalExpression
     if (isExpressionContext) {
-      return {
+      const result = {
         type: IR.IRNodeType.ConditionalExpression,
         test,
         consequent,
         alternate,
       } as IR.IRConditionalExpression;
+      copyPosition(list, result);
+      return result;
     }
 
     // IMPORTANT: Check loop context FIRST before general control flow
@@ -216,12 +218,14 @@ export function transformIf(
         }
 
         // Both branches have control flow (recur), use if statement
-        return {
+        const result = {
           type: IR.IRNodeType.IfStatement,
           test,
           consequent: finalConsequent,
           alternate: finalAlternate,
         } as IR.IRIfStatement;
+        copyPosition(list, result);
+        return result;
       }
       // Otherwise, it's a value-returning if in loop, use expression
     }
@@ -245,21 +249,25 @@ export function transformIf(
 
     if (hasControlFlow) {
       // Use if statement for control flow
-      return {
+      const result = {
         type: IR.IRNodeType.IfStatement,
         test,
         consequent,
         alternate,
       } as IR.IRIfStatement;
+      copyPosition(list, result);
+      return result;
     }
 
     // Default case - create conditional expression
-    return {
+    const result = {
       type: IR.IRNodeType.ConditionalExpression,
       test,
       consequent,
       alternate,
     } as IR.IRConditionalExpression;
+    copyPosition(list, result);
+    return result;
   } catch (error) {
     // Preserve HQLError instances (ValidationError, ParseError, etc.)
     if (error instanceof HQLError) {
@@ -309,14 +317,18 @@ export function transformReturn(
   // Check if we're inside an IIFE (do block, try block, etc.)
   // If so, transform to throw for non-local return
   if (isInsideIIFE()) {
-    return {
+    const result = {
       type: IR.IRNodeType.ThrowStatement,
       argument: createEarlyReturnObject(valueNode),
     } as IR.IRThrowStatement;
+    copyPosition(list, result);
+    return result;
   }
 
   // Normal return statement (direct function body)
-  return createReturn(valueNode);
+  const result = createReturn(valueNode);
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -347,7 +359,13 @@ export function transformDo(
 
   // Extract position from the 'do' list
   const listMeta = extractMeta(list);
-  const listPosition = listMeta ? { line: listMeta.line, column: listMeta.column, filePath: listMeta.filePath } : undefined;
+  const listPosition = listMeta ? {
+    line: listMeta.line,
+    column: listMeta.column,
+    endLine: typeof listMeta.endLine === "number" ? listMeta.endLine : undefined,
+    endColumn: typeof listMeta.endColumn === "number" ? listMeta.endColumn : undefined,
+    filePath: listMeta.filePath,
+  } as IR.SourcePosition : undefined;
 
   // First pass: Check if any expression contains return (AST level check)
   const hasReturnInAST = bodyExprs.some(containsReturn);
@@ -499,10 +517,12 @@ export function transformThrow(
   );
 
   // Create a throw statement
-  return {
+  const result = {
     type: IR.IRNodeType.ThrowStatement,
     argument: valueNode,
   } as IR.IRThrowStatement;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -535,12 +555,14 @@ export function transformTernary(
   );
 
   // Ternary is always a ConditionalExpression (never a statement)
-  return {
+  const result = {
     type: IR.IRNodeType.ConditionalExpression,
     test,
     consequent,
     alternate,
   } as IR.IRConditionalExpression;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -823,19 +845,24 @@ export function transformSwitch(
 
   // For generator IIFEs, wrap in yield*; for async, wrap in await
   if (hasYields) {
-    return {
+    const result = {
       type: IR.IRNodeType.YieldExpression,
       argument: iife,
       delegate: true,
     } as IR.IRYieldExpression;
+    copyPosition(list, result);
+    return result;
   }
   if (hasAwaits) {
-    return {
+    const result = {
       type: IR.IRNodeType.AwaitExpression,
       argument: iife,
     } as IR.IRAwaitExpression;
+    copyPosition(list, result);
+    return result;
   }
 
+  copyPosition(list, iife);
   return iife;
 }
 

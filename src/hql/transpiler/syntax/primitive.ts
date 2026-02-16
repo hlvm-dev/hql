@@ -8,6 +8,7 @@ import {
   ValidationError,
 } from "../../../common/error.ts";
 import { sanitizeIdentifier } from "../../../common/utils.ts";
+import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { transformElements, validateListLength } from "../utils/validation-helpers.ts";
 import {
   KERNEL_PRIMITIVES,
@@ -60,11 +61,11 @@ export function transformPrimitiveOp(
     "Primitive op argument",
   );
 
-  if (op === "+" || op === "-" || op === "*" || op === "/" || op === "%" || op === "**") {
-    return transformArithmeticOp(op, args);
-  }
+  let result: IR.IRNode;
 
-  if (
+  if (op === "+" || op === "-" || op === "*" || op === "/" || op === "%" || op === "**") {
+    result = transformArithmeticOp(op, args);
+  } else if (
     op === "===" ||
     op === "==" ||
     op === "!==" ||
@@ -74,22 +75,19 @@ export function transformPrimitiveOp(
     op === ">=" ||
     op === "<="
   ) {
-    return transformComparisonOp(op, args);
+    result = transformComparisonOp(op, args);
+  } else if (op === "&&" || op === "||" || op === "!" || op === "??") {
+    result = transformLogicalOp(op, args);
+  } else if (op === "&" || op === "|" || op === "^" || op === "~" || op === "<<" || op === ">>" || op === ">>>") {
+    result = transformBitwiseOp(op, args);
+  } else if (op === "typeof" || op === "delete" || op === "void" || op === "instanceof" || op === "in") {
+    result = transformTypeOp(op, args);
+  } else {
+    result = createCall(createId(op), args);
   }
 
-  if (op === "&&" || op === "||" || op === "!" || op === "??") {
-    return transformLogicalOp(op, args);
-  }
-
-  if (op === "&" || op === "|" || op === "^" || op === "~" || op === "<<" || op === ">>" || op === ">>>") {
-    return transformBitwiseOp(op, args);
-  }
-
-  if (op === "typeof" || op === "delete" || op === "void" || op === "instanceof" || op === "in") {
-    return transformTypeOp(op, args);
-  }
-
-  return createCall(createId(op), args);
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -531,12 +529,14 @@ export function transformAssignment(
   }
 
   // Create an assignment expression
-  return {
+  const result = {
     type: IR.IRNodeType.AssignmentExpression,
     operator: "=",
     left: target,
     right: args[0],
   } as IR.IRAssignmentExpression;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -624,12 +624,14 @@ export function transformLogicalAssignment(
     );
   }
 
-  return {
+  const result = {
     type: IR.IRNodeType.AssignmentExpression,
     operator,
     left: target,
     right: value,
   } as IR.IRAssignmentExpression;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -721,12 +723,14 @@ export function transformCompoundAssignment(
     );
   }
 
-  return {
+  const result = {
     type: IR.IRNodeType.AssignmentExpression,
     operator,
     left: target,
     right: value,
   } as IR.IRAssignmentExpression;
+  copyPosition(list, result);
+  return result;
 }
 
 /**

@@ -18,17 +18,14 @@
   lazySeq,
 
   // Sequence generators (uses NumericRange with O(1) count/nth - hot path)
-  rangeGenerator,
+  range,
 
   // Utilities that remain as JS imports:
   // - groupBy: uses Map protocol internally
   // - realized: checks LazySeq/Delay internal fields
   // - force/isDelay: Delay class protocol
   groupBy, realized, force, isDelay
-] from "./js/stdlib.js")
-
-// Create alias for range to match runtime behavior
-(let range rangeGenerator)
+] from "./js/core.js")
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SELF-HOSTED STDLIB FUNCTIONS
@@ -99,7 +96,7 @@
   (lazy-seq
     (when-let [s (seq coll)]
       (let [f (first s)]
-        (if (coll? f)  // coll? checks for collections (arrays, seqs) but not strings
+        (if (and (not (nil? f)) (not (isString f)) (or (isArray f) (seq f)))  // collection check: not nil, not string, array or seqable
           (concat (flatten f) (flatten (rest s)))
           (cons f (flatten (rest s))))))))
 
@@ -111,7 +108,7 @@
                (lazy-seq
                  (when-let [xs (seq s)]
                    (let [f (first xs)]
-                     (if (contains? seen f)
+                     (if (.has seen f)
                        (step (rest xs) seen)
                        (cons f (step (rest xs) (conj seen f))))))))]
     (step coll #[])))
@@ -192,7 +189,7 @@
                (lazy-seq
                  (when-let [xs (seq s)]
                    (let [result (f idx (first xs))]
-                     (if (some? result)
+                     (if (isSome result)
                        (cons result (step (rest xs) (+ idx 1)))
                        (step (rest xs) (+ idx 1)))))))]
     (step coll 0)))
@@ -210,7 +207,7 @@
   (lazy-seq
     (when-let [s (seq coll)]
       (let [result (f (first s))]
-        (if (some? result)
+        (if (isSome result)
           (cons result (keep f (rest s)))
           (keep f (rest s)))))))
 
@@ -289,7 +286,7 @@
 (fn interleave [& colls]
   (lazy-seq
     (let [seqs (map seq colls)]
-      (when (every some? seqs)
+      (when (every isSome seqs)
         (concat (map first seqs)
                 (apply interleave (map rest seqs)))))))
 
@@ -842,7 +839,7 @@
   vec, set,
 
   // Sequence generators
-  range, rangeGenerator, iterate,
+  range, iterate,
 
   // Function operations (self-hosted)
   comp, partial, apply,

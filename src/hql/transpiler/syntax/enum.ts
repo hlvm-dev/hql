@@ -7,7 +7,7 @@ import { sanitizeIdentifier } from "../../../common/utils.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
 import type { HQLNode } from "../type/hql_ast.ts";
-import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
+import { copyPosition, copyEndPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 
 export function parseEnumCase(
   caseList: ListNode,
@@ -37,6 +37,7 @@ export function parseEnumCase(
     name: sanitizeIdentifier(caseName),
   };
   copyPosition(caseNameNode, caseId);
+  copyEndPosition(caseList, caseId);
 
   const enumCase: IR.IREnumCase = {
     type: IR.IRNodeType.EnumCase,
@@ -181,6 +182,7 @@ export function transformEnumDeclaration(
     name: sanitizeIdentifier(enumName),
   };
   copyPosition(nameNode, enumId);
+  copyEndPosition(list, enumId);
 
   const enumDeclaration: IR.IREnumDeclaration = {
     type: IR.IRNodeType.EnumDeclaration,

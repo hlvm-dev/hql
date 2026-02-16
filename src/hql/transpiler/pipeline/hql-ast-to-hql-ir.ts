@@ -336,6 +336,18 @@ export function copyPosition(
   return target;
 }
 
+/** Copy only endLine/endColumn from a list node onto an existing IR node's position */
+export function copyEndPosition(
+  listSource: HQLNode | null | undefined,
+  target: IR.IRNode | null,
+): void {
+  if (!target?.position || !listSource) return;
+  const meta = extractMeta(listSource);
+  if (!meta) return;
+  if (typeof meta.endLine === "number") target.position.endLine = meta.endLine;
+  if (typeof meta.endColumn === "number") target.position.endColumn = meta.endColumn;
+}
+
 /**
  * Transform factory to map operators to handler functions
  */

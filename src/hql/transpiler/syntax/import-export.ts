@@ -3,6 +3,7 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import { createId } from "../utils/ir-helpers.ts";
+import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 
 type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 import {
@@ -127,7 +128,7 @@ export function transformSingleExport(
   const nameNode = list.elements[1] as SymbolNode;
   const name = sanitizeIdentifier(nameNode.name);
 
-  return {
+  const result = {
     type: IR.IRNodeType.ExportNamedDeclaration,
     specifiers: [{
       type: IR.IRNodeType.ExportSpecifier,
@@ -135,6 +136,8 @@ export function transformSingleExport(
       exported: createId(name),
     } as IR.IRExportSpecifier],
   } as IR.IRExportNamedDeclaration;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -212,7 +215,7 @@ export function transformNamespaceImport(
   const name = (nameNode as SymbolNode).name;
   const pathVal = String((pathNode as LiteralNode).value);
 
-  return {
+  const result = {
     type: IR.IRNodeType.ImportDeclaration,
     source: pathVal,
     specifiers: [{
@@ -220,6 +223,8 @@ export function transformNamespaceImport(
       local: createId(sanitizeIdentifier(name)),
     } as IR.IRImportNamespaceSpecifier],
   } as IR.IRImportDeclaration;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -285,10 +290,12 @@ export function transformVectorExport(
     return null;
   }
 
-  return {
+  const result = {
     type: IR.IRNodeType.ExportNamedDeclaration,
     specifiers: exportSpecifiers,
   } as IR.IRExportNamedDeclaration;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -383,11 +390,13 @@ export function transformVectorImport(
     return null;
   }
 
-  return {
+  const result = {
     type: IR.IRNodeType.ImportDeclaration,
     source: modulePath,
     specifiers: importSpecifiers,
   } as IR.IRImportDeclaration;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -422,10 +431,12 @@ export function transformDefaultExport(
     );
   }
 
-  return {
+  const result = {
     type: IR.IRNodeType.ExportDefaultDeclaration,
     declaration: transformedExpr,
   } as IR.IRExportDefaultDeclaration;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -462,10 +473,12 @@ export function transformDeclarationExport(
     );
   }
 
-  return {
+  const result = {
     type: IR.IRNodeType.ExportNamedDeclaration,
     declaration: transformed,
     specifiers: [],
     source: null,
   } as IR.IRExportNamedDeclaration;
+  copyPosition(list, result);
+  return result;
 }

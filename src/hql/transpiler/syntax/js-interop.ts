@@ -7,6 +7,7 @@ import {
   TransformError,
   ValidationError,
 } from "../../../common/error.ts";
+import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
   transformElements,
   validateTransformed,
@@ -138,11 +139,13 @@ export function transformJsNew(
     );
   }
 
-  return {
+  const result = {
     type: IR.IRNodeType.NewExpression,
     callee: constructor,
     arguments: args,
   } as IR.IRNewExpression;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -164,7 +167,9 @@ export function transformJsGet(
   const literalProperty = getLiteralString(list.elements[2]);
   if (literalProperty !== null) {
     const { property, computed } = resolveMemberProperty(createStr(literalProperty), true);
-    return createMember(object, property, computed);
+    const result = createMember(object, property, computed);
+    copyPosition(list, result);
+    return result;
   }
 
   const propExpr = validateTransformed(
@@ -173,7 +178,9 @@ export function transformJsGet(
     "Property",
   );
   const { property, computed } = resolveMemberProperty(propExpr);
-  return createMember(object, property, computed);
+  const result = createMember(object, property, computed);
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -215,7 +222,9 @@ export function transformJsCall(
     );
 
     const { property, computed } = resolveMemberProperty(createStr(literalMethod), true);
-    return createCall(createMember(firstArg, property, computed), args);
+    const result = createCall(createMember(firstArg, property, computed), args);
+    copyPosition(list, result);
+    return result;
   }
 
   // Direct function call: (js-call func args...)
@@ -225,11 +234,13 @@ export function transformJsCall(
     transformNode,
   );
 
-  return {
+  const result = {
     type: IR.IRNodeType.CallExpression,
     callee: firstArg,
     arguments: args,
   } as IR.IRCallExpression;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -260,12 +271,14 @@ export function transformJsSet(
   const { property, computed } = resolveMemberProperty(key);
 
   // Create a property assignment directly, not a function call
-  return {
+  const result = {
     type: IR.IRNodeType.AssignmentExpression,
     operator: "=",
     left: createMember(object, property, computed),
     right: value,
   } as IR.IRAssignmentExpression;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -293,11 +306,13 @@ export function transformJsGetInvoke(
 
   // Create the IR node for the js-get-invoke operation
   // This transforms to an IIFE that checks if the property is a method at runtime
-  return {
+  const result = {
     type: IR.IRNodeType.InteropIIFE,
     object,
     property: createStr(propertyName),
   } as IR.IRInteropIIFE;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -361,7 +376,9 @@ export function transformDotNotation(
       createStr(property),
       true,
     );
-    return createCall(createMember(objectExpr, memberProperty, computed), []);
+    const result = createCall(createMember(objectExpr, memberProperty, computed), []);
+    copyPosition(list, result);
+    return result;
   }
 
   const args = transformElements(
@@ -376,5 +393,7 @@ export function transformDotNotation(
     true,
   );
 
-  return createCall(createMember(objectExpr, memberProperty, computed), args);
+  const result = createCall(createMember(objectExpr, memberProperty, computed), args);
+  copyPosition(list, result);
+  return result;
 }

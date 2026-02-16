@@ -89,6 +89,17 @@ export class CodeBuffer {
 
     this.updatePosition(text);
     this.chunks.push(text);
+
+    // Emit end-position mapping for span support
+    // Adjacent mappings let consumers infer spans (VSCode, Chrome DevTools)
+    if (pos?.endLine !== undefined) {
+      this.mappings.push({
+        generated: { line: this.currentLine, column: this.currentColumn },
+        original: { line: pos.endLine, column: (pos.endColumn ?? 1) - 1 },
+        source: pos.filePath || this.sourceFilePath,
+        name: null,
+      });
+    }
   }
 
   /**

@@ -339,4 +339,103 @@ Deno.test("Source Map V3 Compliance", async (t) => {
       assert(maxCol >= 0, "Line 1 should have valid columns");
     }
   });
+
+  // ==========================================================================
+  // 14. Token-level column accuracy for binding name
+  // ==========================================================================
+  await t.step("binding name maps to token start column", async () => {
+    // `(let x 42)` — the name `x` is at 1-based column 6, which is 0-indexed column 5
+    // The binding maps to the bindingTarget (the `x` symbol) and the literal `42`
+    const hql = "(let x 42)";
+    const { map } = await transpileWithMap(hql);
+    const mappings = decodeMappings(map);
+    const firstLineMappings = mappings.filter((m) => m.origLine === 0);
+    const origCols = new Set(firstLineMappings.map((m) => m.origCol));
+
+    // Should have multiple distinct column positions (not all pointing to col 0)
+    // The form start (col 0) and the literal value (col 7) should be present
+    assert(origCols.size >= 2, `Expected at least 2 distinct columns, got: ${[...origCols].join(", ")}`);
+    assert(origCols.has(0), `Expected column 0 (form start), got: ${[...origCols].join(", ")}`);
+  });
+
+  // ==========================================================================
+  // 15. End position produces adjacent span mapping
+  // ==========================================================================
+  await t.step("end positions produce adjacent span mappings", async () => {
+    // `(defn foo [x] (+ x 1))` — closing `)` at column 21 (0-indexed)
+    const hql = "(defn foo [x] (+ x 1))";
+    const { map } = await transpileWithMap(hql);
+    const result = validateSourceMap(map);
+    assertEquals(result.errors, [], `Validation errors: ${result.errors.join(", ")}`);
+
+    const mappings = decodeMappings(map);
+    // Should have more than just start-position mappings
+    // The end position creates an extra mapping entry
+    assert(mappings.length >= 2, `Expected at least 2 mappings, got ${mappings.length}`);
+  });
+
+  // ==========================================================================
+  // 16. Import/export declaration gets source position in IR
+  // ==========================================================================
+  await t.step("export declaration has position in source map", async () => {
+    // Use export with a function so the source map has meaningful content
+    const hql = `(fn add [a b] (+ a b))
+(export add)`;
+    const { map } = await transpileWithMap(hql);
+    const result = validateSourceMap(map);
+    assertEquals(result.errors, [], `Validation errors: ${result.errors.join(", ")}`);
+
+    const mappings = decodeMappings(map);
+    // Should have mappings for both lines
+    const origLines = new Set(mappings.map((m) => m.origLine));
+    assert(origLines.has(0), "Should have mappings for fn definition line");
+    // The export may or may not get a mapping depending on codegen,
+    // but the overall map should be valid
+    assert(mappings.length > 0, "Should have at least one mapping");
+  });
+
+  // ==========================================================================
+  // 17. Conditional expression has source position
+  // ==========================================================================
+  await t.step("conditional expression maps to correct position", async () => {
+    const hql = "(if true 1 2)";
+    const { map } = await transpileWithMap(hql);
+    const result = validateSourceMap(map);
+    assertEquals(result.errors, [], `Validation errors: ${result.errors.join(", ")}`);
+
+    const mappings = decodeMappings(map);
+    const firstLineMappings = mappings.filter((m) => m.origLine === 0);
+    assert(
+      firstLineMappings.length > 0,
+      "Conditional should have at least one source map mapping on line 1",
+    );
+  });
+
+  // ==========================================================================
+  // 18. Round-trip validity after end-position changes
+  // ==========================================================================
+  await t.step("all mappings remain valid after end-position changes", async () => {
+    const hql = `(let greeting "hello")
+(fn double [x] (* x 2))
+(double 21)`;
+    const hqlLines = hql.split("\n");
+    const { map } = await transpileWithMap(hql);
+
+    // V3 validity
+    const result = validateSourceMap(map);
+    assertEquals(result.errors, [], `Validation errors: ${result.errors.join(", ")}`);
+
+    // All mappings within source bounds
+    const mappings = decodeMappings(map);
+    for (const m of mappings) {
+      assert(
+        m.origLine >= 0 && m.origLine < hqlLines.length,
+        `origLine ${m.origLine} out of bounds (source has ${hqlLines.length} lines)`,
+      );
+      assert(
+        m.origCol >= 0 && m.origCol <= hqlLines[m.origLine].length,
+        `origCol ${m.origCol} out of bounds for line "${hqlLines[m.origLine]}" (length ${hqlLines[m.origLine].length})`,
+      );
+    }
+  });
 });

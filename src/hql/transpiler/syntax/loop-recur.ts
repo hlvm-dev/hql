@@ -16,7 +16,7 @@ import {
   createFnExpr,
   createVarDecl,
 } from "../utils/ir-helpers.ts";
-import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
+import { copyPosition, copyEndPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
 import { ARITHMETIC_OPS_SET } from "../keyword/primitives.ts";
 import { VECTOR_SYMBOL, EMPTY_ARRAY_SYMBOL } from "../../../common/runtime-helper-impl.ts";
@@ -153,6 +153,7 @@ export function transformLoop(
         const paramName = (nameNode as SymbolNode).name;
         const param = createId(sanitizeIdentifier(paramName));
         copyPosition(nameNode, param);
+        copyEndPosition(bindings, param);
         params.push(param);
 
         // Transform the initial value

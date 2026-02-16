@@ -7,8 +7,13 @@
 VERSION := 0.0.1
 BINARY := hlvm
 
+# Transpile stdlib.hql → self-hosted.js
+stdlib:
+	@echo "Building stdlib from HQL source..."
+	@deno run -A scripts/build-stdlib.ts
+
 # Quick build for current computer
-build:
+build: stdlib
 	@echo "📦 Embedding HLVM packages..."
 	@./scripts/embed-packages.ts
 	@echo "🔨 Building HLVM binary..."
@@ -155,6 +160,6 @@ help:
 	@echo "  make build-linux"
 	@echo "  make build-windows"
 
-.PHONY: build install repl ink test all clean help
+.PHONY: stdlib build install repl ink test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows
 .PHONY: build-ai setup-ai test-ai

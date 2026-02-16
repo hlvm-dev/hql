@@ -478,40 +478,30 @@ async function handleChatMode(
       signal.addEventListener("abort", () => resolve("aborted"), { once: true });
     });
 
-  while (true) {
-    if (signal.aborted) {
-      try {
-        await tokenIterator.return?.();
-      } catch {
-        // iterator already closed
+  try {
+    while (true) {
+      if (signal.aborted) break;
+
+      const nextPromise = tokenIterator.next();
+      const nextOrAbort = await Promise.race([
+        nextPromise.then((result) => ({ type: "next" as const, result })),
+        waitForAbort.then(() => ({ type: "abort" as const })),
+      ]);
+
+      if (nextOrAbort.type === "abort") {
+        nextPromise.catch(() => {});
+        break;
       }
-      break;
+
+      if (nextOrAbort.result.done) break;
+
+      const token = nextOrAbort.result.value;
+      fullText += token;
+      onPartial(token);
+      emit({ event: "token", text: token });
     }
-
-    const nextPromise = tokenIterator.next();
-    const nextOrAbort = await Promise.race([
-      nextPromise.then((result) => ({ type: "next" as const, result })),
-      waitForAbort.then(() => ({ type: "abort" as const })),
-    ]);
-
-    if (nextOrAbort.type === "abort") {
-      nextPromise.catch(() => {});
-      try {
-        await tokenIterator.return?.();
-      } catch {
-        // iterator already closed
-      }
-      break;
-    }
-
-    if (nextOrAbort.result.done) {
-      break;
-    }
-
-    const token = nextOrAbort.result.value;
-    fullText += token;
-    onPartial(token);
-    emit({ event: "token", text: token });
+  } finally {
+    try { await tokenIterator.return?.(); } catch { /* already closed */ }
   }
 
   if (!signal.aborted) {
@@ -531,7 +521,8 @@ async function handleAgentMode(
   requestId: string,
 ): Promise<void> {
   if (!agentReadyPromise) {
-    agentReadyPromise = ensureAgentReady(resolvedModel, (msg) => log.info(msg));
+    agentReadyPromise = ensureAgentReady(resolvedModel, (msg) => log.info(msg))
+      .catch((err) => { agentReadyPromise = null; throw err; });
   }
   await agentReadyPromise;
 
@@ -652,6 +643,50 @@ async function handleClaudeCodeAgentMode(
   }
 }
 
+/** Process a single NDJSON line from Claude Code stream-json output. */
+function processClaudeCodeJsonLine(
+  trimmed: string,
+  state: { fullText: string },
+  sessionMemoryEnabled: boolean,
+  claudeCodeSessionId: string | null,
+  existingMeta: Record<string, unknown>,
+  hlvmSessionId: string,
+  emit: (obj: unknown) => void,
+  onPartial: (text: string) => void,
+): void {
+  try {
+    const event = JSON.parse(trimmed);
+
+    if (captureSessionIdFromInitEvent(event, sessionMemoryEnabled, claudeCodeSessionId, existingMeta)) {
+      updateSession(hlvmSessionId, { metadata: JSON.stringify(existingMeta) });
+    }
+
+    if (event.type === "assistant" && event.message?.content) {
+      for (const block of event.message.content) {
+        if (block.type === "text" && block.text) {
+          state.fullText += block.text;
+          onPartial(block.text);
+          emit({ event: "token", text: block.text });
+        }
+      }
+    } else if (event.type === "content_block_delta" && event.delta?.text) {
+      state.fullText += event.delta.text;
+      onPartial(event.delta.text);
+      emit({ event: "token", text: event.delta.text });
+    } else if (event.type === "result" && event.result) {
+      if (typeof event.result === "string" && event.result.length > 0) {
+        state.fullText = event.result;
+      }
+    }
+  } catch {
+    if (trimmed.length > 0) {
+      state.fullText += trimmed + "\n";
+      onPartial(trimmed + "\n");
+      emit({ event: "token", text: trimmed + "\n" });
+    }
+  }
+}
+
 /** Spawn Claude Code CLI subprocess and stream results. Returns success status. */
 async function spawnClaudeCodeProcess(
   query: string,
@@ -688,9 +723,28 @@ async function spawnClaudeCodeProcess(
       return { success: false };
     }
 
+    // Bug 4 fix: Drain stderr concurrently to prevent pipe deadlock
+    const stderrPromise = (async () => {
+      const stderr = proc.stderr as ReadableStream<Uint8Array> | undefined;
+      if (!stderr) return "";
+      try {
+        const errReader = stderr.getReader();
+        const chunks: string[] = [];
+        while (true) {
+          const { done: errDone, value: errValue } = await errReader.read();
+          if (errDone) break;
+          chunks.push(new TextDecoder().decode(errValue));
+        }
+        return chunks.join("").trim();
+      } catch {
+        return "";
+      }
+    })();
+
     const reader = stdout.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    const textState = { fullText };
 
     while (true) {
       const { done, value } = await reader.read();
@@ -706,67 +760,29 @@ async function spawnClaudeCodeProcess(
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-
-        try {
-          const event = JSON.parse(trimmed);
-
-          if (captureSessionIdFromInitEvent(event, sessionMemoryEnabled, claudeCodeSessionId, existingMeta)) {
-            updateSession(hlvmSessionId, { metadata: JSON.stringify(existingMeta) });
-          }
-
-          // Claude Code stream-json events have a "type" field
-          if (event.type === "assistant" && event.message?.content) {
-            // Assistant text content
-            for (const block of event.message.content) {
-              if (block.type === "text" && block.text) {
-                fullText += block.text;
-                onPartial(block.text);
-                emit({ event: "token", text: block.text });
-              }
-            }
-          } else if (event.type === "content_block_delta" && event.delta?.text) {
-            // Streaming text delta
-            fullText += event.delta.text;
-            onPartial(event.delta.text);
-            emit({ event: "token", text: event.delta.text });
-          } else if (event.type === "result" && event.result) {
-            // Final result
-            if (typeof event.result === "string" && event.result.length > 0) {
-              fullText = event.result;
-            }
-          }
-        } catch {
-          // Not valid JSON or unknown format — treat as raw text
-          if (trimmed.length > 0) {
-            fullText += trimmed + "\n";
-            onPartial(trimmed + "\n");
-            emit({ event: "token", text: trimmed + "\n" });
-          }
-        }
+        processClaudeCodeJsonLine(
+          trimmed, textState, sessionMemoryEnabled, claudeCodeSessionId,
+          existingMeta, hlvmSessionId, emit, onPartial,
+        );
       }
     }
+
+    // Bug 3 fix: Process residual buffer after EOF (final line may lack trailing newline)
+    const residual = buffer.trim();
+    if (residual) {
+      processClaudeCodeJsonLine(
+        residual, textState, sessionMemoryEnabled, claudeCodeSessionId,
+        existingMeta, hlvmSessionId, emit, onPartial,
+      );
+    }
+
+    fullText = textState.fullText;
 
     // Wait for process to finish
     const result = await proc.status;
     if (!result.success && !signal.aborted) {
-      // Read stderr for error message
-      const stderr = proc.stderr as ReadableStream<Uint8Array> | undefined;
-      let errMsg = `Claude Code exited with code ${result.code}`;
-      if (stderr) {
-        try {
-          const errReader = stderr.getReader();
-          const errChunks: string[] = [];
-          while (true) {
-            const { done: errDone, value: errValue } = await errReader.read();
-            if (errDone) break;
-            errChunks.push(new TextDecoder().decode(errValue));
-          }
-          const errText = errChunks.join("").trim();
-          if (errText) errMsg = errText;
-        } catch {
-          // Ignore stderr read errors
-        }
-      }
+      const errText = await stderrPromise;
+      const errMsg = errText || `Claude Code exited with code ${result.code}`;
       if (!fullText) {
         emit({ event: "error", message: errMsg });
       }

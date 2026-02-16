@@ -4,6 +4,7 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode } from "../type/hql_ast.ts";
 import { TransformError } from "../../../common/error.ts";
+import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
   validateTransformed,
   validateListLengthRange,
@@ -39,7 +40,9 @@ export function transformGet(
     ? transformNode(list.elements[3], currentDir)
     : null;
 
-  return createGetOperation(collection, index, defaultValue);
+  const result = createGetOperation(collection, index, defaultValue);
+  copyPosition(list, result);
+  return result;
 }
 
 /**

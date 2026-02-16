@@ -4,6 +4,7 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import { TransformError } from "../../../common/error.ts";
+import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { createNull, createNum, createStr } from "../utils/ir-helpers.ts";
 import {
   validateTransformed,
@@ -30,27 +31,39 @@ export function transformQuote(
     // Create the appropriate literal based on the type
     const value = (quoted as LiteralNode).value;
     if (value === null) {
-      return createNull();
+      const result = createNull();
+      copyPosition(list, result);
+      return result;
     } else if (typeof value === "boolean") {
-      return {
+      const result = {
         type: IR.IRNodeType.BooleanLiteral,
         value,
       } as IR.IRBooleanLiteral;
+      copyPosition(list, result);
+      return result;
     } else if (typeof value === "number") {
-      return createNum(value);
+      const result = createNum(value);
+      copyPosition(list, result);
+      return result;
     }
-    return createStr(String(value));
+    const result = createStr(String(value));
+    copyPosition(list, result);
+    return result;
   } else if (quoted.type === "symbol") {
-    return {
+    const result = {
       type: IR.IRNodeType.StringLiteral,
       value: (quoted as SymbolNode).name,
     } as IR.IRStringLiteral;
+    copyPosition(list, result);
+    return result;
   } else if (quoted.type === "list") {
     if ((quoted as ListNode).elements.length === 0) {
-      return {
+      const result = {
         type: IR.IRNodeType.ArrayExpression,
         elements: [],
       } as IR.IRArrayExpression;
+      copyPosition(list, result);
+      return result;
     }
 
     const elements: IR.IRNode[] = (quoted as ListNode).elements.map((
@@ -65,10 +78,12 @@ export function transformQuote(
         transformNode,
       )
     );
-    return {
+    const result = {
       type: IR.IRNodeType.ArrayExpression,
       elements,
     } as IR.IRArrayExpression;
+    copyPosition(list, result);
+    return result;
   }
 
   throw typeError(

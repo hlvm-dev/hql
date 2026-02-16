@@ -25,7 +25,7 @@ import {
   hasVectorPrefix,
 } from "../../../common/sexp-utils.ts";
 import { DEEP_FREEZE_HELPER } from "../../../common/runtime-helper-impl.ts";
-import { copyPosition, isExpressionResult } from "../pipeline/hql-ast-to-hql-ir.ts";
+import { copyPosition, copyEndPosition, isExpressionResult } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
   containsAwaitExpression,
   containsYieldExpression,
@@ -106,6 +106,7 @@ function transformBinding(
         const finalInit = freeze ? wrapWithFreeze(init) : init;
         const decl = createVarDecl(patternIR, finalInit, kind);
         copyPosition(bindingTarget, decl.declarations[0]);
+        copyEndPosition(list, decl.declarations[0]);
 
         return decl;
       }
@@ -145,6 +146,7 @@ function transformBinding(
       const decl = createVarDecl(id, init, kind);
       decl.declarations[0].typeAnnotation = typeAnnotation;
       copyPosition(bindingTarget, decl.declarations[0]);
+      copyEndPosition(list, decl.declarations[0]);
 
       return decl;
     }
@@ -194,6 +196,7 @@ function transformBinding(
 
         const variableDecl = createVarDecl(patternIR, init, kind);
         copyPosition(nameNode, variableDecl.declarations[0]);
+        copyEndPosition(list, variableDecl.declarations[0]);
 
         // If there are body expressions, wrap in IIFE
         if (list.elements.length > 2) {
@@ -266,9 +269,11 @@ function transformBinding(
 
     const idNode = createId(sanitizeIdentifier(name));
     copyPosition(nameNode, idNode);
+    copyEndPosition(list, idNode);
 
     const variableDecl = createVarDecl(idNode, valueExpr, kind);
     copyPosition(nameNode, variableDecl.declarations[0]);
+    copyEndPosition(list, variableDecl.declarations[0]);
 
     // If there are body expressions
     if (list.elements.length > 2) {
@@ -559,10 +564,12 @@ function processBindings(
   const variableDeclarations: IR.IRNode[] = bindings.map((b) => {
     const idNode = createId(sanitizeIdentifier(b.name));
     copyPosition(b.nameNode, idNode);
+    copyEndPosition(bindingsNode, idNode);
 
     const decl = createVarDecl(idNode, b.value, kind);
     decl.declarations[0].typeAnnotation = b.typeAnnotation;
     copyPosition(b.nameNode, decl.declarations[0]);
+    copyEndPosition(bindingsNode, decl.declarations[0]);
 
     return decl;
   });

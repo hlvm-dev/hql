@@ -7,6 +7,7 @@ import {
   TransformError,
   ValidationError,
 } from "../../../common/error.ts";
+import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { createGetOperation, transformGet } from "./get.ts";
 import {
   transformElements,
@@ -184,13 +185,15 @@ export function transformHashSet(
     "Set element",
   );
 
-  return {
+  const result = {
     type: IR.IRNodeType.NewExpression,
     callee: createId("Set"),
     arguments: [
       createArr(elements),
     ],
   } as IR.IRNewExpression;
+  copyPosition(list, result);
+  return result;
 }
 
 /**
@@ -224,9 +227,11 @@ export function transformNew(
     "Constructor argument",
   );
 
-  return {
+  const result = {
     type: IR.IRNodeType.NewExpression,
     callee: constructor,
     arguments: args,
   } as IR.IRNewExpression;
+  copyPosition(list, result);
+  return result;
 }

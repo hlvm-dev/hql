@@ -782,7 +782,7 @@ async function processJsImportsInJs(
   filePath: string,
 ): Promise<string> {
   const jsImportRegex =
-    /import\s+.*\s+from\s+['"]([^'"]+(?:\.js|(?!\.\w+)(?!["'])))['"]/g;
+    /import\s+[\s\S]*?\s+from\s+['"]([^'"]+(?:\.js|(?!\.\w+)(?!["'])))['"]/g;
   logger.debug(`Processing JS imports in JS file: ${filePath}`);
 
   let modifiedContent = await rewriteRelativeImports(
@@ -824,12 +824,15 @@ async function processJsImportsInJs(
         return null;
       }
 
-      const cachedJsPath = await writeToCachedPath(
-        sourcePath,
-        await fs().readTextFile(sourcePath),
-        "",
-        { preserveRelative: true },
-      );
+      // Recursively process the imported JS file so its own imports are rewritten too
+      await processJavaScriptFile(sourcePath);
+      const cachedJsPath = getImportMapping(sourcePath) ??
+        await writeToCachedPath(
+          sourcePath,
+          await fs().readTextFile(sourcePath),
+          "",
+          { preserveRelative: true },
+        );
       registerImportMapping(resolvedImportPath, cachedJsPath);
 
       const newImportPath = keepExtensionInImport
