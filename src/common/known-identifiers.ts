@@ -123,7 +123,9 @@ export const DECLARATION_KEYWORDS = [
  * Extract macro names from EMBEDDED_MACROS source code.
  * Parses (macro NAME ...) patterns from the HQL source.
  */
+let _cachedMacroNames: string[] | null = null;
 function extractMacroNames(): string[] {
+  if (_cachedMacroNames) return _cachedMacroNames;
   const allSource = Object.values(EMBEDDED_MACROS).join("\n");
   const macroRegex = /\(macro\s+([^\s\[\]]+)/g;
   const macros = new Set<string>();
@@ -133,7 +135,8 @@ function extractMacroNames(): string[] {
     macros.add(match[1]);
   }
 
-  return [...macros];
+  _cachedMacroNames = [...macros];
+  return _cachedMacroNames;
 }
 
 /**

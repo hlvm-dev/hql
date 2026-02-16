@@ -186,21 +186,22 @@ function resolveValueForInterpreter(
 // binding count changes (new var/let definitions in macro body).
 const _bridgeCache: WeakMap<
   Environment,
-  { env: InterpreterEnv; bindingCount: number }
+  { env: InterpreterEnv; fingerprint: string }
 > = new WeakMap();
 
 /**
- * Count total bindings across the entire scope chain.
- * Cheap O(depth) operation used for cache invalidation.
+ * Build a structural fingerprint of the scope chain.
+ * Concatenates `name:size` for each scope level, making collisions with
+ * different-shaped-but-same-count scopes impossible.
  */
-function countScopeBindings(env: Environment): number {
-  let count = 0;
+function scopeFingerprint(env: Environment): string {
+  const parts: string[] = [];
   let current: Environment | null = env;
   while (current !== null) {
-    count += current.variables.size;
+    parts.push(`${current.variables.size}`);
     current = current.getParent();
   }
-  return count;
+  return parts.join(":");
 }
 
 /**
@@ -217,10 +218,10 @@ function countScopeBindings(env: Environment): number {
  * redundant scope-chain walks during macro body evaluation.
  */
 function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
-  const bindingCount = countScopeBindings(compilerEnv);
+  const fingerprint = scopeFingerprint(compilerEnv);
   const cached = _bridgeCache.get(compilerEnv);
 
-  if (cached && cached.bindingCount === bindingCount) {
+  if (cached && cached.fingerprint === fingerprint) {
     // Return a child scope of the cached bridge for isolation
     return cached.env.extend();
   }
@@ -258,7 +259,7 @@ function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
   }
 
   // Cache for reuse within this macro expansion
-  _bridgeCache.set(compilerEnv, { env: interpEnv, bindingCount });
+  _bridgeCache.set(compilerEnv, { env: interpEnv, fingerprint });
 
   return interpEnv;
 }
@@ -580,7 +581,7 @@ export function expandMacros(
     logger.debug(`Setting current file to: ${currentFile}`);
   }
 
-  // Process macro definitions
+  // Process macro definitions (pre-pass)
   for (const expr of exprs) {
     if (isDefMacro(expr) && isList(expr)) {
       defineMacro(expr as SList, env, logger);
@@ -1402,7 +1403,12 @@ function expandMacroExpression(
   }
 
   if (isList(expr) && isDefMacro(expr)) {
-    defineMacro(expr as SList, env, logger);
+    // Skip re-registration if already defined in the pre-pass
+    const macroList = expr as SList;
+    const macroNameNode = macroList.elements.length >= 2 ? macroList.elements[1] : null;
+    if (!macroNameNode || macroNameNode.type !== "symbol" || !env.hasMacro((macroNameNode as SSymbol).name)) {
+      defineMacro(macroList, env, logger);
+    }
     const placeholder = createNilLiteral();
     Object.defineProperty(placeholder, "__macroPlaceholder", {
       value: true,

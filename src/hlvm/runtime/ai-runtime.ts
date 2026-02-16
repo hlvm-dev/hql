@@ -39,7 +39,7 @@ const SYSTEM_AI_ENGINE = "ollama";
 const AI_STARTUP_MAX_POLLS = 30;
 const AI_STARTUP_POLL_INTERVAL_MS = 300;
 
-let initialized = false;
+let initPromise: Promise<void> | null = null;
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -116,6 +116,7 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
     throw new RuntimeError("AI engine failed to start");
   } catch (error) {
     log.warn(`AI features unavailable: ${(error as Error).message}`);
+    throw error;
   }
 }
 
@@ -158,9 +159,17 @@ export const aiEngine: AIEngineLifecycle = {
  * Respects HLVM_DISABLE_AI_AUTOSTART (for tests).
  * For explicit setup flows, use aiEngine.ensureRunning() instead.
  */
-export async function initAIRuntime(): Promise<void> {
-  if (initialized) return;
-  initialized = true;
+export function initAIRuntime(): Promise<void> {
+  if (!initPromise) {
+    initPromise = doInitAIRuntime().catch((e) => {
+      initPromise = null; // Allow retry on failure
+      throw e;
+    });
+  }
+  return initPromise;
+}
+
+async function doInitAIRuntime(): Promise<void> {
   const platform = getPlatform();
 
   if (platform.env.get("HLVM_DISABLE_AI_AUTOSTART")) {

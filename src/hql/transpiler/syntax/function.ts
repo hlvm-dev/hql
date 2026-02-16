@@ -774,11 +774,12 @@ function reconstructReturnTypeString(listNode: ListNode): string | null {
   }
 
   // Regular list: (Type, Type) → tuple
-  // Only treat as a tuple type if all elements look like type names (not operators/expressions).
+  // Only treat as a tuple type if each element is itself type-like (not an expression).
   // This prevents (+ a b) or (console.log x) from being misinterpreted as tuple types.
-  if (elems.length >= 2 && elems.every(e => e.type === "symbol" && looksLikeTypeName((e as SymbolNode).name))) {
-    const names = elems.map(e => (e as SymbolNode).name);
-    return `(${names.join(", ")})`;
+  if (elems.length >= 2 && elems.every(isTupleTypeElement)) {
+    const names = elems.map(e => reconstructNodeAsTypeString(e));
+    if (names.some(n => n === null)) return null;
+    return `(${(names as string[]).join(", ")})`;
   }
 
   return null;
@@ -794,8 +795,20 @@ function reconstructNodeAsTypeString(node: HQLNode): string | null {
   return null;
 }
 
+/**
+ * Check whether a node is type-like in tuple return type context.
+ */
+function isTupleTypeElement(node: HQLNode): boolean {
+  if (node.type === "symbol") return looksLikeTypeName((node as SymbolNode).name);
+  if (node.type === "list") return reconstructReturnTypeString(node as ListNode) !== null;
+  return false;
+}
+
 /** Operator/special chars that indicate an expression, not a type name */
 const OPERATOR_START_CHARS = new Set(["+", "-", "*", "/", "=", "<", ">", "!", "&", "|", ".", "%", "^", "~"]);
+
+/** Known TypeScript primitive types (module-level to avoid per-call allocation) */
+const LOWERCASE_TYPES = new Set(["number", "string", "boolean", "void", "any", "never", "null", "undefined", "object", "unknown", "bigint", "symbol"]);
 
 /**
  * Check if a symbol name looks like a type name (not an operator or variable).
@@ -807,8 +820,6 @@ function looksLikeTypeName(name: string): boolean {
   // Must start with uppercase letter or be a known lowercase primitive type
   const firstChar = name[0];
   if (firstChar >= "A" && firstChar <= "Z") return true;
-  // Known TS primitive types
-  const LOWERCASE_TYPES = new Set(["number", "string", "boolean", "void", "any", "never", "null", "undefined", "object", "unknown", "bigint", "symbol"]);
   return LOWERCASE_TYPES.has(name);
 }
 
@@ -944,6 +955,18 @@ function processJsonMapArgs(
   }
 }
 
+/** Cached defaults Map per funcDef (avoids rebuilding on every call) */
+const _defaultsCache = new WeakMap<IR.IRFnFunctionDeclaration, Map<string, IR.IRNode>>();
+
+function getDefaultValues(funcDef: IR.IRFnFunctionDeclaration): Map<string, IR.IRNode> {
+  let cached = _defaultsCache.get(funcDef);
+  if (!cached) {
+    cached = new Map(funcDef.defaults.map((d) => [d.name, d.value]));
+    _defaultsCache.set(funcDef, cached);
+  }
+  return cached;
+}
+
 /**
  * Process positional arguments for a function call
  */
@@ -968,7 +991,7 @@ function processPositionalArgs(
   const paramNames: (string | null)[] = funcDef.params.map((p) =>
     p.type === IR.IRNodeType.Identifier ? p.name : null
   );
-  const defaultValues = new Map(funcDef.defaults.map((d) => [d.name, d.value]));
+  const defaultValues = getDefaultValues(funcDef);
 
   const lastParam = paramNames.length > 0 ? paramNames[paramNames.length - 1] : null;
   const hasRestParam = lastParam !== null && lastParam !== undefined && lastParam.startsWith("...");

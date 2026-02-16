@@ -32,6 +32,8 @@ import type {
   PlatformEnv,
   PlatformFileInfo,
   PlatformFs,
+  PlatformFsEvent,
+  PlatformFsWatcher,
   PlatformHttp,
   PlatformHttpServeOptions,
   PlatformMakeTempDirOptions,
@@ -286,6 +288,58 @@ const NodeFs: PlatformFs = {
     fsp.rename(oldPath, newPath),
   chmod: (path: string, mode: number): Promise<void> =>
     fsp.chmod(path, mode),
+
+  watchFs: (paths: string | string[]): PlatformFsWatcher => {
+    const targets = Array.isArray(paths) ? paths : [paths];
+    const watchers: fs.FSWatcher[] = [];
+    const queue: PlatformFsEvent[] = [];
+    let resolve: ((value: IteratorResult<PlatformFsEvent>) => void) | null = null;
+    let closed = false;
+
+    const push = (event: PlatformFsEvent): void => {
+      if (closed) return;
+      if (resolve) {
+        const r = resolve;
+        resolve = null;
+        r({ done: false, value: event });
+      } else {
+        queue.push(event);
+      }
+    };
+
+    for (const target of targets) {
+      const w = fs.watch(target, (eventType, filename) => {
+        const kind = eventType === "rename" ? "create" : "modify";
+        const fullPath = filename ? nodePath.join(target, filename) : target;
+        push({ kind, paths: [fullPath] });
+      });
+      watchers.push(w);
+    }
+
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<PlatformFsEvent> {
+        return {
+          next(): Promise<IteratorResult<PlatformFsEvent>> {
+            if (queue.length > 0) {
+              return Promise.resolve({ done: false, value: queue.shift()! });
+            }
+            if (closed) {
+              return Promise.resolve({ done: true, value: undefined });
+            }
+            return new Promise<IteratorResult<PlatformFsEvent>>((r) => { resolve = r; });
+          },
+        };
+      },
+      close(): void {
+        closed = true;
+        for (const w of watchers) w.close();
+        if (resolve) {
+          resolve({ done: true, value: undefined });
+          resolve = null;
+        }
+      },
+    };
+  },
 };
 
 // =============================================================================
@@ -455,16 +509,11 @@ const NodeHttp: PlatformHttp = {
           nodeRes.writeHead(webRes.status, Object.fromEntries(webRes.headers.entries()));
           if (webRes.body) {
             const reader = webRes.body.getReader();
-            const pump = async (): Promise<void> => {
+            while (true) {
               const { done, value } = await reader.read();
-              if (done) {
-                nodeRes.end();
-                return;
-              }
+              if (done) { nodeRes.end(); break; }
               nodeRes.write(value);
-              return pump();
-            };
-            await pump();
+            }
           } else {
             const text = await webRes.text();
             nodeRes.end(text);

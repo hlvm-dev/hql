@@ -21,6 +21,8 @@ import type {
   PlatformEnv,
   PlatformFileInfo,
   PlatformFs,
+  PlatformFsEvent,
+  PlatformFsWatcher,
   PlatformHttp,
   PlatformHttpServeOptions,
   PlatformMakeTempDirOptions,
@@ -218,6 +220,20 @@ const DenoFs: PlatformFs = {
   rename: (oldPath: string, newPath: string): Promise<void> =>
     Deno.rename(oldPath, newPath),
   chmod: (path: string, mode: number): Promise<void> => Deno.chmod(path, mode),
+
+  watchFs: (paths: string | string[]): PlatformFsWatcher => {
+    const watcher = Deno.watchFs(paths);
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<PlatformFsEvent> {
+        const inner = watcher[Symbol.asyncIterator]();
+        return {
+          next: () => inner.next() as Promise<IteratorResult<PlatformFsEvent>>,
+          return: (value?: PlatformFsEvent) => inner.return?.(value) ?? Promise.resolve({ done: true as const, value: undefined }),
+        };
+      },
+      close: () => watcher.close(),
+    };
+  },
 };
 
 // =============================================================================

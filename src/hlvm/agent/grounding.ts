@@ -85,27 +85,36 @@ function responseIncorporatesToolData(
   const numberSet = new Set<string>();
   const tokenSet = new Set<string>();
 
+  const MAX_NUMBERS = 20;
+  const MAX_TOKENS = 50;
+
   for (const tool of nonEmptyTools) {
     const result = tool.result;
 
-    // Extract numbers (integers and decimals)
-    const numbers = result.match(/\b\d+(?:\.\d+)?\b/g);
-    if (numbers) {
-      for (const n of numbers) {
-        const num = parseFloat(n);
-        if (num > 1 || n.includes(".")) {
-          numberSet.add(n);
+    // Extract numbers (integers and decimals), capped
+    if (numberSet.size < MAX_NUMBERS) {
+      const numbers = result.match(/\b\d+(?:\.\d+)?\b/g);
+      if (numbers) {
+        for (const n of numbers) {
+          if (numberSet.size >= MAX_NUMBERS) break;
+          const num = parseFloat(n);
+          if (num > 1 || n.includes(".")) {
+            numberSet.add(n);
+          }
         }
       }
     }
 
-    // Extract significant tokens (4+ char words, not common English)
-    const tokens = result.match(/[a-zA-Z_][\w.-]{3,}/g);
-    if (tokens) {
-      for (const t of tokens) {
-        const lower = t.toLowerCase();
-        if (!COMMON_WORDS.has(lower)) {
-          tokenSet.add(lower);
+    // Extract significant tokens (4+ char words, not common English), capped
+    if (tokenSet.size < MAX_TOKENS) {
+      const tokens = result.match(/[a-zA-Z_][\w.-]{3,}/g);
+      if (tokens) {
+        for (const t of tokens) {
+          if (tokenSet.size >= MAX_TOKENS) break;
+          const lower = t.toLowerCase();
+          if (!COMMON_WORDS.has(lower)) {
+            tokenSet.add(lower);
+          }
         }
       }
     }

@@ -91,13 +91,10 @@ export function deleteAllSessions(): number {
 }
 
 export function getOrCreateSession(id: string): SessionRow {
-  const existing = getSession(id);
-  if (existing) return existing;
-
   const db = getDb();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO sessions (id, title, created_at, updated_at)
+    `INSERT OR IGNORE INTO sessions (id, title, created_at, updated_at)
      VALUES (?, ?, ?, ?)`
   ).run(id, "", now, now);
 
@@ -116,7 +113,6 @@ function getMaxOrder(sessionId: string): number {
 
 export function insertMessage(opts: InsertMessageOpts): MessageRow {
   const db = getDb();
-  const order = getMaxOrder(opts.session_id) + 1;
   const now = opts.created_at ?? new Date().toISOString();
 
   if (opts.client_turn_id) {
@@ -124,40 +120,52 @@ export function insertMessage(opts: InsertMessageOpts): MessageRow {
     if (existing) return existing;
   }
 
-  db.prepare(
-    `INSERT INTO messages
-       (session_id, "order", role, content, client_turn_id, request_id,
-        sender_type, sender_detail, image_paths, tool_calls, tool_name,
-        tool_call_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    opts.session_id,
-    order,
-    opts.role,
-    opts.content,
-    opts.client_turn_id ?? null,
-    opts.request_id ?? null,
-    opts.sender_type ?? "user",
-    opts.sender_detail ?? null,
-    opts.image_paths ? JSON.stringify(opts.image_paths) : null,
-    opts.tool_calls ? JSON.stringify(opts.tool_calls) : null,
-    opts.tool_name ?? null,
-    opts.tool_call_id ?? null,
-    now,
-  );
+  // Atomic: getMaxOrder + INSERT + session UPDATE in a single transaction
+  db.exec("BEGIN");
+  try {
+    const order = getMaxOrder(opts.session_id) + 1;
 
-  db.prepare(
-    `UPDATE sessions
-     SET session_version = session_version + 1,
-         message_count = message_count + 1,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(now, opts.session_id);
+    db.prepare(
+      `INSERT INTO messages
+         (session_id, "order", role, content, client_turn_id, request_id,
+          sender_type, sender_detail, image_paths, tool_calls, tool_name,
+          tool_call_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      opts.session_id,
+      order,
+      opts.role,
+      opts.content,
+      opts.client_turn_id ?? null,
+      opts.request_id ?? null,
+      opts.sender_type ?? "user",
+      opts.sender_detail ?? null,
+      opts.image_paths ? JSON.stringify(opts.image_paths) : null,
+      opts.tool_calls ? JSON.stringify(opts.tool_calls) : null,
+      opts.tool_name ?? null,
+      opts.tool_call_id ?? null,
+      now,
+    );
 
-  const id = db.lastInsertRowId;
-  return db.prepare(
-    `SELECT * FROM messages WHERE id = ?`
-  ).get<MessageRow>(Number(id))!;
+    db.prepare(
+      `UPDATE sessions
+       SET session_version = session_version + 1,
+           message_count = message_count + 1,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(now, opts.session_id);
+
+    const id = db.lastInsertRowId;
+    const result = db.prepare(
+      `SELECT * FROM messages WHERE id = ?`
+    ).get<MessageRow>(Number(id))!;
+
+    db.exec("COMMIT");
+    return result;
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
 }
 
 export function getMessages(

@@ -12,7 +12,8 @@ import { getErrorMessage } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { config } from "../../api/config.ts";
-import { normalizeModelId } from "../../../common/config/types.ts";
+import { normalizeModelId, type AgentMode } from "../../../common/config/types.ts";
+import { AGENT_MODEL_SUFFIX } from "../../providers/claude-code/provider.ts";
 
 export interface ModelBrowserOptions {
   endpoint?: string;
@@ -22,6 +23,7 @@ export interface ModelBrowserOptions {
 export interface ModelBrowserResult {
   code: number;
   selectedModel?: string;
+  agentMode?: AgentMode;
 }
 
 interface ModelBrowserAppProps {
@@ -51,6 +53,12 @@ function ModelBrowserApp({ endpoint, currentModel, onSelect, onCancel }: ModelBr
     if (!normalized) return;
     try {
       await config.set("model", normalized);
+      // Persist agentMode for Claude models with :agent suffix
+      if (normalized.endsWith(AGENT_MODEL_SUFFIX)) {
+        await config.set("agentMode", "claude-code-agent");
+      } else if (normalized.startsWith("claude-code/")) {
+        await config.set("agentMode", "hlvm");
+      }
     } catch (error) {
       log.raw.error(`Failed to set model: ${getErrorMessage(error)}`);
       finish();
@@ -99,5 +107,10 @@ export async function startModelBrowser(options: ModelBrowserOptions = {}): Prom
   );
 
   await waitUntilExit();
-  return { code: 0, selectedModel };
+  const agentMode: AgentMode | undefined = selectedModel?.endsWith(AGENT_MODEL_SUFFIX)
+    ? "claude-code-agent"
+    : selectedModel?.startsWith("claude-code/")
+      ? "hlvm"
+      : undefined;
+  return { code: 0, selectedModel, agentMode };
 }

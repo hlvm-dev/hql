@@ -75,6 +75,74 @@ async function readBodyWithLimit(req: Request, limit: number): Promise<
   return { ok: true, bytes };
 }
 
+/** Format an SSE event with id, event type, and JSON data */
+export function formatSSE(event: { id: string | number; event_type: string; data: unknown }): string {
+  return `id: ${event.id}\nevent: ${event.event_type}\ndata: ${JSON.stringify(event.data)}\n\n`;
+}
+
+/**
+ * Create an SSE Response with heartbeat and abort cleanup.
+ *
+ * The `setup` callback receives an `emit(chunk)` function to push raw SSE text
+ * and returns an optional cleanup function (e.g. unsubscribe).
+ */
+export function createSSEResponse(
+  req: Request,
+  setup: (emit: (chunk: string) => void) => (() => void) | void,
+): Response {
+  const stream = new ReadableStream({
+    start(controller) {
+      let closed = false;
+
+      const emit = (chunk: string): void => {
+        if (closed) return;
+        try {
+          controller.enqueue(textEncoder.encode(chunk));
+        } catch {
+          cleanup();
+        }
+      };
+
+      // Send retry directive before any events
+      controller.enqueue(textEncoder.encode("retry: 3000\n\n"));
+
+      const teardown = setup(emit);
+
+      const heartbeat = setInterval(() => {
+        if (closed) return;
+        try {
+          controller.enqueue(textEncoder.encode(": heartbeat\n\n"));
+        } catch {
+          cleanup();
+        }
+      }, 30_000);
+
+      function cleanup(): void {
+        if (closed) return;
+        closed = true;
+        teardown?.();
+        clearInterval(heartbeat);
+        try {
+          controller.close();
+        } catch {
+          // Already closed
+        }
+      }
+
+      req.signal.addEventListener("abort", cleanup);
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
+}
+
 export async function parseJsonBody<T>(req: Request): Promise<JsonParseResult<T>> {
   const contentType = req.headers.get("content-type");
   if (contentType && !contentType.includes("application/json")) {

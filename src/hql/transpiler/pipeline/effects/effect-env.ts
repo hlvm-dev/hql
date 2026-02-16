@@ -2,6 +2,7 @@ import * as IR from "../../type/hql_ir.ts";
 import { getFnFunction } from "../../syntax/function.ts";
 import { forEachNode } from "../../utils/ir-tree-walker.ts";
 import type {
+  Effect,
   FunctionSignature,
   ParameterEffectInfo,
   SignatureTable,
@@ -75,6 +76,7 @@ export function lookupFunctionSignature(
 export function buildParameterEffectTable(
   params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[],
   selfName: string,
+  unannotatedDefault: Effect = "Impure",
 ): Map<string, ParameterEffectInfo> {
   const table = new Map<string, ParameterEffectInfo>();
   table.set(selfName, { effect: "Pure", source: "self" });
@@ -96,7 +98,7 @@ export function buildParameterEffectTable(
       continue;
     }
 
-    table.set(plainName, { effect: "Pure", source: "unannotated-param" });
+    table.set(plainName, { effect: unannotatedDefault, source: "unannotated-param" });
   }
 
   return table;

@@ -237,28 +237,31 @@ async function streamChat(
   }
 
   const contentChunks: string[] = [];
-  // Fix 6: Track tool calls by index to avoid duplicates across chunks
+  // Track tool calls with a running index across chunks (not chunk-local index)
   const toolCallMap = new Map<number, { name: string; args: Record<string, unknown> }>();
+  let toolCallIndex = -1;
+  let lastToolCallName = "";
   let lastUsageMetadata: GoogleResponse["usageMetadata"];
 
   for await (const chunk of readSSEStream<GoogleResponse>(response)) {
     if (chunk.usageMetadata) lastUsageMetadata = chunk.usageMetadata;
     const parts = chunk.candidates?.[0]?.content?.parts ?? [];
-    for (let j = 0; j < parts.length; j++) {
-      const part = parts[j];
+    for (const part of parts) {
       if (part.text) {
         contentChunks.push(part.text);
         onToken(part.text);
       }
       if (part.functionCall) {
-        const existing = toolCallMap.get(j);
-        if (existing) {
-          // Merge args from subsequent chunks
-          if (part.functionCall.args) {
+        // Same name as last seen = continuation (merge args); new name = new tool call
+        if (part.functionCall.name === lastToolCallName && toolCallIndex >= 0) {
+          const existing = toolCallMap.get(toolCallIndex);
+          if (existing && part.functionCall.args) {
             Object.assign(existing.args, part.functionCall.args);
           }
         } else {
-          toolCallMap.set(j, {
+          toolCallIndex++;
+          lastToolCallName = part.functionCall.name;
+          toolCallMap.set(toolCallIndex, {
             name: part.functionCall.name,
             args: part.functionCall.args ?? {},
           });

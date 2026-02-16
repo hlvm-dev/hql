@@ -753,6 +753,27 @@ function findDepthZeroDelimiter(type: string): number {
   return -1;
 }
 
+/**
+ * Find the index of the first depth-0 occurrence of a specific character.
+ * Respects nesting in `<>`, `()`, `[]`, `{}`.
+ *
+ * @returns The index of the first depth-0 character, or -1 if none found
+ */
+function findDepthZeroChar(type: string, charToFind: string): number {
+  let depth = 0;
+  for (let i = 0; i < type.length; i++) {
+    const c = type[i];
+    if (c === "<" || c === "(" || c === "[" || c === "{") {
+      depth++;
+    } else if (c === ">" || c === ")" || c === "]" || c === "}") {
+      depth--;
+    } else if (c === charToFind && depth === 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 export function normalizeType(type: string): string {
   if (CONDITIONAL_TYPE_REGEX.test(type)) return type;
 
@@ -765,19 +786,19 @@ export function normalizeType(type: string): string {
   if (arrayMatch) return `Array<${normalizeType(arrayMatch[1])}>`;
 
   // Swift [T] array shorthand → Array<T>
-  if (type.startsWith("[") && type.endsWith("]") && !type.includes(",") && !type.includes(":")) {
-    const inner = type.slice(1, -1).trim();
-    if (inner.length > 0) return `Array<${normalizeType(inner)}>`;
-  }
-
   // Swift [K: V] dictionary shorthand → Map<K, V>
-  if (type.startsWith("[") && type.endsWith("]") && type.includes(":")) {
-    const inner = type.slice(1, -1);
-    const colonIdx = inner.indexOf(":");
-    if (colonIdx > 0) {
-      const keyType = normalizeType(inner.slice(0, colonIdx).trim());
-      const valType = normalizeType(inner.slice(colonIdx + 1).trim());
-      return `Map<${keyType}, ${valType}>`;
+  if (type.startsWith("[") && type.endsWith("]")) {
+    const inner = type.slice(1, -1).trim();
+    if (inner.length > 0) {
+      const colonIdx = findDepthZeroChar(inner, ":");
+      if (colonIdx > 0) {
+        const keyType = normalizeType(inner.slice(0, colonIdx).trim());
+        const valType = normalizeType(inner.slice(colonIdx + 1).trim());
+        return `Map<${keyType}, ${valType}>`;
+      }
+
+      const parts = splitTypeParameters(inner);
+      if (parts.length === 1) return `Array<${normalizeType(parts[0])}>`;
     }
   }
 

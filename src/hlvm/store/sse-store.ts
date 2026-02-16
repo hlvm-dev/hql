@@ -11,6 +11,9 @@ type SSECallback = (event: SSEEvent) => void;
 
 const MAX_BUFFER_SIZE = 1024;
 
+/** Well-known SSE channel for session-level events (created/updated/deleted) */
+export const SESSIONS_CHANNEL = "__sessions__";
+
 // MARK: - Stored Properties
 
 const buffers = new Map<string, SSEEvent[]>();
@@ -42,7 +45,8 @@ export function pushSSEEvent(
   }
   buffer.push(event);
   if (buffer.length > MAX_BUFFER_SIZE) {
-    buffer.splice(0, buffer.length - MAX_BUFFER_SIZE);
+    buffer = buffer.slice(-MAX_BUFFER_SIZE);
+    buffers.set(sessionId, buffer);
   }
 
   const subs = subscribers.get(sessionId);
@@ -51,7 +55,7 @@ export function pushSSEEvent(
       try {
         cb(event);
       } catch {
-        // Ignore subscriber errors
+        subs.delete(cb);
       }
     }
   }

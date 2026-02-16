@@ -6,13 +6,10 @@
  */
 
 import { config } from "../../../api/config.ts";
-import { parseJsonBody, jsonError, textEncoder } from "../http-utils.ts";
+import { parseJsonBody, jsonError, createSSEResponse } from "../http-utils.ts";
 import { isConfigKey } from "../../../../common/config/storage.ts";
 import { validateValue } from "../../../../common/config/types.ts";
-
-function formatConfigSSE(payload: unknown, eventId: number): string {
-  return `id: ${eventId}\nevent: config_updated\ndata: ${JSON.stringify(payload)}\n\n`;
-}
+import { getPlatform } from "../../../../platform/platform.ts";
 
 export async function handleGetConfig(): Promise<Response> {
   const cfg = await config.all;
@@ -45,71 +42,38 @@ export async function handlePatchConfig(req: Request): Promise<Response> {
 export function handleConfigStream(req: Request): Response {
   let nextEventId = Date.now();
 
-  const stream = new ReadableStream({
-    start(controller) {
-      let closed = false;
-      let unsubscribe = () => {};
-      let heartbeat: ReturnType<typeof setInterval> | null = null;
-      let poller: ReturnType<typeof setInterval> | null = null;
+  return createSSEResponse(req, (emit) => {
+    const emitConfig = (payload: unknown): void => {
+      emit(`id: ${nextEventId}\nevent: config_updated\ndata: ${JSON.stringify(payload)}\n\n`);
+      nextEventId++;
+    };
 
-      const cleanup = (): void => {
-        if (closed) return;
-        closed = true;
-        unsubscribe();
-        if (heartbeat !== null) {
-          clearInterval(heartbeat);
+    const unsubConfig = config.subscribe((nextConfig) => {
+      emitConfig(nextConfig);
+    });
+
+    void config.reload();
+
+    // Watch config file for external changes (replaces 1s polling interval)
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const watcher = getPlatform().fs.watchFs(config.path);
+    const watcherDone = (async () => {
+      for await (const event of watcher) {
+        if (event.kind === "modify") {
+          if (debounceTimer !== null) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            void config.reloadIfChanged();
+          }, 500);
         }
-        if (poller !== null) {
-          clearInterval(poller);
-        }
-        try {
-          controller.close();
-        } catch {
-          // Already closed
-        }
-      };
+      }
+    })();
+    // Suppress unhandled rejection when watcher is closed
+    watcherDone.catch(() => {});
 
-      const emitConfig = (payload: unknown): void => {
-        if (closed) return;
-        try {
-          controller.enqueue(textEncoder.encode(formatConfigSSE(payload, nextEventId++)));
-        } catch {
-          cleanup();
-        }
-      };
-
-      controller.enqueue(textEncoder.encode("retry: 3000\n\n"));
-
-      unsubscribe = config.subscribe((nextConfig) => {
-        emitConfig(nextConfig);
-      });
-
-      void config.reload();
-
-      heartbeat = setInterval(() => {
-        if (closed) return;
-        try {
-          controller.enqueue(textEncoder.encode(": heartbeat\n\n"));
-        } catch {
-          cleanup();
-        }
-      }, 30_000);
-
-      poller = setInterval(() => {
-        if (closed) return;
-        void config.reloadIfChanged();
-      }, 1_000);
-
-      req.signal.addEventListener("abort", cleanup);
-    },
-  });
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
-    },
+    return () => {
+      unsubConfig();
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      watcher.close();
+    };
   });
 }

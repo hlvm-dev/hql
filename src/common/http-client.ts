@@ -118,14 +118,12 @@ class HttpClient {
     body: unknown,
     options?: HttpOptions,
   ): Promise<T> {
+    const { headers: optHeaders, ...restOptions } = options ?? {};
     return this.request<T>(url, {
       method,
       body: JSON.stringify(body),
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-      ...options,
+      headers: { "Content-Type": "application/json", ...optHeaders },
+      ...restOptions,
     });
   }
 

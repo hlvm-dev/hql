@@ -9,6 +9,14 @@ import type { Database } from "@db/sqlite";
 
 const CURRENT_SCHEMA_VERSION = 1;
 
+// Per-version migrations. Keys are the version being migrated TO.
+// Each migration assumes the previous version's schema is in place.
+// For fresh installs, DDL (CREATE TABLE IF NOT EXISTS) handles everything.
+const MIGRATIONS: Record<number, string[]> = {
+  // Example for future version 2:
+  // 2: ["ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"],
+};
+
 const DDL = `
   CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL,
@@ -68,6 +76,16 @@ export function initSchema(db: Database): void {
   const currentVersion = row?.[0] ?? 0;
 
   if (currentVersion < CURRENT_SCHEMA_VERSION) {
+    // Run incremental migrations from currentVersion+1 to CURRENT_SCHEMA_VERSION
+    for (let v = currentVersion + 1; v <= CURRENT_SCHEMA_VERSION; v++) {
+      const stmts = MIGRATIONS[v];
+      if (stmts) {
+        for (const sql of stmts) {
+          db.exec(sql);
+        }
+      }
+    }
+    // Ensure all tables/indexes exist (idempotent DDL for fresh or partially migrated)
     db.exec(DDL);
     db.prepare(
       "INSERT INTO schema_version (version) VALUES (?)"

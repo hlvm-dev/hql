@@ -29,12 +29,12 @@ import { extractContextLinesFromSource } from "./context-helpers.ts";
 // -----------------------------------------------------------------------------
 
 /** Matches HQL error code prefix [HQLxxxx] at start of message */
-const STRIP_ERROR_CODE_REGEX = /^\[HQL\d{4}\]\s*/;
+const ERROR_CODE_PREFIX_REGEX = /^\[HQL\d{4}\]\s*/;
+const STRIP_ERROR_CODE_REGEX = ERROR_CODE_PREFIX_REGEX;
 
 // Message cleanup patterns (used in formatHQLError)
 const STACK_TRACE_AT_REGEX = /\s+at\s+\S+:\d+:\d+$/;
 const STACK_TRACE_PAREN_REGEX = /\s+\(\S+:\d+:\d+\)$/;
-const ERROR_CODE_PREFIX_REGEX = /^\[HQL\d+\]\s*/;
 const LOCATION_STARTING_REGEX = /\s*starting at line \d+\.?/gi;
 const LOCATION_AT_LINE_COL_REGEX = /\s*at line \d+:\d+/gi;
 const LOCATION_AT_LINE_REGEX = /\s*at line \d+/gi;
@@ -53,22 +53,20 @@ const QUOTED_NAME_REGEX = /['"`](\w+)['"`]/;
 // Color utilities
 // -----------------------------------------------------------------------------
 
-function createColorConfig() {
-  return {
-    red: (s: string) => `\x1b[31m${s}\x1b[0m`,
-    yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
-    green: (s: string) => `\x1b[32m${s}\x1b[0m`,
-    blue: (s: string) => `\x1b[34m${s}\x1b[0m`,
-    cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
-    magenta: (s: string) => `\x1b[35m${s}\x1b[0m`,
-    gray: (s: string) => `\x1b[90m${s}\x1b[0m`,
-    white: (s: string) => `\x1b[37m${s}\x1b[0m`,
-    bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
-    dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
-    underline: (s: string) => `\x1b[4m${s}\x1b[0m`,
-    black: (s: string) => `\x1b[30m${s}\x1b[0m`,
-  };
-}
+const COLORS = {
+  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
+  yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
+  green: (s: string) => `\x1b[32m${s}\x1b[0m`,
+  blue: (s: string) => `\x1b[34m${s}\x1b[0m`,
+  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+  magenta: (s: string) => `\x1b[35m${s}\x1b[0m`,
+  gray: (s: string) => `\x1b[90m${s}\x1b[0m`,
+  white: (s: string) => `\x1b[37m${s}\x1b[0m`,
+  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
+  underline: (s: string) => `\x1b[4m${s}\x1b[0m`,
+  black: (s: string) => `\x1b[30m${s}\x1b[0m`,
+} as const;
 
 // -----------------------------------------------------------------------------
 // Error Recovery - for graceful degradation in batch operations
@@ -188,7 +186,7 @@ function formatContextLines(
   contextLines: Array<
     { line: number; content: string; isError: boolean; column?: number }
   >,
-  colors: ReturnType<typeof createColorConfig>,
+  colors: typeof COLORS,
   errorMessage: string,
   errorLabel?: string, // Optional label to show under the caret (e.g., "undefined variable")
 ): string[] {
@@ -414,7 +412,7 @@ export async function formatHQLError(
   error: HQLError,
   isDebug = false,
 ): Promise<string> {
-  const colors = createColorConfig();
+  const colors = COLORS;
   const output: string[] = [];
 
   // Extract and clean the message

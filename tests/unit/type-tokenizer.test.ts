@@ -951,6 +951,14 @@ Deno.test("normalizeType - [Bool] → Array<boolean>", () => {
   assertEquals(normalizeType("[Bool]"), "Array<boolean>");
 });
 
+Deno.test("normalizeType - [Map<String, Int>] → Array<Map<string, number>>", () => {
+  assertEquals(normalizeType("[Map<String, Int>]"), "Array<Map<string, number>>");
+});
+
+Deno.test("normalizeType - [(Int, String)] → Array<[number, string]>", () => {
+  assertEquals(normalizeType("[(Int, String)]"), "Array<[number, string]>");
+});
+
 // Dictionary shorthand
 Deno.test("normalizeType - [String: Int] → Map<string, number>", () => {
   assertEquals(normalizeType("[String: Int]"), "Map<string, number>");
@@ -962,6 +970,10 @@ Deno.test("normalizeType - [String: Bool] → Map<string, boolean>", () => {
 
 Deno.test("normalizeType - [String: [Int]] → Map<string, Array<number>>", () => {
   assertEquals(normalizeType("[String: [Int]]"), "Map<string, Array<number>>");
+});
+
+Deno.test("normalizeType - [(Int, String): Bool] → Map<[number, string], boolean>", () => {
+  assertEquals(normalizeType("[(Int, String): Bool]"), "Map<[number, string], boolean>");
 });
 
 // Tuple shorthand

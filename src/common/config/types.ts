@@ -30,6 +30,9 @@ export function normalizeModelId(value: unknown): string | undefined {
 // Config Interface
 // ============================================================
 
+/** Agent mode for Claude models: HLVM-orchestrated or Claude Code full agent passthrough */
+export type AgentMode = "hlvm" | "claude-code-agent";
+
 /** User-customized keybindings (action ID -> key combo) */
 export type KeybindingsConfig = Record<string, string>;
 
@@ -79,6 +82,7 @@ export interface HlvmConfig {
   tools?: ToolsConfig; // Tool-specific configuration (optional)
   modelConfigured?: boolean; // true after first explicit model selection
   approvedProviders?: string[]; // Providers the user has consented to (e.g., ["openai", "anthropic"])
+  agentMode?: AgentMode; // Agent mode for Claude models: "hlvm" (HLVM orchestrates) or "claude-code-agent" (full passthrough)
 }
 
 // ============================================================
@@ -157,6 +161,7 @@ export const CONFIG_KEYS = [
   "tools",
   "modelConfigured",
   "approvedProviders",
+  "agentMode",
 ] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
@@ -259,6 +264,13 @@ export function validateValue(
       if (value === undefined) return { valid: true }; // optional field
       if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) {
         return { valid: false, error: "approvedProviders must be an array of strings" };
+      }
+      return { valid: true };
+
+    case "agentMode":
+      if (value === undefined) return { valid: true }; // optional field
+      if (value !== "hlvm" && value !== "claude-code-agent") {
+        return { valid: false, error: "agentMode must be 'hlvm' or 'claude-code-agent'" };
       }
       return { valid: true };
 

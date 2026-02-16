@@ -969,6 +969,19 @@ Deno.test("Pure Function: zero-annotation rejects impure arg at call site", asyn
   );
 });
 
+Deno.test("Pure Function: nested inline wrapper rejects impure callback arg", async () => {
+  const code = `
+(fn impure [x] (console.log x) x)
+(fx apply [f x] (f x))
+(apply (fn [h] (h null)) impure)
+`;
+  await assertRejects(
+    async () => await run(code),
+    Error,
+    "impure",
+  );
+});
+
 Deno.test("Pure Function: zero-annotation .map callback param", async () => {
   const code = `
 (fx apply-all [f xs:Array] (.map xs f))

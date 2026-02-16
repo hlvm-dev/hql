@@ -935,3 +935,12 @@ Deno.test("Swift Syntax: -> (Int, String) tuple return type", async () => {
   const result = await run(code);
   assertEquals(result, [1, "hello"]);
 });
+
+Deno.test("Swift Syntax: -> (Int, [String]) nested tuple return type", async () => {
+  const code = `
+(fn get-pair [] -> (Int, [String]) [1 ["hello" "world"]])
+(get-pair)
+`;
+  const result = await run(code);
+  assertEquals(result, [1, ["hello", "world"]]);
+});

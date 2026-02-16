@@ -89,7 +89,7 @@ function buildCatalog(maxVariants: number): ModelInfo[] {
       ? Math.max(0, maxVariants)
       : variants.length;
     if (variants.length > 0) {
-      for (const variant of variants.slice(0, limit || variants.length)) {
+      for (const variant of variants.slice(0, limit)) {
         result.push(toModelInfo(model, variant));
       }
     } else {

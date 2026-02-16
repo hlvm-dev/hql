@@ -6,17 +6,12 @@
 
 import { ai } from "../../../api/ai.ts";
 import { pushSSEEvent, subscribe, replayAfter } from "../../../store/sse-store.ts";
-import type { SSEEvent } from "../../../store/types.ts";
 import type { RouteParams } from "../http-router.ts";
-import { parseJsonBody, jsonError, ndjsonLine, textEncoder } from "../http-utils.ts";
+import { parseJsonBody, jsonError, ndjsonLine, textEncoder, formatSSE, createSSEResponse } from "../http-utils.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { listRegisteredProviders } from "../../../providers/index.ts";
 
 const MODELS_CHANNEL = "__models__";
-
-function formatSSE(event: SSEEvent): string {
-  return `id: ${event.id}\nevent: ${event.event_type}\ndata: ${JSON.stringify(event.data)}\n\n`;
-}
 
 function pushModelsUpdated(reason: string, detail?: Record<string, unknown>): void {
   pushSSEEvent(MODELS_CHANNEL, "models_updated", { reason, ...(detail ?? {}) });
@@ -25,56 +20,20 @@ function pushModelsUpdated(reason: string, detail?: Record<string, unknown>): vo
 export function handleModelsStream(req: Request): Response {
   const lastEventId = req.headers.get("Last-Event-ID");
 
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(textEncoder.encode("retry: 3000\n\n"));
-
-      const replay = replayAfter(MODELS_CHANNEL, lastEventId);
-      if (replay.gapDetected) {
-        controller.enqueue(textEncoder.encode(
-          `event: models_updated\ndata: ${JSON.stringify({ reason: "replay_gap" })}\n\n`
-        ));
-      } else {
-        for (const event of replay.events) {
-          controller.enqueue(textEncoder.encode(formatSSE(event)));
-        }
+  return createSSEResponse(req, (emit) => {
+    const replay = replayAfter(MODELS_CHANNEL, lastEventId);
+    if (replay.gapDetected) {
+      emit(`event: models_updated\ndata: ${JSON.stringify({ reason: "replay_gap" })}\n\n`);
+    } else {
+      for (const event of replay.events) {
+        emit(formatSSE(event));
       }
+    }
 
-      const unsubscribe = subscribe(MODELS_CHANNEL, (event) => {
-        try {
-          controller.enqueue(textEncoder.encode(formatSSE(event)));
-        } catch {
-          // Stream closed
-        }
-      });
-
-      const heartbeat = setInterval(() => {
-        try {
-          controller.enqueue(textEncoder.encode(": heartbeat\n\n"));
-        } catch {
-          clearInterval(heartbeat);
-        }
-      }, 30_000);
-
-      req.signal.addEventListener("abort", () => {
-        unsubscribe();
-        clearInterval(heartbeat);
-        try {
-          controller.close();
-        } catch {
-          // Already closed
-        }
-      });
-    },
-  });
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
-    },
+    const unsubscribe = subscribe(MODELS_CHANNEL, (event) => {
+      emit(formatSSE(event));
+    });
+    return unsubscribe;
   });
 }
 
@@ -164,15 +123,16 @@ export async function handleModelCatalog(): Promise<Response> {
 
 export async function handleModelStatus(): Promise<Response> {
   const providerNames = listRegisteredProviders();
+  const results = await Promise.allSettled(
+    providerNames.map((name) => ai.status(name)),
+  );
   const statuses: Record<string, unknown> = {};
-
-  for (const name of providerNames) {
-    try {
-      statuses[name] = await ai.status(name);
-    } catch {
-      statuses[name] = { available: false, error: "Failed to check status" };
-    }
-  }
+  providerNames.forEach((name, i) => {
+    const r = results[i];
+    statuses[name] = r.status === "fulfilled"
+      ? r.value
+      : { available: false, error: "Failed to check status" };
+  });
 
   return Response.json({ providers: statuses });
 }

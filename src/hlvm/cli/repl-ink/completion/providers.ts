@@ -22,36 +22,14 @@ import { getWordAtCursor } from "../../repl/string-utils.ts";
 // String Context Detection
 // ============================================================
 
+import { isInsideString as isInsideStringFull } from "../../repl/syntax.ts";
+
 /**
- * Check if cursor is inside a string literal.
- * Counts unescaped quotes before cursor to determine string context.
- *
- * For HQL: strings are "..." - count unescaped double quotes
- * Odd count = inside string, even = outside
+ * Check if cursor is inside a double-quoted string literal.
+ * Delegates to the canonical implementation in syntax.ts.
  */
 export function isInsideString(text: string, cursorPosition: number): boolean {
-  let quoteCount = 0;
-  let i = 0;
-
-  while (i < cursorPosition) {
-    const ch = text[i];
-
-    // Handle escape sequences
-    if (ch === "\\" && i + 1 < cursorPosition) {
-      i += 2; // Skip escaped character
-      continue;
-    }
-
-    // Count unescaped double quotes
-    if (ch === '"') {
-      quoteCount++;
-    }
-
-    i++;
-  }
-
-  // Odd number of quotes = inside string
-  return quoteCount % 2 === 1;
+  return isInsideStringFull(text, cursorPosition, '"');
 }
 
 // ============================================================

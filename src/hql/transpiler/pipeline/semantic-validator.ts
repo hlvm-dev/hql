@@ -16,7 +16,7 @@ import { ValidationError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { checkEffects } from "./effect-checker.ts";
 import { globalLogger as logger } from "../../../logger.ts";
-import { forEachNode } from "../utils/ir-tree-walker.ts";
+import { forEachNodeInScope } from "../utils/ir-tree-walker.ts";
 
 /**
  * Represents a scope in the program
@@ -140,7 +140,7 @@ function checkTDZInExpression(scope: Scope, node: IR.IRNode): void {
   if (!node) return;
 
   // Use generic tree walker to visit all nodes and check identifiers
-  forEachNode(node, (n) => {
+  forEachNodeInScope(node, (n) => {
     if (n.type === IR.IRNodeType.Identifier) {
       const identifier = n as IR.IRIdentifier;
       const name = identifier.name;

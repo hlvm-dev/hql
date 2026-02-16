@@ -785,7 +785,7 @@ export async function executeToolCall(
       };
     }
 
-    // Get tool and execute (with timeout)
+    // Execute tool (with timeout)
     const tool = getTool(toolCall.toolName, config.toolOwnerId);
     const toolTimeout = config.toolTimeout ?? DEFAULT_TIMEOUTS.tool;
     let result: unknown;
@@ -1675,10 +1675,7 @@ async function handlePostToolExecution(
   if (result.toolUses.length > 0) {
     state.toolUses.push(...result.toolUses);
     if (state.toolUses.length > MAX_TOOL_USES_FOR_GROUNDING) {
-      state.toolUses.splice(
-        0,
-        state.toolUses.length - MAX_TOOL_USES_FOR_GROUNDING,
-      );
+      state.toolUses = state.toolUses.slice(-MAX_TOOL_USES_FOR_GROUNDING);
     }
     if (result.toolBytes > 0) {
       checkToolResultBytesLimit(state, lc, config, result.toolBytes);

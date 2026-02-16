@@ -72,7 +72,7 @@ function toOpenAIMessages(messages: Message[]): OpenAIMessage[] {
       return {
         role: "tool" as const,
         content: msg.content,
-        tool_call_id: msg.tool_call_id ?? msg.tool_name ?? "call_0",
+        tool_call_id: msg.tool_call_id ?? msg.tool_name ?? generateToolCallId(),
       };
     }
 

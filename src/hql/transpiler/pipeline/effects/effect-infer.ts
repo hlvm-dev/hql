@@ -1,6 +1,6 @@
 import * as IR from "../../type/hql_ir.ts";
 import { FIRST_CLASS_OPERATORS } from "../../keyword/primitives.ts";
-import { forEachNode } from "../../utils/ir-tree-walker.ts";
+import { forEachNode, IR_SKIP_KEYS } from "../../utils/ir-tree-walker.ts";
 import {
   buildParameterEffectTable,
   lookupFunctionSignature,
@@ -36,7 +36,6 @@ import {
   unknownMemberMethodMessage,
 } from "./effect-errors.ts";
 
-const IR_SKIP_KEYS = new Set(["type", "position", "loc", "start", "end", "range"]);
 
 interface InferenceContext {
   fnName: string;
@@ -64,6 +63,13 @@ function memberPath(node: IR.IRNode): string | undefined {
 
 function isCompilerGeneratedFunctionExpression(fnExpr: IR.IRFunctionExpression): boolean {
   if (fnExpr.body.body.length === 0) return false;
+  if (
+    fnExpr.position?.line !== undefined ||
+    fnExpr.position?.column !== undefined ||
+    fnExpr.position?.filePath !== undefined
+  ) {
+    return false;
+  }
   return fnExpr.body.body.every((stmt) =>
     stmt.position?.line === undefined &&
     stmt.position?.column === undefined &&
@@ -471,7 +477,11 @@ function resolveArgumentCallableEffect(
     const ctx: InferenceContext = {
       fnName: fnExpr.id?.name ?? "<anonymous fn>",
       signatures,
-      paramEffects: buildParameterEffectTable(fnExpr.params, fnExpr.id?.name ?? "<anonymous fn>"),
+      paramEffects: buildParameterEffectTable(
+        fnExpr.params,
+        fnExpr.id?.name ?? "<anonymous fn>",
+        "Impure",
+      ),
       typeEnv: new Map(),
     };
     const result = inferNodeEffect(fnExpr.body, ctx);
@@ -538,7 +548,7 @@ function inferCallbackEffect(
     const cbCtx: InferenceContext = {
       fnName: ctx.fnName,
       signatures: ctx.signatures,
-      paramEffects: buildParameterEffectTable(fnExpr.params, cbName),
+      paramEffects: buildParameterEffectTable(fnExpr.params, cbName, "Impure"),
       typeEnv: new Map(ctx.typeEnv),
     };
     const bodyResult = inferNodeEffect(fnExpr.body, cbCtx);
@@ -635,7 +645,7 @@ export function checkPureFunctionBody(
   const ctx: InferenceContext = {
     fnName,
     signatures,
-    paramEffects: buildParameterEffectTable(fnNode.params, fnName),
+    paramEffects: buildParameterEffectTable(fnNode.params, fnName, "Pure"),
     typeEnv,
     purityRelevantParams,
   };

@@ -72,7 +72,7 @@ export class GoogleProvider implements AIProvider {
       options as ChatOptions,
       extractSignal(options),
     );
-    if (result.content) yield result.content;
+    yield result.content ?? "";
   }
 
   async *chat(
@@ -87,7 +87,7 @@ export class GoogleProvider implements AIProvider {
       options,
       extractSignal(options),
     );
-    if (result.content) yield result.content;
+    yield result.content ?? "";
   }
 
   chatStructured(

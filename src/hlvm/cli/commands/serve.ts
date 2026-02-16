@@ -17,11 +17,17 @@ export async function serveCommand(args: string[]): Promise<number> {
     return 0;
   }
 
-  // Initialize runtime (stdlib + cache + AI for full parity with terminal REPL)
-  await initializeRuntime({ ai: true, stdlib: true, cache: true });
-
   try {
-    await startHttpServer();
+    // Start server FIRST so the port is open immediately for GUI clients.
+    // Deno.serve() binds the port synchronously — no "Connection refused" race.
+    const serverDone = startHttpServer();
+
+    // Initialize runtime while server is already listening.
+    // Endpoints that need the runtime (eval, models) wait naturally;
+    // SSE streams, health, config, and sessions work immediately.
+    await initializeRuntime({ ai: true, stdlib: true, cache: true });
+
+    await serverDone;
     return 0;
   } catch (error) {
     log.error("Failed to start server", error);

@@ -16,7 +16,7 @@ import {
   getMessageByClientTurnId,
   getSession,
 } from "../../../store/conversation-store.ts";
-import { pushSSEEvent } from "../../../store/sse-store.ts";
+import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
 import { ai } from "../../../api/ai.ts";
 import { ensureAgentReady, runAgentQuery } from "../../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
@@ -31,8 +31,6 @@ import type { ModelInfo } from "../../../providers/types.ts";
 import { config } from "../../../api/config.ts";
 import { isPaidProvider, isProviderApproved } from "../../commands/ask.ts";
 import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
-
-const SESSIONS_CHANNEL = "__sessions__";
 
 function pushSessionUpdatedEvent(sessionId: string): void {
   pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: sessionId });
@@ -70,12 +68,20 @@ async function resolveImages(imagePathsJson: string | null): Promise<string[]> {
 
 // MARK: - Model Validation
 
+/** Cached catalog result with TTL */
+let _catalogCache: { data: Awaited<ReturnType<typeof ai.models.catalog>>; expiry: number } | null = null;
+const CATALOG_CACHE_TTL_MS = 60_000;
+
 async function modelSupportsTools(modelName: string, modelInfo: ModelInfo | null): Promise<boolean> {
   if (modelInfo?.capabilities) {
     return modelInfo.capabilities.includes("tools");
   }
   try {
-    const catalog = await ai.models.catalog();
+    const now = Date.now();
+    if (!_catalogCache || now > _catalogCache.expiry) {
+      _catalogCache = { data: await ai.models.catalog(), expiry: now + CATALOG_CACHE_TTL_MS };
+    }
+    const catalog = _catalogCache.data;
     const bare = modelName.includes("/") ? modelName.slice(modelName.indexOf("/") + 1) : modelName;
     const baseName = bare.split(":")[0];
     const match = catalog.find((m) =>
@@ -127,14 +133,16 @@ const activeRequests = new Map<string, {
   sessionId: string;
   cancel?: () => void;
 }>();
-let agentReady = false;
+let agentReadyPromise: Promise<void> | null = null;
 
 export function isAgentReady(): boolean {
-  return agentReady;
+  return agentReadyPromise !== null;
 }
 
 export function markAgentReady(): void {
-  agentReady = true;
+  if (!agentReadyPromise) {
+    agentReadyPromise = Promise.resolve();
+  }
 }
 
 export function cancelSessionRequests(sessionId: string): number {
@@ -323,11 +331,12 @@ export async function handleChat(req: Request): Promise<Response> {
 
         const onPartial = (text: string) => { partialText += text; };
 
-        // Resolve effective mode: model name ending in ":agent" suffix means Claude Code full agent passthrough
+        // Resolve effective mode: model name ending in ":agent" suffix OR config agentMode override
         const isAgentModel = resolvedModel?.endsWith(AGENT_MODEL_SUFFIX) ?? false;
+        const configAgentMode = cfgSnapshot.agentMode;
         const effectiveMode = body.mode === CLAUDE_CODE_AGENT_MODE
           ? CLAUDE_CODE_AGENT_MODE
-          : (body.mode === "agent" && isAgentModel)
+          : (body.mode === "agent" && (isAgentModel || configAgentMode === "claude-code-agent"))
             ? CLAUDE_CODE_AGENT_MODE
             : body.mode;
 
@@ -515,10 +524,10 @@ async function handleAgentMode(
   onPartial: (text: string) => void,
   requestId: string,
 ): Promise<void> {
-  if (!agentReady) {
-    await ensureAgentReady(resolvedModel, (msg) => log.info(msg));
-    agentReady = true;
+  if (!agentReadyPromise) {
+    agentReadyPromise = ensureAgentReady(resolvedModel, (msg) => log.info(msg));
   }
+  await agentReadyPromise;
 
   const stored = loadAllMessages(body.session_id);
   const history: AgentMessage[] = stored
@@ -532,7 +541,10 @@ async function handleAgentMode(
       toolCallId: m.tool_call_id ?? undefined,
     }));
 
-  const lastUserMessage = [...body.messages].reverse().find((m) => m.role === "user");
+  let lastUserMessage: typeof body.messages[number] | undefined;
+  for (let i = body.messages.length - 1; i >= 0; i--) {
+    if (body.messages[i].role === "user") { lastUserMessage = body.messages[i]; break; }
+  }
   const query = lastUserMessage?.content ?? "";
 
   const result = await runAgentQuery({
@@ -589,7 +601,10 @@ async function handleClaudeCodeAgentMode(
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
 ): Promise<void> {
-  const lastUserMessage = [...body.messages].reverse().find((m) => m.role === "user");
+  let lastUserMessage: typeof body.messages[number] | undefined;
+  for (let i = body.messages.length - 1; i >= 0; i--) {
+    if (body.messages[i].role === "user") { lastUserMessage = body.messages[i]; break; }
+  }
   const query = lastUserMessage?.content ?? "";
 
   if (!query.trim()) {

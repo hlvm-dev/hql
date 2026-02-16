@@ -38,6 +38,15 @@ export interface PlatformWriteOptions {
   mode?: number;
 }
 
+export interface PlatformFsEvent {
+  kind: "create" | "modify" | "remove" | "rename" | "any" | "access" | "other";
+  paths: string[];
+}
+
+export interface PlatformFsWatcher extends AsyncIterable<PlatformFsEvent> {
+  close(): void;
+}
+
 // =============================================================================
 // Process/Command Types
 // =============================================================================
@@ -137,6 +146,9 @@ export interface PlatformFs {
   copyFile(src: string, dest: string): Promise<void>;
   rename(oldPath: string, newPath: string): Promise<void>;
   chmod(path: string, mode: number): Promise<void>;
+
+  // File watching
+  watchFs(paths: string | string[]): PlatformFsWatcher;
 }
 
 // =============================================================================

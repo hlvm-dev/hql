@@ -9,7 +9,7 @@
 import * as IR from "../type/hql_ir.ts";
 
 // Module-level constant Set (avoids per-call allocation)
-const IR_SKIP_KEYS = new Set(["type", "position", "loc", "start", "end", "range"]);
+export const IR_SKIP_KEYS = new Set(["type", "position", "loc", "start", "end", "range"]);
 
 /**
  * Check if an IR node tree contains any node of the specified type.

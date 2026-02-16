@@ -77,7 +77,7 @@ export class OpenAIProvider implements AIProvider {
       options as ChatOptions,
       extractSignal(options),
     );
-    if (result.content) yield result.content;
+    yield result.content ?? "";
   }
 
   async *chat(
@@ -92,7 +92,7 @@ export class OpenAIProvider implements AIProvider {
       options,
       extractSignal(options),
     );
-    if (result.content) yield result.content;
+    yield result.content ?? "";
   }
 
   chatStructured(

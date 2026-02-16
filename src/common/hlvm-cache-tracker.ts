@@ -6,7 +6,7 @@ const path = () => p().path;
 const fs = () => p().fs;
 import { transpileHqlInJs } from "../hql/bundler-internal.ts";
 import { globalLogger as logger } from "../logger.ts";
-import { sanitizeIdentifier, getErrorMessage, normalizePath, hyphenToUnderscore } from "./utils.ts";
+import { sanitizeIdentifier, getErrorMessage, normalizePath, hyphenToUnderscore, TEXT_ENCODER } from "./utils.ts";
 import { isHqlFile, isJsFile } from "./import-utils.ts";
 import { LRUCache } from "./lru-cache.ts";
 import { RuntimeError } from "./error.ts";
@@ -182,7 +182,7 @@ export async function getRuntimeCacheDir(): Promise<string> {
 const HEX_TABLE: string[] = Array.from({ length: 256 }, (_, i) =>
   i.toString(16).padStart(2, "0")
 );
-const textEncoder = new TextEncoder();
+const textEncoder = TEXT_ENCODER;
 
 /**
  * Calculate hash for content
@@ -484,9 +484,9 @@ async function copyDirectoryRecursive(
       // Recursively copy subdirectory
       await copyDirectoryRecursive(sourcePath, targetPath);
     } else if (entry.isFile) {
-      // Copy file
-      const content = await fs().readTextFile(sourcePath);
-      await fs().writeTextFile(targetPath, content);
+      // Copy file using binary read/write to avoid corrupting non-text files
+      const content = await fs().readFile(sourcePath);
+      await fs().writeFile(targetPath, content);
       logger.debug(`Copied file: ${sourcePath} -> ${targetPath}`);
     }
   }
@@ -561,13 +561,13 @@ export async function needsRegeneration(
       return true;
     }
 
-    // Get current hash of source file
-    const currentHash = await getContentHash(sourcePath);
-
-    // Check hash in path parts
-    const pathParts = outputPath.split("/").filter(Boolean);
-    const pathHash = pathParts[pathParts.length - 2]; // Extract hash from path
-    if (pathHash !== currentHash.substring(0, SHORT_HASH_LENGTH)) {
+    // Re-derive the expected cache path from current source content.
+    // getCachedPath() hashes the source, so if the source changed the path
+    // will differ (flat layout) or the content at the path will be stale
+    // (preserveRelative layout). Comparing paths handles the flat case;
+    // for preserveRelative we rely on the output existing (checked above).
+    const expectedPath = await getCachedPath(sourcePath, targetExt);
+    if (expectedPath !== outputPath) {
       logger.debug(
         `[CACHE MISS] Source content changed, regenerating: ${sourcePath}`,
       );

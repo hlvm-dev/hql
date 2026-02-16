@@ -115,6 +115,8 @@ const DYNAMIC_TOOL_REGISTRY = new Map<string, DynamicToolEntry>();
 
 /** Cached merged view of TOOL_REGISTRY + DYNAMIC_TOOL_REGISTRY */
 let _allToolsCache: Record<string, ToolMetadata> | null = null;
+/** Per-ownerId cache for getAllTools() */
+const _ownerToolsCache = new Map<string, Record<string, ToolMetadata>>();
 /** Pre-computed normalized name map: lowercased stripped name → canonical name */
 let _normalizedNameMap: Map<string, string> | null = null;
 /** Cached tool count */
@@ -125,6 +127,7 @@ let _toolWordSets: Map<string, { stripped: string; words: string[] }> | null =
 
 function invalidateAllToolsCache(): void {
   _allToolsCache = null;
+  _ownerToolsCache.clear();
   _normalizedNameMap = null;
   _toolCount = null;
   _toolWordSets = null;
@@ -265,7 +268,12 @@ export function getTool(name: string, ownerId?: string): ToolMetadata {
  */
 export function getAllTools(ownerId?: string): Record<string, ToolMetadata> {
   if (ownerId) {
-    return { ...TOOL_REGISTRY, ...getDynamicToolsSnapshot(ownerId) };
+    let cached = _ownerToolsCache.get(ownerId);
+    if (!cached) {
+      cached = { ...TOOL_REGISTRY, ...getDynamicToolsSnapshot(ownerId) };
+      _ownerToolsCache.set(ownerId, cached);
+    }
+    return cached;
   }
   if (!_allToolsCache) {
     _allToolsCache = { ...TOOL_REGISTRY, ...getDynamicToolsSnapshot() };

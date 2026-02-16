@@ -166,17 +166,22 @@ export class SymbolTable {
    */
   getAllSymbols(): SymbolInfo[] {
     const symbols: SymbolInfo[] = [];
+    const seen = new Set<string>();
 
     // Add symbols from current scope first
-    for (const symbol of this.table.values()) {
+    for (const [name, symbol] of this.table.entries()) {
       symbols.push(symbol);
+      seen.add(name);
     }
 
-    // Walk up the parent chain iteratively
+    // Walk up the parent chain iteratively, skipping shadowed names
     let current = this.parent;
     while (current !== null) {
-      for (const symbol of current.table.values()) {
-        symbols.push(symbol);
+      for (const [name, symbol] of current.table.entries()) {
+        if (!seen.has(name)) {
+          symbols.push(symbol);
+          seen.add(name);
+        }
       }
       current = current.parent;
     }

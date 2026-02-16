@@ -13,11 +13,9 @@ import {
   updateMessage,
   deleteMessage,
 } from "../../../store/conversation-store.ts";
-import { pushSSEEvent } from "../../../store/sse-store.ts";
+import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
 import type { RouteParams } from "../http-router.ts";
 import { parseJsonBody, jsonError } from "../http-utils.ts";
-
-const SESSIONS_CHANNEL = "__sessions__";
 
 // MARK: - Private Helpers
 

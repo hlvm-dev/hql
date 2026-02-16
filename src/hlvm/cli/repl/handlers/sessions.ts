@@ -17,17 +17,11 @@ import {
   subscribe,
   replayAfter,
   clearSessionBuffer,
+  SESSIONS_CHANNEL,
 } from "../../../store/sse-store.ts";
-import type { SSEEvent } from "../../../store/types.ts";
 import { cancelSessionRequests } from "./chat.ts";
 import type { RouteParams } from "../http-router.ts";
-import { parseJsonBody, jsonError, textEncoder } from "../http-utils.ts";
-
-const SESSIONS_CHANNEL = "__sessions__";
-
-function formatSSE(event: SSEEvent): string {
-  return `id: ${event.id}\nevent: ${event.event_type}\ndata: ${JSON.stringify(event.data)}\n\n`;
-}
+import { parseJsonBody, jsonError, formatSSE, createSSEResponse } from "../http-utils.ts";
 
 export function handleListSessions(): Response {
   const sessions = listSessions();
@@ -37,57 +31,21 @@ export function handleListSessions(): Response {
 export function handleSessionsStream(req: Request): Response {
   const lastEventId = req.headers.get("Last-Event-ID");
 
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(textEncoder.encode("retry: 3000\n\n"));
-
-      const replay = replayAfter(SESSIONS_CHANNEL, lastEventId);
-      if (replay.gapDetected) {
-        const snapshot = JSON.stringify({ sessions: listSessions() });
-        controller.enqueue(textEncoder.encode(
-          `event: sessions_snapshot\ndata: ${snapshot}\n\n`
-        ));
-      } else {
-        for (const event of replay.events) {
-          controller.enqueue(textEncoder.encode(formatSSE(event)));
-        }
+  return createSSEResponse(req, (emit) => {
+    const replay = replayAfter(SESSIONS_CHANNEL, lastEventId);
+    if (replay.gapDetected) {
+      const snapshot = JSON.stringify({ sessions: listSessions() });
+      emit(`event: sessions_snapshot\ndata: ${snapshot}\n\n`);
+    } else {
+      for (const event of replay.events) {
+        emit(formatSSE(event));
       }
+    }
 
-      const unsubscribe = subscribe(SESSIONS_CHANNEL, (event) => {
-        try {
-          controller.enqueue(textEncoder.encode(formatSSE(event)));
-        } catch {
-          // Stream closed
-        }
-      });
-
-      const heartbeat = setInterval(() => {
-        try {
-          controller.enqueue(textEncoder.encode(": heartbeat\n\n"));
-        } catch {
-          clearInterval(heartbeat);
-        }
-      }, 30_000);
-
-      req.signal.addEventListener("abort", () => {
-        unsubscribe();
-        clearInterval(heartbeat);
-        try {
-          controller.close();
-        } catch {
-          // Already closed
-        }
-      });
-    },
-  });
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
-    },
+    const unsubscribe = subscribe(SESSIONS_CHANNEL, (event) => {
+      emit(formatSSE(event));
+    });
+    return unsubscribe;
   });
 }
 
