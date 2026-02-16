@@ -48,11 +48,7 @@ import { getErrorMessage, TEXT_ENCODER, truncate } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { checkGrounding, type ToolUse } from "./grounding.ts";
 import { classifyError, getRecoveryHint } from "./error-taxonomy.ts";
-import {
-  handleContextOverflow,
-  type OverflowResult,
-} from "./context-resolver.ts";
-import type { ContextOverflowInfo } from "../providers/types.ts";
+import { getAgentLogger } from "./logger.ts";
 import type { AgentPolicy } from "./policy.ts";
 import {
   estimateUsage,
@@ -63,7 +59,6 @@ import {
 import type { MetricsSink } from "./metrics.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import { type LLMResponse, type ToolCall } from "./tool-call.ts";
-import { getAgentLogger } from "./logger.ts";
 
 export type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
@@ -528,12 +523,6 @@ export interface OrchestratorConfig {
   skipModelCompensation?: boolean;
   /** External abort signal (from HTTP request cancellation) */
   signal?: AbortSignal;
-  /** Provider-specific overflow error parser (for dynamic context budget adjustment) */
-  parseOverflowError?: (err: unknown) => ContextOverflowInfo;
-  /** Provider name for context cache key (e.g., "ollama", "openai") */
-  providerName?: string;
-  /** Model name for context cache key */
-  modelName?: string;
 }
 
 // TEXT_ENCODER imported from common/utils.ts (SSOT)
@@ -1148,15 +1137,10 @@ async function callLLMWithRetry(
   initialMessages: Message[],
   config: { timeout: number; maxRetries: number },
   onTrace?: (event: TraceEvent) => void,
-  overflowConfig?: {
-    context: ContextManager;
-    parseOverflow: (err: unknown) => ContextOverflowInfo;
-    provider: string;
-    model: string;
-  },
+  overflowContext?: ContextManager,
 ): Promise<LLMResponse> {
   let lastError: Error | null = null;
-  let overflowRetryCount = 0;
+  let overflowRetried = false;
   let messages = initialMessages;
 
   for (let attempt = 0; attempt < config.maxRetries; attempt++) {
@@ -1175,32 +1159,24 @@ async function callLLMWithRetry(
         error: classified.message,
       });
 
-      // Handle context overflow with dynamic budget adjustment
-      if (classified.class === "context_overflow" && overflowConfig) {
-        const result: OverflowResult = await handleContextOverflow({
-          error,
-          provider: overflowConfig.provider,
-          model: overflowConfig.model,
-          parseOverflow: overflowConfig.parseOverflow,
-          currentBudget: overflowConfig.context.getMaxTokens(),
-          overflowRetryCount,
-        });
-        if (result.shouldRetry) {
-          overflowRetryCount++;
-          overflowConfig.context.setMaxTokens(result.newBudget);
-          // Trim context to fit reduced budget before retry
-          overflowConfig.context.trimToFit();
-          // Context may have replaced its internal message array during trim.
-          // Refresh the retry payload so the next attempt uses the reduced context.
-          messages = overflowConfig.context.getMessages();
+      // Handle context overflow: halve budget, trim, retry once
+      if (classified.class === "context_overflow") {
+        if (overflowContext && !overflowRetried) {
+          overflowRetried = true;
+          const currentBudget = overflowContext.getMaxTokens();
+          const newBudget = Math.floor(currentBudget / 2);
+          overflowContext.setMaxTokens(newBudget);
+          overflowContext.trimToFit();
+          messages = overflowContext.getMessages();
+          getAgentLogger().debug?.(`Context overflow: halved budget ${currentBudget} → ${newBudget}`);
           onTrace?.({
             type: "context_overflow_retry",
-            newBudget: result.newBudget,
-            overflowRetryCount,
+            newBudget,
+            overflowRetryCount: 1,
           } as TraceEvent);
           continue;
         }
-        // Can't retry — throw as permanent error
+        // Already retried or no context — throw immediately
         throw lastError;
       }
 
@@ -1583,12 +1559,6 @@ async function handlePostToolExecution(
   lc: LoopConfig,
   config: OrchestratorConfig,
   llmFunction: LLMFunction,
-  overflowCfg?: {
-    context: ContextManager;
-    parseOverflow: (err: unknown) => ContextOverflowInfo;
-    provider: string;
-    model: string;
-  },
 ): Promise<LoopDirective> {
   // --- Denial tracking (per-tool) ---
   let anyDeniedThisTurn = false;
@@ -1633,7 +1603,7 @@ async function handlePostToolExecution(
       config.context.getMessages(),
       { timeout: lc.llmTimeout, maxRetries: lc.maxRetries },
       config.onTrace,
-      overflowCfg,
+      config.context,
     );
     return { action: "return", value: finalResponse.content ?? "" };
   }
@@ -1747,17 +1717,6 @@ export async function runReActLoop(
   // Initialize state and resolved config constants
   const state = initializeLoopState(config);
   const lc = resolveLoopConfig(config);
-
-  // Build overflow config for dynamic context budget adjustment
-  const overflowCfg =
-    config.parseOverflowError && config.providerName && config.modelName
-      ? {
-        context,
-        parseOverflow: config.parseOverflowError,
-        provider: config.providerName,
-        model: config.modelName,
-      }
-      : undefined;
 
   // Add user request to context
   addContextMessage(config, { role: "user", content: userRequest });
@@ -1888,7 +1847,7 @@ export async function runReActLoop(
         messages,
         { timeout: lc.llmTimeout, maxRetries: lc.maxRetries },
         onTrace,
-        overflowCfg,
+        context,
       );
       const llmDuration = Date.now() - llmStart;
 
@@ -1950,7 +1909,6 @@ export async function runReActLoop(
         lc,
         config,
         llmFunction,
-        overflowCfg,
       );
       if (post.action === "continue") continue;
       if (post.action === "return") return post.value;

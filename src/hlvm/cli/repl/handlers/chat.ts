@@ -168,6 +168,35 @@ export function cancelSessionRequests(sessionId: string): number {
   return count;
 }
 
+/**
+ * @openapi
+ * /api/sessions/{id}/cancel:
+ *   post:
+ *     tags: [Chat]
+ *     summary: Cancel all in-flight requests for a session
+ *     operationId: cancelSession
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session ID.
+ *     responses:
+ *       '200':
+ *         description: Cancellation result.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 cancelled:
+ *                   type: boolean
+ *                 session_id:
+ *                   type: string
+ *                 cancelled_count:
+ *                   type: integer
+ */
 export function handleSessionCancel(sessionId: string): Response {
   const count = cancelSessionRequests(sessionId);
   return Response.json({ cancelled: count > 0, session_id: sessionId, cancelled_count: count });
@@ -194,6 +223,111 @@ function emitCancellation(
 
 // MARK: - Public Methods
 
+/**
+ * @openapi
+ * /api/chat:
+ *   post:
+ *     tags: [Chat]
+ *     summary: Streaming chat or agent request
+ *     description: |
+ *       Sends a message and streams the response as NDJSON.
+ *       Supports chat, agent, and claude-code-agent modes.
+ *       Each line is a JSON object with an `event` field.
+ *     operationId: chat
+ *     parameters:
+ *       - in: header
+ *         name: X-Request-ID
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Optional request ID for cancellation. Auto-generated if omitted.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/ChatRequest'
+ *     responses:
+ *       '200':
+ *         description: NDJSON event stream.
+ *         headers:
+ *           X-Request-ID:
+ *             schema:
+ *               type: string
+ *         content:
+ *           application/x-ndjson:
+ *             schema:
+ *               oneOf:
+ *                 - type: object
+ *                   properties:
+ *                     event:
+ *                       type: string
+ *                       enum: [start]
+ *                     request_id:
+ *                       type: string
+ *                 - type: object
+ *                   properties:
+ *                     event:
+ *                       type: string
+ *                       enum: [token]
+ *                     text:
+ *                       type: string
+ *                 - type: object
+ *                   properties:
+ *                     event:
+ *                       type: string
+ *                       enum: [tool]
+ *                     name:
+ *                       type: string
+ *                     success:
+ *                       type: boolean
+ *                     content:
+ *                       type: string
+ *                 - type: object
+ *                   properties:
+ *                     event:
+ *                       type: string
+ *                       enum: [complete]
+ *                     request_id:
+ *                       type: string
+ *                     session_version:
+ *                       type: integer
+ *                 - type: object
+ *                   properties:
+ *                     event:
+ *                       type: string
+ *                       enum: [error]
+ *                     message:
+ *                       type: string
+ *                 - type: object
+ *                   properties:
+ *                     event:
+ *                       type: string
+ *                       enum: [cancelled]
+ *                     request_id:
+ *                       type: string
+ *                     partial_text:
+ *                       type: string
+ *         x-response-type: stream
+ *       '400':
+ *         description: Invalid request (missing fields, bad model, no tool support).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '403':
+ *         description: Paid provider not approved.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '409':
+ *         description: Optimistic concurrency conflict.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 export async function handleChat(req: Request): Promise<Response> {
   const requestId = req.headers.get("X-Request-ID") ?? crypto.randomUUID();
 
@@ -413,6 +547,48 @@ export async function handleChat(req: Request): Promise<Response> {
   });
 }
 
+/**
+ * @openapi
+ * /api/chat/cancel:
+ *   post:
+ *     tags: [Chat]
+ *     summary: Cancel an in-flight chat request
+ *     operationId: cancelChat
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               request_id:
+ *                 type: string
+ *             required: [request_id]
+ *     responses:
+ *       '200':
+ *         description: Request cancelled.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 cancelled:
+ *                   type: boolean
+ *                 request_id:
+ *                   type: string
+ *       '400':
+ *         description: Missing request_id.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '404':
+ *         description: Request not found or already completed.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 export async function handleChatCancel(req: Request): Promise<Response> {
   const parsed = await parseJsonBody<CancelRequest>(req);
   if (!parsed.ok) return parsed.response;

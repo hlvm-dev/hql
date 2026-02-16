@@ -239,6 +239,7 @@ export function transformIf(
     const isStatement = (node: IR.IRNode) =>
       node.type === IR.IRNodeType.ReturnStatement ||
       node.type === IR.IRNodeType.ThrowStatement ||
+      node.type === IR.IRNodeType.IfStatement ||
       node.type === IR.IRNodeType.BreakStatement ||
       node.type === IR.IRNodeType.ContinueStatement ||
       node.type === IR.IRNodeType.ForOfStatement ||

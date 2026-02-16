@@ -11,11 +11,59 @@ import { isConfigKey } from "../../../../common/config/storage.ts";
 import { validateValue } from "../../../../common/config/types.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 
+/**
+ * @openapi
+ * /api/config:
+ *   get:
+ *     tags: [Config]
+ *     summary: Get the current configuration
+ *     operationId: getConfig
+ *     responses:
+ *       '200':
+ *         description: Current config values.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/HlvmConfig'
+ */
 export async function handleGetConfig(): Promise<Response> {
   const cfg = await config.all;
   return Response.json(cfg);
 }
 
+/**
+ * @openapi
+ * /api/config:
+ *   patch:
+ *     tags: [Config]
+ *     summary: Update configuration values
+ *     operationId: patchConfig
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/HlvmConfig'
+ *     responses:
+ *       '200':
+ *         description: Updated config.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/HlvmConfig'
+ *       '400':
+ *         description: Unknown key or invalid value.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '500':
+ *         description: Failed to persist config.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 export async function handlePatchConfig(req: Request): Promise<Response> {
   const parsed = await parseJsonBody<Record<string, unknown>>(req);
   if (!parsed.ok) return parsed.response;
@@ -39,6 +87,25 @@ export async function handlePatchConfig(req: Request): Promise<Response> {
   }
 }
 
+/**
+ * @openapi
+ * /api/config/stream:
+ *   get:
+ *     tags: [Config]
+ *     summary: SSE stream of config changes
+ *     operationId: streamConfig
+ *     description: |
+ *       Server-Sent Events stream. Emits config_updated events with the full config
+ *       object whenever the configuration changes (including external file edits).
+ *     responses:
+ *       '200':
+ *         description: SSE event stream.
+ *         content:
+ *           text/event-stream:
+ *             schema:
+ *               type: string
+ *         x-response-type: stream
+ */
 export function handleConfigStream(req: Request): Response {
   let nextEventId = Date.now();
 

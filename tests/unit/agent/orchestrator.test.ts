@@ -732,25 +732,29 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop - overflow retry uses trimmed context payload",
+  name: "Orchestrator: runReActLoop - overflow retry halves budget and trims context",
   async fn() {
     clearAllL1Confirmations();
 
+    // 4 large user messages (2000 chars each ≈ 500 tokens) + system
+    // Total ≈ 2006 tokens, fits in maxTokens=3000
+    // After halving to 1500, trimToFit drops oldest to ~4 msgs (~1006 tokens)
+    // After that, mock accepts messages.length <= 4
     const context = new ContextManager({
-      maxTokens: 2000,
+      maxTokens: 3000,
       overflowStrategy: "trim",
       minMessages: 1,
     });
     context.addMessage({ role: "system", content: "sys" });
-    for (let i = 0; i < 8; i++) {
-      context.addMessage({ role: "user", content: "x".repeat(400) });
+    for (let i = 0; i < 4; i++) {
+      context.addMessage({ role: "user", content: "x".repeat(2000) });
     }
 
     const seenMessageCounts: number[] = [];
     const mockLLM = async (messages: import("../../../src/hlvm/agent/context.ts").Message[]) => {
       await Promise.resolve();
       seenMessageCounts.push(messages.length);
-      if (messages.length > 3) {
+      if (messages.length > 4) {
         throw new Error("maximum context length is 100 tokens");
       }
       return makeResponse("ok");
@@ -763,13 +767,6 @@ Deno.test({
         context,
         autoApprove: true,
         maxRetries: 3,
-        parseOverflowError: () => ({
-          isOverflow: true,
-          limitTokens: 100,
-          confidence: "high",
-        }),
-        providerName: "openai",
-        modelName: "gpt-4o",
       },
       mockLLM,
     );
@@ -777,7 +774,7 @@ Deno.test({
     assertEquals(result, "ok");
     assertEquals(seenMessageCounts.length, 2);
     assertEquals(seenMessageCounts[0] > seenMessageCounts[1], true);
-    assertEquals(seenMessageCounts[1] <= 3, true);
+    assertEquals(seenMessageCounts[1] <= 4, true);
   },
 });
 

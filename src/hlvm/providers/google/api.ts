@@ -17,7 +17,6 @@ import { getErrorMessage } from "../../../common/utils.ts";
 import type {
   ChatOptions,
   ChatStructuredResponse,
-  ContextOverflowInfo,
   Message,
   ModelInfo,
   ProviderStatus,
@@ -330,23 +329,3 @@ export async function checkStatus(
   }
 }
 
-/**
- * Parse context overflow info from Google/Gemini error messages.
- * Google format: "Request payload size exceeds the limit" or token count errors
- */
-export function parseOverflowError(err: unknown): ContextOverflowInfo {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  if (msg.includes("exceeds") || msg.includes("token limit") || msg.includes("too many tokens") || msg.includes("context length")) {
-    // "input token count N exceeds the limit M"
-    const match = msg.match(/exceeds?\s+(?:the\s+)?limit\D+(\d+)/);
-    if (match) {
-      return { isOverflow: true, limitTokens: parseInt(match[1]), confidence: "high" };
-    }
-    const altMatch = msg.match(/(\d+)\s*tokens?\s*>\s*(\d+)/);
-    if (altMatch) {
-      return { isOverflow: true, limitTokens: parseInt(altMatch[2]), confidence: "high" };
-    }
-    return { isOverflow: true, confidence: "low" };
-  }
-  return { isOverflow: false, confidence: "low" };
-}

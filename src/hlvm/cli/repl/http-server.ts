@@ -139,6 +139,61 @@ async function initState(): Promise<ReplState> {
 
 // MARK: - Legacy Handlers
 
+/**
+ * @openapi
+ * /eval:
+ *   post:
+ *     tags: [REPL]
+ *     summary: Evaluate HQL code
+ *     operationId: evalCode
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               code:
+ *                 type: string
+ *             required: [code]
+ *     responses:
+ *       '200':
+ *         description: Evaluation result.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 value:
+ *                   type: string
+ *                   nullable: true
+ *                 logs:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 error:
+ *                   type: object
+ *                   nullable: true
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                     message:
+ *                       type: string
+ *       '400':
+ *         description: Missing code.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '500':
+ *         description: Evaluation error.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 async function handleEval(req: Request): Promise<Response> {
   try {
     const parsed = await parseJsonBody<EvalRequest>(req);
@@ -170,6 +225,78 @@ async function handleEval(req: Request): Promise<Response> {
   }
 }
 
+/**
+ * @openapi
+ * /api/completions:
+ *   post:
+ *     tags: [REPL]
+ *     summary: Get code completions
+ *     operationId: completions
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               text:
+ *                 type: string
+ *               cursor:
+ *                 type: integer
+ *             required: [text, cursor]
+ *     responses:
+ *       '200':
+ *         description: Completion items.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 items:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       label:
+ *                         type: string
+ *                       type:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                         nullable: true
+ *                       detail:
+ *                         type: string
+ *                         nullable: true
+ *                       documentation:
+ *                         type: string
+ *                         nullable: true
+ *                       score:
+ *                         type: number
+ *                       matchIndices:
+ *                         type: array
+ *                         items:
+ *                           type: integer
+ *                 anchor:
+ *                   type: integer
+ *                 providerId:
+ *                   type: string
+ *                   nullable: true
+ *                 helpText:
+ *                   type: string
+ *                   nullable: true
+ *       '400':
+ *         description: Missing text or cursor.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '500':
+ *         description: Completion error.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 async function handleComplete(req: Request): Promise<Response> {
   try {
     const parsed = await parseJsonBody<CompletionRequest>(req);
@@ -238,6 +365,33 @@ async function handleComplete(req: Request): Promise<Response> {
   }
 }
 
+/**
+ * @openapi
+ * /health:
+ *   get:
+ *     tags: [REPL]
+ *     summary: Health check (no auth required)
+ *     operationId: healthCheck
+ *     security: []
+ *     responses:
+ *       '200':
+ *         description: Server status.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   enum: [ok]
+ *                 initialized:
+ *                   type: boolean
+ *                 definitions:
+ *                   type: integer
+ *                 instanceId:
+ *                   type: string
+ *                   nullable: true
+ */
 function handleHealth(): Response {
   return Response.json({
     status: "ok",
@@ -260,6 +414,32 @@ function buildExecuteCode(definition: MemoryFunctionItem, args: string[]): strin
   return `(${definition.name}${argList})`;
 }
 
+/**
+ * @openapi
+ * /api/memory/functions:
+ *   get:
+ *     tags: [Memory]
+ *     summary: List available HQL memory functions
+ *     operationId: listMemoryFunctions
+ *     responses:
+ *       '200':
+ *         description: Array of memory functions.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 functions:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/MemoryFunction'
+ *       '500':
+ *         description: Failed to list functions.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 async function handleMemoryFunctions(): Promise<Response> {
   try {
     const functions = await listMemoryFunctions();
@@ -275,6 +455,62 @@ function execError(message: string, code: string): Response {
   return Response.json({ output: "", status: "error", error: { message, code } } satisfies MemoryExecuteResponse);
 }
 
+/**
+ * @openapi
+ * /api/memory/functions/execute:
+ *   post:
+ *     tags: [Memory]
+ *     summary: Execute an HQL memory function
+ *     operationId: executeMemoryFunction
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               functionName:
+ *                 type: string
+ *               args:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 default: []
+ *             required: [functionName]
+ *     responses:
+ *       '200':
+ *         description: Execution result.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 output:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   enum: [success, error]
+ *                 error:
+ *                   type: object
+ *                   nullable: true
+ *                   properties:
+ *                     message:
+ *                       type: string
+ *                     code:
+ *                       type: string
+ *       '400':
+ *         description: Missing functionName or invalid args.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '500':
+ *         description: Execution failure.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 async function handleMemoryExecute(req: Request): Promise<Response> {
   try {
     const parsed = await parseJsonBody<MemoryExecuteRequest>(req);

@@ -23,7 +23,7 @@ import type { LLMFunction } from "./orchestrator.ts";
 import { loadMcpTools, resolveBuiltinMcpServers } from "./mcp.ts";
 import { ValidationError } from "../../common/error.ts";
 import { generateUUID } from "../../common/utils.ts";
-import { resolveContextWindow } from "./context-resolver.ts";
+import { resolveContextBudget, type ResolvedBudget } from "./context-resolver.ts";
 import type { ModelInfo } from "../providers/types.ts";
 
 export interface AgentSessionOptions {
@@ -52,8 +52,8 @@ export interface AgentSession {
   profile: typeof ENGINE_PROFILES[keyof typeof ENGINE_PROFILES];
   /** True if the model is a frontier model (API provider, not local) */
   isFrontierModel: boolean;
-  /** Resolved context budget in tokens (after applying 85% ratio) */
-  resolvedContextBudget: number;
+  /** Resolved context budget (budget, rawLimit, source) */
+  resolvedContextBudget: ResolvedBudget;
 }
 
 /** Detect whether a model string refers to a frontier API model */
@@ -88,7 +88,7 @@ async function tryGetModelInfo(
       return await ai.models.get(modelName, providerName) ?? null;
     }
   } catch {
-    // Provider not available — fall through to cache/defaults
+    // Provider not available — fall through to defaults
   }
   return null;
 }
@@ -116,15 +116,13 @@ export async function createAgentSession(
     ? await tryGetModelInfo(providerName, modelName)
     : null;
 
-  const resolvedContextBudget = await resolveContextWindow({
-    provider: providerName,
-    model: modelName,
+  const resolved = resolveContextBudget({
     modelInfo: modelInfo ?? undefined,
     userOverride: options.contextWindow,
   });
 
   const contextConfig: Record<string, unknown> = { ...profile.context };
-  contextConfig.maxTokens = resolvedContextBudget;
+  contextConfig.maxTokens = resolved.budget;
   if (options.failOnContextOverflow) {
     contextConfig.overflowStrategy = "fail";
   }
@@ -153,6 +151,7 @@ export async function createAgentSession(
         );
       })(),
       options: { temperature: 0.0 },
+      contextBudget: resolved.budget,
       toolAllowlist: options.toolAllowlist,
       toolDenylist: options.toolDenylist,
       toolOwnerId: mcp.ownerId,
@@ -168,6 +167,6 @@ export async function createAgentSession(
     dispose: mcp.dispose,
     profile,
     isFrontierModel: detectFrontierModel(options.model),
-    resolvedContextBudget,
+    resolvedContextBudget: resolved,
   };
 }

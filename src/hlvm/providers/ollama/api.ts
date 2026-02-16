@@ -14,7 +14,6 @@ import { JSON_HEADERS, throwOnHttpError } from "../common.ts";
 import type {
   ChatOptions,
   ChatStructuredResponse,
-  ContextOverflowInfo,
   GenerateOptions,
   Message,
   ModelInfo,
@@ -39,6 +38,7 @@ interface OllamaGenerateRequest {
   options?: {
     temperature?: number;
     num_predict?: number;
+    num_ctx?: number;
     stop?: string[];
   };
 }
@@ -59,6 +59,7 @@ interface OllamaChatRequest {
   options?: {
     temperature?: number;
     num_predict?: number;
+    num_ctx?: number;
     stop?: string[];
   };
 }
@@ -119,16 +120,40 @@ interface OllamaPullChunk {
   completed?: number;
 }
 
+/** Running model entry from /api/ps */
+interface OllamaRunningModel {
+  name?: string;
+  model?: string;
+  context_length?: number;
+}
+
+function normalizeModelName(modelName: string): string {
+  const normalized = modelName.trim().toLowerCase();
+  const slashIdx = normalized.indexOf("/");
+  return slashIdx >= 0 ? normalized.slice(slashIdx + 1) : normalized;
+}
+
+function modelBaseName(modelName: string): string {
+  const colonIdx = modelName.indexOf(":");
+  return colonIdx >= 0 ? modelName.slice(0, colonIdx) : modelName;
+}
+
 function buildOllamaOptions(
   options?: GenerateOptions,
 ): {
   temperature?: number;
   num_predict?: number;
+  num_ctx?: number;
   stop?: string[];
 } {
+  const rawNumCtx = options?.raw?.num_ctx;
+  const numCtx = typeof rawNumCtx === "number" && Number.isFinite(rawNumCtx) && rawNumCtx > 0
+    ? Math.floor(rawNumCtx)
+    : undefined;
   return {
     temperature: options?.temperature,
     num_predict: options?.maxTokens,
+    num_ctx: numCtx,
     stop: options?.stop,
   };
 }
@@ -493,12 +518,55 @@ export async function listModels(endpoint: string): Promise<ModelInfo[]> {
 }
 
 /**
+ * Get the currently loaded runtime context length for a model from /api/ps.
+ * Returns null when the model is not loaded or the server does not expose it.
+ */
+export async function getLoadedModelContext(
+  endpoint: string,
+  modelName: string,
+): Promise<number | null> {
+  try {
+    const result = await jsonRequest<{ models?: OllamaRunningModel[] }>(
+      endpoint,
+      "/api/ps",
+      undefined,
+      "GET",
+    );
+    const models = result.models ?? [];
+    const target = normalizeModelName(modelName);
+
+    const exact = models.find((m) => {
+      const candidates = [m.model, m.name]
+        .filter((value): value is string => typeof value === "string");
+      return candidates.some((candidate) => normalizeModelName(candidate) === target);
+    });
+
+    const byBase = exact ?? models.find((m) => {
+      const candidates = [m.model, m.name]
+        .filter((value): value is string => typeof value === "string");
+      return candidates.some((candidate) =>
+        modelBaseName(normalizeModelName(candidate)) === modelBaseName(target)
+      );
+    });
+
+    const contextLength = byBase?.context_length;
+    return typeof contextLength === "number" && contextLength > 0
+      ? contextLength
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Get info about a specific model
  */
 export async function getModel(
   endpoint: string,
   name: string,
 ): Promise<ModelInfo | null> {
+  const loadedContext = await getLoadedModelContext(endpoint, name);
+
   try {
     const result = await jsonRequest<OllamaModel & { details: unknown; model_info?: Record<string, unknown> }>(
       endpoint,
@@ -514,6 +582,7 @@ export async function getModel(
         contextWindow = result.model_info[ctxKey] as number;
       }
     }
+    contextWindow = loadedContext ?? contextWindow;
 
     return {
       name: result.name || name,
@@ -527,6 +596,13 @@ export async function getModel(
       contextWindow,
     };
   } catch {
+    if (loadedContext) {
+      return {
+        name,
+        displayName: name.split(":")[0],
+        contextWindow: loadedContext,
+      };
+    }
     return null;
   }
 }
@@ -611,23 +687,4 @@ export async function checkStatus(endpoint: string): Promise<ProviderStatus> {
       error: err instanceof Error ? err.message : "Connection failed",
     };
   }
-}
-
-/**
- * Parse context overflow info from Ollama error messages.
- * Ollama format: "model requires more system memory (N GiB) than is available (M GiB)"
- * or truncation warnings with context length info.
- */
-export function parseOverflowError(err: unknown): ContextOverflowInfo {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  // Ollama context overflow patterns (note: Ollama uses "context_length" with underscore)
-  if (msg.includes("context_length") || msg.includes("context length") || msg.includes("too many tokens") || msg.includes("exceeds")) {
-    // Try to extract limit: "context_length is N" or "maximum context length is N"
-    const match = msg.match(/context.?length\D+(\d+)/);
-    if (match) {
-      return { isOverflow: true, limitTokens: parseInt(match[1]), confidence: "high" };
-    }
-    return { isOverflow: true, confidence: "low" };
-  }
-  return { isOverflow: false, confidence: "low" };
 }

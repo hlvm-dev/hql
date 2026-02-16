@@ -27,10 +27,20 @@ import * as IR from "../type/hql_ir.ts";
  * // → { type: IRNodeType.ReturnStatement, argument: expr }
  */
 export function ensureReturnStatement(node: IR.IRNode): IR.IRNode {
-  if (
-    node.type === IR.IRNodeType.ReturnStatement ||
-    node.type === IR.IRNodeType.IfStatement
-  ) {
+  if (node.type === IR.IRNodeType.ReturnStatement) {
+    return node;
+  }
+  // For IfStatement, recursively ensure returns in leaf branches
+  if (node.type === IR.IRNodeType.IfStatement) {
+    const ifStmt = node as IR.IRIfStatement;
+    return {
+      ...ifStmt,
+      consequent: ensureReturnStatement(ifStmt.consequent),
+      alternate: ifStmt.alternate ? ensureReturnStatement(ifStmt.alternate) : ifStmt.alternate,
+    } as IR.IRIfStatement;
+  }
+  // ThrowStatement doesn't need a return wrapper
+  if (node.type === IR.IRNodeType.ThrowStatement) {
     return node;
   }
   return createReturn(node);

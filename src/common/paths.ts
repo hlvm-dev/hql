@@ -152,14 +152,6 @@ export function getHistoryPath(): string {
 }
 
 /**
- * Get the model context cache path (~/.hlvm/model-context-cache.json)
- * Stores learned context window sizes from provider APIs and overflow errors.
- */
-export function getModelContextCachePath(): string {
-  return join(getHlvmDir(), "model-context-cache.json");
-}
-
-/**
  * Ensure the HLVM directory exists
  */
 export async function ensureHlvmDir(): Promise<void> {

@@ -146,13 +146,6 @@ export interface ModelInfo {
   contextWindow?: number;
 }
 
-/** Info extracted from a provider's context overflow error */
-export interface ContextOverflowInfo {
-  isOverflow: boolean;
-  limitTokens?: number;
-  confidence: "high" | "low";
-}
-
 // ============================================================================
 // Capability Helpers
 // ============================================================================

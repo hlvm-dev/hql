@@ -50,6 +50,55 @@ function requireMessage(params: RouteParams, sessionId: string): { messageId: nu
 
 // MARK: - Public Methods
 
+/**
+ * @openapi
+ * /api/sessions/{id}/messages:
+ *   get:
+ *     tags: [Messages]
+ *     summary: List messages in a session
+ *     operationId: getMessages
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session ID.
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *       - in: query
+ *         name: after_order
+ *         schema:
+ *           type: integer
+ *         description: Return only messages with order > this value.
+ *     responses:
+ *       '200':
+ *         description: Paginated messages.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PagedMessages'
+ *       '404':
+ *         description: Session not found.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 export function handleGetMessages(
   req: Request,
   params: RouteParams,
@@ -74,6 +123,46 @@ export function handleGetMessages(
   return Response.json(result);
 }
 
+/**
+ * @openapi
+ * /api/sessions/{id}/messages/{messageId}:
+ *   get:
+ *     tags: [Messages]
+ *     summary: Get a single message
+ *     operationId: getMessage
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session ID.
+ *       - in: path
+ *         name: messageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Message ID (integer) or client_turn_id.
+ *     responses:
+ *       '200':
+ *         description: Message object.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/MessageRow'
+ *       '400':
+ *         description: Invalid messageId.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '404':
+ *         description: Session or message not found.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 export function handleGetMessage(
   _req: Request,
   params: RouteParams,
@@ -87,6 +176,61 @@ export function handleGetMessage(
   return Response.json(getMessage(msg.messageId));
 }
 
+/**
+ * @openapi
+ * /api/sessions/{id}/messages:
+ *   post:
+ *     tags: [Messages]
+ *     summary: Add a message to a session
+ *     operationId: addMessage
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session ID.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               role:
+ *                 type: string
+ *                 enum: [system, user, assistant, tool]
+ *               content:
+ *                 type: string
+ *               client_turn_id:
+ *                 type: string
+ *               sender_type:
+ *                 type: string
+ *               image_paths:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *             required: [role, content]
+ *     responses:
+ *       '201':
+ *         description: Message created.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/MessageRow'
+ *       '400':
+ *         description: Missing role or content.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '404':
+ *         description: Session not found.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 export async function handleAddMessage(
   req: Request,
   params: RouteParams,
@@ -122,6 +266,57 @@ export async function handleAddMessage(
   return Response.json(row, { status: 201 });
 }
 
+/**
+ * @openapi
+ * /api/sessions/{id}/messages/{messageId}:
+ *   patch:
+ *     tags: [Messages]
+ *     summary: Update a message
+ *     operationId: updateMessage
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session ID.
+ *       - in: path
+ *         name: messageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Message ID (integer) or client_turn_id.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               content:
+ *                 type: string
+ *               cancelled:
+ *                 type: boolean
+ *     responses:
+ *       '200':
+ *         description: Updated message.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/MessageRow'
+ *       '400':
+ *         description: No fields to update or invalid messageId.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '404':
+ *         description: Session or message not found.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 export async function handleUpdateMessage(
   req: Request,
   params: RouteParams,
@@ -153,6 +348,57 @@ export async function handleUpdateMessage(
   return Response.json(updated);
 }
 
+/**
+ * @openapi
+ * /api/sessions/{id}/messages/{messageId}:
+ *   delete:
+ *     tags: [Messages]
+ *     summary: Delete a message
+ *     operationId: deleteMessage
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session ID.
+ *       - in: path
+ *         name: messageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Message ID (integer) or client_turn_id.
+ *     responses:
+ *       '200':
+ *         description: Message deleted.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 deleted:
+ *                   type: boolean
+ *                 id:
+ *                   type: integer
+ *       '400':
+ *         description: Invalid messageId.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '404':
+ *         description: Session or message not found.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       '500':
+ *         description: Internal deletion failure.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 export function handleDeleteMessage(
   _req: Request,
   params: RouteParams,

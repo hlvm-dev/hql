@@ -15,6 +15,7 @@ import type {
 } from "npm:esbuild-wasm@^0.17.0";
 import { transpileToJavascript } from "./transpiler/hql-transpiler.ts";
 import {
+  needsRuntimeGetSnippet,
   RUNTIME_GET_SNIPPET,
   transpileHqlFile,
   wrapError,
@@ -931,7 +932,7 @@ async function postProcessBundleOutput(outputPath: string): Promise<void> {
     }
 
     // Add the runtime get function if it's used but not defined
-    if (content.includes("get(") && !content.includes("function get(")) {
+    if (needsRuntimeGetSnippet(content)) {
       content = RUNTIME_GET_SNIPPET + content;
       modified = true;
     }

@@ -1,223 +1,80 @@
 /**
- * Tests for context-resolver.ts — Dynamic context window budget resolution
+ * Tests for context-resolver.ts — Simple context window budget resolution
  */
 
 import { assertEquals, assertGreater } from "jsr:@std/assert";
 import {
-  handleContextOverflow,
-  resetContextCache,
-  resolveContextWindow,
+  resolveContextBudget,
 } from "../../../src/hlvm/agent/context-resolver.ts";
-import { parseOverflowError as ollamaOverflow } from "../../../src/hlvm/providers/ollama/api.ts";
-import { parseOverflowError as openaiOverflow } from "../../../src/hlvm/providers/openai/api.ts";
-import { parseOverflowError as anthropicOverflow } from "../../../src/hlvm/providers/anthropic/api.ts";
-import { parseOverflowError as googleOverflow } from "../../../src/hlvm/providers/google/api.ts";
-import type { ContextOverflowInfo } from "../../../src/hlvm/providers/types.ts";
-
-// Reset cache between tests
-function setup() {
-  resetContextCache();
-}
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  OUTPUT_RESERVE_TOKENS,
+} from "../../../src/hlvm/agent/constants.ts";
 
 // ============================================================================
-// resolveContextWindow
+// resolveContextBudget — priority chain
 // ============================================================================
 
-Deno.test("resolveContextWindow: user override takes highest priority", async () => {
-  setup();
-  const budget = await resolveContextWindow({
-    provider: "openai",
-    model: "gpt-4o",
+Deno.test("resolveContextBudget: user override takes highest priority", () => {
+  const result = resolveContextBudget({
     userOverride: 100_000,
     modelInfo: { name: "gpt-4o", contextWindow: 128_000 },
   });
-  // User override: 100_000 * 0.85 = 85_000
-  assertEquals(budget, 85_000);
+  assertEquals(result.budget, 100_000 - OUTPUT_RESERVE_TOKENS);
+  assertEquals(result.rawLimit, 100_000);
+  assertEquals(result.source, "user_override");
 });
 
-Deno.test("resolveContextWindow: modelInfo.contextWindow used when no user override", async () => {
-  setup();
-  const budget = await resolveContextWindow({
-    provider: "anthropic",
-    model: "claude-sonnet-4-5",
+Deno.test("resolveContextBudget: modelInfo.contextWindow used when no user override", () => {
+  const result = resolveContextBudget({
     modelInfo: { name: "claude-sonnet-4-5", contextWindow: 200_000 },
   });
-  // 200_000 * 0.85 = 170_000
-  assertEquals(budget, 170_000);
+  assertEquals(result.budget, 200_000 - OUTPUT_RESERVE_TOKENS);
+  assertEquals(result.rawLimit, 200_000);
+  assertEquals(result.source, "model_info");
 });
 
-Deno.test("resolveContextWindow: falls back to 32K default", async () => {
-  setup();
-  const budget = await resolveContextWindow({
-    provider: "unknown",
-    model: "mystery-model",
-  });
-  // 32_000 * 0.85 = 27_200
-  assertEquals(budget, 27_200);
+Deno.test("resolveContextBudget: falls back to DEFAULT_CONTEXT_WINDOW", () => {
+  const result = resolveContextBudget({});
+  assertEquals(result.budget, DEFAULT_CONTEXT_WINDOW - OUTPUT_RESERVE_TOKENS);
+  assertEquals(result.rawLimit, DEFAULT_CONTEXT_WINDOW);
+  assertEquals(result.source, "default");
 });
 
-Deno.test("resolveContextWindow: cache is used on second call", async () => {
-  setup();
-  // First call seeds the cache from modelInfo
-  await resolveContextWindow({
-    provider: "ollama",
-    model: "llama3.2",
-    modelInfo: { name: "llama3.2", contextWindow: 131_072 },
-  });
-  // Second call WITHOUT modelInfo should still get the cached value
-  const budget = await resolveContextWindow({
-    provider: "ollama",
-    model: "llama3.2",
-  });
-  // 131_072 * 0.85 = 111_411
-  assertEquals(budget, Math.floor(131_072 * 0.85));
-});
-
-Deno.test("resolveContextWindow: zero/negative user override is ignored", async () => {
-  setup();
-  const budget = await resolveContextWindow({
-    provider: "openai",
-    model: "gpt-4o",
+Deno.test("resolveContextBudget: zero user override is ignored", () => {
+  const result = resolveContextBudget({
     userOverride: 0,
     modelInfo: { name: "gpt-4o", contextWindow: 128_000 },
   });
-  // Should use modelInfo, not the zero override
-  assertEquals(budget, Math.floor(128_000 * 0.85));
+  assertEquals(result.budget, 128_000 - OUTPUT_RESERVE_TOKENS);
+  assertEquals(result.source, "model_info");
+});
+
+Deno.test("resolveContextBudget: negative user override is ignored", () => {
+  const result = resolveContextBudget({
+    userOverride: -100,
+  });
+  assertEquals(result.source, "default");
 });
 
 // ============================================================================
-// handleContextOverflow
+// Absolute reserve math
 // ============================================================================
 
-Deno.test("handleContextOverflow: high-confidence limit → cache + retry", async () => {
-  setup();
-  const result = await handleContextOverflow({
-    error: new Error("maximum context length is 128000 tokens"),
-    provider: "openai",
-    model: "gpt-4o",
-    parseOverflow: openaiOverflow,
-    currentBudget: 200_000,
+Deno.test("resolveContextBudget: absolute reserve math for 128K model", () => {
+  const result = resolveContextBudget({
+    modelInfo: { name: "gpt-4o", contextWindow: 128_000 },
   });
-  assertEquals(result.shouldRetry, true);
-  assertEquals(result.newBudget, Math.floor(128_000 * 0.85));
+  assertEquals(result.budget, 128_000 - 4096);
+  assertEquals(result.budget, 123_904);
 });
 
-Deno.test("handleContextOverflow: low-confidence → reduce by 75%", async () => {
-  setup();
-  const result = await handleContextOverflow({
-    error: new Error("too many tokens in request"),
-    provider: "ollama",
-    model: "test",
-    parseOverflow: (_err: unknown): ContextOverflowInfo => ({
-      isOverflow: true,
-      confidence: "low",
-    }),
-    currentBudget: 32_000,
-    overflowRetryCount: 0,
+Deno.test("resolveContextBudget: budget floor is 0 for tiny context", () => {
+  const result = resolveContextBudget({
+    userOverride: 1000,
   });
-  assertEquals(result.shouldRetry, true);
-  assertEquals(result.newBudget, Math.floor(32_000 * 0.75));
-});
-
-Deno.test("handleContextOverflow: second retry → reduce by 50%", async () => {
-  setup();
-  const result = await handleContextOverflow({
-    error: new Error("too many tokens"),
-    provider: "ollama",
-    model: "test",
-    parseOverflow: (_err: unknown): ContextOverflowInfo => ({
-      isOverflow: true,
-      confidence: "low",
-    }),
-    currentBudget: 24_000,
-    overflowRetryCount: 1,
-  });
-  assertEquals(result.shouldRetry, true);
-  assertEquals(result.newBudget, Math.floor(24_000 * 0.5));
-});
-
-Deno.test("handleContextOverflow: max retries exceeded → no retry", async () => {
-  setup();
-  const result = await handleContextOverflow({
-    error: new Error("context overflow"),
-    provider: "test",
-    model: "test",
-    parseOverflow: (_err: unknown): ContextOverflowInfo => ({
-      isOverflow: true,
-      confidence: "low",
-    }),
-    currentBudget: 16_000,
-    overflowRetryCount: 2,
-  });
-  assertEquals(result.shouldRetry, false);
-});
-
-Deno.test("handleContextOverflow: non-overflow error → no retry", async () => {
-  setup();
-  const result = await handleContextOverflow({
-    error: new Error("invalid api key"),
-    provider: "openai",
-    model: "gpt-4o",
-    parseOverflow: openaiOverflow,
-    currentBudget: 128_000,
-  });
-  assertEquals(result.shouldRetry, false);
-});
-
-// ============================================================================
-// Provider Overflow Parsers
-// ============================================================================
-
-Deno.test("Ollama parseOverflowError: context_length pattern", () => {
-  const info = ollamaOverflow(new Error("context_length is 4096"));
-  assertEquals(info.isOverflow, true);
-  assertEquals(info.limitTokens, 4096);
-  assertEquals(info.confidence, "high");
-});
-
-Deno.test("Ollama parseOverflowError: non-overflow error", () => {
-  const info = ollamaOverflow(new Error("connection refused"));
-  assertEquals(info.isOverflow, false);
-});
-
-Deno.test("OpenAI parseOverflowError: maximum context length pattern", () => {
-  const info = openaiOverflow(
-    new Error("This model's maximum context length is 128000 tokens. However, your messages resulted in 150000 tokens."),
-  );
-  assertEquals(info.isOverflow, true);
-  assertEquals(info.limitTokens, 128000);
-  assertEquals(info.confidence, "high");
-});
-
-Deno.test("OpenAI parseOverflowError: N tokens > M pattern", () => {
-  const info = openaiOverflow(new Error("150000 tokens > 128000 token limit"));
-  assertEquals(info.isOverflow, true);
-  assertEquals(info.limitTokens, 128000);
-  assertEquals(info.confidence, "high");
-});
-
-Deno.test("Anthropic parseOverflowError: prompt is too long pattern", () => {
-  const info = anthropicOverflow(
-    new Error("prompt is too long: 250000 tokens > 200000 token limit"),
-  );
-  assertEquals(info.isOverflow, true);
-  assertEquals(info.limitTokens, 200000);
-  assertEquals(info.confidence, "high");
-});
-
-Deno.test("Anthropic parseOverflowError: no numbers → low confidence", () => {
-  const info = anthropicOverflow(new Error("prompt is too long"));
-  assertEquals(info.isOverflow, true);
-  assertEquals(info.confidence, "low");
-});
-
-Deno.test("Google parseOverflowError: exceeds limit pattern", () => {
-  const info = googleOverflow(
-    new Error("input token count exceeds the limit 1048576"),
-  );
-  assertEquals(info.isOverflow, true);
-  assertEquals(info.limitTokens, 1048576);
-  assertEquals(info.confidence, "high");
+  // 1000 - 4096 would be negative, so floor at 0
+  assertEquals(result.budget, 0);
 });
 
 // ============================================================================

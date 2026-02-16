@@ -15,7 +15,6 @@ import {
 import { RuntimeError } from "../../../common/error.ts";
 import type {
   ChatStructuredResponse,
-  ContextOverflowInfo,
   ProviderToolCall,
   Message,
   ChatOptions,
@@ -323,22 +322,3 @@ export async function streamChat(
   return resp;
 }
 
-// =============================================================================
-// Overflow Parsing
-// =============================================================================
-
-/**
- * Parse context overflow info from Anthropic error messages.
- * Format: "prompt is too long: N tokens > M token limit"
- */
-export function parseOverflowError(err: unknown): ContextOverflowInfo {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  if (msg.includes("prompt is too long") || msg.includes("token limit") || msg.includes("too many tokens")) {
-    const match = msg.match(/(\d+)\s*tokens?\s*>\s*(\d+)/);
-    if (match) {
-      return { isOverflow: true, limitTokens: parseInt(match[2]), confidence: "high" };
-    }
-    return { isOverflow: true, confidence: "low" };
-  }
-  return { isOverflow: false, confidence: "low" };
-}

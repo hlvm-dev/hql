@@ -12,6 +12,11 @@ stdlib:
 	@echo "Building stdlib from HQL source..."
 	@deno run -A scripts/build-stdlib.ts
 
+# Generate OpenAPI specification
+openapi:
+	@echo "Generating OpenAPI specification..."
+	@deno task openapi
+
 # Quick build for current computer
 build: stdlib
 	@echo "📦 Embedding HLVM packages..."
@@ -160,6 +165,6 @@ help:
 	@echo "  make build-linux"
 	@echo "  make build-windows"
 
-.PHONY: stdlib build install repl ink test all clean help
+.PHONY: stdlib openapi build install repl ink test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows
 .PHONY: build-ai setup-ai test-ai

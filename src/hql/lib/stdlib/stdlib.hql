@@ -20,12 +20,18 @@
   // Sequence generators (uses NumericRange with O(1) count/nth - hot path)
   range,
 
+  // Chunked sequence fast paths
+  chunkedMap, chunkedFilter, chunkedReduce,
+
   // Utilities that remain as JS imports:
   // - groupBy: uses Map protocol internally
   // - realized: checks LazySeq/Delay internal fields
   // - force/isDelay: Delay class protocol
   groupBy, realized, force, isDelay
 ] from "./js/core.js")
+
+// Chunking decision helper from seq protocol
+(import [shouldChunk] from "./js/internal/seq-protocol.js")
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SELF-HOSTED STDLIB FUNCTIONS
@@ -47,37 +53,69 @@
   (lazy-seq
     (loop [s (seq coll) remaining n]
       (if (and s (> remaining 0))
-        (recur (rest s) (- remaining 1))
+        (recur (seq (rest s)) (- remaining 1))
         (when s
           (cons (first s) (drop 0 (rest s))))))))
 
-// map - Maps function over collection (lazy)
-// This is the heart of functional programming
-// Pattern: (lazy-seq (when-let [s (seq coll)] (cons (f (first s)) (map f (rest s)))))
-(fn map [f coll]
-  (lazy-seq
-    (when-let [s (seq coll)]
-      (cons (f (first s)) (map f (rest s))))))
+// map - Maps function over collection(s) (lazy)
+// Supports:
+// - (map f coll)
+// - (map f c1 c2 ...)
+(fn map [f & colls]
+  (when (not (isFunction f))
+    (throw (js/TypeError (str "map: first argument must be a function, got " (typeof f)))))
+  (when (=== (count colls) 0)
+    (throw (js/TypeError "map: requires at least one collection")))
+  (if (=== (count colls) 1)
+    (let [coll (first colls)]
+      (if (shouldChunk coll)
+        (chunkedMap f coll)
+        (lazy-seq
+          (when-let [s (seq coll)]
+            (cons (f (first s)) (map f (rest s)))))))
+    (lazy-seq
+      (let [seqs (doall (map seq colls))]
+        (if (js-call seqs "some" (fn [s] (nil? s)))
+          nil
+          (let [firsts (doall (map first seqs))
+                rests (doall (map rest seqs))]
+            (cons (apply f firsts)
+                  (apply map (cons f rests)))))))))
 
 // filter - Filters collection by predicate (lazy)
 // Only includes elements where (pred elem) is truthy
 // Pattern: skip non-matching elements recursively until we find one
 (fn filter [pred coll]
-  (lazy-seq
-    (when-let [s (seq coll)]
-      (let [f (first s)]
-        (if (pred f)
-          (cons f (filter pred (rest s)))
-          (filter pred (rest s)))))))
+  (when (not (isFunction pred))
+    (throw (js/TypeError (str "filter: predicate must be a function, got " (typeof pred)))))
+  (if (shouldChunk coll)
+    (chunkedFilter pred coll)
+    (lazy-seq
+      (when-let [s (seq coll)]
+        (let [f (first s)]
+          (if (pred f)
+            (cons f (filter pred (rest s)))
+            (filter pred (rest s))))))))
 
-// reduce - Reduces collection with function and initial value (EAGER)
-// This is the foundation of many aggregate operations
-// Unlike map/filter, reduce consumes the entire collection
-(fn reduce [f init coll]
-  (loop [acc init, s (seq coll)]
-    (if s
-      (recur (f acc (first s)) (rest s))
-      acc)))
+// reduce - Reduces collection (EAGER)
+// Supports:
+// - (reduce f coll)
+// - (reduce f init coll)
+// Supports early termination with (reduced x)
+(fn reduce [f & args]
+  (when (not (isFunction f))
+    (throw (js/TypeError (str "reduce: reducer must be a function, got " (typeof f)))))
+  (when (or (< (count args) 1) (> (count args) 2))
+    (throw (js/TypeError (str "reduce: expects 2 or 3 arguments, got " (+ (count args) 1)))))
+  (if (=== (count args) 1)
+    // 2-arity: (reduce f coll)
+    (let [coll (first args)
+          s (seq coll)]
+      (if s
+        (chunkedReduce f (first s) (rest s))
+        (f)))
+    // 3-arity: (reduce f init coll)
+    (chunkedReduce f (first args) (second args))))
 
 // concat - Concatenates multiple collections (lazy)
 // Variadic function: (concat [1 2] [3 4]) => (1 2 3 4)
@@ -96,7 +134,12 @@
   (lazy-seq
     (when-let [s (seq coll)]
       (let [f (first s)]
-        (if (and (not (nil? f)) (not (isString f)) (or (isArray f) (seq f)))  // collection check: not nil, not string, array or seqable
+        (if (and (not (nil? f))
+                 (not (isString f))
+                 (or (isArray f)
+                     (instanceof f Set)
+                     (instanceof f Map)
+                     (isObject f)))
           (concat (flatten f) (flatten (rest s)))
           (cons f (flatten (rest s))))))))
 
@@ -128,20 +171,37 @@
 // Throws error if out of bounds and no not-found provided
 // Note: Uses (seq args) instead of (count args) to avoid circular dependency
 (fn nth [coll index & args]
+  (when (or (not (=== (typeof index) "number")) (< index 0) (not (=== index (js-call Math.floor index))))
+    (throw (js/TypeError (str "nth: index must be non-negative integer, got " index))))
   (let [not-found (first args)
         has-not-found (seq args)]  // truthy if args is non-empty
     (if (nil? coll)
       (if has-not-found
         not-found
         (throw (js/Error (str "nth: index " index " out of bounds for null collection"))))
-      (loop [s (seq coll), i 0]
-        (if s
-          (if (=== i index)
-            (first s)
-            (recur (rest s) (+ i 1)))
-          (if has-not-found
-            not-found
-            (throw (js/Error (str "nth: index " index " out of bounds")))))))))
+      (if (or (js-call Array.isArray coll) (=== (typeof coll) "string"))
+        (let [len (js-get coll "length")]
+          (if (< index len)
+            (js-get coll index)
+            (if has-not-found
+              not-found
+              (throw (js/Error (str "nth: index " index " out of bounds (length " len ")"))))))
+        (if (and (=== (typeof (js-get coll "count")) "function")
+                 (=== (typeof (js-get coll "nth")) "function"))
+          (let [len (js-call coll "count")]
+            (if (< index len)
+              (js-call coll "nth" index)
+              (if has-not-found
+                not-found
+                (throw (js/Error (str "nth: index " index " out of bounds"))))))
+          (loop [s (seq coll), i 0]
+            (if s
+              (if (=== i index)
+                (first s)
+                (recur (seq (rest s)) (+ i 1)))
+              (if has-not-found
+                not-found
+                (throw (js/Error (str "nth: index " index " out of bounds")))))))))))
 
 // second - Returns second element of collection
 // Simply (nth coll 1 nil) - returns nil if less than 2 elements
@@ -155,7 +215,7 @@
     0
     (loop [s (seq coll), n 0]
       (if s
-        (recur (rest s) (+ n 1))
+        (recur (seq (rest s)) (+ n 1))
         n))))
 
 // last - Returns last element (EAGER)
@@ -165,7 +225,7 @@
     nil
     (loop [s (seq coll), result nil]
       (if s
-        (recur (rest s) (first s))
+        (recur (seq (rest s)) (first s))
         result))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -175,6 +235,8 @@
 // mapIndexed - Maps function (index, item) over collection (lazy)
 // Like map but the function receives (index, item) instead of just (item)
 (fn mapIndexed [f coll]
+  (when (not (isFunction f))
+    (throw (js/TypeError (str "mapIndexed: first argument must be a function, got " (typeof f)))))
   (let [step (fn [s idx]
                (lazy-seq
                  (when-let [xs (seq s)]
@@ -185,6 +247,8 @@
 // keepIndexed - Like mapIndexed but filters nil results (lazy)
 // Only keeps results where (f index item) is not nil/undefined
 (fn keepIndexed [f coll]
+  (when (not (isFunction f))
+    (throw (js/TypeError (str "keepIndexed: first argument must be a function, got " (typeof f)))))
   (let [step (fn [s idx]
                (lazy-seq
                  (when-let [xs (seq s)]
@@ -218,6 +282,8 @@
 // takeWhile - Returns elements while predicate is true (lazy)
 // Clojure: (take-while pos? [1 2 3 0 -1]) => (1 2 3)
 (fn takeWhile [pred coll]
+  (when (not (isFunction pred))
+    (throw (js/TypeError "takeWhile: predicate must be a function")))
   (lazy-seq
     (when-let [s (seq coll)]
       (let [f (first s)]
@@ -230,7 +296,7 @@
   (lazy-seq
     (loop [s (seq coll)]
       (if (and s (pred (first s)))
-        (recur (rest s))
+        (recur (seq (rest s)))
         (when s
           (cons (first s) (rest s)))))))
 
@@ -284,11 +350,15 @@
 // interleave - Interleaves multiple sequences (lazy)
 // Example: (interleave [1 2 3] ["a" "b" "c"]) => (1 "a" 2 "b" 3 "c")
 (fn interleave [& colls]
-  (lazy-seq
-    (let [seqs (map seq colls)]
-      (when (every isSome seqs)
-        (concat (map first seqs)
-                (apply interleave (map rest seqs)))))))
+  (if (=== (count colls) 0)
+    (lazy-seq nil)
+    (if (=== (count colls) 1)
+      (lazy-seq (seq (first colls)))
+      (lazy-seq
+        (let [seqs (doall (map seq colls))]
+          (when (every isSome seqs)
+            (concat (doall (map first seqs))
+                    (apply interleave (doall (map rest seqs))))))))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 3E: PARTITION FAMILY
@@ -299,9 +369,13 @@
 // 3-arity: (partition n step coll) - explicit step
 // Clojure: (partition 3 [1 2 3 4 5 6 7]) => ((1 2 3) (4 5 6))
 (fn partition [n & args]
+  (when (or (not (=== (typeof n) "number")) (<= n 0))
+    (throw (js/TypeError "partition: n must be a positive number")))
   (let [arg-count (count args)
         step (if (=== arg-count 1) n (first args))
         coll (if (=== arg-count 1) (first args) (second args))]
+    (when (or (not (=== (typeof step) "number")) (<= step 0))
+      (throw (js/TypeError "partition: step must be a positive number")))
     (lazy-seq
       (when-let [s (seq coll)]
         (let [p (doall (take n s))]
@@ -322,6 +396,8 @@
 // partitionBy - Partitions when function result changes (lazy)
 // Clojure: (partition-by odd? [1 1 2 2 3]) => ((1 1) (2 2) (3))
 (fn partitionBy [f coll]
+  (when (not (isFunction f))
+    (throw (js/TypeError "partitionBy: f must be a function")))
   (lazy-seq
     (when-let [s (seq coll)]
       (let [fst (first s)
@@ -341,40 +417,48 @@
 // some - Returns first item where predicate returns truthy, or nil
 // Short-circuits on first match
 (fn some [pred coll]
+  (when (not (isFunction pred))
+    (throw (js/TypeError (str "some: predicate must be a function, got " (typeof pred)))))
   (loop [s (seq coll)]
     (if s
       (if (pred (first s))
         (first s)
-        (recur (rest s)))
+        (recur (seq (rest s))))
       nil)))
 
 // every - Returns true if predicate returns truthy for all items
 // Short-circuits on first falsy, empty collection returns true (vacuous truth)
 (fn every [pred coll]
+  (when (not (isFunction pred))
+    (throw (js/TypeError (str "every: predicate must be a function, got " (typeof pred)))))
   (loop [s (seq coll)]
     (if s
       (if (pred (first s))
-        (recur (rest s))
+        (recur (seq (rest s)))
         false)
       true)))
 
 // notAny - Returns true if predicate returns false for all items
 // Equivalent to (not (some pred coll))
 (fn notAny [pred coll]
+  (when (not (isFunction pred))
+    (throw (js/TypeError (str "notAny: predicate must be a function, got " (typeof pred)))))
   (loop [s (seq coll)]
     (if s
       (if (pred (first s))
         false
-        (recur (rest s)))
+        (recur (seq (rest s))))
       true)))
 
 // notEvery - Returns true if predicate returns false for at least one item
 // Equivalent to (not (every pred coll))
 (fn notEvery [pred coll]
+  (when (not (isFunction pred))
+    (throw (js/TypeError (str "notEvery: predicate must be a function, got " (typeof pred)))))
   (loop [s (seq coll)]
     (if s
       (if (pred (first s))
-        (recur (rest s))
+        (recur (seq (rest s)))
         true)
       false)))
 
@@ -387,7 +471,7 @@
 // PHASE 5: TYPE PREDICATES
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-(fn isNil [x] (nil? x))
+(fn isNil [x] (== x null))
 (fn isEven [n] (== 0 (mod n 2)))
 (fn isOdd [n] (not (== 0 (mod n 2))))
 (fn isZero [n] (== n 0))
@@ -434,10 +518,10 @@
   (if (< (count vals) 2)
     true
     (let [fst (first vals)]
-      (loop [s (rest vals)]
-        (if (seq s)
+      (loop [s (seq (rest vals))]
+        (if s
           (if (=== fst (first s))
-            (recur (rest s))
+            (recur (seq (rest s)))
             false)
           true)))))
 
@@ -448,7 +532,7 @@
   (loop [s (seq nums)]
     (if (and s (seq (rest s)))
       (if (< (first s) (first (rest s)))
-        (recur (rest s))
+        (recur (seq (rest s)))
         false)
       true)))
 
@@ -456,7 +540,7 @@
   (loop [s (seq nums)]
     (if (and s (seq (rest s)))
       (if (> (first s) (first (rest s)))
-        (recur (rest s))
+        (recur (seq (rest s)))
         false)
       true)))
 
@@ -464,7 +548,7 @@
   (loop [s (seq nums)]
     (if (and s (seq (rest s)))
       (if (<= (first s) (first (rest s)))
-        (recur (rest s))
+        (recur (seq (rest s)))
         false)
       true)))
 
@@ -472,7 +556,7 @@
   (loop [s (seq nums)]
     (if (and s (seq (rest s)))
       (if (>= (first s) (first (rest s)))
-        (recur (rest s))
+        (recur (seq (rest s)))
         false)
       true)))
 
@@ -505,10 +589,12 @@
 
 // repeat - Infinite sequence of the same value
 (fn repeat [x]
-  (lazy-seq (cons x (repeat x))))
+  (map (fn [_] x) (range)))
 
 // repeatedly - Infinite sequence calling f each time
 (fn repeatedly [f]
+  (when (not (isFunction f))
+    (throw (js/TypeError "repeatedly: f must be a function")))
   (lazy-seq (cons (f) (repeatedly f))))
 
 // cycle - Infinite sequence cycling through collection
@@ -529,6 +615,8 @@
 
 // iterate - Returns x, f(x), f(f(x)), ...
 (fn iterate [f x]
+  (when (not (isFunction f))
+    (throw (js/TypeError "iterate: iterator function must be a function")))
   (lazy-seq (cons x (iterate f (f x)))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -545,7 +633,7 @@
 (fn reverse [coll]
   (if (nil? coll)
     []
-    (.. (js-call Array.from coll) (reverse))))
+    (.reverse (js-call Array.from coll))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 11: FUNCTION UTILITIES
@@ -610,9 +698,9 @@
 // assoc - Associate key with value (returns new map/array)
 (fn assoc [m key value]
   (if (nil? m)
-    (if (=== (typeof key) "number")
-      [value]
-      {key value})
+    (let [r {}]
+      (js-set r key value)
+      r)
     (if (instanceof m Map)
       (let [r (js-new Map (m))]
         (js-call r "set" key value)
@@ -621,7 +709,9 @@
         (let [r [...m]]
           (js-set r key value)
           r)
-        {...m, key value}))))
+        (let [r {...m}]
+          (js-set r key value)
+          r)))))
 
 // assocIn - Associate value at nested path
 (fn assocIn [m path value]
@@ -671,6 +761,10 @@
 // PHASE 14: COLLECTION PROTOCOLS (self-hosted)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// Internal helper to keep empty() as an expression form for proper codegen
+(fn throwEmptyTypeError [coll]
+  (throw (js/TypeError (str "Cannot create empty collection from " (typeof coll)))))
+
 // empty - Return empty collection of same type
 (fn empty [coll]
   (if (nil? coll)
@@ -679,8 +773,11 @@
       (if (=== (typeof coll) "string") ""
         (if (instanceof coll Set) (js-new Set ())
           (if (instanceof coll Map) (js-new Map ())
-            (if (=== (typeof coll) "object") {}
-              nil)))))))
+            (if (=== (typeof coll) "object")
+              (if (and (js-get coll "_realize") (=== (typeof (js-get coll "_realize")) "function"))
+                nil   // LazySeq returns null (Clojure semantics)
+                {})
+              (throwEmptyTypeError coll))))))))
 
 // conj - Add item(s) to collection (type-preserving)
 (fn conj [coll & items]
@@ -694,19 +791,29 @@
           (let [r (js-new Set (coll))]
             (reduce (fn [acc item] (js-call acc "add" item) acc) r items))
           (if (instanceof coll Map)
-            (let [r (js-new Map (coll))]
-              (reduce (fn [acc item] (js-call acc "set" (js-get item 0) (js-get item 1)) acc) r items))
-            (reduce (fn [acc item] (js-set acc (js-get item 0) (js-get item 1)) acc)
-                    {...coll} items)))))))
+            (do
+              (reduce (fn [_ item]
+                (when (or (not (js-call Array.isArray item)) (not (=== (js-get item "length") 2)))
+                  (throw (js/TypeError "Map entries must be [key, value] pairs")))) nil items)
+              (let [r (js-new Map (coll))]
+                (reduce (fn [acc item] (js-call acc "set" (js-get item 0) (js-get item 1)) acc) r items)))
+            (if (=== (typeof coll) "string")
+              (reduce (fn [acc item] (+ acc item)) coll items)
+              (do
+                (reduce (fn [_ item]
+                  (when (or (not (js-call Array.isArray item)) (not (=== (js-get item "length") 2)))
+                    (throw (js/TypeError "Object entries must be [key, value] pairs")))) nil items)
+                (reduce (fn [acc item] (js-set acc (js-get item 0) (js-get item 1)) acc)
+                        {...coll} items)))))))))
 
 // into - Pour collection into target
 (fn into [to from]
   (if (nil? from)
     (if (nil? to) [] to)
-    (if (nil? to)
-      (js-call Array.from from)
-      (if (js-call Array.isArray to)
-        (let [arr [...to]]
+      (if (nil? to)
+        (js-call Array.from from)
+        (if (js-call Array.isArray to)
+        (let [arr (js-call Array.from to)]
           (reduce (fn [acc item] (js-call acc "push" item) acc) arr from))
         (if (instanceof to Set)
           (let [r (js-new Set (to))]
@@ -746,6 +853,11 @@
 
 // comp - Compose functions right-to-left: (comp f g h)(x) = f(g(h(x)))
 (fn comp [& fns]
+  (loop [i 0, s (seq fns)]
+    (when s
+      (when (not (isFunction (first s)))
+        (throw (js/TypeError (str "comp: argument " (+ i 1) " must be a function"))))
+      (recur (+ i 1) (seq (rest s)))))
   (if (=== (count fns) 0)
     (fn [x] x)
     (if (=== (count fns) 1)
@@ -757,11 +869,17 @@
 
 // partial - Partial function application
 (fn partial [f & args]
+  (when (not (isFunction f))
+    (throw (js/TypeError "partial: function must be a function")))
   (fn [& more-args]
     (apply f (concat args more-args))))
 
 // apply - Apply function to args collection
 (fn apply [f args]
+  (when (not (isFunction f))
+    (throw (js/TypeError "apply: function must be a function")))
+  (when (or (== args null) (not (=== (typeof (js-get args js/Symbol.iterator)) "function")))
+    (throw (js/TypeError "apply: args must be iterable")))
   (let [arr (if (js-call Array.isArray args) args (js-call Array.from args))]
     (js-call f "apply" nil arr)))
 

@@ -38,7 +38,6 @@ import {
 import { hashString } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { UsageTracker } from "./usage.ts";
-import { getOverflowParser } from "./context-resolver.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -217,15 +216,6 @@ export async function runAgentQuery(
 
     const usageTracker = new UsageTracker();
 
-    // Resolve provider-specific overflow parser for dynamic context budget
-    const providerName = model.indexOf("/") > 0
-      ? model.slice(0, model.indexOf("/")).toLowerCase()
-      : "ollama";
-    const modelName = model.indexOf("/") > 0
-      ? model.slice(model.indexOf("/") + 1)
-      : model;
-    const overflowParser = await getOverflowParser(providerName);
-
     const text = await runReActLoop(
       query,
       {
@@ -245,9 +235,6 @@ export async function runAgentQuery(
         usage: usageTracker,
         l1Confirmations: session.l1Confirmations,
         toolOwnerId: session.toolOwnerId,
-        parseOverflowError: overflowParser ?? undefined,
-        providerName,
-        modelName,
       },
       llm,
     );

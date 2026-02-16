@@ -33,6 +33,7 @@ import {
 import {
   createId,
   createReturn,
+  ensureReturnStatement,
   createExprStmt,
   createCall,
   createFnExpr,
@@ -70,11 +71,61 @@ function transformBinding(
   if (list.elements.length === 3) {
     const bindingTarget = list.elements[1];
 
-    // Check if it's a destructuring pattern
+    // Check if it's a destructuring pattern or a Clojure-style binding vector
     if (bindingTarget.type === "list") {
       const listNode = bindingTarget as ListNode;
       const hadVectorPrefix = hasVectorPrefix(listNode);
       const hadHashMapPrefix = hasHashMapPrefix(listNode);
+
+      // Clojure-style binding vector: (let [name1 val1 name2 val2 ...] body)
+      // Detect by: vector prefix + even pairs + first element is symbol +
+      // second element is NOT a simple symbol (it's an expression/literal).
+      // This distinguishes from destructuring: (let [x y] [1 2]) where all
+      // elements are symbols.
+      if (hadVectorPrefix) {
+        const innerElements = listNode.elements.slice(1); // strip "vector" prefix
+        const isPairCount = innerElements.length >= 2 && innerElements.length % 2 === 0;
+        const bindingNamePositionsAreSymbols = innerElements
+          .filter((_e, i) => i % 2 === 0)
+          .every((e) => e.type === "symbol");
+        // In a binding vector, value position is an expression. But destructuring
+        // patterns with defaults/nesting also place non-symbols here:
+        //   [x (= 10)] , [x [y z]]
+        // So we explicitly exclude pattern-like second elements.
+        const secondElem = innerElements[1];
+        const secondIsNotSymbol = secondElem?.type !== "symbol";
+        const secondIsDefaultForm = !!(
+          secondElem &&
+          secondElem.type === "list" &&
+          secondElem.elements.length === 2 &&
+          secondElem.elements[0]?.type === "symbol" &&
+          secondElem.elements[0].name === "="
+        );
+        const secondList = secondElem?.type === "list"
+          ? secondElem as ListNode
+          : null;
+        const secondLooksLikePattern = !!(
+          secondList &&
+          (hasVectorPrefix(secondList) || hasHashMapPrefix(secondList) || secondIsDefaultForm)
+        );
+
+        const shouldTreatAsBindingVector =
+          isPairCount &&
+          bindingNamePositionsAreSymbols &&
+          secondIsNotSymbol &&
+          !secondIsDefaultForm &&
+          !secondLooksLikePattern;
+
+        if (shouldTreatAsBindingVector) {
+          const bindingsNode = {
+            ...listNode,
+            elements: innerElements,
+          } as ListNode;
+          const bodyExprs = list.elements.slice(2);
+          return processBindings(bindingsNode, bodyExprs, currentDir, transformNode, kind);
+        }
+      }
+
       const sexp = bindingTarget;
 
       // Check if this list is a pattern AND came from vector/hash-map syntax
@@ -206,7 +257,7 @@ function transformBinding(
           const bodyStmts = bodyNodes.map((node, i) => {
             const isLast = i === bodyNodes.length - 1;
             if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-              return createReturn(node);
+              return ensureReturnStatement(node);
             }
             if (isExpressionResult(node)) {
               return createExprStmt(node);
@@ -283,7 +334,7 @@ function transformBinding(
       const bodyStmts = bodyNodes.map((node, i) => {
         const isLast = i === bodyNodes.length - 1;
         if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-          return createReturn(node);
+          return ensureReturnStatement(node);
         }
         // Wrap non-last expressions in ExpressionStatement
         if (isExpressionResult(node)) {
@@ -327,8 +378,13 @@ function transformBinding(
   }
 
   // Handle standard local binding form: (let/var (name1 value1 ...) body...)
+  // Also handles Clojure-style (let [name1 val1 ...] body...) with vector prefix
   if (list.elements.length >= 2 && list.elements[1].type === "list") {
-    const bindingsNode = list.elements[1] as ListNode;
+    const rawBindingsNode = list.elements[1] as ListNode;
+    // Strip vector prefix if present (Clojure-style [name val ...] binding vector)
+    const bindingsNode = hasVectorPrefix(rawBindingsNode)
+      ? { ...rawBindingsNode, elements: rawBindingsNode.elements.slice(1) } as ListNode
+      : rawBindingsNode;
     const bodyExprs = list.elements.slice(2);
     return processBindings(bindingsNode, bodyExprs, currentDir, transformNode, kind);
   }
@@ -585,8 +641,9 @@ function processBindings(
   const bodyStmts = bodyStatements.map((node, i) => {
     const isLast = i === bodyStatements.length - 1;
     // If it's the last statement and not already a return, wrap it in return
+    // Use ensureReturnStatement to handle IfStatement (which has its own returns)
     if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-      return createReturn(node);
+      return ensureReturnStatement(node);
     }
     // Wrap non-last expressions in ExpressionStatement
     if (isExpressionResult(node)) {

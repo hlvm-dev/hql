@@ -207,6 +207,16 @@ export const RATE_LIMITS = {
 } as const;
 
 // ============================================================
+// Context Budget
+// ============================================================
+
+/** Reserve for output tokens (absolute, subtracted from raw limit) */
+export const OUTPUT_RESERVE_TOKENS = 4096;
+
+/** Conservative fallback context window when no info is available */
+export const DEFAULT_CONTEXT_WINDOW = 32_000;
+
+// ============================================================
 // Context Compaction
 // ============================================================
 

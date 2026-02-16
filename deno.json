@@ -58,6 +58,7 @@
     "eval": "HLVM_DISABLE_AI_AUTOSTART=1 deno test --allow-all tests/eval/eval-runner.ts",
     "test:ci": "deno task ssot:check && deno task test:unit",
     "build:npm": "deno run -A scripts/build-npm.ts",
-    "stdlib:build": "deno run -A scripts/build-stdlib.ts"
+    "stdlib:build": "deno run -A scripts/build-stdlib.ts",
+    "openapi": "deno run -A scripts/generate-openapi.ts"
   }
 }

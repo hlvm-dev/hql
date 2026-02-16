@@ -27,6 +27,21 @@ function get(obj, key) {
 
 `;
 
+/**
+ * Decide whether bundled output needs the runtime `get` helper.
+ *
+ * Inject only when:
+ * - there is at least one standalone call like `get(...)`, and
+ * - no declaration already defines `get` (function/var/let/const).
+ */
+export function needsRuntimeGetSnippet(content: string): boolean {
+  const usesGetCall = /(^|[^\w$.])get\s*\(/m.test(content);
+  if (!usesGetCall) return false;
+
+  const declaresGet = /\b(?:function|var|let|const)\s+get\b/.test(content);
+  return !declaresGet;
+}
+
 export function propagateReportedFlag(source: unknown, target: object): void {
   if (isObjectValue(source)) {
     if (Reflect.get(source, ERROR_REPORTED_SYMBOL)) {
@@ -127,7 +142,9 @@ export async function transpileHqlInJs(
       );
     }
 
-    return RUNTIME_GET_SNIPPET + processedContent;
+    return needsRuntimeGetSnippet(processedContent)
+      ? RUNTIME_GET_SNIPPET + processedContent
+      : processedContent;
   } catch (error) {
     throw new RuntimeError(
       `Error transpiling HQL for JS import ${hqlPath}: ${getErrorMessage(error)}`

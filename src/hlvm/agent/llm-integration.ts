@@ -356,6 +356,8 @@ Tool schemas are provided via function calling. Do NOT output tool call JSON in 
 interface AgentLLMConfig {
   /** Model to use (e.g., "ollama/llama3.2") */
   model?: string;
+  /** Resolved context budget used for provider-specific runtime hints (e.g., Ollama num_ctx) */
+  contextBudget?: number;
   /** Additional options for generation */
   options?: {
     temperature?: number;
@@ -409,6 +411,17 @@ interface AgentLLMConfig {
 export function createAgentLLM(
   config?: AgentLLMConfig,
 ): (messages: AgentMessage[], signal?: AbortSignal) => Promise<LLMResponse> {
+  const modelId = config?.model;
+  const slashIdx = modelId?.indexOf("/") ?? -1;
+  const isOllamaModel = modelId
+    ? slashIdx === -1 || modelId.slice(0, slashIdx).toLowerCase() === "ollama"
+    : false;
+  const numCtx = isOllamaModel &&
+      typeof config?.contextBudget === "number" &&
+      config.contextBudget > 0
+    ? Math.floor(config.contextBudget)
+    : undefined;
+
   return async (
     messages: AgentMessage[],
     signal?: AbortSignal,
@@ -434,6 +447,7 @@ export function createAgentLLM(
           tools?: ToolDefinition[];
           temperature?: number;
           onToken?: (text: string) => void;
+          raw?: Record<string, unknown>;
         },
       ) => Promise<
         {
@@ -456,6 +470,7 @@ export function createAgentLLM(
       tools,
       temperature: config?.options?.temperature ?? 0.0,
       onToken: config?.onToken,
+      raw: numCtx ? { num_ctx: numCtx } : undefined,
     });
     return {
       content: response.content ?? "",

@@ -25,7 +25,6 @@ import {
   buildRequestBody,
   buildResponse,
   streamChat,
-  parseOverflowError as _parseOverflowError,
 } from "../anthropic/shared.ts";
 
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -108,4 +107,3 @@ export async function checkStatus(
   }
 }
 
-export { _parseOverflowError as parseOverflowError };
