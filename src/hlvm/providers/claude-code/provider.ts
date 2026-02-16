@@ -18,7 +18,7 @@ import type {
   ProviderConfig,
   ProviderStatus,
 } from "../types.ts";
-import { extractSignal } from "../common.ts";
+import { extractSignal, generateFromChat, chatFromStructured } from "../common.ts";
 import * as api from "./api.ts";
 
 const DEFAULT_ENDPOINT = "https://api.anthropic.com";
@@ -77,32 +77,20 @@ export class ClaudeCodeProvider implements AIProvider {
     prompt: string,
     options?: GenerateOptions,
   ): AsyncGenerator<string, void, unknown> {
-    const messages: Message[] = [{ role: "user", content: prompt }];
-    if (options?.system) {
-      messages.unshift({ role: "system", content: options.system });
-    }
-    const result = await api.chatStructured(
-      this.endpoint,
-      this.getModel(options),
-      messages,
-      options as ChatOptions,
-      extractSignal(options),
+    yield* generateFromChat(
+      (msgs, opts, signal) => api.chatStructured(this.endpoint, this.getModel(options), msgs, opts, signal),
+      prompt, options,
     );
-    if (result.content) yield result.content;
   }
 
   async *chat(
     messages: Message[],
     options?: ChatOptions,
   ): AsyncGenerator<string, void, unknown> {
-    const result = await api.chatStructured(
-      this.endpoint,
-      this.getModel(options),
-      messages,
-      options,
-      extractSignal(options),
+    yield* chatFromStructured(
+      (msgs, opts, signal) => api.chatStructured(this.endpoint, this.getModel(options), msgs, opts, signal),
+      messages, options,
     );
-    if (result.content) yield result.content;
   }
 
   chatStructured(

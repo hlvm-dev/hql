@@ -643,7 +643,7 @@ function getErrorNote(error: HQLError): string | null {
 }
 
 // -----------------------------------------------------------------------------
-// Simple wrappers (flattened – no special logging)
+// Simple wrappers (no-op stubs — kept for 78 callers across the transpiler)
 // -----------------------------------------------------------------------------
 
 export function wrapError(
@@ -652,7 +652,6 @@ export function wrapError(
   _resource: string,
   _currentFile?: string,
 ): never {
-  // Simply rethrow for now – customization can be added later.
   throw error;
 }
 
@@ -664,6 +663,7 @@ export function perform<T>(
 ): T {
   return fn();
 }
+
 // -----------------------------------------------------------------------------
 // Error base + enums
 // -----------------------------------------------------------------------------

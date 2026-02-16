@@ -17,7 +17,7 @@ import type {
   ProviderStatus,
 } from "../types.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-import { extractSignal } from "../common.ts";
+import { extractSignal, generateFromChat, chatFromStructured } from "../common.ts";
 import * as api from "./api.ts";
 
 const DEFAULT_ENDPOINT = "https://api.anthropic.com";
@@ -60,34 +60,20 @@ export class AnthropicProvider implements AIProvider {
     prompt: string,
     options?: GenerateOptions,
   ): AsyncGenerator<string, void, unknown> {
-    const messages: Message[] = [{ role: "user", content: prompt }];
-    if (options?.system) {
-      messages.unshift({ role: "system", content: options.system });
-    }
-    const result = await api.chatStructured(
-      this.endpoint,
-      this.getModel(options),
-      messages,
-      this.apiKey,
-      options as ChatOptions,
-      extractSignal(options),
+    yield* generateFromChat(
+      (msgs, opts, signal) => api.chatStructured(this.endpoint, this.getModel(options), msgs, this.apiKey, opts, signal),
+      prompt, options,
     );
-    yield result.content ?? "";
   }
 
   async *chat(
     messages: Message[],
     options?: ChatOptions,
   ): AsyncGenerator<string, void, unknown> {
-    const result = await api.chatStructured(
-      this.endpoint,
-      this.getModel(options),
-      messages,
-      this.apiKey,
-      options,
-      extractSignal(options),
+    yield* chatFromStructured(
+      (msgs, opts, signal) => api.chatStructured(this.endpoint, this.getModel(options), msgs, this.apiKey, opts, signal),
+      messages, options,
     );
-    yield result.content ?? "";
   }
 
   chatStructured(

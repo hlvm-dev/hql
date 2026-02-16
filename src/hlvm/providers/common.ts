@@ -7,7 +7,7 @@
 
 import { RuntimeError } from "../../common/error.ts";
 import { tryParseJson } from "../../common/utils.ts";
-import type { ProviderToolCall } from "./types.ts";
+import type { ChatOptions, ChatStructuredResponse, GenerateOptions, Message, ProviderToolCall } from "./types.ts";
 
 // =============================================================================
 // Constants
@@ -168,6 +168,36 @@ export async function* readSSEStream<T>(
  */
 export function extractSignal(options?: { signal?: AbortSignal; raw?: Record<string, unknown> }): AbortSignal | undefined {
   return options?.signal ?? (options?.raw?.signal as AbortSignal | undefined);
+}
+
+/**
+ * Shared generate() implementation for providers that wrap chatStructured.
+ * Builds a single-message conversation from a prompt and yields the result.
+ */
+export async function* generateFromChat(
+  callApi: (messages: Message[], options?: ChatOptions, signal?: AbortSignal) => Promise<ChatStructuredResponse>,
+  prompt: string,
+  options?: GenerateOptions,
+): AsyncGenerator<string, void, unknown> {
+  const messages: Message[] = [{ role: "user", content: prompt }];
+  if (options?.system) {
+    messages.unshift({ role: "system", content: options.system });
+  }
+  const result = await callApi(messages, options as ChatOptions, extractSignal(options));
+  yield result.content ?? "";
+}
+
+/**
+ * Shared chat() implementation for providers that wrap chatStructured.
+ * Calls the API and yields the response content.
+ */
+export async function* chatFromStructured(
+  callApi: (messages: Message[], options?: ChatOptions, signal?: AbortSignal) => Promise<ChatStructuredResponse>,
+  messages: Message[],
+  options?: ChatOptions,
+): AsyncGenerator<string, void, unknown> {
+  const result = await callApi(messages, options, extractSignal(options));
+  yield result.content ?? "";
 }
 
 // =============================================================================
