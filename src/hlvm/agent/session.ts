@@ -18,7 +18,7 @@ import {
 } from "./llm-integration.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { type AgentPolicy, loadAgentPolicy } from "./policy.ts";
-import { ENGINE_PROFILES } from "./constants.ts";
+import { ENGINE_PROFILES, isFrontierProvider } from "./constants.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import { loadMcpTools, resolveBuiltinMcpServers } from "./mcp.ts";
 import { ValidationError } from "../../common/error.ts";
@@ -56,12 +56,6 @@ export interface AgentSession {
   resolvedContextBudget: ResolvedBudget;
 }
 
-/** Detect whether a model string refers to a frontier API model */
-function detectFrontierModel(model?: string): boolean {
-  if (!model) return false;
-  const prefix = model.split("/")[0]?.toLowerCase() ?? "";
-  return ["anthropic", "openai", "google"].includes(prefix);
-}
 
 /** Extract provider prefix from "provider/model" string */
 function extractProviderName(model?: string): string {
@@ -166,7 +160,7 @@ export async function createAgentSession(
     toolOwnerId: mcp.ownerId,
     dispose: mcp.dispose,
     profile,
-    isFrontierModel: detectFrontierModel(options.model),
+    isFrontierModel: isFrontierProvider(options.model),
     resolvedContextBudget: resolved,
   };
 }

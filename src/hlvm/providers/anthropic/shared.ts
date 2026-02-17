@@ -2,8 +2,7 @@
  * Shared Anthropic API Types & Helpers
  *
  * Used by both the Anthropic (x-api-key) and Claude Code (OAuth) providers.
- * Contains message conversion, response extraction, streaming logic,
- * and overflow error parsing.
+ * Contains message conversion, response extraction, and streaming logic.
  */
 
 import {

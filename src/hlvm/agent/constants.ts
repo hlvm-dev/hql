@@ -234,7 +234,7 @@ export const COMPACTION_THRESHOLD = 0.8;
  * - context.ts: ContextManager defaults
  */
 export const DEFAULT_CONTEXT_CONFIG = {
-  maxTokens: 32000,
+  maxTokens: DEFAULT_CONTEXT_WINDOW,
   maxResultLength: 8000,
   preserveSystem: true,
   minMessages: 2,
@@ -275,6 +275,16 @@ export const ENGINE_PROFILES = {
 
 /** Max session history messages to load (prevents context pollution) */
 export const MAX_SESSION_HISTORY = 10;
+
+/** Cloud/frontier provider prefixes (SSOT for detectFrontierModel + isLocalModel) */
+export const FRONTIER_PROVIDER_PREFIXES = ["anthropic", "openai", "google"] as const;
+
+/** Detect whether a model string refers to a frontier API model */
+export function isFrontierProvider(model?: string): boolean {
+  if (!model) return false;
+  const prefix = model.split("/")[0]?.toLowerCase() ?? "";
+  return (FRONTIER_PROVIDER_PREFIXES as readonly string[]).includes(prefix);
+}
 
 /** Default tool denylist for interactive ask mode */
 export const DEFAULT_TOOL_DENYLIST = [

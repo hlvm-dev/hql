@@ -23,6 +23,9 @@ import { type LLMResponse, type ToolCall } from "./tool-call.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import type { Message as AgentMessage, MessageRole } from "./context.ts";
 
+// Re-export public agent message type for tests/consumers.
+export type { AgentMessage };
+
 // ============================================================
 // LLM Bridge Types (locally defined for SDK decoupling)
 // ============================================================
@@ -56,9 +59,6 @@ export interface ToolDefinition {
     parameters: Record<string, unknown>;
   };
 }
-
-// Re-export for convenience
-export type { AgentMessage };
 
 // ============================================================
 // Message Type Conversion

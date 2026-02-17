@@ -96,7 +96,7 @@ export function classifyError(err: unknown): ClassifiedError {
     return { class: "rate_limit", retryable: true, message };
   }
 
-  // Context overflow is retryable (handled by context-resolver with budget reduction)
+  // Context overflow is retryable (handled by orchestrator's callLLMWithRetry)
   if (isContextOverflowError(message)) {
     return { class: "context_overflow", retryable: true, message };
   }

@@ -1345,7 +1345,7 @@ function handleTextOnlyResponse(
   state: LoopState,
   lc: LoopConfig,
   config: OrchestratorConfig,
-): LoopDirective & { response?: LLMResponse } {
+): LoopDirective {
   // Detect and retry empty LLM responses (no content + no tool calls)
   if ((response.toolCalls?.length ?? 0) === 0 && !responseText.trim()) {
     if (!state.emptyResponseRetried) {
@@ -1884,7 +1884,6 @@ export async function runReActLoop(
       );
       if (textResult.action === "continue") continue;
       if (textResult.action === "return") return textResult.value;
-      if (textResult.response) response = textResult.response;
 
       // Process response and execute tools
       const result = await processAgentResponse(response, config);

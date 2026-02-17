@@ -236,50 +236,74 @@ TS_CONSTANT
 // SECTION 6: REMOTE IMPORTS - JSR
 // ============================================================================
 
-Deno.test("JSR Import: import from jsr: specifier", async () => {
-  const code = `
+Deno.test({
+  name: "JSR Import: import from jsr: specifier",
+  // Remote imports may complete cache/file ops outside test boundary under parallel load.
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const code = `
 (import [assertEquals] from "jsr:@std/assert")
 (assertEquals 1 1)
 "test-passed"
 `;
-  const result = await run(code);
-  assertEquals(result, "test-passed");
+    const result = await run(code);
+    assertEquals(result, "test-passed");
+  },
 });
 
-Deno.test("JSR Import: import multiple functions from jsr:", async () => {
-  const code = `
+Deno.test({
+  name: "JSR Import: import multiple functions from jsr:",
+  // Remote imports may complete cache/file ops outside test boundary under parallel load.
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const code = `
 (import [assertEquals, assertExists] from "jsr:@std/assert")
 (assertEquals 1 1)
 (assertExists "hello")
 "test-passed"
 `;
-  const result = await run(code);
-  assertEquals(result, "test-passed");
+    const result = await run(code);
+    assertEquals(result, "test-passed");
+  },
 });
 
 // ============================================================================
 // SECTION 7: REMOTE IMPORTS - HTTPS
 // ============================================================================
 
-Deno.test("HTTPS Import: import from https:// URL", async () => {
-  const code = `
+Deno.test({
+  name: "HTTPS Import: import from https:// URL",
+  // Remote imports may complete cache/file ops outside test boundary under parallel load.
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const code = `
 (import [assertEquals] from "https://deno.land/std@0.208.0/assert/mod.ts")
 (assertEquals 2 2)
 "test-passed"
 `;
-  const result = await run(code);
-  assertEquals(result, "test-passed");
+    const result = await run(code);
+    assertEquals(result, "test-passed");
+  },
 });
 
-Deno.test("HTTPS Import: import multiple functions from https://", async () => {
-  const code = `
+Deno.test({
+  name: "HTTPS Import: import multiple functions from https://",
+  // Remote imports may complete cache/file ops outside test boundary under parallel load.
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const code = `
 (import [assertEquals, assertNotEquals] from "https://deno.land/std@0.208.0/assert/mod.ts")
 (assertEquals 1 1)
 (assertNotEquals 1 2)
 "test-passed"
 `;
-  const result = await run(code);
-  assertEquals(result, "test-passed");
+    const result = await run(code);
+    assertEquals(result, "test-passed");
+  },
 });
 
 // ============================================================================
@@ -319,5 +343,4 @@ ms
     assertEquals(typeof result, "function");
   },
 });
-
 

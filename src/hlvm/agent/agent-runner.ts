@@ -33,6 +33,7 @@ import type { AgentPolicy } from "./policy.ts";
 import {
   DEFAULT_TOOL_DENYLIST,
   ENGINE_PROFILES,
+  isFrontierProvider,
   MAX_SESSION_HISTORY,
 } from "./constants.ts";
 import { hashString } from "../../common/utils.ts";
@@ -126,9 +127,7 @@ export async function ensureAgentReady(
     : model;
   // Lazy import for SDK decoupling — avoids hard coupling to ../providers/ollama/
   const { isOllamaCloudModel } = await import("../providers/ollama/cloud.ts");
-  const isLocalModel = !model.startsWith("openai/") &&
-    !model.startsWith("anthropic/") &&
-    !model.startsWith("google/") &&
+  const isLocalModel = !isFrontierProvider(model) &&
     !isOllamaCloudModel(modelName);
 
   if (isLocalModel) {
