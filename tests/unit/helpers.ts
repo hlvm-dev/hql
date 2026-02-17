@@ -11,11 +11,18 @@ import { generateTypeScript } from "../../src/hql/transpiler/pipeline/ir-to-type
 import { transformToIR } from "../../src/hql/transpiler/pipeline/hql-ast-to-hql-ir.ts";
 import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
 import { initializeRuntimeHelpers } from "../../src/common/runtime-helpers.ts";
+import { RuntimeError } from "../../src/common/error.ts";
 
 const path = () => getPlatform().path;
+const fs = () => getPlatform().fs;
 const dirname = (p: string) => path().dirname(p);
 const fromFileUrl = (url: string | URL) => path().fromFileUrl(url);
 const join = (...paths: string[]) => path().join(...paths);
+const makeTempDir = (opts?: { prefix?: string }) => fs().makeTempDir(opts);
+const writeTextFile = (filePath: string, content: string) =>
+  fs().writeTextFile(filePath, content);
+const remove = (targetPath: string, opts?: { recursive?: boolean }) =>
+  fs().remove(targetPath, opts);
 
 // GLOBAL FIX: Disable AI auto-start for ALL unit tests that use this helper.
 // This prevents "Leaks detected" errors caused by the runtime spawning background processes.
@@ -51,6 +58,58 @@ export async function run(
   // Resolve any fixture paths in the code
   const resolvedCode = resolveFixturePath(code);
   return await hql.run(resolvedCode, options);
+}
+
+interface TempHqlFileOptions {
+  prefix?: string;
+  fileName?: string;
+}
+
+/**
+ * Create a temporary .hql file, run callback, and always clean up.
+ * SSOT for file-backed runtime tests.
+ */
+export async function withTempHqlFile<T>(
+  code: string,
+  fn: (filePath: string) => Promise<T>,
+  options: TempHqlFileOptions = {},
+): Promise<T> {
+  const tempDir = await makeTempDir({
+    prefix: options.prefix ?? "hlvm-test-",
+  });
+  const filePath = join(tempDir, options.fileName ?? "test.hql");
+
+  try {
+    await writeTextFile(filePath, code);
+    return await fn(filePath);
+  } finally {
+    await remove(tempDir, { recursive: true });
+  }
+}
+
+/**
+ * Run HQL code through runFile and assert that a RuntimeError is thrown.
+ */
+export async function runFileExpectRuntimeError(
+  code: string,
+  options: TempHqlFileOptions = {},
+): Promise<{ error: RuntimeError; filePath: string }> {
+  return await withTempHqlFile(code, async (filePath) => {
+    if (!hql.runFile) {
+      throw new Error("hql.runFile is not available in this runtime");
+    }
+
+    try {
+      await hql.runFile(filePath);
+    } catch (error) {
+      if (error instanceof RuntimeError) {
+        return { error, filePath };
+      }
+      throw error;
+    }
+
+    throw new Error("Expected RuntimeError but runFile completed successfully");
+  }, options);
 }
 
 /**

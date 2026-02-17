@@ -85,10 +85,6 @@ interface MetaCarrier {
 
 type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 
-// Pre-compiled regex for extracting generic type parameters (required format)
-// Pattern: "Array<T>" matches, but "Array" does not (unlike GENERIC_NAME_REGEX)
-const GENERIC_TYPE_PARAMS_REGEX = /^([^<]+)<(.+)>$/;
-
 /**
  * Check if a node is a vector (list with first element being the "vector" symbol).
  * Used throughout the IR transform to validate vector-formatted bodies.
@@ -871,16 +867,14 @@ function initializeTransformFactory(): void {
 
     // Symbol - type reference
     if (node.type === "symbol") {
-      const name = (node as SymbolNode).name;
-      // Check for generic syntax in symbol: Array<T>
-      const genericMatch = name.match(GENERIC_TYPE_PARAMS_REGEX);
-      if (genericMatch) {
-        const baseName = genericMatch[1];
-        const args = genericMatch[2].split(",").map((s) => s.trim());
+      const { name: baseName, typeParameters: typeArgs } = parseGenericName(
+        (node as SymbolNode).name,
+      );
+      if (typeArgs) {
         return {
           type: IR.IRNodeType.TypeReference,
           name: baseName,
-          typeArguments: args.map((arg) => ({
+          typeArguments: typeArgs.map((arg) => ({
             type: IR.IRNodeType.TypeReference,
             name: arg,
           })) as IR.IRTypeExpression[],
@@ -888,7 +882,7 @@ function initializeTransformFactory(): void {
       }
       return {
         type: IR.IRNodeType.TypeReference,
-        name,
+        name: baseName,
       } as IR.IRTypeReference;
     }
 
@@ -1211,13 +1205,7 @@ function initializeTransformFactory(): void {
       );
     }
     // Parse generic parameters from name like "Name<T, U>"
-    let name = fullName;
-    let typeParameters: string[] | undefined;
-    const genericMatch = fullName.match(GENERIC_TYPE_PARAMS_REGEX);
-    if (genericMatch) {
-      name = genericMatch[1];
-      typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
-    }
+    const { name, typeParameters } = parseGenericName(fullName);
 
     const typeNode = list.elements[2];
 
@@ -1278,13 +1266,7 @@ function initializeTransformFactory(): void {
         );
       }
       // Parse generic parameters from name like "Name<T, U>"
-      let name = fullName;
-      let typeParameters: string[] | undefined;
-      const genericMatch = fullName.match(GENERIC_TYPE_PARAMS_REGEX);
-      if (genericMatch) {
-        name = genericMatch[1];
-        typeParameters = genericMatch[2].split(",").map((p: string) => p.trim());
-      }
+      const { name, typeParameters } = parseGenericName(fullName);
       idx++;
       // Check for extends clause
       let extendsClause: string[] | undefined;

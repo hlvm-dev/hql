@@ -9,7 +9,14 @@
 import * as IR from "../type/hql_ir.ts";
 
 // Module-level constant Set (avoids per-call allocation)
-export const IR_SKIP_KEYS = new Set(["type", "position", "loc", "start", "end", "range"]);
+// Includes all non-child scalar keys to reduce unnecessary iterations per node.
+// NOTE: "value" is intentionally excluded — IRObjectProperty.value is an IRNode child.
+export const IR_SKIP_KEYS = new Set([
+  "type", "position", "loc", "start", "end", "range",
+  "operator", "computed", "optional", "name", "kind",
+  "async", "generator", "prefix", "delegate", "shorthand",
+  "isStatic", "isPrivate", "mutable", "typeAnnotation",
+]);
 
 /**
  * Check if an IR node tree contains any node of the specified type.
@@ -19,7 +26,7 @@ export const IR_SKIP_KEYS = new Set(["type", "position", "loc", "start", "end", 
  * @param targetType - The IR node type to search for
  * @returns true if any node of the target type is found
  */
-export function containsNodeType(
+function containsNodeType(
   node: IR.IRNode | null | undefined,
   targetType: IR.IRNodeType,
 ): boolean {

@@ -14,6 +14,7 @@ import {
   transformElements,
   transformNonNullElements,
   validateTransformed,
+  isHashMapParams,
 } from "../utils/validation-helpers.ts";
 import { copyPosition, copyEndPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { globalLogger as logger } from "../../../logger.ts";
@@ -25,8 +26,6 @@ import {
 } from "./function.ts";
 import { createExprStmt, createId, createReturn, createStr } from "../utils/ir-helpers.ts";
 import {
-  HASH_MAP_INTERNAL,
-  HASH_MAP_USER,
   VECTOR_SYMBOL,
   EMPTY_ARRAY_SYMBOL,
 } from "../../../common/runtime-helper-impl.ts";
@@ -534,12 +533,7 @@ function parseClassMethodParameters(
   }
 
   // Check for hash-map (JSON map parameters)
-  if (
-    paramsList.elements.length > 0 &&
-    paramsList.elements[0].type === "symbol" &&
-    ((paramsList.elements[0] as SymbolNode).name === HASH_MAP_USER ||
-      (paramsList.elements[0] as SymbolNode).name === HASH_MAP_INTERNAL)
-  ) {
+  if (isHashMapParams(paramsList)) {
     const { params, defaults } = parseJsonMapParameters(
       paramsList,
       currentDir,

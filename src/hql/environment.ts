@@ -66,6 +66,7 @@ export class Environment {
   private macroRegistry: MacroRegistry;
   private currentFilePath: string | null = null;
   private currentMacroContext: string | null = null;
+  private variableVersion = 0;
   public logger: Logger;
 
   // Track which file each user macro belongs to: macroName -> sourceFile
@@ -100,6 +101,7 @@ export class Environment {
     cloned.macros = new Map(this.macros);
     cloned.variables = new Map(this.variables);
     cloned.moduleExports = new Map(this.moduleExports);
+    cloned.variableVersion = this.variableVersion;
 
     // Copy macro source tracking via LRU iteration
     for (const [name, source] of this.macroSourceFiles) {
@@ -517,6 +519,7 @@ export class Environment {
     try {
       this.logger.debug(`Defining symbol: ${key}`);
       this.variables.set(key, value);
+      this.variableVersion++;
       this.lookupCache.delete(key);
       if (typeof value === "function") {
         Object.defineProperty(value, "isDefFunction", { value: true });
@@ -1114,6 +1117,13 @@ export class Environment {
 
   extend(): Environment {
     return new Environment(this, this.logger);
+  }
+
+  /**
+   * Monotonic counter for variable mutations in this scope.
+   */
+  getVariableVersion(): number {
+    return this.variableVersion;
   }
 
   /**

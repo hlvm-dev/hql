@@ -111,7 +111,7 @@ export class SlidingWindowRateLimiter {
       idx++;
     }
     if (idx > 0) {
-      this.timestamps = this.timestamps.slice(idx);
+      this.timestamps.splice(0, idx);
     }
   }
 }

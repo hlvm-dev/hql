@@ -17,7 +17,6 @@ import { IDENTIFIER_REGEX, PRIVATE_IDENTIFIER_REGEX } from "../utils/member-expr
 import { applyTCO } from "../optimize/tco-optimizer.ts";
 import { applyMutualTCO, getMutualRecursionGroup, type MutualRecursionGroup } from "../optimize/mutual-tco-optimizer.ts";
 import { RUNTIME_HELPER_NAMES_SET } from "../../../common/runtime-helper-impl.ts";
-import { assertNever } from "../codegen/exhaustive.ts";
 import { CodeBuffer, type SourceMapping } from "../codegen/code-buffer.ts";
 import { Precedence, getExprPrecedence, isRightAssociative } from "../codegen/precedence.ts";
 import { normalizeType } from "../tokenizer/type-tokenizer.ts";
@@ -28,6 +27,11 @@ import { normalizeType } from "../tokenizer/type-tokenizer.ts";
 
 // SourceMapping is imported from code-buffer.ts
 export type { SourceMapping };
+
+/** Compile-time exhaustiveness check: TypeScript errors if any case is unhandled. */
+function assertNever(x: never, msg?: string): never {
+  throw new CodeGenError(msg ?? `Unhandled case: ${JSON.stringify(x)}`);
+}
 
 export interface TSGeneratorResult {
   code: string;

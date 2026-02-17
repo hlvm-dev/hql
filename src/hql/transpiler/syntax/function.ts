@@ -35,6 +35,7 @@ import {
   validateTransformed,
   isSpreadOperator,
   transformSpreadOperator,
+  isHashMapParams,
 } from "../utils/validation-helpers.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
 import {
@@ -1276,12 +1277,7 @@ function parseFunctionParameters(
   defaults: Map<string, IR.IRNode>;
   usesJsonMapParams: boolean;
 } {
-  if (
-    paramList.elements.length > 0 &&
-    paramList.elements[0].type === "symbol" &&
-    ((paramList.elements[0] as SymbolNode).name === HASH_MAP_USER ||
-      (paramList.elements[0] as SymbolNode).name === HASH_MAP_INTERNAL)
-  ) {
+  if (isHashMapParams(paramList)) {
     const { params, defaults } = parseJsonMapParameters(paramList, currentDir, transformNode);
     return { params, defaults, usesJsonMapParams: true };
   }

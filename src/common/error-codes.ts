@@ -168,17 +168,6 @@ export enum HQLErrorCode {
 }
 
 /**
- * Base URL for error documentation
- * Can be configured via HLVM_ERROR_DOC_BASE_URL environment variable
- *
- * NOTE: Error documentation URLs are disabled until the documentation site exists.
- * Set HLVM_ERROR_DOC_BASE_URL environment variable to enable.
- */
-// Error documentation is disabled until the docs site exists.
-// When enabled, use getPlatform().env.get("HLVM_ERROR_DOC_BASE_URL")
-const ERROR_DOC_BASE_URL: string | null = null;
-
-/**
  * Detailed error information including description and common causes
  */
 interface ErrorInfo {
@@ -728,24 +717,6 @@ const ERROR_INFO: Record<HQLErrorCode, ErrorInfo> = {
  */
 export function formatErrorCode(code: HQLErrorCode): string {
   return `HQL${code}`;
-}
-
-/**
- * Get documentation URL for an error code
- *
- * @param code - The error code enum value
- * @returns URL to error documentation, or null if docs are not configured
- *
- * @example
- * getErrorDocUrl(HQLErrorCode.UNCLOSED_LIST)
- * // "https://hlvm.dev/errors/HQL1001" (when configured)
- * // null (when not configured)
- */
-export function getErrorDocUrl(code: HQLErrorCode): string | null {
-  if (!ERROR_DOC_BASE_URL) {
-    return null;
-  }
-  return `${ERROR_DOC_BASE_URL}/HQL${code}`;
 }
 
 /**

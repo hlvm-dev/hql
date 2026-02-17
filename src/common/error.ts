@@ -17,7 +17,6 @@ import { getPlatform } from "../platform/platform.ts";
 import {
   ERROR_REPORTED_SYMBOL,
   formatErrorCode,
-  getErrorDocUrl,
   getErrorFixes,
   HQLErrorCode,
 } from "./error-codes.ts";
@@ -67,53 +66,6 @@ const COLORS = {
   underline: (s: string) => `\x1b[4m${s}\x1b[0m`,
   black: (s: string) => `\x1b[30m${s}\x1b[0m`,
 } as const;
-
-// -----------------------------------------------------------------------------
-// Error Recovery - for graceful degradation in batch operations
-// -----------------------------------------------------------------------------
-
-/**
- * Result of an operation with error recovery
- */
-export interface RecoveryResult<T> {
-  /** Whether the operation succeeded (true even if recovered via fallback) */
-  ok: boolean;
-  /** The result value */
-  value: T;
-  /** Whether the fallback was used */
-  recovered: boolean;
-  /** The original error if recovery occurred */
-  error?: Error;
-}
-
-/**
- * Execute an operation with automatic fallback on failure.
- * Useful for batch processing where one failure shouldn't stop everything.
- *
- * @example
- * const results = files.map(f => withRecovery(
- *   () => parseFile(f),
- *   () => null,
- *   `parsing ${f}`
- * ));
- */
-export function withRecovery<T>(
-  operation: () => T,
-  fallback: () => T,
-  context: string,
-): RecoveryResult<T> {
-  try {
-    return { ok: true, value: operation(), recovered: false };
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.debug(`[Recovery] ${context}: ${error.message}`);
-    try {
-      return { ok: true, value: fallback(), recovered: true, error };
-    } catch {
-      return { ok: false, value: undefined as T, recovered: false, error };
-    }
-  }
-}
 
 // -----------------------------------------------------------------------------
 // Simple helpers
@@ -742,16 +694,6 @@ export class HQLError extends Error {
     };
 
     return errorTypeHints[this.errorType] || "Check the code near this location for errors.";
-  }
-
-  /**
-   * Get documentation URL for this error
-   */
-  getHelpUrl(): string | null {
-    if (this.code) {
-      return getErrorDocUrl(this.code);
-    }
-    return null;
   }
 
   isCircularDependencyError(): boolean {

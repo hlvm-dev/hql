@@ -10,6 +10,7 @@
  * with standard list operations (nth, filter, map, etc.)
  */
 
+import { countLines } from "../../../common/utils.ts";
 import { getGlobalRecord } from "./string-utils.ts";
 
 // ============================================================================
@@ -69,12 +70,6 @@ export interface ConversationTurn {
 let pastes: Paste[] = [];
 let attachments: MediaAttachment[] = [];
 let conversation: ConversationTurn[] = [];
-
-const LINE_BREAK_REGEX = /\r?\n|\r/g;
-
-function countLines(content: string): number {
-  return (content.match(LINE_BREAK_REGEX)?.length ?? 0) + 1;
-}
 
 function getBySequentialId<T extends { readonly id: number }>(
   items: readonly T[],

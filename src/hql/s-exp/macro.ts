@@ -191,14 +191,14 @@ const _bridgeCache: WeakMap<
 
 /**
  * Build a structural fingerprint of the scope chain.
- * Concatenates `name:size` for each scope level, making collisions with
- * different-shaped-but-same-count scopes impossible.
+ * Includes both binding count and per-scope mutation version so cache
+ * invalidates on both new bindings and redefinitions.
  */
 function scopeFingerprint(env: Environment): string {
   const parts: string[] = [];
   let current: Environment | null = env;
   while (current !== null) {
-    parts.push(`${current.variables.size}`);
+    parts.push(`${current.variables.size}:${current.getVariableVersion()}`);
     current = current.getParent();
   }
   return parts.join(":");

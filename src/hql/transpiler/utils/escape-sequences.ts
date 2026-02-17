@@ -51,7 +51,7 @@ export interface EscapeResult {
  * @param content - The content string starting after 'x'
  * @returns The resolved character and consumed count, or null if invalid
  */
-export function processHexEscape(content: string): EscapeResult | null {
+function processHexEscape(content: string): EscapeResult | null {
   const hex = content.slice(0, 2);
   if (HEX_ESCAPE_REGEX.test(hex)) {
     return {
@@ -68,7 +68,7 @@ export function processHexEscape(content: string): EscapeResult | null {
  * @param content - The content string starting after 'u'
  * @returns The resolved character and consumed count, or null if invalid
  */
-export function processUnicodeEscape(content: string): EscapeResult | null {
+function processUnicodeEscape(content: string): EscapeResult | null {
   // Extended form: \u{NNNN...}
   if (content[0] === "{") {
     const endBrace = content.indexOf("}");

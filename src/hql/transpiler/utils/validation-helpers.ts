@@ -4,6 +4,10 @@
 import { ValidationError } from "../../../common/error.ts";
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, SymbolNode, ListNode } from "../type/hql_ast.ts";
+import {
+  HASH_MAP_INTERNAL,
+  HASH_MAP_USER,
+} from "../../../common/runtime-helper-impl.ts";
 
 /**
  * Validate that a list has the expected number of elements.
@@ -623,4 +627,20 @@ export function validateList(
     throw typeError(context, "list", node.type, position);
   }
   return node as ListNode;
+}
+
+/**
+ * Check if a parameter list starts with a hash-map literal (JSON map parameters).
+ * Used by function.ts and class.ts to detect hash-map parameter syntax.
+ *
+ * @param paramList - The parameter list node to check
+ * @returns true if the first element is a HASH_MAP_USER or HASH_MAP_INTERNAL symbol
+ */
+export function isHashMapParams(paramList: ListNode): boolean {
+  return (
+    paramList.elements.length > 0 &&
+    paramList.elements[0].type === "symbol" &&
+    ((paramList.elements[0] as SymbolNode).name === HASH_MAP_USER ||
+      (paramList.elements[0] as SymbolNode).name === HASH_MAP_INTERNAL)
+  );
 }

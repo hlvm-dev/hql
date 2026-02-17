@@ -16,7 +16,6 @@ import { getErrorMessage } from "../../../common/utils.ts";
 import { tokenizeType, countAngleBracketDepth } from "../tokenizer/type-tokenizer.ts";
 import { HQLErrorCode } from "../../../common/error-codes.ts";
 import { attachSourceLocation } from "../../../common/syntax-error-handler.ts";
-import { getPlatform } from "../../../platform/platform.ts";
 import { FOR_LOOP_SYNTAX_KEYWORDS_SET } from "../../../common/known-identifiers.ts";
 import { VECTOR_SYMBOL, EMPTY_ARRAY_SYMBOL } from "../../../common/runtime-helper-impl.ts";
 import { processEscapeSequences, processSingleEscape } from "../utils/escape-sequences.ts";
@@ -1055,18 +1054,13 @@ function matchNextToken(
   // Unexpected character — provide enhanced error context
   const unexpectedChar = input[cursor] || "end of file";
   let errorContext = "";
-  try {
-    if (filePath) {
-      const content = getPlatform().fs.readTextFileSync(filePath);
-      const lines = content.split("\n");
-      if (line > 0 && line <= lines.length) {
-        const lineContent = lines[line - 1];
-        const pointer = " ".repeat(column - 1) + "^";
-        errorContext = `\n${lineContent}\n${pointer}`;
-      }
+  if (input) {
+    const lines = input.split("\n");
+    if (line > 0 && line <= lines.length) {
+      const lineContent = lines[line - 1];
+      const pointer = " ".repeat(column - 1) + "^";
+      errorContext = `\n${lineContent}\n${pointer}`;
     }
-  } catch (_e) {
-    // If we can't read the file, continue without extra context
   }
 
   throw new ParseError(

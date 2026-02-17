@@ -201,22 +201,7 @@ export function groupBy<T, K extends string | number | symbol>(
 /**
  * Forces realization of lazy sequence
  */
-export function realize<T>(coll: Iterable<T> | null | undefined): T[];
-
-/**
- * Forces realization of lazy sequence (alias for realize)
- */
 export function doall<T>(coll: Iterable<T> | null | undefined): T[];
-
-/**
- * Converts to array
- */
-export function toArray<T>(coll: Iterable<T> | null | undefined): T[];
-
-/**
- * Converts to set
- */
-export function toSet<T>(coll: Iterable<T> | null | undefined): Set<T>;
 
 /**
  * Creates lazy sequence
@@ -332,19 +317,6 @@ export function keys<K>(map: Map<K, any> | null | undefined): K[];
 export function vals<V>(
   map: Record<any, V> | Map<any, V> | null | undefined,
 ): V[];
-
-/**
- * Zips arrays into tuples
- */
-export function zip<T>(...arrays: Iterable<T>[]): Iterable<T[]>;
-
-/**
- * Zips with custom function
- */
-export function zipWith<T, R>(
-  fn: (...items: T[]) => R,
-  ...arrays: Iterable<T>[]
-): Iterable<R>;
 
 // ============================================================================
 // FUNCTION UTILITIES

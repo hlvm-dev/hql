@@ -17,9 +17,6 @@ export function isToolArgsObject(
   return isObjectValue(value) && !Array.isArray(value);
 }
 
-/** Parse JSON args, returning original string on failure (SSOT: tryParseJson) */
-const parseJsonArgs = (value: string): unknown => tryParseJson(value);
-
 function unwrapArgsObject(
   input: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -30,7 +27,7 @@ function unwrapArgsObject(
       return wrapped;
     }
     if (typeof wrapped === "string") {
-      const parsed = parseJsonArgs(wrapped);
+      const parsed = tryParseJson(wrapped);
       if (isToolArgsObject(parsed)) return parsed;
     }
   }
@@ -41,7 +38,7 @@ function unwrapArgsObject(
       fnWrapper.args;
     if (isToolArgsObject(candidate)) return candidate;
     if (typeof candidate === "string") {
-      const parsed = parseJsonArgs(candidate);
+      const parsed = tryParseJson(candidate);
       if (isToolArgsObject(parsed)) return parsed;
     }
   }
@@ -57,7 +54,7 @@ export function normalizeToolArgs(
     return unwrapArgsObject(value);
   }
   if (typeof value === "string") {
-    const parsed = parseJsonArgs(value);
+    const parsed = tryParseJson(value);
     if (isToolArgsObject(parsed)) {
       return unwrapArgsObject(parsed);
     }

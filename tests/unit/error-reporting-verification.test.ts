@@ -9,55 +9,9 @@
  */
 
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert@1";
-import { getPlatform } from "../../src/platform/platform.ts";
 import hql from "../../mod.ts";
-import { ParseError, RuntimeError } from "../../src/common/error.ts";
-import { run } from "./helpers.ts";
-
-const path = () => getPlatform().path;
-const fs = () => getPlatform().fs;
-const join = (...paths: string[]) => path().join(...paths);
-const makeTempDir = (opts?: { prefix?: string }) => fs().makeTempDir(opts);
-const writeTextFile = (p: string, content: string) => fs().writeTextFile(p, content);
-const remove = (p: string, opts?: { recursive?: boolean }) => fs().remove(p, opts);
-
-async function withTempHqlFile<T>(
-  code: string,
-  fn: (filePath: string) => Promise<T>,
-): Promise<T> {
-  const tempDir = await makeTempDir({
-    prefix: "hlvm-error-",
-  });
-  const filePath = join(tempDir, "error.hql");
-
-  try {
-    await writeTextFile(filePath, code);
-    return await fn(filePath);
-  } finally {
-    await remove(tempDir, { recursive: true });
-  }
-}
-
-async function runFileExpectRuntimeError(
-  code: string,
-): Promise<{ error: RuntimeError; filePath: string }> {
-  return await withTempHqlFile(code, async (filePath) => {
-    if (!hql.runFile) {
-      throw new Error("hql.runFile is not available in this runtime");
-    }
-
-    const error = await assertRejects(
-      async () => await hql.runFile!(filePath),
-      RuntimeError,
-    );
-
-    if (!(error instanceof RuntimeError)) {
-      throw error;
-    }
-
-    return { error, filePath };
-  });
-}
+import { ParseError } from "../../src/common/error.ts";
+import { run, runFileExpectRuntimeError } from "./helpers.ts";
 
 // Uses hql.transpile (different from helpers.ts's transpileToJavascript)
 async function transpile(code: string): Promise<string> {

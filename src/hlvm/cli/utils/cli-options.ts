@@ -3,8 +3,8 @@
  */
 import { globalLogger } from "../../../logger.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { platformCwd } from "./platform-helpers.ts";
 
-const platformCwd = () => getPlatform().process.cwd();
 const platformSetEnv = (key: string, value: string) => getPlatform().env.set(key, value);
 
 export interface CliOptions {

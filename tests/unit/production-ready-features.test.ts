@@ -2,157 +2,17 @@
  * Production-Ready Features Edge Case Tests
  *
  * Comprehensive tests for production-ready features:
- * 1. withRecovery<T> - Error recovery utility
- * 2. Error handling robustness
- * 3. Expression semantics
+ * 1. Error handling robustness
+ * 2. Expression semantics
  *
  * These tests ensure genuine implementations, not hacks.
  */
 
-import { assertEquals, assertExists, assert, assertMatch } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { withRecovery } from "../../src/common/error.ts";
+import { assertEquals, assert, assertMatch } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import hql from "../../mod.ts";
 
 // ============================================================================
-// PART 1: withRecovery<T> Edge Cases
-// ============================================================================
-
-Deno.test("withRecovery: operation succeeds - returns value directly", () => {
-  const result = withRecovery(
-    () => 42,
-    () => 0,
-    "test success"
-  );
-
-  assertEquals(result.ok, true);
-  assertEquals(result.value, 42);
-  assertEquals(result.recovered, false);
-  assertEquals(result.error, undefined);
-});
-
-Deno.test("withRecovery: operation fails, fallback succeeds", () => {
-  const result = withRecovery(
-    () => { throw new Error("primary failed"); },
-    () => "fallback value",
-    "test fallback"
-  );
-
-  assertEquals(result.ok, true);
-  assertEquals(result.value, "fallback value");
-  assertEquals(result.recovered, true);
-  assertExists(result.error);
-  assertEquals(result.error?.message, "primary failed");
-});
-
-Deno.test("withRecovery: both operation and fallback fail", () => {
-  const result = withRecovery(
-    () => { throw new Error("primary failed"); },
-    () => { throw new Error("fallback also failed"); },
-    "test double failure"
-  );
-
-  assertEquals(result.ok, false);
-  assertEquals(result.value, undefined);
-  assertEquals(result.recovered, false);
-  assertExists(result.error);
-  assertEquals(result.error?.message, "primary failed"); // Original error preserved
-});
-
-Deno.test("withRecovery: non-Error throw is converted to Error", () => {
-  const result = withRecovery(
-    () => { throw "string error"; },
-    () => "recovered",
-    "test string throw"
-  );
-
-  assertEquals(result.ok, true);
-  assertEquals(result.recovered, true);
-  assertExists(result.error);
-  assert(result.error instanceof Error);
-  assertEquals(result.error.message, "string error");
-});
-
-Deno.test("withRecovery: handles null/undefined returns", () => {
-  const resultNull = withRecovery(
-    () => null,
-    () => "fallback",
-    "test null"
-  );
-  assertEquals(resultNull.ok, true);
-  assertEquals(resultNull.value, null);
-  assertEquals(resultNull.recovered, false);
-
-  const resultUndefined = withRecovery(
-    () => undefined,
-    () => "fallback",
-    "test undefined"
-  );
-  assertEquals(resultUndefined.ok, true);
-  assertEquals(resultUndefined.value, undefined);
-  assertEquals(resultUndefined.recovered, false);
-});
-
-Deno.test("withRecovery: complex object return", () => {
-  const obj = { nested: { value: [1, 2, 3] } };
-  const result = withRecovery(
-    () => obj,
-    () => ({ nested: { value: [] as number[] } }),
-    "test object"
-  );
-
-  assertEquals(result.ok, true);
-  assertEquals(result.value, obj);
-  assertEquals(result.value.nested.value, [1, 2, 3]);
-});
-
-Deno.test("withRecovery: async-like patterns (sync simulation)", () => {
-  const executionOrder: string[] = [];
-
-  const result = withRecovery(
-    () => {
-      executionOrder.push("primary");
-      throw new Error("fail");
-    },
-    () => {
-      executionOrder.push("fallback");
-      return "recovered";
-    },
-    "test execution order"
-  );
-
-  assertEquals(executionOrder, ["primary", "fallback"]);
-  assertEquals(result.recovered, true);
-});
-
-Deno.test("withRecovery: batch processing pattern", () => {
-  const items = [1, 2, 3, 4, 5];
-  const results = items.map(n =>
-    withRecovery(
-      () => {
-        if (n === 3) throw new Error("bad item");
-        return n * 2;
-      },
-      () => -1, // sentinel for failed items
-      `processing item ${n}`
-    )
-  );
-
-  assertEquals(results.length, 5);
-  assertEquals(results[0].value, 2);
-  assertEquals(results[1].value, 4);
-  assertEquals(results[2].value, -1); // fallback
-  assertEquals(results[2].recovered, true);
-  assertEquals(results[3].value, 8);
-  assertEquals(results[4].value, 10);
-
-  const successes = results.filter(r => r.ok && !r.recovered).length;
-  const recovered = results.filter(r => r.recovered).length;
-  assertEquals(successes, 4);
-  assertEquals(recovered, 1);
-});
-
-// ============================================================================
-// PART 2: Error Handler Edge Cases
+// PART 1: Error Handler Edge Cases
 // ============================================================================
 
 Deno.test("error handler: normal errors are handled correctly", async () => {

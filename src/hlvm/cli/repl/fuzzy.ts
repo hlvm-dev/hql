@@ -169,7 +169,7 @@ export function fuzzyMatchPath(query: string, path: string): FuzzyResult | null 
  * @param query - The search query
  * @returns Minimum score threshold (matches below this are filtered out)
  */
-export function calculateMinScore(query: string): number {
+function calculateMinScore(query: string): number {
   if (!query) return 0;
   // Single char: need word boundary match (~15 after penalties)
   // Multi char: need consecutive matches (~25 per char for quality matches)

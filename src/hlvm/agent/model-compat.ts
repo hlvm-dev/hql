@@ -1,7 +1,7 @@
 /**
  * Model Compatibility Heuristics
  *
- * Detection and repair functions for handling model misbehavior:
+ * Detection functions for handling model misbehavior:
  * - Text-based tool call detection
  * - Tool instruction detection
  * - Response suppression logic
@@ -16,7 +16,6 @@ const RE_JSON_OBJECT_TOOL = /\bjson object\b/;
 const RE_TOOL_WORD = /\btool\b/;
 const RE_FUNCTION_TOOL_CALL = /\b(function|tool)\s+call(ing)?\s*[:\(]/i;
 const RE_INVOKE_TOOL = /\b(invoke|execute)\s+the\s+\w+\s+tool\b/;
-const RE_MARKDOWN_FENCE = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/g;
 
 /**
  * Detect JSON-like tool call structures anywhere in text.
@@ -61,59 +60,3 @@ export function shouldSuppressFinalResponse(response: string): boolean {
   return false;
 }
 
-/**
- * Parse tool calls from text when native tool calling fails.
- * Last-resort fallback for models that output valid JSON but not via the API.
- */
-export function tryParseToolCallsFromText(
-  text: string,
-): Array<{ toolName: string; args: Record<string, unknown> }> {
-  if (!text.trim()) return [];
-
-  // Strip markdown code fences
-  const stripped = text
-    .replace(RE_MARKDOWN_FENCE, "$1")
-    .trim();
-
-  const single = tryParseOneToolCall(stripped);
-  if (single) return [single];
-
-  // Extract top-level JSON objects via brace matching
-  const results: Array<{ toolName: string; args: Record<string, unknown> }> =
-    [];
-  let depth = 0;
-  let start = -1;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === "{") {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (text[i] === "}") {
-      depth--;
-      if (depth === 0 && start >= 0) {
-        const parsed = tryParseOneToolCall(text.slice(start, i + 1));
-        if (parsed) results.push(parsed);
-        start = -1;
-      }
-    }
-  }
-  return results;
-}
-
-function tryParseOneToolCall(
-  json: string,
-): { toolName: string; args: Record<string, unknown> } | null {
-  try {
-    const obj = JSON.parse(json);
-    if (typeof obj !== "object" || obj === null || Array.isArray(obj))
-      return null;
-    const name =
-      obj.name ?? obj.toolName ?? obj.tool_name ?? obj.function_name;
-    if (typeof name !== "string" || !name.trim()) return null;
-    const args = obj.arguments ?? obj.parameters ?? obj.args ?? {};
-    if (typeof args !== "object" || args === null || Array.isArray(args))
-      return null;
-    return { toolName: name.trim(), args: args as Record<string, unknown> };
-  } catch {
-    return null;
-  }
-}
