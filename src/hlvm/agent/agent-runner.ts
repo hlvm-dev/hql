@@ -20,7 +20,7 @@ import { createDelegateHandler } from "./delegation.ts";
 import {
   type LLMFunction,
   runReActLoop,
-  type ToolDisplay,
+  type AgentUIEvent,
   type TraceEvent,
 } from "./orchestrator.ts";
 import {
@@ -72,7 +72,7 @@ function mergePolicyPathRoots(
 
 export interface AgentRunnerCallbacks {
   onToken?: (text: string) => void;
-  onToolDisplay?: (event: ToolDisplay) => void;
+  onAgentEvent?: (event: AgentUIEvent) => void;
   onTrace?: (event: TraceEvent) => void;
 }
 
@@ -225,7 +225,7 @@ export async function runAgentQuery(
         groundingMode: profile.groundingMode,
         policy,
         onTrace: callbacks.onTrace,
-        onToolDisplay: callbacks.onToolDisplay,
+        onAgentEvent: callbacks.onAgentEvent,
         noInput,
         delegate,
         planning: { mode: "off", requireStepMarkers: false },

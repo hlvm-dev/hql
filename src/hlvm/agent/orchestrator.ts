@@ -288,6 +288,37 @@ function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(entries);
 }
 
+/** Summarize tool args into a short human-readable string for UI display */
+function generateArgsSummary(toolName: string, args: unknown): string {
+  if (!args || typeof args !== "object") return "";
+  const a = args as Record<string, unknown>;
+  switch (toolName) {
+    case "read_file":
+    case "list_files":
+      return typeof a.path === "string" ? truncate(a.path, 80) : "";
+    case "shell_exec":
+      return typeof a.command === "string" ? truncate(a.command, 80) : "";
+    case "search_code":
+      return `'${truncate(String(a.query ?? ""), 40)}'${a.path ? ` in ${a.path}` : ""}`;
+    case "edit_file":
+    case "write_file":
+      return typeof a.path === "string" ? truncate(a.path, 80) : "";
+    case "compute":
+      return typeof a.expression === "string" ? truncate(a.expression, 80) : "";
+    case "web_search":
+      return typeof a.query === "string" ? truncate(a.query, 80) : "";
+    case "web_browse":
+      return typeof a.url === "string" ? truncate(a.url, 80) : "";
+    default: {
+      try {
+        return truncate(JSON.stringify(a), 80);
+      } catch {
+        return "";
+      }
+    }
+  }
+}
+
 function buildToolErrorResult(
   toolName: string,
   error: string,
@@ -308,10 +339,13 @@ function buildToolErrorResult(
     error,
     display: error,
   });
-  config.onToolDisplay?.({
-    toolName,
+  config.onAgentEvent?.({
+    type: "tool_end",
+    name: toolName,
     success: false,
     content: error,
+    durationMs: Date.now() - startedAt,
+    argsSummary: "",
   });
   emitMetric(config, "tool_result", {
     toolName,
@@ -445,12 +479,12 @@ export type TraceEvent =
     overflowRetryCount: number;
   };
 
-/** Tool output event for UI display */
-export interface ToolDisplay {
-  toolName: string;
-  success: boolean;
-  content: string;
-}
+/** Agent UI event for display in CLI/GUI */
+export type AgentUIEvent =
+  | { type: "thinking"; iteration: number }
+  | { type: "tool_start"; name: string; argsSummary: string; toolIndex: number; toolTotal: number }
+  | { type: "tool_end"; name: string; success: boolean; content: string; durationMs: number; argsSummary: string }
+  | { type: "turn_stats"; iteration: number; toolCount: number; durationMs: number };
 
 /** Orchestrator configuration */
 export interface OrchestratorConfig {
@@ -466,8 +500,8 @@ export interface OrchestratorConfig {
   maxDenials?: number;
   /** Trace callback for observability (verbose/debug mode) */
   onTrace?: (event: TraceEvent) => void;
-  /** Tool output callback for UI display */
-  onToolDisplay?: (display: ToolDisplay) => void;
+  /** Agent UI event callback for display in CLI/GUI */
+  onAgentEvent?: (event: AgentUIEvent) => void;
   /** LLM timeout in milliseconds (default: 60000) */
   llmTimeout?: number;
   /** Tool timeout in milliseconds (default: 60000) */
@@ -596,6 +630,7 @@ function emitToolSuccess(
   llmContent: string,
   returnDisplay: string,
   startedAt: number,
+  args?: unknown,
 ): void {
   config.onTrace?.({
     type: "tool_result",
@@ -604,10 +639,13 @@ function emitToolSuccess(
     result: llmContent,
     display: returnDisplay,
   });
-  config.onToolDisplay?.({
-    toolName,
+  config.onAgentEvent?.({
+    type: "tool_end",
+    name: toolName,
     success: true,
     content: returnDisplay,
+    durationMs: Date.now() - startedAt,
+    argsSummary: generateArgsSummary(toolName, args),
   });
   emitMetric(config, "tool_result", {
     toolName,
@@ -656,6 +694,8 @@ function createRateLimiter(
 export async function executeToolCall(
   toolCall: ToolCall,
   config: OrchestratorConfig,
+  toolIndex = 0,
+  toolTotal = 1,
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
   const l1Store = config.l1Confirmations ?? new Map<string, boolean>();
@@ -688,6 +728,13 @@ export async function executeToolCall(
     type: "tool_call",
     toolName: toolCall.toolName,
     args: coercedArgs,
+  });
+  config.onAgentEvent?.({
+    type: "tool_start",
+    name: toolCall.toolName,
+    argsSummary: generateArgsSummary(toolCall.toolName, coercedArgs),
+    toolIndex,
+    toolTotal,
   });
   emitMetric(config, "tool_call", {
     toolName: toolCall.toolName,
@@ -765,6 +812,7 @@ export async function executeToolCall(
         llmContent,
         returnDisplay,
         startedAt,
+        coercedArgs,
       );
       return {
         success: true,
@@ -830,6 +878,7 @@ export async function executeToolCall(
       llmContent,
       returnDisplay,
       startedAt,
+      coercedArgs,
     );
 
     return {
@@ -895,16 +944,18 @@ export async function executeToolCalls(
     };
   };
 
+  const total = toolCalls.length;
+
   // Sequential execution: stop on first error
   if (!continueOnError) {
     const results: ToolExecutionResult[] = [];
-    for (const call of toolCalls) {
+    for (let i = 0; i < toolCalls.length; i++) {
       const rateLimited = checkRateLimit();
       if (rateLimited) {
         results.push(rateLimited);
         break;
       }
-      const result = await executeToolCall(call, config);
+      const result = await executeToolCall(toolCalls[i], config, i, total);
       results.push(result);
       if (!result.success) break;
     }
@@ -912,10 +963,10 @@ export async function executeToolCalls(
   }
 
   // Parallel execution (default): run all calls concurrently
-  const promises = toolCalls.map((call): Promise<ToolExecutionResult> => {
+  const promises = toolCalls.map((call, i): Promise<ToolExecutionResult> => {
     const rateLimited = checkRateLimit();
     if (rateLimited) return Promise.resolve(rateLimited);
-    return executeToolCall(call, config);
+    return executeToolCall(call, config, i, total);
   });
   return Promise.all(promises);
 }
@@ -1760,6 +1811,7 @@ export async function runReActLoop(
         `Total timeout (${lc.totalTimeout / 1000}s) exceeded. Task incomplete.`;
     }
     state.iterations++;
+    const iterationStart = Date.now();
 
     onTrace?.({
       type: "iteration",
@@ -1836,6 +1888,8 @@ export async function runReActLoop(
         }
       }
 
+      config.onAgentEvent?.({ type: "thinking", iteration: state.iterations });
+
       await context.compactIfNeeded();
       const messages = context.getMessages();
       onTrace?.({ type: "llm_call", messageCount: messages.length });
@@ -1887,6 +1941,16 @@ export async function runReActLoop(
 
       // Process response and execute tools
       const result = await processAgentResponse(response, config);
+
+      // Emit turn stats after tool execution
+      if (result.toolCallsMade > 0) {
+        config.onAgentEvent?.({
+          type: "turn_stats",
+          iteration: state.iterations,
+          toolCount: result.toolCallsMade,
+          durationMs: Date.now() - iterationStart,
+        });
+      }
 
       // If no tool calls, handle final response
       if (!result.shouldContinue) {

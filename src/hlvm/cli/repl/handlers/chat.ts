@@ -733,23 +733,50 @@ async function handleAgentMode(
         onPartial(text);
         emit({ event: "token", text });
       },
-      onToolDisplay: (event) => {
-        const toolMsg = insertMessage({
-          session_id: body.session_id,
-          role: "tool",
-          content: event.content ?? "",
-          tool_name: event.toolName,
-          sender_type: "agent",
-          request_id: requestId,
-        });
-        pushSSEEvent(body.session_id, "message_added", { message: toolMsg });
-        pushSessionUpdatedEvent(body.session_id);
-        emit({
-          event: "tool",
-          name: event.toolName,
-          success: event.success,
-          content: event.content,
-        });
+      onAgentEvent: (event) => {
+        switch (event.type) {
+          case "thinking":
+            emit({ event: "thinking", iteration: event.iteration });
+            break;
+          case "tool_start":
+            emit({
+              event: "tool_start",
+              name: event.name,
+              args_summary: event.argsSummary,
+              tool_index: event.toolIndex,
+              tool_total: event.toolTotal,
+            });
+            break;
+          case "tool_end": {
+            const toolMsg = insertMessage({
+              session_id: body.session_id,
+              role: "tool",
+              content: event.content ?? "",
+              tool_name: event.name,
+              sender_type: "agent",
+              request_id: requestId,
+            });
+            pushSSEEvent(body.session_id, "message_added", { message: toolMsg });
+            pushSessionUpdatedEvent(body.session_id);
+            emit({
+              event: "tool_end",
+              name: event.name,
+              success: event.success,
+              content: event.content,
+              duration_ms: event.durationMs,
+              args_summary: event.argsSummary,
+            });
+            break;
+          }
+          case "turn_stats":
+            emit({
+              event: "turn_stats",
+              iteration: event.iteration,
+              tool_count: event.toolCount,
+              duration_ms: event.durationMs,
+            });
+            break;
+        }
       },
     },
   });

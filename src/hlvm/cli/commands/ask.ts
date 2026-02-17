@@ -15,7 +15,7 @@ import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
-import type { ToolDisplay, TraceEvent } from "../../agent/orchestrator.ts";
+import type { AgentUIEvent, TraceEvent } from "../../agent/orchestrator.ts";
 
 // MARK: - Paid Provider Consent
 
@@ -432,32 +432,74 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   let streamedTokens = false;
+  let thinkingShown = false;
+  let toolInProgress = false;
 
   const onToken = (text: string) => {
+    if (thinkingShown) {
+      log.raw.write(`\r\x1b[K`);
+      thinkingShown = false;
+    }
     streamedTokens = true;
     log.raw.write(text);
   };
 
-  const onToolDisplay = (event: ToolDisplay) => {
-    if (event.toolName === "ask_user") return;
-    if (streamedTokens) {
-      log.raw.write("\n");
-      streamedTokens = false;
-    }
+  const onAgentEvent = (event: AgentUIEvent) => {
     if (verbose) {
-      const label = event.success ? "Tool Result" : "Tool Error";
-      log.raw.log(`\n[${label}] ${event.toolName}\n${event.content}\n`);
-    } else {
-      if (!event.success) {
-        log.raw.log(`[${event.toolName}] Error: ${truncate(event.content.trim(), 300)}\n`);
-        return;
+      // Verbose mode: keep existing detailed output style
+      switch (event.type) {
+        case "tool_end":
+          if (event.name === "ask_user") return;
+          if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+          {
+            const label = event.success ? "Tool Result" : "Tool Error";
+            log.raw.log(`\n[${label}] ${event.name}\n${event.content}\n`);
+          }
+          break;
       }
-      const formatted = formatToolOutputForDefaultMode(
-        event.toolName,
-        event.content,
-      );
-      if (!formatted.text) return;
-      log.raw.log(`${formatted.text}\n`);
+      return;
+    }
+    // Default mode: compact progress display
+    switch (event.type) {
+      case "thinking":
+        if (!streamedTokens) {
+          log.raw.write(`\r\x1b[K\x1b[2m\u2847 Thinking\u2026\x1b[0m`);
+          thinkingShown = true;
+        }
+        break;
+      case "tool_start":
+        if (thinkingShown) { log.raw.write(`\r\x1b[K`); thinkingShown = false; }
+        if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+        log.raw.write(`  \x1b[2m\u2847 ${event.name} ${truncate(event.argsSummary, 60)}\x1b[0m`);
+        toolInProgress = true;
+        break;
+      case "tool_end": {
+        if (event.name === "ask_user") return;
+        if (toolInProgress) {
+          const icon = event.success ? "\x1b[32m\u2713\x1b[0m" : "\x1b[31m\u2717\x1b[0m";
+          const dur = event.durationMs ? ` \x1b[2m(${(event.durationMs / 1000).toFixed(1)}s)\x1b[0m` : "";
+          const summary = event.success
+            ? truncate(event.content, 40)
+            : `Error: ${truncate(event.content, 40)}`;
+          log.raw.write(`\r\x1b[K  ${icon} ${event.name} ${event.argsSummary} \x1b[2m\u2192\x1b[0m ${summary}${dur}\n`);
+          toolInProgress = false;
+        } else {
+          // tool_end without tool_start (shouldn't happen, but handle gracefully)
+          if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+          if (!event.success) {
+            log.raw.log(`[${event.name}] Error: ${truncate(event.content.trim(), 300)}\n`);
+          } else {
+            const formatted = formatToolOutputForDefaultMode(event.name, event.content);
+            if (formatted.text) log.raw.log(`${formatted.text}\n`);
+          }
+        }
+        break;
+      }
+      case "turn_stats": {
+        const dur = event.durationMs ? `${(event.durationMs / 1000).toFixed(1)}s` : "";
+        log.raw.log(`\n\x1b[2m\u2500\u2500\u2500 ${event.toolCount} tool${event.toolCount !== 1 ? "s" : ""} \u00b7 ${dur} \u2500\u2500\u2500\x1b[0m\n`);
+        break;
+      }
     }
   };
 
@@ -473,7 +515,7 @@ export async function askCommand(args: string[]): Promise<void> {
       skipSessionHistory: freshSession,
       callbacks: {
         onToken,
-        onToolDisplay,
+        onAgentEvent,
         onTrace: createTraceCallback(verbose),
       },
       toolDenylist: [...DEFAULT_TOOL_DENYLIST],
