@@ -199,7 +199,23 @@ function createAiApi() {
             try {
               const provider = getProvider(name);
               if (!provider?.models?.list) return [];
-              const models = await provider.models.list();
+              let models: ModelInfo[] = [];
+              try {
+                models = await provider.models.list();
+              } catch {
+                // Continue to provider-specific fallbacks below.
+              }
+
+              // Local Ollama may be unavailable; fall back to the public gist-backed catalog.
+              if (name === "ollama" && models.length === 0 && provider.models.catalog) {
+                try {
+                  models = await provider.models.catalog();
+                } catch {
+                  // Keep empty; listAll should still return whatever other providers have.
+                }
+              }
+
+              if (models.length === 0) return [];
               const isCloud = name !== "ollama";
               const meta = PROVIDER_META[name];
               return models.map((m) => ({
@@ -219,7 +235,35 @@ function createAiApi() {
             }
           }),
         );
-        return results.flat();
+        const allModels = results.flat();
+
+        // Deduplicate: when the same model appears from multiple providers,
+        // prefer the provider where apiKeyConfigured is true over false.
+        const byName = new Map<string, ModelInfo[]>();
+        for (const m of allModels) {
+          const existing = byName.get(m.name);
+          if (existing) existing.push(m);
+          else byName.set(m.name, [m]);
+        }
+
+        const deduped: ModelInfo[] = [];
+        for (const models of byName.values()) {
+          if (models.length <= 1) {
+            deduped.push(...models);
+            continue;
+          }
+          const hasConfigured = models.some((m) =>
+            m.metadata?.apiKeyConfigured === true
+          );
+          if (hasConfigured) {
+            for (const m of models) {
+              if (m.metadata?.apiKeyConfigured !== false) deduped.push(m);
+            }
+          } else {
+            deduped.push(...models);
+          }
+        }
+        return deduped;
       },
 
       /**

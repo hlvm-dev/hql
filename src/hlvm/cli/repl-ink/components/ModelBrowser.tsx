@@ -61,6 +61,7 @@ interface CloudModel {
   providerDisplay: string;// e.g., "OpenAI"
   capabilities: string[];
   needsKey?: boolean;     // true if API key not set
+  docsUrl?: string;       // provider docs URL from backend SSOT
 }
 
 
@@ -77,6 +78,7 @@ type DisplayModel = {
   description?: string;
   capabilities?: string[];
   provider?: string; // Company/provider name
+  docsUrl?: string;  // Provider docs URL (SSOT from backend)
   progress?: { percent?: number; completed?: number; total?: number; status: string };
   needsKey?: boolean; // true if API key not configured
 };
@@ -145,63 +147,10 @@ const FILTER_EMPTY: Record<FilterMode, string> = {
 // Model Catalog - via ai.models.catalog (SSOT)
 // ============================================================
 
-/** Get provider/company name from model ID */
-function getProvider(modelId: string): string {
-  const id = modelId.toLowerCase();
-  // Meta
-  if (id.startsWith("llama") || id.startsWith("codellama")) return "Meta";
-  // Google
-  if (id.startsWith("gemma") || id.startsWith("codegemma")) return "Google";
-  // Microsoft
-  if (id.startsWith("phi") || id.startsWith("wizardlm")) return "Microsoft";
-  // Mistral AI
-  if (id.startsWith("mistral") || id.startsWith("mixtral") || id.startsWith("codestral")) return "Mistral";
-  // Alibaba
-  if (id.startsWith("qwen") || id.startsWith("qwq")) return "Alibaba";
-  // DeepSeek
-  if (id.startsWith("deepseek")) return "DeepSeek";
-  // Cohere
-  if (id.startsWith("command") || id.startsWith("aya")) return "Cohere";
-  // IBM
-  if (id.startsWith("granite")) return "IBM";
-  // 01.AI
-  if (id.startsWith("yi")) return "01.AI";
-  // Stability AI
-  if (id.startsWith("stablelm") || id.startsWith("stable")) return "Stability";
-  // Intel
-  if (id.startsWith("neural-chat")) return "Intel";
-  // Snowflake
-  if (id.startsWith("snowflake")) return "Snowflake";
-  // BAAI
-  if (id.startsWith("bge")) return "BAAI";
-  // Nomic AI
-  if (id.startsWith("nomic")) return "Nomic";
-  // MixedBread AI
-  if (id.startsWith("mxbai")) return "MixedBread";
-  // Hugging Face
-  if (id.startsWith("smollm") || id.startsWith("starcoder")) return "HuggingFace";
-  // TII
-  if (id.startsWith("falcon")) return "TII";
-  // Upstage
-  if (id.startsWith("solar")) return "Upstage";
-  // LMSYS
-  if (id.startsWith("vicuna")) return "LMSYS";
-  // OpenChat
-  if (id.startsWith("openchat")) return "OpenChat";
-  // Nous Research
-  if (id.startsWith("nous") || id.startsWith("hermes")) return "Nous";
-  // LLaVA (Berkeley)
-  if (id.startsWith("llava") || id.startsWith("bakllava")) return "Berkeley";
-  // Dolphin
-  if (id.startsWith("dolphin")) return "Cognitive";
-  // TinyLlama
-  if (id.startsWith("tinyllama")) return "TinyLlama";
-  // Moondream
-  if (id.startsWith("moondream")) return "Vikhyat";
-  // All-MiniLM
-  if (id.startsWith("all-minilm")) return "Microsoft";
-  // Default
-  return "";
+/** Extract brand name from model ID (e.g., "llama3.2:3b" → "Llama") */
+function getBrandName(modelId: string): string {
+  const base = modelId.split(/[:.]/)[0];
+  return base ? base.charAt(0).toUpperCase() + base.slice(1) : "";
 }
 
 /** Build Ollama URL for model info page */
@@ -241,21 +190,24 @@ function getCatalogSize(model: ModelInfo): string | undefined {
 
 function toRemoteModel(model: ModelInfo): RemoteModel {
   const meta = (model.metadata || {}) as Record<string, unknown>;
-  const modelId = typeof meta.modelId === "string" ? meta.modelId : model.name;
   const baseDescription = model.displayName ?? model.name;
   const extraDescription = typeof meta.description === "string" ? meta.description : "";
   const description = extraDescription ? `${baseDescription} - ${extraDescription}` : baseDescription;
   const tags = capabilitiesToDisplayTags(model.capabilities);
-  // Only the -cloud tag suffix means "this variant IS a cloud model".
-  // meta.cloud means "this model family supports cloud" — not the same thing.
   const isCloud = isOllamaCloudModel(model.name);
+  // Use provider from catalog metadata (SSOT), fall back to brand extraction
+  const provider = typeof meta.provider === "string" && meta.provider
+    ? meta.provider
+    : typeof meta.providerDisplayName === "string" && meta.providerDisplayName
+      ? meta.providerDisplayName
+      : getBrandName(model.name);
 
   return {
     name: model.name,
     description,
     capabilities: isCloud ? [...tags, "cloud"] : tags,
     size: getCatalogSize(model),
-    provider: getProvider(modelId),
+    provider,
     isOllamaCloud: isCloud,
   };
 }
@@ -590,6 +542,7 @@ export function ModelBrowser({
             providerDisplay: (m.metadata?.providerDisplayName as string) ?? "",
             capabilities: (m.capabilities as string[]) ?? [],
             needsKey: m.metadata?.apiKeyConfigured === false,
+            docsUrl: (m.metadata?.providerDocsUrl as string) ?? undefined,
           }));
         setCloudModels(cloud);
       }
@@ -727,7 +680,7 @@ export function ModelBrowser({
         sizeStr: model.isOllamaCloud && !local ? "Cloud" : model.size,
         description: model.description,
         capabilities,
-        provider: model.provider || getProvider(model.name),
+        provider: model.provider || getBrandName(model.name),
         progress: task?.progress,
       });
     }
@@ -743,7 +696,7 @@ export function ModelBrowser({
           isDownloading: downloadStatus === "downloading",
           downloadStatus,
           size: model.size,
-          provider: getProvider(model.name),
+          provider: getBrandName(model.name),
           progress: task?.progress,
         });
       }
@@ -763,6 +716,7 @@ export function ModelBrowser({
         description: model.displayName,
         capabilities: tags,
         provider: model.needsKey ? `${model.providerDisplay} *` : model.providerDisplay,
+        docsUrl: model.docsUrl,
         needsKey: model.needsKey,
       });
     }
@@ -828,15 +782,15 @@ export function ModelBrowser({
       clearStatus();
     };
 
-    // API provider cloud models (OpenAI, Anthropic, Google, Claude Code) — select directly
+    // API provider cloud models — have "provider/" prefix and are not Ollama. Select directly.
     const isApiProviderCloud = (m: DisplayModel) =>
       m.capabilities?.includes("cloud") && !m.isLocal &&
-      (m.name.startsWith("openai/") || m.name.startsWith("anthropic/") || m.name.startsWith("google/") || m.name.startsWith("claude-code/"));
+      m.name.includes("/") && !m.name.startsWith("ollama/");
 
-    // Ollama cloud models — need pull (and possibly `ollama signin` on auth error)
-    const isOllamaCloud = (m: DisplayModel) =>
+    // Ollama cloud models — no provider prefix or "ollama/" prefix. Need pull + possibly signin.
+    const isOllamaCloudModel_ = (m: DisplayModel) =>
       m.capabilities?.includes("cloud") && !m.isLocal &&
-      !m.name.startsWith("openai/") && !m.name.startsWith("anthropic/") && !m.name.startsWith("google/") && !m.name.startsWith("claude-code/");
+      (!m.name.includes("/") || m.name.startsWith("ollama/"));
 
     const performSelectionAction = () => {
       const model = displayModels[selection.index] ?? displayModels[0];
@@ -952,14 +906,9 @@ export function ModelBrowser({
     // 'i' opens model info page in browser
     if (input === "i" && displayModels[selection.index]) {
       const model = displayModels[selection.index];
-      if (isApiProviderCloud(model)) {
-        const name = model.name;
-        if (name.startsWith("openai/")) openUrl("https://platform.openai.com/docs/models");
-        else if (name.startsWith("anthropic/")) openUrl("https://docs.anthropic.com/en/docs/about-claude/models");
-        else if (name.startsWith("google/")) openUrl("https://ai.google.dev/gemini-api/docs/models");
-        else if (name.startsWith("claude-code/")) openUrl("https://docs.anthropic.com/en/docs/about-claude/models");
-        else setStatusMessage("No info page for this provider");
-      } else if (isOllamaCloud(model)) {
+      if (model.docsUrl) {
+        openUrl(model.docsUrl);
+      } else if (isOllamaCloudModel_(model)) {
         openUrl("https://ollama.com/cloud");
       } else {
         openUrl(getOllamaUrl(model.name));
@@ -972,7 +921,7 @@ export function ModelBrowser({
       const model = displayModels[selection.index];
 
       // Cloud models can't be deleted (API provider or Ollama cloud)
-      if (isApiProviderCloud(model) || isOllamaCloud(model)) {
+      if (isApiProviderCloud(model) || isOllamaCloudModel_(model)) {
         setStatusMessage("Cloud models can't be deleted");
         return;
       }

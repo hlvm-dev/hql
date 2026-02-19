@@ -3,23 +3,17 @@
  * Ollama Models Scraper
  *
  * Scrapes ollama.com/library to generate ollama_models.json
- * Output format is compatible with HLVM tooling
+ * Output format is compatible with HLVM tooling and gist publish flow.
  *
  * Usage:
- *   # Update HLVM's bundled JSON (default)
+ *   # Write scraped catalog to temp file (default)
  *   deno task scrape-models
  *
- *   # Update HLVM and external resource copy
+ *   # Write temp file and external resource copy
  *   deno task scrape-models --sync
  *
  *   # Custom output path
  *   deno run --allow-net --allow-write --allow-read --allow-env scripts/scrape-ollama-models.ts --output ./custom.json
- *
- * The JSON file ships with HLVM and is used by:
- *   - src/hlvm/providers/ollama/catalog.ts
- *   - src/hlvm/cli/repl-ink/components/ModelBrowser.tsx
- *
- * @see ~/dev/HLVM/HLVM/Resources/ollama_models.json for reference format
  */
 
 // ============================================================
@@ -437,21 +431,20 @@ async function scrapeOllamaModels(): Promise<OllamaModelsJSON> {
 async function main() {
   const args = Deno.args;
 
-  // Default: update HLVM's bundled JSON file
-  const scriptDir = new URL(".", import.meta.url).pathname;
-  const bundledPath = `${scriptDir}../src/data/ollama_models.json`;
+  // Default: write to temp file (gist is runtime SSOT, not repo-local JSON)
+  const defaultPath = `${Deno.env.get("TMPDIR") ?? "/tmp"}/ollama_models.json`;
 
   // Parse --output flag (overrides default)
-  let outputPaths = [bundledPath];
+  let outputPaths = [defaultPath];
   const outputIndex = args.indexOf("--output");
   if (outputIndex !== -1 && args[outputIndex + 1]) {
     outputPaths = [args[outputIndex + 1]];
   }
 
-  // --sync flag: update HLVM plus external resource copy
+  // --sync flag: also update external resource copy
   if (args.includes("--sync")) {
     const resourcePath = `${Deno.env.get("HOME")}/dev/HLVM/HLVM/Resources/ollama_models.json`;
-    outputPaths = [bundledPath, resourcePath];
+    outputPaths = [defaultPath, resourcePath];
   }
 
   try {

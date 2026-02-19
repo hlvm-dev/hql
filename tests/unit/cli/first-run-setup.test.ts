@@ -3,7 +3,7 @@
  *
  * These are REAL tests — they call actual functions against real system state:
  * - parseParamSize: pure function
- * - pickBestCloudModel: uses real ollama_models.json catalog
+ * - pickBestCloudModel: uses live Ollama gist catalog
  * - isOllamaAuthErrorMessage: pure regex pattern matching
  * - verifyOllamaCloudModelAccess: real Ollama probe (needs running daemon)
  * - aiEngine: uses the real AIEngineLifecycle singleton
@@ -65,7 +65,7 @@ Deno.test("parseParamSize: edge cases", () => {
 });
 
 // ============================================================================
-// pickBestCloudModel — real catalog data from ollama_models.json
+// pickBestCloudModel — live catalog data from gist
 // ============================================================================
 
 Deno.test("pickBestCloudModel: returns a cloud model with tools capability", async () => {
@@ -93,31 +93,24 @@ Deno.test("pickBestCloudModel: returns a cloud model with tools capability", asy
   );
 });
 
-Deno.test("pickBestCloudModel: prefers preferred list over random largest", async () => {
+Deno.test("pickBestCloudModel: picks largest param-size cloud model dynamically", async () => {
   const result = await pickBestCloudModel();
   if (!result) return;
 
-  // Check if any preferred model exists in catalog
+  // Verify the result is the largest cloud+tools model in catalog
   const catalog = await getOllamaCatalogAsync({ maxVariants: Infinity });
-  const preferred = [
-    "deepseek-v3.1:671b-cloud",
-    "qwen3-coder:480b-cloud",
-    "mistral-large-3:675b-cloud",
-  ];
-
-  const hasPreferred = preferred.some((name) =>
-    catalog.some((m) =>
-      m.name === name && isOllamaCloudModel(m.name) &&
-      m.capabilities?.includes("tools")
-    )
+  const cloudTools = catalog.filter(
+    (m) => isOllamaCloudModel(m.name) && m.capabilities?.includes("tools"),
+  );
+  cloudTools.sort(
+    (a, b) => parseParamSize(b.parameterSize) - parseParamSize(a.parameterSize),
   );
 
-  if (hasPreferred) {
-    // If a preferred model is in the catalog, pickBestCloudModel must return one of them
+  if (cloudTools.length > 0) {
     assertEquals(
-      preferred.includes(result.name),
-      true,
-      `Expected one of ${preferred.join(", ")}, got: ${result.name}`,
+      result.name,
+      cloudTools[0].name,
+      `Expected largest cloud model ${cloudTools[0].name}, got: ${result.name}`,
     );
   }
 });

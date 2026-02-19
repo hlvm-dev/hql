@@ -23,12 +23,6 @@ import type { ModelInfo } from "../../providers/types.ts";
 // Constants
 // ============================================================================
 
-const PREFERRED_CLOUD_MODELS = [
-  "deepseek-v3.1:671b-cloud",
-  "qwen3-coder:480b-cloud",
-  "mistral-large-3:675b-cloud",
-];
-
 const OLLAMA_SIGNIN_URL_PATTERN = /https:\/\/ollama\.com\/connect\?[^\s"'`]+/i;
 const OLLAMA_SETTINGS_URL = "https://ollama.com/settings";
 const CLOUD_SIGNIN_WAIT_TIMEOUT_MS = 120_000;
@@ -90,18 +84,14 @@ export function parseParamSize(size: string | undefined): number {
   return match ? parseFloat(match[1]) : Infinity;
 }
 
-/** Pick the best cloud model with tool-calling from the catalog. */
+/** Pick the best cloud model with tool-calling from the catalog (dynamic, no hardcoded list). */
 export async function pickBestCloudModel(): Promise<ModelInfo | null> {
   const catalog = await getOllamaCatalogAsync({ maxVariants: Infinity });
   const cloudTools = catalog.filter(
     (m) => isOllamaCloudModel(m.name) && m.capabilities?.includes("tools"),
   );
 
-  for (const preferred of PREFERRED_CLOUD_MODELS) {
-    const found = cloudTools.find((m) => m.name === preferred);
-    if (found) return found;
-  }
-
+  // Sort by parameter size descending — largest = most capable
   cloudTools.sort(
     (a, b) => parseParamSize(b.parameterSize) - parseParamSize(a.parameterSize),
   );

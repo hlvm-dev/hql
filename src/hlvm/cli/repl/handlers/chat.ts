@@ -526,13 +526,19 @@ export async function handleChat(req: Request): Promise<Response> {
   }
 
   let resolvedModelInfo: ModelInfo | null = null;
+  let modelDiscoveryFailed = false;
   if (resolvedModel) {
     const [parsedProvider, parsedModelName] = parseModelString(resolvedModel);
-    resolvedModelInfo = await ai.models.get(
-      parsedModelName,
-      parsedProvider ?? undefined,
-    );
-    if (body.model && resolvedModelInfo === null) {
+    try {
+      resolvedModelInfo = await ai.models.get(
+        parsedModelName,
+        parsedProvider ?? undefined,
+      );
+    } catch {
+      // Model discovery failed (timeout, network) — continue without model info
+      modelDiscoveryFailed = true;
+    }
+    if (body.model && resolvedModelInfo === null && !modelDiscoveryFailed) {
       return jsonError(`Model not found: ${body.model}`, 400);
     }
     if (

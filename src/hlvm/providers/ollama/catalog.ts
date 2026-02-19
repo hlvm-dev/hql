@@ -1,16 +1,12 @@
 /**
  * Ollama Model Catalog
  *
- * Self-growing catalog: fetches live data from GitHub at runtime.
- * Bundled JSON is offline fallback only.
+ * Self-growing catalog: fetches live data from public GitHub Gist at runtime.
+ * Gist is the single source of truth (no bundled fallback).
  *
- * Live source: raw.githubusercontent.com/hlvm-dev/hql/main/src/data/ollama_models.json
- * Refresh:     deno task scrape-models  (updates the JSON, commit & push to publish)
+ * Live source: gist.githubusercontent.com/boraseoksoon/b8c5e2a44ec9cb01cbaa010a8953304c/raw
+ * Refresh:     deno task publish-catalog  (scrape + push to gist)
  */
-
-import ollamaModelsData from "../../../data/ollama_models.json" with {
-  type: "json",
-};
 import type { ModelInfo, ProviderCapability } from "../types.ts";
 
 // ---------------------------------------------------------------------------
@@ -43,22 +39,21 @@ interface ScrapedCatalog {
 // Constants
 // ---------------------------------------------------------------------------
 
+/** Public gist — no auth required, repo can stay private. */
 const LIVE_CATALOG_URL =
-  "https://raw.githubusercontent.com/hlvm-dev/hql/main/src/data/ollama_models.json";
+  "https://gist.githubusercontent.com/boraseoksoon/b8c5e2a44ec9cb01cbaa010a8953304c/raw/ollama_models.json";
 
-/** Cache TTL: 1 hour (same as OpenRouter public catalog) */
+/** Cache TTL: 1 hour */
 const CACHE_TTL_MS = 60 * 60 * 1000;
 
 const DEFAULT_MAX_VARIANTS = 3;
 
 // ---------------------------------------------------------------------------
-// Cache
+// Cache (network fetch only — buildCatalog is cheap)
 // ---------------------------------------------------------------------------
 
 let liveCatalogData: ScrapedCatalog | null = null;
 let liveFetchTimestamp = 0;
-let cachedCatalog: ModelInfo[] | null = null;
-let cachedFullCatalog: ModelInfo[] | null = null;
 
 function isLiveCacheValid(): boolean {
   return liveCatalogData !== null && Date.now() - liveFetchTimestamp < CACHE_TTL_MS;
@@ -69,8 +64,8 @@ function isLiveCacheValid(): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch the latest catalog from GitHub.
- * Returns null on failure (caller falls back to bundled JSON).
+ * Fetch the latest catalog from public gist.
+ * Returns null on failure (caller may use cached in-memory data only).
  */
 async function fetchLiveCatalog(): Promise<ScrapedCatalog | null> {
   if (isLiveCacheValid()) return liveCatalogData;
@@ -85,9 +80,6 @@ async function fetchLiveCatalog(): Promise<ScrapedCatalog | null> {
     if (data?.models?.length > 0) {
       liveCatalogData = data;
       liveFetchTimestamp = Date.now();
-      // Invalidate derived caches so they rebuild from fresh data
-      cachedCatalog = null;
-      cachedFullCatalog = null;
     }
     return liveCatalogData;
   } catch {
@@ -124,13 +116,12 @@ function toModelInfo(
   if (variant?.parameters && variant.parameters !== "Unknown") {
     displayParts.push(variant.parameters);
   }
-  const displayName = displayParts.join(" ");
 
   const cloud = Boolean(model.cloud) || variant?.size === "Cloud (API only)";
 
   return {
     name,
-    displayName,
+    displayName: displayParts.join(" "),
     parameterSize: variant?.parameters !== "Unknown"
       ? variant?.parameters
       : undefined,
@@ -168,42 +159,14 @@ function buildCatalog(data: ScrapedCatalog, maxVariants: number): ModelInfo[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Get the Ollama catalog — self-growing via live GitHub fetch.
- * Falls back to bundled JSON on network failure.
+ * Get the Ollama catalog — self-growing via live gist fetch.
+ * Uses gist as the only source of truth.
+ * If gist is unavailable and cache is empty, returns an empty list.
  */
 export async function getOllamaCatalogAsync(
   options: { maxVariants?: number } = {},
 ): Promise<ModelInfo[]> {
-  // Try live data first
   const liveData = await fetchLiveCatalog();
-  const data = liveData ?? (ollamaModelsData as ScrapedCatalog);
-  const maxVariants = options.maxVariants ?? DEFAULT_MAX_VARIANTS;
-  return buildCatalog(data, maxVariants);
-}
-
-/**
- * Synchronous version — uses cached live data if available, else bundled JSON.
- * Prefer getOllamaCatalogAsync() for guaranteed freshness.
- */
-export function getOllamaCatalog(
-  options: { maxVariants?: number } = {},
-): ModelInfo[] {
-  const maxVariants = options.maxVariants ?? DEFAULT_MAX_VARIANTS;
-  const data = liveCatalogData ?? (ollamaModelsData as ScrapedCatalog);
-
-  if (maxVariants === DEFAULT_MAX_VARIANTS) {
-    if (!cachedCatalog) {
-      cachedCatalog = buildCatalog(data, maxVariants);
-    }
-    return cachedCatalog;
-  }
-
-  if (maxVariants === Number.POSITIVE_INFINITY) {
-    if (!cachedFullCatalog) {
-      cachedFullCatalog = buildCatalog(data, maxVariants);
-    }
-    return cachedFullCatalog;
-  }
-
-  return buildCatalog(data, maxVariants);
+  if (!liveData) return [];
+  return buildCatalog(liveData, options.maxVariants ?? DEFAULT_MAX_VARIANTS);
 }

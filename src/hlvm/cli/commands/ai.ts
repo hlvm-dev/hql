@@ -112,9 +112,13 @@ export async function aiCommand(args: string[]): Promise<void> {
   }
 
   const subcommand = args[0] ?? "setup";
+  const needsAiRuntime = subcommand === "setup" ||
+    subcommand === "pull" ||
+    subcommand === "browse" ||
+    subcommand === "models";
 
-  // Initialize runtime with AI (SSOT for all initialization)
-  await initializeRuntime({ stdlib: false, cache: false });
+  // Initialize runtime via SSOT; only start local AI engine for commands that require it.
+  await initializeRuntime({ stdlib: false, cache: false, ai: needsAiRuntime });
 
   switch (subcommand) {
     case "setup": {
