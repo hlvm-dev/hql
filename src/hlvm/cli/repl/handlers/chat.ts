@@ -736,16 +736,23 @@ export async function handleChat(req: Request): Promise<Response> {
         if (controller.signal.aborted) {
           emitCancellationOnce();
         } else {
-          // Preserve partial output for UI/state recovery, but don't mark as cancelled on real errors.
-          if (partialText.length > 0) {
-            updateMessage(assistantMessageId, { content: partialText });
-            pushSSEEvent(sessionId, "message_updated", {
-              id: assistantMessageId,
-              content: partialText,
-            });
-            pushSessionUpdatedEvent(sessionId);
+          const errorMsg = getErrorMessage(error);
+          // Ensure the assistant message is updated even on error so the GUI
+          // replaces the "Thinking..." placeholder with visible content.
+          const displayContent = partialText.length > 0
+            ? partialText
+            : `Error: ${errorMsg}`;
+          updateMessage(assistantMessageId, { content: displayContent });
+          pushSSEEvent(sessionId, "message_updated", {
+            id: assistantMessageId,
+            content: displayContent,
+          });
+          pushSessionUpdatedEvent(sessionId);
+          // Also emit a token so streaming normalizers clear the placeholder
+          if (partialText.length === 0) {
+            emit({ event: "token", text: `Error: ${errorMsg}` });
           }
-          emit({ event: "error", message: getErrorMessage(error) });
+          emit({ event: "error", message: errorMsg });
         }
       }
 

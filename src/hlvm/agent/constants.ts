@@ -93,8 +93,8 @@ export const SHELL_ALLOWLIST_L1: readonly RegExp[] = [
  * ```
  */
 export const DEFAULT_TIMEOUTS = {
-  /** LLM call timeout (default: 60000ms = 60 seconds) */
-  llm: 60000,
+  /** LLM call timeout (default: 120000ms = 120 seconds; frontier models need more time) */
+  llm: 120_000,
 
   /** Tool execution timeout (default: 60000ms = 60 seconds) */
   tool: 60000,
@@ -277,7 +277,7 @@ export const ENGINE_PROFILES = {
 export const MAX_SESSION_HISTORY = 10;
 
 /** Cloud/frontier provider prefixes (SSOT for detectFrontierModel + isLocalModel) */
-export const FRONTIER_PROVIDER_PREFIXES = ["anthropic", "openai", "google"] as const;
+export const FRONTIER_PROVIDER_PREFIXES = ["anthropic", "openai", "google", "claude-code"] as const;
 
 /** Detect whether a model string refers to a frontier API model */
 export function isFrontierProvider(model?: string): boolean {

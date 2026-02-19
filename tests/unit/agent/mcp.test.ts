@@ -42,7 +42,7 @@ Deno.test("loadMcpTools registers MCP tools and executes", async () => {
 
   const { tools, dispose } = await loadMcpTools(temp);
 
-  const toolName = "mcp/test/echo";
+  const toolName = "mcp_test_echo";
   assertEquals(hasTool(toolName), true);
   assertEquals(tools.includes(toolName), true);
 
@@ -79,7 +79,7 @@ Deno.test("loadMcpTools keeps tool registered until all owners dispose", async (
   const first = await loadMcpTools(temp);
   const second = await loadMcpTools(temp);
 
-  const toolName = "mcp/test/echo";
+  const toolName = "mcp_test_echo";
   assertEquals(hasTool(toolName), true);
 
   await first.dispose();
@@ -123,7 +123,7 @@ Deno.test("loadMcpTools routes tool execution by owner/session", async () => {
     ownerB,
   );
 
-  const toolName = "mcp/test/echo";
+  const toolName = "mcp_test_echo";
   try {
     const toolA = getTool(toolName, ownerA);
     const toolB = getTool(toolName, ownerB);
@@ -169,7 +169,7 @@ Deno.test("MCP tools reject non-object args", async () => {
   await platform.fs.writeTextFile(configPath, JSON.stringify(config));
 
   const { dispose } = await loadMcpTools(temp);
-  const tool = getTool("mcp/test/echo");
+  const tool = getTool("mcp_test_echo");
 
   await assertRejects(
     () => tool.fn("bad" as unknown as Record<string, unknown>, temp),
@@ -200,7 +200,7 @@ Deno.test("MCP tools honor optional args from inputSchema required list", async 
   await platform.fs.writeTextFile(configPath, JSON.stringify(config));
 
   const { dispose } = await loadMcpTools(temp);
-  const validation = prepareToolArgsForExecution("mcp/test/echo", {});
+  const validation = prepareToolArgsForExecution("mcp_test_echo", {});
   assertEquals(validation.validation.valid, true);
 
   await dispose();
@@ -221,7 +221,7 @@ Deno.test("loadMcpTools continues when one server fails", async () => {
     ],
   );
 
-  const toolName = "mcp/test/echo";
+  const toolName = "mcp_test_echo";
   assertEquals(tools.includes(toolName), true);
   assertEquals(hasTool(toolName), true);
 
@@ -256,7 +256,7 @@ Deno.test("loadMcpTools deduplicates server names (config takes precedence)", as
     [{ name: "test", command: ["definitely-not-a-real-command"] }],
   );
 
-  assertEquals(tools.includes("mcp/test/echo"), true);
+  assertEquals(tools.includes("mcp_test_echo"), true);
   await dispose();
   await platform.fs.remove(temp, { recursive: true });
 });

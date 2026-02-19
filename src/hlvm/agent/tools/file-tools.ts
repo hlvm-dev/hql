@@ -1003,7 +1003,7 @@ Examples:
         "string (optional) - MIME type prefix filter (e.g., 'image/', 'video/', 'application/pdf'). Use pattern instead for most cases",
       maxDepth: "number (optional) - Maximum recursion depth. Rarely needed",
       maxEntries: "number (optional) - Max entries to return. Rarely needed",
-      maxResults: "any (optional) - Alias for maxEntries",
+      maxResults: "number (optional) - Alias for maxEntries",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",

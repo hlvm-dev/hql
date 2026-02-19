@@ -60,7 +60,7 @@ interface ConfirmationResult {
  * Examples:
  * - shell_exec + {"command":"git status"} -> "shell_exec:{...}"
  * - web_fetch + {url:"..."} -> "web_fetch"
- * - mcp/playwright/render_url + {...} -> "mcp/playwright/render_url"
+ * - mcp_playwright_render_url + {...} -> "mcp_playwright_render_url"
  *
  * Value: true if confirmed
  */

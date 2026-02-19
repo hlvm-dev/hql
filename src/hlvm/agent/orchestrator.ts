@@ -563,7 +563,7 @@ function addContextMessage(
 }
 
 function isRenderToolName(toolName: string): boolean {
-  return toolName === "render_url" || toolName.endsWith("/render_url");
+  return toolName === "render_url" || toolName.endsWith("_render_url");
 }
 
 /** Fix 22: Case-insensitive loop detection for string values */

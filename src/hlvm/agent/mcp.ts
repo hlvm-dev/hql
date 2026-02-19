@@ -577,7 +577,8 @@ export async function loadMcpTools(
       const tools = await client.listTools();
       const entries: Record<string, ToolMetadata> = {};
       for (const tool of tools) {
-        const name = `mcp/${server.name}/${tool.name}`;
+        // Sanitize: Anthropic requires tool names to match ^[a-zA-Z0-9_-]{1,128}$
+        const name = `mcp_${server.name}_${tool.name}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 128);
         const argsSchema = buildArgsSchema(tool.inputSchema);
         const skipValidation = Object.keys(argsSchema).length === 0;
         const safetyLevel = inferMcpSafetyLevel(tool.name, tool.description);

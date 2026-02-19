@@ -287,6 +287,7 @@ export async function streamChat(
           inputJson: "",
         });
       }
+      // "thinking" and "text" block starts are intentionally ignored — content arrives via deltas
     } else if (event.type === "content_block_delta") {
       if (event.delta?.type === "text_delta" && event.delta.text) {
         contentChunks.push(event.delta.text);
@@ -298,6 +299,7 @@ export async function streamChat(
       ) {
         toolUseBlocks[currentToolIndex].inputJson += event.delta.partial_json;
       }
+      // "thinking_delta" and "signature_delta" are intentionally skipped — not user-visible content
     } else if (event.type === "content_block_stop") {
       if (currentToolIndex >= 0) currentToolIndex = -1;
     } else if (event.type === "error") {

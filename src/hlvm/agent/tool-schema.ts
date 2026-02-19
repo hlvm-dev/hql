@@ -15,20 +15,20 @@ export interface JsonSchemaObject {
 }
 
 export interface JsonSchemaProperty {
-  type: "string" | "number" | "boolean" | "array" | "object" | "integer" | "null" | "any";
+  type?: "string" | "number" | "boolean" | "array" | "object" | "integer" | "null";
   description?: string;
   items?: JsonSchemaProperty;
 }
 
 interface ParsedArgSpec {
-  type: JsonSchemaProperty["type"];
+  type: JsonSchemaProperty["type"] | "any";
   isArray: boolean;
   optional: boolean;
 }
 
 const OPTIONAL_MARKER = "(optional)";
 
-function parseBaseType(typeToken: string): JsonSchemaProperty["type"] {
+function parseBaseType(typeToken: string): JsonSchemaProperty["type"] | "any" {
   const lower = typeToken.toLowerCase();
   if (lower === "string") return "string";
   if (lower === "number") return "number";
@@ -36,7 +36,7 @@ function parseBaseType(typeToken: string): JsonSchemaProperty["type"] {
   if (lower === "integer" || lower === "int") return "integer";
   if (lower === "object") return "object";
   if (lower === "null") return "null";
-  if (lower === "any") return "any";
+  if (lower === "any") return "any"; // handled specially in schema builder — omits `type` field
   return "string";
 }
 
@@ -60,12 +60,18 @@ export function buildToolJsonSchema(tool: ToolMetadata): JsonSchemaObject {
 
   for (const [name, desc] of Object.entries(tool.args)) {
     const parsed = parseArgSpec(desc);
+    // JSON Schema 2020-12: omit `type` to accept any value (no "type": "any")
+    const isAny = parsed.type === "any";
     const property: JsonSchemaProperty = {
-      type: parsed.isArray ? "array" : parsed.type,
       description: desc,
     };
     if (parsed.isArray) {
-      property.items = { type: parsed.type };
+      property.type = "array";
+      if (!isAny) {
+        property.items = { type: parsed.type as JsonSchemaProperty["type"] };
+      }
+    } else if (!isAny) {
+      property.type = parsed.type as JsonSchemaProperty["type"];
     }
     properties[name] = property;
     if (!parsed.optional) {
@@ -82,7 +88,7 @@ export function buildToolJsonSchema(tool: ToolMetadata): JsonSchemaObject {
 }
 
 function isTypeMatch(value: unknown, schema: JsonSchemaProperty): boolean {
-  if (schema.type === "any") return true;
+  if (!schema.type) return true; // no type constraint = accept any value
   if (schema.type === "array") {
     if (!Array.isArray(value)) return false;
     if (!schema.items) return true;
@@ -107,6 +113,7 @@ function isTypeMatch(value: unknown, schema: JsonSchemaProperty): boolean {
 }
 
 function coerceValue(value: unknown, schema: JsonSchemaProperty): unknown {
+  if (!schema.type) return value; // no type constraint = no coercion needed
   if (schema.type === "array") {
     // Fix 25: Coerce string-encoded arrays (e.g., "[1,2,3]" → [1,2,3])
     if (typeof value === "string") {

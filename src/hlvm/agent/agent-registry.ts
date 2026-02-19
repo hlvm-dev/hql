@@ -27,7 +27,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "fetch_url",
       "web_fetch",
       "render_url",
-      "mcp/playwright/render_url",
+      "mcp_playwright_render_url",
       "memory_add",
       "memory_search",
       "memory_list",
@@ -71,7 +71,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "fetch_url",
       "web_fetch",
       "render_url",
-      "mcp/playwright/render_url",
+      "mcp_playwright_render_url",
     ],
   },
   {

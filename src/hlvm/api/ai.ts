@@ -200,16 +200,17 @@ function createAiApi() {
               const provider = getProvider(name);
               if (!provider?.models?.list) return [];
               let models: ModelInfo[] = [];
-              try {
-                models = await provider.models.list();
-              } catch {
-                // Continue to provider-specific fallbacks below.
-              }
 
-              // Local Ollama may be unavailable; fall back to the public gist-backed catalog.
-              if (name === "ollama" && models.length === 0 && provider.models.catalog) {
+              // SSOT for Ollama model discovery in listAll(): always use gist-backed catalog.
+              if (name === "ollama" && provider.models.catalog) {
                 try {
                   models = await provider.models.catalog();
+                } catch {
+                  // Keep empty; listAll should still return whatever other providers have.
+                }
+              } else {
+                try {
+                  models = await provider.models.list();
                 } catch {
                   // Keep empty; listAll should still return whatever other providers have.
                 }
