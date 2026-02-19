@@ -123,7 +123,7 @@ function reuseSession(
     ...cached,
     llm,
     context,
-    l1Confirmations: new Map<string, boolean>(),
+    l1Confirmations: cached.l1Confirmations,
   };
 }
 

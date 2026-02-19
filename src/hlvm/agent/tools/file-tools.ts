@@ -1016,7 +1016,7 @@ Examples:
     fn: openPath,
     description:
       "Open a file or directory with the system default app (Finder/Explorer/file manager).",
-    safetyLevel: "L1",
+    safetyLevel: "L0",
     args: {
       path: "string - Path to open (e.g., '~/Downloads', './notes.txt')",
     },
@@ -1025,7 +1025,7 @@ Examples:
       openedPath: "string - Resolved path that was opened (on success)",
       message: "string - Human-readable result message",
     },
-    safety: "Low-risk desktop action. Confirm once per session.",
+    safety: "Read-only desktop action: opens path in default app.",
   },
   archive_files: {
     fn: archiveFiles,

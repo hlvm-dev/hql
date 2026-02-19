@@ -740,7 +740,7 @@ export async function handleChat(req: Request): Promise<Response> {
           // Ensure the assistant message is updated even on error so the GUI
           // replaces the "Thinking..." placeholder with visible content.
           const displayContent = partialText.length > 0
-            ? partialText
+            ? `${partialText}\n\n[Error: ${errorMsg}]`
             : `Error: ${errorMsg}`;
           updateMessage(assistantMessageId, { content: displayContent });
           pushSSEEvent(sessionId, "message_updated", {
@@ -961,15 +961,16 @@ async function handleAgentMode(
   );
   const history: AgentMessage[] = stored
     .filter((m) =>
-      !m.cancelled && m.content.length > 0 && m.id !== assistantMessageId
+      !m.cancelled && m.content.length > 0 && m.id !== assistantMessageId &&
+      // Skip tool messages and tool-bearing assistant messages from prior turns:
+      // SQLite doesn't persist tool_call_ids reliably, producing orphaned
+      // tool_result blocks that Anthropic (and other strict providers) reject.
+      m.role !== "tool" && !m.tool_calls
     )
     .map((m) => ({
       role: m.role as AgentMessage["role"],
       content: m.content,
       timestamp: new Date(m.created_at).getTime(),
-      toolCalls: m.tool_calls ? JSON.parse(m.tool_calls) : undefined,
-      toolName: m.tool_name ?? undefined,
-      toolCallId: m.tool_call_id ?? undefined,
     }));
 
   const lastUserMessage = getLastUserMessage(body.messages);
@@ -1077,8 +1078,7 @@ async function handleClaudeCodeAgentMode(
   const query = lastUserMessage?.content ?? "";
 
   if (!query.trim()) {
-    emit({ event: "error", message: "Empty query for Claude Code agent" });
-    return;
+    throw new Error("Empty query for Claude Code agent");
   }
 
   const cfgSnapshot = config.snapshot;
@@ -1108,24 +1108,33 @@ async function handleClaudeCodeAgentMode(
     onPartial,
   );
 
-  // If --resume failed, clear stored session and retry fresh
-  if (!result.success && claudeCodeSessionId && !signal.aborted) {
-    log.info(
-      `Claude Code --resume failed (session ${claudeCodeSessionId}), retrying fresh`,
-    );
-    existingMeta.claudeCodeSessionId = undefined;
-    updateSession(body.session_id, { metadata: JSON.stringify(existingMeta) });
-    await spawnClaudeCodeProcess(
-      query,
-      null,
-      body.session_id,
-      assistantMessageId,
-      sessionMemoryEnabled,
-      existingMeta,
-      signal,
-      emit,
-      onPartial,
-    );
+  if (!result.success && !signal.aborted) {
+    if (claudeCodeSessionId) {
+      // --resume failed, clear stored session and retry fresh
+      log.info(
+        `Claude Code --resume failed (session ${claudeCodeSessionId}), retrying fresh`,
+      );
+      existingMeta.claudeCodeSessionId = undefined;
+      updateSession(body.session_id, {
+        metadata: JSON.stringify(existingMeta),
+      });
+      const retryResult = await spawnClaudeCodeProcess(
+        query,
+        null,
+        body.session_id,
+        assistantMessageId,
+        sessionMemoryEnabled,
+        existingMeta,
+        signal,
+        emit,
+        onPartial,
+      );
+      if (!retryResult.success && !signal.aborted) {
+        throw new Error(retryResult.error ?? "Claude Code failed after retry");
+      }
+    } else {
+      throw new Error(result.error ?? "Claude Code failed");
+    }
   }
 }
 
@@ -1191,7 +1200,7 @@ async function spawnClaudeCodeProcess(
   signal: AbortSignal,
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
-): Promise<{ success: boolean }> {
+): Promise<{ success: boolean; error?: string }> {
   const platform = getPlatform();
 
   const cmd = buildClaudeCodeCommand(query, claudeCodeSessionId);
@@ -1214,8 +1223,7 @@ async function spawnClaudeCodeProcess(
   try {
     const stdout = proc.stdout as ReadableStream<Uint8Array> | undefined;
     if (!stdout) {
-      emit({ event: "error", message: "Failed to capture Claude Code output" });
-      return { success: false };
+      return { success: false, error: "Failed to capture Claude Code output" };
     }
 
     // Bug 4 fix: Drain stderr concurrently to prevent pipe deadlock
@@ -1290,10 +1298,7 @@ async function spawnClaudeCodeProcess(
     if (!result.success && !signal.aborted) {
       const errText = await stderrPromise;
       const errMsg = errText || `Claude Code exited with code ${result.code}`;
-      if (!fullText) {
-        emit({ event: "error", message: errMsg });
-      }
-      return { success: false };
+      return { success: false, error: errMsg };
     }
   } finally {
     signal.removeEventListener("abort", onAbort);

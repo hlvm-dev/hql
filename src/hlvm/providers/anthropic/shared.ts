@@ -102,6 +102,9 @@ export function convertMessages(
 
     if (msg.role === "tool") {
       const toolUseId = msg.tool_call_id ?? findToolUseId(result, msg.tool_name, consumedToolUseIds);
+      // Skip orphaned tool results that have no matching tool_use block —
+      // Anthropic rejects these with HTTP 400.
+      if (!toolUseId) continue;
       pushMessage(result, {
         role: "user",
         content: [{
@@ -136,13 +139,14 @@ export function pushMessage(result: AnthropicMessage[], msg: AnthropicMessage): 
   }
 }
 
-/** Find an unconsumed tool_use id from assistant messages for a given tool name */
+/** Find an unconsumed tool_use id from assistant messages for a given tool name.
+ *  Returns null when no matching block exists (orphaned tool result). */
 export function findToolUseId(
   messages: AnthropicMessage[],
   toolName: string | undefined,
   consumed: Set<string>,
-): string {
-  if (!toolName) return generateToolCallId();
+): string | null {
+  if (!toolName) return null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role === "assistant" && Array.isArray(msg.content)) {
@@ -158,7 +162,7 @@ export function findToolUseId(
       }
     }
   }
-  return generateToolCallId();
+  return null;
 }
 
 // =============================================================================
