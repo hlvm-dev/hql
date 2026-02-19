@@ -46,6 +46,7 @@ import type {
   PlatformWriteOptions,
   SignalType,
 } from "./types.ts";
+import { buildOpenCommand } from "./platform-shared.ts";
 
 // =============================================================================
 // Helper Functions
@@ -557,23 +558,7 @@ export const NodePlatform: Platform = {
   command: NodeCommand,
   http: NodeHttp,
   openUrl: async (url: string): Promise<void> => {
-    const currentOs = mapOs();
-    let cmd: string;
-    let args: string[];
-    switch (currentOs) {
-      case "darwin":
-        cmd = "open";
-        args = [url];
-        break;
-      case "windows":
-        cmd = "cmd.exe";
-        args = ["/c", "start", "", url];
-        break;
-      default:
-        cmd = "xdg-open";
-        args = [url];
-        break;
-    }
+    const { cmd, args } = buildOpenCommand(mapOs(), url);
     const result = await NodeCommand.output({ cmd: [cmd, ...args] });
     if (!result.success) {
       throw new Error(`Failed to open URL: ${url} (exit code: ${result.code})`);

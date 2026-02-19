@@ -42,31 +42,19 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Safety: classifyTool - L0 read-only shell commands",
+  fn() {
+    assertEquals(classifyTool("shell_exec", { command: "git status" }).level, "L0");
+    assertEquals(classifyTool("shell_exec", { command: "git log" }).level, "L0");
+    assertEquals(classifyTool("shell_exec", { command: "git log --oneline" }).level, "L0");
+    assertEquals(classifyTool("shell_exec", { command: "git diff" }).level, "L0");
+    assertEquals(classifyTool("shell_exec", { command: "git diff HEAD" }).level, "L0");
+  },
+});
+
+Deno.test({
   name: "Safety: classifyTool - L1 shell allow-list",
   fn() {
-    // git status
-    const gitStatus = classifyTool("shell_exec", { command: "git status" });
-    assertEquals(gitStatus.level, "L1");
-
-    // git log
-    const gitLog = classifyTool("shell_exec", { command: "git log" });
-    assertEquals(gitLog.level, "L1");
-
-    const gitLogOneline = classifyTool("shell_exec", {
-      command: "git log --oneline",
-    });
-    assertEquals(gitLogOneline.level, "L1");
-
-    // git diff
-    const gitDiff = classifyTool("shell_exec", { command: "git diff" });
-    assertEquals(gitDiff.level, "L1");
-
-    const gitDiffHead = classifyTool("shell_exec", {
-      command: "git diff HEAD",
-    });
-    assertEquals(gitDiffHead.level, "L1");
-
-    // deno test --dry-run
     const denoDryRun = classifyTool("shell_exec", {
       command: "deno test --dry-run",
     });
@@ -77,12 +65,12 @@ Deno.test({
 Deno.test({
   name: "Safety: classifyTool - L2 destructive tools",
   fn() {
-    // File write operations
+    // File write operations (L1: prompt once per session, like Claude Code)
     const writeFile = classifyTool("write_file", {
       path: "src/main.ts",
       content: "test",
     });
-    assertEquals(writeFile.level, "L2");
+    assertEquals(writeFile.level, "L1");
 
     const deleteFile = classifyTool("delete_file", { path: "src/main.ts" });
     assertEquals(deleteFile.level, "L2");
@@ -129,7 +117,7 @@ Deno.test({
     const withWhitespace = classifyTool("shell_exec", {
       command: "  git status  ",
     });
-    assertEquals(withWhitespace.level, "L1");
+    assertEquals(withWhitespace.level, "L0");
   },
 });
 
@@ -356,21 +344,25 @@ Deno.test({
 Deno.test({
   name: "Safety: classifyTool - handles various shell commands",
   fn() {
-    // Various git commands
+    // Read-only git commands → L0
     assertEquals(
       classifyTool("shell_exec", { command: "git status" }).level,
-      "L1",
+      "L0",
     );
     assertEquals(
       classifyTool("shell_exec", { command: "git log -10" }).level,
-      "L1",
+      "L0",
     );
     assertEquals(
       classifyTool("shell_exec", { command: "git diff main..dev" }).level,
-      "L1",
+      "L0",
+    );
+    assertEquals(
+      classifyTool("shell_exec", { command: "echo hello" }).level,
+      "L0",
     );
 
-    // Non-allow-listed commands
+    // Non-allow-listed commands → L2
     assertEquals(
       classifyTool("shell_exec", { command: "git push" }).level,
       "L2",
@@ -378,10 +370,6 @@ Deno.test({
     assertEquals(
       classifyTool("shell_exec", { command: "git commit" }).level,
       "L2",
-    );
-    assertEquals(
-      classifyTool("shell_exec", { command: "echo hello" }).level,
-      "L1",
     );
   },
 });
@@ -476,15 +464,14 @@ Deno.test({
     assertEquals(l0.reason.length > 0, true);
     assertEquals(l0.reason.includes("Read-only"), true);
 
-    const l1 = classifyTool("shell_exec", { command: "git status" });
-    assertEquals(l1.reason.length > 0, true);
-    assertEquals(l1.reason.includes("Allow-listed"), true);
+    const l0Shell = classifyTool("shell_exec", { command: "git status" });
+    assertEquals(l0Shell.reason.length > 0, true);
+    assertEquals(l0Shell.reason.includes("Read-only"), true);
 
-    const l2 = classifyTool("write_file", {
+    const l1Write = classifyTool("write_file", {
       path: "test.ts",
       content: "test",
     });
-    assertEquals(l2.reason.length > 0, true);
-    assertEquals(l2.reason.includes("Destructive"), true);
+    assertEquals(l1Write.reason.length > 0, true);
   },
 });

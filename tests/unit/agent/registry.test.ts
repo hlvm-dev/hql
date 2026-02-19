@@ -17,6 +17,7 @@ import {
   getToolDescription,
   getToolsByCategory,
   hasTool,
+  registerTool,
   validateToolArgs,
 } from "../../../src/hlvm/agent/registry.ts";
 
@@ -333,5 +334,19 @@ Deno.test({
       Error,
       "not found",
     );
+  },
+});
+
+// ============================================================
+// registerTool name validation (cross-provider safe)
+// ============================================================
+
+Deno.test({
+  name: "Registry: registerTool rejects names with dots and slashes",
+  fn() {
+    const dummyTool = { fn: async () => {}, description: "test", args: {} };
+    for (const bad of ["test.invalid", "test/invalid"]) {
+      assertThrows(() => registerTool(bad, dummyTool), Error, "Invalid tool name");
+    }
   },
 });

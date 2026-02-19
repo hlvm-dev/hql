@@ -47,38 +47,15 @@ async function cleanupWorkspace() {
 // ============================================================
 
 Deno.test({
-  name: "Shell Tools: classifyShellCommand - git status is L1",
+  name: "Shell Tools: classifyShellCommand - git read commands are L0",
   fn() {
-    const level = classifyShellCommand("git status");
-    assertEquals(level, "L1");
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: classifyShellCommand - git log is L1",
-  fn() {
-    const level1 = classifyShellCommand("git log");
-    assertEquals(level1, "L1");
-
-    const level2 = classifyShellCommand("git log --oneline");
-    assertEquals(level2, "L1");
-
-    const level3 = classifyShellCommand("git log -10");
-    assertEquals(level3, "L1");
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: classifyShellCommand - git diff is L1",
-  fn() {
-    const level1 = classifyShellCommand("git diff");
-    assertEquals(level1, "L1");
-
-    const level2 = classifyShellCommand("git diff HEAD");
-    assertEquals(level2, "L1");
-
-    const level3 = classifyShellCommand("git diff main..dev");
-    assertEquals(level3, "L1");
+    assertEquals(classifyShellCommand("git status"), "L0");
+    assertEquals(classifyShellCommand("git log"), "L0");
+    assertEquals(classifyShellCommand("git log --oneline"), "L0");
+    assertEquals(classifyShellCommand("git log -10"), "L0");
+    assertEquals(classifyShellCommand("git diff"), "L0");
+    assertEquals(classifyShellCommand("git diff HEAD"), "L0");
+    assertEquals(classifyShellCommand("git diff main..dev"), "L0");
   },
 });
 
@@ -105,18 +82,18 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Shell Tools: classifyShellCommand - read-only system commands are L1",
+  name: "Shell Tools: classifyShellCommand - all read-only commands are L0",
   fn() {
-    assertEquals(classifyShellCommand("ls -la"), "L1");
-    assertEquals(classifyShellCommand("echo hello"), "L1");
-    assertEquals(classifyShellCommand("pwd"), "L1");
-    assertEquals(classifyShellCommand("whoami"), "L1");
-    assertEquals(classifyShellCommand("cat file.txt"), "L1");
-    assertEquals(classifyShellCommand("top -l 1"), "L1");
-    assertEquals(classifyShellCommand("df -h"), "L1");
-    assertEquals(classifyShellCommand("ps aux"), "L1");
-    assertEquals(classifyShellCommand("open ~/Downloads"), "L1");
-    assertEquals(classifyShellCommand("mdfind test"), "L1");
+    assertEquals(classifyShellCommand("echo hello"), "L0");
+    assertEquals(classifyShellCommand("pwd"), "L0");
+    assertEquals(classifyShellCommand("whoami"), "L0");
+    assertEquals(classifyShellCommand("top -l 1"), "L0");
+    assertEquals(classifyShellCommand("df -h"), "L0");
+    assertEquals(classifyShellCommand("ps aux"), "L0");
+    assertEquals(classifyShellCommand("ls -la"), "L0");
+    assertEquals(classifyShellCommand("cat file.txt"), "L0");
+    assertEquals(classifyShellCommand("open ~/Downloads"), "L0");
+    assertEquals(classifyShellCommand("mdfind test"), "L0");
   },
 });
 
@@ -165,7 +142,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Shell Tools: shell_exec - L1 command classification",
+  name: "Shell Tools: shell_exec - L0 read-only command classification",
   async fn() {
     await setupWorkspace();
 
@@ -180,14 +157,14 @@ Deno.test({
     );
 
     assertEquals(result.success, true);
-    assertEquals(result.safetyLevel, "L1");
+    assertEquals(result.safetyLevel, "L0");
 
     await cleanupWorkspace();
   },
 });
 
 Deno.test({
-  name: "Shell Tools: shell_exec - L2 command classification",
+  name: "Shell Tools: shell_exec - L0 echo command classification",
   async fn() {
     await setupWorkspace();
 
@@ -199,7 +176,7 @@ Deno.test({
     );
 
     assertEquals(result.success, true);
-    assertEquals(result.safetyLevel, "L1");
+    assertEquals(result.safetyLevel, "L0");
 
     await cleanupWorkspace();
   },

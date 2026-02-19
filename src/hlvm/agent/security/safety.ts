@@ -272,10 +272,10 @@ export function classifyTool(
 /**
  * Classify shell_exec command
  *
- * Checks if command is in allow-list:
- * - git status, git log, git diff → L1
- * - deno test --dry-run → L1
- * - All other commands → L2
+ * Checks if command is in allow-lists:
+ * - Read-only commands (ls, cat, git status, etc.) → L0 (auto-approved)
+ * - Low-risk commands (deno test --dry-run) → L1 (prompt once)
+ * - Everything else → L2 (always prompt)
  *
  * @param args shell_exec arguments
  * @returns Safety classification
@@ -301,9 +301,7 @@ function classifyShellExec(args: unknown): SafetyClassification {
 
   const command = (args as { command: string }).command;
   const classification = classifyShellCommand(command);
-  return classification.level === "L1"
-    ? { level: "L1", reason: classification.reason }
-    : { level: "L2", reason: classification.reason };
+  return { level: classification.level, reason: classification.reason };
 }
 
 // ============================================================

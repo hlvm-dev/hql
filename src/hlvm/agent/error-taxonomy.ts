@@ -41,7 +41,10 @@ function isTransientNetworkError(message: string): boolean {
     message.includes("econnrefused") ||
     message.includes("enetunreach") ||
     message.includes("enotfound") ||
-    message.includes("etimedout");
+    message.includes("etimedout") ||
+    message.includes("http 500") ||
+    message.includes("http 502") ||
+    message.includes("http 503");
 }
 
 function isAuthError(message: string): boolean {
@@ -52,7 +55,9 @@ function isAuthError(message: string): boolean {
     message.includes("invalid x-api-key") ||
     message.includes("authentication_error") ||
     message.includes("exceeded your current quota") ||
-    message.includes("insufficient_quota");
+    message.includes("insufficient_quota") ||
+    message.includes("http 401") ||
+    message.includes("http 403");
 }
 
 function isContextOverflowError(message: string): boolean {
@@ -72,6 +77,7 @@ function isPermanentError(message: string): boolean {
     // Fix 10/11: Detect HTTP status codes from throwOnHttpError
     message.includes("http 400") ||
     message.includes("http 422") ||
+    message.includes("http 501") ||
     message.includes("not allowed") ||
     message.includes("permission denied") ||
     message.includes("denied by user");
@@ -167,6 +173,16 @@ export function getRecoveryHint(errorMessage: string): string | null {
   }
   if (msg.includes("rate limit") || msg.includes("429") || msg.includes("too many requests")) {
     return "Rate limit hit. Wait a moment before retrying this operation.";
+  }
+
+  // Schema errors
+  if (msg.includes("invalid") && msg.includes("schema")) {
+    return "Tool schema rejected by provider. Check tool definitions for invalid types.";
+  }
+
+  // Auth errors (HTTP status)
+  if (msg.includes("http 401") || msg.includes("http 403")) {
+    return "Authentication failed. Check your API key configuration.";
   }
 
   // Shell exit codes

@@ -6,6 +6,7 @@
  */
 
 import type { ToolMetadata } from "./registry.ts";
+import { getAgentLogger } from "./logger.ts";
 
 export interface JsonSchemaObject {
   type: "object";
@@ -28,6 +29,10 @@ interface ParsedArgSpec {
 
 const OPTIONAL_MARKER = "(optional)";
 
+const KNOWN_BASE_TYPES = new Set([
+  "string", "number", "boolean", "integer", "int", "object", "null", "any",
+]);
+
 function parseBaseType(typeToken: string): JsonSchemaProperty["type"] | "any" {
   const lower = typeToken.toLowerCase();
   if (lower === "string") return "string";
@@ -37,6 +42,7 @@ function parseBaseType(typeToken: string): JsonSchemaProperty["type"] | "any" {
   if (lower === "object") return "object";
   if (lower === "null") return "null";
   if (lower === "any") return "any"; // handled specially in schema builder — omits `type` field
+  getAgentLogger().warn(`Unknown arg type '${typeToken}', treating as string`);
   return "string";
 }
 
@@ -85,6 +91,37 @@ export function buildToolJsonSchema(tool: ToolMetadata): JsonSchemaObject {
     required: required.length > 0 ? required : undefined,
     additionalProperties: false,
   };
+}
+
+/**
+ * Validate a tool's arg schema, returning warnings for unknown types.
+ * Does NOT throw — MCP servers can report unusual types and we don't want to block them.
+ */
+export function validateToolSchema(name: string, tool: ToolMetadata): string[] {
+  const warnings: string[] = [];
+  for (const [argName, desc] of Object.entries(tool.args)) {
+    const left = desc.split(" - ")[0]?.trim() ?? "";
+    const cleaned = left.replace(OPTIONAL_MARKER, "").trim();
+    const typeToken = cleaned.split(/\s+/)[0] ?? "string";
+    const baseToken = typeToken.endsWith("[]") ? typeToken.slice(0, -2) : typeToken;
+    if (baseToken && !KNOWN_BASE_TYPES.has(baseToken.toLowerCase())) {
+      warnings.push(`Tool '${name}' arg '${argName}': unknown type '${baseToken}', treating as string`);
+    }
+  }
+  return warnings;
+}
+
+/**
+ * SSOT function for sanitizing tool names to be provider-compatible.
+ * Cross-provider safe: [a-zA-Z0-9_-], leading letter, max 64 chars.
+ * (OpenAI & Anthropic both enforce ^[a-zA-Z0-9_-]{1,64}$)
+ */
+export function sanitizeToolName(name: string): string {
+  let sanitized = name.replace(/[^a-zA-Z0-9_-]/g, "_");
+  if (sanitized.length === 0 || !/^[a-zA-Z]/.test(sanitized)) {
+    sanitized = "t_" + sanitized;
+  }
+  return sanitized.slice(0, 64);
 }
 
 function isTypeMatch(value: unknown, schema: JsonSchemaProperty): boolean {

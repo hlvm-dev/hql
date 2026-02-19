@@ -23,6 +23,7 @@ import {
   type ToolMetadata,
   unregisterTool,
 } from "./registry.ts";
+import { sanitizeToolName } from "./tool-schema.ts";
 
 // ============================================================
 // Types
@@ -578,7 +579,7 @@ export async function loadMcpTools(
       const entries: Record<string, ToolMetadata> = {};
       for (const tool of tools) {
         // Sanitize: Anthropic requires tool names to match ^[a-zA-Z0-9_-]{1,128}$
-        const name = `mcp_${server.name}_${tool.name}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 128);
+        const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
         const argsSchema = buildArgsSchema(tool.inputSchema);
         const skipValidation = Object.keys(argsSchema).length === 0;
         const safetyLevel = inferMcpSafetyLevel(tool.name, tool.description);

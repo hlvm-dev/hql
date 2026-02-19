@@ -129,6 +129,13 @@ export function getSessionsDir(): string {
 }
 
 /**
+ * Get the checkpoints directory (~/.hlvm/checkpoints)
+ */
+export function getCheckpointsDir(): string {
+  return join(getHlvmDir(), "checkpoints");
+}
+
+/**
  * Get the conversations database path (~/.hlvm/conversations.db)
  */
 export function getConversationsDbPath(): string {

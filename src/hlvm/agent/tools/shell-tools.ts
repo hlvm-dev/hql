@@ -45,7 +45,7 @@ export interface ShellExecArgs {
 interface ShellExecResult extends ShellResult {
   success: boolean;
   message?: string;
-  safetyLevel?: "L1" | "L2";
+  safetyLevel?: "L0" | "L1" | "L2";
 }
 
 /** Arguments for shell_script tool */
@@ -67,7 +67,7 @@ const FORCE_KILL_DELAY_MS = 2000;
  * Backward-compatible classifier returning only safety level.
  * Use classifyShellCommandWithReason for detailed reasons.
  */
-export function classifyShellCommand(command: string): "L1" | "L2" {
+export function classifyShellCommand(command: string): "L0" | "L1" | "L2" {
   return classifyShellCommandWithReason(command).level;
 }
 
@@ -478,7 +478,7 @@ export const SHELL_TOOLS = {
       stdout: "string - Standard output",
       stderr: "string - Standard error",
       exitCode: "number - Process exit code",
-      safetyLevel: "string - Applied safety level (L1/L2)",
+      safetyLevel: "string - Applied safety level (L0/L1/L2)",
       message: "string - Human-readable result message",
     },
     safety:

@@ -12,6 +12,7 @@ import { readSingleKey } from "../utils/input.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { isObjectValue, truncate } from "../../../common/utils.ts";
 import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
+import { classifyError, getRecoveryHint } from "../../agent/error-taxonomy.ts";
 import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -368,6 +369,17 @@ export async function askCommand(args: string[]): Promise<void> {
     );
   }
 
+  // First-use bootstrap: if user has Claude Code auth available, default to it automatically.
+  if (!modelOverride && !config.snapshot.modelConfigured) {
+    const { autoConfigureInitialClaudeCodeModel } = await import(
+      "../../../common/ai-default-model.ts"
+    );
+    const autoModel = await autoConfigureInitialClaudeCodeModel();
+    if (autoModel) {
+      modelOverride = autoModel;
+    }
+  }
+
   // First-run gate: no model explicitly chosen + not yet configured + interactive terminal
   // HLVM_FORCE_SETUP=1 bypasses the terminal check (for E2E testing)
   const forceSetup = getPlatform().env.get("HLVM_FORCE_SETUP") === "1";
@@ -569,7 +581,10 @@ export async function askCommand(args: string[]): Promise<void> {
   if (recovery.recovered) return;
 
   if (executionError instanceof Error) {
-    log.error(`Agent error: ${executionError.message}`);
+    const classified = classifyError(executionError);
+    const hint = getRecoveryHint(executionError.message);
+    log.error(`Agent error (${classified.class}): ${executionError.message}`);
+    if (hint) log.error(`Hint: ${hint}`);
     throw executionError;
   }
   throw executionError;

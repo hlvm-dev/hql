@@ -66,7 +66,14 @@ function extractErrorMessage(text: string): string | null {
   try {
     const json = JSON.parse(text) as Record<string, unknown>;
     const err = json.error as Record<string, unknown> | undefined;
-    if (typeof err?.message === "string") return err.message;
+    if (typeof err?.message === "string") {
+      const suffixes: string[] = [];
+      if (typeof err.type === "string") suffixes.push(`type: ${err.type}`);
+      if (err.code !== undefined) suffixes.push(`code: ${err.code}`);
+      return suffixes.length > 0
+        ? `${err.message} [${suffixes.join(", ")}]`
+        : err.message;
+    }
   } catch { /* not JSON or unexpected shape */ }
   return null;
 }

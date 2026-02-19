@@ -48,22 +48,36 @@
  * }
  * ```
  */
-export const SHELL_ALLOWLIST_L1: readonly RegExp[] = [
+/**
+ * L0 shell commands — read-only, no side effects, auto-approved.
+ * Same trust level as read_file / list_files / open_path.
+ */
+export const SHELL_ALLOWLIST_L0: readonly RegExp[] = [
   // Git read-only
   /^git\s+status$/,
   /^git\s+log/,
   /^git\s+diff/,
-  // Build tools (dry-run only)
-  /^deno\s+test\s+.*--dry-run/,
+  // File/dir reading (same data as read_file / list_files)
+  /^(ls|cat|head|tail|wc|file|stat|md5|shasum)\s/,
+  /^(ls|pwd)$/,
+  // Search (same data as search_code / list_files)
+  /^(find|locate|mdfind)\s/,
+  // Open (same as open_path)
+  /^open\s/,
   // System info (read-only, no side effects)
-  /^(ls|pwd|whoami|hostname|uname|date|uptime|which|where|type)\b/,
-  /^(cat|head|tail|wc|file|stat|md5|shasum)\s/,
+  /^(pwd|whoami|hostname|uname|date|uptime|which|where|type)\b/,
   /^(top\s+-l\s|vm_stat|sysctl\s|sw_vers|system_profiler)/,
   /^(ps\s+(aux|ef|ax)|ps$)/,
   /^(df|du)\s/,
   /^(echo|printf)\s/,
-  /^(find|locate|mdfind)\s/,
-  /^open\s/,
+] as const;
+
+/**
+ * L1 shell commands — low risk but not purely read-only, prompt once per session.
+ */
+export const SHELL_ALLOWLIST_L1: readonly RegExp[] = [
+  // Build tools (dry-run only)
+  /^deno\s+test\s+.*--dry-run/,
 ] as const;
 
 // ============================================================

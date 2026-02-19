@@ -165,7 +165,7 @@ Deno.test({
         }),
       description: "Fake search tool for tests",
       args: { query: "string - Query to search" },
-      safetyLevel: "L1" as const,
+      safetyLevel: "L0" as const,
     });
 
     try {

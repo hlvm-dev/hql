@@ -28,7 +28,9 @@ import {
   buildToolJsonSchema,
   coerceArgsToSchema,
   validateArgsAgainstSchema,
+  validateToolSchema,
 } from "./tool-schema.ts";
+import { getAgentLogger } from "./logger.ts";
 
 // ============================================================
 // Types
@@ -133,8 +135,8 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
       result: "string",
       stats: "object",
     },
-    safetyLevel: "L1",
-    safety: "Delegation triggers sub-agent tool use (policy-gated).",
+    safetyLevel: "L0",
+    safety: "Internal delegation (auto-approved).",
   },
   ...DATA_TOOLS,
   ...GIT_TOOLS,
@@ -604,8 +606,8 @@ export function getToolArgSchema(
 // Dynamic Tool Registration (e.g., MCP)
 // ============================================================
 
-/** Fix 18: Valid tool name pattern — alphanumeric + separators, max 64 chars */
-const VALID_TOOL_NAME = /^[a-zA-Z][a-zA-Z0-9_/.-]{0,63}$/;
+/** Valid tool name pattern — cross-provider safe (OpenAI/Anthropic: max 64 chars) */
+const VALID_TOOL_NAME = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 
 /**
  * Register a dynamic tool by name.
@@ -626,6 +628,8 @@ export function registerTool(name: string, tool: ToolMetadata): void {
       "tool_registry",
     );
   }
+  const warnings = validateToolSchema(name, tool);
+  for (const w of warnings) getAgentLogger().warn(w);
   const entry = DYNAMIC_TOOL_REGISTRY.get(name);
   if (entry?.fallbackTool) {
     throw new ValidationError(
@@ -672,6 +676,8 @@ export function registerTools(
         "tool_registry",
       );
     }
+    const warnings = validateToolSchema(name, tool);
+    for (const w of warnings) getAgentLogger().warn(w);
     const entry = DYNAMIC_TOOL_REGISTRY.get(name);
     if (!entry) {
       DYNAMIC_TOOL_REGISTRY.set(name, {

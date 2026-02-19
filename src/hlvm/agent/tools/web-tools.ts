@@ -1054,8 +1054,8 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       count: "number",
       provider: "string",
     },
-    safetyLevel: "L1",
-    safety: "External network access (policy-gated).",
+    safetyLevel: "L0",
+    safety: "Read-only web search (auto-approved).",
   },
   fetch_url: {
     fn: fetchUrl,
@@ -1074,8 +1074,8 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       truncated: "boolean",
       text: "string",
     },
-    safetyLevel: "L1",
-    safety: "External network access (policy-gated).",
+    safetyLevel: "L0",
+    safety: "Read-only web fetch (auto-approved).",
   },
   web_fetch: {
     fn: webFetch,
@@ -1105,7 +1105,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       firecrawl: "boolean",
       redirects: "string[]",
     },
-    safetyLevel: "L1",
-    safety: "External network access (policy-gated).",
+    safetyLevel: "L0",
+    safety: "Read-only web fetch (auto-approved).",
   },
 };

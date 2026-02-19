@@ -23,9 +23,11 @@ import {
   getOrCreateCachedSession,
   runAgentQuery,
 } from "../../../agent/agent-runner.ts";
+import { autoConfigureInitialClaudeCodeModel } from "../../../../common/ai-default-model.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
 import type { InteractionResponse } from "../../../agent/orchestrator.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
+import { classifyError } from "../../../agent/error-taxonomy.ts";
 import { log } from "../../../api/log.ts";
 import {
   jsonError,
@@ -515,7 +517,11 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
-  const cfgSnapshot = config.snapshot;
+  let cfgSnapshot = config.snapshot;
+  if (!body.model && !cfgSnapshot.modelConfigured) {
+    await autoConfigureInitialClaudeCodeModel();
+    cfgSnapshot = config.snapshot;
+  }
   const resolvedModel = body.model ?? cfgSnapshot.model;
 
   if (
@@ -752,7 +758,8 @@ export async function handleChat(req: Request): Promise<Response> {
           if (partialText.length === 0) {
             emit({ event: "token", text: `Error: ${errorMsg}` });
           }
-          emit({ event: "error", message: errorMsg });
+          const classified = classifyError(error);
+          emit({ event: "error", message: errorMsg, errorClass: classified.class, retryable: classified.retryable });
         }
       }
 

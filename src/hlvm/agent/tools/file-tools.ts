@@ -937,7 +937,7 @@ export const FILE_TOOLS = {
   write_file: {
     fn: writeFile,
     description: "Write content to file",
-    safetyLevel: "L2",
+    safetyLevel: "L1",
     args: {
       path:
         "string - Path to file (relative to workspace or absolute if allowed by policy)",
@@ -954,7 +954,7 @@ export const FILE_TOOLS = {
   edit_file: {
     fn: editFile,
     description: "Edit file using find/replace",
-    safetyLevel: "L2",
+    safetyLevel: "L1",
     args: {
       path:
         "string - Path to file (relative to workspace or absolute if allowed by policy)",
@@ -1015,10 +1015,10 @@ Examples:
   open_path: {
     fn: openPath,
     description:
-      "Open a file or directory with the system default app (Finder/Explorer/file manager).",
+      "PREFERRED way to open any file, folder, or path. Opens in the system default app (Finder/Explorer/file manager). Use this instead of shell_exec 'open'. No permission required.",
     safetyLevel: "L0",
     args: {
-      path: "string - Path to open (e.g., '~/Downloads', './notes.txt')",
+      path: "string - Path to open (e.g., '~/Downloads', '~/.Trash', './notes.txt')",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",

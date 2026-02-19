@@ -40,6 +40,7 @@ import {
 } from "./constants.ts";
 import { hashString } from "../../common/utils.ts";
 import { UsageTracker } from "./usage.ts";
+import { createCheckpoint } from "./checkpoint-service.ts";
 import { ContextManager } from "./context.ts";
 import type { ModelInfo } from "../providers/types.ts";
 
@@ -284,7 +285,7 @@ export async function runAgentQuery(
       role: "system",
       content: `Allowed file roots: ${
         DEFAULT_AGENT_PATH_ROOTS.join(", ")
-      }${homeNote}. Use list_files for user folders. Avoid placeholders like "/home/user" or "/Downloads" - use "~/Downloads" instead.`,
+      }${homeNote}. Use list_files for user folders. Avoid placeholders like "/home/user" or "/Downloads" - use "~/Downloads" instead. Prefer dedicated tools over shell_exec (e.g., open_path instead of shell_exec "open", read_file instead of shell_exec "cat").`,
     });
 
     let policy = session.policy;
@@ -293,6 +294,16 @@ export async function runAgentQuery(
       policy,
       autoApprove: false,
     });
+
+    // Checkpoint workspace before agent mutations (opt-in)
+    try {
+      const { config: cfgApi } = await import("../api/config.ts");
+      if (cfgApi.snapshot.checkpointing === true) {
+        await createCheckpoint(workspace, options.signal);
+      }
+    } catch {
+      // Non-blocking: checkpoint failure must never break agent execution
+    }
 
     const usageTracker = new UsageTracker();
 

@@ -67,10 +67,10 @@ Deno.test("fetch_url respects network policy (deny)", async () => {
   );
 });
 
-Deno.test("web tools metadata declares L1 safety", () => {
-  assertEquals(WEB_TOOLS.search_web.safetyLevel, "L1");
-  assertEquals(WEB_TOOLS.fetch_url.safetyLevel, "L1");
-  assertEquals(WEB_TOOLS.web_fetch.safetyLevel, "L1");
+Deno.test("web tools metadata declares L0 safety", () => {
+  assertEquals(WEB_TOOLS.search_web.safetyLevel, "L0");
+  assertEquals(WEB_TOOLS.fetch_url.safetyLevel, "L0");
+  assertEquals(WEB_TOOLS.web_fetch.safetyLevel, "L0");
 });
 
 Deno.test("scoreSearchResults ranks higher relevance first", () => {

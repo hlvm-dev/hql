@@ -11,6 +11,10 @@ import {
   hasTool,
   prepareToolArgsForExecution,
 } from "../../../src/hlvm/agent/registry.ts";
+import {
+  sanitizeToolName,
+  validateToolSchema,
+} from "../../../src/hlvm/agent/tool-schema.ts";
 
 Deno.test("loadMcpConfig returns null when missing", async () => {
   const platform = getPlatform();
@@ -282,4 +286,27 @@ Deno.test("inferMcpSafetyLevel classifies read and mutating tool names", () => {
   assertEquals(inferMcpSafetyLevel("delete_record"), "L2");
   assertEquals(inferMcpSafetyLevel("run_script"), "L2");
   assertEquals(inferMcpSafetyLevel("custom_tool_without_hint"), "L1");
+});
+
+// ============================================================
+// sanitizeToolName & validateToolSchema (SSOT for all providers)
+// ============================================================
+
+Deno.test("sanitizeToolName: cross-provider safe (dots, slashes, length, leading letter)", () => {
+  // Replaces invalid chars
+  assertEquals(sanitizeToolName("mcp_server.name/tool"), "mcp_server_name_tool");
+  // Truncates to 64 (OpenAI + Anthropic max)
+  const longName = "a" + "_x".repeat(80);
+  assertEquals(sanitizeToolName(longName).length, 64);
+  // Ensures leading letter when name starts with non-letter
+  assertEquals(/^[a-zA-Z]/.test(sanitizeToolName("123_tool")), true);
+  assertEquals(/^[a-zA-Z]/.test(sanitizeToolName("_tool")), true);
+});
+
+Deno.test("validateToolSchema: warns on unknown types, clean for valid", () => {
+  const badTool = { fn: async () => {}, description: "test", args: { x: "banana - weird" } };
+  assertEquals(validateToolSchema("t", badTool).length, 1);
+
+  const goodTool = { fn: async () => {}, description: "test", args: { a: "string - ok", b: "number (optional) - ok" } };
+  assertEquals(validateToolSchema("t", goodTool).length, 0);
 });

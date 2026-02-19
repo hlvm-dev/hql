@@ -35,6 +35,7 @@ import type {
   PlatformWriteOptions,
   SignalType,
 } from "./types.ts";
+import { buildOpenCommand } from "./platform-shared.ts";
 
 // =============================================================================
 // Helper Functions
@@ -108,19 +109,10 @@ function createDenoCommand(options: PlatformCommandOptions): Deno.Command {
   });
 }
 
+/** Create the OS-specific command to open a URL or file path. */
 function createOpenUrlCommand(url: string): Deno.Command {
-  switch (Deno.build.os) {
-    case "darwin":
-      return new Deno.Command("open", { args: [url] });
-    case "windows":
-      // 'start' is a cmd.exe builtin, not a standalone executable
-      // Must run via: cmd.exe /c start "" "url"
-      // The empty string "" prevents start from treating the URL as window title
-      return new Deno.Command("cmd.exe", { args: ["/c", "start", "", url] });
-    default:
-      // Linux and other Unix-like systems
-      return new Deno.Command("xdg-open", { args: [url] });
-  }
+  const { cmd, args } = buildOpenCommand(DenoBuild.os, url);
+  return new Deno.Command(cmd, { args });
 }
 
 // =============================================================================
