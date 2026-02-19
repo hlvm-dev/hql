@@ -70,7 +70,9 @@ export function createDelegateHandler(
 
     const allowedTools = resolveAllowedTools(profile.name, config.toolOwnerId);
     // Use parent context's resolved budget instead of hardcoded default
+    const parentCtxConfig = config.context.getConfig();
     const context = new ContextManager({
+      ...parentCtxConfig,
       maxTokens: config.context.getMaxTokens(),
     });
     context.addMessage({

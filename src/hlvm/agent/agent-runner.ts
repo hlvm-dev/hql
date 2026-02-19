@@ -18,10 +18,11 @@ import { getPlatform } from "../../platform/platform.ts";
 import { type AgentSession, createAgentSession } from "./session.ts";
 import { createDelegateHandler } from "./delegation.ts";
 import {
-  type LLMFunction,
   runReActLoop,
   type AgentUIEvent,
   type TraceEvent,
+  type InteractionRequestEvent,
+  type InteractionResponse,
 } from "./orchestrator.ts";
 import {
   type AgentSessionEntry,
@@ -37,8 +38,9 @@ import {
   MAX_SESSION_HISTORY,
 } from "./constants.ts";
 import { hashString } from "../../common/utils.ts";
-import { RuntimeError } from "../../common/error.ts";
 import { UsageTracker } from "./usage.ts";
+import { ContextManager } from "./context.ts";
+import type { ModelInfo } from "../providers/types.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -46,6 +48,66 @@ const DEFAULT_AGENT_PATH_ROOTS = [
   "~/Desktop",
   "~/Documents",
 ];
+
+// ============================================================
+// Session Cache — avoids re-creating policy/MCP/LLM per query
+// ============================================================
+const sessionCache = new Map<string, AgentSession>();
+
+/** Get or create a cached session for a workspace:model pair. */
+export async function getOrCreateCachedSession(
+  workspace: string,
+  model: string,
+  opts?: {
+    contextWindow?: number;
+    toolDenylist?: string[];
+    onToken?: (text: string) => void;
+    modelInfo?: ModelInfo | null;
+  },
+): Promise<AgentSession> {
+  const key = `${workspace}:${model}`;
+  const existing = sessionCache.get(key);
+  if (existing) return existing;
+
+  const session = await createAgentSession({
+    workspace,
+    model,
+    contextWindow: opts?.contextWindow,
+    engineProfile: "normal",
+    failOnContextOverflow: false,
+    toolDenylist: opts?.toolDenylist,
+    onToken: opts?.onToken,
+    modelInfo: opts?.modelInfo,
+  });
+  sessionCache.set(key, session);
+  return session;
+}
+
+/** Dispose all cached sessions (call on server shutdown). */
+export async function disposeAllSessions(): Promise<void> {
+  const sessions = [...sessionCache.values()];
+  sessionCache.clear();
+  await Promise.allSettled(sessions.map((s) => s.dispose()));
+}
+
+/**
+ * Create a fresh context + l1Confirmations from a cached session.
+ * Reuses llm, policy, toolOwnerId, profile, isFrontierModel, resolvedContextBudget.
+ */
+function reuseSession(cached: AgentSession): AgentSession {
+  const context = new ContextManager(cached.context.getConfig());
+  // Copy system prompt from cached session
+  const systemMsg = cached.context.getMessages().find((m) => m.role === "system");
+  if (systemMsg) {
+    context.addMessage({ role: "system", content: systemMsg.content });
+  }
+
+  return {
+    ...cached,
+    context,
+    l1Confirmations: new Map<string, boolean>(),
+  };
+}
 
 function deriveDefaultSessionKey(workspace: string): string {
   const platform = getPlatform();
@@ -74,6 +136,7 @@ export interface AgentRunnerCallbacks {
   onToken?: (text: string) => void;
   onAgentEvent?: (event: AgentUIEvent) => void;
   onTrace?: (event: TraceEvent) => void;
+  onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>;
 }
 
 export interface AgentRunnerOptions {
@@ -89,6 +152,10 @@ export interface AgentRunnerOptions {
   skipSessionHistory?: boolean;
   signal?: AbortSignal;
   messageHistory?: import("./context.ts").Message[];
+  /** Pre-fetched model info to avoid duplicate provider API calls */
+  modelInfo?: ModelInfo | null;
+  /** Reuse an existing session (skips policy/MCP/LLM setup) */
+  cachedSession?: AgentSession;
 }
 
 export interface AgentRunnerResult {
@@ -157,15 +224,19 @@ export async function runAgentQuery(
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
 
-  const session: AgentSession = await createAgentSession({
-    workspace,
-    model,
-    contextWindow: options.contextWindow,
-    engineProfile: "normal",
-    failOnContextOverflow: false,
-    toolDenylist,
-    onToken: callbacks.onToken,
-  });
+  const isCached = !!options.cachedSession;
+  const session: AgentSession = options.cachedSession
+    ? reuseSession(options.cachedSession)
+    : await createAgentSession({
+      workspace,
+      model,
+      contextWindow: options.contextWindow,
+      engineProfile: "normal",
+      failOnContextOverflow: false,
+      toolDenylist,
+      onToken: callbacks.onToken,
+      modelInfo: options.modelInfo,
+    });
 
   const useExternalHistory = !!options.messageHistory;
   const sessionKey = (skipSessionHistory || useExternalHistory)
@@ -203,16 +274,6 @@ export async function runAgentQuery(
       autoApprove: false,
     });
 
-    let llm: LLMFunction = session.llm;
-    if (options.signal) {
-      const outerSignal = options.signal;
-      const innerLlm = session.llm;
-      llm = (messages, signal) => {
-        if (outerSignal.aborted) throw new RuntimeError("Request cancelled");
-        return innerLlm(messages, signal);
-      };
-    }
-
     const usageTracker = new UsageTracker();
 
     const text = await runReActLoop(
@@ -226,6 +287,7 @@ export async function runAgentQuery(
         policy,
         onTrace: callbacks.onTrace,
         onAgentEvent: callbacks.onAgentEvent,
+        onInteraction: callbacks.onInteraction,
         noInput,
         delegate,
         planning: { mode: "off", requireStepMarkers: false },
@@ -235,7 +297,7 @@ export async function runAgentQuery(
         l1Confirmations: session.l1Confirmations,
         toolOwnerId: session.toolOwnerId,
       },
-      llm,
+      session.llm,
     );
 
     if (sessionEntry) {
@@ -261,6 +323,9 @@ export async function runAgentQuery(
       },
     };
   } finally {
-    await session.dispose();
+    // Only dispose non-cached sessions; cached sessions are managed by the cache
+    if (!isCached) {
+      await session.dispose();
+    }
   }
 }

@@ -22,3 +22,13 @@ export function loadAllMessages(sessionId: string): MessageRow[] {
   }
   return allMessages;
 }
+
+/**
+ * Load only the most recent messages for a session.
+ * Much faster than loadAllMessages() when only recent context is needed
+ * (e.g., agent mode uses last ~10 messages, not the full 100K+ history).
+ */
+export function loadRecentMessages(sessionId: string, limit: number): MessageRow[] {
+  const result = getMessages(sessionId, { limit, sort: "desc" });
+  return result.messages.reverse();
+}

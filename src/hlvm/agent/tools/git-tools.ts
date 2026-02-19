@@ -20,6 +20,7 @@ import type { ToolExecutionOptions } from "../registry.ts";
 import { formatToolError, okTool, failTool } from "../tool-results.ts";
 import { isPathWithinRoot } from "../security/path-sandbox.ts";
 import { ValidationError } from "../../../common/error.ts";
+import { readProcessStream } from "../../../common/stream-utils.ts";
 
 // ============================================================
 // Types
@@ -96,8 +97,8 @@ async function runGit(
   });
 
   const [stdoutBytes, stderrBytes, status] = await Promise.all([
-    readStream(process.stdout),
-    readStream(process.stderr),
+    readProcessStream(process.stdout),
+    readProcessStream(process.stderr),
     process.status,
   ]);
 
@@ -114,38 +115,6 @@ async function runGit(
   };
 }
 
-async function readStream(stream: unknown): Promise<Uint8Array> {
-  if (
-    !stream ||
-    typeof (stream as ReadableStream<Uint8Array>).getReader !== "function"
-  ) {
-    return new Uint8Array();
-  }
-
-  const reader = (stream as ReadableStream<Uint8Array>).getReader();
-  const chunks: Uint8Array[] = [];
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  if (chunks.length === 0) return new Uint8Array();
-  if (chunks.length === 1) return chunks[0];
-  const total = chunks.reduce((s, c) => s + c.length, 0);
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
-}
 
 async function resolveGitPathspec(
   inputPath: string,

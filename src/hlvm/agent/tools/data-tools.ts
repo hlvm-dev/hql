@@ -378,35 +378,244 @@ function parseValues(
   return parsed;
 }
 
+// Safe math functions available in expressions (no property access, no code generation)
+const MATH_FUNCTIONS: Readonly<Record<string, (...args: number[]) => number>> = {
+  abs: Math.abs,
+  floor: Math.floor,
+  ceil: Math.ceil,
+  round: Math.round,
+  sqrt: Math.sqrt,
+  min: (...args: number[]) => Math.min(...args),
+  max: (...args: number[]) => Math.max(...args),
+  pow: Math.pow,
+  log: Math.log,
+  sin: Math.sin,
+  cos: Math.cos,
+  tan: Math.tan,
+};
+
+/**
+ * Safe math expression evaluator using recursive descent parsing.
+ * Replaces the previous new Function() approach which was vulnerable to
+ * prototype chain traversal via dot notation (e.g. a.constructor.constructor).
+ *
+ * Supports: +, -, *, /, %, ** (power), parentheses, number literals,
+ * variable references, and whitelisted Math functions.
+ * NO property access, NO Function construction, NO eval.
+ *
+ * Grammar:
+ *   expr           = additive
+ *   additive       = multiplicative (('+' | '-') multiplicative)*
+ *   multiplicative = power (('*' | '/' | '%') power)*
+ *   power          = unary ('**' unary)*   (right-associative)
+ *   unary          = ('-' | '+') unary | primary
+ *   primary        = NUMBER | IDENT '(' expr (',' expr)* ')' | IDENT | '(' expr ')'
+ */
 function evaluateExpression(
   expression: string,
   values: Record<string, number>,
   toolName: string,
 ): number {
-  const trimmed = expression.trim();
-  if (!trimmed) {
+  const src = expression.trim();
+  if (!src) {
     throw new ValidationError("expression must be non-empty", toolName);
   }
-  const allowed = /^[0-9A-Za-z_+\-*/%().\s]*$/;
-  if (!allowed.test(trimmed)) {
+
+  // Reject characters that have no place in a math expression.
+  // Allowed: digits, letters, underscores, operators, parens, commas,
+  // dots (for decimal literals only -- the parser enforces this structurally),
+  // and whitespace.
+  const allowedChars = /^[0-9A-Za-z_+\-*/%().,\s]*$/;
+  if (!allowedChars.test(src)) {
     throw new ValidationError("expression contains unsupported characters", toolName);
   }
-  const identifiers = trimmed.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
-  const unique = Array.from(new Set(identifiers));
-  for (const name of unique) {
-    if (!(name in values)) {
+
+  let pos = 0;
+
+  function skipWs(): void {
+    while (pos < src.length && /\s/.test(src[pos])) pos++;
+  }
+
+  function peek(): string {
+    skipWs();
+    return src[pos] ?? "";
+  }
+
+  function consume(ch: string): void {
+    skipWs();
+    if (src[pos] !== ch) {
       throw new ValidationError(
-        `Unknown identifier "${name}". Provide values for: ${unique.join(", ")}`,
+        `Expected '${ch}' at position ${pos} in expression`,
         toolName,
       );
     }
+    pos++;
   }
 
-  const args = unique;
-  const fn = new Function(...args, `return (${trimmed});`) as (
-    ...params: number[]
-  ) => number;
-  const result = fn(...args.map((name) => values[name]));
+  function parseNumberLiteral(): number {
+    skipWs();
+    const start = pos;
+    while (pos < src.length && /[0-9]/.test(src[pos])) pos++;
+    if (pos < src.length && src[pos] === ".") {
+      pos++;
+      if (pos >= src.length || !/[0-9]/.test(src[pos])) {
+        throw new ValidationError(
+          `Invalid number at position ${start} in expression`,
+          toolName,
+        );
+      }
+      while (pos < src.length && /[0-9]/.test(src[pos])) pos++;
+    }
+    if (pos === start) {
+      throw new ValidationError(
+        `Expected number at position ${pos} in expression`,
+        toolName,
+      );
+    }
+    return Number(src.slice(start, pos));
+  }
+
+  function parseIdentifier(): string {
+    skipWs();
+    const start = pos;
+    if (pos < src.length && /[A-Za-z_]/.test(src[pos])) {
+      pos++;
+      while (pos < src.length && /[A-Za-z0-9_]/.test(src[pos])) pos++;
+    }
+    return src.slice(start, pos);
+  }
+
+  function parsePrimary(): number {
+    skipWs();
+    const ch = src[pos] ?? "";
+
+    // Parenthesized sub-expression
+    if (ch === "(") {
+      consume("(");
+      const val = parseAdditive();
+      consume(")");
+      return val;
+    }
+
+    // Number literal
+    if (/[0-9]/.test(ch) || (ch === "." && pos + 1 < src.length && /[0-9]/.test(src[pos + 1]))) {
+      return parseNumberLiteral();
+    }
+
+    // Identifier: variable reference or function call
+    if (/[A-Za-z_]/.test(ch)) {
+      const name = parseIdentifier();
+      skipWs();
+
+      // Function call: name followed by '('
+      if (pos < src.length && src[pos] === "(") {
+        const fn = MATH_FUNCTIONS[name];
+        if (!fn) {
+          throw new ValidationError(
+            `Unknown function "${name}". Supported: ${Object.keys(MATH_FUNCTIONS).join(", ")}`,
+            toolName,
+          );
+        }
+        consume("(");
+        const fnArgs: number[] = [];
+        if (peek() !== ")") {
+          fnArgs.push(parseAdditive());
+          while (peek() === ",") {
+            consume(",");
+            fnArgs.push(parseAdditive());
+          }
+        }
+        consume(")");
+        return fn(...fnArgs);
+      }
+
+      // Variable reference
+      if (!(name in values)) {
+        throw new ValidationError(
+          `Unknown identifier "${name}". Provide it in values or use a supported function: ${Object.keys(MATH_FUNCTIONS).join(", ")}`,
+          toolName,
+        );
+      }
+      return values[name];
+    }
+
+    throw new ValidationError(
+      `Unexpected character '${ch}' at position ${pos} in expression`,
+      toolName,
+    );
+  }
+
+  function parseUnary(): number {
+    skipWs();
+    const ch = src[pos] ?? "";
+    if (ch === "-") {
+      pos++;
+      return -parseUnary();
+    }
+    if (ch === "+") {
+      pos++;
+      return parseUnary();
+    }
+    return parsePrimary();
+  }
+
+  function parsePower(): number {
+    let base = parseUnary();
+    skipWs();
+    if (pos + 1 < src.length && src[pos] === "*" && src[pos + 1] === "*") {
+      pos += 2;
+      base = base ** parsePower(); // right-associative
+    }
+    return base;
+  }
+
+  function parseMultiplicative(): number {
+    let left = parsePower();
+    while (true) {
+      skipWs();
+      const ch = src[pos] ?? "";
+      if (ch === "*" && (pos + 1 >= src.length || src[pos + 1] !== "*")) {
+        pos++;
+        left = left * parsePower();
+      } else if (ch === "/") {
+        pos++;
+        left = left / parsePower();
+      } else if (ch === "%") {
+        pos++;
+        left = left % parsePower();
+      } else {
+        break;
+      }
+    }
+    return left;
+  }
+
+  function parseAdditive(): number {
+    let left = parseMultiplicative();
+    while (true) {
+      skipWs();
+      const ch = src[pos] ?? "";
+      if (ch === "+") {
+        pos++;
+        left = left + parseMultiplicative();
+      } else if (ch === "-") {
+        pos++;
+        left = left - parseMultiplicative();
+      } else {
+        break;
+      }
+    }
+    return left;
+  }
+
+  const result = parseAdditive();
+  skipWs();
+  if (pos < src.length) {
+    throw new ValidationError(
+      `Unexpected character '${src[pos]}' at position ${pos} in expression`,
+      toolName,
+    );
+  }
   if (typeof result !== "number" || Number.isNaN(result)) {
     throw new ValidationError("expression did not evaluate to a number", toolName);
   }

@@ -19,7 +19,6 @@ import { SHELL_TOOLS } from "./tools/shell-tools.ts";
 import { META_TOOLS } from "./tools/meta-tools.ts";
 import { WEB_TOOLS } from "./tools/web-tools.ts";
 import { MEMORY_TOOLS } from "./tools/memory-tools.ts";
-import { AGENT_TOOLS } from "./tools/agent-tools.ts";
 import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { ValidationError } from "../../common/error.ts";
@@ -35,10 +34,28 @@ import {
 // Types
 // ============================================================
 
+/** Response from GUI/CLI to an interaction request */
+export interface InteractionResponse {
+  approved: boolean;
+  rememberChoice?: boolean;
+  userInput?: string;
+}
+
+/** Interaction request event emitted to GUI/CLI */
+export interface InteractionRequestEvent {
+  type: "interaction_request";
+  requestId: string;
+  mode: "permission" | "question";
+  toolName?: string;
+  toolArgs?: string;
+  question?: string;
+}
+
 /** Optional execution options passed to tools (e.g., cancellation signal) */
 export interface ToolExecutionOptions {
   signal?: AbortSignal;
   policy?: AgentPolicy | null;
+  onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>;
 }
 
 /** Generic tool function signature */
@@ -97,7 +114,28 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...META_TOOLS,
   ...WEB_TOOLS,
   ...MEMORY_TOOLS,
-  ...AGENT_TOOLS,
+  delegate_agent: {
+    fn: () =>
+      Promise.reject(new ValidationError(
+        "delegate_agent is not configured. Ensure the session provides a delegate handler.",
+        "delegate_agent",
+      )),
+    description:
+      "Delegate a task to a specialist agent and return its result.",
+    args: {
+      agent: "string - Agent name (general, code, file, shell, web, memory)",
+      task: "string - Task to delegate",
+      maxToolCalls: "number (optional) - Max tool calls for the delegate",
+      groundingMode: "string (optional) - off|warn|strict",
+    },
+    returns: {
+      agent: "string",
+      result: "string",
+      stats: "object",
+    },
+    safetyLevel: "L1",
+    safety: "Delegation triggers sub-agent tool use (policy-gated).",
+  },
   ...DATA_TOOLS,
   ...GIT_TOOLS,
 } as Record<string, ToolMetadata>;
@@ -336,7 +374,7 @@ export function getToolsByCategory(): {
     meta: Object.keys(META_TOOLS),
     web: Object.keys(WEB_TOOLS),
     memory: Object.keys(MEMORY_TOOLS),
-    agent: Object.keys(AGENT_TOOLS),
+    agent: ["delegate_agent"],
     data: Object.keys(DATA_TOOLS),
     git: Object.keys(GIT_TOOLS),
     dynamic: getDynamicToolNames(),

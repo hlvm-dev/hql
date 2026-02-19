@@ -14,7 +14,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { getTool } from "../registry.ts";
+import { getTool, type InteractionRequestEvent, type InteractionResponse } from "../registry.ts";
 import { DEFAULT_TIMEOUTS } from "../constants.ts";
 import { type AgentPolicy, resolvePolicyDecision } from "../policy.ts";
 import {
@@ -394,8 +394,26 @@ async function promptUserConfirmation(
   toolName: string,
   args: unknown,
   classification: SafetyClassification,
+  onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>,
   timeoutMs: number = DEFAULT_TIMEOUTS.userInput,
 ): Promise<ConfirmationResult> {
+  // GUI mode: emit interaction request and await response
+  if (onInteraction) {
+    const requestId = crypto.randomUUID();
+    const response = await onInteraction({
+      type: "interaction_request",
+      requestId,
+      mode: "permission",
+      toolName,
+      toolArgs: truncate(JSON.stringify(args, null, 2), 200),
+    });
+    return {
+      confirmed: response.approved,
+      rememberChoice: response.approved && (response.rememberChoice ?? false),
+    };
+  }
+
+  // CLI mode: stdin-based confirmation
   const platform = getPlatform();
 
   // Helper to write to stdout
@@ -539,6 +557,7 @@ export async function checkToolSafety(
   policy: AgentPolicy | null = null,
   l1Store: Map<string, boolean>,
   ownerId?: string,
+  onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>,
 ): Promise<boolean> {
   // Classify tool
   const classification = classifyTool(toolName, args, ownerId);
@@ -577,6 +596,7 @@ export async function checkToolSafety(
       toolName,
       args,
       classification,
+      onInteraction,
     );
 
     if (result.confirmed && result.rememberChoice) {
@@ -587,6 +607,6 @@ export async function checkToolSafety(
   }
 
   // L2: Always prompt
-  const result = await promptUserConfirmation(toolName, args, classification);
+  const result = await promptUserConfirmation(toolName, args, classification, onInteraction);
   return result.confirmed;
 }

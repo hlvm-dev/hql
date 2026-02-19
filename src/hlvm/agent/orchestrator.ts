@@ -22,6 +22,8 @@ import {
   prepareToolArgsForExecution,
   suggestToolNames,
   type ToolFunction,
+  type InteractionResponse,
+  type InteractionRequestEvent,
 } from "./registry.ts";
 import { checkToolSafety } from "./security/safety.ts";
 import {
@@ -56,7 +58,6 @@ import {
   toTokenUsage,
   UsageTracker,
 } from "./usage.ts";
-import type { MetricsSink } from "./metrics.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import { type LLMResponse, type ToolCall } from "./tool-call.ts";
 
@@ -126,6 +127,7 @@ interface LoopConfig {
   maxRetries: number;
   groundingMode: "off" | "warn" | "strict";
   llmLimiter: SlidingWindowRateLimiter | null;
+  toolRateLimiter: SlidingWindowRateLimiter | null;
   maxToolResultBytes: number;
   skipCompensation: boolean;
   maxGroundingRetries: number;
@@ -347,65 +349,22 @@ function buildToolErrorResult(
     durationMs: Date.now() - startedAt,
     argsSummary: "",
   });
-  emitMetric(config, "tool_result", {
-    toolName,
-    success: false,
-    error,
-    durationMs: Date.now() - startedAt,
-  });
 
   return result;
 }
 
-/**
- * Creates a tool-allowed checker with its own cached sets.
- * Eliminates module-level mutable state that could leak between runs.
- */
-function createToolAllowedChecker(): (
-  toolName: string,
+/** Build a simple tool-allowed predicate from allow/deny lists */
+function buildIsToolAllowed(
   config: OrchestratorConfig,
-) => boolean {
-  let cachedAllowSet: { key: string; set: Set<string> } | null = null;
-  let cachedDenySet: { key: string; set: Set<string> } | null = null;
-
-  const listCacheKey = (list: string[]): string => list.join("\0");
-
-  const getOrCreateSet = (
-    list: string[],
-    cached: { key: string; set: Set<string> } | null,
-  ): { key: string; set: Set<string> } => {
-    const key = listCacheKey(list);
-    if (cached && cached.key === key) return cached;
-    return { key, set: new Set(list) };
-  };
-
-  return (toolName: string, config: OrchestratorConfig): boolean => {
-    if (config.toolAllowlist && config.toolAllowlist.length > 0) {
-      cachedAllowSet = getOrCreateSet(config.toolAllowlist, cachedAllowSet);
-      return cachedAllowSet.set.has(toolName);
-    }
-    if (config.toolDenylist && config.toolDenylist.length > 0) {
-      cachedDenySet = getOrCreateSet(config.toolDenylist, cachedDenySet);
-      return !cachedDenySet.set.has(toolName);
-    }
-    return true;
-  };
-}
-
-/** Instance-level checker — created fresh per runReActLoop call */
-const TOOL_ALLOWED_CHECKER_BY_CONFIG = new WeakMap<
-  OrchestratorConfig,
-  (toolName: string, config: OrchestratorConfig) => boolean
->();
-
-function getToolAllowedChecker(
-  config: OrchestratorConfig,
-): (toolName: string, config: OrchestratorConfig) => boolean {
-  const cached = TOOL_ALLOWED_CHECKER_BY_CONFIG.get(config);
-  if (cached) return cached;
-  const created = createToolAllowedChecker();
-  TOOL_ALLOWED_CHECKER_BY_CONFIG.set(config, created);
-  return created;
+): (name: string) => boolean {
+  const allowSet = config.toolAllowlist?.length
+    ? new Set(config.toolAllowlist)
+    : null;
+  const denySet = config.toolDenylist?.length
+    ? new Set(config.toolDenylist)
+    : null;
+  return (name: string) =>
+    allowSet ? allowSet.has(name) : denySet ? !denySet.has(name) : true;
 }
 
 /** LLM function signature used by orchestrator */
@@ -484,7 +443,11 @@ export type AgentUIEvent =
   | { type: "thinking"; iteration: number }
   | { type: "tool_start"; name: string; argsSummary: string; toolIndex: number; toolTotal: number }
   | { type: "tool_end"; name: string; success: boolean; content: string; durationMs: number; argsSummary: string }
-  | { type: "turn_stats"; iteration: number; toolCount: number; durationMs: number };
+  | { type: "turn_stats"; iteration: number; toolCount: number; durationMs: number }
+  | InteractionRequestEvent;
+
+// Re-export from registry (SSOT)
+export type { InteractionResponse, InteractionRequestEvent };
 
 /** Orchestrator configuration */
 export interface OrchestratorConfig {
@@ -530,8 +493,6 @@ export interface OrchestratorConfig {
   playwrightInstallAttempted?: boolean;
   /** Optional usage tracker for LLM token accounting */
   usage?: UsageTracker;
-  /** Optional metrics sink for structured events */
-  metrics?: MetricsSink;
   /** Planning configuration (optional) */
   planning?: PlanningConfig;
   /** Optional delegate handler for multi-agent orchestration */
@@ -553,13 +514,13 @@ export interface OrchestratorConfig {
   maxToolCallRetries?: number;
   /** No-input mode: do not ask the user questions */
   noInput?: boolean;
+  /** Callback for interactive permission/question requests (GUI mode) */
+  onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>;
   /** Skip weak-model compensation heuristics (for frontier models like Claude, GPT-4o, Gemini) */
   skipModelCompensation?: boolean;
   /** External abort signal (from HTTP request cancellation) */
   signal?: AbortSignal;
 }
-
-// TEXT_ENCODER imported from common/utils.ts (SSOT)
 
 function addContextMessage(
   config: OrchestratorConfig,
@@ -571,10 +532,6 @@ function addContextMessage(
     if (error instanceof ContextOverflowError) {
       config.onTrace?.({
         type: "context_overflow",
-        maxTokens: error.maxTokens,
-        estimatedTokens: error.estimatedTokens,
-      });
-      emitMetric(config, "context_overflow", {
         maxTokens: error.maxTokens,
         estimatedTokens: error.estimatedTokens,
       });
@@ -610,19 +567,6 @@ function buildToolRequiredMessage(allowlist?: string[]): string {
   ].join("\n");
 }
 
-function emitMetric(
-  config: OrchestratorConfig,
-  type: string,
-  data: Record<string, unknown>,
-): void {
-  if (!config.metrics) return;
-  config.metrics.emit({
-    ts: Date.now(),
-    type,
-    data,
-  });
-}
-
 /** Combined trace + metric + tool display for successful tool results (DRY helper) */
 function emitToolSuccess(
   config: OrchestratorConfig,
@@ -646,11 +590,6 @@ function emitToolSuccess(
     content: returnDisplay,
     durationMs: Date.now() - startedAt,
     argsSummary: generateArgsSummary(toolName, args),
-  });
-  emitMetric(config, "tool_result", {
-    toolName,
-    success: true,
-    durationMs: Date.now() - startedAt,
   });
 }
 
@@ -736,9 +675,6 @@ export async function executeToolCall(
     toolIndex,
     toolTotal,
   });
-  emitMetric(config, "tool_call", {
-    toolName: toolCall.toolName,
-  });
 
   try {
     // Validate tool exists
@@ -758,8 +694,8 @@ export async function executeToolCall(
       );
     }
 
-    const toolAllowedChecker = getToolAllowedChecker(config);
-    if (!toolAllowedChecker(toolCall.toolName, config)) {
+    const isToolAllowed = buildIsToolAllowed(config);
+    if (!isToolAllowed(toolCall.toolName)) {
       return buildToolErrorResult(
         toolCall.toolName,
         `Tool not allowed by orchestrator: ${toolCall.toolName}`,
@@ -788,6 +724,7 @@ export async function executeToolCall(
       config.policy ?? null,
       l1Store,
       config.toolOwnerId,
+      config.onInteraction,
     );
 
     if (!approved) {
@@ -833,6 +770,8 @@ export async function executeToolCall(
         config.workspace,
         toolTimeout,
         config.policy ?? null,
+        config.onInteraction,
+        config.signal,
       );
     } catch (error) {
       const message = getErrorMessage(error);
@@ -847,6 +786,8 @@ export async function executeToolCall(
             config.workspace,
             toolTimeout,
             config.policy ?? null,
+            config.onInteraction,
+            config.signal,
           );
         } else {
           return buildToolErrorResult(
@@ -910,11 +851,11 @@ export async function executeToolCall(
 export async function executeToolCalls(
   toolCalls: ToolCall[],
   config: OrchestratorConfig,
+  rateLimiter?: SlidingWindowRateLimiter | null,
 ): Promise<ToolExecutionResult[]> {
   const continueOnError = config.continueOnError ?? true;
-  const toolLimiter = config.toolRateLimiter ??
+  const toolLimiter = rateLimiter ?? config.toolRateLimiter ??
     createRateLimiter(config.toolRateLimit ?? RATE_LIMITS.toolCalls);
-  config.toolRateLimiter = toolLimiter;
 
   const checkRateLimit = (): ToolExecutionResult | null => {
     if (!toolLimiter) return null;
@@ -922,14 +863,6 @@ export async function executeToolCalls(
     if (status.allowed) return null;
     config.onTrace?.({
       type: "rate_limit",
-      target: "tool",
-      maxCalls: status.maxCalls,
-      windowMs: status.windowMs,
-      used: status.used,
-      remaining: status.remaining,
-      resetMs: status.resetMs,
-    });
-    emitMetric(config, "rate_limit", {
       target: "tool",
       maxCalls: status.maxCalls,
       windowMs: status.windowMs,
@@ -964,9 +897,11 @@ export async function executeToolCalls(
 
   // Parallel execution (default): run all calls concurrently
   const promises = toolCalls.map((call, i): Promise<ToolExecutionResult> => {
-    const rateLimited = checkRateLimit();
-    if (rateLimited) return Promise.resolve(rateLimited);
-    return executeToolCall(call, config, i, total);
+    return (async () => {
+      const rateLimited = checkRateLimit();
+      if (rateLimited) return rateLimited;
+      return executeToolCall(call, config, i, total);
+    })();
   });
   return Promise.all(promises);
 }
@@ -1011,6 +946,7 @@ export async function executeToolCalls(
 export async function processAgentResponse(
   agentResponse: LLMResponse,
   config: OrchestratorConfig,
+  toolRateLimiter?: SlidingWindowRateLimiter | null,
 ): Promise<{
   toolCallsMade: number;
   results: ToolExecutionResult[];
@@ -1077,7 +1013,7 @@ export async function processAgentResponse(
   });
 
   // Execute tool calls
-  const results = await executeToolCalls(limitedCalls, config);
+  const results = await executeToolCalls(limitedCalls, config, toolRateLimiter);
 
   // Add tool results to context + gather tool uses
   const toolUses: ToolUse[] = [];
@@ -1157,8 +1093,11 @@ async function callLLMWithTimeout(
   llmFn: LLMFunction,
   messages: Message[],
   timeout: number,
+  parentSignal?: AbortSignal,
 ): Promise<LLMResponse> {
   // All built-in providers forward AbortSignal to fetch(); timeout abort is honored.
+  // parentSignal (from user cancellation) is composed with the timeout signal
+  // so in-flight LLM calls are aborted immediately on cancel.
   return await withTimeout(
     async (signal) => {
       const response = await llmFn(messages, signal);
@@ -1167,7 +1106,7 @@ async function callLLMWithTimeout(
       }
       return response;
     },
-    { timeoutMs: timeout, label: "LLM call" },
+    { timeoutMs: timeout, label: "LLM call", signal: parentSignal },
   );
 }
 
@@ -1186,7 +1125,7 @@ async function callLLMWithTimeout(
 async function callLLMWithRetry(
   llmFn: LLMFunction,
   initialMessages: Message[],
-  config: { timeout: number; maxRetries: number },
+  config: { timeout: number; maxRetries: number; signal?: AbortSignal },
   onTrace?: (event: TraceEvent) => void,
   overflowContext?: ContextManager,
 ): Promise<LLMResponse> {
@@ -1196,7 +1135,7 @@ async function callLLMWithRetry(
 
   for (let attempt = 0; attempt < config.maxRetries; attempt++) {
     try {
-      return await callLLMWithTimeout(llmFn, messages, config.timeout);
+      return await callLLMWithTimeout(llmFn, messages, config.timeout, config.signal);
     } catch (error) {
       lastError = error as Error;
 
@@ -1251,8 +1190,8 @@ async function callLLMWithRetry(
     }
   }
 
-  throw new RuntimeError(
-    `LLM failed after ${config.maxRetries} retries: ${lastError?.message}`,
+  throw lastError ?? new RuntimeError(
+    `LLM failed after ${config.maxRetries} retries with no error captured`,
   );
 }
 
@@ -1283,17 +1222,21 @@ async function executeToolWithTimeout(
   workspace: string,
   timeout: number,
   policy?: AgentPolicy | null,
+  onInteraction?: OrchestratorConfig["onInteraction"],
+  parentSignal?: AbortSignal,
 ): Promise<unknown> {
   // NOTE: If toolFn doesn't honor AbortSignal, underlying work may continue.
+  // parentSignal (from user cancellation) is composed with the timeout signal
+  // so in-flight tool calls are aborted immediately on cancel.
   return await withTimeout(
     async (signal) => {
-      const result = await toolFn(args, workspace, { signal, policy });
+      const result = await toolFn(args, workspace, { signal, policy, onInteraction });
       if (signal.aborted) {
         throw new RuntimeError("Tool execution aborted");
       }
       return result;
     },
-    { timeoutMs: timeout, label: "Tool execution" },
+    { timeoutMs: timeout, label: "Tool execution", signal: parentSignal },
   );
 }
 
@@ -1304,7 +1247,6 @@ async function executeToolWithTimeout(
 /** Create initial mutable loop state from config */
 function initializeLoopState(config: OrchestratorConfig): LoopState {
   const usageTracker = config.usage ?? new UsageTracker();
-  config.usage = usageTracker;
   return {
     iterations: 0,
     usageTracker,
@@ -1330,7 +1272,8 @@ function resolveLoopConfig(config: OrchestratorConfig): LoopConfig {
   const groundingMode = config.groundingMode ?? "off";
   const llmRateConfig = config.llmRateLimit ?? RATE_LIMITS.llmCalls;
   const llmLimiter = config.llmRateLimiter ?? createRateLimiter(llmRateConfig);
-  config.llmRateLimiter = llmLimiter;
+  const toolRateLimiter = config.toolRateLimiter ??
+    createRateLimiter(config.toolRateLimit ?? RATE_LIMITS.toolCalls);
   const totalTimeout = DEFAULT_TIMEOUTS.total;
   return {
     maxIterations: MAX_ITERATIONS,
@@ -1339,6 +1282,7 @@ function resolveLoopConfig(config: OrchestratorConfig): LoopConfig {
     maxRetries: config.maxRetries ?? MAX_RETRIES,
     groundingMode,
     llmLimiter,
+    toolRateLimiter,
     maxToolResultBytes: config.maxTotalToolResultBytes ??
       RESOURCE_LIMITS.maxTotalToolResultBytes,
     skipCompensation: config.skipModelCompensation ?? false,
@@ -1372,11 +1316,6 @@ function checkToolResultBytesLimit(
     } catch (error) {
       config.onTrace?.({
         type: "resource_limit",
-        kind: "tool_result_bytes",
-        limit: lc.maxToolResultBytes,
-        used: state.totalToolResultBytes,
-      });
-      emitMetric(config, "resource_limit", {
         kind: "tool_result_bytes",
         limit: lc.maxToolResultBytes,
         used: state.totalToolResultBytes,
@@ -1561,29 +1500,16 @@ function handleFinalResponse(
       retry: state.groundingRetries,
       maxRetry: lc.maxGroundingRetries,
     });
-    emitMetric(config, "grounding_check", {
-      mode: lc.groundingMode,
-      grounded: grounding.grounded,
-      warnings: grounding.warnings,
-      retry: state.groundingRetries,
-      maxRetry: lc.maxGroundingRetries,
-    });
 
     if (!grounding.grounded) {
-      if (lc.groundingMode === "strict") {
-        if (state.groundingRetries < lc.maxGroundingRetries) {
-          state.groundingRetries++;
-          const warningText =
-            `Grounding required. Revise your answer to cite tool results using tool names or "Based on ...".\n- ${
-              grounding.warnings.join("\n- ")
-            }`;
-          addContextMessage(config, { role: "user", content: warningText });
-          return { action: "continue" };
-        }
-        const warningText = `\n\n[Grounding warnings]\n- ${
-          grounding.warnings.join("\n- ")
-        }`;
-        return { action: "return", value: `${finalResponse}${warningText}` };
+      if (lc.groundingMode === "strict" && state.groundingRetries < lc.maxGroundingRetries) {
+        state.groundingRetries++;
+        const warningText =
+          `Grounding required. Revise your answer to cite tool results using tool names or "Based on ...".\n- ${
+            grounding.warnings.join("\n- ")
+          }`;
+        addContextMessage(config, { role: "user", content: warningText });
+        return { action: "continue" };
       }
       const warningText = `\n\n[Grounding warnings]\n- ${
         grounding.warnings.join("\n- ")
@@ -1652,7 +1578,7 @@ async function handlePostToolExecution(
     const finalResponse = await callLLMWithRetry(
       llmFunction,
       config.context.getMessages(),
-      { timeout: lc.llmTimeout, maxRetries: lc.maxRetries },
+      { timeout: lc.llmTimeout, maxRetries: lc.maxRetries, signal: config.signal },
       config.onTrace,
       config.context,
     );
@@ -1761,8 +1687,6 @@ export async function runReActLoop(
   }
   const { context, onTrace } = config;
 
-  // Reset per-run checker cache to avoid stale allow/deny list sets
-  TOOL_ALLOWED_CHECKER_BY_CONFIG.set(config, createToolAllowedChecker());
   clearToolDefCache();
 
   // Initialize state and resolved config constants
@@ -1775,7 +1699,7 @@ export async function runReActLoop(
   // Planning (optional)
   if (
     lc.planningConfig.mode !== "off" &&
-    shouldPlanRequest(userRequest, lc.planningConfig.mode ?? "off")
+    shouldPlanRequest(userRequest, lc.planningConfig.mode!)
   ) {
     try {
       const agentNames = listAgentProfiles().map((agent) => agent.name);
@@ -1791,7 +1715,7 @@ export async function runReActLoop(
           role: "system",
           content: formatPlanForContext(plan, lc.planningConfig),
         });
-        if ((lc.planningConfig.mode ?? "off") === "always") {
+        if (lc.planningConfig.mode === "always") {
           state.planState = createPlanState(plan);
         }
         onTrace?.({ type: "plan_created", plan });
@@ -1872,14 +1796,6 @@ export async function runReActLoop(
             remaining: status.remaining,
             resetMs: status.resetMs,
           });
-          emitMetric(config, "rate_limit", {
-            target: "llm",
-            maxCalls: status.maxCalls,
-            windowMs: status.windowMs,
-            used: status.used,
-            remaining: status.remaining,
-            resetMs: status.resetMs,
-          });
           throw new RateLimitError(
             `LLM rate limit exceeded (${status.used}/${status.maxCalls} per ${status.windowMs}ms)`,
             status.maxCalls,
@@ -1893,13 +1809,12 @@ export async function runReActLoop(
       await context.compactIfNeeded();
       const messages = context.getMessages();
       onTrace?.({ type: "llm_call", messageCount: messages.length });
-      emitMetric(config, "llm_call", { messageCount: messages.length });
 
       const llmStart = Date.now();
       const agentResponse = await callLLMWithRetry(
         llmFunction,
         messages,
-        { timeout: lc.llmTimeout, maxRetries: lc.maxRetries },
+        { timeout: lc.llmTimeout, maxRetries: lc.maxRetries, signal: config.signal },
         onTrace,
         context,
       );
@@ -1907,25 +1822,19 @@ export async function runReActLoop(
 
       const responseText = agentResponse.content ?? "";
       if (responseText) state.lastResponse = responseText;
-      let response = agentResponse;
+      const response = agentResponse;
 
-      const usageMessages = context.getMessages();
       const usage = agentResponse.usage
         ? toTokenUsage(agentResponse.usage)
-        : estimateUsage(usageMessages, responseText);
+        : estimateUsage(messages, responseText);
       state.usageTracker.record(usage);
       onTrace?.({ type: "llm_usage", usage });
-      emitMetric(config, "llm_usage", { ...usage });
       onTrace?.({
         type: "llm_response",
         length: responseText.length,
         truncated: truncate(responseText, 200),
         content: responseText,
         toolCalls: agentResponse.toolCalls?.length ?? 0,
-      });
-      emitMetric(config, "llm_response", {
-        length: responseText.length,
-        durationMs: llmDuration,
       });
 
       // Handle empty responses and weak-model text repair
@@ -1940,7 +1849,7 @@ export async function runReActLoop(
       if (textResult.action === "return") return textResult.value;
 
       // Process response and execute tools
-      const result = await processAgentResponse(response, config);
+      const result = await processAgentResponse(response, config, lc.toolRateLimiter);
 
       // Emit turn stats after tool execution
       if (result.toolCallsMade > 0) {

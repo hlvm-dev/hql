@@ -18,13 +18,14 @@ import {
 } from "../../../store/conversation-store.ts";
 import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
 import { ai } from "../../../api/ai.ts";
-import { ensureAgentReady, runAgentQuery } from "../../../agent/agent-runner.ts";
+import { ensureAgentReady, getOrCreateCachedSession, runAgentQuery } from "../../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
+import type { InteractionResponse } from "../../../agent/orchestrator.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { log } from "../../../api/log.ts";
 import { parseJsonBody, jsonError, ndjsonLine, textEncoder } from "../http-utils.ts";
 import { type Message, parseModelString } from "../../../providers/index.ts";
-import { loadAllMessages } from "../../../store/message-utils.ts";
+import { loadAllMessages, loadRecentMessages } from "../../../store/message-utils.ts";
 import type { Message as AgentMessage } from "../../../agent/context.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
@@ -38,8 +39,109 @@ import {
   parseSessionMemoryMetadata,
 } from "./session-memory.ts";
 
+/** Timestamp when this server process started — messages before this are excluded from LLM context. */
+const SERVER_LAUNCH_TIME = new Date().toISOString();
+const INTERACTION_TIMEOUT_MS = 300_000;
+
 function pushSessionUpdatedEvent(sessionId: string): void {
   pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: sessionId });
+}
+
+// MARK: - Pending Interactions (GUI permission/question flow)
+
+const MAX_PENDING_INTERACTIONS = 50;
+
+const pendingInteractions = new Map<string, {
+  resolve: (response: InteractionResponse) => void;
+  timer: ReturnType<typeof setTimeout>;
+}>();
+
+/** POST /api/chat/interaction — Resolve a pending interaction request from the GUI */
+export async function handleChatInteraction(req: Request): Promise<Response> {
+  const parsed = await parseJsonBody<{
+    request_id?: string;
+    approved?: boolean;
+    remember_choice?: boolean;
+    user_input?: string;
+  }>(req);
+  if (!parsed.ok) return parsed.response;
+
+  const { request_id, approved, remember_choice, user_input } = parsed.value;
+  if (!request_id) return jsonError("Missing request_id", 400);
+
+  const pending = pendingInteractions.get(request_id);
+  if (!pending) return jsonError("No pending interaction with that ID", 404);
+
+  clearTimeout(pending.timer);
+  pendingInteractions.delete(request_id);
+  pending.resolve({
+    approved: approved === true,
+    rememberChoice: remember_choice,
+    userInput: user_input,
+  });
+
+  return Response.json({ ok: true });
+}
+
+function awaitInteractionResponse(
+  event: {
+    requestId: string;
+    mode: "permission" | "question";
+    toolName?: string;
+    toolArgs?: string;
+    question?: string;
+  },
+  signal: AbortSignal,
+  emit: (obj: unknown) => void,
+): Promise<InteractionResponse> {
+  emit({
+    event: "interaction_request",
+    request_id: event.requestId,
+    mode: event.mode,
+    tool_name: event.toolName,
+    tool_args: event.toolArgs,
+    question: event.question,
+  });
+
+  return new Promise<InteractionResponse>((resolve) => {
+    let done = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const finalize = (response: InteractionResponse) => {
+      if (done) return;
+      done = true;
+      pendingInteractions.delete(event.requestId);
+      if (timer) {
+        clearTimeout(timer);
+      }
+      signal.removeEventListener("abort", onAbort);
+      resolve(response);
+    };
+
+    const onAbort = () => {
+      finalize({ approved: false });
+    };
+
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    if (pendingInteractions.size >= MAX_PENDING_INTERACTIONS) {
+      finalize({ approved: false });
+      return;
+    }
+
+    timer = setTimeout(() => {
+      finalize({ approved: false });
+    }, INTERACTION_TIMEOUT_MS);
+
+    pendingInteractions.set(event.requestId, {
+      resolve: (response) => finalize(response),
+      timer,
+    });
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 // MARK: - Image Helpers
@@ -369,13 +471,14 @@ export async function handleChat(req: Request): Promise<Response> {
     return jsonError("No model configured for agent mode", 400);
   }
 
+  let resolvedModelInfo: ModelInfo | null = null;
   if (resolvedModel) {
     const [parsedProvider, parsedModelName] = parseModelString(resolvedModel);
-    const modelInfo = await ai.models.get(parsedModelName, parsedProvider ?? undefined);
-    if (body.model && modelInfo === null) {
+    resolvedModelInfo = await ai.models.get(parsedModelName, parsedProvider ?? undefined);
+    if (body.model && resolvedModelInfo === null) {
       return jsonError(`Model not found: ${body.model}`, 400);
     }
-    if (body.mode === "agent" && !(await modelSupportsTools(resolvedModel, modelInfo))) {
+    if (body.mode === "agent" && !(await modelSupportsTools(resolvedModel, resolvedModelInfo))) {
       return jsonError(
         body.model
           ? "Selected model does not support tool calling"
@@ -483,7 +586,7 @@ export async function handleChat(req: Request): Promise<Response> {
         if (effectiveMode === CLAUDE_CODE_AGENT_MODE) {
           await handleClaudeCodeAgentMode(body, assistantMessageId, controller.signal, emit, onPartial);
         } else if (effectiveMode === "agent") {
-          await handleAgentMode(body, resolvedModel!, assistantMessageId, controller.signal, emit, onPartial, requestId);
+          await handleAgentMode(body, resolvedModel!, assistantMessageId, controller.signal, emit, onPartial, requestId, resolvedModelInfo);
         } else {
           await handleChatMode(body, resolvedModel, sessionId, assistantMessageId, controller.signal, emit, onPartial);
         }
@@ -620,7 +723,8 @@ async function handleChatMode(
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
 ): Promise<void> {
-  const storedMessages = loadAllMessages(sessionId);
+  const storedMessages = loadAllMessages(sessionId)
+    .filter((m) => m.created_at >= SERVER_LAUNCH_TIME);
 
   const providerMessages: Message[] = [];
   for (const m of storedMessages) {
@@ -695,6 +799,7 @@ async function handleAgentMode(
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
   requestId: string,
+  modelInfo?: ModelInfo | null,
 ): Promise<void> {
   if (!agentReadyPromise) {
     agentReadyPromise = ensureAgentReady(resolvedModel, (msg) => log.info(msg))
@@ -702,7 +807,15 @@ async function handleAgentMode(
   }
   await agentReadyPromise;
 
-  const stored = loadAllMessages(body.session_id);
+  const workspace = getPlatform().process.cwd();
+  const cachedSession = await getOrCreateCachedSession(
+    workspace,
+    resolvedModel,
+    { toolDenylist: [...DEFAULT_TOOL_DENYLIST], modelInfo },
+  );
+
+  const stored = loadRecentMessages(body.session_id, 20)
+    .filter((m) => m.created_at >= SERVER_LAUNCH_TIME);
   const history: AgentMessage[] = stored
     .filter((m) => !m.cancelled && m.content.length > 0 && m.id !== assistantMessageId)
     .map((m) => ({
@@ -724,14 +837,19 @@ async function handleAgentMode(
     query,
     model: resolvedModel,
     autoApprove: false,
-    noInput: true,
+    noInput: false,
     signal,
-    toolDenylist: [...DEFAULT_TOOL_DENYLIST, "ask_user"],
+    toolDenylist: [...DEFAULT_TOOL_DENYLIST],
     messageHistory: history,
+    modelInfo,
+    cachedSession,
     callbacks: {
       onToken: (text) => {
         onPartial(text);
         emit({ event: "token", text });
+      },
+      onInteraction: async (event) => {
+        return await awaitInteractionResponse(event, signal, emit);
       },
       onAgentEvent: (event) => {
         switch (event.type) {
@@ -775,6 +893,9 @@ async function handleAgentMode(
               tool_count: event.toolCount,
               duration_ms: event.durationMs,
             });
+            break;
+          case "interaction_request":
+            // Already handled by onInteraction callback
             break;
         }
       },

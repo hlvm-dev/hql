@@ -62,8 +62,6 @@ interface ShellScriptResult extends ShellResult {
 }
 
 const FORCE_KILL_DELAY_MS = 2000;
-/** Max bytes to read from a process stream before capping (10 MB) */
-const MAX_STREAM_BYTES = 10 * 1024 * 1024;
 
 /**
  * Backward-compatible classifier returning only safety level.
@@ -456,83 +454,8 @@ function extractUrlsFromText(text: string): string[] {
   return urls;
 }
 
-async function readProcessStream(
-  stream: unknown,
-  signal?: AbortSignal,
-): Promise<Uint8Array> {
-  if (
-    !stream ||
-    typeof (stream as ReadableStream<Uint8Array>).getReader !== "function"
-  ) {
-    return new Uint8Array();
-  }
-
-  const reader = (stream as ReadableStream<Uint8Array>).getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-
-  const onAbort = (): void => {
-    reader.cancel().catch(() => {});
-  };
-
-  if (signal) {
-    if (signal.aborted) {
-      onAbort();
-    } else {
-      signal.addEventListener("abort", onAbort);
-    }
-  }
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        totalBytes += value.length;
-        if (totalBytes > MAX_STREAM_BYTES) {
-          // Cap reached — keep what we have and discard the rest
-          const overshoot = totalBytes - MAX_STREAM_BYTES;
-          const trimmed = value.slice(0, value.length - overshoot);
-          if (trimmed.length > 0) chunks.push(trimmed);
-          // Drain remaining stream to avoid broken pipe
-          try {
-            while (true) {
-              const { done: d } = await reader.read();
-              if (d) break;
-            }
-          } catch {
-            // ignore drain errors
-          }
-          break;
-        }
-        chunks.push(value);
-      }
-    }
-  } finally {
-    if (signal) {
-      signal.removeEventListener("abort", onAbort);
-    }
-    reader.releaseLock();
-  }
-
-  return concatUint8Arrays(chunks);
-}
-
-function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
-  if (chunks.length === 0) return new Uint8Array();
-  if (chunks.length === 1) return chunks[0];
-
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-
-  return result;
-}
+// readProcessStream and concatUint8Arrays: see common/stream-utils.ts (SSOT)
+import { readProcessStream } from "../../../common/stream-utils.ts";
 
 // ============================================================
 // Tool Registry

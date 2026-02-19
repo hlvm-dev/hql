@@ -82,6 +82,7 @@ export declare function dissoc(...args: any[]): any;
 export declare function update(...args: any[]): any;
 export declare function updateIn(...args: any[]): any;
 export declare function merge(...args: any[]): any;
+export declare function throwEmptyTypeError(...args: any[]): any;
 export declare function empty(...args: any[]): any;
 export declare function conj(...args: any[]): any;
 export declare function into(...args: any[]): any;

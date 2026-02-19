@@ -40,6 +40,8 @@ export interface AgentSessionOptions {
   onToken?: (text: string) => void;
   /** User-specified context window override (in tokens) */
   contextWindow?: number;
+  /** Pre-fetched model info to avoid duplicate provider API calls */
+  modelInfo?: ModelInfo | null;
 }
 
 export interface AgentSession {
@@ -91,24 +93,28 @@ export async function createAgentSession(
   options: AgentSessionOptions,
 ): Promise<AgentSession> {
   const profile = ENGINE_PROFILES[options.engineProfile ?? "normal"];
-  const policy = await loadAgentPolicy(options.workspace, options.policyPath);
-  const builtinMcpServers = await resolveBuiltinMcpServers(options.workspace);
   const toolOwnerId = `session:${generateUUID()}`;
 
-  // Load MCP tools before generating system prompt
+  // Parallelize independent I/O: policy, MCP server discovery, and model info
+  const providerName = extractProviderName(options.model);
+  const modelName = extractModelSuffix(options.model);
+  const [policy, builtinMcpServers, modelInfo] = await Promise.all([
+    loadAgentPolicy(options.workspace, options.policyPath),
+    resolveBuiltinMcpServers(options.workspace),
+    options.modelInfo !== undefined
+      ? Promise.resolve(options.modelInfo)
+      : (options.model && !options.fixturePath
+        ? tryGetModelInfo(providerName, modelName)
+        : Promise.resolve(null)),
+  ]);
+
+  // Load MCP tools (depends on builtinMcpServers above)
   const mcp = await loadMcpTools(
     options.workspace,
     options.mcpConfigPath,
     builtinMcpServers,
     toolOwnerId,
   );
-
-  // Resolve dynamic context window budget
-  const providerName = extractProviderName(options.model);
-  const modelName = extractModelSuffix(options.model);
-  const modelInfo = options.model && !options.fixturePath
-    ? await tryGetModelInfo(providerName, modelName)
-    : null;
 
   const resolved = resolveContextBudget({
     modelInfo: modelInfo ?? undefined,

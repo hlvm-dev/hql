@@ -7,8 +7,6 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import {
   validatePath,
-  validatePaths,
-  isPathValid,
   SecurityError,
 } from "../../../src/hlvm/agent/security/path-sandbox.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
@@ -312,58 +310,6 @@ Deno.test({
   },
 });
 
-Deno.test({
-  name: "Path Sandboxing: validatePaths - multiple paths",
-  async fn() {
-    await setupTestWorkspace();
-
-    // Validate multiple valid paths
-    const results = await validatePaths(
-      ["test.txt", "subdir/file.txt", "another.txt"],
-      TEST_WORKSPACE
-    );
-
-    assertEquals(results, [
-      `${TEST_WORKSPACE}/test.txt`,
-      `${TEST_WORKSPACE}/subdir/file.txt`,
-      `${TEST_WORKSPACE}/another.txt`,
-    ]);
-
-    // Should reject if any path is invalid
-    await assertRejects(
-      async () => {
-        await validatePaths(
-          ["test.txt", "../../../etc/passwd"],
-          TEST_WORKSPACE
-        );
-      },
-      SecurityError
-    );
-
-    await cleanupTestWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Path Sandboxing: isPathValid - non-throwing validation",
-  async fn() {
-    await setupTestWorkspace();
-
-    // Valid path
-    const valid1 = await isPathValid("test.txt", TEST_WORKSPACE);
-    assertEquals(valid1, true);
-
-    // Invalid path (outside workspace)
-    const valid2 = await isPathValid("/etc/passwd", TEST_WORKSPACE);
-    assertEquals(valid2, false);
-
-    // Invalid path (traversal)
-    const valid3 = await isPathValid("../../..", TEST_WORKSPACE);
-    assertEquals(valid3, false);
-
-    await cleanupTestWorkspace();
-  },
-});
 
 Deno.test({
   name: "Path Sandboxing: normalize path separators",

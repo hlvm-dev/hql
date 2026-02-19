@@ -231,7 +231,8 @@ export class ContextManager {
           : [summaryMessage, ...recentMessages],
       );
     } catch {
-      // LLM summarization failed — fall back to crude summary on next overflow
+      // LLM summarization failed — re-arm so next addMessage triggers retry
+      this.pendingCompaction = true;
     }
   }
 

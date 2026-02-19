@@ -74,6 +74,19 @@ async function askUser(
     }
   }
 
+  // GUI mode: emit interaction request and await response
+  if (options?.onInteraction) {
+    const requestId = crypto.randomUUID();
+    const response = await options.onInteraction({
+      type: "interaction_request",
+      requestId,
+      mode: "question",
+      question: question as string,
+    });
+    return response.userInput ?? "";
+  }
+
+  // CLI mode: stdin-based question
   const platform = getPlatform();
 
   // Display question (async write, NOT writeSync)

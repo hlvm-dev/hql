@@ -18,7 +18,7 @@ import { buildContext } from "../repl-ink/completion/providers.ts";
 import { getActiveProvider } from "../repl-ink/completion/concrete-providers.ts";
 import { parseJsonBody, jsonError, addCorsHeaders } from "./http-utils.ts";
 import { createRouter } from "./http-router.ts";
-import { handleChat, handleChatCancel, handleSessionCancel } from "./handlers/chat.ts";
+import { handleChat, handleChatCancel, handleChatInteraction, handleSessionCancel } from "./handlers/chat.ts";
 import {
   handleListSessions,
   handleCreateSession,
@@ -562,6 +562,7 @@ const router = createRouter();
 
 router.add("POST", "/api/chat", (req) => handleChat(req));
 router.add("POST", "/api/chat/cancel", (req) => handleChatCancel(req));
+router.add("POST", "/api/chat/interaction", (req) => handleChatInteraction(req));
 
 router.add("GET", "/api/sessions", () => handleListSessions());
 router.add("POST", "/api/sessions", (req) => handleCreateSession(req));
@@ -636,8 +637,13 @@ async function handleRequest(req: Request): Promise<Response> {
 
   const match = router.match(req.method, url.pathname);
   if (match) {
-    const response = await match.handler(req, match.params);
-    return addCorsHeaders(response, origin);
+    try {
+      const response = await match.handler(req, match.params);
+      return addCorsHeaders(response, origin);
+    } catch (error) {
+      const msg = getErrorMessage(error);
+      return addCorsHeaders(jsonError(msg, 500), origin);
+    }
   }
 
   return addCorsHeaders(jsonError("Not found", 404), origin);
