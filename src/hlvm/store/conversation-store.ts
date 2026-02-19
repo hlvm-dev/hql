@@ -101,6 +101,41 @@ export function getOrCreateSession(id: string): SessionRow {
   return getSession(id)!;
 }
 
+// MARK: - Session Version Helpers
+
+/**
+ * Bump session_version + updated_at, optionally adjusting message_count.
+ * SSOT for all session-version mutations.
+ */
+function bumpSessionVersion(
+  sessionId: string,
+  now?: string,
+  messageCountDelta?: number,
+): void {
+  const db = getDb();
+  const ts = now ?? new Date().toISOString();
+
+  if (messageCountDelta !== undefined) {
+    const countExpr = messageCountDelta >= 0
+      ? `message_count + ${messageCountDelta}`
+      : `MAX(message_count + ${messageCountDelta}, 0)`;
+    db.prepare(
+      `UPDATE sessions
+       SET session_version = session_version + 1,
+           message_count = ${countExpr},
+           updated_at = ?
+       WHERE id = ?`
+    ).run(ts, sessionId);
+  } else {
+    db.prepare(
+      `UPDATE sessions
+       SET session_version = session_version + 1,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(ts, sessionId);
+  }
+}
+
 // MARK: - Message Operations
 
 function getMaxOrder(sessionId: string): number {
@@ -147,13 +182,7 @@ export function insertMessage(opts: InsertMessageOpts): MessageRow {
       now,
     );
 
-    db.prepare(
-      `UPDATE sessions
-       SET session_version = session_version + 1,
-           message_count = message_count + 1,
-           updated_at = ?
-       WHERE id = ?`
-    ).run(now, opts.session_id);
+    bumpSessionVersion(opts.session_id, now, 1);
 
     const id = db.lastInsertRowId;
     const result = db.prepare(
@@ -241,14 +270,7 @@ export function deleteMessage(id: number, sessionId: string): boolean {
   ).run(id, sessionId);
 
   if (result > 0) {
-    const now = new Date().toISOString();
-    db.prepare(
-      `UPDATE sessions
-       SET message_count = MAX(message_count - 1, 0),
-           session_version = session_version + 1,
-           updated_at = ?
-       WHERE id = ?`
-    ).run(now, sessionId);
+    bumpSessionVersion(sessionId, undefined, -1);
     return true;
   }
   return false;
@@ -280,13 +302,7 @@ export function updateMessage(
 
   const msg = getMessage(id);
   if (msg) {
-    const now = new Date().toISOString();
-    db.prepare(
-      `UPDATE sessions
-       SET session_version = session_version + 1,
-           updated_at = ?
-       WHERE id = ?`
-    ).run(now, msg.session_id);
+    bumpSessionVersion(msg.session_id);
   }
 }
 

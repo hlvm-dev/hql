@@ -19,7 +19,7 @@ import type {
 } from "../types.ts";
 
 import * as api from "./api.ts";
-import { getOllamaCatalog } from "./catalog.ts";
+import { getOllamaCatalogAsync } from "./catalog.ts";
 import { DEFAULT_MODEL_NAME, DEFAULT_OLLAMA_ENDPOINT } from "../../../common/config/types.ts";
 import { extractSignal } from "../common.ts";
 
@@ -135,7 +135,7 @@ export class OllamaProvider implements AIProvider {
      * List catalog models (offline discovery)
      */
     catalog: (): Promise<ModelInfo[]> => {
-      return Promise.resolve(getOllamaCatalog());
+      return getOllamaCatalogAsync();
     },
 
     /**

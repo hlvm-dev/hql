@@ -10,7 +10,7 @@ import {
 import { capabilitiesToDisplayTags, parseModelString } from "../../providers/index.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { startModelBrowser } from "../repl-ink/model-browser.tsx";
-import { getOllamaCatalog } from "../../providers/ollama/catalog.ts";
+import { getOllamaCatalogAsync } from "../../providers/ollama/catalog.ts";
 import { formatBytes } from "../../../common/limits.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { truncate } from "../../../common/utils.ts";
@@ -39,9 +39,9 @@ function resolveDefaultLocalName(
   return prefix?.name ?? null;
 }
 
-function buildCatalogIndex(): Map<string, ReturnType<typeof getOllamaCatalog>[number]> {
-  const index = new Map<string, ReturnType<typeof getOllamaCatalog>[number]>();
-  const catalog = getOllamaCatalog({ maxVariants: Number.POSITIVE_INFINITY });
+async function buildCatalogIndex(): Promise<Map<string, ModelInfo>> {
+  const index = new Map<string, ModelInfo>();
+  const catalog = await getOllamaCatalogAsync({ maxVariants: Number.POSITIVE_INFINITY });
   for (const entry of catalog) {
     index.set(entry.name.toLowerCase(), entry);
   }
@@ -49,9 +49,9 @@ function buildCatalogIndex(): Map<string, ReturnType<typeof getOllamaCatalog>[nu
 }
 
 function findCatalogEntry(
-  index: Map<string, ReturnType<typeof getOllamaCatalog>[number]>,
+  index: Map<string, ModelInfo>,
   modelName: string,
-): ReturnType<typeof getOllamaCatalog>[number] | null {
+): ModelInfo | null {
   const lower = modelName.toLowerCase();
   if (index.has(lower)) return index.get(lower) ?? null;
   if (!lower.includes(":")) {
@@ -134,75 +134,54 @@ export async function aiCommand(args: string[]): Promise<void> {
     }
     case "list": {
       const configuredModel = config.snapshot.model;
-      const [providerName] = parseModelString(configuredModel);
-      const models = await ai.models.list(providerName ?? undefined);
-      if (models.length === 0) {
-        log.raw.log("No models installed.");
+      // Use listAll() to aggregate models from ALL registered providers
+      const allModels = await ai.models.listAll();
+      if (allModels.length === 0) {
+        log.raw.log("No models available.");
         return;
       }
-      const isOllama = !providerName || providerName === "ollama";
-      const catalogIndex = isOllama ? buildCatalogIndex() : null;
-      const defaultLocalName = resolveDefaultLocalName(models, configuredModel);
       if (configuredModel) {
-        const defaultStatus = defaultLocalName ? "Default" : "Default (not installed)";
-        log.raw.log(`${defaultStatus}: ${configuredModel}`);
+        log.raw.log(`Default: ${configuredModel}`);
       }
 
-      const sortedModels = models.slice().sort((a, b) => {
-        if (defaultLocalName && a.name === defaultLocalName) return -1;
-        if (defaultLocalName && b.name === defaultLocalName) return 1;
-        return a.name.localeCompare(b.name);
-      });
+      // Group models by provider
+      const byProvider = new Map<string, typeof allModels>();
+      for (const m of allModels) {
+        const provider = (m.metadata as Record<string, unknown>)?.provider as string ?? "unknown";
+        const group = byProvider.get(provider) ?? [];
+        group.push(m);
+        byProvider.set(provider, group);
+      }
 
+      const catalogIndex = await buildCatalogIndex();
       const columns = getPlatform().terminal.consoleSize().columns || 80;
-      const nameWidth = Math.min(
-        Math.max(...sortedModels.map((m) => m.name.length), 10) + 2,
-        28,
-      );
-      const sizeWidth = 9;
-      const paramWidth = 7;
-      const quantWidth = 8;
+      const nameWidth = 30;
       const tagsWidth = 20;
-      const fixed = nameWidth + sizeWidth + paramWidth + quantWidth + tagsWidth + 8;
-      const descWidth = Math.max(0, columns - fixed);
-      const showDesc = descWidth >= 24;
 
-      const headerParts = [
-        pad("MODEL", nameWidth),
-        pad("SIZE", sizeWidth),
-        pad("PARAMS", paramWidth),
-        pad("QUANT", quantWidth),
-        pad("TAGS", tagsWidth),
-      ];
-      if (showDesc) headerParts.push("DESCRIPTION");
-      log.raw.log(headerParts.join("  "));
+      for (const [provider, models] of byProvider) {
+        const displayName = (models[0]?.metadata as Record<string, unknown>)?.providerDisplayName as string ?? provider;
+        log.raw.log(`\n${displayName}:`);
+        log.raw.log(`${pad("MODEL", nameWidth)}  ${pad("TAGS", tagsWidth)}`);
 
-      for (const model of sortedModels) {
-        const prefix = defaultLocalName && model.name === defaultLocalName ? "* " : "  ";
-        const catalogEntry = catalogIndex ? findCatalogEntry(catalogIndex, model.name) : null;
-        const meta = (catalogEntry?.metadata || {}) as Record<string, unknown>;
-        const tags = catalogEntry ? capabilitiesToDisplayTags(catalogEntry.capabilities) : [];
-        const isInstalled = typeof model.size === "number" && model.size > 0;
-        if (meta.cloud === true && !isInstalled) tags.push("cloud");
+        const sorted = models.slice().sort((a, b) => a.name.localeCompare(b.name));
+        for (const model of sorted) {
+          const meta = (model.metadata ?? {}) as Record<string, unknown>;
+          const tags = model.capabilities
+            ? capabilitiesToDisplayTags(model.capabilities)
+            : [];
+          if (meta.cloud === true) tags.push("cloud");
+          const isLocal = typeof model.size === "number" && model.size > 0;
+          if (isLocal) {
+            const catalogEntry = catalogIndex ? findCatalogEntry(catalogIndex, model.name) : null;
+            if (catalogEntry?.parameterSize) tags.push(catalogEntry.parameterSize);
+          }
 
-        const sizeText = isInstalled ? formatBytes(model.size) : "";
-        const paramSize = model.parameterSize ?? catalogEntry?.parameterSize ?? "";
-        const quant = model.quantization ?? "";
+          const isDefault = configuredModel?.endsWith(`/${model.name}`) ||
+            configuredModel === model.name;
+          const prefix = isDefault ? "* " : "  ";
 
-        const lineParts = [
-          pad(`${prefix}${model.name}`, nameWidth),
-          pad(sizeText, sizeWidth),
-          pad(paramSize, paramWidth),
-          pad(quant, quantWidth),
-          pad(tags.join(" "), tagsWidth),
-        ];
-
-        if (showDesc) {
-          const description = typeof meta.description === "string" ? meta.description : "";
-          lineParts.push(truncate(description, descWidth));
+          log.raw.log(`${pad(`${prefix}${model.name}`, nameWidth)}  ${tags.join(" ")}`);
         }
-
-        log.raw.log(lineParts.join("  "));
       }
       return;
     }

@@ -89,7 +89,7 @@ export function getHlvmDir(): string {
 /**
  * Reset cached HLVM dir (used in tests)
  */
-export function resetHlvmDirCache(): void {
+function resetHlvmDirCache(): void {
   _hlvmDir = null;
 }
 

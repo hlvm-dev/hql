@@ -26,7 +26,7 @@ import {
 /**
  * Error factory API interface
  */
-export interface ErrorsApi {
+interface ErrorsApi {
   // Factory methods for creating typed errors
   parse(message: string, location: {
     line: number;
@@ -146,4 +146,4 @@ export const errors: ErrorsApi = {
   },
 };
 
-export default errors;
+// default export removed — use named `errors` export instead

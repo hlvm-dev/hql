@@ -156,7 +156,7 @@ async function getContextSourceMapConsumer(): Promise<
   return runtimeContext.sourceMapConsumer;
 }
 
-interface HlvmMeta {
+export interface HlvmMeta {
   filePath?: string;
   line?: number;
   column?: number;

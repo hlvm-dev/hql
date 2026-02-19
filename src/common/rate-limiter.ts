@@ -14,7 +14,7 @@ export interface RateLimitConfig {
   windowMs: number;
 }
 
-export interface RateLimitStatus {
+interface RateLimitStatus {
   allowed: boolean;
   maxCalls: number;
   windowMs: number;

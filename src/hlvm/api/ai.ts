@@ -28,6 +28,15 @@ import {
 } from "../providers/index.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 
+/** Provider-level metadata exposed to GUI thin clients (SSOT). */
+const PROVIDER_META: Record<string, { subtitle?: string; docsUrl?: string }> = {
+  ollama: { subtitle: "Local models", docsUrl: "https://ollama.com/library" },
+  anthropic: { subtitle: "Claude AI models", docsUrl: "https://docs.anthropic.com/en/docs/about-claude/models" },
+  openai: { subtitle: "GPT models", docsUrl: "https://platform.openai.com/docs/models" },
+  google: { subtitle: "Gemini models", docsUrl: "https://ai.google.dev/gemini-api/docs/models" },
+  "claude-code": { subtitle: "Claude AI models (Max)", docsUrl: "https://docs.anthropic.com/en/docs/about-claude/models" },
+};
+
 // ============================================================================
 // Helper Types
 // ============================================================================
@@ -191,6 +200,8 @@ function createAiApi() {
               const provider = getProvider(name);
               if (!provider?.models?.list) return [];
               const models = await provider.models.list();
+              const isCloud = name !== "ollama";
+              const meta = PROVIDER_META[name];
               return models.map((m) => ({
                 ...m,
                 metadata: {
@@ -198,6 +209,9 @@ function createAiApi() {
                   provider: name,
                   providerDisplayName: provider.displayName ?? name,
                   apiKeyConfigured: provider.apiKeyConfigured,
+                  ...(isCloud ? { cloud: true } : {}),
+                  ...(meta?.subtitle ? { providerSubtitle: meta.subtitle } : {}),
+                  ...(meta?.docsUrl ? { providerDocsUrl: meta.docsUrl } : {}),
                 },
               }));
             } catch {

@@ -4,7 +4,7 @@
 
 HQL is building a **self-hosted standard library** where stdlib functions are written in HQL itself, not JavaScript. This is inspired by **Clojure's elegant sequence abstraction** and its self-hosted nature.
 
-**Current Status**: ~59 of ~96 functions self-hosted (61%) in `stdlib.hql`
+**Current Status**: ~92 of ~101 functions self-hosted (91%) in `stdlib.hql`
 **Foundation**: Clojure-aligned seq-protocol with LazySeq, Cons, ArraySeq
 **Tests**: All tests passing
 
@@ -743,23 +743,19 @@ Migrate ALL of core.js to use seq-protocol.js, then delete lazy-seq.js.
 - [x] `keys`, `vals`, `zipmap`
 - [x] `repeat`, `repeatedly`, `cycle`, `iterate`
 
-**Current: ~59/96 functions self-hosted (61%)**
-Remaining ~37 functions require JavaScript bootstrap (core.js primitives like `first`, `rest`, `cons`, `seq`, `get`, `assoc`, transducers, chunked sequences).
+**Current: ~92/101 functions self-hosted (91%)**
+Remaining ~9 functions require JavaScript bootstrap (transducers needing computed Symbol keys: `mapT`, `filterT`, `takeT`, `dropT`, `takeWhileT`, `dropWhileT`, `distinctT`, `partitionAllT`, `composeTransducers`).
 
 ### Phase 5: Auto-Transpilation
 - [ ] Parse stdlib.hql
 - [ ] Generate self-hosted.js automatically
 - [ ] Integrate into build process
 
-### Phase 6: Full Self-Hosting (~90%)
-Target: All functions that CAN be expressed in HQL ARE in HQL.
+### Phase 6: Full Self-Hosting (~90%) COMPLETE
+Target: All functions that CAN be expressed in HQL ARE in HQL. Achieved 91% (92/101).
 
-**Must remain in JavaScript:**
-- `seq` - needs to handle JS arrays, strings, objects
-- `first`, `rest` - primitive foundation
-- `assoc`, `dissoc`, `get`, `update` - JS object manipulation
-- `vec`, `set` - JS type constructors
-- `range` - could be HQL but needs JS number iteration
+**Must remain in JavaScript (9 transducers needing computed Symbol keys):**
+- `mapT`, `filterT`, `takeT`, `dropT`, `takeWhileT`, `dropWhileT`, `distinctT`, `partitionAllT`, `composeTransducers`
 
 ---
 

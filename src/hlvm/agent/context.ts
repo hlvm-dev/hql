@@ -34,7 +34,9 @@ export interface Message {
    */
   fromSession?: boolean;
   /** Tool calls made by assistant (for native tool calling conversation flow) */
-  toolCalls?: Array<{ id?: string; function: { name: string; arguments: unknown } }>;
+  toolCalls?: Array<
+    { id?: string; function: { name: string; arguments: unknown } }
+  >;
   /** Name of the tool that produced this result (for role: "tool") */
   toolName?: string;
   /** ID of the tool call this result responds to (correlates with toolCalls[].id) */
@@ -57,7 +59,9 @@ function estimateToolCallChars(message: Message): number {
       if (typeof tc.function.arguments === "string") {
         argsLen = tc.function.arguments.length;
       } else {
-        try { argsLen = JSON.stringify(tc.function.arguments).length; } catch { /* circular ref — skip */ }
+        try {
+          argsLen = JSON.stringify(tc.function.arguments).length;
+        } catch { /* circular ref — skip */ }
       }
     }
     chars += nameLen + argsLen + 20; // overhead for id, structure
@@ -166,7 +170,8 @@ export class ContextManager {
 
     if (this.config.overflowStrategy === "fail") {
       const projectedTokens = Math.ceil(
-        (this.totalChars + messageWithTimestamp.content.length + toolCallChars) / 4,
+        (this.totalChars + messageWithTimestamp.content.length +
+          toolCallChars) / 4,
       );
       if (projectedTokens > this.config.maxTokens) {
         throw new ContextOverflowError(
@@ -181,7 +186,9 @@ export class ContextManager {
     this.incrementRoleCount(messageWithTimestamp.role);
 
     // Proactive compaction at threshold (before overflow)
-    if (this.config.overflowStrategy === "summarize" && this.config.llmSummarize) {
+    if (
+      this.config.overflowStrategy === "summarize" && this.config.llmSummarize
+    ) {
       const threshold = this.config.maxTokens * this.config.compactionThreshold;
       if (this.estimateTokens() > threshold) {
         this.pendingCompaction = true;
@@ -248,14 +255,13 @@ export class ContextManager {
   }
 
   /**
-   * Get all messages — callers should not mutate the returned array.
-   * Fix 21: Returns internal array directly to avoid GC pressure.
-   * Use getMessagesCopy() if you need to mutate.
+   * Get all messages as a defensive copy.
+   * Use getMessagesCopy() for explicit mutable copies.
    *
-   * @returns Message array (do not mutate)
+   * @returns Message array copy
    */
   getMessages(): Message[] {
-    return this.messages;
+    return [...this.messages];
   }
 
   /**
@@ -412,9 +418,14 @@ export class ContextManager {
     const maxTrim = nonSystemMessages.length - this.config.minMessages;
     let startIdx = 0;
 
-    while (startIdx < maxTrim && (systemTokens + nonSystemTokens) > this.config.maxTokens) {
+    while (
+      startIdx < maxTrim &&
+      (systemTokens + nonSystemTokens) > this.config.maxTokens
+    ) {
       const msg = nonSystemMessages[startIdx];
-      nonSystemTokens -= Math.ceil((msg.content.length + estimateToolCallChars(msg)) / 4);
+      nonSystemTokens -= Math.ceil(
+        (msg.content.length + estimateToolCallChars(msg)) / 4,
+      );
       startIdx++;
     }
 
@@ -533,7 +544,10 @@ export class ContextManager {
       ...config,
     };
 
-    if (this.config.overflowStrategy === "trim" || this.config.overflowStrategy === "summarize") {
+    if (
+      this.config.overflowStrategy === "trim" ||
+      this.config.overflowStrategy === "summarize"
+    ) {
       this.trimIfNeeded();
       return;
     }

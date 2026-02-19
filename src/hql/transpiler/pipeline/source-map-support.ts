@@ -132,7 +132,7 @@ export function invalidateSourceMapCache(jsFilePath?: string): void {
  *   console.log(original);  // { source: "app.hql", line: 5, column: 2 }
  * }
  */
-export async function loadSourceMap(
+async function loadSourceMap(
   jsFilePath: string,
 ): Promise<SourceMapConsumer | null> {
   // Normalize file path - convert file:// URLs to regular paths
@@ -232,7 +232,7 @@ export async function loadSourceMap(
  *   // Output: "HQL location: app.hql:5:2"
  * }
  */
-export async function mapPosition(
+async function mapPosition(
   jsFilePath: string,
   line: number,
   column: number,

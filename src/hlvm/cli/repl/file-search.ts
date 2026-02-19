@@ -12,6 +12,10 @@ import { getPlatform } from "../../../platform/platform.ts";
 import {
   isIgnored,
   loadGitignore,
+  SKIP_DIRS,
+  SKIP_EXTENSIONS,
+  SKIP_EXACT_NAMES,
+  shouldSkipFile,
 } from "../../../common/file-utils.ts";
 
 // ============================================================
@@ -41,25 +45,8 @@ export interface FileIndex {
 
 const CACHE_TTL = 60000; // 1 minute cache
 
-// Directories to always skip
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", "dist", "build", ".cache",
-  "coverage", ".next", ".nuxt", "vendor", "__pycache__",
-  ".hql", ".deno", "target", ".svn", ".hg", "bower_components",
-  ".idea", ".vscode", ".vs", "out", "bin", "obj",
-]);
-
-// File patterns to skip - using string checks for performance (no regex compilation)
-const SKIP_EXTENSIONS = new Set(['.min.js', '.map', '.lock', '.d.ts']);
-const SKIP_EXACT_NAMES = new Set(['package-lock.json', 'yarn.lock']);
-
-function shouldSkipFile(name: string): boolean {
-  if (SKIP_EXACT_NAMES.has(name)) return true;
-  for (const ext of SKIP_EXTENSIONS) {
-    if (name.endsWith(ext)) return true;
-  }
-  return false;
-}
+// SKIP_DIRS, SKIP_EXTENSIONS, SKIP_EXACT_NAMES, shouldSkipFile
+// imported from ../../../common/file-utils.ts (SSOT)
 
 // ============================================================
 // Cache

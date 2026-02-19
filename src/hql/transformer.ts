@@ -38,7 +38,7 @@ const DYNAMIC_RUNTIME_PATTERNS = [
 /**
  * Options controlling transformation behavior.
  */
-export interface TransformOptions {
+interface TransformOptions {
   verbose?: boolean;
   replMode?: boolean;
   sourceFile?: string;

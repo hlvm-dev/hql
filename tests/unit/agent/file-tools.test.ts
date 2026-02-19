@@ -6,14 +6,18 @@
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
-  readFile,
-  writeFile,
+  archiveFiles,
+  type ArchiveFilesArgs,
   editFile,
-  listFiles,
-  type ReadFileArgs,
-  type WriteFileArgs,
   type EditFileArgs,
+  listFiles,
   type ListFilesArgs,
+  openPath,
+  type OpenPathArgs,
+  readFile,
+  type ReadFileArgs,
+  writeFile,
+  type WriteFileArgs,
 } from "../../../src/hlvm/agent/tools/file-tools.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 
@@ -53,13 +57,13 @@ Deno.test({
     const testContent = "Hello, world!";
     await platform.fs.writeTextFile(
       `${TEST_WORKSPACE}/test.txt`,
-      testContent
+      testContent,
     );
 
     // Read file
     const result = await readFile(
       { path: "test.txt" } as ReadFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -77,7 +81,7 @@ Deno.test({
 
     const result = await readFile(
       { path: "nonexistent.txt" } as ReadFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -98,7 +102,7 @@ Deno.test({
 
     const result = await readFile(
       { path: "testdir" } as ReadFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -115,7 +119,7 @@ Deno.test({
 
     const result = await readFile(
       { path: "../../../etc/passwd" } as ReadFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -165,14 +169,14 @@ Deno.test({
         path: "newfile.txt",
         content,
       } as WriteFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
 
     // Verify file was created
     const written = await platform.fs.readTextFile(
-      `${TEST_WORKSPACE}/newfile.txt`
+      `${TEST_WORKSPACE}/newfile.txt`,
     );
     assertEquals(written, content);
 
@@ -211,7 +215,7 @@ Deno.test({
     // Create initial file
     await platform.fs.writeTextFile(
       `${TEST_WORKSPACE}/file.txt`,
-      "original"
+      "original",
     );
 
     // Overwrite
@@ -221,13 +225,15 @@ Deno.test({
         path: "file.txt",
         content: newContent,
       } as WriteFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
 
     // Verify content
-    const written = await platform.fs.readTextFile(`${TEST_WORKSPACE}/file.txt`);
+    const written = await platform.fs.readTextFile(
+      `${TEST_WORKSPACE}/file.txt`,
+    );
     assertEquals(written, newContent);
 
     await cleanupWorkspace();
@@ -246,14 +252,14 @@ Deno.test({
         content: "content",
         createDirs: true,
       } as WriteFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
 
     // Verify file exists
     const content = await platform.fs.readTextFile(
-      `${TEST_WORKSPACE}/nested/deep/file.txt`
+      `${TEST_WORKSPACE}/nested/deep/file.txt`,
     );
     assertEquals(content, "content");
 
@@ -272,7 +278,7 @@ Deno.test({
         content: "content",
         createDirs: false,
       } as WriteFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -291,7 +297,7 @@ Deno.test({
         path: "../../../tmp/malicious.txt",
         content: "bad",
       } as WriteFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -321,14 +327,16 @@ Deno.test({
         replace: "Goodbye",
         mode: "literal",
       } as EditFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
     assertEquals(result.replacements, 2);
 
     // Verify content
-    const updated = await platform.fs.readTextFile(`${TEST_WORKSPACE}/edit.txt`);
+    const updated = await platform.fs.readTextFile(
+      `${TEST_WORKSPACE}/edit.txt`,
+    );
     assertEquals(updated, "Goodbye world! Goodbye universe!");
 
     await cleanupWorkspace();
@@ -351,14 +359,14 @@ Deno.test({
         replace: "result",
         mode: "regex",
       } as EditFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
     assertEquals(result.replacements, 3);
 
     const updated = await platform.fs.readTextFile(
-      `${TEST_WORKSPACE}/config.txt`
+      `${TEST_WORKSPACE}/config.txt`,
     );
     assertEquals(updated, "result = 10\nresult = 20\nresult = 30");
 
@@ -409,7 +417,7 @@ Deno.test({
         find: "nonexistent",
         replace: "replacement",
       } as EditFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -434,7 +442,7 @@ Deno.test({
         replace: "replacement",
         mode: "regex",
       } as EditFileArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -464,7 +472,7 @@ Deno.test({
         path: ".",
         recursive: false,
       } as ListFilesArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -490,14 +498,17 @@ Deno.test({
     await platform.fs.mkdir(`${TEST_WORKSPACE}/dir1/dir2`, { recursive: true });
     await platform.fs.writeTextFile(`${TEST_WORKSPACE}/root.txt`, "");
     await platform.fs.writeTextFile(`${TEST_WORKSPACE}/dir1/file1.txt`, "");
-    await platform.fs.writeTextFile(`${TEST_WORKSPACE}/dir1/dir2/file2.txt`, "");
+    await platform.fs.writeTextFile(
+      `${TEST_WORKSPACE}/dir1/dir2/file2.txt`,
+      "",
+    );
 
     const result = await listFiles(
       {
         path: ".",
         recursive: true,
       } as ListFilesArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -548,7 +559,7 @@ Deno.test({
         path: ".",
         pattern: "*.ts",
       } as ListFilesArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -578,7 +589,7 @@ Deno.test({
         recursive: true,
         maxDepth: 2,
       } as ListFilesArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, true);
@@ -587,7 +598,9 @@ Deno.test({
     assertEquals(result.count, 5);
 
     // Verify f3.txt is NOT in the results (it would be at depth 3)
-    const hasDeeplyNestedFile = result.entries?.some(e => e.path.includes("f3.txt"));
+    const hasDeeplyNestedFile = result.entries?.some((e) =>
+      e.path.includes("f3.txt")
+    );
     assertEquals(hasDeeplyNestedFile, false);
 
     await cleanupWorkspace();
@@ -606,7 +619,7 @@ Deno.test({
       {
         path: "file.txt",
       } as ListFilesArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -625,7 +638,7 @@ Deno.test({
       {
         path: "../../../etc",
       } as ListFilesArgs,
-      TEST_WORKSPACE
+      TEST_WORKSPACE,
     );
 
     assertEquals(result.success, false);
@@ -635,7 +648,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "File Tools: list_files - skip symlinked subdirectories during recursion",
+  name:
+    "File Tools: list_files - skip symlinked subdirectories during recursion",
   async fn() {
     await setupWorkspace();
     const platform = getPlatform();
@@ -645,14 +659,16 @@ Deno.test({
     //   legitimate/
     //     file1.txt
     //   evil_link/ -> /etc/
-    await platform.fs.mkdir(`${TEST_WORKSPACE}/legitimate`, { recursive: true });
+    await platform.fs.mkdir(`${TEST_WORKSPACE}/legitimate`, {
+      recursive: true,
+    });
     await platform.fs.writeTextFile(
       `${TEST_WORKSPACE}/legitimate/file1.txt`,
-      "legitimate file"
+      "legitimate file",
     );
     await platform.fs.writeTextFile(
       `${TEST_WORKSPACE}/regular.txt`,
-      "regular file"
+      "regular file",
     );
 
     // Create symlinked subdirectory
@@ -670,7 +686,7 @@ Deno.test({
             path: ".",
             recursive: true,
           } as ListFilesArgs,
-          TEST_WORKSPACE
+          TEST_WORKSPACE,
         );
 
         assertEquals(listResult.success, true);
@@ -690,12 +706,12 @@ Deno.test({
         assertEquals(
           hasEvilLinkContents,
           false,
-          "Symlinked subdirectory contents should be skipped during recursion"
+          "Symlinked subdirectory contents should be skipped during recursion",
         );
       }
     } catch {
       console.log(
-        "Skipping symlink recursion test - ln command not available"
+        "Skipping symlink recursion test - ln command not available",
       );
     } finally {
       // Cleanup symlink
@@ -706,6 +722,44 @@ Deno.test({
       }
     }
 
+    await cleanupWorkspace();
+  },
+});
+
+// ============================================================
+// open_path + archive_files tests
+// ============================================================
+
+Deno.test({
+  name: "File Tools: open_path - reject path outside workspace",
+  async fn() {
+    await setupWorkspace();
+
+    const result = await openPath(
+      { path: "../../../etc" } as OpenPathArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, false);
+    await cleanupWorkspace();
+  },
+});
+
+Deno.test({
+  name: "File Tools: archive_files - validate non-empty paths",
+  async fn() {
+    await setupWorkspace();
+
+    const result = await archiveFiles(
+      {
+        paths: [],
+        outputPath: "out.zip",
+      } as ArchiveFilesArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, false);
+    assertStringIncludes(result.message || "", "non-empty array");
     await cleanupWorkspace();
   },
 });

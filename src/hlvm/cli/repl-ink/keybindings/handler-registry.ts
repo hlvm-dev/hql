@@ -35,7 +35,6 @@ export interface HandlerInfo {
 // ============================================================
 
 const handlers = new Map<string, HandlerInfo>();
-const listeners = new Set<() => void>();
 
 // ============================================================
 // Public API
@@ -47,7 +46,6 @@ const listeners = new Set<() => void>();
  */
 export function registerHandler(id: string, handler: HandlerFn, source?: string): void {
   handlers.set(id, { id, handler, source });
-  notifyListeners();
 }
 
 /**
@@ -55,7 +53,6 @@ export function registerHandler(id: string, handler: HandlerFn, source?: string)
  */
 export function unregisterHandler(id: string): void {
   handlers.delete(id);
-  notifyListeners();
 }
 
 /**
@@ -75,20 +72,6 @@ export async function executeHandler(id: string): Promise<boolean> {
   } catch (error) {
     log.error(`[handler-registry] Handler error for ${id}: ${error}`);
     return false;
-  }
-}
-
-// ============================================================
-// Internal
-// ============================================================
-
-function notifyListeners(): void {
-  for (const listener of listeners) {
-    try {
-      listener();
-    } catch (error) {
-      log.error(`[handler-registry] Listener error: ${error}`);
-    }
   }
 }
 

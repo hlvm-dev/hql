@@ -55,6 +55,9 @@ export const ansi = {
   bg: (r: number, g: number, b: number): string => `${CSI}48;2;${r};${g};${b}m`,
 };
 
+/** Shared encoder for terminal output */
+export const overlayEncoder = new TextEncoder();
+
 /** Region to clear on screen */
 export interface ClearRegion {
   x: number;
@@ -80,8 +83,7 @@ export function clearOverlay(region: ClearRegion): void {
 
   output += ansi.cursorRestore;
 
-  const encoder = new TextEncoder();
-  getPlatform().terminal.stdout.writeSync(encoder.encode(output));
+  getPlatform().terminal.stdout.writeSync(overlayEncoder.encode(output));
 }
 
 /**
@@ -121,9 +123,6 @@ export type RGB = [number, number, number];
 
 /** Default overlay background color */
 export const OVERLAY_BG_COLOR: RGB = [35, 35, 40];
-
-/** Shared encoder for terminal output */
-export const overlayEncoder = new TextEncoder();
 
 /** Create ANSI foreground color string from RGB */
 export function fg(rgb: RGB): string {

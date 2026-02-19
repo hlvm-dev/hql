@@ -16,13 +16,14 @@ import {
 } from "../../common/ai-default-model.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type AgentSession, createAgentSession } from "./session.ts";
+import { createAgentLLM } from "./llm-integration.ts";
 import { createDelegateHandler } from "./delegation.ts";
 import {
-  runReActLoop,
   type AgentUIEvent,
-  type TraceEvent,
   type InteractionRequestEvent,
   type InteractionResponse,
+  runReActLoop,
+  type TraceEvent,
 } from "./orchestrator.ts";
 import {
   type AgentSessionEntry,
@@ -92,18 +93,35 @@ export async function disposeAllSessions(): Promise<void> {
 
 /**
  * Create a fresh context + l1Confirmations from a cached session.
- * Reuses llm, policy, toolOwnerId, profile, isFrontierModel, resolvedContextBudget.
+ * Reuses policy, toolOwnerId, profile, isFrontierModel, resolvedContextBudget.
+ * When onToken is provided, rebuilds the LLM to enable streaming.
  */
-function reuseSession(cached: AgentSession): AgentSession {
+function reuseSession(
+  cached: AgentSession,
+  onToken?: (text: string) => void,
+): AgentSession {
   const context = new ContextManager(cached.context.getConfig());
-  // Copy system prompt from cached session
-  const systemMsg = cached.context.getMessages().find((m) => m.role === "system");
-  if (systemMsg) {
-    context.addMessage({ role: "system", content: systemMsg.content });
+  // Copy all system messages from cached session (not just first)
+  const systemMessages = cached.context.getMessages().filter((m) =>
+    m.role === "system"
+  );
+  for (const message of systemMessages) {
+    context.addMessage({ role: "system", content: message.content });
+  }
+
+  // Rebuild LLM with caller's onToken to enable streaming in GUI mode
+  let llm = cached.llm;
+  if (onToken && cached.llmConfig) {
+    llm = createAgentLLM({
+      ...cached.llmConfig,
+      options: { temperature: cached.llmConfig.temperature ?? 0.0 },
+      onToken,
+    });
   }
 
   return {
     ...cached,
+    llm,
     context,
     l1Confirmations: new Map<string, boolean>(),
   };
@@ -136,7 +154,9 @@ export interface AgentRunnerCallbacks {
   onToken?: (text: string) => void;
   onAgentEvent?: (event: AgentUIEvent) => void;
   onTrace?: (event: TraceEvent) => void;
-  onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>;
+  onInteraction?: (
+    event: InteractionRequestEvent,
+  ) => Promise<InteractionResponse>;
 }
 
 export interface AgentRunnerOptions {
@@ -226,7 +246,7 @@ export async function runAgentQuery(
 
   const isCached = !!options.cachedSession;
   const session: AgentSession = options.cachedSession
-    ? reuseSession(options.cachedSession)
+    ? reuseSession(options.cachedSession, callbacks.onToken)
     : await createAgentSession({
       workspace,
       model,

@@ -4,7 +4,7 @@ Authoritative instructions for all AI agents working on this repository.
 
 ## Core Principles
 
-1. **Run tests after meaningful changes** - `deno task test:unit`
+1. **Test in the right order** - Domain-specific test first → user approval → full test suite last. Do NOT run `deno task test:unit` until all changes are implemented and approved.
 2. **Tests must be real** - No fake tests that always pass
 3. **SSOT enforcement is mandatory** - See below
 4. **Native tool calling only** - No text envelopes or compatibility shims

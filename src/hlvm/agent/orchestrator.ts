@@ -18,12 +18,12 @@
 import {
   getTool,
   hasTool,
+  type InteractionRequestEvent,
+  type InteractionResponse,
   normalizeToolName,
   prepareToolArgsForExecution,
   suggestToolNames,
   type ToolFunction,
-  type InteractionResponse,
-  type InteractionRequestEvent,
 } from "./registry.ts";
 import { checkToolSafety } from "./security/safety.ts";
 import {
@@ -301,7 +301,9 @@ function generateArgsSummary(toolName: string, args: unknown): string {
     case "shell_exec":
       return typeof a.command === "string" ? truncate(a.command, 80) : "";
     case "search_code":
-      return `'${truncate(String(a.query ?? ""), 40)}'${a.path ? ` in ${a.path}` : ""}`;
+      return `'${truncate(String(a.query ?? ""), 40)}'${
+        a.path ? ` in ${a.path}` : ""
+      }`;
     case "edit_file":
     case "write_file":
       return typeof a.path === "string" ? truncate(a.path, 80) : "";
@@ -441,13 +443,31 @@ export type TraceEvent =
 /** Agent UI event for display in CLI/GUI */
 export type AgentUIEvent =
   | { type: "thinking"; iteration: number }
-  | { type: "tool_start"; name: string; argsSummary: string; toolIndex: number; toolTotal: number }
-  | { type: "tool_end"; name: string; success: boolean; content: string; durationMs: number; argsSummary: string }
-  | { type: "turn_stats"; iteration: number; toolCount: number; durationMs: number }
+  | {
+    type: "tool_start";
+    name: string;
+    argsSummary: string;
+    toolIndex: number;
+    toolTotal: number;
+  }
+  | {
+    type: "tool_end";
+    name: string;
+    success: boolean;
+    content: string;
+    durationMs: number;
+    argsSummary: string;
+  }
+  | {
+    type: "turn_stats";
+    iteration: number;
+    toolCount: number;
+    durationMs: number;
+  }
   | InteractionRequestEvent;
 
 // Re-export from registry (SSOT)
-export type { InteractionResponse, InteractionRequestEvent };
+export type { InteractionRequestEvent, InteractionResponse };
 
 /** Orchestrator configuration */
 export interface OrchestratorConfig {
@@ -515,7 +535,9 @@ export interface OrchestratorConfig {
   /** No-input mode: do not ask the user questions */
   noInput?: boolean;
   /** Callback for interactive permission/question requests (GUI mode) */
-  onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>;
+  onInteraction?: (
+    event: InteractionRequestEvent,
+  ) => Promise<InteractionResponse>;
   /** Skip weak-model compensation heuristics (for frontier models like Claude, GPT-4o, Gemini) */
   skipModelCompensation?: boolean;
   /** External abort signal (from HTTP request cancellation) */
@@ -638,9 +660,6 @@ export async function executeToolCall(
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
   const l1Store = config.l1Confirmations ?? new Map<string, boolean>();
-  if (!config.l1Confirmations) {
-    config.l1Confirmations = l1Store;
-  }
   // Normalize tool name (handle camelCase, casing, separators)
   const resolvedName =
     normalizeToolName(toolCall.toolName, config.toolOwnerId) ??
@@ -1135,7 +1154,12 @@ async function callLLMWithRetry(
 
   for (let attempt = 0; attempt < config.maxRetries; attempt++) {
     try {
-      return await callLLMWithTimeout(llmFn, messages, config.timeout, config.signal);
+      return await callLLMWithTimeout(
+        llmFn,
+        messages,
+        config.timeout,
+        config.signal,
+      );
     } catch (error) {
       lastError = error as Error;
 
@@ -1158,7 +1182,9 @@ async function callLLMWithRetry(
           overflowContext.setMaxTokens(newBudget);
           overflowContext.trimToFit();
           messages = overflowContext.getMessages();
-          getAgentLogger().debug?.(`Context overflow: halved budget ${currentBudget} → ${newBudget}`);
+          getAgentLogger().debug?.(
+            `Context overflow: halved budget ${currentBudget} → ${newBudget}`,
+          );
           onTrace?.({
             type: "context_overflow_retry",
             newBudget,
@@ -1230,7 +1256,11 @@ async function executeToolWithTimeout(
   // so in-flight tool calls are aborted immediately on cancel.
   return await withTimeout(
     async (signal) => {
-      const result = await toolFn(args, workspace, { signal, policy, onInteraction });
+      const result = await toolFn(args, workspace, {
+        signal,
+        policy,
+        onInteraction,
+      });
       if (signal.aborted) {
         throw new RuntimeError("Tool execution aborted");
       }
@@ -1502,7 +1532,10 @@ function handleFinalResponse(
     });
 
     if (!grounding.grounded) {
-      if (lc.groundingMode === "strict" && state.groundingRetries < lc.maxGroundingRetries) {
+      if (
+        lc.groundingMode === "strict" &&
+        state.groundingRetries < lc.maxGroundingRetries
+      ) {
         state.groundingRetries++;
         const warningText =
           `Grounding required. Revise your answer to cite tool results using tool names or "Based on ...".\n- ${
@@ -1578,7 +1611,11 @@ async function handlePostToolExecution(
     const finalResponse = await callLLMWithRetry(
       llmFunction,
       config.context.getMessages(),
-      { timeout: lc.llmTimeout, maxRetries: lc.maxRetries, signal: config.signal },
+      {
+        timeout: lc.llmTimeout,
+        maxRetries: lc.maxRetries,
+        signal: config.signal,
+      },
       config.onTrace,
       config.context,
     );
@@ -1682,8 +1719,9 @@ export async function runReActLoop(
   config: OrchestratorConfig,
   llmFunction: LLMFunction,
 ): Promise<string> {
+  // Keep one confirmation store per loop without mutating caller-owned config.
   if (!config.l1Confirmations) {
-    config.l1Confirmations = new Map<string, boolean>();
+    config = { ...config, l1Confirmations: new Map<string, boolean>() };
   }
   const { context, onTrace } = config;
 
@@ -1814,7 +1852,11 @@ export async function runReActLoop(
       const agentResponse = await callLLMWithRetry(
         llmFunction,
         messages,
-        { timeout: lc.llmTimeout, maxRetries: lc.maxRetries, signal: config.signal },
+        {
+          timeout: lc.llmTimeout,
+          maxRetries: lc.maxRetries,
+          signal: config.signal,
+        },
         onTrace,
         context,
       );
@@ -1849,7 +1891,11 @@ export async function runReActLoop(
       if (textResult.action === "return") return textResult.value;
 
       // Process response and execute tools
-      const result = await processAgentResponse(response, config, lc.toolRateLimiter);
+      const result = await processAgentResponse(
+        response,
+        config,
+        lc.toolRateLimiter,
+      );
 
       // Emit turn stats after tool execution
       if (result.toolCallsMade > 0) {

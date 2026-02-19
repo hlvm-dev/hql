@@ -19,34 +19,21 @@ import type {
   ProviderStatus,
 } from "../types.ts";
 import { extractSignal, generateFromChat, chatFromStructured } from "../common.ts";
+import { fetchPublicModelsForProvider } from "../public-catalog.ts";
 import * as api from "./api.ts";
 
 const DEFAULT_ENDPOINT = "https://api.anthropic.com";
-const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
 
 /** Suffix appended to model IDs to indicate Claude Code full agent passthrough mode */
 export const AGENT_MODEL_SUFFIX = ":agent";
 
-/** Shared attributes for all Claude models (DRY) */
-const CLAUDE_MODEL_BASE: Pick<ModelInfo, "family" | "capabilities" | "contextWindow"> = {
-  family: "claude",
-  capabilities: ["chat", "tools", "vision"],
-  contextWindow: 200_000,
-};
-
-/** Base model definitions — SSOT for model IDs and display names.
- *  Must match Swift ClaudeModel enum rawValues exactly. */
-const BASE_MODELS: ReadonlyArray<{ name: string; displayName: string }> = [
-  { name: "claude-opus-4-6", displayName: "Claude Opus 4.6" },
-  { name: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5" },
-  { name: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5" },
-];
-
-/** Each model appears twice: plain = LLM only (HLVM orchestrates), :agent = Claude Code end-to-end. */
-const KNOWN_MODELS: ModelInfo[] = BASE_MODELS.flatMap((m) => [
-  { ...CLAUDE_MODEL_BASE, name: m.name, displayName: m.displayName },
-  { ...CLAUDE_MODEL_BASE, name: `${m.name}${AGENT_MODEL_SUFFIX}`, displayName: `${m.displayName} (Agent)` },
-]);
+/** Expand a flat list of Anthropic models into plain + :agent variants */
+function expandWithAgentVariants(models: ModelInfo[]): ModelInfo[] {
+  return models.flatMap((m) => [
+    m,
+    { ...m, name: `${m.name}${AGENT_MODEL_SUFFIX}`, displayName: `${m.displayName ?? m.name} (Agent)` },
+  ]);
+}
 
 export class ClaudeCodeProvider implements AIProvider {
   readonly name = "claude-code";
@@ -60,15 +47,33 @@ export class ClaudeCodeProvider implements AIProvider {
   ];
 
   private endpoint: string;
-  private defaultModel: string;
+  private configuredModel: string | undefined;
+  private resolvedDefault: string | undefined;
 
   constructor(config?: ProviderConfig) {
     this.endpoint = config?.endpoint ?? DEFAULT_ENDPOINT;
-    this.defaultModel = config?.defaultModel ?? DEFAULT_MODEL;
+    this.configuredModel = config?.defaultModel;
   }
 
-  private getModel(options?: GenerateOptions): string {
-    const model = options?.model ?? this.defaultModel;
+  /** Resolve default model dynamically — no hardcoded model IDs. */
+  private async getModel(options?: GenerateOptions): Promise<string> {
+    let model: string;
+    if (options?.model) {
+      model = options.model;
+    } else if (this.configuredModel) {
+      model = this.configuredModel;
+    } else if (this.resolvedDefault) {
+      model = this.resolvedDefault;
+    } else {
+      // Dynamically pick the first available model (self-growing)
+      const models = await this.models.list();
+      if (models.length > 0) {
+        this.resolvedDefault = models[0].name;
+        model = this.resolvedDefault;
+      } else {
+        throw new Error("No Claude Code models available. Run `claude login` to authenticate.");
+      }
+    }
     // Strip :agent suffix — it's a UI/routing concept, not an API parameter
     return model.endsWith(AGENT_MODEL_SUFFIX) ? model.slice(0, -AGENT_MODEL_SUFFIX.length) : model;
   }
@@ -77,8 +82,9 @@ export class ClaudeCodeProvider implements AIProvider {
     prompt: string,
     options?: GenerateOptions,
   ): AsyncGenerator<string, void, unknown> {
+    const model = await this.getModel(options);
     yield* generateFromChat(
-      (msgs, opts, signal) => api.chatStructured(this.endpoint, this.getModel(options), msgs, opts, signal),
+      (msgs, opts, signal) => api.chatStructured(this.endpoint, model, msgs, opts, signal),
       prompt, options,
     );
   }
@@ -87,19 +93,21 @@ export class ClaudeCodeProvider implements AIProvider {
     messages: Message[],
     options?: ChatOptions,
   ): AsyncGenerator<string, void, unknown> {
+    const model = await this.getModel(options);
     yield* chatFromStructured(
-      (msgs, opts, signal) => api.chatStructured(this.endpoint, this.getModel(options), msgs, opts, signal),
+      (msgs, opts, signal) => api.chatStructured(this.endpoint, model, msgs, opts, signal),
       messages, options,
     );
   }
 
-  chatStructured(
+  async chatStructured(
     messages: Message[],
     options?: ChatOptions,
   ): Promise<ChatStructuredResponse> {
+    const model = await this.getModel(options);
     return api.chatStructured(
       this.endpoint,
-      this.getModel(options),
+      model,
       messages,
       options,
       extractSignal(options),
@@ -107,9 +115,18 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   models = {
-    list: (): Promise<ModelInfo[]> => Promise.resolve(KNOWN_MODELS),
-    get: (name: string): Promise<ModelInfo | null> =>
-      Promise.resolve(KNOWN_MODELS.find((m) => m.name === name) ?? null),
+    /** OAuth API (primary) → public catalog (fallback). Expanded to plain + :agent variants. */
+    list: async (): Promise<ModelInfo[]> => {
+      const live = await api.listModels(this.endpoint);
+      if (live.length > 0) return expandWithAgentVariants(live);
+      // Fallback: OpenRouter public catalog (no credentials needed)
+      const publicModels = await fetchPublicModelsForProvider("anthropic");
+      return expandWithAgentVariants(publicModels);
+    },
+    get: async (name: string): Promise<ModelInfo | null> => {
+      const models = await this.models.list();
+      return models.find((m) => m.name === name) ?? null;
+    },
   };
 
   status(): Promise<ProviderStatus> {

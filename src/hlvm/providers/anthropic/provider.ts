@@ -18,17 +18,10 @@ import type {
 } from "../types.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { extractSignal, generateFromChat, chatFromStructured } from "../common.ts";
+import { fetchPublicModelsForProvider } from "../public-catalog.ts";
 import * as api from "./api.ts";
 
 const DEFAULT_ENDPOINT = "https://api.anthropic.com";
-const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
-
-/** Known Anthropic models (no list-models API) */
-const KNOWN_MODELS: ModelInfo[] = [
-  { name: "claude-opus-4-6", displayName: "Claude Opus 4.6", family: "claude", capabilities: ["chat", "tools", "vision"], contextWindow: 200_000 },
-  { name: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5", family: "claude", capabilities: ["chat", "tools", "vision"], contextWindow: 200_000 },
-  { name: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5", family: "claude", capabilities: ["chat", "tools", "vision"], contextWindow: 200_000 },
-];
 
 export class AnthropicProvider implements AIProvider {
   readonly name = "anthropic";
@@ -42,26 +35,38 @@ export class AnthropicProvider implements AIProvider {
   ];
 
   private endpoint: string;
-  private defaultModel: string;
+  private configuredModel: string | undefined;
+  private resolvedDefault: string | undefined;
   private apiKey: string;
 
   constructor(config?: ProviderConfig) {
     this.endpoint = config?.endpoint ?? DEFAULT_ENDPOINT;
-    this.defaultModel = config?.defaultModel ?? DEFAULT_MODEL;
+    this.configuredModel = config?.defaultModel;
     this.apiKey = config?.apiKey ?? getPlatform().env.get("ANTHROPIC_API_KEY") ?? "";
     this.apiKeyConfigured = this.apiKey.length > 0;
   }
 
-  private getModel(options?: GenerateOptions): string {
-    return options?.model ?? this.defaultModel;
+  /** Resolve default model dynamically — no hardcoded model IDs. */
+  private async getModel(options?: GenerateOptions): Promise<string> {
+    if (options?.model) return options.model;
+    if (this.configuredModel) return this.configuredModel;
+    if (this.resolvedDefault) return this.resolvedDefault;
+    // Dynamically pick the first available model (self-growing)
+    const models = await this.models.list();
+    if (models.length > 0) {
+      this.resolvedDefault = models[0].name;
+      return this.resolvedDefault;
+    }
+    throw new Error("No Anthropic models available. Check your API key or network.");
   }
 
   async *generate(
     prompt: string,
     options?: GenerateOptions,
   ): AsyncGenerator<string, void, unknown> {
+    const model = await this.getModel(options);
     yield* generateFromChat(
-      (msgs, opts, signal) => api.chatStructured(this.endpoint, this.getModel(options), msgs, this.apiKey, opts, signal),
+      (msgs, opts, signal) => api.chatStructured(this.endpoint, model, msgs, this.apiKey, opts, signal),
       prompt, options,
     );
   }
@@ -70,19 +75,21 @@ export class AnthropicProvider implements AIProvider {
     messages: Message[],
     options?: ChatOptions,
   ): AsyncGenerator<string, void, unknown> {
+    const model = await this.getModel(options);
     yield* chatFromStructured(
-      (msgs, opts, signal) => api.chatStructured(this.endpoint, this.getModel(options), msgs, this.apiKey, opts, signal),
+      (msgs, opts, signal) => api.chatStructured(this.endpoint, model, msgs, this.apiKey, opts, signal),
       messages, options,
     );
   }
 
-  chatStructured(
+  async chatStructured(
     messages: Message[],
     options?: ChatOptions,
   ): Promise<ChatStructuredResponse> {
+    const model = await this.getModel(options);
     return api.chatStructured(
       this.endpoint,
-      this.getModel(options),
+      model,
       messages,
       this.apiKey,
       options,
@@ -91,9 +98,21 @@ export class AnthropicProvider implements AIProvider {
   }
 
   models = {
-    list: (): Promise<ModelInfo[]> => Promise.resolve(KNOWN_MODELS),
-    get: (name: string): Promise<ModelInfo | null> =>
-      Promise.resolve(KNOWN_MODELS.find((m) => m.name === name) ?? null),
+    /** Model discovery: provider API (with credentials) → public catalog (no auth).
+     *  Never returns hardcoded lists. Self-growing via live API or OpenRouter catalog. */
+    list: async (): Promise<ModelInfo[]> => {
+      // Primary: provider's own API (if credentials available)
+      if (this.apiKeyConfigured) {
+        const live = await api.listModels(this.endpoint, this.apiKey);
+        if (live.length > 0) return live;
+      }
+      // Fallback: OpenRouter public catalog (no auth, no user credentials)
+      return fetchPublicModelsForProvider("anthropic");
+    },
+    get: async (name: string): Promise<ModelInfo | null> => {
+      const models = await this.models.list();
+      return models.find((m) => m.name === name) ?? null;
+    },
   };
 
   status(): Promise<ProviderStatus> {

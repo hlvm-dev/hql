@@ -23,7 +23,7 @@ import {
 } from "../cli/repl/memory.ts";
 import { assertString } from "./validation.ts";
 
-export interface MemorySummary {
+interface MemorySummary {
   count: number;
   names: string[];
   path: string;
@@ -48,7 +48,7 @@ export interface MemoryApi {
   count: () => Promise<number>;
 }
 
-export type MemoryCallable = MemoryApi & (() => Promise<MemorySummary>);
+type MemoryCallable = MemoryApi & (() => Promise<MemorySummary>);
 
 // ============================================================================
 // Memory API Object

@@ -507,6 +507,16 @@ export async function listSessions(
 }
 
 /**
+ * Count sessions without sorting or slicing (reads index only).
+ */
+export async function countSessions(
+  scope?: SessionStorageScope,
+): Promise<number> {
+  const entries = await readIndex(scope);
+  return entries.length;
+}
+
+/**
  * Get the most recent session (global).
  */
 export async function getLastSession(

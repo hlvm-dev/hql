@@ -18,12 +18,7 @@ import {
 import { __hql_get_op, __hql_lazy_seq, __hql_delay } from "../hql/lib/stdlib/js/core.js";
 import { STDLIB_PUBLIC_API } from "../hql/lib/stdlib/js/stdlib.js";
 import { gensym as gensymImpl } from "../hql/gensym.ts";
-
-type HlvmMeta = {
-  filePath?: string;
-  line?: number;
-  column?: number;
-};
+import type { HlvmMeta } from "./runtime-error-handler.ts";
 
 type GlobalHlvmHelpers = {
   __hql_get: (target: unknown, property: unknown, meta?: HlvmMeta) => unknown;
@@ -73,7 +68,7 @@ type GlobalHlvmHelpers = {
  * This allows HQL packages to access platform operations without directly using Deno/Node APIs
  * Naming follows industry standard: Deno, Bun, process (no underscores for public APIs)
  */
-export interface HlvmHostApi {
+interface HlvmHostApi {
   fs: {
     readTextFile: (path: string) => Promise<string>;
     readFile: (path: string) => Promise<Uint8Array>;

@@ -294,7 +294,9 @@ export async function listModels(
   apiKey: string,
 ): Promise<ModelInfo[]> {
   const url = `${endpoint}/v1beta/models?key=${apiKey}`;
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(8_000),
+  });
   if (!response.ok) return [];
 
   const result = await response.json() as {

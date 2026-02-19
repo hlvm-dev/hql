@@ -23,7 +23,7 @@ import { aiEngine } from "../../../src/hlvm/runtime/ai-runtime.ts";
 import type { AIEngineLifecycle } from "../../../src/hlvm/runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../../src/hlvm/providers/types.ts";
 import { findSystemOllama } from "../../../src/hlvm/cli/commands/ollama.ts";
-import { getOllamaCatalog } from "../../../src/hlvm/providers/ollama/catalog.ts";
+import { getOllamaCatalogAsync } from "../../../src/hlvm/providers/ollama/catalog.ts";
 import { isOllamaCloudModel } from "../../../src/hlvm/providers/ollama/cloud.ts";
 import { checkStatus } from "../../../src/hlvm/providers/ollama/api.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../src/common/config/types.ts";
@@ -68,8 +68,8 @@ Deno.test("parseParamSize: edge cases", () => {
 // pickBestCloudModel — real catalog data from ollama_models.json
 // ============================================================================
 
-Deno.test("pickBestCloudModel: returns a cloud model with tools capability", () => {
-  const result = pickBestCloudModel();
+Deno.test("pickBestCloudModel: returns a cloud model with tools capability", async () => {
+  const result = await pickBestCloudModel();
 
   // The real catalog should have cloud models with tools
   if (result === null) {
@@ -93,12 +93,12 @@ Deno.test("pickBestCloudModel: returns a cloud model with tools capability", () 
   );
 });
 
-Deno.test("pickBestCloudModel: prefers preferred list over random largest", () => {
-  const result = pickBestCloudModel();
+Deno.test("pickBestCloudModel: prefers preferred list over random largest", async () => {
+  const result = await pickBestCloudModel();
   if (!result) return;
 
   // Check if any preferred model exists in catalog
-  const catalog = getOllamaCatalog({ maxVariants: Infinity });
+  const catalog = await getOllamaCatalogAsync({ maxVariants: Infinity });
   const preferred = [
     "deepseek-v3.1:671b-cloud",
     "qwen3-coder:480b-cloud",
@@ -122,8 +122,8 @@ Deno.test("pickBestCloudModel: prefers preferred list over random largest", () =
   }
 });
 
-Deno.test("pickBestCloudModel: result has valid ModelInfo shape", () => {
-  const result = pickBestCloudModel();
+Deno.test("pickBestCloudModel: result has valid ModelInfo shape", async () => {
+  const result = await pickBestCloudModel();
   if (!result) return;
 
   assertEquals(typeof result.name, "string");
@@ -283,7 +283,7 @@ Deno.test("runFirstTimeSetup: no cloud model falls back", async () => {
 
   const result = await runFirstTimeSetup(engine, {
     confirmSetup: () => Promise.resolve(true),
-    pickBestCloudModel: () => null,
+    pickBestCloudModel: () => Promise.resolve(null),
     fallbackToModelBrowser: () => {
       calls.push("fallback");
       return Promise.resolve("ollama/fallback-model:cloud");
@@ -307,7 +307,7 @@ Deno.test("runFirstTimeSetup: pull failure falls back", async () => {
 
   const result = await runFirstTimeSetup(engine, {
     confirmSetup: () => Promise.resolve(true),
-    pickBestCloudModel: () => cloudModel,
+    pickBestCloudModel: () => Promise.resolve(cloudModel),
     pullWithSignin: () => Promise.resolve(false),
     ensureCloudModelAccess: () => Promise.resolve(true),
     fallbackToModelBrowser: () => {
@@ -333,7 +333,7 @@ Deno.test("runFirstTimeSetup: success saves selected cloud model", async () => {
 
   const result = await runFirstTimeSetup(engine, {
     confirmSetup: () => Promise.resolve(true),
-    pickBestCloudModel: () => cloudModel,
+    pickBestCloudModel: () => Promise.resolve(cloudModel),
     pullWithSignin: () => Promise.resolve(true),
     ensureCloudModelAccess: () => Promise.resolve(true),
     saveConfiguredModel: (modelId: string) => {
@@ -362,7 +362,7 @@ Deno.test("runFirstTimeSetup: unverified cloud auth falls back and does not save
 
   const result = await runFirstTimeSetup(engine, {
     confirmSetup: () => Promise.resolve(true),
-    pickBestCloudModel: () => cloudModel,
+    pickBestCloudModel: () => Promise.resolve(cloudModel),
     pullWithSignin: () => Promise.resolve(true),
     ensureCloudModelAccess: () => Promise.resolve(false),
     saveConfiguredModel: (modelId: string) => {

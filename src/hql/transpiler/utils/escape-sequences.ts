@@ -5,7 +5,7 @@
  * Standard escape sequence mappings
  * Maps escape character to its actual string value
  */
-export const SIMPLE_ESCAPES: Readonly<Record<string, string>> = {
+const SIMPLE_ESCAPES: Readonly<Record<string, string>> = {
   "n": "\n",
   "t": "\t",
   "r": "\r",
@@ -23,22 +23,22 @@ export const SIMPLE_ESCAPES: Readonly<Record<string, string>> = {
 /**
  * Regex for validating hex escape sequences (\xNN)
  */
-export const HEX_ESCAPE_REGEX = /^[0-9a-fA-F]{2}$/;
+const HEX_ESCAPE_REGEX = /^[0-9a-fA-F]{2}$/;
 
 /**
  * Regex for validating unicode escape sequences (\uNNNN)
  */
-export const UNICODE_ESCAPE_REGEX = /^[0-9a-fA-F]{4}$/;
+const UNICODE_ESCAPE_REGEX = /^[0-9a-fA-F]{4}$/;
 
 /**
  * Regex for validating extended unicode escapes (\u{NNNN...})
  */
-export const UNICODE_EXTENDED_REGEX = /^[0-9a-fA-F]+$/;
+const UNICODE_EXTENDED_REGEX = /^[0-9a-fA-F]+$/;
 
 /**
  * Result of processing an escape sequence
  */
-export interface EscapeResult {
+interface EscapeResult {
   /** The resolved character(s) */
   value: string;
   /** Number of additional characters consumed from input (beyond the escape char itself) */

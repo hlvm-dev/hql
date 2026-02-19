@@ -15,6 +15,7 @@ import type {
   ChatOptions,
   ChatStructuredResponse,
   Message,
+  ModelInfo,
   ProviderStatus,
 } from "../types.ts";
 import {
@@ -24,7 +25,7 @@ import {
   streamChat,
 } from "./shared.ts";
 
-const ANTHROPIC_VERSION = "2023-06-01";
+export const ANTHROPIC_VERSION = "2023-06-01";
 
 function authHeaders(apiKey: string): Record<string, string> {
   return {
@@ -70,6 +71,44 @@ export async function chatStructured(
 }
 
 // =============================================================================
+// Models
+// =============================================================================
+
+/** Anthropic model listing response */
+interface AnthropicModelEntry {
+  id: string;
+  display_name: string;
+  created_at: string;
+  type: "model";
+}
+
+/**
+ * Fetch available models from the Anthropic API.
+ * Uses GET /v1/models — returns empty array on failure.
+ */
+export async function listModels(
+  endpoint: string,
+  apiKey: string,
+): Promise<ModelInfo[]> {
+  const url = `${endpoint}/v1/models?limit=100`;
+  const response = await fetch(url, {
+    headers: authHeaders(apiKey),
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!response.ok) return [];
+
+  const result = await response.json() as { data: AnthropicModelEntry[] };
+  return (result.data ?? [])
+    .filter((m) => m.id.startsWith("claude-"))
+    .map((m) => ({
+      name: m.id,
+      displayName: m.display_name,
+      family: "claude",
+      capabilities: ["chat" as const, "tools" as const, "vision" as const],
+    }));
+}
+
+// =============================================================================
 // Status
 // =============================================================================
 
@@ -78,12 +117,9 @@ export async function checkStatus(
   apiKey: string,
 ): Promise<ProviderStatus> {
   try {
-    const url = `${endpoint}/v1/messages`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: authHeaders(apiKey),
-      body: JSON.stringify({ model: "claude-sonnet-4-5-20250929", max_tokens: 1, messages: [] }),
-    });
+    // Use model-agnostic endpoint — no hardcoded model IDs
+    const url = `${endpoint}/v1/models?limit=1`;
+    const response = await fetch(url, { headers: authHeaders(apiKey) });
     return {
       available: response.status !== 401,
       error: response.status === 401 ? "Invalid API key" : undefined,

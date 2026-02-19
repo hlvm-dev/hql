@@ -479,7 +479,7 @@ export function syntaxError(
  * @example
  * throw missingError("function definition", "function body", position);
  */
-export function missingError(
+function missingError(
   context: string,
   missing: string,
   position?: IR.SourcePosition,
@@ -504,7 +504,7 @@ export function missingError(
  * @example
  * throw unsupportedError("pattern matching", "nested spread patterns", position);
  */
-export function unsupportedError(
+function unsupportedError(
   context: string,
   operation: string,
   position?: IR.SourcePosition,
@@ -531,7 +531,7 @@ export function unsupportedError(
  * // For (do expr1 expr2 ...) - needs at least 2 elements (do + body)
  * validateMinListLength(list, 2, "do");
  */
-export function validateMinListLength(
+function validateMinListLength(
   list: ListNode,
   minCount: number,
   operatorName: string,
@@ -595,7 +595,7 @@ export function validateListLengthRange(
  * @example
  * const name = validateSymbol(nameNode, "function name", position);
  */
-export function validateSymbol(
+function validateSymbol(
   node: HQLNode,
   context: string,
   position?: IR.SourcePosition,
@@ -618,7 +618,7 @@ export function validateSymbol(
  * @example
  * const params = validateList(paramsNode, "function parameters", position);
  */
-export function validateList(
+function validateList(
   node: HQLNode,
   context: string,
   position?: IR.SourcePosition,

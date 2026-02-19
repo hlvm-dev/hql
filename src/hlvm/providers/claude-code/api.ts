@@ -17,6 +17,7 @@ import type {
   ChatOptions,
   ChatStructuredResponse,
   Message,
+  ModelInfo,
   ProviderStatus,
 } from "../types.ts";
 import { getClaudeCodeToken, clearTokenCache } from "./auth.ts";
@@ -26,8 +27,7 @@ import {
   buildResponse,
   streamChat,
 } from "../anthropic/shared.ts";
-
-const ANTHROPIC_VERSION = "2023-06-01";
+import { ANTHROPIC_VERSION } from "../anthropic/api.ts";
 
 function oauthHeaders(token: string): Record<string, string> {
   return {
@@ -79,6 +79,40 @@ export async function chatStructured(
 }
 
 // =============================================================================
+// Models
+// =============================================================================
+
+/**
+ * Fetch available models via OAuth auth.
+ * Same Anthropic /v1/models endpoint, different auth header.
+ */
+export async function listModels(
+  endpoint: string,
+): Promise<ModelInfo[]> {
+  try {
+    const token = await getClaudeCodeToken();
+    const url = `${endpoint}/v1/models?limit=100`;
+    const response = await fetch(url, {
+      headers: oauthHeaders(token),
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) return [];
+
+    const result = await response.json() as { data: { id: string; display_name: string }[] };
+    return (result.data ?? [])
+      .filter((m) => m.id.startsWith("claude-"))
+      .map((m) => ({
+        name: m.id,
+        displayName: m.display_name,
+        family: "claude",
+        capabilities: ["chat" as const, "tools" as const, "vision" as const],
+      }));
+  } catch {
+    return [];
+  }
+}
+
+// =============================================================================
 // Status
 // =============================================================================
 
@@ -87,12 +121,9 @@ export async function checkStatus(
 ): Promise<ProviderStatus> {
   try {
     const token = await getClaudeCodeToken();
-    const url = `${endpoint}/v1/messages`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: oauthHeaders(token),
-      body: JSON.stringify({ model: "claude-sonnet-4-5-20250929", max_tokens: 1, messages: [] }),
-    });
+    // Use model-agnostic endpoint — no hardcoded model IDs
+    const url = `${endpoint}/v1/models?limit=1`;
+    const response = await fetch(url, { headers: oauthHeaders(token) });
     return {
       available: response.status !== 401 && response.status !== 403,
       error: (response.status === 401 || response.status === 403)

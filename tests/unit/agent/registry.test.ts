@@ -6,18 +6,18 @@
 
 import {
   assertEquals,
-  assertThrows,
   assertStringIncludes,
+  assertThrows,
 } from "jsr:@std/assert";
 import {
-  getTool,
   getAllTools,
+  getTool,
+  getToolArgSchema,
+  getToolCount,
+  getToolDescription,
   getToolsByCategory,
   hasTool,
   validateToolArgs,
-  getToolCount,
-  getToolDescription,
-  getToolArgSchema,
 } from "../../../src/hlvm/agent/registry.ts";
 
 // ============================================================
@@ -95,6 +95,8 @@ Deno.test({
     // Should have file tools
     assertEquals("read_file" in tools, true);
     assertEquals("write_file" in tools, true);
+    assertEquals("open_path" in tools, true);
+    assertEquals("archive_files" in tools, true);
 
     // Should have code tools
     assertEquals("search_code" in tools, true);
@@ -206,7 +208,10 @@ Deno.test({
     });
     assertEquals(result.valid, false);
     assertEquals(result.errors !== undefined, true);
-    assertEquals(result.errors!.some((e) => e.includes("Unexpected argument")), true);
+    assertEquals(
+      result.errors!.some((e) => e.includes("Unexpected argument")),
+      true,
+    );
   },
 });
 

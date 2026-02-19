@@ -129,7 +129,7 @@ export const PRIMITIVE_DATA_STRUCTURE = new Set([
 /**
  * Arithmetic operators - used for loop optimization AND syntax highlighting.
  */
-export const ARITHMETIC_OPS = ["+", "-", "*", "/", "%", "**"] as const;
+const ARITHMETIC_OPS = ["+", "-", "*", "/", "%", "**"] as const;
 
 /** Set version for O(1) lookup */
 export const ARITHMETIC_OPS_SET: ReadonlySet<string> = new Set(ARITHMETIC_OPS);
@@ -169,7 +169,7 @@ export const BINDING_KEYWORDS = ["let", "var", "const", "def"] as const;
  * All declaration and binding keywords combined.
  * Used for checking if a form is a declaration export.
  */
-export const ALL_DECLARATION_BINDING_KEYWORDS = [
+const ALL_DECLARATION_BINDING_KEYWORDS = [
   ...DECLARATION_KEYWORDS,
   ...BINDING_KEYWORDS,
 ] as const;
@@ -181,7 +181,7 @@ export const ALL_DECLARATION_BINDING_KEYWORDS_SET: ReadonlySet<string> = new Set
  * JavaScript literal keywords - values that transpile directly to JS literals.
  * These are language constants that should never change.
  */
-export const JS_LITERAL_KEYWORDS = ["null", "undefined", "true", "false"] as const;
+const JS_LITERAL_KEYWORDS = ["null", "undefined", "true", "false"] as const;
 
 /** Set version for O(1) lookup */
 export const JS_LITERAL_KEYWORDS_SET: ReadonlySet<string> = new Set(JS_LITERAL_KEYWORDS);

@@ -1,32 +1,34 @@
 import { assertEquals } from "jsr:@std/assert";
 import { getPlatform } from "../../src/platform/platform.ts";
 
-const join = (...paths: string[]) => getPlatform().path.join(...paths);
-const CLI_PATH = join(Deno.cwd(), "src", "hlvm", "cli", "run.ts");
+const p = getPlatform();
+const join = (...paths: string[]) => p.path.join(...paths);
+const CLI_PATH = join(p.process.cwd(), "src", "hlvm", "cli", "run.ts");
 
 Deno.test({
   name: "CLI Smart Runner: Execute TS file importing HQL",
   async fn() {
     // 1. Create temp directory
-    const tempDir = await Deno.makeTempDir({ prefix: "hlvm_smart_runner_test_" });
+    const tempDir = await p.fs.makeTempDir({ prefix: "hlvm_smart_runner_test_" });
     const hqlFile = join(tempDir, "lib.hql");
     const tsFile = join(tempDir, "app.ts");
 
     try {
       // 2. Write test files
-      await Deno.writeTextFile(hqlFile, `
+      await p.fs.writeTextFile(hqlFile, `
         (var secret "Smart Runner Works")
         (export [secret])
       `);
 
-      await Deno.writeTextFile(tsFile, `
+      await p.fs.writeTextFile(tsFile, `
         import { secret } from "./lib.hql";
         console.log(secret);
       `);
 
       // 3. Run CLI against the TS file
-      const command = new Deno.Command(Deno.execPath(), {
-        args: [
+      const { code, stdout, stderr } = await p.command.output({
+        cmd: [
+          p.process.execPath(),
           "run",
           "-A",
           CLI_PATH,
@@ -36,7 +38,6 @@ Deno.test({
         stderr: "piped",
       });
 
-      const { code, stdout, stderr } = await command.output();
       const output = new TextDecoder().decode(stdout).trim();
       const errorOutput = new TextDecoder().decode(stderr).trim();
 
@@ -49,7 +50,7 @@ Deno.test({
 
     } finally {
       // 5. Cleanup
-      await Deno.remove(tempDir, { recursive: true });
+      await p.fs.remove(tempDir, { recursive: true });
     }
   },
 });
@@ -57,23 +58,24 @@ Deno.test({
 Deno.test({
   name: "CLI Smart Runner: Execute JS file importing HQL",
   async fn() {
-    const tempDir = await Deno.makeTempDir({ prefix: "hlvm_smart_runner_test_js_" });
+    const tempDir = await p.fs.makeTempDir({ prefix: "hlvm_smart_runner_test_js_" });
     const hqlFile = join(tempDir, "math.hql");
     const jsFile = join(tempDir, "app.js");
 
     try {
-      await Deno.writeTextFile(hqlFile, `
+      await p.fs.writeTextFile(hqlFile, `
         (fn add [a b] (+ a b))
         (export [add])
       `);
 
-      await Deno.writeTextFile(jsFile, `
+      await p.fs.writeTextFile(jsFile, `
         import { add } from "./math.hql";
         console.log("Sum: " + add(10, 20));
       `);
 
-      const command = new Deno.Command(Deno.execPath(), {
-        args: [
+      const { code, stdout, stderr } = await p.command.output({
+        cmd: [
+          p.process.execPath(),
           "run",
           "-A",
           CLI_PATH,
@@ -83,7 +85,6 @@ Deno.test({
         stderr: "piped",
       });
 
-      const { code, stdout, stderr } = await command.output();
       const output = new TextDecoder().decode(stdout).trim();
       const errorOutput = new TextDecoder().decode(stderr).trim();
 
@@ -94,7 +95,7 @@ Deno.test({
       assertEquals(output, "Sum: 30");
 
     } finally {
-      await Deno.remove(tempDir, { recursive: true });
+      await p.fs.remove(tempDir, { recursive: true });
     }
   },
 });

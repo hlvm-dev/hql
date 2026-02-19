@@ -44,7 +44,8 @@ export function pushSSEEvent(
     buffers.set(sessionId, buffer);
   }
   buffer.push(event);
-  if (buffer.length > MAX_BUFFER_SIZE) {
+  // Amortized O(1): only compact when 2x over limit, halving allocations
+  if (buffer.length > MAX_BUFFER_SIZE * 2) {
     buffer = buffer.slice(-MAX_BUFFER_SIZE);
     buffers.set(sessionId, buffer);
   }
@@ -82,7 +83,7 @@ export function subscribe(
   };
 }
 
-export interface ReplayResult {
+interface ReplayResult {
   events: SSEEvent[];
   gapDetected: boolean;
 }

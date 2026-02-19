@@ -21,7 +21,6 @@ export type {
 
 // Import and re-export the implementation
 import { DenoPlatform } from "./deno-platform.ts";
-export { DenoPlatform };
 
 import type { Platform } from "./types.ts";
 

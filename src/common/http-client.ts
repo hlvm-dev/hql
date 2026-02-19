@@ -19,7 +19,7 @@ import { ensureError } from "./utils.ts";
 /**
  * HTTP request options
  */
-export interface HttpOptions {
+interface HttpOptions {
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
   /** Additional headers */

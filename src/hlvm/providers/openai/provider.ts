@@ -18,21 +18,10 @@ import type {
 } from "../types.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { extractSignal, generateFromChat, chatFromStructured } from "../common.ts";
+import { fetchPublicModelsForProvider } from "../public-catalog.ts";
 import * as api from "./api.ts";
 
 const DEFAULT_ENDPOINT = "https://api.openai.com";
-const DEFAULT_MODEL = "gpt-4o";
-
-/** Known OpenAI models — returned when no API key is set */
-const KNOWN_MODELS: ModelInfo[] = [
-  { name: "gpt-4o", displayName: "GPT-4o", family: "gpt-4o", capabilities: ["chat", "tools", "vision"], contextWindow: 128_000 },
-  { name: "gpt-4o-mini", displayName: "GPT-4o Mini", family: "gpt-4o", capabilities: ["chat", "tools", "vision"], contextWindow: 128_000 },
-  { name: "gpt-4.1", displayName: "GPT-4.1", family: "gpt-4.1", capabilities: ["chat", "tools", "vision"], contextWindow: 1_047_576 },
-  { name: "gpt-4.1-mini", displayName: "GPT-4.1 Mini", family: "gpt-4.1", capabilities: ["chat", "tools", "vision"], contextWindow: 1_047_576 },
-  { name: "gpt-4.1-nano", displayName: "GPT-4.1 Nano", family: "gpt-4.1", capabilities: ["chat", "tools"], contextWindow: 1_047_576 },
-  { name: "o3-mini", displayName: "o3 Mini", family: "o3", capabilities: ["chat", "tools"], contextWindow: 200_000 },
-  { name: "o4-mini", displayName: "o4 Mini", family: "o4", capabilities: ["chat", "tools"], contextWindow: 200_000 },
-];
 
 export class OpenAIProvider implements AIProvider {
   readonly name = "openai";
@@ -46,26 +35,38 @@ export class OpenAIProvider implements AIProvider {
   ];
 
   private endpoint: string;
-  private defaultModel: string;
+  private configuredModel: string | undefined;
+  private resolvedDefault: string | undefined;
   private apiKey: string;
 
   constructor(config?: ProviderConfig) {
     this.endpoint = config?.endpoint ?? DEFAULT_ENDPOINT;
-    this.defaultModel = config?.defaultModel ?? DEFAULT_MODEL;
+    this.configuredModel = config?.defaultModel;
     this.apiKey = config?.apiKey ?? getPlatform().env.get("OPENAI_API_KEY") ?? "";
     this.apiKeyConfigured = this.apiKey.length > 0;
   }
 
-  private getModel(options?: GenerateOptions): string {
-    return options?.model ?? this.defaultModel;
+  /** Resolve default model dynamically — no hardcoded model IDs. */
+  private async getModel(options?: GenerateOptions): Promise<string> {
+    if (options?.model) return options.model;
+    if (this.configuredModel) return this.configuredModel;
+    if (this.resolvedDefault) return this.resolvedDefault;
+    // Dynamically pick the first available model (self-growing)
+    const models = await this.models.list();
+    if (models.length > 0) {
+      this.resolvedDefault = models[0].name;
+      return this.resolvedDefault;
+    }
+    throw new Error("No OpenAI models available. Check your API key or network.");
   }
 
   async *generate(
     prompt: string,
     options?: GenerateOptions,
   ): AsyncGenerator<string, void, unknown> {
+    const model = await this.getModel(options);
     yield* generateFromChat(
-      (msgs, opts, signal) => api.chatStructured(this.endpoint, this.getModel(options), msgs, this.apiKey, opts, signal),
+      (msgs, opts, signal) => api.chatStructured(this.endpoint, model, msgs, this.apiKey, opts, signal),
       prompt, options,
     );
   }
@@ -74,19 +75,21 @@ export class OpenAIProvider implements AIProvider {
     messages: Message[],
     options?: ChatOptions,
   ): AsyncGenerator<string, void, unknown> {
+    const model = await this.getModel(options);
     yield* chatFromStructured(
-      (msgs, opts, signal) => api.chatStructured(this.endpoint, this.getModel(options), msgs, this.apiKey, opts, signal),
+      (msgs, opts, signal) => api.chatStructured(this.endpoint, model, msgs, this.apiKey, opts, signal),
       messages, options,
     );
   }
 
-  chatStructured(
+  async chatStructured(
     messages: Message[],
     options?: ChatOptions,
   ): Promise<ChatStructuredResponse> {
+    const model = await this.getModel(options);
     return api.chatStructured(
       this.endpoint,
-      this.getModel(options),
+      model,
       messages,
       this.apiKey,
       options,
@@ -96,9 +99,11 @@ export class OpenAIProvider implements AIProvider {
 
   models = {
     list: async (): Promise<ModelInfo[]> => {
-      if (!this.apiKeyConfigured) return KNOWN_MODELS;
-      const live = await api.listModels(this.endpoint, this.apiKey);
-      return live.length > 0 ? live : KNOWN_MODELS;
+      if (this.apiKeyConfigured) {
+        const live = await api.listModels(this.endpoint, this.apiKey);
+        if (live.length > 0) return live;
+      }
+      return fetchPublicModelsForProvider("openai");
     },
     get: async (name: string): Promise<ModelInfo | null> => {
       const models = await this.models.list();

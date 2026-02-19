@@ -11,7 +11,8 @@ import { config } from "../../api/config.ts";
 import { ai } from "../../api/ai.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-import { getOllamaCatalog } from "../../providers/ollama/catalog.ts";
+import { readSingleKey } from "../utils/input.ts";
+import { getOllamaCatalogAsync } from "../../providers/ollama/catalog.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
 import { pullModelWithProgress } from "../../../common/ai-default-model.ts";
 import { aiEngine } from "../../runtime/ai-runtime.ts";
@@ -46,21 +47,6 @@ const ANSI = {
 // ============================================================================
 // Helpers
 // ============================================================================
-
-/** Read a single keypress from raw-mode stdin. Returns lowercase character. */
-async function readSingleKey(): Promise<string> {
-  const platform = getPlatform();
-  const stdin = platform.terminal.stdin;
-  stdin.setRaw(true);
-  try {
-    const buf = new Uint8Array(1);
-    const n = await stdin.read(buf);
-    if (n === null || n === 0) return "";
-    return String.fromCharCode(buf[0]).toLowerCase();
-  } finally {
-    stdin.setRaw(false);
-  }
-}
 
 function isInteractiveTerminal(): boolean {
   return getPlatform().terminal.stdin.isTerminal();
@@ -105,8 +91,8 @@ export function parseParamSize(size: string | undefined): number {
 }
 
 /** Pick the best cloud model with tool-calling from the catalog. */
-export function pickBestCloudModel(): ModelInfo | null {
-  const catalog = getOllamaCatalog({ maxVariants: Infinity });
+export async function pickBestCloudModel(): Promise<ModelInfo | null> {
+  const catalog = await getOllamaCatalogAsync({ maxVariants: Infinity });
   const cloudTools = catalog.filter(
     (m) => isOllamaCloudModel(m.name) && m.capabilities?.includes("tools"),
   );
@@ -281,7 +267,7 @@ async function fallbackToModelBrowser(): Promise<string | null> {
 export interface FirstRunSetupDeps {
   confirmSetup: () => Promise<boolean>;
   ensureEngineRunning: (engine: AIEngineLifecycle) => Promise<boolean>;
-  pickBestCloudModel: () => ModelInfo | null;
+  pickBestCloudModel: () => Promise<ModelInfo | null>;
   ensureCloudModelAccess: (
     modelId: string,
     engine: AIEngineLifecycle,
@@ -345,7 +331,7 @@ export async function runFirstTimeSetup(
 
   // 3. Pick best cloud model
   printSetupStep(deps.logRaw, 2, "Selecting best cloud model...");
-  const model = deps.pickBestCloudModel();
+  const model = await deps.pickBestCloudModel();
   if (!model) {
     deps.logError(
       "No suitable cloud model found. Falling back to model browser.",

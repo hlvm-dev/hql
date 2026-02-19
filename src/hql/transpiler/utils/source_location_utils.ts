@@ -1,7 +1,7 @@
 // Utility helpers to resolve source locations from HQL AST nodes
 import type { SourceLocation } from "../../../common/error.ts";
 
-export interface SourceLocationOptions {
+interface SourceLocationOptions {
   index?: number;
   /**
    * When source is an array and the requested index is out of bounds,
@@ -100,7 +100,7 @@ function resolveFromNode(
   return undefined;
 }
 
-export function resolveSourceLocation(
+function resolveSourceLocation(
   source: unknown,
   options: SourceLocationOptions = {},
 ): SourceLocation {

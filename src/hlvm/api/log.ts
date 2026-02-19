@@ -172,4 +172,4 @@ export const log: LogApi = {
   },
 };
 
-export default log;
+// default export removed — use named `log` export instead

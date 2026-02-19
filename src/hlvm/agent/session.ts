@@ -56,6 +56,15 @@ export interface AgentSession {
   isFrontierModel: boolean;
   /** Resolved context budget (budget, rawLimit, source) */
   resolvedContextBudget: ResolvedBudget;
+  /** LLM config for rebuilding with different onToken (GUI streaming) */
+  llmConfig?: {
+    model: string;
+    contextBudget: number;
+    toolAllowlist?: string[];
+    toolDenylist?: string[];
+    toolOwnerId?: string;
+    temperature?: number;
+  };
 }
 
 
@@ -158,6 +167,15 @@ export async function createAgentSession(
       onToken: options.onToken,
     });
 
+  const llmConfig = options.fixturePath ? undefined : {
+    model: options.model!,
+    contextBudget: resolved.budget,
+    toolAllowlist: options.toolAllowlist,
+    toolDenylist: options.toolDenylist,
+    toolOwnerId: mcp.ownerId,
+    temperature: 0.0,
+  };
+
   return {
     context,
     llm,
@@ -168,5 +186,6 @@ export async function createAgentSession(
     profile,
     isFrontierModel: isFrontierProvider(options.model),
     resolvedContextBudget: resolved,
+    llmConfig,
   };
 }

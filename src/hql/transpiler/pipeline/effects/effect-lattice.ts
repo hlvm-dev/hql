@@ -1,6 +1,6 @@
 import type { Effect, EffectResult } from "./effect-types.ts";
 
-export function joinEffects(a: Effect, b: Effect): Effect {
+function joinEffects(a: Effect, b: Effect): Effect {
   return a === "Impure" || b === "Impure" ? "Impure" : "Pure";
 }
 

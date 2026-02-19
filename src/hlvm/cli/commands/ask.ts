@@ -8,6 +8,7 @@
 import { log } from "../../api/log.ts";
 import { config } from "../../api/config.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
+import { readSingleKey } from "../utils/input.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { isObjectValue, truncate } from "../../../common/utils.ts";
 import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
@@ -15,6 +16,7 @@ import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
+import { parseModelString } from "../../providers/registry.ts";
 import type { AgentUIEvent, TraceEvent } from "../../agent/orchestrator.ts";
 
 // MARK: - Paid Provider Consent
@@ -30,9 +32,8 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 /** Extract provider prefix from a model ID like "openai/gpt-4o" */
 export function extractProvider(modelId: string): string | null {
-  const slashIndex = modelId.indexOf("/");
-  if (slashIndex <= 0) return null;
-  return modelId.slice(0, slashIndex).toLowerCase();
+  const [provider] = parseModelString(modelId);
+  return provider;
 }
 
 /** Check if a model ID uses a paid provider */
@@ -47,20 +48,6 @@ export function isProviderApproved(modelId: string): boolean {
   if (!provider) return true;
   const approved = config.snapshot.approvedProviders ?? [];
   return approved.includes(provider);
-}
-
-/** Read a single keypress from raw-mode stdin. Returns lowercase character. */
-async function readSingleKey(): Promise<string> {
-  const stdin = getPlatform().terminal.stdin;
-  stdin.setRaw(true);
-  try {
-    const buf = new Uint8Array(1);
-    const n = await stdin.read(buf);
-    if (n === null || n === 0) return "";
-    return String.fromCharCode(buf[0]).toLowerCase();
-  } finally {
-    stdin.setRaw(false);
-  }
 }
 
 /** Prompt user for one-time consent to use a paid provider, save to config */

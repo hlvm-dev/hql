@@ -14,7 +14,7 @@ interface Route {
   handler: RouteHandler;
 }
 
-export interface RouteMatch {
+interface RouteMatch {
   handler: RouteHandler;
   params: RouteParams;
 }

@@ -1,11 +1,13 @@
 /**
  * File Tools - SSOT-compliant file operations for AI agents
  *
- * Provides 4 core file operations with security sandboxing:
+ * Provides core file operations with security sandboxing:
  * 1. read_file - Read file contents
  * 2. write_file - Write/create file
  * 3. edit_file - Edit file using find/replace
  * 4. list_files - List directory contents
+ * 5. open_path - Open file/folder in the system default app
+ * 6. archive_files - Create zip/tar archives from files or folders
  *
  * All operations:
  * - Use path sandboxing (validatePath)
@@ -15,10 +17,13 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { validatePath, SecurityError } from "../security/path-sandbox.ts";
+import { SecurityError, validatePath } from "../security/path-sandbox.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
-import { resolveToolPath, createPolicyPathChecker } from "../path-utils.ts";
-import { globToRegex, GlobPatternError } from "../../../common/pattern-utils.ts";
+import { createPolicyPathChecker, resolveToolPath } from "../path-utils.ts";
+import {
+  GlobPatternError,
+  globToRegex,
+} from "../../../common/pattern-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import {
   assertMaxBytes,
@@ -26,8 +31,12 @@ import {
   ResourceLimitError,
 } from "../../../common/limits.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
-import { formatToolError, okTool, failTool } from "../tool-results.ts";
-import { isObjectValue, TEXT_ENCODER, truncate } from "../../../common/utils.ts";
+import { failTool, formatToolError, okTool } from "../tool-results.ts";
+import {
+  isObjectValue,
+  TEXT_ENCODER,
+  truncate,
+} from "../../../common/utils.ts";
 import { getMimeTypeForExtension } from "../../../common/file-kinds.ts";
 
 // ============================================================
@@ -99,6 +108,34 @@ interface FileEntry {
 interface ListFilesResult extends FileOperationResult {
   entries?: FileEntry[];
   count?: number;
+}
+
+/** Arguments for open_path tool */
+export interface OpenPathArgs {
+  path: string;
+}
+
+/** Result of open_path operation */
+interface OpenPathResult extends FileOperationResult {
+  openedPath?: string;
+}
+
+/** Arguments for archive_files tool */
+export interface ArchiveFilesArgs {
+  paths: string[];
+  outputPath: string;
+  format?: "zip" | "tar.gz";
+  overwrite?: boolean;
+}
+
+/** Result of archive_files operation */
+interface ArchiveFilesResult extends FileOperationResult {
+  outputPath?: string;
+  inputCount?: number;
+  format?: "zip" | "tar.gz";
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
 }
 
 function normalizeListFilesArgs(args: ListFilesArgs): ListFilesArgs {
@@ -196,7 +233,11 @@ export async function readFile(
     }
 
     // Hard safety limit: reject files larger than system max (2MB)
-    assertMaxBytes("read_file size", stat.size ?? 0, RESOURCE_LIMITS.maxReadBytes);
+    assertMaxBytes(
+      "read_file size",
+      stat.size ?? 0,
+      RESOURCE_LIMITS.maxReadBytes,
+    );
 
     // Read file contents
     const content = await platform.fs.readTextFile(validPath);
@@ -209,7 +250,8 @@ export async function readFile(
         content: truncated,
         size: stat.size,
         truncated: true,
-        message: `Read ${userMax} of ${stat.size} bytes from ${args.path} (truncated)`,
+        message:
+          `Read ${userMax} of ${stat.size} bytes from ${args.path} (truncated)`,
       });
     }
 
@@ -221,7 +263,9 @@ export async function readFile(
   } catch (error) {
     if (error instanceof ResourceLimitError) {
       return failTool(
-        `File too large to read. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
+        `File too large to read. Limit: ${formatBytes(error.limit)}, actual: ${
+          formatBytes(error.actual)
+        }`,
       );
     }
     const { message } = formatToolError("Failed to read file", error);
@@ -286,7 +330,9 @@ export async function writeFile(
   } catch (error) {
     if (error instanceof ResourceLimitError) {
       return failTool(
-        `Content too large to write. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
+        `Content too large to write. Limit: ${
+          formatBytes(error.limit)
+        }, actual: ${formatBytes(error.actual)}`,
       );
     }
     const { message } = formatToolError("Failed to write file", error);
@@ -400,7 +446,9 @@ export async function editFile(
   } catch (error) {
     if (error instanceof ResourceLimitError) {
       return failTool(
-        `File too large to edit. Limit: ${formatBytes(error.limit)}, actual: ${formatBytes(error.actual)}`,
+        `File too large to edit. Limit: ${formatBytes(error.limit)}, actual: ${
+          formatBytes(error.actual)
+        }`,
       );
     }
     const { message } = formatToolError("Failed to edit file", error);
@@ -469,7 +517,9 @@ export async function listFiles(
           !normalizedArgs.pattern.includes("/") &&
           !normalizedArgs.pattern.includes("\\")
         ) {
-          basenameRegex = globToRegex(normalizedArgs.pattern, { matchPath: false });
+          basenameRegex = globToRegex(normalizedArgs.pattern, {
+            matchPath: false,
+          });
         }
       } catch (error) {
         if (error instanceof GlobPatternError) {
@@ -503,7 +553,9 @@ export async function listFiles(
 
     // Helper to walk directory
     const walk = async (dir: string, relativePath: string, depth: number) => {
-      if (normalizedArgs.maxDepth !== undefined && depth > normalizedArgs.maxDepth) {
+      if (
+        normalizedArgs.maxDepth !== undefined && depth > normalizedArgs.maxDepth
+      ) {
         return;
       }
 
@@ -533,7 +585,10 @@ export async function listFiles(
 
         // Check pattern match - ONLY for deciding whether to include in results
         // Do NOT block recursion based on pattern!
-        const matchesCurrentPattern = matchesPattern(entryRelativePath, entry.name);
+        const matchesCurrentPattern = matchesPattern(
+          entryRelativePath,
+          entry.name,
+        );
         const matchesCurrentMime = !mimePrefix ||
           (entry.isFile && matchesMime(entry.name));
 
@@ -601,6 +656,212 @@ export async function listFiles(
   }
 }
 
+// ============================================================
+// Tool 5: open_path
+// ============================================================
+
+/**
+ * Open a file or directory with the system default application.
+ */
+export async function openPath(
+  args: OpenPathArgs,
+  workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<OpenPathResult> {
+  try {
+    throwIfAborted(options?.signal);
+    const platform = getPlatform();
+    const validPath = await resolveToolPath(
+      args.path,
+      workspace,
+      options?.policy ?? null,
+    );
+
+    await platform.openUrl(validPath);
+    return okTool({
+      openedPath: validPath,
+      message: `Opened ${args.path}`,
+    });
+  } catch (error) {
+    const { message } = formatToolError("Failed to open path", error);
+    return failTool(message);
+  }
+}
+
+// ============================================================
+// Tool 6: archive_files
+// ============================================================
+
+/**
+ * Create an archive (zip or tar.gz) from files/directories.
+ */
+export async function archiveFiles(
+  args: ArchiveFilesArgs,
+  workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<ArchiveFilesResult> {
+  try {
+    throwIfAborted(options?.signal);
+    const platform = getPlatform();
+    const decoder = new TextDecoder();
+
+    if (!Array.isArray(args.paths) || args.paths.length === 0) {
+      return failTool("'paths' must be a non-empty array");
+    }
+
+    const format: "zip" | "tar.gz" = args.format ?? "zip";
+    if (format !== "zip" && format !== "tar.gz") {
+      return failTool(`Unsupported archive format: ${String(args.format)}`);
+    }
+    if (platform.build.os === "windows" && format === "tar.gz") {
+      return failTool('tar.gz is not supported on Windows. Use format: "zip".');
+    }
+
+    const outputPath = await resolveToolPath(
+      args.outputPath,
+      workspace,
+      options?.policy ?? null,
+    );
+    const inputPaths: string[] = [];
+    for (const rawPath of args.paths) {
+      if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
+        return failTool("Each path in 'paths' must be a non-empty string");
+      }
+      const validPath = await resolveToolPath(
+        rawPath,
+        workspace,
+        options?.policy ?? null,
+      );
+      if (!(await platform.fs.exists(validPath))) {
+        return failTool(`Input path does not exist: ${rawPath}`);
+      }
+      inputPaths.push(validPath);
+    }
+
+    if (
+      !args.overwrite &&
+      await platform.fs.exists(outputPath)
+    ) {
+      return failTool(
+        `Archive already exists at ${args.outputPath}. Set overwrite: true to replace it.`,
+      );
+    }
+
+    for (const inputPath of inputPaths) {
+      const stat = await platform.fs.stat(inputPath);
+      if (
+        stat.isDirectory && isPathWithinRoot(outputPath, inputPath, platform)
+      ) {
+        return failTool(
+          `outputPath must not be inside source directory: ${inputPath}`,
+        );
+      }
+    }
+
+    await platform.fs.mkdir(platform.path.dirname(outputPath), {
+      recursive: true,
+    });
+
+    const cwd = platform.build.os === "windows"
+      ? workspace
+      : getCommonParentDirectory(inputPaths, platform);
+    const relativeInputs = inputPaths.map((path) => {
+      const rel = platform.path.relative(cwd, path);
+      return rel === "" ? "." : rel;
+    });
+    const archiveInputs = platform.build.os === "windows"
+      ? inputPaths
+      : relativeInputs;
+    const command = buildArchiveCommand(
+      platform,
+      format,
+      outputPath,
+      archiveInputs,
+      args.overwrite === true,
+    );
+
+    const result = await platform.command.output({ cmd: command, cwd });
+    throwIfAborted(options?.signal);
+
+    const stdout = decoder.decode(result.stdout).trim();
+    const stderr = decoder.decode(result.stderr).trim();
+    if (!result.success) {
+      return failTool(
+        `Archive command failed with exit code ${result.code}`,
+        { stdout, stderr, exitCode: result.code },
+      );
+    }
+
+    return okTool({
+      outputPath,
+      inputCount: inputPaths.length,
+      format,
+      stdout,
+      stderr,
+      exitCode: result.code,
+      message:
+        `Created ${format} archive at ${args.outputPath} from ${inputPaths.length} path(s)`,
+    });
+  } catch (error) {
+    const { message } = formatToolError("Failed to create archive", error);
+    return failTool(message);
+  }
+}
+
+function buildArchiveCommand(
+  platform: ReturnType<typeof getPlatform>,
+  format: "zip" | "tar.gz",
+  outputPath: string,
+  relativeInputs: string[],
+  overwrite: boolean,
+): string[] {
+  if (platform.build.os === "windows") {
+    const quotedPaths = relativeInputs.map(quotePowerShellString).join(", ");
+    const force = overwrite ? " -Force" : "";
+    const script =
+      `$ErrorActionPreference='Stop'; Compress-Archive -Path @(${quotedPaths}) -DestinationPath ${
+        quotePowerShellString(outputPath)
+      }${force}`;
+    return ["powershell", "-NoProfile", "-Command", script];
+  }
+
+  if (format === "tar.gz") {
+    return ["tar", "-czf", outputPath, ...relativeInputs];
+  }
+  return ["zip", "-r", outputPath, ...relativeInputs];
+}
+
+function quotePowerShellString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function isPathWithinRoot(
+  path: string,
+  root: string,
+  platform: ReturnType<typeof getPlatform>,
+): boolean {
+  const relative = platform.path.relative(root, path);
+  return relative === "" ||
+    (!relative.startsWith("..") && !platform.path.isAbsolute(relative));
+}
+
+function getCommonParentDirectory(
+  paths: string[],
+  platform: ReturnType<typeof getPlatform>,
+): string {
+  let common = platform.path.dirname(paths[0]);
+  for (const path of paths.slice(1)) {
+    while (!isPathWithinRoot(path, common, platform)) {
+      const parent = platform.path.dirname(common);
+      if (parent === common) {
+        return common;
+      }
+      common = parent;
+    }
+  }
+  return common;
+}
+
 function formatListFilesResult(
   result: unknown,
 ): { returnDisplay: string; llmContent?: string } | null {
@@ -661,8 +922,10 @@ export const FILE_TOOLS = {
     description: "Read file contents",
     safetyLevel: "L0",
     args: {
-      path: "string - Path to file (relative to workspace or absolute if allowed by policy)",
-      maxBytes: "number (optional) - Max bytes to return; content is truncated if file exceeds this (capped at 2MB)",
+      path:
+        "string - Path to file (relative to workspace or absolute if allowed by policy)",
+      maxBytes:
+        "number (optional) - Max bytes to return; content is truncated if file exceeds this (capped at 2MB)",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",
@@ -676,9 +939,11 @@ export const FILE_TOOLS = {
     description: "Write content to file",
     safetyLevel: "L2",
     args: {
-      path: "string - Path to file (relative to workspace or absolute if allowed by policy)",
+      path:
+        "string - Path to file (relative to workspace or absolute if allowed by policy)",
       content: "string - Content to write",
-      createDirs: "boolean (optional) - Create parent directories (default: false)",
+      createDirs:
+        "boolean (optional) - Create parent directories (default: false)",
       maxBytes: "number (optional) - Max bytes to write (capped by limits)",
     },
     returns: {
@@ -691,11 +956,13 @@ export const FILE_TOOLS = {
     description: "Edit file using find/replace",
     safetyLevel: "L2",
     args: {
-      path: "string - Path to file (relative to workspace or absolute if allowed by policy)",
+      path:
+        "string - Path to file (relative to workspace or absolute if allowed by policy)",
       find: "string - Text to find",
       replace: "string - Replacement text",
       mode: "string (optional) - 'literal' or 'regex' (default: literal)",
-      maxBytes: "number (optional) - Max bytes to read/write (capped by limits)",
+      maxBytes:
+        "number (optional) - Max bytes to read/write (capped by limits)",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",
@@ -725,11 +992,15 @@ Examples:
     safetyLevel: "L0",
     formatResult: formatListFilesResult,
     args: {
-      path: "string - Path to directory. Use '.' for current, '~/Downloads' for user folders, or relative paths like 'src/components'",
-      recursive: "boolean (optional) - Search subdirectories? Use true for 'all/every/entire' requests. Default: false",
-      pattern: "string (optional) - Glob pattern to filter files. Examples: '*.ts', '*.{jpg,png}', '*.pdf'. Omit to list all files",
+      path:
+        "string - Path to directory. Use '.' for current, '~/Downloads' for user folders, or relative paths like 'src/components'",
+      recursive:
+        "boolean (optional) - Search subdirectories? Use true for 'all/every/entire' requests. Default: false",
+      pattern:
+        "string (optional) - Glob pattern to filter files. Examples: '*.ts', '*.{jpg,png}', '*.pdf'. Omit to list all files",
       filePattern: "string (optional) - Alias for pattern",
-      mimePrefix: "string (optional) - MIME type prefix filter (e.g., 'image/', 'video/', 'application/pdf'). Use pattern instead for most cases",
+      mimePrefix:
+        "string (optional) - MIME type prefix filter (e.g., 'image/', 'video/', 'application/pdf'). Use pattern instead for most cases",
       maxDepth: "number (optional) - Maximum recursion depth. Rarely needed",
       maxEntries: "number (optional) - Max entries to return. Rarely needed",
       maxResults: "any (optional) - Alias for maxEntries",
@@ -740,5 +1011,45 @@ Examples:
       count: "number - Number of entries returned (on success)",
       message: "string - Human-readable result message",
     },
+  },
+  open_path: {
+    fn: openPath,
+    description:
+      "Open a file or directory with the system default app (Finder/Explorer/file manager).",
+    safetyLevel: "L1",
+    args: {
+      path: "string - Path to open (e.g., '~/Downloads', './notes.txt')",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      openedPath: "string - Resolved path that was opened (on success)",
+      message: "string - Human-readable result message",
+    },
+    safety: "Low-risk desktop action. Confirm once per session.",
+  },
+  archive_files: {
+    fn: archiveFiles,
+    description:
+      "Create an archive from one or more files/directories (zip by default, tar.gz on Unix).",
+    safetyLevel: "L1",
+    args: {
+      paths: "string[] - Input file/directory paths to archive",
+      outputPath:
+        "string - Destination archive path (e.g., '~/Desktop/output.zip')",
+      format: "string (optional) - 'zip' (default) or 'tar.gz' (Unix only)",
+      overwrite: "boolean (optional) - Overwrite destination if it exists",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      outputPath: "string - Resolved output archive path (on success)",
+      inputCount: "number - Number of archived input paths (on success)",
+      format: "string - Archive format used",
+      stdout: "string - Command output",
+      stderr: "string - Command error output",
+      exitCode: "number - Archive command exit code",
+      message: "string - Human-readable result message",
+    },
+    safety:
+      "Creates archive files on disk. Low-to-moderate risk; confirm once per session.",
   },
 } as const;

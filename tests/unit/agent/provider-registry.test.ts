@@ -39,6 +39,20 @@ Deno.test("parseModelString recognizes registered custom provider:model format",
 });
 
 Deno.test("ai.models.get resolves provider/model input", async () => {
-  const model = await ai.models.get("openai/gpt-4o");
-  assertEquals(model?.name, "gpt-4o");
+  // Register a test provider with a known model (real providers fetch dynamically, no hardcoded lists)
+  registerProvider("testcloud", () => ({
+    name: "testcloud",
+    displayName: "TestCloud",
+    capabilities: ["chat" as const, "models.list" as const],
+    async *generate() { yield ""; },
+    async *chat() { yield ""; },
+    async status() { return { available: true }; },
+    models: {
+      list: async () => [{ name: "test-model-1", displayName: "Test Model 1" }],
+      get: async (name: string) => name === "test-model-1" ? { name, displayName: "Test Model 1" } : null,
+    },
+  }));
+
+  const model = await ai.models.get("test-model-1", "testcloud");
+  assertEquals(model?.name, "test-model-1");
 });

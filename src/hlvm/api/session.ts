@@ -11,6 +11,7 @@
 
 import {
   listSessions,
+  countSessions,
   loadSession,
   deleteSession,
   exportSession,
@@ -156,9 +157,8 @@ function createSessionApi() {
      * Get session count
      * @example (session.count)
      */
-    count: async (): Promise<number> => {
-      const sessions = await listSessions({ limit: 1000 });
-      return sessions.length;
+    count: (): Promise<number> => {
+      return countSessions();
     },
 
     /**

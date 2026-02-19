@@ -9,7 +9,6 @@
   "imports": {
     "source-map": "npm:source-map@0.6.1",
     "typescript": "npm:typescript@5.3.3",
-    "@hlvm/repl": "./vendor/repl/mod.ts",
     "@db/sqlite": "jsr:@db/sqlite@0.12"
   },
   "lint": {
@@ -37,13 +36,14 @@
   },
   "tasks": {
     "test": "deno task test:unit",
-    "test:unit": "HLVM_DISABLE_AI_AUTOSTART=1 deno test --parallel --allow-all tests/unit/**/*.test.ts vendor/**/*.test.ts",
+    "test:unit": "HLVM_DISABLE_AI_AUTOSTART=1 deno test --parallel --allow-all tests/unit/**/*.test.ts",
     "test:binary": "HLVM_TEST_BINARY=1 deno test --parallel --allow-all tests/binary/**/*.test.ts",
     "test:binary:cli": "HLVM_TEST_BINARY=1 deno test --parallel --allow-all tests/binary/cli/**/*.test.ts",
     "test:binary:stdlib": "HLVM_TEST_BINARY=1 deno test --parallel --allow-all tests/binary/stdlib/**/*.test.ts",
     "test:binary:quick": "deno test --parallel --allow-all tests/binary/**/*.test.ts",
     "test:compat": "deno test --parallel --allow-all tests/binary/compat/**/*.test.ts",
     "test:e2e:examples": "deno run -A scripts/run-local-examples-all.ts",
+    "test:integration": "HLVM_DISABLE_AI_AUTOSTART=1 deno test --allow-all tests/integration/**/*.test.ts",
     "test:e2e:agent": "deno test --parallel --allow-all tests/e2e/**/*.test.ts",
     "test:e2e": "deno run -A scripts/run-tasks-parallel.ts test:e2e:examples test:e2e:agent",
     "test:all": "deno run -A scripts/run-tasks-parallel.ts test:unit test:binary:quick",

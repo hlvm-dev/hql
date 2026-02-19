@@ -6,7 +6,7 @@
 // Any external references will cause "X is not defined" errors at runtime.
 
 import { lazySeq } from "../hql/lib/stdlib/js/stdlib.js";
-import { rangeCore } from "./shared-core.ts";
+import { rangeCore } from "../hql/lib/stdlib/js/internal/range-core.js";
 
 // ============================================================================
 // INTERNAL IDENTIFIER CONSTANTS - SINGLE SOURCE OF TRUTH
@@ -419,7 +419,7 @@ export async function __hql_consume_async_iter(value: unknown): Promise<unknown>
   return awaited;
 }
 
-export const runtimeHelperImplementations = {
+const runtimeHelperImplementations = {
   __hql_get,
   __hql_getNumeric,
   __hql_range,

@@ -9,7 +9,7 @@
 const MAX_STREAM_BYTES = 10 * 1024 * 1024;
 
 /** Concatenate an array of Uint8Arrays into a single Uint8Array */
-export function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
+function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
   if (chunks.length === 0) return new Uint8Array();
   if (chunks.length === 1) return chunks[0];
 

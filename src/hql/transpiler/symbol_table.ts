@@ -115,11 +115,8 @@ export class SymbolTable {
   }
 
   /**
-   * Check if a symbol exists in current or any parent scope
-   */
-  /**
-   * Check if a symbol exists in current or any parent scope
-   * Optimized: Uses direct has() calls instead of get() to avoid retrieving symbol info
+   * Check if a symbol exists in current or any parent scope.
+   * Optimized: Uses direct has() calls instead of get() to avoid retrieving symbol info.
    */
   has(name: string): boolean {
     if (this.table.has(name)) return true;

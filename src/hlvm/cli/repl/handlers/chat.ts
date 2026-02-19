@@ -8,24 +8,33 @@
  */
 
 import {
+  getMessageByClientTurnId,
   getOrCreateSession,
+  getSession,
   insertMessage,
   updateMessage,
   updateSession,
   validateExpectedVersion,
-  getMessageByClientTurnId,
-  getSession,
 } from "../../../store/conversation-store.ts";
 import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
 import { ai } from "../../../api/ai.ts";
-import { ensureAgentReady, getOrCreateCachedSession, runAgentQuery } from "../../../agent/agent-runner.ts";
+import {
+  ensureAgentReady,
+  getOrCreateCachedSession,
+  runAgentQuery,
+} from "../../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
 import type { InteractionResponse } from "../../../agent/orchestrator.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { log } from "../../../api/log.ts";
-import { parseJsonBody, jsonError, ndjsonLine, textEncoder } from "../http-utils.ts";
+import {
+  jsonError,
+  ndjsonLine,
+  parseJsonBody,
+  textEncoder,
+} from "../http-utils.ts";
 import { type Message, parseModelString } from "../../../providers/index.ts";
-import { loadAllMessages, loadRecentMessages } from "../../../store/message-utils.ts";
+import { loadRecentMessages } from "../../../store/message-utils.ts";
 import type { Message as AgentMessage } from "../../../agent/context.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
@@ -39,12 +48,22 @@ import {
   parseSessionMemoryMetadata,
 } from "./session-memory.ts";
 
-/** Timestamp when this server process started — messages before this are excluded from LLM context. */
-const SERVER_LAUNCH_TIME = new Date().toISOString();
+const CHAT_CONTEXT_HISTORY_LIMIT = 80;
+const TITLE_SEARCH_HISTORY_LIMIT = 40;
+const AGENT_CONTEXT_HISTORY_LIMIT = 20;
 const INTERACTION_TIMEOUT_MS = 300_000;
 
 function pushSessionUpdatedEvent(sessionId: string): void {
   pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: sessionId });
+}
+
+function getLastUserMessage(
+  messages: ChatRequest["messages"],
+): ChatRequest["messages"][number] | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") return messages[i];
+  }
+  return undefined;
 }
 
 // MARK: - Pending Interactions (GUI permission/question flow)
@@ -151,7 +170,11 @@ async function readImageAsBase64(filePath: string): Promise<string | null> {
     const data = await getPlatform().fs.readFile(filePath);
     const chunks: string[] = [];
     for (let i = 0; i < data.length; i += 8192) {
-      chunks.push(String.fromCharCode(...data.subarray(i, Math.min(i + 8192, data.length))));
+      chunks.push(
+        String.fromCharCode(
+          ...data.subarray(i, Math.min(i + 8192, data.length)),
+        ),
+      );
     }
     return btoa(chunks.join(""));
   } catch {
@@ -177,20 +200,31 @@ async function resolveImages(imagePathsJson: string | null): Promise<string[]> {
 // MARK: - Model Validation
 
 /** Cached catalog result with TTL */
-let _catalogCache: { data: Awaited<ReturnType<typeof ai.models.catalog>>; expiry: number } | null = null;
+let _catalogCache: {
+  data: Awaited<ReturnType<typeof ai.models.catalog>>;
+  expiry: number;
+} | null = null;
 const CATALOG_CACHE_TTL_MS = 60_000;
 
-async function modelSupportsTools(modelName: string, modelInfo: ModelInfo | null): Promise<boolean> {
+async function modelSupportsTools(
+  modelName: string,
+  modelInfo: ModelInfo | null,
+): Promise<boolean> {
   if (modelInfo?.capabilities) {
     return modelInfo.capabilities.includes("tools");
   }
   try {
     const now = Date.now();
     if (!_catalogCache || now > _catalogCache.expiry) {
-      _catalogCache = { data: await ai.models.catalog(), expiry: now + CATALOG_CACHE_TTL_MS };
+      _catalogCache = {
+        data: await ai.models.catalog(),
+        expiry: now + CATALOG_CACHE_TTL_MS,
+      };
     }
     const catalog = _catalogCache.data;
-    const bare = modelName.includes("/") ? modelName.slice(modelName.indexOf("/") + 1) : modelName;
+    const bare = modelName.includes("/")
+      ? modelName.slice(modelName.indexOf("/") + 1)
+      : modelName;
     const baseName = bare.split(":")[0];
     const match = catalog.find((m) =>
       m.name === bare || m.name.split(":")[0] === baseName
@@ -301,7 +335,11 @@ export function cancelSessionRequests(sessionId: string): number {
  */
 export function handleSessionCancel(sessionId: string): Response {
   const count = cancelSessionRequests(sessionId);
-  return Response.json({ cancelled: count > 0, session_id: sessionId, cancelled_count: count });
+  return Response.json({
+    cancelled: count > 0,
+    session_id: sessionId,
+    cancelled_count: count,
+  });
 }
 
 // MARK: - Private Helpers
@@ -320,7 +358,11 @@ function emitCancellation(
     cancelled: true,
   });
   pushSessionUpdatedEvent(sessionId);
-  emit({ event: "cancelled", request_id: requestId, partial_text: partialText });
+  emit({
+    event: "cancelled",
+    request_id: requestId,
+    partial_text: partialText,
+  });
 }
 
 // MARK: - Public Methods
@@ -441,8 +483,14 @@ export async function handleChat(req: Request): Promise<Response> {
     return jsonError("Missing session_id or messages", 400);
   }
 
-  if (body.mode !== "chat" && body.mode !== "agent" && body.mode !== CLAUDE_CODE_AGENT_MODE) {
-    return jsonError(`Invalid or missing mode: must be 'chat', 'agent', or '${CLAUDE_CODE_AGENT_MODE}'`, 400);
+  if (
+    body.mode !== "chat" && body.mode !== "agent" &&
+    body.mode !== CLAUDE_CODE_AGENT_MODE
+  ) {
+    return jsonError(
+      `Invalid or missing mode: must be 'chat', 'agent', or '${CLAUDE_CODE_AGENT_MODE}'`,
+      400,
+    );
   }
 
   if (body.expected_version !== undefined) {
@@ -452,7 +500,10 @@ export async function handleChat(req: Request): Promise<Response> {
   }
 
   if (body.client_turn_id) {
-    const existing = getMessageByClientTurnId(body.session_id, body.client_turn_id);
+    const existing = getMessageByClientTurnId(
+      body.session_id,
+      body.client_turn_id,
+    );
     if (existing) {
       return Response.json(
         { event: "duplicate", request_id: requestId, message: existing },
@@ -467,18 +518,27 @@ export async function handleChat(req: Request): Promise<Response> {
   const cfgSnapshot = config.snapshot;
   const resolvedModel = body.model ?? cfgSnapshot.model;
 
-  if ((body.mode === "agent" || body.mode === CLAUDE_CODE_AGENT_MODE) && !resolvedModel) {
+  if (
+    (body.mode === "agent" || body.mode === CLAUDE_CODE_AGENT_MODE) &&
+    !resolvedModel
+  ) {
     return jsonError("No model configured for agent mode", 400);
   }
 
   let resolvedModelInfo: ModelInfo | null = null;
   if (resolvedModel) {
     const [parsedProvider, parsedModelName] = parseModelString(resolvedModel);
-    resolvedModelInfo = await ai.models.get(parsedModelName, parsedProvider ?? undefined);
+    resolvedModelInfo = await ai.models.get(
+      parsedModelName,
+      parsedProvider ?? undefined,
+    );
     if (body.model && resolvedModelInfo === null) {
       return jsonError(`Model not found: ${body.model}`, 400);
     }
-    if (body.mode === "agent" && !(await modelSupportsTools(resolvedModel, resolvedModelInfo))) {
+    if (
+      body.mode === "agent" &&
+      !(await modelSupportsTools(resolvedModel, resolvedModelInfo))
+    ) {
       return jsonError(
         body.model
           ? "Selected model does not support tool calling"
@@ -488,7 +548,10 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
-  if (resolvedModel && isPaidProvider(resolvedModel) && !isProviderApproved(resolvedModel)) {
+  if (
+    resolvedModel && isPaidProvider(resolvedModel) &&
+    !isProviderApproved(resolvedModel)
+  ) {
     return jsonError(
       `Paid provider not approved. Run "hlvm ask --model ${resolvedModel}" in terminal first to grant consent.`,
       403,
@@ -502,7 +565,9 @@ export async function handleChat(req: Request): Promise<Response> {
   const existingSession = getSession(sessionId);
   const session = getOrCreateSession(sessionId);
   if (!existingSession) {
-    pushSSEEvent(SESSIONS_CHANNEL, "session_created", { session_id: session.id });
+    pushSSEEvent(SESSIONS_CHANNEL, "session_created", {
+      session_id: session.id,
+    });
   }
 
   const currentMsg = body.messages[body.messages.length - 1];
@@ -521,7 +586,11 @@ export async function handleChat(req: Request): Promise<Response> {
     pushSessionUpdatedEvent(session.id);
   }
 
-  const senderType = body.mode === "agent" ? "agent" : body.mode === CLAUDE_CODE_AGENT_MODE ? "agent" : "llm";
+  const senderType = body.mode === "agent"
+    ? "agent"
+    : body.mode === CLAUDE_CODE_AGENT_MODE
+    ? "agent"
+    : "llm";
   const assistantMsg = insertMessage({
     session_id: session.id,
     role: "assistant",
@@ -551,7 +620,13 @@ export async function handleChat(req: Request): Promise<Response> {
       const emitCancellationOnce = () => {
         if (cancellationEmitted) return;
         cancellationEmitted = true;
-        emitCancellation(assistantMessageId, partialText, sessionId, requestId, emit);
+        emitCancellation(
+          assistantMessageId,
+          partialText,
+          sessionId,
+          requestId,
+          emit,
+        );
       };
 
       const activeEntry = activeRequests.get(requestId);
@@ -572,23 +647,50 @@ export async function handleChat(req: Request): Promise<Response> {
       try {
         emit({ event: "start", request_id: requestId });
 
-        const onPartial = (text: string) => { partialText += text; };
+        const onPartial = (text: string) => {
+          partialText += text;
+        };
 
         // Resolve effective mode: model name ending in ":agent" suffix OR config agentMode override
-        const isAgentModel = resolvedModel?.endsWith(AGENT_MODEL_SUFFIX) ?? false;
+        const isAgentModel = resolvedModel?.endsWith(AGENT_MODEL_SUFFIX) ??
+          false;
         const configAgentMode = cfgSnapshot.agentMode;
         const effectiveMode = body.mode === CLAUDE_CODE_AGENT_MODE
           ? CLAUDE_CODE_AGENT_MODE
-          : (body.mode === "agent" && (isAgentModel || configAgentMode === "claude-code-agent"))
-            ? CLAUDE_CODE_AGENT_MODE
-            : body.mode;
+          : (body.mode === "agent" &&
+              (isAgentModel || configAgentMode === "claude-code-agent"))
+          ? CLAUDE_CODE_AGENT_MODE
+          : body.mode;
 
         if (effectiveMode === CLAUDE_CODE_AGENT_MODE) {
-          await handleClaudeCodeAgentMode(body, assistantMessageId, controller.signal, emit, onPartial);
+          await handleClaudeCodeAgentMode(
+            body,
+            assistantMessageId,
+            controller.signal,
+            emit,
+            onPartial,
+          );
         } else if (effectiveMode === "agent") {
-          await handleAgentMode(body, resolvedModel!, assistantMessageId, controller.signal, emit, onPartial, requestId, resolvedModelInfo);
+          await handleAgentMode(
+            body,
+            resolvedModel!,
+            assistantMessageId,
+            controller.signal,
+            emit,
+            onPartial,
+            requestId,
+            resolvedModelInfo,
+          );
         } else {
-          await handleChatMode(body, resolvedModel, sessionId, assistantMessageId, controller.signal, emit, onPartial);
+          await handleChatMode(
+            body,
+            resolvedModel,
+            sessionId,
+            assistantMessageId,
+            controller.signal,
+            emit,
+            onPartial,
+          );
         }
 
         if (controller.signal.aborted) {
@@ -596,12 +698,23 @@ export async function handleChat(req: Request): Promise<Response> {
         } else {
           const currentSession = getSession(sessionId);
           if (currentSession && !currentSession.title) {
-            const allMsgs = loadAllMessages(sessionId);
-            const firstUserMsg = allMsgs.find(m => m.role === "user" && m.content.length > 0);
+            const recentMsgs = loadRecentMessages(
+              sessionId,
+              TITLE_SEARCH_HISTORY_LIMIT,
+            );
+            const firstUserMsg = recentMsgs.find((m) =>
+              m.role === "user" && m.content.length > 0
+            );
             if (firstUserMsg) {
-              const autoTitle = firstUserMsg.content.slice(0, 60).replace(/\n/g, " ").trim();
+              const autoTitle = firstUserMsg.content.slice(0, 60).replace(
+                /\n/g,
+                " ",
+              ).trim();
               updateSession(sessionId, { title: autoTitle });
-              pushSSEEvent(sessionId, "session_updated", { session_id: sessionId, title: autoTitle });
+              pushSSEEvent(sessionId, "session_updated", {
+                session_id: sessionId,
+                title: autoTitle,
+              });
               pushSessionUpdatedEvent(sessionId);
             }
           }
@@ -723,12 +836,17 @@ async function handleChatMode(
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
 ): Promise<void> {
-  const storedMessages = loadAllMessages(sessionId)
-    .filter((m) => m.created_at >= SERVER_LAUNCH_TIME);
+  const storedMessages = loadRecentMessages(
+    sessionId,
+    CHAT_CONTEXT_HISTORY_LIMIT,
+  );
 
   const providerMessages: Message[] = [];
   for (const m of storedMessages) {
-    if (m.role === "tool" || m.cancelled || m.content.length === 0 || m.id === assistantMessageId) {
+    if (
+      m.role === "tool" || m.cancelled || m.content.length === 0 ||
+      m.id === assistantMessageId
+    ) {
       continue;
     }
     const msg: Message = {
@@ -755,7 +873,9 @@ async function handleChatMode(
   const waitForAbort: Promise<"aborted"> = signal.aborted
     ? Promise.resolve("aborted")
     : new Promise((resolve) => {
-      signal.addEventListener("abort", () => resolve("aborted"), { once: true });
+      signal.addEventListener("abort", () => resolve("aborted"), {
+        once: true,
+      });
     });
 
   try {
@@ -781,12 +901,17 @@ async function handleChatMode(
       emit({ event: "token", text: token });
     }
   } finally {
-    try { await tokenIterator.return?.(); } catch { /* already closed */ }
+    try {
+      await tokenIterator.return?.();
+    } catch { /* already closed */ }
   }
 
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: fullText });
-    pushSSEEvent(sessionId, "message_updated", { id: assistantMessageId, content: fullText });
+    pushSSEEvent(sessionId, "message_updated", {
+      id: assistantMessageId,
+      content: fullText,
+    });
     pushSessionUpdatedEvent(sessionId);
   }
 }
@@ -803,7 +928,10 @@ async function handleAgentMode(
 ): Promise<void> {
   if (!agentReadyPromise) {
     agentReadyPromise = ensureAgentReady(resolvedModel, (msg) => log.info(msg))
-      .catch((err) => { agentReadyPromise = null; throw err; });
+      .catch((err) => {
+        agentReadyPromise = null;
+        throw err;
+      });
   }
   await agentReadyPromise;
 
@@ -814,10 +942,14 @@ async function handleAgentMode(
     { toolDenylist: [...DEFAULT_TOOL_DENYLIST], modelInfo },
   );
 
-  const stored = loadRecentMessages(body.session_id, 20)
-    .filter((m) => m.created_at >= SERVER_LAUNCH_TIME);
+  const stored = loadRecentMessages(
+    body.session_id,
+    AGENT_CONTEXT_HISTORY_LIMIT,
+  );
   const history: AgentMessage[] = stored
-    .filter((m) => !m.cancelled && m.content.length > 0 && m.id !== assistantMessageId)
+    .filter((m) =>
+      !m.cancelled && m.content.length > 0 && m.id !== assistantMessageId
+    )
     .map((m) => ({
       role: m.role as AgentMessage["role"],
       content: m.content,
@@ -827,10 +959,7 @@ async function handleAgentMode(
       toolCallId: m.tool_call_id ?? undefined,
     }));
 
-  let lastUserMessage: typeof body.messages[number] | undefined;
-  for (let i = body.messages.length - 1; i >= 0; i--) {
-    if (body.messages[i].role === "user") { lastUserMessage = body.messages[i]; break; }
-  }
+  const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
 
   const result = await runAgentQuery({
@@ -874,7 +1003,9 @@ async function handleAgentMode(
               sender_type: "agent",
               request_id: requestId,
             });
-            pushSSEEvent(body.session_id, "message_added", { message: toolMsg });
+            pushSSEEvent(body.session_id, "message_added", {
+              message: toolMsg,
+            });
             pushSessionUpdatedEvent(body.session_id);
             emit({
               event: "tool_end",
@@ -904,7 +1035,10 @@ async function handleAgentMode(
 
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: result.text });
-    pushSSEEvent(body.session_id, "message_updated", { id: assistantMessageId, content: result.text });
+    pushSSEEvent(body.session_id, "message_updated", {
+      id: assistantMessageId,
+      content: result.text,
+    });
     pushSessionUpdatedEvent(body.session_id);
   }
 }
@@ -926,10 +1060,7 @@ async function handleClaudeCodeAgentMode(
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
 ): Promise<void> {
-  let lastUserMessage: typeof body.messages[number] | undefined;
-  for (let i = body.messages.length - 1; i >= 0; i--) {
-    if (body.messages[i].role === "user") { lastUserMessage = body.messages[i]; break; }
-  }
+  const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
 
   if (!query.trim()) {
@@ -938,7 +1069,9 @@ async function handleClaudeCodeAgentMode(
   }
 
   const cfgSnapshot = config.snapshot;
-  const sessionMemoryEnabled = isSessionMemoryEnabled(cfgSnapshot.sessionMemory);
+  const sessionMemoryEnabled = isSessionMemoryEnabled(
+    cfgSnapshot.sessionMemory,
+  );
 
   // Read stored Claude Code session ID from HLVM session metadata
   let claudeCodeSessionId: string | null = null;
@@ -951,18 +1084,34 @@ async function handleClaudeCodeAgentMode(
   }
 
   const result = await spawnClaudeCodeProcess(
-    query, claudeCodeSessionId, body.session_id, assistantMessageId,
-    sessionMemoryEnabled, existingMeta, signal, emit, onPartial,
+    query,
+    claudeCodeSessionId,
+    body.session_id,
+    assistantMessageId,
+    sessionMemoryEnabled,
+    existingMeta,
+    signal,
+    emit,
+    onPartial,
   );
 
   // If --resume failed, clear stored session and retry fresh
   if (!result.success && claudeCodeSessionId && !signal.aborted) {
-    log.info(`Claude Code --resume failed (session ${claudeCodeSessionId}), retrying fresh`);
+    log.info(
+      `Claude Code --resume failed (session ${claudeCodeSessionId}), retrying fresh`,
+    );
     existingMeta.claudeCodeSessionId = undefined;
     updateSession(body.session_id, { metadata: JSON.stringify(existingMeta) });
     await spawnClaudeCodeProcess(
-      query, null, body.session_id, assistantMessageId,
-      sessionMemoryEnabled, existingMeta, signal, emit, onPartial,
+      query,
+      null,
+      body.session_id,
+      assistantMessageId,
+      sessionMemoryEnabled,
+      existingMeta,
+      signal,
+      emit,
+      onPartial,
     );
   }
 }
@@ -981,7 +1130,14 @@ function processClaudeCodeJsonLine(
   try {
     const event = JSON.parse(trimmed);
 
-    if (captureSessionIdFromInitEvent(event, sessionMemoryEnabled, claudeCodeSessionId, existingMeta)) {
+    if (
+      captureSessionIdFromInitEvent(
+        event,
+        sessionMemoryEnabled,
+        claudeCodeSessionId,
+        existingMeta,
+      )
+    ) {
       updateSession(hlvmSessionId, { metadata: JSON.stringify(existingMeta) });
     }
 
@@ -1035,7 +1191,9 @@ async function spawnClaudeCodeProcess(
   });
 
   // Kill subprocess on abort
-  const onAbort = () => { proc.kill?.("SIGTERM"); };
+  const onAbort = () => {
+    proc.kill?.("SIGTERM");
+  };
   signal.addEventListener("abort", onAbort, { once: true });
 
   let fullText = "";
@@ -1085,8 +1243,14 @@ async function spawnClaudeCodeProcess(
         const trimmed = line.trim();
         if (!trimmed) continue;
         processClaudeCodeJsonLine(
-          trimmed, textState, sessionMemoryEnabled, claudeCodeSessionId,
-          existingMeta, hlvmSessionId, emit, onPartial,
+          trimmed,
+          textState,
+          sessionMemoryEnabled,
+          claudeCodeSessionId,
+          existingMeta,
+          hlvmSessionId,
+          emit,
+          onPartial,
         );
       }
     }
@@ -1095,8 +1259,14 @@ async function spawnClaudeCodeProcess(
     const residual = buffer.trim();
     if (residual) {
       processClaudeCodeJsonLine(
-        residual, textState, sessionMemoryEnabled, claudeCodeSessionId,
-        existingMeta, hlvmSessionId, emit, onPartial,
+        residual,
+        textState,
+        sessionMemoryEnabled,
+        claudeCodeSessionId,
+        existingMeta,
+        hlvmSessionId,
+        emit,
+        onPartial,
       );
     }
 
@@ -1118,7 +1288,10 @@ async function spawnClaudeCodeProcess(
 
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: fullText });
-    pushSSEEvent(hlvmSessionId, "message_updated", { id: assistantMessageId, content: fullText });
+    pushSSEEvent(hlvmSessionId, "message_updated", {
+      id: assistantMessageId,
+      content: fullText,
+    });
     pushSessionUpdatedEvent(hlvmSessionId);
   }
 

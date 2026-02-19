@@ -257,6 +257,7 @@ export async function listModels(
   const url = `${endpoint}/v1/models`;
   const response = await fetch(url, {
     headers: authHeaders(apiKey),
+    signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) return [];
 

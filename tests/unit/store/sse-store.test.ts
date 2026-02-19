@@ -95,7 +95,8 @@ Deno.test({
   fn() {
     const sid = uniqueSession();
 
-    for (let i = 0; i < 1030; i++) {
+    // Amortized eviction: buffer compacts at 2*1024 = 2048, keeping last 1024
+    for (let i = 0; i < 2050; i++) {
       pushSSEEvent(sid, "fill", { i });
     }
 
@@ -112,13 +113,15 @@ Deno.test({
   fn() {
     const sid = uniqueSession();
 
-    for (let i = 0; i < 1030; i++) {
+    // Amortized eviction: buffer compacts at 2*1024 = 2048, keeping last 1024
+    for (let i = 0; i < 2050; i++) {
       pushSSEEvent(sid, "fill", { i });
     }
 
     const result = replayAfter(sid, null);
-    assertEquals(result.events.length, 1024);
-    assertEquals(parseInt(result.events[0].id, 10), 7);
+    // Amortized: compaction at 2049 keeps last 1024 (ids 1026-2049), then 2050 appended → 1025
+    assertEquals(result.events.length, 1025);
+    assertEquals(parseInt(result.events[0].id, 10), 1026);
 
     clearSessionBuffer(sid);
   },

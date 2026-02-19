@@ -82,7 +82,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Context: getMessages - returns internal array (no copy)",
+  name: "Context: getMessages - returns a defensive copy",
   fn() {
     const context = new ContextManager();
 
@@ -91,8 +91,8 @@ Deno.test({
     const messages1 = context.getMessages();
     const messages2 = context.getMessages();
 
-    // Fix 21: Same object (no copy for performance)
-    assertEquals(messages1 === messages2, true);
+    // Defensive copy: distinct arrays
+    assertEquals(messages1 === messages2, false);
 
     // Same content
     assertEquals(messages1.length, messages2.length);
@@ -320,9 +320,15 @@ Deno.test({
     const longText = "a".repeat(200);
     context.addMessage({ role: "system", content: "You are helpful." });
     context.addMessage({ role: "user", content: `First ${longText}` });
-    context.addMessage({ role: "assistant", content: `First response ${longText}` });
+    context.addMessage({
+      role: "assistant",
+      content: `First response ${longText}`,
+    });
     context.addMessage({ role: "user", content: `Second ${longText}` });
-    context.addMessage({ role: "assistant", content: `Second response ${longText}` });
+    context.addMessage({
+      role: "assistant",
+      content: `Second response ${longText}`,
+    });
     context.addMessage({ role: "user", content: `Third ${longText}` });
 
     const messages = context.getMessages();
@@ -478,11 +484,23 @@ Deno.test({
 
     const config = context.getConfig();
     assertEquals(config.maxTokens, DEFAULT_CONTEXT_CONFIG.maxTokens);
-    assertEquals(config.maxResultLength, DEFAULT_CONTEXT_CONFIG.maxResultLength);
+    assertEquals(
+      config.maxResultLength,
+      DEFAULT_CONTEXT_CONFIG.maxResultLength,
+    );
     assertEquals(config.preserveSystem, DEFAULT_CONTEXT_CONFIG.preserveSystem);
     assertEquals(config.minMessages, DEFAULT_CONTEXT_CONFIG.minMessages);
-    assertEquals(config.overflowStrategy, DEFAULT_CONTEXT_CONFIG.overflowStrategy);
-    assertEquals(config.summaryMaxChars, DEFAULT_CONTEXT_CONFIG.summaryMaxChars);
-    assertEquals(config.summaryKeepRecent, DEFAULT_CONTEXT_CONFIG.summaryKeepRecent);
+    assertEquals(
+      config.overflowStrategy,
+      DEFAULT_CONTEXT_CONFIG.overflowStrategy,
+    );
+    assertEquals(
+      config.summaryMaxChars,
+      DEFAULT_CONTEXT_CONFIG.summaryMaxChars,
+    );
+    assertEquals(
+      config.summaryKeepRecent,
+      DEFAULT_CONTEXT_CONFIG.summaryKeepRecent,
+    );
   },
 });

@@ -4,13 +4,17 @@
  * Verifies message conversion, stream collection, and system prompt generation
  */
 
-import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert";
 import {
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+} from "jsr:@std/assert";
+import {
+  type AgentMessage,
+  collectStream,
   convertAgentMessagesToProvider,
   convertProviderMessagesToAgent,
-  collectStream,
   generateSystemPrompt,
-  type AgentMessage,
   type ProviderMessage,
 } from "../../../src/hlvm/agent/llm-integration.ts";
 
@@ -19,7 +23,8 @@ import {
 // ============================================================
 
 Deno.test({
-  name: "LLM Integration: convertAgentMessagesToProvider - pass through basic roles",
+  name:
+    "LLM Integration: convertAgentMessagesToProvider - pass through basic roles",
   fn() {
     const agentMessages: AgentMessage[] = [
       { role: "system", content: "You are helpful" },
@@ -37,7 +42,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "LLM Integration: convertAgentMessagesToProvider - convert tool to user (observation)",
+  name:
+    "LLM Integration: convertAgentMessagesToProvider - convert tool to user (observation)",
   fn() {
     const agentMessages: AgentMessage[] = [
       { role: "tool", content: "Found 5 files" },
@@ -78,12 +84,12 @@ Deno.test({
   name: "LLM Integration: convertAgentMessagesToProvider - preserve content",
   fn() {
     const agentMessages: AgentMessage[] = [
-      { role: "user", content: "Special chars: \n\t\"quotes\"" },
+      { role: "user", content: 'Special chars: \n\t"quotes"' },
     ];
 
     const result = convertAgentMessagesToProvider(agentMessages);
 
-    assertEquals(result[0].content, "Special chars: \n\t\"quotes\"");
+    assertEquals(result[0].content, 'Special chars: \n\t"quotes"');
   },
 });
 
@@ -100,7 +106,8 @@ Deno.test({
 // ============================================================
 
 Deno.test({
-  name: "LLM Integration: convertProviderMessagesToAgent - pass through basic roles",
+  name:
+    "LLM Integration: convertProviderMessagesToAgent - pass through basic roles",
   fn() {
     const providerMessages: ProviderMessage[] = [
       { role: "system", content: "You are helpful" },
@@ -133,7 +140,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "LLM Integration: convertProviderMessagesToAgent - round trip conversion",
+  name:
+    "LLM Integration: convertProviderMessagesToAgent - round trip conversion",
   fn() {
     const original: AgentMessage[] = [
       { role: "user", content: "Hello" },
@@ -237,8 +245,9 @@ Deno.test({
   fn() {
     const prompt = generateSystemPrompt();
 
-    assertStringIncludes(prompt, "AI coding agent");
+    assertStringIncludes(prompt, "AI assistant");
     assertStringIncludes(prompt, "tools");
+    assertStringIncludes(prompt, "Platform:");
   },
 });
 
@@ -257,7 +266,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "LLM Integration: generateSystemPrompt - includes tool calling instructions",
+  name:
+    "LLM Integration: generateSystemPrompt - includes tool calling instructions",
   fn() {
     const prompt = generateSystemPrompt();
 
@@ -267,7 +277,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "LLM Integration: generateSystemPrompt - no verbose tool docs (schemas via API)",
+  name:
+    "LLM Integration: generateSystemPrompt - no verbose tool docs (schemas via API)",
   fn() {
     const prompt = generateSystemPrompt();
 
@@ -278,7 +289,6 @@ Deno.test({
     assertEquals(prompt.includes("Safety Level"), false);
   },
 });
-
 
 // ============================================================
 // Edge Cases

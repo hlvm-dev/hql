@@ -67,7 +67,7 @@ const INSTANCE_ID = platform.env.get("HLVM_REPL_INSTANCE_ID") ?? null;
 let serverAuthToken: string | null = null;
 
 /** Get the current server auth token (for tests or UI client bootstrap) */
-export function getServerAuthToken(): string | null {
+function getServerAuthToken(): string | null {
   return serverAuthToken;
 }
 

@@ -85,5 +85,9 @@ deno task test:unit     # Must pass all tests
 
 ### Tests
 
-- Run `deno task test:unit` after meaningful changes
-- Tests must be real (no fake tests that always pass)
+**Testing order matters. Do NOT run the full test suite prematurely.**
+
+1. **Domain-specific test first**: After making a change, test ONLY the specific feature/domain to confirm it works correctly (e.g., run a quick `deno eval` or targeted test)
+2. **Get user approval**: Confirm the change works as expected with the user before proceeding
+3. **Full test suite last**: Run `deno task test:unit` only after all changes are implemented and approved
+4. Tests must be real (no fake tests that always pass)

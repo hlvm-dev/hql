@@ -1858,8 +1858,6 @@ export function transformHQLNodeToIR(
     );
   }
 
-  logger.debug(`Transforming node of type: ${node.type}`);
-
   // Dispatch based on node type
   let result: IR.IRNode | null;
   switch (node.type) {
