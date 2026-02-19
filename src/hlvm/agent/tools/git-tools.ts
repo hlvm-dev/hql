@@ -380,7 +380,9 @@ export async function gitCommit(
 export const GIT_TOOLS = {
   git_status: {
     fn: gitStatus,
-    description: "Get git working tree status as structured data",
+    description: "Get git working tree status as structured data. Use this instead of shell_exec 'git status'.",
+    category: "git",
+    replaces: "git status",
     safetyLevel: "L0",
     args: {
       path: "string (optional) - Working directory (default: workspace root)",
@@ -397,7 +399,9 @@ export const GIT_TOOLS = {
   },
   git_diff: {
     fn: gitDiff,
-    description: "Show git diff between refs, staged, or unstaged changes",
+    description: "Show git diff between refs, staged, or unstaged changes. Use this instead of shell_exec 'git diff'.",
+    category: "git",
+    replaces: "git diff",
     safetyLevel: "L0",
     args: {
       path: "string (optional) - File or directory to diff",
@@ -414,7 +418,9 @@ export const GIT_TOOLS = {
   },
   git_log: {
     fn: gitLog,
-    description: "Show recent git commit history as structured data",
+    description: "Show recent git commit history as structured data. Use this instead of shell_exec 'git log'.",
+    category: "git",
+    replaces: "git log",
     safetyLevel: "L0",
     args: {
       count: "number (optional) - Number of commits to show (default: 10, max: 100)",
@@ -431,6 +437,7 @@ export const GIT_TOOLS = {
   git_commit: {
     fn: gitCommit,
     description: "Stage files and create a git commit",
+    category: "git",
     safetyLevel: "L2",
     args: {
       message: "string - Commit message",

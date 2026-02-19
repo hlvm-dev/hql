@@ -159,6 +159,7 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
   ask_user: {
     fn: askUser,
     description: "Ask user for clarification or input during task execution",
+    category: "meta",
     args: {
       question: "string - Question to ask the user",
       options: "string[] (optional) - Multiple choice options",
@@ -180,6 +181,7 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
     },
     description:
       "Signal task completion with an optional summary. Prefer this when finished.",
+    category: "meta",
     args: {
       summary: "string (optional) - Final summary to return to the user",
     },

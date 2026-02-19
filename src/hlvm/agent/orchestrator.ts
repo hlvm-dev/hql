@@ -438,6 +438,13 @@ export type TraceEvent =
     type: "context_overflow_retry";
     newBudget: number;
     overflowRetryCount: number;
+  }
+  | {
+    type: "mcp_progress";
+    token: string | number;
+    progress: number;
+    total?: number;
+    message?: string;
   };
 
 /** Agent UI event for display in CLI/GUI */

@@ -17,6 +17,7 @@ import {
   _isGitRepo,
 } from "../../../src/hlvm/agent/checkpoint-service.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { getCheckpointsDir } from "../../../src/common/paths.ts";
 
 async function runCmd(args: string[], cwd: string) {
   const platform = getPlatform();
@@ -179,6 +180,33 @@ Deno.test({
       const hash2 = await createCheckpoint(workspace);
       assertEquals(typeof hash2, "string");
       assertEquals(hash1 !== hash2, true);
+    } finally {
+      await cleanupWorkspace(workspace);
+    }
+  },
+});
+
+Deno.test({
+  name: "Checkpoint: shadow exclude always contains .git pattern",
+  async fn() {
+    const platform = getPlatform();
+    const workspace = await setupGitWorkspace();
+    try {
+      // .github/ should not satisfy the .git exclusion requirement.
+      await platform.fs.writeTextFile(
+        `${workspace}/.gitignore`,
+        ".github/\nnode_modules/\n",
+      );
+
+      await createCheckpoint(workspace);
+
+      const shadowDir = platform.path.join(
+        getCheckpointsDir(),
+        await _hashWorkspace(workspace),
+      );
+      const excludePath = platform.path.join(shadowDir, "info", "exclude");
+      const excludeContent = await platform.fs.readTextFile(excludePath);
+      assertMatch(excludeContent, /(^|\n)\.git(\n|$)/);
     } finally {
       await cleanupWorkspace(workspace);
     }

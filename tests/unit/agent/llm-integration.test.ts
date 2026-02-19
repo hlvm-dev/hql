@@ -290,6 +290,86 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name:
+    "LLM Integration: generateSystemPrompt - auto-generates tool routing table",
+  fn() {
+    const prompt = generateSystemPrompt();
+
+    // Routing rules should map dedicated tools away from shell_exec
+    assertStringIncludes(prompt, "# Tool Selection");
+    assertStringIncludes(prompt, "read_file");
+    assertStringIncludes(prompt, 'NOT shell_exec');
+    assertStringIncludes(
+      prompt,
+      "shell_exec → ONLY when no dedicated tool exists",
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "LLM Integration: generateSystemPrompt - auto-generates permission tiers",
+  fn() {
+    const prompt = generateSystemPrompt();
+
+    assertStringIncludes(prompt, "# Permission Cost");
+    assertStringIncludes(prompt, "Free (no approval):");
+    assertStringIncludes(prompt, "Approve once:");
+    assertStringIncludes(prompt, "Approve each time:");
+    assertStringIncludes(prompt, "Prefer Free tools");
+  },
+});
+
+Deno.test({
+  name:
+    "LLM Integration: generateSystemPrompt - includes conciseness directive",
+  fn() {
+    const prompt = generateSystemPrompt();
+
+    assertStringIncludes(prompt, "Be direct and concise");
+    assertStringIncludes(prompt, "No preamble");
+  },
+});
+
+Deno.test({
+  name:
+    "LLM Integration: generateSystemPrompt - includes project instructions when provided",
+  fn() {
+    const prompt = generateSystemPrompt({
+      projectInstructions: "Always use tabs for indentation.",
+    });
+
+    assertStringIncludes(prompt, "# Project Instructions");
+    assertStringIncludes(prompt, "Always use tabs for indentation.");
+  },
+});
+
+Deno.test({
+  name:
+    "LLM Integration: generateSystemPrompt - truncates long project instructions",
+  fn() {
+    const longInstructions = "x".repeat(3000);
+    const prompt = generateSystemPrompt({
+      projectInstructions: longInstructions,
+    });
+
+    // Should be truncated to 2000 chars
+    assertStringIncludes(prompt, "# Project Instructions");
+    assertEquals(prompt.includes("x".repeat(2001)), false);
+  },
+});
+
+Deno.test({
+  name:
+    "LLM Integration: generateSystemPrompt - no project section when empty",
+  fn() {
+    const prompt = generateSystemPrompt();
+
+    assertEquals(prompt.includes("# Project Instructions"), false);
+  },
+});
+
 // ============================================================
 // Edge Cases
 // ============================================================

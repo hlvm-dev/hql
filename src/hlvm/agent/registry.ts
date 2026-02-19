@@ -51,6 +51,8 @@ export interface InteractionRequestEvent {
   toolName?: string;
   toolArgs?: string;
   question?: string;
+  /** Optional JSON Schema for MCP elicitation form inputs */
+  schema?: Record<string, unknown>;
 }
 
 /** Optional execution options passed to tools (e.g., cancellation signal) */
@@ -75,6 +77,10 @@ export interface ToolMetadata {
   returns?: Record<string, string>;
   safetyLevel?: "L0" | "L1" | "L2";
   safety?: string; // Additional safety info
+  /** Tool category for auto-generated routing table */
+  category?: "read" | "write" | "search" | "shell" | "git" | "web" | "data" | "meta" | "memory";
+  /** Shell command(s) this tool replaces (e.g., "cat/head/tail") — drives routing rules */
+  replaces?: string;
   /** Skip argument validation (used for dynamic tools with unknown schemas) */
   skipValidation?: boolean;
   /** Optional formatter for tool results (for display/LLM output) */
@@ -124,6 +130,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
       )),
     description:
       "Delegate a task to a specialist agent and return its result.",
+    category: "meta",
     args: {
       agent: "string - Agent name (general, code, file, shell, web, memory)",
       task: "string - Task to delegate",

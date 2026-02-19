@@ -467,7 +467,8 @@ import { readProcessStream } from "../../../common/stream-utils.ts";
 export const SHELL_TOOLS = {
   shell_exec: {
     fn: shellExec,
-    description: "Execute shell command",
+    description: "Execute shell command. ONLY use when no dedicated tool exists for the task.",
+    category: "shell",
     safetyLevel: "L2",
     args: {
       command: "string - Shell command to execute",
@@ -486,7 +487,8 @@ export const SHELL_TOOLS = {
   },
   shell_script: {
     fn: shellScript,
-    description: "Execute multi-line shell script",
+    description: "Execute multi-line shell script. ONLY use when no dedicated tool exists for the task.",
+    category: "shell",
     safetyLevel: "L2",
     args: {
       script: "string - Shell script content",

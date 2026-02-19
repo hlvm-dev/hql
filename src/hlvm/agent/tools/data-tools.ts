@@ -662,6 +662,7 @@ export const DATA_TOOLS: Record<string, ToolMetadata> = {
     fn: aggregateEntries,
     description:
       "Aggregate numeric values across items (sum, count, average, min, max).\n\nExample:\n- Total size: aggregate_entries({items: entries, operation: \"sum\", field: \"size\"})",
+    category: "data",
     args: {
       items: "any[] - Items to aggregate",
       operation: "string - Operation: sum, count, average, min, max",
@@ -677,6 +678,7 @@ export const DATA_TOOLS: Record<string, ToolMetadata> = {
     fn: filterEntries,
     description:
       "Filter items by a field comparison (equals, contains, gt, lt, etc).",
+    category: "data",
     args: {
       items: "any[] - Items to filter",
       field: "string - Field name to compare",
@@ -693,6 +695,7 @@ export const DATA_TOOLS: Record<string, ToolMetadata> = {
     fn: transformEntries,
     description:
       "Transform items by extracting fields or applying string/length operations.",
+    category: "data",
     args: {
       items: "any[] - Items to transform",
       operation: "string - Operation: pluck, length, uppercase, lowercase",
@@ -708,6 +711,7 @@ export const DATA_TOOLS: Record<string, ToolMetadata> = {
     fn: compute,
     description:
       "Evaluate a simple math expression with named numeric values.",
+    category: "data",
     args: {
       expression: "string - Math expression using + - * / % and parentheses",
       values: "object (optional) - Named numeric values",

@@ -73,6 +73,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     fn: memoryAdd,
     description:
       "Store a memory entry for future retrieval. Use only when the user explicitly asks to remember something.",
+    category: "memory",
     args: {
       content: "string - Memory content to store",
       tags: "string[] (optional) - Tags for retrieval",
@@ -90,6 +91,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     fn: memorySearch,
     description:
       "Search stored memory entries by query. Use only when the user asks to recall memory.",
+    category: "memory",
     args: {
       query: "string - Search query",
       limit: "number (optional) - Max results (default: 5)",
@@ -105,6 +107,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     fn: memoryList,
     description:
       "List recent memory entries. Use only when the user asks to view memory.",
+    category: "memory",
     args: {
       limit: "number (optional) - Max results (default: 50)",
     },
@@ -119,6 +122,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     fn: memoryClear,
     description:
       "Clear all stored memory entries. Use only when the user asks to clear memory.",
+    category: "memory",
     args: {},
     returns: {
       cleared: "boolean",

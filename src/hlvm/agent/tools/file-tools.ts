@@ -919,7 +919,9 @@ function formatListFilesResult(
 export const FILE_TOOLS = {
   read_file: {
     fn: readFile,
-    description: "Read file contents",
+    description: "Read file contents. Use this for ALL file reading — never use shell_exec with cat/head/tail.",
+    category: "read",
+    replaces: "cat/head/tail",
     safetyLevel: "L0",
     args: {
       path:
@@ -937,6 +939,7 @@ export const FILE_TOOLS = {
   write_file: {
     fn: writeFile,
     description: "Write content to file",
+    category: "write",
     safetyLevel: "L1",
     args: {
       path:
@@ -953,7 +956,9 @@ export const FILE_TOOLS = {
   },
   edit_file: {
     fn: editFile,
-    description: "Edit file using find/replace",
+    description: "Edit file using find/replace. Use this instead of shell_exec with sed/awk.",
+    category: "write",
+    replaces: "sed/awk",
     safetyLevel: "L1",
     args: {
       path:
@@ -973,7 +978,7 @@ export const FILE_TOOLS = {
   },
   list_files: {
     fn: listFiles,
-    description: `List files and directories in a path.
+    description: `List files and directories in a path. Use this instead of shell_exec with ls/find.
 
 IMPORTANT:
 - For "all/every/entire" requests, set recursive: true
@@ -989,6 +994,8 @@ Examples:
    → list_files({path: "~/Desktop", recursive: true, mimePrefix: "video/"})
 4. "list PDF files in Documents"
    → list_files({path: "~/Documents", pattern: "*.pdf"})`,
+    category: "read",
+    replaces: "ls/find",
     safetyLevel: "L0",
     formatResult: formatListFilesResult,
     args: {
@@ -1016,6 +1023,8 @@ Examples:
     fn: openPath,
     description:
       "PREFERRED way to open any file, folder, or path. Opens in the system default app (Finder/Explorer/file manager). Use this instead of shell_exec 'open'. No permission required.",
+    category: "meta",
+    replaces: "open",
     safetyLevel: "L0",
     args: {
       path: "string - Path to open (e.g., '~/Downloads', '~/.Trash', './notes.txt')",
@@ -1031,6 +1040,7 @@ Examples:
     fn: archiveFiles,
     description:
       "Create an archive from one or more files/directories (zip by default, tar.gz on Unix).",
+    category: "write",
     safetyLevel: "L1",
     args: {
       paths: "string[] - Input file/directory paths to archive",

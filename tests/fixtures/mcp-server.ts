@@ -1,11 +1,24 @@
 #!/usr/bin/env -S deno run --quiet
 /**
- * Minimal MCP test server (JSON-RPC over stdio, newline-delimited)
+ * Full MCP test server (JSON-RPC over stdio, newline-delimited)
  *
  * Supports:
- * - initialize
- * - tools/list
- * - tools/call (echo)
+ * - initialize (with capabilities, version negotiation)
+ * - notifications/initialized
+ * - tools/list (with pagination), tools/call (echo)
+ * - resources/list, resources/read, resources/subscribe, resources/unsubscribe
+ * - resources/templates/list
+ * - prompts/list, prompts/get
+ * - completion/complete
+ * - logging/setLevel
+ * - ping
+ * - Server-initiated requests (sampling, elicitation) via MCP_TEST_MODE env
+ * - Notifications (logging, progress)
+ *
+ * Env vars:
+ *   MCP_REPLY_PREFIX - prefix for echo tool responses
+ *   MCP_TEST_MODE    - comma-separated: resources,prompts,logging,sampling,
+ *                      elicitation,paginated,old_protocol,progress
  */
 
 const decoder = new TextDecoder();
@@ -17,6 +30,13 @@ try {
   replyPrefix = "";
 }
 
+let testMode = "";
+try {
+  testMode = Deno.env.get("MCP_TEST_MODE") ?? "";
+} catch {
+  testMode = "";
+}
+
 let buffer = "";
 
 function write(message: unknown) {
@@ -24,25 +44,180 @@ function write(message: unknown) {
   Deno.stdout.writeSync(data);
 }
 
+let nextServerRequestId = 1000;
+
 function handleRequest(request: {
   id?: number;
   method: string;
   params?: Record<string, unknown>;
 }) {
+  // Handle notifications (no id) — just ignore silently
+  if (request.id === undefined) return;
+
   if (request.method === "initialize") {
+    // Reject 2025-11-25 if old_protocol mode is set
+    if (testMode.includes("old_protocol")) {
+      const reqVersion = (request.params as Record<string, unknown>)
+        ?.protocolVersion;
+      if (reqVersion === "2025-11-25") {
+        write({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: {
+            code: -32600,
+            message: "Unsupported protocol version 2025-11-25",
+          },
+        });
+        return;
+      }
+    }
+
+    // Determine capabilities based on test mode
+    const capabilities: Record<string, unknown> = { tools: {} };
+    if (testMode.includes("resources")) {
+      capabilities.resources = { subscribe: true, listChanged: true };
+    }
+    if (testMode.includes("prompts")) {
+      capabilities.prompts = { listChanged: true };
+    }
+    if (testMode.includes("logging")) {
+      capabilities.logging = {};
+    }
+
+    const version = testMode.includes("old_protocol")
+      ? "2024-11-05"
+      : "2025-11-25";
+
     write({
       jsonrpc: "2.0",
       id: request.id,
       result: {
-        protocolVersion: "2024-11-05",
-        serverInfo: { name: "mcp-test", version: "0.1" },
-        capabilities: { tools: {} },
+        protocolVersion: version,
+        serverInfo: { name: "mcp-test", version: "0.2" },
+        capabilities,
       },
     });
+
+    // Server-initiated sampling request
+    if (testMode.includes("sampling")) {
+      setTimeout(() => {
+        write({
+          jsonrpc: "2.0",
+          id: nextServerRequestId++,
+          method: "sampling/createMessage",
+          params: {
+            messages: [
+              {
+                role: "user",
+                content: { type: "text", text: "What is 2+2?" },
+              },
+            ],
+            maxTokens: 100,
+          },
+        });
+      }, 50);
+    }
+
+    // Server-initiated elicitation request
+    if (testMode.includes("elicitation")) {
+      setTimeout(() => {
+        write({
+          jsonrpc: "2.0",
+          id: nextServerRequestId++,
+          method: "elicitation/create",
+          params: {
+            message: "Please confirm deployment",
+            requestedSchema: {
+              type: "object",
+              properties: {
+                confirmed: { type: "boolean" },
+              },
+            },
+          },
+        });
+      }, 50);
+    }
+
+    // Send progress notification
+    if (testMode.includes("progress")) {
+      setTimeout(() => {
+        write({
+          jsonrpc: "2.0",
+          method: "notifications/progress",
+          params: {
+            progressToken: "test-progress-1",
+            progress: 50,
+            total: 100,
+            message: "Halfway done",
+          },
+        });
+      }, 30);
+    }
+
+    return;
+  }
+
+  if (request.method === "ping") {
+    write({ jsonrpc: "2.0", id: request.id, result: {} });
     return;
   }
 
   if (request.method === "tools/list") {
+    // Paginated mode: return tools in 2 pages
+    if (testMode.includes("paginated")) {
+      const cursor = (request.params as Record<string, unknown>)
+        ?.cursor as string | undefined;
+      if (!cursor) {
+        // Page 1
+        write({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            tools: [
+              {
+                name: "echo",
+                description: "Echo back the input",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    message: {
+                      type: "string",
+                      description: "Message to echo",
+                    },
+                  },
+                },
+              },
+            ],
+            nextCursor: "page2",
+          },
+        });
+      } else {
+        // Page 2 (last page)
+        write({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            tools: [
+              {
+                name: "reverse",
+                description: "Reverse a string",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    text: {
+                      type: "string",
+                      description: "Text to reverse",
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        });
+      }
+      return;
+    }
+
     write({
       jsonrpc: "2.0",
       id: request.id,
@@ -66,12 +241,213 @@ function handleRequest(request: {
 
   if (request.method === "tools/call") {
     const params = request.params as Record<string, unknown> | undefined;
+    const toolName = params?.name as string | undefined;
     const args = params?.arguments as Record<string, unknown> | undefined;
+
+    if (toolName === "reverse") {
+      const text = (args?.text as string) ?? "";
+      write({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: { content: text.split("").reverse().join("") },
+      });
+      return;
+    }
+
     write({
       jsonrpc: "2.0",
       id: request.id,
       result: {
         content: `${replyPrefix}${args?.message ?? ""}`,
+      },
+    });
+    return;
+  }
+
+  if (request.method === "resources/list") {
+    write({
+      jsonrpc: "2.0",
+      id: request.id,
+      result: {
+        resources: [
+          {
+            uri: "file:///test/readme.md",
+            name: "README",
+            description: "Test readme file",
+            mimeType: "text/markdown",
+          },
+          {
+            uri: "file:///test/config.json",
+            name: "Config",
+            description: "Test configuration",
+            mimeType: "application/json",
+          },
+        ],
+      },
+    });
+    return;
+  }
+
+  if (request.method === "resources/read") {
+    const uri = (request.params as Record<string, unknown>)?.uri as string;
+    let text = "Unknown resource";
+    if (uri === "file:///test/readme.md") {
+      text = "# Test README\nThis is a test resource.";
+    } else if (uri === "file:///test/config.json") {
+      text = '{"key": "value"}';
+    }
+    write({
+      jsonrpc: "2.0",
+      id: request.id,
+      result: {
+        contents: [{ uri, text }],
+      },
+    });
+    return;
+  }
+
+  if (request.method === "resources/templates/list") {
+    write({
+      jsonrpc: "2.0",
+      id: request.id,
+      result: {
+        resourceTemplates: [
+          {
+            uriTemplate: "file:///test/{filename}",
+            name: "Test files",
+            description: "Access test files by name",
+          },
+        ],
+      },
+    });
+    return;
+  }
+
+  if (request.method === "resources/subscribe") {
+    write({ jsonrpc: "2.0", id: request.id, result: {} });
+    return;
+  }
+
+  if (request.method === "resources/unsubscribe") {
+    write({ jsonrpc: "2.0", id: request.id, result: {} });
+    return;
+  }
+
+  if (request.method === "prompts/list") {
+    write({
+      jsonrpc: "2.0",
+      id: request.id,
+      result: {
+        prompts: [
+          {
+            name: "greeting",
+            description: "Generate a greeting",
+            arguments: [
+              { name: "name", description: "Person to greet", required: true },
+            ],
+          },
+          {
+            name: "summarize",
+            description: "Summarize text",
+            arguments: [
+              {
+                name: "text",
+                description: "Text to summarize",
+                required: true,
+              },
+              { name: "style", description: "Summary style" },
+            ],
+          },
+        ],
+      },
+    });
+    return;
+  }
+
+  if (request.method === "prompts/get") {
+    const params = request.params as Record<string, unknown> | undefined;
+    const promptName = params?.name as string;
+    const promptArgs = params?.arguments as
+      | Record<string, string>
+      | undefined;
+
+    if (promptName === "greeting") {
+      write({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Please greet ${promptArgs?.name ?? "World"}`,
+              },
+            },
+          ],
+        },
+      });
+      return;
+    }
+
+    if (promptName === "summarize") {
+      write({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Summarize: ${promptArgs?.text ?? ""} (style: ${
+                  promptArgs?.style ?? "default"
+                })`,
+              },
+            },
+          ],
+        },
+      });
+      return;
+    }
+
+    write({
+      jsonrpc: "2.0",
+      id: request.id,
+      error: { code: -32602, message: `Unknown prompt: ${promptName}` },
+    });
+    return;
+  }
+
+  if (request.method === "logging/setLevel") {
+    write({ jsonrpc: "2.0", id: request.id, result: {} });
+    if (testMode.includes("logging")) {
+      write({
+        jsonrpc: "2.0",
+        method: "notifications/message",
+        params: {
+          level: "info",
+          logger: "test",
+          data: "Log level set",
+        },
+      });
+    }
+    return;
+  }
+
+  if (request.method === "completion/complete") {
+    const params = request.params as Record<string, unknown> | undefined;
+    const argument = params?.argument as Record<string, unknown> | undefined;
+    const value = (argument?.value as string) ?? "";
+    write({
+      jsonrpc: "2.0",
+      id: request.id,
+      result: {
+        completion: {
+          values: [`${value}completion1`, `${value}completion2`],
+          hasMore: false,
+          total: 2,
+        },
       },
     });
     return;

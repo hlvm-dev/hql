@@ -1043,6 +1043,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     fn: searchWeb,
     description:
       "Search the web for a query (DuckDuckGo). Returns snippets and URLs.",
+    category: "web",
     args: {
       query: "string - Search query",
       maxResults: "number (optional) - Max results (default: 5)",
@@ -1060,6 +1061,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
   fetch_url: {
     fn: fetchUrl,
     description: "Fetch a URL and return text content with size limits.",
+    category: "web",
     args: {
       url: "string - URL to fetch",
       maxBytes:
@@ -1081,6 +1083,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     fn: webFetch,
     description:
       "OpenClaw-style fetch with readability + Firecrawl fallback. Returns main content.",
+    category: "web",
     args: {
       url: "string - URL to fetch",
       maxChars:

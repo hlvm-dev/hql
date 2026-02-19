@@ -245,6 +245,14 @@ export async function runAgentQuery(
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
 
+  // Pre-read per-project instructions (.hlvm/prompt.md) — non-blocking
+  let projectInstructions = "";
+  try {
+    projectInstructions = await getPlatform().fs.readTextFile(
+      `${workspace}/.hlvm/prompt.md`,
+    );
+  } catch { /* file not found — skip */ }
+
   const isCached = !!options.cachedSession;
   const session: AgentSession = options.cachedSession
     ? reuseSession(options.cachedSession, callbacks.onToken)
@@ -257,6 +265,7 @@ export async function runAgentQuery(
       toolDenylist,
       onToken: callbacks.onToken,
       modelInfo: options.modelInfo,
+      projectInstructions,
     });
 
   const useExternalHistory = !!options.messageHistory;
@@ -279,13 +288,11 @@ export async function runAgentQuery(
       }
     }
 
-    const homePath = getPlatform().env.get("HOME");
-    const homeNote = homePath ? ` (HOME=${homePath})` : "";
     session.context.addMessage({
       role: "system",
       content: `Allowed file roots: ${
         DEFAULT_AGENT_PATH_ROOTS.join(", ")
-      }${homeNote}. Use list_files for user folders. Avoid placeholders like "/home/user" or "/Downloads" - use "~/Downloads" instead. Prefer dedicated tools over shell_exec (e.g., open_path instead of shell_exec "open", read_file instead of shell_exec "cat").`,
+      }. Use "~/Downloads" not "/Downloads".`,
     });
 
     let policy = session.policy;
@@ -294,6 +301,23 @@ export async function runAgentQuery(
       policy,
       autoApprove: false,
     });
+
+    // Wire MCP server-initiated request handlers (sampling, elicitation, roots)
+    if (session.mcpSetHandlers) {
+      session.mcpSetHandlers({
+        roots: [
+          `file://${workspace}`,
+          ...DEFAULT_AGENT_PATH_ROOTS.map((r) =>
+            `file://${r.startsWith("~") ? (getPlatform().env.get("HOME") ?? "") + r.slice(1) : r}`
+          ),
+        ],
+      });
+    }
+
+    // Wire cancellation signal to MCP clients
+    if (session.mcpSetSignal && options.signal) {
+      session.mcpSetSignal(options.signal);
+    }
 
     // Checkpoint workspace before agent mutations (opt-in)
     try {

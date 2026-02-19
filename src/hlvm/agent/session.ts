@@ -20,7 +20,11 @@ import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { type AgentPolicy, loadAgentPolicy } from "./policy.ts";
 import { ENGINE_PROFILES, isFrontierProvider } from "./constants.ts";
 import type { LLMFunction } from "./orchestrator.ts";
-import { loadMcpTools, resolveBuiltinMcpServers } from "./mcp.ts";
+import {
+  loadMcpTools,
+  type McpHandlers,
+  resolveBuiltinMcpServers,
+} from "./mcp.ts";
 import { ValidationError } from "../../common/error.ts";
 import { generateUUID } from "../../common/utils.ts";
 import { resolveContextBudget, type ResolvedBudget } from "./context-resolver.ts";
@@ -42,6 +46,8 @@ export interface AgentSessionOptions {
   contextWindow?: number;
   /** Pre-fetched model info to avoid duplicate provider API calls */
   modelInfo?: ModelInfo | null;
+  /** Per-project instructions from .hlvm/prompt.md */
+  projectInstructions?: string;
 }
 
 export interface AgentSession {
@@ -65,6 +71,10 @@ export interface AgentSession {
     toolOwnerId?: string;
     temperature?: number;
   };
+  /** Deferred MCP handler registration (sampling, elicitation, roots) */
+  mcpSetHandlers?: (handlers: McpHandlers) => void;
+  /** Wire an AbortSignal to cancel all pending MCP requests */
+  mcpSetSignal?: (signal: AbortSignal) => void;
 }
 
 
@@ -147,6 +157,7 @@ export async function createAgentSession(
       toolAllowlist: options.toolAllowlist,
       toolDenylist: options.toolDenylist,
       toolOwnerId: mcp.ownerId,
+      projectInstructions: options.projectInstructions,
     }),
   });
 
@@ -187,5 +198,7 @@ export async function createAgentSession(
     isFrontierModel: isFrontierProvider(options.model),
     resolvedContextBudget: resolved,
     llmConfig,
+    mcpSetHandlers: mcp.setHandlers,
+    mcpSetSignal: mcp.setSignal,
   };
 }

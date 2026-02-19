@@ -580,7 +580,9 @@ export async function getStructure(
 export const CODE_TOOLS = {
   search_code: {
     fn: searchCode,
-    description: "Search for pattern in code files",
+    description: "Search for pattern in code files. Use this for ALL code searching — never use shell_exec with grep/rg.",
+    category: "search",
+    replaces: "grep/rg",
     safetyLevel: "L0",
     args: {
       pattern: "string - Regex pattern to search for",
@@ -599,7 +601,8 @@ export const CODE_TOOLS = {
   },
   find_symbol: {
     fn: findSymbol,
-    description: "Find function/class/const declarations",
+    description: "Find function/class/const declarations in code files",
+    category: "search",
     safetyLevel: "L0",
     args: {
       name: "string - Symbol name to find",
@@ -619,6 +622,7 @@ export const CODE_TOOLS = {
     fn: getStructure,
     description:
       "Get directory tree structure for the workspace (codebase). Use list_files for user folders like ~/Downloads.",
+    category: "read",
     safetyLevel: "L0",
     args: {
       path: "string (optional) - Directory to get structure for (default: workspace root)",

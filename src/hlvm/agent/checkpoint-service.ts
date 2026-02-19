@@ -154,7 +154,17 @@ async function ensureShadowRepo(
   }
 
   // Bug fix #1: Always exclude .git directory (Gemini CLI's #1 bug)
-  if (!ignoreLines.some((line) => line.includes(".git"))) {
+  // Treat only explicit .git patterns as already covered.
+  const hasGitExclusion = ignoreLines.some((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("!")) {
+      return false;
+    }
+    const normalized = trimmed.replace(/\/+$/, "");
+    return normalized === ".git" || normalized === "/.git" ||
+      normalized === "**/.git";
+  });
+  if (!hasGitExclusion) {
     ignoreLines.push(".git");
   }
 
