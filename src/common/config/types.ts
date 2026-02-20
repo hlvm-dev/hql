@@ -84,7 +84,6 @@ export interface HlvmConfig {
   approvedProviders?: string[]; // Providers the user has consented to (e.g., ["openai", "anthropic"])
   agentMode?: AgentMode; // Agent mode for Claude models: "hlvm" (HLVM orchestrates) or "claude-code-agent" (full passthrough)
   sessionMemory?: boolean; // Claude Code session memory: remembers context across messages in same chat session (default: true)
-  checkpointing?: boolean; // Auto-checkpoint workspace before agent mutations (opt-in, git repos only)
 }
 
 // ============================================================
@@ -165,7 +164,6 @@ export const CONFIG_KEYS = [
   "approvedProviders",
   "agentMode",
   "sessionMemory",
-  "checkpointing",
 ] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
@@ -285,13 +283,6 @@ export function validateValue(
       }
       return { valid: true };
 
-    case "checkpointing":
-      if (value === undefined) return { valid: true };
-      if (typeof value !== "boolean") {
-        return { valid: false, error: "checkpointing must be a boolean" };
-      }
-      return { valid: true };
-
     default:
       return { valid: false, error: `Unknown config key: ${key}` };
   }
@@ -306,7 +297,6 @@ export function parseValue(key: ConfigKey, valueStr: string): unknown {
       return parseFloat(valueStr);
     case "maxTokens":
       return parseInt(valueStr, 10);
-    case "checkpointing":
     case "sessionMemory":
     case "modelConfigured":
       if (valueStr === "true") return true;

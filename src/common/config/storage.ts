@@ -276,10 +276,6 @@ function normalizeConfigInput(
     normalized.sessionMemory = raw.sessionMemory;
   }
 
-  if (typeof raw.checkpointing === "boolean") {
-    normalized.checkpointing = raw.checkpointing;
-  }
-
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 

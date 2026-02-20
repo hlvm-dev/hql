@@ -40,7 +40,6 @@ import {
 } from "./constants.ts";
 import { hashString } from "../../common/utils.ts";
 import { UsageTracker } from "./usage.ts";
-import { createCheckpoint } from "./checkpoint-service.ts";
 import { ContextManager } from "./context.ts";
 import type { ModelInfo } from "../providers/types.ts";
 
@@ -317,16 +316,6 @@ export async function runAgentQuery(
     // Wire cancellation signal to MCP clients
     if (session.mcpSetSignal && options.signal) {
       session.mcpSetSignal(options.signal);
-    }
-
-    // Checkpoint workspace before agent mutations (opt-in)
-    try {
-      const { config: cfgApi } = await import("../api/config.ts");
-      if (cfgApi.snapshot.checkpointing === true) {
-        await createCheckpoint(workspace, options.signal);
-      }
-    } catch {
-      // Non-blocking: checkpoint failure must never break agent execution
     }
 
     const usageTracker = new UsageTracker();

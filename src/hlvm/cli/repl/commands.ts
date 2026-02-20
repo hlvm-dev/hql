@@ -11,10 +11,6 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { listSessions } from "../../store/conversation-store.ts";
 import { handleDeleteAllSessions } from "./handlers/sessions.ts";
-import {
-  hasCheckpoint,
-  restoreCheckpoint,
-} from "../../agent/checkpoint-service.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -75,7 +71,6 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
     { name: "/bg", description: "Push current eval to background" },
     { name: "/resume", description: "Resume a previous session" },
     { name: "/clear-history", description: "Delete all chat history" },
-    { name: "/undo", description: "Restore workspace to pre-agent checkpoint" },
     { name: "/mcp", description: "List configured MCP servers" },
   ];
 
@@ -246,25 +241,6 @@ export const commands: Record<string, Command> = {
       const payload = await response.json() as { count?: number };
       const count = typeof payload.count === "number" ? payload.count : sessions.length;
       context.output(`${GREEN}Deleted ${count} conversation(s).${RESET}`);
-    },
-  },
-  "/undo": {
-    description: "Restore workspace to pre-agent checkpoint",
-    handler: async (_state, _args, context) => {
-      const workspace = getPlatform().process.cwd();
-      if (!await hasCheckpoint(workspace)) {
-        context.output(`${YELLOW}No checkpoint found.${RESET}`);
-        context.output(`${DIM_GRAY}Enable: /config checkpointing true${RESET}`);
-        return;
-      }
-      const result = await restoreCheckpoint(workspace);
-      if (result.restored) {
-        context.output(
-          `${GREEN}Restored to checkpoint ${result.hash?.slice(0, 8)}.${RESET}`,
-        );
-      } else {
-        context.output(`${YELLOW}Undo failed: ${result.error}${RESET}`);
-      }
     },
   },
   "/mcp": {
