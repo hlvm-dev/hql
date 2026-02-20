@@ -20,6 +20,7 @@ import { globToRegex, GlobPatternError } from "../../common/pattern-utils.ts";
 import { getErrorMessage, isFileNotFoundError, isObjectValue } from "../../common/utils.ts";
 import type { SafetyLevel } from "./security/safety.ts";
 import { SecurityError, isPathWithinRoot } from "./security/path-sandbox.ts";
+import { getAgentPolicyPath } from "../../common/paths.ts";
 
 // ============================================================
 // Types
@@ -60,9 +61,6 @@ export interface AgentPolicy {
 // Policy Loading
 // ============================================================
 
-/** Default policy filename within workspace */
-const POLICY_FILE_NAME = "agent-policy.json";
-const POLICY_DIR_NAME = ".hlvm";
 const POLICY_V1_EXAMPLE = `{
   "version": 1,
   "default": "ask",
@@ -71,22 +69,14 @@ const POLICY_V1_EXAMPLE = `{
 }`;
 
 /**
- * Resolve default policy path for a workspace
- */
-function getDefaultPolicyPath(workspace: string): string {
-  const platform = getPlatform();
-  return platform.path.join(workspace, POLICY_DIR_NAME, POLICY_FILE_NAME);
-}
-
-/**
- * Load policy from workspace (returns null if no policy file)
+ * Load policy from global config (returns null if no policy file)
  */
 export async function loadAgentPolicy(
-  workspace: string,
+  _workspace: string,
   policyPath?: string
 ): Promise<AgentPolicy | null> {
   const platform = getPlatform();
-  const path = policyPath ?? getDefaultPolicyPath(workspace);
+  const path = policyPath ?? getAgentPolicyPath();
 
   let content: string;
   try {

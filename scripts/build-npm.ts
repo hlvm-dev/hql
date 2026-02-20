@@ -29,7 +29,7 @@ await build({
     version: Deno.env.get("VERSION") || "0.1.0",
     type: "module",
     license: "MIT",
-    description: "HQL transpiler and AI agent SDK",
+    description: "AI-native runtime infrastructure — HQL, JavaScript, and agent SDK",
     engines: { node: ">=18.0.0" },
     repository: { type: "git", url: "https://github.com/nicetool/hql" },
     keywords: ["hql", "lisp", "transpiler", "agent", "ai", "sdk"],

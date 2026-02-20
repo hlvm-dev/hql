@@ -301,8 +301,8 @@ export interface SystemPromptOptions {
   toolAllowlist?: string[];
   toolDenylist?: string[];
   toolOwnerId?: string;
-  /** Per-project instructions from .hlvm/prompt.md */
-  projectInstructions?: string;
+  /** Custom instructions from ~/.hlvm/prompt.md */
+  customInstructions?: string;
   /** Model tier — controls prompt depth */
   modelTier?: ModelTier;
   /** Git context from async detection */
@@ -432,8 +432,8 @@ function renderEnvironment(
 ): PromptSection {
   const platform = getPlatform();
   const homePath = platform.env.get("HOME") ?? "unknown";
-  const workspace = platform.process.cwd();
-  let env = `# Environment\nPlatform: ${platform.build.os} | Workspace: ${workspace} | HOME: ${homePath}`;
+  const cwd = platform.process.cwd();
+  let env = `# Environment\nPlatform: ${platform.build.os} | Working directory: ${cwd} | HOME: ${homePath}`;
   if (gitContext) {
     const status = gitContext.dirty ? "dirty" : "clean";
     env += `\nGit: branch=${gitContext.branch} (${status})`;
@@ -441,11 +441,11 @@ function renderEnvironment(
   return { id: "environment", content: env, minTier: "weak" };
 }
 
-function renderProjectInstructions(text: string): PromptSection {
+function renderCustomInstructions(text: string): PromptSection {
   const truncated = text.slice(0, 2000);
   return {
-    id: "project",
-    content: `# Project Instructions\n${truncated}`,
+    id: "custom",
+    content: `# Custom Instructions\n${truncated}`,
     minTier: "weak",
   };
 }
@@ -516,8 +516,8 @@ export function generateSystemPrompt(
     renderEnvironment(options.gitContext),
   ];
 
-  if (options.projectInstructions) {
-    sections.push(renderProjectInstructions(options.projectInstructions));
+  if (options.customInstructions) {
+    sections.push(renderCustomInstructions(options.customInstructions));
   }
 
   sections.push(renderDelegation(tools));

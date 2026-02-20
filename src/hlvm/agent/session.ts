@@ -53,8 +53,8 @@ export interface AgentSessionOptions {
   contextWindow?: number;
   /** Pre-fetched model info to avoid duplicate provider API calls */
   modelInfo?: ModelInfo | null;
-  /** Per-project instructions from .hlvm/prompt.md */
-  projectInstructions?: string;
+  /** Custom instructions from ~/.hlvm/prompt.md */
+  customInstructions?: string;
 }
 
 export interface AgentSession {
@@ -225,7 +225,7 @@ export async function createAgentSession(
       toolAllowlist: options.toolAllowlist,
       toolDenylist: options.toolDenylist,
       toolOwnerId: mcp.ownerId,
-      projectInstructions: options.projectInstructions,
+      customInstructions: options.customInstructions,
       modelTier,
       gitContext: gitContext ?? undefined,
     }),

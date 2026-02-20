@@ -5,7 +5,7 @@ import {
   readTextFile as platformReadTextFile,
   writeTextFile as platformWriteTextFile,
 } from "../utils/platform-helpers.ts";
-import { promptUser, writeJSONFile, type HlvmProjectConfig } from "../publish/utils.ts";
+import { promptUser, writeJSONFile, type HqlPackageConfig } from "../publish/utils.ts";
 import {
   generateDefaultPackageName,
   validatePackageName,
@@ -21,21 +21,21 @@ async function createSampleModHql(entryPoint: string): Promise<void> {
     return;
   }
 
-  const sampleCode = `// HLVM Module - Sample Code
+  const sampleCode = `// HQL Module - Sample Code
 // Edit this file to implement your library or application
 
-// This is a sample HLVM module (HQL).
-// 
+// This is a sample HQL module.
+//
 // To get started:
 //   1. Edit this file and implement your functions
 //   2. Test with: hlvm run ${entryPoint}
-//   3. Publish with: hlvm publish
-// 
+//   3. Publish with: hlvm hql publish
+//
 // For more info: https://github.com/hlvm-dev/hlvm
 
 // Sample function - replace with your own code
 (fn greet [name]
-  (+ "Hello from HLVM, " name "!"))
+  (+ "Hello from HQL, " name "!"))
 
 // Sample function
 (fn add [a b]
@@ -58,26 +58,26 @@ async function createGitIgnore(): Promise<void> {
   const gitignorePath = ".gitignore";
 
   if (await exists(gitignorePath)) {
-    // Check if it already has HLVM entries
+    // Check if it already has HQL entries
     const content = await platformReadTextFile(gitignorePath);
     if (content.includes(".hlvm-cache") && content.includes("dist/")) {
-      return; // Already has HLVM entries
+      return; // Already has HQL entries
     }
 
-    // Append HLVM entries
+    // Append HQL entries
     await platformWriteTextFile(
       gitignorePath,
       `
-# HLVM
+# HQL
 .hlvm-cache/
 dist/
 `,
       { append: true },
     );
-    log.raw.log(`  ✓ .gitignore (updated with HLVM entries)`);
+    log.raw.log(`  ✓ .gitignore (updated with HQL entries)`);
   } else {
     // Create new .gitignore
-    const gitignoreContent = `# HLVM
+    const gitignoreContent = `# HQL
 .hlvm-cache/
 dist/
 
@@ -109,7 +109,7 @@ async function createReadme(
 
   const readmeContent = `# ${packageName}
 
-HLVM module
+HQL module
 
 ## Usage
 
@@ -127,7 +127,7 @@ HLVM module
 hlvm run ${entryPoint}
 
 # Publish to JSR/NPM
-hlvm publish
+hlvm hql publish
 \`\`\`
 
 ## License
@@ -140,19 +140,19 @@ MIT
 }
 
 /**
- * Initialize HLVM project with hlvm.json and optional files
+ * Initialize HQL project with hql.json and optional files
  */
 export async function init(args: string[]): Promise<void> {
-  log.raw.log("\n✨ Initializing HLVM project...\n");
+  log.raw.log("\n✨ Initializing HQL project...\n");
 
-  const configPath = "./hlvm.json";
+  const configPath = "./hql.json";
   const hasYesFlag = args.includes("-y") || args.includes("--yes");
 
-  // Check if hlvm.json already exists
+  // Check if hql.json already exists
   if (await exists(configPath)) {
-    log.raw.log("⚠️  hlvm.json already exists");
+    log.raw.log("⚠️  hql.json already exists");
     const overwrite = hasYesFlag ||
-      (await promptUser("Overwrite existing hlvm.json? (y/N)", "n"));
+      (await promptUser("Overwrite existing hql.json? (y/N)", "n"));
 
     if (typeof overwrite === 'string' && overwrite.toLowerCase() !== "y") {
       log.raw.log("\n❌ Cancelled");
@@ -190,8 +190,8 @@ export async function init(args: string[]): Promise<void> {
   validatePackageName(name);
   validateVersion(version);
 
-  // Create hlvm.json
-  const config: HlvmProjectConfig = {
+  // Create hql.json
+  const config: HqlPackageConfig = {
     name,
     version,
     exports: `./${entryPoint}`,
@@ -200,7 +200,7 @@ export async function init(args: string[]): Promise<void> {
   await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
 
   log.raw.log(`\n📁 Created:`);
-  log.raw.log(`  ✓ hlvm.json (${name} v${version})`);
+  log.raw.log(`  ✓ hql.json (${name} v${version})`);
 
   // Create sample files
   await createSampleModHql(entryPoint);
@@ -212,7 +212,7 @@ export async function init(args: string[]): Promise<void> {
   log.raw.log(`\nNext steps:`);
   log.raw.log(`  1. Edit ${entryPoint} to implement your code`);
   log.raw.log(`  2. Run: hlvm run ${entryPoint}`);
-  log.raw.log(`  3. Publish: hlvm publish`);
+  log.raw.log(`  3. Publish: hlvm hql publish`);
 
   log.raw.log(`\nTry running the sample code:`);
   log.raw.log(`  hlvm run ${entryPoint}`);
@@ -224,25 +224,25 @@ export async function init(args: string[]): Promise<void> {
 export function showInitHelp(): void {
   log.raw.log(`
 
-HLVM Init - Initialize a new HLVM project
+HQL Init - Initialize a new HQL project
 
 USAGE:
-  hlvm init               Interactive setup (prompts for configuration)
-  hlvm init -y            Quick setup (use all defaults)
-  hlvm init --yes         Same as -y
+  hlvm hql init               Interactive setup (prompts for configuration)
+  hlvm hql init -y            Quick setup (use all defaults)
+  hlvm hql init --yes         Same as -y
 
 EXAMPLES:
-  hlvm init               # Interactive: prompts for name, version, entry point
-  hlvm init -y            # Quick: auto-generates configuration
+  hlvm hql init               # Interactive: prompts for name, version, entry point
+  hlvm hql init -y            # Quick: auto-generates configuration
 
 OPTIONS:
   -y, --yes              Use default values without prompting
   -h, --help             Show this help message
 
 What gets created:
-  ✓ hlvm.json             Project configuration
+  ✓ hql.json             Package configuration
   ✓ mod.hql              Sample code (if doesn't exist)
   ✓ README.md            Minimal template (if doesn't exist)
-  ✓ .gitignore           HLVM-specific entries
+  ✓ .gitignore           HQL-specific entries
 `);
 }

@@ -8,9 +8,7 @@ import { getPlatform } from "../../platform/platform.ts";
 import { log } from "../api/log.ts";
 import { hasHelpFlag } from "./utils/common-helpers.ts";
 import { platformGetArgs } from "./utils/platform-helpers.ts";
-import { compileCommand, showCompileHelp } from "./commands/compile.ts";
-import { init as initCommand, showInitHelp } from "./commands/init.ts";
-import { publishCommand, showPublishHelp } from "./commands/publish.ts";
+import { hqlCommand } from "./commands/hql.ts";
 import {
   showUninstallHelp,
   uninstall as uninstallCommand,
@@ -43,7 +41,7 @@ async function replCommand(args: string[]): Promise<number> {
   // Handle help
   if (hasHelpFlag(args)) {
     log.raw.log(`
-HLVM REPL - Interactive HQL/JS Read-Eval-Print Loop
+HLVM Interactive Shell - HQL/JS Read-Eval-Print Loop
 
 USAGE:
   hlvm repl [options]
@@ -101,17 +99,15 @@ EXAMPLES:
  */
 function showHelp(): void {
   log.raw.log(`
-HLVM - Runtime platform for HQL and JavaScript
+HLVM - AI-native runtime infrastructure
 
 Usage: hlvm <command> [options]
 
 Commands:
-  run <file|expr>    Run an HQL file or expression
-  repl               Start interactive REPL
+  run <file|expr>    Run a file or expression
+  repl               Start interactive shell
   serve              Start HTTP REPL server
-  compile <file>     Compile HQL to JavaScript or native binary
-  init               Initialize a new HLVM project
-  publish            Publish an HLVM package
+  hql                HQL language tools (init, compile, publish)
   ask "<query>"      Ask AI agent to perform a task
   ai                 Setup and manage AI models
   ollama serve       Start Ollama server (forwards to system Ollama)
@@ -126,8 +122,9 @@ Options:
 Examples:
   hlvm run hello.hql           Run an HQL file
   hlvm run '(print "Hello")'   Run an HQL expression
-  hlvm compile app.hql         Compile to JavaScript
-  hlvm compile app.hql -t native  Compile to native binary
+  hlvm hql init -y             Initialize a new HQL project
+  hlvm hql compile app.hql     Compile to JavaScript
+  hlvm ask "refactor main.ts"  Run AI agent task
 
 For command-specific help:
   hlvm <command> --help
@@ -148,9 +145,7 @@ type CommandEntry = {
 const COMMANDS: Record<string, CommandEntry> = {
   run: { run: runCommand },
   repl: { run: replCommand },
-  compile: { run: compileCommand, help: showCompileHelp },
-  init: { run: initCommand, help: showInitHelp },
-  publish: { run: publishCommand, help: showPublishHelp },
+  hql: { run: hqlCommand },
   ai: { run: aiCommand, help: showAiHelp },
   ask: { run: askCommand, help: showAskHelp },
   upgrade: { run: upgradeCommand, help: showUpgradeHelp },

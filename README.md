@@ -1,10 +1,10 @@
 # HLVM
 
-**Runtime platform for HQL and JavaScript.**
+**AI-native runtime infrastructure.**
 
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-HLVM runs HQL (a Lisp that compiles to JavaScript) alongside first-class JS, with macros, AI runtime hooks, and zero runtime dependencies for compiled output.
+HLVM is an AI-native runtime infrastructure that includes HQL (a Lisp that compiles to JavaScript), an AI agent SDK, and first-class JS integration — with macros, MCP tool servers, and zero runtime dependencies for compiled output.
 
 ---
 

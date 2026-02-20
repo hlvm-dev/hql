@@ -73,7 +73,7 @@ export function Banner({ loading, memoryNames, aiExports, readyTime, errors, ses
       </Box>
 
       {/* ═══ TAGLINE ═══ */}
-      <Text color={color("secondary")} bold>HLVM {VERSION} • Runtime for HQL + JavaScript</Text>
+      <Text color={color("secondary")} bold>HLVM {VERSION} • AI-native runtime infrastructure</Text>
       <Text> </Text>
 
       {/* ═══ QUICK START ═══ */}

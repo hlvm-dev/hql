@@ -60,13 +60,13 @@ async function runTranspileCLI(inputPath: string, outputPath: string): Promise<{
   let cmd: Deno.Command;
   if (USE_BINARY) {
     cmd = new Deno.Command(BINARY_PATH, {
-      args: ["compile", inputPath, "--target", "js", "-o", outputPath],
+      args: ["hql", "compile", inputPath, "--target", "js", "-o", outputPath],
       stdout: "piped",
       stderr: "piped",
     });
   } else {
     cmd = new Deno.Command("deno", {
-      args: ["run", "-A", CLI_PATH, "compile", inputPath, "--target", "js", "-o", outputPath],
+      args: ["run", "-A", CLI_PATH, "hql", "compile", inputPath, "--target", "js", "-o", outputPath],
       stdout: "piped",
       stderr: "piped",
     });

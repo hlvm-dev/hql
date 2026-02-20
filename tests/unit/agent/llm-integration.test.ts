@@ -338,28 +338,28 @@ Deno.test({
 
 Deno.test({
   name:
-    "LLM Integration: generateSystemPrompt - includes project instructions when provided",
+    "LLM Integration: generateSystemPrompt - includes custom instructions when provided",
   fn() {
     const prompt = generateSystemPrompt({
-      projectInstructions: "Always use tabs for indentation.",
+      customInstructions: "Always use tabs for indentation.",
     });
 
-    assertStringIncludes(prompt, "# Project Instructions");
+    assertStringIncludes(prompt, "# Custom Instructions");
     assertStringIncludes(prompt, "Always use tabs for indentation.");
   },
 });
 
 Deno.test({
   name:
-    "LLM Integration: generateSystemPrompt - truncates long project instructions",
+    "LLM Integration: generateSystemPrompt - truncates long custom instructions",
   fn() {
     const longInstructions = "x".repeat(3000);
     const prompt = generateSystemPrompt({
-      projectInstructions: longInstructions,
+      customInstructions: longInstructions,
     });
 
     // Should be truncated to 2000 chars
-    assertStringIncludes(prompt, "# Project Instructions");
+    assertStringIncludes(prompt, "# Custom Instructions");
     assertEquals(prompt.includes("x".repeat(2001)), false);
   },
 });

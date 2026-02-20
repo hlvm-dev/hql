@@ -112,7 +112,7 @@ Deno.test({
     };
     await platform.fs.writeTextFile(path, JSON.stringify(policy));
 
-    const loaded = await loadAgentPolicy(TEST_WORKSPACE);
+    const loaded = await loadAgentPolicy(TEST_WORKSPACE, path);
     assertEquals(loaded?.version, 1);
     assertEquals(loaded?.toolRules?.read_file, "allow");
     await cleanupWorkspace();

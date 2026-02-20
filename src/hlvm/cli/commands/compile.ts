@@ -56,10 +56,10 @@ interface CompileOptions {
  */
 export function showCompileHelp(): void {
   log.raw.log(`
-HLVM Compile - Compile HQL to JavaScript or native binary
+HQL Compile - Compile HQL to JavaScript or native binary
 
 USAGE:
-  hlvm compile <file.hql> [options]
+  hlvm hql compile <file.hql> [options]
 
 OPTIONS:
   --target <target>     Compilation target (default: js)
@@ -83,13 +83,13 @@ BUILD MODES:
   --release (prod):     Minified output, inline source maps, tree-shaken
 
 EXAMPLES:
-  hlvm compile app.hql                     # Dev build (readable)
-  hlvm compile app.hql --release           # Production build (minified)
-  hlvm compile app.hql --release --no-sourcemap  # Smallest output
-  hlvm compile app.hql --target native     # Compile to native binary
-  hlvm compile app.hql --target all        # Compile for ALL platforms
-  hlvm compile app.hql --target linux      # Cross-compile to Linux
-  hlvm compile app.hql --target native -o myapp  # Custom output name
+  hlvm hql compile app.hql                     # Dev build (readable)
+  hlvm hql compile app.hql --release           # Production build (minified)
+  hlvm hql compile app.hql --release --no-sourcemap  # Smallest output
+  hlvm hql compile app.hql --target native     # Compile to native binary
+  hlvm hql compile app.hql --target all        # Compile for ALL platforms
+  hlvm hql compile app.hql --target linux      # Cross-compile to Linux
+  hlvm hql compile app.hql --target native -o myapp  # Custom output name
 
 CROSS-COMPILATION:
   Cross-compilation targets (linux, macos, windows) require Deno to download

@@ -12,7 +12,7 @@ import {
   resolveNextPublishVersion,
   updateSourceMetadataFiles,
   writeJSONFile,
-  type HlvmProjectConfig, // Import HlvmProjectConfig
+  type HqlPackageConfig, // Import HqlPackageConfig
 } from "./utils.ts";
 import {
   deriveModuleBaseName,
@@ -26,7 +26,7 @@ import {
 const npmPublisher: RegistryPublisher = {
   registryName: "npm",
 
-  async determinePackageInfo(distDir: string, options: PublishOptions, config: HlvmProjectConfig) { // Added config
+  async determinePackageInfo(distDir: string, options: PublishOptions, config: HqlPackageConfig) { // Added config
     let packageName: string;
     let packageVersion: string;
 
@@ -37,7 +37,7 @@ const npmPublisher: RegistryPublisher = {
         "package.json",
       );
 
-      const existingConfig = await readJSONFile(metadataSourcePath) as HlvmProjectConfig; // Cast to HlvmProjectConfig
+      const existingConfig = await readJSONFile(metadataSourcePath) as HqlPackageConfig; // Cast to HqlPackageConfig
       logger.debug &&
         logger.debug(`Loaded metadata from: ${metadataSourcePath}`);
 
@@ -167,6 +167,6 @@ const npmPublisher: RegistryPublisher = {
 };
 
 // Main export function for NPM publishing
-export function publishNpm(config: HlvmProjectConfig, options: PublishOptions): Promise<PublishSummary> {
+export function publishNpm(config: HqlPackageConfig, options: PublishOptions): Promise<PublishSummary> {
   return publishPackage(config, options, npmPublisher);
 }

@@ -17,7 +17,7 @@ import {
   promptUser,
   readJSONFile,
   visualizeTree,
-  type HlvmProjectConfig,
+  type HqlPackageConfig,
 } from "./utils.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { log } from "../../api/log.ts";
@@ -37,7 +37,7 @@ export interface PublishOptions {
 export interface PublishContext {
   distDir: string;
   packageName: string;
-  config: HlvmProjectConfig; // Changed to HlvmProjectConfig
+  config: HqlPackageConfig; // Changed to HqlPackageConfig
   metadataType?: MetadataFileType;
   dryRun?: boolean;
   verbose?: boolean;
@@ -49,16 +49,16 @@ export interface RegistryPublisher {
   determinePackageInfo: (
     distDir: string,
     options: PublishOptions,
-    config: HlvmProjectConfig, // Added config
+    config: HqlPackageConfig, // Added config
   ) => Promise<{
     packageName: string;
     packageVersion: string;
-    config: HlvmProjectConfig; // Changed to HlvmProjectConfig
+    config: HqlPackageConfig; // Changed to HqlPackageConfig
   }>;
   updateMetadata: (
     distDir: string,
     version: string,
-    config: HlvmProjectConfig, // Changed to HlvmProjectConfig
+    config: HqlPackageConfig, // Changed to HqlPackageConfig
   ) => Promise<void>;
   runPublish: (
     distDir: string,
@@ -123,13 +123,13 @@ export function createDefaultConfig(
   packageName: string,
   packageVersion: string,
   isJsr: boolean,
-): HlvmProjectConfig { // Changed return type
+): HqlPackageConfig { // Changed return type
   // Common properties
-  const config: HlvmProjectConfig = { // Changed type
+  const config: HqlPackageConfig = { // Changed type
     name: packageName,
     version: packageVersion,
     exports: isJsr ? "./esm/index.js" : "./mod.hql", // Default export
-    description: `HLVM module: ${packageName}`,
+    description: `HQL module: ${packageName}`,
     license: "MIT",
   };
 
@@ -144,18 +144,18 @@ export function createDefaultConfig(
     config.types = "./types/index.d.ts";
     config.files = ["esm", "types", "README.md"];
     config.type = "module";
-    config.author = getEnv("USER") || getEnv("USERNAME") || "HLVM User";
+    config.author = getEnv("USER") || getEnv("USERNAME") || "HQL User";
   }
 
   return config;
 }
 
 export function mergeConfigWithDefaults(
-  existingConfig: HlvmProjectConfig, // Changed type
+  existingConfig: HqlPackageConfig, // Changed type
   packageName: string,
   packageVersion: string,
   isJsr: boolean,
-): HlvmProjectConfig { // Changed return type
+): HqlPackageConfig { // Changed return type
   return {
     ...createDefaultConfig(packageName, packageVersion, isJsr),
     ...(existingConfig as Record<string, unknown>), // Cast here for spread
@@ -269,7 +269,7 @@ export async function attemptPublish(
  * Generic publish function that orchestrates the whole publishing process
  */
 export async function publishPackage(
-  config: HlvmProjectConfig, // Added config
+  config: HqlPackageConfig, // Added config
   options: PublishOptions,
   publisher: RegistryPublisher,
 ): Promise<PublishSummary> {

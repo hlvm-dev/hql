@@ -204,7 +204,7 @@ async function prepareDistributionFiles(
     if (!hasReadme) {
       await writeTextFile(
         readmePath,
-        `# ${packageName}\n\nGenerated HLVM module.\n`,
+        `# ${packageName}\n\nGenerated HQL module.\n`,
       );
       if (verbose) {
         logger.debug(`Created README.md file`);

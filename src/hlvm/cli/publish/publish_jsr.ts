@@ -13,7 +13,7 @@ import {
   executeCommand,
   generatePackageMetadata,
   readJSONFile,
-  type HlvmProjectConfig,
+  type HqlPackageConfig,
 } from "./utils.ts";
 import type { PublishOptions } from "./publish_common.ts";
 import type { PublishSummary } from "./publish_summary.ts";
@@ -22,7 +22,7 @@ import type { PublishSummary } from "./publish_summary.ts";
  * Publishes a package to JSR
  */
 export async function publishJSR(
-  config: HlvmProjectConfig, // Accept config
+  config: HqlPackageConfig, // Accept config
   options: PublishOptions, // Accept options
 ): Promise<PublishSummary> {
   logger.debug &&
@@ -41,7 +41,7 @@ export async function publishJSR(
       denoJsonPath = join(platformCwd(), jsrMeta);
       logger.debug && logger.debug(`Using existing metadata file: ${jsrMeta}`);
       // Read name and version from actual deno.json if it exists
-      const existingDenoJson = (await readJSONFile(denoJsonPath)) as HlvmProjectConfig;
+      const existingDenoJson = (await readJSONFile(denoJsonPath)) as HqlPackageConfig;
       name = (existingDenoJson.name || config.name) as string;
       version = (existingDenoJson.version || config.version) as string;
     } else {

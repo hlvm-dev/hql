@@ -165,6 +165,20 @@ export function getMcpOAuthPath(): string {
 }
 
 /**
+ * Get the global agent policy path (~/.hlvm/agent-policy.json)
+ */
+export function getAgentPolicyPath(): string {
+  return join(getHlvmDir(), "agent-policy.json");
+}
+
+/**
+ * Get the global custom instructions path (~/.hlvm/prompt.md)
+ */
+export function getCustomInstructionsPath(): string {
+  return join(getHlvmDir(), "prompt.md");
+}
+
+/**
  * Ensure the HLVM directory exists
  */
 export async function ensureHlvmDir(): Promise<void> {

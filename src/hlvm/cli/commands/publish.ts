@@ -6,7 +6,7 @@ import {
   promptUser,
   readJSONFile,
   writeJSONFile,
-  type HlvmProjectConfig,
+  type HqlPackageConfig,
 } from "../publish/utils.ts";
 import { publish as publishCore } from "../publish/index.ts";
 import {
@@ -16,28 +16,28 @@ import {
 } from "./shared.ts";
 
 /**
- * Ensure hlvm.json exists, creating it if necessary with smart prompting
+ * Ensure hql.json exists, creating it if necessary with smart prompting
  */
-async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectConfig> {
-  const configPath = "./hlvm.json";
+async function ensureConfig(options: { yesFlag: boolean }): Promise<HqlPackageConfig> {
+  const configPath = "./hql.json";
   const legacyConfigPath = "./hql.json";
 
   // Migrate legacy hql.json if present
   if (!await exists(configPath) && await exists(legacyConfigPath)) {
     const legacyConfig = await readJSONFile(legacyConfigPath);
     await writeJSONFile(configPath, legacyConfig as Record<string, unknown>);
-    log.raw.log("✅ Migrated hql.json to hlvm.json");
+    log.raw.log("✅ Migrated hql.json to hql.json");
   }
 
-  // If hlvm.json exists, read and return it
+  // If hql.json exists, read and return it
   if (await exists(configPath)) {
-    const config = (await readJSONFile(configPath)) as unknown as HlvmProjectConfig;
+    const config = (await readJSONFile(configPath)) as unknown as HqlPackageConfig;
 
     // Validate required fields
     if (!config.name || !config.version || !config.exports) {
-      log.raw.error("\n❌ Error: Invalid hlvm.json");
+      log.raw.error("\n❌ Error: Invalid hql.json");
       log.raw.error("Required fields: name, version, exports");
-      log.raw.error("\nRun: hlvm init");
+      log.raw.error("\nRun: hlvm hql init");
       platformExit(1);
     }
 
@@ -47,8 +47,8 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
     return config;
   }
 
-  // No hlvm.json - need to create one
-  log.raw.log("\n⚠️  No hlvm.json found. Let's create one!\n");
+  // No hql.json - need to create one
+  log.raw.log("\n⚠️  No hql.json found. Let's create one!\n");
 
   const defaultName = generateDefaultPackageName();
   const defaultVersion = "0.0.1";
@@ -84,12 +84,12 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
   // Check if entry point exists
   if (!await exists(entryPoint)) {
     log.raw.error(`\n❌ Entry point not found: ${entryPoint}`);
-    log.raw.error(`\nCreate ${entryPoint} first, or run: hlvm init`);
+    log.raw.error(`\nCreate ${entryPoint} first, or run: hlvm hql init`);
     platformExit(1);
   }
 
-  // Create hlvm.json
-  const config: HlvmProjectConfig = {
+  // Create hql.json
+  const config: HqlPackageConfig = {
     name,
     version,
     exports: `./${entryPoint}`,
@@ -97,27 +97,27 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HlvmProjectC
 
   await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
 
-  log.raw.log(`\n✨ Created hlvm.json`);
+  log.raw.log(`\n✨ Created hql.json`);
   log.raw.log(`  → ${name} v${version}\n`);
 
   return config;
 }
 
 /**
- * Update version in hlvm.json after successful publish
+ * Update version in hql.json after successful publish
  */
 async function updateConfigVersion(newVersion: string): Promise<void> {
-  const configPath = "./hlvm.json";
+  const configPath = "./hql.json";
 
   if (!await exists(configPath)) {
     return; // No config to update
   }
 
-  const config = await readJSONFile(configPath) as unknown as HlvmProjectConfig;
+  const config = await readJSONFile(configPath) as unknown as HqlPackageConfig;
   config.version = newVersion;
 
   await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
-  log.raw.log(`\n  → Updated hlvm.json to version ${newVersion}`);
+  log.raw.log(`\n  → Updated hql.json to version ${newVersion}`);
 }
 
 /**
@@ -140,7 +140,7 @@ function parsePublishArgs(args: string[]): {
     },
   });
 
-  // Entry file is optional (defaults to hlvm.json exports field)
+  // Entry file is optional (defaults to hql.json exports field)
   const entryFile = parsed._[0] ? String(parsed._[0]) : undefined;
 
   // Parse registries
@@ -173,7 +173,7 @@ function parsePublishArgs(args: string[]): {
 
 /**
  * Ensure metadata files (package.json, deno.json) exist in source directory
- * This allows core publish to use the package name from hlvm.json
+ * This allows core publish to use the package name from hql.json
  */
 async function ensureMetadataFiles(
   packageName: string,
@@ -210,7 +210,7 @@ export async function publishCommand(args: string[]): Promise<void> {
   // Parse arguments
   const parsedArgs = parsePublishArgs(args);
 
-  // Ensure hlvm.json exists (prompt if missing)
+  // Ensure hql.json exists (prompt if missing)
   const config = await ensureConfig({ yesFlag: parsedArgs.yesFlag });
 
   // Determine entry file
@@ -219,7 +219,7 @@ export async function publishCommand(args: string[]): Promise<void> {
   // Check entry file exists
   if (!await exists(entryFile)) {
     log.raw.error(`\n❌ Entry file not found: ${entryFile}`);
-    log.raw.error(`\nSpecified in hlvm.json: ${config.exports}`);
+    log.raw.error(`\nSpecified in hql.json: ${config.exports}`);
     platformExit(1);
   }
 
@@ -242,7 +242,7 @@ export async function publishCommand(args: string[]): Promise<void> {
   log.raw.log();
 
   // Create metadata files in source directory so core publish can use them
-  // This ensures the package name from hlvm.json is used instead of prompting
+  // This ensures the package name from hql.json is used instead of prompting
   await ensureMetadataFiles(config.name, publishVersion);
 
   // Build arguments for core publish function
@@ -263,7 +263,7 @@ export async function publishCommand(args: string[]): Promise<void> {
   // Call core publish logic
   await publishCore(publishArgs);
 
-  // Update version in hlvm.json (only if not dry-run and no explicit version)
+  // Update version in hql.json (only if not dry-run and no explicit version)
   if (!parsedArgs.dryRun && !parsedArgs.version) {
     await updateConfigVersion(publishVersion);
   }
@@ -274,35 +274,35 @@ export async function publishCommand(args: string[]): Promise<void> {
  */
 export function showPublishHelp(): void {
   log.raw.log(`
-HLVM Publish - Publish HLVM modules to JSR and NPM
+HQL Publish - Publish HQL modules to JSR and NPM
 
 USAGE:
-  hlvm publish [file] [options]
+  hlvm hql publish [file] [options]
 
 BEHAVIOR:
-  First time:  Prompts for package name (if no hlvm.json)
-  After that:  Automatic (reads from hlvm.json)
+  First time:  Prompts for package name (if no hql.json)
+  After that:  Automatic (reads from hql.json)
 
 EXAMPLES:
   # Zero-config publish (first time: prompts, after: automatic)
-  hlvm publish
+  hlvm hql publish
 
   # Zero-interaction (all defaults, no prompts)
-  hlvm publish -y
+  hlvm hql publish -y
 
   # Publish to specific registry
-  hlvm publish -r jsr            # JSR only
-  hlvm publish -r npm            # NPM only
-  hlvm publish -r all            # Both (default)
+  hlvm hql publish -r jsr            # JSR only
+  hlvm hql publish -r npm            # NPM only
+  hlvm hql publish -r all            # Both (default)
 
   # Explicit version (skips auto-bump)
-  hlvm publish -v 1.0.0
+  hlvm hql publish -v 1.0.0
 
   # Dry run (preview without publishing)
-  hlvm publish --dry-run
+  hlvm hql publish --dry-run
 
-  # Explicit entry file (overrides hlvm.json)
-  hlvm publish src/lib.hql
+  # Explicit entry file (overrides hql.json)
+  hlvm hql publish src/lib.hql
 
 OPTIONS:
   -r, --registry <name>   Target registry: jsr, npm, or all (default: all)
@@ -313,9 +313,9 @@ OPTIONS:
   -h, --help              Show this help message
 
 WORKFLOW:
-  1. Checks for hlvm.json (prompts to create if missing)
+  1. Checks for hql.json (prompts to create if missing)
   2. Auto-bumps version (unless --version specified)
   3. Builds and publishes to registries
-  4. Updates hlvm.json with new version
+  4. Updates hql.json with new version
 `);
 }

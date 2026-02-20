@@ -15,7 +15,7 @@ const p = getPlatform();
 // Test helper to capture command output
 async function runHqlCompile(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const result = await p.command.output({
-    cmd: [p.process.execPath(), "run", "-A", "src/hlvm/cli/cli.ts", "compile", ...args],
+    cmd: [p.process.execPath(), "run", "-A", "src/hlvm/cli/cli.ts", "hql", "compile", ...args],
     stdout: "piped",
     stderr: "piped",
   });
@@ -39,7 +39,7 @@ Deno.test("compile --help shows usage", async () => {
   const result = await runHqlCompile(["--help"]);
 
   assertEquals(result.code, 0);
-  assertStringIncludes(result.stdout, "HLVM Compile");
+  assertStringIncludes(result.stdout, "HQL Compile");
   assertStringIncludes(result.stdout, "--target");
   assertStringIncludes(result.stdout, "js");
   assertStringIncludes(result.stdout, "native");

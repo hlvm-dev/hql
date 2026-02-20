@@ -9,6 +9,7 @@
  */
 
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
+import { getCustomInstructionsPath } from "../../common/paths.ts";
 import { setAgentLogger } from "./logger.ts";
 import {
   ensureDefaultModelInstalled,
@@ -38,7 +39,6 @@ import {
   isFrontierProvider,
   MAX_SESSION_HISTORY,
 } from "./constants.ts";
-import { hashString } from "../../common/utils.ts";
 import { UsageTracker } from "./usage.ts";
 import { ContextManager } from "./context.ts";
 import type { ModelInfo } from "../providers/types.ts";
@@ -55,7 +55,7 @@ const DEFAULT_AGENT_PATH_ROOTS = [
 // ============================================================
 const sessionCache = new Map<string, AgentSession>();
 
-/** Get or create a cached session for a workspace:model pair. */
+/** Get or create a cached session for a global:model pair. */
 export async function getOrCreateCachedSession(
   workspace: string,
   model: string,
@@ -66,7 +66,7 @@ export async function getOrCreateCachedSession(
     modelInfo?: ModelInfo | null;
   },
 ): Promise<AgentSession> {
-  const key = `${workspace}:${model}`;
+  const key = `global:${model}`;
   const existing = sessionCache.get(key);
   if (existing) return existing;
 
@@ -127,10 +127,8 @@ function reuseSession(
   };
 }
 
-function deriveDefaultSessionKey(workspace: string): string {
-  const platform = getPlatform();
-  const base = platform.path.basename(workspace) || "workspace";
-  return `${base}-${hashString(workspace)}`;
+function deriveDefaultSessionKey(_workspace: string): string {
+  return "default";
 }
 
 function mergePolicyPathRoots(
@@ -244,11 +242,11 @@ export async function runAgentQuery(
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
 
-  // Pre-read per-project instructions (.hlvm/prompt.md) — non-blocking
-  let projectInstructions = "";
+  // Pre-read custom instructions (~/.hlvm/prompt.md) — non-blocking
+  let customInstructions = "";
   try {
-    projectInstructions = await getPlatform().fs.readTextFile(
-      `${workspace}/.hlvm/prompt.md`,
+    customInstructions = await getPlatform().fs.readTextFile(
+      getCustomInstructionsPath(),
     );
   } catch { /* file not found — skip */ }
 
@@ -264,7 +262,7 @@ export async function runAgentQuery(
       toolDenylist,
       onToken: callbacks.onToken,
       modelInfo: options.modelInfo,
-      projectInstructions,
+      customInstructions,
     });
 
   const useExternalHistory = !!options.messageHistory;

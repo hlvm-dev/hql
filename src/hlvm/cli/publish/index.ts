@@ -17,7 +17,7 @@ import { SEMVER_REGEX } from "../commands/shared.ts";
 import {
   detectMetadataFiles,
   getPlatformsFromArgs,
-  type HlvmProjectConfig,
+  type HqlPackageConfig,
   readJSONFile, // Import readJSONFile
   writeJSONFile,
   type MetadataFileType,
@@ -30,7 +30,7 @@ import type { PublishOptions } from "./publish_common.ts";
 
 function showHelp() {
   log.raw.log(`
-HLVM Publish Tool - Publish HLVM modules to NPM or JSR
+HQL Publish Tool - Publish HQL modules to NPM or JSR
 
 USAGE:
   hlvm publish <entry-file> [platform] [version] [options]
@@ -135,7 +135,7 @@ function printPublishInfo(
     : "Will create metadata";
 
   log.raw.log(`
-🚀 Preparing to publish your HLVM module!
+🚀 Preparing to publish your HQL module!
   Entry file: "${entryFile}"
   Version: ${options.version ? options.version : "(auto-determined)"}
   Target platforms: ${targetPlatforms}
@@ -164,7 +164,7 @@ function buildFailureSummary(
 }
 
 async function publishToRegistry(
-  config: HlvmProjectConfig, // Added config
+  config: HqlPackageConfig, // Added config
   registry: "jsr" | "npm",
   options: PublishOptions,
   metadataType: MetadataFileType | null,
@@ -186,8 +186,8 @@ async function publishToRegistry(
 }
 
 async function migrateLegacyProjectConfig(moduleDir: string): Promise<void> {
-  const configPath = `${moduleDir}/hlvm.json`;
-  const legacyPath = `${moduleDir}/hql.json`;
+  const configPath = `${moduleDir}/hql.json`;
+  const legacyPath = `${moduleDir}/hlvm.json`;
   if (await exists(configPath)) {
     return;
   }
@@ -211,15 +211,15 @@ export async function publish(args: string[]): Promise<void> {
     const moduleDir = dirname(options.entryFile);
     await migrateLegacyProjectConfig(moduleDir);
 
-    // Read config from hlvm.json
-    const configPath = `${moduleDir}/hlvm.json`;
+    // Read config from hql.json
+    const configPath = `${moduleDir}/hql.json`;
     if (!await exists(configPath)) {
       log.raw.error(
-        `\n❌ hlvm.json not found in entry file directory: ${moduleDir}`,
+        `\n❌ hql.json not found in entry file directory: ${moduleDir}`,
       );
       exit(1);
     }
-    const config = (await readJSONFile(configPath)) as unknown as HlvmProjectConfig;
+    const config = (await readJSONFile(configPath)) as unknown as HqlPackageConfig;
 
     if (!await exists(options.entryFile)) {
       log.raw.error(`\n❌ Entry file not found: ${options.entryFile}`);
