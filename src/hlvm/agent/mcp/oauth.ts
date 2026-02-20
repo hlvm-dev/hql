@@ -203,7 +203,8 @@ function tokenNeedsRefresh(record: McpOAuthRecord): boolean {
 }
 
 function buildBearerHeader(record: McpOAuthRecord): string {
-  const tokenType = (record.tokenType ?? "Bearer").trim();
+  const raw = (record.tokenType ?? "Bearer").trim();
+  const tokenType = raw.toLowerCase() === "bearer" ? "Bearer" : raw;
   return `${tokenType} ${record.accessToken}`;
 }
 

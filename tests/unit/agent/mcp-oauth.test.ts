@@ -74,7 +74,7 @@ function startOAuthServer(
             JSON.stringify({
               access_token: "initial-token",
               refresh_token: "refresh-token-1",
-              token_type: "Bearer",
+              token_type: "bearer",
               expires_in: options.initialExpiresIn ?? 0,
             }),
             { headers: { "Content-Type": "application/json" } },
@@ -85,7 +85,7 @@ function startOAuthServer(
             JSON.stringify({
               access_token: "refreshed-token",
               refresh_token: "refresh-token-2",
-              token_type: "Bearer",
+              token_type: "bearer",
               expires_in: 3600,
             }),
             { headers: { "Content-Type": "application/json" } },
