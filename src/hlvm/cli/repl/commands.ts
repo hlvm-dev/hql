@@ -76,6 +76,7 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
     { name: "/resume", description: "Resume a previous session" },
     { name: "/clear-history", description: "Delete all chat history" },
     { name: "/undo", description: "Restore workspace to pre-agent checkpoint" },
+    { name: "/mcp", description: "List configured MCP servers" },
   ];
 
 /** Generate help text dynamically using keybinding registry */
@@ -263,6 +264,29 @@ export const commands: Record<string, Command> = {
         );
       } else {
         context.output(`${YELLOW}Undo failed: ${result.error}${RESET}`);
+      }
+    },
+  },
+  "/mcp": {
+    description: "List configured MCP servers",
+    handler: async (_state, _args, context) => {
+      const { formatServerEntry, loadMcpConfigMultiScope } = await import(
+        "../../agent/mcp/config.ts"
+      );
+      const workspace = getPlatform().process.cwd();
+      const servers = await loadMcpConfigMultiScope(workspace);
+      if (servers.length === 0) {
+        context.output(
+          `${YELLOW}No MCP servers configured.${RESET} Use ${CYAN}hlvm mcp add${RESET} to add one.`,
+        );
+        return;
+      }
+      context.output(`${BOLD}MCP Servers:${RESET}`);
+      for (const s of servers) {
+        const { transport, target, scopeLabel } = formatServerEntry(s);
+        context.output(
+          `  ${CYAN}${s.name.padEnd(20)}${RESET} ${transport.padEnd(6)} ${target}  ${DIM_GRAY}(${scopeLabel})${RESET}`,
+        );
       }
     },
   },

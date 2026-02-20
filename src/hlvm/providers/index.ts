@@ -52,12 +52,16 @@ export {
   listRegisteredProviders,
 } from "./registry.ts";
 
+// Cloud provider factory
+export { createCloudProvider } from "./cloud-provider.ts";
+export type { CloudProviderSpec, CloudProviderApi } from "./cloud-provider.ts";
+
 // Provider implementations
 export { OllamaProvider, createOllamaProvider } from "./ollama/provider.ts";
-export { OpenAIProvider, createOpenAIProvider } from "./openai/provider.ts";
-export { AnthropicProvider, createAnthropicProvider } from "./anthropic/provider.ts";
-export { GoogleProvider, createGoogleProvider } from "./google/provider.ts";
-export { ClaudeCodeProvider, createClaudeCodeProvider } from "./claude-code/provider.ts";
+export { createOpenAIProvider } from "./openai/provider.ts";
+export { createAnthropicProvider } from "./anthropic/provider.ts";
+export { createGoogleProvider } from "./google/provider.ts";
+export { createClaudeCodeProvider } from "./claude-code/provider.ts";
 
 // ============================================================================
 // Auto-registration

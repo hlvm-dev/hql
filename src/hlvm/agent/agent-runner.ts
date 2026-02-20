@@ -347,6 +347,7 @@ export async function runAgentQuery(
         delegate,
         planning: { mode: "off", requireStepMarkers: false },
         skipModelCompensation: session.isFrontierModel,
+        modelTier: session.modelTier,
         signal: options.signal,
         usage: usageTracker,
         l1Confirmations: session.l1Confirmations,

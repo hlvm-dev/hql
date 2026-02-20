@@ -180,9 +180,16 @@ export interface McpTransport {
 // Load Result
 // ============================================================
 
+export interface McpConnectedServer {
+  name: string;
+  toolCount: number;
+}
+
 export interface McpLoadResult {
   tools: string[];
   ownerId: string;
+  /** Summary of successfully connected MCP servers */
+  connectedServers: McpConnectedServer[];
   dispose: () => Promise<void>;
   /** Deferred handler registration — called after LLM and interaction callbacks are available */
   setHandlers: (handlers: McpHandlers) => void;

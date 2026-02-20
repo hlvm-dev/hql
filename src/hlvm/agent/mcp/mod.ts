@@ -8,6 +8,7 @@
 // Types
 export type {
   McpConfig,
+  McpConnectedServer,
   McpElicitationRequest,
   McpElicitationResponse,
   McpHandlers,
@@ -24,8 +25,17 @@ export type {
   McpTransport,
 } from "./types.ts";
 
-// Config loading
-export { loadMcpConfig, resolveBuiltinMcpServers } from "./config.ts";
+// Config loading & management
+export {
+  addServerToConfig,
+  formatServerEntry,
+  loadMcpConfig,
+  loadMcpConfigMultiScope,
+  removeServerFromConfig,
+  resolveBuiltinMcpServers,
+} from "./config.ts";
+
+export type { McpScope, McpServerWithScope } from "./config.ts";
 
 // Tool registration
 export { inferMcpSafetyLevel, loadMcpTools } from "./tools.ts";

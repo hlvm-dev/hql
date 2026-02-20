@@ -36,6 +36,7 @@ import type {
   PlatformFsWatcher,
   PlatformHttp,
   PlatformHttpServeOptions,
+  PlatformHttpServerHandle,
   PlatformMakeTempDirOptions,
   PlatformPath,
   PlatformProcess,
@@ -220,10 +221,8 @@ const NodeTerminal: PlatformTerminal = {
 // =============================================================================
 
 const NodeFs: PlatformFs = {
-  readTextFile: (path: string): Promise<string> =>
-    fsp.readFile(path, "utf-8"),
-  readTextFileSync: (path: string): string =>
-    fs.readFileSync(path, "utf-8"),
+  readTextFile: (path: string): Promise<string> => fsp.readFile(path, "utf-8"),
+  readTextFileSync: (path: string): string => fs.readFileSync(path, "utf-8"),
   writeTextFile: async (
     path: string,
     data: string,
@@ -241,8 +240,7 @@ const NodeFs: PlatformFs = {
     fs.writeFileSync(path, data, { encoding: "utf-8", ...opts });
   },
 
-  readFile: (path: string): Promise<Uint8Array> =>
-    fsp.readFile(path),
+  readFile: (path: string): Promise<Uint8Array> => fsp.readFile(path),
   writeFile: (path: string, data: Uint8Array): Promise<void> =>
     fsp.writeFile(path, data),
 
@@ -256,7 +254,10 @@ const NodeFs: PlatformFs = {
     statToFileInfo(fs.lstatSync(path)),
   exists: (path: string): Promise<boolean> => nodeExists(path),
 
-  mkdir: async (path: string, opts?: { recursive?: boolean }): Promise<void> => {
+  mkdir: async (
+    path: string,
+    opts?: { recursive?: boolean },
+  ): Promise<void> => {
     await fsp.mkdir(path, opts);
   },
   mkdirSync: (path: string, opts?: { recursive?: boolean }): void => {
@@ -264,7 +265,9 @@ const NodeFs: PlatformFs = {
   },
   ensureDir: (path: string): Promise<void> => nodeEnsureDir(path),
   readDir: (path: string): AsyncIterable<PlatformDirEntry> => nodeReadDir(path),
-  makeTempDir: async (options?: PlatformMakeTempDirOptions): Promise<string> => {
+  makeTempDir: async (
+    options?: PlatformMakeTempDirOptions,
+  ): Promise<string> => {
     const prefix = options?.prefix ?? "tmp";
     const dir = await fsp.mkdtemp(nodePath.join(os.tmpdir(), `${prefix}-`));
     // Deno's makeTempDir supports suffix, but Node's mkdtemp does not.
@@ -277,7 +280,10 @@ const NodeFs: PlatformFs = {
     return dir;
   },
 
-  remove: async (path: string, options?: PlatformRemoveOptions): Promise<void> => {
+  remove: async (
+    path: string,
+    options?: PlatformRemoveOptions,
+  ): Promise<void> => {
     await fsp.rm(path, { recursive: options?.recursive ?? false });
   },
   removeSync: (path: string, options?: PlatformRemoveOptions): void => {
@@ -287,14 +293,14 @@ const NodeFs: PlatformFs = {
     fsp.copyFile(src, dest),
   rename: (oldPath: string, newPath: string): Promise<void> =>
     fsp.rename(oldPath, newPath),
-  chmod: (path: string, mode: number): Promise<void> =>
-    fsp.chmod(path, mode),
+  chmod: (path: string, mode: number): Promise<void> => fsp.chmod(path, mode),
 
   watchFs: (paths: string | string[]): PlatformFsWatcher => {
     const targets = Array.isArray(paths) ? paths : [paths];
     const watchers: fs.FSWatcher[] = [];
     const queue: PlatformFsEvent[] = [];
-    let resolve: ((value: IteratorResult<PlatformFsEvent>) => void) | null = null;
+    let resolve: ((value: IteratorResult<PlatformFsEvent>) => void) | null =
+      null;
     let closed = false;
 
     const push = (event: PlatformFsEvent): void => {
@@ -327,7 +333,9 @@ const NodeFs: PlatformFs = {
             if (closed) {
               return Promise.resolve({ done: true, value: undefined });
             }
-            return new Promise<IteratorResult<PlatformFsEvent>>((r) => { resolve = r; });
+            return new Promise<IteratorResult<PlatformFsEvent>>((r) => {
+              resolve = r;
+            });
           },
         };
       },
@@ -405,9 +413,21 @@ const NodeCommand: PlatformCommand = {
       cwd: options.cwd,
       env: options.env,
       stdio: [
-        options.stdin === "piped" ? "pipe" : options.stdin === "null" ? "ignore" : "inherit",
-        options.stdout === "piped" ? "pipe" : options.stdout === "null" ? "ignore" : "inherit",
-        options.stderr === "piped" ? "pipe" : options.stderr === "null" ? "ignore" : "inherit",
+        options.stdin === "piped"
+          ? "pipe"
+          : options.stdin === "null"
+          ? "ignore"
+          : "inherit",
+        options.stdout === "piped"
+          ? "pipe"
+          : options.stdout === "null"
+          ? "ignore"
+          : "inherit",
+        options.stderr === "piped"
+          ? "pipe"
+          : options.stderr === "null"
+          ? "ignore"
+          : "inherit",
       ],
     });
 
@@ -474,70 +494,94 @@ const NodeCommand: PlatformCommand = {
 // HTTP Server Implementation
 // =============================================================================
 
+function startNodeHttpServer(
+  handler: (req: Request) => Response | Promise<Response>,
+  options: PlatformHttpServeOptions,
+): PlatformHttpServerHandle {
+  const server = createServer(async (nodeReq, nodeRes) => {
+    try {
+      // Build a Web API Request from Node's IncomingMessage
+      const url = `http://${options.hostname || "localhost"}:${options.port}${
+        nodeReq.url || "/"
+      }`;
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(nodeReq.headers)) {
+        if (value) {
+          if (Array.isArray(value)) {
+            for (const v of value) headers.append(key, v);
+          } else {
+            headers.set(key, value);
+          }
+        }
+      }
+
+      const bodyMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+      const hasBody = bodyMethods.has(nodeReq.method || "GET");
+      const webReq = new Request(url, {
+        method: nodeReq.method,
+        headers,
+        body: hasBody ? Readable.toWeb(nodeReq) as ReadableStream : undefined,
+        // @ts-ignore: duplex is needed for streaming request bodies in Node 18+
+        duplex: hasBody ? "half" : undefined,
+      });
+
+      const webRes = await handler(webReq);
+
+      nodeRes.writeHead(
+        webRes.status,
+        Object.fromEntries(webRes.headers.entries()),
+      );
+      if (webRes.body) {
+        const reader = webRes.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            nodeRes.end();
+            break;
+          }
+          nodeRes.write(value);
+        }
+      } else {
+        const text = await webRes.text();
+        nodeRes.end(text);
+      }
+    } catch (err) {
+      nodeRes.writeHead(500);
+      nodeRes.end(String(err));
+    }
+  });
+
+  const finished = new Promise<void>((resolve, reject) => {
+    server.on("error", reject);
+    server.on("close", () => resolve());
+  });
+
+  server.listen(options.port, options.hostname || "0.0.0.0", () => {
+    options.onListen?.({
+      hostname: options.hostname || "0.0.0.0",
+      port: options.port,
+    });
+  });
+
+  return {
+    finished,
+    shutdown: async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+      });
+    },
+  };
+}
+
 const NodeHttp: PlatformHttp = {
   serve: (
     handler: (req: Request) => Response | Promise<Response>,
     options: PlatformHttpServeOptions,
-  ): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const server = createServer(async (nodeReq, nodeRes) => {
-        try {
-          // Build a Web API Request from Node's IncomingMessage
-          const url = `http://${options.hostname || "localhost"}:${options.port}${nodeReq.url || "/"}`;
-          const headers = new Headers();
-          for (const [key, value] of Object.entries(nodeReq.headers)) {
-            if (value) {
-              if (Array.isArray(value)) {
-                for (const v of value) headers.append(key, v);
-              } else {
-                headers.set(key, value);
-              }
-            }
-          }
-
-          const bodyMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-          const hasBody = bodyMethods.has(nodeReq.method || "GET");
-          const webReq = new Request(url, {
-            method: nodeReq.method,
-            headers,
-            body: hasBody ? Readable.toWeb(nodeReq) as ReadableStream : undefined,
-            // @ts-ignore: duplex is needed for streaming request bodies in Node 18+
-            duplex: hasBody ? "half" : undefined,
-          });
-
-          const webRes = await handler(webReq);
-
-          nodeRes.writeHead(webRes.status, Object.fromEntries(webRes.headers.entries()));
-          if (webRes.body) {
-            const reader = webRes.body.getReader();
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) { nodeRes.end(); break; }
-              nodeRes.write(value);
-            }
-          } else {
-            const text = await webRes.text();
-            nodeRes.end(text);
-          }
-        } catch (err) {
-          nodeRes.writeHead(500);
-          nodeRes.end(String(err));
-        }
-      });
-
-      server.on("error", reject);
-
-      server.listen(options.port, options.hostname || "0.0.0.0", () => {
-        options.onListen?.({
-          hostname: options.hostname || "0.0.0.0",
-          port: options.port,
-        });
-      });
-
-      // The promise resolves when the server closes (matching Deno.serve().finished)
-      server.on("close", () => resolve());
-    });
-  },
+  ): Promise<void> => startNodeHttpServer(handler, options).finished,
+  serveWithHandle: (
+    handler: (req: Request) => Response | Promise<Response>,
+    options: PlatformHttpServeOptions,
+  ): PlatformHttpServerHandle => startNodeHttpServer(handler, options),
 };
 
 // =============================================================================

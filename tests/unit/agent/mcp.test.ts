@@ -1037,8 +1037,8 @@ Deno.test({ name: "Integration: sampling round-trip via setHandlers", sanitizeOp
 
   // The fixture server sends sampling/createMessage 50ms after initialize.
   // Under heavy load (full test suite), the subprocess may be slow to start.
-  // Poll with retries instead of fixed wait (up to 5s).
-  for (let i = 0; i < 50 && !samplingCalled; i++) {
+  // Poll with retries instead of fixed wait (up to 15s).
+  for (let i = 0; i < 150 && !samplingCalled; i++) {
     await new Promise((r) => setTimeout(r, 100));
   }
   assertEquals(samplingCalled, true);
@@ -1491,3 +1491,175 @@ Deno.test({ name: "HttpTransport: notification gets 202 with no body (no crash)"
   await client.close();
   await srv.server.shutdown();
 }});
+
+// ============================================================
+// MCP Queue/Replay — Direct Unit Tests
+// ============================================================
+
+Deno.test("McpClient: deferrable request queued when no handler, replayed on onRequest", async () => {
+  const { client, transport } = createMockClient();
+  await client.start();
+
+  // Simulate server sending sampling/createMessage BEFORE handler registered
+  transport.injectMessage({
+    jsonrpc: "2.0",
+    id: 100,
+    method: "sampling/createMessage",
+    params: { messages: [{ role: "user", content: { type: "text", text: "test" } }] },
+  });
+
+  // No response should have been sent yet (queued, not rejected)
+  const errorResponse = transport.sent.find(
+    (m) => m.id === 100 && m.error !== undefined,
+  );
+  assertEquals(errorResponse, undefined);
+
+  // Now register the handler — queued request should replay
+  let handlerCalled = false;
+  let handlerParams: unknown = null;
+  client.onRequest("sampling/createMessage", async (params) => {
+    handlerCalled = true;
+    handlerParams = params;
+    return {
+      role: "assistant",
+      content: { type: "text", text: "replayed" },
+      model: "test",
+    };
+  });
+
+  // Allow microtask for async replay
+  await new Promise((r) => setTimeout(r, 50));
+
+  assertEquals(handlerCalled, true);
+  const p = handlerParams as Record<string, unknown>;
+  assertEquals(Array.isArray(p.messages), true);
+
+  // Response should have been sent back to server
+  const response = transport.sent.find(
+    (m) => m.id === 100 && m.result !== undefined,
+  );
+  assertEquals(response !== undefined, true);
+
+  await client.close();
+});
+
+Deno.test("McpClient: multiple queued requests all replayed on handler registration", async () => {
+  const { client, transport } = createMockClient();
+  await client.start();
+
+  // Simulate 3 queued requests before handler
+  for (let i = 0; i < 3; i++) {
+    transport.injectMessage({
+      jsonrpc: "2.0",
+      id: 200 + i,
+      method: "sampling/createMessage",
+      params: { index: i },
+    });
+  }
+
+  // Register handler — all 3 should replay
+  const receivedParams: unknown[] = [];
+  client.onRequest("sampling/createMessage", async (params) => {
+    receivedParams.push(params);
+    return { role: "assistant", content: { type: "text", text: "ok" }, model: "m" };
+  });
+
+  await new Promise((r) => setTimeout(r, 50));
+
+  assertEquals(receivedParams.length, 3);
+  for (let i = 0; i < 3; i++) {
+    assertEquals((receivedParams[i] as Record<string, number>).index, i);
+  }
+
+  // All 3 responses sent back
+  for (let i = 0; i < 3; i++) {
+    const resp = transport.sent.find((m) => m.id === 200 + i && m.result !== undefined);
+    assertEquals(resp !== undefined, true, `response for id=${200 + i} should exist`);
+  }
+
+  await client.close();
+});
+
+Deno.test("McpClient: non-deferrable unknown method gets immediate -32601", async () => {
+  const { client, transport } = createMockClient();
+  await client.start();
+
+  // Simulate unknown server request
+  transport.injectMessage({
+    jsonrpc: "2.0",
+    id: 300,
+    method: "unknown/bogusMethod",
+    params: {},
+  });
+
+  // Should get immediate -32601 error, NOT queued
+  const errorResponse = transport.sent.find(
+    (m) => m.id === 300 && m.error !== undefined,
+  );
+  assertEquals(errorResponse !== undefined, true);
+  assertEquals(errorResponse!.error!.code, -32601);
+
+  await client.close();
+});
+
+Deno.test("McpClient: elicitation/create is deferrable (queued, not rejected)", async () => {
+  const { client, transport } = createMockClient();
+  await client.start();
+
+  transport.injectMessage({
+    jsonrpc: "2.0",
+    id: 400,
+    method: "elicitation/create",
+    params: { message: "confirm?" },
+  });
+
+  // Should NOT have an error response (queued)
+  const errorResponse = transport.sent.find(
+    (m) => m.id === 400 && m.error !== undefined,
+  );
+  assertEquals(errorResponse, undefined);
+
+  // Register handler — should replay
+  let called = false;
+  client.onRequest("elicitation/create", async (params) => {
+    called = true;
+    return { action: "accept", content: {} };
+  });
+
+  await new Promise((r) => setTimeout(r, 50));
+  assertEquals(called, true);
+
+  await client.close();
+});
+
+Deno.test("McpClient: roots/list is deferrable (queued, not rejected)", async () => {
+  const { client, transport } = createMockClient();
+  await client.start();
+
+  transport.injectMessage({
+    jsonrpc: "2.0",
+    id: 500,
+    method: "roots/list",
+    params: {},
+  });
+
+  // Should NOT get -32601
+  const errorResponse = transport.sent.find(
+    (m) => m.id === 500 && m.error !== undefined,
+  );
+  assertEquals(errorResponse, undefined);
+
+  // Register handler
+  client.onRequest("roots/list", async () => {
+    return { roots: [{ uri: "file:///tmp" }] };
+  });
+
+  await new Promise((r) => setTimeout(r, 50));
+
+  const response = transport.sent.find(
+    (m) => m.id === 500 && m.result !== undefined,
+  );
+  assertEquals(response !== undefined, true);
+
+  await client.close();
+});

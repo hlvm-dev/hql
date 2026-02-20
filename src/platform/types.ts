@@ -119,8 +119,16 @@ export interface PlatformFs {
   // Text file operations
   readTextFile(path: string): Promise<string>;
   readTextFileSync(path: string): string;
-  writeTextFile(path: string, data: string, options?: PlatformWriteOptions): Promise<void>;
-  writeTextFileSync(path: string, data: string, options?: PlatformWriteOptions): void;
+  writeTextFile(
+    path: string,
+    data: string,
+    options?: PlatformWriteOptions,
+  ): Promise<void>;
+  writeTextFileSync(
+    path: string,
+    data: string,
+    options?: PlatformWriteOptions,
+  ): void;
 
   // Binary file operations
   readFile(path: string): Promise<Uint8Array>;
@@ -224,11 +232,20 @@ export interface PlatformHttpServeOptions {
   onListen?: (params: { hostname: string; port: number }) => void;
 }
 
+export interface PlatformHttpServerHandle {
+  finished: Promise<void>;
+  shutdown(): Promise<void>;
+}
+
 export interface PlatformHttp {
   serve(
     handler: (req: Request) => Response | Promise<Response>,
     options: PlatformHttpServeOptions,
   ): Promise<void>;
+  serveWithHandle?(
+    handler: (req: Request) => Response | Promise<Response>,
+    options: PlatformHttpServeOptions,
+  ): PlatformHttpServerHandle;
 }
 
 // =============================================================================

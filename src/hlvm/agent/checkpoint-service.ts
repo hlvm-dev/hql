@@ -97,6 +97,38 @@ async function isGitRepo(workspace: string): Promise<boolean> {
   }
 }
 
+function normalizeIgnoreLine(line: string): string {
+  return line.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function hasIgnorePattern(lines: string[], pattern: string): boolean {
+  const normalizedPattern = normalizeIgnoreLine(pattern);
+  return lines.some((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("!")) {
+      return false;
+    }
+    const normalizedLine = normalizeIgnoreLine(trimmed);
+    return normalizedLine === normalizedPattern ||
+      normalizedLine === `/${normalizedPattern}`;
+  });
+}
+
+function toWorkspaceRelativePath(
+  targetPath: string,
+  workspace: string,
+): string | null {
+  const platform = getPlatform();
+  const relative = platform.path.relative(workspace, targetPath);
+  if (!relative || relative === ".") {
+    return ".";
+  }
+  if (relative.startsWith("..") || platform.path.isAbsolute(relative)) {
+    return null;
+  }
+  return relative.split(platform.path.sep).join("/");
+}
+
 /**
  * Ensure shadow repo exists and is properly configured.
  * Copies .gitignore from workspace + always adds .git exclusion.
@@ -148,24 +180,30 @@ async function ensureShadowRepo(
   const workspaceIgnorePath = platform.path.join(workspace, ".gitignore");
   try {
     const content = await platform.fs.readTextFile(workspaceIgnorePath);
-    ignoreLines.push(content.trimEnd());
+    ignoreLines.push(...content.split(/\r?\n/));
   } catch {
     // No .gitignore in workspace — that's fine
   }
 
   // Bug fix #1: Always exclude .git directory (Gemini CLI's #1 bug)
-  // Treat only explicit .git patterns as already covered.
-  const hasGitExclusion = ignoreLines.some((line) => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("!")) {
-      return false;
-    }
-    const normalized = trimmed.replace(/\/+$/, "");
-    return normalized === ".git" || normalized === "/.git" ||
-      normalized === "**/.git";
-  });
+  const hasGitExclusion = hasIgnorePattern(ignoreLines, ".git") ||
+    hasIgnorePattern(ignoreLines, "**/.git");
   if (!hasGitExclusion) {
     ignoreLines.push(".git");
+  }
+
+  // If HLVM state lives inside workspace, exclude checkpoints to avoid
+  // self-snapshot recursion and repo bloat.
+  const relativeCheckpointsDir = toWorkspaceRelativePath(
+    getCheckpointsDir(),
+    workspace,
+  );
+  if (
+    relativeCheckpointsDir &&
+    relativeCheckpointsDir !== "." &&
+    !hasIgnorePattern(ignoreLines, relativeCheckpointsDir)
+  ) {
+    ignoreLines.push(`${relativeCheckpointsDir}/`);
   }
 
   // Write shadow gitignore inside the shadow git dir's info/ directory

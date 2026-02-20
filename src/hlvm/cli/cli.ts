@@ -23,6 +23,7 @@ import { aiCommand, showAiHelp } from "./commands/ai.ts";
 import { askCommand, showAskHelp } from "./commands/ask.ts";
 import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
 import { serveCommand, showServeHelp } from "./commands/serve.ts";
+import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { registerApis } from "../api/index.ts";
 
@@ -114,6 +115,7 @@ Commands:
   ask "<query>"      Ask AI agent to perform a task
   ai                 Setup and manage AI models
   ollama serve       Start Ollama server (forwards to system Ollama)
+  mcp                Manage MCP tool servers
   upgrade            Upgrade HLVM to the latest version
   uninstall          Uninstall HLVM
 
@@ -155,6 +157,7 @@ const COMMANDS: Record<string, CommandEntry> = {
   uninstall: { run: uninstallCommand, help: showUninstallHelp },
   ollama: { run: ollamaCommand, help: showOllamaHelp },
   serve: { run: serveCommand, help: showServeHelp },
+  mcp: { run: mcpCommand, help: showMcpHelp },
 };
 
 /**

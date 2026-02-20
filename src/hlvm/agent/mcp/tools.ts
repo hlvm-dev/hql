@@ -17,9 +17,15 @@ import {
 } from "../registry.ts";
 import { sanitizeToolName } from "../tool-schema.ts";
 import { McpClient } from "./client.ts";
-import { dedupeServers, loadMcpConfig, resolveBuiltinMcpServers } from "./config.ts";
+import {
+  dedupeServers,
+  loadMcpConfig,
+  loadMcpConfigMultiScope,
+  resolveBuiltinMcpServers,
+} from "./config.ts";
 import { createTransport } from "./transport.ts";
 import type {
+  McpConnectedServer,
   McpHandlers,
   McpLoadResult,
   McpPromptMessage,
@@ -66,6 +72,8 @@ function inferMcpSafetyReason(level: "L0" | "L1" | "L2"): string {
   }
   return "External MCP tool with possible side effects (always confirm).";
 }
+
+const MCP_L0_SAFETY = inferMcpSafetyReason("L0");
 
 // ============================================================
 // Schema Helpers
@@ -159,19 +167,31 @@ function registerNotificationHandlers(
   client: McpClient,
   server: McpServerConfig,
   registrationOwnerId: string,
+  currentToolNames: Set<string>,
 ): void {
-  // tools/list_changed → re-list tools
+  // tools/list_changed → re-list tools, unregister removed ones
   client.onNotification(
     "notifications/tools/list_changed",
     async () => {
       try {
         const newTools = await client.listTools();
         const entries: Record<string, ToolMetadata> = {};
+        const newNames = new Set<string>();
         for (const tool of newTools) {
           const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
           entries[name] = buildToolEntry(client, server, tool);
+          newNames.add(name);
+        }
+        // Unregister tools that were removed from the server
+        for (const old of currentToolNames) {
+          if (!newNames.has(old)) {
+            unregisterTool(old, registrationOwnerId);
+          }
         }
         registerTools(entries, registrationOwnerId);
+        // Update tracked names
+        currentToolNames.clear();
+        for (const n of newNames) currentToolNames.add(n);
       } catch {
         // Best-effort re-list
       }
@@ -261,15 +281,24 @@ export async function loadMcpTools(
   ownerId?: string,
 ): Promise<McpLoadResult> {
   const registrationOwnerId = ownerId ?? `mcp:${generateUUID()}`;
-  const config = await loadMcpConfig(workspace, configPath);
+
+  // Use multi-scope loading (user + project + .mcp.json) unless an explicit config path is given
+  let configServers: McpServerConfig[];
+  if (configPath) {
+    const config = await loadMcpConfig(workspace, configPath);
+    configServers = config?.servers ?? [];
+  } else {
+    configServers = await loadMcpConfigMultiScope(workspace);
+  }
   const servers = dedupeServers([
-    ...(config?.servers ?? []),
+    ...configServers,
     ...(extraServers ?? []),
   ]);
   if (servers.length === 0) {
     return {
       tools: [],
       ownerId: registrationOwnerId,
+      connectedServers: [],
       dispose: async () => {},
       setHandlers: () => {},
       setSignal: () => {},
@@ -285,21 +314,25 @@ export async function loadMcpTools(
 
   const clients: McpClient[] = [];
   const registered: string[] = [];
+  const connectedServers: McpConnectedServer[] = [];
 
   for (const server of servers) {
     const transport = createTransport(server);
     const client = new McpClient(server, transport);
     try {
       await client.start(clientCapabilities);
-      registerNotificationHandlers(client, server, registrationOwnerId);
 
       // Register tools
       const tools = await client.listTools();
       const entries: Record<string, ToolMetadata> = {};
+      const serverToolNames = new Set<string>();
       for (const tool of tools) {
         const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
         entries[name] = buildToolEntry(client, server, tool);
+        serverToolNames.add(name);
       }
+
+      registerNotificationHandlers(client, server, registrationOwnerId, serverToolNames);
 
       // Conditionally register resource tools
       if (client.hasCapability("resources")) {
@@ -312,7 +345,7 @@ export async function loadMcpTools(
           args: {},
           skipValidation: true,
           safetyLevel: "L0",
-          safety: inferMcpSafetyReason("L0"),
+          safety: MCP_L0_SAFETY,
         };
         entries[sanitizeToolName(`mcp_${server.name}_read_resource`)] = {
           fn: async (args: unknown) => {
@@ -330,7 +363,7 @@ export async function loadMcpTools(
             `Read a resource by URI from MCP server '${server.name}'`,
           args: { uri: "string - Resource URI to read" },
           safetyLevel: "L0",
-          safety: inferMcpSafetyReason("L0"),
+          safety: MCP_L0_SAFETY,
         };
       }
 
@@ -345,7 +378,7 @@ export async function loadMcpTools(
           args: {},
           skipValidation: true,
           safetyLevel: "L0",
-          safety: inferMcpSafetyReason("L0"),
+          safety: MCP_L0_SAFETY,
         };
         entries[sanitizeToolName(`mcp_${server.name}_get_prompt`)] = {
           fn: async (args: unknown) => {
@@ -373,13 +406,14 @@ export async function loadMcpTools(
           args: { name: "string - Prompt name" },
           skipValidation: true,
           safetyLevel: "L0",
-          safety: inferMcpSafetyReason("L0"),
+          safety: MCP_L0_SAFETY,
         };
       }
 
       const names = registerTools(entries, registrationOwnerId);
       registered.push(...names);
       clients.push(client);
+      connectedServers.push({ name: server.name, toolCount: names.length });
     } catch (error) {
       getAgentLogger().warn(
         `Skipping MCP server '${server.name}': ${getErrorMessage(error)}`,
@@ -429,6 +463,7 @@ export async function loadMcpTools(
   return {
     tools: registered,
     ownerId: registrationOwnerId,
+    connectedServers,
     dispose: async () => {
       for (const name of registered) unregisterTool(name, registrationOwnerId);
       for (const client of clients) await client.close();
@@ -437,6 +472,3 @@ export async function loadMcpTools(
     setSignal,
   };
 }
-
-// Re-export from config for backward compatibility
-export { loadMcpConfig, resolveBuiltinMcpServers } from "./config.ts";

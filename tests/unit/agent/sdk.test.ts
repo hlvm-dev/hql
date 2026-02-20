@@ -30,6 +30,7 @@ function createTestSession(fixture: LlmFixture): AgentSession {
     dispose: async () => {},
     profile: ENGINE_PROFILES.normal,
     isFrontierModel: false,
+    modelTier: "mid",
     resolvedContextBudget: {
       budget: ENGINE_PROFILES.normal.context.maxTokens,
       rawLimit: ENGINE_PROFILES.normal.context.maxTokens + 4096,

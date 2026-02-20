@@ -8,9 +8,15 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import type { PlatformCommandProcess } from "../../../platform/types.ts";
 import { getErrorMessage, TEXT_ENCODER } from "../../../common/utils.ts";
+import { ValidationError } from "../../../common/error.ts";
 import { getAgentLogger } from "../logger.ts";
 import type { JsonRpcMessage, McpServerConfig, McpTransport } from "./types.ts";
 import { http } from "../../../common/http-client.ts";
+import {
+  getMcpOAuthAuthorizationHeader,
+  parseBearerChallengeHeader,
+  recoverMcpOAuthFromUnauthorized,
+} from "./oauth.ts";
 
 // ============================================================
 // Stdio Transport
@@ -82,25 +88,39 @@ export class StdioTransport implements McpTransport {
     this.closed = true;
 
     if (this.reader) {
-      try { await this.reader.cancel(); } catch { /* ignore */ }
+      try {
+        await this.reader.cancel();
+      } catch { /* ignore */ }
     }
     if (this.stderrReader) {
-      try { await this.stderrReader.cancel(); } catch { /* ignore */ }
+      try {
+        await this.stderrReader.cancel();
+      } catch { /* ignore */ }
     }
     if (this.writer) {
-      try { await this.writer.close(); } catch { /* ignore */ }
+      try {
+        await this.writer.close();
+      } catch { /* ignore */ }
     }
     if (this.process?.kill) {
-      try { this.process.kill("SIGTERM"); } catch { /* ignore */ }
+      try {
+        this.process.kill("SIGTERM");
+      } catch { /* ignore */ }
     }
     if (this.process) {
-      try { await this.process.status; } catch { /* ignore */ }
+      try {
+        await this.process.status;
+      } catch { /* ignore */ }
     }
     if (this.readLoopPromise) {
-      try { await this.readLoopPromise; } catch { /* ignore */ }
+      try {
+        await this.readLoopPromise;
+      } catch { /* ignore */ }
     }
     if (this.stderrDrainPromise) {
-      try { await this.stderrDrainPromise; } catch { /* ignore */ }
+      try {
+        await this.stderrDrainPromise;
+      } catch { /* ignore */ }
     }
   }
 
@@ -113,7 +133,7 @@ export class StdioTransport implements McpTransport {
         const { done, value } = await this.reader.read();
         if (done) break;
         if (!value) continue;
-        this.buffer += decoder.decode(value);
+        this.buffer += decoder.decode(value, { stream: true });
 
         let index: number;
         while ((index = this.buffer.indexOf("\n")) !== -1) {
@@ -129,7 +149,9 @@ export class StdioTransport implements McpTransport {
         }
       }
     } finally {
-      try { this.reader.releaseLock(); } catch { /* ignore */ }
+      try {
+        this.reader.releaseLock();
+      } catch { /* ignore */ }
     }
   }
 
@@ -157,7 +179,6 @@ export class HttpTransport implements McpTransport {
   private readonly server: McpServerConfig;
   private sessionId?: string;
   private protocolVersion?: string;
-  private sseController?: AbortController;
   private closed = false;
   private messageHandler: ((message: JsonRpcMessage) => void) | null = null;
 
@@ -180,23 +201,48 @@ export class HttpTransport implements McpTransport {
   async send(message: JsonRpcMessage): Promise<void> {
     if (this.closed) return;
     const url = this.server.url!;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-      ...(this.server.headers ?? {}),
-    };
-    if (this.sessionId) {
-      headers["Mcp-Session-Id"] = this.sessionId;
-    }
-    if (this.protocolVersion) {
-      headers["MCP-Protocol-Version"] = this.protocolVersion;
-    }
-
-    const response = await http.fetchRaw(url, {
+    const headers = await this.buildHeaders();
+    let response = await http.fetchRaw(url, {
       method: "POST",
       headers,
       body: JSON.stringify(message),
     });
+
+    // OAuth recovery path: refresh and retry once on 401 Bearer challenge.
+    if (response.status === 401) {
+      const challenge = parseBearerChallengeHeader(
+        response.headers.get("WWW-Authenticate"),
+      );
+      const recovered = challenge
+        ? await recoverMcpOAuthFromUnauthorized(
+          this.server,
+          response.headers.get("WWW-Authenticate"),
+        )
+        : false;
+      if (recovered) {
+        const retryHeaders = await this.buildHeaders();
+        response = await http.fetchRaw(url, {
+          method: "POST",
+          headers: retryHeaders,
+          body: JSON.stringify(message),
+        });
+      } else if (challenge) {
+        throw new ValidationError(
+          `MCP OAuth required for server '${this.server.name}'. Run: hlvm mcp login ${this.server.name}`,
+          "mcp",
+        );
+      }
+    }
+
+    if (response.status >= 400) {
+      const body = await this.safeReadText(response);
+      throw new ValidationError(
+        `MCP HTTP request failed (${this.server.name}): ${response.status} ${response.statusText}${
+          body ? ` - ${body}` : ""
+        }`,
+        "mcp",
+      );
+    }
 
     // Store session ID from response header
     const newSessionId = response.headers.get("Mcp-Session-Id");
@@ -226,14 +272,39 @@ export class HttpTransport implements McpTransport {
     }
   }
 
+  private async buildHeaders(): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      ...(this.server.headers ?? {}),
+    };
+
+    if (this.sessionId) {
+      headers["Mcp-Session-Id"] = this.sessionId;
+    }
+    if (this.protocolVersion) {
+      headers["MCP-Protocol-Version"] = this.protocolVersion;
+    }
+    if (!headers.Authorization && !headers.authorization) {
+      const authHeader = await getMcpOAuthAuthorizationHeader(this.server);
+      if (authHeader) {
+        headers.Authorization = authHeader;
+      }
+    }
+    return headers;
+  }
+
+  private async safeReadText(response: Response): Promise<string> {
+    try {
+      return (await response.text()).trim();
+    } catch {
+      return "";
+    }
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-
-    // Abort SSE listener
-    if (this.sseController) {
-      this.sseController.abort();
-    }
 
     // Send DELETE with session ID to terminate server session
     if (this.sessionId) {
@@ -285,14 +356,16 @@ export class HttpTransport implements McpTransport {
               currentData = "";
             }
           } else if (line.startsWith("data:")) {
-            const data = line.slice(5).trimStart();
+            const data = line.slice(5).trim();
             currentData += (currentData ? "\n" : "") + data;
           }
           // Ignore event:, id:, retry: fields (not needed for MCP)
         }
       }
     } finally {
-      try { reader.releaseLock(); } catch { /* ignore */ }
+      try {
+        reader.releaseLock();
+      } catch { /* ignore */ }
     }
   }
 }

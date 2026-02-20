@@ -18,17 +18,24 @@ import {
 } from "./llm-integration.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { type AgentPolicy, loadAgentPolicy } from "./policy.ts";
-import { ENGINE_PROFILES, isFrontierProvider } from "./constants.ts";
+import {
+  classifyModelTier,
+  ENGINE_PROFILES,
+  isFrontierProvider,
+  type ModelTier,
+} from "./constants.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import {
   loadMcpTools,
   type McpHandlers,
   resolveBuiltinMcpServers,
 } from "./mcp.ts";
+import { getAgentLogger } from "./logger.ts";
 import { ValidationError } from "../../common/error.ts";
 import { generateUUID } from "../../common/utils.ts";
 import { resolveContextBudget, type ResolvedBudget } from "./context-resolver.ts";
 import type { ModelInfo } from "../providers/types.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
 export interface AgentSessionOptions {
   workspace: string;
@@ -60,6 +67,8 @@ export interface AgentSession {
   profile: typeof ENGINE_PROFILES[keyof typeof ENGINE_PROFILES];
   /** True if the model is a frontier model (API provider, not local) */
   isFrontierModel: boolean;
+  /** Classified model tier for prompt depth control */
+  modelTier: ModelTier;
   /** Resolved context budget (budget, rawLimit, source) */
   resolvedContextBudget: ResolvedBudget;
   /** LLM config for rebuilding with different onToken (GUI streaming) */
@@ -108,6 +117,53 @@ async function tryGetModelInfo(
   return null;
 }
 
+/** Git context for system prompt */
+export interface GitContext {
+  branch: string;
+  dirty: boolean;
+}
+
+/**
+ * Detect git branch and dirty state with a 3-second timeout.
+ * Returns null on any failure (not a git repo, git not installed, timeout).
+ * @internal Exported for unit testing only.
+ */
+export async function detectGitContext(workspace: string): Promise<GitContext | null> {
+  try {
+    return await Promise.race([
+      detectGitContextInner(workspace),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+async function detectGitContextInner(
+  workspace: string,
+): Promise<GitContext | null> {
+  const platform = getPlatform();
+  const run = (cmd: string[]) =>
+    platform.command.output({
+      cmd,
+      cwd: workspace,
+      stdout: "piped",
+      stderr: "piped",
+      stdin: "null",
+    });
+
+  const [branchResult, statusResult] = await Promise.all([
+    run(["git", "rev-parse", "--abbrev-ref", "HEAD"]),
+    run(["git", "status", "--porcelain"]),
+  ]);
+
+  if (!branchResult.success) return null;
+
+  const branch = new TextDecoder().decode(branchResult.stdout).trim();
+  const statusOutput = new TextDecoder().decode(statusResult.stdout).trim();
+  return { branch, dirty: statusOutput.length > 0 };
+}
+
 export async function createAgentSession(
   options: AgentSessionOptions,
 ): Promise<AgentSession> {
@@ -117,7 +173,7 @@ export async function createAgentSession(
   // Parallelize independent I/O: policy, MCP server discovery, and model info
   const providerName = extractProviderName(options.model);
   const modelName = extractModelSuffix(options.model);
-  const [policy, builtinMcpServers, modelInfo] = await Promise.all([
+  const [policy, builtinMcpServers, modelInfo, gitContext] = await Promise.all([
     loadAgentPolicy(options.workspace, options.policyPath),
     resolveBuiltinMcpServers(options.workspace),
     options.modelInfo !== undefined
@@ -125,6 +181,7 @@ export async function createAgentSession(
       : (options.model && !options.fixturePath
         ? tryGetModelInfo(providerName, modelName)
         : Promise.resolve(null)),
+    detectGitContext(options.workspace),
   ]);
 
   // Load MCP tools (depends on builtinMcpServers above)
@@ -134,6 +191,14 @@ export async function createAgentSession(
     builtinMcpServers,
     toolOwnerId,
   );
+
+  // Log connected MCP servers at startup
+  if (mcp.connectedServers.length > 0) {
+    const logger = getAgentLogger();
+    for (const s of mcp.connectedServers) {
+      logger.info(`MCP: ${s.name} — ${s.toolCount} tools`);
+    }
+  }
 
   const resolved = resolveContextBudget({
     modelInfo: modelInfo ?? undefined,
@@ -150,6 +215,9 @@ export async function createAgentSession(
     contextConfig.llmSummarize = createSummarizationFn(options.model);
   }
 
+  const isFrontier = isFrontierProvider(options.model);
+  const modelTier = classifyModelTier(modelInfo, isFrontier);
+
   const context = new ContextManager(contextConfig);
   context.addMessage({
     role: "system",
@@ -158,6 +226,8 @@ export async function createAgentSession(
       toolDenylist: options.toolDenylist,
       toolOwnerId: mcp.ownerId,
       projectInstructions: options.projectInstructions,
+      modelTier,
+      gitContext: gitContext ?? undefined,
     }),
   });
 
@@ -195,7 +265,8 @@ export async function createAgentSession(
     toolOwnerId: mcp.ownerId,
     dispose: mcp.dispose,
     profile,
-    isFrontierModel: isFrontierProvider(options.model),
+    isFrontierModel: isFrontier,
+    modelTier,
     resolvedContextBudget: resolved,
     llmConfig,
     mcpSetHandlers: mcp.setHandlers,

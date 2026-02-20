@@ -25,6 +25,7 @@ import type {
   PlatformFsWatcher,
   PlatformHttp,
   PlatformHttpServeOptions,
+  PlatformHttpServerHandle,
   PlatformMakeTempDirOptions,
   PlatformPath,
   PlatformProcess,
@@ -220,7 +221,9 @@ const DenoFs: PlatformFs = {
         const inner = watcher[Symbol.asyncIterator]();
         return {
           next: () => inner.next() as Promise<IteratorResult<PlatformFsEvent>>,
-          return: (value?: PlatformFsEvent) => inner.return?.(value) ?? Promise.resolve({ done: true as const, value: undefined }),
+          return: (value?: PlatformFsEvent) =>
+            inner.return?.(value) ??
+              Promise.resolve({ done: true as const, value: undefined }),
         };
       },
       close: () => watcher.close(),
@@ -322,19 +325,35 @@ const DenoCommand: PlatformCommand = {
 // HTTP Server Implementation
 // =============================================================================
 
+function startDenoHttpServer(
+  handler: (req: Request) => Response | Promise<Response>,
+  options: PlatformHttpServeOptions,
+): PlatformHttpServerHandle {
+  const server = Deno.serve(
+    {
+      port: options.port,
+      hostname: options.hostname,
+      onListen: options.onListen,
+    },
+    handler,
+  );
+  return {
+    finished: server.finished,
+    shutdown: async () => {
+      await server.shutdown();
+    },
+  };
+}
+
 const DenoHttp: PlatformHttp = {
   serve: (
     handler: (req: Request) => Response | Promise<Response>,
     options: PlatformHttpServeOptions,
-  ): Promise<void> =>
-    Deno.serve(
-      {
-        port: options.port,
-        hostname: options.hostname,
-        onListen: options.onListen,
-      },
-      handler,
-    ).finished,
+  ): Promise<void> => startDenoHttpServer(handler, options).finished,
+  serveWithHandle: (
+    handler: (req: Request) => Response | Promise<Response>,
+    options: PlatformHttpServeOptions,
+  ): PlatformHttpServerHandle => startDenoHttpServer(handler, options),
 };
 
 // =============================================================================

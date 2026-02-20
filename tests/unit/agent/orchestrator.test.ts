@@ -13,9 +13,14 @@ import {
   executeToolCall,
   executeToolCalls,
   type LLMResponse,
+  type LoopConfig,
+  type LoopState,
+  maybeInjectReminder,
+  type OrchestratorConfig,
   processAgentResponse,
   runReActLoop,
   type ToolCall,
+  WEB_TOOL_NAMES,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
@@ -1146,5 +1151,200 @@ Deno.test({
       suggestionMsg!.content.includes("clarify requirements"),
       true,
     );
+  },
+});
+
+// ============================================================
+// Mid-Conversation Reminders — Direct Unit Tests
+// ============================================================
+
+import type { ModelTier } from "../../../src/hlvm/agent/constants.ts";
+import { UsageTracker } from "../../../src/hlvm/agent/usage.ts";
+
+/** Create a minimal LoopState for reminder testing */
+function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
+  return {
+    iterations: 0,
+    usageTracker: new UsageTracker(),
+    denialCountByTool: new Map(),
+    totalToolResultBytes: 0,
+    toolUses: [],
+    groundingRetries: 0,
+    noInputRetries: 0,
+    toolCallRetries: 0,
+    midLoopFormatRetries: 0,
+    finalResponseFormatRetries: 0,
+    lastToolSignature: "",
+    repeatToolCount: 0,
+    consecutiveToolFailures: 0,
+    emptyResponseRetried: false,
+    planState: null,
+    lastResponse: "",
+    lastToolsIncludedWeb: false,
+    iterationsSinceReminder: 3,
+    ...overrides,
+  };
+}
+
+/** Create a minimal LoopConfig for reminder testing */
+function makeLoopConfig(overrides: Partial<LoopConfig> = {}): LoopConfig {
+  return {
+    maxIterations: 50,
+    maxDenials: 3,
+    llmTimeout: 60000,
+    maxRetries: 3,
+    groundingMode: "off",
+    llmLimiter: null,
+    toolRateLimiter: null,
+    maxToolResultBytes: 1_000_000,
+    skipCompensation: false,
+    maxGroundingRetries: 3,
+    noInputEnabled: false,
+    maxNoInputRetries: 3,
+    requireToolCalls: false,
+    maxToolCallRetries: 3,
+    maxRepeatToolCalls: 3,
+    planningConfig: { mode: "off", requireStepMarkers: false },
+    loopDeadline: Date.now() + 600_000,
+    totalTimeout: 600_000,
+    modelTier: "mid" as ModelTier,
+    ...overrides,
+  };
+}
+
+/** Create a minimal OrchestratorConfig with a ContextManager for capturing injected messages */
+function makeReminderConfig() {
+  const context = new ContextManager();
+  return {
+    config: { workspace: "/tmp", context } as OrchestratorConfig,
+    context,
+  };
+}
+
+Deno.test({
+  name: "maybeInjectReminder: suppressed during 3-iteration cooldown",
+  fn() {
+    const { config, context } = makeReminderConfig();
+    // iterationsSinceReminder = 0 → within cooldown
+    const state = makeLoopState({ iterationsSinceReminder: 0, lastToolsIncludedWeb: true });
+    const lc = makeLoopConfig();
+
+    const injected = maybeInjectReminder(state, lc, config);
+    assertEquals(injected, false);
+    // No system message should be added
+    const systemMsgs = context.getMessages().filter((m) => m.role === "system");
+    assertEquals(systemMsgs.length, 0);
+    // Counter should have incremented
+    assertEquals(state.iterationsSinceReminder, 1);
+  },
+});
+
+Deno.test({
+  name: "maybeInjectReminder: web safety reminder injected after web tool use (all tiers)",
+  fn() {
+    for (const tier of ["weak", "mid", "frontier"] as ModelTier[]) {
+      const { config, context } = makeReminderConfig();
+      const state = makeLoopState({
+        iterationsSinceReminder: 3,
+        lastToolsIncludedWeb: true,
+      });
+      const lc = makeLoopConfig({ modelTier: tier });
+
+      const injected = maybeInjectReminder(state, lc, config);
+      assertEquals(injected, true, `should inject for tier=${tier}`);
+
+      const msgs = context.getMessages().filter((m) => m.role === "system");
+      assertEquals(msgs.length, 1);
+      assertStringIncludes(msgs[0].content, "web content");
+      assertStringIncludes(msgs[0].content, "reference data only");
+
+      // State should be reset
+      assertEquals(state.lastToolsIncludedWeb, false);
+      assertEquals(state.iterationsSinceReminder, 0);
+    }
+  },
+});
+
+Deno.test({
+  name: "maybeInjectReminder: tool routing reminder only for weak tier at iteration % 7",
+  fn() {
+    // Weak tier at iteration 7 → should inject
+    {
+      const { config, context } = makeReminderConfig();
+      const state = makeLoopState({ iterations: 7, iterationsSinceReminder: 3 });
+      const lc = makeLoopConfig({ modelTier: "weak" });
+
+      const injected = maybeInjectReminder(state, lc, config);
+      assertEquals(injected, true);
+      const msgs = context.getMessages().filter((m) => m.role === "system");
+      assertEquals(msgs.length, 1);
+      assertStringIncludes(msgs[0].content, "dedicated tools");
+      assertStringIncludes(msgs[0].content, "shell_exec");
+    }
+
+    // Mid tier at iteration 7 → should NOT inject
+    {
+      const { config, context } = makeReminderConfig();
+      const state = makeLoopState({ iterations: 7, iterationsSinceReminder: 3 });
+      const lc = makeLoopConfig({ modelTier: "mid" });
+
+      const injected = maybeInjectReminder(state, lc, config);
+      assertEquals(injected, false);
+      const msgs = context.getMessages().filter((m) => m.role === "system");
+      assertEquals(msgs.length, 0);
+    }
+
+    // Weak tier at iteration 5 → should NOT inject (not % 7)
+    {
+      const { config, context } = makeReminderConfig();
+      const state = makeLoopState({ iterations: 5, iterationsSinceReminder: 3 });
+      const lc = makeLoopConfig({ modelTier: "weak" });
+
+      const injected = maybeInjectReminder(state, lc, config);
+      assertEquals(injected, false);
+    }
+
+    // Weak tier at iteration 0 → should NOT inject (state.iterations > 0 required)
+    {
+      const { config, context } = makeReminderConfig();
+      const state = makeLoopState({ iterations: 0, iterationsSinceReminder: 3 });
+      const lc = makeLoopConfig({ modelTier: "weak" });
+
+      const injected = maybeInjectReminder(state, lc, config);
+      assertEquals(injected, false);
+    }
+  },
+});
+
+Deno.test({
+  name: "maybeInjectReminder: web safety has priority over periodic tool routing",
+  fn() {
+    const { config, context } = makeReminderConfig();
+    // Both triggers active: web=true AND weak at iter 7
+    const state = makeLoopState({
+      iterations: 7,
+      iterationsSinceReminder: 3,
+      lastToolsIncludedWeb: true,
+    });
+    const lc = makeLoopConfig({ modelTier: "weak" });
+
+    const injected = maybeInjectReminder(state, lc, config);
+    assertEquals(injected, true);
+
+    // Should be the web safety message, not tool routing
+    const msgs = context.getMessages().filter((m) => m.role === "system");
+    assertEquals(msgs.length, 1);
+    assertStringIncludes(msgs[0].content, "web content");
+  },
+});
+
+Deno.test({
+  name: "WEB_TOOL_NAMES contains expected tool names",
+  fn() {
+    assertEquals(WEB_TOOL_NAMES.has("web_fetch"), true);
+    assertEquals(WEB_TOOL_NAMES.has("search_web"), true);
+    assertEquals(WEB_TOOL_NAMES.has("web_browse"), true);
+    assertEquals(WEB_TOOL_NAMES.has("read_file"), false);
+    assertEquals(WEB_TOOL_NAMES.has("shell_exec"), false);
   },
 });

@@ -123,16 +123,16 @@ Deno.test("ContextManager: trimToFit trims context after budget reduction", asyn
 // ============================================================================
 
 Deno.test("All provider KNOWN_MODELS have contextWindow set", async () => {
-  const { OpenAIProvider } = await import("../../../src/hlvm/providers/openai/provider.ts");
-  const { AnthropicProvider } = await import("../../../src/hlvm/providers/anthropic/provider.ts");
-  const { GoogleProvider } = await import("../../../src/hlvm/providers/google/provider.ts");
+  const { createOpenAIProvider } = await import("../../../src/hlvm/providers/openai/provider.ts");
+  const { createAnthropicProvider } = await import("../../../src/hlvm/providers/anthropic/provider.ts");
+  const { createGoogleProvider } = await import("../../../src/hlvm/providers/google/provider.ts");
   const providers = [
-    new OpenAIProvider({ apiKey: "" }),
-    new AnthropicProvider({ apiKey: "" }),
-    new GoogleProvider({ apiKey: "" }),
+    createOpenAIProvider({ apiKey: "" }),
+    createAnthropicProvider({ apiKey: "" }),
+    createGoogleProvider({ apiKey: "" }),
   ];
   for (const provider of providers) {
-    const models = await provider.models.list();
+    const models = await provider.models!.list();
     for (const model of models) {
       assertGreater(model.contextWindow ?? 0, 0, `${model.name} missing contextWindow`);
     }

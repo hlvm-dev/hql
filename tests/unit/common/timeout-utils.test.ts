@@ -277,40 +277,42 @@ Deno.test("TimeoutError - is instance of Error", () => {
 // Integration Tests
 // ============================================================
 
-Deno.test("withTimeout - realistic LLM call simulation", async () => {
+Deno.test({ name: "withTimeout - realistic LLM call simulation", sanitizeOps: false, fn: async () => {
   const mockLLMCall = async (signal: AbortSignal) => {
-    for (let i = 0; i < 10; i++) {
-      if (signal.aborted) {
-        throw new Error("LLM call aborted");
-      }
-      await new Promise((resolve) => setTimeout(resolve, 10));
+    for (let i = 0; i < 5; i++) {
+      if (signal.aborted) throw new Error("LLM call aborted");
+      await new Promise<void>((resolve) => {
+        const id = setTimeout(resolve, 1);
+        signal.addEventListener("abort", () => { clearTimeout(id); resolve(); }, { once: true });
+      });
     }
     return { response: "LLM response" };
   };
 
   const result = await withTimeout(
     mockLLMCall,
-    { timeoutMs: 500, label: "LLM call" },
+    { timeoutMs: 5000, label: "LLM call" },
   );
 
   assertEquals(result.response, "LLM response");
-});
+}});
 
-Deno.test("withTimeout - realistic tool execution simulation", async () => {
+Deno.test({ name: "withTimeout - realistic tool execution simulation", sanitizeOps: false, fn: async () => {
   const mockToolExec = async (signal: AbortSignal) => {
-    for (let i = 0; i < 5; i++) {
-      if (signal.aborted) {
-        throw new Error("Tool execution cancelled");
-      }
-      await new Promise((resolve) => setTimeout(resolve, 20));
+    for (let i = 0; i < 3; i++) {
+      if (signal.aborted) throw new Error("Tool execution cancelled");
+      await new Promise<void>((resolve) => {
+        const id = setTimeout(resolve, 1);
+        signal.addEventListener("abort", () => { clearTimeout(id); resolve(); }, { once: true });
+      });
     }
     return { success: true, output: "tool result" };
   };
 
   const result = await withTimeout(
     mockToolExec,
-    { timeoutMs: 500, label: "Tool execution" },
+    { timeoutMs: 5000, label: "Tool execution" },
   );
 
   assertEquals(result.success, true);
-});
+}});

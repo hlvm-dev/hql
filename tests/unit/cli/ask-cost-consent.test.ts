@@ -252,3 +252,48 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  name: "Config round-trip - agentMode/sessionMemory/checkpointing persist through save/load",
+  async fn() {
+    const { saveConfig, loadConfig, getConfigPath } = await import(
+      "../../../src/common/config/storage.ts"
+    );
+    const { getPlatform } = await import("../../../src/platform/platform.ts");
+
+    const configPath = getConfigPath();
+    const fs = getPlatform().fs;
+
+    let backup: string | null = null;
+    try {
+      backup = await fs.readTextFile(configPath);
+    } catch {
+      // No existing config
+    }
+
+    try {
+      const testConfig: HlvmConfig = {
+        ...DEFAULT_CONFIG,
+        agentMode: "claude-code-agent",
+        sessionMemory: true,
+        checkpointing: true,
+      };
+      await saveConfig(testConfig);
+
+      const loaded = await loadConfig();
+      assertEquals(loaded.agentMode, "claude-code-agent");
+      assertEquals(loaded.sessionMemory, true);
+      assertEquals(loaded.checkpointing, true);
+    } finally {
+      if (backup !== null) {
+        await fs.writeTextFile(configPath, backup);
+      } else {
+        try {
+          await fs.remove(configPath);
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  },
+});

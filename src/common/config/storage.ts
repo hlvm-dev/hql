@@ -268,6 +268,18 @@ function normalizeConfigInput(
     normalized.approvedProviders = raw.approvedProviders as string[];
   }
 
+  if (raw.agentMode === "hlvm" || raw.agentMode === "claude-code-agent") {
+    normalized.agentMode = raw.agentMode;
+  }
+
+  if (typeof raw.sessionMemory === "boolean") {
+    normalized.sessionMemory = raw.sessionMemory;
+  }
+
+  if (typeof raw.checkpointing === "boolean") {
+    normalized.checkpointing = raw.checkpointing;
+  }
+
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 

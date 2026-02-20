@@ -17,7 +17,10 @@ import {
   _isGitRepo,
 } from "../../../src/hlvm/agent/checkpoint-service.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import { getCheckpointsDir } from "../../../src/common/paths.ts";
+import {
+  getCheckpointsDir,
+  resetHlvmDirCacheForTests,
+} from "../../../src/common/paths.ts";
 
 async function runCmd(args: string[], cwd: string) {
   const platform = getPlatform();
@@ -213,6 +216,91 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "Checkpoint: shadow exclude does not duplicate existing .git pattern",
+  async fn() {
+    const platform = getPlatform();
+    const workspace = await setupGitWorkspace();
+    try {
+      await platform.fs.writeTextFile(
+        `${workspace}/.gitignore`,
+        "node_modules/\n.git\n",
+      );
+
+      await createCheckpoint(workspace);
+
+      const shadowDir = platform.path.join(
+        getCheckpointsDir(),
+        await _hashWorkspace(workspace),
+      );
+      const excludePath = platform.path.join(shadowDir, "info", "exclude");
+      const excludeContent = await platform.fs.readTextFile(excludePath);
+      const gitPatternCount = excludeContent
+        .split(/\r?\n/)
+        .map((line) => line.trim().replace(/\/+$/, ""))
+        .filter((line) =>
+          line === ".git" || line === "/.git" || line === "**/.git"
+        ).length;
+      assertEquals(gitPatternCount, 1);
+    } finally {
+      await cleanupWorkspace(workspace);
+    }
+  },
+});
+
+Deno.test({
+  name: "Checkpoint: excludes HLVM checkpoints when HLVM_DIR is inside workspace",
+  async fn() {
+    const platform = getPlatform();
+    const workspace = await setupGitWorkspace();
+    const originalHlvmDir = platform.env.get("HLVM_DIR");
+    const originalHlvmHome = platform.env.get("HLVM_HOME");
+    try {
+      platform.env.set("HLVM_DIR", `${workspace}/.hlvm`);
+      platform.env.set("HLVM_HOME", "");
+      resetHlvmDirCacheForTests();
+
+      await createCheckpoint(workspace);
+
+      const shadowDir = platform.path.join(
+        getCheckpointsDir(),
+        await _hashWorkspace(workspace),
+      );
+      const proc = platform.command.run({
+        cmd: ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+        cwd: workspace,
+        stdout: "piped",
+        stderr: "piped",
+        stdin: "null",
+        env: {
+          GIT_DIR: shadowDir,
+          GIT_WORK_TREE: workspace,
+        },
+      });
+      const [stdout, , status] = await Promise.all([
+        proc.stdout
+          ? new Response(proc.stdout as ReadableStream).text()
+          : Promise.resolve(""),
+        proc.stderr
+          ? new Response(proc.stderr as ReadableStream).text()
+          : Promise.resolve(""),
+        proc.status,
+      ]);
+      assertEquals(status.code, 0);
+      const trackedPaths = stdout.split(/\r?\n/).filter(Boolean);
+      assertEquals(
+        trackedPaths.some((path) => path.startsWith(".hlvm/checkpoints/")),
+        false,
+      );
+    } finally {
+      platform.env.set("HLVM_DIR", originalHlvmDir ?? "");
+      platform.env.set("HLVM_HOME", originalHlvmHome ?? "");
+      resetHlvmDirCacheForTests();
+      await cleanupWorkspace(workspace);
+    }
+  },
+});
+
 // ============================================================
 // hasCheckpoint tests
 // ============================================================
@@ -253,7 +341,6 @@ Deno.test({
 Deno.test({
   name: "Checkpoint: restoreCheckpoint returns error when no checkpoint exists",
   async fn() {
-    const platform = getPlatform();
     const workspace = await setupGitWorkspace();
     // Don't create a checkpoint — no shadow repo
     try {

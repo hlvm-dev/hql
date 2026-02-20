@@ -11,14 +11,11 @@ import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getAgentLogger } from "../logger.ts";
 import type {
   JsonRpcMessage,
-  McpHandlers,
   McpPromptInfo,
   McpPromptMessage,
   McpResourceContent,
   McpResourceInfo,
   McpResourceTemplate,
-  McpSamplingRequest,
-  McpElicitationRequest,
   McpServerConfig,
   McpToolInfo,
   McpTransport,
@@ -75,6 +72,7 @@ export class McpClient {
   private readonly server: McpServerConfig;
   private readonly transport: McpTransport;
   private nextId = 1;
+  private initRequestId = -1;
   private closed = false;
   private pending = new Map<
     number,
@@ -89,6 +87,16 @@ export class McpClient {
     string,
     (params: unknown) => Promise<unknown>
   >();
+  /** Queue for server requests that arrived before a handler was registered.
+   *  Only requests for deferrable methods (sampling, elicitation, roots) are queued;
+   *  unknown methods still get an immediate -32601 error. */
+  private pendingServerRequests: { method: string; id: number; params: unknown }[] = [];
+  /** Methods eligible for deferred handler registration */
+  private static readonly DEFERRABLE_METHODS = new Set([
+    "sampling/createMessage",
+    "elicitation/create",
+    "roots/list",
+  ]);
 
   constructor(server: McpServerConfig, transport: McpTransport) {
     this.server = server;
@@ -101,22 +109,29 @@ export class McpClient {
     this.notificationHandlers.set(method, handler);
   }
 
-  /** Register a handler for server-initiated requests */
+  /** Register a handler for server-initiated requests.
+   *  Replays any queued requests that arrived before this handler was registered. */
   onRequest(
     method: string,
     handler: (params: unknown) => Promise<unknown>,
   ): void {
     this.requestHandlers.set(method, handler);
+
+    // Replay queued requests for this method (handles race: server fired before handler registered)
+    const queued = this.pendingServerRequests.filter((r) => r.method === method);
+    this.pendingServerRequests = this.pendingServerRequests.filter((r) => r.method !== method);
+    for (const req of queued) {
+      handler(req.params)
+        .then((result) => this.sendResponse(req.id, result).catch(() => {}))
+        .catch((err) =>
+          this.sendError(req.id, -32603, getErrorMessage(err)).catch(() => {})
+        );
+    }
   }
 
   /** Check if server declared a capability */
   hasCapability(name: string): boolean {
     return name in this.serverCapabilities;
-  }
-
-  /** Get server capabilities object */
-  getServerCapabilities(): Record<string, unknown> {
-    return this.serverCapabilities;
   }
 
   async start(
@@ -142,6 +157,7 @@ export class McpClient {
     // Initialize handshake — try 2025-11-25, handle version negotiation per spec
     const caps = clientCapabilities ?? { tools: {} };
     const clientInfo = { name: "hlvm", version: "0.1.0" };
+    this.initRequestId = this.nextId; // Track init ID — spec forbids cancelling it
     try {
       const initResult = await this.request("initialize", {
         protocolVersion: "2025-11-25",
@@ -188,6 +204,7 @@ export class McpClient {
           this.setTransportProtocolVersion(fallbackVersion);
           await this.notify("notifications/initialized", {});
         } catch (fallbackError) {
+          this.closed = true;
           getAgentLogger().warn(
             `MCP initialize failed (${this.server.name}): ${
               getErrorMessage(fallbackError)
@@ -195,6 +212,7 @@ export class McpClient {
           );
         }
       } else {
+        this.closed = true;
         getAgentLogger().warn(
           `MCP initialize failed (${this.server.name}): ${errMsg}`,
         );
@@ -387,6 +405,8 @@ export class McpClient {
 
   cancelAllPending(reason?: string): void {
     for (const id of this.pending.keys()) {
+      // Spec: MUST NOT cancel the initialize request
+      if (id === this.initRequestId) continue;
       this.sendCancellation(id, reason);
     }
   }
@@ -417,16 +437,8 @@ export class McpClient {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
-        const pending = this.pending.get(id);
-        if (pending) {
-          this.pending.delete(id);
-          pending.reject(
-            new ValidationError(
-              `MCP request '${method}' timed out after ${timeoutMs}ms`,
-              "mcp",
-            ),
-          );
-        }
+        // Remove from pending so late responses are ignored
+        this.pending.delete(id);
         reject(
           new ValidationError(
             `MCP request '${method}' timed out after ${timeoutMs}ms`,
@@ -498,6 +510,14 @@ export class McpClient {
           .catch((err) =>
             this.sendError(msg.id!, -32603, getErrorMessage(err)).catch(() => {})
           );
+      } else if (McpClient.DEFERRABLE_METHODS.has(msg.method!)) {
+        // Queue deferrable requests — handler may be registered later via onRequest()
+        // (e.g., sampling/createMessage arriving before setHandlers is called)
+        this.pendingServerRequests.push({
+          method: msg.method!,
+          id: msg.id!,
+          params: msg.params,
+        });
       } else {
         this.sendError(
           msg.id!,

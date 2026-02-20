@@ -300,6 +300,41 @@ export function isFrontierProvider(model?: string): boolean {
   return (FRONTIER_PROVIDER_PREFIXES as readonly string[]).includes(prefix);
 }
 
+// ============================================================
+// Model Tier Classification
+// ============================================================
+
+export type ModelTier = "weak" | "mid" | "frontier";
+
+/** Returns true if `tier` meets or exceeds `minTier`. */
+export function tierMeetsMinimum(tier: ModelTier, minTier: ModelTier): boolean {
+  const order: Record<ModelTier, number> = { weak: 0, mid: 1, frontier: 2 };
+  return order[tier] >= order[minTier];
+}
+
+/**
+ * Classify a model into weak / mid / frontier tier.
+ *
+ * - frontier: any API-hosted provider (anthropic/openai/google/claude-code)
+ * - weak: local model with <13B parameters
+ * - mid: everything else (safe default)
+ */
+export function classifyModelTier(
+  modelInfo?: { parameterSize?: string; contextWindow?: number } | null,
+  isFrontier?: boolean,
+): ModelTier {
+  if (isFrontier) return "frontier";
+  if (modelInfo?.parameterSize) {
+    const match = modelInfo.parameterSize.match(/^(\d+(?:\.\d+)?)\s*[bB]/);
+    if (match && parseFloat(match[1]) < 13) return "weak";
+    if (match) return "mid";
+  }
+  if (modelInfo?.contextWindow && modelInfo.contextWindow >= 128_000) {
+    return "frontier";
+  }
+  return "mid"; // safe default
+}
+
 /** Default tool denylist for interactive ask mode */
 export const DEFAULT_TOOL_DENYLIST = [
   "delegate_agent",

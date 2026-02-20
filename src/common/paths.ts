@@ -36,7 +36,6 @@ function resolveHlvmDir(): string {
   return join(home, ".hlvm");
 }
 
-
 function ensureWritableDir(dirPath: string): boolean {
   const platform = getPlatform();
   const probeId = typeof crypto?.randomUUID === "function"
@@ -89,7 +88,7 @@ export function getHlvmDir(): string {
 /**
  * Reset cached HLVM dir (used in tests)
  */
-function resetHlvmDirCache(): void {
+export function resetHlvmDirCacheForTests(): void {
   _hlvmDir = null;
 }
 
@@ -156,6 +155,20 @@ export function getRuntimeDir(): string {
  */
 export function getHistoryPath(): string {
   return join(getHlvmDir(), "history.jsonl");
+}
+
+/**
+ * Get the user-global MCP config path (~/.hlvm/mcp.json)
+ */
+export function getMcpConfigPath(): string {
+  return join(getHlvmDir(), "mcp.json");
+}
+
+/**
+ * Get the MCP OAuth credential store path (~/.hlvm/mcp-oauth.json)
+ */
+export function getMcpOAuthPath(): string {
+  return join(getHlvmDir(), "mcp-oauth.json");
 }
 
 /**
