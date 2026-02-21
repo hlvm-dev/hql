@@ -53,8 +53,13 @@ const QMARK_ALIASES: [string, string][] = [
 // Runtime helpers from core.js that the transpiler treats as globals.
 // These are used in the generated code but not emitted as imports by the transpiler.
 const CORE_RUNTIME_IMPORTS = [
-  "first", "rest", "cons", "seq", "range", "groupBy",
+  "first", "rest", "cons", "seq", "range",
   "__hql_lazy_seq", "__hql_hash_map",
+];
+
+// Runtime imports from seq-protocol.js that the transpiler treats as globals.
+const SEQ_PROTOCOL_RUNTIME_IMPORTS = [
+  "reduced", "isReduced",
 ];
 
 const HEADER = `\
@@ -134,6 +139,17 @@ async function main() {
       const existing = names.split(",").map((n: string) => n.trim()).filter(Boolean);
       const toAdd = CORE_RUNTIME_IMPORTS.filter(n => !existing.includes(n));
       const allNames = [...toAdd, ...existing];
+      return `${open} ${allNames.join(", ")} ${close}`;
+    },
+  );
+
+  // ── Post-process 3b: Add missing runtime imports from seq-protocol.js ──
+  code = code.replace(
+    /^(import\s*\{)([^}]+)(\}\s*from\s*"\.\/internal\/seq-protocol\.js"\s*;)/m,
+    (_match: string, open: string, names: string, close: string) => {
+      const existing = names.split(",").map((n: string) => n.trim()).filter(Boolean);
+      const toAdd = SEQ_PROTOCOL_RUNTIME_IMPORTS.filter(n => !existing.includes(n));
+      const allNames = [...existing, ...toAdd];
       return `${open} ${allNames.join(", ")} ${close}`;
     },
   );

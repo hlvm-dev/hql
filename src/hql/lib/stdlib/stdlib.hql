@@ -1,7 +1,8 @@
 // lib/stdlib/stdlib.hql - HQL stdlib with self-hosted functions
 //
-// ~91% of stdlib is self-hosted in HQL. Only sequence primitives,
-// lazy-seq constructor, and a few hot-path utilities remain as JS imports.
+// ~96% of public API is self-hosted in HQL. Only sequence primitives
+// (first, rest, cons, seq), lazy-seq constructor, range, and chunked
+// fast paths remain as JS imports.
 //
 // The self-hosted approach:
 // - Import primitive functions from JS (first, rest, cons, seq, lazy-seq)
@@ -21,17 +22,14 @@
   range,
 
   // Chunked sequence fast paths
-  chunkedMap, chunkedFilter, chunkedReduce,
-
-  // Utilities that remain as JS imports:
-  // - groupBy: uses Map protocol internally
-  // - realized: checks LazySeq/Delay internal fields
-  // - force/isDelay: Delay class protocol
-  groupBy, realized, force, isDelay
+  chunkedMap, chunkedFilter, chunkedReduce
 ] from "./js/core.js")
 
-// Chunking decision helper from seq protocol
-(import [shouldChunk] from "./js/internal/seq-protocol.js")
+// Chunking decision helper + class constructors from seq protocol
+(import [shouldChunk, Delay, LazySeq,
+         reduced, isReduced, ensureReduced,
+         TRANSDUCER_INIT, TRANSDUCER_STEP, TRANSDUCER_RESULT]
+  from "./js/internal/seq-protocol.js")
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SELF-HOSTED STDLIB FUNCTIONS
@@ -48,14 +46,12 @@
 
 // drop - Drops first n elements from a collection (lazy)
 // Returns remaining elements after skipping n
-// Note: Uses iterative skip + cons to ensure seq-protocol compatibility
 (fn drop [n coll]
   (lazy-seq
     (loop [s (seq coll) remaining n]
       (if (and s (> remaining 0))
         (recur (seq (rest s)) (- remaining 1))
-        (when s
-          (cons (first s) (drop 0 (rest s))))))))
+        s))))
 
 // map - Maps function over collection(s) (lazy)
 // Supports:
@@ -64,9 +60,9 @@
 (fn map [f & colls]
   (when (not (isFunction f))
     (throw (js/TypeError (str "map: first argument must be a function, got " (typeof f)))))
-  (when (=== (count colls) 0)
+  (when (nil? (seq colls))
     (throw (js/TypeError "map: requires at least one collection")))
-  (if (=== (count colls) 1)
+  (if (nil? (seq (rest colls)))
     (let [coll (first colls)]
       (if (shouldChunk coll)
         (chunkedMap f coll)
@@ -105,9 +101,9 @@
 (fn reduce [f & args]
   (when (not (isFunction f))
     (throw (js/TypeError (str "reduce: reducer must be a function, got " (typeof f)))))
-  (when (or (< (count args) 1) (> (count args) 2))
-    (throw (js/TypeError (str "reduce: expects 2 or 3 arguments, got " (+ (count args) 1)))))
-  (if (=== (count args) 1)
+  (when (or (nil? (seq args)) (and (seq (rest args)) (seq (rest (rest args)))))
+    (throw (js/TypeError "reduce: expects 2 or 3 arguments")))
+  (if (nil? (seq (rest args)))
     // 2-arity: (reduce f coll)
     (let [coll (first args)
           s (seq coll)]
@@ -117,15 +113,18 @@
     // 3-arity: (reduce f init coll)
     (chunkedReduce f (first args) (second args))))
 
-// concat - Concatenates multiple collections (lazy)
+// concat - Concatenates multiple collections (lazy, stack-safe)
 // Variadic function: (concat [1 2] [3 4]) => (1 2 3 4)
-// Processes collections one element at a time
+// Uses loop/recur to skip empty collections, lazy-seq for element emission
 (fn concat [& colls]
-  (lazy-seq
-    (when-let [cs (seq colls)]
-      (if-let [s (seq (first cs))]
-        (cons (first s) (apply concat (cons (rest s) (rest cs))))
-        (apply concat (rest cs))))))
+  (let [cat (fn cat [remaining]
+              (lazy-seq
+                (loop [cs remaining]
+                  (when-let [seqd (seq cs)]
+                    (if-let [s (seq (first seqd))]
+                      (cons (first s) (cat (cons (rest s) (rest seqd))))
+                      (recur (rest seqd)))))))]
+    (cat colls)))
 
 // flatten - Flattens nested collections (lazy)
 // Recursively flattens all iterable items (except strings)
@@ -209,24 +208,32 @@
   (nth coll 1 nil))
 
 // count - Returns count of elements (EAGER)
-// Forces full realization of lazy sequences
+// O(1) for arrays, strings, and types with .count() method; walks seq otherwise
 (fn count [coll]
   (if (nil? coll)
     0
-    (loop [s (seq coll), n 0]
-      (if s
-        (recur (seq (rest s)) (+ n 1))
-        n))))
+    (if (or (isArray coll) (=== (typeof coll) "string"))
+      (js-get coll "length")
+      (if (=== (typeof (js-get coll "count")) "function")
+        (js-call coll "count")
+        (loop [s (seq coll), n 0]
+          (if s
+            (recur (seq (rest s)) (+ n 1))
+            n))))))
 
 // last - Returns last element (EAGER)
-// Forces full realization to find the last element
+// O(1) for arrays; walks seq otherwise
 (fn last [coll]
   (if (nil? coll)
     nil
-    (loop [s (seq coll), result nil]
-      (if s
-        (recur (seq (rest s)) (first s))
-        result))))
+    (if (isArray coll)
+      (if (> (js-get coll "length") 0)
+        (js-get coll (- (js-get coll "length") 1))
+        nil)
+      (loop [s (seq coll), result nil]
+        (if s
+          (recur (seq (rest s)) (first s))
+          result)))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 3: MAP OPERATIONS
@@ -322,7 +329,7 @@
                 (lazy-seq
                   (when-let [s (seq coll)]
                     (reductions-with-init f (f init (first s)) (rest s))))))]
-    (if (=== (count args) 1)
+    (if (nil? (seq (rest args)))
       // 2-arity: (reductions f coll)
       (let [coll (first args)]
         (lazy-seq
@@ -350,9 +357,9 @@
 // interleave - Interleaves multiple sequences (lazy)
 // Example: (interleave [1 2 3] ["a" "b" "c"]) => (1 "a" 2 "b" 3 "c")
 (fn interleave [& colls]
-  (if (=== (count colls) 0)
+  (if (nil? (seq colls))
     (lazy-seq nil)
-    (if (=== (count colls) 1)
+    (if (nil? (seq (rest colls)))
       (lazy-seq (seq (first colls)))
       (lazy-seq
         (let [seqs (doall (map seq colls))]
@@ -371,9 +378,9 @@
 (fn partition [n & args]
   (when (or (not (=== (typeof n) "number")) (<= n 0))
     (throw (js/TypeError "partition: n must be a positive number")))
-  (let [arg-count (count args)
-        step (if (=== arg-count 1) n (first args))
-        coll (if (=== arg-count 1) (first args) (second args))]
+  (let [has-step (seq (rest args))
+        step (if has-step (first args) n)
+        coll (if has-step (second args) (first args))]
     (when (or (not (=== (typeof step) "number")) (<= step 0))
       (throw (js/TypeError "partition: step must be a positive number")))
     (lazy-seq
@@ -385,9 +392,9 @@
 // partitionAll - Like partition but includes incomplete final group (lazy)
 // Clojure: (partition-all 3 [1 2 3 4 5 6 7]) => ((1 2 3) (4 5 6) (7))
 (fn partitionAll [n & args]
-  (let [arg-count (count args)
-        step (if (=== arg-count 1) n (first args))
-        coll (if (=== arg-count 1) (first args) (second args))]
+  (let [has-step (seq (rest args))
+        step (if has-step (first args) n)
+        coll (if has-step (second args) (first args))]
     (lazy-seq
       (when-let [s (seq coll)]
         (let [p (doall (take n s))]
@@ -395,6 +402,7 @@
 
 // partitionBy - Partitions when function result changes (lazy)
 // Clojure: (partition-by odd? [1 1 2 2 3]) => ((1 1) (2 2) (3))
+// O(n): builds each run and tracks remaining sequence simultaneously
 (fn partitionBy [f coll]
   (when (not (isFunction f))
     (throw (js/TypeError "partitionBy: f must be a function")))
@@ -402,8 +410,11 @@
     (when-let [s (seq coll)]
       (let [fst (first s)
             fv (f fst)
-            run (doall (cons fst (takeWhile (fn [x] (=== (f x) fv)) (rest s))))]
-        (cons run (partitionBy f (drop (count run) s)))))))
+            result (loop [run [fst], remaining (seq (rest s))]
+                     (if (and remaining (=== (f (first remaining)) fv))
+                       (recur (conj run (first remaining)) (seq (rest remaining)))
+                       [run remaining]))]
+        (cons (js-get result 0) (partitionBy f (js-get result 1)))))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 4: PREDICATES
@@ -486,6 +497,27 @@
   (and (not (nil? x)) (=== (typeof x) "object") (not (js-call Array.isArray x))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 5B: DELAY/FORCE (self-hosted)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// isDelay - Check if a value is a Delay
+(fn isDelay [x] (instanceof x Delay))
+
+// force - Force evaluation of a Delay, or return value unchanged
+(fn force [x]
+  (if (instanceof x Delay) (js-call x "deref") x))
+
+// realized - Check if a LazySeq or Delay has been realized
+(fn realized [coll]
+  (if (nil? coll)
+    true
+    (if (instanceof coll Delay)
+      (js-get coll "_realized")
+      (if (instanceof coll LazySeq)
+        (js-get coll "_isRealized")
+        true))))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 6: ARITHMETIC
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -496,16 +528,16 @@
 // Variadic arithmetic with identity semantics
 (fn add [& nums] (reduce (fn [a b] (+ a b)) 0 nums))
 (fn sub [& nums]
-  (if (=== (count nums) 0)
+  (if (nil? (seq nums))
     0
-    (if (=== (count nums) 1)
+    (if (nil? (seq (rest nums)))
       (- 0 (first nums))
       (reduce (fn [a b] (- a b)) (first nums) (rest nums)))))
 (fn mul [& nums] (reduce (fn [a b] (* a b)) 1 nums))
 (fn div [& nums]
-  (if (=== (count nums) 0)
+  (if (nil? (seq nums))
     1
-    (if (=== (count nums) 1)
+    (if (nil? (seq (rest nums)))
       (/ 1 (first nums))
       (reduce (fn [a b] (/ a b)) (first nums) (rest nums)))))
 (fn mod [a b] (% a b))
@@ -515,7 +547,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 (fn eq [& vals]
-  (if (< (count vals) 2)
+  (if (not (seq (rest vals)))
     true
     (let [fst (first vals)]
       (loop [s (seq (rest vals))]
@@ -526,6 +558,57 @@
           true)))))
 
 (fn neq [a b] (not (=== a b)))
+
+// deepEq - Structural/deep equality for arrays, objects, Maps, Sets
+// Recursively compares nested structures; uses === for primitives
+(fn deepEq [a b]
+  (if (=== a b)
+    true
+    (if (or (nil? a) (nil? b))
+      false
+      (if (and (isArray a) (isArray b))
+        (if (not (=== (js-get a "length") (js-get b "length")))
+          false
+          (loop [i 0]
+            (if (>= i (js-get a "length"))
+              true
+              (if (deepEq (js-get a i) (js-get b i))
+                (recur (+ i 1))
+                false))))
+        (if (and (instanceof a Map) (instanceof b Map))
+          (if (not (=== (js-get a "size") (js-get b "size")))
+            false
+            (let [keys-a (js-call Array.from (js-call a "keys"))]
+              (loop [i 0]
+                (if (>= i (js-get keys-a "length"))
+                  true
+                  (let [k (js-get keys-a i)]
+                    (if (and (js-call b "has" k) (deepEq (js-call a "get" k) (js-call b "get" k)))
+                      (recur (+ i 1))
+                      false))))))
+          (if (and (instanceof a Set) (instanceof b Set))
+            (if (not (=== (js-get a "size") (js-get b "size")))
+              false
+              (let [arr-a (js-call Array.from a)]
+                (loop [i 0]
+                  (if (>= i (js-get arr-a "length"))
+                    true
+                    (if (js-call b "has" (js-get arr-a i))
+                      (recur (+ i 1))
+                      false)))))
+            (if (and (isObject a) (isObject b))
+              (let [keys-a (js-call Object.keys a)
+                    keys-b (js-call Object.keys b)]
+                (if (not (=== (js-get keys-a "length") (js-get keys-b "length")))
+                  false
+                  (loop [i 0]
+                    (if (>= i (js-get keys-a "length"))
+                      true
+                      (let [k (js-get keys-a i)]
+                        (if (and (in k b) (deepEq (js-get a k) (js-get b k)))
+                          (recur (+ i 1))
+                          false))))))
+              false)))))))
 
 // Variadic chained comparison: (lt a b c) means a<b AND b<c
 (fn lt [& nums]
@@ -628,6 +711,24 @@
   (if (nil? obj)
     []
     (js-call Object.keys obj)))
+
+// groupBy - Group collection elements by function result
+// Returns a Map with grouped elements
+(fn groupBy [f coll]
+  (when (not (isFunction f))
+    (throw (js/TypeError (str "groupBy: key function must be a function, got " (typeof f)))))
+  (if (nil? coll)
+    (js-new Map ())
+    (let [result (js-new Map ())]
+      (loop [s (seq coll)]
+        (if s
+          (let [item (first s)
+                key (f item)]
+            (if (js-call result "has" key)
+              (js-call (js-call result "get" key) "push" item)
+              (js-call result "set" key [item]))
+            (recur (seq (rest s))))
+          result)))))
 
 // reverse - Reverse a collection
 (fn reverse [coll]
@@ -781,7 +882,7 @@
 
 // conj - Add item(s) to collection (type-preserving)
 (fn conj [coll & items]
-  (if (=== (count items) 0)
+  (if (nil? (seq items))
     (if (nil? coll) [] coll)
     (if (nil? coll)
       [...items]
@@ -858,9 +959,9 @@
       (when (not (isFunction (first s)))
         (throw (js/TypeError (str "comp: argument " (+ i 1) " must be a function"))))
       (recur (+ i 1) (seq (rest s)))))
-  (if (=== (count fns) 0)
+  (if (nil? (seq fns))
     (fn [x] x)
-    (if (=== (count fns) 1)
+    (if (nil? (seq (rest fns)))
       (first fns)
       (fn [& args]
         (let [reversed (reverse fns)
@@ -889,7 +990,7 @@
 
 // sort - Sort collection with optional comparator
 (fn sort [& args]
-  (if (=== (count args) 1)
+  (if (nil? (seq (rest args)))
     // Single arg: sort by natural order
     (let [arr (if (nil? (first args)) [] (js-call Array.from (first args)))]
       (js-call arr "sort" (fn [a b] (if (< a b) -1 (if (> a b) 1 0)))))
@@ -900,7 +1001,7 @@
 
 // sortBy - Sort collection by key function with optional comparator
 (fn sortBy [keyfn & args]
-  (if (=== (count args) 1)
+  (if (nil? (seq (rest args)))
     // Two args: sort by keyfn with natural order
     (let [arr (if (nil? (first args)) [] (js-call Array.from (first args)))]
       (js-call arr "sort"
@@ -911,6 +1012,166 @@
     (let [comp (first args)
           arr (if (nil? (second args)) [] (js-call Array.from (second args)))]
       (js-call arr "sort" (fn [a b] (comp (keyfn a) (keyfn b)))))))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 18: TRANSDUCERS (self-hosted)
+// Composable algorithmic transformations — protocol keys are plain strings
+// Note: We bind rf methods to locals to avoid transpiler issues with
+// ((js-get rf KEY) args) — use (let [fn (js-get rf KEY)] (fn args)) instead
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// mapT - Returns a mapping transducer
+(fn mapT [f]
+  (when (not (isFunction f))
+    (throw (js/TypeError "mapT: f must be a function")))
+  (fn [rf]
+    (let [rf-init (js-get rf TRANSDUCER_INIT)
+          rf-step (js-get rf TRANSDUCER_STEP)
+          rf-result (js-get rf TRANSDUCER_RESULT)]
+      (hash-map
+        TRANSDUCER_INIT (fn [] (rf-init))
+        TRANSDUCER_STEP (fn [result input] (rf-step result (f input)))
+        TRANSDUCER_RESULT (fn [result] (rf-result result))))))
+
+// filterT - Returns a filtering transducer
+(fn filterT [pred]
+  (when (not (isFunction pred))
+    (throw (js/TypeError "filterT: pred must be a function")))
+  (fn [rf]
+    (let [rf-init (js-get rf TRANSDUCER_INIT)
+          rf-step (js-get rf TRANSDUCER_STEP)
+          rf-result (js-get rf TRANSDUCER_RESULT)]
+      (hash-map
+        TRANSDUCER_INIT (fn [] (rf-init))
+        TRANSDUCER_STEP (fn [result input]
+          (if (pred input) (rf-step result input) result))
+        TRANSDUCER_RESULT (fn [result] (rf-result result))))))
+
+// takeT - Returns a take transducer (takes at most n elements)
+(fn takeT [n]
+  (when (or (not (=== (typeof n) "number")) (< n 0))
+    (throw (js/TypeError "takeT: n must be a non-negative number")))
+  (fn [rf]
+    (let [rf-init (js-get rf TRANSDUCER_INIT)
+          rf-step (js-get rf TRANSDUCER_STEP)
+          rf-result (js-get rf TRANSDUCER_RESULT)
+          state (hash-map "taken" 0)]
+      (hash-map
+        TRANSDUCER_INIT (fn [] (rf-init))
+        TRANSDUCER_STEP (fn [result input]
+          (if (< (js-get state "taken") n)
+            (do (js-set state "taken" (+ (js-get state "taken") 1))
+                (let [r (rf-step result input)]
+                  (if (>= (js-get state "taken") n) (ensureReduced r) r)))
+            (ensureReduced result)))
+        TRANSDUCER_RESULT (fn [result] (rf-result result))))))
+
+// dropT - Returns a drop transducer (drops first n elements)
+(fn dropT [n]
+  (when (or (not (=== (typeof n) "number")) (< n 0))
+    (throw (js/TypeError "dropT: n must be a non-negative number")))
+  (fn [rf]
+    (let [rf-init (js-get rf TRANSDUCER_INIT)
+          rf-step (js-get rf TRANSDUCER_STEP)
+          rf-result (js-get rf TRANSDUCER_RESULT)
+          state (hash-map "dropped" 0)]
+      (hash-map
+        TRANSDUCER_INIT (fn [] (rf-init))
+        TRANSDUCER_STEP (fn [result input]
+          (if (< (js-get state "dropped") n)
+            (do (js-set state "dropped" (+ (js-get state "dropped") 1))
+                result)
+            (rf-step result input)))
+        TRANSDUCER_RESULT (fn [result] (rf-result result))))))
+
+// takeWhileT - Returns a take-while transducer
+(fn takeWhileT [pred]
+  (when (not (isFunction pred))
+    (throw (js/TypeError "takeWhileT: pred must be a function")))
+  (fn [rf]
+    (let [rf-init (js-get rf TRANSDUCER_INIT)
+          rf-step (js-get rf TRANSDUCER_STEP)
+          rf-result (js-get rf TRANSDUCER_RESULT)]
+      (hash-map
+        TRANSDUCER_INIT (fn [] (rf-init))
+        TRANSDUCER_STEP (fn [result input]
+          (if (pred input) (rf-step result input) (reduced result)))
+        TRANSDUCER_RESULT (fn [result] (rf-result result))))))
+
+// dropWhileT - Returns a drop-while transducer
+(fn dropWhileT [pred]
+  (when (not (isFunction pred))
+    (throw (js/TypeError "dropWhileT: pred must be a function")))
+  (fn [rf]
+    (let [rf-init (js-get rf TRANSDUCER_INIT)
+          rf-step (js-get rf TRANSDUCER_STEP)
+          rf-result (js-get rf TRANSDUCER_RESULT)
+          state (hash-map "dropping" true)]
+      (hash-map
+        TRANSDUCER_INIT (fn [] (rf-init))
+        TRANSDUCER_STEP (fn [result input]
+          (if (js-get state "dropping")
+            (if (pred input)
+              result
+              (do (js-set state "dropping" false)
+                  (rf-step result input)))
+            (rf-step result input)))
+        TRANSDUCER_RESULT (fn [result] (rf-result result))))))
+
+// distinctT - Returns a distinct transducer (removes duplicates)
+(fn distinctT []
+  (fn [rf]
+    (let [rf-init (js-get rf TRANSDUCER_INIT)
+          rf-step (js-get rf TRANSDUCER_STEP)
+          rf-result (js-get rf TRANSDUCER_RESULT)
+          seen (js-new Set ())]
+      (hash-map
+        TRANSDUCER_INIT (fn [] (rf-init))
+        TRANSDUCER_STEP (fn [result input]
+          (if (js-call seen "has" input)
+            result
+            (do (js-call seen "add" input)
+                (rf-step result input))))
+        TRANSDUCER_RESULT (fn [result] (rf-result result))))))
+
+// partitionAllT - Returns a partition-all transducer
+(fn partitionAllT [n]
+  (when (or (not (=== (typeof n) "number")) (< n 1))
+    (throw (js/TypeError "partitionAllT: n must be a positive number")))
+  (fn [rf]
+    (let [rf-init (js-get rf TRANSDUCER_INIT)
+          rf-step (js-get rf TRANSDUCER_STEP)
+          rf-result (js-get rf TRANSDUCER_RESULT)
+          state (hash-map "buffer" [])]
+      (hash-map
+        TRANSDUCER_INIT (fn [] (rf-init))
+        TRANSDUCER_STEP (fn [result input]
+          (let [buf (js-get state "buffer")]
+            (js-call buf "push" input)
+            (if (=== (js-get buf "length") n)
+              (let [chunk buf]
+                (js-set state "buffer" [])
+                (rf-step result chunk))
+              result)))
+        TRANSDUCER_RESULT (fn [result]
+          (let [buf (js-get state "buffer")
+                res (if (> (js-get buf "length") 0)
+                      (let [r (rf-step result buf)]
+                        (js-set state "buffer" [])
+                        r)
+                      result)]
+            (rf-result (if (isReduced res) (js-get res "_val") res))))))))
+
+// composeTransducers - Compose multiple transducers left-to-right
+(fn composeTransducers [& xforms]
+  (if (nil? (seq xforms))
+    (fn [rf] rf)
+    (if (nil? (seq (rest xforms)))
+      (first xforms)
+      (fn [rf]
+        (reduce (fn [composed xf] (xf composed))
+                rf
+                (reverse xforms))))))
 
 // Export all functions
 (export [
@@ -966,7 +1227,7 @@
   abs, add, sub, mul, div, mod,
 
   // Variadic comparison (self-hosted)
-  lt, gt, lte, gte,
+  lt, gt, lte, gte, deepEq,
 
   // Symbol/Keyword/Name (self-hosted)
   symbol, keyword, name,
@@ -984,5 +1245,9 @@
   identity, constantly, vals, juxt, zipmap,
 
   // Delay/Force (explicit laziness)
-  force, isDelay
+  force, isDelay, realized,
+
+  // Transducers (self-hosted)
+  mapT, filterT, takeT, dropT, takeWhileT, dropWhileT,
+  distinctT, partitionAllT, composeTransducers
 ])

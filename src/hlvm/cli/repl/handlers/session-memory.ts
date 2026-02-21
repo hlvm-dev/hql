@@ -8,6 +8,8 @@
  * - init-event session_id capture logic
  */
 
+import { getPlatform } from "../../../../platform/platform.ts";
+
 export interface ParsedSessionMemoryMetadata {
   existingMeta: Record<string, unknown>;
   claudeCodeSessionId: string | null;
@@ -48,15 +50,61 @@ export function parseSessionMemoryMetadata(
 }
 
 /**
+ * Resolve the absolute path to the `claude` CLI binary.
+ * GUI-spawned processes don't inherit the user's shell PATH, so we probe
+ * known install locations before falling back to bare "claude" (PATH lookup).
+ */
+let _resolvedClaudePath: string | undefined;
+function resolveClaudeBinary(): string {
+  if (_resolvedClaudePath) return _resolvedClaudePath;
+
+  const platform = getPlatform();
+  const home = platform.env.get("HOME") ?? platform.env.get("USERPROFILE") ?? "";
+  const isWindows = platform.env.get("OS") === "Windows_NT"
+    || (platform.env.get("COMSPEC") ?? "").includes("cmd.exe");
+
+  const candidates: string[] = isWindows
+    ? [
+        `${home}\\.local\\bin\\claude.exe`,         // npm global (Windows)
+        `${platform.env.get("APPDATA") ?? ""}\\npm\\claude.cmd`,  // npm global (Windows alt)
+        `${platform.env.get("LOCALAPPDATA") ?? ""}\\Programs\\claude\\claude.exe`, // installer
+      ]
+    : [
+        `${home}/.local/bin/claude`,   // npm global (default on macOS/Linux)
+        "/usr/local/bin/claude",       // manual / symlink
+        "/opt/homebrew/bin/claude",    // Homebrew (macOS)
+      ];
+
+  for (const p of candidates) {
+    try {
+      const stat = platform.fs.statSync(p);
+      if (stat.isFile) {
+        _resolvedClaudePath = p;
+        return p;
+      }
+    } catch { /* not found, try next */ }
+  }
+
+  _resolvedClaudePath = "claude"; // fallback to PATH
+  return _resolvedClaudePath;
+}
+
+/** @internal Reset cached binary path (for tests only). */
+export function _resetClaudeBinaryCache(): void {
+  _resolvedClaudePath = undefined;
+}
+
+/**
  * Build Claude Code stream-json command with optional resume token.
  */
 export function buildClaudeCodeCommand(
   query: string,
   claudeCodeSessionId: string | null,
 ): string[] {
+  const bin = resolveClaudeBinary();
   return claudeCodeSessionId
-    ? ["claude", "--resume", claudeCodeSessionId, "-p", query, "--output-format", "stream-json", "--verbose"]
-    : ["claude", "-p", query, "--output-format", "stream-json", "--verbose"];
+    ? [bin, "--resume", claudeCodeSessionId, "-p", query, "--output-format", "stream-json", "--verbose"]
+    : [bin, "-p", query, "--output-format", "stream-json", "--verbose"];
 }
 
 /**

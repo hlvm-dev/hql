@@ -8,12 +8,13 @@
  * - init event session_id capture
  */
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assert } from "jsr:@std/assert";
 import {
   buildClaudeCodeCommand,
   captureSessionIdFromInitEvent,
   isSessionMemoryEnabled,
   parseSessionMemoryMetadata,
+  _resetClaudeBinaryCache,
 } from "../../../src/hlvm/cli/repl/handlers/session-memory.ts";
 
 // ============================================================
@@ -61,13 +62,18 @@ Deno.test("parseSessionMemoryMetadata - ignores non-string stored session id", (
 // ============================================================
 
 Deno.test("buildClaudeCodeCommand - fresh session (no --resume)", () => {
+  _resetClaudeBinaryCache();
   const cmd = buildClaudeCodeCommand("list files", null);
-  assertEquals(cmd, ["claude", "-p", "list files", "--output-format", "stream-json", "--verbose"]);
+  // Binary may be an absolute path (e.g. ~/.local/bin/claude) or bare "claude"
+  assert(cmd[0].endsWith("claude"), `expected binary ending with 'claude', got '${cmd[0]}'`);
+  assertEquals(cmd.slice(1), ["-p", "list files", "--output-format", "stream-json", "--verbose"]);
 });
 
 Deno.test("buildClaudeCodeCommand - resume with stored ID", () => {
+  _resetClaudeBinaryCache();
   const cmd = buildClaudeCodeCommand("delete the first one", "abc-123-uuid");
-  assertEquals(cmd, ["claude", "--resume", "abc-123-uuid", "-p", "delete the first one", "--output-format", "stream-json", "--verbose"]);
+  assert(cmd[0].endsWith("claude"), `expected binary ending with 'claude', got '${cmd[0]}'`);
+  assertEquals(cmd.slice(1), ["--resume", "abc-123-uuid", "-p", "delete the first one", "--output-format", "stream-json", "--verbose"]);
 });
 
 // ============================================================
