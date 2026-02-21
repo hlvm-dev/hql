@@ -6,6 +6,28 @@
 import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { startHttpServer } from "../../src/hlvm/cli/repl/http-server.ts";
 import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
+import { config } from "../../src/hlvm/api/config.ts";
+import type { AgentEngine, AgentLLMConfig } from "../../src/hlvm/agent/engine.ts";
+import { setAgentEngine } from "../../src/hlvm/agent/engine.ts";
+import type { Message as AgentMessage } from "../../src/hlvm/agent/context.ts";
+
+class IntegrationAgentEngine implements AgentEngine {
+  createLLM(config: AgentLLMConfig) {
+    return async () => {
+      const text = "integration-agent-ok";
+      config.onToken?.(text);
+      return {
+        content: text,
+        toolCalls: [],
+        usage: { inputTokens: 8, outputTokens: 4 },
+      };
+    };
+  }
+
+  createSummarizer(_model?: string) {
+    return async (_messages: AgentMessage[]) => "integration-summary";
+  }
+}
 
 interface ServerContext {
   baseUrl: string;
@@ -38,6 +60,14 @@ async function ensureServerRunning(): Promise<ServerContext> {
   Deno.env.set("HLVM_DISABLE_AI_AUTOSTART", "1"); // Prevent resource leaks
   Deno.env.set("HLVM_AUTH_TOKEN", authToken);
 
+  // Stabilize agent-mode integration tests without external LLM dependency.
+  setAgentEngine(new IntegrationAgentEngine());
+  await config.patch({
+    model: "ollama/llama3.2:1b",
+    modelConfigured: true,
+    agentMode: "hlvm",
+  });
+
   await initializeRuntime({ ai: true, stdlib: true, cache: true });
 
   // Start server in background (don't await - it runs forever)
@@ -54,6 +84,35 @@ async function ensureServerRunning(): Promise<ServerContext> {
 
   serverContext = { baseUrl, authToken };
   return serverContext;
+}
+
+async function postChatNdjson(body: unknown): Promise<{
+  status: number;
+  contentType: string;
+  events: Array<Record<string, unknown>>;
+}> {
+  const { baseUrl, authToken } = await ensureServerRunning();
+  const response = await fetch(`${baseUrl}/api/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const text = await response.text();
+  const events = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  return {
+    status: response.status,
+    contentType: response.headers.get("content-type") ?? "",
+    events,
+  };
 }
 
 async function evalCode(code: string): Promise<{
@@ -213,6 +272,38 @@ Deno.test({
     const callResult = await evalCode("(double 21)");
     assertEquals(callResult.success, true);
     assertEquals(callResult.value, "42");
+  },
+  sanitizeResources: false,
+  sanitizeOps: false,
+});
+
+Deno.test({
+  name: "POST /api/chat - agent mode streams NDJSON with start/token/complete",
+  async fn() {
+    const result = await postChatNdjson({
+      mode: "agent",
+      session_id: `integration-agent-${crypto.randomUUID()}`,
+      messages: [{ role: "user", content: "Say OK" }],
+    });
+
+    assertEquals(result.status, 200);
+    assertEquals(
+      result.contentType.includes("application/x-ndjson"),
+      true,
+    );
+    assertEquals(result.events.length > 0, true);
+    assertEquals(result.events[0]?.event, "start");
+    assertEquals(
+      result.events.some((e) =>
+        e.event === "token" && typeof e.text === "string" &&
+        String(e.text).includes("integration-agent-ok")
+      ),
+      true,
+    );
+    assertEquals(
+      result.events.some((e) => e.event === "complete"),
+      true,
+    );
   },
   sanitizeResources: false,
   sanitizeOps: false,

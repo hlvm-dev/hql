@@ -90,7 +90,11 @@ export class McpClient {
   /** Queue for server requests that arrived before a handler was registered.
    *  Only requests for deferrable methods (sampling, elicitation, roots) are queued;
    *  unknown methods still get an immediate -32601 error. */
-  private pendingServerRequests: { method: string; id: number; params: unknown }[] = [];
+  private pendingServerRequests: {
+    method: string;
+    id: number;
+    params: unknown;
+  }[] = [];
   /** Methods eligible for deferred handler registration */
   private static readonly DEFERRABLE_METHODS = new Set([
     "sampling/createMessage",
@@ -118,8 +122,12 @@ export class McpClient {
     this.requestHandlers.set(method, handler);
 
     // Replay queued requests for this method (handles race: server fired before handler registered)
-    const queued = this.pendingServerRequests.filter((r) => r.method === method);
-    this.pendingServerRequests = this.pendingServerRequests.filter((r) => r.method !== method);
+    const queued = this.pendingServerRequests.filter((r) =>
+      r.method === method
+    );
+    this.pendingServerRequests = this.pendingServerRequests.filter((r) =>
+      r.method !== method
+    );
     for (const req of queued) {
       handler(req.params)
         .then((result) => this.sendResponse(req.id, result).catch(() => {}))
@@ -144,7 +152,8 @@ export class McpClient {
           this.transport.start(),
           new Promise<never>((_, reject) => {
             timer = setTimeout(
-              () => reject(new ValidationError("Transport start timed out", "mcp")),
+              () =>
+                reject(new ValidationError("Transport start timed out", "mcp")),
               TRANSPORT_START_TIMEOUT_MS,
             );
           }),
@@ -200,7 +209,8 @@ export class McpClient {
             capabilities: caps,
           });
           this.extractCapabilities(fallbackResult);
-          const fallbackVersion = this.extractProtocolVersion(fallbackResult) ?? "2024-11-05";
+          const fallbackVersion = this.extractProtocolVersion(fallbackResult) ??
+            "2024-11-05";
           this.setTransportProtocolVersion(fallbackVersion);
           await this.notify("notifications/initialized", {});
         } catch (fallbackError) {
@@ -289,7 +299,7 @@ export class McpClient {
   // Tool Operations
   // ============================================================
 
-  async listTools(): Promise<McpToolInfo[]> {
+  listTools(): Promise<McpToolInfo[]> {
     return this.paginatedList("tools/list", "tools", isMcpToolInfo);
   }
 
@@ -304,7 +314,7 @@ export class McpClient {
   // Resource Operations
   // ============================================================
 
-  async listResources(): Promise<McpResourceInfo[]> {
+  listResources(): Promise<McpResourceInfo[]> {
     return this.paginatedList(
       "resources/list",
       "resources",
@@ -320,7 +330,7 @@ export class McpClient {
     return contents.filter(isMcpResourceContent);
   }
 
-  async listResourceTemplates(): Promise<McpResourceTemplate[]> {
+  listResourceTemplates(): Promise<McpResourceTemplate[]> {
     return this.paginatedList(
       "resources/templates/list",
       "resourceTemplates",
@@ -340,7 +350,7 @@ export class McpClient {
   // Prompt Operations
   // ============================================================
 
-  async listPrompts(): Promise<McpPromptInfo[]> {
+  listPrompts(): Promise<McpPromptInfo[]> {
     return this.paginatedList("prompts/list", "prompts", isMcpPromptInfo);
   }
 
@@ -508,7 +518,9 @@ export class McpClient {
         handler(msg.params)
           .then((result) => this.sendResponse(msg.id!, result).catch(() => {}))
           .catch((err) =>
-            this.sendError(msg.id!, -32603, getErrorMessage(err)).catch(() => {})
+            this.sendError(msg.id!, -32603, getErrorMessage(err)).catch(
+              () => {},
+            )
           );
       } else if (McpClient.DEFERRABLE_METHODS.has(msg.method!)) {
         // Queue deferrable requests — handler may be registered later via onRequest()
@@ -536,7 +548,9 @@ export class McpClient {
           handler(msg.params);
         } catch (err) {
           getAgentLogger().warn(
-            `MCP notification handler error (${msg.method}): ${getErrorMessage(err)}`,
+            `MCP notification handler error (${msg.method}): ${
+              getErrorMessage(err)
+            }`,
           );
         }
       }

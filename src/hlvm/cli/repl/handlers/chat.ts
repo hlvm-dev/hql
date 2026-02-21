@@ -27,6 +27,7 @@ import { autoConfigureInitialClaudeCodeModel } from "../../../../common/ai-defau
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
 import type { InteractionResponse } from "../../../agent/orchestrator.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
+import { RuntimeError, ValidationError } from "../../../../common/error.ts";
 import { classifyError } from "../../../agent/error-taxonomy.ts";
 import { log } from "../../../api/log.ts";
 import {
@@ -759,7 +760,12 @@ export async function handleChat(req: Request): Promise<Response> {
             emit({ event: "token", text: `Error: ${errorMsg}` });
           }
           const classified = classifyError(error);
-          emit({ event: "error", message: errorMsg, errorClass: classified.class, retryable: classified.retryable });
+          emit({
+            event: "error",
+            message: errorMsg,
+            errorClass: classified.class,
+            retryable: classified.retryable,
+          });
         }
       }
 
@@ -1085,7 +1091,10 @@ async function handleClaudeCodeAgentMode(
   const query = lastUserMessage?.content ?? "";
 
   if (!query.trim()) {
-    throw new Error("Empty query for Claude Code agent");
+    throw new ValidationError(
+      "Empty query for Claude Code agent",
+      "claude_code_agent_mode",
+    );
   }
 
   const cfgSnapshot = config.snapshot;
@@ -1137,10 +1146,12 @@ async function handleClaudeCodeAgentMode(
         onPartial,
       );
       if (!retryResult.success && !signal.aborted) {
-        throw new Error(retryResult.error ?? "Claude Code failed after retry");
+        throw new RuntimeError(
+          retryResult.error ?? "Claude Code failed after retry",
+        );
       }
     } else {
-      throw new Error(result.error ?? "Claude Code failed");
+      throw new RuntimeError(result.error ?? "Claude Code failed");
     }
   }
 }

@@ -8,13 +8,14 @@
  * - Result truncation for large outputs
  *
  * Features:
- * - Simple token estimation (chars / 4)
+ * - Shared token estimation via common/token-utils SSOT
  * - Automatic context trimming
  * - Message type tracking
  * - SSOT-compliant implementation
  */
 
 import { DEFAULT_CONTEXT_CONFIG } from "./constants.ts";
+import { estimateTokensFromCharCount } from "../../common/token-utils.ts";
 import { truncate, truncateMiddle } from "../../common/utils.ts";
 // ============================================================
 // Types
@@ -89,6 +90,8 @@ export interface ContextConfig {
   llmSummarize?: (messages: Message[]) => Promise<string>;
   /** Fraction of maxTokens at which to trigger proactive compaction (default: 0.8) */
   compactionThreshold: number;
+  /** Optional model key for model-scoped token estimation calibration */
+  modelKey?: string;
 }
 
 /** Error thrown when context exceeds maxTokens in fail mode */
@@ -169,9 +172,9 @@ export class ContextManager {
     const toolCallChars = estimateToolCallChars(messageWithTimestamp);
 
     if (this.config.overflowStrategy === "fail") {
-      const projectedTokens = Math.ceil(
-        (this.totalChars + messageWithTimestamp.content.length +
-          toolCallChars) / 4,
+      const projectedTokens = estimateTokensFromCharCount(
+        this.totalChars + messageWithTimestamp.content.length + toolCallChars,
+        this.config.modelKey,
       );
       if (projectedTokens > this.config.maxTokens) {
         throw new ContextOverflowError(
@@ -348,7 +351,7 @@ export class ContextManager {
    * @returns Estimated token count
    */
   estimateTokens(): number {
-    return Math.ceil(this.totalChars / 4);
+    return estimateTokensFromCharCount(this.totalChars, this.config.modelKey);
   }
 
   /**
@@ -409,12 +412,18 @@ export class ContextManager {
         systemChars += m.content.length + estimateToolCallChars(m);
       }
     }
-    const systemTokens = Math.ceil(systemChars / 4);
+    const systemTokens = estimateTokensFromCharCount(
+      systemChars,
+      this.config.modelKey,
+    );
     let nonSystemChars = 0;
     for (const m of nonSystemMessages) {
       nonSystemChars += m.content.length + estimateToolCallChars(m);
     }
-    let nonSystemTokens = Math.ceil(nonSystemChars / 4);
+    let nonSystemTokens = estimateTokensFromCharCount(
+      nonSystemChars,
+      this.config.modelKey,
+    );
     const maxTrim = nonSystemMessages.length - this.config.minMessages;
     let startIdx = 0;
 
@@ -423,8 +432,9 @@ export class ContextManager {
       (systemTokens + nonSystemTokens) > this.config.maxTokens
     ) {
       const msg = nonSystemMessages[startIdx];
-      nonSystemTokens -= Math.ceil(
-        (msg.content.length + estimateToolCallChars(msg)) / 4,
+      nonSystemTokens -= estimateTokensFromCharCount(
+        msg.content.length + estimateToolCallChars(msg),
+        this.config.modelKey,
       );
       startIdx++;
     }

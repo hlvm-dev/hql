@@ -55,6 +55,8 @@ import { getAgentLogger } from "./logger.ts";
 import type { AgentPolicy } from "./policy.ts";
 import {
   estimateUsage,
+  getMessageCharCount,
+  observeTokenUsage,
   type TokenUsage,
   toTokenUsage,
   UsageTracker,
@@ -557,6 +559,8 @@ export interface OrchestratorConfig {
   skipModelCompensation?: boolean;
   /** Model tier for mid-conversation reminders */
   modelTier?: ModelTier;
+  /** Optional model id for model-scoped token estimation calibration */
+  modelId?: string;
   /** External abort signal (from HTTP request cancellation) */
   signal?: AbortSignal;
 }
@@ -933,11 +937,9 @@ export async function executeToolCalls(
 
   // Parallel execution (default): run all calls concurrently
   const promises = toolCalls.map((call, i): Promise<ToolExecutionResult> => {
-    return (async () => {
-      const rateLimited = checkRateLimit();
-      if (rateLimited) return rateLimited;
-      return executeToolCall(call, config, i, total);
-    })();
+    const rateLimited = checkRateLimit();
+    if (rateLimited) return Promise.resolve(rateLimited);
+    return executeToolCall(call, config, i, total);
   });
   return Promise.all(promises);
 }
@@ -1723,7 +1725,11 @@ async function handlePostToolExecution(
 // ============================================================
 
 /** @internal Exported for unit testing */
-export const WEB_TOOL_NAMES = new Set(["web_fetch", "search_web", "web_browse"]);
+export const WEB_TOOL_NAMES = new Set([
+  "web_fetch",
+  "search_web",
+  "web_browse",
+]);
 
 /**
  * Inject a plain system reminder if conditions are met.
@@ -1930,7 +1936,6 @@ export async function runReActLoop(
       const messages = context.getMessages();
       onTrace?.({ type: "llm_call", messageCount: messages.length });
 
-      const llmStart = Date.now();
       const agentResponse = await callLLMWithRetry(
         llmFunction,
         messages,
@@ -1942,7 +1947,6 @@ export async function runReActLoop(
         onTrace,
         context,
       );
-      const llmDuration = Date.now() - llmStart;
 
       const responseText = agentResponse.content ?? "";
       if (responseText) state.lastResponse = responseText;
@@ -1950,8 +1954,20 @@ export async function runReActLoop(
 
       const usage = agentResponse.usage
         ? toTokenUsage(agentResponse.usage)
-        : estimateUsage(messages, responseText);
+        : estimateUsage(messages, responseText, config.modelId);
       state.usageTracker.record(usage);
+      if (agentResponse.usage) {
+        observeTokenUsage(
+          getMessageCharCount(messages),
+          agentResponse.usage.inputTokens,
+          config.modelId,
+        );
+        observeTokenUsage(
+          responseText.length,
+          agentResponse.usage.outputTokens,
+          config.modelId,
+        );
+      }
       onTrace?.({ type: "llm_usage", usage });
       onTrace?.({
         type: "llm_response",

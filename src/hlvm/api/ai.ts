@@ -31,10 +31,22 @@ import { RuntimeError, ValidationError } from "../../common/error.ts";
 /** Provider-level metadata exposed to GUI thin clients (SSOT). */
 const PROVIDER_META: Record<string, { subtitle?: string; docsUrl?: string }> = {
   ollama: { subtitle: "Local models", docsUrl: "https://ollama.com/library" },
-  anthropic: { subtitle: "Claude AI models", docsUrl: "https://docs.anthropic.com/en/docs/about-claude/models" },
-  openai: { subtitle: "GPT models", docsUrl: "https://platform.openai.com/docs/models" },
-  google: { subtitle: "Gemini models", docsUrl: "https://ai.google.dev/gemini-api/docs/models" },
-  "claude-code": { subtitle: "Claude AI models (Max)", docsUrl: "https://docs.anthropic.com/en/docs/about-claude/models" },
+  anthropic: {
+    subtitle: "Claude AI models",
+    docsUrl: "https://docs.anthropic.com/en/docs/about-claude/models",
+  },
+  openai: {
+    subtitle: "GPT models",
+    docsUrl: "https://platform.openai.com/docs/models",
+  },
+  google: {
+    subtitle: "Gemini models",
+    docsUrl: "https://ai.google.dev/gemini-api/docs/models",
+  },
+  "claude-code": {
+    subtitle: "Claude AI models (Max)",
+    docsUrl: "https://docs.anthropic.com/en/docs/about-claude/models",
+  },
 };
 
 // ============================================================================
@@ -110,14 +122,12 @@ function createAiApi() {
 
   /**
    * Normalize API options into provider-ready options.
-   * Keeps top-level `signal` passthrough for compatibility while
-   * also mapping it to provider `raw.signal`.
+   * Keeps top-level `signal` passthrough and preserves raw provider options.
    */
   function toProviderOptions<T extends ProviderRequestOptions>(options?: T): T {
     return {
       ...options,
       model: resolveModelName(options?.model),
-      raw: { ...(options?.raw ?? {}), ...(options?.signal ? { signal: options.signal } : {}) },
     } as T;
   }
 
@@ -227,7 +237,9 @@ function createAiApi() {
                   providerDisplayName: provider.displayName ?? name,
                   apiKeyConfigured: provider.apiKeyConfigured,
                   ...(isCloud ? { cloud: true } : {}),
-                  ...(meta?.subtitle ? { providerSubtitle: meta.subtitle } : {}),
+                  ...(meta?.subtitle
+                    ? { providerSubtitle: meta.subtitle }
+                    : {}),
                   ...(meta?.docsUrl ? { providerDocsUrl: meta.docsUrl } : {}),
                 },
               }));

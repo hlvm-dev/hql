@@ -10,6 +10,7 @@
  */
 
 import type { ModelInfo, ProviderCapability } from "./types.ts";
+import { http } from "../../common/http-client.ts";
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
@@ -59,12 +60,12 @@ function isCacheValid(): boolean {
  * Results are cached in memory for 1 hour.
  * Returns empty array on network failure (never throws).
  */
-export async function fetchPublicCatalog(): Promise<ModelInfo[]> {
+async function fetchPublicCatalog(): Promise<ModelInfo[]> {
   if (isCacheValid()) return cachedModels!;
 
   try {
-    const response = await fetch(OPENROUTER_MODELS_URL, {
-      signal: AbortSignal.timeout(10_000),
+    const response = await http.fetchRaw(OPENROUTER_MODELS_URL, {
+      timeout: 10_000,
     });
     if (!response.ok) return cachedModels ?? [];
 
@@ -90,7 +91,9 @@ export async function fetchPublicModelsForProvider(
 
   const all = await fetchPublicCatalog();
   return all
-    .filter((m) => (m.metadata?.openRouterId as string | undefined)?.startsWith(prefix))
+    .filter((m) =>
+      (m.metadata?.openRouterId as string | undefined)?.startsWith(prefix)
+    )
     .map((m) => ({
       ...m,
       // Strip provider prefix: "anthropic/claude-sonnet-4.6" → "claude-sonnet-4.6"
@@ -106,7 +109,9 @@ export async function fetchPublicModelsForProvider(
 function toModelInfo(m: OpenRouterModel): ModelInfo {
   const capabilities: ProviderCapability[] = ["chat"];
   if (m.supported_parameters?.includes("tools")) capabilities.push("tools");
-  if (m.architecture?.input_modalities?.includes("image")) capabilities.push("vision");
+  if (m.architecture?.input_modalities?.includes("image")) {
+    capabilities.push("vision");
+  }
 
   // Extract provider-native model ID from OpenRouter ID
   // e.g., "anthropic/claude-sonnet-4.6" → "claude-sonnet-4.6"
@@ -119,7 +124,9 @@ function toModelInfo(m: OpenRouterModel): ModelInfo {
 
   return {
     name: nativeId,
-    displayName: m.name.includes(":") ? m.name.split(": ")[1] ?? m.name : m.name,
+    displayName: m.name.includes(":")
+      ? m.name.split(": ")[1] ?? m.name
+      : m.name,
     family,
     capabilities,
     contextWindow: m.context_length,

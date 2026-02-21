@@ -13,7 +13,6 @@ export const createGoogleProvider = createCloudProvider({
   noModelsError: "No Google models available. Check your API key or network.",
   publicCatalogProvider: "google",
   createApi: (apiKey) => ({
-    chatStructured: (ep, model, msgs, opts, sig) => api.chatStructured(ep, model, msgs, apiKey, opts, sig),
     listModels: (ep) => api.listModels(ep, apiKey),
     checkStatus: (ep) => api.checkStatus(ep, apiKey),
   }),

@@ -1,29 +1,14 @@
 /**
- * Anthropic Messages API
+ * Anthropic Models/Status API
  *
- * Low-level HTTP calls to the Anthropic API.
- * Auth: x-api-key header. Shared logic in ./shared.ts.
+ * Chat/generate runtime now routes through shared SDK runtime.
+ * This module keeps only provider-specific model discovery and status checks.
  */
 
-import {
-  JSON_HEADERS,
-  requireApiKey,
-  throwOnHttpError,
-} from "../common.ts";
+import { JSON_HEADERS } from "../common.ts";
+import { http } from "../../../common/http-client.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
-import type {
-  ChatOptions,
-  ChatStructuredResponse,
-  Message,
-  ModelInfo,
-  ProviderStatus,
-} from "../types.ts";
-import {
-  type AnthropicResponse,
-  buildRequestBody,
-  buildResponse,
-  streamChat,
-} from "./shared.ts";
+import type { ModelInfo, ProviderStatus } from "../types.ts";
 
 export const ANTHROPIC_VERSION = "2023-06-01";
 
@@ -34,45 +19,6 @@ function authHeaders(apiKey: string): Record<string, string> {
     "anthropic-version": ANTHROPIC_VERSION,
   };
 }
-
-// =============================================================================
-// API Functions
-// =============================================================================
-
-export async function chatStructured(
-  endpoint: string,
-  model: string,
-  messages: Message[],
-  apiKey: string,
-  options?: ChatOptions,
-  signal?: AbortSignal,
-): Promise<ChatStructuredResponse> {
-  requireApiKey(apiKey, "Anthropic");
-  const { body, useStreaming } = buildRequestBody(model, messages, options);
-
-  if (useStreaming) {
-    return streamChat(endpoint, body, authHeaders(apiKey), options!.onToken!, "Anthropic", signal);
-  }
-
-  const url = `${endpoint}/v1/messages`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: authHeaders(apiKey),
-    body: JSON.stringify(body),
-    signal,
-  });
-
-  if (!response.ok) {
-    await throwOnHttpError(response, "Anthropic");
-  }
-
-  const result = await response.json() as AnthropicResponse;
-  return buildResponse(result);
-}
-
-// =============================================================================
-// Models
-// =============================================================================
 
 /** Anthropic model listing response */
 interface AnthropicModelEntry {
@@ -91,9 +37,9 @@ export async function listModels(
   apiKey: string,
 ): Promise<ModelInfo[]> {
   const url = `${endpoint}/v1/models?limit=100`;
-  const response = await fetch(url, {
+  const response = await http.fetchRaw(url, {
     headers: authHeaders(apiKey),
-    signal: AbortSignal.timeout(8_000),
+    timeout: 8_000,
   });
   if (!response.ok) return [];
 
@@ -108,10 +54,6 @@ export async function listModels(
     }));
 }
 
-// =============================================================================
-// Status
-// =============================================================================
-
 export async function checkStatus(
   endpoint: string,
   apiKey: string,
@@ -119,7 +61,10 @@ export async function checkStatus(
   try {
     // Use model-agnostic endpoint — no hardcoded model IDs
     const url = `${endpoint}/v1/models?limit=1`;
-    const response = await fetch(url, { headers: authHeaders(apiKey) });
+    const response = await http.fetchRaw(url, {
+      headers: authHeaders(apiKey),
+      timeout: 8_000,
+    });
     return {
       available: response.status !== 401,
       error: response.status === 401 ? "Invalid API key" : undefined,
@@ -131,4 +76,3 @@ export async function checkStatus(
     };
   }
 }
-

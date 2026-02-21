@@ -13,7 +13,6 @@ export const createAnthropicProvider = createCloudProvider({
   noModelsError: "No Anthropic models available. Check your API key or network.",
   publicCatalogProvider: "anthropic",
   createApi: (apiKey) => ({
-    chatStructured: (ep, model, msgs, opts, sig) => api.chatStructured(ep, model, msgs, apiKey, opts, sig),
     listModels: (ep) => api.listModels(ep, apiKey),
     checkStatus: (ep) => api.checkStatus(ep, apiKey),
   }),

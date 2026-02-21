@@ -13,10 +13,8 @@
 
 import { ContextManager } from "../src/hlvm/agent/context.ts";
 import { runReActLoop } from "../src/hlvm/agent/orchestrator.ts";
-import {
-  createAgentLLM,
-  generateSystemPrompt,
-} from "../src/hlvm/agent/llm-integration.ts";
+import { generateSystemPrompt } from "../src/hlvm/agent/llm-integration.ts";
+import { getAgentEngine } from "../src/hlvm/agent/engine.ts";
 
 // ============================================================
 // Configuration
@@ -52,7 +50,7 @@ async function runDemo(task: string) {
   });
 
   // Create LLM function
-  const llm = createAgentLLM({ model: MODEL });
+  const llm = getAgentEngine().createLLM({ model: MODEL });
 
   try {
     // Run agent

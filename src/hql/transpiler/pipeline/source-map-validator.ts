@@ -29,6 +29,13 @@ for (let i = 0; i < BASE64_CHARS.length; i++) {
   BASE64_MAP.set(BASE64_CHARS[i], i);
 }
 
+class SourceMapValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SourceMapValidationError";
+  }
+}
+
 /**
  * Decode a Base64 VLQ encoded string into an array of integers.
  *
@@ -46,7 +53,9 @@ export function decodeVLQ(input: string): number[] {
     const char = input[i];
     const digit = BASE64_MAP.get(char);
     if (digit === undefined) {
-      throw new Error(`Invalid Base64 VLQ character: '${char}' at position ${i}`);
+      throw new SourceMapValidationError(
+        `Invalid Base64 VLQ character: '${char}' at position ${i}`,
+      );
     }
 
     const hasContinuation = (digit & 0x20) !== 0;
@@ -64,7 +73,9 @@ export function decodeVLQ(input: string): number[] {
   }
 
   if (shift > 0) {
-    throw new Error("Truncated VLQ value: unexpected end of input");
+    throw new SourceMapValidationError(
+      "Truncated VLQ value: unexpected end of input",
+    );
   }
 
   return result;
@@ -79,7 +90,11 @@ export function validateSourceMap(map: unknown): ValidationResult {
 
   // 1. Must be an object
   if (map === null || typeof map !== "object" || Array.isArray(map)) {
-    return { valid: false, errors: ["Source map must be a non-null object"], warnings };
+    return {
+      valid: false,
+      errors: ["Source map must be a non-null object"],
+      warnings,
+    };
   }
 
   const obj = map as Record<string, unknown>;
@@ -153,7 +168,9 @@ export function validateSourceMap(map: unknown): ValidationResult {
       // Valid segment lengths: 1, 4, or 5
       if (fields.length !== 1 && fields.length !== 4 && fields.length !== 5) {
         errors.push(
-          `Line ${lineIdx + 1}, segment ${segIdx + 1}: invalid field count ${fields.length} (expected 1, 4, or 5)`
+          `Line ${lineIdx + 1}, segment ${
+            segIdx + 1
+          }: invalid field count ${fields.length} (expected 1, 4, or 5)`,
         );
         continue;
       }
@@ -164,7 +181,9 @@ export function validateSourceMap(map: unknown): ValidationResult {
       if (generatedColumn < prevGeneratedColumn && fields[0] < 0) {
         // A negative offset that causes a decrease
         errors.push(
-          `Line ${lineIdx + 1}, segment ${segIdx + 1}: generated column is not monotonically non-decreasing`
+          `Line ${lineIdx + 1}, segment ${
+            segIdx + 1
+          }: generated column is not monotonically non-decreasing`,
         );
       }
       prevGeneratedColumn = generatedColumn;
@@ -183,7 +202,9 @@ export function validateSourceMap(map: unknown): ValidationResult {
         // when name references are present
         if (names.length === 0) {
           errors.push(
-            `Line ${lineIdx + 1}, segment ${segIdx + 1}: segment references names but names array is empty`
+            `Line ${lineIdx + 1}, segment ${
+              segIdx + 1
+            }: segment references names but names array is empty`,
           );
         }
       }
@@ -199,7 +220,7 @@ export function validateSourceMap(map: unknown): ValidationResult {
       errors.push("'sourcesContent' must be an array");
     } else if (obj.sourcesContent.length !== sources.length) {
       warnings.push(
-        `'sourcesContent' length (${obj.sourcesContent.length}) does not match 'sources' length (${sources.length})`
+        `'sourcesContent' length (${obj.sourcesContent.length}) does not match 'sources' length (${sources.length})`,
       );
     }
   } else {
@@ -242,7 +263,9 @@ function validateMappingIndices(
         absoluteSourceIndex += fields[1];
         if (absoluteSourceIndex < 0 || absoluteSourceIndex >= sourceCount) {
           errors.push(
-            `Line ${lineIdx + 1}, segment ${segIdx + 1}: source index ${absoluteSourceIndex} out of bounds (sources has ${sourceCount} entries)`
+            `Line ${lineIdx + 1}, segment ${
+              segIdx + 1
+            }: source index ${absoluteSourceIndex} out of bounds (sources has ${sourceCount} entries)`,
           );
         }
       }
@@ -251,7 +274,9 @@ function validateMappingIndices(
         absoluteNameIndex += fields[4];
         if (absoluteNameIndex < 0 || absoluteNameIndex >= nameCount) {
           errors.push(
-            `Line ${lineIdx + 1}, segment ${segIdx + 1}: name index ${absoluteNameIndex} out of bounds (names has ${nameCount} entries)`
+            `Line ${lineIdx + 1}, segment ${
+              segIdx + 1
+            }: name index ${absoluteNameIndex} out of bounds (names has ${nameCount} entries)`,
           );
         }
       }

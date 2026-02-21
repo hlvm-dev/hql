@@ -3,10 +3,17 @@
  *
  * Tracks prompt/completion token usage per run.
  * Uses provider-reported usage if available, otherwise falls back
- * to SSOT estimation (chars/4).
+ * to SSOT estimation (adaptive chars/token).
  */
 
-import { estimateTokensFromMessages, estimateTokensFromText } from "../../common/token-utils.ts";
+import {
+  estimateTokensFromMessages,
+  estimateTokensFromText,
+} from "../../common/token-utils.ts";
+export {
+  getMessageCharCount,
+  observeTokenUsage,
+} from "../../common/token-utils.ts";
 import type { Message } from "./context.ts";
 
 type TokenUsageSource = "provider" | "estimated";
@@ -75,9 +82,10 @@ export function toTokenUsage(
 export function estimateUsage(
   promptMessages: Message[],
   completion: string,
+  modelKey?: string,
 ): TokenUsage {
-  const promptTokens = estimateTokensFromMessages(promptMessages);
-  const completionTokens = estimateTokensFromText(completion);
+  const promptTokens = estimateTokensFromMessages(promptMessages, modelKey);
+  const completionTokens = estimateTokensFromText(completion, modelKey);
   return {
     promptTokens,
     completionTokens,

@@ -45,6 +45,7 @@ export {
   registerProvider,
   getProvider,
   getDefaultProvider,
+  getProviderDefaultConfig,
   setDefaultProvider,
   hasProvider,
   parseModelString,

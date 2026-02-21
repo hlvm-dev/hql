@@ -543,8 +543,14 @@ if (isLiveMode) {
           return;
         }
 
-        const { createAgentLLM, generateSystemPrompt: genPrompt } =
+        const { generateSystemPrompt: genPrompt } =
           await import("../../src/hlvm/agent/llm-integration.ts");
+        const { SdkAgentEngine } = await import(
+          "../../src/hlvm/agent/engine-sdk.ts"
+        );
+        const { getConfiguredModel } = await import(
+          "../../src/common/ai-default-model.ts"
+        );
 
         const context = new ContextManager({
           maxTokens: 8000,
@@ -561,7 +567,9 @@ if (isLiveMode) {
 
         const platform = getPlatform();
         const workspace = platform.process.cwd();
-        const llm = await createAgentLLM();
+        const llm = new SdkAgentEngine().createLLM({
+          model: getConfiguredModel(),
+        });
 
         const result = await runReActLoop(
           liveCase.query,

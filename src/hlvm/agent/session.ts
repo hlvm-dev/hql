@@ -12,8 +12,6 @@
 
 import { ContextManager } from "./context.ts";
 import {
-  createAgentLLM,
-  createSummarizationFn,
   generateSystemPrompt,
 } from "./llm-integration.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
@@ -29,13 +27,14 @@ import {
   loadMcpTools,
   type McpHandlers,
   resolveBuiltinMcpServers,
-} from "./mcp.ts";
+} from "./mcp/mod.ts";
 import { getAgentLogger } from "./logger.ts";
 import { ValidationError } from "../../common/error.ts";
 import { generateUUID } from "../../common/utils.ts";
 import { resolveContextBudget, type ResolvedBudget } from "./context-resolver.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { type AgentEngine, getAgentEngine } from "./engine.ts";
 
 export interface AgentSessionOptions {
   workspace: string;
@@ -55,6 +54,8 @@ export interface AgentSessionOptions {
   modelInfo?: ModelInfo | null;
   /** Custom instructions from ~/.hlvm/prompt.md */
   customInstructions?: string;
+  /** Override the LLM engine (defaults to getAgentEngine()) */
+  engine?: AgentEngine;
 }
 
 export interface AgentSession {
@@ -80,6 +81,8 @@ export interface AgentSession {
     toolOwnerId?: string;
     temperature?: number;
   };
+  /** The engine used for LLM creation (for rebuilding in reuseSession) */
+  engine?: AgentEngine;
   /** Deferred MCP handler registration (sampling, elicitation, roots) */
   mcpSetHandlers?: (handlers: McpHandlers) => void;
   /** Wire an AbortSignal to cancel all pending MCP requests */
@@ -207,12 +210,16 @@ export async function createAgentSession(
 
   const contextConfig: Record<string, unknown> = { ...profile.context };
   contextConfig.maxTokens = resolved.budget;
+  if (options.model) {
+    contextConfig.modelKey = options.model;
+  }
   if (options.failOnContextOverflow) {
     contextConfig.overflowStrategy = "fail";
   }
   // Wire LLM-powered summarization for context compaction (only for live models)
+  const engine = options.engine ?? getAgentEngine();
   if (!options.fixturePath && options.model) {
-    contextConfig.llmSummarize = createSummarizationFn(options.model);
+    contextConfig.llmSummarize = engine.createSummarizer(options.model);
   }
 
   const isFrontier = isFrontierProvider(options.model);
@@ -233,7 +240,7 @@ export async function createAgentSession(
 
   const llm = options.fixturePath
     ? createFixtureLLM(await loadLlmFixture(options.fixturePath))
-    : createAgentLLM({
+    : engine.createLLM({
       model: options.model ?? (() => {
         throw new ValidationError(
           "Model is required when no fixture is provided",
@@ -269,6 +276,7 @@ export async function createAgentSession(
     modelTier,
     resolvedContextBudget: resolved,
     llmConfig,
+    engine,
     mcpSetHandlers: mcp.setHandlers,
     mcpSetSignal: mcp.setSignal,
   };

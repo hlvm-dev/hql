@@ -21,16 +21,15 @@ import {
   dedupeServers,
   loadMcpConfig,
   loadMcpConfigMultiScope,
-  resolveBuiltinMcpServers,
 } from "./config.ts";
 import { createTransport } from "./transport.ts";
 import type {
   McpConnectedServer,
+  McpElicitationRequest,
   McpHandlers,
   McpLoadResult,
   McpPromptMessage,
   McpSamplingRequest,
-  McpElicitationRequest,
   McpServerConfig,
   McpToolInfo,
 } from "./types.ts";
@@ -40,17 +39,45 @@ import type {
 // ============================================================
 
 const MCP_READ_ONLY_HINTS = [
-  /\bread\b/, /\blist\b/, /\bget\b/, /\bfetch\b/, /\bsearch\b/,
-  /\bfind\b/, /\bquery\b/, /\binspect\b/, /\bdescribe\b/, /\bstatus\b/,
-  /\brender\b/, /\bscreenshot\b/, /\becho\b/,
+  /\bread\b/,
+  /\blist\b/,
+  /\bget\b/,
+  /\bfetch\b/,
+  /\bsearch\b/,
+  /\bfind\b/,
+  /\bquery\b/,
+  /\binspect\b/,
+  /\bdescribe\b/,
+  /\bstatus\b/,
+  /\brender\b/,
+  /\bscreenshot\b/,
+  /\becho\b/,
 ];
 
 const MCP_MUTATING_HINTS = [
-  /\bwrite\b/, /\bcreate\b/, /\bupdate\b/, /\bdelete\b/, /\bremove\b/,
-  /\bdestroy\b/, /\bdrop\b/, /\binsert\b/, /\bmodify\b/, /\bpost\b/,
-  /\bput\b/, /\bpatch\b/, /\bsend\b/, /\bexecute\b/, /\brun\b/,
-  /\bstart\b/, /\bstop\b/, /\bkill\b/, /\brestart\b/, /\bclick\b/,
-  /\btype\b/, /\bpress\b/, /\bsubmit\b/,
+  /\bwrite\b/,
+  /\bcreate\b/,
+  /\bupdate\b/,
+  /\bdelete\b/,
+  /\bremove\b/,
+  /\bdestroy\b/,
+  /\bdrop\b/,
+  /\binsert\b/,
+  /\bmodify\b/,
+  /\bpost\b/,
+  /\bput\b/,
+  /\bpatch\b/,
+  /\bsend\b/,
+  /\bexecute\b/,
+  /\brun\b/,
+  /\bstart\b/,
+  /\bstop\b/,
+  /\bkill\b/,
+  /\brestart\b/,
+  /\bclick\b/,
+  /\btype\b/,
+  /\bpress\b/,
+  /\bsubmit\b/,
 ];
 
 export function inferMcpSafetyLevel(
@@ -134,7 +161,6 @@ function formatPromptMessages(messages: McpPromptMessage[]): string {
 
 function buildToolEntry(
   client: McpClient,
-  server: McpServerConfig,
   tool: McpToolInfo,
 ): ToolMetadata {
   const argsSchema = buildArgsSchema(tool.inputSchema);
@@ -179,7 +205,7 @@ function registerNotificationHandlers(
         const newNames = new Set<string>();
         for (const tool of newTools) {
           const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
-          entries[name] = buildToolEntry(client, server, tool);
+          entries[name] = buildToolEntry(client, tool);
           newNames.add(name);
         }
         // Unregister tools that were removed from the server
@@ -267,7 +293,7 @@ function registerNotificationHandlers(
   );
 
   // Server ping requests
-  client.onRequest("ping", async () => ({}));
+  client.onRequest("ping", async () => await Promise.resolve({}));
 }
 
 // ============================================================
@@ -328,11 +354,16 @@ export async function loadMcpTools(
       const serverToolNames = new Set<string>();
       for (const tool of tools) {
         const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
-        entries[name] = buildToolEntry(client, server, tool);
+        entries[name] = buildToolEntry(client, tool);
         serverToolNames.add(name);
       }
 
-      registerNotificationHandlers(client, server, registrationOwnerId, serverToolNames);
+      registerNotificationHandlers(
+        client,
+        server,
+        registrationOwnerId,
+        serverToolNames,
+      );
 
       // Conditionally register resource tools
       if (client.hasCapability("resources")) {
@@ -341,7 +372,8 @@ export async function loadMcpTools(
             const resources = await client.listResources();
             return { resources };
           },
-          description: `List available resources from MCP server '${server.name}'`,
+          description:
+            `List available resources from MCP server '${server.name}'`,
           args: {},
           skipValidation: true,
           safetyLevel: "L0",
@@ -374,7 +406,8 @@ export async function loadMcpTools(
             const prompts = await client.listPrompts();
             return { prompts };
           },
-          description: `List available prompts from MCP server '${server.name}'`,
+          description:
+            `List available prompts from MCP server '${server.name}'`,
           args: {},
           skipValidation: true,
           safetyLevel: "L0",
@@ -443,9 +476,13 @@ export async function loadMcpTools(
       }
       if (handlers.roots && handlers.roots.length > 0) {
         const roots = handlers.roots;
-        client.onRequest("roots/list", async () => ({
-          roots: roots.map((uri) => ({ uri })),
-        }));
+        client.onRequest(
+          "roots/list",
+          async () =>
+            await Promise.resolve({
+              roots: roots.map((uri) => ({ uri })),
+            }),
+        );
       }
     }
   };

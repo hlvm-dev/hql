@@ -8,7 +8,6 @@
 import type {
   AIProvider,
   ChatOptions,
-  ChatStructuredResponse,
   GenerateOptions,
   Message,
   ModelInfo,
@@ -17,12 +16,18 @@ import type {
   ProviderStatus,
 } from "./types.ts";
 import { getPlatform } from "../../platform/platform.ts";
-import { extractSignal, generateFromChat, chatFromStructured } from "./common.ts";
+import { RuntimeError } from "../../common/error.ts";
+import { extractSignal } from "./common.ts";
 import { fetchPublicModelsForProvider } from "./public-catalog.ts";
+import {
+  assertSupportedSdkProvider,
+  chatStructuredWithSdk,
+  chatWithSdk,
+  generateWithSdk,
+} from "./sdk-runtime.ts";
 
 /** API surface each provider's api.ts must expose (adapted via createApi). */
 export interface CloudProviderApi {
-  chatStructured(endpoint: string, model: string, messages: Message[], options?: ChatOptions, signal?: AbortSignal): Promise<ChatStructuredResponse>;
   listModels(endpoint: string): Promise<ModelInfo[]>;
   checkStatus(endpoint: string): Promise<ProviderStatus>;
 }
@@ -45,14 +50,17 @@ export interface CloudProviderSpec {
 }
 
 /** Build a ProviderFactory from a declarative spec. */
-export function createCloudProvider(spec: CloudProviderSpec): (config?: ProviderConfig) => AIProvider {
+export function createCloudProvider(
+  spec: CloudProviderSpec,
+): (config?: ProviderConfig) => AIProvider {
   return (config?: ProviderConfig): AIProvider => {
     const endpoint = config?.endpoint ?? spec.defaultEndpoint;
     const configuredModel = config?.defaultModel;
-    const apiKey = config?.apiKey
-      ?? (spec.envVarName ? getPlatform().env.get(spec.envVarName) ?? "" : "");
+    const apiKey = config?.apiKey ??
+      (spec.envVarName ? getPlatform().env.get(spec.envVarName) ?? "" : "");
     const apiKeyConfigured = spec.envVarName ? apiKey.length > 0 : true;
     const api = spec.createApi(apiKey);
+    const sdkProviderName = assertSupportedSdkProvider(spec.name);
 
     let resolvedDefault: string | undefined;
 
@@ -60,9 +68,13 @@ export function createCloudProvider(spec: CloudProviderSpec): (config?: Provider
       list: async (): Promise<ModelInfo[]> => {
         if (apiKeyConfigured) {
           const live = await api.listModels(endpoint);
-          if (live.length > 0) return spec.transformModels ? spec.transformModels(live) : live;
+          if (live.length > 0) {
+            return spec.transformModels ? spec.transformModels(live) : live;
+          }
         }
-        const pub = await fetchPublicModelsForProvider(spec.publicCatalogProvider);
+        const pub = await fetchPublicModelsForProvider(
+          spec.publicCatalogProvider,
+        );
         return spec.transformModels ? spec.transformModels(pub) : pub;
       },
       get: async (name: string): Promise<ModelInfo | null> => {
@@ -85,7 +97,7 @@ export function createCloudProvider(spec: CloudProviderSpec): (config?: Provider
           resolvedDefault = list[0].name;
           model = resolvedDefault;
         } else {
-          throw new Error(spec.noModelsError);
+          throw new RuntimeError(spec.noModelsError);
         }
       }
       return spec.transformModel ? spec.transformModel(model) : model;
@@ -95,27 +107,56 @@ export function createCloudProvider(spec: CloudProviderSpec): (config?: Provider
       name: spec.name,
       displayName: spec.displayName,
       apiKeyConfigured,
-      capabilities: ["chat", "tools", "vision", "models.list"] as ProviderCapability[],
+      capabilities: [
+        "chat",
+        "tools",
+        "vision",
+        "models.list",
+      ] as ProviderCapability[],
 
       async *generate(prompt: string, options?: GenerateOptions) {
         const model = await getModel(options);
-        yield* generateFromChat(
-          (msgs, opts, signal) => api.chatStructured(endpoint, model, msgs, opts, signal),
-          prompt, options,
+        yield* generateWithSdk(
+          {
+            providerName: sdkProviderName,
+            modelId: model,
+            endpoint,
+            apiKey: apiKeyConfigured ? apiKey : undefined,
+          },
+          prompt,
+          options,
+          extractSignal(options),
         );
       },
 
       async *chat(messages: Message[], options?: ChatOptions) {
         const model = await getModel(options);
-        yield* chatFromStructured(
-          (msgs, opts, signal) => api.chatStructured(endpoint, model, msgs, opts, signal),
-          messages, options,
+        yield* chatWithSdk(
+          {
+            providerName: sdkProviderName,
+            modelId: model,
+            endpoint,
+            apiKey: apiKeyConfigured ? apiKey : undefined,
+          },
+          messages,
+          options,
+          extractSignal(options),
         );
       },
 
-      async chatStructured(messages: Message[], options?: ChatOptions): Promise<ChatStructuredResponse> {
+      async chatStructured(messages: Message[], options?: ChatOptions) {
         const model = await getModel(options);
-        return api.chatStructured(endpoint, model, messages, options, extractSignal(options));
+        return chatStructuredWithSdk(
+          {
+            providerName: sdkProviderName,
+            modelId: model,
+            endpoint,
+            apiKey: apiKeyConfigured ? apiKey : undefined,
+          },
+          messages,
+          options,
+          extractSignal(options),
+        );
       },
 
       models,

@@ -17,7 +17,7 @@ import {
 } from "../../common/ai-default-model.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type AgentSession, createAgentSession } from "./session.ts";
-import { createAgentLLM } from "./llm-integration.ts";
+import { getAgentEngine } from "./engine.ts";
 import { createDelegateHandler } from "./delegation.ts";
 import {
   type AgentUIEvent,
@@ -70,6 +70,7 @@ export async function getOrCreateCachedSession(
   const existing = sessionCache.get(key);
   if (existing) return existing;
 
+  const engine = getAgentEngine();
   const session = await createAgentSession({
     workspace,
     model,
@@ -79,6 +80,7 @@ export async function getOrCreateCachedSession(
     toolDenylist: opts?.toolDenylist,
     onToken: opts?.onToken,
     modelInfo: opts?.modelInfo,
+    engine,
   });
   sessionCache.set(key, session);
   return session;
@@ -112,7 +114,8 @@ function reuseSession(
   // Rebuild LLM with caller's onToken to enable streaming in GUI mode
   let llm = cached.llm;
   if (onToken && cached.llmConfig) {
-    llm = createAgentLLM({
+    const engine = cached.engine ?? getAgentEngine();
+    llm = engine.createLLM({
       ...cached.llmConfig,
       options: { temperature: cached.llmConfig.temperature ?? 0.0 },
       onToken,
@@ -251,6 +254,7 @@ export async function runAgentQuery(
   } catch { /* file not found — skip */ }
 
   const isCached = !!options.cachedSession;
+  const engine = isCached ? undefined : getAgentEngine();
   const session: AgentSession = options.cachedSession
     ? reuseSession(options.cachedSession, callbacks.onToken)
     : await createAgentSession({
@@ -263,6 +267,7 @@ export async function runAgentQuery(
       onToken: callbacks.onToken,
       modelInfo: options.modelInfo,
       customInstructions,
+      engine,
     });
 
   const useExternalHistory = !!options.messageHistory;
@@ -335,6 +340,7 @@ export async function runAgentQuery(
         planning: { mode: "off", requireStepMarkers: false },
         skipModelCompensation: session.isFrontierModel,
         modelTier: session.modelTier,
+        modelId: model,
         signal: options.signal,
         usage: usageTracker,
         l1Confirmations: session.l1Confirmations,

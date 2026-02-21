@@ -1,99 +1,21 @@
 /**
  * Ollama API Helpers
  *
- * Low-level API request/response handling for Ollama.
- * Handles streaming, error handling, and response parsing.
+ * Low-level API request/response handling for Ollama model management/status.
+ * Chat/generate runtime now routes through shared SDK runtime.
  *
- * Note: Ollama uses its own NDJSON streaming format (not SSE),
- * so it does NOT use the shared readSSEStream from common.ts.
+ * Note: Ollama uses NDJSON streaming for model pull progress.
  */
 
 import { RuntimeError } from "../../../common/error.ts";
+import { http } from "../../../common/http-client.ts";
 import { parseJsonLine } from "../../../common/jsonl.ts";
 import { JSON_HEADERS, throwOnHttpError } from "../common.ts";
-import type {
-  ChatOptions,
-  ChatStructuredResponse,
-  GenerateOptions,
-  Message,
-  ModelInfo,
-  ProviderStatus,
-  ProviderToolCall,
-  PullProgress,
-  ToolDefinition,
-} from "../types.ts";
-
-// ============================================================================
-// Request Types
-// ============================================================================
-
-/** Ollama generate request body */
-interface OllamaGenerateRequest {
-  model: string;
-  prompt: string;
-  stream?: boolean;
-  images?: string[];
-  system?: string;
-  format?: string;
-  options?: {
-    temperature?: number;
-    num_predict?: number;
-    num_ctx?: number;
-    stop?: string[];
-  };
-}
-
-/** Ollama chat request body */
-interface OllamaChatRequest {
-  model: string;
-  messages: Array<{
-    role: string;
-    content: string;
-    images?: string[];
-    tool_calls?: ProviderToolCall[];
-    tool_name?: string;
-  }>;
-  tools?: ToolDefinition[];
-  stream?: boolean;
-  format?: string;
-  options?: {
-    temperature?: number;
-    num_predict?: number;
-    num_ctx?: number;
-    stop?: string[];
-  };
-}
+import type { ModelInfo, ProviderStatus, PullProgress } from "../types.ts";
 
 // ============================================================================
 // Response Types
 // ============================================================================
-
-/** Ollama generate streaming response chunk */
-interface OllamaGenerateChunk {
-  model: string;
-  response: string;
-  done: boolean;
-}
-
-/** Ollama chat streaming response chunk */
-interface OllamaChatChunk {
-  model: string;
-  message?: { role: string; content: string; tool_calls?: ProviderToolCall[] };
-  done: boolean;
-  prompt_eval_count?: number;
-  eval_count?: number;
-}
-
-/** Ollama chat response */
-interface OllamaChatResponse {
-  message?: {
-    role: string;
-    content?: string;
-    tool_calls?: ProviderToolCall[];
-  };
-  prompt_eval_count?: number;
-  eval_count?: number;
-}
 
 /** Ollama model info from /api/tags */
 interface OllamaModel {
@@ -138,43 +60,6 @@ function modelBaseName(modelName: string): string {
   return colonIdx >= 0 ? modelName.slice(0, colonIdx) : modelName;
 }
 
-function buildOllamaOptions(
-  options?: GenerateOptions,
-): {
-  temperature?: number;
-  num_predict?: number;
-  num_ctx?: number;
-  stop?: string[];
-} {
-  const rawNumCtx = options?.raw?.num_ctx;
-  const numCtx = typeof rawNumCtx === "number" && Number.isFinite(rawNumCtx) && rawNumCtx > 0
-    ? Math.floor(rawNumCtx)
-    : undefined;
-  return {
-    temperature: options?.temperature,
-    num_predict: options?.maxTokens,
-    num_ctx: numCtx,
-    stop: options?.stop,
-  };
-}
-
-function toOllamaMessages(
-  messages: Message[],
-  includeToolContext = false,
-): OllamaChatRequest["messages"] {
-  return messages.map((msg) => ({
-    role: msg.role,
-    content: msg.content,
-    ...(msg.images?.length ? { images: msg.images } : {}),
-    ...(includeToolContext && msg.tool_calls?.length
-      ? { tool_calls: msg.tool_calls }
-      : {}),
-    ...(includeToolContext && msg.tool_name
-      ? { tool_name: msg.tool_name }
-      : {}),
-  }));
-}
-
 // ============================================================================
 // API Helpers
 // ============================================================================
@@ -191,11 +76,14 @@ async function* streamRequest<T>(
 ): AsyncGenerator<T, void, unknown> {
   const url = `${endpoint}${path}`;
 
-  const response = await fetch(url, {
+  // Streaming NDJSON pull still uses the SSOT HTTP client, while retaining
+  // direct access to the raw Response body reader.
+  const response = await http.fetchRaw(url, {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(body),
     signal,
+    timeout: 60_000,
   });
 
   if (!response.ok) {
@@ -285,18 +173,13 @@ async function jsonRequest<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   const url = `${endpoint}${path}`;
-
-  const options: RequestInit = {
+  const response = await http.fetchRaw(url, {
     method,
     headers: JSON_HEADERS,
     signal,
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  const response = await fetch(url, options);
+    timeout: 8_000,
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
 
   if (!response.ok) {
     await throwOnHttpError(response, "Ollama");
@@ -308,183 +191,6 @@ async function jsonRequest<T>(
 // ============================================================================
 // Public API Functions
 // ============================================================================
-
-/**
- * Generate text from a prompt (streaming)
- */
-export async function* generate(
-  endpoint: string,
-  model: string,
-  prompt: string,
-  options?: GenerateOptions,
-  signal?: AbortSignal,
-): AsyncGenerator<string, void, unknown> {
-  const body: OllamaGenerateRequest = {
-    model,
-    prompt,
-    stream: options?.stream !== false,
-    options: buildOllamaOptions(options),
-  };
-
-  if (options?.system) body.system = options.system;
-  if (options?.format) body.format = options.format;
-  if (options?.images?.length) body.images = options.images;
-
-  // Non-streaming mode
-  if (!body.stream) {
-    const result = await jsonRequest<{ response: string }>(
-      endpoint,
-      "/api/generate",
-      body,
-    );
-    yield (result.response ?? "").trim();
-    return;
-  }
-
-  // Streaming mode
-  for await (
-    const chunk of streamRequest<OllamaGenerateChunk>(
-      endpoint,
-      "/api/generate",
-      body,
-      signal,
-    )
-  ) {
-    if (chunk.response) {
-      yield chunk.response;
-    }
-  }
-}
-
-/**
- * Chat completion (streaming)
- */
-export async function* chat(
-  endpoint: string,
-  model: string,
-  messages: Message[],
-  options?: ChatOptions,
-  signal?: AbortSignal,
-): AsyncGenerator<string, void, unknown> {
-  const body: OllamaChatRequest = {
-    model,
-    messages: toOllamaMessages(messages),
-    stream: options?.stream !== false,
-    options: buildOllamaOptions(options),
-  };
-
-  if (options?.format) body.format = options.format;
-
-  // Non-streaming mode
-  if (!body.stream) {
-    const result = await jsonRequest<{ message: { content: string } }>(
-      endpoint,
-      "/api/chat",
-      body,
-    );
-    yield (result.message?.content ?? "").trim();
-    return;
-  }
-
-  // Streaming mode
-  for await (
-    const chunk of streamRequest<OllamaChatChunk>(
-      endpoint,
-      "/api/chat",
-      body,
-      signal,
-    )
-  ) {
-    if (chunk.message?.content) {
-      yield chunk.message.content;
-    }
-  }
-}
-
-/**
- * Chat completion with native tool calls.
- * When `onToken` is provided, streams tokens to the callback in real-time
- * and extracts tool_calls from the final chunk.
- */
-export async function chatStructured(
-  endpoint: string,
-  model: string,
-  messages: Message[],
-  options?: ChatOptions,
-  signal?: AbortSignal,
-): Promise<ChatStructuredResponse> {
-  const onToken = options?.onToken;
-  const useStreaming = typeof onToken === "function";
-
-  const body: OllamaChatRequest = {
-    model,
-    messages: toOllamaMessages(messages, true),
-    stream: useStreaming,
-    options: buildOllamaOptions(options),
-  };
-
-  if (options?.format) body.format = options.format;
-  if (options?.tools?.length) body.tools = options.tools;
-
-  // Streaming path: yield tokens via onToken, collect tool_calls from final chunk
-  if (useStreaming) {
-    const contentChunks: string[] = [];
-    const toolCalls: ProviderToolCall[] = [];
-    let promptEvalCount = 0;
-    let evalCount = 0;
-
-    for await (
-      const chunk of streamRequest<OllamaChatChunk>(
-        endpoint,
-        "/api/chat",
-        body,
-        signal,
-      )
-    ) {
-      if (chunk.message?.content) {
-        contentChunks.push(chunk.message.content);
-        onToken?.(chunk.message.content);
-      }
-      // Ollama may emit tool_calls in any chunk — accumulate across chunks
-      if (chunk.message?.tool_calls?.length) {
-        toolCalls.push(...chunk.message.tool_calls);
-      }
-      // Usage counts appear in the final chunk (done: true)
-      if (chunk.prompt_eval_count) promptEvalCount = chunk.prompt_eval_count;
-      if (chunk.eval_count) evalCount = chunk.eval_count;
-    }
-
-    const resp: ChatStructuredResponse = {
-      content: contentChunks.join("").trim(),
-      toolCalls,
-    };
-    if (promptEvalCount > 0 || evalCount > 0) {
-      resp.usage = { inputTokens: promptEvalCount, outputTokens: evalCount };
-    }
-    return resp;
-  }
-
-  // Non-streaming path (default) — Fix 9: forward signal
-  const result = await jsonRequest<OllamaChatResponse>(
-    endpoint,
-    "/api/chat",
-    body,
-    "POST",
-    signal,
-  );
-
-  const resp: ChatStructuredResponse = {
-    content: (result.message?.content ?? "").trim(),
-    toolCalls: result.message?.tool_calls ?? [],
-  };
-  if (result.prompt_eval_count || result.eval_count) {
-    resp.usage = {
-      inputTokens: result.prompt_eval_count ?? 0,
-      outputTokens: result.eval_count ?? 0,
-    };
-  }
-  return resp;
-}
 
 /**
  * List available models
@@ -538,7 +244,9 @@ export async function getLoadedModelContext(
     const exact = models.find((m) => {
       const candidates = [m.model, m.name]
         .filter((value): value is string => typeof value === "string");
-      return candidates.some((candidate) => normalizeModelName(candidate) === target);
+      return candidates.some((candidate) =>
+        normalizeModelName(candidate) === target
+      );
     });
 
     const byBase = exact ?? models.find((m) => {
@@ -568,7 +276,9 @@ export async function getModel(
   const loadedContext = await getLoadedModelContext(endpoint, name);
 
   try {
-    const result = await jsonRequest<OllamaModel & { details: unknown; model_info?: Record<string, unknown> }>(
+    const result = await jsonRequest<
+      OllamaModel & { details: unknown; model_info?: Record<string, unknown> }
+    >(
       endpoint,
       "/api/show",
       { name },
@@ -577,7 +287,9 @@ export async function getModel(
     // Extract context_length from model_info (key varies by architecture, e.g. "llama.context_length")
     let contextWindow: number | undefined;
     if (result.model_info) {
-      const ctxKey = Object.keys(result.model_info).find((k) => k.endsWith(".context_length"));
+      const ctxKey = Object.keys(result.model_info).find((k) =>
+        k.endsWith(".context_length")
+      );
       if (ctxKey && typeof result.model_info[ctxKey] === "number") {
         contextWindow = result.model_info[ctxKey] as number;
       }
@@ -662,7 +374,7 @@ export async function removeModel(
 export async function checkStatus(endpoint: string): Promise<ProviderStatus> {
   try {
     // Ollama returns empty response on /
-    const response = await fetch(endpoint);
+    const response = await http.fetchRaw(endpoint, { timeout: 8_000 });
     if (response.ok) {
       // Try to get version
       try {

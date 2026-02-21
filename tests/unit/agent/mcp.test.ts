@@ -5,7 +5,7 @@ import {
   loadMcpConfig,
   loadMcpTools,
   resolveBuiltinMcpServers,
-} from "../../../src/hlvm/agent/mcp.ts";
+} from "../../../src/hlvm/agent/mcp/mod.ts";
 import {
   getTool,
   hasTool,

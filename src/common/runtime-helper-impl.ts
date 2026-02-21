@@ -107,7 +107,9 @@ export function __hql_range(...args: number[]) {
   }
 
   // Validate start and end
-  if (typeof start !== "number" || (end !== undefined && typeof end !== "number")) {
+  if (
+    typeof start !== "number" || (end !== undefined && typeof end !== "number")
+  ) {
     return lazySeq(function* () {
       // Empty sequence
     });
@@ -118,7 +120,7 @@ export function __hql_range(...args: number[]) {
 }
 
 export function __hql_toSequence(value: unknown): unknown[] {
-  if (value == null) return [];  // Inline check - don't use external imports!
+  if (value == null) return []; // Inline check - don't use external imports!
   if (Array.isArray(value)) return value;
   if (typeof value === "number") {
     const result: number[] = [];
@@ -199,9 +201,11 @@ export function __hql_hash_map(...entries: unknown[]): Record<string, unknown> {
   const limit = entries.length - (entries.length % 2);
 
   if (entries.length !== limit) {
-    throw new Error(
+    const error = new Error(
       `hash-map requires even number of arguments (key-value pairs), got ${entries.length}`,
     );
+    error.name = "RuntimeHelperError";
+    throw error;
   }
 
   for (let i = 0; i < limit; i += 2) {
@@ -347,7 +351,7 @@ export function __hql_trampoline<T>(thunk: () => T | (() => T)): T {
  * for (const v of __hql_trampoline_gen(() => gen_a(10000))) { ... }
  */
 export function* __hql_trampoline_gen<T>(
-  createInitial: () => Generator<T, T, unknown>
+  createInitial: () => Generator<T, T, unknown>,
 ): Generator<T, T, unknown> {
   // Use GEN_THUNK_SYMBOL exported at top of file (Single Source of Truth)
   let current = createInitial();
@@ -395,7 +399,9 @@ export function* __hql_trampoline_gen<T>(
  * (ask "hello")         // → Returns async iterator, REPL streams live
  * (await (ask "hello")) // → Consumes iterator, returns full string "Hello..."
  */
-export async function __hql_consume_async_iter(value: unknown): Promise<unknown> {
+export async function __hql_consume_async_iter(
+  value: unknown,
+): Promise<unknown> {
   // First await the value (handles Promises that resolve to async iterators)
   const awaited = await value;
 
@@ -439,12 +445,16 @@ const runtimeHelperImplementations = {
  * All runtime helper names - SINGLE SOURCE OF TRUTH.
  * Used by ir-to-typescript.ts to detect which helpers are used.
  */
-const RUNTIME_HELPER_NAMES = Object.keys(runtimeHelperImplementations) as RuntimeHelperName[];
+const RUNTIME_HELPER_NAMES = Object.keys(
+  runtimeHelperImplementations,
+) as RuntimeHelperName[];
 
 /**
  * Set version for O(1) lookup - use this for .has() checks instead of Array.includes()
  */
-export const RUNTIME_HELPER_NAMES_SET: ReadonlySet<string> = new Set(RUNTIME_HELPER_NAMES);
+export const RUNTIME_HELPER_NAMES_SET: ReadonlySet<string> = new Set(
+  RUNTIME_HELPER_NAMES,
+);
 
 export type RuntimeHelperName = keyof typeof runtimeHelperImplementations;
 

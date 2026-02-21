@@ -9,7 +9,12 @@
   "imports": {
     "source-map": "npm:source-map@0.6.1",
     "typescript": "npm:typescript@5.3.3",
-    "@db/sqlite": "jsr:@db/sqlite@0.12"
+    "@db/sqlite": "jsr:@db/sqlite@0.12",
+    "ai": "npm:ai@^6.0.0",
+    "@ai-sdk/openai": "npm:@ai-sdk/openai@^3.0.0",
+    "@ai-sdk/anthropic": "npm:@ai-sdk/anthropic@^3.0.0",
+    "@ai-sdk/google": "npm:@ai-sdk/google@^3.0.0",
+    "ollama-ai-provider-v2": "npm:ollama-ai-provider-v2@^3.0.0"
   },
   "lint": {
     "include": ["src/", "tests/", "scripts/"],

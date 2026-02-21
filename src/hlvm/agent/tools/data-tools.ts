@@ -125,7 +125,9 @@ function getFieldValue(item: unknown, field?: string): unknown {
   return undefined;
 }
 
-function formatJsonResult(result: unknown): { returnDisplay: string; llmContent?: string } {
+function formatJsonResult(
+  result: unknown,
+): { returnDisplay: string; llmContent?: string } {
   const serialized = typeof result === "string"
     ? result
     : JSON.stringify(result, null, 2);
@@ -136,7 +138,7 @@ function formatJsonResult(result: unknown): { returnDisplay: string; llmContent?
 // Tool: aggregate_entries
 // ============================================================
 
-export async function aggregateEntries(
+export function aggregateEntries(
   args: unknown,
   _workspace: string,
   options?: ToolExecutionOptions,
@@ -154,13 +156,13 @@ export async function aggregateEntries(
   const field = optionalString(record.field, "field", "aggregate_entries");
 
   if (operation === "count") {
-    return okTool({
+    return Promise.resolve(okTool({
       operation,
       field,
       value: items.length,
       itemsCount: items.length,
       valueCount: items.length,
-    });
+    }));
   }
 
   const values = items
@@ -187,13 +189,13 @@ export async function aggregateEntries(
     }
   }
 
-  return okTool({
+  return Promise.resolve(okTool({
     operation,
     field,
     value,
     itemsCount: items.length,
     valueCount: values.length,
-  });
+  }));
 }
 
 function formatAggregateResult(
@@ -220,7 +222,7 @@ function formatAggregateResult(
 // Tool: filter_entries
 // ============================================================
 
-export async function filterEntries(
+export function filterEntries(
   args: unknown,
   _workspace: string,
   options?: ToolExecutionOptions,
@@ -270,11 +272,11 @@ export async function filterEntries(
     }
   });
 
-  return okTool({
+  return Promise.resolve(okTool({
     items: filtered,
     count: filtered.length,
     itemsCount: items.length,
-  });
+  }));
 }
 
 function formatFilterResult(
@@ -295,7 +297,7 @@ function formatFilterResult(
 // Tool: transform_entries
 // ============================================================
 
-export async function transformEntries(
+export function transformEntries(
   args: unknown,
   _workspace: string,
   options?: ToolExecutionOptions,
@@ -323,20 +325,24 @@ export async function transformEntries(
         }
         return null;
       case "uppercase":
-        return typeof candidate === "string" ? candidate.toUpperCase() : candidate;
+        return typeof candidate === "string"
+          ? candidate.toUpperCase()
+          : candidate;
       case "lowercase":
-        return typeof candidate === "string" ? candidate.toLowerCase() : candidate;
+        return typeof candidate === "string"
+          ? candidate.toLowerCase()
+          : candidate;
       default:
         return candidate;
     }
   });
 
-  return okTool({
+  return Promise.resolve(okTool({
     operation,
     field,
     items: transformed,
     count: transformed.length,
-  });
+  }));
 }
 
 function formatTransformResult(
@@ -379,20 +385,21 @@ function parseValues(
 }
 
 // Safe math functions available in expressions (no property access, no code generation)
-const MATH_FUNCTIONS: Readonly<Record<string, (...args: number[]) => number>> = {
-  abs: Math.abs,
-  floor: Math.floor,
-  ceil: Math.ceil,
-  round: Math.round,
-  sqrt: Math.sqrt,
-  min: (...args: number[]) => Math.min(...args),
-  max: (...args: number[]) => Math.max(...args),
-  pow: Math.pow,
-  log: Math.log,
-  sin: Math.sin,
-  cos: Math.cos,
-  tan: Math.tan,
-};
+const MATH_FUNCTIONS: Readonly<Record<string, (...args: number[]) => number>> =
+  {
+    abs: Math.abs,
+    floor: Math.floor,
+    ceil: Math.ceil,
+    round: Math.round,
+    sqrt: Math.sqrt,
+    min: (...args: number[]) => Math.min(...args),
+    max: (...args: number[]) => Math.max(...args),
+    pow: Math.pow,
+    log: Math.log,
+    sin: Math.sin,
+    cos: Math.cos,
+    tan: Math.tan,
+  };
 
 /**
  * Safe math expression evaluator using recursive descent parsing.
@@ -427,7 +434,10 @@ function evaluateExpression(
   // and whitespace.
   const allowedChars = /^[0-9A-Za-z_+\-*/%().,\s]*$/;
   if (!allowedChars.test(src)) {
-    throw new ValidationError("expression contains unsupported characters", toolName);
+    throw new ValidationError(
+      "expression contains unsupported characters",
+      toolName,
+    );
   }
 
   let pos = 0;
@@ -498,7 +508,10 @@ function evaluateExpression(
     }
 
     // Number literal
-    if (/[0-9]/.test(ch) || (ch === "." && pos + 1 < src.length && /[0-9]/.test(src[pos + 1]))) {
+    if (
+      /[0-9]/.test(ch) ||
+      (ch === "." && pos + 1 < src.length && /[0-9]/.test(src[pos + 1]))
+    ) {
       return parseNumberLiteral();
     }
 
@@ -512,7 +525,9 @@ function evaluateExpression(
         const fn = MATH_FUNCTIONS[name];
         if (!fn) {
           throw new ValidationError(
-            `Unknown function "${name}". Supported: ${Object.keys(MATH_FUNCTIONS).join(", ")}`,
+            `Unknown function "${name}". Supported: ${
+              Object.keys(MATH_FUNCTIONS).join(", ")
+            }`,
             toolName,
           );
         }
@@ -532,7 +547,9 @@ function evaluateExpression(
       // Variable reference
       if (!(name in values)) {
         throw new ValidationError(
-          `Unknown identifier "${name}". Provide it in values or use a supported function: ${Object.keys(MATH_FUNCTIONS).join(", ")}`,
+          `Unknown identifier "${name}". Provide it in values or use a supported function: ${
+            Object.keys(MATH_FUNCTIONS).join(", ")
+          }`,
           toolName,
         );
       }
@@ -617,12 +634,15 @@ function evaluateExpression(
     );
   }
   if (typeof result !== "number" || Number.isNaN(result)) {
-    throw new ValidationError("expression did not evaluate to a number", toolName);
+    throw new ValidationError(
+      "expression did not evaluate to a number",
+      toolName,
+    );
   }
   return result;
 }
 
-export async function compute(
+export function compute(
   args: unknown,
   _workspace: string,
   options?: ToolExecutionOptions,
@@ -634,10 +654,10 @@ export async function compute(
   const values = parseValues(record.values, "compute");
   const result = evaluateExpression(expression, values, "compute");
 
-  return okTool({
+  return Promise.resolve(okTool({
     expression,
     result,
-  });
+  }));
 }
 
 function formatComputeResult(
@@ -661,7 +681,7 @@ export const DATA_TOOLS: Record<string, ToolMetadata> = {
   aggregate_entries: {
     fn: aggregateEntries,
     description:
-      "Aggregate numeric values across items (sum, count, average, min, max).\n\nExample:\n- Total size: aggregate_entries({items: entries, operation: \"sum\", field: \"size\"})",
+      'Aggregate numeric values across items (sum, count, average, min, max).\n\nExample:\n- Total size: aggregate_entries({items: entries, operation: "sum", field: "size"})',
     category: "data",
     args: {
       items: "any[] - Items to aggregate",
@@ -682,7 +702,8 @@ export const DATA_TOOLS: Record<string, ToolMetadata> = {
     args: {
       items: "any[] - Items to filter",
       field: "string - Field name to compare",
-      operator: "string - Operator: equals, not_equals, contains, gt, gte, lt, lte",
+      operator:
+        "string - Operator: equals, not_equals, contains, gt, gte, lt, lte",
       value: "any - Value to compare against",
     },
     returns: {
@@ -709,8 +730,7 @@ export const DATA_TOOLS: Record<string, ToolMetadata> = {
   },
   compute: {
     fn: compute,
-    description:
-      "Evaluate a simple math expression with named numeric values.",
+    description: "Evaluate a simple math expression with named numeric values.",
     category: "data",
     args: {
       expression: "string - Math expression using + - * / % and parentheses",

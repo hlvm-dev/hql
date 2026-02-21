@@ -3,7 +3,7 @@
  *
  * Central registry for AI providers. Supports:
  * - Provider registration and retrieval
- * - Model name parsing (provider:model format)
+ * - Model name parsing (provider/model format)
  * - Default provider management
  */
 
@@ -26,13 +26,6 @@ const instances = new Map<string, AIProvider>();
 
 /** Name of the default provider */
 let defaultProviderName: string | null = null;
-const KNOWN_PROVIDER_PREFIXES = new Set([
-  "ollama",
-  "openai",
-  "anthropic",
-  "google",
-  "claude-code",
-]);
 
 function normalizeProviderName(name: string): string {
   return name.toLowerCase();
@@ -42,11 +35,6 @@ function resolveProviderKey(name?: string | null): string | null {
   const providerName = name ?? defaultProviderName;
   if (!providerName) return null;
   return normalizeProviderName(providerName);
-}
-
-function isProviderPrefix(value: string): boolean {
-  const key = normalizeProviderName(value);
-  return providers.has(key) || KNOWN_PROVIDER_PREFIXES.has(key);
 }
 
 // ============================================================================
@@ -123,6 +111,25 @@ export function getDefaultProvider(): AIProvider | null {
 }
 
 /**
+ * Get the default config for a provider (or default provider when omitted).
+ * Returns a shallow copy to avoid external mutation of registry state.
+ */
+export function getProviderDefaultConfig(
+  name?: string,
+): ProviderConfig | null {
+  const key = resolveProviderKey(name);
+  if (!key) return null;
+  const entry = providers.get(key);
+  if (!entry?.defaultConfig) return null;
+  const {
+    // registerProvider accepts isDefault as an extension; strip it here.
+    isDefault: _isDefault,
+    ...config
+  } = entry.defaultConfig as ProviderConfig & { isDefault?: boolean };
+  return { ...config };
+}
+
+/**
  * Set the default provider by name
  * @param name Provider name
  */
@@ -150,32 +157,20 @@ export function hasProvider(name: string): boolean {
  * Parse a model string into provider and model name
  * Supports formats:
  * - "model" -> uses default provider
- * - "provider:model" -> uses specified provider
- * - "provider/model" -> uses specified provider (alternative syntax)
+ * - "provider/model" -> uses specified provider
  *
  * @param modelString The model string to parse
  * @returns Tuple of [providerName, modelName]
  */
 export function parseModelString(modelString: string): [string | null, string] {
-  // Check for provider/model format FIRST (e.g., "ollama/llama3.2:3b")
-  // This takes priority because model names can contain colons (e.g., "llama3.2:3b")
+  // Canonical provider prefix form: "provider/model".
+  // Model names themselves may contain colons (e.g., "llama3.2:3b"), so
+  // slash-based parsing is the only accepted prefixed syntax.
   const slashIndex = modelString.indexOf("/");
   if (slashIndex > 0) {
     const provider = normalizeProviderName(modelString.slice(0, slashIndex));
     const model = modelString.slice(slashIndex + 1);
     return [provider, model];
-  }
-
-  // Check for provider:model format (legacy, e.g., "ollama:llama3.2")
-  // Only treat this form as provider-prefixed when the prefix is a known/registered provider.
-  const colonIndex = modelString.indexOf(":");
-  if (colonIndex > 0) {
-    const beforeColon = modelString.slice(0, colonIndex);
-    if (isProviderPrefix(beforeColon)) {
-      const provider = normalizeProviderName(beforeColon);
-      const model = modelString.slice(colonIndex + 1);
-      return [provider, model];
-    }
   }
 
   // No provider prefix, use default

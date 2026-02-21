@@ -8,6 +8,7 @@
  * Refresh:     deno task publish-catalog  (scrape + push to gist)
  */
 import type { ModelInfo, ProviderCapability } from "../types.ts";
+import { http } from "../../../common/http-client.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,7 +57,8 @@ let liveCatalogData: ScrapedCatalog | null = null;
 let liveFetchTimestamp = 0;
 
 function isLiveCacheValid(): boolean {
-  return liveCatalogData !== null && Date.now() - liveFetchTimestamp < CACHE_TTL_MS;
+  return liveCatalogData !== null &&
+    Date.now() - liveFetchTimestamp < CACHE_TTL_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,8 +73,8 @@ async function fetchLiveCatalog(): Promise<ScrapedCatalog | null> {
   if (isLiveCacheValid()) return liveCatalogData;
 
   try {
-    const response = await fetch(LIVE_CATALOG_URL, {
-      signal: AbortSignal.timeout(8_000),
+    const response = await http.fetchRaw(LIVE_CATALOG_URL, {
+      timeout: 8_000,
     });
     if (!response.ok) return liveCatalogData;
 

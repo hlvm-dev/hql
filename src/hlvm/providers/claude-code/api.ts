@@ -1,32 +1,15 @@
 /**
- * Claude Code Subscription API
+ * Claude Code Subscription Models/Status API
  *
- * Same Anthropic Messages API, different auth: OAuth Bearer token
- * from your Claude Max subscription instead of x-api-key.
- *
- * Shared message conversion/extraction logic in ../anthropic/shared.ts.
- * Only auth headers and token lifecycle differ.
+ * Chat/generate runtime now routes through shared SDK runtime.
+ * This module keeps only provider-specific model discovery and status checks.
  */
 
-import {
-  JSON_HEADERS,
-  throwOnHttpError,
-} from "../common.ts";
+import { JSON_HEADERS } from "../common.ts";
+import { http } from "../../../common/http-client.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
-import type {
-  ChatOptions,
-  ChatStructuredResponse,
-  Message,
-  ModelInfo,
-  ProviderStatus,
-} from "../types.ts";
-import { getClaudeCodeToken, clearTokenCache } from "./auth.ts";
-import {
-  type AnthropicResponse,
-  buildRequestBody,
-  buildResponse,
-  streamChat,
-} from "../anthropic/shared.ts";
+import type { ModelInfo, ProviderStatus } from "../types.ts";
+import { getClaudeCodeToken } from "./auth.ts";
 import { ANTHROPIC_VERSION } from "../anthropic/api.ts";
 
 function oauthHeaders(token: string): Record<string, string> {
@@ -38,50 +21,6 @@ function oauthHeaders(token: string): Record<string, string> {
   };
 }
 
-// =============================================================================
-// API Functions
-// =============================================================================
-
-export async function chatStructured(
-  endpoint: string,
-  model: string,
-  messages: Message[],
-  options?: ChatOptions,
-  signal?: AbortSignal,
-): Promise<ChatStructuredResponse> {
-  const token = await getClaudeCodeToken();
-  const { body, useStreaming } = buildRequestBody(model, messages, options);
-
-  if (useStreaming) {
-    return streamChat(
-      endpoint, body, oauthHeaders(token), options!.onToken!,
-      "Claude Code", signal, clearTokenCache,
-    );
-  }
-
-  const url = `${endpoint}/v1/messages`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: oauthHeaders(token),
-    body: JSON.stringify(body),
-    signal,
-  });
-
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      clearTokenCache();
-    }
-    await throwOnHttpError(response, "Claude Code");
-  }
-
-  const result = await response.json() as AnthropicResponse;
-  return buildResponse(result);
-}
-
-// =============================================================================
-// Models
-// =============================================================================
-
 /**
  * Fetch available models via OAuth auth.
  * Same Anthropic /v1/models endpoint, different auth header.
@@ -92,13 +31,15 @@ export async function listModels(
   try {
     const token = await getClaudeCodeToken();
     const url = `${endpoint}/v1/models?limit=100`;
-    const response = await fetch(url, {
+    const response = await http.fetchRaw(url, {
       headers: oauthHeaders(token),
-      signal: AbortSignal.timeout(8_000),
+      timeout: 8_000,
     });
     if (!response.ok) return [];
 
-    const result = await response.json() as { data: { id: string; display_name: string }[] };
+    const result = await response.json() as {
+      data: { id: string; display_name: string }[];
+    };
     return (result.data ?? [])
       .filter((m) => m.id.startsWith("claude-"))
       .map((m) => ({
@@ -112,10 +53,6 @@ export async function listModels(
   }
 }
 
-// =============================================================================
-// Status
-// =============================================================================
-
 export async function checkStatus(
   endpoint: string,
 ): Promise<ProviderStatus> {
@@ -123,7 +60,10 @@ export async function checkStatus(
     const token = await getClaudeCodeToken();
     // Use model-agnostic endpoint — no hardcoded model IDs
     const url = `${endpoint}/v1/models?limit=1`;
-    const response = await fetch(url, { headers: oauthHeaders(token) });
+    const response = await http.fetchRaw(url, {
+      headers: oauthHeaders(token),
+      timeout: 8_000,
+    });
     return {
       available: response.status !== 401 && response.status !== 403,
       error: (response.status === 401 || response.status === 403)
@@ -137,4 +77,3 @@ export async function checkStatus(
     };
   }
 }
-

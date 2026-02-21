@@ -42,8 +42,8 @@ export class StdioTransport implements McpTransport {
     this.messageHandler = handler;
   }
 
-  async start(): Promise<void> {
-    if (this.process) return;
+  start(): Promise<void> {
+    if (this.process) return Promise.resolve();
     const platform = getPlatform();
     const process = platform.command.run({
       cmd: this.server.command!,
@@ -75,6 +75,7 @@ export class StdioTransport implements McpTransport {
     if (process.stdin) {
       this.writer = (process.stdin as WritableStream<Uint8Array>).getWriter();
     }
+    return Promise.resolve();
   }
 
   async send(message: JsonRpcMessage): Promise<void> {

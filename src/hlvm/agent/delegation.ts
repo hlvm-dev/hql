@@ -10,7 +10,7 @@ import {
   runReActLoop,
 } from "./orchestrator.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
-import { DEFAULT_MAX_TOOL_CALLS, ENGINE_PROFILES } from "./constants.ts";
+import { DEFAULT_MAX_TOOL_CALLS } from "./constants.ts";
 import { ValidationError } from "../../common/error.ts";
 import { hasTool } from "./registry.ts";
 

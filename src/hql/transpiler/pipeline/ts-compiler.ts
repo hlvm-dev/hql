@@ -10,6 +10,7 @@
 
 import ts from "typescript";
 import { globalLogger as logger } from "../../../logger.ts";
+import { RuntimeError } from "../../../common/error.ts";
 
 // ============================================================================
 // Types
@@ -474,10 +475,13 @@ declare function clear(): null;
  * Number of lines in the runtime helper declarations prelude.
  * This is used to offset source map positions when chaining HQL→TS→JS maps.
  */
-export const PRELUDE_LINE_COUNT = RUNTIME_HELPER_DECLARATIONS.split('\n').length;
+export const PRELUDE_LINE_COUNT =
+  RUNTIME_HELPER_DECLARATIONS.split("\n").length;
 
-if (!RUNTIME_HELPER_DECLARATIONS.endsWith('\n')) {
-  throw new Error("RUNTIME_HELPER_DECLARATIONS must end with newline for accurate PRELUDE_LINE_COUNT");
+if (!RUNTIME_HELPER_DECLARATIONS.endsWith("\n")) {
+  throw new RuntimeError(
+    "RUNTIME_HELPER_DECLARATIONS must end with newline for accurate PRELUDE_LINE_COUNT",
+  );
 }
 
 // ============================================================================
@@ -547,7 +551,9 @@ export function compileTypeScript(
   const hasErrors = diagnostics.some((d) => d.severity === "error");
 
   logger.debug(
-    `[ts-compiler] Compiled ${fileName}: ${diagnostics.length} diagnostics, ${hasErrors ? "with errors" : "success"}`,
+    `[ts-compiler] Compiled ${fileName}: ${diagnostics.length} diagnostics, ${
+      hasErrors ? "with errors" : "success"
+    }`,
   );
 
   return {
@@ -627,8 +633,9 @@ function convertDiagnostics(
 
     result.push({
       message,
-      severity:
-        diag.category === ts.DiagnosticCategory.Error ? "error" : "warning",
+      severity: diag.category === ts.DiagnosticCategory.Error
+        ? "error"
+        : "warning",
       file: fileName,
       line,
       column,

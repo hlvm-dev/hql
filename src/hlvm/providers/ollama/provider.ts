@@ -22,6 +22,11 @@ import * as api from "./api.ts";
 import { getOllamaCatalogAsync } from "./catalog.ts";
 import { DEFAULT_MODEL_NAME, DEFAULT_OLLAMA_ENDPOINT } from "../../../common/config/types.ts";
 import { extractSignal } from "../common.ts";
+import {
+  chatStructuredWithSdk,
+  chatWithSdk,
+  generateWithSdk,
+} from "../sdk-runtime.ts";
 
 // ============================================================================
 // Provider Implementation
@@ -82,7 +87,16 @@ export class OllamaProvider implements AIProvider {
     const model = this.getModel(opts);
     const signal = extractSignal(opts);
 
-    yield* api.generate(this.endpoint, model, prompt, opts, signal);
+    yield* generateWithSdk(
+      {
+        providerName: "ollama",
+        modelId: model,
+        endpoint: this.endpoint,
+      },
+      prompt,
+      opts,
+      signal,
+    );
   }
 
   /**
@@ -96,7 +110,16 @@ export class OllamaProvider implements AIProvider {
     const model = this.getModel(opts);
     const signal = extractSignal(opts);
 
-    yield* api.chat(this.endpoint, model, messages, opts, signal);
+    yield* chatWithSdk(
+      {
+        providerName: "ollama",
+        modelId: model,
+        endpoint: this.endpoint,
+      },
+      messages,
+      opts,
+      signal,
+    );
   }
 
   /**
@@ -110,7 +133,16 @@ export class OllamaProvider implements AIProvider {
     const model = this.getModel(opts);
     const signal = extractSignal(opts);
 
-    return await api.chatStructured(this.endpoint, model, messages, opts, signal);
+    return await chatStructuredWithSdk(
+      {
+        providerName: "ollama",
+        modelId: model,
+        endpoint: this.endpoint,
+      },
+      messages,
+      opts,
+      signal,
+    );
   }
 
   /**
