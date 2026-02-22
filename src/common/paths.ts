@@ -108,9 +108,66 @@ export function getMemoryPath(): string {
 
 /**
  * Get the agent memory file path (~/.hlvm/agent-memory.jsonl)
+ * @deprecated Use getMemoryDir()/getMemoryMdPath() instead
  */
 export function getAgentMemoryPath(): string {
   return join(getHlvmDir(), "agent-memory.jsonl");
+}
+
+/**
+ * Get the memory directory (~/.hlvm/memory)
+ */
+export function getMemoryDir(): string {
+  return join(getHlvmDir(), "memory");
+}
+
+/**
+ * Get the MEMORY.md path (~/.hlvm/memory/MEMORY.md)
+ */
+export function getMemoryMdPath(): string {
+  return join(getMemoryDir(), "MEMORY.md");
+}
+
+/**
+ * Get the journal directory (~/.hlvm/memory/journal)
+ */
+export function getJournalDir(): string {
+  return join(getMemoryDir(), "journal");
+}
+
+/**
+ * Get the memory SQLite index path (~/.hlvm/memory/index.sqlite)
+ */
+export function getMemoryIndexPath(): string {
+  return join(getMemoryDir(), "index.sqlite");
+}
+
+/**
+ * Ensure memory directories exist (~/.hlvm/memory/ and ~/.hlvm/memory/journal/)
+ * Sets owner-only permissions (0o700) for privacy.
+ */
+export async function ensureMemoryDirs(): Promise<void> {
+  const fs = getPlatform().fs;
+  const memDir = getMemoryDir();
+  await fs.mkdir(memDir, { recursive: true });
+  await fs.mkdir(getJournalDir(), { recursive: true });
+  try {
+    await fs.chmod(memDir, 0o700);
+  } catch {
+    // chmod may not be supported on all platforms (e.g., Windows)
+  }
+}
+
+/** Synchronous version of ensureMemoryDirs — for use in sync-only contexts like SQLite init */
+export function ensureMemoryDirsSync(): void {
+  const fs = getPlatform().fs;
+  fs.mkdirSync(getMemoryDir(), { recursive: true });
+  fs.mkdirSync(getJournalDir(), { recursive: true });
+  try {
+    fs.chmodSync(getMemoryDir(), 0o700);
+  } catch {
+    // chmod may not be supported on all platforms (e.g., Windows)
+  }
 }
 
 /**

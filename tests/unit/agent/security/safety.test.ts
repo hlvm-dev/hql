@@ -452,8 +452,8 @@ Deno.test({
     const gitCommit = classifyTool("git_commit", { message: "test" });
     assertEquals(gitCommit.level, "L2");
 
-    const memoryClear = classifyTool("memory_clear", {});
-    assertEquals(memoryClear.level, "L2");
+    const memoryWrite = classifyTool("memory_write", { content: "test" });
+    assertEquals(memoryWrite.level, "L0");
   },
 });
 

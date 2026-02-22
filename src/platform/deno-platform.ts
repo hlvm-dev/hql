@@ -218,6 +218,7 @@ const DenoFs: PlatformFs = {
   rename: (oldPath: string, newPath: string): Promise<void> =>
     Deno.rename(oldPath, newPath),
   chmod: (path: string, mode: number): Promise<void> => Deno.chmod(path, mode),
+  chmodSync: (path: string, mode: number): void => Deno.chmodSync(path, mode),
 
   watchFs: (paths: string | string[]): PlatformFsWatcher => {
     const watcher = Deno.watchFs(paths);

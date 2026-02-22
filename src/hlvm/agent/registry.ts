@@ -18,7 +18,7 @@ import { CODE_TOOLS } from "./tools/code-tools.ts";
 import { SHELL_TOOLS } from "./tools/shell-tools.ts";
 import { META_TOOLS } from "./tools/meta-tools.ts";
 import { WEB_TOOLS } from "./tools/web-tools.ts";
-import { MEMORY_TOOLS } from "./tools/memory-tools.ts";
+import { MEMORY_TOOLS } from "../memory/mod.ts";
 import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { ValidationError } from "../../common/error.ts";

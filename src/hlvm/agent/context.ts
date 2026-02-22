@@ -154,6 +154,11 @@ export class ContextManager {
     };
   }
 
+  /** Whether LLM-powered compaction is pending (context nearing limit). */
+  get isPendingCompaction(): boolean {
+    return this.pendingCompaction;
+  }
+
   /**
    * Add message to context
    *

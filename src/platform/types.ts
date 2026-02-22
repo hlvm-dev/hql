@@ -154,6 +154,7 @@ export interface PlatformFs {
   copyFile(src: string, dest: string): Promise<void>;
   rename(oldPath: string, newPath: string): Promise<void>;
   chmod(path: string, mode: number): Promise<void>;
+  chmodSync(path: string, mode: number): void;
 
   // File watching
   watchFs(paths: string | string[]): PlatformFsWatcher;

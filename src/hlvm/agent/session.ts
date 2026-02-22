@@ -35,6 +35,7 @@ import { resolveContextBudget, type ResolvedBudget } from "./context-resolver.ts
 import type { ModelInfo } from "../providers/types.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type AgentEngine, getAgentEngine } from "./engine.ts";
+import { loadMemoryContext } from "../memory/mod.ts";
 
 export interface AgentSessionOptions {
   workspace: string;
@@ -237,6 +238,20 @@ export async function createAgentSession(
       gitContext: gitContext ?? undefined,
     }),
   });
+
+  // Inject memory as a SEPARATE system message (not embedded in main prompt).
+  // This allows reuseSession() to refresh memory without duplicating it.
+  try {
+    const memoryContext = await loadMemoryContext(resolved.budget);
+    if (memoryContext) {
+      context.addMessage({
+        role: "system",
+        content: `# Your Memory\n${memoryContext}`,
+      });
+    }
+  } catch {
+    // Memory loading is best-effort — don't block session creation
+  }
 
   const llm = options.fixturePath
     ? createFixtureLLM(await loadLlmFixture(options.fixturePath))

@@ -10,6 +10,7 @@
 
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { getCustomInstructionsPath } from "../../common/paths.ts";
+import { loadMemoryContext } from "../memory/mod.ts";
 import { setAgentLogger } from "./logger.ts";
 import {
   ensureDefaultModelInstalled,
@@ -102,17 +103,34 @@ export async function disposeAllSessions(): Promise<void> {
  * Reuses policy, toolOwnerId, profile, isFrontierModel, resolvedContextBudget.
  * When onToken is provided, rebuilds the LLM to enable streaming.
  */
-function reuseSession(
+/** @internal Exported for testing. Refreshes memory in a cached session. */
+export async function reuseSession(
   cached: AgentSession,
   onToken?: (text: string) => void,
-): AgentSession {
+): Promise<AgentSession> {
   const context = new ContextManager(cached.context.getConfig());
-  // Copy all system messages from cached session (not just first)
+  // Copy system messages from cached session, EXCLUDING stale memory
+  // Memory messages are identified by the "# Your Memory" marker
   const systemMessages = cached.context.getMessages().filter((m) =>
-    m.role === "system"
+    m.role === "system" && !m.content.startsWith("# Your Memory")
   );
   for (const message of systemMessages) {
     context.addMessage({ role: "system", content: message.content });
+  }
+
+  // Inject FRESH memory context (replaces stale memory from cache)
+  try {
+    const memoryContext = await loadMemoryContext(
+      cached.resolvedContextBudget.budget,
+    );
+    if (memoryContext) {
+      context.addMessage({
+        role: "system",
+        content: `# Your Memory\n${memoryContext}`,
+      });
+    }
+  } catch {
+    // Memory loading is best-effort — don't block session reuse
   }
 
   // Rebuild LLM with caller's onToken to enable streaming in GUI mode
@@ -264,7 +282,7 @@ export async function runAgentQuery(
   const isCached = !!options.cachedSession;
   const engine = isCached ? undefined : getAgentEngine();
   const session: AgentSession = options.cachedSession
-    ? reuseSession(options.cachedSession, callbacks.onToken)
+    ? await reuseSession(options.cachedSession, callbacks.onToken)
     : await createAgentSession({
       workspace,
       model,

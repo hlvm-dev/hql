@@ -294,6 +294,7 @@ const NodeFs: PlatformFs = {
   rename: (oldPath: string, newPath: string): Promise<void> =>
     fsp.rename(oldPath, newPath),
   chmod: (path: string, mode: number): Promise<void> => fsp.chmod(path, mode),
+  chmodSync: (path: string, mode: number): void => fs.chmodSync(path, mode),
 
   watchFs: (paths: string | string[]): PlatformFsWatcher => {
     const targets = Array.isArray(paths) ? paths : [paths];

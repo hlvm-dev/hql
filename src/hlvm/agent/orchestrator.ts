@@ -438,7 +438,27 @@ export async function runReActLoop(
 
       maybeInjectReminder(state, lc, config);
 
-      await context.compactIfNeeded();
+      // Pre-compaction memory flush: give model a turn to save context before compaction.
+      // When flush is first injected, SKIP compaction this iteration so the model
+      // gets a chance to call memory_write. Compaction runs on the next iteration.
+      let skipCompaction = false;
+      if (context.isPendingCompaction && !state.memoryFlushedThisCycle) {
+        state.memoryFlushedThisCycle = true;
+        skipCompaction = true;
+        context.addMessage({
+          role: "user",
+          content: "[System] Context nearing limit. If there are important facts, decisions, or outcomes not yet saved to memory, call memory_write now before context is compacted.",
+        });
+      }
+
+      if (!skipCompaction) {
+        const wasPending = context.isPendingCompaction;
+        await context.compactIfNeeded();
+        // Reset flush flag after compaction completes so it can trigger again
+        if (wasPending && !context.isPendingCompaction) {
+          state.memoryFlushedThisCycle = false;
+        }
+      }
       const messages = context.getMessages();
       onTrace?.({ type: "llm_call", messageCount: messages.length });
 

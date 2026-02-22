@@ -28,10 +28,8 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "web_fetch",
       "render_url",
       "mcp_playwright_render_url",
-      "memory_add",
+      "memory_write",
       "memory_search",
-      "memory_list",
-      "memory_clear",
     ],
   },
   {
@@ -78,10 +76,8 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
     name: "memory",
     description: "Persistent memory specialist",
     tools: [
-      "memory_add",
+      "memory_write",
       "memory_search",
-      "memory_list",
-      "memory_clear",
     ],
   },
 ];

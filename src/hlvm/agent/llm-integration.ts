@@ -166,7 +166,8 @@ Answer DIRECTLY from your knowledge for:
 - General knowledge, math, greetings, explanations
 - Anything you already know the answer to
 Do NOT create files, run commands, or search the web for questions you can answer yourself.
-Only use tools when the user explicitly asks you to interact with their filesystem, run code, or fetch live data.`,
+Only use tools when the user explicitly asks you to interact with their filesystem, run code, or fetch live data.
+Exception: memory_write and memory_search may be used proactively — save important facts, decisions, and preferences without being asked.`,
     minTier: "weak",
   };
 }

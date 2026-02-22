@@ -1182,6 +1182,7 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     lastResponse: "",
     lastToolsIncludedWeb: false,
     iterationsSinceReminder: 3,
+    memoryFlushedThisCycle: false,
     ...overrides,
   };
 }

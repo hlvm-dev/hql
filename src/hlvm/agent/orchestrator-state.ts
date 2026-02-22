@@ -53,6 +53,8 @@ export interface LoopState {
   lastToolsIncludedWeb: boolean;
   /** Iterations since last mid-conversation reminder */
   iterationsSinceReminder: number;
+  /** Whether memory flush was already injected this cycle (pre-compaction) */
+  memoryFlushedThisCycle: boolean;
 }
 
 /** Resolved constants from OrchestratorConfig, computed once at loop start.
@@ -115,6 +117,7 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     lastResponse: "",
     lastToolsIncludedWeb: false,
     iterationsSinceReminder: 3, // Start at cooldown to avoid immediate reminder
+    memoryFlushedThisCycle: false,
   };
 }
 

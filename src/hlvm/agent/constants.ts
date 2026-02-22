@@ -338,9 +338,5 @@ export function classifyModelTier(
 /** Default tool denylist for interactive ask mode */
 export const DEFAULT_TOOL_DENYLIST = [
   "delegate_agent",
-  "memory_add",
-  "memory_search",
-  "memory_list",
-  "memory_clear",
   "complete_task",
 ] as const;
